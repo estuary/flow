@@ -15,7 +15,6 @@ func LastPersistedOffsetForJournal(context *logging.GCSContext,
 
 	var query storage.Query
 	query.Prefix = journalName
-	storage.ListObjects(auth, bucket, query
 
 	// storage.ListObjects with |key| prefix. Find and return entry
 	// with max end offset.

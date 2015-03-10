@@ -4,21 +4,12 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/pippio/api-server/logging"
-	"net/http"
 )
 
 type Service struct {
 	Journals []*Journal // Sorted on Journal.Name.
 
 	GCSContext *logging.GCSContext
-}
-
-func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-}
-
-func (s *Service) obtainJournal(key string) *Journal {
-	return nil
 }
 
 func (s *Service) OnEtcdResponse(response *etcd.Response, tree *etcd.Node) {
