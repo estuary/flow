@@ -3,13 +3,17 @@ package gazette
 import (
 	"compress/gzip"
 	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	log "github.com/Sirupsen/logrus"
 	"github.com/pippio/api-server/logging"
 	"hash"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 type Spool struct {
@@ -36,13 +40,31 @@ func NewSpool(localDirectory, journal string, offset int64) *Spool {
 	}
 }
 
-func (s *Spool) ContentAddress() string {
+func (s *Spool) ContentName() string {
 	return filepath.Join(s.Journal,
-		fmt.Sprintf("%16x-%16x-%x", s.Begin, s.LastCommit, s.LastCommitSum))
+		fmt.Sprintf("%016x-%016x-%x", s.Begin, s.LastCommit, s.LastCommitSum))
+}
+
+func ParseContentName(name string) (begin, end int64, sum []byte, err error) {
+	fields := strings.Split(name, "-")
+
+	if len(fields) != 3 {
+		err = errors.New("wrong format")
+	} else if begin, err = strconv.ParseInt(fields[0], 16, 64); err != nil {
+	} else if end, err = strconv.ParseInt(fields[1], 16, 64); err != nil {
+	} else if sum, err = hex.DecodeString(fields[2]); err != nil {
+	} else if begin != end && len(sum) != sha1.Size {
+		err = errors.New("invalid checksum")
+	} else if begin == end && len(sum) != 0 {
+		err = errors.New("invalid checksum")
+	} else if end < begin {
+		err = errors.New("invalid content range")
+	}
+	return
 }
 
 func (s *Spool) LocalPath() string {
-	return filepath.Join(s.BaseLocalDirectory, s.ContentAddress())
+	return filepath.Join(s.BaseLocalDirectory, s.ContentName())
 }
 
 func (s *Spool) CommittedSize() int64 {
@@ -54,7 +76,7 @@ func (s *Spool) Create() error {
 	path := s.LocalPath()
 
 	// Create a new backing file. This will fail if the named file exists.
-	if err = os.MkdirAll(filepath.Dir(path), 0644); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	if s.backingFile, err = openLockedFile(path,
@@ -80,6 +102,9 @@ func (s *Spool) Recover() error {
 }
 
 func (s *Spool) Write(buf []byte) error {
+	if s.Error != nil {
+		return s.Error
+	}
 	// First write?
 	if s.CommittedSize() == 0 && s.backingFile == nil {
 		if err := s.Create(); err != nil {
@@ -112,6 +137,7 @@ func (s *Spool) Commit() error {
 
 func (s *Spool) Persist(context logging.StorageContext) error {
 	if s.CommittedSize() == 0 {
+		os.Remove(s.LocalPath()) // Implicit success. Delete local file.
 		return nil
 	}
 	if s.backingFile == nil {
@@ -122,8 +148,7 @@ func (s *Spool) Persist(context logging.StorageContext) error {
 	if _, err := s.backingFile.File().Seek(0, os.SEEK_SET); err != nil {
 		return err
 	}
-
-	w, err := context.Create(s.ContentAddress(), "application/octet-stream",
+	w, err := context.Create(s.ContentName(), "application/octet-stream",
 		"gzip", nil)
 	if err != nil {
 		return context.ErrorOccurred(err)
@@ -140,6 +165,7 @@ func (s *Spool) Persist(context logging.StorageContext) error {
 	if err != nil {
 		return context.ErrorOccurred(err)
 	} else {
+		s.backingFile.Close()
 		os.Remove(s.LocalPath())
 		return nil
 	}
@@ -159,4 +185,44 @@ func (s *Spool) Fragment() Fragment {
 		End:     s.LastCommit,
 		SHA1Sum: s.LastCommitSum,
 	}
+}
+
+func RecoverSpools(localDirectory string) []*Spool {
+	var recovered []*Spool
+
+	walk := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relative, _ := filepath.Rel(localDirectory, path)
+		contentName := filepath.Base(path)
+		journalName := filepath.Dir(relative)
+
+		begin, end, sum, err := ParseContentName(contentName)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "path": path}).
+				Error("failed to recover spool")
+			return nil
+		}
+
+		spool := &Spool{
+			BaseLocalDirectory: localDirectory,
+			Journal:            journalName,
+			Begin:              begin,
+			LastCommit:         end,
+			LastCommitSum:      sum,
+		}
+		if err := spool.Recover(); err != nil {
+			log.WithFields(log.Fields{"err": err, "path": path}).
+				Error("failed to recover spool")
+		} else {
+			recovered = append(recovered, spool)
+		}
+		return nil
+	}
+	filepath.Walk(localDirectory, walk)
+	return recovered
 }

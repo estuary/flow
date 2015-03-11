@@ -82,7 +82,6 @@ func (j *Journal) iteration() {
 	select {
 	case appendRequest := <-j.Appends:
 		j.masterTransaction(j.obtainSpool(), appendRequest)
-	case replicateRequest := <-j.Replicate:
 	}
 
 	// * Issue blocking read of Append or Transaction request.
