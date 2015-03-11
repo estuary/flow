@@ -37,11 +37,6 @@ func (r Request) AtomicLoadToBuffer(buffer *bytes.Buffer) bool {
 	}
 }
 
-type Fragment struct {
-	Begin, End int64
-	SHA1Sum    []byte
-}
-
 func (f Fragment) FormattedName() string {
 	return fmt.Sprintf("%16x-%16x-%x", f.Begin, f.End, f.SHA1Sum)
 }
