@@ -19,23 +19,22 @@ type FragmentIndex struct {
 	mu           sync.Mutex
 	fragments    FragmentSet
 	currentSpool *Spool
+
+	// Rendezvous point for stalled reads which are waiting
+	// for the committed log head to move.
+	commitCond sync.Cond
 }
 
 func NewFragmentIndex(localDirectory, journal string,
 	context *logging.GCSContext) *FragmentIndex {
 
-	return &FragmentIndex{
+	index := &FragmentIndex{
 		LocalDirectory: localDirectory,
 		Journal:        journal,
 		StorageContext: context,
 	}
-}
-
-func (i *FragmentIndex) Empty() bool {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-
-	return len(i.fragments) == 0 && i.currentSpool == nil
+	index.commitCond.L = &index.mu
+	return index
 }
 
 func (i *FragmentIndex) WriteOffset() int64 {
@@ -65,11 +64,33 @@ func (i *FragmentIndex) finishCurrentSpool() {
 	}
 }
 
-func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) {
-	log.Info("about to lock")
+func (i *FragmentIndex) RouteRead(offset int64) (Fragment, *Spool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	log.Info("locked")
+
+	// Is this read at the current log head?
+	for i.fragments.EndOffset() == offset /* && !i.fragments.Shutdown */ {
+		i.commitCond.Wait() // Wait for the committed head to move.
+	}
+
+	if offset > i.fragments.EndOffset() {
+		return Fragment{}, nil
+	}
+
+	// Can the current spool satisfy the read?
+	if i.currentSpool != nil &&
+		i.currentSpool.Begin <= offset &&
+		i.currentSpool.LastCommit >= offset {
+		return i.currentSpool.Fragment(), i.currentSpool
+	}
+
+	ind := i.fragments.LongestOverlappingFragment(offset)
+	return i.fragments[ind], nil
+}
+
+func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 
 	writeOffset := i.fragments.EndOffset()
 
@@ -79,10 +100,12 @@ func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) {
 	}
 	if i.currentSpool == nil {
 		i.currentSpool = NewSpool(i.LocalDirectory, i.Journal, writeOffset)
-		log.Info("created new spool ", i.currentSpool.ContentName())
+		log.Info("created new spool ", i.currentSpool.ContentPath())
 	}
 	invoke(i.currentSpool)
 	i.fragments.Add(i.currentSpool.Fragment())
+
+	i.commitCond.Broadcast() // Wake waiting readers.
 }
 
 func (i *FragmentIndex) RecoverLocalSpools() {
@@ -154,12 +177,12 @@ func (i *FragmentIndex) incrementalRefresh(cursor interface{}) (
 	for _, result := range objects.Results {
 		log.WithField("name", result.Name).Info("got result")
 
-		begin, end, sum, err := ParseContentName(result.Name[len(bucket)+1:])
+		fragment, err := ParseFragment(result.Name[len(bucket)+1:])
 		if err != nil {
 			log.WithFields(log.Fields{"path": result.Name, "err": err}).
 				Warning("failed to parse content-name")
 		} else {
-			i.fragments.Add(Fragment{begin, end, sum})
+			i.fragments.Add(fragment)
 		}
 	}
 	log.WithField("nextCursor", objects.Next).Info("finished incremental query")

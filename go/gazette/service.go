@@ -1,10 +1,17 @@
 package gazette
 
 import (
+	"fmt"
 	log "github.com/Sirupsen/logrus"
 	//"github.com/coreos/go-etcd/etcd"
 	"github.com/pippio/api-server/logging"
+	"google.golang.org/cloud/storage"
+	"io"
+	"io/ioutil"
+	"math"
 	"net/http"
+	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -31,22 +38,33 @@ func NewService(localDirectory string,
 }
 
 func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
+	s.mu.Lock()
+
 	index, ok := s.indexes[journal]
 	if !ok {
 		index = NewFragmentIndex(s.LocalDirectory, journal, s.GCSContext)
 		s.indexes[journal] = index
-		log.WithField("journal", journal).Info("built fragment index")
+	}
+	s.mu.Unlock()
+
+	if !ok {
+		if _, err := index.LoadFromContext(); err != nil {
+			log.WithField("err", err).Error("failed to load index")
+		}
+		index.RecoverLocalSpools()
 	}
 	return index
 }
 
 func (s *Service) obtainJournalMaster(name string) *JournalMaster {
+	index := s.obtainFragmentIndex(name)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	journal, ok := s.masters[name]
 	if !ok {
-		journal = NewJournalMaster(name, s.obtainFragmentIndex(name))
+		journal = NewJournalMaster(name, index)
 		s.masters[name] = journal
 		go journal.Serve()
 		log.WithField("journal", journal).Info("built journal master")
@@ -55,15 +73,28 @@ func (s *Service) obtainJournalMaster(name string) *JournalMaster {
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.WithField("journal", r.URL.Path[1:]).Info("serveHTTP")
 	// "Route" |journal| to a |JournalMaster|.
-	journal := s.obtainJournalMaster(r.URL.Path[1:])
+
+	if r.Method == "GET" {
+		s.serveRead(w, r)
+	} else if r.Method == "PUT" {
+		s.serveWrite(w, r)
+	} else {
+		http.Error(w, "unsupported method", http.StatusBadRequest)
+	}
+}
+
+func (s *Service) serveWrite(w http.ResponseWriter, r *http.Request) {
+	var journalName string = r.URL.Path[1:]
+	var err error
+
+	journal := s.obtainJournalMaster(journalName)
 
 	request := RequestPool.Get().(Request)
 	request.Request = r
 
 	journal.AppendRequests <- request
-	err := <-request.Response
+	err = <-request.Response
 
 	if err == nil {
 		http.Error(w, "OK", http.StatusOK)
@@ -71,6 +102,139 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 	RequestPool.Put(request)
+}
+
+func (s *Service) serveRead(w http.ResponseWriter, r *http.Request) {
+	var journalName string = r.URL.Path[1:]
+	var offset int64
+	var err error
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		offset, err = strconv.ParseInt(offsetStr, 0, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else {
+		offset = s.obtainFragmentIndex(journalName).WriteOffset()
+	}
+	var wroteHeaders bool
+
+	for {
+		log.WithFields(log.Fields{
+			"offset":  offset,
+			"journal": journalName,
+		}).Info("routing read")
+		fragment, spool := s.obtainFragmentIndex(journalName).RouteRead(offset)
+
+		log.WithFields(log.Fields{
+			"fragment": fragment,
+		}).Info("routed to")
+
+		if !wroteHeaders && fragment.Begin > offset {
+			// Skip the offset forward to the next available fragment.
+			offset = fragment.Begin
+		} else if fragment.Begin > offset {
+			// Next fragment is discontiguous with the current partial response.
+			// We must stop here, and let the client re-request.
+			break
+		}
+
+		if !wroteHeaders {
+			w.Header().Add("Content-Range",
+				fmt.Sprintf("bytes %v-%v/%v", offset, math.MaxInt64, math.MaxInt64))
+			w.WriteHeader(206)
+			wroteHeaders = true
+		}
+
+		var delta int64
+		if fragment.Size() == 0 {
+			delta = 0
+		} else if spool == nil {
+			delta = s.serveRemoteFragmentRead(w, journalName, fragment, offset)
+		} else {
+			delta = s.serveSpoolRead(w, spool, offset)
+		}
+
+		if delta == 0 {
+			break
+		} else {
+			offset += delta
+		}
+	}
+}
+
+var ReadBufferPool = sync.Pool{
+	New: func() interface{} { return make([]byte, 1<<15) },
+}
+
+func (s *Service) serveSpoolRead(w io.Writer, spool *Spool, offset int64) int64 {
+	buffer := ReadBufferPool.Get().([]byte)
+	defer ReadBufferPool.Put(buffer)
+
+	// Limit buffer to the committed portion of |spool|.
+	var sizedBuffer []byte
+	if avail := spool.LastCommit - offset; avail < int64(len(buffer)) {
+		sizedBuffer = buffer[:avail]
+	} else {
+		sizedBuffer = buffer
+	}
+	_, err := spool.backingFile.File().ReadAt(sizedBuffer, offset-spool.Begin)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"err":    err,
+			"offset": offset,
+			"path":   spool.LocalPath(),
+		}).Error("error reading from spool")
+		return 0
+	}
+	n, err := w.Write(sizedBuffer)
+
+	if err != nil {
+		log.WithFields(log.Fields{"err": err, "offset": offset}).
+			Warn("failed to write to client")
+	} else if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return int64(n)
+}
+
+func (s *Service) serveRemoteFragmentRead(w io.Writer, journal string,
+	fragment Fragment, offset int64) int64 {
+
+	auth, err := s.GCSContext.ObtainAuthContext()
+	if err != nil {
+		log.WithField("err", err).Error("failed to obtain auth context")
+		return 0
+	}
+
+	path := filepath.Join(journal, fragment.ContentName())
+	bucket, bucketPath := removeMeJournalToBucketAndPrefix(path)
+	r, err := storage.NewReader(auth, bucket, bucketPath)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"err":    err,
+			"bucket": bucket,
+			"path":   bucketPath,
+		}).Error("failed to read fragment")
+	}
+	// Discard until |offset| is reached.
+	io.CopyN(ioutil.Discard, r, offset-fragment.Begin)
+
+	delta, err := io.Copy(w, r)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"err":    err,
+			"bucket": bucket,
+			"path":   bucketPath,
+		}).Error("error while reading fragment")
+	} else {
+		log.WithFields(log.Fields{
+			"bucket": bucket,
+			"path":   bucketPath,
+		}).Info("served remote fragment")
+	}
+	return delta
 }
 
 /*

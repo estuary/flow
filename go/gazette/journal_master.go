@@ -54,13 +54,6 @@ func (j *JournalMaster) Serve() {
 	var ok bool = true
 	var request Request
 
-	if j.Index.Empty() {
-		if _, err := j.Index.LoadFromContext(); err != nil {
-			log.WithField("err", err).Error("failed to load index")
-		}
-		j.Index.RecoverLocalSpools()
-	}
-
 	j.Index.FinishCurrentSpool()
 	log.Info("finished current spool")
 

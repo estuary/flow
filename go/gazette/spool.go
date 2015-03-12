@@ -3,17 +3,13 @@ package gazette
 import (
 	"compress/gzip"
 	"crypto/sha1"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"github.com/pippio/api-server/logging"
 	"hash"
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 )
 
 type Spool struct {
@@ -40,31 +36,12 @@ func NewSpool(localDirectory, journal string, offset int64) *Spool {
 	}
 }
 
-func (s *Spool) ContentName() string {
-	return filepath.Join(s.Journal,
-		fmt.Sprintf("%016x-%016x-%x", s.Begin, s.LastCommit, s.LastCommitSum))
-}
-
-func ParseContentName(name string) (begin, end int64, sum []byte, err error) {
-	fields := strings.Split(name, "-")
-
-	if len(fields) != 3 {
-		err = errors.New("wrong format")
-	} else if begin, err = strconv.ParseInt(fields[0], 16, 64); err != nil {
-	} else if end, err = strconv.ParseInt(fields[1], 16, 64); err != nil {
-	} else if sum, err = hex.DecodeString(fields[2]); err != nil {
-	} else if begin != end && len(sum) != sha1.Size {
-		err = errors.New("invalid checksum")
-	} else if begin == end && len(sum) != 0 {
-		err = errors.New("invalid checksum")
-	} else if end < begin {
-		err = errors.New("invalid content range")
-	}
-	return
+func (s *Spool) ContentPath() string {
+	return filepath.Join(s.Journal, s.Fragment().ContentName())
 }
 
 func (s *Spool) LocalPath() string {
-	return filepath.Join(s.BaseLocalDirectory, s.ContentName())
+	return filepath.Join(s.BaseLocalDirectory, s.ContentPath())
 }
 
 func (s *Spool) CommittedSize() int64 {
@@ -148,9 +125,9 @@ func (s *Spool) Persist(context logging.StorageContext) error {
 	if _, err := s.backingFile.File().Seek(0, os.SEEK_SET); err != nil {
 		return err
 	}
-	log.WithField("name", s.ContentName()).Info("persisting")
+	log.WithField("path", s.ContentPath()).Info("persisting")
 
-	w, err := context.Create(s.ContentName(), "application/octet-stream",
+	w, err := context.Create(s.ContentPath(), "application/octet-stream",
 		"gzip", nil)
 	if err != nil {
 		return context.ErrorOccurred(err)
@@ -183,9 +160,9 @@ func (s *Spool) assert(err error) error {
 
 func (s *Spool) Fragment() Fragment {
 	return Fragment{
-		Begin:   s.Begin,
-		End:     s.LastCommit,
-		SHA1Sum: s.LastCommitSum,
+		Begin: s.Begin,
+		End:   s.LastCommit,
+		Sum:   s.LastCommitSum,
 	}
 }
 
@@ -203,7 +180,7 @@ func RecoverSpools(localDirectory string) []*Spool {
 		contentName := filepath.Base(path)
 		journalName := filepath.Dir(relative)
 
-		begin, end, sum, err := ParseContentName(contentName)
+		fragment, err := ParseFragment(contentName)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "path": path}).
 				Error("failed to recover spool")
@@ -213,9 +190,9 @@ func RecoverSpools(localDirectory string) []*Spool {
 		spool := &Spool{
 			BaseLocalDirectory: localDirectory,
 			Journal:            journalName,
-			Begin:              begin,
-			LastCommit:         end,
-			LastCommitSum:      sum,
+			Begin:              fragment.Begin,
+			LastCommit:         fragment.End,
+			LastCommitSum:      fragment.Sum,
 		}
 		if err := spool.Recover(); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": path}).
