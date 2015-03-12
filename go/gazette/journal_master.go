@@ -2,9 +2,7 @@ package gazette
 
 import (
 	"bytes"
-	"fmt"
 	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/logging"
 	"io"
 	"net/http"
 )
@@ -12,12 +10,6 @@ import (
 const (
 	kCommitThreshold = 1 << 21 // 2 MB.
 )
-
-type Subscriber struct {
-	Name   string
-	Offset int64
-	Out    http.ResponseWriter
-}
 
 type Request struct {
 	Request        *http.Request
@@ -37,63 +29,51 @@ func (r Request) AtomicLoadToBuffer(buffer *bytes.Buffer) bool {
 	}
 }
 
-func (f Fragment) FormattedName() string {
-	return fmt.Sprintf("%16x-%16x-%x", f.Begin, f.End, f.SHA1Sum)
+type JournalMaster struct {
+	Name  string
+	Index *FragmentIndex
+
+	AppendRequests chan Request
 }
 
-type Journal struct {
-	Name string
-
-	// Offset of next byte to be written in the journal.
-	Head int64
-
-	// Ordered on |End, Begin| ascending.
-	//GCSFragments []Fragment
-	// Ordered on |LastCommit, Begin| ascending.
-	//Spools []*Spool
-	Spool *Spool
-
-	Appends   chan Request
-	Replicate chan Request
-
-	GCSContext *logging.GCSContext
-}
-
-func NewJournal(name string, context *logging.GCSContext) *Journal {
-	return &Journal{
-		Name:       name,
-		GCSContext: context,
+func NewJournalMaster(name string, index *FragmentIndex) *JournalMaster {
+	return &JournalMaster{
+		Name:           name,
+		Index:          index,
+		AppendRequests: make(chan Request),
 	}
 }
 
-func (j *Journal) obtainSpool() *Spool {
-	if j.Spool == nil {
-		j.Spool = NewSpool("/tmp/log-spools", j.Name, 0)
+func (j *JournalMaster) Serve() {
+	var ok bool
+	var request Request
+
+	j.Index.FinishCurrentSpool()
+
+	for ok {
+		request, ok = <-j.AppendRequests
+
+		if ok {
+			j.Index.InvokeWithSpool(func(spool *Spool) {
+				j.masterTransaction(spool, request)
+			})
+		}
 	}
-	return j.Spool
 }
 
-func (j *Journal) iteration() {
-	select {
-	case appendRequest := <-j.Appends:
-		j.masterTransaction(j.obtainSpool(), appendRequest)
-	}
+// * Issue blocking read of Append or Transaction request.
+//
+// * Validate ring shape for the operation (done by service).
+// * If master, open Transactions and get 100-continue
+// * If replica, validate against known fragments and send 100-continue
+//
+// * Open / roll / assert a spool.
+//
+// * If Transaction request, stream in & commit.
+// * If master, non-blocking read of Append requests.
 
-	// * Issue blocking read of Append or Transaction request.
-	//
-	// * Validate ring shape for the operation.
-	// * If master, open Transactions and get 100-continue
-	// * If replica, validate against known fragments and send 100-continue
-	//
-	// * Open / roll / assert a spool.
-	//
-	// * If Transaction request, stream in & commit.
-	// * If master, non-blocking read of Append requests.
-}
+func (j *JournalMaster) masterTransaction(spool *Spool, request Request) {
 
-func (j *Journal) masterTransaction(spool *Spool, appendRequest Request) {
-
-	// Validate ring shape for the operation.
 	// Open Transaction streams.
 	// Wait for 100-continue.
 
@@ -103,11 +83,11 @@ func (j *Journal) masterTransaction(spool *Spool, appendRequest Request) {
 
 	var transactionBytes int
 
-	// Pop pending Appends until none remain, an error occurs,
+	// Pop pending requests until none remain, an error occurs,
 	// or we reach a transaction threshold.
-	for done := false; !done && transactionBytes < kCommitThreshold; {
-		if appendRequest.AtomicLoadToBuffer(&buffer) {
-			pendingResponses = append(pendingResponses, appendRequest)
+	for ok := true; ok && transactionBytes < kCommitThreshold; {
+		if request.AtomicLoadToBuffer(&buffer) {
+			pendingResponses = append(pendingResponses, request)
 
 			// TODO(johnny): Stream to replicas. Retain any error to check later.
 
@@ -115,51 +95,48 @@ func (j *Journal) masterTransaction(spool *Spool, appendRequest Request) {
 			transactionBytes += len(buffer.Bytes())
 		}
 
+		// Break if a) the channel blocks, or b) the channel closes.
 		select {
-		case appendRequest = <-j.Appends:
+		case request, ok = <-j.AppendRequests:
 		default:
-			done = true
+			ok = false
 		}
 	}
 
 	var replicaSuccessCount int
 
-	// Close replica request bodies. Retain any error for later.
+	// Close replica request bodies.
+	// Update index from response fragments (which can move the
+	// log head even if we fail to commit).
+	// Retain any error for later.
 
 	if err := spool.Commit(); err != nil {
-		log.WithField("err", err).Error("failed to write log transaction")
+		log.WithField("err", err).Error("failed to write transaction")
 	} else {
 		replicaSuccessCount += 1
 	}
 
 	// Receive replica responses.
 
-	// If *any* replica committed the transaction, move the log head forward.
-	// This does not imply the transaction succeeded (with success reported to
-	// the client).
-	if replicaSuccessCount >= 1 {
-		j.Head += int64(transactionBytes)
-	}
-
 	// Inform clients of transaction status. Only respond with success to clients
 	// if >= N succesful responses were received.
-	for _, putRequest := range pendingResponses {
+	for _, pendingResponse := range pendingResponses {
 		if replicaSuccessCount >= 1 {
-			http.Error(putRequest.ResponseWriter, "OK", http.StatusOK)
+			http.Error(pendingResponse.ResponseWriter, "OK", http.StatusOK)
 		} else {
-			http.Error(putRequest.ResponseWriter, "transaction failed; retry",
+			http.Error(pendingResponse.ResponseWriter, "transaction failed; retry",
 				http.StatusInternalServerError)
 		}
 	}
 }
 
-func (j *Journal) replicaTransaction(spool *Spool, replicaRequest Request) {
+//func (j *Journal) replicaTransaction(spool *Spool, replicaRequest Request) {
 
-	// Validate ring shape for the operation.
-	// Validate request against known fragments.
-	// Send 100-continue.
+// Validate ring shape for the operation.
+// Validate request against known fragments.
+// Send 100-continue.
 
-}
+//}
 
 /*
 // Serialized.
@@ -224,7 +201,3 @@ func (j *Journal) servePuts(spool *Spool) {
 
 
 */
-
-func (j *Journal) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	j.Appends <- Request{r, w}
-}

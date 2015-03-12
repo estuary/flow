@@ -13,12 +13,29 @@ func (f Fragment) Size() int64 {
 	return f.End - f.Begin
 }
 
+// Maintains fragments ordered on |Begin| and |End|, with the invariant that
+// no fragment is fully overlapped by another fragment in the set (though it
+// may be overlapped by a combination of other fragments). Larger fragments
+// are preferred (and will replace spans of overlapped smaller fragments).
+// An implication of this invariant is that no two fragments have the same
+// |Begin| or |End| (as that would imply an overlap). Both are monotonically
+// increasing in the set: set[0].Begin represents the minimum offset, and
+// set[len(set)-1].End represents the maximum offset.
 type FragmentSet []Fragment
 
-// Maintains the condition that no fragment is fully overlapped
-// by one or more other fragments in the set. Larger fragments
-// are preferred. An implication is that no two fragments have
-// the same |Begin| (as they would have to overlap).
+func (s *FragmentSet) BeginOffset() int64 {
+	if len(*s) == 0 {
+		return 0
+	}
+	return (*s)[0].Begin
+}
+func (s *FragmentSet) EndOffset() int64 {
+	if len(*s) == 0 {
+		return 0
+	}
+	return (*s)[len(*s)-1].End
+}
+
 func (s *FragmentSet) Add(fragment Fragment) bool {
 	set := *s
 

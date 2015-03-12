@@ -1,17 +1,67 @@
 package gazette
 
 import (
-	log "github.com/Sirupsen/logrus"
-	"github.com/coreos/go-etcd/etcd"
+	//"github.com/coreos/go-etcd/etcd"
 	"github.com/pippio/api-server/logging"
+	"net/http"
+	"sync"
 )
 
 type Service struct {
-	Journals []*Journal // Sorted on Journal.Name.
+	LocalDirectory string
+	GCSContext     *logging.GCSContext
 
-	GCSContext *logging.GCSContext
+	masters map[string]*JournalMaster
+	//replicas map[string]*JournalReplica
+
+	indexes map[string]*FragmentIndex
+	mu      sync.Mutex
 }
 
+func NewService(localDirectory string,
+	gcsContext *logging.GCSContext) *Service {
+
+	return &Service{
+		LocalDirectory: localDirectory,
+		GCSContext:     gcsContext,
+		masters:        make(map[string]*JournalMaster),
+		indexes:        make(map[string]*FragmentIndex),
+	}
+}
+
+func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	index, ok := s.indexes[journal]
+	if !ok {
+		index = NewFragmentIndex(s.LocalDirectory, journal, s.GCSContext)
+		s.indexes[journal] = index
+	}
+	return index
+}
+
+func (s *Service) obtainJournalMaster(name string) *JournalMaster {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	journal, ok := s.masters[name]
+	if !ok {
+		journal = NewJournalMaster(name, s.obtainFragmentIndex(name))
+		s.masters[name] = journal
+		go journal.Serve()
+	}
+	return journal
+}
+
+func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// "Route" |journal| to a |JournalMaster|.
+	journal := s.obtainJournalMaster(r.URL.Path)
+
+	journal.AppendRequests <- Request{r, w}
+}
+
+/*
 func (s *Service) OnEtcdResponse(response *etcd.Response, tree *etcd.Node) {
 	journalModels := extractJournalNodes(tree)
 
@@ -83,3 +133,4 @@ func extractJournalNodes(tree *etcd.Node) []journalNode {
 	}
 	return result
 }
+*/

@@ -208,4 +208,22 @@ func (s *FragmentSuite) TestSetAddNoAction(c *gc.C) {
 	})
 }
 
+func (s *FragmentSuite) TestOffset(c *gc.C) {
+	var set FragmentSet
+	c.Check(set.BeginOffset(), gc.Equals, int64(0))
+	c.Check(set.EndOffset(), gc.Equals, int64(0))
+
+	set.Add(Fragment{Begin: 100, End: 150})
+	c.Check(set.BeginOffset(), gc.Equals, int64(100))
+	c.Check(set.EndOffset(), gc.Equals, int64(150))
+
+	set.Add(Fragment{Begin: 140, End: 250})
+	c.Check(set.BeginOffset(), gc.Equals, int64(100))
+	c.Check(set.EndOffset(), gc.Equals, int64(250))
+
+	set.Add(Fragment{Begin: 50, End: 100})
+	c.Check(set.BeginOffset(), gc.Equals, int64(50))
+	c.Check(set.EndOffset(), gc.Equals, int64(250))
+}
+
 var _ = gc.Suite(&FragmentSuite{})
