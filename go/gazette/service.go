@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	log "github.com/Sirupsen/logrus"
 	//"github.com/coreos/go-etcd/etcd"
 	"github.com/pippio/api-server/logging"
 	"net/http"
@@ -30,13 +31,11 @@ func NewService(localDirectory string,
 }
 
 func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	index, ok := s.indexes[journal]
 	if !ok {
 		index = NewFragmentIndex(s.LocalDirectory, journal, s.GCSContext)
 		s.indexes[journal] = index
+		log.WithField("journal", journal).Info("built fragment index")
 	}
 	return index
 }
@@ -50,15 +49,28 @@ func (s *Service) obtainJournalMaster(name string) *JournalMaster {
 		journal = NewJournalMaster(name, s.obtainFragmentIndex(name))
 		s.masters[name] = journal
 		go journal.Serve()
+		log.WithField("journal", journal).Info("built journal master")
 	}
 	return journal
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.WithField("journal", r.URL.Path[1:]).Info("serveHTTP")
 	// "Route" |journal| to a |JournalMaster|.
-	journal := s.obtainJournalMaster(r.URL.Path)
+	journal := s.obtainJournalMaster(r.URL.Path[1:])
 
-	journal.AppendRequests <- Request{r, w}
+	request := RequestPool.Get().(Request)
+	request.Request = r
+
+	journal.AppendRequests <- request
+	err := <-request.Response
+
+	if err == nil {
+		http.Error(w, "OK", http.StatusOK)
+	} else {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+	RequestPool.Put(request)
 }
 
 /*

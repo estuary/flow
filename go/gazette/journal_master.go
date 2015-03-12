@@ -2,9 +2,11 @@ package gazette
 
 import (
 	"bytes"
+	"errors"
 	log "github.com/Sirupsen/logrus"
 	"io"
 	"net/http"
+	"sync"
 )
 
 const (
@@ -12,16 +14,20 @@ const (
 )
 
 type Request struct {
-	Request        *http.Request
-	ResponseWriter http.ResponseWriter
+	Request  *http.Request
+	Response chan error
 }
+
+var RequestPool = sync.Pool{New: func() interface{} {
+	return Request{Response: make(chan error, 1)}
+}}
 
 func (r Request) AtomicLoadToBuffer(buffer *bytes.Buffer) bool {
 	buffer.Reset()
 
 	_, err := io.Copy(buffer, r.Request.Body)
 	if err != nil {
-		http.Error(r.ResponseWriter, err.Error(), http.StatusBadRequest)
+		r.Response <- err
 		return false
 	} else {
 		r.Request.Body.Close()
@@ -45,16 +51,27 @@ func NewJournalMaster(name string, index *FragmentIndex) *JournalMaster {
 }
 
 func (j *JournalMaster) Serve() {
-	var ok bool
+	var ok bool = true
 	var request Request
 
+	if j.Index.Empty() {
+		if _, err := j.Index.LoadFromContext(); err != nil {
+			log.WithField("err", err).Error("failed to load index")
+		}
+		j.Index.RecoverLocalSpools()
+	}
+
 	j.Index.FinishCurrentSpool()
+	log.Info("finished current spool")
 
 	for ok {
+		log.Info("waiting for next transaction")
 		request, ok = <-j.AppendRequests
+		log.Info("popped request")
 
 		if ok {
 			j.Index.InvokeWithSpool(func(spool *Spool) {
+				log.Info("got spool")
 				j.masterTransaction(spool, request)
 			})
 		}
@@ -78,7 +95,7 @@ func (j *JournalMaster) masterTransaction(spool *Spool, request Request) {
 	// Wait for 100-continue.
 
 	// Non-blocking read & stream of append requests.
-	var pendingResponses []Request
+	var pendingResponses []chan error
 	var buffer bytes.Buffer
 
 	var transactionBytes int
@@ -87,7 +104,7 @@ func (j *JournalMaster) masterTransaction(spool *Spool, request Request) {
 	// or we reach a transaction threshold.
 	for ok := true; ok && transactionBytes < kCommitThreshold; {
 		if request.AtomicLoadToBuffer(&buffer) {
-			pendingResponses = append(pendingResponses, request)
+			pendingResponses = append(pendingResponses, request.Response)
 
 			// TODO(johnny): Stream to replicas. Retain any error to check later.
 
@@ -122,10 +139,9 @@ func (j *JournalMaster) masterTransaction(spool *Spool, request Request) {
 	// if >= N succesful responses were received.
 	for _, pendingResponse := range pendingResponses {
 		if replicaSuccessCount >= 1 {
-			http.Error(pendingResponse.ResponseWriter, "OK", http.StatusOK)
+			pendingResponse <- nil
 		} else {
-			http.Error(pendingResponse.ResponseWriter, "transaction failed; retry",
-				http.StatusInternalServerError)
+			pendingResponse <- errors.New("transaction failed; retry")
 		}
 	}
 }

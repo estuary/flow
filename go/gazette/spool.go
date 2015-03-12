@@ -148,6 +148,8 @@ func (s *Spool) Persist(context logging.StorageContext) error {
 	if _, err := s.backingFile.File().Seek(0, os.SEEK_SET); err != nil {
 		return err
 	}
+	log.WithField("name", s.ContentName()).Info("persisting")
+
 	w, err := context.Create(s.ContentName(), "application/octet-stream",
 		"gzip", nil)
 	if err != nil {
