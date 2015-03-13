@@ -50,13 +50,9 @@ func (s *Spool) CommittedSize() int64 {
 
 func (s *Spool) Create() error {
 	var err error
-	path := s.LocalPath()
 
 	// Create a new backing file. This will fail if the named file exists.
-	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	if s.backingFile, err = openLockedFile(path,
+	if s.backingFile, err = openLockedFile(s.LocalPath(),
 		os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600); err != nil {
 		return err
 	}
@@ -85,7 +81,7 @@ func (s *Spool) Write(buf []byte) error {
 	// First write?
 	if s.CommittedSize() == 0 && s.backingFile == nil {
 		if err := s.Create(); err != nil {
-			return err // Don't assert(), as this is recoverable.
+			return s.assert(err)
 		}
 	}
 	if _, err := s.backingFile.File().Write(buf); err != nil {

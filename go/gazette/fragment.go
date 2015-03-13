@@ -71,6 +71,9 @@ func (s *FragmentSet) Add(fragment Fragment) bool {
 	set := *s
 
 	// O(1) fast paths.
+	if fragment.Size() == 0 {
+		return false
+	}
 	if len(set) == 0 {
 		*s = append(*s, fragment)
 		return true

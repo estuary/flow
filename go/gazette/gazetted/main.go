@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/logging"
-	"github.com/pippio/api-server/proxy/config"
 	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette"
+	"github.com/pippio/services/etcd-client"
+	"github.com/pippio/services/storage-client"
 	"net/http"
 )
 
@@ -14,6 +14,8 @@ var (
 	// Service discovery.
 	etcdEndpoint = flag.String("etcdEndpoint", "http://127.0.0.1:4001",
 		"Etcd network service address")
+	announceEndpoint = flag.String("announceEndpoint", "http://127.0.0.1:8080",
+		"Endpoint to announce")
 
 	// Informational.
 	releaseTag = flag.String("tag", "<none>", "Release tag")
@@ -33,18 +35,19 @@ func main() {
 	log.AddHook(&varz.LogServiceHook{
 		Service: "gazetted", Tag: *releaseTag, Replica: *replica})
 
-	// Start Etcd config provider.
-	//etcdService := service.NewEtcdClientService(*etcdEndpoint)
+	etcdService := etcdClient.NewEtcdClientService(*etcdEndpoint)
+	gcsContext := storageClient.NewGCSContext(etcdService)
 
-	etcdProvider, err := config.NewEtcdProvider(*etcdEndpoint, "")
+	ring, err := gazette.NewRing(etcdService)
 	if err != nil {
 		log.WithField("err", err).Fatal()
 	}
-	storageContext, err := logging.NewGCSContext(etcdProvider)
+	_, err = ring.Announce(*announceEndpoint)
 	if err != nil {
 		log.WithField("err", err).Fatal()
 	}
-	gazette := gazette.NewService(*spoolDirectory, storageContext)
+
+	gazette := gazette.NewService(*spoolDirectory, gcsContext)
 
 	log.Fatal(http.ListenAndServe(":8080", gazette))
 	//if err := etcdService.Subscribe(ConfigJournalPath, &foo); err != nil {

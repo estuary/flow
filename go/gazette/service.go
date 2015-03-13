@@ -37,7 +37,7 @@ func NewService(localDirectory string,
 	}
 }
 
-func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
+func (s *Service) obtainFragmentIndex(journal string) (*FragmentIndex, error) {
 	s.mu.Lock()
 
 	index, ok := s.indexes[journal]
@@ -48,16 +48,22 @@ func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
 	s.mu.Unlock()
 
 	if !ok {
-		if _, err := index.LoadFromContext(); err != nil {
-			log.WithField("err", err).Error("failed to load index")
+		if err := index.ServerOpen(); err != nil {
+			s.mu.Lock()
+			delete(s.indexes, journal)
+			s.mu.Unlock()
+
+			return nil, err
 		}
-		index.RecoverLocalSpools()
 	}
-	return index
+	return index, nil
 }
 
-func (s *Service) obtainJournalMaster(name string) *JournalMaster {
-	index := s.obtainFragmentIndex(name)
+func (s *Service) obtainJournalMaster(name string) (*JournalMaster, error) {
+	index, err := s.obtainFragmentIndex(name)
+	if err != nil {
+		return nil, err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,9 +73,10 @@ func (s *Service) obtainJournalMaster(name string) *JournalMaster {
 		journal = NewJournalMaster(name, index)
 		s.masters[name] = journal
 		go journal.Serve()
+
 		log.WithField("journal", journal).Info("built journal master")
 	}
-	return journal
+	return journal, nil
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +95,10 @@ func (s *Service) serveWrite(w http.ResponseWriter, r *http.Request) {
 	var journalName string = r.URL.Path[1:]
 	var err error
 
-	journal := s.obtainJournalMaster(journalName)
+	journal, err := s.obtainJournalMaster(journalName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 
 	request := RequestPool.Get().(Request)
 	request.Request = r
@@ -107,7 +117,12 @@ func (s *Service) serveWrite(w http.ResponseWriter, r *http.Request) {
 func (s *Service) serveRead(w http.ResponseWriter, r *http.Request) {
 	var journalName string = r.URL.Path[1:]
 	var offset int64
-	var err error
+
+	index, err := s.obtainFragmentIndex(journalName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
 		offset, err = strconv.ParseInt(offsetStr, 0, 64)
@@ -116,20 +131,12 @@ func (s *Service) serveRead(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		offset = s.obtainFragmentIndex(journalName).WriteOffset()
+		offset = index.WriteOffset()
 	}
 	var wroteHeaders bool
 
 	for {
-		log.WithFields(log.Fields{
-			"offset":  offset,
-			"journal": journalName,
-		}).Info("routing read")
-		fragment, spool := s.obtainFragmentIndex(journalName).RouteRead(offset)
-
-		log.WithFields(log.Fields{
-			"fragment": fragment,
-		}).Info("routed to")
+		fragment, spool := index.RouteRead(offset)
 
 		if !wroteHeaders && fragment.Begin > offset {
 			// Skip the offset forward to the next available fragment.

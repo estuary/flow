@@ -4,6 +4,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/pippio/services/storage-client"
 	"google.golang.org/cloud/storage"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +37,18 @@ func NewFragmentIndex(localDirectory, journal string,
 	}
 	index.commitCond.L = &index.mu
 	return index
+}
+
+func (i *FragmentIndex) ServerOpen() error {
+	if err := os.MkdirAll(
+		filepath.Join(i.LocalDirectory, i.Journal), 0700); err != nil {
+		return err
+	}
+	if _, err := i.LoadFromContext(); err != nil {
+		return err
+	}
+	i.RecoverLocalSpools()
+	return nil
 }
 
 func (i *FragmentIndex) WriteOffset() int64 {
@@ -94,7 +108,8 @@ func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) {
 
 	writeOffset := i.fragments.EndOffset()
 
-	if i.currentSpool != nil && (i.currentSpool.LastCommit != writeOffset ||
+	if i.currentSpool != nil && (i.currentSpool.Error != nil ||
+		i.currentSpool.LastCommit != writeOffset ||
 		i.currentSpool.CommittedSize() > kSpoolRollSize) {
 		i.finishCurrentSpool()
 	}

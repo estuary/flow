@@ -61,7 +61,8 @@ func (c *TopicClient) Put(message interface{}) error {
 			continue
 		}
 
-		request, err := http.NewRequest("PUT", ringEntries[0].BaseURL+journal,
+		request, err := http.NewRequest("PUT",
+			fmt.Sprintf("%v/%v", ringEntries[0].BaseURL, journal),
 			io.MultiReader(bytes.NewReader(header[:]), bytes.NewReader(buf)))
 		if err != nil {
 			log.WithFields(log.Fields{"journal": journal, "err": err}).
@@ -103,8 +104,9 @@ func (c *TopicClient) Subscribe() chan interface{} {
 			continue
 		}
 
-		request, err := http.NewRequest("GET", fmt.Sprintf("%v%v?offset=%v",
-			ringEntries[0].BaseURL, journal, offset), nil)
+		request, err := http.NewRequest("GET",
+			fmt.Sprintf("%v/%v?offset=%v", ringEntries[0].BaseURL, journal, offset),
+			nil)
 		if err != nil {
 			log.WithFields(log.Fields{"journal": journal, "err": err}).
 				Warn("subscribe failed")
