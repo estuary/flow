@@ -3,9 +3,6 @@ package gazette
 type Topic struct {
 	Name string
 
-	// Returns whether |message| matches this topic.
-	Matches func(message interface{})
-
 	// Serializes |message| to []byte, returning error.
 	Serialize func(message interface{}) ([]byte, error)
 

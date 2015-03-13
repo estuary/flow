@@ -4,7 +4,7 @@ import (
 	"fmt"
 	log "github.com/Sirupsen/logrus"
 	//"github.com/coreos/go-etcd/etcd"
-	"github.com/pippio/api-server/logging"
+	"github.com/pippio/services/storage-client"
 	"google.golang.org/cloud/storage"
 	"io"
 	"io/ioutil"
@@ -17,7 +17,7 @@ import (
 
 type Service struct {
 	LocalDirectory string
-	GCSContext     *logging.GCSContext
+	GCSContext     *storageClient.GCSContext
 
 	masters map[string]*JournalMaster
 	//replicas map[string]*JournalReplica
@@ -27,7 +27,7 @@ type Service struct {
 }
 
 func NewService(localDirectory string,
-	gcsContext *logging.GCSContext) *Service {
+	gcsContext *storageClient.GCSContext) *Service {
 
 	return &Service{
 		LocalDirectory: localDirectory,

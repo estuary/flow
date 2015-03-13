@@ -2,7 +2,7 @@ package gazette
 
 import (
 	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/logging"
+	"github.com/pippio/services/storage-client"
 	"google.golang.org/cloud/storage"
 	"strings"
 	"sync"
@@ -14,7 +14,7 @@ const kSpoolRollSize = 1 << 20
 type FragmentIndex struct {
 	LocalDirectory string
 	Journal        string
-	StorageContext *logging.GCSContext
+	StorageContext *storageClient.GCSContext
 
 	mu           sync.Mutex
 	fragments    FragmentSet
@@ -26,7 +26,7 @@ type FragmentIndex struct {
 }
 
 func NewFragmentIndex(localDirectory, journal string,
-	context *logging.GCSContext) *FragmentIndex {
+	context *storageClient.GCSContext) *FragmentIndex {
 
 	index := &FragmentIndex{
 		LocalDirectory: localDirectory,

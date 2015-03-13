@@ -5,7 +5,7 @@ import (
 	"crypto/sha1"
 	"errors"
 	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/logging"
+	"github.com/pippio/services/storage-client"
 	"hash"
 	"io"
 	"os"
@@ -112,7 +112,7 @@ func (s *Spool) Commit() error {
 	return s.assert(os.Rename(previousPath, newPath))
 }
 
-func (s *Spool) Persist(context logging.StorageContext) error {
+func (s *Spool) Persist(context storageClient.Context) error {
 	if s.CommittedSize() == 0 {
 		os.Remove(s.LocalPath()) // Implicit success. Delete local file.
 		return nil
