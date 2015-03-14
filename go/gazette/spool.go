@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Spool struct {
@@ -50,9 +51,13 @@ func (s *Spool) CommittedSize() int64 {
 
 func (s *Spool) Create() error {
 	var err error
+	path := s.LocalPath()
 
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
 	// Create a new backing file. This will fail if the named file exists.
-	if s.backingFile, err = openLockedFile(s.LocalPath(),
+	if s.backingFile, err = openLockedFile(path,
 		os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600); err != nil {
 		return err
 	}
@@ -78,8 +83,10 @@ func (s *Spool) Write(buf []byte) error {
 	if s.Error != nil {
 		return s.Error
 	}
+	log.WithField("path", s.LocalPath()).Info("writing")
 	// First write?
 	if s.CommittedSize() == 0 && s.backingFile == nil {
+		log.WithField("path", s.LocalPath()).Info("creating")
 		if err := s.Create(); err != nil {
 			return s.assert(err)
 		}
@@ -200,4 +207,18 @@ func RecoverSpools(localDirectory string) []*Spool {
 	}
 	filepath.Walk(localDirectory, walk)
 	return recovered
+}
+
+func persistUntilDone(spool *Spool, context *storageClient.GCSContext) {
+	for {
+		if err := spool.Persist(context); err != nil {
+			log.WithFields(log.Fields{"err": err, "path": spool.LocalPath()}).
+				Error("failed to persist")
+
+			time.Sleep(time.Minute) // Retry.
+		} else {
+			log.WithFields(log.Fields{"path": spool.ContentPath()}).Info("persisted")
+			break
+		}
+	}
 }

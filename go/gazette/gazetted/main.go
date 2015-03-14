@@ -14,7 +14,7 @@ var (
 	// Service discovery.
 	etcdEndpoint = flag.String("etcdEndpoint", "http://127.0.0.1:4001",
 		"Etcd network service address")
-	announceEndpoint = flag.String("announceEndpoint", "http://127.0.0.1:8080",
+	announceEndpoint = flag.String("announceEndpoint", "http://127.0.0.1:8081",
 		"Endpoint to announce")
 
 	// Informational.
@@ -49,7 +49,7 @@ func main() {
 
 	gazette := gazette.NewService(*spoolDirectory, gcsContext)
 
-	log.Fatal(http.ListenAndServe(":8080", gazette))
+	log.Fatal(http.ListenAndServe(":8081", gazette))
 	//if err := etcdService.Subscribe(ConfigJournalPath, &foo); err != nil {
 	//		log.WithField("err", err).Fatal()
 	//	}

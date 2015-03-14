@@ -29,41 +29,35 @@ type Service struct {
 func NewService(localDirectory string,
 	gcsContext *storageClient.GCSContext) *Service {
 
-	return &Service{
+	service := &Service{
 		LocalDirectory: localDirectory,
 		GCSContext:     gcsContext,
 		masters:        make(map[string]*JournalMaster),
 		indexes:        make(map[string]*FragmentIndex),
 	}
+
+	for _, spool := range RecoverSpools(localDirectory) {
+		log.WithField("path", spool.LocalPath()).Warning("recovering spool")
+		service.obtainFragmentIndex(spool.Journal).AddFragment(spool.Fragment())
+		go persistUntilDone(spool, gcsContext)
+	}
+	return service
 }
 
-func (s *Service) obtainFragmentIndex(journal string) (*FragmentIndex, error) {
+func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	index, ok := s.indexes[journal]
 	if !ok {
 		index = NewFragmentIndex(s.LocalDirectory, journal, s.GCSContext)
 		s.indexes[journal] = index
 	}
-	s.mu.Unlock()
-
-	if !ok {
-		if err := index.ServerOpen(); err != nil {
-			s.mu.Lock()
-			delete(s.indexes, journal)
-			s.mu.Unlock()
-
-			return nil, err
-		}
-	}
-	return index, nil
+	return index
 }
 
 func (s *Service) obtainJournalMaster(name string) (*JournalMaster, error) {
-	index, err := s.obtainFragmentIndex(name)
-	if err != nil {
-		return nil, err
-	}
+	index := s.obtainFragmentIndex(name)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -117,12 +111,9 @@ func (s *Service) serveWrite(w http.ResponseWriter, r *http.Request) {
 func (s *Service) serveRead(w http.ResponseWriter, r *http.Request) {
 	var journalName string = r.URL.Path[1:]
 	var offset int64
+	var err error
 
-	index, err := s.obtainFragmentIndex(journalName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	index := s.obtainFragmentIndex(journalName)
 
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
 		offset, err = strconv.ParseInt(offsetStr, 0, 64)

@@ -4,11 +4,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/pippio/services/storage-client"
 	"google.golang.org/cloud/storage"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
 
 const kSpoolRollSize = 1 << 20
@@ -39,16 +36,11 @@ func NewFragmentIndex(localDirectory, journal string,
 	return index
 }
 
-func (i *FragmentIndex) ServerOpen() error {
-	if err := os.MkdirAll(
-		filepath.Join(i.LocalDirectory, i.Journal), 0700); err != nil {
-		return err
-	}
-	if _, err := i.LoadFromContext(); err != nil {
-		return err
-	}
-	i.RecoverLocalSpools()
-	return nil
+func (i *FragmentIndex) Empty() bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	return len(i.fragments) == 0 && i.currentSpool == nil
 }
 
 func (i *FragmentIndex) WriteOffset() int64 {
@@ -73,7 +65,7 @@ func (i *FragmentIndex) FinishCurrentSpool() {
 }
 func (i *FragmentIndex) finishCurrentSpool() {
 	if i.currentSpool != nil {
-		go i.persist(i.currentSpool)
+		go persistUntilDone(i.currentSpool, i.StorageContext)
 		i.currentSpool = nil
 	}
 }
@@ -102,7 +94,15 @@ func (i *FragmentIndex) RouteRead(offset int64) (Fragment, *Spool) {
 	return i.fragments[ind], nil
 }
 
-func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) {
+func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) error {
+	// Ensure fragment index is loaded.
+	if i.Empty() {
+		if _, err := i.LoadFromContext(); err != nil {
+			log.WithField("err", err).Error("failed to load fragment index")
+			return err
+		}
+	}
+
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -115,35 +115,12 @@ func (i *FragmentIndex) InvokeWithSpool(invoke func(*Spool)) {
 	}
 	if i.currentSpool == nil {
 		i.currentSpool = NewSpool(i.LocalDirectory, i.Journal, writeOffset)
-		log.Info("created new spool ", i.currentSpool.ContentPath())
 	}
 	invoke(i.currentSpool)
 	i.fragments.Add(i.currentSpool.Fragment())
 
 	i.commitCond.Broadcast() // Wake waiting readers.
-}
-
-func (i *FragmentIndex) RecoverLocalSpools() {
-	spools := RecoverSpools(i.LocalDirectory)
-
-	for _, spool := range spools {
-		log.WithField("path", spool.LocalPath()).Warning("recovering spool")
-		i.AddFragment(spool.Fragment())
-		go i.persist(spool)
-	}
-}
-
-func (i *FragmentIndex) persist(spool *Spool) {
-	for {
-		if err := spool.Persist(i.StorageContext); err != nil {
-			log.WithFields(log.Fields{"err": err, "path": spool.LocalPath()}).
-				Error("failed to persist")
-
-			time.Sleep(time.Minute) // Retry.
-		} else {
-			break
-		}
-	}
+	return nil
 }
 
 func (i *FragmentIndex) LoadFromContext() (cursor interface{}, err error) {
@@ -177,8 +154,11 @@ func (i *FragmentIndex) incrementalRefresh(cursor interface{}) (
 	}
 	// TODO(johnny): Move this to GCSContext.
 	bucket, prefix := removeMeJournalToBucketAndPrefix(i.Journal)
-	log.WithFields(log.Fields{"bucket": bucket, "prefix": prefix, "next": cursor}).
-		Info("querying for stored fragments")
+	log.WithFields(log.Fields{
+		"bucket": bucket,
+		"prefix": prefix,
+		"next":   cursor,
+	}).Info("querying for stored fragments")
 
 	query, _ := cursor.(*storage.Query)
 	if query == nil {
@@ -190,7 +170,6 @@ func (i *FragmentIndex) incrementalRefresh(cursor interface{}) (
 	}
 
 	for _, result := range objects.Results {
-		log.WithField("name", result.Name).Info("got result")
 
 		fragment, err := ParseFragment(result.Name[len(bucket)+1:])
 		if err != nil {

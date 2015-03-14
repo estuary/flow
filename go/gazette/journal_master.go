@@ -55,18 +55,18 @@ func (j *JournalMaster) Serve() {
 	var request Request
 
 	j.Index.FinishCurrentSpool()
-	log.Info("finished current spool")
 
-	for ok {
-		log.Info("waiting for next transaction")
+	for {
 		request, ok = <-j.AppendRequests
-		log.Info("popped request")
 
-		if ok {
-			j.Index.InvokeWithSpool(func(spool *Spool) {
-				log.Info("got spool")
-				j.masterTransaction(spool, request)
-			})
+		if !ok {
+			break
+		}
+		if err := j.Index.InvokeWithSpool(func(spool *Spool) {
+			j.masterTransaction(spool, request)
+		}); err != nil {
+			log.WithField("err", err).Error("failed to invoke")
+			request.Response <- err
 		}
 	}
 }
