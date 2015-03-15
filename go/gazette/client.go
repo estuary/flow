@@ -14,7 +14,7 @@ import (
 
 const kTopicClientRetryTimeout = time.Second * 5
 
-var contentRangeRegexp = regexp.MustCompile("bytes\\s+([\\d+])-\\d+/\\d+")
+var contentRangeRegexp = regexp.MustCompile("bytes\\s+(\\d+)-\\d+/\\d+")
 
 type pendingPut struct {
 	journal string
@@ -90,9 +90,15 @@ func (c *TopicClient) Subscribe() chan interface{} {
 	journal := c.topic.Name + "/part-000"
 	out := make(chan interface{})
 
-	var buffer []byte
+	go c.journalSubscribeLoop(journal, out)
+	return out
+}
 
-	var offset int64 = -1
+func (c *TopicClient) journalSubscribeLoop(journal string,
+	out chan interface{}) {
+	var buffer []byte
+	var offset int64 = -1 // Start at current head.
+
 	for i := 0; true; i++ {
 		if i != 0 {
 			time.Sleep(kTopicClientRetryTimeout)
@@ -104,9 +110,13 @@ func (c *TopicClient) Subscribe() chan interface{} {
 			continue
 		}
 
-		request, err := http.NewRequest("GET",
-			fmt.Sprintf("%v/%v?offset=%v", ringEntries[0].BaseURL, journal, offset),
-			nil)
+		url := fmt.Sprintf("%v/%v", ringEntries[0].BaseURL, journal)
+		if offset != -1 {
+			url = url + fmt.Sprintf("?offset=%v", offset)
+		}
+		log.WithField("url", url).Info("issuing subscribe request")
+
+		request, err := http.NewRequest("GET", url, nil)
 		if err != nil {
 			log.WithFields(log.Fields{"journal": journal, "err": err}).
 				Warn("subscribe failed")
@@ -135,7 +145,6 @@ func (c *TopicClient) Subscribe() chan interface{} {
 			}
 		}
 	}
-	return out
 }
 
 func (c *TopicClient) doSubscribeRequest(request *http.Request) (

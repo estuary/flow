@@ -17,12 +17,12 @@ var (
 	announceEndpoint = flag.String("announceEndpoint", "http://127.0.0.1:8081",
 		"Endpoint to announce")
 
+	spoolDirectory = flag.String("spoolDir", "/var/tmp/gazette",
+		"Local directory for journal spools")
+
 	// Informational.
 	releaseTag = flag.String("tag", "<none>", "Release tag")
 	replica    = flag.String("replica", "<none>", "Replica number")
-
-	spoolDirectory = flag.String("spoolDir", "/var/tmp/gazette",
-		"Local directory for journal spools")
 )
 
 const ConfigJournalPath = "/pippio/journals"
