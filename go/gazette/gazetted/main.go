@@ -3,10 +3,9 @@ package main
 import (
 	"flag"
 	log "github.com/Sirupsen/logrus"
+	"github.com/pippio/api-server/service"
 	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette"
-	"github.com/pippio/services/etcd-client"
-	"github.com/pippio/services/storage-client"
 	"net/http"
 )
 
@@ -35,8 +34,8 @@ func main() {
 	log.AddHook(&varz.LogServiceHook{
 		Service: "gazetted", Tag: *releaseTag, Replica: *replica})
 
-	etcdService := etcdClient.NewEtcdClientService(*etcdEndpoint)
-	gcsContext := storageClient.NewGCSContext(etcdService)
+	etcdService := service.NewEtcdClientService(*etcdEndpoint)
+	gcsContext := service.NewGCSContext(etcdService)
 
 	ring, err := gazette.NewRing(etcdService)
 	if err != nil {
@@ -47,7 +46,7 @@ func main() {
 		log.WithField("err", err).Fatal()
 	}
 
-	gazette := gazette.NewService(*spoolDirectory, gcsContext)
+	gazette := gazette.NewServer(*spoolDirectory, gcsContext)
 
 	log.Fatal(http.ListenAndServe(":8081", gazette))
 	//if err := etcdService.Subscribe(ConfigJournalPath, &foo); err != nil {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	log "github.com/Sirupsen/logrus"
 	"github.com/coreos/go-etcd/etcd"
-	"github.com/pippio/services/etcd-client"
+	"github.com/pippio/api-server/service"
 	"os"
 	"sync"
 	"time"
@@ -17,22 +17,22 @@ type RingEntry struct {
 }
 
 type Ring struct {
-	service etcdClient.EtcdService
+	etcdService service.EtcdService
 
 	ring []RingEntry
 	mu   sync.Mutex
 }
 
-func NewRing(service etcdClient.EtcdService) (*Ring, error) {
-	ring := &Ring{service: service}
+func NewRing(etcdService service.EtcdService) (*Ring, error) {
+	ring := &Ring{etcdService: etcdService}
 
-	if err := service.Subscribe(ConfigRingPath, ring); err != nil {
+	if err := etcdService.Subscribe(ConfigRingPath, ring); err != nil {
 		return nil, err
 	}
 	return ring, nil
 }
 
-func (r *Ring) Announce(baseUrl string) (etcdClient.AnnounceCancelChan, error) {
+func (r *Ring) Announce(url string) (service.EtcdAnnounceCancelChan, error) {
 	var key string
 	if hostname, err := os.Hostname(); err != nil {
 		return nil, err
@@ -40,8 +40,8 @@ func (r *Ring) Announce(baseUrl string) (etcdClient.AnnounceCancelChan, error) {
 		key = ConfigRingPath + "/" + hostname
 	}
 
-	return r.service.Announce(key,
-		RingEntry{BaseURL: baseUrl}, time.Minute)
+	return r.etcdService.Announce(key,
+		RingEntry{BaseURL: url}, time.Minute)
 }
 
 func (r *Ring) Route(journal string) []RingEntry {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	log "github.com/Sirupsen/logrus"
 	//"github.com/coreos/go-etcd/etcd"
-	"github.com/pippio/services/storage-client"
+	"github.com/pippio/api-server/service"
 	"google.golang.org/cloud/storage"
 	"io"
 	"io/ioutil"
@@ -15,9 +15,9 @@ import (
 	"sync"
 )
 
-type Service struct {
+type Server struct {
 	LocalDirectory string
-	GCSContext     *storageClient.GCSContext
+	GCSContext     *service.GCSContext
 
 	masters map[string]*JournalMaster
 	//replicas map[string]*JournalReplica
@@ -26,10 +26,9 @@ type Service struct {
 	mu      sync.Mutex
 }
 
-func NewService(localDirectory string,
-	gcsContext *storageClient.GCSContext) *Service {
+func NewServer(localDirectory string, gcsContext *service.GCSContext) *Server {
 
-	service := &Service{
+	server := &Server{
 		LocalDirectory: localDirectory,
 		GCSContext:     gcsContext,
 		masters:        make(map[string]*JournalMaster),
@@ -38,13 +37,13 @@ func NewService(localDirectory string,
 
 	for _, spool := range RecoverSpools(localDirectory) {
 		log.WithField("path", spool.LocalPath()).Warning("recovering spool")
-		service.obtainFragmentIndex(spool.Journal).AddFragment(spool.Fragment())
+		server.obtainFragmentIndex(spool.Journal).AddFragment(spool.Fragment())
 		go persistUntilDone(spool, gcsContext)
 	}
-	return service
+	return server
 }
 
-func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
+func (s *Server) obtainFragmentIndex(journal string) *FragmentIndex {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -56,7 +55,7 @@ func (s *Service) obtainFragmentIndex(journal string) *FragmentIndex {
 	return index
 }
 
-func (s *Service) obtainJournalMaster(name string) (*JournalMaster, error) {
+func (s *Server) obtainJournalMaster(name string) (*JournalMaster, error) {
 	index := s.obtainFragmentIndex(name)
 
 	s.mu.Lock()
@@ -73,7 +72,7 @@ func (s *Service) obtainJournalMaster(name string) (*JournalMaster, error) {
 	return journal, nil
 }
 
-func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// "Route" |journal| to a |JournalMaster|.
 
 	if r.Method == "GET" {
@@ -85,7 +84,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) serveWrite(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveWrite(w http.ResponseWriter, r *http.Request) {
 	var journalName string = r.URL.Path[1:]
 	var err error
 
@@ -108,7 +107,7 @@ func (s *Service) serveWrite(w http.ResponseWriter, r *http.Request) {
 	RequestPool.Put(request)
 }
 
-func (s *Service) serveRead(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveRead(w http.ResponseWriter, r *http.Request) {
 	var journalName string = r.URL.Path[1:]
 	var offset int64
 	var err error
@@ -166,7 +165,7 @@ var ReadBufferPool = sync.Pool{
 	New: func() interface{} { return make([]byte, 1<<15) },
 }
 
-func (s *Service) serveSpoolRead(w io.Writer, spool *Spool, offset int64) int64 {
+func (s *Server) serveSpoolRead(w io.Writer, spool *Spool, offset int64) int64 {
 	buffer := ReadBufferPool.Get().([]byte)
 	defer ReadBufferPool.Put(buffer)
 
@@ -197,7 +196,7 @@ func (s *Service) serveSpoolRead(w io.Writer, spool *Spool, offset int64) int64 
 	return int64(n)
 }
 
-func (s *Service) serveRemoteFragmentRead(w io.Writer, journal string,
+func (s *Server) serveRemoteFragmentRead(w io.Writer, journal string,
 	fragment Fragment, offset int64) int64 {
 
 	auth, err := s.GCSContext.ObtainAuthContext()
@@ -236,7 +235,7 @@ func (s *Service) serveRemoteFragmentRead(w io.Writer, journal string,
 }
 
 /*
-func (s *Service) OnEtcdResponse(response *etcd.Response, tree *etcd.Node) {
+func (s *Server) OnEtcdResponse(response *etcd.Response, tree *etcd.Node) {
 	journalModels := extractJournalNodes(tree)
 
 	for i, model := range journalModels {
