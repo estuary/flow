@@ -10,11 +10,13 @@ import (
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/async"
+	"github.com/pippio/gazette/journal"
 )
 
 const (
 	PersisterLocksPrefix = "persister_locks/"
-	PersisterLocksRoot   = GazetteServiceRoot + "/" + PersisterLocksPrefix
+	PersisterLocksRoot   = ServiceRoot + "/" + PersisterLocksPrefix
 
 	kPersisterConvergeInterval = time.Minute
 	kPersisterLockTTL          = 10 * time.Minute
@@ -26,7 +28,7 @@ type Persister struct {
 	etcd      discovery.EtcdService
 	routeKey  string
 
-	queue map[string]Fragment
+	queue map[string]journal.Fragment
 	mu    sync.Mutex
 
 	// Effective constants, which are swappable for testing.
@@ -42,7 +44,7 @@ func NewPersister(directory string, cfs cloudstore.FileSystem,
 		etcd:             etcd,
 		osRemove:         os.Remove,
 		persisterLockTTL: kPersisterLockTTL,
-		queue:            make(map[string]Fragment),
+		queue:            make(map[string]journal.Fragment),
 		routeKey:         routeKey,
 	}
 	return p
@@ -59,7 +61,7 @@ func (p *Persister) StartPersisting() *Persister {
 	return p
 }
 
-func (p *Persister) Persist(fragment Fragment) {
+func (p *Persister) Persist(fragment journal.Fragment) {
 	p.mu.Lock()
 	p.queue[fragment.ContentName()] = fragment
 	p.mu.Unlock()
@@ -79,7 +81,7 @@ func (p *Persister) converge() {
 	p.mu.Unlock()
 }
 
-func (p *Persister) convergeOne(fragment Fragment) bool {
+func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 	lockPath := PersisterLocksRoot + fragment.ContentName()
 
 	// Attempt to lock this fragment for upload.
@@ -96,7 +98,7 @@ func (p *Persister) convergeOne(fragment Fragment) bool {
 		}
 	}()
 
-	done := make(Promise)
+	done := make(async.Promise)
 
 	// Perform the actual transfer in a goroutine which resolves |done|. Capture
 	// whether the transfer completed successfully.
@@ -105,7 +107,7 @@ func (p *Persister) convergeOne(fragment Fragment) bool {
 		defer done.Resolve()
 
 		// Create the journal's fragment directory, if not already present.
-		if err := p.cfs.MkdirAll(fragment.Journal, 0750); err != nil {
+		if err := p.cfs.MkdirAll(fragment.Journal.String(), 0750); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.Journal}).
 				Error("failed to make fragment directory")
 			return
@@ -123,7 +125,7 @@ func (p *Persister) convergeOne(fragment Fragment) bool {
 				Error("failed to open fragment for writing")
 			return
 		}
-		r := &boundedReaderAt{fragment.File, fragment.End - fragment.Begin, 0}
+		r := journal.NewBoundedReaderAt(fragment.File, fragment.End-fragment.Begin, 0)
 
 		if _, err := p.cfs.CopyAtomic(w, r); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
@@ -147,7 +149,7 @@ func (p *Persister) convergeOne(fragment Fragment) bool {
 	return success
 }
 
-func (p *Persister) removeLocal(fragment Fragment) {
+func (p *Persister) removeLocal(fragment journal.Fragment) {
 	localPath := filepath.Join(p.directory, fragment.ContentPath())
 
 	if rmErr := p.osRemove(localPath); rmErr != nil {

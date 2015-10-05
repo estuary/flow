@@ -1,10 +1,11 @@
-package gazette
+package journal
 
 import (
 	"bytes"
 	"errors"
-	gc "github.com/go-check/check"
 	"testing/iotest"
+
+	gc "github.com/go-check/check"
 )
 
 type BrokerSuite struct {
@@ -56,7 +57,7 @@ func (s *BrokerSuite) serveReplicaWriters(c *gc.C) {
 	var ops = [...]ReplicateOp{
 		<-s.replicateOps, <-s.replicateOps, <-s.replicateOps}
 	for i, op := range ops {
-		c.Check(op.Journal, gc.Equals, "a/journal")
+		c.Check(op.Journal, gc.Equals, Name("a/journal"))
 		c.Check(op.RouteToken, gc.Equals, "a-route-token")
 		c.Check(op.NewSpool, gc.Equals, s.broker.config.writtenSinceRoll == 0)
 		c.Check(op.WriteHead, gc.Equals, s.broker.config.WriteHead)

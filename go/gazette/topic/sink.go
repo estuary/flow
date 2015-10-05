@@ -4,7 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/pippio/api-server/gazette"
+	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/message"
 )
 
 var sinkBufferPool = sync.Pool{
@@ -16,8 +17,8 @@ var sinkBufferPool = sync.Pool{
 const DefaultAutoFlushRate = 10000
 
 type Sink struct {
-	Topic  *TopicDescription
-	Client *gazette.WriteClient
+	Topic  *Description
+	Writer journal.Writer
 
 	// If non-zero, one of every |AutoFlushRate| Put()'s will be blocking
 	// regardless of the |block| parameter. This effectively rate-limits
@@ -27,19 +28,19 @@ type Sink struct {
 	autoFlushCounter int64
 }
 
-func NewSink(topic *TopicDescription, client *gazette.WriteClient) Sink {
-	return Sink{Topic: topic, Client: client, AutoFlushRate: DefaultAutoFlushRate}
+func NewSink(topic *Description, writer journal.Writer) Sink {
+	return Sink{Topic: topic, Writer: writer, AutoFlushRate: DefaultAutoFlushRate}
 }
 
-func (s *Sink) Put(message interface{}, block bool) error {
+func (s *Sink) Put(msg message.Marshallable, block bool) error {
 	var err error
 	var done chan struct{}
 
 	buffer := sinkBufferPool.Get().([]byte)
 
-	err = frame(s.Topic, message, &buffer)
+	err = message.Frame(msg, &buffer)
 	if err == nil {
-		done, err = s.Client.Write(s.Topic.RoutedJournal(message), buffer)
+		done, err = s.Writer.Write(s.Topic.RoutedJournal(msg), buffer)
 	}
 	sinkBufferPool.Put(buffer)
 

@@ -1,69 +1,57 @@
-package topic
+package message
 
 import (
-	log "github.com/Sirupsen/logrus"
 	"io"
-	"net/http"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/gazette/journal"
 )
 
 const (
-	kJournalProducerErrorTimeout = time.Second * 5
+	kProducerErrorTimeout = time.Second * 5
 
 	// This should be tuned to the maximum size of the production window.
-	kJournalProducerPumpWindow = 100
+	kProducerPumpWindow = 100
 )
 
-type JournalProducer struct {
-	topic   *TopicDescription
-	journal string
-	opener  JournalOpener
+// Producer produces unmarshalled messages from a journal.
+// TODO(johnny): This could use further refactoring, cleanup & tests.
+type Producer struct {
+	opener journal.Opener
+	newMsg func() Unmarshallable
 
 	pump chan struct{}
 }
 
-type JournalMessage struct {
-	Journal string
-	Message interface{}
-
-	NextOffset int64
-}
-
-type JournalOpener interface {
-	OpenJournalAt(journal string, offset int64) (io.ReadCloser, error)
-	HeadJournalAt(journal string, offset int64) (*http.Response, error)
-}
-
-func NewJournalProducer(topic *TopicDescription, opener JournalOpener,
-	journal string) *JournalProducer {
-
-	return &JournalProducer{
-		topic:   topic,
-		journal: journal,
-		opener:  opener,
-		pump:    make(chan struct{}, kJournalProducerPumpWindow),
+func NewProducer(opener journal.Opener, newMsg func() Unmarshallable) *Producer {
+	return &Producer{
+		opener: opener,
+		newMsg: newMsg,
+		pump:   make(chan struct{}, kProducerPumpWindow),
 	}
 }
 
-func (p *JournalProducer) StartProducingInto(offset int64,
-	messages chan<- JournalMessage) *JournalProducer {
-	go p.loop(offset, messages)
-	return p
+func (p *Producer) StartProducingInto(mark journal.Mark, sink chan<- Message) {
+	go p.loop(mark, sink)
 }
 
-func (p *JournalProducer) Pump() {
+func (p *Producer) Pump() {
 	p.pump <- struct{}{}
 }
 
-func (p *JournalProducer) Cancel() {
+func (p *Producer) Cancel() {
 	close(p.pump)
 }
 
-func (p *JournalProducer) loop(offset int64, messages chan<- JournalMessage) {
-	var scanner *MessageScanner
-
+func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 	// Messages which can be sent, before we must block on a pump.
 	var window int
+
+	var err error
+	var reader io.ReadCloser
+	var decoder Decoder
 
 	for done := false; !done; {
 		select {
@@ -77,32 +65,34 @@ func (p *JournalProducer) loop(offset int64, messages chan<- JournalMessage) {
 		default: // Non-blocking.
 		}
 
-		if scanner == nil {
-			if reader, err := p.opener.OpenJournalAt(p.journal, offset); err != nil {
-				log.WithFields(log.Fields{"journal": p.journal, "offset": offset,
-					"err": err}).Error("failed to open reader")
-				time.Sleep(kJournalProducerErrorTimeout)
+		// Ensure an open reader & decoder.
+		if reader == nil {
+			reader, err = p.opener.OpenJournalAt(mark)
+
+			if err != nil {
+				log.WithFields(log.Fields{"mark": mark, "err": err}).
+					Error("failed to open reader")
+				time.Sleep(kProducerErrorTimeout)
 				continue
-			} else {
-				scanner = NewMessageScanner(p.topic, reader, &offset)
 			}
+			decoder = NewDecoder(journal.NewMarkedReader(&mark, reader))
 		}
 
-		if err, recoverable := scanner.Next(); err != nil && !recoverable {
-			if err != io.EOF {
-				log.WithFields(log.Fields{"journal": p.journal, "offset": offset,
-					"err": err}).Warn("error while scanning message")
-				time.Sleep(kJournalProducerErrorTimeout)
-			}
-			scanner.Close()
-			scanner = nil
-			continue
-		} else if err != nil {
-			log.WithFields(log.Fields{"journal": p.journal, "offset": offset,
-				"err": err}).Error("recoverable error while scanning message")
+		msg := p.newMsg()
+		err = decoder.Decode(msg)
 
-			time.Sleep(kJournalProducerErrorTimeout)
-			if scanner.Message == nil {
+		if err != nil {
+			if err != io.EOF {
+				log.WithFields(log.Fields{"mark": mark, "err": err}).Warn("message decode")
+				time.Sleep(kProducerErrorTimeout)
+			}
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				reader.Close() // |reader| is invalidated and must be re-opened.
+				reader = nil
+			}
+			if err != ErrDesyncDetected {
+				// Desync is a special case, in that message decoding did actually
+				// succeed despite the error.
 				continue
 			}
 		}
@@ -119,10 +109,6 @@ func (p *JournalProducer) loop(offset int64, messages chan<- JournalMessage) {
 		}
 		window -= 1
 
-		messages <- JournalMessage{
-			Journal:    p.journal,
-			Message:    scanner.Message,
-			NextOffset: offset,
-		}
+		sink <- Message{mark, msg}
 	}
 }

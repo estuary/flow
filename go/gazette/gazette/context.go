@@ -3,18 +3,21 @@ package gazette
 import (
 	"encoding/json"
 	"errors"
-	log "github.com/Sirupsen/logrus"
-	"github.com/gorilla/mux"
-	"github.com/pippio/api-server/cloudstore"
-	"github.com/pippio/api-server/discovery"
 	"net/http"
 	"strings"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/gorilla/mux"
+
+	"github.com/pippio/api-server/cloudstore"
+	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
 )
 
-const GazetteServiceRoot = "/gazette/service"
+const ServiceRoot = "/gazette/service"
 
-type ServiceContext struct {
+type Context struct {
 	CloudFileSystem cloudstore.FileSystem
 	Directory       string
 	Etcd            discovery.EtcdService
@@ -23,63 +26,50 @@ type ServiceContext struct {
 	ServiceURL      string
 
 	announceCancel discovery.EtcdAnnounceCancelChan
-	dispatcher     *dispatcher
+	router         *Router
 	persister      *Persister
 }
 
-func (c *ServiceContext) Start() error {
+func (c *Context) Start() error {
 	kvs, err := ServiceKeyValueContext(c.Etcd)
 	if err != nil {
 		return err
 	}
-	c.announceCancel, err = c.Etcd.Announce(
-		GazetteServiceRoot+"/"+MembersPrefix+c.RouteKey,
-		discovery.Endpoint{BaseURL: c.ServiceURL},
-		time.Minute*10)
+	c.announceCancel, err = c.Etcd.Announce(ServiceRoot+"/"+MembersPrefix+c.RouteKey,
+		discovery.Endpoint{BaseURL: c.ServiceURL}, time.Minute*10)
 
-	c.dispatcher = NewDispatcher(kvs, c, MembersPrefix+c.RouteKey, c.ReplicaCount)
+	c.router = NewRouter(kvs, c, MembersPrefix+c.RouteKey, c.ReplicaCount)
 	c.persister = NewPersister(c.Directory, c.CloudFileSystem, c.Etcd, c.RouteKey).
 		StartPersisting()
 
-	for _, fragment := range LocalFragments(c.Directory, "") {
+	for _, fragment := range journal.LocalFragments(c.Directory, "") {
 		log.WithField("path", fragment.ContentPath()).Warning("recovering fragment")
 		c.persister.Persist(fragment)
 	}
 	return nil
 }
 
-func (c *ServiceContext) Stop() {
+func (c *Context) Stop() {
 	c.announceCancel <- struct{}{}
 	// wait for de-announcement
 	<-c.announceCancel
 }
 
-func (c *ServiceContext) BuildServingMux() http.Handler {
+func (c *Context) BuildServingMux() http.Handler {
 	m := mux.NewRouter()
-	NewReadAPI(c.dispatcher, c.CloudFileSystem).Register(m)
-	NewWriteAPI(c.dispatcher).Register(m)
-	NewReplicateAPI(c.dispatcher).Register(m)
+	NewReadAPI(c.router, c.CloudFileSystem).Register(m)
+	NewWriteAPI(c.router).Register(m)
+	NewReplicateAPI(c.router).Register(m)
 	return m
 }
 
-func (c *ServiceContext) CreateReplica(journal,
-	routeToken string) DispatchedJournal {
-	j := NewTrackedJournal(journal, c.Directory, c.persister, c.CloudFileSystem)
-	j.StartReplicating(routeToken)
-	return j
-}
-
-func (c *ServiceContext) CreateBroker(journal, routeToken string,
-	peers []*discovery.Endpoint) DispatchedJournal {
-	j := NewTrackedJournal(journal, c.Directory, c.persister, c.CloudFileSystem)
-	j.StartBrokeringWithPeers(routeToken, peers)
-	return j
+func (c *Context) NewReplica(name journal.Name) JournalReplica {
+	return journal.NewReplica(name, c.Directory, c.persister, c.CloudFileSystem)
 }
 
 func ServiceKeyValueContext(etcd discovery.EtcdService,
 ) (*discovery.KeyValueService, error) {
-	return discovery.NewKeyValueService(GazetteServiceRoot, etcd,
-		gazetteServiceDecode)
+	return discovery.NewKeyValueService(ServiceRoot, etcd, gazetteServiceDecode)
 }
 
 func gazetteServiceDecode(key, value string) (interface{}, error) {
@@ -94,5 +84,21 @@ func gazetteServiceDecode(key, value string) (interface{}, error) {
 		return value, nil
 	} else {
 		return nil, errors.New("unknown key type")
+	}
+}
+
+// Maps common journal errors into a related HTTP status code.
+// TODO(johnny): If API handlers are moved to a separate package, move this too.
+func ResponseCodeForError(err error) int {
+	switch err {
+	case journal.ErrNotYetAvailable:
+		return http.StatusRequestedRangeNotSatisfiable
+	case journal.ErrNotReplica:
+		return http.StatusNotFound
+	case journal.ErrNotBroker:
+		return http.StatusBadGateway
+	default:
+		// Everything else.
+		return http.StatusInternalServerError
 	}
 }

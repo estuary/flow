@@ -1,16 +1,18 @@
-package topic
+package consumer
 
 import (
 	"sync"
 
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/api-server/gazette"
+	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
 type ShardID int
 
-type ConsumerContext struct {
+type Context struct {
 	// The shard for which we’re consuming.
 	Shard ShardID
 
@@ -33,7 +35,7 @@ type ConsumerContext struct {
 	Transaction *rocks.WriteBatch
 
 	// Client to which Publish()'d messages are emitted.
-	Writer gazette.JournalWriter
+	Writer journal.Writer
 
 	// Used for flushing by the v2 consumer adapter. Not required by the real
 	// implementation, which will drain consumer queues prior to flushing.
@@ -44,12 +46,12 @@ type ConsumerContext struct {
 // Eventually, this method will note the partitions written to under the
 // current transaction (for later confirmation), and will also ensure that
 // messages are appropriately tagged and sequenced.
-func (c *ConsumerContext) Publish(message interface{}, to *TopicDescription) error {
+func (c *Context) Publish(msg message.Marshallable, to *topic.Description) error {
 	buffer := publishBufferPool.Get().([]byte)
 
-	err := frame(to, message, &buffer)
+	err := message.Frame(msg, &buffer)
 	if err == nil {
-		_, err = c.Writer.Write(to.RoutedJournal(message), buffer)
+		_, err = c.Writer.Write(to.RoutedJournal(msg), buffer)
 	}
 	publishBufferPool.Put(buffer)
 	return err

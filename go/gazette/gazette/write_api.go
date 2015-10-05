@@ -1,16 +1,18 @@
 package gazette
 
 import (
-	"github.com/gorilla/mux"
 	"net/http"
+
+	"github.com/gorilla/mux"
+	"github.com/pippio/gazette/journal"
 )
 
 type WriteAPI struct {
-	dispatcher *dispatcher
+	handler AppendOpHandler
 }
 
-func NewWriteAPI(dispatcher *dispatcher) *WriteAPI {
-	return &WriteAPI{dispatcher: dispatcher}
+func NewWriteAPI(handler AppendOpHandler) *WriteAPI {
+	return &WriteAPI{handler: handler}
 }
 
 func (h *WriteAPI) Register(router *mux.Router) {
@@ -18,14 +20,12 @@ func (h *WriteAPI) Register(router *mux.Router) {
 }
 
 func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
-	journal := r.URL.Path[1:]
-
-	var op = AppendOp{
-		Journal: journal,
+	var op = journal.AppendOp{
+		Journal: journal.Name(r.URL.Path[1:]),
 		Content: r.Body,
 		Result:  make(chan error, 1),
 	}
-	h.dispatcher.DispatchAppend(op)
+	h.handler.Append(op)
 	err := <-op.Result
 
 	if err != nil {

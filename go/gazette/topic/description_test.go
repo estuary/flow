@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"testing"
 	"time"
 
 	gc "github.com/go-check/check"
@@ -12,7 +13,7 @@ import (
 type TopicSuite struct{}
 
 func (s *TopicSuite) TestRoutingRegressionFixtures(c *gc.C) {
-	topic := TopicDescription{
+	topic := Description{
 		Name:       "a/topic",
 		Partitions: 443, // Prime number.
 		RoutingKey: identityRouter,
@@ -32,7 +33,7 @@ func (s *TopicSuite) TestRoutingRegressionFixtures(c *gc.C) {
 		"lovely and more":         118,
 		"temperate - Shakespeare": 228,
 	} {
-		c.Check(key+"-"+topic.RoutedJournal(key), gc.Equals,
+		c.Check(key+"-"+topic.RoutedJournal(key).String(), gc.Equals,
 			fmt.Sprintf("%v-a/topic/part-%03d", key, expectedPartition))
 	}
 }
@@ -46,7 +47,7 @@ func (s *TopicSuite) TestModuloRoutingWithCommonFactors(c *gc.C) {
 	r := rand.New(rand.NewSource(seed))
 	A, B, C := 1+r.Int()%8, 1+r.Int()%8, 1+r.Int()%8
 
-	topics := []TopicDescription{
+	topics := []Description{
 		{Partitions: A * B * C, Name: "a*b*c", RoutingKey: identityRouter},
 		{Partitions: A * B, Name: "a*b", RoutingKey: identityRouter},
 		{Partitions: A, Name: "a", RoutingKey: identityRouter},
@@ -70,9 +71,9 @@ func (s *TopicSuite) TestModuloRoutingWithCommonFactors(c *gc.C) {
 		key := strconv.Itoa(rand.Int())
 
 		journals := []string{
-			topics[0].RoutedJournal(key),
-			topics[1].RoutedJournal(key),
-			topics[2].RoutedJournal(key),
+			topics[0].RoutedJournal(key).String(),
+			topics[1].RoutedJournal(key).String(),
+			topics[2].RoutedJournal(key).String(),
 		}
 		c.Check(journals, gc.DeepEquals, expect[journals[0]])
 	}
@@ -81,3 +82,5 @@ func (s *TopicSuite) TestModuloRoutingWithCommonFactors(c *gc.C) {
 func identityRouter(message interface{}) string { return message.(string) }
 
 var _ = gc.Suite(&TopicSuite{})
+
+func Test(t *testing.T) { gc.TestingT(t) }

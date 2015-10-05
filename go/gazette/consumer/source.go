@@ -1,10 +1,15 @@
-package topic
+package consumer
 
 import (
-	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/discovery"
 	"sync"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
 const (
@@ -12,23 +17,23 @@ const (
 )
 
 type Source struct {
-	topic  *TopicDescription
-	opener JournalOpener
+	topic  *topic.Description
+	opener journal.Opener
 
 	name        string
 	etcd        discovery.EtcdService
 	coordinator *ConsumerCoordinator
 
-	messages chan JournalMessage
+	messages chan message.Message
 
-	producers map[string]*JournalProducer
-	consumed  map[string]int64
+	producers map[journal.Name]*message.Producer
+	consumed  map[journal.Name]int64
 
 	mu sync.Mutex
 }
 
-func NewSource(consumerName string, topic *TopicDescription,
-	etcd discovery.EtcdService, opener JournalOpener) (*Source, error) {
+func NewSource(consumerName string, topic *topic.Description,
+	etcd discovery.EtcdService, opener journal.Opener) (*Source, error) {
 	var err error
 
 	c := &Source{
@@ -36,9 +41,9 @@ func NewSource(consumerName string, topic *TopicDescription,
 		topic:     topic,
 		etcd:      etcd,
 		opener:    opener,
-		messages:  make(chan JournalMessage, 100),
-		producers: make(map[string]*JournalProducer),
-		consumed:  make(map[string]int64),
+		messages:  make(chan message.Message, 100),
+		producers: make(map[journal.Name]*message.Producer),
+		consumed:  make(map[journal.Name]int64),
 	}
 	if c.coordinator, err = NewConsumerCoordinator(c); err != nil {
 		return nil, err
@@ -56,70 +61,68 @@ func (c *Source) Stop() error {
 }
 
 func (c *Source) Name() string                { return c.name }
-func (c *Source) Topic() *TopicDescription    { return c.topic }
+func (c *Source) Topic() *topic.Description   { return c.topic }
 func (c *Source) Etcd() discovery.EtcdService { return c.etcd }
 
-func (c *Source) StartConsuming(journal string, fromOffset int64) {
-	log.WithFields(log.Fields{"journal": journal, "offset": fromOffset}).
-		Info("StartConsuming")
+func (c *Source) StartConsuming(mark journal.Mark) {
+	log.WithFields(log.Fields{"mark": mark}).Info("StartConsuming")
 
 	c.mu.Lock()
-	c.consumed[journal] = fromOffset
+	c.consumed[mark.Journal] = mark.Offset
 
-	producer := NewJournalProducer(c.topic, c.opener, journal)
-	c.producers[journal] = producer
+	producer := message.NewProducer(c.opener, c.topic.GetMessage)
+	c.producers[mark.Journal] = producer
 	c.mu.Unlock()
 
-	producer.StartProducingInto(fromOffset, c.messages)
+	producer.StartProducingInto(mark, c.messages)
 	for i := 0; i < PumpTimes; i++ {
 		producer.Pump()
 	}
 }
 
-func (c *Source) StopConsuming(journal string) int64 {
-	log.WithFields(log.Fields{"journal": journal}).
-		Info("StopConsuming")
+func (c *Source) StopConsuming(name journal.Name) int64 {
+	log.WithFields(log.Fields{"journal": name}).Info("StopConsuming")
 
 	c.mu.Lock()
-	lastOffset := c.consumed[journal]
-	delete(c.consumed, journal)
+	lastOffset := c.consumed[name]
+	delete(c.consumed, name)
 
-	c.producers[journal].Cancel()
-	delete(c.producers, journal)
+	c.producers[name].Cancel()
+	delete(c.producers, name)
 	c.mu.Unlock()
 
 	return lastOffset
 }
 
-func (c *Source) ConsumingJournals() []string {
+func (c *Source) ConsumingJournals() []journal.Name {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	out := make([]string, 0, len(c.consumed))
+	out := make([]journal.Name, 0, len(c.consumed))
 	for journal, _ := range c.consumed {
 		out = append(out, journal)
 	}
 	return out
 }
 
-func (c *Source) ConsumedOffset(journal string) (int64, bool) {
+func (c *Source) ConsumedOffset(name journal.Name) (int64, bool) {
 	c.mu.Lock()
-	offset, ok := c.consumed[journal]
+	offset, ok := c.consumed[name]
 	c.mu.Unlock()
 
 	return offset, ok
 }
 
-func (c *Source) Next() JournalMessage {
+func (c *Source) Next() message.Message {
 	return <-c.messages
 }
 
-func (c *Source) Acknowledge(msg JournalMessage) {
+func (c *Source) Acknowledge(msg message.Message) {
 	c.mu.Lock()
-	producer, ok := c.producers[msg.Journal]
+	producer, ok := c.producers[msg.Mark.Journal]
 	if ok {
 		producer.Pump()
-		c.consumed[msg.Journal] = msg.NextOffset
+		c.consumed[msg.Mark.Journal] = msg.Mark.Offset
 	}
 	c.mu.Unlock()
 }

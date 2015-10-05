@@ -1,4 +1,4 @@
-package topic
+package consumer
 
 import (
 	"flag"
@@ -13,7 +13,7 @@ import (
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/api-server/discovery"
-	"github.com/pippio/api-server/gazette"
+	"github.com/pippio/gazette/journal"
 )
 
 var (
@@ -23,32 +23,32 @@ var (
 
 // Implements the details of the distributed consumer transaction flow.
 // Currently this is an adapated interface to the V1 consumer API.
-type ConsumerRunner struct {
+type Runner struct {
 	consumer   Consumer
-	contexts   map[string]*ConsumerContext
+	contexts   map[journal.Name]*Context
 	contextsMu sync.Mutex
 	name       string
 	sourceV1   *Source
-	writer     gazette.JournalWriter
+	writer     journal.Writer
 }
 
-func NewConsumerRunner(name string, consumer Consumer, etcd discovery.EtcdService,
-	opener JournalOpener, writer gazette.JournalWriter) (*ConsumerRunner, error) {
+func NewRunner(name string, consumer Consumer, etcd discovery.EtcdService,
+	opener journal.Opener, writer journal.Writer) (*Runner, error) {
 
 	sourceV1, err := NewSource(name, consumer.Topics()[0], etcd, opener)
 	if err != nil {
 		return nil, err
 	}
-	return &ConsumerRunner{
+	return &Runner{
 		consumer: consumer,
-		contexts: make(map[string]*ConsumerContext),
+		contexts: make(map[journal.Name]*Context),
 		name:     name,
 		sourceV1: sourceV1,
 		writer:   writer,
 	}, nil
 }
 
-func (s *ConsumerRunner) Run() error {
+func (s *Runner) Run() error {
 	concurrency := 1
 	if cc, ok := s.consumer.(ConcurrentExecutor); ok {
 		concurrency = cc.Concurrency()
@@ -84,14 +84,14 @@ func (s *ConsumerRunner) Run() error {
 	return nil
 }
 
-func (s *ConsumerRunner) consumerLoop(done chan<- struct{}) {
+func (s *Runner) consumerLoop(done chan<- struct{}) {
 	for i := 0; true; i++ {
-		journalMsg := s.sourceV1.Next()
-		context := s.obtainContext(journalMsg.Journal)
+		msg := s.sourceV1.Next()
+		context := s.obtainContext(msg.Mark.Journal)
 
 		topic := s.consumer.Topics()[0]
-		s.consumer.Consume(journalMsg.Message, topic, context)
-		s.sourceV1.Acknowledge(journalMsg)
+		s.consumer.Consume(msg, topic, context)
+		s.sourceV1.Acknowledge(msg)
 
 		varz.ObtainCount("consumer", s.name, "consumed", topic.Name).Add(1)
 
@@ -107,11 +107,11 @@ func (s *ConsumerRunner) consumerLoop(done chan<- struct{}) {
 	done <- struct{}{}
 }
 
-func (s *ConsumerRunner) obtainContext(journal string) *ConsumerContext {
+func (s *Runner) obtainContext(name journal.Name) *Context {
 	s.contextsMu.Lock()
 	defer s.contextsMu.Unlock()
 
-	if context, ok := s.contexts[journal]; ok {
+	if context, ok := s.contexts[name]; ok {
 		return context
 	}
 
@@ -126,7 +126,7 @@ func (s *ConsumerRunner) obtainContext(journal string) *ConsumerContext {
 	defer dbOpts.Destroy()
 	dbOpts.SetCreateIfMissing(true)
 
-	dbPath := filepath.Join(*localStateBase, journal)
+	dbPath := filepath.Join(*localStateBase, name.String())
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		log.WithFields(log.Fields{"path": dbPath, "err": err}).Fatal("failed to mkdir")
 	}
@@ -135,13 +135,13 @@ func (s *ConsumerRunner) obtainContext(journal string) *ConsumerContext {
 		log.WithFields(log.Fields{"path": dbPath, "err": err}).Fatal("failed to open")
 	}
 
-	context := &ConsumerContext{
+	context := &Context{
 		Shard:       ShardID(len(s.contexts)),
 		Database:    db,
 		Transaction: rocks.NewWriteBatch(),
 		Writer:      s.writer,
 	}
-	s.contexts[journal] = context
+	s.contexts[name] = context
 
 	// Let the consumer initialize the context, if desired.
 	if initer, ok := s.consumer.(ContextIniter); ok {
@@ -151,7 +151,7 @@ func (s *ConsumerRunner) obtainContext(journal string) *ConsumerContext {
 	return context
 }
 
-func (s *ConsumerRunner) finishTransaction(context *ConsumerContext) {
+func (s *Runner) finishTransaction(context *Context) {
 	s.consumer.Flush(context)
 
 	var dbWriteOpts *rocks.WriteOptions

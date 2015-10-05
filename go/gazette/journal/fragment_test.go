@@ -1,9 +1,10 @@
-package gazette
+package journal
 
 import (
 	"crypto/sha1"
-	gc "github.com/go-check/check"
 	"math"
+
+	gc "github.com/go-check/check"
 )
 
 type FragmentSuite struct {

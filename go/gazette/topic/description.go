@@ -4,33 +4,36 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+
+	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/message"
 )
 
-type TopicDescription struct {
-	Name       string
+type Description struct {
+	Name string
+	// Number of partitions this topic utilizes. |Partitions| should generally
+	// be a power-of-two.
 	Partitions int
-
-	// Returns the serialized byte-length of |message|.
-	Size func(message interface{}) int
-
-	// Serializes |message| to []byte, returning error.
-	MarshalTo func(message interface{}, to []byte) error
-
-	// Extracts a serialized message from []byte, returning error.
-	Unmarshal func(buffer []byte) (interface{}, error)
-
-	// Extracts a routing key to be used for the message.
+	// If non-nil, |RoutingKey| returns a stable routing key for |message|.
+	// If not set, a random partition is selected.
 	RoutingKey func(message interface{}) string
+	// Builds or obtains a zero-valued instance of the topic message type.
+	GetMessage func() message.Unmarshallable
+	// If non-nil, returns a used instance of the message type. This is
+	// typically used for pooling of message instances.
+	PutMessage func(message.Unmarshallable)
 }
 
-func (d *TopicDescription) Journal(partition int) string {
+func (d *Description) Journal(partition int) journal.Name {
 	// TODO(johnny): This is horribly inefficient.
-	return fmt.Sprintf("%s/part-%03d", d.Name, partition)
+	return journal.Name(fmt.Sprintf("%s/part-%03d", d.Name, partition))
 }
 
-func (d *TopicDescription) RoutedJournal(message interface{}) string {
-	key := d.RoutingKey(message)
-
+func (d *Description) RoutedJournal(message interface{}) journal.Name {
+	var key string
+	if d.RoutingKey != nil {
+		key = d.RoutingKey(message)
+	}
 	// Map to a partition by routing key, if available. Otherwise choose
 	// one at random.
 	var partition int

@@ -1,4 +1,4 @@
-package gazette
+package journal
 
 import (
 	log "github.com/Sirupsen/logrus"
@@ -7,7 +7,7 @@ import (
 const ReadOpBufferSize = 10
 
 type Tail struct {
-	journal   string
+	journal   Name
 	fragments FragmentSet
 
 	readOps   chan ReadOp
@@ -20,7 +20,7 @@ type Tail struct {
 	stop chan struct{}
 }
 
-func NewTail(journal string, updates <-chan Fragment) *Tail {
+func NewTail(journal Name, updates <-chan Fragment) *Tail {
 	t := &Tail{
 		journal:   journal,
 		updates:   updates,
@@ -61,10 +61,13 @@ func (t *Tail) loop() {
 		default:
 		}
 
+		// Wait for a read or fragment update to arrive, or for a request
+		// for the current tail end.
 		select {
 		case fragment, ok := <-t.updates:
 			if !ok {
 				t.updates = nil
+				// Any remaining blocked reads will now fail.
 				t.wakeBlockedReads()
 			} else {
 				t.onUpdate(fragment)
@@ -78,7 +81,7 @@ func (t *Tail) loop() {
 		case t.endOffset <- t.fragments.EndOffset():
 		}
 	}
-	close(t.endOffset) // EndOffset() immediately returns 0.
+	close(t.endOffset) // After close(), EndOffset() will thereafter return 0.
 	log.WithField("journal", t.journal).Info("tail loop exiting")
 	close(t.stop)
 }
@@ -93,23 +96,40 @@ func (t *Tail) onUpdate(fragment Fragment) {
 	t.wakeBlockedReads()
 }
 
-func (t *Tail) onRead(read ReadOp) {
-	if read.Journal != t.journal {
-		read.Result <- ReadResult{Error: ErrWrongJournal}
+func (t *Tail) onRead(op ReadOp) {
+	if op.Journal != t.journal {
+		op.Result <- ReadResult{Error: ErrWrongJournal}
 		return
 	}
-	ind := t.fragments.LongestOverlappingFragment(read.Offset)
-	if ind == len(t.fragments) || t.fragments[ind].Begin > read.Offset {
-		// A fragment covering |read.Offset| isn't available (yet).
+	// Special handling for offsets 0 and -1.
+	if op.Offset == 0 {
+		// Skip |Offset| forward to the first available offset.
+		op.Offset = t.fragments.BeginOffset()
+	} else if op.Offset == -1 {
+		// Set |Offset| to the current tail end.
+		op.Offset = t.fragments.EndOffset()
+	}
 
-		if t.updates != nil && read.Blocking {
-			t.blockedReads = append(t.blockedReads, read)
+	ind := t.fragments.LongestOverlappingFragment(op.Offset)
+	if ind == len(t.fragments) || t.fragments[ind].Begin > op.Offset {
+		// A fragment covering op.Offset isn't available (yet).
+		if t.updates != nil && op.Blocking {
+			t.blockedReads = append(t.blockedReads, op)
 		} else {
-			read.Result <- ReadResult{Error: ErrNotYetAvailable}
+			op.Result <- ReadResult{
+				Error:     ErrNotYetAvailable,
+				Offset:    op.Offset,
+				WriteHead: t.fragments.EndOffset(),
+			}
 		}
-		return
+	} else {
+		// A covering fragment was found.
+		op.Result <- ReadResult{
+			Offset:    op.Offset,
+			WriteHead: t.fragments.EndOffset(),
+			Fragment:  t.fragments[ind],
+		}
 	}
-	read.Result <- ReadResult{Fragment: t.fragments[ind]}
 }
 
 func (t *Tail) wakeBlockedReads() {

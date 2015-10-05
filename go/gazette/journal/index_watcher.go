@@ -1,4 +1,4 @@
-package gazette
+package journal
 
 import (
 	"io"
@@ -14,8 +14,12 @@ const (
 	kIndexWatcherIncrementalLoadSize = 50
 )
 
+// IndexWatcher monitors a journal's storage location in the cloud filesystem
+// for new fragments, by performing periodic directory listings. When new
+// fragment metadata arrives, it's published to the journal Tail via a shared
+// channel, which indexes the fragment and makes it available for read requests.
 type IndexWatcher struct {
-	journal string
+	journal Name
 
 	cfs    cloudstore.FileSystem
 	cursor interface{}
@@ -27,7 +31,7 @@ type IndexWatcher struct {
 	initialLoad chan struct{}
 }
 
-func NewIndexWatcher(journal string, cfs cloudstore.FileSystem,
+func NewIndexWatcher(journal Name, cfs cloudstore.FileSystem,
 	updates chan<- Fragment) *IndexWatcher {
 	w := &IndexWatcher{
 		journal:     journal,
@@ -86,13 +90,13 @@ loop:
 func (w *IndexWatcher) onRefresh() error {
 	// Add a trailing slash to unambiguously represent a directory. Some cloud
 	// FileSystems (eg, GCS) require this if no subordinate files are present.
-	dirPath := w.journal + "/"
+	dirPath := w.journal.String() + "/"
 
 	// Open the fragment directory, making it first if necessary.
 	if err := w.cfs.MkdirAll(dirPath, 0750); err != nil {
 		return err
 	}
-	dir, err := w.cfs.Open(w.journal + "/")
+	dir, err := w.cfs.Open(dirPath)
 	if err != nil {
 		return err
 	}

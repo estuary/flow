@@ -1,9 +1,10 @@
-package gazette
+package journal
 
 import (
-	gc "github.com/go-check/check"
 	"io/ioutil"
 	"os"
+
+	gc "github.com/go-check/check"
 )
 
 type HeadSuite struct {

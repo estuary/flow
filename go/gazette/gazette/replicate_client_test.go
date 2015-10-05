@@ -2,11 +2,14 @@ package gazette
 
 import (
 	"bytes"
-	gc "github.com/go-check/check"
-	"github.com/pippio/api-server/discovery"
 	"io"
 	"net/http"
 	"net/http/httptest"
+
+	gc "github.com/go-check/check"
+
+	"github.com/pippio/api-server/discovery"
+	. "github.com/pippio/gazette/journal"
 )
 
 type ReplicateClientSuite struct {

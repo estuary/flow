@@ -1,14 +1,15 @@
-package gazette
+package journal
 
 import (
 	"bytes"
-	gc "github.com/go-check/check"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
+
+	gc "github.com/go-check/check"
 )
 
 type SpoolSuite struct {
@@ -26,7 +27,7 @@ func (s *SpoolSuite) TearDownTest(c *gc.C) {
 }
 
 func (s *SpoolSuite) TestMultipleWriteAndCommitFixture(c *gc.C) {
-	spool, err := NewSpool(s.localDir, "journal/name", 12345)
+	spool, err := NewSpool(s.localDir, Mark{"journal/name", 12345})
 	c.Check(err, gc.IsNil)
 
 	path1 := filepath.Join(s.localDir, "journal/name/"+
@@ -104,7 +105,7 @@ func (s *SpoolSuite) TestMultipleWriteAndCommitFixture(c *gc.C) {
 }
 
 func (s *SpoolSuite) TestFixtureChecksumEquivalence(c *gc.C) {
-	spool, err := NewSpool(s.localDir, "journal/name", 12345)
+	spool, err := NewSpool(s.localDir, Mark{"journal/name", 12345})
 	c.Check(err, gc.IsNil)
 
 	// Write equivalent data to TestCommitFlow in a single write and transaction.
@@ -120,7 +121,7 @@ func (s *SpoolSuite) TestFixtureChecksumEquivalence(c *gc.C) {
 }
 
 func (s *SpoolSuite) TestWriteAndCommitSequence(c *gc.C) {
-	spool, err := NewSpool(s.localDir, "journal/name", 12345)
+	spool, err := NewSpool(s.localDir, Mark{"journal/name", 12345})
 	c.Check(err, gc.IsNil)
 
 	var expect bytes.Buffer
@@ -142,7 +143,7 @@ func (s *SpoolSuite) TestWriteAndCommitSequence(c *gc.C) {
 }
 
 func (s *SpoolSuite) TestWriteErrorHandling(c *gc.C) {
-	spool, err := NewSpool(s.localDir, "journal/name", 12345)
+	spool, err := NewSpool(s.localDir, Mark{"journal/name", 12345})
 	c.Check(err, gc.IsNil)
 
 	spool.Write([]byte("initial commit"))
@@ -166,7 +167,7 @@ func (s *SpoolSuite) TestWriteErrorHandling(c *gc.C) {
 }
 
 func (s *SpoolSuite) TestCommitErrorHandling(c *gc.C) {
-	spool, err := NewSpool(s.localDir, "journal/name", 12345)
+	spool, err := NewSpool(s.localDir, Mark{"journal/name", 12345})
 	c.Check(err, gc.IsNil)
 
 	spool.Write([]byte("initial commit"))

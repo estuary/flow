@@ -1,10 +1,12 @@
-package gazette
+package journal
 
 import (
 	"errors"
-	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/varz"
 	"io"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/api-server/varz"
 )
 
 const (
@@ -14,18 +16,26 @@ const (
 	AppendOpBufferSize = 100
 )
 
+// BrokerConfig is used to periodically update Broker with updated
+// cluster topology and replication configuration.
 type BrokerConfig struct {
-	Replicas []interface {
-		Replicate(ReplicateOp)
-	}
+	// Replica instances which should be involved in brokered transactions.
+	Replicas []Replicator
+	// Token representing the Broker's view of the current replication topology.
+	// Sent with replication requests and verified for consensus by each remote
+	// replica: for a transaction to succeed, all replicas must agree on the
+	// current |RouteToken|.
 	RouteToken string
-	WriteHead  int64
-
+	// Next offset of the next brokered write transaction. Also sent with
+	// replication requests and verifed for consensus by each remote replica:
+	// for a transaction to succeed, all replicas must agree on the |WriteHead|.
+	WriteHead int64
+	// Number of bytes written since the last spool roll.
 	writtenSinceRoll int64
 }
 
 type Broker struct {
-	journal string
+	journal Name
 
 	appendOps chan AppendOp
 
@@ -38,7 +48,7 @@ type Broker struct {
 	stop chan struct{}
 }
 
-func NewBroker(journal string) *Broker {
+func NewBroker(journal Name) *Broker {
 	b := &Broker{
 		journal:       journal,
 		appendOps:     make(chan AppendOp, AppendOpBufferSize),

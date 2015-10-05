@@ -2,9 +2,6 @@ package gazette
 
 import (
 	"errors"
-	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/cloudstore"
-	"github.com/pippio/api-server/discovery"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -13,6 +10,12 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/api-server/cloudstore"
+	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
 )
 
 var (
@@ -25,15 +28,15 @@ type ReadClient struct {
 	router discovery.HRWRouter
 
 	cfs      cloudstore.FileSystem
-	journals map[string]readClientIndex
+	journals map[journal.Name]readClientIndex
 
 	mu sync.Mutex
 }
 
 type readClientIndex struct {
-	updates chan Fragment
-	watcher *IndexWatcher
-	tail    *Tail
+	updates chan journal.Fragment
+	watcher *journal.IndexWatcher
+	tail    *journal.Tail
 }
 
 func NewReadClient(gazetteContext *discovery.KeyValueService,
@@ -41,7 +44,7 @@ func NewReadClient(gazetteContext *discovery.KeyValueService,
 
 	client := &ReadClient{
 		cfs:      cfs,
-		journals: make(map[string]readClientIndex),
+		journals: make(map[journal.Name]readClientIndex),
 	}
 	// Use a nil observer, as we don't want to track route changes.
 	client.router = discovery.NewHRWRouter(replicas, nil)
@@ -50,9 +53,9 @@ func NewReadClient(gazetteContext *discovery.KeyValueService,
 	return client
 }
 
-func (c *ReadClient) HeadJournalAt(journal string, offset int64) (*http.Response, error) {
+func (c *ReadClient) HeadJournalAt(mark journal.Mark) (*http.Response, error) {
 	c.mu.Lock()
-	route := c.router.Route(journal)
+	route := c.router.Route(mark.Journal.String())
 	c.mu.Unlock()
 
 	if len(route) == 0 {
@@ -60,7 +63,7 @@ func (c *ReadClient) HeadJournalAt(journal string, offset int64) (*http.Response
 	}
 	ep := route[rand.Int()%len(route)].Value.(*discovery.Endpoint)
 
-	request, err := ep.NewHTTPRequest("HEAD", "/"+journal, nil)
+	request, err := ep.NewHTTPRequest("HEAD", "/"+mark.Journal.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -76,34 +79,32 @@ func (c *ReadClient) HeadJournalAt(journal string, offset int64) (*http.Response
 	}
 }
 
-func (c *ReadClient) OpenJournalAt(journal string,
-	offset int64) (io.ReadCloser, error) {
-
+func (c *ReadClient) OpenJournalAt(mark journal.Mark) (io.ReadCloser, error) {
 	c.mu.Lock()
-	index := c.obtainJournalIndex(journal)
+	index := c.obtainJournalIndex(mark.Journal)
 	c.mu.Unlock()
 
 	// Defer evaluating a read until the index is fully loaded.
 	index.watcher.WaitForInitialLoad()
 
-	op := ReadOp{
-		Journal:  journal,
-		Offset:   offset,
+	op := journal.ReadOp{
+		Journal:  mark.Journal,
+		Offset:   mark.Offset,
 		Blocking: false,
-		Result:   make(chan ReadResult, 1),
+		Result:   make(chan journal.ReadResult, 1),
 	}
 	index.tail.Read(op)
 	result := <-op.Result
 
 	if result.Error == nil {
-		return result.Fragment.ReaderFromOffset(offset, c.cfs)
-	} else if result.Error != ErrNotYetAvailable {
+		return result.Fragment.ReaderFromOffset(mark.Offset, c.cfs)
+	} else if result.Error != journal.ErrNotYetAvailable {
 		return nil, result.Error
 	}
 
 	// Not available in the persisted index. Ask a current replica for a reader.
 	c.mu.Lock()
-	route := c.router.Route(journal)
+	route := c.router.Route(mark.Journal.String())
 	c.mu.Unlock()
 
 	if len(route) == 0 {
@@ -111,16 +112,18 @@ func (c *ReadClient) OpenJournalAt(journal string,
 	}
 	ep := route[rand.Int()%len(route)].Value.(*discovery.Endpoint)
 
-	request, err := ep.NewHTTPRequest("GET", "/"+journal+"?"+url.Values{
-		"offset": {strconv.FormatInt(offset, 10)},
-		"block":  {"true"}}.Encode(), nil)
+	request, err := ep.NewHTTPRequest("GET", "/"+mark.Journal.String()+"?"+
+		url.Values{
+			"offset": {strconv.FormatInt(mark.Offset, 10)},
+			"block":  {"true"},
+		}.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
 
 	if responseOffset, response, err := c.doReadRequest(request); err != nil {
 		return nil, err
-	} else if offset != -1 && responseOffset != offset {
+	} else if mark.Offset != -1 && responseOffset != mark.Offset {
 		// Server returns a different offset only when reading from write head (-1).
 		return nil, errors.New("server returned wrong read head")
 	} else {
@@ -128,15 +131,15 @@ func (c *ReadClient) OpenJournalAt(journal string,
 	}
 }
 
-func (c *ReadClient) obtainJournalIndex(journal string) readClientIndex {
-	index, ok := c.journals[journal]
+func (c *ReadClient) obtainJournalIndex(name journal.Name) readClientIndex {
+	index, ok := c.journals[name]
 	if !ok {
-		index.updates = make(chan Fragment)
-		index.watcher = NewIndexWatcher(journal, c.cfs, index.updates).
+		index.updates = make(chan journal.Fragment)
+		index.watcher = journal.NewIndexWatcher(name, c.cfs, index.updates).
 			StartWatchingIndex()
-		index.tail = NewTail(journal, index.updates).StartServingOps()
+		index.tail = journal.NewTail(name, index.updates).StartServingOps()
 
-		c.journals[journal] = index
+		c.journals[name] = index
 	}
 	return index
 }
@@ -167,6 +170,15 @@ func (c *ReadClient) doReadRequest(request *http.Request) (
 		return 0, nil, err
 	} else {
 		return rOffset, response, nil
+	}
+}
+
+// Extracts the write head sent in the server response.
+func ParseWriteHead(response *http.Response) (int64, error) {
+	if s := response.Header.Get(WriteHeadHeader); s == "" {
+		return 0, errors.New("missing header " + WriteHeadHeader)
+	} else {
+		return strconv.ParseInt(s, 10, 64)
 	}
 }
 

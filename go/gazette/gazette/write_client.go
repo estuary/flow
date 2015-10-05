@@ -1,15 +1,20 @@
 package gazette
 
 import (
-	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/discovery"
-	"github.com/pippio/api-server/varz"
+	"bytes"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/api-server/varz"
+	"github.com/pippio/gazette/async"
+	"github.com/pippio/gazette/journal"
 )
 
 const (
@@ -30,13 +35,13 @@ const (
 )
 
 type pendingWrite struct {
-	journal string
+	journal journal.Name
 	file    *os.File
 	offset  int64
 	started time.Time
 
 	// Signals successful write.
-	promise Promise
+	promise async.Promise
 }
 
 var pendingWritePool = sync.Pool{
@@ -66,8 +71,8 @@ func releasePendingWrite(p *pendingWrite) {
 	}
 }
 
-func writeAllOrNone(write *pendingWrite, buffer []byte) error {
-	n, err := write.file.Write(buffer)
+func writeAllOrNone(write *pendingWrite, r io.Reader) error {
+	n, err := io.Copy(write.file, r)
 	if err == nil {
 		write.offset += int64(n)
 	} else {
@@ -82,7 +87,7 @@ type WriteClient struct {
 	writeBytes   *varz.Count
 
 	writeQueue chan *pendingWrite
-	writeMap   map[string]*pendingWrite // Still in |writeQueue| and append-able.
+	writeMap   map[journal.Name]*pendingWrite // Still in |writeQueue| and append-able.
 	router     discovery.HRWRouter
 	mu         sync.Mutex
 
@@ -95,7 +100,7 @@ func NewWriteClient(gazetteContext *discovery.KeyValueService) *WriteClient {
 		avgWriteMs:   varz.ObtainAverage("gazette", "avgWriteMs"),
 		writeBytes:   varz.ObtainCount("gazette", "writeBytes"),
 		writeQueue:   make(chan *pendingWrite, kWriteQueueSize),
-		writeMap:     make(map[string]*pendingWrite),
+		writeMap:     make(map[journal.Name]*pendingWrite),
 	}
 	// Use a replica-count of 1 (because we always route to the broker),
 	// and we don't want to observe route changes.
@@ -120,10 +125,9 @@ func (c *WriteClient) onMembershipChange(members, old,
 	c.router.RebuildRoutes(members, old, new)
 }
 
-func (c *WriteClient) obtainWrite(
-	journal string) (*pendingWrite, bool, error) {
+func (c *WriteClient) obtainWrite(name journal.Name) (*pendingWrite, bool, error) {
 	// Is a non-full pendingWrite for this journal already in |writeQueue|?
-	write, ok := c.writeMap[journal]
+	write, ok := c.writeMap[name]
 	if ok && write.offset < kMaxWriteSpoolSize {
 		return write, false, nil
 	}
@@ -133,23 +137,31 @@ func (c *WriteClient) obtainWrite(
 		return nil, false, err
 	} else {
 		write = popped.(*pendingWrite)
-		write.journal = journal
-		write.promise = make(Promise)
+		write.journal = name
+		write.promise = make(async.Promise)
 		write.started = time.Now()
-		c.writeMap[journal] = write
+		c.writeMap[name] = write
 		return write, true, nil
 	}
 }
 
-// Appends |buf| to |journal|. The returned Promise is resolved when the
-// write completes, so that the client may optionally block on it.
-func (c *WriteClient) Write(journal string, buf []byte) (Promise, error) {
-	var promise Promise
+// Appends |buffer| to |journal|. Either all of |buffer| is written, or none
+// of it is. Returns a Promise which is resolved when the write has been
+// fully committed.
+func (c *WriteClient) Write(name journal.Name, buf []byte) (async.Promise, error) {
+	return c.ReadFrom(name, bytes.NewReader(buf))
+}
+
+// Appends |r|'s content to |journal|, by reading until io.EOF. Either all of
+// |r| is written, or none of it is. Returns a Promise which is resolved when
+// the write has been fully committed.
+func (c *WriteClient) ReadFrom(name journal.Name, r io.Reader) (async.Promise, error) {
+	var promise async.Promise
 
 	c.mu.Lock()
-	write, isNew, err := c.obtainWrite(journal)
+	write, isNew, err := c.obtainWrite(name)
 	if err == nil {
-		err = writeAllOrNone(write, buf)
+		err = writeAllOrNone(write, r)
 		promise = write.promise // Retain, as we can't access |write| after unlock.
 	}
 	c.mu.Unlock()
@@ -198,7 +210,7 @@ func (c *WriteClient) onWrite(write *pendingWrite) error {
 		}
 
 		c.mu.Lock()
-		route := c.router.Route(write.journal)
+		route := c.router.Route(write.journal.String())
 		c.mu.Unlock()
 
 		if len(route) == 0 {
@@ -210,7 +222,7 @@ func (c *WriteClient) onWrite(write *pendingWrite) error {
 		if _, err := write.file.Seek(0, 0); err != nil {
 			return err // Not recoverable
 		}
-		request, err := ep.NewHTTPRequest("PUT", "/"+write.journal,
+		request, err := ep.NewHTTPRequest("PUT", "/"+write.journal.String(),
 			io.LimitReader(write.file, write.offset))
 		if err != nil {
 			return err // Not recoverable

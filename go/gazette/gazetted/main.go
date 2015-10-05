@@ -12,8 +12,8 @@ import (
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/discovery"
-	"github.com/pippio/api-server/gazette"
 	"github.com/pippio/api-server/varz"
+	"github.com/pippio/gazette/gazette"
 )
 
 var (
@@ -60,7 +60,7 @@ func main() {
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to initialize etcdService")
 	}
-	var context = gazette.ServiceContext{
+	var context = gazette.Context{
 		Directory:    *spoolDirectory,
 		Etcd:         etcdService,
 		ReplicaCount: *replicaCount,

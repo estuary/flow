@@ -1,4 +1,4 @@
-package gazette
+package journal
 
 import (
 	"crypto/sha1"
@@ -24,12 +24,12 @@ type Spool struct {
 	err error
 }
 
-func NewSpool(directory, journal string, offset int64) (*Spool, error) {
+func NewSpool(directory string, at Mark) (*Spool, error) {
 	spool := &Spool{
 		Fragment: Fragment{
-			Journal: journal,
-			Begin:   offset,
-			End:     offset,
+			Journal: at.Journal,
+			Begin:   at.Offset,
+			End:     at.Offset,
 		},
 		directory: directory,
 	}

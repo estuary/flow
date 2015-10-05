@@ -1,4 +1,4 @@
-package gazette
+package journal
 
 import (
 	gc "github.com/go-check/check"
@@ -27,10 +27,12 @@ func (s *TailSuite) TestNonblockingSuccess(c *gc.C) {
 
 	results := make(chan ReadResult)
 	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 150, Result: results})
-	result := <-results
 
-	c.Check(result.Error, gc.IsNil)
-	c.Check(result.Fragment, gc.DeepEquals, fragment)
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Offset:    150,
+		WriteHead: 200,
+		Fragment:  fragment,
+	})
 }
 
 func (s *TailSuite) TestNonblockingFailure(c *gc.C) {
@@ -38,10 +40,28 @@ func (s *TailSuite) TestNonblockingFailure(c *gc.C) {
 	s.updates <- fragment
 
 	results := make(chan ReadResult)
-	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 200, Result: results})
 
-	result := <-results
-	c.Check(result.Error, gc.Equals, ErrNotYetAvailable)
+	// Explicit Read at current write head.
+	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 200, Result: results})
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    200,
+		WriteHead: 200,
+	})
+	// Read at current write head (implicit).
+	s.tail.Read(ReadOp{Journal: "a/journal", Offset: -1, Result: results})
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    200,
+		WriteHead: 200,
+	})
+	// Read of a previous, uncovered offset.
+	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 50, Result: results})
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    50,
+		WriteHead: 200,
+	})
 }
 
 func (s *TailSuite) TestBlockingRead(c *gc.C) {
@@ -58,18 +78,36 @@ func (s *TailSuite) TestBlockingRead(c *gc.C) {
 	s.updates <- fragment1
 
 	// Second read unblocks.
-	result := <-results
-	c.Check(result.Error, gc.IsNil)
-	c.Check(result.Fragment, gc.DeepEquals, fragment1)
-	c.Check(len(results), gc.Equals, 0)
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Offset:    300,
+		WriteHead: 400,
+		Fragment:  fragment1,
+	})
 
 	fragment2 := Fragment{Journal: "a/journal", Begin: 200, End: 300}
 	s.updates <- fragment2
 
 	// First read unblocks.
-	result = <-results
-	c.Check(result.Error, gc.IsNil)
-	c.Check(result.Fragment, gc.DeepEquals, fragment2)
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Offset:    200,
+		WriteHead: 400,
+		Fragment:  fragment2,
+	})
+
+	// Read at implicit write head.
+	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: -1,
+		Result: results})
+	// Note: this call re-enters tail.loop(), causing the op to queue.
+	c.Check(s.tail.EndOffset(), gc.Equals, int64(400))
+
+	fragment3 := Fragment{Journal: "a/journal", Begin: 400, End: 500}
+	s.updates <- fragment3
+
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Offset:    400, // Updated to reflect write head at operation start.
+		WriteHead: 500,
+		Fragment:  fragment3,
+	})
 }
 
 func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
@@ -87,15 +125,44 @@ func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
 
 	// Both reads unblock.
 	result := <-results
-	c.Check(result.Error, gc.Equals, ErrNotYetAvailable)
+	c.Check(result, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    200,
+		WriteHead: 200,
+	})
 	result = <-results
-	c.Check(result.Error, gc.Equals, ErrNotYetAvailable)
+	c.Check(result, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    300,
+		WriteHead: 200,
+	})
 
 	// Additional blocking reads immediately resolve.
 	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: 200,
 		Result: results})
 	result = <-results
-	c.Check(result.Error, gc.Equals, ErrNotYetAvailable)
+	c.Check(result, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    200,
+		WriteHead: 200,
+	})
+}
+
+func (s *TailSuite) TestReadFromZeroSkipsToFirstAvailable(c *gc.C) {
+	fragment := Fragment{Journal: "a/journal", Begin: 100, End: 200}
+	s.updates <- fragment
+
+	results := make(chan ReadResult)
+
+	for _, block := range []bool{true, false} {
+		s.tail.Read(ReadOp{Journal: "a/journal", Blocking: block, Result: results})
+
+		c.Check(<-results, gc.DeepEquals, ReadResult{
+			Offset:    100,
+			WriteHead: 200,
+			Fragment:  fragment,
+		})
+	}
 }
 
 func (s *TailSuite) TestEndOffsetGenerator(c *gc.C) {

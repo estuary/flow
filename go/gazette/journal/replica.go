@@ -1,117 +1,122 @@
-package gazette
+package journal
 
 import (
 	log "github.com/Sirupsen/logrus"
+
 	"github.com/pippio/api-server/cloudstore"
-	"github.com/pippio/api-server/discovery"
 )
 
-const FragmentUpdateBufferSize = 10
-
-type TrackedJournal struct {
-	name string
-
+// Replica manages journal components required to serve brokered writes,
+// replications, and reads. A Replica instance is capable of switching roles
+// at any time (and multiple times), from a pure replica which may serve
+// replication requests only, to a broker of the journal.
+type Replica struct {
+	journal Name
+	// Token representing this Replica's current understanding of the overall
+	// topology of the journal. Replication requests are verified against this
+	// token, to ensure that all replicas involved agree on a consistent
+	// topology for a transaction.
 	currentRouteToken string
-	isCurrentBroker   bool
-
-	// Written to by |index| and |head|, and consumed by |tail|.
+	// Whether this Replica is currently acting as the journal broker.
+	isCurrentBroker bool
+	// Fragment updates are written into |updates| by |index| and |head|,
+	// and are consumed by |tail|.
 	updates chan Fragment
-
-	index  *IndexWatcher
-	tail   *Tail
-	head   *Head
+	// Watches the long-term storage location for newly available fragments.
+	index *IndexWatcher
+	// Serves fragment reads.
+	tail *Tail
+	// Serves replicated writes.
+	head *Head
+	// Brokers transactions which result in replicated writes to the journal.
 	broker *Broker
 }
 
-func NewTrackedJournal(name, directory string, persister fragmentPersister,
-	cfs cloudstore.FileSystem) *TrackedJournal {
+func NewReplica(journal Name, localDir string, persister FragmentPersister,
+	cfs cloudstore.FileSystem) *Replica {
 
-	updates := make(chan Fragment, FragmentUpdateBufferSize)
-	j := &TrackedJournal{
-		name:    name,
+	updates := make(chan Fragment, 1)
+	r := &Replica{
+		journal: journal,
 		updates: updates,
-		index:   NewIndexWatcher(name, cfs, updates).StartWatchingIndex(),
-		tail:    NewTail(name, updates).StartServingOps(),
-		head:    NewHead(name, directory, persister, updates),
-		broker:  NewBroker(name),
+		index:   NewIndexWatcher(journal, cfs, updates).StartWatchingIndex(),
+		tail:    NewTail(journal, updates).StartServingOps(),
+		head:    NewHead(journal, localDir, persister, updates),
+		broker:  NewBroker(journal),
 	}
 
 	// Defer writes until local fragments & the remote index are fully loaded.
 	go func() {
-		for _, f := range LocalFragments(directory, name) {
+		for _, f := range LocalFragments(localDir, journal) {
 			updates <- f
 		}
-		j.index.WaitForInitialLoad()
+		r.index.WaitForInitialLoad()
 
-		log.WithField("journal", name).Info("starting head and broker")
+		log.WithField("journal", journal).Info("starting head and broker")
 
-		j.head.StartServingOps(j.WriteHead())
-		j.broker.StartServingOps(j.WriteHead())
+		r.head.StartServingOps(r.tail.EndOffset())
+		r.broker.StartServingOps(r.tail.EndOffset())
 	}()
 
-	return j
+	return r
 }
 
-func (j *TrackedJournal) Append(op AppendOp) {
-	if !j.isCurrentBroker {
+func (r *Replica) Append(op AppendOp) {
+	if !r.isCurrentBroker {
 		op.Result <- ErrNotBroker
 	} else {
-		j.broker.Append(op)
+		r.broker.Append(op)
 	}
 }
 
-func (j *TrackedJournal) Replicate(op ReplicateOp) {
-	if op.RouteToken != j.currentRouteToken {
+func (r *Replica) Replicate(op ReplicateOp) {
+	if op.RouteToken != r.currentRouteToken {
 		op.Result <- ReplicateResult{Error: ErrWrongRouteToken}
 	} else {
-		j.head.Replicate(op)
+		r.head.Replicate(op)
 	}
 }
 
-func (j *TrackedJournal) Read(op ReadOp) {
-	j.tail.Read(op)
+func (r *Replica) Read(op ReadOp) {
+	r.index.WaitForInitialLoad()
+	r.tail.Read(op)
 }
 
-func (j *TrackedJournal) WriteHead() int64 {
-	return j.tail.EndOffset()
-}
+// Switch the Replica into pure-replica mode. New replication requests will be
+// verified against expected |routeToken|.
+func (r *Replica) StartReplicating(routeToken string) {
+	r.currentRouteToken = routeToken
+	r.isCurrentBroker = false
 
-func (j *TrackedJournal) StartReplicating(routeToken string) {
-	j.currentRouteToken = routeToken
-	j.isCurrentBroker = false
-
-	log.WithFields(log.Fields{"journal": j.name, "route": routeToken}).
+	log.WithFields(log.Fields{"journal": r.journal, "route": routeToken}).
 		Info("now replicating")
 }
 
-func (j *TrackedJournal) StartBrokeringWithPeers(routeToken string,
-	peers []*discovery.Endpoint) {
+// Switch the Replica into broker mode. Appends will be brokered to |peers| with
+// the topology captured by |routeToken|.
+func (r *Replica) StartBrokeringWithPeers(routeToken string, peers []Replicator) {
+	r.currentRouteToken = routeToken
+	r.isCurrentBroker = true
 
-	j.currentRouteToken = routeToken
-	j.isCurrentBroker = true
-
-	log.WithFields(log.Fields{"journal": j.name, "route": routeToken}).
+	log.WithFields(log.Fields{"journal": r.journal, "route": routeToken}).
 		Info("now brokering")
 
 	var config BrokerConfig
 	config.RouteToken = routeToken
-	config.WriteHead = j.WriteHead()
+	config.WriteHead = r.tail.EndOffset()
 
-	config.Replicas = append(config.Replicas, j.head)
-	for _, ep := range peers {
-		config.Replicas = append(config.Replicas, NewReplicateClient(ep))
-	}
-	j.broker.UpdateConfig(config)
+	config.Replicas = append(peers, r.head)
+	r.broker.UpdateConfig(config)
 }
 
-func (j *TrackedJournal) Shutdown() {
-	log.WithField("journal", j.name).Info("beginning journal shutdown")
+func (r *Replica) Shutdown() {
+	log.WithField("journal", r.journal).Info("beginning journal shutdown")
 	go func() {
-		j.broker.Stop()
-		j.head.Stop()
-		j.index.Stop()
-		close(j.updates)
-		j.tail.Stop()
-		log.WithField("journal", j.name).Info("completed journal shutdown")
+		r.broker.Stop()
+		r.head.Stop()
+		r.index.Stop()
+		close(r.updates)
+		r.tail.Stop()
+		log.WithField("journal", r.journal).Info("completed journal shutdown")
 	}()
 }

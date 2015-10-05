@@ -1,140 +1,120 @@
 package gazette
 
 import (
-	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/discovery"
 	"sync"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
 )
 
-const (
-	MembersPrefix = "members/"
-)
+const MembersPrefix = "members/"
 
-type DispatchedJournal interface {
-	Read(ReadOp)
-	Replicate(ReplicateOp)
-	Append(AppendOp)
-	WriteHead() int64
-
-	// Journal lifecycle transitions.
-	StartBrokeringWithPeers(routeToken string, peers []*discovery.Endpoint)
-	StartReplicating(routeToken string)
-	Shutdown()
-}
-
-type dispatcherContext interface {
-	CreateReplica(journal, routeToken string) DispatchedJournal
-
-	CreateBroker(journal, routeToken string,
-		peers []*discovery.Endpoint) DispatchedJournal
-}
-
-type dispatcher struct {
-	context       dispatcherContext
-	journals      map[string]DispatchedJournal
+type Router struct {
+	// Builder of new Replica instances.
+	factory ReplicaFactory
+	// Static routing key of this server process.
 	localRouteKey string
-	router        discovery.HRWRouter
-
-	// Guards |journals| and |router|.
+	// Index of initialized Replica instances.
+	replicas map[journal.Name]JournalReplica
+	// Router of journal names to responsible server processes.
+	router discovery.HRWRouter
+	// Guards access to |replicas| and |router|.
 	mu sync.Mutex
 }
 
-func NewDispatcher(kvs *discovery.KeyValueService,
-	context dispatcherContext,
-	localRouteKey string,
-	replicaCount int) *dispatcher {
-	d := &dispatcher{
-		context:       context,
-		journals:      make(map[string]DispatchedJournal),
+func NewRouter(kvs *discovery.KeyValueService, factory ReplicaFactory,
+	localRouteKey string, replicaCount int) *Router {
+
+	r := &Router{
+		factory:       factory,
 		localRouteKey: localRouteKey,
+		replicas:      make(map[journal.Name]JournalReplica),
 	}
-	d.router = discovery.NewHRWRouter(replicaCount, d.onRouteUpdate)
-	kvs.AddObserver(MembersPrefix, d.onMembershipChange)
-	return d
+	r.router = discovery.NewHRWRouter(replicaCount, r.onRouteUpdate)
+
+	// Receive continous notifications of topology changes which affect routing.
+	kvs.AddObserver(MembersPrefix, r.onMembershipChange)
+	return r
 }
 
-func (d *dispatcher) DispatchRead(op ReadOp) {
-	d.mu.Lock()
-	journal := d.obtainJournal(op.Journal)
-	d.mu.Unlock()
+func (r *Router) Read(op journal.ReadOp) {
+	replica := r.obtainReplica(op.Journal)
 
-	if journal == nil {
-		op.Result <- ReadResult{Error: ErrNotReplica}
+	if replica == nil {
+		op.Result <- journal.ReadResult{Error: journal.ErrNotReplica}
 	} else {
-		journal.Read(op)
+		replica.Read(op)
 	}
 }
 
-func (d *dispatcher) DispatchReplicate(op ReplicateOp) {
-	d.mu.Lock()
-	journal := d.obtainJournal(op.Journal)
-	d.mu.Unlock()
+func (r *Router) Replicate(op journal.ReplicateOp) {
+	replica := r.obtainReplica(op.Journal)
 
-	if journal == nil {
-		op.Result <- ReplicateResult{Error: ErrNotReplica}
+	if replica == nil {
+		op.Result <- journal.ReplicateResult{Error: journal.ErrNotReplica}
 	} else {
-		journal.Replicate(op)
+		replica.Replicate(op)
 	}
 }
 
-func (d *dispatcher) DispatchAppend(op AppendOp) {
-	d.mu.Lock()
-	journal := d.obtainJournal(op.Journal)
-	d.mu.Unlock()
+func (r *Router) Append(op journal.AppendOp) {
+	replica := r.obtainReplica(op.Journal)
 
-	if journal == nil {
-		op.Result <- ErrNotBroker
+	if replica == nil {
+		op.Result <- journal.ErrNotBroker
 	} else {
-		journal.Append(op)
+		replica.Append(op)
 	}
 }
 
-func (d *dispatcher) WriteHead(journalName string) int64 {
-	d.mu.Lock()
-	journal, ok := d.journals[journalName]
-	d.mu.Unlock()
+// Retrieves or creates a new Replia for |name|, iff this router is responsible
+// for journal |name|.
+func (r *Router) obtainReplica(name journal.Name) JournalReplica {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	if !ok {
-		return -1
-	} else {
-		return journal.WriteHead()
-	}
-}
-
-func (d *dispatcher) obtainJournal(name string) DispatchedJournal {
-	journal, ok := d.journals[name]
+	replica, ok := r.replicas[name]
 	if ok {
-		return journal
+		return replica
 	}
-	routes := d.router.Route(name)
-	token := d.routeToken(routes)
+	routes := r.router.Route(name.String())
+	token := routeToken(routes)
 
-	if d.isBroker(routes) {
-		journal = d.context.CreateBroker(name, token, d.peers(routes))
-	} else if d.isReplica(routes) {
-		journal = d.context.CreateReplica(name, token)
+	if isBroker(r.localRouteKey, routes) {
+		replica = r.factory.NewReplica(name)
+		replica.StartBrokeringWithPeers(token, peers(r.localRouteKey, routes))
+	} else if isReplica(r.localRouteKey, routes) {
+		replica = r.factory.NewReplica(name)
+		replica.StartReplicating(token)
 	} else {
 		return nil
 	}
-	d.journals[name] = journal
-	d.router.Track(name, routes)
-	return journal
+	// Arrange to observe updates of |name|'s routing within the server topology.
+	r.router.Track(name.String(), routes)
+
+	r.replicas[name] = replica
+	return replica
 }
 
-func (d *dispatcher) isBroker(routes []discovery.HRWRoute) bool {
-	return len(routes) != 0 && routes[0].Key == d.localRouteKey
+// |key| is a broker if it is index 0 in |routes|.
+func isBroker(key string, routes []discovery.HRWRoute) bool {
+	return len(routes) != 0 && routes[0].Key == key
 }
 
-func (d *dispatcher) isReplica(routes []discovery.HRWRoute) bool {
+// |key| is a replica if it appears in |routes|.
+func isReplica(key string, routes []discovery.HRWRoute) bool {
 	for _, r := range routes {
-		if r.Key == d.localRouteKey {
+		if r.Key == key {
 			return true
 		}
 	}
 	return false
 }
 
-func (d *dispatcher) routeToken(routes []discovery.HRWRoute) string {
+// Composes an opaque token which captures the topology described in |routes|.
+func routeToken(routes []discovery.HRWRoute) string {
 	var token string
 	for i, r := range routes {
 		if i == 0 {
@@ -146,49 +126,54 @@ func (d *dispatcher) routeToken(routes []discovery.HRWRoute) string {
 	return token
 }
 
-func (d *dispatcher) peers(routes []discovery.HRWRoute) []*discovery.Endpoint {
-	peers := make([]*discovery.Endpoint, 0, len(routes)-1)
+// Builds a ReplicateClient for each remote route (not matching |localKey|).
+func peers(localKey string, routes []discovery.HRWRoute) []journal.Replicator {
+	peers := make([]journal.Replicator, 0, len(routes)-1)
 	for _, r := range routes {
-		if r.Key == d.localRouteKey {
+		if r.Key == localKey {
 			continue
 		}
-		peers = append(peers, r.Value.(*discovery.Endpoint))
+		peers = append(peers, NewReplicateClient(r.Value.(*discovery.Endpoint)))
 	}
 	return peers
 }
 
-func (d *dispatcher) onMembershipChange(members, old, new discovery.KeyValues) {
-	// Lock because we're called from EtcdService's goroutine.
-	d.mu.Lock()
-	d.router.RebuildRoutes(members, old, new)
-	d.mu.Unlock()
+func (r *Router) onMembershipChange(members, old, new discovery.KeyValues) {
+	// Note that we're called from EtcdService's goroutine.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.router.RebuildRoutes(members, old, new)
 }
 
-func (d *dispatcher) onRouteUpdate(journal string,
+func (r *Router) onRouteUpdate(journalName string,
 	oldRoutes, newRoutes []discovery.HRWRoute) {
 	// Called from within onMembershipChange(), so we're already locked.
+	name := journal.Name(journalName)
 
-	if !d.isReplica(newRoutes) {
+	if !isReplica(r.localRouteKey, newRoutes) {
 		// We're no longer responsible for this journal.
-		if d.isBroker(oldRoutes) {
+		if isBroker(r.localRouteKey, oldRoutes) {
 			log.WithFields(log.Fields{
 				"oldRoutes": oldRoutes,
 				"newRoutes": newRoutes,
-				"journal":   journal,
+				"journal":   name,
 			}).Error("was broker, now not even replica!")
 		}
-		d.journals[journal].Shutdown()
+		r.replicas[name].Shutdown()
 
-		d.router.Drop(journal)
-		delete(d.journals, journal)
+		r.router.Drop(journalName)
+		delete(r.replicas, name)
 		return
 	}
 
-	if d.isBroker(newRoutes) {
-		d.journals[journal].StartBrokeringWithPeers(d.routeToken(newRoutes),
-			d.peers(newRoutes))
+	newToken := routeToken(newRoutes)
+
+	if isBroker(r.localRouteKey, newRoutes) {
+		r.replicas[name].StartBrokeringWithPeers(newToken,
+			peers(r.localRouteKey, newRoutes))
 	} else {
-		d.journals[journal].StartReplicating(d.routeToken(newRoutes))
+		r.replicas[name].StartReplicating(newToken)
 	}
 	return
 }

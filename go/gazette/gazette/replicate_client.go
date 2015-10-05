@@ -18,11 +18,14 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
 )
 
 const (
-	CommitDeltaHeader = "X-Commit-Delta"
-	WriteHeadHeader   = "X-Write-Head"
+	CommitDeltaHeader      = "X-Commit-Delta"
+	FragmentNameHeader     = "X-Fragment-Name"
+	FragmentLocationHeader = "X-Fragment-Location"
+	WriteHeadHeader        = "X-Write-Head"
 
 	ReplicateClientIdlePoolSize = 6
 )
@@ -61,18 +64,18 @@ func NewReplicateClient(ep *discovery.Endpoint) ReplicateClient {
 	}
 }
 
-func (c ReplicateClient) Replicate(op ReplicateOp) {
+func (c ReplicateClient) Replicate(op journal.ReplicateOp) {
 	transaction := replicaClientTransaction{client: c}
 	go transaction.start(op)
 }
 
-func (t *replicaClientTransaction) start(op ReplicateOp) {
+func (t *replicaClientTransaction) start(op journal.ReplicateOp) {
 	conn, err := t.takeConn()
 	if err != nil {
-		op.Result <- ReplicateResult{Error: err}
+		op.Result <- journal.ReplicateResult{Error: err}
 		return
 	}
-	req, _ := t.client.endpoint.NewHTTPRequest("REPLICATE", "/"+op.Journal, nil)
+	req, _ := t.client.endpoint.NewHTTPRequest("REPLICATE", "/"+op.Journal.String(), nil)
 	queryArgs := url.Values{
 		"newSpool":   {strconv.FormatBool(op.NewSpool)},
 		"writeHead":  {strconv.FormatInt(op.WriteHead, 10)},
@@ -84,13 +87,13 @@ func (t *replicaClientTransaction) start(op ReplicateOp) {
 
 	reqBytes, err := httputil.DumpRequest(req, false)
 	if err != nil {
-		op.Result <- ReplicateResult{Error: err}
+		op.Result <- journal.ReplicateResult{Error: err}
 		return
 	}
 	// Flush the replication request to the peer.
 	conn.buf.Write(reqBytes)
 	if err = conn.buf.Flush(); err != nil {
-		op.Result <- ReplicateResult{Error: err}
+		op.Result <- journal.ReplicateResult{Error: err}
 		return
 	}
 	// Wait up to a minute for a 100-continue response.
@@ -98,7 +101,7 @@ func (t *replicaClientTransaction) start(op ReplicateOp) {
 	conn.raw.SetReadDeadline(time.Now().Add(time.Minute))
 	resp, err := http.ReadResponse(conn.buf.Reader, req)
 	if err != nil {
-		op.Result <- ReplicateResult{Error: err}
+		op.Result <- journal.ReplicateResult{Error: err}
 		return
 	} else if resp.StatusCode != http.StatusContinue {
 		var body bytes.Buffer
@@ -118,7 +121,7 @@ func (t *replicaClientTransaction) start(op ReplicateOp) {
 			// Connection is still okay. Retain for the next round.
 			t.putConn(conn)
 		}
-		op.Result <- ReplicateResult{Error: errors.New(body.String()),
+		op.Result <- journal.ReplicateResult{Error: errors.New(body.String()),
 			ErrorWriteHead: remoteWriteHead}
 		return
 	}
@@ -128,7 +131,7 @@ func (t *replicaClientTransaction) start(op ReplicateOp) {
 	t.conn = conn
 	t.request = req
 
-	op.Result <- ReplicateResult{Writer: t}
+	op.Result <- journal.ReplicateResult{Writer: t}
 	return
 }
 

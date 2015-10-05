@@ -7,18 +7,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"testing"
 
 	gc "github.com/go-check/check"
 	"github.com/gorilla/mux"
+
+	"github.com/pippio/api-server/cloudstore"
+	. "github.com/pippio/gazette/journal"
 )
 
 type ReadAPISuite struct {
 	localDir string
 	spool    *Spool
 	mux      *mux.Router
+	cfs      cloudstore.FileSystem
 
-	readCallbacks      []func(op ReadOp)
-	writeHeadCallbacks []func(journal string) int64
+	readCallbacks []func(op ReadOp)
 }
 
 func (s *ReadAPISuite) SetUpSuite(c *gc.C) {
@@ -27,7 +31,7 @@ func (s *ReadAPISuite) SetUpSuite(c *gc.C) {
 	s.localDir, err = ioutil.TempDir("", "read-api-suite")
 	c.Assert(err, gc.IsNil)
 
-	s.spool, err = NewSpool(s.localDir, "journal/name", 12345)
+	s.spool, err = NewSpool(s.localDir, Mark{"journal/name", 12345})
 	c.Check(err, gc.IsNil)
 
 	n, err := s.spool.Write([]byte("XXXXXexpected read fixture"))
@@ -36,57 +40,45 @@ func (s *ReadAPISuite) SetUpSuite(c *gc.C) {
 	c.Check(s.spool.Commit(int64(n)), gc.IsNil)
 
 	s.mux = mux.NewRouter()
-	NewReadAPI(s, nil).Register(s.mux)
+	s.cfs = cloudstore.NewTmpFileSystem()
+	NewReadAPI(s, s.cfs).Register(s.mux)
 }
 
 func (s *ReadAPISuite) TearDownTest(c *gc.C) {
 	// All callbacks were consumed.
 	c.Check(s.readCallbacks, gc.HasLen, 0)
-	c.Check(s.writeHeadCallbacks, gc.HasLen, 0)
 }
 
 func (s *ReadAPISuite) TearDownSuite(c *gc.C) {
+	s.cfs.Close()
 	os.RemoveAll(s.localDir)
-}
-
-func (s *ReadAPISuite) TestGetWriteOffset(c *gc.C) {
-	req, _ := http.NewRequest("HEAD", "/journal/name", nil)
-	w := httptest.NewRecorder()
-
-	s.writeHeadCallbacks = []func(string) int64{
-		func(journal string) int64 {
-			c.Check(journal, gc.Equals, "journal/name")
-			return 12350
-		},
-	}
-	s.mux.ServeHTTP(w, req)
-
-	c.Check(w.Code, gc.Equals, http.StatusPartialContent)
-	c.Check(w.HeaderMap.Get(WriteHeadHeader), gc.Equals, fmt.Sprintf("12350"))
 }
 
 func (s *ReadAPISuite) TestNonBlockingSuccess(c *gc.C) {
 	req, _ := http.NewRequest("GET", "/journal/name?offset=12350", nil)
 	w := httptest.NewRecorder()
 
-	s.writeHeadCallbacks = []func(string) int64{
-		func(journal string) int64 {
-			c.Check(journal, gc.Equals, "journal/name")
-			return 12350
-		},
-	}
 	s.readCallbacks = []func(ReadOp){
 		func(op ReadOp) {
 			c.Check(op.Blocking, gc.Equals, false)
-			c.Check(op.Journal, gc.Equals, "journal/name")
+			c.Check(op.Journal, gc.Equals, Name("journal/name"))
 			c.Check(op.Offset, gc.Equals, int64(12350))
 
-			op.Result <- ReadResult{Fragment: s.spool.Fragment}
+			op.Result <- ReadResult{
+				Offset:    12350,
+				WriteHead: 12371,
+				Fragment:  s.spool.Fragment,
+			}
 		},
 		func(op ReadOp) {
-			c.Check(op.Offset, gc.Equals, int64(12371)) // Updated offset.
-
-			op.Result <- ReadResult{Error: ErrNotYetAvailable}
+			// Second read. Expect the offset reflects the previous read.
+			c.Check(op.Offset, gc.Equals, int64(12371))
+			// Return an error to break the read loop.
+			op.Result <- ReadResult{
+				Error:     ErrNotYetAvailable,
+				Offset:    12371,
+				WriteHead: 12371,
+			}
 		},
 	}
 	s.mux.ServeHTTP(w, req)
@@ -94,6 +86,9 @@ func (s *ReadAPISuite) TestNonBlockingSuccess(c *gc.C) {
 	c.Check(w.Code, gc.Equals, http.StatusPartialContent)
 	c.Check(w.HeaderMap.Get("Content-Range"), gc.Equals,
 		fmt.Sprintf("bytes 12350-%v/%v", math.MaxInt64, math.MaxInt64))
+	c.Check(w.HeaderMap.Get(WriteHeadHeader), gc.Equals, "12371")
+	c.Check(w.HeaderMap.Get(FragmentNameHeader), gc.Equals,
+		"0000000000003039-0000000000003053-1c0a8050f4bf53c7846c703b909ff866b1eddbd0")
 	c.Check(w.Body.String(), gc.Equals, "expected read fixture")
 }
 
@@ -101,19 +96,17 @@ func (s *ReadAPISuite) TestBlockingSuccess(c *gc.C) {
 	req, _ := http.NewRequest("GET", "/journal/name?offset=12350&block=true", nil)
 	w := httptest.NewRecorder()
 
-	s.writeHeadCallbacks = []func(string) int64{
-		func(journal string) int64 {
-			c.Check(journal, gc.Equals, "journal/name")
-			return 12350
-		},
-	}
 	s.readCallbacks = []func(ReadOp){
 		func(op ReadOp) {
 			// First probe is non-blocking. Pretend read isn't available.
 			c.Check(op.Blocking, gc.Equals, false)
 			c.Check(op.Offset, gc.Equals, int64(12350))
 
-			op.Result <- ReadResult{Error: ErrNotYetAvailable}
+			op.Result <- ReadResult{
+				Error:     ErrNotYetAvailable,
+				Offset:    12350,
+				WriteHead: 12350,
+			}
 		},
 		func(op ReadOp) {
 			// Second probe is blocking.
@@ -125,13 +118,18 @@ func (s *ReadAPISuite) TestBlockingSuccess(c *gc.C) {
 			c.Check(w.Code, gc.Equals, http.StatusPartialContent)
 			c.Check(w.HeaderMap.Get("Content-Range"), gc.Equals,
 				fmt.Sprintf("bytes 12350-%v/%v", math.MaxInt64, math.MaxInt64))
+			c.Check(w.HeaderMap.Get(WriteHeadHeader), gc.Equals, "12350")
+			// Fragment information was omitted, as it wasn't available
+			// when headers were written.
 
-			op.Result <- ReadResult{Fragment: s.spool.Fragment}
+			op.Result <- ReadResult{
+				Offset:    12350,
+				WriteHead: 12371,
+				Fragment:  s.spool.Fragment,
+			}
 		},
 		func(op ReadOp) {
-			c.Check(op.Offset, gc.Equals, int64(12371))
-
-			// Cluster change: blocking read is server-closed.
+			// Simulate a cluster change: expect blocking read is server-closed.
 			op.Result <- ReadResult{Error: ErrNotReplica}
 		},
 	}
@@ -144,23 +142,39 @@ func (s *ReadAPISuite) TestBlockingReadFromHead(c *gc.C) {
 	req, _ := http.NewRequest("GET", "/journal/name?offset=-1&block=true", nil)
 	w := httptest.NewRecorder()
 
-	s.writeHeadCallbacks = []func(string) int64{
-		func(journal string) int64 {
-			c.Check(journal, gc.Equals, "journal/name")
-			return 12350
-		},
-	}
 	s.readCallbacks = []func(ReadOp){
 		func(op ReadOp) {
+			// First probe is non-blocking. Return the current write head.
 			c.Check(op.Blocking, gc.Equals, false)
-			c.Check(op.Offset, gc.Equals, int64(12350))
+			c.Check(op.Offset, gc.Equals, int64(-1))
 
-			op.Result <- ReadResult{Fragment: s.spool.Fragment}
+			op.Result <- ReadResult{
+				Error:     ErrNotYetAvailable,
+				Offset:    12350,
+				WriteHead: 12350,
+			}
 		},
 		func(op ReadOp) {
-			c.Check(op.Offset, gc.Equals, int64(12371))
+			// Second read is blocking, with the previously returned offset.
+			c.Check(op.Blocking, gc.Equals, true)
+			c.Check(op.Offset, gc.Equals, int64(-1))
 
-			// Cluster change: blocking read is server-closed.
+			// Expect headers have already been flushed to the client.
+			c.Check(w.Flushed, gc.Equals, true)
+			c.Check(w.Code, gc.Equals, http.StatusPartialContent)
+
+			c.Check(w.HeaderMap.Get("Content-Range"), gc.Equals,
+				fmt.Sprintf("bytes 12350-%v/%v", math.MaxInt64, math.MaxInt64))
+			c.Check(w.HeaderMap.Get(WriteHeadHeader), gc.Equals, "12350")
+
+			op.Result <- ReadResult{
+				Offset:    12350,
+				WriteHead: 12371,
+				Fragment:  s.spool.Fragment,
+			}
+		},
+		func(op ReadOp) {
+			// Simulate a cluster change: expect blocking read is server-closed.
 			op.Result <- ReadResult{Error: ErrNotReplica}
 		},
 	}
@@ -169,24 +183,54 @@ func (s *ReadAPISuite) TestBlockingReadFromHead(c *gc.C) {
 	c.Check(w.Body.String(), gc.Equals, "expected read fixture")
 }
 
+func (s *ReadAPISuite) TestHEADWithRemoteFragment(c *gc.C) {
+	req, _ := http.NewRequest("HEAD", "/journal/name?offset=12350", nil)
+	w := httptest.NewRecorder()
+
+	s.readCallbacks = []func(ReadOp){
+		func(op ReadOp) {
+			c.Check(op.Blocking, gc.Equals, false)
+			c.Check(op.Offset, gc.Equals, int64(12350))
+
+			op.Result <- ReadResult{
+				Offset:    12350,
+				WriteHead: 12371,
+				Fragment: Fragment{
+					Journal: "journal/name",
+					Begin:   12350,
+					End:     12371,
+				},
+			}
+		},
+	}
+	s.mux.ServeHTTP(w, req)
+
+	c.Check(w.Code, gc.Equals, http.StatusPartialContent)
+	c.Check(w.HeaderMap.Get("Content-Range"), gc.Equals,
+		fmt.Sprintf("bytes 12350-%v/%v", math.MaxInt64, math.MaxInt64))
+	c.Check(w.HeaderMap.Get(WriteHeadHeader), gc.Equals, "12371")
+	c.Check(w.HeaderMap.Get(FragmentNameHeader), gc.Equals,
+		"000000000000303e-0000000000003053-0000000000000000000000000000000000000000")
+	c.Check(w.HeaderMap.Get(FragmentLocationHeader), gc.Matches,
+		"file:///.*/journal/name/000000000000303e-0000000000003053-"+
+			"0000000000000000000000000000000000000000")
+	c.Check(w.Body.String(), gc.Equals, "")
+}
+
 func (s *ReadAPISuite) TestInvalidArguments(c *gc.C) {
-	req, _ := http.NewRequest("GET", "/journal/name?offset=zxvf&foobar=123", nil)
+	req, _ := http.NewRequest("GET", "/journal/name?offset=zxvf", nil)
 	w := httptest.NewRecorder()
 
 	s.mux.ServeHTTP(w, req)
 	c.Check(w.Code, gc.Equals, http.StatusBadRequest)
+	c.Check(w.Body.String(), gc.Equals,
+		"schema: error converting value for \"offset\"\n")
 }
 
 func (s *ReadAPISuite) TestNotReplica(c *gc.C) {
 	req, _ := http.NewRequest("GET", "/journal/name?offset=12350", nil)
 	w := httptest.NewRecorder()
 
-	s.writeHeadCallbacks = []func(string) int64{
-		func(journal string) int64 {
-			c.Check(journal, gc.Equals, "journal/name")
-			return 12350
-		},
-	}
 	s.readCallbacks = []func(ReadOp){
 		func(op ReadOp) {
 			op.Result <- ReadResult{Error: ErrNotReplica}
@@ -202,12 +246,6 @@ func (s *ReadAPISuite) TestInternalError(c *gc.C) {
 	req, _ := http.NewRequest("GET", "/journal/name?offset=12350", nil)
 	w := httptest.NewRecorder()
 
-	s.writeHeadCallbacks = []func(string) int64{
-		func(journal string) int64 {
-			c.Check(journal, gc.Equals, "journal/name")
-			return 12350
-		},
-	}
 	s.readCallbacks = []func(ReadOp){
 		func(op ReadOp) {
 			op.Result <- ReadResult{Error: ErrWrongRouteToken}
@@ -219,16 +257,12 @@ func (s *ReadAPISuite) TestInternalError(c *gc.C) {
 	c.Check(w.Body.String(), gc.Equals, "wrong route token\n")
 }
 
-// Implementation of headAndReadDispatcher.
-func (s *ReadAPISuite) WriteHead(journal string) int64 {
-	result := s.writeHeadCallbacks[0](journal)
-	s.writeHeadCallbacks = s.writeHeadCallbacks[1:]
-	return result
-}
-
-func (s *ReadAPISuite) DispatchRead(op ReadOp) {
+// Implementation of ReadOpHandler.
+func (s *ReadAPISuite) Read(op ReadOp) {
 	s.readCallbacks[0](op)
 	s.readCallbacks = s.readCallbacks[1:]
 }
 
 var _ = gc.Suite(&ReadAPISuite{})
+
+func Test(t *testing.T) { gc.TestingT(t) }

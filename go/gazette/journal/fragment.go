@@ -1,4 +1,4 @@
-package gazette
+package journal
 
 import (
 	"crypto/sha1"
@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -19,7 +21,7 @@ import (
 )
 
 type Fragment struct {
-	Journal    string
+	Journal    Name
 	Begin, End int64
 	Sum        [sha1.Size]byte
 
@@ -27,22 +29,11 @@ type Fragment struct {
 	File FragmentFile
 }
 
-// Portions of os.File interface used by Fragment. An interface is used
-// (rather than directly using *os.File) in support of test mocks.
-type FragmentFile interface {
-	Close() error
-	Read(p []byte) (n int, err error)
-	ReadAt(p []byte, off int64) (n int, err error)
-	Seek(offset int64, whence int) (int64, error)
-	Sync() error
-	Write(p []byte) (n int, err error)
-}
-
 func (f Fragment) ContentName() string {
 	return fmt.Sprintf("%016x-%016x-%x", f.Begin, f.End, f.Sum)
 }
 func (f *Fragment) ContentPath() string {
-	return f.Journal + "/" + f.ContentName()
+	return f.Journal.String() + "/" + f.ContentName()
 }
 
 func (f Fragment) Size() int64 {
@@ -52,8 +43,8 @@ func (f Fragment) Size() int64 {
 func (f Fragment) ReaderFromOffset(offset int64,
 	cfs cloudstore.FileSystem) (io.ReadCloser, error) {
 
-	if f.File != nil {
-		return ioutil.NopCloser(&boundedReaderAt{
+	if f.IsLocal() {
+		return ioutil.NopCloser(&BoundedReaderAt{
 			f.File, f.End - offset, offset - f.Begin}), nil
 	}
 	file, err := cfs.Open(f.ContentPath())
@@ -64,7 +55,18 @@ func (f Fragment) ReaderFromOffset(offset int64,
 	return file, err
 }
 
-func ParseFragment(journal, contentName string) (Fragment, error) {
+func (f Fragment) IsLocal() bool {
+	return f.File != nil
+}
+
+func (f Fragment) AsDirectURL(cfs cloudstore.FileSystem) (*url.URL, error) {
+	if f.IsLocal() {
+		return nil, errors.New("not a remote fragment")
+	}
+	return cfs.ToURL(f.ContentPath(), "GET", time.Minute)
+}
+
+func ParseFragment(journal Name, contentName string) (Fragment, error) {
 	var r Fragment
 	var sum []byte
 	var err error
@@ -86,7 +88,7 @@ func ParseFragment(journal, contentName string) (Fragment, error) {
 	return r, err
 }
 
-func LocalFragments(directory, journal string) []Fragment {
+func LocalFragments(directory string, journal Name) []Fragment {
 	var out []Fragment
 
 	walk := func(path string, info os.FileInfo, err error) error {
@@ -97,7 +99,7 @@ func LocalFragments(directory, journal string) []Fragment {
 			return nil
 		}
 		relative, _ := filepath.Rel(directory, path)
-		journal := filepath.Dir(relative)
+		journal := Name(filepath.Dir(relative))
 		contentName := filepath.Base(path)
 
 		fragment, err := ParseFragment(journal, contentName)
@@ -120,7 +122,7 @@ func LocalFragments(directory, journal string) []Fragment {
 		out = append(out, fragment)
 		return nil
 	}
-	filepath.Walk(filepath.Join(directory, journal), walk)
+	filepath.Walk(filepath.Join(directory, journal.String()), walk)
 	return out
 }
 

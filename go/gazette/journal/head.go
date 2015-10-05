@@ -1,4 +1,4 @@
-package gazette
+package journal
 
 import (
 	log "github.com/Sirupsen/logrus"
@@ -6,13 +6,8 @@ import (
 
 const ReplicateOpBufferSize = 10
 
-// Accepts completed spool fragments for persisting.
-type fragmentPersister interface {
-	Persist(Fragment)
-}
-
 type Head struct {
-	journal   string
+	journal   Name
 	directory string
 
 	replicateOps chan ReplicateOp
@@ -22,14 +17,14 @@ type Head struct {
 	writeHead int64
 	// In-progress spool.
 	spool     *Spool
-	persister fragmentPersister
+	persister FragmentPersister
 	// Notification channel on which committed fragments are sent.
 	updates chan<- Fragment
 
 	stop chan struct{}
 }
 
-func NewHead(journal, directory string, persister fragmentPersister,
+func NewHead(journal Name, directory string, persister FragmentPersister,
 	updates chan<- Fragment) *Head {
 
 	h := &Head{
@@ -94,7 +89,10 @@ func (h *Head) onWrite(write ReplicateOp) ReplicateResult {
 	} else if write.WriteHead > h.writeHead {
 		h.writeHead = write.WriteHead
 	}
-	// Evaluate conditions under which we'll roll a new spool.
+	// Evaluate conditions under which we'll roll a new spool:
+	//  * The Spool encountered an error.
+	//  * The Spool's End isn't our current write head.
+	//  * The broker requested a new spool, and ours is non-empty.
 	if h.spool == nil ||
 		h.spool.err != nil ||
 		h.spool.End != h.writeHead ||
@@ -109,7 +107,7 @@ func (h *Head) onWrite(write ReplicateOp) ReplicateResult {
 			h.persister.Persist(h.spool.Fragment)
 		}
 
-		spool, err := NewSpool(h.directory, h.journal, h.writeHead)
+		spool, err := NewSpool(h.directory, Mark{h.journal, h.writeHead})
 		if err != nil {
 			return ReplicateResult{Error: err}
 		}

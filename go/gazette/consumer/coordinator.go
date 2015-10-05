@@ -1,16 +1,20 @@
-package topic
+package consumer
 
 import (
 	"errors"
 	"fmt"
-	log "github.com/Sirupsen/logrus"
-	"github.com/pippio/api-server/discovery"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+
+	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/topic"
 )
 
 type lockState int
@@ -31,14 +35,14 @@ const (
 
 type consumerContext interface {
 	Name() string
-	Topic() *TopicDescription
+	Topic() *topic.Description
 	Etcd() discovery.EtcdService
 
-	StartConsuming(journal string, offset int64)
-	StopConsuming(journal string) int64
+	StartConsuming(journal.Mark)
+	StopConsuming(journal.Name) int64
 
-	ConsumingJournals() []string
-	ConsumedOffset(journal string) (int64, bool)
+	ConsumingJournals() []journal.Name
+	ConsumedOffset(journal.Name) (int64, bool)
 }
 
 type ConsumerCoordinator struct {
@@ -77,7 +81,7 @@ func NewConsumerCoordinator(ctx consumerContext) (*ConsumerCoordinator, error) {
 	// Track all routed journals of the topic.
 	consumer.router = discovery.NewHRWRouter(1, consumer.onRouteUpdate)
 	for i := 0; i != ctx.Topic().Partitions; i++ {
-		consumer.router.Track(ctx.Topic().Journal(i), []discovery.HRWRoute{})
+		consumer.router.Track(ctx.Topic().Journal(i).String(), []discovery.HRWRoute{})
 	}
 
 	kvs.AddObserver(MembersPrefix, consumer.onMembershipChange)
@@ -124,66 +128,66 @@ func (c *ConsumerCoordinator) convergeConsumer() {
 	c.timer = time.AfterFunc(kConvergenceInterval, c.convergeConsumer)
 }
 
-func (c *ConsumerCoordinator) convergeJournal(journal string) {
-	lockState := c.lockState(journal)
-	ownsJournal := c.ownsJournal(journal)
-	localOffset, isConsuming := c.context.ConsumedOffset(journal)
+func (c *ConsumerCoordinator) convergeJournal(name journal.Name) {
+	lockState := c.lockState(name)
+	ownsJournal := c.ownsJournal(name)
+	localOffset, isConsuming := c.context.ConsumedOffset(name)
 
 	//log.WithFields(log.Fields{"lockState": lockState, "owns": ownsJournal,
 	// "localOffset": localOffset, "isConsuming": isConsuming}).Info("Converge")
 
 	if isConsuming {
 		if !ownsJournal || lockState != lockedSelf {
-			localOffset = c.context.StopConsuming(journal)
+			localOffset = c.context.StopConsuming(name)
 		}
 	} else if ownsJournal && lockState == lockedSelf {
-		c.context.StartConsuming(journal, c.persistedOffset(journal))
+		c.context.StartConsuming(journal.NewMark(name, c.persistedOffset(name)))
 	}
 
 	if lockState == lockedSelf {
-		if isConsuming && localOffset > c.persistedOffset(journal) {
+		if isConsuming && localOffset > c.persistedOffset(name) {
 			// Update consumed journal offset within Etcd.
-			if err := c.context.Etcd().Set(c.basePath()+OffsetsPrefix+journal,
+			if err := c.context.Etcd().Set(c.basePath()+OffsetsPrefix+name.String(),
 				strconv.FormatInt(localOffset, 16), time.Duration(0)); err != nil {
-				log.WithFields(log.Fields{"journal": journal, "err": err}).
+				log.WithFields(log.Fields{"journal": name, "err": err}).
 					Error("failed to set journal offset")
 			}
 		}
 		if ownsJournal {
 			// Update our lock TTL.
-			if err := c.context.Etcd().Update(c.basePath()+LocksPrefix+journal,
+			if err := c.context.Etcd().Update(c.basePath()+LocksPrefix+name.String(),
 				c.localRouteKey, kLockTimeout); err != nil {
-				log.WithFields(log.Fields{"journal": journal, "err": err}).
+				log.WithFields(log.Fields{"journal": name, "err": err}).
 					Error("failed to update journal lock")
 			}
 		} else {
 			// We no longer own the journal. Delete our lock.
-			if err := c.context.Etcd().Delete(c.basePath()+LocksPrefix+journal,
+			if err := c.context.Etcd().Delete(c.basePath()+LocksPrefix+name.String(),
 				false); err != nil {
-				log.WithFields(log.Fields{"journal": journal, "err": err}).
+				log.WithFields(log.Fields{"journal": name, "err": err}).
 					Error("failed to delete journal lock")
 			}
 		}
 	} else if ownsJournal && lockState == notLocked {
 		// Not currently locked, but we own this journal. Attempt to lock.
-		if err := c.context.Etcd().Create(c.basePath()+LocksPrefix+journal,
+		if err := c.context.Etcd().Create(c.basePath()+LocksPrefix+name.String(),
 			c.localRouteKey, kLockTimeout); err != nil {
-			log.WithFields(log.Fields{"journal": journal, "err": err}).
+			log.WithFields(log.Fields{"journal": name, "err": err}).
 				Error("failed to create journal lock")
 		}
 	}
 }
 
-func (c *ConsumerCoordinator) ownsJournal(journal string) bool {
+func (c *ConsumerCoordinator) ownsJournal(name journal.Name) bool {
 	c.routerMu.Lock()
-	routes := c.router.Route(journal)
+	routes := c.router.Route(name.String())
 	c.routerMu.Unlock()
 
 	return len(routes) != 0 && routes[0].Value.(string) == c.localRouteKey
 }
 
-func (c *ConsumerCoordinator) lockState(journal string) lockState {
-	entry, ok := c.kvs.Get(LocksPrefix + journal)
+func (c *ConsumerCoordinator) lockState(name journal.Name) lockState {
+	entry, ok := c.kvs.Get(LocksPrefix + name.String())
 	if !ok {
 		return notLocked
 	} else if entry.Value.(string) == c.localRouteKey {
@@ -193,8 +197,8 @@ func (c *ConsumerCoordinator) lockState(journal string) lockState {
 	}
 }
 
-func (c *ConsumerCoordinator) persistedOffset(journal string) int64 {
-	entry, ok := c.kvs.Get(OffsetsPrefix + journal)
+func (c *ConsumerCoordinator) persistedOffset(name journal.Name) int64 {
+	entry, ok := c.kvs.Get(OffsetsPrefix + name.String())
 	if !ok {
 		return 0
 	} else {
@@ -209,18 +213,18 @@ func (c *ConsumerCoordinator) onMembershipChange(members, old,
 	c.routerMu.Unlock()
 }
 
-func (c *ConsumerCoordinator) onRouteUpdate(journal string, oldRoute,
+func (c *ConsumerCoordinator) onRouteUpdate(journalName string, oldRoute,
 	newRoute []discovery.HRWRoute) {
 	// Called from within onMembershipChange(), so we're already locked.
-	go c.convergeJournal(journal)
+	go c.convergeJournal(journal.Name(journalName))
 }
 
 func (c *ConsumerCoordinator) onLockUpdate(all, old, new discovery.KeyValues) {
 	for _, removed := range old.Difference(new) {
-		go c.convergeJournal(removed.Key[len(LocksPrefix):])
+		go c.convergeJournal(journal.Name(removed.Key[len(LocksPrefix):]))
 	}
 	for _, upsert := range new {
-		go c.convergeJournal(upsert.Key[len(LocksPrefix):])
+		go c.convergeJournal(journal.Name(upsert.Key[len(LocksPrefix):]))
 	}
 }
 

@@ -11,13 +11,14 @@ import (
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/journal"
 )
 
 type PersisterSuite struct {
 	etcd      *discovery.EtcdMemoryService
 	cfs       cloudstore.FileSystem
-	file      *MockFragmentFile
-	fragment  Fragment
+	file      *journal.MockFragmentFile
+	fragment  journal.Fragment
 	persister *Persister
 }
 
@@ -26,8 +27,8 @@ func (s *PersisterSuite) SetUpTest(c *gc.C) {
 	s.etcd.MakeDirectory(PersisterLocksRoot)
 
 	s.cfs = cloudstore.NewTmpFileSystem()
-	s.file = &MockFragmentFile{}
-	s.fragment = Fragment{
+	s.file = &journal.MockFragmentFile{}
+	s.fragment = journal.Fragment{
 		Journal: "a/journal",
 		Begin:   1000,
 		End:     1010,
@@ -109,7 +110,7 @@ func (s *PersisterSuite) TestLockIsAlreadyHeld(c *gc.C) {
 
 func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
 	{
-		c.Assert(s.cfs.MkdirAll(s.fragment.Journal, 0740), gc.IsNil)
+		c.Assert(s.cfs.MkdirAll(s.fragment.Journal.String(), 0740), gc.IsNil)
 		w, err := s.cfs.OpenFile(s.fragment.ContentPath(),
 			os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 		c.Check(err, gc.IsNil)

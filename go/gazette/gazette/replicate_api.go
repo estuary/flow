@@ -1,25 +1,28 @@
 package gazette
 
 import (
-	log "github.com/Sirupsen/logrus"
-	"github.com/gorilla/mux"
-	"github.com/gorilla/schema"
 	"io"
 	"net/http"
 	"strconv"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/schema"
+
+	"github.com/pippio/gazette/journal"
 )
 
 type ReplicateAPI struct {
-	dispatcher *dispatcher
-	decoder    *schema.Decoder
+	handler ReplicateOpHandler
+	decoder *schema.Decoder
 }
 
-func NewReplicateAPI(dispatcher *dispatcher) *ReplicateAPI {
+func NewReplicateAPI(handler ReplicateOpHandler) *ReplicateAPI {
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(false)
 	decoder.SetAliasTag("json")
 
-	return &ReplicateAPI{dispatcher: dispatcher, decoder: decoder}
+	return &ReplicateAPI{handler: handler, decoder: decoder}
 }
 
 func (h *ReplicateAPI) Register(router *mux.Router) {
@@ -27,8 +30,6 @@ func (h *ReplicateAPI) Register(router *mux.Router) {
 }
 
 func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
-	journal := r.URL.Path[1:]
-
 	var schema struct {
 		WriteHead  int64
 		RouteToken string
@@ -42,15 +43,15 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var op = ReplicateOp{
-		Journal:    journal,
+	var op = journal.ReplicateOp{
+		Journal:    journal.Name(r.URL.Path[1:]),
 		RouteToken: schema.RouteToken,
 		WriteHead:  schema.WriteHead,
 		NewSpool:   schema.NewSpool,
-		Result:     make(chan ReplicateResult, 1),
+		Result:     make(chan journal.ReplicateResult, 1),
 	}
 
-	h.dispatcher.DispatchReplicate(op)
+	h.handler.Replicate(op)
 	result := <-op.Result
 
 	if result.Error != nil {
