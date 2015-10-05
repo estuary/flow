@@ -6,6 +6,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
 )
 
@@ -82,8 +83,11 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 		err = decoder.Decode(msg)
 
 		if err != nil {
-			if err != io.EOF {
-				log.WithFields(log.Fields{"mark": mark, "err": err}).Warn("message decode")
+			if err == io.ErrUnexpectedEOF {
+				varz.ObtainCount("gazette", "producer", "UnexpectedEOF").Add(1)
+				time.Sleep(kProducerErrorTimeout)
+			} else if err != io.EOF {
+				log.WithFields(log.Fields{"mark": mark, "err": err}).Error("message decode")
 				time.Sleep(kProducerErrorTimeout)
 			}
 			if err == io.EOF || err == io.ErrUnexpectedEOF {

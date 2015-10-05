@@ -7,6 +7,7 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/coreos/go-etcd/etcd"
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/discovery"
@@ -86,8 +87,11 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 
 	// Attempt to lock this fragment for upload.
 	if err := p.etcd.Create(lockPath, p.routeKey, p.persisterLockTTL); err != nil {
-		log.WithFields(log.Fields{"err": err, "path": fragment.ContentName}).
-			Warn("failed to lock fragment for persisting")
+		// Log if this is not an Etcd "Key already exists" error.
+		if etcdErr, ok := err.(*etcd.EtcdError); !ok || etcdErr.ErrorCode != 105 {
+			log.WithFields(log.Fields{"err": err, "path": fragment.ContentName}).
+				Warn("failed to lock fragment for persisting")
+		}
 		return false
 	}
 	// Arrange to remove the lock on exit.
