@@ -1,0 +1,42 @@
+package recoverylog;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.stringer_all) = true;
+option (gogoproto.goproto_stringer_all) = false;
+
+// Header for file or directory mutations.
+message RecordedOp {
+
+  // Indicates creation of new, empty file |id|.
+  message Alloc {
+    required string id = 1 [(gogoproto.nullable) = false];
+  };
+
+  // Indicates that file |id| has all links removed from the filesystem,
+  // and is eligible for garbage collection.
+  message Dealloc {
+    required string id = 1 [(gogoproto.nullable) = false];
+  };
+
+  // Indicates |length| bytes should be written at |offset| to file |id|.
+  // In a serialization stream, we expect |length| raw bytes of content to
+  // immediately follow this RecordedOp.
+  message Write {
+    required string id = 1 [(gogoproto.nullable) = false];
+
+    // Byte-offset within file to which the write is applied.
+    optional int64 offset = 2 [(gogoproto.nullable) = false];
+
+    // Length of the write.
+    optional int64 length = 3 [(gogoproto.nullable) = false];
+  };
+
+  optional Alloc alloc = 1;
+  optional Dealloc dealloc = 2;
+  optional Write write = 3;
+};
+
