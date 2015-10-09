@@ -2,6 +2,7 @@ package message
 
 import (
 	"io"
+	"net"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -83,20 +84,21 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 		err = decoder.Decode(msg)
 
 		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				varz.ObtainCount("gazette", "producer", "UnexpectedEOF").Add(1)
+			_, isNetErr := err.(net.Error)
+
+			if isNetErr {
+				varz.ObtainCount("gazette", "producer", "NetError").Add(1)
 				time.Sleep(kProducerErrorTimeout)
 			} else if err != io.EOF {
 				log.WithFields(log.Fields{"mark": mark, "err": err}).Error("message decode")
 				time.Sleep(kProducerErrorTimeout)
 			}
-			if err == io.EOF || err == io.ErrUnexpectedEOF {
+
+			// Desync is a special case, in that message decoding did actually
+			// succeed despite the error.
+			if err != ErrDesyncDetected {
 				reader.Close() // |reader| is invalidated and must be re-opened.
 				reader = nil
-			}
-			if err != ErrDesyncDetected {
-				// Desync is a special case, in that message decoding did actually
-				// succeed despite the error.
 				continue
 			}
 		}
