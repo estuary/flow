@@ -21,6 +21,7 @@ type JournalReplica interface {
 	AppendOpHandler
 	ReadOpHandler
 	ReplicateOpHandler
+	IsBroker() bool
 	Shutdown()
 	StartBrokeringWithPeers(routeToken string, peers []journal.Replicator)
 	StartReplicating(routeToken string)

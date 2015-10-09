@@ -29,7 +29,12 @@ func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
 	err := <-op.Result
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		// Return a 404 Not Found with Location header on a routing error.
+		if routeError, ok := err.(RouteError); ok {
+			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
 		r.Body.Close()
 	} else {
 		w.WriteHeader(http.StatusNoContent)

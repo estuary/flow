@@ -82,6 +82,10 @@ func (r *Replica) Read(op ReadOp) {
 	r.tail.Read(op)
 }
 
+func (r *Replica) IsBroker() bool {
+	return r.isCurrentBroker
+}
+
 // Switch the Replica into pure-replica mode. New replication requests will be
 // verified against expected |routeToken|.
 func (r *Replica) StartReplicating(routeToken string) {

@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"net/url"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
@@ -40,62 +41,79 @@ func NewRouter(kvs *discovery.KeyValueService, factory ReplicaFactory,
 }
 
 func (r *Router) Read(op journal.ReadOp) {
-	replica := r.obtainReplica(op.Journal)
+	replica, err := r.obtainReplica(op.Journal, false)
 
-	if replica == nil {
-		op.Result <- journal.ReadResult{Error: journal.ErrNotReplica}
+	if err != nil {
+		op.Result <- journal.ReadResult{Error: err}
 	} else {
 		replica.Read(op)
 	}
 }
 
 func (r *Router) Replicate(op journal.ReplicateOp) {
-	replica := r.obtainReplica(op.Journal)
+	replica, err := r.obtainReplica(op.Journal, false)
 
-	if replica == nil {
-		op.Result <- journal.ReplicateResult{Error: journal.ErrNotReplica}
+	if err != nil {
+		op.Result <- journal.ReplicateResult{Error: err}
 	} else {
 		replica.Replicate(op)
 	}
 }
 
 func (r *Router) Append(op journal.AppendOp) {
-	replica := r.obtainReplica(op.Journal)
+	replica, err := r.obtainReplica(op.Journal, true)
 
-	if replica == nil {
-		op.Result <- journal.ErrNotBroker
+	if err != nil {
+		op.Result <- err
 	} else {
 		replica.Append(op)
 	}
 }
 
-// Retrieves or creates a new Replia for |name|, iff this router is responsible
-// for journal |name|.
-func (r *Router) obtainReplica(name journal.Name) JournalReplica {
+// Retrieves or creates a new Replica for |name|, iff this router is responsible
+// for journal |name| in role |wantBroker|.
+func (r *Router) obtainReplica(name journal.Name, wantBroker bool) (JournalReplica, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	replica, ok := r.replicas[name]
-	if ok {
-		return replica
+	// Fast-path: return a live replica in the desired role.
+	replica, hasReplica := r.replicas[name]
+	if hasReplica && (!wantBroker || replica.IsBroker()) {
+		return replica, nil
 	}
+
 	routes := r.router.Route(name.String())
 	token := routeToken(routes)
 
-	if isBroker(r.localRouteKey, routes) {
-		replica = r.factory.NewReplica(name)
-		replica.StartBrokeringWithPeers(token, peers(r.localRouteKey, routes))
-	} else if isReplica(r.localRouteKey, routes) {
-		replica = r.factory.NewReplica(name)
-		replica.StartReplicating(token)
-	} else {
-		return nil
+	if wantBroker {
+		if hasReplica {
+			// |replica| is already known to not be a broker.
+			return nil, AsRouteError(journal.ErrNotBroker, routes)
+		} else if isBroker(r.localRouteKey, routes) {
+			// Correctly routed request for a new replica in broker role.
+			replica = r.factory.NewReplica(name)
+			replica.StartBrokeringWithPeers(token, peers(r.localRouteKey, routes))
+			// Fallthrough below to begin tracking replica.
+		} else {
+			// We are not the correct broker for |name|.
+			return nil, AsRouteError(journal.ErrNotBroker, routes)
+		}
+	} else { // We want any replica.
+		if isReplica(r.localRouteKey, routes) {
+			// Correctly routed request for a new replica in non-broker role.
+			replica = r.factory.NewReplica(name)
+			replica.StartReplicating(token)
+			// Fallthrough below to begin tracking replica.
+		} else {
+			// We are not a correct replica for |name|.
+			return nil, AsRouteError(journal.ErrNotReplica, routes)
+		}
 	}
 	// Arrange to observe updates of |name|'s routing within the server topology.
 	r.router.Track(name.String(), routes)
 
 	r.replicas[name] = replica
-	return replica
+	return replica, nil
 }
 
 // |key| is a broker if it is index 0 in |routes|.
@@ -176,4 +194,37 @@ func (r *Router) onRouteUpdate(journalName string,
 		r.replicas[name].StartReplicating(newToken)
 	}
 	return
+}
+
+// RouteError represents an Error that can be retried against |Location|.
+type RouteError struct {
+	Err error
+	// Location of responsible server for the operation.
+	Location *url.URL
+}
+
+// Builds a RouteError around |wrapped|, if possible. Otherwise, returns |wrapped|.
+func AsRouteError(wrapped error, routes []discovery.HRWRoute) error {
+	if len(routes) == 0 {
+		return wrapped
+	}
+	url, err := routes[0].Value.(*discovery.Endpoint).ResolveURL()
+
+	if err != nil {
+		log.WithFields(log.Fields{"err": err, "ep": routes[0].Value}).Warn("resolve failed")
+		return wrapped
+	}
+	return RouteError{Err: wrapped, Location: url}
+}
+
+func (re RouteError) Error() string {
+	return re.Err.Error()
+}
+
+func (err RouteError) RerouteURL(in *url.URL) *url.URL {
+	rewrite := &url.URL{}
+	*rewrite = *in
+	rewrite.Host = err.Location.Host
+	rewrite.Scheme = err.Location.Scheme
+	return rewrite
 }

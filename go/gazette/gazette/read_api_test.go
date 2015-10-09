@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
@@ -233,13 +234,15 @@ func (s *ReadAPISuite) TestNotReplica(c *gc.C) {
 
 	s.readCallbacks = []func(ReadOp){
 		func(op ReadOp) {
-			op.Result <- ReadResult{Error: ErrNotReplica}
+			op.Result <- ReadResult{
+				Error: RouteError{ErrNotReplica, &url.URL{Scheme: "http", Host: "other"}},
+			}
 		},
 	}
 	s.mux.ServeHTTP(w, req)
 
-	c.Check(w.Code, gc.Equals, http.StatusNotFound)
-	c.Check(w.Body.String(), gc.Equals, "not journal replica\n")
+	c.Check(w.Code, gc.Equals, http.StatusTemporaryRedirect)
+	c.Check(w.Header().Get("Location"), gc.Equals, "http://other/journal/name?offset=12350")
 }
 
 func (s *ReadAPISuite) TestInternalError(c *gc.C) {

@@ -108,12 +108,19 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	h.handler.Read(op)
 	result = <-op.Result
 
-	// Fail now if we encountered an error other than ErrNotYetAvailable,
-	// or we saw ErrNotYetAvailable for a non-blocking read.
-	if result.Error != nil &&
-		(schema.Block == false || result.Error != journal.ErrNotYetAvailable) {
-		http.Error(w, result.Error.Error(), ResponseCodeForError(result.Error))
-		return op, result
+	if result.Error != nil {
+		// Return a 302 redirect on a routing error.
+		if routeError, ok := result.Error.(RouteError); ok {
+			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusTemporaryRedirect)
+			return op, result
+		}
+		// Fail now if we encountered an error other than ErrNotYetAvailable,
+		// or we saw ErrNotYetAvailable for a non-blocking read.
+		if schema.Block == false || result.Error != journal.ErrNotYetAvailable {
+			http.Error(w, result.Error.Error(), ResponseCodeForError(result.Error))
+			log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("head failed")
+			return op, result
+		}
 	}
 	op.Blocking = schema.Block // Switch to requested blocking mode.
 

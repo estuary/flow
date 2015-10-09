@@ -3,6 +3,7 @@ package gazette
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -41,18 +42,30 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 	// That's a good thing! We don't want to change this unintentionally, as it
 	// introduces inconsistency between clients & servers at different versions.
 	s.etcd.Announce("/gazette/members/peerOne",
-		&discovery.Endpoint{BaseURL: "one"}, 0)
+		&discovery.Endpoint{BaseURL: "http://localhost:80/one"}, 0)
 
-	replica := s.router.obtainReplica("journal/abcde")
+	replica, err := s.router.obtainReplica("journal/abcde", false)
 	c.Check(replica, gc.IsNil)
+	c.Check(err, gc.DeepEquals, RouteError{
+		Err:      ErrNotReplica,
+		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/one"},
+	})
 
 	// Announce the local route.
 	s.etcd.Announce("/gazette/members/localRoute",
-		&discovery.Endpoint{BaseURL: "local"}, 0)
+		&discovery.Endpoint{BaseURL: "http://localhost:80/local"}, 0)
 
-	// Obtain a new journal we're a replica of.
-	replica = s.router.obtainReplica("journal/abcde")
+	// Attempt to obtain a new journal we're not a broker of.
+	replica, err = s.router.obtainReplica("journal/abcde", true)
+	c.Check(replica, gc.IsNil)
+	c.Check(err, gc.DeepEquals, RouteError{
+		Err:      ErrNotBroker,
+		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/one"},
+	})
+	// However, we are a replica of it.
+	replica, err = s.router.obtainReplica("journal/abcde", false)
 	c.Check(replica, gc.NotNil)
+	c.Check(err, gc.IsNil)
 
 	s.checkRecorded(c, []string{
 		"created replica journal/abcde",
@@ -60,7 +73,7 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 
 	// Another peer, ranking after peerOne and localRoute.
 	s.etcd.Announce("/gazette/members/peerOther",
-		&discovery.Endpoint{BaseURL: "other"}, 0)
+		&discovery.Endpoint{BaseURL: "http://localhost:80/other"}, 0)
 
 	s.checkRecorded(c, []string{
 		"journal/abcde => replica peerOne|localRoute|peerOther"})
@@ -73,8 +86,9 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 		"journal/abcde => broker localRoute|peerOther ([other])"})
 
 	// Obtain a new journal we're the broker of.
-	replica = s.router.obtainReplica("journal/foobar")
+	replica, err = s.router.obtainReplica("journal/foobar", true)
 	c.Check(replica, gc.NotNil)
+	c.Check(err, gc.IsNil)
 
 	s.checkRecorded(c, []string{
 		"created replica journal/foobar",
@@ -83,14 +97,14 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 	// Two new peers. abcde is a replica again, and foobar remains a
 	// broker but is notified of route updates.
 	s.etcd.Announce("/gazette/members/peerTwo",
-		&discovery.Endpoint{BaseURL: "two"}, 0)
+		&discovery.Endpoint{BaseURL: "http://localhost:80/two"}, 0)
 
 	s.checkRecorded(c, []string{
 		"journal/abcde => replica peerTwo|localRoute|peerOther",
 		"journal/foobar => broker localRoute|peerTwo|peerOther ([two,other])"})
 
 	s.etcd.Announce("/gazette/members/peerThree",
-		&discovery.Endpoint{BaseURL: "three"}, 0)
+		&discovery.Endpoint{BaseURL: "http://localhost:80/three"}, 0)
 
 	s.checkRecorded(c, []string{
 		"journal/abcde => replica peerThree|peerTwo|localRoute",
@@ -98,14 +112,31 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 
 	// Another peer. We're a replica of foobar, and no longer a replica of abcde.
 	s.etcd.Announce("/gazette/members/peerFour",
-		&discovery.Endpoint{BaseURL: "four"}, 0)
+		&discovery.Endpoint{BaseURL: "http://localhost:80/four"}, 0)
 
 	s.checkRecorded(c, []string{
 		"journal/abcde => shutdown",
 		"journal/foobar => replica peerFour|localRoute|peerThree"})
 
-	replica = s.router.obtainReplica("journal/abcde")
+	// Expect we no longer route as a broker of foobar.
+	replica, err = s.router.obtainReplica("journal/foobar", true)
 	c.Check(replica, gc.IsNil)
+	c.Check(err, gc.DeepEquals, RouteError{
+		Err:      ErrNotBroker,
+		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/four"},
+	})
+	// Expect we do route as a replica.
+	replica, err = s.router.obtainReplica("journal/foobar", false)
+	c.Check(replica, gc.NotNil)
+	c.Check(err, gc.IsNil)
+	// Expect we no longer route as a replica for abcde.
+	replica, err = s.router.obtainReplica("journal/abcde", false)
+	c.Check(replica, gc.IsNil)
+	c.Check(err, gc.DeepEquals, RouteError{
+		Err:      ErrNotReplica,
+		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/three"},
+	})
+
 	c.Check(s.router.replicas, gc.HasLen, 1)
 
 	// Drop a peer, such that abcde is a replica again. Because it's no
@@ -117,8 +148,9 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 		"journal/foobar => replica peerFour|localRoute|peerTwo"})
 
 	// Re-discover that we're a replica of abcde.
-	replica = s.router.obtainReplica("journal/abcde")
+	replica, err = s.router.obtainReplica("journal/abcde", false)
 	c.Check(replica, gc.NotNil)
+	c.Check(err, gc.IsNil)
 
 	s.checkRecorded(c, []string{
 		"created replica journal/abcde",
@@ -142,33 +174,39 @@ func (s *RouterSuite) NewReplica(name Name) JournalReplica {
 	return &replicaRecorder{suite: s, journal: name}
 }
 
-func flatUrls(peers []Replicator) string {
+func flatPaths(peers []Replicator) string {
 	var tmp []string
 	for _, peer := range peers {
-		tmp = append(tmp, peer.(ReplicateClient).endpoint.BaseURL)
+		url, _ := peer.(ReplicateClient).endpoint.URL()
+		tmp = append(tmp, url.Path[1:])
 	}
 	return "[" + strings.Join(tmp, ",") + "]"
 }
 
 type replicaRecorder struct {
-	suite   *RouterSuite
-	journal Name
+	suite    *RouterSuite
+	journal  Name
+	isBroker bool
 }
 
 func (r *replicaRecorder) StartBrokeringWithPeers(token string, peers []Replicator) {
 	r.suite.recorded = append(r.suite.recorded, fmt.Sprintf(
-		"%s => broker %s (%s)", r.journal, token, flatUrls(peers)))
+		"%s => broker %s (%s)", r.journal, token, flatPaths(peers)))
+	r.isBroker = true
 }
 
 func (r *replicaRecorder) StartReplicating(token string) {
 	r.suite.recorded = append(r.suite.recorded,
 		fmt.Sprintf("%s => replica %s", r.journal, token))
+	r.isBroker = false
 }
 
 func (r *replicaRecorder) Shutdown() {
 	r.suite.recorded = append(r.suite.recorded,
 		fmt.Sprintf("%s => shutdown", r.journal))
 }
+
+func (r *replicaRecorder) IsBroker() bool { return r.isBroker }
 
 func (r *replicaRecorder) Append(AppendOp)       {}
 func (r *replicaRecorder) Read(ReadOp)           {}
