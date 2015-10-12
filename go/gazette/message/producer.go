@@ -53,6 +53,7 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 
 	var err error
 	var reader io.ReadCloser
+	var markReader *journal.MarkedReader
 	var decoder Decoder
 
 	for done := false; !done; {
@@ -77,7 +78,8 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 				time.Sleep(kProducerErrorTimeout)
 				continue
 			}
-			decoder = NewDecoder(journal.NewMarkedReader(&mark, reader))
+			markReader = journal.NewMarkedReader(mark, reader)
+			decoder = NewDecoder(markReader)
 		}
 
 		msg := p.newMsg()
@@ -89,7 +91,7 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 			if isNetErr {
 				varz.ObtainCount("gazette", "producer", "NetError").Add(1)
 				time.Sleep(kProducerErrorTimeout)
-			} else if err != io.EOF {
+			} else if err != io.EOF && err != io.ErrUnexpectedEOF {
 				log.WithFields(log.Fields{"mark": mark, "err": err}).Error("message decode")
 				time.Sleep(kProducerErrorTimeout)
 			}
@@ -99,6 +101,7 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 			if err != ErrDesyncDetected {
 				reader.Close() // |reader| is invalidated and must be re-opened.
 				reader = nil
+				markReader = nil
 				continue
 			}
 		}
@@ -116,5 +119,6 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 		window -= 1
 
 		sink <- Message{mark, msg}
+		mark = markReader.Mark
 	}
 }

@@ -1,2 +1,1 @@
-mock_Writer.go
-mock_FragmentFile.go
+mock_*.go

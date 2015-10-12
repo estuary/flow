@@ -31,11 +31,11 @@ func (r *BoundedReaderAt) Read(p []byte) (n int, err error) {
 // A MarkedReader delegates reads to an underlying reader, and maintains
 // |Mark| such that it always points to the next byte to be read.
 type MarkedReader struct {
-	Mark *Mark
+	Mark Mark
 	r    io.Reader
 }
 
-func NewMarkedReader(mark *Mark, r io.Reader) *MarkedReader {
+func NewMarkedReader(mark Mark, r io.Reader) *MarkedReader {
 	return &MarkedReader{
 		Mark: mark,
 		r:    r,
