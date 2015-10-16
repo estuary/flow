@@ -86,8 +86,11 @@ func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
 		"journal/abcde => broker localRoute|peerOther ([other])"})
 
 	// Obtain a new journal we're the broker of.
-	replica, err = s.router.obtainReplica("journal/foobar", true)
+	// Express that we don't need a broker though. It should still
+	// be brokering anyway.
+	replica, err = s.router.obtainReplica("journal/foobar", false)
 	c.Check(replica, gc.NotNil)
+	c.Check(replica.IsBroker(), gc.Equals, true)
 	c.Check(err, gc.IsNil)
 
 	s.checkRecorded(c, []string{

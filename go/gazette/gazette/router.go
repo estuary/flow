@@ -99,7 +99,12 @@ func (r *Router) obtainReplica(name journal.Name, wantBroker bool) (JournalRepli
 			return nil, AsRouteError(journal.ErrNotBroker, routes)
 		}
 	} else { // We want any replica.
-		if isReplica(r.localRouteKey, routes) {
+		if isBroker(r.localRouteKey, routes) {
+			// We *could* use a non-broker to fulfill the request, but because
+			// we're the broker, we should broker.
+			replica = r.factory.NewReplica(name)
+			replica.StartBrokeringWithPeers(token, peers(r.localRouteKey, routes))
+		} else if isReplica(r.localRouteKey, routes) {
 			// Correctly routed request for a new replica in non-broker role.
 			replica = r.factory.NewReplica(name)
 			replica.StartReplicating(token)

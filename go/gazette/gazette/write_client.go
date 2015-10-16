@@ -234,8 +234,10 @@ func (c *WriteClient) onWrite(write *pendingWrite) error {
 				Warn("write failed")
 			continue
 		} else if response.StatusCode != http.StatusNoContent {
-			log.WithFields(log.Fields{"journal": write.journal,
-				"status": response.Status}).Warn("write failed")
+			log.WithFields(log.Fields{
+				"endpoint": ep.BaseURL,
+				"journal":  write.journal,
+				"status":   response.Status}).Warn("write failed")
 			response.Body.Close()
 			continue
 		} else {
