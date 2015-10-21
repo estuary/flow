@@ -24,12 +24,16 @@ func (s *BrokerSuite) SetUpTest(c *gc.C) {
 	// Initial append operation fixtures.
 	s.appendResults = make(chan error)
 	s.broker.Append(AppendOp{
-		Content: bytes.NewBufferString("write one "),
-		Result:  s.appendResults,
+		AppendArgs: AppendArgs{
+			Content: bytes.NewBufferString("write one "),
+		},
+		Result: s.appendResults,
 	})
 	s.broker.Append(AppendOp{
-		Content: bytes.NewBufferString("write two "),
-		Result:  s.appendResults,
+		AppendArgs: AppendArgs{
+			Content: bytes.NewBufferString("write two "),
+		},
+		Result: s.appendResults,
 	})
 
 	// Set up replicas which capture operations and signal on Commit() call.
@@ -156,14 +160,18 @@ func (s *BrokerSuite) TestWriteErrorHandling(c *gc.C) {
 func (s *BrokerSuite) TestBrokenReadHandling(c *gc.C) {
 	// Model an append op which reads one byte of data, but then times-out.
 	s.broker.Append(AppendOp{
-		Content: iotest.OneByteReader(
-			iotest.TimeoutReader(bytes.NewBufferString("!!!!"))),
+		AppendArgs: AppendArgs{
+			Content: iotest.OneByteReader(
+				iotest.TimeoutReader(bytes.NewBufferString("!!!!"))),
+		},
 		Result: s.appendResults,
 	})
 	// A valid read, which is handled as a separate transaction.
 	s.broker.Append(AppendOp{
-		Content: bytes.NewBufferString(" separate"),
-		Result:  s.appendResults,
+		AppendArgs: AppendArgs{
+			Content: bytes.NewBufferString(" separate"),
+		},
+		Result: s.appendResults,
 	})
 	s.broker.StartServingOps(12345)
 

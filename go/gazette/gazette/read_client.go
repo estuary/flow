@@ -88,10 +88,12 @@ func (c *ReadClient) OpenJournalAt(mark journal.Mark) (io.ReadCloser, error) {
 	index.watcher.WaitForInitialLoad()
 
 	op := journal.ReadOp{
-		Journal:  mark.Journal,
-		Offset:   mark.Offset,
-		Blocking: false,
-		Result:   make(chan journal.ReadResult, 1),
+		ReadArgs: journal.ReadArgs{
+			Journal:  mark.Journal,
+			Offset:   mark.Offset,
+			Blocking: false,
+		},
+		Result: make(chan journal.ReadResult, 1),
 	}
 	index.tail.Read(op)
 	result := <-op.Result

@@ -144,11 +144,13 @@ func (b *Broker) phaseOne() ([]WriteCommitter, error) {
 	results := make(chan ReplicateResult)
 	for _, r := range b.config.Replicas {
 		r.Replicate(ReplicateOp{
-			Journal:    b.journal,
-			RouteToken: b.config.RouteToken,
-			NewSpool:   b.config.writtenSinceRoll == 0,
-			WriteHead:  b.config.WriteHead,
-			Result:     results,
+			ReplicateArgs: ReplicateArgs{
+				Journal:    b.journal,
+				RouteToken: b.config.RouteToken,
+				NewSpool:   b.config.writtenSinceRoll == 0,
+				WriteHead:  b.config.WriteHead,
+			},
+			Result: results,
 		})
 	}
 	// Gather responses.

@@ -74,11 +74,13 @@ func (s *ReplicateClientSuite) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 func (s *ReplicateClientSuite) opFixture() ReplicateOp {
 	return ReplicateOp{
-		Journal:    "a/journal",
-		RouteToken: "a-route-token",
-		WriteHead:  123456,
-		NewSpool:   true,
-		Result:     make(chan ReplicateResult),
+		ReplicateArgs: ReplicateArgs{
+			Journal:    "a/journal",
+			RouteToken: "a-route-token",
+			WriteHead:  123456,
+			NewSpool:   true,
+		},
+		Result: make(chan ReplicateResult),
 	}
 }
 

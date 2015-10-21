@@ -44,11 +44,13 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var op = journal.ReplicateOp{
-		Journal:    journal.Name(r.URL.Path[1:]),
-		RouteToken: schema.RouteToken,
-		WriteHead:  schema.WriteHead,
-		NewSpool:   schema.NewSpool,
-		Result:     make(chan journal.ReplicateResult, 1),
+		ReplicateArgs: journal.ReplicateArgs{
+			Journal:    journal.Name(r.URL.Path[1:]),
+			RouteToken: schema.RouteToken,
+			WriteHead:  schema.WriteHead,
+			NewSpool:   schema.NewSpool,
+		},
+		Result: make(chan journal.ReplicateResult, 1),
 	}
 
 	h.handler.Replicate(op)

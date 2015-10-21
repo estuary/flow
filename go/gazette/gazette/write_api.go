@@ -21,9 +21,11 @@ func (h *WriteAPI) Register(router *mux.Router) {
 
 func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
 	var op = journal.AppendOp{
-		Journal: journal.Name(r.URL.Path[1:]),
-		Content: r.Body,
-		Result:  make(chan error, 1),
+		AppendArgs: journal.AppendArgs{
+			Journal: journal.Name(r.URL.Path[1:]),
+			Content: r.Body,
+		},
+		Result: make(chan error, 1),
 	}
 	h.handler.Append(op)
 	err := <-op.Result

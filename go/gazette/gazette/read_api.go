@@ -99,10 +99,12 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	}
 
 	op = journal.ReadOp{
-		Journal:  journal.Name(r.URL.Path[1:]),
-		Offset:   schema.Offset,
-		Blocking: false,
-		Result:   make(chan journal.ReadResult, 1),
+		ReadArgs: journal.ReadArgs{
+			Journal:  journal.Name(r.URL.Path[1:]),
+			Offset:   schema.Offset,
+			Blocking: false,
+		},
+		Result: make(chan journal.ReadResult, 1),
 	}
 	// Perform an initial non-blocking read to test for request legality.
 	h.handler.Read(op)

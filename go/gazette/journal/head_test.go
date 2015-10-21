@@ -41,11 +41,13 @@ func (s *HeadSuite) TearDownTest(c *gc.C) {
 
 func (s *HeadSuite) opFixture() ReplicateOp {
 	return ReplicateOp{
-		Journal:    "a/journal",
-		RouteToken: "a-route-token",
-		WriteHead:  123456,
-		NewSpool:   false,
-		Result:     make(chan ReplicateResult),
+		ReplicateArgs: ReplicateArgs{
+			Journal:    "a/journal",
+			RouteToken: "a-route-token",
+			WriteHead:  123456,
+			NewSpool:   false,
+		},
+		Result: make(chan ReplicateResult),
 	}
 }
 

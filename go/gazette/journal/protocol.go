@@ -15,15 +15,13 @@ var (
 	ErrNotReplica        = errors.New("not journal replica")
 )
 
-type ReplicateOp struct {
+type ReplicateArgs struct {
 	Journal   Name
 	WriteHead int64
 	// Token describing the set of servers involved in the transaction.
 	RouteToken string
 	// Flags whether replicas should begin a new spool for this transaction.
 	NewSpool bool
-	// Channel by which replica returns a ReplicateResult.
-	Result chan ReplicateResult
 }
 
 type ReplicateResult struct {
@@ -35,7 +33,14 @@ type ReplicateResult struct {
 	Writer WriteCommitter
 }
 
-type ReadOp struct {
+type ReplicateOp struct {
+	ReplicateArgs
+
+	// Channel by which replica returns a ReplicateResult.
+	Result chan ReplicateResult
+}
+
+type ReadArgs struct {
 	Journal Name
 	// Offset to begin reading from. Values 0 and -1 have special handling:
 	//  * If 0, the read is performed at the first available journal offset.
@@ -45,8 +50,6 @@ type ReadOp struct {
 	// Whether this operation should block until the requested offset
 	// becomes available.
 	Blocking bool
-	// Channel by which replica returns a ReadResult.
-	Result chan ReadResult
 }
 
 type ReadResult struct {
@@ -62,12 +65,24 @@ type ReadResult struct {
 	Fragment Fragment
 }
 
-type AppendOp struct {
+type ReadOp struct {
+	ReadArgs
+
+	// Channel by which replica returns a ReadResult.
+	Result chan ReadResult
+}
+
+type AppendArgs struct {
 	Journal Name
 	// Content to be appended to |Journal|. The append will consume |Content|
 	// until io.EOF, and abort the append (without committing any content)
 	// if any other error is returned by |Content.Read()|.
 	Content io.Reader
+}
+
+type AppendOp struct {
+	AppendArgs
+
 	// Channel by which broker returns operation status.
 	Result chan error
 }

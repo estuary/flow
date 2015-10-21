@@ -26,7 +26,12 @@ func (s *TailSuite) TestNonblockingSuccess(c *gc.C) {
 	s.updates <- fragment
 
 	results := make(chan ReadResult)
-	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 150, Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{
+			Journal: "a/journal",
+			Offset:  150,
+		},
+		Result: results})
 
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Offset:    150,
@@ -42,21 +47,27 @@ func (s *TailSuite) TestNonblockingFailure(c *gc.C) {
 	results := make(chan ReadResult)
 
 	// Explicit Read at current write head.
-	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 200, Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Offset: 200},
+		Result:   results})
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
 		Offset:    200,
 		WriteHead: 200,
 	})
 	// Read at current write head (implicit).
-	s.tail.Read(ReadOp{Journal: "a/journal", Offset: -1, Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Offset: -1},
+		Result:   results})
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
 		Offset:    200,
 		WriteHead: 200,
 	})
 	// Read of a previous, uncovered offset.
-	s.tail.Read(ReadOp{Journal: "a/journal", Offset: 50, Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Offset: 50},
+		Result:   results})
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
 		Offset:    50,
@@ -68,10 +79,12 @@ func (s *TailSuite) TestBlockingRead(c *gc.C) {
 	s.updates <- Fragment{Journal: "a/journal", Begin: 100, End: 200}
 
 	results := make(chan ReadResult, 2)
-	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: 200,
-		Result: results})
-	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: 300,
-		Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 200},
+		Result:   results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 300},
+		Result:   results})
 	c.Check(len(results), gc.Equals, 0)
 
 	fragment1 := Fragment{Journal: "a/journal", Begin: 300, End: 400}
@@ -95,8 +108,9 @@ func (s *TailSuite) TestBlockingRead(c *gc.C) {
 	})
 
 	// Read at implicit write head.
-	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: -1,
-		Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: -1},
+		Result:   results})
 	// Note: this call re-enters tail.loop(), causing the op to queue.
 	c.Check(s.tail.EndOffset(), gc.Equals, int64(400))
 
@@ -114,10 +128,12 @@ func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
 	s.updates <- Fragment{Journal: "a/journal", Begin: 100, End: 200}
 
 	results := make(chan ReadResult, 2)
-	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: 200,
-		Result: results})
-	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: 300,
-		Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 200},
+		Result:   results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 300},
+		Result:   results})
 	c.Check(len(results), gc.Equals, 0)
 
 	close(s.updates)
@@ -138,8 +154,9 @@ func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
 	})
 
 	// Additional blocking reads immediately resolve.
-	s.tail.Read(ReadOp{Journal: "a/journal", Blocking: true, Offset: 200,
-		Result: results})
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 200},
+		Result:   results})
 	result = <-results
 	c.Check(result, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
@@ -155,7 +172,9 @@ func (s *TailSuite) TestReadFromZeroSkipsToFirstAvailable(c *gc.C) {
 	results := make(chan ReadResult)
 
 	for _, block := range []bool{true, false} {
-		s.tail.Read(ReadOp{Journal: "a/journal", Blocking: block, Result: results})
+		s.tail.Read(ReadOp{
+			ReadArgs: ReadArgs{Journal: "a/journal", Blocking: block},
+			Result:   results})
 
 		c.Check(<-results, gc.DeepEquals, ReadResult{
 			Offset:    100,
