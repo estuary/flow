@@ -19,17 +19,16 @@ const (
 )
 
 // Producer produces unmarshalled messages from a journal.
-// TODO(johnny): This could use further refactoring, cleanup & tests.
 type Producer struct {
-	opener journal.Opener
+	getter journal.Getter
 	newMsg func() Unmarshallable
 
 	pump chan struct{}
 }
 
-func NewProducer(opener journal.Opener, newMsg func() Unmarshallable) *Producer {
+func NewProducer(getter journal.Getter, newMsg func() Unmarshallable) *Producer {
 	return &Producer{
-		opener: opener,
+		getter: getter,
 		newMsg: newMsg,
 		pump:   make(chan struct{}, kProducerPumpWindow),
 	}
@@ -70,14 +69,22 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 
 		// Ensure an open reader & decoder.
 		if reader == nil {
-			reader, err = p.opener.OpenJournalAt(mark)
+			args := journal.ReadArgs{
+				Journal:  mark.Journal,
+				Offset:   mark.Offset,
+				Blocking: true,
+			}
+			var result journal.ReadResult
+			result, reader = p.getter.Get(args)
 
-			if err != nil {
-				log.WithFields(log.Fields{"mark": mark, "err": err}).
-					Error("failed to open reader")
+			if result.Error != nil {
+				log.WithFields(log.Fields{"args": args, "err": result.Error}).
+					Warn("failed to open reader")
 				time.Sleep(kProducerErrorTimeout)
 				continue
 			}
+
+			mark.Offset = result.Offset
 			markReader = journal.NewMarkedReader(mark, reader)
 			decoder = NewDecoder(markReader)
 		}

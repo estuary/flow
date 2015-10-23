@@ -3,13 +3,11 @@ package recoverylog
 import (
 	"errors"
 	"io"
-	"net/http"
 
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/pippio/gazette/async"
-	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 )
@@ -42,13 +40,11 @@ func (s *RecorderSuite) TearDownTest(c *gc.C) {
 
 func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	// When obtaining journal head, return errors first to exercise handling.
-	s.header.On("HeadJournalAt", journal.NewMark("a/journal", -1)).
-		Return(nil, errors.New("error!")).Once()
-	s.header.On("HeadJournalAt", journal.NewMark("a/journal", -1)).Return(&http.Response{
-		Header: http.Header{gazette.WriteHeadHeader: []string{"zzbadzz"}}}, nil).Once()
+	s.header.On("Head", journal.ReadArgs{Journal: "a/journal", Offset: -1, Blocking: false}).
+		Return(journal.ReadResult{Error: errors.New("error!")}, nil).Once()
 	// Return a valid response.
-	s.header.On("HeadJournalAt", journal.NewMark("a/journal", -1)).Return(&http.Response{
-		Header: http.Header{gazette.WriteHeadHeader: []string{"12345"}}}, nil).Once()
+	s.header.On("Head", journal.ReadArgs{Journal: "a/journal", Offset: -1, Blocking: false}).
+		Return(journal.ReadResult{Error: journal.ErrNotYetAvailable, WriteHead: 12345}, nil).Once()
 
 	s.manifest.On("CreateFile", "/path/to/file", int64(12345)).
 		Return(&FileRecord{Id: "file-id"}, nil).Once()
@@ -112,8 +108,8 @@ func (s *RecorderSuite) TestFileLink(c *gc.C) {
 
 func (s *RecorderSuite) TestFileAppendAndSync(c *gc.C) {
 	// File creation fixtures.
-	s.header.On("HeadJournalAt", journal.NewMark("a/journal", -1)).Return(&http.Response{
-		Header: http.Header{gazette.WriteHeadHeader: []string{"12345"}}}, nil).Once()
+	s.header.On("Head", journal.ReadArgs{Journal: "a/journal", Offset: -1, Blocking: false}).
+		Return(journal.ReadResult{WriteHead: 12345}, nil).Once()
 	s.manifest.On("CreateFile", "/path/to/file", int64(12345)).
 		Return(&FileRecord{Id: "file-id"}, nil).Once()
 
@@ -184,7 +180,6 @@ func (s *RecorderSuite) TestFileAppendAndSync(c *gc.C) {
 		Return(syncPromise, nil)
 
 	file.Close()
-
 }
 
 var _ = gc.Suite(&RecorderSuite{})

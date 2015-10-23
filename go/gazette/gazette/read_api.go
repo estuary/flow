@@ -37,7 +37,7 @@ func (h *ReadAPI) Register(router *mux.Router) {
 func (h *ReadAPI) Head(w http.ResponseWriter, r *http.Request) {
 	op, result := h.initialRead(w, r)
 
-	if result.Error != nil {
+	if result.Error != nil && result.Error != journal.ErrNotYetAvailable {
 		log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("head failed")
 	}
 }
@@ -120,7 +120,6 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 		// or we saw ErrNotYetAvailable for a non-blocking read.
 		if schema.Block == false || result.Error != journal.ErrNotYetAvailable {
 			http.Error(w, result.Error.Error(), ResponseCodeForError(result.Error))
-			log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("head failed")
 			return op, result
 		}
 	}

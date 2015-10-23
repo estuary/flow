@@ -2,7 +2,7 @@ package journal
 
 import (
 	"io"
-	"net/http"
+	"net/url"
 
 	"github.com/pippio/gazette/async"
 )
@@ -40,14 +40,14 @@ type Writer interface {
 	ReadFrom(journal Name, r io.Reader) (async.Promise, error)
 }
 
-// An Opener opens a journal for reading at a Mark.
-type Opener interface {
-	OpenJournalAt(mark Mark) (io.ReadCloser, error)
+// Performs a Gazette GET operation.
+type Getter interface {
+	Get(args ReadArgs) (ReadResult, io.ReadCloser)
 }
 
-// A Header is able to perform a HEAD request at a Mark.
+// Performs a Gazette HEAD operation.
 type Header interface {
-	HeadJournalAt(mark Mark) (*http.Response, error)
+	Head(args ReadArgs) (result ReadResult, fragmentLocation *url.URL)
 }
 
 // A Replicator is able to serve a ReplicateOp. It may be backed by a local

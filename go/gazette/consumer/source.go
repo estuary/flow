@@ -18,7 +18,7 @@ const (
 
 type Source struct {
 	topic  *topic.Description
-	opener journal.Opener
+	getter journal.Getter
 
 	name        string
 	etcd        discovery.EtcdService
@@ -33,14 +33,14 @@ type Source struct {
 }
 
 func NewSource(consumerName string, topic *topic.Description,
-	etcd discovery.EtcdService, opener journal.Opener) (*Source, error) {
+	etcd discovery.EtcdService, getter journal.Getter) (*Source, error) {
 	var err error
 
 	c := &Source{
 		name:      consumerName,
 		topic:     topic,
 		etcd:      etcd,
-		opener:    opener,
+		getter:    getter,
 		messages:  make(chan message.Message, 100),
 		producers: make(map[journal.Name]*message.Producer),
 		consumed:  make(map[journal.Name]int64),
@@ -70,7 +70,7 @@ func (c *Source) StartConsuming(mark journal.Mark) {
 	c.mu.Lock()
 	c.consumed[mark.Journal] = mark.Offset
 
-	producer := message.NewProducer(c.opener, c.topic.GetMessage)
+	producer := message.NewProducer(c.getter, c.topic.GetMessage)
 	c.producers[mark.Journal] = producer
 	c.mu.Unlock()
 

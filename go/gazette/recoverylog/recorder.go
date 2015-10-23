@@ -9,7 +9,6 @@ import (
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/async"
-	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 )
@@ -46,12 +45,16 @@ func (p *Recorder) NewWritableFile(fname string) rocks.WritableFileObserver {
 	// Determine the approximate current write head of the recovery log.
 	var offset int64
 	retryable("fetching current journal head", func() error {
-		response, err := p.header.HeadJournalAt(journal.NewMark(p.opLog, -1))
-		if err != nil {
-			return err
+		result, _ := p.header.Head(journal.ReadArgs{
+			Journal:  p.opLog,
+			Offset:   -1,
+			Blocking: false,
+		})
+		if result.Error == nil || result.Error == journal.ErrNotYetAvailable {
+			offset = result.WriteHead
+			return nil
 		}
-		offset, err = gazette.ParseWriteHead(response)
-		return err
+		return result.Error
 	})
 
 	// Create new FileRecord backing the file.

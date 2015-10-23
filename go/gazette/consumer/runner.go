@@ -33,9 +33,9 @@ type Runner struct {
 }
 
 func NewRunner(name string, consumer Consumer, etcd discovery.EtcdService,
-	opener journal.Opener, writer journal.Writer) (*Runner, error) {
+	getter journal.Getter, writer journal.Writer) (*Runner, error) {
 
-	sourceV1, err := NewSource(name, consumer.Topics()[0], etcd, opener)
+	sourceV1, err := NewSource(name, consumer.Topics()[0], etcd, getter)
 	if err != nil {
 		return nil, err
 	}

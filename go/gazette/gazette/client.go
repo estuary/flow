@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -38,7 +39,7 @@ type httpClient interface {
 	Get(url string) (*http.Response, error)
 }
 
-//var kContentRangeRegexp = regexp.MustCompile("bytes\\s+(\\d+)-\\d+/\\d+")
+var kContentRangeRegexp = regexp.MustCompile("bytes\\s+(\\d+)-\\d+/\\d+")
 
 type Client struct {
 	// Endpoint which is queried by default.
