@@ -35,7 +35,7 @@ func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
 		if routeError, ok := err.(RouteError); ok {
 			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		r.Body.Close()
 	} else {

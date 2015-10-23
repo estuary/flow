@@ -1,2 +1,1 @@
-mock_Replica.go
-mock_ReplicaFactory.go
+mock_*.go
