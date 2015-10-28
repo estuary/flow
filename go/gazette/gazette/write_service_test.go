@@ -12,12 +12,11 @@ import (
 
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/gazette/async"
 	"github.com/pippio/gazette/journal"
 	"github.com/stretchr/testify/mock"
 )
 
-type WriteClientSuite struct{}
+type WriteServiceSuite struct{}
 
 // errReader wraps a Reader, and replaces an EOF with an error.
 type errReader struct{ io.Reader }
@@ -30,7 +29,7 @@ func (r errReader) Read(p []byte) (int, error) {
 	}
 }
 
-func (s *WriteClientSuite) TestBasicWriteSpooling(c *gc.C) {
+func (s *WriteServiceSuite) TestBasicWriteSpooling(c *gc.C) {
 	iface := pendingWritePool.Get()
 
 	c.Assert(iface, gc.FitsTypeOf, (*pendingWrite)(nil))
@@ -68,7 +67,7 @@ func (s *WriteClientSuite) TestBasicWriteSpooling(c *gc.C) {
 	c.Check(releasePendingWrite(write), gc.IsNil)
 }
 
-func (s *WriteClientSuite) TestParallelWriteSpooling(c *gc.C) {
+func (s *WriteServiceSuite) TestParallelWriteSpooling(c *gc.C) {
 	// Very basic sanity-check that raced pendingWrite uses don't blow up.
 	// This is not exhaustive!
 	kParallel, kLoops := 5, 100
@@ -88,24 +87,18 @@ func (s *WriteClientSuite) TestParallelWriteSpooling(c *gc.C) {
 	}
 }
 
-func (s *WriteClientSuite) TestWriteLifecycle(c *gc.C) {
+func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	// Shorten the write error cool-off interval for this test.
-	actualTimeout := kWriteClientCooloffTimeout
-	kWriteClientCooloffTimeout = time.Millisecond
-	defer func() { kWriteClientCooloffTimeout = actualTimeout }()
+	actualTimeout := kWriteServiceCooloffTimeout
+	kWriteServiceCooloffTimeout = time.Millisecond
+	defer func() { kWriteServiceCooloffTimeout = actualTimeout }()
 
 	var mockClient mockHttpClient
 
 	client, _ := NewClient("http://default")
 	client.httpClient = &mockClient
 
-	// TODO(johnny): Switch to New*() once StartServing() is broken out.
-	writer := &WriteClient{
-		client:     client,
-		closed:     make(async.Promise),
-		writeQueue: make(chan *pendingWrite, kWriteQueueSize),
-		writeIndex: make(map[journal.Name]*pendingWrite),
-	}
+	writer := NewWriteService(client)
 
 	// Perform a sequence of writes, several of which have broken readers.
 	_, err := writer.ReadFrom("a/journal", errReader{strings.NewReader("xxx")})
@@ -179,16 +172,17 @@ func (s *WriteClientSuite) TestWriteLifecycle(c *gc.C) {
 		c.Check(string(content), gc.Equals, "baz!")
 	}).Once()
 
-	go writer.serveWrites()
+	writer.Concurrency = 2 // Exercise start/stop of concurrent service loops.
+	writer.Start()
 
 	// Expect that promises have been resolved.
 	fooPromise.Wait()
 	barPromise.Wait()
 	bazPromise.Wait()
 
-	// Expect Close() blocks until all writes have flushed.
-	writer.Close()
+	writer.Stop()
+	// Expect that after Stop(), all writes have flushed.
 	mockClient.AssertExpectations(c)
 }
 
-var _ = gc.Suite(&WriteClientSuite{})
+var _ = gc.Suite(&WriteServiceSuite{})

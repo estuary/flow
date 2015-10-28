@@ -20,7 +20,7 @@ var writeConcurrency = flag.Int("gazetteWriteConcurrency", 2,
 	"Concurrency of asynchronous, locally-spooled Gazette write client")
 
 // Time to wait in between broker write errors.
-var kWriteClientCooloffTimeout = time.Second * 5
+var kWriteServiceCooloffTimeout = time.Second * 5
 
 const (
 	kMaxWriteSpoolSize = 1 << 27 // A single spool is up to 128MiB.
@@ -77,14 +77,16 @@ func writeAllOrNone(write *pendingWrite, r io.Reader) error {
 	return err
 }
 
-// WriteClient wraps a Client to provide asynchronous batching and automatic retries
+// WriteService wraps a Client to provide asynchronous batching and automatic retries
 // of writes to Gazette journals. Writes to each journal are spooled to local
 // disk (and never memory), so back-pressure from slow or down brokers does not
 // affect busy writers (at least, until disk runs out). Writes are retried
 // indefinitely, until aknowledged by a broker.
-type WriteClient struct {
-	client *Client
-	closed async.Promise
+type WriteService struct {
+	Concurrency int
+
+	client  *Client
+	stopped chan struct{} // Coordinates exit of service loops.
 
 	writeQueue chan *pendingWrite
 	// Indexes pendingWrite's which are in |writeQueue|, and still append-able.
@@ -92,29 +94,35 @@ type WriteClient struct {
 	writeIndexMu sync.Mutex
 }
 
-// TODO(johnny): Rename WriteClient -> Writer, and introduce
-// StartServing(concurrency) for actually kicking off the service loops. Do
-// this together, to ensure all uses are caught (due to NewWriteClient()
-// signature change).
-func NewWriteClient(client *Client) *WriteClient {
-	writer := &WriteClient{
-		client:     client,
-		closed:     make(async.Promise),
-		writeQueue: make(chan *pendingWrite, kWriteQueueSize),
-		writeIndex: make(map[journal.Name]*pendingWrite),
-	}
-	for i := 0; i != *writeConcurrency; i++ {
-		go writer.serveWrites()
+func NewWriteService(client *Client) *WriteService {
+	writer := &WriteService{
+		Concurrency: *writeConcurrency,
+		client:      client,
+		stopped:     make(chan struct{}),
+		writeQueue:  make(chan *pendingWrite, kWriteQueueSize),
+		writeIndex:  make(map[journal.Name]*pendingWrite),
 	}
 	return writer
 }
 
-func (c *WriteClient) Close() {
-	close(c.writeQueue)
-	c.closed.Wait()
+// Begins the write service loop. Be sure to invoke Stop() prior to process
+// exit, to ensure that all pending writes have been flushed.
+func (c *WriteService) Start() {
+	for i := 0; i != c.Concurrency; i++ {
+		go c.serveWrites()
+	}
 }
 
-func (c *WriteClient) obtainWrite(name journal.Name) (*pendingWrite, bool, error) {
+// Stops the write service loop. Returns only after all writes have completed.
+func (c *WriteService) Stop() {
+	close(c.writeQueue)
+
+	for i := 0; i != c.Concurrency; i++ {
+		<-c.stopped
+	}
+}
+
+func (c *WriteService) obtainWrite(name journal.Name) (*pendingWrite, bool, error) {
 	// Is a non-full pendingWrite for this journal already in |writeQueue|?
 	write, ok := c.writeIndex[name]
 	if ok && write.offset < kMaxWriteSpoolSize {
@@ -137,14 +145,14 @@ func (c *WriteClient) obtainWrite(name journal.Name) (*pendingWrite, bool, error
 // Appends |buffer| to |journal|. Either all of |buffer| is written, or none
 // of it is. Returns a Promise which is resolved when the write has been
 // fully committed.
-func (c *WriteClient) Write(name journal.Name, buf []byte) (async.Promise, error) {
+func (c *WriteService) Write(name journal.Name, buf []byte) (async.Promise, error) {
 	return c.ReadFrom(name, bytes.NewReader(buf))
 }
 
 // Appends |r|'s content to |journal|, by reading until io.EOF. Either all of
 // |r| is written, or none of it is. Returns a Promise which is resolved when
 // the write has been fully committed.
-func (c *WriteClient) ReadFrom(name journal.Name, r io.Reader) (async.Promise, error) {
+func (c *WriteService) ReadFrom(name journal.Name, r io.Reader) (async.Promise, error) {
 	var promise async.Promise
 	var writeErr error
 
@@ -165,7 +173,7 @@ func (c *WriteClient) ReadFrom(name journal.Name, r io.Reader) (async.Promise, e
 	return promise, writeErr
 }
 
-func (c *WriteClient) serveWrites() {
+func (c *WriteService) serveWrites() {
 	for {
 		write := <-c.writeQueue
 		if write == nil {
@@ -184,15 +192,15 @@ func (c *WriteClient) serveWrites() {
 				Error("write failed")
 		}
 	}
-	c.closed.Resolve()
+	c.stopped <- struct{}{} // Signal exit.
 }
 
-func (c *WriteClient) onWrite(write *pendingWrite) error {
+func (c *WriteService) onWrite(write *pendingWrite) error {
 	// We now have exclusive ownership of |write|. Iterate
 	// attempting to write to server, until it's acknowledged.
 	for i := 0; true; i++ {
 		if i != 0 {
-			time.Sleep(kWriteClientCooloffTimeout)
+			time.Sleep(kWriteServiceCooloffTimeout)
 		}
 
 		if _, err := write.file.Seek(0, 0); err != nil {
