@@ -58,13 +58,13 @@ var pendingWritePool = sync.Pool{
 		return write
 	}}
 
-func releasePendingWrite(p *pendingWrite) {
+func releasePendingWrite(p *pendingWrite) error {
 	*p = pendingWrite{file: p.file}
 	if _, err := p.file.Seek(0, 0); err != nil {
-		log.WithField("err", err).Warn("failed to seek(0) releasing pending write")
-	} else {
-		pendingWritePool.Put(p)
+		return err
 	}
+	pendingWritePool.Put(p)
+	return nil
 }
 
 func writeAllOrNone(write *pendingWrite, r io.Reader) error {
@@ -92,6 +92,10 @@ type WriteClient struct {
 	writeIndexMu sync.Mutex
 }
 
+// TODO(johnny): Rename WriteClient -> Writer, and introduce
+// StartServing(concurrency) for actually kicking off the service loops. Do
+// this together, to ensure all uses are caught (due to NewWriteClient()
+// signature change).
 func NewWriteClient(client *Client) *WriteClient {
 	writer := &WriteClient{
 		client:     client,
@@ -142,22 +146,23 @@ func (c *WriteClient) Write(name journal.Name, buf []byte) (async.Promise, error
 // the write has been fully committed.
 func (c *WriteClient) ReadFrom(name journal.Name, r io.Reader) (async.Promise, error) {
 	var promise async.Promise
+	var writeErr error
 
 	c.writeIndexMu.Lock()
-	write, isNew, err := c.obtainWrite(name)
-	if err == nil {
-		err = writeAllOrNone(write, r)
+	write, isNew, obtainErr := c.obtainWrite(name)
+	if obtainErr == nil {
+		writeErr = writeAllOrNone(write, r)
 		promise = write.promise // Retain, as we can't access |write| after unlock.
 	}
 	c.writeIndexMu.Unlock()
 
-	if err != nil {
-		return nil, err
+	if obtainErr != nil {
+		return nil, obtainErr
 	}
 	if isNew {
 		c.writeQueue <- write
 	}
-	return promise, nil
+	return promise, writeErr
 }
 
 func (c *WriteClient) serveWrites() {
@@ -212,7 +217,9 @@ func (c *WriteClient) onWrite(write *pendingWrite) error {
 			Add(float64(time.Now().Sub(write.started)) / float64(time.Millisecond))
 		varz.ObtainCount("gazette", "writeBytes").Add(write.offset)
 
-		releasePendingWrite(write)
+		if err = releasePendingWrite(write); err != nil {
+			log.WithField("err", err).Error("failed to release pending write")
+		}
 		return nil
 	}
 	panic("not reached")

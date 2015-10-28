@@ -297,7 +297,7 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 		c.locationCache.Add(request.URL.Path, location)
 	} else if err != http.ErrNoLocation {
 		log.WithField("err", err).Warn("parsing Gazette Location header")
-	} else if response.Request.URL.String() != request.URL.String() {
+	} else if response.Request != nil && response.Request.URL.String() != request.URL.String() {
 		// We successfully followed a redirect. Cache it for future use.
 		c.locationCache.Add(request.URL.Path, response.Request.URL)
 	}
