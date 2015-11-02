@@ -1,5 +1,27 @@
 #!/usr/bin/env python
 
+# Copyright 2015 Pippio Inc, https://pippio.com
+#
+# The MIT License (MIT)
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+#  The above copyright notice and this permission notice shall be included in
+#  all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import argparse
 import getpass
 import gzip
@@ -25,9 +47,10 @@ class StreamDownloader(object):
     CONTENT_RANGE_REGEXP = 'bytes\s+(\d+)-\d+/\d+'
     FRAGMENT_LOCATION_HEADER = 'X-Fragment-Location'
     FRAGMENT_NAME_HEADER = 'X-Fragment-Name'
+    FRAGMENT_WRITE_HEAD_HEADER = 'X-Write-Head'
 
     # Buffer size for bulk copy.
-    BUFFER_SIZE = 1 << 14  # 16384
+    BUFFER_SIZE = 1 << 15  # 32768
 
     def __init__(self, output_dir, metadata_path, session):
         self.output_dir = output_dir
@@ -37,14 +60,13 @@ class StreamDownloader(object):
         self._metadata = self._load_metadata()
 
     def fetch_some(self, stream_url):
-        """Retrieves all new content from the last-processed & stored offset.
-        """
+        """Retrieves new content from the last-processed & stored offset."""
 
         offset = self._metadata['offsets'].get(stream_url, 0)
 
         # Perform a HEAD request to check for a directly fetch-able fragment.
         full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-        response = self.session.head(full_url)
+        response = self.session.head(full_url, verify=True)
 
         logging.debug("HEAD %s (%s)\n\t%s", full_url, response.status_code,
                       response.headers)
@@ -58,7 +80,8 @@ class StreamDownloader(object):
 
         offset = self._parse_response_offset(response.headers)
         fragment = self._parse_fragment_name(response.headers)
-        location = response.headers[self.FRAGMENT_LOCATION_HEADER]
+        location = response.headers.get(self.FRAGMENT_LOCATION_HEADER)
+        write_head = int(response.headers[self.FRAGMENT_WRITE_HEAD_HEADER])
 
         basename = stream_url.split('/')[-1]
         path_tmp = os.path.join(self.output_dir,
@@ -74,7 +97,7 @@ class StreamDownloader(object):
         else:
             # Repeat the request as a GET to directly transfer.
             full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-            response = self.session.get(full_url, stream=True)
+            response = self.session.get(full_url, stream=True, verify=True)
 
             logging.debug("GET %s (%s)\n\t%s", full_url, response.status_code,
                           response.headers)
@@ -93,9 +116,13 @@ class StreamDownloader(object):
         self._metadata['offsets'][stream_url] = offset + delta
         self._store_metadata()
 
-        logging.info("wrote %s (offset %d-%d)", path_final, offset,
-                     offset+delta)
-        return True
+        logging.info("wrote %s (%d bytes at offset %d)", path_final, delta,
+                     offset)
+
+        # If we've read through the write head (at the time of the response),
+        # don't attempt another read. Otherwise we can get into loops reading
+        # small amounts of newly-written content.
+        return offset + delta < write_head
 
     def _transfer_from_location(self, offset, fragment, location, stream_out):
         """Transfers to |stream_out| starting at |offset| from the named
@@ -105,37 +132,33 @@ class StreamDownloader(object):
         if skip_delta < 0:
             raise RuntimeError("Unexpected offset: %d (%r)", offset, fragment)
 
-        stream = self.session.get(location, stream=True)
+        stream = self.session.get(location, stream=True, verify=True)
         stream.raise_for_status()
 
-        self._discard(stream.raw, delta)
-        return self._transfer(stream.raw, stream_out)
+        return self._transfer(stream.raw, stream_out, skip_delta)
 
-    def _transfer(self, stream_in, stream_out):
-        """Transfers from |stream_in| to |stream_out|, returning the number of
-        bytes transferred before EOF of |stream_in|."""
+    def _transfer(self, stream_in, stream_out, skip_delta=0):
+        """Transfers from |stream_in| to |stream_out|, skipping |skip_delta|
+        leading bytes. The number of bytes transferred *after* |skip_delta|
+        is returned."""
 
         delta = 0
         while True:
-            buf = stream_in.read(self.BUFFER_SIZE)
-            if buf == '':
+            buf = stream_in.read(self.BUFFER_SIZE, decode_content=True)
+            if not buf:
                 return delta
+
+            if skip_delta > len(buf):
+                skip_delta -= len(buf)
+                continue
+            elif skip_delta > 0:
+                buf = buf[skip_delta:]
+                skip_delta = 0
 
             stream_out.write(buf)
             delta += len(buf)
 
         return delta
-
-    def _discard(self, stream_in, count):
-        """Discards |count| bytes from |stream_in|. Raises if |stream_in|
-        returns EOF prior to |count| bytes being read."""
-
-        while count > 0:
-            chunk = stream_in.read(min(count, self.BUFFER_SIZE))
-            if chunk == '':
-                raise RuntimeError("unexpected EOF (%d remaining to read)",
-                                   count)
-            count -= len(chunk)
 
     def _parse_fragment_name(self, headers):
         """Parses a stream fragment name (as begin-offset, end-offset,
