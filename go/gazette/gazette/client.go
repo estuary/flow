@@ -54,6 +54,10 @@ type Client struct {
 }
 
 func NewClient(endpoint string) (*Client, error) {
+	return NewClientWithHttpClient(endpoint, &http.Client{})
+}
+
+func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) {
 	ep, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, err
@@ -63,20 +67,32 @@ func NewClient(endpoint string) (*Client, error) {
 		return nil, err
 	}
 
+	// If an API consumer sets his own transport, respect it, though things may
+	// fail if, for example, the file URL handler is not set.
+	if hc.Transport == nil {
+		hc.Transport = MakeHttpTransport()
+	}
+
+	return &Client{
+		defaultEndpoint: ep,
+		locationCache:   cache,
+		httpClient:      hc,
+	}, nil
+}
+
+// If you want to use your own |http.Transport| with Gazette, start with this one.
+func MakeHttpTransport() *http.Transport {
 	httpTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		ResponseHeaderTimeout: kClientResponseHeaderTimeout,
 	}
+
 	// When testing, fragment locations are "persisted" to the local filesystem,
 	// and file:// URL's are returned by Gazette servers. Register a protocol
 	// handler so they may be opened by the client.
 	httpTransport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
 
-	return &Client{
-		defaultEndpoint: ep,
-		locationCache:   cache,
-		httpClient:      &http.Client{Transport: httpTransport},
-	}, nil
+	return httpTransport
 }
 
 func (c *Client) Head(args journal.ReadArgs) (journal.ReadResult, *url.URL) {
