@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,15 +13,14 @@ import (
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/api-server/endpoints"
 	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/gazette"
 )
 
 var (
 	// Service discovery.
-	etcdEndpoint = flag.String("etcdEndpoint", "http://127.0.0.1:2379",
-		"Etcd network service address")
-	announceEndpoint = flag.String("announceEndpoint", "http://127.0.0.1:8081",
+	announceEndpoint = flag.String("announceEndpoint", "",
 		"Endpoint to announce")
 
 	spoolDirectory = flag.String("spoolDir", "/var/tmp/gazette",
@@ -33,6 +33,7 @@ var (
 )
 
 func main() {
+	endpoints.ParseFromEnvironment()
 	flag.Parse()
 
 	log.SetFormatter(&log.TextFormatter{DisableTimestamp: true})
@@ -42,10 +43,27 @@ func main() {
 		Service: "gazetted", Tag: *releaseTag, Replica: *replica})
 	varz.StartDebugListener()
 
+	if *announceEndpoint == "" {
+		// Infer from externally routable IP address.
+		if addrs, err := net.InterfaceAddrs(); err != nil {
+			log.WithField("err", err).Fatal(
+				"error retrieving interfaces and no announce endpoint specified")
+		} else {
+			for i := range addrs {
+				if ip, ok := addrs[i].(*net.IPNet); ok && !ip.IP.IsLoopback() {
+					log.WithField("address", ip.IP.String()).Info(
+						"selected an announce endpoint")
+					*announceEndpoint = "http://" + ip.IP.String() + ":8081"
+					break
+				}
+			}
+		}
+	}
+
 	log.WithFields(log.Fields{
 		"spoolDir":         *spoolDirectory,
 		"replicaCount":     *replicaCount,
-		"etcdEndpoint":     *etcdEndpoint,
+		"etcdEndpoint":     *endpoints.EtcdEndpoint,
 		"announceEndpoint": *announceEndpoint,
 		"releaseTag":       *releaseTag,
 		"replica":          *replica,
@@ -56,7 +74,7 @@ func main() {
 		log.WithField("err", err).Fatal("failed to create spool directory")
 	}
 
-	etcdService, err := discovery.NewEtcdClientService(*etcdEndpoint)
+	etcdService, err := discovery.NewEtcdClientService(*endpoints.EtcdEndpoint)
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to initialize etcdService")
 	}

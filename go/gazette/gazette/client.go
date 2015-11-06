@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -58,10 +59,16 @@ func NewClient(endpoint string) (*Client, error) {
 }
 
 func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) {
+	// Assume HTTP if no protocol is specified.
+	if strings.Index(endpoint, "://") == -1 {
+		endpoint = "http://" + endpoint
+	}
+
 	ep, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, err
 	}
+
 	cache, err := lru.New(kClientRouteCacheSize)
 	if err != nil {
 		return nil, err
