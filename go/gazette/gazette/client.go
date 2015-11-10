@@ -185,6 +185,15 @@ func (c *Client) Put(args journal.AppendArgs) error {
 	if err != nil {
 		return err
 	}
+	if _, ok := c.locationCache.Get(request.URL.Path); !ok {
+		// Speculatively issue a HEAD to fill the location cache for this path.
+		result, _ := c.Head(journal.ReadArgs{Journal: args.Journal, Blocking: false, Offset: -1})
+		if result.Error != journal.ErrNotYetAvailable {
+			log.WithFields(log.Fields{"err": err, "journal": args.Journal}).
+				Warn("PUT cache-fill failed")
+		}
+	}
+
 	response, err := c.Do(request)
 	if err != nil {
 		return err
@@ -320,8 +329,10 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 		c.locationCache.Add(request.URL.Path, location)
 	} else if err != http.ErrNoLocation {
 		log.WithField("err", err).Warn("parsing Gazette Location header")
-	} else if response.Request != nil && response.Request.URL.String() != request.URL.String() {
-		// We successfully followed a redirect. Cache it for future use.
+	} else if response.Request != nil {
+		// We sucessfully talked to a Gazette server. Cache the final request path
+		// resulting in this response. If we followed a redirect chain, this will
+		// cache the redirected URL for future use.
 		c.locationCache.Add(request.URL.Path, response.Request.URL)
 	}
 	return response, err

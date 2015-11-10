@@ -95,8 +95,12 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 
 	var mockClient mockHttpClient
 
-	client, _ := NewClient("http://default")
+	client, _ := NewClient("http://server")
 	client.httpClient = &mockClient
+
+	// Pre-fill client's route cache for /a/journal and /another/journal.
+	client.locationCache.Add("/a/journal", newURL("http://server/a/journal"))
+	client.locationCache.Add("/another/journal", newURL("http://server/another/journal"))
 
 	writer := NewWriteService(client)
 
@@ -128,9 +132,8 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	c.Check(bazPromise, gc.NotNil)
 
 	// PUT to a/journal. Expect to see both successful writes, batched together.
-	mockClient.On("Do", mock.MatchedBy(func(arg interface{}) bool {
-		request, ok := arg.(*http.Request)
-		return ok && request.URL.Path == "/a/journal"
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "PUT" && request.URL.Path == "/a/journal"
 	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Success.
 		Body:       ioutil.NopCloser(strings.NewReader("")),
@@ -144,9 +147,8 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	}).Once()
 
 	// PUT to another/journal. Fails with a remote server error.
-	mockClient.On("Do", mock.MatchedBy(func(arg interface{}) bool {
-		request, ok := arg.(*http.Request)
-		return ok && request.URL.Path == "/another/journal"
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "PUT" && request.URL.Path == "/another/journal"
 	})).Return(&http.Response{
 		StatusCode: http.StatusInternalServerError,
 		Status:     "Whoops!",
@@ -159,9 +161,8 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	}).Once()
 
 	// Expect PUT to another/journal is retried with the same content.
-	mockClient.On("Do", mock.MatchedBy(func(arg interface{}) bool {
-		request, ok := arg.(*http.Request)
-		return ok && request.URL.Path == "/another/journal"
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "PUT" && request.URL.Path == "/another/journal"
 	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Success.
 		Body:       ioutil.NopCloser(strings.NewReader("")),

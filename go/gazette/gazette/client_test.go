@@ -53,14 +53,10 @@ func newReadResponseFixture() *http.Response {
 func (s *ClientSuite) TestHeadRequest(c *gc.C) {
 	mockClient := &mockHttpClient{}
 
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).
-		Return(newReadResponseFixture(), nil).Run(func(args mock.Arguments) {
-
-		request := args[0].(*http.Request)
-		c.Check(request.Method, gc.Equals, "HEAD")
-		c.Check(request.URL, gc.DeepEquals,
-			newURL("http://default/a/journal?block=false&offset=1005"))
-	}).Once()
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+	})).Return(newReadResponseFixture(), nil).Once()
 
 	s.client.httpClient = mockClient
 	result, loc := s.client.Head(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
@@ -83,14 +79,10 @@ func (s *ClientSuite) TestDirectGet(c *gc.C) {
 	mockClient := &mockHttpClient{}
 
 	responseFixture := newReadResponseFixture()
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).
-		Return(responseFixture, nil).Run(func(args mock.Arguments) {
-
-		request := args[0].(*http.Request)
-		c.Check(request.Method, gc.Equals, "GET")
-		c.Check(request.URL, gc.DeepEquals,
-			newURL("http://default/a/journal?block=false&offset=1005"))
-	}).Once()
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "GET" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+	})).Return(responseFixture, nil).Once()
 
 	s.client.httpClient = mockClient
 	result, body := s.client.GetDirect(ReadArgs{
@@ -114,24 +106,16 @@ func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
 	responseFixture.Header.Del(FragmentLocationHeader)
 
 	// Expect an initial non-blocking HEAD request to the default endpoint.
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).
-		Return(responseFixture, nil).Run(func(args mock.Arguments) {
-
-		request := args[0].(*http.Request)
-		c.Check(request.Method, gc.Equals, "HEAD")
-		c.Check(request.URL, gc.DeepEquals,
-			newURL("http://default/a/journal?block=false&offset=1005"))
-	}).Once()
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+	})).Return(responseFixture, nil).Once()
 
 	// Expect a direct blocking GET request to the previously-redirected endpoint.
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).
-		Return(responseFixture, nil).Run(func(args mock.Arguments) {
-
-		request := args[0].(*http.Request)
-		c.Check(request.Method, gc.Equals, "GET")
-		c.Check(request.URL, gc.DeepEquals,
-			newURL("http://redirected-server/a/journal?block=true&offset=1005"))
-	}).Once()
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "GET" &&
+			request.URL.String() == "http://redirected-server/a/journal?block=true&offset=1005"
+	})).Return(responseFixture, nil).Once()
 
 	s.client.httpClient = mockClient
 	result, body := s.client.Get(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: true})
@@ -151,14 +135,10 @@ func (s *ClientSuite) TestGetWithFragmentLocation(c *gc.C) {
 	mockClient := &mockHttpClient{}
 
 	// Expect an initial HEAD request to the default endpoint.
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).
-		Return(newReadResponseFixture(), nil).Run(func(args mock.Arguments) {
-
-		request := args[0].(*http.Request)
-		c.Check(request.Method, gc.Equals, "HEAD")
-		c.Check(request.URL, gc.DeepEquals,
-			newURL("http://default/a/journal?block=false&offset=1005"))
-	}).Once()
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+	})).Return(newReadResponseFixture(), nil).Once()
 
 	// Expect a following GET request to the returned cloud URL.
 	mockClient.On("Get", "http://cloud/fragment/location").Return(&http.Response{
@@ -222,15 +202,23 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 	content := strings.NewReader("foobar")
 
 	mockClient := &mockHttpClient{}
-	mockClient.On("Do", mock.AnythingOfType("*http.Request")).Return(&http.Response{
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.Host == "default" &&
+			request.URL.Path == "/a/journal"
+	})).Return(newReadResponseFixture(), nil)
+
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "PUT" &&
+			request.URL.Host == "redirected-server" &&
+			request.URL.Path == "/a/journal"
+	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Indicates success.
 		Request:    &http.Request{URL: newURL("http://default/a/journal")},
 		Body:       ioutil.NopCloser(nil),
 	}, nil).Run(func(args mock.Arguments) {
 
 		request := args[0].(*http.Request)
-		c.Check(request.Method, gc.Equals, "PUT")
-		c.Check(request.URL, gc.DeepEquals, newURL("http://default/a/journal"))
 		c.Check(request.Body, gc.DeepEquals, ioutil.NopCloser(content))
 	}).Once()
 
