@@ -122,7 +122,10 @@ func main() {
 	}()
 
 	go varz.PeriodicallyLogVarz()
-	go http.ListenAndServe(":8081", context.BuildServingMux())
+	go func() {
+		err := http.ListenAndServe(":8081", context.BuildServingMux())
+		log.WithField("err", err).Error("failed to listen")
+	}()
 
 	<-done
 
