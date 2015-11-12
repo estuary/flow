@@ -37,7 +37,10 @@ func (h *ReadAPI) Register(router *mux.Router) {
 func (h *ReadAPI) Head(w http.ResponseWriter, r *http.Request) {
 	op, result := h.initialRead(w, r)
 
-	if result.Error != nil && result.Error != journal.ErrNotYetAvailable {
+	switch result.Error {
+	case nil, journal.ErrNotYetAvailable, journal.ErrNotReplica:
+		// Common expected error cases: don't log.
+	default:
 		log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("head failed")
 	}
 }
