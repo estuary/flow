@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/gorilla/mux"
@@ -87,8 +88,9 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	journal.ReadResult) {
 
 	var schema struct {
-		Offset int64 // Required.
-		Block  bool
+		Offset  int64 // Required.
+		Block   bool
+		BlockMS int64
 	}
 	var op journal.ReadOp
 	var result journal.ReadResult
@@ -99,6 +101,12 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	} else if result.Error = h.decoder.Decode(&schema, r.Form); result.Error != nil {
 		http.Error(w, result.Error.Error(), http.StatusBadRequest)
 		return op, result
+	}
+
+	var deadline time.Time
+	if schema.BlockMS != 0 {
+		deadline = time.Now().Add(time.Duration(schema.BlockMS) * time.Millisecond)
+		schema.Block = true
 	}
 
 	op = journal.ReadOp{
@@ -131,7 +139,9 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 			return op, result
 		}
 	}
-	op.Blocking = schema.Block // Switch to requested blocking mode.
+	// Switch to requested blocking mode.
+	op.Blocking = schema.Block
+	op.Deadline = deadline
 
 	// Respond via HTTP 206 (Partial Content), as an effectively infinite-length
 	// bytestream beginning at |result.Offset|.

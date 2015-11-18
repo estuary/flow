@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
@@ -300,6 +301,23 @@ func (s *ClientSuite) TestAppendResultParsingErrorCases(c *gc.C) {
 		c.Check(s.client.parseAppendResponse(response), gc.ErrorMatches,
 			`404 Not Found \(not found\)`)
 	}
+}
+
+func (s *ClientSuite) TestBuildReadURL(c *gc.C) {
+	args := ReadArgs{
+		Journal:  "a/journal",
+		Blocking: true,
+		Deadline: time.Now().Add(10 * time.Millisecond),
+	}
+	url := s.client.buildReadURL(args)
+	c.Check(strings.Contains(url.String(), "block=true"), gc.Equals, true)
+	c.Check(strings.Contains(url.String(), "blockms="), gc.Equals, true)
+	c.Check(strings.Contains(url.String(), "blockms=0"), gc.Equals, false)
+
+	args = ReadArgs{Journal: "a/journal"}
+	url = s.client.buildReadURL(args)
+	c.Check(strings.Contains(url.String(), "block=false"), gc.Equals, true)
+	c.Check(strings.Contains(url.String(), "blockms="), gc.Equals, false)
 }
 
 func newURL(s string) *url.URL {

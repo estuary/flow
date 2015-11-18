@@ -1,6 +1,8 @@
 package journal
 
 import (
+	"time"
+
 	log "github.com/Sirupsen/logrus"
 )
 
@@ -16,6 +18,10 @@ type Tail struct {
 
 	// Reads which can't (yet) be satisfied by a fragment in |fragments|.
 	blockedReads []ReadOp
+	deadline     struct {
+		next  time.Time
+		timer *time.Timer
+	}
 
 	stop chan struct{}
 }
@@ -28,6 +34,7 @@ func NewTail(journal Name, updates <-chan Fragment) *Tail {
 		endOffset: make(chan int64),
 		stop:      make(chan struct{}),
 	}
+	t.deadline.timer = time.NewTimer(0)
 	return t
 }
 
@@ -68,7 +75,7 @@ func (t *Tail) loop() {
 			if !ok {
 				t.updates = nil
 				// Any remaining blocked reads will now fail.
-				t.wakeBlockedReads()
+				t.wakeBlockedReads(time.Time{})
 			} else {
 				t.onUpdate(fragment)
 			}
@@ -78,6 +85,10 @@ func (t *Tail) loop() {
 			} else {
 				t.onRead(read)
 			}
+		case done := <-t.deadline.timer.C:
+			// A zero value t.deadline.next indicates the timer is not in use
+			t.deadline.next = time.Time{}
+			t.wakeBlockedReads(done)
 		case t.endOffset <- t.fragments.EndOffset():
 		}
 	}
@@ -93,7 +104,7 @@ func (t *Tail) onUpdate(fragment Fragment) {
 		return
 	}
 	t.fragments.Add(fragment)
-	t.wakeBlockedReads()
+	t.wakeBlockedReads(time.Time{})
 }
 
 func (t *Tail) onRead(op ReadOp) {
@@ -114,6 +125,13 @@ func (t *Tail) onRead(op ReadOp) {
 	if ind == len(t.fragments) || t.fragments[ind].Begin > op.Offset {
 		// A fragment covering op.Offset isn't available (yet).
 		if t.updates != nil && op.Blocking {
+			// If a deadline is specified, manage the timer appropriately
+			if !op.Deadline.IsZero() {
+				if t.deadline.next.IsZero() || t.deadline.next.After(op.Deadline) {
+					t.deadline.next = op.Deadline
+					t.deadline.timer.Reset(op.Deadline.Sub(time.Now()))
+				}
+			}
 			t.blockedReads = append(t.blockedReads, op)
 		} else {
 			op.Result <- ReadResult{
@@ -132,11 +150,17 @@ func (t *Tail) onRead(op ReadOp) {
 	}
 }
 
-func (t *Tail) wakeBlockedReads() {
+func (t *Tail) wakeBlockedReads(when time.Time) {
 	woken := t.blockedReads
 	t.blockedReads = nil
 
-	for _, read := range woken {
-		t.onRead(read)
+	for _, op := range woken {
+		// If the deadline for a particular read has passed, it should no longer
+		// be considered blocking.
+		if op.Deadline.Before(when) && op.Deadline.After(time.Time{}) {
+			op.Blocking = false
+			op.Deadline = time.Time{}
+		}
+		t.onRead(op)
 	}
 }

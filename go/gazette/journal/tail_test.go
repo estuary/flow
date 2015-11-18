@@ -1,6 +1,8 @@
 package journal
 
 import (
+	"time"
+
 	gc "github.com/go-check/check"
 )
 
@@ -122,6 +124,52 @@ func (s *TailSuite) TestBlockingRead(c *gc.C) {
 		WriteHead: 500,
 		Fragment:  fragment3,
 	})
+}
+
+func (s *TailSuite) TestDelayedRead(c *gc.C) {
+	fragment1 := Fragment{Journal: "a/journal", Begin: 100, End: 200}
+
+	results := make(chan ReadResult)
+	deadline := time.Now().Add(10 * time.Millisecond)
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal",
+			Offset:   200,
+			Blocking: true,
+			Deadline: deadline,
+		},
+		Result: results,
+	})
+	s.updates <- fragment1
+	c.Check(len(results), gc.Equals, 0)
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Error:     ErrNotYetAvailable,
+		Offset:    200,
+		WriteHead: 200,
+	})
+	c.Check(time.Now().After(deadline), gc.Equals, true)
+
+}
+
+func (s *TailSuite) TestDelayedReadWakes(c *gc.C) {
+	fragment1 := Fragment{Journal: "a/journal", Begin: 200, End: 300}
+	results := make(chan ReadResult)
+	deadline := time.Now().Add(time.Second)
+	s.tail.Read(ReadOp{
+		ReadArgs: ReadArgs{Journal: "a/journal",
+			Offset:   200,
+			Blocking: true,
+			Deadline: deadline,
+		},
+		Result: results,
+	})
+	c.Check(len(results), gc.Equals, 0)
+	s.updates <- fragment1
+	c.Check(<-results, gc.DeepEquals, ReadResult{
+		Offset:    200,
+		WriteHead: 300,
+		Fragment:  fragment1,
+	})
+	c.Check(time.Now().After(deadline), gc.Equals, false)
 }
 
 func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	gc "github.com/go-check/check"
 	"github.com/gorilla/mux"
@@ -137,6 +138,40 @@ func (s *ReadAPISuite) TestBlockingSuccess(c *gc.C) {
 	s.mux.ServeHTTP(w, req)
 
 	c.Check(w.Body.String(), gc.Equals, "expected read fixture")
+}
+
+func (s *ReadAPISuite) TestBlockingTimeout(c *gc.C) {
+	req, _ := http.NewRequest("GET", "/journal/name?offset=12350&blockms=10000", nil)
+	w := httptest.NewRecorder()
+
+	s.readCallbacks = []func(ReadOp){
+		func(op ReadOp) {
+			// First probe is non-blocking. Pretend read isn't available.
+			c.Check(op.Blocking, gc.Equals, false)
+			c.Check(op.Offset, gc.Equals, int64(12350))
+			c.Check(op.Deadline.IsZero(), gc.Equals, true)
+
+			op.Result <- ReadResult{
+				Error:     ErrNotYetAvailable,
+				Offset:    12350,
+				WriteHead: 12350,
+				Fragment:  s.spool.Fragment,
+			}
+		},
+		func(op ReadOp) {
+			// Check that passing a value for |blockms| was interpreted as a block
+			// (journal.Tail will handle the interpretation of a timeout as a subset of a block)
+			c.Check(op.Blocking, gc.Equals, true)
+			c.Check(op.Offset, gc.Equals, int64(12350))
+			// Verify that the op's deadline has been set in the future
+			c.Check(op.Deadline.After(time.Now()), gc.Equals, true)
+
+			op.Result <- ReadResult{Error: ErrNotReplica}
+		},
+	}
+	s.mux.ServeHTTP(w, req)
+
+	c.Check(w.Code, gc.Equals, http.StatusPartialContent)
 }
 
 func (s *ReadAPISuite) TestBlockingReadFromHead(c *gc.C) {

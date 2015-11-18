@@ -204,13 +204,20 @@ func (c *Client) Put(args journal.AppendArgs) error {
 }
 
 func (c *Client) buildReadURL(args journal.ReadArgs) *url.URL {
-	return &url.URL{
-		Path: "/" + string(args.Journal),
-		RawQuery: url.Values{
-			"offset": {strconv.FormatInt(args.Offset, 10)},
-			"block":  {strconv.FormatBool(args.Blocking)},
-		}.Encode(),
+	v := url.Values{
+		"offset": {strconv.FormatInt(args.Offset, 10)},
+		"block":  {strconv.FormatBool(args.Blocking)},
 	}
+	var blockms int64
+	if !args.Deadline.IsZero() {
+		blockms = args.Deadline.Sub(time.Now()).Nanoseconds() / time.Millisecond.Nanoseconds()
+		v.Add("blockms", strconv.FormatInt(blockms, 10))
+	}
+	u := url.URL{
+		Path:     "/" + string(args.Journal),
+		RawQuery: v.Encode(),
+	}
+	return &u
 }
 
 func (c *Client) parseReadResult(args journal.ReadArgs,
