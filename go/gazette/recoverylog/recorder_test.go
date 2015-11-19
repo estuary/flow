@@ -1,11 +1,12 @@
 package recoverylog
 
 import (
-	"errors"
+	"bytes"
 	"io"
+	"testing"
+	"time"
 
 	gc "github.com/go-check/check"
-	"github.com/stretchr/testify/mock"
 
 	"github.com/pippio/gazette/async"
 	"github.com/pippio/gazette/journal"
@@ -16,170 +17,229 @@ const kOpLog = journal.Name("a/journal")
 const kPrefix = "/prefix"
 
 type RecorderSuite struct {
-	manifest *MockManifest
-	header   *journal.MockHeader
-	writer   *journal.MockWriter
-	recorder Recorder
+	recorder *Recorder
+
+	writes       *bytes.Buffer
+	parsedOffset int64
+	promise      async.Promise
 }
 
 func (s *RecorderSuite) SetUpTest(c *gc.C) {
-	kErrRetryInterval = 0
+	var err error
+	s.recorder, err = NewRecorder(NewFSM(EmptyHints("a/journal")), len(kPrefix), s)
+	c.Check(err, gc.IsNil)
 
-	s.manifest = &MockManifest{}
-	s.header = &journal.MockHeader{}
-	s.writer = &journal.MockWriter{}
+	s.writes = bytes.NewBuffer(nil)
+	s.parsedOffset = 0
 
-	s.recorder = NewRecorder(s.manifest, len(kPrefix), "a/journal", s.header, s.writer)
-}
-
-func (s *RecorderSuite) TearDownTest(c *gc.C) {
-	s.header.AssertExpectations(c)
-	s.manifest.AssertExpectations(c)
-	s.writer.AssertExpectations(c)
+	// Default to a resolved promise for writes.
+	s.promise = make(async.Promise)
+	s.promise.Resolve()
 }
 
 func (s *RecorderSuite) TestNewFile(c *gc.C) {
-	// When obtaining journal head, return errors first to exercise handling.
-	s.header.On("Head", journal.ReadArgs{Journal: "a/journal", Offset: -1, Blocking: false}).
-		Return(journal.ReadResult{Error: errors.New("error!")}, nil).Once()
-	// Return a valid response.
-	s.header.On("Head", journal.ReadArgs{Journal: "a/journal", Offset: -1, Blocking: false}).
-		Return(journal.ReadResult{Error: journal.ErrNotYetAvailable, WriteHead: 12345}, nil).Once()
-
-	s.manifest.On("CreateFile", "/path/to/file", int64(12345)).
-		Return(&FileRecord{Id: "file-id"}, nil).Once()
-
-	// Return an error on initial write attempt.
-	s.writer.On("Write", journal.Name("a/journal"), mock.AnythingOfType("[]uint8")).
-		Return(make(async.Promise), errors.New("error!")).Once()
-	// Return success. Validate that an RecordedOp.Alloc was written.
-	s.writer.On("Write", journal.Name("a/journal"), mock.AnythingOfType("[]uint8")).
-		Return(make(async.Promise), nil).Run(func(args mock.Arguments) {
-		var op RecordedOp
-		c.Assert(message.ParseExactFrame(&op, args.Get(1).([]byte)), gc.IsNil)
-
-		c.Check(op.Alloc, gc.NotNil)
-		c.Check(op.Alloc.Id, gc.Equals, "file-id")
-	}).Once()
-
 	s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+
+	op := s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(1))
+	c.Check(op.Recorder, gc.Not(gc.Equals), uint32(0))
+	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
+
+	// Expect the tracked offset was incremented by the written frame size.
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
+
+	s.recorder.NewWritableFile(kPrefix + "/other/file")
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(2))
+	c.Check(op.Recorder, gc.Not(gc.Equals), uint32(0))
+	c.Check(op.Create.Path, gc.Equals, "/other/file")
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
 }
 
-func (s *RecorderSuite) TestDeleteMultipleLinks(c *gc.C) {
-	s.manifest.On("DeleteFile", "/path/to/file").Return(&FileRecord{
-		Id:    "file-id",
-		Links: map[string]struct{}{"remaining/path": {}},
-	}, nil).Once()
+func (s *RecorderSuite) TestDeleteFile(c *gc.C) {
+	s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+	_ = s.parseOp(c)
 
 	s.recorder.DeleteFile(kPrefix + "/path/to/file")
+	op := s.parseOp(c)
+
+	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Unlink.Path, gc.Equals, "/path/to/file")
 }
 
-func (s *RecorderSuite) TestDeleteFinalLink(c *gc.C) {
-	s.manifest.On("DeleteFile", "/path/to/file").
-		Return(&FileRecord{Id: "file-id"}, nil).Once()
+func (s *RecorderSuite) TestLinkFile(c *gc.C) {
+	s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+	_ = s.parseOp(c)
 
-	// Return an error on initial write attempt.
-	s.writer.On("Write", journal.Name("a/journal"), mock.AnythingOfType("[]uint8")).
-		Return(make(async.Promise), errors.New("error!")).Once()
-	// Return success. Validate that an RecordedOp.Dealloc was written.
-	s.writer.On("Write", journal.Name("a/journal"), mock.AnythingOfType("[]uint8")).
-		Return(make(async.Promise), nil).Run(func(args mock.Arguments) {
-		var op RecordedOp
-		c.Assert(message.ParseExactFrame(&op, args.Get(1).([]byte)), gc.IsNil)
+	s.recorder.LinkFile(kPrefix+"/path/to/file", kPrefix+"/linked")
+	op := s.parseOp(c)
 
-		c.Check(op.Dealloc, gc.NotNil)
-		c.Check(op.Dealloc.Id, gc.Equals, "file-id")
-	}).Once()
-
-	s.recorder.DeleteFile(kPrefix + "/path/to/file")
+	c.Check(op.Link.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Link.Path, gc.Equals, "/linked")
 }
 
-func (s *RecorderSuite) TestFileRename(c *gc.C) {
-	s.manifest.On("RenameFile", "/source/path", "/target/path").Return(nil, nil).Once()
+func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
+	s.recorder.NewWritableFile(kPrefix + "/target/path")
+	_ = s.parseOp(c)
+	s.recorder.NewWritableFile(kPrefix + "/source/path")
+	_ = s.parseOp(c)
+
+	// Excercise handling for duplicate '//' prefixes.
+	s.recorder.RenameFile(kPrefix+"//source/path", kPrefix+"/target/path")
+
+	// Expect unlink of Fnode 1 from target path.
+	op := s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(3))
+	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Unlink.Path, gc.Equals, "/target/path")
+
+	// Expect link of Fnode 2 to target path.
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(4))
+	c.Check(op.Link.Fnode, gc.Equals, Fnode(2))
+	c.Check(op.Link.Path, gc.Equals, "/target/path")
+
+	// Expect unlink of Fnode 2 from source path.
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(5))
+	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(2))
+	c.Check(op.Unlink.Path, gc.Equals, "/source/path")
+}
+
+func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
+	s.recorder.NewWritableFile(kPrefix + "/source/path")
+	_ = s.parseOp(c)
 
 	s.recorder.RenameFile(kPrefix+"/source/path", kPrefix+"/target/path")
+
+	// Expect link of Fnode 1 to target path.
+	op := s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(2))
+	c.Check(op.Link.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Link.Path, gc.Equals, "/target/path")
+
+	// Expect unlink of Fnode 1 from source path.
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(3))
+	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Unlink.Path, gc.Equals, "/source/path")
 }
 
-func (s *RecorderSuite) TestFileLink(c *gc.C) {
-	s.manifest.On("LinkFile", "/source/path", "/target/path").Return(nil, nil).Once()
+func (s *RecorderSuite) TestFileAppends(c *gc.C) {
+	handle := s.recorder.NewWritableFile(kPrefix + "/source/path")
+	_ = s.parseOp(c)
 
-	s.recorder.LinkFile(kPrefix+"/source/path", kPrefix+"/target/path")
+	handle.Append([]byte("first-write"))
+
+	op := s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(2))
+	c.Check(op.Write.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Write.Length, gc.Equals, int64(11))
+	c.Check(op.Write.Offset, gc.Equals, int64(0))
+	c.Check(s.readLen(c, op.Write.Length), gc.Equals, "first-write")
+	// Expect the tracked offset was incremented by the frame + payload size.
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
+
+	handle.Append([]byte(""))
+
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(3))
+	c.Check(op.Write.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Write.Length, gc.Equals, int64(0))
+	c.Check(op.Write.Offset, gc.Equals, int64(11))
+	c.Check(s.readLen(c, op.Write.Length), gc.Equals, "")
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
+
+	handle.Append([]byte("second-write"))
+
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(4))
+	c.Check(op.Write.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Write.Length, gc.Equals, int64(12))
+	c.Check(op.Write.Offset, gc.Equals, int64(11))
+	c.Check(s.readLen(c, op.Write.Length), gc.Equals, "second-write")
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
 }
 
-func (s *RecorderSuite) TestFileAppendAndSync(c *gc.C) {
-	// File creation fixtures.
-	s.header.On("Head", journal.ReadArgs{Journal: "a/journal", Offset: -1, Blocking: false}).
-		Return(journal.ReadResult{WriteHead: 12345}, nil).Once()
-	s.manifest.On("CreateFile", "/path/to/file", int64(12345)).
-		Return(&FileRecord{Id: "file-id"}, nil).Once()
+func (s *RecorderSuite) TestFileSync(c *gc.C) {
+	handle := s.recorder.NewWritableFile(kPrefix + "/source/path")
+	_ = s.parseOp(c)
 
-	// Expect that file creation is recorded.
-	s.writer.On("Write", journal.Name("a/journal"), mock.AnythingOfType("[]uint8")).
-		Return(make(async.Promise), nil).Run(func(args mock.Arguments) {
-		var op RecordedOp
-		c.Assert(message.ParseExactFrame(&op, args.Get(1).([]byte)), gc.IsNil)
+	s.promise = make(async.Promise)
+	finished := make(chan struct{})
 
-		c.Check(op.Alloc, gc.NotNil)
-		c.Check(op.Alloc.Id, gc.Equals, "file-id")
-	}).Once()
+	go func() {
+		handle.Sync()
+		close(finished)
+	}()
 
-	file := s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+	time.Sleep(time.Millisecond)
 
-	// Expect a first log write. Starts at offset 0.
-	s.writer.On("ReadFrom", journal.Name("a/journal"), mock.AnythingOfType("*io.multiReader")).
-		Return(make(async.Promise), nil).Run(func(args mock.Arguments) {
-		r := args.Get(1).(io.Reader)
+	// Expect handle.Sync() hasn't returned yet.
+	select {
+	case <-finished:
+		c.Fail()
+	default:
+	}
+	s.promise.Resolve()
+	<-finished
+}
 
-		var op RecordedOp
-		var b []byte
+func (s *RecorderSuite) TestHints(c *gc.C) {
+	// The first Fnode is unlinked prior to log end, and is not tracked in hints.
+	s.recorder.NewWritableFile(kPrefix + "/delete/path")
 
-		_, err := message.Parse(&op, r, &b)
-		c.Assert(err, gc.IsNil)
+	// Expect hints will start from the next Fnode.
+	expectChecksum := s.recorder.fsm.NextChecksum
+	expectMark := s.recorder.fsm.LogMark
 
-		c.Check(op.Write, gc.NotNil)
-		c.Check(op.Write.Id, gc.Equals, "file-id")
-		c.Check(op.Write.Offset, gc.Equals, int64(0))
-		c.Check(op.Write.Length, gc.Equals, int64(4))
+	s.recorder.NewWritableFile(kPrefix + "/a/path").Append([]byte("file-write"))
+	s.recorder.DeleteFile(kPrefix + "/delete/path")
 
-		r.Read(b[:4])
-		c.Check(b[:4], gc.DeepEquals, []byte{0xf, 0xe, 0xe, 0xd})
-	}).Once()
+	// Expect that hints are produced for the current FSM state.
+	c.Check(s.recorder.BuildHints(), gc.DeepEquals, FSMHints{
+		LogMark:       expectMark,
+		FirstChecksum: expectChecksum,
+		FirstSeqNo:    2,
+		Recorders:     []RecorderRange{{ID: s.recorder.id, LastSeqNo: 4}},
+		SkipWrites:    map[Fnode]bool{},
+	})
+}
 
-	file.Append([]byte{0xf, 0xe, 0xe, 0xd})
+func (s *RecorderSuite) parseOp(c *gc.C) RecordedOp {
+	var op RecordedOp
+	var frame []byte
 
-	// Expect a second write. First attempt fails, and is re-tried successfully.
-	s.writer.On("ReadFrom", journal.Name("a/journal"), mock.AnythingOfType("*io.multiReader")).
-		Return(make(async.Promise), errors.New("error!")).Once()
-	s.writer.On("ReadFrom", journal.Name("a/journal"), mock.AnythingOfType("*io.multiReader")).
-		Return(make(async.Promise), nil).Run(func(args mock.Arguments) {
-		r := args.Get(1).(io.Reader)
+	n, err := message.Parse(&op, s.writes, &frame)
+	c.Check(err, gc.IsNil)
 
-		var op RecordedOp
-		var b []byte
+	s.parsedOffset += int64(n)
+	return op
+}
 
-		_, err := message.Parse(&op, r, &b)
-		c.Assert(err, gc.IsNil)
+func (s *RecorderSuite) readLen(c *gc.C, length int64) string {
+	buf := make([]byte, length)
 
-		c.Check(op.Write, gc.NotNil)
-		c.Check(op.Write.Id, gc.Equals, "file-id")
-		c.Check(op.Write.Offset, gc.Equals, int64(4))
-		c.Check(op.Write.Length, gc.Equals, int64(5))
+	n, err := s.writes.Read(buf)
+	c.Check(err, gc.IsNil)
+	c.Check(n, gc.Equals, int(length))
 
-		r.Read(b[:5])
-		c.Check(b[:5], gc.DeepEquals, []byte{0xb, 0xe, 0xe, 0xf, 0x0})
-	}).Once()
+	s.parsedOffset += int64(n)
+	return string(buf)
+}
 
-	file.Append([]byte{0xb, 0xe, 0xe, 0xf, 0x0})
+// journal.Writer implementation
+func (s *RecorderSuite) Write(log journal.Name, buf []byte) (async.Promise, error) {
+	s.writes.Write(buf)
+	return s.promise, nil
+}
 
-	// Expect a sync on file close. First attempt fails, and is retried.
-	syncPromise := make(async.Promise)
-	syncPromise.Resolve()
-	s.writer.On("Write", journal.Name("a/journal"), []byte(nil)).
-		Return(make(async.Promise), errors.New("error!")).Once()
-	s.writer.On("Write", journal.Name("a/journal"), []byte(nil)).
-		Return(syncPromise, nil)
-
-	file.Close()
+// journal.Writer implementation
+func (s *RecorderSuite) ReadFrom(log journal.Name, r io.Reader) (async.Promise, error) {
+	s.writes.ReadFrom(r)
+	return s.promise, nil
 }
 
 var _ = gc.Suite(&RecorderSuite{})
+
+func Test(t *testing.T) { gc.TestingT(t) }

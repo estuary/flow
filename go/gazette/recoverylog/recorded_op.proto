@@ -8,35 +8,54 @@ option (gogoproto.sizer_all) = true;
 option (gogoproto.stringer_all) = true;
 option (gogoproto.goproto_stringer_all) = false;
 
-// Header for file or directory mutations.
+
+// RecordedOp records states changes occuring within a local file-system.
 message RecordedOp {
+  option (gogoproto.goproto_unrecognized) = false;
 
-  // Indicates creation of new, empty file |id|.
-  message Alloc {
-    required string id = 1 [(gogoproto.nullable) = false];
+  // Monotonically-increasing sequence number of this operation.
+  required int64 seq_no = 1 [(gogoproto.nullable) = false];
+
+  // Previous FSM checksum to which this operation should be applied (eg, the
+  // expected checksum arrived at after applying the previous operation.
+  required fixed32 checksum = 2 [(gogoproto.nullable) = false];
+
+  // A randomly-assigned, constant ID of the recorder of this op.
+  required fixed32 recorder = 3 [(gogoproto.nullable) = false];
+
+  // RecordedOp is a union-type over the remaining fields.
+
+  // Creates a new file-node with id |seq_no|, initially linked to |path|.
+  message Create {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    required string path = 1 [(gogoproto.nullable) = false];
   };
+  optional Create create = 4;
 
-  // Indicates that file |id| has all links removed from the filesystem,
-  // and is eligible for garbage collection.
-  message Dealloc {
-    required string id = 1 [(gogoproto.nullable) = false];
+  // Links / unlinks |fnode| to |path|.
+  message Link {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    required int64 fnode = 1 [(gogoproto.nullable) = false,
+                              (gogoproto.casttype) = "Fnode"];
+    required string path = 2 [(gogoproto.nullable) = false];
   };
+  optional Link link = 5;
+  optional Link unlink = 6;
 
-  // Indicates |length| bytes should be written at |offset| to file |id|.
+  // Indicates |length| bytes should be written at |offset| to |fnode|.
   // In a serialization stream, we expect |length| raw bytes of content to
-  // immediately follow this RecordedOp.
+  // immediately follow this operation.
   message Write {
-    required string id = 1 [(gogoproto.nullable) = false];
+    option (gogoproto.goproto_unrecognized) = false;
 
+    required int64 fnode = 1 [(gogoproto.nullable) = false,
+                              (gogoproto.casttype) = "Fnode"];
     // Byte-offset within file to which the write is applied.
     optional int64 offset = 2 [(gogoproto.nullable) = false];
-
     // Length of the write.
     optional int64 length = 3 [(gogoproto.nullable) = false];
   };
-
-  optional Alloc alloc = 1;
-  optional Dealloc dealloc = 2;
-  optional Write write = 3;
+  optional Write write = 7;
 };
-
