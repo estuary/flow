@@ -96,7 +96,7 @@ func (s *FramerSuite) TestParsingWithFixture(c *gc.C) {
 	c.Check(err, gc.IsNil)
 
 	// |buf| was sized in-place.
-	c.Check(buf, gc.HasLen, len(fixture)-kHeaderLength)
+	c.Check(buf, gc.HasLen, len(fixture)-HeaderLength)
 }
 
 func (s *FramerSuite) TestParseErrorHandling(c *gc.C) {
@@ -113,7 +113,7 @@ func (s *FramerSuite) TestParseErrorHandling(c *gc.C) {
 	c.Check(string(msg), gc.Equals, "test m")
 	c.Check(err, gc.ErrorMatches, "error!")
 
-	c.Check(buf, gc.HasLen, len(fixture)-kHeaderLength)
+	c.Check(buf, gc.HasLen, len(fixture)-HeaderLength)
 }
 
 func (s *FramerSuite) TestParseDesyncHandling(c *gc.C) {

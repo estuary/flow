@@ -3,6 +3,7 @@ package gazette
 import (
 	"bytes"
 	"flag"
+	"hash/crc32"
 	"io"
 	"io/ioutil"
 	"os"
@@ -83,12 +84,12 @@ func writeAllOrNone(write *pendingWrite, r io.Reader) error {
 // affect busy writers (at least, until disk runs out). Writes are retried
 // indefinitely, until aknowledged by a broker.
 type WriteService struct {
-	Concurrency int
-
 	client  *Client
 	stopped chan struct{} // Coordinates exit of service loops.
 
-	writeQueue chan *pendingWrite
+	// Concurrent write queues (defaults to *writeConcurrency).
+	writeQueue []chan *pendingWrite
+
 	// Indexes pendingWrite's which are in |writeQueue|, and still append-able.
 	writeIndex   map[journal.Name]*pendingWrite
 	writeIndexMu sync.Mutex
@@ -96,28 +97,37 @@ type WriteService struct {
 
 func NewWriteService(client *Client) *WriteService {
 	writer := &WriteService{
-		Concurrency: *writeConcurrency,
-		client:      client,
-		stopped:     make(chan struct{}),
-		writeQueue:  make(chan *pendingWrite, kWriteQueueSize),
-		writeIndex:  make(map[journal.Name]*pendingWrite),
+		client:     client,
+		stopped:    make(chan struct{}),
+		writeQueue: nil,
+		writeIndex: make(map[journal.Name]*pendingWrite),
 	}
+	writer.SetConcurrency(*writeConcurrency)
 	return writer
+}
+
+func (c *WriteService) SetConcurrency(concurrency int) {
+	c.writeQueue = make([]chan *pendingWrite, concurrency)
+
+	for i := range c.writeQueue {
+		c.writeQueue[i] = make(chan *pendingWrite, kWriteQueueSize)
+	}
 }
 
 // Begins the write service loop. Be sure to invoke Stop() prior to process
 // exit, to ensure that all pending writes have been flushed.
 func (c *WriteService) Start() {
-	for i := 0; i != c.Concurrency; i++ {
-		go c.serveWrites()
+	for i := range c.writeQueue {
+		go c.serveWrites(i)
 	}
 }
 
 // Stops the write service loop. Returns only after all writes have completed.
 func (c *WriteService) Stop() {
-	close(c.writeQueue)
-
-	for i := 0; i != c.Concurrency; i++ {
+	for i := range c.writeQueue {
+		close(c.writeQueue[i])
+	}
+	for _ = range c.writeQueue {
 		<-c.stopped
 	}
 }
@@ -168,14 +178,18 @@ func (c *WriteService) ReadFrom(name journal.Name, r io.Reader) (async.Promise, 
 		return nil, obtainErr
 	}
 	if isNew {
-		c.writeQueue <- write
+		// Hash |name| to identify a service loop to queue |write| on. This allows
+		// for multiple, concurrent service loops while ensuring that |writes| from
+		// a single client are strictly in-order.
+		route := int(crc32.Checksum([]byte(name), crc32.IEEETable))
+		c.writeQueue[route%len(c.writeQueue)] <- write
 	}
 	return promise, writeErr
 }
 
-func (c *WriteService) serveWrites() {
+func (c *WriteService) serveWrites(index int) {
 	for {
-		write := <-c.writeQueue
+		write := <-c.writeQueue[index]
 		if write == nil {
 			// Signals Close().
 			break

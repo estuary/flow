@@ -245,6 +245,25 @@ func (s *ReadAPISuite) TestNotReplica(c *gc.C) {
 	c.Check(w.Header().Get("Location"), gc.Equals, "http://other/journal/name?offset=12350")
 }
 
+func (s *ReadAPISuite) TestNotYetAvailable(c *gc.C) {
+	req, _ := http.NewRequest("HEAD", "/journal/name?offset=12350", nil)
+	w := httptest.NewRecorder()
+
+	s.readCallbacks = []func(ReadOp){
+		func(op ReadOp) {
+			op.Result <- ReadResult{
+				Error:     ErrNotYetAvailable,
+				WriteHead: 11223,
+			}
+		},
+	}
+	s.mux.ServeHTTP(w, req)
+
+	// Expect X-Write-Head is sent with current write head.
+	c.Check(w.Code, gc.Equals, http.StatusRequestedRangeNotSatisfiable)
+	c.Check(w.Header().Get(WriteHeadHeader), gc.Equals, "11223")
+}
+
 func (s *ReadAPISuite) TestInternalError(c *gc.C) {
 	req, _ := http.NewRequest("GET", "/journal/name?offset=12350", nil)
 	w := httptest.NewRecorder()

@@ -113,6 +113,11 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	h.handler.Read(op)
 	result = <-op.Result
 
+	if result.WriteHead != 0 {
+		// Informational: Add the current write head.
+		w.Header().Add(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 10))
+	}
+
 	if result.Error != nil {
 		// Return a 302 redirect on a routing error.
 		if routeError, ok := result.Error.(RouteError); ok {
@@ -132,8 +137,6 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	// bytestream beginning at |result.Offset|.
 	w.Header().Add("Content-Range", fmt.Sprintf("bytes %v-%v/%v", result.Offset,
 		math.MaxInt64, math.MaxInt64))
-	// Informational: Add the current write head.
-	w.Header().Add(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 10))
 
 	if result.Error == nil {
 		// Include the fragment's content-name (begin offset, end, and sha-sum).

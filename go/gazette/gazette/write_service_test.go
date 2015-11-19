@@ -103,6 +103,7 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	client.locationCache.Add("/another/journal", newURL("http://server/another/journal"))
 
 	writer := NewWriteService(client)
+	writer.SetConcurrency(2) // Exercise start/stop of concurrent service loops.
 
 	// Perform a sequence of writes, several of which have broken readers.
 	_, err := writer.ReadFrom("a/journal", errReader{strings.NewReader("xxx")})
@@ -173,7 +174,6 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 		c.Check(string(content), gc.Equals, "baz!")
 	}).Once()
 
-	writer.Concurrency = 2 // Exercise start/stop of concurrent service loops.
 	writer.Start()
 
 	// Expect that promises have been resolved.

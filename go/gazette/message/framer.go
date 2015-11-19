@@ -7,13 +7,13 @@ import (
 	"io"
 )
 
-const kHeaderLength = 8
+const HeaderLength = 8
 
 var ErrDesyncDetected = errors.New("detected de-synchronization")
 
 // Frames |m| into |buf|. If |buf| doesn't have enough capacity, it is re-allocatted.
 func Frame(m Marshallable, buf *[]byte) error {
-	length := m.Size() + kHeaderLength
+	length := m.Size() + HeaderLength
 	sizeBuffer(buf, length)
 	out := *buf
 
@@ -22,9 +22,9 @@ func Frame(m Marshallable, buf *[]byte) error {
 	out[1] = 0x33
 	out[2] = 0x93
 	out[3] = 0x36
-	binary.LittleEndian.PutUint32(out[4:], uint32(length-kHeaderLength))
+	binary.LittleEndian.PutUint32(out[4:], uint32(length-HeaderLength))
 
-	if _, err := m.MarshalTo(out[kHeaderLength:length]); err != nil {
+	if _, err := m.MarshalTo(out[HeaderLength:length]); err != nil {
 		*buf = (*buf)[:0] // Truncate.
 		return err
 	}
@@ -38,7 +38,7 @@ func Frame(m Marshallable, buf *[]byte) error {
 // may succeed.
 func Parse(m Unmarshallable, r io.Reader, buf *[]byte) (delta int, err error) {
 	var expectWord = [4]byte{0x66, 0x33, 0x93, 0x36}
-	var header [kHeaderLength]byte
+	var header [HeaderLength]byte
 
 	// Scan until the magic word is read.
 	if n, err := io.ReadFull(r, header[:]); err != nil {
@@ -48,7 +48,7 @@ func Parse(m Unmarshallable, r io.Reader, buf *[]byte) (delta int, err error) {
 	}
 	var desyncErr error
 	for bytes.Compare(header[:4], expectWord[:]) != 0 {
-		if delta == kHeaderLength {
+		if delta == HeaderLength {
 			// Though we can recover, record that a desync happened.
 			desyncErr = ErrDesyncDetected
 		}
