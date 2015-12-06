@@ -320,6 +320,16 @@ func (s *ClientSuite) TestBuildReadURL(c *gc.C) {
 	c.Check(strings.Contains(url.String(), "blockms="), gc.Equals, false)
 }
 
+// Regression test for issue #890.
+func (s *ClientSuite) TestDailerIsNonNil(c *gc.C) {
+	// What we really want to test is that TCP keep-alive is set. There isn't a
+	// great way to test this, as Dail is a closure over net.Dailer. At least
+	// satisfy ourselves that a non-default dailer is used (a requirement for
+	// automatic setting of TCP keep-alive).
+	client, _ := NewClient("http://default")
+	c.Check(client.httpClient.(*http.Client).Transport.(*http.Transport).Dial, gc.NotNil)
+}
+
 func newURL(s string) *url.URL {
 	u, err := url.Parse(s)
 	if err != nil {

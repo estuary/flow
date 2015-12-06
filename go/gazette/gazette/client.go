@@ -24,15 +24,6 @@ const (
 	// route future requests to cached locations. This allows the client to
 	// discover direct, responsible endpoints for journals it uses.
 	kClientRouteCacheSize = 1024
-
-	// Upper-bound time we'll wait for response headers. This should be very
-	// large, as we never want a thundering herd where clients time out an
-	// operational but slow broker, but we also need to guard against brokers
-	// who die (and don't send a RST). Note that Gazette reads (including
-	// blocking reads) immediately return response headers, so this timeout
-	// is largely directed at writes (which return headers only on completion
-	// or error).
-	kClientResponseHeaderTimeout = time.Minute * 5
 )
 
 type httpClient interface {
@@ -75,7 +66,7 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 	}
 
 	// If an API consumer sets his own transport, respect it, though things may
-	// fail if, for example, the file URL handler is not set.
+	// fail if (for example) the file URL handler is not set.
 	if hc.Transport == nil {
 		hc.Transport = MakeHttpTransport()
 	}
@@ -89,17 +80,15 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 
 // If you want to use your own |http.Transport| with Gazette, start with this one.
 func MakeHttpTransport() *http.Transport {
-	httpTransport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		ResponseHeaderTimeout: kClientResponseHeaderTimeout,
-	}
+	// Build from a clone of DefaultTransport.
+	httpTransport := *(http.DefaultTransport.(*http.Transport))
 
 	// When testing, fragment locations are "persisted" to the local filesystem,
 	// and file:// URL's are returned by Gazette servers. Register a protocol
 	// handler so they may be opened by the client.
 	httpTransport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
 
-	return httpTransport
+	return &httpTransport
 }
 
 func (c *Client) Head(args journal.ReadArgs) (journal.ReadResult, *url.URL) {

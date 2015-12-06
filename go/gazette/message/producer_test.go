@@ -2,9 +2,9 @@ package message
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
 
-	//log "github.com/Sirupsen/logrus"
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/gazette/journal"
@@ -18,7 +18,7 @@ type ProducerSuite struct {
 	messageLen int64
 }
 
-func (s *ProducerSuite) SetUpTest(c *gc.C) {
+func (s *ProducerSuite) SetUpSuite(c *gc.C) {
 	c.Check(Frame(frameablestring("foobar"), &s.message), gc.IsNil)
 	s.message3x = bytes.Repeat(s.message, 3)
 	s.messageLen = int64(len(s.message))
@@ -81,6 +81,42 @@ func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 	producer.Pump()
 	producer.Cancel() // Producer will now exit after next pop.
 	c.Check((<-recovered).Mark.Offset, gc.Equals, 2*msgLen)
+}
+
+// Regression test for issue #890.
+func (s *ProducerSuite) TestReaderIsClosedOnCancel(c *gc.C) {
+	reader := struct {
+		io.Reader
+		closeCh
+	}{bytes.NewReader(s.message3x), make(closeCh)}
+
+	// Return a result fixture which expects to be Close()'d prematurely.
+	getter := &journal.MockGetter{}
+	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
+		Return(journal.ReadResult{Offset: 0}, reader).Once()
+
+	producer := NewProducer(getter, func() Unmarshallable {
+		var m frameablestring
+		return &m
+	})
+	recovered := make(chan Message)
+	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
+
+	// TODO(johnny): Simplify this, when Producer.loop() is refactored.
+	producer.Pump()
+	<-recovered
+
+	producer.Cancel()
+	<-reader.closeCh // Expect Close() to be called.
+
+	getter.AssertExpectations(c)
+}
+
+type closeCh chan struct{}
+
+func (c closeCh) Close() error {
+	close(c)
+	return nil
 }
 
 var _ = gc.Suite(&ProducerSuite{})

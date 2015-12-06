@@ -55,6 +55,15 @@ func (p *Producer) loop(mark journal.Mark, sink chan<- Message) {
 	var markReader *journal.MarkedReader
 	var decoder Decoder
 
+	// Always close |reader| on exit.
+	defer func() {
+		if reader != nil {
+			if err := reader.Close(); err != nil {
+				log.WithField("err", err).Warn("failed to Close reader")
+			}
+		}
+	}()
+
 	for done := false; !done; {
 		select {
 		case _, ok := <-p.pump:
