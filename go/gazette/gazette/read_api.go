@@ -113,7 +113,7 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	h.handler.Read(op)
 	result = <-op.Result
 
-	if result.WriteHead != 0 {
+	if result.Error == journal.ErrNotYetAvailable || result.WriteHead != 0 {
 		// Informational: Add the current write head.
 		w.Header().Add(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 10))
 	}

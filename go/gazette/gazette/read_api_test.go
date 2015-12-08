@@ -184,6 +184,35 @@ func (s *ReadAPISuite) TestBlockingReadFromHead(c *gc.C) {
 	c.Check(w.Body.String(), gc.Equals, "expected read fixture")
 }
 
+func (s *ReadAPISuite) TestReadOfEmptyStream(c *gc.C) {
+	req, _ := http.NewRequest("GET", "/journal/name?block=true", nil)
+	w := httptest.NewRecorder()
+
+	s.readCallbacks = []func(ReadOp){
+		func(op ReadOp) {
+			c.Check(op.Blocking, gc.Equals, false)
+			c.Check(op.Journal, gc.Equals, Name("journal/name"))
+			c.Check(op.Offset, gc.Equals, int64(0))
+
+			op.Result <- ReadResult{Error: ErrNotYetAvailable}
+		},
+		func(op ReadOp) {
+			c.Check(op.Blocking, gc.Equals, true)
+			c.Check(op.Offset, gc.Equals, int64(0))
+
+			c.Check(w.Flushed, gc.Equals, true)
+			c.Check(w.Code, gc.Equals, http.StatusPartialContent)
+			c.Check(w.HeaderMap.Get("Content-Range"), gc.Equals,
+				fmt.Sprintf("bytes 0-%v/%v", math.MaxInt64, math.MaxInt64))
+			c.Check(w.HeaderMap.Get(WriteHeadHeader), gc.Equals, "0")
+
+			// Return an error to break the read loop.
+			op.Result <- ReadResult{Error: ErrNotReplica}
+		},
+	}
+	s.mux.ServeHTTP(w, req)
+}
+
 func (s *ReadAPISuite) TestHEADWithRemoteFragment(c *gc.C) {
 	req, _ := http.NewRequest("HEAD", "/journal/name?offset=12350", nil)
 	w := httptest.NewRecorder()
@@ -243,6 +272,7 @@ func (s *ReadAPISuite) TestNotReplica(c *gc.C) {
 
 	c.Check(w.Code, gc.Equals, http.StatusTemporaryRedirect)
 	c.Check(w.Header().Get("Location"), gc.Equals, "http://other/journal/name?offset=12350")
+	c.Check(w.Header().Get(WriteHeadHeader), gc.Equals, "")
 }
 
 func (s *ReadAPISuite) TestNotYetAvailable(c *gc.C) {
