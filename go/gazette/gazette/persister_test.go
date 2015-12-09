@@ -1,3 +1,7 @@
+// +build !race
+
+// TODO(johnny): Re-enable when #907 is fixed.
+
 package gazette
 
 import (
