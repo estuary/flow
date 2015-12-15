@@ -1,7 +1,3 @@
-// +build !race
-
-// TODO(johnny): Re-enable when #907 is fixed.
-
 package gazette
 
 import (
@@ -50,18 +46,31 @@ func (s *PersisterSuite) TearDownTest(c *gc.C) {
 func (s *PersisterSuite) TestPersistence(c *gc.C) {
 	kContentFixture := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
-	// Monitor persister locks. Expect a lock to be obtained, refreshed twice,
+	// Monitor persister locks. Expect a lock to be obtained, refreshed,
 	// and then released.
 	subscriber := &discovery.MockEtcdSubscriber{}
-	s.expectLockUnlock(subscriber, 2, c)
-	c.Check(s.etcd.Subscribe(PersisterLocksRoot, subscriber), gc.IsNil)
+	s.expectLockUnlock(subscriber, c)
+	blockUntilRefresh := make(chan time.Time)
 
-	s.persister.persisterLockTTL = 10 * time.Millisecond
+	subscriber.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
+		if r.Action != discovery.EtcdUpdateOp {
+			return false
+		}
+		c.Check(r.Node.Key, gc.Equals, PersisterLocksRoot+s.fragment.ContentName())
+
+		if blockUntilRefresh != nil {
+			close(blockUntilRefresh)
+			blockUntilRefresh = nil
+		}
+		return true
+	}), mock.AnythingOfType("*etcd.Node"))
+
+	c.Check(s.etcd.Subscribe(PersisterLocksRoot, subscriber), gc.IsNil)
 
 	// Expect fragment.File to be read. Return a value fixture we'll verify later.
 	s.file.On("ReadAt", mock.AnythingOfType("[]uint8"), int64(0)).
 		Return(10, nil).
-		After(13 * time.Millisecond). // Delay, triggering 2 lock refreshes.
+		WaitUntil(blockUntilRefresh). // Delay until a lock refresh occurrs.
 		Run(func(args mock.Arguments) {
 		copy(args.Get(0).([]byte), kContentFixture)
 	}).Once()
@@ -72,6 +81,8 @@ func (s *PersisterSuite) TestPersistence(c *gc.C) {
 		s.persister.osRemove = nil // Mark we were called.
 		return nil
 	}
+
+	s.persister.persisterLockTTL = time.Millisecond
 	s.persister.convergeOne(s.fragment)
 
 	subscriber.AssertExpectations(c)
@@ -124,7 +135,7 @@ func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
 
 	// Expect a lock to be obtained, and then released.
 	subscriber := &discovery.MockEtcdSubscriber{}
-	s.expectLockUnlock(subscriber, 0, c)
+	s.expectLockUnlock(subscriber, c)
 	c.Check(s.etcd.Subscribe(PersisterLocksRoot, subscriber), gc.IsNil)
 
 	// Expect fragment.File is *not* read, but that the file *is* removed.
@@ -140,42 +151,33 @@ func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
 	c.Check(s.persister.osRemove, gc.IsNil)
 }
 
-func (s *PersisterSuite) expectLockUnlock(sub *discovery.MockEtcdSubscriber,
-	refreshCount int, c *gc.C) {
-
-	responseArg := mock.AnythingOfType("*etcd.Response")
+func (s *PersisterSuite) expectLockUnlock(sub *discovery.MockEtcdSubscriber, c *gc.C) {
 	treeArg := mock.AnythingOfType("*etcd.Node")
 	lockKey := PersisterLocksRoot + s.fragment.ContentName()
 
 	// Expect callback on initial subscription.
-	sub.On("OnEtcdUpdate", responseArg, treeArg).Return().Once()
+	sub.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
+		return r.Action == discovery.EtcdGetOp
+	}), treeArg).Return().Once()
 
 	// Expect a persister lock to be created.
-	sub.On("OnEtcdUpdate", responseArg, treeArg).Return().Run(
-		func(args mock.Arguments) {
-			response := args.Get(0).(*etcd.Response)
-			c.Check(response.Action, gc.Equals, discovery.EtcdCreateOp)
-			c.Check(response.Node.Key, gc.Equals, lockKey)
-			c.Check(response.Node.Value, gc.Equals, "route-key")
-		}).Once()
-
-	if refreshCount != 0 {
-		// Expect |refreshCount| refreshes of the lock.
-		sub.On("OnEtcdUpdate", responseArg, treeArg).Return().Run(
-			func(args mock.Arguments) {
-				response := args.Get(0).(*etcd.Response)
-				c.Check(response.Action, gc.Equals, discovery.EtcdUpdateOp)
-				c.Check(response.Node.Key, gc.Equals, lockKey)
-			}).Times(refreshCount)
-	}
+	sub.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
+		if r.Action != discovery.EtcdCreateOp {
+			return false
+		}
+		c.Check(r.Node.Key, gc.Equals, lockKey)
+		c.Check(r.Node.Value, gc.Equals, "route-key")
+		return true
+	}), treeArg).Return().Once()
 
 	// Expect a persister lock to be released.
-	sub.On("OnEtcdUpdate", mock.Anything, mock.Anything).Return().Run(
-		func(args mock.Arguments) {
-			response := args.Get(0).(*etcd.Response)
-			c.Check(response.Action, gc.Equals, discovery.EtcdDeleteOp)
-			c.Check(response.Node.Key, gc.Equals, lockKey)
-		}).Once()
+	sub.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
+		if r.Action != discovery.EtcdDeleteOp {
+			return false
+		}
+		c.Check(r.Node.Key, gc.Equals, lockKey)
+		return true
+	}), treeArg).Return().Once()
 }
 
 var _ = gc.Suite(&PersisterSuite{})

@@ -10,8 +10,6 @@ import (
 	"github.com/pippio/gazette/journal"
 )
 
-// TODO(johnny): Add additional tests on error handling and recovery.
-// Also add tests on pump behavior.
 type ProducerSuite struct {
 	message    []byte
 	message3x  []byte // Repeats |message| 3 times.
@@ -26,16 +24,16 @@ func (s *ProducerSuite) SetUpSuite(c *gc.C) {
 
 func (s *ProducerSuite) TestOffsetUpdatesFromReadResult(c *gc.C) {
 	getter := &journal.MockGetter{}
+
 	// Return a result fixture which skips forward from 0 => 1234.
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
 		Return(journal.ReadResult{Offset: 1234},
 		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
 
-	// Expect a second read, updated from the result offset.
-	getter.On("Get", journal.ReadArgs{
-		Journal: "foo", Offset: 1234 + s.messageLen, Blocking: true}).
-		Return(journal.ReadResult{Offset: s.messageLen},
-		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
+	// Next reads fail.
+	getter.On("Get", journal.ReadArgs{Journal: "foo",
+		Offset: 1234 + s.messageLen, Blocking: true}).
+		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
 
 	producer := NewProducer(getter, func() Unmarshallable {
 		var m frameablestring
@@ -44,25 +42,30 @@ func (s *ProducerSuite) TestOffsetUpdatesFromReadResult(c *gc.C) {
 	recovered := make(chan Message)
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
-	producer.Pump()
 	c.Check((<-recovered).Mark.Offset, gc.Equals, int64(1234))
-	producer.Cancel()
 
+	producer.Cancel()
 	getter.AssertExpectations(c)
 }
 
 func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 	msgLen := int64(len(s.message))
+
 	// On first open, return a reader which returns 1.5 messages before EOF.
 	getter := &journal.MockGetter{}
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
 		Return(journal.ReadResult{Offset: 0},
 		ioutil.NopCloser(bytes.NewReader(s.message3x[:msgLen*3/2]))).Once()
+
 	// Expect the next open is from a Mark at the first message boundary,
 	// and not from the maximum forward progress of the previous reader.
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: msgLen, Blocking: true}).
 		Return(journal.ReadResult{Offset: msgLen},
-		ioutil.NopCloser(bytes.NewReader(s.message3x[msgLen:])), nil).Once()
+		ioutil.NopCloser(bytes.NewReader(s.message3x[msgLen:]))).Once()
+
+	// Next reads fail.
+	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 3 * msgLen, Blocking: true}).
+		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
 
 	producer := NewProducer(getter, func() Unmarshallable {
 		var m frameablestring
@@ -72,15 +75,12 @@ func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
 	// Expect to pop three framed messages.
-	producer.Pump()
 	c.Check((<-recovered).Mark.Offset, gc.Equals, int64(0))
-
-	producer.Pump()
 	c.Check((<-recovered).Mark.Offset, gc.Equals, msgLen)
-
-	producer.Pump()
-	producer.Cancel() // Producer will now exit after next pop.
 	c.Check((<-recovered).Mark.Offset, gc.Equals, 2*msgLen)
+
+	producer.Cancel()
+	getter.AssertExpectations(c)
 }
 
 // Regression test for issue #890.
@@ -102,13 +102,10 @@ func (s *ProducerSuite) TestReaderIsClosedOnCancel(c *gc.C) {
 	recovered := make(chan Message)
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
-	// TODO(johnny): Simplify this, when Producer.loop() is refactored.
-	producer.Pump()
 	<-recovered
 
 	producer.Cancel()
-	<-reader.closeCh // Expect Close() to be called.
-
+	<-reader.closeCh // Expect Close() to have been called.
 	getter.AssertExpectations(c)
 }
 
