@@ -30,7 +30,7 @@ func (s *ProducerSuite) TestOffsetUpdatesFromReadResult(c *gc.C) {
 		Return(journal.ReadResult{Offset: 1234},
 		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
 
-	// Next reads fail.
+	// Next reads fail. Note this may not be called (depending on Cancel() ordering).
 	getter.On("Get", journal.ReadArgs{Journal: "foo",
 		Offset: 1234 + s.messageLen, Blocking: true}).
 		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
@@ -43,9 +43,7 @@ func (s *ProducerSuite) TestOffsetUpdatesFromReadResult(c *gc.C) {
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
 	c.Check((<-recovered).Mark.Offset, gc.Equals, int64(1234))
-
 	producer.Cancel()
-	getter.AssertExpectations(c)
 }
 
 func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
@@ -63,7 +61,7 @@ func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 		Return(journal.ReadResult{Offset: msgLen},
 		ioutil.NopCloser(bytes.NewReader(s.message3x[msgLen:]))).Once()
 
-	// Next reads fail.
+	// Next reads fail. Note this may not be called (depending on Cancel() ordering).
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 3 * msgLen, Blocking: true}).
 		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
 
@@ -80,7 +78,6 @@ func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 	c.Check((<-recovered).Mark.Offset, gc.Equals, 2*msgLen)
 
 	producer.Cancel()
-	getter.AssertExpectations(c)
 }
 
 // Regression test for issue #890.
