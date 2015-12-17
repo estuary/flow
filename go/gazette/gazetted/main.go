@@ -26,22 +26,12 @@ var (
 	spoolDirectory = flag.String("spoolDir", "/var/tmp/gazette",
 		"Local directory for journal spools")
 	replicaCount = flag.Int("replicaCount", 3, "Number of replicas")
-
-	// Informational.
-	releaseTag = flag.String("tag", "<none>", "Release tag")
-	replica    = flag.String("replica", "<none>", "Replica number")
 )
 
 func main() {
 	endpoints.ParseFromEnvironment()
 	flag.Parse()
-
-	log.SetFormatter(&log.TextFormatter{DisableTimestamp: true})
-	log.AddHook(&varz.LogThrottleHook{})
-	log.AddHook(&varz.LogCallerHook{})
-	log.AddHook(&varz.LogServiceHook{
-		Service: "gazetted", Tag: *releaseTag, Replica: *replica})
-	varz.StartDebugListener()
+	varz.Initialize("gazetted")
 
 	if *announceEndpoint == "" {
 		// Infer from externally routable IP address.
@@ -65,8 +55,8 @@ func main() {
 		"replicaCount":     *replicaCount,
 		"etcdEndpoint":     *endpoints.EtcdEndpoint,
 		"announceEndpoint": *announceEndpoint,
-		"releaseTag":       *releaseTag,
-		"replica":          *replica,
+		"releaseTag":       *varz.ReleaseTag,
+		"replica":          *varz.Replica,
 	}).Info("flag configuration")
 
 	// Fail fast if spool directory cannot be created.
@@ -121,7 +111,6 @@ func main() {
 		}
 	}()
 
-	go varz.PeriodicallyLogVarz()
 	go func() {
 		err := http.ListenAndServe(":8081", context.BuildServingMux())
 		log.WithField("err", err).Error("failed to listen")
