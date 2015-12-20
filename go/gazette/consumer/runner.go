@@ -19,6 +19,10 @@ import (
 var (
 	localStateBase = flag.String("localStateBase", "/var/tmp/gazette-local-state",
 		"Local base directory for all Gazette local state.")
+
+	// TODO(johnny): Remove me when v2 consumers are ready.
+	flushRate = flag.Int("consumerFlushRate", 1500,
+		"Number of items between Gazette consumer flushes (deprecated)")
 )
 
 // Implements the details of the distributed consumer transaction flow.
@@ -95,7 +99,7 @@ func (s *Runner) consumerLoop(done chan<- struct{}) {
 
 		varz.ObtainCount("consumer", s.name, "consumed", topic.Name).Add(1)
 
-		if i%1500 == 0 {
+		if i%*flushRate == 0 {
 			// Apply arbitrary, periodic flushes. Long term, this would be done
 			// by a single process after draining all messages. For now, as flushes
 			// are integrated into the consumer loop, we must lock.
