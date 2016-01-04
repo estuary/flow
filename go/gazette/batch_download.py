@@ -27,6 +27,7 @@ import getpass
 import gzip
 import json
 import logging
+import os
 import os.path
 import re
 import requests
@@ -111,7 +112,7 @@ class StreamDownloader(object):
         output.close()
         path_final = os.path.join(self.output_dir, "%s.%016x.%016x.gz" % (
                                   basename, offset, offset+delta))
-        os.rename(path_tmp, path_final)
+        self._rename(path_tmp, path_final)
 
         self._metadata['offsets'][stream_url] = offset + delta
         self._store_metadata()
@@ -195,8 +196,15 @@ class StreamDownloader(object):
         json.dump(self._metadata, out)
         out.close()
 
-        os.rename(path_tmp, self.metadata_path)
+        self._rename(path_tmp, self.metadata_path)
         logging.debug("wrote metadata: %s", self.metadata_path)
+
+    def _rename(self, src_path, dst_path):
+        # Windows does not support atomic file operations, so we must remove
+        # |dst_path| before attempting a rename.
+        if os.name == 'nt' and os.path.exists(dst_path):
+            os.remove(dst_path)
+        os.rename(src_path, dst_path)
 
 
 def new_authenticated_session(auth_url, user, password):
