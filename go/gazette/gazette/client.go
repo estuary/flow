@@ -169,10 +169,10 @@ func (c *Client) openFragment(location *url.URL,
 }
 
 // Performs a Gazette PUT operation, which appends content to the named journal.
-func (c *Client) Put(args journal.AppendArgs) error {
+func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	request, err := http.NewRequest("PUT", "/"+args.Journal.String(), args.Content)
 	if err != nil {
-		return err
+		return journal.AppendResult{Error: err}
 	}
 	if _, ok := c.locationCache.Get(request.URL.Path); !ok {
 		// Speculatively issue a HEAD to fill the location cache for this path.
@@ -185,11 +185,10 @@ func (c *Client) Put(args journal.AppendArgs) error {
 
 	response, err := c.Do(request)
 	if err != nil {
-		return err
+		return journal.AppendResult{Error: err}
 	}
-	err = c.parseAppendResponse(response)
-	response.Body.Close()
-	return err
+	defer response.Body.Close()
+	return c.parseAppendResponse(response)
 }
 
 func (c *Client) buildReadURL(args journal.ReadArgs) *url.URL {
@@ -279,15 +278,24 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 	return
 }
 
-func (c *Client) parseAppendResponse(response *http.Response) error {
+func (c *Client) parseAppendResponse(response *http.Response) journal.AppendResult {
+	var ret journal.AppendResult
+
 	if response.StatusCode != http.StatusNoContent {
-		if body, err := ioutil.ReadAll(response.Body); err != nil {
-			return err
-		} else {
-			return fmt.Errorf("%s (%s)", response.Status, string(body))
+		var body []byte
+		if body, ret.Error = ioutil.ReadAll(response.Body); ret.Error == nil {
+			ret.Error = fmt.Errorf("%s (%s)", response.Status, string(body))
+		}
+	} else if writeHead := response.Header.Get(WriteHeadHeader); writeHead != "" {
+		var err error
+
+		ret.WriteHead, err = strconv.ParseInt(writeHead, 16, 64)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "writeHead": writeHead}).Error("error parsing write head")
+			// Keep going anyway.
 		}
 	}
-	return nil
+	return ret
 }
 
 // Thin layer upon http.Do(), which manages re-writes from and update to the

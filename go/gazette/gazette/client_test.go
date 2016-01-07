@@ -217,6 +217,9 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 		StatusCode: http.StatusNoContent, // Indicates success.
 		Request:    &http.Request{URL: newURL("http://default/a/journal")},
 		Body:       ioutil.NopCloser(nil),
+		Header: http.Header{
+			WriteHeadHeader: []string{"12341234"},
+		},
 	}, nil).Run(func(args mock.Arguments) {
 
 		request := args[0].(*http.Request)
@@ -224,7 +227,8 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 	}).Once()
 
 	s.client.httpClient = mockClient
-	c.Check(s.client.Put(AppendArgs{Journal: "a/journal", Content: content}), gc.IsNil)
+	c.Check(s.client.Put(AppendArgs{Journal: "a/journal", Content: content}),
+		gc.DeepEquals, AppendResult{WriteHead: int64(12341234)})
 	mockClient.AssertExpectations(c)
 }
 
@@ -292,15 +296,13 @@ func (s *ClientSuite) TestReadResultParsingErrorCases(c *gc.C) {
 }
 
 func (s *ClientSuite) TestAppendResultParsingErrorCases(c *gc.C) {
-	{ // Non-204 response.
-		response := newReadResponseFixture()
-		response.StatusCode = http.StatusNotFound
-		response.Status = "404 Not Found"
-		response.Body = ioutil.NopCloser(strings.NewReader("not found"))
+	response := newReadResponseFixture()
+	response.StatusCode = http.StatusNotFound
+	response.Status = "404 Not Found"
+	response.Body = ioutil.NopCloser(strings.NewReader("not found"))
 
-		c.Check(s.client.parseAppendResponse(response), gc.ErrorMatches,
-			`404 Not Found \(not found\)`)
-	}
+	c.Check(s.client.parseAppendResponse(response).Error, gc.ErrorMatches,
+		`404 Not Found \(not found\)`)
 }
 
 func (s *ClientSuite) TestBuildReadURL(c *gc.C) {

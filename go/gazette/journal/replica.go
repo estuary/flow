@@ -63,7 +63,7 @@ func NewReplica(journal Name, localDir string, persister FragmentPersister,
 
 func (r *Replica) Append(op AppendOp) {
 	if !r.isCurrentBroker {
-		op.Result <- ErrNotBroker
+		op.Result <- AppendResult{Error: ErrNotBroker}
 	} else {
 		r.broker.Append(op)
 	}

@@ -108,7 +108,7 @@ func (b *Broker) loop() {
 				b.config.writtenSinceRoll = 0
 			}
 			if writers, err := b.phaseOne(); err != nil {
-				op.Result <- ErrReplicationFailed
+				op.Result <- AppendResult{Error: ErrReplicationFailed}
 
 				log.WithField("err", err).Error("transaction failed (phase one)")
 			} else if err = b.phaseTwo(writers, op); err != nil {
@@ -192,7 +192,7 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 		readSize, readErr, writeErr = streamToWriters(writers, op.Content, buf)
 
 		if readErr != nil {
-			op.Result <- readErr
+			op.Result <- AppendResult{Error: readErr}
 		} else {
 			// Only commit a complete read from a client.
 			commitDelta += readSize
@@ -245,15 +245,16 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 		b.coalesce.Add(float64(len(pending)))
 	}
 	if sawError == nil {
-		// The transacton was fully replicated. Notify client(s) of success.
+		// The transacton was fully replicated. Notify client(s) of success and
+		// new write-head.
 		for _, p := range pending {
-			p.Result <- nil
+			p.Result <- AppendResult{Error: nil, WriteHead: b.config.WriteHead}
 		}
 		return nil
 	} else {
 		// At least one replica failed. The client must retry.
 		for _, p := range pending {
-			p.Result <- ErrReplicationFailed
+			p.Result <- AppendResult{Error: ErrReplicationFailed}
 		}
 		return sawError
 	}

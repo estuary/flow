@@ -2,6 +2,7 @@ package gazette
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/pippio/gazette/journal"
@@ -25,20 +26,21 @@ func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
 			Journal: journal.Name(r.URL.Path[1:]),
 			Content: r.Body,
 		},
-		Result: make(chan error, 1),
+		Result: make(chan journal.AppendResult, 1),
 	}
 	h.handler.Append(op)
-	err := <-op.Result
+	result := <-op.Result
 
-	if err != nil {
+	if result.Error != nil {
 		// Return a 404 Not Found with Location header on a routing error.
-		if routeError, ok := err.(RouteError); ok {
+		if routeError, ok := result.Error.(RouteError); ok {
 			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, result.Error.Error(), http.StatusInternalServerError)
 		}
 		r.Body.Close()
 	} else {
+		w.Header().Set(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 16))
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

@@ -64,7 +64,7 @@ func (r *Router) Append(op journal.AppendOp) {
 	replica, err := r.obtainReplica(op.Journal, true)
 
 	if err != nil {
-		op.Result <- err
+		op.Result <- journal.AppendResult{Error: err}
 	} else {
 		replica.Append(op)
 	}

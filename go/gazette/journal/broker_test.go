@@ -11,7 +11,7 @@ import (
 type BrokerSuite struct {
 	broker *Broker
 
-	appendResults chan error
+	appendResults chan AppendResult
 
 	replicateOps chan ReplicateOp
 	committed    chan struct{}
@@ -22,7 +22,7 @@ func (s *BrokerSuite) SetUpTest(c *gc.C) {
 	s.broker = NewBroker("a/journal")
 
 	// Initial append operation fixtures.
-	s.appendResults = make(chan error)
+	s.appendResults = make(chan AppendResult)
 	s.broker.Append(AppendOp{
 		AppendArgs: AppendArgs{
 			Content: bytes.NewBufferString("write one "),
@@ -82,8 +82,8 @@ func (s *BrokerSuite) TestBasicFixture(c *gc.C) {
 		c.Check(r.buffer.String(), gc.Equals, "write one write two ")
 	}
 	// Success was returned to both append ops.
-	c.Check(<-s.appendResults, gc.IsNil)
-	c.Check(<-s.appendResults, gc.IsNil)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(12365)})
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(12365)})
 
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12365))
 	c.Check(s.broker.config.writtenSinceRoll, gc.Equals, int64(20))
@@ -102,8 +102,8 @@ func (s *BrokerSuite) TestSomeCommitErrorsHandling(c *gc.C) {
 		c.Check(r.buffer.String(), gc.Equals, "write one write two ")
 	}
 	// Failure was returned to both append ops.
-	c.Check(<-s.appendResults, gc.Equals, ErrReplicationFailed)
-	c.Check(<-s.appendResults, gc.Equals, ErrReplicationFailed)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{Error: ErrReplicationFailed})
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{Error: ErrReplicationFailed})
 
 	// Write-head still moves forward, since at least one replica committed.
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12365))
@@ -118,8 +118,8 @@ func (s *BrokerSuite) TestAllCommitErrorsHandling(c *gc.C) {
 	s.broker.StartServingOps(12345)
 	s.serveReplicaWriters(c)
 
-	c.Check(<-s.appendResults, gc.Equals, ErrReplicationFailed)
-	c.Check(<-s.appendResults, gc.Equals, ErrReplicationFailed)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{Error: ErrReplicationFailed})
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{Error: ErrReplicationFailed})
 
 	// Write-head does not move.
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12345))
@@ -138,7 +138,7 @@ func (s *BrokerSuite) TestWriteErrorHandling(c *gc.C) {
 		c.Check(r.buffer.String(), gc.Equals, "write one ")
 	}
 	// Failure was returned to the first append op.
-	c.Check(<-s.appendResults, gc.Equals, ErrReplicationFailed)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{Error: ErrReplicationFailed})
 
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12345))
 	c.Check(s.broker.config.writtenSinceRoll, gc.Equals, int64(0))
@@ -151,7 +151,7 @@ func (s *BrokerSuite) TestWriteErrorHandling(c *gc.C) {
 		c.Check(r.commitDelta, gc.Equals, int64(10)) // Length of second write.
 		c.Check(r.buffer.String(), gc.Equals, "write one write two ")
 	}
-	c.Check(<-s.appendResults, gc.IsNil)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(12355)})
 
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12355))
 	c.Check(s.broker.config.writtenSinceRoll, gc.Equals, int64(10))
@@ -181,7 +181,7 @@ func (s *BrokerSuite) TestBrokenReadHandling(c *gc.C) {
 		op.Result <- ReplicateResult{Writer: s.replicator[i]}
 	}
 	// Read error was detected and returned to caller.
-	c.Check(<-s.appendResults, gc.ErrorMatches, "timeout")
+	c.Check((<-s.appendResults).Error, gc.ErrorMatches, "timeout")
 
 	// Expect that 21 bytes were written, but only 20 were committed.
 	for _ = range s.replicator {
@@ -192,8 +192,8 @@ func (s *BrokerSuite) TestBrokenReadHandling(c *gc.C) {
 		c.Check(r.buffer.String(), gc.Equals, "write one write two !")
 	}
 	// Success was returned to the initial append ops.
-	c.Check(<-s.appendResults, gc.IsNil)
-	c.Check(<-s.appendResults, gc.IsNil)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(12365)})
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(12365)})
 
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12365))
 	c.Check(s.broker.config.writtenSinceRoll, gc.Equals, int64(20))
@@ -204,7 +204,7 @@ func (s *BrokerSuite) TestBrokenReadHandling(c *gc.C) {
 		c.Check(r.commitDelta, gc.Equals, int64(9))
 		c.Check(r.buffer.String(), gc.Equals, "write one write two ! separate")
 	}
-	c.Check(<-s.appendResults, gc.IsNil)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(12374)})
 
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(12374))
 	c.Check(s.broker.config.writtenSinceRoll, gc.Equals, int64(29))
@@ -238,7 +238,7 @@ func (s *BrokerSuite) TestWrongWriteHeadErrorHandling(c *gc.C) {
 		c.Check(r.buffer.String(), gc.Equals, "")
 	}
 	// First append op was notified of failure.
-	c.Check(<-s.appendResults, gc.Equals, ErrReplicationFailed)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{Error: ErrReplicationFailed})
 	// Write head was stepped forward.
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(234567))
 
@@ -249,7 +249,7 @@ func (s *BrokerSuite) TestWrongWriteHeadErrorHandling(c *gc.C) {
 		c.Check(r.buffer.String(), gc.Equals, "write two ")
 	}
 	// Second append op is notified of success.
-	c.Check(<-s.appendResults, gc.IsNil)
+	c.Check(<-s.appendResults, gc.DeepEquals, AppendResult{WriteHead: int64(234577)})
 
 	c.Check(s.broker.config.WriteHead, gc.Equals, int64(234577))
 	c.Check(s.broker.config.writtenSinceRoll, gc.Equals, int64(10))

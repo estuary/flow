@@ -220,13 +220,13 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 		if _, err := write.file.Seek(0, 0); err != nil {
 			return err // Not recoverable
 		}
-		err := c.client.Put(journal.AppendArgs{
+		result := c.client.Put(journal.AppendArgs{
 			Journal: write.journal,
 			Content: io.LimitReader(write.file, write.offset),
 		})
 
-		if err != nil {
-			log.WithFields(log.Fields{"journal": write.journal, "err": err}).
+		if result.Error != nil {
+			log.WithFields(log.Fields{"journal": write.journal, "err": result.Error}).
 				Warn("write failed")
 			continue
 		}
@@ -239,7 +239,7 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 			Add(float64(time.Now().Sub(write.started)) / float64(time.Millisecond))
 		varz.ObtainCount("gazette", "writeBytes").Add(write.offset)
 
-		if err = releasePendingWrite(write); err != nil {
+		if err := releasePendingWrite(write); err != nil {
 			log.WithField("err", err).Error("failed to release pending write")
 		}
 		return nil

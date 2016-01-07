@@ -83,9 +83,16 @@ type AppendArgs struct {
 	Content io.Reader
 }
 
+type AppendResult struct {
+	// Any error that occurred during the append operation (PUT request.)
+	Error error
+	// Write head at the completion of the operation.
+	WriteHead int64
+}
+
 type AppendOp struct {
 	AppendArgs
 
 	// Channel by which broker returns operation status.
-	Result chan error
+	Result chan AppendResult
 }
