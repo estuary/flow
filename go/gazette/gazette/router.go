@@ -1,7 +1,11 @@
 package gazette
 
 import (
+	"encoding/json"
+	"expvar"
+	"fmt"
 	"net/url"
+	"sort"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
@@ -25,6 +29,13 @@ type Router struct {
 	mu sync.Mutex
 }
 
+// Only publish the 'gazette' expvar once.
+var gazetteMap *expvar.Map
+
+func init() {
+	gazetteMap = expvar.NewMap("gazette")
+}
+
 func NewRouter(kvs *discovery.KeyValueService, factory ReplicaFactory,
 	localRouteKey string, replicaCount int) *Router {
 
@@ -34,6 +45,9 @@ func NewRouter(kvs *discovery.KeyValueService, factory ReplicaFactory,
 		replicas:      make(map[journal.Name]JournalReplica),
 	}
 	r.router = discovery.NewHRWRouter(replicaCount, r.onRouteUpdate)
+
+	gazetteMap.Set("brokers", (*brokerStringer)(r))
+	gazetteMap.Set("replicas", (*replicaStringer)(r))
 
 	// Receive continous notifications of topology changes which affect routing.
 	kvs.AddObserver(MembersPrefix, r.onMembershipChange)
@@ -232,4 +246,46 @@ func (err RouteError) RerouteURL(in *url.URL) *url.URL {
 	rewrite.Host = err.Location.Host
 	rewrite.Scheme = err.Location.Scheme
 	return rewrite
+}
+
+// Helper functions for expvar purposes.
+type brokerStringer Router
+type replicaStringer Router
+
+func (rs *replicaStringer) String() string {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	var ret []string
+	for name, replica := range rs.replicas {
+		if !replica.IsBroker() {
+			ret = append(ret, string(name))
+		}
+	}
+	sort.Strings(ret)
+
+	if encoded, err := json.Marshal(ret); err != nil {
+		return fmt.Sprintf("%q", err.Error())
+	} else {
+		return string(encoded)
+	}
+}
+
+func (bs *brokerStringer) String() string {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+
+	var ret []string
+	for name, replica := range bs.replicas {
+		if replica.IsBroker() {
+			ret = append(ret, string(name))
+		}
+	}
+	sort.Strings(ret)
+
+	if encoded, err := json.Marshal(ret); err != nil {
+		return fmt.Sprintf("%q", err.Error())
+	} else {
+		return string(encoded)
+	}
 }
