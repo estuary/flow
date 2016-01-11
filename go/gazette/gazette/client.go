@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"expvar"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -24,6 +26,9 @@ const (
 	// route future requests to cached locations. This allows the client to
 	// discover direct, responsible endpoints for journals it uses.
 	kClientRouteCacheSize = 1024
+
+	statsJournalBytes = "bytes"
+	statsJournalHead  = "head"
 )
 
 type httpClient interface {
@@ -41,6 +46,13 @@ type Client struct {
 	// stripped of URL query arguments. Future requests of the same URL path are
 	// first attempted against the cached endpoint.
 	locationCache *lru.Cache
+
+	// Exported reader/writer statistics, and a mutex to guard creation of journal
+	// specific entries in the maps.
+	stats struct {
+		sync.Mutex
+		readers, writers *expvar.Map
+	}
 
 	httpClient httpClient
 }
@@ -71,11 +83,20 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 		hc.Transport = MakeHttpTransport()
 	}
 
-	return &Client{
+	c := &Client{
 		defaultEndpoint: ep,
 		locationCache:   cache,
 		httpClient:      hc,
-	}, nil
+	}
+
+	// Create expvar skeleton under /gazette.
+	c.stats.readers = new(expvar.Map).Init()
+	c.stats.writers = new(expvar.Map).Init()
+
+	gazetteMap.Set("readers", c.stats.readers)
+	gazetteMap.Set("writers", c.stats.writers)
+
+	return c, nil
 }
 
 // If you want to use your own |http.Transport| with Gazette, start with this one.
@@ -121,7 +142,7 @@ func (c *Client) GetDirect(args journal.ReadArgs) (journal.ReadResult, io.ReadCl
 		response.Body.Close()
 		return result, nil
 	}
-	return result, response.Body
+	return result, c.makeReadStatsWrapper(response.Body, args.Journal, result.Offset)
 }
 
 func (c *Client) Get(args journal.ReadArgs) (journal.ReadResult, io.ReadCloser) {
@@ -137,11 +158,58 @@ func (c *Client) Get(args journal.ReadArgs) (journal.ReadResult, io.ReadCloser) 
 	} else if fragmentLocation != nil {
 		body, err := c.openFragment(fragmentLocation, result)
 		result.Error = err
-		return result, body
+		return result, c.makeReadStatsWrapper(body, args.Journal, result.Offset)
 	}
 	// No persisted fragment is available. We must repeat the request as a GET.
 	// Data will be streamed directly from the server.
 	return c.GetDirect(args)
+}
+
+func (c *Client) obtainJournalCounters(name journal.Name, isWrite bool, offset int64) (counter *expvar.Int, head *expvar.Int) {
+	var root *expvar.Map
+	if isWrite {
+		root = c.stats.writers
+	} else {
+		root = c.stats.readers
+	}
+
+	if journalVar := root.Get(string(name)); journalVar == nil {
+		c.stats.Lock()
+
+		// Repeat the check with the lock held.
+		if journalVar = root.Get(string(name)); journalVar == nil {
+			journalMap := new(expvar.Map).Init()
+			counter, head = new(expvar.Int), new(expvar.Int)
+
+			head.Set(offset)
+			journalMap.Set(statsJournalBytes, counter)
+			journalMap.Set(statsJournalHead, head)
+
+			// Expose |journalMap| last to prevent partial reporting.
+			root.Set(string(name), journalMap)
+		}
+
+		c.stats.Unlock()
+	} else {
+		// |journalVar| is expected to be pre-populated as above.
+		journalMap := journalVar.(*expvar.Map)
+		counter = journalMap.Get(statsJournalBytes).(*expvar.Int)
+		head = journalMap.Get(statsJournalHead).(*expvar.Int)
+		head.Set(offset)
+	}
+
+	return
+}
+
+func (c *Client) makeReadStatsWrapper(stream io.ReadCloser, name journal.Name, offset int64) io.ReadCloser {
+	expRead, expOffset := c.obtainJournalCounters(name, false, offset)
+
+	return readStatsWrapper{
+		stream: stream,
+		name:   name,
+		read:   expRead,
+		offset: expOffset,
+	}
 }
 
 // Returns a reader by reading directly from a fragment. |location| is a
@@ -183,12 +251,30 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 		}
 	}
 
+	// AppendArgs accepts an |io.Reader|, but in almost all operational use
+	// cases right now it is a |io.LimitReader|. Use the limit to determine
+	// what the probable size of this write is. Further down the line, use this
+	// as the fastpath and wrap the io.Reader with a byte-counter otherwise.
+	var writeSize int64
+	if limitReader, ok := args.Content.(*io.LimitedReader); ok {
+		writeSize = limitReader.N
+	} else {
+		panic("non-LimitReader used in Put()")
+	}
+
 	response, err := c.Do(request)
 	if err != nil {
 		return journal.AppendResult{Error: err}
 	}
 	defer response.Body.Close()
-	return c.parseAppendResponse(response)
+	result := c.parseAppendResponse(response)
+
+	// Record the freshly received writehead as well as a rolling count of all
+	// bytes written to this journal.
+	written, _ := c.obtainJournalCounters(args.Journal, true, result.WriteHead)
+	written.Add(writeSize)
+
+	return result
 }
 
 func (c *Client) buildReadURL(args journal.ReadArgs) *url.URL {
@@ -234,6 +320,7 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 			result.WriteHead = head
 		}
 	}
+
 	// Attempt to parse fragment.
 	fragmentNameStr := response.Header.Get(FragmentNameHeader)
 	if fragmentNameStr != "" {
@@ -244,7 +331,6 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 			result.Fragment = fragment
 		}
 	}
-	fragmentLocationStr := response.Header.Get(FragmentLocationHeader)
 
 	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		result.Error = journal.ErrNotYetAvailable
@@ -256,6 +342,7 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 		result.Error = fmt.Errorf("%s (%s)", response.Status, string(body))
 		return
 	}
+
 	// We have a "success" status from the server. Expect required headers are present.
 	if contentRangeStr == "" {
 		result.Error = fmt.Errorf("expected Content-Range header")
@@ -267,8 +354,8 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 	// Fragment name is optional (it won't be available on blocked requests).
 
 	// Fragment location is optional, but expect that it parses if present.
-	if fragmentLocationStr != "" {
-		if l, err := url.Parse(fragmentLocationStr); err != nil {
+	if location := response.Header.Get(FragmentLocationHeader); location != "" {
+		if l, err := url.Parse(location); err != nil {
 			result.Error = fmt.Errorf("parsing %s: %s", FragmentLocationHeader, err)
 			return
 		} else {
@@ -286,13 +373,16 @@ func (c *Client) parseAppendResponse(response *http.Response) journal.AppendResu
 		if body, ret.Error = ioutil.ReadAll(response.Body); ret.Error == nil {
 			ret.Error = fmt.Errorf("%s (%s)", response.Status, string(body))
 		}
-	} else if writeHead := response.Header.Get(WriteHeadHeader); writeHead != "" {
+	}
+	if writeHead := response.Header.Get(WriteHeadHeader); writeHead != "" {
 		var err error
 
 		ret.WriteHead, err = strconv.ParseInt(writeHead, 10, 64)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "writeHead": writeHead}).Error("error parsing write head")
-			// Keep going anyway.
+			// Keep going anyway. We don't want the write to be retried because
+			// this registers as an error -- since we did write the data
+			// successfully.
 		}
 	}
 	return ret
@@ -340,4 +430,23 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 		c.locationCache.Add(request.URL.Path, response.Request.URL)
 	}
 	return response, err
+}
+
+type readStatsWrapper struct {
+	stream io.ReadCloser
+	name   journal.Name
+	read   *expvar.Int
+	offset *expvar.Int
+}
+
+func (r readStatsWrapper) Read(p []byte) (n int, err error) {
+	if n, err = r.stream.Read(p); err == nil {
+		r.offset.Add(int64(n))
+		r.read.Add(int64(n))
+	}
+	return
+}
+
+func (r readStatsWrapper) Close() error {
+	return r.stream.Close()
 }

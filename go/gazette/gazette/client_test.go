@@ -2,6 +2,8 @@ package gazette
 
 import (
 	"errors"
+	"expvar"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -14,8 +16,10 @@ import (
 	. "github.com/pippio/gazette/journal"
 )
 
-const kFragmentFixtureStr = "00000000000003e8-00000000000007d0-" +
-	"0102030405060708090a0b0c0d0e0f1011121314"
+const (
+	kFragmentFixtureStr = "00000000000003e8-00000000000007d0-" +
+		"0102030405060708090a0b0c0d0e0f1011121314"
+)
 
 var fragmentFixture = Fragment{
 	Journal: "a/journal",
@@ -29,6 +33,9 @@ type ClientSuite struct {
 }
 
 func (s *ClientSuite) SetUpTest(c *gc.C) {
+	// Clear the normally global stats-map for each test.
+	gazetteMap.Init()
+
 	client, err := NewClient("http://default")
 	c.Assert(err, gc.IsNil)
 	s.client = client
@@ -96,8 +103,8 @@ func (s *ClientSuite) TestDirectGet(c *gc.C) {
 	})
 	mockClient.AssertExpectations(c)
 
-	// Expect server's response body is directly passed through.
-	c.Check(body, gc.Equals, responseFixture.Body)
+	// Expect server's response body is plugged into the stats-wrapper.
+	c.Check(body.(readStatsWrapper).stream, gc.Equals, responseFixture.Body)
 }
 
 func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
@@ -118,8 +125,10 @@ func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
 			request.URL.String() == "http://redirected-server/a/journal?block=true&offset=1005"
 	})).Return(responseFixture, nil).Once()
 
+	// Arbitrary offset fixture.
 	s.client.httpClient = mockClient
-	result, body := s.client.Get(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: true})
+	result, body := s.client.Get(ReadArgs{
+		Journal: "a/journal", Offset: 1005, Blocking: true})
 
 	c.Check(result, gc.DeepEquals, ReadResult{
 		Offset:    1005,
@@ -128,8 +137,20 @@ func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
 	})
 	mockClient.AssertExpectations(c)
 
-	// Expect server's response body is directly passed through.
-	c.Check(body, gc.Equals, responseFixture.Body)
+	// Expect server's response body is plugged into the stats-wrapper.
+	c.Check(body.(readStatsWrapper).stream, gc.Equals, responseFixture.Body)
+
+	// Before the read, head is at the requested offset.
+	readerMap := gazetteMap.Get("readers").(*expvar.Map).Get("a/journal").(*expvar.Map)
+	c.Check(readerMap.Get("head").(*expvar.Int).String(), gc.Equals, "1005")
+
+	// Read the data out, so our stats-wrapper sees it ("body" -- 4 bytes)
+	io.Copy(ioutil.Discard, body)
+
+	// After the read, byte counter goes up and offset advances with the size
+	// of the read.
+	c.Check(readerMap.Get("bytes").(*expvar.Int).String(), gc.Equals, "4")
+	c.Check(readerMap.Get("head").(*expvar.Int).String(), gc.Equals, "1009")
 }
 
 func (s *ClientSuite) TestGetWithFragmentLocation(c *gc.C) {
@@ -200,7 +221,7 @@ func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
 }
 
 func (s *ClientSuite) TestPut(c *gc.C) {
-	content := strings.NewReader("foobar")
+	content := io.LimitReader(strings.NewReader("foobar"), 6)
 
 	mockClient := &mockHttpClient{}
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
@@ -221,7 +242,6 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 			WriteHeadHeader: []string{"12341234"},
 		},
 	}, nil).Run(func(args mock.Arguments) {
-
 		request := args[0].(*http.Request)
 		c.Check(request.Body, gc.DeepEquals, ioutil.NopCloser(content))
 	}).Once()
@@ -230,6 +250,12 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 	c.Check(s.client.Put(AppendArgs{Journal: "a/journal", Content: content}),
 		gc.DeepEquals, AppendResult{WriteHead: int64(12341234)})
 	mockClient.AssertExpectations(c)
+
+	// Expect that the write stats were published to the counters. ("content"
+	// is 6 bytes long, and is reflected in the bytes counter.)
+	readerMap := gazetteMap.Get("writers").(*expvar.Map).Get("a/journal").(*expvar.Map)
+	c.Check(readerMap.Get("bytes").(*expvar.Int).String(), gc.Equals, "6")
+	c.Check(readerMap.Get("head").(*expvar.Int).String(), gc.Equals, "12341234")
 }
 
 func (s *ClientSuite) TestReadResultParsingErrorCases(c *gc.C) {
@@ -323,9 +349,9 @@ func (s *ClientSuite) TestBuildReadURL(c *gc.C) {
 }
 
 // Regression test for issue #890.
-func (s *ClientSuite) TestDailerIsNonNil(c *gc.C) {
+func (s *ClientSuite) TestDialerIsNonNil(c *gc.C) {
 	// What we really want to test is that TCP keep-alive is set. There isn't a
-	// great way to test this, as Dail is a closure over net.Dailer. At least
+	// great way to test this, as Dail is a closure over net.Dialer. At least
 	// satisfy ourselves that a non-default dailer is used (a requirement for
 	// automatic setting of TCP keep-alive).
 	client, _ := NewClient("http://default")
