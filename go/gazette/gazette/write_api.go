@@ -40,7 +40,7 @@ func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body.Close()
 	} else {
-		w.Header().Set(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 16))
+		w.Header().Set(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 10))
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
