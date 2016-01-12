@@ -289,7 +289,7 @@ func (c *Client) parseAppendResponse(response *http.Response) journal.AppendResu
 	} else if writeHead := response.Header.Get(WriteHeadHeader); writeHead != "" {
 		var err error
 
-		ret.WriteHead, err = strconv.ParseInt(writeHead, 16, 64)
+		ret.WriteHead, err = strconv.ParseInt(writeHead, 10, 64)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "writeHead": writeHead}).Error("error parsing write head")
 			// Keep going anyway.
