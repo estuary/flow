@@ -54,7 +54,8 @@ type ConsumerCoordinator struct {
 	router        discovery.HRWRouter
 	routerMu      sync.Mutex
 
-	timer *time.Timer
+	timer    *time.Timer
+	stopping bool
 }
 
 func NewConsumerCoordinator(ctx consumerContext) (*ConsumerCoordinator, error) {
@@ -101,9 +102,26 @@ func NewConsumerCoordinator(ctx consumerContext) (*ConsumerCoordinator, error) {
 }
 
 func (c *ConsumerCoordinator) Cancel() error {
+	c.stopping = true
 	c.timer.Stop()
-	return c.context.Etcd().Delete(c.basePath()+MembersPrefix+c.localRouteKey,
+	var firstErr error
+
+	// Delete lock entries.
+	for _, journal := range c.context.ConsumingJournals() {
+		err := c.context.Etcd().Delete(c.basePath()+LocksPrefix+journal.String(), false)
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	// Delete member entry.
+	err := c.context.Etcd().Delete(c.basePath()+MembersPrefix+c.localRouteKey,
 		false)
+	if firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
 }
 
 func (c *ConsumerCoordinator) basePath() string {
@@ -116,7 +134,7 @@ func (c *ConsumerCoordinator) convergeConsumer() {
 	if err := c.context.Etcd().Update(path, c.localRouteKey,
 		kLockTimeout); err != nil {
 		log.WithFields(log.Fields{"path": path, "err": err}).
-			Error("failed to consumer annoucement")
+			Error("failed to refresh consumer annoucement")
 	}
 
 	journals := c.context.ConsumingJournals()
@@ -208,6 +226,9 @@ func (c *ConsumerCoordinator) persistedOffset(name journal.Name) int64 {
 
 func (c *ConsumerCoordinator) onMembershipChange(members, old,
 	new discovery.KeyValues) {
+	if c.stopping {
+		return
+	}
 	c.routerMu.Lock()
 	c.router.RebuildRoutes(members, old, new)
 	c.routerMu.Unlock()
@@ -220,6 +241,9 @@ func (c *ConsumerCoordinator) onRouteUpdate(journalName string, oldRoute,
 }
 
 func (c *ConsumerCoordinator) onLockUpdate(all, old, new discovery.KeyValues) {
+	if c.stopping {
+		return
+	}
 	for _, removed := range old.Difference(new) {
 		go c.convergeJournal(journal.Name(removed.Key[len(LocksPrefix):]))
 	}
