@@ -1,6 +1,8 @@
 package gazette
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -48,7 +50,31 @@ func NewPersister(directory string, cfs cloudstore.FileSystem,
 		queue:            make(map[string]journal.Fragment),
 		routeKey:         routeKey,
 	}
+	// Make the state of the persister queue available to expvar.
+	gazetteMap.Set("persister", p)
+
 	return p
+}
+
+// Note: This String() implementation is primarily for the benefit of expvar,
+// which expects the string to be a serialized JSON object.
+func (p *Persister) String() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Build a view of the queue that shows the list of offsets being uploaded
+	// for a given journal, which is sort of the inverse of how we store it in
+	// |p.queue|
+	ret := make(map[journal.Name][]string)
+	for offsetRange, entry := range p.queue {
+		ret[entry.Journal] = append(ret[entry.Journal], offsetRange)
+	}
+
+	if msg, err := json.Marshal(ret); err != nil {
+		return fmt.Sprintf("%q", err.Error())
+	} else {
+		return string(msg)
+	}
 }
 
 func (p *Persister) StartPersisting() *Persister {
