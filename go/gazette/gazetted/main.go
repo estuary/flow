@@ -56,7 +56,6 @@ func main() {
 		"etcdEndpoint":     *endpoints.EtcdEndpoint,
 		"announceEndpoint": *announceEndpoint,
 		"releaseTag":       *varz.ReleaseTag,
-		"replica":          *varz.Replica,
 	}).Info("flag configuration")
 
 	// Fail fast if spool directory cannot be created.
