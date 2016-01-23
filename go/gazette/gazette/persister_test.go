@@ -1,8 +1,10 @@
 package gazette
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
@@ -196,8 +198,15 @@ func (s *PersisterSuite) TestStringFunction(c *gc.C) {
 	s.persister.Persist(s.fragment)
 	s.persister.Persist(frag2)
 
-	c.Check(s.persister.String(), gc.Equals,
-		`{"a/journal":["00000000000003e8-00000000000003f2-0102030405060708090a0b0c0d0e0f1011121314","00000000000007d0-0000000000000bb8-0102030405060708090a0b0c0d0e0f1011121314"]}`)
+	var parsed map[string][]string
+	err = json.Unmarshal([]byte(s.persister.String()), &parsed)
+	c.Assert(err, gc.IsNil)
+	sort.Strings(parsed["a/journal"])
+
+	c.Check(parsed["a/journal"], gc.DeepEquals, []string{
+		"00000000000003e8-00000000000003f2-0102030405060708090a0b0c0d0e0f1011121314",
+		"00000000000007d0-0000000000000bb8-0102030405060708090a0b0c0d0e0f1011121314",
+	})
 }
 
 var _ = gc.Suite(&PersisterSuite{})
