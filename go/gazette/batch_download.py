@@ -72,7 +72,8 @@ class StreamDownloader(object):
 
         # Perform a HEAD request to check for a directly fetch-able fragment.
         full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-        response = self.session.head(full_url, verify=True, timeout=self.SOCKET_TIMEOUT_SECONDS)
+        response = self.session.head(full_url, verify=True,
+                                     timeout=self.SOCKET_TIMEOUT_SECONDS)
 
         logging.debug("HEAD %s (%s)\n\t%s", full_url, response.status_code,
                       response.headers)
@@ -103,7 +104,8 @@ class StreamDownloader(object):
         else:
             # Repeat the request as a GET to directly transfer.
             full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-            response = self.session.get(full_url, timeout=self.SOCKET_TIMEOUT_SECONDS,
+            response = self.session.get(full_url,
+                                        timeout=self.SOCKET_TIMEOUT_SECONDS,
                                         stream=True, verify=True)
 
             logging.debug("GET %s (%s)\n\t%s", full_url, response.status_code,
