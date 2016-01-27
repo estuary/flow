@@ -53,11 +53,15 @@ class StreamDownloader(object):
     # Buffer size for bulk copy.
     BUFFER_SIZE = 1 << 15  # 32768
 
-    def __init__(self, output_dir, metadata_path, session, timeout):
+    # Timeout between received bytes. Aborts a download if no data is received
+    # on the connection for more than the given number of seconds. The timeout
+    # resets any time more data is received on the socket.
+    SOCKET_TIMEOUT_SECONDS = 120
+
+    def __init__(self, output_dir, metadata_path, session):
         self.output_dir = output_dir
         self.metadata_path = metadata_path
         self.session = session
-        self.timeout = timeout
 
         self._metadata = self._load_metadata()
 
@@ -68,7 +72,7 @@ class StreamDownloader(object):
 
         # Perform a HEAD request to check for a directly fetch-able fragment.
         full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-        response = self.session.head(full_url, verify=True, timeout=self.timeout)
+        response = self.session.head(full_url, verify=True, timeout=self.SOCKET_TIMEOUT_SECONDS)
 
         logging.debug("HEAD %s (%s)\n\t%s", full_url, response.status_code,
                       response.headers)
@@ -99,7 +103,8 @@ class StreamDownloader(object):
         else:
             # Repeat the request as a GET to directly transfer.
             full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-            response = self.session.get(full_url, timeout=self.timeout, stream=True, verify=True)
+            response = self.session.get(full_url, timeout=self.SOCKET_TIMEOUT_SECONDS,
+                                        stream=True, verify=True)
 
             logging.debug("GET %s (%s)\n\t%s", full_url, response.status_code,
                           response.headers)
@@ -249,9 +254,6 @@ def main(argv):
                         '--output-dir if not set')
     parser.add_argument('--verbose', action='store_true',
                         help='Enable verbose logging')
-    parser.add_argument('--timeout', type=int, default=120,
-                        help='Seconds to wait for a dead socket to '
-                        'respond before exiting with an error.')
 
     args = parser.parse_args(argv[1:])
 
@@ -269,7 +271,7 @@ def main(argv):
     session = new_authenticated_session(auth_url, args.user, args.password)
 
     # Download while content remains.
-    downloader = StreamDownloader(args.output_dir, args.metadata, session, args.timeout)
+    downloader = StreamDownloader(args.output_dir, args.metadata, session)
     while downloader.fetch_some(args.url):
         pass
 
