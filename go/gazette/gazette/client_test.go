@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"bytes"
 	"errors"
 	"expvar"
 	"io"
@@ -230,32 +231,65 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 			request.URL.Path == "/a/journal"
 	})).Return(newReadResponseFixture(), nil)
 
+	body := new(bytes.Buffer)
+	body.WriteString("some reason")
+
+	// Return an error.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "PUT" &&
 			request.URL.Host == "redirected-server" &&
+			request.URL.Path == "/a/journal"
+	})).Return(&http.Response{
+		Status:     "Internal Server Error",
+		StatusCode: http.StatusInternalServerError,
+		Request:    &http.Request{URL: newURL("http://default/a/journal")},
+		Body:       ioutil.NopCloser(body),
+		Header: http.Header{
+			WriteHeadHeader: []string{"12341234"},
+		},
+	}, nil).Once()
+
+	s.client.httpClient = mockClient
+	res := s.client.Put(AppendArgs{Journal: "a/journal", Content: content})
+	c.Check(res.Error, gc.ErrorMatches, `Internal Server Error \(some reason\)`)
+
+	// WriteHead was parsed despite the failure.
+	c.Check(res.WriteHead, gc.Equals, int64(12341234))
+
+	// The broker will say that the write has failed, so we shouldn't hit the
+	// counters for this journal. It has yet to be used at all, so it shouldn't
+	// exist yet.
+	c.Check(gazetteMap.Get("writers").(*expvar.Map).Get("a/journal"), gc.IsNil)
+
+	// This time, return success.
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "PUT" &&
+			// Cache is cleared, so "default" pops up again.
+			request.URL.Host == "default" &&
 			request.URL.Path == "/a/journal"
 	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Indicates success.
 		Request:    &http.Request{URL: newURL("http://default/a/journal")},
 		Body:       ioutil.NopCloser(nil),
 		Header: http.Header{
-			WriteHeadHeader: []string{"12341234"},
+			WriteHeadHeader: []string{"12341235"},
 		},
 	}, nil).Run(func(args mock.Arguments) {
 		request := args[0].(*http.Request)
 		c.Check(request.Body, gc.DeepEquals, ioutil.NopCloser(content))
 	}).Once()
 
-	s.client.httpClient = mockClient
-	c.Check(s.client.Put(AppendArgs{Journal: "a/journal", Content: content}),
-		gc.DeepEquals, AppendResult{WriteHead: int64(12341234)})
+	res = s.client.Put(AppendArgs{Journal: "a/journal", Content: content})
+	c.Check(res.Error, gc.IsNil)
+	c.Check(res.WriteHead, gc.Equals, int64(12341235))
 	mockClient.AssertExpectations(c)
 
-	// Expect that the write stats were published to the counters. ("content"
-	// is 6 bytes long, and is reflected in the bytes counter.)
-	readerMap := gazetteMap.Get("writers").(*expvar.Map).Get("a/journal").(*expvar.Map)
-	c.Check(readerMap.Get("bytes").(*expvar.Int).String(), gc.Equals, "6")
-	c.Check(readerMap.Get("head").(*expvar.Int).String(), gc.Equals, "12341234")
+	// Write success. Expect that the write stats were published to the
+	// counters. ("content" is 6 bytes long, and is reflected in the bytes
+	// counter.)
+	writerMap := gazetteMap.Get("writers").(*expvar.Map).Get("a/journal").(*expvar.Map)
+	c.Check(writerMap.Get("bytes").(*expvar.Int).String(), gc.Equals, "6")
+	c.Check(writerMap.Get("head").(*expvar.Int).String(), gc.Equals, "12341235")
 }
 
 func (s *ClientSuite) TestReadResultParsingErrorCases(c *gc.C) {

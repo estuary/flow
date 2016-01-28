@@ -270,9 +270,11 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	result := c.parseAppendResponse(response)
 
 	// Record the freshly received writehead as well as a rolling count of all
-	// bytes written to this journal.
-	written, _ := c.obtainJournalCounters(args.Journal, true, result.WriteHead)
-	written.Add(writeSize)
+	// bytes written to this journal, if the write succeeded.
+	if result.Error == nil {
+		written, _ := c.obtainJournalCounters(args.Journal, true, result.WriteHead)
+		written.Add(writeSize)
+	}
 
 	return result
 }
