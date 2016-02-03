@@ -29,8 +29,6 @@ var (
 )
 
 func main() {
-	endpoints.ParseFromEnvironment()
-	flag.Parse()
 	varz.Initialize("gazetted")
 
 	if *announceEndpoint == "" {
