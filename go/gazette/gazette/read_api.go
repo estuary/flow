@@ -52,25 +52,35 @@ func (h *ReadAPI) Read(w http.ResponseWriter, r *http.Request) {
 	// Loop performing incremental reads and copying to the client. If we fail
 	// here, we log and just drop the connection (since we've already written
 	// response headers).
-	for {
+	for first := true; true; first = false {
 		if result.Error != nil {
-			log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).
-				Warn("read failed")
+			log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("read failed")
 			break
+		}
+
+		if !result.Fragment.IsLocal() {
+			if first {
+				// A proxied read of a remote fragment is inefficient. We'll still do
+				// it if explicitly asked, but surface the call via logging.
+				log.WithField("fragment", result.Fragment.ContentPath()).Info("non-local fragment read")
+			} else {
+				// The client has fallen behind, or we've already proxied a fragment
+				// from remote storage. Force the client to explicitly re-issue the
+				// request. A well-behaved client will then stream directly.
+				break
+			}
 		}
 
 		var reader io.Reader
 		reader, err := result.Fragment.ReaderFromOffset(result.Offset, h.cfs)
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "ReadOp": op}).
-				Warn("failed to get a fragment reader")
+			log.WithFields(log.Fields{"err": err, "ReadOp": op}).Warn("failed to get a fragment reader")
 			break
 		}
 
 		delta, err := io.Copy(w, reader)
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "ReadOp": op}).
-				Warn("failed to copy to client")
+			log.WithFields(log.Fields{"err": err, "ReadOp": op}).Warn("failed to copy to client")
 			break
 		}
 		if flusher, ok := w.(http.Flusher); ok {

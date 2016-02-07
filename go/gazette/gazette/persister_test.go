@@ -153,6 +153,28 @@ func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
 	c.Check(s.persister.osRemove, gc.IsNil)
 }
 
+func (s *PersisterSuite) TestEmptyFragment(c *gc.C) {
+	emptyFragment := journal.Fragment{
+		Journal: "a/journal",
+		Begin:   1000,
+		End:     1000,
+		Sum:     [20]byte{},
+		File:    &journal.MockFragmentFile{},
+	}
+
+	// Intercept and validate the call to os.Remove.
+	s.persister.osRemove = func(path string) error {
+		c.Check(path, gc.Equals, "base/directory/a/journal/"+emptyFragment.ContentName())
+		s.persister.osRemove = nil // Mark we were called.
+		return nil
+	}
+
+	s.persister.Persist(emptyFragment)
+
+	c.Check(s.persister.queue, gc.HasLen, 0)
+	c.Check(s.persister.osRemove, gc.IsNil) // Verify osRemove() was called.
+}
+
 func (s *PersisterSuite) expectLockUnlock(sub *discovery.MockEtcdSubscriber, c *gc.C) {
 	treeArg := mock.AnythingOfType("*etcd.Node")
 	lockKey := PersisterLocksRoot + s.fragment.ContentName()

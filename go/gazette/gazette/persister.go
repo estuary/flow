@@ -89,6 +89,11 @@ func (p *Persister) StartPersisting() *Persister {
 }
 
 func (p *Persister) Persist(fragment journal.Fragment) {
+	// If the fragment is empty, immediately delete it.
+	if fragment.Size() == 0 {
+		p.removeLocal(fragment)
+		return
+	}
 	p.mu.Lock()
 	p.queue[fragment.ContentName()] = fragment
 	p.mu.Unlock()

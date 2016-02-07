@@ -92,16 +92,12 @@ func (h *Head) onWrite(write ReplicateOp) ReplicateResult {
 	// Evaluate conditions under which we'll roll a new spool:
 	//  * The Spool encountered an error.
 	//  * The Spool's End isn't our current write head.
-	//  * The broker requested a new spool, and ours is non-empty.
-	if h.spool == nil ||
-		h.spool.err != nil ||
-		h.spool.End != h.writeHead ||
-		(write.NewSpool && h.spool.Size() != 0) {
+	//  * The broker requested a new spool.
+	if h.spool == nil || h.spool.err != nil || h.spool.End != h.writeHead || write.NewSpool {
 
 		if h.spool != nil {
 			if h.spool.End != h.writeHead {
-				log.WithFields(log.Fields{"end": h.spool.End, "head": h.writeHead,
-					"journal": h.journal}).
+				log.WithFields(log.Fields{"end": h.spool.End, "head": h.writeHead, "journal": h.journal}).
 					Warn("rolling spool because of write-head increase")
 			}
 			h.persister.Persist(h.spool.Fragment)

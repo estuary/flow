@@ -131,8 +131,17 @@ func (s *ReadAPISuite) TestBlockingSuccess(c *gc.C) {
 			}
 		},
 		func(op ReadOp) {
-			// Simulate a cluster change: expect blocking read is server-closed.
-			op.Result <- ReadResult{Error: ErrNotReplica}
+			// Return a non-local result. Because this is not the first read of the
+			// request, we stop here (rather than starting a new proxied transfer).
+			op.Result <- ReadResult{
+				Offset:    12371,
+				WriteHead: 12400,
+				Fragment: Fragment{
+					Journal: "journal/name",
+					Begin:   12350,
+					End:     12400,
+				},
+			}
 		},
 	}
 	s.mux.ServeHTTP(w, req)
