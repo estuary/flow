@@ -276,13 +276,8 @@ func (w *namedWriter) Write(data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
 	if w.sync {
 		promise.Wait()
 	}
-
-	// Assume all bytes were written without error.
-	// TODO(joshk): Plumb errors in the Promise, and return that error value
-	// here instead of always assuming there was no error.
 	return len(data), nil
 }
