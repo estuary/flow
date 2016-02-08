@@ -29,6 +29,9 @@ const (
 
 	// Local disk-backed temporary directory where pending writes are spooled.
 	kWriteTmpDirectory = "/var/tmp/gazette-writes"
+
+	// journal.Name for where varz stats get written.
+	statsJournalName = "pippio-journals/debug/vars"
 )
 
 type pendingWrite struct {
@@ -96,14 +99,19 @@ type WriteService struct {
 }
 
 func NewWriteService(client *Client) *WriteService {
-	writer := &WriteService{
+	writeService := &WriteService{
 		client:     client,
 		stopped:    make(chan struct{}),
 		writeQueue: nil,
 		writeIndex: make(map[journal.Name]*pendingWrite),
 	}
-	writer.SetConcurrency(*writeConcurrency)
-	return writer
+
+	writeService.SetConcurrency(*writeConcurrency)
+
+	// We can now write stats to a Gazette journal.
+	varz.SetStatWriter(writeService.WriterFor(statsJournalName, false))
+
+	return writeService
 }
 
 func (c *WriteService) SetConcurrency(concurrency int) {
@@ -245,4 +253,36 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 		return nil
 	}
 	panic("not reached")
+}
+
+// Adapter to allow |WriteService| to return io.Writers for arbitrary journals
+// that can be written to directly.
+type namedWriter struct {
+	writeService *WriteService
+	name         journal.Name
+	sync         bool
+}
+
+func (c *WriteService) WriterFor(name journal.Name, sync bool) io.Writer {
+	return &namedWriter{
+		writeService: c,
+		name:         name,
+		sync:         sync,
+	}
+}
+
+func (w *namedWriter) Write(data []byte) (int, error) {
+	promise, err := w.writeService.Write(w.name, data)
+	if err != nil {
+		return 0, err
+	}
+
+	if w.sync {
+		promise.Wait()
+	}
+
+	// Assume all bytes were written without error.
+	// TODO(joshk): Plumb errors in the Promise, and return that error value
+	// here instead of always assuming there was no error.
+	return len(data), nil
 }
