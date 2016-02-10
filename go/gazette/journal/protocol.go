@@ -38,7 +38,7 @@ type ReplicateOp struct {
 	ReplicateArgs
 
 	// Channel by which replica returns a ReplicateResult.
-	Result chan ReplicateResult
+	Result chan ReplicateResult `json:"-"`
 }
 
 type ReadArgs struct {
@@ -72,7 +72,7 @@ type ReadOp struct {
 	ReadArgs
 
 	// Channel by which replica returns a ReadResult.
-	Result chan ReadResult
+	Result chan ReadResult `json:"-"`
 }
 
 type AppendArgs struct {
@@ -94,5 +94,5 @@ type AppendOp struct {
 	AppendArgs
 
 	// Channel by which broker returns operation status.
-	Result chan AppendResult
+	Result chan AppendResult `json:"-"`
 }
