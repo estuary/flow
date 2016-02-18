@@ -16,12 +16,12 @@ type Description struct {
 	Partitions int
 	// If non-nil, |RoutingKey| returns a stable routing key for |message|.
 	// If not set, a random partition is selected.
-	RoutingKey func(message interface{}) string
+	RoutingKey func(message interface{}) string `json:"-"`
 	// Builds or obtains a zero-valued instance of the topic message type.
-	GetMessage func() message.Unmarshallable
+	GetMessage func() message.Unmarshallable `json:"-"`
 	// If non-nil, returns a used instance of the message type. This is
 	// typically used for pooling of message instances.
-	PutMessage func(message.Unmarshallable)
+	PutMessage func(message.Unmarshallable) `json:"-"`
 }
 
 func (d *Description) Journal(partition int) journal.Name {
