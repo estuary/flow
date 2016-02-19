@@ -6,8 +6,28 @@ import (
 	"math/rand"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
 )
+
+// Marshallable is a type capable of sizing & serializing itself to a []byte.
+type Marshallable interface {
+	// Returns the serialized byte size of the marshalled message.
+	Size() int
+	// Serializes the message to |buffer| (which must have len >= Size()),
+	// returning the number of bytes written and any error.
+	MarshalTo(buffer []byte) (n int, err error)
+}
+
+// Unmarshallable is a type capable of deserializing itself from a []byte.
+type Unmarshallable interface {
+	// De-serializes the message from |buffer| (which must contain a message exactly),
+	// returning any error.
+	Unmarshal(buffer []byte) error
+}
+
+// A Sink publishes a Marshallable message to a topic, optionally blocking.
+type Sink interface {
+	Put(msg Marshallable, block bool) error
+}
 
 type Description struct {
 	Name string
@@ -18,14 +38,13 @@ type Description struct {
 	// If not set, a random partition is selected.
 	RoutingKey func(message interface{}) string `json:"-"`
 	// Builds or obtains a zero-valued instance of the topic message type.
-	GetMessage func() message.Unmarshallable `json:"-"`
+	GetMessage func() Unmarshallable `json:"-"`
 	// If non-nil, returns a used instance of the message type. This is
 	// typically used for pooling of message instances.
-	PutMessage func(message.Unmarshallable) `json:"-"`
+	PutMessage func(Unmarshallable) `json:"-"`
 }
 
 func (d *Description) Journal(partition int) journal.Name {
-	// TODO(johnny): This is horribly inefficient.
 	return journal.Name(fmt.Sprintf("%s/part-%03d", d.Name, partition))
 }
 

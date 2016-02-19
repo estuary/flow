@@ -2,6 +2,8 @@ package message
 
 import (
 	"io"
+
+	"github.com/pippio/gazette/topic"
 )
 
 // Decoder decodes sequential framed messages from a journal.
@@ -19,7 +21,7 @@ func NewDecoder(reader io.Reader) Decoder {
 // Decode reads the next message from its input and unmarshals it into |msg|.
 // Reads are performed without extra buffering, and it is safe to interleave
 // calls to Decode() with other reads.
-func (d *Decoder) Decode(msg Unmarshallable) error {
+func (d *Decoder) Decode(msg topic.Unmarshallable) error {
 	_, err := Parse(msg, d.reader, &d.buffer)
 	return err
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+
+	"github.com/pippio/gazette/topic"
 )
 
 const HeaderLength = 8
@@ -12,7 +14,7 @@ const HeaderLength = 8
 var ErrDesyncDetected = errors.New("detected de-synchronization")
 
 // Frames |m| into |buf|. If |buf| doesn't have enough capacity, it is re-allocatted.
-func Frame(m Marshallable, buf *[]byte) error {
+func Frame(m topic.Marshallable, buf *[]byte) error {
 	length := m.Size() + HeaderLength
 	sizeBuffer(buf, length)
 	out := *buf
@@ -36,7 +38,7 @@ func Frame(m Marshallable, buf *[]byte) error {
 // non-zero iff a message was successfully parsed. If |err| is
 // ErrDesyncDetected, a message was still parsed and a subsequent read
 // may succeed.
-func Parse(m Unmarshallable, r io.Reader, buf *[]byte) (delta int, err error) {
+func Parse(m topic.Unmarshallable, r io.Reader, buf *[]byte) (delta int, err error) {
 	var expectWord = [4]byte{0x66, 0x33, 0x93, 0x36}
 	var header [HeaderLength]byte
 
@@ -87,7 +89,7 @@ func Parse(m Unmarshallable, r io.Reader, buf *[]byte) (delta int, err error) {
 }
 
 // Parses |m| from |frame|, which is expected to be an exactly-sized frame.
-func ParseExactFrame(m Unmarshallable, frame []byte) error {
+func ParseExactFrame(m topic.Unmarshallable, frame []byte) error {
 	var buf []byte
 	var reader = bytes.NewReader(frame)
 

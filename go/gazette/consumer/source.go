@@ -70,7 +70,7 @@ func (c *Source) StartConsuming(mark journal.Mark) {
 	c.mu.Lock()
 	c.consumed[mark.Journal] = mark.Offset
 
-	producer := message.NewProducer(c.getter, c.topic.GetMessage)
+	producer := message.NewProducer(c.getter, c.topic)
 	c.producers[mark.Journal] = producer
 	c.mu.Unlock()
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/topic"
 )
 
 const kProducerErrorTimeout = time.Second * 5
@@ -16,15 +17,15 @@ const kProducerErrorTimeout = time.Second * 5
 // Producer produces unmarshalled messages from a journal.
 type Producer struct {
 	getter journal.Getter
-	newMsg func() Unmarshallable
+	topic  *topic.Description
 
 	signal chan struct{}
 }
 
-func NewProducer(getter journal.Getter, newMsg func() Unmarshallable) *Producer {
+func NewProducer(getter journal.Getter, topic *topic.Description) *Producer {
 	return &Producer{
 		getter: getter,
-		newMsg: newMsg,
+		topic:  topic,
 		signal: make(chan struct{}),
 	}
 }
@@ -33,7 +34,7 @@ func (p *Producer) StartProducingInto(mark journal.Mark, sink chan<- Message) {
 	sp := &simpleProducer{
 		mark:   mark,
 		getter: p.getter,
-		newMsg: p.newMsg,
+		topic:  p.topic,
 		sink:   sink,
 		signal: p.signal,
 	}
@@ -52,7 +53,7 @@ func (p *Producer) Cancel() {
 type simpleProducer struct {
 	mark   journal.Mark
 	getter journal.Getter
-	newMsg func() Unmarshallable
+	topic  *topic.Description
 	// Sink into which decoded messages are written. Not closed on exit.
 	sink chan<- Message
 	// Messaged to signal intent to exit. Closed when simpleProducer exits.
@@ -116,7 +117,7 @@ func (p *simpleProducer) loop() {
 			decoder = NewDecoder(markReader)
 		}
 
-		msg := p.newMsg()
+		msg := p.topic.GetMessage()
 		err := decoder.Decode(msg)
 
 		if err != nil {
@@ -139,7 +140,7 @@ func (p *simpleProducer) loop() {
 		}
 
 		select {
-		case p.sink <- Message{p.mark, msg}:
+		case p.sink <- Message{p.topic, p.mark, msg}:
 			p.mark = markReader.Mark
 		case <-p.signal:
 			done = true

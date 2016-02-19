@@ -46,7 +46,7 @@ type Context struct {
 // Eventually, this method will note the partitions written to under the
 // current transaction (for later confirmation), and will also ensure that
 // messages are appropriately tagged and sequenced.
-func (c *Context) Publish(msg message.Marshallable, to *topic.Description) error {
+func (c *Context) Publish(msg topic.Marshallable, to *topic.Description) error {
 	buffer := publishBufferPool.Get().([]byte)
 
 	err := message.Frame(msg, &buffer)

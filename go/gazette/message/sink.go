@@ -1,11 +1,11 @@
-package topic
+package message
 
 import (
 	"sync"
 	"sync/atomic"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
 var sinkBufferPool = sync.Pool{
@@ -17,7 +17,7 @@ var sinkBufferPool = sync.Pool{
 const DefaultAutoFlushRate = 10000
 
 type Sink struct {
-	Topic  *Description
+	Topic  *topic.Description
 	Writer journal.Writer
 
 	// If non-zero, one of every |AutoFlushRate| Put()'s will be blocking
@@ -28,17 +28,17 @@ type Sink struct {
 	autoFlushCounter int64
 }
 
-func NewSink(topic *Description, writer journal.Writer) Sink {
+func NewSink(topic *topic.Description, writer journal.Writer) Sink {
 	return Sink{Topic: topic, Writer: writer, AutoFlushRate: DefaultAutoFlushRate}
 }
 
-func (s *Sink) Put(msg message.Marshallable, block bool) error {
+func (s *Sink) Put(msg topic.Marshallable, block bool) error {
 	var err error
 	var done chan struct{}
 
 	buffer := sinkBufferPool.Get().([]byte)
 
-	err = message.Frame(msg, &buffer)
+	err = Frame(msg, &buffer)
 	if err == nil {
 		done, err = s.Writer.Write(s.Topic.RoutedJournal(msg), buffer)
 	}

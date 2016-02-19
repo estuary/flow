@@ -9,6 +9,7 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/topic"
 )
 
 type ProducerSuite struct {
@@ -29,17 +30,14 @@ func (s *ProducerSuite) TestOffsetUpdatesFromReadResult(c *gc.C) {
 	// Return a result fixture which skips forward from 0 => 1234.
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
 		Return(journal.ReadResult{Offset: 1234},
-		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
+			ioutil.NopCloser(bytes.NewReader(s.message))).Once()
 
 	// Next reads fail. Note this may not be called (depending on Cancel() ordering).
 	getter.On("Get", journal.ReadArgs{Journal: "foo",
 		Offset: 1234 + s.messageLen, Blocking: true}).
 		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
 
-	producer := NewProducer(getter, func() Unmarshallable {
-		var m frameablestring
-		return &m
-	})
+	producer := newTestProducer(getter)
 	recovered := make(chan Message)
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
@@ -54,22 +52,19 @@ func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 	getter := &journal.MockGetter{}
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
 		Return(journal.ReadResult{Offset: 0},
-		ioutil.NopCloser(bytes.NewReader(s.message3x[:msgLen*3/2]))).Once()
+			ioutil.NopCloser(bytes.NewReader(s.message3x[:msgLen*3/2]))).Once()
 
 	// Expect the next open is from a Mark at the first message boundary,
 	// and not from the maximum forward progress of the previous reader.
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: msgLen, Blocking: true}).
 		Return(journal.ReadResult{Offset: msgLen},
-		ioutil.NopCloser(bytes.NewReader(s.message3x[msgLen:]))).Once()
+			ioutil.NopCloser(bytes.NewReader(s.message3x[msgLen:]))).Once()
 
 	// Next reads fail. Note this may not be called (depending on Cancel() ordering).
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 3 * msgLen, Blocking: true}).
 		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
 
-	producer := NewProducer(getter, func() Unmarshallable {
-		var m frameablestring
-		return &m
-	})
+	producer := newTestProducer(getter)
 	recovered := make(chan Message)
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
@@ -87,21 +82,18 @@ func (s *ProducerSuite) TestOffsetUpdatesMidStream(c *gc.C) {
 	getter := &journal.MockGetter{}
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
 		Return(journal.ReadResult{Offset: 0},
-		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
+			ioutil.NopCloser(bytes.NewReader(s.message))).Once()
 
 	// Next read skips the resulting offset forward.
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: msgLen, Blocking: true}).
 		Return(journal.ReadResult{Offset: 2 * msgLen},
-		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
+			ioutil.NopCloser(bytes.NewReader(s.message))).Once()
 
 	// Next reads fail.
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 3 * msgLen, Blocking: true}).
 		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
 
-	producer := NewProducer(getter, func() Unmarshallable {
-		var m frameablestring
-		return &m
-	})
+	producer := newTestProducer(getter)
 	recovered := make(chan Message)
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
@@ -124,10 +116,7 @@ func (s *ProducerSuite) TestReaderIsClosedOnCancel(c *gc.C) {
 	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
 		Return(journal.ReadResult{Offset: 0}, reader).Once()
 
-	producer := NewProducer(getter, func() Unmarshallable {
-		var m frameablestring
-		return &m
-	})
+	producer := newTestProducer(getter)
 	recovered := make(chan Message)
 	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
 
@@ -141,6 +130,15 @@ func (s *ProducerSuite) TestReaderIsClosedOnCancel(c *gc.C) {
 
 	<-reader.closeCh // Expect Close() to have been called.
 	getter.AssertExpectations(c)
+}
+
+func newTestProducer(g journal.Getter) *Producer {
+	return NewProducer(g, &topic.Description{
+		GetMessage: func() topic.Unmarshallable {
+			var m frameablestring
+			return &m
+		},
+	})
 }
 
 type closeCh chan struct{}
