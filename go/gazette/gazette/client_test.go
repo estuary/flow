@@ -39,6 +39,7 @@ func (s *ClientSuite) SetUpTest(c *gc.C) {
 
 	client, err := NewClient("http://default")
 	c.Assert(err, gc.IsNil)
+	client.timeNow = func() time.Time { return time.Unix(1234, 0) } // Fix time.
 	s.client = client
 }
 
@@ -123,13 +124,13 @@ func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
 	// Expect a direct blocking GET request to the previously-redirected endpoint.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "GET" &&
-			request.URL.String() == "http://redirected-server/a/journal?block=true&offset=1005"
+			request.URL.String() == "http://redirected-server/a/journal?block=true&blockms=6000&offset=1005"
 	})).Return(responseFixture, nil).Once()
 
 	// Arbitrary offset fixture.
 	s.client.httpClient = mockClient
 	result, body := s.client.Get(ReadArgs{
-		Journal: "a/journal", Offset: 1005, Blocking: true})
+		Journal: "a/journal", Offset: 1005, Blocking: true, Deadline: time.Unix(1240, 0)})
 
 	c.Check(result, gc.DeepEquals, ReadResult{
 		Offset:    1005,
@@ -222,7 +223,7 @@ func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
 }
 
 func (s *ClientSuite) TestPut(c *gc.C) {
-	content := io.LimitReader(strings.NewReader("foobar"), 6)
+	content := strings.NewReader("foobar")
 
 	mockClient := &mockHttpClient{}
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
@@ -238,7 +239,8 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "PUT" &&
 			request.URL.Host == "redirected-server" &&
-			request.URL.Path == "/a/journal"
+			request.URL.Path == "/a/journal" &&
+			request.ContentLength == 6
 	})).Return(&http.Response{
 		Status:     "Internal Server Error",
 		StatusCode: http.StatusInternalServerError,
@@ -266,7 +268,8 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 		return request.Method == "PUT" &&
 			// Cache is cleared, so "default" pops up again.
 			request.URL.Host == "default" &&
-			request.URL.Path == "/a/journal"
+			request.URL.Path == "/a/journal" &&
+			request.ContentLength == 6
 	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Indicates success.
 		Request:    &http.Request{URL: newURL("http://default/a/journal")},

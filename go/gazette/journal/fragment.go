@@ -47,8 +47,8 @@ func (f Fragment) ReaderFromOffset(offset int64,
 	cfs cloudstore.FileSystem) (io.ReadCloser, error) {
 
 	if f.IsLocal() {
-		return ioutil.NopCloser(&BoundedReaderAt{
-			f.File, f.End - offset, offset - f.Begin}), nil
+		return ioutil.NopCloser(io.NewSectionReader(
+			f.File, offset-f.Begin, f.End-offset)), nil
 	}
 	file, err := cfs.Open(f.ContentPath())
 	if err != nil {

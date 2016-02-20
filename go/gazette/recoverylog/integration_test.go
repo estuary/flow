@@ -1,12 +1,14 @@
-// +build integration
-
 package recoverylog
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
+	"testing"
+	"time"
 
 	gc "github.com/go-check/check"
+	"github.com/pippio/gazette/message"
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/api-server/endpoints"
@@ -29,12 +31,25 @@ func (s *RecoveryLogSuite) SetUpSuite(c *gc.C) {
 	var err error
 	s.client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
 	c.Assert(err, gc.IsNil)
+
+	// Skip if in Short mode, or if a Gazette endpoint is not reach-able.
+	if testing.Short() {
+		c.Skip("skipping recoverylog integration tests in short mode")
+	}
+	result, _ := s.client.Head(journal.ReadArgs{Journal: kTestLogName, Offset: -1})
+	if result.Error != journal.ErrNotYetAvailable {
+		c.Skip("Gazette not available: " + result.Error.Error())
+		return
+	}
+
 	s.writer = gazette.NewWriteService(s.client)
 	s.writer.Start()
 }
 
 func (s *RecoveryLogSuite) TearDownSuite(c *gc.C) {
-	s.writer.Stop()
+	if s.writer != nil {
+		s.writer.Stop()
+	}
 }
 
 func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
@@ -44,7 +59,7 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 	defer replica1.teardown()
 
 	replica1.startReading(s.initialHints(c))
-	replica1.makeLive()
+	c.Assert(replica1.makeLive(), gc.IsNil)
 
 	replica1.put("key3", "value three!")
 	replica1.put("key1", "value one")
@@ -54,7 +69,7 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 	defer replica2.teardown()
 
 	replica2.startReading(replica1.recorder.BuildHints())
-	replica2.makeLive()
+	c.Assert(replica2.makeLive(), gc.IsNil)
 
 	replica2.expectValues(map[string]string{
 		"key1": "value one",
@@ -77,12 +92,12 @@ func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
 	replica2.startReading(hints)
 
 	// |replica1| is made live and writes content, while |replica2| is reading.
-	replica1.makeLive()
+	c.Assert(replica1.makeLive(), gc.IsNil)
 	replica1.put("key foo", "baz")
 	replica1.put("key bar", "bing")
 
 	// Make |replica2| live. Expect |replica1|'s content to be present.
-	replica2.makeLive()
+	c.Assert(replica2.makeLive(), gc.IsNil)
 	replica2.expectValues(map[string]string{
 		"key foo": "baz",
 		"key bar": "bing",
@@ -102,11 +117,11 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	replica2.startReading(s.initialHints(c))
 
 	// |replica1| begins as master.
-	replica1.makeLive()
+	c.Assert(replica1.makeLive(), gc.IsNil)
 	replica1.put("key one", "value one")
 
 	// |replica2| now becomes live. |replica1| and |replica2| intersperse writes.
-	replica2.makeLive()
+	c.Assert(replica2.makeLive(), gc.IsNil)
 	replica1.put("rep1 foo", "value foo")
 	replica2.put("rep2 bar", "value bar")
 	replica1.put("rep1 baz", "value baz")
@@ -119,9 +134,9 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	defer replica4.teardown()
 
 	replica3.startReading(replica1.recorder.BuildHints())
-	replica3.makeLive()
+	c.Assert(replica3.makeLive(), gc.IsNil)
 	replica4.startReading(replica2.recorder.BuildHints())
-	replica4.makeLive()
+	c.Assert(replica4.makeLive(), gc.IsNil)
 
 	// Expect |replica3| recovered |replica1| history.
 	replica3.expectValues(map[string]string{
@@ -135,6 +150,52 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 		"rep2 bar":  "value bar",
 		"rep2 bing": "value bing",
 	})
+}
+
+func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
+	r := NewTestReplica(&testEnv{c, s.client, s.writer})
+	defer r.teardown()
+
+	var err error
+	r.player, err = PreparePlayback(s.initialHints(c), r.tmpdir)
+	c.Assert(err, gc.IsNil)
+
+	makeLiveExit := make(chan error)
+	go func() { _, err := r.player.MakeLive(); makeLiveExit <- err }()
+
+	// After a delay, write a frame and then Cancel(). The written frame ensures
+	// that the at-head condition of the first Play() iteration fails. Otherwise,
+	// we could miss seeing the cancel altogether (and exit with success).
+	time.AfterFunc(kBlockInterval/2, func() {
+		var frame []byte
+		message.Frame(&RecordedOp{}, &frame)
+
+		res := s.client.Put(journal.AppendArgs{
+			Journal: kTestLogName,
+			Content: bytes.NewReader(frame),
+		})
+		c.Log("Put() result: ", res)
+
+		r.player.Cancel()
+	})
+
+	c.Check(r.player.Play(r.client), gc.ErrorMatches, "Play cancelled")
+	c.Check(<-makeLiveExit, gc.ErrorMatches, "Play cancelled")
+}
+
+func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
+	r := NewTestReplica(&testEnv{c, s.client, s.writer})
+	defer r.teardown()
+
+	var err error
+	r.player, err = PreparePlayback(s.initialHints(c), r.tmpdir)
+	c.Assert(err, gc.IsNil)
+
+	r.player.Cancel()
+	c.Check(r.player.Play(r.client), gc.ErrorMatches, "Play cancelled")
+
+	_, err = r.player.MakeLive()
+	c.Check(err, gc.ErrorMatches, "Play cancelled")
 }
 
 // Returns hints at the current log head (eg, resulting in an empty database).
@@ -198,9 +259,11 @@ func (r *testReplica) startReading(hints FSMHints) {
 }
 
 // Finish playback, build a new recorder, and open an observed database.
-func (r *testReplica) makeLive() {
+func (r *testReplica) makeLive() error {
 	fsm, err := r.player.MakeLive()
-	r.Assert(err, gc.IsNil)
+	if err != nil {
+		return err
+	}
 
 	r.recorder, err = NewRecorder(fsm, len(r.tmpdir), r.writer)
 	r.Assert(err, gc.IsNil)
@@ -216,6 +279,7 @@ func (r *testReplica) makeLive() {
 
 	r.db, err = rocks.OpenDb(r.dbO, r.tmpdir)
 	r.Assert(err, gc.IsNil)
+	return nil
 }
 
 func (r *testReplica) put(key, value string) {
@@ -238,11 +302,12 @@ func (r *testReplica) expectValues(expect map[string]string) {
 }
 
 func (r *testReplica) teardown() {
-	r.db.Close()
-	r.dbRO.Destroy()
-	r.dbWO.Destroy()
-	r.dbO.Destroy()
-
+	if r.db != nil {
+		r.db.Close()
+		r.dbRO.Destroy()
+		r.dbWO.Destroy()
+		r.dbO.Destroy()
+	}
 	r.Assert(os.RemoveAll(r.tmpdir), gc.IsNil)
 }
 

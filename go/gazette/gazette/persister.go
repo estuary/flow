@@ -3,6 +3,7 @@ package gazette
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -189,7 +190,7 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 				Error("failed to open fragment for writing")
 			return
 		}
-		r := journal.NewBoundedReaderAt(fragment.File, fragment.End-fragment.Begin, 0)
+		r := io.NewSectionReader(fragment.File, 0, fragment.End-fragment.Begin)
 
 		if _, err := p.cfs.CopyAtomic(w, r); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).

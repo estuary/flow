@@ -15,9 +15,14 @@ import (
 	"github.com/pippio/gazette/message"
 )
 
-const FnodeStagingDir = ".fnodes"
-
-var kErrRetryInterval = 1 * time.Second
+const (
+	// Subdirectory into which Fnodes are played-back.
+	kFnodeStagingDir = ".fnodes"
+	// Duration for which Player reads of the recovery log block.
+	kBlockInterval = 1 * time.Second
+	// Cool-off applied on non-aborting errors.
+	kErrCooloffInterval = 5 * time.Second
+)
 
 type Player struct {
 	fsm *FSM
@@ -26,6 +31,8 @@ type Player struct {
 	// Mapping of live Fnodes to local backing files.
 	backingFiles map[Fnode]*os.File
 
+	// Signals to Play() service loop that Cancel() has been called.
+	cancelCh chan struct{}
 	// Signals to Play() service loop that MakeLive() has been called.
 	makeLiveCh chan struct{}
 	// Closed by Play() to signal to MakeLive() that Play() has exited.
@@ -37,7 +44,7 @@ type Player struct {
 // standby replication.
 func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
 	// File nodes are staged into a directory within |localDir| during playback.
-	fileNodesDir := filepath.Join(localDir, FnodeStagingDir)
+	fileNodesDir := filepath.Join(localDir, kFnodeStagingDir)
 
 	// Remove all prior content under |localDir|.
 	if err := os.RemoveAll(localDir); err != nil {
@@ -50,8 +57,10 @@ func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
 		fsm:          NewFSM(hints),
 		localDir:     localDir,
 		backingFiles: make(map[Fnode]*os.File),
+		cancelCh:     make(chan struct{}),
 		makeLiveCh:   make(chan struct{}),
-		playExitCh:   make(chan error, 1),
+		// Buffered because Play() may exit before MakeLive() is called.
+		playExitCh: make(chan error, 1),
 	}, nil
 }
 
@@ -61,8 +70,13 @@ type abortPlaybackErr struct {
 	error
 }
 
+// Requests that Player finalize playback. An exit without error means Play()
+// has exited as well, after successfully restoring local file state to match
+// operations in the recovery-log through the current write head. The Player
+// FSM instance is returned, which can be used to construct Recorder for
+// recording further file state changes.
 func (p *Player) MakeLive() (*FSM, error) {
-	p.makeLiveCh <- struct{}{}
+	close(p.makeLiveCh)
 
 	// Wait for Play() to exit.
 	if err := <-p.playExitCh; err != nil {
@@ -70,6 +84,10 @@ func (p *Player) MakeLive() (*FSM, error) {
 	}
 	return p.fsm, nil
 }
+
+// Requests that Player cancel playback and exit with an error.
+// Ignored if Play() has already exited.
+func (p *Player) Cancel() { close(p.cancelCh) }
 
 // Begins playing the prepared player. Returns on the first encountered
 // unrecoverable error, or upon a successful MakeLive().
@@ -83,25 +101,24 @@ func (p *Player) Play(getter journal.Getter) error {
 		select {
 		case <-p.makeLiveCh:
 			makeLive = true
+			p.makeLiveCh = nil // Don't receive again.
+			continue
+		case <-p.cancelCh:
+			err = fmt.Errorf("Play cancelled")
+			return err
 		default:
+			// Pass.
 		}
-
-		// TODO(johnny): User server-side block duration (Issue #702),
-		// rather than client-side poll-plus-sleep.
-		time.Sleep(kErrRetryInterval)
 
 		result, reader := getter.Get(journal.ReadArgs{
 			Journal:  p.fsm.LogMark.Journal,
 			Offset:   p.fsm.LogMark.Offset,
-			Blocking: false,
+			Deadline: time.Now().Add(kBlockInterval),
 		})
 
-		if result.Error == journal.ErrNotYetAvailable {
-			atHead = true
-			continue
-		} else if result.Error != nil {
-			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).
-				Warn("while fetching log")
+		if result.Error != nil {
+			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).Warn("while fetching log")
+			time.Sleep(kErrCooloffInterval)
 			continue
 		}
 		p.fsm.LogMark.Offset = result.Offset
@@ -111,9 +128,14 @@ func (p *Player) Play(getter journal.Getter) error {
 			err = abortErr.error
 			return err
 		} else if err != nil {
-			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).
-				Warn("during log playback")
-			time.Sleep(kErrRetryInterval)
+			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).Warn("during log playback")
+			time.Sleep(kErrCooloffInterval)
+		} else {
+			// We issue blocking reads, so for this condition to be satisfied we must
+			// have read through to the WriteHead that existed at read start, and
+			// during the blocking interval no additional content arrived (otherwise
+			// our offset would be beyond |result.WriteHead|).
+			atHead = (p.fsm.LogMark.Offset == result.WriteHead)
 		}
 	}
 	err = p.makeLive()
@@ -173,7 +195,7 @@ func (p *Player) playSomeLog(r io.Reader) error {
 
 func (p *Player) stagedPath(fnode Fnode) string {
 	fname := strconv.FormatInt(int64(fnode), 10)
-	return filepath.Join(p.localDir, FnodeStagingDir, fname)
+	return filepath.Join(p.localDir, kFnodeStagingDir, fname)
 }
 
 func (p *Player) create(fnode Fnode) error {
@@ -275,7 +297,7 @@ func (p *Player) makeLive() error {
 		log.WithField("files", p.backingFiles).Panic("backing files not in FSM")
 	}
 	// Remove staging directory.
-	if err := os.Remove(filepath.Join(p.localDir, FnodeStagingDir)); err != nil {
+	if err := os.Remove(filepath.Join(p.localDir, kFnodeStagingDir)); err != nil {
 		return err
 	}
 	return nil

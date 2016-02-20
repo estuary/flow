@@ -39,7 +39,7 @@ func (s *PlaybackSuite) SetUpTest(c *gc.C) {
 func (s *PlaybackSuite) TestPlayerInit(c *gc.C) {
 	c.Check(s.player.localDir, gc.Equals, s.localDir)
 
-	_, err := os.Stat(filepath.Join(s.localDir, FnodeStagingDir))
+	_, err := os.Stat(filepath.Join(s.localDir, kFnodeStagingDir))
 	c.Check(err, gc.IsNil) // Staging directory was created.
 
 	c.Check(s.player.fsm.LogMark, gc.Equals, journal.NewMark("a/recovery/log", 1234))
@@ -48,7 +48,7 @@ func (s *PlaybackSuite) TestPlayerInit(c *gc.C) {
 
 func (s *PlaybackSuite) TestStagingPaths(c *gc.C) {
 	c.Check(s.player.stagedPath(1234), gc.Equals,
-		filepath.Join(s.localDir, FnodeStagingDir, "1234"))
+		filepath.Join(s.localDir, kFnodeStagingDir, "1234"))
 }
 
 func (s *PlaybackSuite) TestCreate(c *gc.C) {
@@ -211,7 +211,7 @@ func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
 		}
 	}
 	// Expect staging directory has been removed.
-	expect(filepath.Join(s.localDir, FnodeStagingDir), false)
+	expect(filepath.Join(s.localDir, kFnodeStagingDir), false)
 
 	// Expect files have been linked into final locations.
 	expect(filepath.Join(s.localDir, "a/path"), true)

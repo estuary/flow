@@ -230,7 +230,7 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 		}
 		result := c.client.Put(journal.AppendArgs{
 			Journal: write.journal,
-			Content: io.LimitReader(write.file, write.offset),
+			Content: io.NewSectionReader(write.file, 0, write.offset),
 		})
 
 		if result.Error != nil {

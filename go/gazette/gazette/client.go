@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -54,7 +55,10 @@ type Client struct {
 		readers, writers *expvar.Map
 	}
 
+	// Underlying HTTP Client to use for all requests.
 	httpClient httpClient
+	// Test support: allow time.Now() to be swapped out.
+	timeNow func() time.Time
 }
 
 func NewClient(endpoint string) (*Client, error) {
@@ -87,6 +91,7 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 		defaultEndpoint: ep,
 		locationCache:   cache,
 		httpClient:      hc,
+		timeNow:         time.Now,
 	}
 
 	// Create expvar skeleton under /gazette.
@@ -149,6 +154,7 @@ func (c *Client) Get(args journal.ReadArgs) (journal.ReadResult, io.ReadCloser) 
 	// Perform a non-blocking HEAD first, to check for an available persisted fragment.
 	headArgs := args
 	headArgs.Blocking = false
+	headArgs.Deadline = time.Time{}
 	result, fragmentLocation := c.Head(headArgs)
 
 	if result.Error == journal.ErrNotYetAvailable {
@@ -237,6 +243,7 @@ func (c *Client) openFragment(location *url.URL,
 }
 
 // Performs a Gazette PUT operation, which appends content to the named journal.
+// It is an error if |args.Content| does not implement io.ReadSeeker.
 func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	request, err := http.NewRequest("PUT", "/"+args.Journal.String(), args.Content)
 	if err != nil {
@@ -251,15 +258,19 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 		}
 	}
 
-	// AppendArgs accepts an |io.Reader|, but in almost all operational use
-	// cases right now it is a |io.LimitReader|. Use the limit to determine
-	// what the probable size of this write is. Further down the line, use this
-	// as the fastpath and wrap the io.Reader with a byte-counter otherwise.
-	var writeSize int64
-	if limitReader, ok := args.Content.(*io.LimitedReader); ok {
-		writeSize = limitReader.N
+	if rs, ok := args.Content.(io.ReadSeeker); ok {
+		// Use Seek() to determine the content length.
+		if start, err := rs.Seek(0, os.SEEK_CUR); err != nil {
+			return journal.AppendResult{Error: err}
+		} else if end, err := rs.Seek(0, os.SEEK_END); err != nil {
+			return journal.AppendResult{Error: err}
+		} else if _, err := rs.Seek(start, os.SEEK_SET); err != nil {
+			return journal.AppendResult{Error: err}
+		} else {
+			request.ContentLength = end - start
+		}
 	} else {
-		panic("non-LimitReader used in Put()")
+		return journal.AppendResult{Error: fmt.Errorf("Content must implement io.ReadSeeker")}
 	}
 
 	response, err := c.Do(request)
@@ -273,7 +284,7 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	// bytes written to this journal, if the write succeeded.
 	if result.Error == nil {
 		written, _ := c.obtainJournalCounters(args.Journal, true, result.WriteHead)
-		written.Add(writeSize)
+		written.Add(request.ContentLength)
 	}
 
 	return result
@@ -286,7 +297,7 @@ func (c *Client) buildReadURL(args journal.ReadArgs) *url.URL {
 	}
 	var blockms int64
 	if !args.Deadline.IsZero() {
-		blockms = args.Deadline.Sub(time.Now()).Nanoseconds() / time.Millisecond.Nanoseconds()
+		blockms = args.Deadline.Sub(c.timeNow()).Nanoseconds() / time.Millisecond.Nanoseconds()
 		v.Add("blockms", strconv.FormatInt(blockms, 10))
 	}
 	u := url.URL{
