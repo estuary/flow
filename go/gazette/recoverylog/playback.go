@@ -142,11 +142,12 @@ func (p *Player) Play(getter journal.Getter) error {
 	return err
 }
 
-func (p *Player) playSomeLog(r io.Reader) error {
+func (p *Player) playSomeLog(r io.ReadCloser) error {
 	var err error
 	var frame []byte
 
 	mr := journal.NewMarkedReader(p.fsm.LogMark, r)
+	defer mr.Close()
 
 	for err == nil {
 		// Step mark forward only at whole message boundaries.

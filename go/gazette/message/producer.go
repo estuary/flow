@@ -1,20 +1,14 @@
 package message
 
 import (
-	"io"
-	"net"
-	"time"
-
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
 )
 
-const kProducerErrorTimeout = time.Second * 5
-
 // Producer produces unmarshalled messages from a journal.
+// TODO(johnny): This is deprecated / will be eliminated with V1 consumers.
 type Producer struct {
 	getter journal.Getter
 	topic  *topic.Description
@@ -61,87 +55,32 @@ type simpleProducer struct {
 }
 
 func (p *simpleProducer) loop() {
-	// Current reader and decoder.
-	var rawReader io.ReadCloser
-	var markReader *journal.MarkedReader
-	var decoder Decoder
+	rr := journal.NewRetryReader(p.mark, p.getter)
+	decoder := NewDecoder(rr)
 
-	// Always close |rawReader| on exit.
 	defer func() {
-		if rawReader != nil {
-			if err := rawReader.Close(); err != nil {
-				log.WithField("err", err).Warn("failed to Close rawReader")
-			}
+		if err := rr.Close(); err != nil {
+			log.WithField("err", err).Warn("failed to Close RetryReader")
 		}
 	}()
-
-	// |cooloff| is used to slow the producer loop on an error.
-	// Initialize it as a closed channel (which selects immediately).
-	cooloffCh := make(chan struct{})
-	close(cooloffCh)
-
-	triggerCooloff := func() {
-		// Reset |cooloffCh| as a open channel (which blocks), and arrange to
-		// close it again (unblocking the loop) after |kProducerErrorTimeout|.
-		cooloffCh = make(chan struct{})
-		time.AfterFunc(kProducerErrorTimeout, func() { close(cooloffCh) })
-	}
 
 	for done := false; !done; {
 		select {
 		case <-p.signal:
 			done = true
 			continue
-		case <-cooloffCh:
+		default:
+			// Pass.
 		}
-
-		// Ensure an open reader & decoder.
-		if rawReader == nil {
-			args := journal.ReadArgs{
-				Journal:  p.mark.Journal,
-				Offset:   p.mark.Offset,
-				Blocking: true,
-			}
-			var result journal.ReadResult
-			result, rawReader = p.getter.Get(args)
-
-			if result.Error != nil {
-				log.WithFields(log.Fields{"args": args, "err": result.Error}).
-					Warn("failed to open reader")
-				triggerCooloff()
-				continue
-			}
-
-			p.mark.Offset = result.Offset
-			markReader = journal.NewMarkedReader(p.mark, rawReader)
-			decoder = NewDecoder(markReader)
-		}
-
 		msg := p.topic.GetMessage()
-		err := decoder.Decode(msg)
 
-		if err != nil {
-			if _, isNetErr := err.(net.Error); isNetErr {
-				varz.ObtainCount("gazette", "producer", "NetError").Add(1)
-				triggerCooloff()
-			} else if err != io.EOF && err != io.ErrUnexpectedEOF {
-				log.WithFields(log.Fields{"mark": p.mark, "err": err}).Error("message decode")
-				triggerCooloff()
-			}
-
-			// Desync is a special case, in that message decoding did actually
-			// succeed despite the error.
-			if err != ErrDesyncDetected {
-				rawReader.Close() // |rawReader| is invalidated and must be re-opened.
-				rawReader = nil
-				markReader = nil
-				continue
-			}
+		if err := decoder.Decode(msg); err != nil {
+			log.WithFields(log.Fields{"mark": p.mark, "err": err}).Error("message decode")
 		}
 
 		select {
-		case p.sink <- Message{p.topic, p.mark, msg}:
-			p.mark = markReader.Mark
+		case p.sink <- Message{p.topic, rr.Mark, msg}:
+			p.mark = rr.Mark
 		case <-p.signal:
 			done = true
 		}

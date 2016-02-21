@@ -271,7 +271,7 @@ func (s *PlaybackSuite) apply(c *gc.C, buf *bytes.Buffer) error {
 	bufLen := int64(buf.Len())
 	initialOffset := s.player.fsm.LogMark.Offset
 
-	err := s.player.playSomeLog(buf)
+	err := s.player.playSomeLog(ioutil.NopCloser(buf))
 
 	// Expect offset is incremented by whole-message boundary, only on success.
 	if err == nil {
