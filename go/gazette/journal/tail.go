@@ -6,7 +6,14 @@ import (
 	log "github.com/Sirupsen/logrus"
 )
 
-const ReadOpBufferSize = 10
+const (
+	// Tail read operation channel buffer size.
+	kReadOpBufferSize = 10
+
+	// When a covering fragment cannot be found, we allow serving a *greater*
+	// fragment so long as it was last modified at least this long ago.
+	kOffsetJumpAgeThreshold = 6 * time.Hour
+)
 
 type Tail struct {
 	journal   Name
@@ -30,7 +37,7 @@ func NewTail(journal Name, updates <-chan Fragment) *Tail {
 	t := &Tail{
 		journal:   journal,
 		updates:   updates,
-		readOps:   make(chan ReadOp, ReadOpBufferSize),
+		readOps:   make(chan ReadOp, kReadOpBufferSize),
 		endOffset: make(chan int64),
 		stop:      make(chan struct{}),
 	}
@@ -112,17 +119,32 @@ func (t *Tail) onRead(op ReadOp) {
 		op.Result <- ReadResult{Error: ErrWrongJournal}
 		return
 	}
-	// Special handling for offsets 0 and -1.
-	if op.Offset == 0 {
-		// Skip |Offset| forward to the first available offset.
-		op.Offset = t.fragments.BeginOffset()
-	} else if op.Offset == -1 {
-		// Set |Offset| to the current tail end.
+
+	// Special handling for explicit reads from the journal write head.
+	if op.Offset == -1 {
 		op.Offset = t.fragments.EndOffset()
 	}
 
+	// Attempt to find a covering fragment for the read.
 	ind := t.fragments.LongestOverlappingFragment(op.Offset)
-	if ind == len(t.fragments) || t.fragments[ind].Begin > op.Offset {
+	if ind == len(t.fragments) {
+		ind = -1 // No fragment covers op.Offset.
+	} else if f := t.fragments[ind]; f.Begin <= op.Offset {
+		// Fall-through: |ind| is a valid covering fragment.
+	} else if !f.RemoteModTime.IsZero() &&
+		f.RemoteModTime.Before(time.Now().Add(-kOffsetJumpAgeThreshold)) {
+		// The requested offset isn't covered, but we do have a fragment covering a
+		// *greater* offset, which is both a) remote and b) older than a threshold.
+		// This case allows us to eventually recover from "holes" in the offset
+		// space of a journal, while minimizing impact of races between delayed
+		// fragment persistence vs startup of new brokers.
+		op.Offset = f.Begin
+	} else {
+		// Fragment is not remote, or is too new.
+		ind = -1
+	}
+
+	if ind == -1 {
 		// A fragment covering op.Offset isn't available (yet).
 		if t.updates != nil && op.Blocking {
 			// If a deadline is specified, manage the timer appropriately

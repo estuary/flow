@@ -115,6 +115,7 @@ func (w *IndexWatcher) onRefresh() error {
 				log.WithFields(log.Fields{"path": file.Name(), "err": err}).
 					Warning("failed to parse content-name")
 			} else {
+				fragment.RemoteModTime = file.ModTime()
 				w.updates <- fragment
 			}
 		}

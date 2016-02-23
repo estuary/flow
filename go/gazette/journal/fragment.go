@@ -27,6 +27,9 @@ type Fragment struct {
 
 	// Backing file of the fragment, if present locally.
 	File FragmentFile
+	// If fragment is remote, the time of last modification.
+	// TODO(johnny): Is this the appropriate factoring?
+	RemoteModTime time.Time
 }
 
 func (f Fragment) ContentName() string {

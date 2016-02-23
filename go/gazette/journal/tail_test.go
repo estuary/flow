@@ -214,7 +214,8 @@ func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
 }
 
 func (s *TailSuite) TestReadFromZeroSkipsToFirstAvailable(c *gc.C) {
-	fragment := Fragment{Journal: "a/journal", Begin: 100, End: 200}
+	fragment := Fragment{Journal: "a/journal", Begin: 100, End: 200,
+		RemoteModTime: time.Unix(100, 0)} // Modified in the distant past.
 	s.updates <- fragment
 
 	results := make(chan ReadResult)
@@ -228,6 +229,30 @@ func (s *TailSuite) TestReadFromZeroSkipsToFirstAvailable(c *gc.C) {
 			Offset:    100,
 			WriteHead: 200,
 			Fragment:  fragment,
+		})
+	}
+}
+
+func (s *TailSuite) TestReadFromMiddleSkipsToFirstAvailable(c *gc.C) {
+	fragment1 := Fragment{Journal: "a/journal", Begin: 100, End: 200,
+		RemoteModTime: time.Unix(100, 0)} // Modified in the distant past.
+	s.updates <- fragment1
+
+	fragment2 := Fragment{Journal: "a/journal", Begin: 300, End: 400,
+		RemoteModTime: time.Unix(100, 0)}
+	s.updates <- fragment2
+
+	results := make(chan ReadResult)
+
+	for _, block := range []bool{true, false} {
+		s.tail.Read(ReadOp{
+			ReadArgs: ReadArgs{Journal: "a/journal", Offset: 250, Blocking: block},
+			Result:   results})
+
+		c.Check(<-results, gc.DeepEquals, ReadResult{
+			Offset:    300,
+			WriteHead: 400,
+			Fragment:  fragment2,
 		})
 	}
 }

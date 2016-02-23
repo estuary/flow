@@ -80,6 +80,37 @@ func (s *ProducerSuite) TestCorrectMarkIsUsedOnReOpen(c *gc.C) {
 	producer.Cancel()
 }
 
+func (s *ProducerSuite) TestOffsetUpdatesMidStream(c *gc.C) {
+	msgLen := int64(len(s.message))
+
+	getter := &journal.MockGetter{}
+	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 0, Blocking: true}).
+		Return(journal.ReadResult{Offset: 0},
+		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
+
+	// Next read skips the resulting offset forward.
+	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: msgLen, Blocking: true}).
+		Return(journal.ReadResult{Offset: 2 * msgLen},
+		ioutil.NopCloser(bytes.NewReader(s.message))).Once()
+
+	// Next reads fail.
+	getter.On("Get", journal.ReadArgs{Journal: "foo", Offset: 3 * msgLen, Blocking: true}).
+		Return(journal.ReadResult{Error: journal.ErrNotBroker}, ioutil.NopCloser(nil))
+
+	producer := NewProducer(getter, func() Unmarshallable {
+		var m frameablestring
+		return &m
+	})
+	recovered := make(chan Message)
+	producer.StartProducingInto(journal.NewMark("foo", 0), recovered)
+
+	// Expect to pop two framed messages with correct offsets.
+	c.Check((<-recovered).Mark.Offset, gc.Equals, int64(0))
+	c.Check((<-recovered).Mark.Offset, gc.Equals, 2*msgLen)
+
+	producer.Cancel()
+}
+
 // Regression test for issue #890.
 func (s *ProducerSuite) TestReaderIsClosedOnCancel(c *gc.C) {
 	reader := struct {
