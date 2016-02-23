@@ -51,8 +51,10 @@ func (c *Context) Start() error {
 
 func (c *Context) Stop() {
 	c.announceCancel <- struct{}{}
-	// wait for de-announcement
 	<-c.announceCancel
+
+	// Wait for the persister to drain its queue.
+	c.persister.Stop()
 }
 
 func (c *Context) BuildServingMux() http.Handler {

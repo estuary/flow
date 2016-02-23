@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -31,8 +32,10 @@ type Persister struct {
 	etcd      discovery.EtcdService
 	routeKey  string
 
-	queue map[string]journal.Fragment
-	mu    sync.Mutex
+	queue        map[string]journal.Fragment
+	shuttingDown uint32
+	loopExited   chan struct{}
+	mu           sync.Mutex
 
 	// Effective constants, which are swappable for testing.
 	osRemove         func(path string) error
@@ -48,6 +51,7 @@ func NewPersister(directory string, cfs cloudstore.FileSystem,
 		osRemove:         os.Remove,
 		persisterLockTTL: kPersisterLockTTL,
 		queue:            make(map[string]journal.Fragment),
+		loopExited:       make(chan struct{}),
 		routeKey:         routeKey,
 	}
 	// Make the state of the persister queue available to expvar.
@@ -77,18 +81,43 @@ func (p *Persister) String() string {
 	}
 }
 
+func (p *Persister) IsShuttingDown() bool {
+	return atomic.LoadUint32(&p.shuttingDown) == 1
+}
+
+func (p *Persister) Stop() {
+	atomic.StoreUint32(&p.shuttingDown, 1)
+	<-p.loopExited
+}
+
 func (p *Persister) StartPersisting() *Persister {
 	go func() {
 		interval := time.Tick(kPersisterConvergeInterval)
 		for {
 			<-interval
+
+			// Attempt to converge all items in the queue.
 			p.converge()
+
+			// If the queue has become empty and we are shutting down, bail.
+			p.mu.Lock()
+			if p.IsShuttingDown() && len(p.queue) == 0 {
+				p.mu.Unlock()
+				break
+			}
+			p.mu.Unlock()
 		}
+		close(p.loopExited)
 	}()
 	return p
 }
 
 func (p *Persister) Persist(fragment journal.Fragment) {
+	// If we are shutting down, warn loudly on new Persist() requests -- we
+	// handle them to a degree, but it shouldn't happen.
+	if p.IsShuttingDown() {
+		log.WithField("fragment", fragment).Warn("Persist() called during shutdown")
+	}
 	// If the fragment is empty, immediately delete it.
 	if fragment.Size() == 0 {
 		p.removeLocal(fragment)
