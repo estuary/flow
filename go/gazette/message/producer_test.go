@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
+	"time"
 
 	gc "github.com/go-check/check"
 
@@ -133,6 +134,11 @@ func (s *ProducerSuite) TestReaderIsClosedOnCancel(c *gc.C) {
 	<-recovered
 
 	producer.Cancel()
+
+	// TODO(johnny): Give producer loop time to process the cancel. This is ugly.
+	// Living with it for now, as Producer is deprecated by V2 consumers.
+	time.Sleep(10 * time.Millisecond)
+
 	<-reader.closeCh // Expect Close() to have been called.
 	getter.AssertExpectations(c)
 }

@@ -45,8 +45,7 @@ func (p *Producer) Pump() {
 }
 
 func (p *Producer) Cancel() {
-	p.signal <- struct{}{}
-	<-p.signal
+	close(p.signal)
 }
 
 // Composable type which opens, reads, decodes, and pushes messages into a sink.
@@ -146,5 +145,4 @@ func (p *simpleProducer) loop() {
 			done = true
 		}
 	}
-	close(p.signal)
 }
