@@ -62,18 +62,18 @@ func (s *AllocSuite) TestAllocParamExtraction(c *gc.C) {
 	}
 	for k, v := range routeExpectations {
 		name, exp := k, v // Copy and retain for closure.
-		alloc.On("ItemRoute", name, mock.AnythingOfType("Route"), exp.ind).
+		alloc.On("ItemRoute", name, mock.AnythingOfType("Route"), exp.ind, params.Input.Tree).
 			Run(func(args mock.Arguments) {
-			rt := args.Get(1).(Route)
+				rt := args.Get(1).(Route)
 
-			c.Check(rt.EtcdIndex, gc.Equals, params.Input.Index)
-			c.Check(rt.Item.Key, gc.Equals, "/foo/items/"+name)
+				c.Check(rt.EtcdIndex, gc.Equals, params.Input.Index)
+				c.Check(rt.Item.Key, gc.Equals, "/foo/items/"+name)
 
-			c.Check(len(rt.Entries), gc.Equals, len(exp.keys))
-			for j := range exp.keys {
-				c.Check(rt.Entries[j].Key, gc.Equals, rt.Item.Key+"/"+exp.keys[j])
-			}
-		}).Once()
+				c.Check(len(rt.Entries), gc.Equals, len(exp.keys))
+				for j := range exp.keys {
+					c.Check(rt.Entries[j].Key, gc.Equals, rt.Item.Key+"/"+exp.keys[j])
+				}
+			}).Once()
 	}
 	allocExtract(&params)
 
@@ -116,7 +116,7 @@ func (s *AllocSuite) TestAllocParamExtractionEmptyTree(c *gc.C) {
 		c.Check(rt.Item.Key, gc.Equals, "/foo/items/a-item")
 		c.Check(rt.Entries, gc.HasLen, 0)
 		return true
-	}), -1)
+	}), -1, params.Input.Tree)
 
 	allocExtract(&params)
 

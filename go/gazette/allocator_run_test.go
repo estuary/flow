@@ -58,7 +58,14 @@ func (s *AllocRunSuite) TestSingle(c *gc.C) {
 		c.Check(s.routes[item].Entries, gc.HasLen, 1)
 		c.Check(s.routes[item].Index("my-key"), gc.Equals, 0)
 	}
-	Cancel(alloc)
+	c.Check(CancelItem(alloc, "bar"), gc.IsNil)
+
+	// Stage 2: Expect that the cancelled item is re-acquired.
+	s.wait(waitFor{idle: []string{"my-key"}})
+
+	c.Check(s.routes["bar"].Entries, gc.HasLen, 1)
+	c.Check(s.routes["bar"].Index("my-key"), gc.Equals, 0)
+	c.Check(Cancel(alloc), gc.IsNil)
 
 	// Stage 2: Allocator exited. Expect all item entries were released.
 	s.wait(waitFor{exit: []string{"my-key"}})
@@ -88,7 +95,7 @@ func (s *AllocRunSuite) TestHandlingOfNestedItemDirectories(c *gc.C) {
 	c.Check(s.routes["some"].Entries, gc.HasLen, 2)
 	c.Check(s.routes["some"].Index("my-key"), gc.Equals, 1)
 
-	Cancel(alloc)
+	c.Check(Cancel(alloc), gc.IsNil)
 	s.wait(waitFor{exit: []string{"my-key"}})
 }
 
@@ -138,8 +145,8 @@ func (s *AllocRunSuite) TestAsyncItemCreationAndRemoval(c *gc.C) {
 
 	// Shut down both allocators.
 	s.replicas = 0
-	Cancel(alloc1)
-	Cancel(alloc2)
+	c.Check(Cancel(alloc1), gc.IsNil)
+	c.Check(Cancel(alloc2), gc.IsNil)
 
 	s.wait(waitFor{exit: []string{"alloc-1", "alloc-2"}})
 
@@ -177,7 +184,7 @@ func (s *AllocRunSuite) TestAllocatorHandoff(c *gc.C) {
 		"alloc-1": 2, // Has larger share, because it was first.
 		"alloc-2": 1,
 	})
-	Cancel(alloc1)
+	c.Check(Cancel(alloc1), gc.IsNil)
 	go alloc3.run(c)
 
 	// Stage 3. First allocator has exited. Items are still split.
@@ -190,7 +197,7 @@ func (s *AllocRunSuite) TestAllocatorHandoff(c *gc.C) {
 		"alloc-2": 2, // Has larger share, because it was first.
 		"alloc-3": 1,
 	})
-	Cancel(alloc2)
+	c.Check(Cancel(alloc2), gc.IsNil)
 
 	// Stage 4: Second allocator has exited. Third allocator handles all items.
 	s.wait(waitFor{exit: []string{"alloc-2"}, idle: []string{"alloc-3"}})
@@ -201,7 +208,7 @@ func (s *AllocRunSuite) TestAllocatorHandoff(c *gc.C) {
 	c.Check(s.masterCounts(), gc.DeepEquals, map[string]int{"alloc-3": 3})
 
 	s.replicas = 0 // Required for allocator to voluntarily exit.
-	Cancel(alloc3)
+	c.Check(Cancel(alloc3), gc.IsNil)
 
 	// Stage 5: All item locks are released. Allocators have exited.
 	s.wait(waitFor{exit: []string{"alloc-3"}})
@@ -274,7 +281,7 @@ func (s *AllocRunSuite) FixedItems() []string                      { return s.fi
 func (s *AllocRunSuite) ItemState(item string) string              { return "ready" }
 func (s *AllocRunSuite) ItemIsReadyForPromotion(state string) bool { return state == "ready" }
 
-func (s *AllocRunSuite) ItemRoute(item string, rt Route, ind int) {
+func (s *AllocRunSuite) ItemRoute(item string, rt Route, ind int, tree *etcd.Node) {
 	s.routesMu.Lock()
 	defer s.routesMu.Unlock()
 

@@ -246,9 +246,28 @@ func (s *TreeOpsSuite) TestDeepCopy(c *gc.C) {
 	c.Check(tree1.Nodes[0].Nodes[0], gc.Not(gc.Equals), tree2.Nodes[0].Nodes[0])
 }
 
+func (s *TreeOpsSuite) TestTerminals(c *gc.C) {
+	// Expect it extracts all terminal children in order.
+	c.Check(TerminalNodes(s.fixture()), gc.DeepEquals, etcd.Nodes{
+		{Key: "/foo/aaa/1"},
+		{Key: "/foo/aaa/3"},
+		{Key: "/foo/bbb/a"},
+		{Key: "/foo/bbb/c"},
+		{Key: "/foo/ccc/apple/one"},
+		{Key: "/foo/ccc/banana"},
+	})
+
+	// Terminals of a terminal is itself.
+	c.Check(TerminalNodes(&etcd.Node{Key: "/foo/aaa/1"}), gc.DeepEquals,
+		etcd.Nodes{{Key: "/foo/aaa/1"}})
+
+	c.Check(TerminalNodes(nil), gc.DeepEquals, etcd.Nodes{})
+}
+
 func (s *TreeOpsSuite) fixture() *etcd.Node {
 	return &etcd.Node{
 		Key: "/foo",
+		Dir: true,
 		Nodes: etcd.Nodes{
 			{
 				Key:   "/foo/aaa",

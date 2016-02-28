@@ -42,9 +42,11 @@ type Allocator interface {
 	ItemIsReadyForPromotion(state string) bool
 	// Notifies Allocator of |route| for |item|. If |index| == -1, then Allocator
 	// has no entry for |item|. Otherwise, |route.Entries[index]| is the entry
-	// of this Allocator (and will have basename InstanceKey()). Note that |route|
-	// must be Copy()'d if retained beyond this call.
-	ItemRoute(item string, route Route, index int)
+	// of this Allocator (and will have basename InstanceKey()). |tree| is given
+	// as context: ItemRoute() will often wish to wish to inspect other state
+	// within |tree| in response to a route change. Note that |route| or |tree|
+	// must be copied if retained beyond this call
+	ItemRoute(item string, route Route, index int, tree *etcd.Node)
 }
 
 // Acts on behalf of |alloc| to achieve distributed allocation of items.
@@ -192,6 +194,14 @@ func Cancel(alloc Allocator) error {
 	return err
 }
 
+// Cancels |item| by deleting its announcement. This should be undertaken only
+// under exceptional circumstances, where the local Allocator is unable to
+// service the allocated |item| (eg, because of an unrecoverable local error).
+func CancelItem(alloc Allocator, item string) error {
+	_, err := alloc.KeysAPI().Delete(context.Background(), itemKey(alloc, item), nil)
+	return err
+}
+
 // Returns the member announcement key for |alloc|.
 // Ex: /path/root/members/my-alloc-key
 func memberKey(alloc Allocator) string {
@@ -260,7 +270,7 @@ func allocExtract(p *allocParams) {
 		route.init()
 
 		index := route.Index(p.InstanceKey())
-		p.ItemRoute(name, route, index)
+		p.ItemRoute(name, route, index, p.Input.Tree)
 
 		if index == -1 {
 			// We do not hold a lock on this item.

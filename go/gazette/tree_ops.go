@@ -212,6 +212,22 @@ func CopyNodes(nodes etcd.Nodes) etcd.Nodes {
 	return result
 }
 
+// Returns all non-directory children under |node| via depth-first search
+// (eg, maintaining key-order invariants of the tree).
+func TerminalNodes(node *etcd.Node) etcd.Nodes {
+	if node == nil {
+		return []*etcd.Node{}
+	} else if !node.Dir {
+		return []*etcd.Node{node}
+	}
+
+	var result etcd.Nodes
+	for _, n := range node.Nodes {
+		result = append(result, TerminalNodes(n)...)
+	}
+	return result
+}
+
 // Simple typedef of KeysAPI, presented here for mock generation.
 type KeysAPI interface {
 	// TODO(johnny): We'd prefer to compose etcd.KeysAPI. However,
