@@ -24,11 +24,6 @@ type Unmarshallable interface {
 	Unmarshal(buffer []byte) error
 }
 
-// A Sink publishes a Marshallable message to a topic, optionally blocking.
-type Sink interface {
-	Put(msg Marshallable, block bool) error
-}
-
 type Description struct {
 	Name string
 	// Number of partitions this topic utilizes. |Partitions| should generally
@@ -65,4 +60,18 @@ func (d *Description) RoutedJournal(message interface{}) journal.Name {
 		partition = rand.Int() % d.Partitions
 	}
 	return d.Journal(partition)
+}
+
+// A Sink publishes a Marshallable message to a topic, optionally blocking.
+// TODO(johnny): Deprecated. Will be removed with V2 consumers.
+type Sink interface {
+	Put(msg Marshallable, block bool) error
+}
+
+// A Publisher is a journal.Writer, which also knows how to publish
+// a Marshallable message to a topic.
+type Publisher interface {
+	journal.Writer
+
+	Publish(msg Marshallable, to *Description) error
 }
