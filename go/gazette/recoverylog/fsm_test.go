@@ -48,27 +48,43 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 		FirstChecksum: 0xfeedbeef,
 		FirstSeqNo:    42,
 		Recorders:     []RecorderRange{{100, 50}, {200, 60}},
-		SkipWrites:    map[Fnode]bool{45: true},
+		SkipWrites:    []Fnode{45},
+		Properties:    map[string]string{"/IDENTITY": "foo-bar-baz"},
 	})
 
 	c.Check(s.fsm.LogMark, gc.Equals, journal.NewMark("a/log", 1234))
 	c.Check(s.fsm.FirstSeqNo, gc.Equals, int64(42))
 	c.Check(s.fsm.NextChecksum, gc.Equals, uint32(0xfeedbeef))
 	c.Check(s.fsm.NextSeqNo, gc.Equals, int64(42))
+	c.Check(s.fsm.Properties, gc.DeepEquals, map[string]string{"/IDENTITY": "foo-bar-baz"})
 
 	// Expect that operations only start applying from SeqNo 42.
 	c.Check(s.create(41, 0xfeedbeef, 100, "/path/A"), gc.Equals, ErrWrongSeqNo)
 	c.Check(s.create(42, 0xfeedbeef, 100, "/path/A"), gc.IsNil)
 	c.Check(s.link(43, 0xc132d1d7, 100, 42, "/path/B"), gc.IsNil)
+
+	// Expect hints reflect operations 42 & 43, and pass-through Properties.
+	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
+		LogMark:       journal.NewMark("a/log", 1236),
+		FirstChecksum: 0xfeedbeef,
+		FirstSeqNo:    42,
+		Recorders:     []RecorderRange{{100, 43}},
+		Properties:    map[string]string{"/IDENTITY": "foo-bar-baz"},
+	})
 }
 
 func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
-	s.fsm = NewFSM(FSMHints{SkipWrites: map[Fnode]bool{44: true}})
+	s.fsm = NewFSM(FSMHints{
+		SkipWrites: []Fnode{44},
+		Properties: map[string]string{"/property/path": "content"},
+	})
 	c.Check(s.create(42, 0xfeedbeef, 100, "/path/A"), gc.IsNil)
 	c.Check(s.create(43, 0x2d28e063, 100, "/another/path"), gc.IsNil)
 
 	// Attempting to create an existing path fails.
 	c.Check(s.create(44, 0xf11e2261, 100, "/path/A"), gc.Equals, ErrLinkExists)
+	// As does attempting to create an existing property.
+	c.Check(s.create(44, 0xf11e2261, 100, "/property/path"), gc.Equals, ErrPropertyExists)
 	// Try again, with a valid path.
 	c.Check(s.create(44, 0xf11e2261, 100, "/path/B"), gc.IsNil)
 
@@ -95,7 +111,7 @@ func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
 		44: FnodeState{
 			Links:           map[string]struct{}{"/path/B": {}},
 			CreatedChecksum: 0xf11e2261,
-			Offset:          4,
+			Offset:          5,
 			SkipWrites:      true,
 		},
 	})
@@ -104,41 +120,46 @@ func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
 func (s *FSMSuite) TestFnodeLinking(c *gc.C) {
 	s.fsm = NewFSM(EmptyHints("a/log"))
 
-	c.Check(s.create(42, 0xfeedbeef, 100, "/path/A"), gc.IsNil)
-	c.Check(s.create(43, 0x2d28e063, 100, "/another/path"), gc.IsNil)
-	c.Check(s.link(44, 0xf11e2261, 100, 42, "/link/one"), gc.IsNil)
+	c.Check(s.create(42, 0xfeedbeef, 100, "/existing/path"), gc.IsNil)
+	c.Check(s.create(43, 0x2d28e063, 100, "/source/path"), gc.IsNil)
+	c.Check(s.link(44, 0xf11e2261, 100, 42, "/target/one"), gc.IsNil)
+	c.Check(s.property(45, 0xe292e757, 100, "/property/path", "content"), gc.IsNil)
 
 	// Attempting to link to an extant path errors.
-	c.Check(s.link(45, 0xe292e757, 100, 43, "/path/A"), gc.Equals, ErrLinkExists)
+	c.Check(s.link(46, 0x2009a120, 100, 43, "/existing/path"), gc.Equals, ErrLinkExists)
 	// ...even if the Fnode is less than FirstSeqNo.
-	c.Check(s.link(45, 0xe292e757, 100, 15, "/path/A"), gc.Equals, ErrLinkExists)
+	c.Check(s.link(46, 0x2009a120, 100, 15, "/existing/path"), gc.Equals, ErrLinkExists)
 	// As does attempting to link an unknown Fnode (44 is a link op, not a create).
-	c.Check(s.link(45, 0xe292e757, 100, 44, "/link/two"), gc.Equals, ErrNoSuchFnode)
+	c.Check(s.link(46, 0x2009a120, 100, 44, "/target/path"), gc.Equals, ErrNoSuchFnode)
+	// As does linking to an existing property.
+	c.Check(s.link(46, 0x2009a120, 100, 44, "/property/path"), gc.Equals, ErrPropertyExists)
 
 	// Link of an Fnode less than FirstSeqNo returns an ErrFnodeNotTracked.
-	c.Check(s.link(45, 0xe292e757, 100, 15, "/link/two"), gc.Equals, ErrFnodeNotTracked)
+	c.Check(s.link(46, 0x2009a120, 100, 15, "/target/two"), gc.Equals, ErrFnodeNotTracked)
 	// Valid link. Expect that SeqNo/Checksum were incremented from ErrFnodeNotTracked.
-	c.Check(s.link(46, 0x335952d4, 100, 43, "/link/two"), gc.IsNil)
+	c.Check(s.link(47, 0x3ab14653, 100, 43, "/target/two"), gc.IsNil)
 
 	// Expect Links index and LiveNodes state reflects successful applies.
 	c.Check(s.fsm.Links, gc.DeepEquals, map[string]Fnode{
-		"/path/A":       42,
-		"/another/path": 43,
-		"/link/one":     42,
-		"/link/two":     43,
+		"/existing/path": 42,
+		"/source/path":   43,
+		"/target/one":    42,
+		"/target/two":    43,
 	})
 	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]FnodeState{
 		42: FnodeState{
-			Links:           map[string]struct{}{"/path/A": {}, "/link/one": {}},
+			Links:           map[string]struct{}{"/existing/path": {}, "/target/one": {}},
 			CreatedChecksum: 0xfeedbeef,
 			Offset:          1,
 		},
 		43: FnodeState{
-			Links:           map[string]struct{}{"/another/path": {}, "/link/two": {}},
+			Links:           map[string]struct{}{"/source/path": {}, "/target/two": {}},
 			CreatedChecksum: 0x2d28e063,
 			Offset:          2,
 		},
 	})
+	c.Check(s.fsm.Properties, gc.DeepEquals, map[string]string{
+		"/property/path": "content"})
 }
 
 func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
@@ -187,7 +208,7 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 		FirstChecksum: 0xfeedbeef,
 		FirstSeqNo:    42,
 		Recorders:     []RecorderRange{{100, 43}, {200, 47}},
-		SkipWrites:    map[Fnode]bool{43: true},
+		SkipWrites:    []Fnode{43},
 	})
 
 	// Expect that the Fnode & its recorder are still tracked (since 42 is live).
@@ -211,7 +232,6 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 		FirstChecksum: 0x11bc1ac9,
 		FirstSeqNo:    48,
 		Recorders:     []RecorderRange{{300, 49}},
-		SkipWrites:    map[Fnode]bool{},
 	})
 
 	// Unlink 48 such that no live files remain.
@@ -228,7 +248,34 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 		FirstChecksum: 0x5be3273b,
 		FirstSeqNo:    51,
 		Recorders:     []RecorderRange{},
-		SkipWrites:    map[Fnode]bool{},
+	})
+}
+
+func (s *FSMSuite) TestPropertyUpdates(c *gc.C) {
+	s.fsm = NewFSM(FSMHints{
+		Properties: map[string]string{"/a/property": "content"},
+	})
+	c.Check(s.create(42, 0xfeedbeef, 100, "/a/path"), gc.IsNil)
+
+	// Create a new property. Expect it's recorded in Properties.
+	c.Check(s.property(43, 0x2d28e063, 100, "/another/property", "other-content"), gc.IsNil)
+	c.Check(s.fsm.Properties, gc.DeepEquals, map[string]string{
+		"/a/property":       "content",
+		"/another/property": "other-content",
+	})
+
+	// Attempting a property update of an existing file fails.
+	c.Check(s.property(44, 0xf11e2261, 100, "/a/path", "bad"), gc.Equals, ErrLinkExists)
+
+	// Attempting a property update of an existing property fails. We may change
+	// this in the future, if a sufficient motivating case appears, but for now
+	// we apply the most restrictive behavior.
+	c.Check(s.property(44, 0xf11e2261, 100, "/a/property", "update"), gc.Equals,
+		ErrPropertyExists)
+
+	c.Check(s.fsm.Properties, gc.DeepEquals, map[string]string{
+		"/a/property":       "content",
+		"/another/property": "other-content",
 	})
 }
 
@@ -323,6 +370,12 @@ func (s *FSMSuite) write(seqNo int64, checksum uint32, rec uint32, fnode Fnode) 
 	// in the checksum digest FSM produces).
 	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
 		Write: &RecordedOp_Write{Fnode: fnode}})
+}
+
+func (s *FSMSuite) property(seqNo int64, checksum uint32, rec uint32,
+	path, content string) error {
+	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
+		Property: &RecordedOp_Property{Path: path, Content: content}})
 }
 
 var _ = gc.Suite(&FSMSuite{})

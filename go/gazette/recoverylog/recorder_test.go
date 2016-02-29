@@ -3,6 +3,8 @@ package recoverylog
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -14,19 +16,21 @@ import (
 )
 
 const kOpLog = journal.Name("a/journal")
-const kPrefix = "/prefix"
 
 type RecorderSuite struct {
-	recorder *Recorder
-
-	writes       *bytes.Buffer
-	parsedOffset int64
-	promise      async.Promise
+	recorder     *Recorder
+	tmpDir       string
+	writes       *bytes.Buffer // Captured log writes.
+	parsedOffset int64         // Offset through which |writes| has been parsed.
+	promise      async.Promise // Returned promise fixture for captured writes.
 }
 
 func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	var err error
-	s.recorder, err = NewRecorder(NewFSM(EmptyHints("a/journal")), len(kPrefix), s)
+	s.tmpDir, err = ioutil.TempDir("", "recorder-suite")
+	c.Assert(err, gc.IsNil)
+
+	s.recorder, err = NewRecorder(NewFSM(EmptyHints("a/journal")), len(s.tmpDir), s)
 	c.Check(err, gc.IsNil)
 
 	s.writes = bytes.NewBuffer(nil)
@@ -37,8 +41,15 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	s.promise.Resolve()
 }
 
+func (s *RecorderSuite) TearDownTest(c *gc.C) {
+	// Expect the test consumed all framed operations.
+	c.Check(s.writes.Len(), gc.Equals, 0)
+
+	os.RemoveAll(s.tmpDir)
+}
+
 func (s *RecorderSuite) TestNewFile(c *gc.C) {
-	s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+	s.recorder.NewWritableFile(s.tmpDir + "/path/to/file")
 
 	op := s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(1))
@@ -48,7 +59,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	// Expect the tracked offset was incremented by the written frame size.
 	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
 
-	s.recorder.NewWritableFile(kPrefix + "/other/file")
+	s.recorder.NewWritableFile(s.tmpDir + "/other/file")
 	op = s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(2))
 	c.Check(op.Recorder, gc.Not(gc.Equals), uint32(0))
@@ -57,21 +68,40 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestDeleteFile(c *gc.C) {
-	s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+	s.recorder.NewWritableFile(s.tmpDir + "/path/to/file")
 	_ = s.parseOp(c)
 
-	s.recorder.DeleteFile(kPrefix + "/path/to/file")
+	s.recorder.DeleteFile(s.tmpDir + "/path/to/file")
 	op := s.parseOp(c)
 
 	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
 	c.Check(op.Unlink.Path, gc.Equals, "/path/to/file")
 }
 
-func (s *RecorderSuite) TestLinkFile(c *gc.C) {
-	s.recorder.NewWritableFile(kPrefix + "/path/to/file")
+func (s *RecorderSuite) TestOverwriteExistingFile(c *gc.C) {
+	// Initial creation of target path.
+	s.recorder.NewWritableFile(s.tmpDir + "/path/to/file")
 	_ = s.parseOp(c)
 
-	s.recorder.LinkFile(kPrefix+"/path/to/file", kPrefix+"/linked")
+	s.recorder.NewWritableFile(s.tmpDir + "/path/to/file")
+
+	// Expect unlink of Fnode 1 from target path.
+	op := s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(2))
+	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Unlink.Path, gc.Equals, "/path/to/file")
+
+	// Expect create of Fnode 3 at target path.
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(3))
+	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
+}
+
+func (s *RecorderSuite) TestLinkFile(c *gc.C) {
+	s.recorder.NewWritableFile(s.tmpDir + "/path/to/file")
+	_ = s.parseOp(c)
+
+	s.recorder.LinkFile(s.tmpDir+"/path/to/file", s.tmpDir+"/linked")
 	op := s.parseOp(c)
 
 	c.Check(op.Link.Fnode, gc.Equals, Fnode(1))
@@ -79,13 +109,13 @@ func (s *RecorderSuite) TestLinkFile(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
-	s.recorder.NewWritableFile(kPrefix + "/target/path")
+	s.recorder.NewWritableFile(s.tmpDir + "/target/path")
 	_ = s.parseOp(c)
-	s.recorder.NewWritableFile(kPrefix + "/source/path")
+	s.recorder.NewWritableFile(s.tmpDir + "/source/path")
 	_ = s.parseOp(c)
 
 	// Excercise handling for duplicate '//' prefixes.
-	s.recorder.RenameFile(kPrefix+"//source/path", kPrefix+"/target/path")
+	s.recorder.RenameFile(s.tmpDir+"//source/path", s.tmpDir+"/target/path")
 
 	// Expect unlink of Fnode 1 from target path.
 	op := s.parseOp(c)
@@ -107,10 +137,10 @@ func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
-	s.recorder.NewWritableFile(kPrefix + "/source/path")
+	s.recorder.NewWritableFile(s.tmpDir + "/source/path")
 	_ = s.parseOp(c)
 
-	s.recorder.RenameFile(kPrefix+"/source/path", kPrefix+"/target/path")
+	s.recorder.RenameFile(s.tmpDir+"/source/path", s.tmpDir+"/target/path")
 
 	// Expect link of Fnode 1 to target path.
 	op := s.parseOp(c)
@@ -126,7 +156,7 @@ func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestFileAppends(c *gc.C) {
-	handle := s.recorder.NewWritableFile(kPrefix + "/source/path")
+	handle := s.recorder.NewWritableFile(s.tmpDir + "/source/path")
 	_ = s.parseOp(c)
 
 	handle.Append([]byte("first-write"))
@@ -161,8 +191,36 @@ func (s *RecorderSuite) TestFileAppends(c *gc.C) {
 	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.parsedOffset)
 }
 
+func (s *RecorderSuite) TestPropertyUpdate(c *gc.C) {
+	// Properties are updated when a file is renamed to a property path.
+	s.recorder.NewWritableFile(s.tmpDir + "/tmp_file")
+	_ = s.parseOp(c)
+
+	// Recorder extracts content directly from the target path.
+	c.Assert(ioutil.WriteFile(s.tmpDir+"/IDENTITY", []byte("value"), 0666), gc.IsNil)
+
+	// Record rename into property path.
+	s.recorder.RenameFile(s.tmpDir+"/tmp_file", s.tmpDir+"/IDENTITY")
+
+	// Expect a property update.
+	op := s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(2))
+	c.Check(op.Property.Path, gc.Equals, "/IDENTITY")
+	c.Check(op.Property.Content, gc.Equals, "value")
+
+	// Expect unlink of Fnode 1.
+	op = s.parseOp(c)
+	c.Check(op.SeqNo, gc.Equals, int64(3))
+	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
+	c.Check(op.Unlink.Path, gc.Equals, "/tmp_file")
+
+	// Property is tracked under fsm.Properties.
+	c.Check(s.recorder.fsm.Properties, gc.DeepEquals,
+		map[string]string{"/IDENTITY": "value"})
+}
+
 func (s *RecorderSuite) TestFileSync(c *gc.C) {
-	handle := s.recorder.NewWritableFile(kPrefix + "/source/path")
+	handle := s.recorder.NewWritableFile(s.tmpDir + "/source/path")
 	_ = s.parseOp(c)
 
 	s.promise = make(async.Promise)
@@ -187,14 +245,14 @@ func (s *RecorderSuite) TestFileSync(c *gc.C) {
 
 func (s *RecorderSuite) TestHints(c *gc.C) {
 	// The first Fnode is unlinked prior to log end, and is not tracked in hints.
-	s.recorder.NewWritableFile(kPrefix + "/delete/path")
+	s.recorder.NewWritableFile(s.tmpDir + "/delete/path")
 
 	// Expect hints will start from the next Fnode.
 	expectChecksum := s.recorder.fsm.NextChecksum
 	expectMark := s.recorder.fsm.LogMark
 
-	s.recorder.NewWritableFile(kPrefix + "/a/path").Append([]byte("file-write"))
-	s.recorder.DeleteFile(kPrefix + "/delete/path")
+	s.recorder.NewWritableFile(s.tmpDir + "/a/path").Append([]byte("file-write"))
+	s.recorder.DeleteFile(s.tmpDir + "/delete/path")
 
 	// Expect that hints are produced for the current FSM state.
 	c.Check(s.recorder.BuildHints(), gc.DeepEquals, FSMHints{
@@ -202,8 +260,9 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 		FirstChecksum: expectChecksum,
 		FirstSeqNo:    2,
 		Recorders:     []RecorderRange{{ID: s.recorder.id, LastSeqNo: 4}},
-		SkipWrites:    map[Fnode]bool{},
 	})
+
+	s.writes.Reset()
 }
 
 func (s *RecorderSuite) parseOp(c *gc.C) RecordedOp {

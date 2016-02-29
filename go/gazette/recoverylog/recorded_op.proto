@@ -10,6 +10,7 @@ option (gogoproto.goproto_stringer_all) = false;
 
 
 // RecordedOp records states changes occuring within a local file-system.
+// Next tag: 9.
 message RecordedOp {
   option (gogoproto.goproto_unrecognized) = false;
 
@@ -58,4 +59,15 @@ message RecordedOp {
     optional int64 length = 3 [(gogoproto.nullable) = false];
   };
   optional Write write = 7;
+
+  // Properties are small files which rarely change, and are thus managed
+  // outside of regular Fnode tracking. See FSM.Properties.
+  message Property {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    required string path = 1 [(gogoproto.nullable) = false];
+
+    required string content = 2 [(gogoproto.nullable) = false];
+  };
+  optional Property property = 8;
 };

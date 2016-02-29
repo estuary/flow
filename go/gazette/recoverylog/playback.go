@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -23,6 +24,9 @@ const (
 	// Cool-off applied on non-aborting errors.
 	kErrCooloffInterval = 5 * time.Second
 )
+
+// Error returned by Player.Play() & MakeLive() upon Player.Cancel().
+var ErrPlaybackCancelled = fmt.Errorf("playback cancelled")
 
 type Player struct {
 	fsm *FSM
@@ -49,7 +53,7 @@ func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
 	// Remove all prior content under |localDir|.
 	if err := os.RemoveAll(localDir); err != nil {
 		return nil, err
-	} else if err := os.MkdirAll(fileNodesDir, 0755); err != nil {
+	} else if err := os.MkdirAll(fileNodesDir, 0777); err != nil {
 		return nil, err
 	}
 
@@ -86,8 +90,14 @@ func (p *Player) MakeLive() (*FSM, error) {
 }
 
 // Requests that Player cancel playback and exit with an error.
-// Ignored if Play() has already exited.
+// Ignored if Play has already exited.
 func (p *Player) Cancel() { close(p.cancelCh) }
+
+// As an alternative to Cancel, SetCancelChan arranges for a subsequent Play
+// invocation to cancel playback upon |cancelCh| becoming select-able.
+func (p *Player) SetCancelChan(cancelCh chan struct{}) {
+	p.cancelCh = cancelCh
+}
 
 // Begins playing the prepared player. Returns on the first encountered
 // unrecoverable error, or upon a successful MakeLive().
@@ -104,7 +114,7 @@ func (p *Player) Play(getter journal.Getter) error {
 			p.makeLiveCh = nil // Don't receive again.
 			continue
 		case <-p.cancelCh:
-			err = fmt.Errorf("Play cancelled")
+			err = ErrPlaybackCancelled
 			return err
 		default:
 			// Pass.
@@ -117,7 +127,8 @@ func (p *Player) Play(getter journal.Getter) error {
 		})
 
 		if result.Error != nil {
-			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).Warn("while fetching log")
+			log.WithFields(log.Fields{"err": result.Error, "mark": p.fsm.LogMark}).
+				Warn("while fetching log")
 			time.Sleep(kErrCooloffInterval)
 			continue
 		}
@@ -280,11 +291,12 @@ func (p *Player) makeLive() error {
 		for link := range liveNode.Links {
 			targetPath := filepath.Join(p.localDir, link)
 
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0777); err != nil {
 				return err
 			} else if err = os.Link(p.stagedPath(fnode), targetPath); err != nil {
 				return err
 			}
+			log.WithFields(log.Fields{"fnode": fnode, "target": targetPath}).Info("linked file")
 		}
 		// Close and removed the staged file.
 		if err := backingFile.Close(); err != nil {
@@ -300,6 +312,23 @@ func (p *Player) makeLive() error {
 	// Remove staging directory.
 	if err := os.Remove(filepath.Join(p.localDir, kFnodeStagingDir)); err != nil {
 		return err
+	}
+
+	// Write property files.
+	for path, content := range p.fsm.Properties {
+		targetPath := filepath.Join(p.localDir, path)
+
+		// Write |content| to |targetPath|. Expect it to not exist.
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0777); err != nil {
+			return err
+		} else if fout, err := os.OpenFile(targetPath,
+			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666); err != nil {
+			return err
+		} else if _, err = io.Copy(fout, strings.NewReader(content)); err != nil {
+			return err
+		} else if err = fout.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -24,13 +24,18 @@ func (s *PlaybackSuite) SetUpSuite(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 }
 
+func (s *PlaybackSuite) TearDownSuite(c *gc.C) {
+	os.RemoveAll(s.localDir)
+}
+
 func (s *PlaybackSuite) SetUpTest(c *gc.C) {
 	var err error
 
 	hintsFixture := FSMHints{
 		LogMark:    journal.NewMark("a/recovery/log", 1234),
 		FirstSeqNo: 42,
-		SkipWrites: map[Fnode]bool{43: true},
+		SkipWrites: []Fnode{43},
+		Properties: map[string]string{"/property/path": "prop-value"},
 	}
 	s.player, err = PreparePlayback(hintsFixture, s.localDir)
 	c.Check(err, gc.IsNil)
@@ -218,6 +223,11 @@ func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
 	expect(filepath.Join(s.localDir, "another/path"), true)
 	expect(filepath.Join(s.localDir, "linked/path"), true)
 	expect(filepath.Join(s.localDir, "skipped/path"), false)
+
+	// Expect property file was written.
+	bytes, err := ioutil.ReadFile(filepath.Join(s.localDir, "property/path"))
+	c.Check(err, gc.IsNil)
+	c.Check(string(bytes), gc.Equals, "prop-value")
 }
 
 func (s *PlaybackSuite) TestHintsRemainOnMakeLive(c *gc.C) {

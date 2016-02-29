@@ -14,6 +14,7 @@ var (
 	ErrNoSuchFnode      = fmt.Errorf("no such fnode")
 	ErrNoSuchLink       = fmt.Errorf("fnode has no such link")
 	ErrNotHinted        = fmt.Errorf("op recorder is not hinted")
+	ErrPropertyExists   = fmt.Errorf("property exists")
 	ErrWrongSeqNo       = fmt.Errorf("wrong sequence number")
 
 	crcTable = crc32.MakeTable(crc32.Castagnoli)
@@ -63,6 +64,17 @@ type FSM struct {
 	// First SeqNo encountered by this FSM.
 	FirstSeqNo int64
 
+	// Target paths and contents of small files which are managed outside of
+	// regular Fnode tracking. Property updates are triggered upon rename of
+	// a tracked Fnode to a well-known property file path.
+	//
+	// Propertes paths must be "sinks" which:
+	//  * Are never directly written to.
+	//  * Are never renamed or linked from.
+	//  * Have exactly one hard-link (eg, only "rename" to the property path is
+	//    supported; "link" is not as it would introduce a second hard-link).
+	Properties map[string]string
+
 	// Maps from Fnode to current state of the node.
 	LiveNodes map[Fnode]FnodeState
 	// Indexes current target paths of LiveNodes.
@@ -100,8 +112,11 @@ type FSMHints struct {
 
 	// Captures the recoders of processed operations, starting from FirstSeqNo.
 	Recorders []RecorderRange
-	// Marks Fnodes which are unlinked between FirstSeqNo and the log head.
-	SkipWrites map[Fnode]bool
+	// Ordered Fnodes which are unlinked between FirstSeqNo and the log head.
+	SkipWrites []Fnode
+
+	// Property files and contents. See FSM.Properties.
+	Properties map[string]string
 }
 
 func EmptyHints(log journal.Name) FSMHints {
@@ -114,6 +129,7 @@ func NewFSM(hints FSMHints) *FSM {
 		NextSeqNo:     hints.FirstSeqNo,
 		NextChecksum:  hints.FirstChecksum,
 		FirstSeqNo:    hints.FirstSeqNo,
+		Properties:    hints.Properties,
 		LiveNodes:     make(map[Fnode]FnodeState),
 		Links:         make(map[string]Fnode),
 		TrackedFnodes: []Fnode{},
@@ -153,6 +169,8 @@ func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 		err = m.applyUnlink(op.Unlink)
 	} else if op.Write != nil {
 		err = m.applyWrite(op.Write)
+	} else if op.Property != nil {
+		err = m.applyProperty(op.Property)
 	}
 
 	if err == nil || err == ErrFnodeNotTracked {
@@ -176,17 +194,25 @@ func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 func (m *FSM) applyCreate(op *RecordedOp) error {
 	if _, ok := m.Links[op.Create.Path]; ok {
 		return ErrLinkExists
+	} else if _, ok := m.Properties[op.Create.Path]; ok {
+		return ErrPropertyExists
 	}
 	// Assigned fnode ID is the SeqNo of the current operation.
 	fnode := Fnode(op.SeqNo)
+
+	// Determine whether there's a hint to skip writes for |fnode|.
+	var skipWrites bool
+	if len(m.hints.SkipWrites) != 0 && m.hints.SkipWrites[0] == fnode {
+		m.hints.SkipWrites = m.hints.SkipWrites[1:] // Remove the hint.
+		skipWrites = true
+	}
 
 	m.LiveNodes[fnode] = FnodeState{
 		CreatedChecksum: op.Checksum,
 		Offset:          m.LogMark.Offset,
 		Links:           map[string]struct{}{op.Create.Path: {}},
-		SkipWrites:      m.hints.SkipWrites[fnode],
+		SkipWrites:      skipWrites,
 	}
-	delete(m.hints.SkipWrites, fnode) // Clear hint, if it exists.
 
 	m.Links[op.Create.Path] = fnode
 	m.TrackedFnodes = append(m.TrackedFnodes, fnode)
@@ -197,8 +223,9 @@ func (m *FSM) applyCreate(op *RecordedOp) error {
 func (m *FSM) applyLink(op *RecordedOp_Link) error {
 	if _, ok := m.Links[op.Path]; ok {
 		return ErrLinkExists
-	}
-	if int64(op.Fnode) < m.FirstSeqNo {
+	} else if _, ok := m.Properties[op.Path]; ok {
+		return ErrPropertyExists
+	} else if int64(op.Fnode) < m.FirstSeqNo {
 		return ErrFnodeNotTracked
 	}
 	node, ok := m.LiveNodes[op.Fnode]
@@ -262,6 +289,19 @@ func (m *FSM) applyWrite(op *RecordedOp_Write) error {
 	return nil
 }
 
+func (m *FSM) applyProperty(op *RecordedOp_Property) error {
+	if _, ok := m.Links[op.Path]; ok {
+		return ErrLinkExists
+	} else if content, ok := m.Properties[op.Path]; ok && content != op.Content {
+		return ErrPropertyExists
+	}
+	if m.Properties == nil {
+		m.Properties = make(map[string]string)
+	}
+	m.Properties[op.Path] = op.Content
+	return nil
+}
+
 // Constructs memoized hints enabling a future FSM to rebuild this FSM's state.
 func (m *FSM) BuildHints() FSMHints {
 	// Init hints to the next expected op in the log.
@@ -270,7 +310,7 @@ func (m *FSM) BuildHints() FSMHints {
 		FirstChecksum: m.NextChecksum,
 		FirstSeqNo:    m.NextSeqNo,
 		Recorders:     []RecorderRange{},
-		SkipWrites:    make(map[Fnode]bool),
+		Properties:    m.Properties,
 	}
 	// Retrieve the earliest SeqNo, Checksum, and Offset of a live Fnode. Note
 	// an invariant of FSM is that the first |TrackedFnodes| is in |LiveNodes|.
@@ -282,7 +322,7 @@ func (m *FSM) BuildHints() FSMHints {
 				hints.LogMark.Offset = state.Offset
 			}
 		} else {
-			hints.SkipWrites[fnode] = true
+			hints.SkipWrites = append(hints.SkipWrites, fnode)
 		}
 	}
 	// Only return recorder ranges if tracked Fnodes are hinted.

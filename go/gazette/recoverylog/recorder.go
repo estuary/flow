@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"io"
+	"io/ioutil"
 	"math"
 	"math/big"
 	"path/filepath"
@@ -15,6 +16,13 @@ import (
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 )
+
+// Well-known RocksDB paths which should be treated as properties,
+// rather than tracked as Fnodes.
+var propertyFiles = map[string]struct{}{
+	// Database GUID created at initialization of empty database.
+	"/IDENTITY": {},
+}
 
 // Recorder observes a sequence of changes to a file-system, and preserves
 // those changes via a written Gazette journal of file-system operations.
@@ -57,21 +65,42 @@ func (r *Recorder) normalizePath(path string) string {
 func (r *Recorder) NewWritableFile(path string) rocks.WritableFileObserver {
 	path = r.normalizePath(path)
 
+	if _, isProperty := propertyFiles[path]; isProperty {
+		log.WithField("path", path).Panic("unexpected open of property path")
+	}
+
 	defer r.mu.Unlock()
 	r.mu.Lock()
 
-	frame := r.process(RecordedOp{Create: &RecordedOp_Create{Path: path}})
-	fnode := r.fsm.Links[path]
+	prevFnode, prevExists := r.fsm.Links[path]
 
-	if _, err := r.writer.Write(r.fsm.LogMark.Journal, frame); err != nil {
+	// Decompose the creation into two operations:
+	//  * Unlinking |prevFnode| linked at |path| if |prevExists|.
+	//  * Creating the new fnode backing |path|.
+	var unlinkPrev, createNew []byte
+
+	if prevExists {
+		unlinkPrev = r.process(RecordedOp{
+			Unlink: &RecordedOp_Link{Fnode: prevFnode, Path: path}})
+	}
+	createNew = r.process(RecordedOp{Create: &RecordedOp_Create{Path: path}})
+
+	// Perform an atomic write of both operations.
+	if _, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, io.MultiReader(
+		bytes.NewReader(unlinkPrev),
+		bytes.NewReader(createNew))); err != nil {
 		log.WithField("err", err).Panic("writing op frame")
 	}
-	return &fileRecorder{r, fnode, 0}
+	return &fileRecorder{r, r.fsm.Links[path], 0}
 }
 
 // rocks.EnvObserver implementation.
 func (r *Recorder) DeleteFile(path string) {
 	path = r.normalizePath(path)
+
+	if _, isProperty := propertyFiles[path]; isProperty {
+		log.WithField("path", path).Panic("unexpected delete of property path")
+	}
 
 	defer r.mu.Unlock()
 	r.mu.Lock()
@@ -94,6 +123,11 @@ func (r *Recorder) DeleteDir(dirname string) { /* No-op */ }
 func (r *Recorder) LinkFile(src, target string) {
 	src, target = r.normalizePath(src), r.normalizePath(target)
 
+	if _, isProperty := propertyFiles[target]; isProperty {
+		log.WithFields(log.Fields{"src": src, "target": target}).
+			Panic("unexpected link of property path")
+	}
+
 	defer r.mu.Unlock()
 	r.mu.Lock()
 
@@ -109,8 +143,8 @@ func (r *Recorder) LinkFile(src, target string) {
 }
 
 // rocks.EnvObserver implementation.
-func (r *Recorder) RenameFile(src, target string) {
-	src, target = r.normalizePath(src), r.normalizePath(target)
+func (r *Recorder) RenameFile(srcPath, targetPath string) {
+	src, target := r.normalizePath(srcPath), r.normalizePath(targetPath)
 
 	defer r.mu.Unlock()
 	r.mu.Lock()
@@ -121,24 +155,37 @@ func (r *Recorder) RenameFile(src, target string) {
 	}
 	prevFnode, prevExists := r.fsm.Links[target]
 
-	// Decompose the rename into three operations:
-	//  * Unlinking the fnode previously linked at |target|.
-	//  * Linking the new fnode to |target|.
-	//  * Unlinking the fnode from |src|.
-	var unlinkTarget, linkTarget, unlinkSource []byte
+	// Decompose the rename into multiple operations:
+	//  * Unlinking |prevFnode| linked at |target| if |prevExists|.
+	//  * If |target| is a property, recording a property update.
+	//  * If |target| is not a property, linking the |fnode| to |target|.
+	//  * Unlinking the |fnode| from |src|.
+	var unlinkTarget, updateProperty, linkTarget, unlinkSource []byte
 
 	if prevExists {
 		unlinkTarget = r.process(RecordedOp{
 			Unlink: &RecordedOp_Link{Fnode: prevFnode, Path: target}})
 	}
-	linkTarget = r.process(RecordedOp{
-		Link: &RecordedOp_Link{Fnode: fnode, Path: target}})
+
+	if _, isProperty := propertyFiles[target]; isProperty {
+		content, err := ioutil.ReadFile(targetPath)
+		if err != nil {
+			log.WithFields(log.Fields{"err": err, "path": targetPath}).Panic("reading file")
+		}
+		updateProperty = r.process(RecordedOp{
+			Property: &RecordedOp_Property{Path: target, Content: string(content)}})
+	} else {
+		linkTarget = r.process(RecordedOp{
+			Link: &RecordedOp_Link{Fnode: fnode, Path: target}})
+	}
+
 	unlinkSource = r.process(RecordedOp{
 		Unlink: &RecordedOp_Link{Fnode: fnode, Path: src}})
 
 	// Perform an atomic write of all three operations.
 	if _, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, io.MultiReader(
 		bytes.NewReader(unlinkTarget),
+		bytes.NewReader(updateProperty),
 		bytes.NewReader(linkTarget),
 		bytes.NewReader(unlinkSource))); err != nil {
 		log.WithField("err", err).Panic("writing op frame")
@@ -206,7 +253,7 @@ func (r *fileRecorder) Append(data []byte) {
 }
 
 // rocks.EnvObserver implementation.
-func (r *fileRecorder) Close()                         { r.sync() }
+func (r *fileRecorder) Close()                         {}
 func (r *fileRecorder) Sync()                          { r.sync() }
 func (r *fileRecorder) Fsync()                         { r.sync() }
 func (r *fileRecorder) RangeSync(offset, nbytes int64) { r.sync() }

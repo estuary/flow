@@ -76,6 +76,11 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 		"key2": "value2",
 		"key3": "value three!",
 	})
+
+	// Expect |replica1| & |replica2| share identical non-empty properties.
+	c.Check(replica1.recorder.fsm.Properties, gc.Not(gc.HasLen), 0)
+	c.Check(replica1.recorder.fsm.Properties, gc.DeepEquals,
+		replica2.recorder.fsm.Properties)
 }
 
 func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
@@ -102,6 +107,11 @@ func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
 		"key foo": "baz",
 		"key bar": "bing",
 	})
+
+	// Expect |replica1| & |replica2| share identical non-empty properties.
+	c.Check(replica1.recorder.fsm.Properties, gc.Not(gc.HasLen), 0)
+	c.Check(replica1.recorder.fsm.Properties, gc.DeepEquals,
+		replica2.recorder.fsm.Properties)
 }
 
 func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
@@ -179,8 +189,8 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 		r.player.Cancel()
 	})
 
-	c.Check(r.player.Play(r.client), gc.ErrorMatches, "Play cancelled")
-	c.Check(<-makeLiveExit, gc.ErrorMatches, "Play cancelled")
+	c.Check(r.player.Play(r.client), gc.Equals, ErrPlaybackCancelled)
+	c.Check(<-makeLiveExit, gc.Equals, ErrPlaybackCancelled)
 }
 
 func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
@@ -192,10 +202,10 @@ func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	r.player.Cancel()
-	c.Check(r.player.Play(r.client), gc.ErrorMatches, "Play cancelled")
+	c.Check(r.player.Play(r.client), gc.Equals, ErrPlaybackCancelled)
 
 	_, err = r.player.MakeLive()
-	c.Check(err, gc.ErrorMatches, "Play cancelled")
+	c.Check(err, gc.Equals, ErrPlaybackCancelled)
 }
 
 // Returns hints at the current log head (eg, resulting in an empty database).
