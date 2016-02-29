@@ -4,10 +4,13 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"testing"
 
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 	"golang.org/x/net/context"
+
+	"github.com/pippio/api-server/endpoints"
 )
 
 type AllocRunSuite struct {
@@ -25,16 +28,20 @@ type AllocRunSuite struct {
 }
 
 func (s *AllocRunSuite) SetUpSuite(c *gc.C) {
-	// TODO(johnny): Issue #1164 & #1148: Work out a consistent policy for test
-	// endpoint expectations.
-	s.etcdClient, _ = etcd.New(etcd.Config{Endpoints: []string{"http://127.0.0.1:2379"}})
-	s.notifyCh = make(chan notify, 1)
+	if testing.Short() {
+		c.Skip("skipping allocator integration tests in short mode")
+	}
+
+	s.etcdClient, _ = etcd.New(etcd.Config{
+		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
 
 	// Skip suite if Etcd is not available.
 	if _, err := s.KeysAPI().Get(context.Background(), "/",
 		&etcd.GetOptions{Recursive: false}); err != nil {
 		c.Skip(err.Error())
 	}
+
+	s.notifyCh = make(chan notify, 1)
 }
 
 func (s *AllocRunSuite) SetUpTest(c *gc.C) {
