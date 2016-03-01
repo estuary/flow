@@ -31,7 +31,7 @@ const (
 	kWriteTmpDirectory = "/var/tmp/gazette-writes"
 
 	// journal.Name for where varz stats get written.
-	statsJournalName = "pippio-journals/debug/vars"
+	StatsJournalName = "pippio-journals/debug/vars"
 )
 
 type pendingWrite struct {
@@ -109,7 +109,7 @@ func NewWriteService(client *Client) *WriteService {
 	writeService.SetConcurrency(*writeConcurrency)
 
 	// We can now write stats to a Gazette journal.
-	varz.SetStatWriter(writeService.WriterFor(statsJournalName, false))
+	varz.SetStatWriter(writeService.WriterFor(StatsJournalName, false))
 
 	return writeService
 }
