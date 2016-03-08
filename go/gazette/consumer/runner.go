@@ -97,7 +97,7 @@ func (s *Runner) consumerLoop(done chan<- struct{}) {
 		s.consumer.Consume(msg, topic, context)
 		s.sourceV1.Acknowledge(msg)
 
-		varz.ObtainCount("consumer", s.name, "consumed", topic.Name).Add(1)
+		varz.ObtainCount("gazette", "consumed", "#consumer", s.name, "#topic", topic.Name).Add(1)
 
 		if i%*flushRate == 0 {
 			// Apply arbitrary, periodic flushes. Long term, this would be done
@@ -174,5 +174,5 @@ func (s *Runner) finishTransaction(context *Context) {
 	context.Transaction.Destroy()
 	context.Transaction = rocks.NewWriteBatch()
 
-	varz.ObtainCount("consumer", s.name, "flushed").Add(1)
+	varz.ObtainCount("gazette", "flushed", "#consumer", s.name).Add(1)
 }
