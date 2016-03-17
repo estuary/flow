@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
-	dbTuple "github.com/pippio/api-server/database"
 	"github.com/stretchr/testify/mock"
 	rocks "github.com/tecbot/gorocksdb"
 
@@ -22,7 +22,7 @@ import (
 type RoutinesSuite struct{}
 
 func (s *RoutinesSuite) TestShardName(c *gc.C) {
-	c.Check(shardName(42), gc.Equals, "shard-042")
+	c.Check(ShardID(42).Name(), gc.Equals, "shard-042")
 }
 
 func (s *RoutinesSuite) TestHintsPath(c *gc.C) {
@@ -131,24 +131,32 @@ func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
 		"other-journal/part-003": 44,
 	})
 
+	markKey := func(suffix []byte) []byte {
+		b := encoding.EncodeNullAscending(nil)
+		b = encoding.EncodeStringAscending(b, "mark")
+		b = append(b, suffix...)
+		return b
+	}
+
 	// Test handling of a bad value encoding.
 	cases := []struct {
-		key           dbTuple.Tuple
-		value, expect string
+		key, value []byte
+		expect     string
 	}{
 		// Unexpected key encodings.
-		{dbTuple.Tuple{"_mark", "a/journal", "foo"}, "42", "bad DB mark length .*"},
-		{dbTuple.Tuple{"_mark", "a/journal"}, "bad-value", "strconv.ParseInt: .*"},
+		{markKey([]byte("bad key")),
+			encoding.EncodeVarintAscending(nil, 42), "did not find marker .*"},
 		// Bad value encoding.
-		{dbTuple.Tuple{"_mark", 0}, "42", "bad DB mark value .*"},
+		{markKey(encoding.EncodeStringAscending(nil, "a/valid/journal")),
+			[]byte("bad data"), "insufficient bytes to decode .*"},
 	}
 
 	for _, tc := range cases {
-		c.Check(db.Put(wo, tc.key.Pack(), []byte(tc.value)), gc.IsNil)
+		c.Check(db.Put(wo, tc.key, tc.value), gc.IsNil)
 		_, err = loadOffsetsFromDB(db, ro)
 		c.Check(err, gc.ErrorMatches, tc.expect)
 
-		c.Check(db.Delete(wo, tc.key.Pack()), gc.IsNil) // Cleanup.
+		c.Check(db.Delete(wo, tc.key), gc.IsNil) // Cleanup.
 	}
 }
 

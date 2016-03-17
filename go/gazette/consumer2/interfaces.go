@@ -53,9 +53,14 @@ type Consumer interface {
 	Flush(Shard, topic.Publisher) error
 }
 
-// Interface for consumers that wish to perform initialization of a Shard prior
-// to an initial Consume() call. A common use case is to initialize or recover
-// the shard cache.
+// Optional Consumer interface for notification of Shard initialization prior
+// to an initial Consume. A common use case is to initialize the shard cache.
 type ShardIniter interface {
 	InitShard(Shard) error
+}
+
+// Optional Consumer interface for notification that processing is stopping.
+// No Consume or Flush calls will be issued after ShardStopping.
+type ShardStopper interface {
+	ShardStopping(Shard)
 }

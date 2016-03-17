@@ -8,8 +8,8 @@ import (
 	"strconv"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
-	dbTuple "github.com/pippio/api-server/database"
 	"github.com/pippio/consensus"
 	rocks "github.com/tecbot/gorocksdb"
 	"golang.org/x/net/context"
@@ -29,25 +29,25 @@ const (
 )
 
 // Maps ID to padded name, eg shardName(42) => "shard-042".
-func shardName(shard ShardID) string {
-	return fmt.Sprintf("shard-%03d", shard)
+func (id ShardID) Name() string {
+	return fmt.Sprintf("shard-%03d", id)
 }
 
 // Maps a consumer |tree| and |shard| to the full path for storing FSMHints.
 // Eg, hintsPath(tree{/a/consumer}, 42) => "/a/consumer/hints/shard-042".
 func hintsPath(consumerPath string, shard ShardID) string {
-	return consumerPath + "/" + hintsPrefix + "/" + shardName(shard)
+	return consumerPath + "/" + hintsPrefix + "/" + shard.Name()
 }
 
 // Maps |shard| to its recovery log journal.
 func recoveryLog(logRoot string, shard ShardID) journal.Name {
-	return journal.Name(path.Join(logRoot, shardName(shard)))
+	return journal.Name(path.Join(logRoot, shard.Name()))
 }
 
 // Aborts processing of |shard| by |runner|. Called only in exceptional
 // circumstances (eg, an unrecoverable local error).
 func abort(runner *Runner, shard ShardID) {
-	if err := consensus.CancelItem(runner, shardName(shard)); err != nil {
+	if err := consensus.CancelItem(runner, shard.Name()); err != nil {
 		log.WithField("err", err).Error("failed to cancel shard lock")
 	}
 }
@@ -122,7 +122,8 @@ func loadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
 
 // Loads from |db| offsets previously serialized by storeAndClearOffsets.
 func loadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]int64, error) {
-	markPrefix := dbTuple.Tuple{"_mark"}.Pack()
+	markPrefix := encoding.EncodeNullAscending(nil)
+	markPrefix = encoding.EncodeStringAscending(markPrefix, "mark")
 
 	result := make(map[journal.Name]int64)
 
@@ -130,28 +131,20 @@ func loadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]
 	defer it.Close()
 
 	for it.Seek(markPrefix); it.ValidForPrefix(markPrefix); it.Next() {
-		keyBuf, valBuf := it.Key(), it.Value()
+		key, val := it.Key().Data(), it.Value().Data()
 
-		key, err := dbTuple.UnpackTuple(keyBuf.Data())
-		if err != nil {
-			return nil, err
-		} else if len(key) != 2 {
-			return nil, fmt.Errorf("bad DB mark length %s", key)
+		_, name, err1 := encoding.DecodeStringAscending(key[len(markPrefix):], nil)
+		_, offset, err2 := encoding.DecodeVarintAscending(val)
+
+		it.Key().Free()
+		it.Value().Free()
+
+		if err1 != nil {
+			return nil, err1
 		}
-
-		name, ok := key[1].(string)
-		if !ok {
-			return nil, fmt.Errorf("bad DB mark value %s", key)
+		if err2 != nil {
+			return nil, err2
 		}
-
-		offset, err := offsetFromString(string(valBuf.Data()))
-		if err != nil {
-			return nil, err
-		}
-
-		keyBuf.Free()
-		valBuf.Free()
-
 		result[journal.Name(name)] = offset
 	}
 	return result, nil
@@ -160,8 +153,11 @@ func loadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]
 // Stores |offsets| to |wb| using an identical encoding as loadOffsetsFromDB.
 func storeOffsets(wb *rocks.WriteBatch, offsets map[journal.Name]int64) {
 	for name, offset := range offsets {
-		key := dbTuple.Tuple{"_mark", string(name)}.Pack()
-		value := []byte(offsetToString(offset))
+		key := encoding.EncodeNullAscending(nil)
+		key = encoding.EncodeStringAscending(key, "mark")
+		key = encoding.EncodeStringAscending(key, string(name))
+
+		value := encoding.EncodeVarintAscending(nil, offset)
 
 		wb.Put(key, value)
 	}

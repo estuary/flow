@@ -46,7 +46,7 @@ func (r *Runner) Run() error {
 	r.zombieShards = make(map[*shard]struct{})
 
 	for id := 0; id != numShards; id++ {
-		r.shardNames[id] = shardName(ShardID(id))
+		r.shardNames[id] = ShardID(id).Name()
 	}
 
 	// Install a signal handler to exit on external signal.

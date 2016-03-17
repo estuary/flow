@@ -85,6 +85,10 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		abort(runner, m.shard)
 		return
 	}
+
+	if stopper, ok := runner.Consumer.(ShardStopper); ok {
+		stopper.ShardStopping(m)
+	}
 }
 
 func (m *master) init(runner *Runner, replica *replica) error {
