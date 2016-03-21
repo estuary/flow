@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	memberPrefix = "members" // Directory root for member announcements.
-	itemsPrefix  = "items"   // Directory root for allocated items.
+	MemberPrefix = "members" // Directory root for member announcements.
+	ItemsPrefix  = "items"   // Directory root for allocated items.
 
 	lockDuration          = time.Minute * 5 // Duration of held locks
 	allocErrSleepInterval = time.Second * 5
@@ -205,19 +205,19 @@ func CancelItem(alloc Allocator, item string) error {
 // Returns the member announcement key for |alloc|.
 // Ex: /path/root/members/my-alloc-key
 func memberKey(alloc Allocator) string {
-	return alloc.PathRoot() + "/" + memberPrefix + "/" + alloc.InstanceKey()
+	return alloc.PathRoot() + "/" + MemberPrefix + "/" + alloc.InstanceKey()
 }
 
 // Returns the item entry key for |item| held by |alloc|.
 // Ex: /path/root/items/an-item/my-alloc-key
 func itemKey(alloc Allocator, item string) string {
-	return alloc.PathRoot() + "/" + itemsPrefix + "/" + item + "/" + alloc.InstanceKey()
+	return alloc.PathRoot() + "/" + ItemsPrefix + "/" + item + "/" + alloc.InstanceKey()
 }
 
 // Returns the item name represented by item entry |key| held by |alloc|.
 // Ex: /path/root/items/an-item/my-alloc-key => an-item
 func itemOfItemKey(alloc Allocator, key string) string {
-	lstrip := len(alloc.PathRoot()) + 1 + len(itemsPrefix) + 1
+	lstrip := len(alloc.PathRoot()) + 1 + len(ItemsPrefix) + 1
 	rstrip := len(key) - len(alloc.InstanceKey()) - 1
 	return key[lstrip:rstrip]
 }
@@ -250,11 +250,11 @@ type allocParams struct {
 // From |p.Input|, builds |p.Item| and |p.Member| descriptions of allocParams.
 func allocExtract(p *allocParams) {
 	var itemsDir etcd.Node
-	if d := Child(p.Input.Tree, itemsPrefix); d != nil {
+	if d := Child(p.Input.Tree, ItemsPrefix); d != nil {
 		itemsDir = *d
 	} else {
 		// Fabricate items directory if it doesn't exist.
-		itemsDir = etcd.Node{Key: p.Input.Tree.Key + "/" + itemsPrefix, Dir: true}
+		itemsDir = etcd.Node{Key: p.Input.Tree.Key + "/" + ItemsPrefix, Dir: true}
 	}
 
 	// Perform a zipped, outer-join iteration of |items| and |desiredItems|.
@@ -262,6 +262,8 @@ func allocExtract(p *allocParams) {
 	forEachChild(&itemsDir, p.FixedItems(), func(name string, node *etcd.Node) {
 		p.Item.Count += 1
 
+		// Bypass NewRoute to avoid extra deep copies and because we know (per the
+		// ItemRoute contract) that |route| will not be retained.
 		var route = Route{
 			EtcdIndex: p.Input.Index,
 			Item:      node,
@@ -297,7 +299,7 @@ func allocExtract(p *allocParams) {
 		}
 	})
 
-	if membersDir := Child(p.Input.Tree, memberPrefix); membersDir != nil {
+	if membersDir := Child(p.Input.Tree, MemberPrefix); membersDir != nil {
 		p.Member.Entry = Child(membersDir, p.InstanceKey())
 		p.Member.Count = len(membersDir.Nodes)
 	}

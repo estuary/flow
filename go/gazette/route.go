@@ -21,6 +21,17 @@ type Route struct {
 	Entries etcd.Nodes
 }
 
+// Initializes a new Route from the |response| and |node|.
+func NewRoute(response *etcd.Response, node *etcd.Node) Route {
+	rt := Route{
+		EtcdIndex: response.Index,
+		Item:      node,
+		Entries:   append(etcd.Nodes{}, node.Nodes...), // Copy, as we'll re-order.
+	}
+	rt.init()
+	return rt
+}
+
 // Returns the index of |name| in |rt.Entries|, or -1.
 func (rt Route) Index(name string) int {
 	prefix := len(rt.Item.Key) + 1
