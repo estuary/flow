@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,10 +18,6 @@ import (
 )
 
 var (
-	// Service discovery.
-	announceEndpoint = flag.String("announceEndpoint", "",
-		"Endpoint to announce")
-
 	spoolDirectory = flag.String("spoolDir", "/var/tmp/gazette",
 		"Local directory for journal spools")
 	replicaCount = flag.Int("replicaCount", 3, "Number of replicas")
@@ -31,28 +26,18 @@ var (
 func main() {
 	varz.Initialize("gazetted")
 
-	if *announceEndpoint == "" {
-		// Infer from externally routable IP address.
-		if addrs, err := net.InterfaceAddrs(); err != nil {
-			log.WithField("err", err).Fatal(
-				"error retrieving interfaces and no announce endpoint specified")
-		} else {
-			for i := range addrs {
-				if ip, ok := addrs[i].(*net.IPNet); ok && !ip.IP.IsLoopback() {
-					log.WithField("address", ip.IP.String()).Info(
-						"selected an announce endpoint")
-					*announceEndpoint = "http://" + ip.IP.String() + ":8081"
-					break
-				}
-			}
-		}
+	var announceEndpoint string
+	if ip, err := endpoints.RoutableIP(); err != nil {
+		log.WithField("err", err).Fatal("failed to acquire routable IP")
+	} else {
+		announceEndpoint = "http://" + ip.String() + ":8081"
 	}
 
 	log.WithFields(log.Fields{
 		"spoolDir":         *spoolDirectory,
 		"replicaCount":     *replicaCount,
 		"etcdEndpoint":     *endpoints.EtcdEndpoint,
-		"announceEndpoint": *announceEndpoint,
+		"announceEndpoint": announceEndpoint,
 		"releaseTag":       *varz.ReleaseTag,
 	}).Info("flag configuration")
 
@@ -69,7 +54,7 @@ func main() {
 		Directory:    *spoolDirectory,
 		Etcd:         etcdService,
 		ReplicaCount: *replicaCount,
-		ServiceURL:   *announceEndpoint,
+		ServiceURL:   announceEndpoint,
 	}
 
 	properties, err := discovery.NewProperties("/properties", context.Etcd)
