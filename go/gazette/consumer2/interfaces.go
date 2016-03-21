@@ -58,9 +58,3 @@ type Consumer interface {
 type ShardIniter interface {
 	InitShard(Shard) error
 }
-
-// Optional Consumer interface for notification that processing is stopping.
-// No Consume or Flush calls will be issued after ShardStopping.
-type ShardStopper interface {
-	ShardStopping(Shard)
-}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/message"
 )
 
 type Runner struct {
@@ -29,6 +30,13 @@ type Runner struct {
 	Etcd   etcd.Client
 	Getter journal.Getter
 	Writer journal.Writer
+
+	// Optional hooks for notification of Shard lifecycle. These are largely
+	// intended to facilicate testing cases.
+	ShardPreInitHook     func(Shard)
+	ShardPostConsumeHook func(message.Message, Shard)
+	ShardPostCommitHook  func(Shard)
+	ShardPostStopHook    func(Shard)
 
 	shardNames   []string            // Ordered names of all shards.
 	liveShards   map[string]*shard   // Live shards, by name.

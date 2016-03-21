@@ -86,8 +86,8 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		return
 	}
 
-	if stopper, ok := runner.Consumer.(ShardStopper); ok {
-		stopper.ShardStopping(m)
+	if runner.ShardPostStopHook != nil {
+		runner.ShardPostStopHook(m)
 	}
 }
 
@@ -102,6 +102,10 @@ func (m *master) init(runner *Runner, replica *replica) error {
 
 	if m.database, err = newDatabase(fsm, m.localDir, runner.Writer); err != nil {
 		return err
+	}
+
+	if runner.ShardPreInitHook != nil {
+		runner.ShardPreInitHook(m)
 	}
 
 	// Let the consumer initialize the context, if desired.
@@ -217,6 +221,10 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		txCount += 1
 		txOffsets[msg.Mark.Journal] = msg.Mark.Offset
 		msg.Topic.PutMessage(msg.Value)
+
+		if runner.ShardPostConsumeHook != nil {
+			runner.ShardPostConsumeHook(msg, m)
+		}
 		continue // End of CONSUME_MSG.
 
 	COMMIT_TX:
@@ -241,6 +249,10 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		// Reset for next transaction.
 		txCount = 0
 		txBegin = time.Time{}
+
+		if runner.ShardPostCommitHook != nil {
+			runner.ShardPostCommitHook(m)
+		}
 		continue // End of COMMIT_TX.
 
 	STORE_HINTS:
