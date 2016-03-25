@@ -38,23 +38,28 @@ type Runner struct {
 	ShardPostCommitHook  func(Shard)
 	ShardPostStopHook    func(Shard)
 
-	shardNames   []string            // Ordered names of all shards.
+	shardIDs     []ShardID           // Ordered shard IDs.
 	liveShards   map[string]*shard   // Live shards, by name.
 	zombieShards map[*shard]struct{} // Cancelled shards which are shutting down.
 }
 
 func (r *Runner) Run() error {
-	numShards, err := numShards(r.Consumer.Topics())
-	if err != nil {
-		return err
-	}
-
-	r.shardNames = make([]string, numShards)
 	r.liveShards = make(map[string]*shard)
 	r.zombieShards = make(map[*shard]struct{})
 
-	for id := 0; id != numShards; id++ {
-		r.shardNames[id] = ShardID(id).Name()
+	groups := r.Consumer.Groups()
+	if err := groups.Validate(); err != nil {
+		return err
+	}
+
+	for _, group := range groups {
+		numShards, err := group.NumShards()
+		if err != nil {
+			return err
+		}
+		for id := 0; id != numShards; id++ {
+			r.shardIDs = append(r.shardIDs, ShardID{group.Name, id})
+		}
 	}
 
 	// Install a signal handler to exit on external signal.
@@ -73,7 +78,7 @@ func (r *Runner) Run() error {
 		}
 	}()
 
-	err = consensus.Allocate(r)
+	err := consensus.Allocate(r)
 
 	// Allocate should exit only after all shards have been cancelled.
 	if err == nil && len(r.liveShards) != 0 {
@@ -95,8 +100,16 @@ func (r *Runner) Run() error {
 	return err
 }
 
+func (r *Runner) shardNames() []string {
+	ret := make([]string, len(r.shardIDs))
+	for i := range r.shardIDs {
+		ret[i] = r.shardIDs[i].String()
+	}
+	return ret
+}
+
 // consumer.Allocator implementation.
-func (r *Runner) FixedItems() []string  { return r.shardNames }
+func (r *Runner) FixedItems() []string  { return r.shardNames() }
 func (r *Runner) InstanceKey() string   { return r.LocalRouteKey }
 func (r *Runner) KeysAPI() etcd.KeysAPI { return etcd.NewKeysAPI(r.Etcd) }
 func (r *Runner) PathRoot() string      { return r.ConsumerRoot }
@@ -113,12 +126,14 @@ func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etc
 	isMaster, isReplica := (index == 0), (index > 0 && index < r.ReplicaCount)
 
 	if !exists && (isMaster || isReplica) {
-		ind := sort.SearchStrings(r.shardNames, name)
-		if ind >= len(r.shardNames) || r.shardNames[ind] != name {
+		ind := sort.Search(len(r.shardIDs), func(i int) bool {
+			return r.shardIDs[i].String() >= name
+		})
+		if ind >= len(r.shardIDs) || r.shardIDs[ind].String() != name {
 			log.WithField("shard", name).Warn("unexpected consumer shard name")
 			return
 		}
-		shard = newShard(ShardID(ind), r)
+		shard = newShard(r.shardIDs[ind], r)
 		r.liveShards[name] = shard
 	}
 

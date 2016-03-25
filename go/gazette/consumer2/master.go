@@ -128,9 +128,20 @@ func (m *master) startPumpingMessages(runner *Runner) (<-chan message.Message, e
 
 	// Begin pumping messages from consumed journals.
 	var messages = make(chan message.Message, messageBufferSize)
-	pump := newPump(runner.Getter, messages, m.cancelCh)
+	var pump = newPump(runner.Getter, messages, m.cancelCh)
+	var group *TopicGroup
 
-	for name, topic := range journalsForShard(runner.Consumer.Topics(), m.shard) {
+	for _, g := range runner.Consumer.Groups() {
+		if g.Name == m.shard.Group {
+			group = &g
+			break
+		}
+	}
+	if group == nil {
+		panic("could not locate topic group in consumer: " + m.shard.Group)
+	}
+
+	for name, topic := range group.JournalsForShard(m.shard.Index) {
 		go pump.pump(topic, journal.Mark{Journal: name, Offset: offsets[name]})
 	}
 	return messages, nil

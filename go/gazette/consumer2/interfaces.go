@@ -7,7 +7,17 @@ import (
 	"github.com/pippio/gazette/topic"
 )
 
-type ShardID int
+type ShardID struct {
+	Group string
+	Index int
+}
+
+type TopicGroup struct {
+	Name   string
+	Topics []*topic.Description
+}
+
+type TopicGroups []TopicGroup
 
 type Shard interface {
 	// The concrete ID of this Shard.
@@ -38,8 +48,11 @@ type Shard interface {
 }
 
 type Consumer interface {
-	// The topic this consumer is consuming.
-	Topics() []*topic.Description
+	// The topic groups this consumer is consuming. Each topic within a group
+	// is subject to constraints over the partitions in each topic within that
+	// group.  The constraints don't apply between groups, so create separate
+	// groups for topics you wish to consume independently from each other.
+	Groups() TopicGroups
 
 	// Called when a message becomes available from one of the consumer’s
 	// joined topics. If the returned error is non-nil, the Shard is assumed to

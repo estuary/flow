@@ -21,31 +21,38 @@ import (
 
 type RoutinesSuite struct{}
 
+var (
+	id8  = ShardID{"foo", 8}
+	id12 = ShardID{"baz", 12}
+	id30 = ShardID{"bar", 30}
+	id42 = ShardID{"quux", 42}
+)
+
 func (s *RoutinesSuite) TestShardName(c *gc.C) {
-	c.Check(ShardID(42).Name(), gc.Equals, "shard-042")
+	c.Check(id42.String(), gc.Equals, "shard-quux-042")
 }
 
 func (s *RoutinesSuite) TestHintsPath(c *gc.C) {
-	c.Check(hintsPath(s.treeFixture().Key, 42), gc.Equals, "/foo/hints/shard-042")
+	c.Check(hintsPath(s.treeFixture().Key, id42), gc.Equals, "/foo/hints/shard-quux-042")
 }
 
 func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
 	runner := &Runner{RecoveryLogRoot: "path/to/recovery/logs/"}
 
 	// Expect valid hints are found & loaded.
-	hints, err := loadHints(12, runner, s.treeFixture())
+	hints, err := loadHints(id12, runner, s.treeFixture())
 	c.Check(err, gc.IsNil)
 	c.Check(hints, gc.DeepEquals, s.hintsFixture())
 
 	// Malformed hints.
-	hints, err = loadHints(30, runner, s.treeFixture())
+	hints, err = loadHints(id30, runner, s.treeFixture())
 	c.Check(err, gc.ErrorMatches, "invalid character .*")
 
 	// Missing hints.
-	hints, err = loadHints(8, runner, s.treeFixture())
+	hints, err = loadHints(id8, runner, s.treeFixture())
 	c.Check(err, gc.IsNil)
 	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{
-		LogMark: journal.NewMark("path/to/recovery/logs/shard-008", -1),
+		LogMark: journal.NewMark("path/to/recovery/logs/shard-foo-008", -1),
 	})
 }
 
@@ -190,17 +197,18 @@ func (s *RoutinesSuite) TestTopicShardMapping(c *gc.C) {
 		topics[i] = []*topic.Description{foo, bar, baz}[j]
 	}
 
-	n, err := numShards(topics[:])
+	group := TopicGroup{Name: "test", Topics: topics[:]}
+	n, err := group.NumShards()
 	c.Check(n, gc.Equals, 16)
 	c.Check(err, gc.IsNil)
 
-	c.Check(journalsForShard(topics[:], 5), gc.DeepEquals,
+	c.Check(group.JournalsForShard(5), gc.DeepEquals,
 		map[journal.Name]*topic.Description{
 			"foo/part-000": foo, // 5 % 2.
 			"bar/part-001": bar, // 5 % 4.
 			"baz/part-005": baz, // 5 % 16.
 		})
-	c.Check(journalsForShard(topics[:], 14), gc.DeepEquals,
+	c.Check(group.JournalsForShard(14), gc.DeepEquals,
 		map[journal.Name]*topic.Description{
 			"foo/part-000": foo, // 14 % 2.
 			"bar/part-002": bar, // 14 % 4.
@@ -209,11 +217,11 @@ func (s *RoutinesSuite) TestTopicShardMapping(c *gc.C) {
 
 	// foo => 2 partitions. Expect it's still mappable.
 	foo.Partitions = 2
-	n, err = numShards(topics[:])
+	n, err = group.NumShards()
 	c.Check(n, gc.Equals, 16)
 	c.Check(err, gc.IsNil)
 
-	c.Check(journalsForShard(topics[:], 7), gc.DeepEquals,
+	c.Check(group.JournalsForShard(7), gc.DeepEquals,
 		map[journal.Name]*topic.Description{
 			"foo/part-001": foo, // 7 % 2
 			"bar/part-003": bar, // 7 % 4
@@ -222,8 +230,38 @@ func (s *RoutinesSuite) TestTopicShardMapping(c *gc.C) {
 
 	// foo => 3 partitions. Expect it's an invalid configuration.
 	foo.Partitions = 3
-	_, err = numShards(topics[:])
+	_, err = group.NumShards()
 	c.Check(err, gc.ErrorMatches, "topic partitions must be multiples of each other")
+}
+
+func (s *RoutinesSuite) TestGroupValidation(c *gc.C) {
+	// Initially, the two TopicGroups both don't have names.
+	groups := TopicGroups{{}, {}}
+	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup must have a name")
+
+	// Now assign a special name to the first one.
+	groups[0].Name = "Special/Name"
+	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup name must consist only of.*")
+
+	// Now the names are both valid, but there's no topics consumed.
+	groups[0].Name = "same-name"
+	groups[1].Name = "same-name"
+	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup must consume at least one topic")
+
+	// Now there are consumed topics, but the names are identical.
+	t1 := &topic.Description{Name: "topic-one", Partitions: 3}
+	t2 := &topic.Description{Name: "topic-two", Partitions: 4}
+	groups[0].Topics = []*topic.Description{t1}
+	groups[1].Topics = []*topic.Description{t2}
+	c.Check(groups.Validate(), gc.ErrorMatches, "consumer groups must be sorted and names must not repeat: same-name")
+
+	// The names are unique but now groups[0] lexically precedes groups[1].
+	groups[0].Name = "the-new-name"
+	c.Check(groups.Validate(), gc.ErrorMatches, "consumer groups must be sorted and names must not repeat: same-name")
+
+	// Finally, the groups structure is valid.
+	groups[0], groups[1] = groups[1], groups[0]
+	c.Check(groups.Validate(), gc.IsNil)
 }
 
 func (s *RoutinesSuite) treeFixture() *etcd.Node {
@@ -235,8 +273,8 @@ func (s *RoutinesSuite) treeFixture() *etcd.Node {
 			{
 				Key: "/foo/hints", Dir: true,
 				Nodes: etcd.Nodes{
-					{Key: "/foo/hints/shard-012", Value: string(shard012)},
-					{Key: "/foo/hints/shard-030", Value: "... malformed ..."},
+					{Key: "/foo/hints/shard-bar-030", Value: "... malformed ..."},
+					{Key: "/foo/hints/shard-baz-012", Value: string(shard012)},
 				},
 			}, {
 				Key: "/foo/offsets", Dir: true,
@@ -262,7 +300,7 @@ func (s *RoutinesSuite) treeFixture() *etcd.Node {
 
 func (s *RoutinesSuite) hintsFixture() recoverylog.FSMHints {
 	return recoverylog.FSMHints{
-		LogMark:       journal.Mark{Journal: "some/recovery/logs/shard-012", Offset: 1234},
+		LogMark:       journal.Mark{Journal: "some/recovery/logs/shard-baz-012", Offset: 1234},
 		FirstChecksum: 1212123,
 		FirstSeqNo:    45645,
 		Recorders:     []recoverylog.RecorderRange{{ID: 123, LastSeqNo: 456}},

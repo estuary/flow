@@ -34,7 +34,7 @@ type shard struct {
 func newShard(id ShardID, runner *Runner) *shard {
 	return &shard{
 		id:       id,
-		localDir: filepath.Join(runner.LocalDir, id.Name()),
+		localDir: filepath.Join(runner.LocalDir, id.String()),
 		state:    shardStateInit,
 		cancelCh: make(chan struct{}),
 	}

@@ -13,9 +13,18 @@ import (
 // Test support function. Initializes all shards of |runner| to empty database
 // which begin consumption from the current write-head of each topic journal.
 func ResetShardsToJournalHeads(runner *Runner) error {
+	for _, group := range runner.Consumer.Groups() {
+		if err := resetGroup(runner, group); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resetGroup(runner *Runner, group TopicGroup) error {
 	// Determine the write-heads of all journals of all topics.
 	var offsets = make(map[journal.Name]int64)
-	for _, topic := range runner.Consumer.Topics() {
+	for _, topic := range group.Topics {
 		for part := 0; part != topic.Partitions; part++ {
 			offsets[topic.Journal(part)] = 0
 		}
@@ -30,7 +39,7 @@ func ResetShardsToJournalHeads(runner *Runner) error {
 	}
 	log.WithField("offsets", offsets).Info("resetting logs to write heads")
 
-	shards, err := numShards(runner.Consumer.Topics())
+	shards, err := group.NumShards()
 	if err != nil {
 		return err
 	}
@@ -38,7 +47,8 @@ func ResetShardsToJournalHeads(runner *Runner) error {
 	// For each shard, initialize a database at the recovery-log head which
 	// captures |offsets| but is otherwise empty. Then store hints to Etcd.
 	for shard := 0; shard != shards; shard++ {
-		var opLog = recoveryLog(runner.RecoveryLogRoot, ShardID(shard))
+		var id = ShardID{group.Name, shard}
+		var opLog = recoveryLog(runner.RecoveryLogRoot, id)
 
 		// Determine recovery-log head.
 		result, _ := runner.Getter.Get(journal.ReadArgs{Journal: opLog, Offset: -1})
@@ -69,9 +79,9 @@ func ResetShardsToJournalHeads(runner *Runner) error {
 		}
 
 		hints := db.recorder.BuildHints()
-		hintsPath := hintsPath(runner.ConsumerRoot, ShardID(shard))
+		hintsPath := hintsPath(runner.ConsumerRoot, id)
 
-		log.WithFields(log.Fields{"shard": shard, "hints": hints, "path": hintsPath}).
+		log.WithFields(log.Fields{"shard": id, "hints": hints, "path": hintsPath}).
 			Info("storing hints")
 
 		if err = storeHints(runner.KeysAPI(), hints, hintsPath); err != nil {

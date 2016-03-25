@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"strconv"
+	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/cockroachdb/cockroach/util/encoding"
@@ -24,30 +25,86 @@ import (
 // independently of their uses in `master` and `replica`.
 
 const (
-	hintsPrefix   = "hints"   // Etcd directory into which FSM hints are stored.
-	offsetsPrefix = "offsets" // Legacy Etcd offsets path.
+	hintsPrefix     = "hints"   // Etcd directory into which FSM hints are stored.
+	offsetsPrefix   = "offsets" // Legacy Etcd offsets path.
+	validGroupChars = "abcdefghijklmnopqrstuvwxyz0123456789-"
 )
 
 // Maps ID to padded name, eg shardName(42) => "shard-042".
-func (id ShardID) Name() string {
-	return fmt.Sprintf("shard-%03d", id)
+func (id ShardID) String() string {
+	return fmt.Sprintf("shard-%s-%03d", id.Group, id.Index)
+}
+
+// Ensures that a topic group has a name and consumes at least one topic.
+// Note: Topic compatibility is not validated here. It is done in NumShards.
+func (g TopicGroup) Validate() error {
+	if g.Name == "" {
+		return errors.New("a TopicGroup must have a name")
+	} else if strings.Trim(g.Name, validGroupChars) != "" {
+		return fmt.Errorf("a TopicGroup name must consist only of [a-z0-9-]+: %s", g.Name)
+	} else if len(g.Topics) == 0 {
+		return errors.New("a TopicGroup must consume at least one topic")
+	}
+	return nil
+}
+
+// Determines the number of shards implied by a consumption of |topics|,
+// or returns error if |topics| have incompatible partition counts.
+func (g TopicGroup) NumShards() (int, error) {
+	var n int
+	for _, t1 := range g.Topics {
+		for _, t2 := range g.Topics {
+			if t1.Partitions%t2.Partitions != 0 && t2.Partitions%t1.Partitions != 0 {
+				return 0, errors.New("topic partitions must be multiples of each other")
+			}
+		}
+		if t1.Partitions > n {
+			n = t1.Partitions
+		}
+	}
+	return n, nil
+}
+
+// Returns the journals |shard| should consume across |topics|.
+func (g TopicGroup) JournalsForShard(shardIndex int) map[journal.Name]*topic.Description {
+	var journals = make(map[journal.Name]*topic.Description)
+	for _, topic := range g.Topics {
+		journals[topic.Journal(shardIndex%topic.Partitions)] = topic
+	}
+	return journals
+}
+
+// Ensures that the topic groups are sorted by distinct group name for
+// |consumer.Allocator| compliance.
+func (gs TopicGroups) Validate() error {
+	var lastName string
+	for _, group := range gs {
+		if err := group.Validate(); err != nil {
+			return err
+		} else if lastName == "" || lastName < group.Name {
+			lastName = group.Name
+		} else {
+			return fmt.Errorf("consumer groups must be sorted and names must not repeat: %s", group.Name)
+		}
+	}
+	return nil
 }
 
 // Maps a consumer |tree| and |shard| to the full path for storing FSMHints.
 // Eg, hintsPath(tree{/a/consumer}, 42) => "/a/consumer/hints/shard-042".
 func hintsPath(consumerPath string, shard ShardID) string {
-	return consumerPath + "/" + hintsPrefix + "/" + shard.Name()
+	return consumerPath + "/" + hintsPrefix + "/" + shard.String()
 }
 
 // Maps |shard| to its recovery log journal.
 func recoveryLog(logRoot string, shard ShardID) journal.Name {
-	return journal.Name(path.Join(logRoot, shard.Name()))
+	return journal.Name(path.Join(logRoot, shard.String()))
 }
 
 // Aborts processing of |shard| by |runner|. Called only in exceptional
 // circumstances (eg, an unrecoverable local error).
 func abort(runner *Runner, shard ShardID) {
-	if err := consensus.CancelItem(runner, shard.Name()); err != nil {
+	if err := consensus.CancelItem(runner, shard.String()); err != nil {
 		log.WithField("err", err).Error("failed to cancel shard lock")
 	}
 }
@@ -184,30 +241,4 @@ func mergeOffsets(db, etcd map[journal.Name]int64) map[journal.Name]int64 {
 		}
 	}
 	return result
-}
-
-// Determines the number of shards implied by a consumption of |topics|,
-// or returns error if |topics| have incompatible partition counts.
-func numShards(topics []*topic.Description) (int, error) {
-	var n int
-	for _, t1 := range topics {
-		for _, t2 := range topics {
-			if t1.Partitions%t2.Partitions != 0 && t2.Partitions%t1.Partitions != 0 {
-				return 0, errors.New("topic partitions must be multiples of each other")
-			}
-		}
-		if t1.Partitions > n {
-			n = t1.Partitions
-		}
-	}
-	return n, nil
-}
-
-// Returns the journals |shard| should consume across |topics|.
-func journalsForShard(topics []*topic.Description, shard ShardID) map[journal.Name]*topic.Description {
-	var journals = make(map[journal.Name]*topic.Description)
-	for _, topic := range topics {
-		journals[topic.Journal(int(shard)%topic.Partitions)] = topic
-	}
-	return journals
 }
