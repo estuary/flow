@@ -280,7 +280,7 @@ func (g *testGenerator) publishSomeValues(c *gc.C) {
 
 		// Writing to string topic.
 		var smsg = stringMessage(uuid.NewV4().String())
-		g.stringValues[smsg] = true
+		g.stringValues[smsg] = struct{}{}
 		c.Check(g.publisher.Publish(&smsg, reverseInTopic), gc.IsNil)
 
 		if i%100 == 0 {
