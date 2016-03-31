@@ -235,8 +235,12 @@ func (s *RoutinesSuite) TestTopicShardMapping(c *gc.C) {
 }
 
 func (s *RoutinesSuite) TestGroupValidation(c *gc.C) {
+	// No point starting the consumer if you don't want to consume anything.
+	groups := TopicGroups{}
+	c.Check(groups.Validate(), gc.ErrorMatches, "must specify at least one TopicGroup")
+
 	// Initially, the two TopicGroups both don't have names.
-	groups := TopicGroups{{}, {}}
+	groups = TopicGroups{{}, {}}
 	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup must have a name")
 
 	// Now assign a special name to the first one.

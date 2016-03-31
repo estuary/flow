@@ -78,6 +78,9 @@ func (g TopicGroup) JournalsForShard(shardIndex int) map[journal.Name]*topic.Des
 // |consumer.Allocator| compliance.
 func (gs TopicGroups) Validate() error {
 	var lastName string
+	if len(gs) == 0 {
+		return errors.New("must specify at least one TopicGroup")
+	}
 	for _, group := range gs {
 		if err := group.Validate(); err != nil {
 			return err
