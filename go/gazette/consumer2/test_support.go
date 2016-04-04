@@ -1,6 +1,8 @@
 package consumer
 
 import (
+	"encoding/json"
+	"golang.org/x/net/context"
 	"io/ioutil"
 	"os"
 
@@ -78,13 +80,18 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 			return err
 		}
 
-		hints := db.recorder.BuildHints()
-		hintsPath := hintsPath(runner.ConsumerRoot, id)
+		var hints string
+		if b, err := json.Marshal(db.recorder.BuildHints()); err != nil {
+			return err
+		} else {
+			hints = string(b)
+		}
 
-		log.WithFields(log.Fields{"shard": id, "hints": hints, "path": hintsPath}).
+		var path = hintsPath(runner.ConsumerRoot, id)
+		log.WithFields(log.Fields{"shard": id, "hints": hints, "path": path}).
 			Info("storing hints")
 
-		if err = storeHints(runner.KeysAPI(), hints, hintsPath); err != nil {
+		if _, err := runner.KeysAPI().Set(context.Background(), path, hints, nil); err != nil {
 			return err
 		}
 

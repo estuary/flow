@@ -278,7 +278,7 @@ func (p *Player) write(op *RecordedOp_Write, r io.Reader) error {
 
 func (p *Player) makeLive() error {
 	if p.fsm.HasHints() {
-		return fmt.Errorf("FSM has remaining unused hints (reached log end?)")
+		return fmt.Errorf("FSM has remaining unused hints: %+v", p.fsm.hints)
 	}
 	for fnode, liveNode := range p.fsm.LiveNodes {
 		if liveNode.SkipWrites {

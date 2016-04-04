@@ -13,7 +13,6 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	"github.com/pippio/consensus"
 	rocks "github.com/tecbot/gorocksdb"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
@@ -131,23 +130,6 @@ func loadHints(shard ShardID, runner *Runner, tree *etcd.Node) (recoverylog.FSMH
 		Offset:  -1,
 	}
 	return hints, nil
-}
-
-// Asynchronously stores JSON-encoded FSMHints to |path|.
-func storeHints(keys etcd.KeysAPI, hints recoverylog.FSMHints, path string) error {
-	buf, err := json.Marshal(hints)
-	if err != nil {
-		return err
-	}
-
-	// Actual storage of hints is best-effort.
-	go func() {
-		if _, err := keys.Set(context.Background(), path, string(buf), nil); err != nil {
-			log.WithFields(log.Fields{"path": path, "err": err}).Warn("failed to store hints")
-		}
-	}()
-
-	return nil
 }
 
 // Converts |offset| into a base-16 encoded string.

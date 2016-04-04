@@ -10,10 +10,8 @@ import (
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
-	"github.com/stretchr/testify/mock"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
 	"github.com/pippio/gazette/topic"
@@ -54,23 +52,6 @@ func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
 	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{
 		LogMark: journal.NewMark("path/to/recovery/logs/shard-foo-008", -1),
 	})
-}
-
-func (s *RoutinesSuite) TestStoreHints(c *gc.C) {
-	var mockKeys consensus.MockKeysAPI
-	var calledSet = make(chan struct{})
-
-	// Expect an async call to mockKeys.Set() passing encoded hints.
-	match := mock.MatchedBy(func(h string) bool {
-		var recovered recoverylog.FSMHints
-		c.Check(json.Unmarshal([]byte(h), &recovered), gc.IsNil)
-		return c.Check(recovered, gc.DeepEquals, s.hintsFixture())
-	})
-	mockKeys.On("Set", mock.Anything, "/a/hints/path", match, (*etcd.SetOptions)(nil)).
-		Return(nil, nil).Run(func(mock.Arguments) { close(calledSet) })
-
-	c.Check(storeHints(&mockKeys, s.hintsFixture(), "/a/hints/path"), gc.IsNil)
-	<-calledSet
 }
 
 func (s *RoutinesSuite) TestLoadOffsetsFromEtcd(c *gc.C) {
