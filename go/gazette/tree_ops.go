@@ -37,18 +37,24 @@ func isEtcdRemoveOp(action string) bool {
 	return ok
 }
 
-// Precondition: |parent.Nodes| is sorted. Returns the immediate child of
-// |parent| having name |name|, or nil if no such child exists.
-func Child(parent *etcd.Node, name string) *etcd.Node {
-	prefix := len(parent.Key) + 1
+// Precondition: |parent.Nodes| is recursively sorted. Follows the hierarchy
+// under |parent| for each successive path element in |names|, and returns the
+// *etcd.Node of the leaf element if it exists, or nil otherwise.
+func Child(parent *etcd.Node, names ...string) *etcd.Node {
+	for len(names) != 0 && parent != nil {
+		prefix := len(parent.Key) + 1
 
-	ind := sort.Search(len(parent.Nodes), func(i int) bool {
-		return parent.Nodes[i].Key[prefix:] >= name
-	})
-	if ind < len(parent.Nodes) && parent.Nodes[ind].Key[prefix:] == name {
-		return parent.Nodes[ind]
+		ind := sort.Search(len(parent.Nodes), func(i int) bool {
+			return parent.Nodes[i].Key[prefix:] >= names[0]
+		})
+		if ind < len(parent.Nodes) && parent.Nodes[ind].Key[prefix:] == names[0] {
+			parent = parent.Nodes[ind]
+			names = names[1:]
+		} else {
+			parent = nil
+		}
 	}
-	return nil
+	return parent
 }
 
 // Precondition: |names| is sorted, as are |parent.Nodes|. For |names| and

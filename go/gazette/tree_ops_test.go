@@ -15,6 +15,11 @@ func (s *TreeOpsSuite) TestChildLookup(c *gc.C) {
 
 	c.Check(Child(fixture, "aa"), gc.Equals, (*etcd.Node)(nil))
 	c.Check(Child(fixture, "aaa"), gc.Equals, fixture.Nodes[0])
+	c.Check(Child(fixture, "aaa", "0"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "aaa", "1"), gc.Equals, fixture.Nodes[0].Nodes[0])
+	c.Check(Child(fixture, "aaa", "2"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "aaa", "3"), gc.Equals, fixture.Nodes[0].Nodes[1])
+	c.Check(Child(fixture, "aaa", "4"), gc.Equals, (*etcd.Node)(nil))
 	c.Check(Child(fixture, "aaaa"), gc.Equals, (*etcd.Node)(nil))
 	c.Check(Child(fixture, "bbb"), gc.Equals, fixture.Nodes[1])
 	c.Check(Child(fixture, "bbbb"), gc.Equals, (*etcd.Node)(nil))
