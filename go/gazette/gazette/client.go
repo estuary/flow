@@ -162,9 +162,12 @@ func (c *Client) Get(args journal.ReadArgs) (journal.ReadResult, io.ReadCloser) 
 	} else if result.Error != nil {
 		return result, nil
 	} else if fragmentLocation != nil {
-		body, err := c.openFragment(fragmentLocation, result)
-		result.Error = err
-		return result, c.makeReadStatsWrapper(body, args.Journal, result.Offset)
+		if body, err := c.openFragment(fragmentLocation, result); err != nil {
+			result.Error = err
+			return result, nil
+		} else {
+			return result, c.makeReadStatsWrapper(body, args.Journal, result.Offset)
+		}
 	}
 	// No persisted fragment is available. We must repeat the request as a GET.
 	// Data will be streamed directly from the server.

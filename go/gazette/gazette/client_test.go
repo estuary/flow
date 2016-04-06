@@ -109,6 +109,28 @@ func (s *ClientSuite) TestDirectGet(c *gc.C) {
 	c.Check(body.(readStatsWrapper).stream, gc.Equals, responseFixture.Body)
 }
 
+func (s *ClientSuite) TestDirectGetFails(c *gc.C) {
+	mockClient := &mockHttpClient{}
+
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "GET" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+	})).Return(&http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Status:     "Internal Error",
+		Body:       ioutil.NopCloser(strings.NewReader("message")),
+	}, nil).Once()
+
+	s.client.httpClient = mockClient
+	result, body := s.client.GetDirect(ReadArgs{
+		Journal: "a/journal", Offset: 1005, Blocking: false})
+
+	c.Check(result.Error.Error(), gc.Equals, "Internal Error (message)")
+	c.Check(body, gc.IsNil)
+
+	mockClient.AssertExpectations(c)
+}
+
 func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
 	mockClient := &mockHttpClient{}
 
@@ -184,6 +206,31 @@ func (s *ClientSuite) TestGetWithFragmentLocation(c *gc.C) {
 	// Expect that the returned response is pre-seeked to the correct offset.
 	data, _ := ioutil.ReadAll(body)
 	c.Check(string(data), gc.Equals, "fragment-content...")
+}
+
+func (s *ClientSuite) TestGetWithFragmentLocationFails(c *gc.C) {
+	mockClient := &mockHttpClient{}
+
+	// Expect an initial HEAD request to the default endpoint.
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+	})).Return(newReadResponseFixture(), nil).Once()
+
+	// Expect a following GET request to the returned cloud URL, which fails.
+	mockClient.On("Get", "http://cloud/fragment/location").Return(&http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Status:     "Internal Error",
+		Body:       ioutil.NopCloser(strings.NewReader("message")),
+	}, nil).Once()
+
+	s.client.httpClient = mockClient
+	result, body := s.client.Get(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
+
+	c.Check(result.Error.Error(), gc.Equals, "fetching fragment: Internal Error")
+	c.Check(body, gc.IsNil)
+
+	mockClient.AssertExpectations(c)
 }
 
 func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
