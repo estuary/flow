@@ -65,6 +65,11 @@ func (s *AllocRunSuite) TestSingle(c *gc.C) {
 		c.Check(s.routes[item].Entries, gc.HasLen, 1)
 		c.Check(s.routes[item].Index("my-key"), gc.Equals, 0)
 	}
+
+	// Interlude: Expect that an attempt to Create the same Allocator fails.
+	c.Check(Create(testAllocator{AllocRunSuite: s, instanceKey: "my-key"}),
+		gc.Equals, ErrAllocatorInstanceExists)
+
 	c.Check(CancelItem(alloc, "bar"), gc.IsNil)
 
 	// Stage 2: Expect that the cancelled item is re-acquired.
@@ -324,6 +329,7 @@ func newTestAlloc(s *AllocRunSuite, key string) testAllocator {
 }
 
 func (t testAllocator) run(c *gc.C) {
+	c.Assert(Create(t), gc.IsNil)
 	c.Check(Allocate(t), gc.IsNil)
 	t.notifyCh <- notify{key: t.instanceKey, exit: true}
 }

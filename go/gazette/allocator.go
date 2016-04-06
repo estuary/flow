@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"errors"
 	"math/rand"
 	"time"
 
@@ -16,6 +17,8 @@ const (
 	lockDuration          = time.Minute * 5 // Duration of held locks
 	allocErrSleepInterval = time.Second * 5
 )
+
+var ErrAllocatorInstanceExists = errors.New("Allocator member key exists")
 
 // Interface for types which perform distributed allocation of items.
 type Allocator interface {
@@ -49,17 +52,30 @@ type Allocator interface {
 	ItemRoute(item string, route Route, index int, tree *etcd.Node)
 }
 
+// Attempts to create an Allocator member lock reflecting instance |alloc|.
+// If the member lock already exists, returns ErrAllocatorInstanceExists.
+// An Allocator member lock should be obtained prior to an Allocate call.
+func Create(alloc Allocator) error {
+	_, err := alloc.KeysAPI().Set(context.Background(), memberKey(alloc), "",
+		&etcd.SetOptions{PrevExist: etcd.PrevNoExist, TTL: lockDuration})
+
+	if err, ok := err.(etcd.Error); ok && err.Code == etcd.ErrorCodeNodeExist {
+		return ErrAllocatorInstanceExists
+	}
+	return err
+}
+
 // Acts on behalf of |alloc| to achieve distributed allocation of items.
 // This is a long-lived call, which will exit only after |alloc|'s member
 // announcement is removed (eg, by Cancel(alloc)) and all allocated items have
 // been safely handed off to ready replicas.
+//
+// Allocate acts on behalf of an existing member lock. If such a lock does not
+// exist, Allocate will take no action. If it exists but is owned by another
+// process, Allocate will duplicate the item allocations of that process. It is
+// the caller's responsibility to obtain and verify uniqueness of the member
+// lock (eg, via a preceeding Create).
 func Allocate(alloc Allocator) error {
-	// Create the member entry. Fail-fast on an error.
-	if _, err := alloc.KeysAPI().Set(context.Background(), memberKey(alloc), "",
-		&etcd.SetOptions{PrevExist: etcd.PrevNoExist, TTL: lockDuration}); err != nil {
-		return err
-	}
-
 	// Channels for receiving & cancelling watched tree updates.
 	var watchCh = make(chan *etcd.Response)
 	var cancelWatch = make(chan struct{})
