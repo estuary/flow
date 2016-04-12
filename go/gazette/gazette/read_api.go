@@ -52,17 +52,25 @@ func (h *ReadAPI) Read(w http.ResponseWriter, r *http.Request) {
 	// Loop performing incremental reads and copying to the client. If we fail
 	// here, we log and just drop the connection (since we've already written
 	// response headers).
-	for first := true; true; first = false {
-		if result.Error != nil {
-			log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("read failed")
-			break
+	for iter := 0; true; iter++ {
+
+		switch result.Error {
+		case journal.ErrNotYetAvailable, journal.ErrNotReplica:
+			return // Common error cases: don't log.
+		case nil:
+			// Fall through.
+		default:
+			log.WithFields(log.Fields{"err": result.Error, "ReadOp": op, "ReadIter": iter}).
+				Warn("read failed")
+			return
 		}
 
 		if !result.Fragment.IsLocal() {
-			if first {
+			if iter == 0 {
 				// A proxied read of a remote fragment is inefficient. We'll still do
 				// it if explicitly asked, but surface the call via logging.
-				log.WithField("fragment", result.Fragment.ContentPath()).Info("non-local fragment read")
+				log.WithField("fragment", result.Fragment.ContentPath()).
+					Warn("non-local fragment read")
 			} else {
 				// The client has fallen behind, or we've already proxied a fragment
 				// from remote storage. Force the client to explicitly re-issue the
@@ -74,13 +82,15 @@ func (h *ReadAPI) Read(w http.ResponseWriter, r *http.Request) {
 		var reader io.Reader
 		reader, err := result.Fragment.ReaderFromOffset(result.Offset, h.cfs)
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "ReadOp": op}).Warn("failed to get a fragment reader")
+			log.WithFields(log.Fields{"err": err, "ReadOp": op, "ReadIter": iter}).
+				Warn("failed to get a fragment reader")
 			break
 		}
 
 		delta, err := io.Copy(w, reader)
 		if err != nil {
-			log.WithFields(log.Fields{"err": err, "ReadOp": op}).Warn("failed to copy to client")
+			log.WithFields(log.Fields{"err": err, "ReadOp": op, "ReadIter": iter}).
+				Warn("failed to copy to client")
 			break
 		}
 		if flusher, ok := w.(http.Flusher); ok {
@@ -140,6 +150,7 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 		// Return a 302 redirect on a routing error.
 		if routeError, ok := result.Error.(RouteError); ok {
 			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusTemporaryRedirect)
+			result.Error = routeError.Err // Unwrap.
 			return op, result
 		}
 		// Fail now if we encountered an error other than ErrNotYetAvailable,

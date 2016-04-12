@@ -110,9 +110,9 @@ func (b *Broker) loop() {
 			if writers, err := b.phaseOne(); err != nil {
 				op.Result <- AppendResult{Error: ErrReplicationFailed}
 
-				log.WithField("err", err).Error("transaction failed (phase one)")
+				log.WithField("err", err).Warn("transaction failed (phase one)")
 			} else if err = b.phaseTwo(writers, op); err != nil {
-				log.WithField("err", err).Error("transaction failed (phase two)")
+				log.WithField("err", err).Warn("transaction failed (phase two)")
 			}
 		}
 	}
