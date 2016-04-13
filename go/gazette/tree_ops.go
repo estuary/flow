@@ -234,6 +234,26 @@ func TerminalNodes(node *etcd.Node) etcd.Nodes {
 	return result
 }
 
+type StringMap interface {
+	Get(key string) string
+}
+
+// Maps |node| into a StringMap which returns the Value of a nested
+// '/'-separated path, or the empty string if the path does not exist.
+func MapAdapter(node *etcd.Node) StringMap {
+	return stringMapAdapter{node}
+}
+
+type stringMapAdapter struct{ *etcd.Node }
+
+func (a stringMapAdapter) Get(key string) string {
+	n := Child(a.Node, strings.Split(key, "/")...)
+	if n != nil {
+		return n.Value
+	}
+	return ""
+}
+
 // Simple typedef of KeysAPI, presented here for mock generation.
 type KeysAPI interface {
 	// TODO(johnny): We'd prefer to compose etcd.KeysAPI. However,

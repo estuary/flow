@@ -255,10 +255,10 @@ func (s *TreeOpsSuite) TestTerminals(c *gc.C) {
 	// Expect it extracts all terminal children in order.
 	c.Check(TerminalNodes(s.fixture()), gc.DeepEquals, etcd.Nodes{
 		{Key: "/foo/aaa/1"},
-		{Key: "/foo/aaa/3"},
+		{Key: "/foo/aaa/3", Value: "feed"},
 		{Key: "/foo/bbb/a"},
 		{Key: "/foo/bbb/c"},
-		{Key: "/foo/ccc/apple/one"},
+		{Key: "/foo/ccc/apple/one", Value: "beef"},
 		{Key: "/foo/ccc/banana"},
 	})
 
@@ -269,6 +269,17 @@ func (s *TreeOpsSuite) TestTerminals(c *gc.C) {
 	c.Check(TerminalNodes(nil), gc.DeepEquals, etcd.Nodes{})
 }
 
+func (s *TreeOpsSuite) TestMapAdapter(c *gc.C) {
+	a := MapAdapter(s.fixture())
+
+	c.Check(a.Get(""), gc.Equals, "")
+	c.Check(a.Get("aaa/3"), gc.Equals, "feed")
+	c.Check(a.Get("bbb/c"), gc.Equals, "")
+	c.Check(a.Get("bbb/c/d/e/f"), gc.Equals, "")
+	c.Check(a.Get("ccc/apple/one"), gc.Equals, "beef")
+	c.Check(a.Get("ccc/apple/two"), gc.Equals, "")
+}
+
 func (s *TreeOpsSuite) fixture() *etcd.Node {
 	return &etcd.Node{
 		Key: "/foo",
@@ -277,7 +288,7 @@ func (s *TreeOpsSuite) fixture() *etcd.Node {
 			{
 				Key:   "/foo/aaa",
 				Dir:   true,
-				Nodes: etcd.Nodes{{Key: "/foo/aaa/1"}, {Key: "/foo/aaa/3"}},
+				Nodes: etcd.Nodes{{Key: "/foo/aaa/1"}, {Key: "/foo/aaa/3", Value: "feed"}},
 			},
 			{
 				Key:   "/foo/bbb",
@@ -291,7 +302,7 @@ func (s *TreeOpsSuite) fixture() *etcd.Node {
 					{
 						Key:   "/foo/ccc/apple",
 						Dir:   true,
-						Nodes: etcd.Nodes{{Key: "/foo/ccc/apple/one"}},
+						Nodes: etcd.Nodes{{Key: "/foo/ccc/apple/one", Value: "beef"}},
 					},
 					{Key: "/foo/ccc/banana"}},
 			},
