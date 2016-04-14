@@ -1,11 +1,7 @@
 package consumer
 
 import (
-	"os"
-	"os/signal"
 	"sort"
-	"syscall"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
@@ -63,48 +59,7 @@ func (r *Runner) Run() error {
 		}
 	}
 
-	// Install a signal handler which closes |shutdownCh| on external signal.
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
-	shutdownCh := make(chan struct{})
-
-	go func() {
-		sig, ok := <-signalCh
-		if ok {
-			log.WithField("signal", sig).Info("caught signal")
-			close(shutdownCh)
-		}
-	}()
-
-	// Obtain Allocator lock. If it exists, retry until signalled.
-	for {
-		err := consensus.Create(r)
-		if err == nil {
-			break
-		} else if err != consensus.ErrAllocatorInstanceExists {
-			return err
-		}
-
-		log.WithField("key", r.InstanceKey()).Warn("waiting for prior allocator to expire")
-		select {
-		case <-time.After(time.Second * 10):
-			continue
-		case <-shutdownCh:
-			return err
-		}
-	}
-
-	// Arrange to Cancel Allocate on signal, allowing it to gracefully tear down.
-	go func() {
-		<-shutdownCh
-
-		if err := consensus.Cancel(r); err != nil {
-			log.WithField("err", err).Error("allocator cancel failed")
-		}
-	}()
-
-	// Long-lived Allocate does the heavy lifting of managing shard assignments.
-	err := consensus.Allocate(r)
+	err := consensus.CreateAndAllocateWithSignalHandling(r)
 
 	// Allocate should exit only after all shards have been cancelled.
 	if err == nil && len(r.liveShards) != 0 {
