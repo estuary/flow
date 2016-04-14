@@ -177,9 +177,9 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	writer.Start()
 
 	// Expect that promises have been resolved.
-	fooPromise.Wait()
-	barPromise.Wait()
-	bazPromise.Wait()
+	<-fooPromise.Ready
+	<-barPromise.Ready
+	<-bazPromise.Ready
 
 	writer.Stop()
 	// Expect that after Stop(), all writes have flushed.

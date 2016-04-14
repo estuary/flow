@@ -4,7 +4,6 @@ import (
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/pippio/gazette/async"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/topic"
@@ -22,7 +21,7 @@ func (s *PublisherSuite) TestPublish(c *gc.C) {
 
 	// Expect "test-message" to be framed and written to part-003.
 	writer.On("Write", journal.Name("a/topic/part-003"),
-		mock.AnythingOfType("[]uint8")).Return(make(async.Promise), nil).Once()
+		mock.AnythingOfType("[]uint8")).Return(new(journal.AsyncAppend), nil).Once()
 
 	c.Check(publisher{writer}.Publish(msgStr("test-message"), topic), gc.IsNil)
 

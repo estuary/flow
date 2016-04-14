@@ -170,7 +170,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 	// the previous transaction has been sync'd by Gaette. We allow a current
 	// transaction to process in the meantime (so we don't stall on Gazette IO),
 	// but it cannot commit until |lastWriteBarrier| is selectable.
-	var lastWriteBarrier <-chan struct{}
+	var lastWriteBarrier = new(journal.AsyncAppend)
 
 	for {
 		var err error
@@ -185,15 +185,19 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			maybeSrc = source
 		}
 
-		if txMessages == 0 || lastWriteBarrier != nil {
+		if txMessages == 0 || lastWriteBarrier.Ready != nil {
 			// We must block until both conditions are resolved.
 			select {
 			case <-m.cancelCh:
 				return nil
 			case lastTimeoutTick = <-txTimeoutTimer.C:
 				continue
-			case <-lastWriteBarrier:
-				lastWriteBarrier = nil
+			case <-lastWriteBarrier.Ready:
+				if lastWriteBarrier.Error != nil {
+					panic("expected write to resolve without error, or not resolve")
+				}
+
+				lastWriteBarrier.Ready = nil
 				continue
 			case msg = <-maybeSrc:
 				goto CONSUME_MSG
@@ -261,8 +265,8 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			}
 
 			// Actual Etcd Set is async and best-effort.
-			go func(hints string, barrier <-chan struct{}) {
-				<-barrier
+			go func(hints string, barrier *journal.AsyncAppend) {
+				<-barrier.Ready
 
 				_, err := runner.KeysAPI().Set(context.Background(), m.hintsPath, hints, nil)
 				if err != nil {

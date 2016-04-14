@@ -13,7 +13,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/api-server/varz"
-	"github.com/pippio/gazette/async"
 	"github.com/pippio/gazette/journal"
 )
 
@@ -39,9 +38,7 @@ type pendingWrite struct {
 	file    *os.File
 	offset  int64
 	started time.Time
-
-	// Signals successful write.
-	promise async.Promise
+	result  *journal.AsyncAppend
 }
 
 var pendingWritePool = sync.Pool{
@@ -153,7 +150,9 @@ func (c *WriteService) obtainWrite(name journal.Name) (*pendingWrite, bool, erro
 	} else {
 		write = popped.(*pendingWrite)
 		write.journal = name
-		write.promise = make(async.Promise)
+		write.result = &journal.AsyncAppend{
+			Ready: make(chan struct{}),
+		}
 		write.started = time.Now()
 		c.writeIndex[name] = write
 		return write, true, nil
@@ -161,24 +160,24 @@ func (c *WriteService) obtainWrite(name journal.Name) (*pendingWrite, bool, erro
 }
 
 // Appends |buffer| to |journal|. Either all of |buffer| is written, or none
-// of it is. Returns a Promise which is resolved when the write has been
-// fully committed.
-func (c *WriteService) Write(name journal.Name, buf []byte) (async.Promise, error) {
+// of it is. Returns a AsyncAppendwhich is resolved when the write has
+// been fully committed.
+func (c *WriteService) Write(name journal.Name, buf []byte) (*journal.AsyncAppend, error) {
 	return c.ReadFrom(name, bytes.NewReader(buf))
 }
 
 // Appends |r|'s content to |journal|, by reading until io.EOF. Either all of
-// |r| is written, or none of it is. Returns a Promise which is resolved when
-// the write has been fully committed.
-func (c *WriteService) ReadFrom(name journal.Name, r io.Reader) (async.Promise, error) {
-	var promise async.Promise
+// |r| is written, or none of it is. Returns an AsyncAppend which is
+// resolved when the write has been fully committed.
+func (c *WriteService) ReadFrom(name journal.Name, r io.Reader) (*journal.AsyncAppend, error) {
+	var result *journal.AsyncAppend
 	var writeErr error
 
 	c.writeIndexMu.Lock()
 	write, isNew, obtainErr := c.obtainWrite(name)
 	if obtainErr == nil {
 		writeErr = writeAllOrNone(write, r)
-		promise = write.promise // Retain, as we can't access |write| after unlock.
+		result = write.result // Retain, as we can't access |write| after unlock.
 	}
 	c.writeIndexMu.Unlock()
 
@@ -192,7 +191,7 @@ func (c *WriteService) ReadFrom(name journal.Name, r io.Reader) (async.Promise, 
 		route := int(crc32.Checksum([]byte(name), crc32.IEEETable))
 		c.writeQueue[route%len(c.writeQueue)] <- write
 	}
-	return promise, writeErr
+	return result, writeErr
 }
 
 func (c *WriteService) serveWrites(index int) {
@@ -239,7 +238,8 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 			continue
 		}
 		// Success. Notify any waiting clients.
-		write.promise.Resolve()
+		write.result.AppendResult = result
+		close(write.result.Ready)
 
 		varz.ObtainAverage("gazette", "avgWriteSize").
 			Add(float64(write.offset))
@@ -272,12 +272,12 @@ func (c *WriteService) WriterFor(name journal.Name, sync bool) io.Writer {
 }
 
 func (w *namedWriter) Write(data []byte) (int, error) {
-	promise, err := w.writeService.Write(w.name, data)
+	result, err := w.writeService.Write(w.name, data)
 	if err != nil {
 		return 0, err
 	}
 	if w.sync {
-		promise.Wait()
+		<-result.Ready
 	}
 	return len(data), nil
 }

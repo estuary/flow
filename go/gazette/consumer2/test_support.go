@@ -96,7 +96,7 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		}
 
 		// Wait for Gazette to commit.
-		<-barrier
+		<-barrier.Ready
 	}
 	return nil
 }

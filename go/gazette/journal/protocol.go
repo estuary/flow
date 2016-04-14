@@ -96,3 +96,11 @@ type AppendOp struct {
 	// Channel by which broker returns operation status.
 	Result chan AppendResult `json:"-"`
 }
+
+// Represents an AppendOp which is being asynchronously executed.
+type AsyncAppend struct {
+	// Read-only, and valid only after Ready is signaled.
+	AppendResult
+	// Signaled with the AppendOp has completed.
+	Ready chan struct{}
+}

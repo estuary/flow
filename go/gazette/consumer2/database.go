@@ -67,7 +67,7 @@ func newDatabase(fsm *recoverylog.FSM, dir string, writer journal.Writer) (*data
 	return db, nil
 }
 
-func (db *database) commit() (<-chan struct{}, error) {
+func (db *database) commit() (*journal.AsyncAppend, error) {
 	if err := db.Write(db.writeOptions, db.writeBatch); err != nil {
 		return nil, err
 	}

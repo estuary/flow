@@ -34,7 +34,7 @@ func NewSink(topic *topic.Description, writer journal.Writer) Sink {
 
 func (s *Sink) Put(msg topic.Marshallable, block bool) error {
 	var err error
-	var done chan struct{}
+	var done *journal.AsyncAppend
 
 	buffer := sinkBufferPool.Get().([]byte)
 
@@ -49,7 +49,7 @@ func (s *Sink) Put(msg topic.Marshallable, block bool) error {
 	}
 	if block || (s.AutoFlushRate != 0 &&
 		atomic.AddInt64(&s.autoFlushCounter, 1)%s.AutoFlushRate == 0) {
-		<-done
+		<-done.Ready
 	}
 	return nil
 }

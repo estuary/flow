@@ -3,8 +3,6 @@ package journal
 import (
 	"io"
 	"net/url"
-
-	"github.com/pippio/gazette/async"
 )
 
 // A typed journal name. By convention, journals are named using a forward-
@@ -32,12 +30,12 @@ type Writer interface {
 	// Appends |buffer| to |journal|. Either all of |buffer| is written, or none
 	// of it is. Returns a Promise which is resolved when the write has been
 	// fully committed.
-	Write(journal Name, buffer []byte) (async.Promise, error)
+	Write(journal Name, buffer []byte) (*AsyncAppend, error)
 
 	// Appends |r|'s content to |journal|, by reading until io.EOF. Either all of
 	// |r| is written, or none of it is. Returns a Promise which is resolved when
 	// the write has been fully committed.
-	ReadFrom(journal Name, r io.Reader) (async.Promise, error)
+	ReadFrom(journal Name, r io.Reader) (*AsyncAppend, error)
 }
 
 // Performs a Gazette GET operation.
