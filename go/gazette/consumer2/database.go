@@ -51,6 +51,15 @@ func newDatabase(fsm *recoverylog.FSM, dir string, writer journal.Writer) (*data
 	// until the previous one has been fully synced by Gazette.
 	db.options.SetDisableDataSync(true)
 
+	// The MANIFEST file is a WAL of database file state, including current live
+	// SST files and their begin & ending key ranges. A new MANIFEST-00XYZ is
+	// created at database start, where XYZ is the next available sequence number,
+	// and CURRENT is updated to point at the live MANIFEST. By default MANIFEST
+	// files may grow to 4GB, but they are typically written very slowly and thus
+	// artificially inflate the recovery log horizon. We use a much smaller limit
+	// to encourage more frequent snapshotting and rolling into new files.
+	db.options.SetMaxManifestFileSize(1 << 20) // 1048576 bytes.
+
 	db.DB, err = rocks.OpenDb(db.options, dir)
 	if err != nil {
 		return db, err
