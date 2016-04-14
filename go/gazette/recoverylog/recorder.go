@@ -199,6 +199,13 @@ func (r *Recorder) BuildHints() FSMHints {
 	return r.fsm.BuildHints()
 }
 
+// Shifts the FSM offset for successive operations to |writeHead|, which will
+// lower-bound the effective offset of any new operations being recorded.
+// We use periodic updates from commits to update our offset rather than
+// counting written bytes, as this provides a tight bound while still being
+// correct in the case of competing writes from multiple Recorders.
+func (r *Recorder) UpdateWriteHead(writeHead int64) { r.fsm.LogMark.Offset = writeHead }
+
 func (r *Recorder) process(op RecordedOp) []byte {
 	if r.fsm.NextSeqNo == 0 {
 		op.SeqNo = 1
@@ -217,8 +224,6 @@ func (r *Recorder) process(op RecordedOp) []byte {
 	if err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("recorder FSM error")
 	}
-	r.fsm.LogMark.Offset += int64(len(frame))
-
 	return frame
 }
 
@@ -249,7 +254,6 @@ func (r *fileRecorder) Append(data []byte) {
 	}
 
 	r.offset += int64(len(data))
-	r.fsm.LogMark.Offset += int64(len(data))
 }
 
 // rocks.EnvObserver implementation.
@@ -259,9 +263,9 @@ func (r *fileRecorder) Fsync()                         { r.sync() }
 func (r *fileRecorder) RangeSync(offset, nbytes int64) { r.sync() }
 
 func (r *fileRecorder) sync() {
-	promise, err := r.writer.Write(r.fsm.LogMark.Journal, nil)
+	result, err := r.writer.Write(r.fsm.LogMark.Journal, nil)
 	if err != nil {
 		log.WithField("err", err).Panic("writing sync frame")
 	}
-	promise.Wait()
+	<-result.Ready
 }

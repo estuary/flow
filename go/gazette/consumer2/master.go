@@ -196,6 +196,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 				if lastWriteBarrier.Error != nil {
 					panic("expected write to resolve without error, or not resolve")
 				}
+				m.database.recorder.UpdateWriteHead(lastWriteBarrier.AppendResult.WriteHead)
 
 				lastWriteBarrier.Ready = nil
 				continue
