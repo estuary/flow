@@ -3,6 +3,9 @@ package consensus
 import (
 	"errors"
 	"math/rand"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -216,6 +219,55 @@ func Cancel(alloc Allocator) error {
 func CancelItem(alloc Allocator, item string) error {
 	_, err := alloc.KeysAPI().Delete(context.Background(), itemKey(alloc, item), nil)
 	return err
+}
+
+// Composes Create and Allocate to run an Allocator which will additionally
+// use an installed signal handler to gracefully Cancel itself on a SIGTERM
+// or SIGINT. Performs a polled retry of Create on ErrAllocatorInstanceExists,
+// until aquired or signaled. Top-level programs implementing an Allocator will
+// generally want to use this.
+func CreateAndAllocateWithSignalHandling(alloc Allocator) error {
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
+	shutdownCh := make(chan struct{})
+
+	go func() {
+		sig, ok := <-signalCh
+		if ok {
+			log.WithField("signal", sig).Info("caught signal")
+			close(shutdownCh)
+		}
+	}()
+
+	// Obtain Allocator lock. If it exists, retry until signalled.
+	for {
+		err := Create(alloc)
+		if err == nil {
+			break
+		} else if err != ErrAllocatorInstanceExists {
+			return err
+		}
+		log.WithField("key", alloc.InstanceKey()).
+			Warn("waiting for prior Allocator to expire")
+
+		select {
+		case <-time.After(time.Second * 10):
+			continue
+		case <-shutdownCh:
+			return err
+		}
+	}
+
+	// Arrange to Cancel Allocate on signal, allowing it to gracefully tear down.
+	go func() {
+		<-shutdownCh
+
+		if err := Cancel(alloc); err != nil {
+			log.WithField("err", err).Error("allocator cancel failed")
+		}
+	}()
+
+	return Allocate(alloc)
 }
 
 // Returns the member announcement key for |alloc|.
