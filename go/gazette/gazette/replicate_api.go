@@ -46,7 +46,7 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 	var op = journal.ReplicateOp{
 		ReplicateArgs: journal.ReplicateArgs{
 			Journal:    journal.Name(r.URL.Path[1:]),
-			RouteToken: schema.RouteToken,
+			RouteToken: journal.RouteToken(schema.RouteToken),
 			WriteHead:  schema.WriteHead,
 			NewSpool:   schema.NewSpool,
 		},
@@ -61,7 +61,7 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(WriteHeadHeader,
 				strconv.FormatInt(result.ErrorWriteHead, 16))
 		}
-		http.Error(w, result.Error.Error(), http.StatusBadRequest)
+		http.Error(w, result.Error.Error(), journal.StatusCodeForError(result.Error))
 		return
 	}
 	var err error
@@ -73,11 +73,13 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 		r.Trailer.Get(CommitDeltaHeader), 16, 64); err != nil {
 		result.Writer.Commit(0) // Abort.
 	} else if err = result.Writer.Commit(commitDelta); err != nil {
+		// Abort.
 	} else {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusNoContent) // Success.
 		return
 	}
+
 	log.WithField("err", err).Error("failed to commit transaction")
-	http.Error(w, err.Error(), http.StatusBadRequest)
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 	return
 }

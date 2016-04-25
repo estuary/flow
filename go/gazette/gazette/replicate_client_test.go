@@ -9,7 +9,7 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/api-server/discovery"
-	. "github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/journal"
 )
 
 type ReplicateClientSuite struct {
@@ -72,15 +72,15 @@ func (s *ReplicateClientSuite) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *ReplicateClientSuite) opFixture() ReplicateOp {
-	return ReplicateOp{
-		ReplicateArgs: ReplicateArgs{
+func (s *ReplicateClientSuite) opFixture() journal.ReplicateOp {
+	return journal.ReplicateOp{
+		ReplicateArgs: journal.ReplicateArgs{
 			Journal:    "a/journal",
 			RouteToken: "a-route-token",
 			WriteHead:  123456,
 			NewSpool:   true,
 		},
-		Result: make(chan ReplicateResult),
+		Result: make(chan journal.ReplicateResult),
 	}
 }
 

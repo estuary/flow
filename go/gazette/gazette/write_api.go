@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+
 	"github.com/pippio/gazette/journal"
 )
 
@@ -31,16 +32,20 @@ func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
 	h.handler.Append(op)
 	result := <-op.Result
 
-	if result.Error != nil {
-		// Return a 404 Not Found with Location header on a routing error.
-		if routeError, ok := result.Error.(RouteError); ok {
-			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusNotFound)
-		} else {
-			http.Error(w, result.Error.Error(), http.StatusInternalServerError)
-		}
-		r.Body.Close()
-	} else {
+	if result.WriteHead != 0 {
 		w.Header().Set(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 10))
+	}
+	if result.RouteToken != "" {
+		w.Header().Set(RouteTokenHeader, string(result.RouteToken))
+	}
+	r.Body.Close()
+
+	if result.Error == journal.ErrNotBroker {
+		// Return a Location header with the broker location.
+		brokerRedirect(w, r, result.RouteToken, journal.StatusCodeForError(result.Error))
+	} else if result.Error != nil {
+		http.Error(w, result.Error.Error(), journal.StatusCodeForError(result.Error))
+	} else {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

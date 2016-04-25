@@ -21,13 +21,7 @@ type JournalReplica interface {
 	AppendOpHandler
 	ReadOpHandler
 	ReplicateOpHandler
-	IsBroker() bool
 	Shutdown()
-	StartBrokeringWithPeers(routeToken string, peers []journal.Replicator)
-	StartReplicating(routeToken string)
-}
-
-// Creates a new Replica instance.
-type ReplicaFactory interface {
-	NewReplica(journal.Name) JournalReplica
+	StartBrokeringWithPeers(journal.RouteToken, []journal.Replicator)
+	StartReplicating(journal.RouteToken)
 }

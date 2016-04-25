@@ -39,7 +39,7 @@ func (h *ReadAPI) Head(w http.ResponseWriter, r *http.Request) {
 	op, result := h.initialRead(w, r)
 
 	switch result.Error {
-	case nil, journal.ErrNotYetAvailable, journal.ErrNotReplica:
+	case nil, journal.ErrNotYetAvailable, journal.ErrNotReplica, journal.ErrNotFound:
 		// Common expected error cases: don't log.
 	default:
 		log.WithFields(log.Fields{"err": result.Error, "ReadOp": op}).Warn("head failed")
@@ -55,7 +55,7 @@ func (h *ReadAPI) Read(w http.ResponseWriter, r *http.Request) {
 	for iter := 0; true; iter++ {
 
 		switch result.Error {
-		case journal.ErrNotYetAvailable, journal.ErrNotReplica:
+		case journal.ErrNotYetAvailable, journal.ErrNotReplica, journal.ErrNotFound:
 			return // Common error cases: don't log.
 		case nil:
 			// Fall through.
@@ -145,18 +145,20 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 		// Informational: Add the current write head.
 		w.Header().Add(WriteHeadHeader, strconv.FormatInt(result.WriteHead, 10))
 	}
+	if result.RouteToken != "" {
+		w.Header().Set(RouteTokenHeader, string(result.RouteToken))
+	}
 
 	if result.Error != nil {
 		// Return a 302 redirect on a routing error.
-		if routeError, ok := result.Error.(RouteError); ok {
-			http.Redirect(w, r, routeError.RerouteURL(r.URL).String(), http.StatusTemporaryRedirect)
-			result.Error = routeError.Err // Unwrap.
+		if result.Error == journal.ErrNotReplica {
+			brokerRedirect(w, r, result.RouteToken, journal.StatusCodeForError(result.Error))
 			return op, result
 		}
 		// Fail now if we encountered an error other than ErrNotYetAvailable,
 		// or we saw ErrNotYetAvailable for a non-blocking read.
 		if schema.Block == false || result.Error != journal.ErrNotYetAvailable {
-			http.Error(w, result.Error.Error(), ResponseCodeForError(result.Error))
+			http.Error(w, result.Error.Error(), journal.StatusCodeForError(result.Error))
 			return op, result
 		}
 	}

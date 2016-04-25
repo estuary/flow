@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"expvar"
 	"fmt"
+	"net/http"
 	"net/url"
+	"path"
 	"sort"
+	"strings"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
@@ -14,19 +17,278 @@ import (
 	"github.com/pippio/gazette/journal"
 )
 
-const MembersPrefix = "members/"
+// Builds a JournalReplica instance with the given journal.Name.
+type ReplicaFactory func(journal.Name) JournalReplica
 
+// Routes and dispatches Read, Append, and Replicate operations to a
+// collection of responsible JournalReplicas.
 type Router struct {
-	// Builder of new Replica instances.
-	factory ReplicaFactory
-	// Static routing key of this server process.
-	localRouteKey string
-	// Index of initialized Replica instances.
-	replicas map[journal.Name]JournalReplica
-	// Router of journal names to responsible server processes.
-	router discovery.HRWRouter
-	// Guards access to |replicas| and |router|.
-	mu sync.Mutex
+	replicaFactory ReplicaFactory
+
+	routes   map[journal.Name]*journalRoute
+	routesMu sync.Mutex
+}
+
+func NewRouter(factory ReplicaFactory) *Router {
+	r := &Router{
+		replicaFactory: factory,
+		routes:         make(map[journal.Name]*journalRoute),
+	}
+
+	gazetteMap.Set("brokers", journalStringer(r.BrokeredJournals))
+	gazetteMap.Set("replicas", journalStringer(r.ReplicatedJournals))
+	return r
+}
+
+func (r *Router) Read(op journal.ReadOp) {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	if route, ok := r.routes[op.Journal]; !ok || route.token == "" {
+		op.Result <- journal.ReadResult{Error: journal.ErrNotFound}
+	} else if route.replica == nil {
+		op.Result <- journal.ReadResult{
+			Error:      journal.ErrNotReplica,
+			RouteToken: route.token,
+		}
+	} else {
+
+		// Proxy result to extend with RouteToken.
+		forward := op.Result
+		op.Result = make(chan journal.ReadResult, 1)
+
+		go func(token journal.RouteToken) {
+			result := <-op.Result
+			result.RouteToken = token
+			forward <- result
+		}(route.token)
+
+		route.replica.Read(op)
+	}
+}
+
+func (r *Router) Append(op journal.AppendOp) {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	if route, ok := r.routes[op.Journal]; !ok || route.token == "" {
+		op.Result <- journal.AppendResult{Error: journal.ErrNotFound}
+	} else if !route.broker {
+		op.Result <- journal.AppendResult{
+			Error:      journal.ErrNotBroker,
+			RouteToken: route.token,
+		}
+	} else if !route.brokerReady {
+		op.Result <- journal.AppendResult{
+			Error:      journal.ErrReplicationFailed,
+			RouteToken: route.token,
+		}
+	} else {
+
+		// Proxy result to extend with RouteToken, and to potentially update
+		// |lastAppendToken| on a successful Append.
+		forward := op.Result
+		op.Result = make(chan journal.AppendResult, 1)
+
+		go func(token, lastAppendToken journal.RouteToken) {
+			result := <-op.Result
+			result.RouteToken = token
+
+			if result.Error != nil || token == lastAppendToken {
+				forward <- result
+				return
+			}
+
+			r.routesMu.Lock()
+			defer r.routesMu.Unlock()
+
+			// Note that we must use the retained |token|, and not |route.token|,
+			// as the latter may have changed out from under us during the call.
+			// Similarly |route.lastAppendToken| may have been updated: in this
+			// case we don't care, as it will still converge to the correct value.
+			route.lastAppendToken = token
+			forward <- result
+
+		}(route.token, route.lastAppendToken)
+
+		route.replica.Append(op)
+	}
+}
+
+func (r *Router) Replicate(op journal.ReplicateOp) {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	if route, ok := r.routes[op.Journal]; !ok {
+		op.Result <- journal.ReplicateResult{Error: journal.ErrNotFound}
+	} else if route.replica == nil {
+		op.Result <- journal.ReplicateResult{Error: journal.ErrNotReplica}
+	} else if op.RouteToken != route.token {
+		op.Result <- journal.ReplicateResult{Error: journal.ErrWrongRouteToken}
+	} else {
+		route.replica.Replicate(op)
+	}
+}
+
+// Returns whether |name| is both locally brokered and has successfully served
+// an Append operation under the current route topology. This is an important
+// indicator for consistency, as a successful Append ensures that all replicas
+// reached agreement on the route token & write head during the transaction.
+func (r *Router) HasServedAppend(name journal.Name) bool {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	route, ok := r.routes[name]
+	return ok && route.brokerReady && route.token == route.lastAppendToken
+}
+
+// Returns the set of Journals which are brokered by this Router.
+func (r *Router) BrokeredJournals() []journal.Name {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	var result []journal.Name
+
+	for name, route := range r.routes {
+		if route.broker {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
+// Returns the set of Journals which are replicated by this Router.
+func (r *Router) ReplicatedJournals() []journal.Name {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	var result []journal.Name
+
+	for name, route := range r.routes {
+		if !route.broker && route.replica != nil {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
+type journalRoute struct {
+	// Nil iff journal is not replicated locally.
+	replica JournalReplica
+	// True iff journal is locally brokered.
+	broker bool
+	// True iff journal is locally brokered, and the required number of
+	// replicas exist in the route topology.
+	brokerReady bool
+	// Current topology |token| of journal, and the token of the most-recent
+	// Append operation which we successfully brokered.
+	token, lastAppendToken journal.RouteToken
+}
+
+func (r *Router) transition(name journal.Name, rt journal.RouteToken,
+	index, requiredReplicas int) {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	// We are a replica if our index is within the range of required replicas.
+	// Note the broker is a replica, and |requiredReplicas| is zero-indexed
+	// (eg |requiredReplicas| of 2 implies one master and two replicas).
+	var replica = index != -1 && index <= requiredReplicas
+
+	route, ok := r.routes[name]
+	if !ok {
+		// Journal |name| is being tracked for the first time.
+		route = new(journalRoute)
+		r.routes[name] = route
+	}
+
+	if route.replica == nil && replica {
+		// The replica doesn't exist, but should.
+		route.replica = r.replicaFactory(name)
+	} else if route.replica != nil && !replica {
+		// The replica exists, but should not.
+		route.replica.Shutdown()
+		route.replica = nil
+	}
+
+	if route.token == rt {
+		// This Journal's route is unchanged. No further work.
+		return
+	}
+	route.token = rt
+
+	// We serve as the broker iff we hold the master item lock, and a sufficent
+	// number of replication peers are present in the route topology.
+	var broker, brokerReady bool
+	var peers []journal.Replicator
+
+	if index == 0 {
+		broker = true
+
+		if peers = routePeers(rt); len(peers) >= requiredReplicas {
+			brokerReady = true
+		}
+	}
+	route.broker = broker
+	route.brokerReady = brokerReady
+
+	if route.broker {
+		route.replica.StartBrokeringWithPeers(rt, peers)
+	} else if route.replica != nil {
+		route.replica.StartReplicating(rt)
+	}
+}
+
+// Builds a Replicator for each non-master replica of |route|.
+func routePeers(rt journal.RouteToken) []journal.Replicator {
+	var peers []journal.Replicator
+
+	for i, url := range strings.Split(string(rt), "|") {
+		if i == 0 {
+			// Skip local token.
+			continue
+		}
+		ep := &discovery.Endpoint{BaseURL: url}
+		peers = append(peers, NewReplicateClient(ep))
+	}
+	return peers
+}
+
+// Issues an HTTP redirect the current request applied to the journal broker.
+func brokerRedirect(w http.ResponseWriter, r *http.Request, rt journal.RouteToken, code int) {
+	broker := string(rt)
+	if ind := strings.IndexByte(broker, '|'); ind != -1 {
+		broker = broker[:ind]
+	}
+
+	redirect, err := url.Parse(broker)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err, "broker": broker}).Error("failed to parse URL")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	redirect.Path = path.Join(redirect.Path, r.URL.Path)
+	redirect.RawQuery = r.URL.RawQuery
+	http.Redirect(w, r, redirect.String(), code)
+}
+
+// Helper functions for expvar purposes.
+type journalStringer func() []journal.Name
+
+func (js journalStringer) String() string {
+	var ret []string
+
+	for _, name := range js() {
+		ret = append(ret, string(name))
+	}
+	sort.Strings(ret)
+
+	if encoded, err := json.Marshal(ret); err != nil {
+		return fmt.Sprintf("%q", err.Error())
+	} else {
+		return string(encoded)
+	}
 }
 
 // Only publish the 'gazette' expvar once.
@@ -34,258 +296,4 @@ var gazetteMap *expvar.Map
 
 func init() {
 	gazetteMap = expvar.NewMap("gazette")
-}
-
-func NewRouter(kvs *discovery.KeyValueService, factory ReplicaFactory,
-	localRouteKey string, replicaCount int) *Router {
-
-	r := &Router{
-		factory:       factory,
-		localRouteKey: localRouteKey,
-		replicas:      make(map[journal.Name]JournalReplica),
-	}
-	r.router = discovery.NewHRWRouter(replicaCount, r.onRouteUpdate)
-
-	gazetteMap.Set("brokers", (*brokerStringer)(r))
-	gazetteMap.Set("replicas", (*replicaStringer)(r))
-
-	// Receive continous notifications of topology changes which affect routing.
-	kvs.AddObserver(MembersPrefix, r.onMembershipChange)
-	return r
-}
-
-func (r *Router) Read(op journal.ReadOp) {
-	replica, err := r.obtainReplica(op.Journal, false)
-
-	if err != nil {
-		op.Result <- journal.ReadResult{Error: err}
-	} else {
-		replica.Read(op)
-	}
-}
-
-func (r *Router) Replicate(op journal.ReplicateOp) {
-	replica, err := r.obtainReplica(op.Journal, false)
-
-	if err != nil {
-		op.Result <- journal.ReplicateResult{Error: err}
-	} else {
-		replica.Replicate(op)
-	}
-}
-
-func (r *Router) Append(op journal.AppendOp) {
-	replica, err := r.obtainReplica(op.Journal, true)
-
-	if err != nil {
-		op.Result <- journal.AppendResult{Error: err}
-	} else {
-		replica.Append(op)
-	}
-}
-
-// Retrieves or creates a new Replica for |name|, iff this router is responsible
-// for journal |name| in role |wantBroker|.
-func (r *Router) obtainReplica(name journal.Name, wantBroker bool) (JournalReplica, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Fast-path: return a live replica in the desired role.
-	replica, hasReplica := r.replicas[name]
-	if hasReplica && (!wantBroker || replica.IsBroker()) {
-		return replica, nil
-	}
-
-	routes := r.router.Route(name.String())
-	token := routeToken(routes)
-
-	if wantBroker {
-		if hasReplica {
-			// |replica| is already known to not be a broker.
-			return nil, AsRouteError(journal.ErrNotBroker, routes)
-		} else if isBroker(r.localRouteKey, routes) {
-			// Correctly routed request for a new replica in broker role.
-			replica = r.factory.NewReplica(name)
-			replica.StartBrokeringWithPeers(token, peers(r.localRouteKey, routes))
-			// Fallthrough below to begin tracking replica.
-		} else {
-			// We are not the correct broker for |name|.
-			return nil, AsRouteError(journal.ErrNotBroker, routes)
-		}
-	} else { // We want any replica.
-		if isBroker(r.localRouteKey, routes) {
-			// We *could* use a non-broker to fulfill the request, but because
-			// we're the broker, we should broker.
-			replica = r.factory.NewReplica(name)
-			replica.StartBrokeringWithPeers(token, peers(r.localRouteKey, routes))
-		} else if isReplica(r.localRouteKey, routes) {
-			// Correctly routed request for a new replica in non-broker role.
-			replica = r.factory.NewReplica(name)
-			replica.StartReplicating(token)
-			// Fallthrough below to begin tracking replica.
-		} else {
-			// We are not a correct replica for |name|.
-			return nil, AsRouteError(journal.ErrNotReplica, routes)
-		}
-	}
-	// Arrange to observe updates of |name|'s routing within the server topology.
-	r.router.Track(name.String(), routes)
-
-	r.replicas[name] = replica
-	return replica, nil
-}
-
-// |key| is a broker if it is index 0 in |routes|.
-func isBroker(key string, routes []discovery.HRWRoute) bool {
-	return len(routes) != 0 && routes[0].Key == key
-}
-
-// |key| is a replica if it appears in |routes|.
-func isReplica(key string, routes []discovery.HRWRoute) bool {
-	for _, r := range routes {
-		if r.Key == key {
-			return true
-		}
-	}
-	return false
-}
-
-// Composes an opaque token which captures the topology described in |routes|.
-func routeToken(routes []discovery.HRWRoute) string {
-	var token string
-	for i, r := range routes {
-		if i == 0 {
-			token = r.Key[len(MembersPrefix):]
-		} else {
-			token += "|" + r.Key[len(MembersPrefix):]
-		}
-	}
-	return token
-}
-
-// Builds a ReplicateClient for each remote route (not matching |localKey|).
-func peers(localKey string, routes []discovery.HRWRoute) []journal.Replicator {
-	peers := make([]journal.Replicator, 0, len(routes)-1)
-	for _, r := range routes {
-		if r.Key == localKey {
-			continue
-		}
-		peers = append(peers, NewReplicateClient(r.Value.(*discovery.Endpoint)))
-	}
-	return peers
-}
-
-func (r *Router) onMembershipChange(members, old, new discovery.KeyValues) {
-	// Note that we're called from EtcdService's goroutine.
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.router.RebuildRoutes(members, old, new)
-}
-
-func (r *Router) onRouteUpdate(journalName string,
-	oldRoutes, newRoutes []discovery.HRWRoute) {
-	// Called from within onMembershipChange(), so we're already locked.
-	name := journal.Name(journalName)
-
-	if !isReplica(r.localRouteKey, newRoutes) {
-		// We're no longer responsible for this journal.
-		if isBroker(r.localRouteKey, oldRoutes) {
-			log.WithFields(log.Fields{
-				"oldRoutes": oldRoutes,
-				"newRoutes": newRoutes,
-				"journal":   name,
-			}).Error("was broker, now not even replica!")
-		}
-		r.replicas[name].Shutdown()
-
-		r.router.Drop(journalName)
-		delete(r.replicas, name)
-		return
-	}
-
-	newToken := routeToken(newRoutes)
-
-	if isBroker(r.localRouteKey, newRoutes) {
-		r.replicas[name].StartBrokeringWithPeers(newToken,
-			peers(r.localRouteKey, newRoutes))
-	} else {
-		r.replicas[name].StartReplicating(newToken)
-	}
-	return
-}
-
-// RouteError represents an Error that can be retried against |Location|.
-type RouteError struct {
-	Err error
-	// Location of responsible server for the operation.
-	Location *url.URL
-}
-
-// Builds a RouteError around |wrapped|, if possible. Otherwise, returns |wrapped|.
-func AsRouteError(wrapped error, routes []discovery.HRWRoute) error {
-	if len(routes) == 0 {
-		return wrapped
-	}
-	url, err := routes[0].Value.(*discovery.Endpoint).ResolveURL()
-
-	if err != nil {
-		log.WithFields(log.Fields{"err": err, "ep": routes[0].Value}).Warn("resolve failed")
-		return wrapped
-	}
-	return RouteError{Err: wrapped, Location: url}
-}
-
-func (re RouteError) Error() string {
-	return re.Err.Error()
-}
-
-func (err RouteError) RerouteURL(in *url.URL) *url.URL {
-	rewrite := &url.URL{}
-	*rewrite = *in
-	rewrite.Host = err.Location.Host
-	rewrite.Scheme = err.Location.Scheme
-	return rewrite
-}
-
-// Helper functions for expvar purposes.
-type brokerStringer Router
-type replicaStringer Router
-
-func (rs *replicaStringer) String() string {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	var ret []string
-	for name, replica := range rs.replicas {
-		if !replica.IsBroker() {
-			ret = append(ret, string(name))
-		}
-	}
-	sort.Strings(ret)
-
-	if encoded, err := json.Marshal(ret); err != nil {
-		return fmt.Sprintf("%q", err.Error())
-	} else {
-		return string(encoded)
-	}
-}
-
-func (bs *brokerStringer) String() string {
-	bs.mu.Lock()
-	defer bs.mu.Unlock()
-
-	var ret []string
-	for name, replica := range bs.replicas {
-		if replica.IsBroker() {
-			ret = append(ret, string(name))
-		}
-	}
-	sort.Strings(ret)
-
-	if encoded, err := json.Marshal(ret); err != nil {
-		return fmt.Sprintf("%q", err.Error())
-	} else {
-		return string(encoded)
-	}
 }

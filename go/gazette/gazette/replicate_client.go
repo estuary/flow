@@ -23,8 +23,9 @@ import (
 
 const (
 	CommitDeltaHeader      = "X-Commit-Delta"
-	FragmentNameHeader     = "X-Fragment-Name"
 	FragmentLocationHeader = "X-Fragment-Location"
+	FragmentNameHeader     = "X-Fragment-Name"
+	RouteTokenHeader       = "X-Route-Token"
 	WriteHeadHeader        = "X-Write-Head"
 
 	ReplicateClientIdlePoolSize = 6
@@ -79,7 +80,7 @@ func (t *replicaClientTransaction) start(op journal.ReplicateOp) {
 	queryArgs := url.Values{
 		"newSpool":   {strconv.FormatBool(op.NewSpool)},
 		"writeHead":  {strconv.FormatInt(op.WriteHead, 10)},
-		"routeToken": {op.RouteToken},
+		"routeToken": {string(op.RouteToken)},
 	}
 	req.URL.RawQuery = queryArgs.Encode()
 	req.Header.Add("Expect", "100-continue")

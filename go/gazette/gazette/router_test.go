@@ -1,218 +1,253 @@
 package gazette
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/url"
-	"sort"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 
-	"github.com/coreos/go-etcd/etcd"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/api-server/discovery"
-	. "github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/journal"
 )
 
-type RouterSuite struct {
-	etcd   *discovery.EtcdMemoryService
-	router *Router
+type RouterSuite struct{}
 
-	recorded []string
-}
+func (s *RouterSuite) TestReadConditions(c *gc.C) {
+	var recorder routerRecorder
+	var router = NewRouter(recorder.NewReplica)
 
-func (s *RouterSuite) SetUpSuite(c *gc.C) {
-	s.etcd = discovery.NewEtcdMemoryService()
-	s.etcd.MakeDirectory("/gazette/members")
+	var resultCh = make(chan journal.ReadResult, 1)
+	var op = journal.ReadOp{
+		ReadArgs: journal.ReadArgs{Journal: "foo/bar"},
+		Result:   resultCh,
+	}
 
-	kvs, err := discovery.NewKeyValueService("/gazette", s.etcd,
-		func(key, value string) (interface{}, error) {
-			ep := &discovery.Endpoint{}
-			return ep, json.Unmarshal([]byte(value), ep)
-		})
-	c.Assert(err, gc.IsNil)
+	// Journal is not known.
+	router.Read(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReadResult{Error: journal.ErrNotFound})
 
-	s.router = NewRouter(kvs, s, "members/localRoute", 3)
-}
+	// Journal is now known, but non-local.
+	router.transition("foo/bar", "http://server-one|http://server-two", -1, 1)
+	recorder.verify(c) // Expect no replica was created.
 
-func (s *RouterSuite) TestLifecycleWithRegressionFixture(c *gc.C) {
-	// Note that the expected outcomes of this test are tightly coupled to the
-	// particular way which service member names are hashed & mapped into
-	// replica sets. Eg, any change to hashing our routing will break this test.
-	// That's a good thing! We don't want to change this unintentionally, as it
-	// introduces inconsistency between clients & servers at different versions.
-	s.etcd.Announce("/gazette/members/peerOne",
-		&discovery.Endpoint{BaseURL: "http://localhost:80/one"}, 0)
-
-	replica, err := s.router.obtainReplica("journal/abcde", false)
-	c.Check(replica, gc.IsNil)
-	c.Check(err, gc.DeepEquals, RouteError{
-		Err:      ErrNotReplica,
-		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/one"},
+	router.Read(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReadResult{
+		Error:      journal.ErrNotReplica,
+		RouteToken: "http://server-one|http://server-two",
 	})
 
-	// Announce the local route.
-	s.etcd.Announce("/gazette/members/localRoute",
-		&discovery.Endpoint{BaseURL: "http://localhost:80/local"}, 0)
+	// Journal is now a local replica.
+	router.transition("foo/bar", "http://server|http://local", 1, 1)
+	recorder.verify(c, "created replica foo/bar",
+		"foo/bar => replica http://server|http://local")
 
-	// Attempt to obtain a new journal we're not a broker of.
-	replica, err = s.router.obtainReplica("journal/abcde", true)
-	c.Check(replica, gc.IsNil)
-	c.Check(err, gc.DeepEquals, RouteError{
-		Err:      ErrNotBroker,
-		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/one"},
-	})
-	// However, we are a replica of it.
-	replica, err = s.router.obtainReplica("journal/abcde", false)
-	c.Check(replica, gc.NotNil)
-	c.Check(err, gc.IsNil)
-
-	s.checkRecorded(c, []string{
-		"created replica journal/abcde",
-		"journal/abcde => replica peerOne|localRoute"})
-
-	// Another peer, ranking after peerOne and localRoute.
-	s.etcd.Announce("/gazette/members/peerOther",
-		&discovery.Endpoint{BaseURL: "http://localhost:80/other"}, 0)
-
-	s.checkRecorded(c, []string{
-		"journal/abcde => replica peerOne|localRoute|peerOther"})
-
-	// Drop peerOne. We become the journal broker
-	s.etcd.Apply(&etcd.Response{Action: discovery.EtcdExpireOp,
-		Node: &etcd.Node{Key: "/gazette/members/peerOne"}})
-
-	s.checkRecorded(c, []string{
-		"journal/abcde => broker localRoute|peerOther ([other])"})
-
-	// Obtain a new journal we're the broker of.
-	// Express that we don't need a broker though. It should still
-	// be brokering anyway.
-	replica, err = s.router.obtainReplica("journal/foobar", false)
-	c.Check(replica, gc.NotNil)
-	c.Check(replica.IsBroker(), gc.Equals, true)
-	c.Check(err, gc.IsNil)
-
-	s.checkRecorded(c, []string{
-		"created replica journal/foobar",
-		"journal/foobar => broker localRoute|peerOther ([other])"})
-
-	// Two new peers. abcde is a replica again, and foobar remains a
-	// broker but is notified of route updates.
-	s.etcd.Announce("/gazette/members/peerTwo",
-		&discovery.Endpoint{BaseURL: "http://localhost:80/two"}, 0)
-
-	s.checkRecorded(c, []string{
-		"journal/abcde => replica peerTwo|localRoute|peerOther",
-		"journal/foobar => broker localRoute|peerTwo|peerOther ([two,other])"})
-
-	s.etcd.Announce("/gazette/members/peerThree",
-		&discovery.Endpoint{BaseURL: "http://localhost:80/three"}, 0)
-
-	s.checkRecorded(c, []string{
-		"journal/abcde => replica peerThree|peerTwo|localRoute",
-		"journal/foobar => broker localRoute|peerThree|peerTwo ([three,two])"})
-
-	// Another peer. We're a replica of foobar, and no longer a replica of abcde.
-	s.etcd.Announce("/gazette/members/peerFour",
-		&discovery.Endpoint{BaseURL: "http://localhost:80/four"}, 0)
-
-	s.checkRecorded(c, []string{
-		"journal/abcde => shutdown",
-		"journal/foobar => replica peerFour|localRoute|peerThree"})
-
-	// Expect we no longer route as a broker of foobar.
-	replica, err = s.router.obtainReplica("journal/foobar", true)
-	c.Check(replica, gc.IsNil)
-	c.Check(err, gc.DeepEquals, RouteError{
-		Err:      ErrNotBroker,
-		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/four"},
-	})
-	// Expect we do route as a replica.
-	replica, err = s.router.obtainReplica("journal/foobar", false)
-	c.Check(replica, gc.NotNil)
-	c.Check(err, gc.IsNil)
-	// Expect we no longer route as a replica for abcde.
-	replica, err = s.router.obtainReplica("journal/abcde", false)
-	c.Check(replica, gc.IsNil)
-	c.Check(err, gc.DeepEquals, RouteError{
-		Err:      ErrNotReplica,
-		Location: &url.URL{Scheme: "http", Host: "127.0.0.1:80", Path: "/three"},
+	router.Read(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReadResult{
+		WriteHead:  2345,
+		RouteToken: "http://server|http://local", // Added by Router.
 	})
 
-	c.Check(s.router.replicas, gc.HasLen, 1)
+	// Journal is no longer local.
+	router.transition("foo/bar", "http://server-fin", -1, 1)
+	recorder.verify(c, "foo/bar => shutdown")
 
-	// Drop a peer, such that abcde is a replica again. Because it's no
-	// longer tracked, it's replica status must be lazily discovered again.
-	s.etcd.Apply(&etcd.Response{Action: discovery.EtcdExpireOp,
-		Node: &etcd.Node{Key: "/gazette/members/peerThree"}})
-
-	s.checkRecorded(c, []string{
-		"journal/foobar => replica peerFour|localRoute|peerTwo"})
-
-	// Re-discover that we're a replica of abcde.
-	replica, err = s.router.obtainReplica("journal/abcde", false)
-	c.Check(replica, gc.NotNil)
-	c.Check(err, gc.IsNil)
-
-	s.checkRecorded(c, []string{
-		"created replica journal/abcde",
-		"journal/abcde => replica peerFour|peerTwo|localRoute"})
+	router.Read(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReadResult{
+		Error:      journal.ErrNotReplica,
+		RouteToken: "http://server-fin",
+	})
 }
 
-func (s *RouterSuite) checkRecorded(c *gc.C, expect []string) {
-	sort.Strings(s.recorded)
-	c.Check(s.recorded, gc.DeepEquals, expect)
-	s.recorded = nil
+func (s *RouterSuite) TestAppendConditions(c *gc.C) {
+	var recorder routerRecorder
+	var router = NewRouter(recorder.NewReplica)
+
+	var resultCh = make(chan journal.AppendResult, 1)
+	var op = journal.AppendOp{
+		AppendArgs: journal.AppendArgs{Journal: "foo/bar"},
+		Result:     resultCh,
+	}
+
+	// Journal is not known.
+	router.Append(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.AppendResult{Error: journal.ErrNotFound})
+
+	// Journal is now known, but non-local.
+	router.transition("foo/bar", "http://server-one|http://server-two", 2, 1)
+	recorder.verify(c)
+
+	router.Append(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.AppendResult{
+		Error:      journal.ErrNotBroker,
+		RouteToken: "http://server-one|http://server-two",
+	})
+
+	// Journal is now a local replica.
+	router.transition("foo/bar", "http://server-one|http://server-two", 1, 1)
+	recorder.verify(c, "created replica foo/bar")
+
+	router.Append(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.AppendResult{
+		Error:      journal.ErrNotBroker,
+		RouteToken: "http://server-one|http://server-two", // Added by Router.
+	})
+
+	// Journal is now a local broker.
+	router.transition("foo/bar", "http://local|http://remote", 0, 1)
+	recorder.verify(c, "foo/bar => broker http://local|http://remote ([remote])")
+	c.Check(router.HasServedAppend("foo/bar"), gc.Equals, false)
+
+	router.Append(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.AppendResult{
+		WriteHead:  1234,
+		RouteToken: "http://local|http://remote",
+	})
+	c.Check(router.HasServedAppend("foo/bar"), gc.Equals, true)
+
+	// Change topology. Expect HasServedAppend changes accordingly.
+	router.transition("foo/bar", "http://local|http://remote-two", 0, 1)
+	recorder.verify(c, "foo/bar => broker http://local|http://remote-two ([remote-two])")
+	c.Check(router.HasServedAppend("foo/bar"), gc.Equals, false)
+
+	router.Append(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.AppendResult{
+		WriteHead:  1234,
+		RouteToken: "http://local|http://remote-two",
+	})
+	c.Check(router.HasServedAppend("foo/bar"), gc.Equals, true)
+
+	// A replica is removed, and we are no longer able to broker.
+	router.transition("foo/bar", "http://local", 0, 1)
+	recorder.verify(c, "foo/bar => broker http://local ([])")
+
+	router.Append(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.AppendResult{
+		Error:      journal.ErrReplicationFailed,
+		RouteToken: "http://local",
+	})
+	c.Check(router.HasServedAppend("foo/bar"), gc.Equals, false)
 }
 
-func (s *RouterSuite) LocalRouteKey() string {
-	return "members/localRoute"
+func (s *RouterSuite) TestReplicateConditions(c *gc.C) {
+	var recorder routerRecorder
+	var router = NewRouter(recorder.NewReplica)
+
+	var resultCh = make(chan journal.ReplicateResult, 1)
+	var op = journal.ReplicateOp{
+		ReplicateArgs: journal.ReplicateArgs{Journal: "foo/bar"},
+		Result:        resultCh,
+	}
+
+	router.Replicate(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReplicateResult{
+		Error: journal.ErrNotFound,
+	})
+
+	// Journal is now known, but non-local.
+	router.transition("foo/bar", "http://server-one|http://server-two", -1, 1)
+	recorder.verify(c) // Expect no replica was created.
+
+	router.Replicate(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReplicateResult{
+		Error: journal.ErrNotReplica,
+	})
+
+	// Journal is local.
+	router.transition("foo/bar", "http://server|http://local", 1, 1)
+	recorder.verify(c, "created replica foo/bar",
+		"foo/bar => replica http://server|http://local")
+
+	// Expect RouteToken is verified.
+	op.ReplicateArgs.RouteToken = "http://wrong-token"
+	router.Replicate(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReplicateResult{
+		Error: journal.ErrWrongRouteToken,
+	})
+
+	op.ReplicateArgs.RouteToken = "http://server|http://local"
+	router.Replicate(op)
+	c.Check(<-resultCh, gc.DeepEquals, journal.ReplicateResult{
+		ErrorWriteHead: 3456,
+	})
+}
+
+func (s *RouterSuite) TestBrokerRedirect(c *gc.C) {
+	req, _ := http.NewRequest("GET", "/foo/bar?baz", nil)
+
+	// Empty base path.
+	w := httptest.NewRecorder()
+	brokerRedirect(w, req, "https://server-one|http://server-two", http.StatusGone)
+	c.Check(w.Code, gc.Equals, http.StatusGone)
+	c.Check(w.Header().Get("Location"), gc.Equals, "https://server-one/foo/bar?baz")
+
+	// Prefixed path.
+	w = httptest.NewRecorder()
+	brokerRedirect(w, req, "https://server-one/base/path|http://server-two", http.StatusGone)
+	c.Check(w.Code, gc.Equals, http.StatusGone)
+	c.Check(w.Header().Get("Location"), gc.Equals, "https://server-one/base/path/foo/bar?baz")
+
+	// Single server.
+	w = httptest.NewRecorder()
+	brokerRedirect(w, req, "https://server/", http.StatusGone)
+	c.Check(w.Code, gc.Equals, http.StatusGone)
+	c.Check(w.Header().Get("Location"), gc.Equals, "https://server/foo/bar?baz")
 }
 
 // Implementation of ReplicaFactory. Returns a JournalReplica implementation
-// which records calls into |RouterSuite.recorded|.
-func (s *RouterSuite) NewReplica(name Name) JournalReplica {
-	s.recorded = append(s.recorded, fmt.Sprintf("created replica %s", name))
-	return &replicaRecorder{suite: s, journal: name}
+// which records calls.
+type routerRecorder []string
+
+type replicaRecorder struct {
+	journal.Name
+	recorder *routerRecorder
 }
 
-func flatPaths(peers []Replicator) string {
+func (r *routerRecorder) NewReplica(name journal.Name) JournalReplica {
+	*r = append(*r, fmt.Sprintf("created replica %s", name))
+	return replicaRecorder{name, r}
+}
+
+func (r *routerRecorder) verify(c *gc.C, events ...string) {
+	c.Check([]string(*r), gc.DeepEquals, events)
+	*r = (*r)[:0]
+}
+
+func (r replicaRecorder) StartBrokeringWithPeers(token journal.RouteToken,
+	peers []journal.Replicator) {
+
+	*r.recorder = append(*r.recorder, fmt.Sprintf(
+		"%s => broker %s (%s)", r.Name, token, flatPaths(peers)))
+}
+
+func (r replicaRecorder) StartReplicating(token journal.RouteToken) {
+	*r.recorder = append(*r.recorder,
+		fmt.Sprintf("%s => replica %s", r.Name, token))
+}
+
+func (r replicaRecorder) Shutdown() {
+	*r.recorder = append(*r.recorder, fmt.Sprintf("%s => shutdown", r.Name))
+}
+
+// Trivial implementations of each operation handler,
+// which pass back a distinguishing WriteHead.
+func (r replicaRecorder) Append(op journal.AppendOp) {
+	op.Result <- journal.AppendResult{WriteHead: 1234}
+}
+func (r replicaRecorder) Read(op journal.ReadOp) {
+	op.Result <- journal.ReadResult{WriteHead: 2345}
+}
+func (r replicaRecorder) Replicate(op journal.ReplicateOp) {
+	op.Result <- journal.ReplicateResult{ErrorWriteHead: 3456}
+}
+
+func flatPaths(peers []journal.Replicator) string {
 	var tmp []string
 	for _, peer := range peers {
 		url, _ := peer.(ReplicateClient).endpoint.URL()
-		tmp = append(tmp, url.Path[1:])
+		tmp = append(tmp, url.Host)
 	}
 	return "[" + strings.Join(tmp, ",") + "]"
 }
-
-type replicaRecorder struct {
-	suite    *RouterSuite
-	journal  Name
-	isBroker bool
-}
-
-func (r *replicaRecorder) StartBrokeringWithPeers(token string, peers []Replicator) {
-	r.suite.recorded = append(r.suite.recorded, fmt.Sprintf(
-		"%s => broker %s (%s)", r.journal, token, flatPaths(peers)))
-	r.isBroker = true
-}
-
-func (r *replicaRecorder) StartReplicating(token string) {
-	r.suite.recorded = append(r.suite.recorded,
-		fmt.Sprintf("%s => replica %s", r.journal, token))
-	r.isBroker = false
-}
-
-func (r *replicaRecorder) Shutdown() {
-	r.suite.recorded = append(r.suite.recorded,
-		fmt.Sprintf("%s => shutdown", r.journal))
-}
-
-func (r *replicaRecorder) IsBroker() bool { return r.isBroker }
-
-func (r *replicaRecorder) Append(AppendOp)       {}
-func (r *replicaRecorder) Read(ReadOp)           {}
-func (r *replicaRecorder) Replicate(ReplicateOp) {}
 
 var _ = gc.Suite(&RouterSuite{})
