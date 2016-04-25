@@ -12,13 +12,6 @@ import (
 // replication requests only, to a broker of the journal.
 type Replica struct {
 	journal Name
-	// Token representing this Replica's current understanding of the overall
-	// topology of the journal. Replication requests are verified against this
-	// token, to ensure that all replicas involved agree on a consistent
-	// topology for a transaction.
-	currentRouteToken string
-	// Whether this Replica is currently acting as the journal broker.
-	isCurrentBroker bool
 	// Fragment updates are written into |updates| by |index| and |head|,
 	// and are consumed by |tail|.
 	updates chan Fragment
@@ -62,19 +55,11 @@ func NewReplica(journal Name, localDir string, persister FragmentPersister,
 }
 
 func (r *Replica) Append(op AppendOp) {
-	if !r.isCurrentBroker {
-		op.Result <- AppendResult{Error: ErrNotBroker}
-	} else {
-		r.broker.Append(op)
-	}
+	r.broker.Append(op)
 }
 
 func (r *Replica) Replicate(op ReplicateOp) {
-	if op.RouteToken != r.currentRouteToken {
-		op.Result <- ReplicateResult{Error: ErrWrongRouteToken}
-	} else {
-		r.head.Replicate(op)
-	}
+	r.head.Replicate(op)
 }
 
 func (r *Replica) Read(op ReadOp) {
@@ -82,26 +67,15 @@ func (r *Replica) Read(op ReadOp) {
 	r.tail.Read(op)
 }
 
-func (r *Replica) IsBroker() bool {
-	return r.isCurrentBroker
-}
-
-// Switch the Replica into pure-replica mode. New replication requests will be
-// verified against expected |routeToken|.
-func (r *Replica) StartReplicating(routeToken string) {
-	r.currentRouteToken = routeToken
-	r.isCurrentBroker = false
-
+// Switch the Replica into pure-replica mode.
+func (r *Replica) StartReplicating(routeToken RouteToken) {
 	log.WithFields(log.Fields{"journal": r.journal, "route": routeToken}).
 		Info("now replicating")
 }
 
 // Switch the Replica into broker mode. Appends will be brokered to |peers| with
 // the topology captured by |routeToken|.
-func (r *Replica) StartBrokeringWithPeers(routeToken string, peers []Replicator) {
-	r.currentRouteToken = routeToken
-	r.isCurrentBroker = true
-
+func (r *Replica) StartBrokeringWithPeers(routeToken RouteToken, peers []Replicator) {
 	log.WithFields(log.Fields{"journal": r.journal, "route": routeToken}).
 		Info("now brokering")
 

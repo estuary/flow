@@ -116,8 +116,7 @@ func (t *Tail) onUpdate(fragment Fragment) {
 
 func (t *Tail) onRead(op ReadOp) {
 	if op.Journal != t.journal {
-		op.Result <- ReadResult{Error: ErrWrongJournal}
-		return
+		panic("wrong journal")
 	}
 
 	// Special handling for explicit reads from the journal write head.

@@ -77,7 +77,7 @@ func (h *Head) loop() {
 
 func (h *Head) onWrite(write ReplicateOp) ReplicateResult {
 	if write.Journal != h.journal {
-		return ReplicateResult{Error: ErrWrongJournal}
+		panic("wrong journal")
 	}
 	// Fail if the operation uses a write head behind ours.
 	// Skip forward if it uses a future one.

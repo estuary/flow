@@ -25,7 +25,7 @@ type BrokerConfig struct {
 	// Sent with replication requests and verified for consensus by each remote
 	// replica: for a transaction to succeed, all replicas must agree on the
 	// current |RouteToken|.
-	RouteToken string
+	RouteToken
 	// Next offset of the next brokered write transaction. Also sent with
 	// replication requests and verifed for consensus by each remote replica:
 	// for a transaction to succeed, all replicas must agree on the |WriteHead|.

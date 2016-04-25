@@ -48,6 +48,19 @@ type Header interface {
 	Head(args ReadArgs) (result ReadResult, fragmentLocation *url.URL)
 }
 
+// Performs a Gazette POST operation.
+type Creator interface {
+	Create(journal Name) error
+}
+
+// Composes Creator, Getter, Header, and Writer.
+type Client interface {
+	Creator
+	Getter
+	Header
+	Writer
+}
+
 // A Replicator is able to serve a ReplicateOp. It may be backed by a local
 // Spool, or by a remote Gazette process.
 type Replicator interface {

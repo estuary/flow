@@ -73,7 +73,12 @@ func (rr *RetryReader) Read(p []byte) (int, error) {
 		result, rr.ReadCloser = rr.getter.Get(args)
 
 		if result.Error != nil {
-			log.WithFields(log.Fields{"args": args, "err": result.Error}).Warn("open failed")
+			if result.Error == ErrNotFound && args.Offset == 0 {
+				// Initialization case: We're reading from the beginning of a journal
+				// which doesn't yet exist. Silently retry until it does.
+			} else {
+				log.WithFields(log.Fields{"args": args, "err": result.Error}).Warn("open failed")
+			}
 			rr.onError(true)
 			return 0, nil
 		} else if o := rr.Mark.Offset; o != 0 && o != -1 && o != result.Offset {
