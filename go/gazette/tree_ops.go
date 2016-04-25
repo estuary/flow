@@ -254,11 +254,11 @@ func (a stringMapAdapter) Get(key string) string {
 	return ""
 }
 
-// Simple typedef of KeysAPI, presented here for mock generation.
+// Simple typedef of KeysAPI & Watcher, presented here for mock generation.
+// TODO(johnny): We'd prefer to compose etcd.KeysAPI. However,
+// we rely on mockery for mock generation, and first require a fix for:
+// https://github.com/vektra/mockery/issues/18
 type KeysAPI interface {
-	// TODO(johnny): We'd prefer to compose etcd.KeysAPI. However,
-	// we rely on mockery for mock generation, and first require a fix for:
-	// https://github.com/vektra/mockery/issues/18
 	Get(ctx context.Context, key string, opts *etcd.GetOptions) (*etcd.Response, error)
 	Set(ctx context.Context, key, value string, opts *etcd.SetOptions) (*etcd.Response, error)
 	Delete(ctx context.Context, key string, opts *etcd.DeleteOptions) (*etcd.Response, error)
@@ -266,4 +266,7 @@ type KeysAPI interface {
 	CreateInOrder(ctx context.Context, dir, value string, opts *etcd.CreateInOrderOptions) (*etcd.Response, error)
 	Update(ctx context.Context, key, value string) (*etcd.Response, error)
 	Watcher(key string, opts *etcd.WatcherOptions) etcd.Watcher
+}
+type Watcher interface {
+	Next(context.Context) (*etcd.Response, error)
 }

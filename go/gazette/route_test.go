@@ -36,8 +36,8 @@ func (s *RouteSuite) TestReadyForHandoff(c *gc.C) {
 	alloc.On("Replicas").Return(100).Once()
 	c.Check(rt.IsReadyForHandoff(alloc), gc.Equals, false)
 
-	alloc.On("ItemIsReadyForPromotion", "ready").Return(true)
-	alloc.On("ItemIsReadyForPromotion", "not-ready").Return(false)
+	alloc.On("ItemIsReadyForPromotion", "bar", "ready").Return(true)
+	alloc.On("ItemIsReadyForPromotion", "bar", "not-ready").Return(false)
 
 	// Sufficient entries, but one is not ready.
 	alloc.On("Replicas").Return(2).Once()

@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"path"
 	"sort"
 
 	etcd "github.com/coreos/etcd/client"
@@ -49,8 +50,10 @@ func (rt Route) IsReadyForHandoff(alloc Allocator) bool {
 	if wanted := alloc.Replicas() + 1; len(rt.Entries) < wanted {
 		return false
 	} else {
+		item := path.Base(rt.Item.Key)
+
 		for j := 1; j != wanted; j++ {
-			if !alloc.ItemIsReadyForPromotion(rt.Entries[j].Value) {
+			if !alloc.ItemIsReadyForPromotion(item, rt.Entries[j].Value) {
 				return false
 			}
 		}

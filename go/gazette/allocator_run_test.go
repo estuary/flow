@@ -286,12 +286,15 @@ func (s *AllocRunSuite) wait(desc waitFor) {
 }
 
 // Partial Allocator implementation.
-func (s *AllocRunSuite) KeysAPI() etcd.KeysAPI                     { return etcd.NewKeysAPI(s.etcdClient) }
-func (s *AllocRunSuite) PathRoot() string                          { return s.pathRoot }
-func (s *AllocRunSuite) Replicas() int                             { return s.replicas }
-func (s *AllocRunSuite) FixedItems() []string                      { return s.fixedItems }
-func (s *AllocRunSuite) ItemState(item string) string              { return "ready" }
-func (s *AllocRunSuite) ItemIsReadyForPromotion(state string) bool { return state == "ready" }
+func (s *AllocRunSuite) KeysAPI() etcd.KeysAPI        { return etcd.NewKeysAPI(s.etcdClient) }
+func (s *AllocRunSuite) PathRoot() string             { return s.pathRoot }
+func (s *AllocRunSuite) Replicas() int                { return s.replicas }
+func (s *AllocRunSuite) FixedItems() []string         { return s.fixedItems }
+func (s *AllocRunSuite) ItemState(item string) string { return "ready" }
+
+func (s *AllocRunSuite) ItemIsReadyForPromotion(item, state string) bool {
+	return state == "ready"
+}
 
 func (s *AllocRunSuite) ItemRoute(item string, rt Route, ind int, tree *etcd.Node) {
 	s.routesMu.Lock()

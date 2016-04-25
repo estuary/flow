@@ -16,8 +16,8 @@ func (s *AllocSuite) TestAllocParamExtraction(c *gc.C) {
 	alloc.On("InstanceKey").Return("my-key")
 	alloc.On("Replicas").Return(1)
 	alloc.On("FixedItems").Return([]string{"a-master", "b-created"})
-	alloc.On("ItemIsReadyForPromotion", "ready").Return(true)
-	alloc.On("ItemIsReadyForPromotion", "not-ready").Return(false)
+	alloc.On("ItemIsReadyForPromotion", "d-releaseable", "ready").Return(true)
+	alloc.On("ItemIsReadyForPromotion", "a-master", "not-ready").Return(false)
 
 	params := allocParams{Allocator: alloc}
 	params.Input.Time = time.Unix(1234, 0)

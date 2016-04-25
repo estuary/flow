@@ -45,7 +45,7 @@ type Allocator interface {
 	ItemState(item string) string
 	// For |state| of an item, which may be processed by another Allocator,
 	// returns whether the item can safely be promoted at this time.
-	ItemIsReadyForPromotion(state string) bool
+	ItemIsReadyForPromotion(item, state string) bool
 	// Notifies Allocator of |route| for |item|. If |index| == -1, then Allocator
 	// has no entry for |item|. Otherwise, |route.Entries[index]| is the entry
 	// of this Allocator (and will have basename InstanceKey()). |tree| is given
