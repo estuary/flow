@@ -34,6 +34,8 @@ type Recorder struct {
 	stripLen int
 	// Client for interacting with |opLog|.
 	writer journal.Writer
+	// A recent write, which will be used to update the FSM Offset once committed.
+	pendingWrite *journal.AsyncAppend
 	// Used to serialize access to |fsm| and writes to |opLog|.
 	mu sync.Mutex
 }
@@ -44,12 +46,20 @@ func NewRecorder(fsm *FSM, stripLen int, writer journal.Writer) (*Recorder, erro
 		return nil, err
 	}
 
-	return &Recorder{
+	recorder := &Recorder{
 		fsm:      fsm,
 		id:       uint32(recorderId.Int64()) + 1,
 		stripLen: stripLen,
 		writer:   writer,
-	}, nil
+	}
+
+	// Issue an initial WriteBarrier to determine a lower-bound offset
+	// for all subsequent recorded operations.
+	op := recorder.WriteBarrier()
+	<-op.Ready
+	recorder.fsm.LogMark.Offset = op.WriteHead
+
+	return recorder, nil
 }
 
 // Note that we can't ever fail to write some portion of the recorded log, and
@@ -86,11 +96,10 @@ func (r *Recorder) NewWritableFile(path string) rocks.WritableFileObserver {
 	createNew = r.process(RecordedOp{Create: &RecordedOp_Create{Path: path}})
 
 	// Perform an atomic write of both operations.
-	if _, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, io.MultiReader(
+	r.recordFromReader(io.MultiReader(
 		bytes.NewReader(unlinkPrev),
-		bytes.NewReader(createNew))); err != nil {
-		log.WithField("err", err).Panic("writing op frame")
-	}
+		bytes.NewReader(createNew)))
+
 	return &fileRecorder{r, r.fsm.Links[path], 0}
 }
 
@@ -109,11 +118,9 @@ func (r *Recorder) DeleteFile(path string) {
 	if !ok {
 		log.WithFields(log.Fields{"path": path}).Panic("delete of unknown path")
 	}
-	frame := r.process(RecordedOp{Unlink: &RecordedOp_Link{Fnode: fnode, Path: path}})
 
-	if _, err := r.writer.Write(r.fsm.LogMark.Journal, frame); err != nil {
-		log.WithField("err", err).Panic("writing op frame")
-	}
+	r.recordFrame(r.process(
+		RecordedOp{Unlink: &RecordedOp_Link{Fnode: fnode, Path: path}}))
 }
 
 // rocks.EnvObserver implementation.
@@ -135,11 +142,9 @@ func (r *Recorder) LinkFile(src, target string) {
 	if !ok {
 		log.WithFields(log.Fields{"path": src}).Panic("link of unknown path")
 	}
-	frame := r.process(RecordedOp{Link: &RecordedOp_Link{Fnode: fnode, Path: target}})
 
-	if _, err := r.writer.Write(r.fsm.LogMark.Journal, frame); err != nil {
-		log.WithField("err", err).Panic("writing op frame")
-	}
+	r.recordFrame(r.process(
+		RecordedOp{Link: &RecordedOp_Link{Fnode: fnode, Path: target}}))
 }
 
 // rocks.EnvObserver implementation.
@@ -182,16 +187,16 @@ func (r *Recorder) RenameFile(srcPath, targetPath string) {
 	unlinkSource = r.process(RecordedOp{
 		Unlink: &RecordedOp_Link{Fnode: fnode, Path: src}})
 
-	// Perform an atomic write of all three operations.
-	if _, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, io.MultiReader(
+	// Perform an atomic write of all four potential operations.
+	r.recordFromReader(io.MultiReader(
 		bytes.NewReader(unlinkTarget),
 		bytes.NewReader(updateProperty),
 		bytes.NewReader(linkTarget),
-		bytes.NewReader(unlinkSource))); err != nil {
-		log.WithField("err", err).Panic("writing op frame")
-	}
+		bytes.NewReader(unlinkSource)))
 }
 
+// Builds and returns a set of state-machine hints which may be used to fully
+// reconstruct the state of this Recorder.
 func (r *Recorder) BuildHints() FSMHints {
 	defer r.mu.Unlock()
 	r.mu.Lock()
@@ -199,12 +204,14 @@ func (r *Recorder) BuildHints() FSMHints {
 	return r.fsm.BuildHints()
 }
 
-// Shifts the FSM offset for successive operations to |writeHead|, which will
-// lower-bound the effective offset of any new operations being recorded.
-// We use periodic updates from commits to update our offset rather than
-// counting written bytes, as this provides a tight bound while still being
-// correct in the case of competing writes from multiple Recorders.
-func (r *Recorder) UpdateWriteHead(writeHead int64) { r.fsm.LogMark.Offset = writeHead }
+// Issues an empty write. When this barrier write completes, it is
+// guaranteed that all content written prior to barrier has also committed.
+func (r *Recorder) WriteBarrier() *journal.AsyncAppend {
+	defer r.mu.Unlock()
+	r.mu.Lock()
+
+	return r.recordFrame(nil)
+}
 
 func (r *Recorder) process(op RecordedOp) []byte {
 	if r.fsm.NextSeqNo == 0 {
@@ -247,25 +254,57 @@ func (r *fileRecorder) Append(data []byte) {
 	}})
 
 	// Perform an atomic write of the operation and its data.
-	if _, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, io.MultiReader(
+	r.recordFromReader(io.MultiReader(
 		bytes.NewReader(frame),
-		bytes.NewReader(data))); err != nil {
-		log.WithField("err", err).Panic("writing op frame")
-	}
+		bytes.NewReader(data)))
 
 	r.offset += int64(len(data))
 }
 
 // rocks.EnvObserver implementation.
 func (r *fileRecorder) Close()                         {}
-func (r *fileRecorder) Sync()                          { r.sync() }
-func (r *fileRecorder) Fsync()                         { r.sync() }
-func (r *fileRecorder) RangeSync(offset, nbytes int64) { r.sync() }
+func (r *fileRecorder) Sync()                          { <-r.WriteBarrier().Ready }
+func (r *fileRecorder) Fsync()                         { <-r.WriteBarrier().Ready }
+func (r *fileRecorder) RangeSync(offset, nbytes int64) { <-r.WriteBarrier().Ready }
 
-func (r *fileRecorder) sync() {
-	result, err := r.writer.Write(r.fsm.LogMark.Journal, nil)
+func (r *Recorder) recordFromReader(frame io.Reader) *journal.AsyncAppend {
+	result, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, frame)
 	if err != nil {
-		log.WithField("err", err).Panic("writing sync frame")
+		log.WithField("err", err).Panic("writing op frame")
 	}
-	<-result.Ready
+	r.updateWriteHead(result)
+	return result
+}
+
+func (r *Recorder) recordFrame(frame []byte) *journal.AsyncAppend {
+	result, err := r.writer.Write(r.fsm.LogMark.Journal, frame)
+	if err != nil {
+		log.WithField("err", err).Panic("writing op frame")
+	}
+	r.updateWriteHead(result)
+	return result
+}
+
+// We want to regularly shift forward the FSM offset to reflect operations
+// which have been recorded, so that we minimize the amount of recovery log
+// which must be read on playback. We additionally want to use WriteHeads
+// returned directly from Gazette (rather than, eg, counting bytes) as this
+// provides a tight bound while still being correct in the case of competing
+// writes from multiple Recorders. With each issued write, we check whether
+// a previously retained write has completed and update the FSM offset if so.
+func (r *Recorder) updateWriteHead(write *journal.AsyncAppend) {
+	if r.pendingWrite == nil {
+		r.pendingWrite = write
+	}
+
+	select {
+	case <-r.pendingWrite.Ready:
+		// A previous append operation has completed. Update from the returned
+		// WriteHead, and track |write| as the next |pendingWrite|.
+		r.fsm.LogMark.Offset = r.pendingWrite.WriteHead
+		r.pendingWrite = write
+	default:
+		// |pendingWrite| hasn't committed yet. Drop |write|.
+		return
+	}
 }

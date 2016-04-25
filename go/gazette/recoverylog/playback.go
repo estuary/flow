@@ -101,9 +101,28 @@ func (p *Player) SetCancelChan(cancelCh chan struct{}) {
 
 // Begins playing the prepared player. Returns on the first encountered
 // unrecoverable error, or upon a successful MakeLive().
-func (p *Player) Play(getter journal.Getter) error {
+func (p *Player) Play(client journal.Client) error {
 	var err error
 	defer func() { p.playExitCh <- err }()
+
+	var writeHead int64
+
+	// Closure which issues a write barrier to transactionally determine the
+	// minimum write head that we must read through. This will also create the
+	// recovery log, if it doesn't exist.
+	writeBarrier := func() error {
+		if barrier, err := client.Write(p.fsm.LogMark.Journal, nil); err != nil {
+			return err
+		} else if <-barrier.Ready; barrier.Error != nil {
+			return barrier.Error
+		} else {
+			writeHead = barrier.WriteHead
+			return nil
+		}
+	}
+	if err = writeBarrier(); err != nil {
+		return err
+	}
 
 	// Play until we're asked to make a snapshot live, *and* we're at the
 	// recovery-log write head.
@@ -112,6 +131,12 @@ func (p *Player) Play(getter journal.Getter) error {
 		case <-p.makeLiveCh:
 			makeLive = true
 			p.makeLiveCh = nil // Don't receive again.
+
+			// Transactionally update |writeHead|. We must read through this offset
+			// before we consider playback to be complete.
+			if err = writeBarrier(); err != nil {
+				return err
+			}
 			continue
 		case <-p.cancelCh:
 			err = ErrPlaybackCancelled
@@ -120,7 +145,7 @@ func (p *Player) Play(getter journal.Getter) error {
 			// Pass.
 		}
 
-		result, reader := getter.Get(journal.ReadArgs{
+		result, reader := client.Get(journal.ReadArgs{
 			Journal:  p.fsm.LogMark.Journal,
 			Offset:   p.fsm.LogMark.Offset,
 			Deadline: time.Now().Add(kBlockInterval),
@@ -132,6 +157,12 @@ func (p *Player) Play(getter journal.Getter) error {
 			time.Sleep(kErrCooloffInterval)
 			continue
 		}
+
+		if result.WriteHead > writeHead {
+			// A Read WriteHead can increment the target |writeHead|, but should not
+			// decrease it. Reads are not transactional, and we can get a stale offset.
+			writeHead = result.WriteHead
+		}
 		p.fsm.LogMark.Offset = result.Offset
 		err = p.playSomeLog(reader)
 
@@ -139,14 +170,15 @@ func (p *Player) Play(getter journal.Getter) error {
 			err = abortErr.error
 			return err
 		} else if err != nil {
-			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).Warn("during log playback")
+			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).
+				Warn("during log playback")
 			time.Sleep(kErrCooloffInterval)
 		} else {
 			// We issue blocking reads, so for this condition to be satisfied we must
 			// have read through to the WriteHead that existed at read start, and
 			// during the blocking interval no additional content arrived (otherwise
-			// our offset would be beyond |result.WriteHead|).
-			atHead = (p.fsm.LogMark.Offset == result.WriteHead)
+			// our offset would be beyond |writeHead|).
+			atHead = (p.fsm.LogMark.Offset == writeHead)
 		}
 	}
 	err = p.makeLive()

@@ -17,10 +17,11 @@ import (
 const kOpLog = journal.Name("a/journal")
 
 type RecorderSuite struct {
-	recorder *Recorder
-	tmpDir   string
-	writes   *bytes.Buffer // Captured log writes.
-	promise  chan struct{} // Returned promise fixture for captured writes.
+	recorder  *Recorder
+	tmpDir    string
+	writes    *bytes.Buffer // Captured log writes.
+	writeHead int64
+	promise   chan struct{} // Returned promise fixture for captured writes.
 }
 
 func (s *RecorderSuite) SetUpTest(c *gc.C) {
@@ -28,19 +29,27 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	s.tmpDir, err = ioutil.TempDir("", "recorder-suite")
 	c.Assert(err, gc.IsNil)
 
+	// Retain writes, defaulting to a resolved Ready promise for each one.
+	s.writes = bytes.NewBuffer(nil)
+	s.writeHead = 42
+	s.promise = make(chan struct{})
+	close(s.promise)
+
 	s.recorder, err = NewRecorder(NewFSM(EmptyHints("a/journal")), len(s.tmpDir), s)
 	c.Check(err, gc.IsNil)
 
-	s.writes = bytes.NewBuffer(nil)
-
-	// Default to a resolved promise for writes.
-	s.promise = make(chan struct{})
-	close(s.promise)
+	// Expect recorder initialized Offset to the current write head.
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(42))
 }
 
 func (s *RecorderSuite) TearDownTest(c *gc.C) {
 	// Expect the test consumed all framed operations.
 	c.Check(s.writes.Len(), gc.Equals, 0)
+
+	// After issuing a final write, expect the FSM offset is up to date with
+	// collective length of all written frames.
+	s.recorder.WriteBarrier()
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.writeHead)
 
 	os.RemoveAll(s.tmpDir)
 }
@@ -54,6 +63,8 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
 
 	s.recorder.NewWritableFile(s.tmpDir + "/other/file")
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(79))
+
 	op = s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(2))
 	c.Check(op.Recorder, gc.Not(gc.Equals), uint32(0))
@@ -276,14 +287,24 @@ func (s *RecorderSuite) readLen(c *gc.C, length int64) string {
 
 // journal.Writer implementation
 func (s *RecorderSuite) Write(log journal.Name, buf []byte) (*journal.AsyncAppend, error) {
-	s.writes.Write(buf)
-	return &journal.AsyncAppend{Ready: s.promise}, nil
+	n, _ := s.writes.Write(buf)
+	s.writeHead += int64(n)
+
+	return &journal.AsyncAppend{
+		Ready:        s.promise,
+		AppendResult: journal.AppendResult{WriteHead: s.writeHead},
+	}, nil
 }
 
 // journal.Writer implementation
 func (s *RecorderSuite) ReadFrom(log journal.Name, r io.Reader) (*journal.AsyncAppend, error) {
-	s.writes.ReadFrom(r)
-	return &journal.AsyncAppend{Ready: s.promise}, nil
+	n, _ := s.writes.ReadFrom(r)
+	s.writeHead += n
+
+	return &journal.AsyncAppend{
+		Ready:        s.promise,
+		AppendResult: journal.AppendResult{WriteHead: s.writeHead},
+	}, nil
 }
 
 var _ = gc.Suite(&RecorderSuite{})

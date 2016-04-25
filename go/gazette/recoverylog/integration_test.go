@@ -3,6 +3,7 @@ package recoverylog
 import (
 	"bytes"
 	"io/ioutil"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -21,39 +22,41 @@ const (
 )
 
 type RecoveryLogSuite struct {
-	client *gazette.Client
-	writer *gazette.WriteService
+	gazette struct {
+		*gazette.Client
+		*gazette.WriteService
+	}
 }
 
 func (s *RecoveryLogSuite) SetUpSuite(c *gc.C) {
 	endpoints.ParseFromEnvironment()
 
 	var err error
-	s.client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
+	s.gazette.Client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
 	c.Assert(err, gc.IsNil)
 
 	// Skip if in Short mode, or if a Gazette endpoint is not reach-able.
 	if testing.Short() {
 		c.Skip("skipping recoverylog integration tests in short mode")
 	}
-	result, _ := s.client.Head(journal.ReadArgs{Journal: kTestLogName, Offset: -1})
-	if result.Error != journal.ErrNotYetAvailable {
+	result, _ := s.gazette.Head(journal.ReadArgs{Journal: kTestLogName, Offset: -1})
+	if _, ok := result.Error.(net.Error); ok {
 		c.Skip("Gazette not available: " + result.Error.Error())
 		return
 	}
 
-	s.writer = gazette.NewWriteService(s.client)
-	s.writer.Start()
+	s.gazette.WriteService = gazette.NewWriteService(s.gazette.Client)
+	s.gazette.WriteService.Start()
 }
 
 func (s *RecoveryLogSuite) TearDownSuite(c *gc.C) {
-	if s.writer != nil {
-		s.writer.Stop()
+	if s.gazette.WriteService != nil {
+		s.gazette.WriteService.Stop()
 	}
 }
 
 func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
-	env := testEnv{c, s.client, s.writer}
+	env := testEnv{c, s.gazette}
 
 	replica1 := NewTestReplica(&env)
 	defer replica1.teardown()
@@ -84,7 +87,7 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 }
 
 func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
-	env := testEnv{c, s.client, s.writer}
+	env := testEnv{c, s.gazette}
 
 	replica1 := NewTestReplica(&env)
 	defer replica1.teardown()
@@ -115,7 +118,7 @@ func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
 }
 
 func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
-	env := testEnv{c, s.client, s.writer}
+	env := testEnv{c, s.gazette}
 
 	// Begin with two replicas, both reading from the initial state.
 	replica1 := NewTestReplica(&env)
@@ -163,7 +166,7 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 }
 
 func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
-	r := NewTestReplica(&testEnv{c, s.client, s.writer})
+	r := NewTestReplica(&testEnv{c, s.gazette})
 	defer r.teardown()
 
 	var err error
@@ -180,7 +183,7 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 		var frame []byte
 		message.Frame(&RecordedOp{}, &frame)
 
-		res := s.client.Put(journal.AppendArgs{
+		res := s.gazette.Put(journal.AppendArgs{
 			Journal: kTestLogName,
 			Content: bytes.NewReader(frame),
 		})
@@ -189,12 +192,12 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 		r.player.Cancel()
 	})
 
-	c.Check(r.player.Play(r.client), gc.Equals, ErrPlaybackCancelled)
+	c.Check(r.player.Play(r.gazette), gc.Equals, ErrPlaybackCancelled)
 	c.Check(<-makeLiveExit, gc.Equals, ErrPlaybackCancelled)
 }
 
 func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
-	r := NewTestReplica(&testEnv{c, s.client, s.writer})
+	r := NewTestReplica(&testEnv{c, s.gazette})
 	defer r.teardown()
 
 	var err error
@@ -202,33 +205,25 @@ func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	r.player.Cancel()
-	c.Check(r.player.Play(r.client), gc.Equals, ErrPlaybackCancelled)
+	c.Check(r.player.Play(r.gazette), gc.Equals, ErrPlaybackCancelled)
 
 	_, err = r.player.MakeLive()
 	c.Check(err, gc.Equals, ErrPlaybackCancelled)
 }
 
-// Returns hints at the current log head (eg, resulting in an empty database).
+// Returns hints at the current log head and beginning with SeqNo 1
+// (eg, resulting in an empty database).
 func (s *RecoveryLogSuite) initialHints(c *gc.C) FSMHints {
-	// Determine current recovery-log head.
-	result, _ := s.client.Head(journal.ReadArgs{Journal: kTestLogName, Offset: -1})
-	c.Assert(result.Error, gc.Equals, journal.ErrNotYetAvailable)
-
-	hints := EmptyHints(kTestLogName)
-
-	// Explicitly note we expect to start at SeqNo 1. This resolves race
-	// conditions between an issued HEAD and tear-down of a previous test
-	// (that test may sneak in an extra write after HEAD).
-	hints.FirstSeqNo = 1
-	hints.LogMark.Offset = result.WriteHead
-	return hints
+	return FSMHints{
+		LogMark:    journal.NewMark(kTestLogName, -1),
+		FirstSeqNo: 1,
+	}
 }
 
 // Test state shared by multiple testReplica instances.
 type testEnv struct {
 	*gc.C
-	client *gazette.Client
-	writer *gazette.WriteService
+	gazette journal.Client
 }
 
 // Models the typical lifetime of an observed rocks database:
@@ -264,7 +259,7 @@ func (r *testReplica) startReading(hints FSMHints) {
 	r.Assert(err, gc.IsNil)
 
 	go func() {
-		r.Assert(r.player.Play(r.client), gc.IsNil)
+		r.Assert(r.player.Play(r.gazette), gc.IsNil)
 	}()
 }
 
@@ -275,7 +270,7 @@ func (r *testReplica) makeLive() error {
 		return err
 	}
 
-	r.recorder, err = NewRecorder(fsm, len(r.tmpdir), r.writer)
+	r.recorder, err = NewRecorder(fsm, len(r.tmpdir), r.gazette)
 	r.Assert(err, gc.IsNil)
 
 	r.dbO = rocks.NewDefaultOptions()
