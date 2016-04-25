@@ -147,32 +147,45 @@ func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 		c.Check(string(content), gc.Equals, "foobar")
 	}).Once()
 
-	// PUT to another/journal. Fails with a remote server error.
+	// PUT to another/journal. Fails with a 404 Not Found.
+	expectBazContent := func(args mock.Arguments) {
+		request := args[0].(*http.Request)
+
+		content, _ := ioutil.ReadAll(request.Body)
+		c.Check(string(content), gc.Equals, "baz!")
+	}
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "PUT" && request.URL.Path == "/another/journal"
+	})).Return(&http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       ioutil.NopCloser(nil),
+	}, nil).Run(expectBazContent).Once()
+
+	// Expect POST to create another/journal, which succeeds.
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "POST" && request.URL.Path == "/another/journal"
+	})).Return(&http.Response{
+		StatusCode: http.StatusCreated,
+		Body:       ioutil.NopCloser(nil),
+	}, nil).Once()
+
+	// Expect PUT to another/journal is retried with the same content.
+	// This time, fail with a server error.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "PUT" && request.URL.Path == "/another/journal"
 	})).Return(&http.Response{
 		StatusCode: http.StatusInternalServerError,
 		Status:     "Whoops!",
-		Body:       ioutil.NopCloser(strings.NewReader("")),
-	}, nil).Run(func(args mock.Arguments) {
-		request := args[0].(*http.Request)
+		Body:       ioutil.NopCloser(strings.NewReader("error")),
+	}, nil).Run(expectBazContent).Once()
 
-		content, _ := ioutil.ReadAll(request.Body)
-		c.Check(string(content), gc.Equals, "baz!")
-	}).Once()
-
-	// Expect PUT to another/journal is retried with the same content.
+	// Final PUT to another/journal is retried with the same content. Succeeds.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "PUT" && request.URL.Path == "/another/journal"
 	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Success.
-		Body:       ioutil.NopCloser(strings.NewReader("")),
-	}, nil).Run(func(args mock.Arguments) {
-		request := args[0].(*http.Request)
-
-		content, _ := ioutil.ReadAll(request.Body)
-		c.Check(string(content), gc.Equals, "baz!")
-	}).Once()
+		Body:       ioutil.NopCloser(nil),
+	}, nil).Run(expectBazContent).Once()
 
 	writer.Start()
 

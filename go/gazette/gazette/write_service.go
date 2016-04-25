@@ -219,11 +219,7 @@ func (c *WriteService) serveWrites(index int) {
 func (c *WriteService) onWrite(write *pendingWrite) error {
 	// We now have exclusive ownership of |write|. Iterate
 	// attempting to write to server, until it's acknowledged.
-	for i := 0; true; i++ {
-		if i != 0 {
-			time.Sleep(kWriteServiceCooloffTimeout)
-		}
-
+	for true {
 		if _, err := write.file.Seek(0, 0); err != nil {
 			return err // Not recoverable
 		}
@@ -232,11 +228,33 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 			Content: io.NewSectionReader(write.file, 0, write.offset),
 		})
 
-		if result.Error != nil {
+		switch result.Error {
+		case nil:
+			break
+
+		case journal.ErrNotBroker:
+			// The route topology has changed, generally due to a service update.
+			// Immediately retry against the indicated broker.
+			continue
+
+		case journal.ErrNotFound:
+			// First-write case: Implicitly create a Journal which doesn't yet exist.
+			if err := c.client.Create(write.journal); err != nil {
+				log.WithFields(log.Fields{"journal": write.journal, "err": err}).
+					Warn("failed to create journal")
+				time.Sleep(kWriteServiceCooloffTimeout)
+			} else {
+				log.WithField("journal", write.journal).Info("created journal")
+			}
+			continue
+
+		default:
 			log.WithFields(log.Fields{"journal": write.journal, "err": result.Error}).
 				Warn("write failed")
+			time.Sleep(kWriteServiceCooloffTimeout)
 			continue
 		}
+
 		// Success. Notify any waiting clients.
 		write.result.AppendResult = result
 		close(write.result.Ready)

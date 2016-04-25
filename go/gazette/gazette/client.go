@@ -245,8 +245,25 @@ func (c *Client) openFragment(location *url.URL,
 	return response.Body, nil // Success.
 }
 
+// Creates the Journal of the given name.
+func (c *Client) Create(name journal.Name) error {
+	url := c.defaultEndpoint // Copy.
+	url.Path = "/" + name.String()
+
+	request, err := http.NewRequest("POST", url.String(), nil)
+	if err != nil {
+		return err
+	}
+	// Issue the request without using or updating the Journal location cache.
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	return journal.ErrorFromResponse(response)
+}
+
 // Performs a Gazette PUT operation, which appends content to the named journal.
-// It is an error if |args.Content| does not implement io.ReadSeeker.
+// Put panics if |args.Content| does not implement io.ReadSeeker.
 func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	request, err := http.NewRequest("PUT", "/"+args.Journal.String(), args.Content)
 	if err != nil {
@@ -255,25 +272,21 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	if _, ok := c.locationCache.Get(request.URL.Path); !ok {
 		// Speculatively issue a HEAD to fill the location cache for this path.
 		result, _ := c.Head(journal.ReadArgs{Journal: args.Journal, Blocking: false, Offset: -1})
-		if result.Error != journal.ErrNotYetAvailable {
-			log.WithFields(log.Fields{"err": err, "journal": args.Journal}).
-				Warn("PUT cache-fill failed")
+		if result.Error != nil && result.Error != journal.ErrNotYetAvailable {
+			return journal.AppendResult{Error: result.Error}
 		}
 	}
 
-	if rs, ok := args.Content.(io.ReadSeeker); ok {
-		// Use Seek() to determine the content length.
-		if start, err := rs.Seek(0, os.SEEK_CUR); err != nil {
-			return journal.AppendResult{Error: err}
-		} else if end, err := rs.Seek(0, os.SEEK_END); err != nil {
-			return journal.AppendResult{Error: err}
-		} else if _, err := rs.Seek(start, os.SEEK_SET); err != nil {
-			return journal.AppendResult{Error: err}
-		} else {
-			request.ContentLength = end - start
-		}
+	// Use Seek() to determine the content length.
+	rs := args.Content.(io.ReadSeeker)
+	if start, err := rs.Seek(0, os.SEEK_CUR); err != nil {
+		return journal.AppendResult{Error: err}
+	} else if end, err := rs.Seek(0, os.SEEK_END); err != nil {
+		return journal.AppendResult{Error: err}
+	} else if _, err := rs.Seek(start, os.SEEK_SET); err != nil {
+		return journal.AppendResult{Error: err}
 	} else {
-		return journal.AppendResult{Error: fmt.Errorf("Content must implement io.ReadSeeker")}
+		request.ContentLength = end - start
 	}
 
 	response, err := c.Do(request)
@@ -283,7 +296,7 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 	defer response.Body.Close()
 	result := c.parseAppendResponse(response)
 
-	// Record the freshly received writehead as well as a rolling count of all
+	// Record the result.WriteHead as well as a cumulative count of all
 	// bytes written to this journal, if the write succeeded.
 	if result.Error == nil {
 		written, _ := c.obtainJournalCounters(args.Journal, true, result.WriteHead)
@@ -348,14 +361,7 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 		}
 	}
 
-	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-		result.Error = journal.ErrNotYetAvailable
-		return
-	} else if response.StatusCode != http.StatusPartialContent {
-		// Read and return response body as result.Error. Note that if this is a
-		// HEAD, the response body will be empty.
-		body, _ := ioutil.ReadAll(response.Body)
-		result.Error = fmt.Errorf("%s (%s)", response.Status, string(body))
+	if result.Error = journal.ErrorFromResponse(response); result.Error != nil {
 		return
 	}
 
@@ -382,26 +388,17 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 }
 
 func (c *Client) parseAppendResponse(response *http.Response) journal.AppendResult {
-	var ret journal.AppendResult
-
-	if response.StatusCode != http.StatusNoContent {
-		var body []byte
-		if body, ret.Error = ioutil.ReadAll(response.Body); ret.Error == nil {
-			ret.Error = fmt.Errorf("%s (%s)", response.Status, string(body))
-		}
+	var result = journal.AppendResult{
+		Error: journal.ErrorFromResponse(response),
 	}
 	if writeHead := response.Header.Get(WriteHeadHeader); writeHead != "" {
 		var err error
-
-		ret.WriteHead, err = strconv.ParseInt(writeHead, 10, 64)
-		if err != nil {
-			log.WithFields(log.Fields{"err": err, "writeHead": writeHead}).Error("error parsing write head")
-			// Keep going anyway. We don't want the write to be retried because
-			// this registers as an error -- since we did write the data
-			// successfully.
+		if result.WriteHead, err = strconv.ParseInt(writeHead, 10, 64); err != nil {
+			log.WithFields(log.Fields{"err": err, "writeHead": writeHead}).
+				Error("error parsing write head")
 		}
 	}
-	return ret
+	return result
 }
 
 // Thin layer upon http.Do(), which manages re-writes from and update to the

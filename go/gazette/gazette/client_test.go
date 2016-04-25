@@ -14,7 +14,7 @@ import (
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 
-	. "github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/journal"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 		"0102030405060708090a0b0c0d0e0f1011121314"
 )
 
-var fragmentFixture = Fragment{
+var fragmentFixture = journal.Fragment{
 	Journal: "a/journal",
 	Begin:   1000,
 	End:     2000,
@@ -69,9 +69,10 @@ func (s *ClientSuite) TestHeadRequest(c *gc.C) {
 	})).Return(newReadResponseFixture(), nil).Once()
 
 	s.client.httpClient = mockClient
-	result, loc := s.client.Head(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
+	result, loc := s.client.Head(
+		journal.ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
 
-	c.Check(result, gc.DeepEquals, ReadResult{
+	c.Check(result, gc.DeepEquals, journal.ReadResult{
 		Offset:    1005,
 		WriteHead: 3000,
 		Fragment:  fragmentFixture,
@@ -95,10 +96,10 @@ func (s *ClientSuite) TestDirectGet(c *gc.C) {
 	})).Return(responseFixture, nil).Once()
 
 	s.client.httpClient = mockClient
-	result, body := s.client.GetDirect(ReadArgs{
+	result, body := s.client.GetDirect(journal.ReadArgs{
 		Journal: "a/journal", Offset: 1005, Blocking: false})
 
-	c.Check(result, gc.DeepEquals, ReadResult{
+	c.Check(result, gc.DeepEquals, journal.ReadResult{
 		Offset:    1005,
 		WriteHead: 3000,
 		Fragment:  fragmentFixture,
@@ -122,7 +123,7 @@ func (s *ClientSuite) TestDirectGetFails(c *gc.C) {
 	}, nil).Once()
 
 	s.client.httpClient = mockClient
-	result, body := s.client.GetDirect(ReadArgs{
+	result, body := s.client.GetDirect(journal.ReadArgs{
 		Journal: "a/journal", Offset: 1005, Blocking: false})
 
 	c.Check(result.Error.Error(), gc.Equals, "Internal Error (message)")
@@ -151,10 +152,10 @@ func (s *ClientSuite) TestGetWithoutFragmentLocation(c *gc.C) {
 
 	// Arbitrary offset fixture.
 	s.client.httpClient = mockClient
-	result, body := s.client.Get(ReadArgs{
+	result, body := s.client.Get(journal.ReadArgs{
 		Journal: "a/journal", Offset: 1005, Blocking: true, Deadline: time.Unix(1240, 0)})
 
-	c.Check(result, gc.DeepEquals, ReadResult{
+	c.Check(result, gc.DeepEquals, journal.ReadResult{
 		Offset:    1005,
 		WriteHead: 3000,
 		Fragment:  fragmentFixture,
@@ -193,10 +194,11 @@ func (s *ClientSuite) TestGetWithFragmentLocation(c *gc.C) {
 	}, nil).Once()
 
 	s.client.httpClient = mockClient
-	result, body := s.client.Get(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
+	result, body := s.client.Get(
+		journal.ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
 
 	c.Check(result.Error, gc.IsNil)
-	c.Check(result, gc.DeepEquals, ReadResult{
+	c.Check(result, gc.DeepEquals, journal.ReadResult{
 		Offset:    1005,
 		WriteHead: 3000,
 		Fragment:  fragmentFixture,
@@ -225,7 +227,8 @@ func (s *ClientSuite) TestGetWithFragmentLocationFails(c *gc.C) {
 	}, nil).Once()
 
 	s.client.httpClient = mockClient
-	result, body := s.client.Get(ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
+	result, body := s.client.Get(
+		journal.ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
 
 	c.Check(result.Error.Error(), gc.Equals, "fetching fragment: Internal Error")
 	c.Check(body, gc.IsNil)
@@ -238,7 +241,7 @@ func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
 	s.client.httpClient = mockClient
 
 	location := newURL("http://cloud/location")
-	readResult := ReadResult{Offset: 1005, WriteHead: 3000, Fragment: fragmentFixture}
+	readResult := journal.ReadResult{Offset: 1005, WriteHead: 3000, Fragment: fragmentFixture}
 
 	// Expect response errors are passed through.
 	mockClient.On("Get", "http://cloud/location").Return(nil, errors.New("error!")).Once()
@@ -269,20 +272,68 @@ func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, "seeking fragment: EOF")
 }
 
+func (s *ClientSuite) TestCreate(c *gc.C) {
+	mockClient := &mockHttpClient{}
+
+	// Expect a POST of the journal. Fail with a conflict.
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "POST" &&
+			request.URL.String() == "http://default/a/journal"
+	})).Return(&http.Response{
+		StatusCode: http.StatusConflict,
+		Body:       ioutil.NopCloser(nil),
+	}, nil).Once()
+
+	// Expect a second POST, which succeeds.
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "POST" &&
+			request.URL.String() == "http://default/a/journal"
+	})).Return(&http.Response{
+		StatusCode: http.StatusCreated,
+		Body:       ioutil.NopCloser(nil),
+	}, nil).Once()
+
+	s.client.httpClient = mockClient
+	c.Check(s.client.Create("a/journal"), gc.Equals, journal.ErrExists)
+	c.Check(s.client.Create("a/journal"), gc.IsNil)
+
+	mockClient.AssertExpectations(c)
+}
+
 func (s *ClientSuite) TestPut(c *gc.C) {
 	content := strings.NewReader("foobar")
-
 	mockClient := &mockHttpClient{}
+
+	// Expect a HEAD request at offset=-1 (not satisfiable) to fill the location cache.
+	// Return an error, and expect it's passed through.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "HEAD" &&
 			request.URL.Host == "default" &&
-			request.URL.Path == "/a/journal"
-	})).Return(newReadResponseFixture(), nil)
+			request.URL.Path == "/a/journal" &&
+			request.URL.Query().Get("offset") == "-1"
+	})).Return(&http.Response{
+		Status:     "Teapot",
+		StatusCode: http.StatusTeapot,
+		Body:       ioutil.NopCloser(bytes.NewBufferString("head failed reason")),
+	}, nil).Once()
 
-	body := new(bytes.Buffer)
-	body.WriteString("some reason")
+	s.client.httpClient = mockClient
+	res := s.client.Put(journal.AppendArgs{Journal: "a/journal", Content: content})
+	c.Check(res.Error, gc.ErrorMatches, `Teapot \(head failed reason\)`)
 
-	// Return an error.
+	// Again. This time, return ErrNotYetAvailable (expected because it's non-blocking).
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.Host == "default" &&
+			request.URL.Path == "/a/journal" &&
+			request.URL.Query().Get("offset") == "-1"
+	})).Return(&http.Response{
+		StatusCode: http.StatusRequestedRangeNotSatisfiable,
+		Request:    &http.Request{URL: newURL("http://redirected-server/a/journal")},
+		Body:       ioutil.NopCloser(nil),
+	}, nil).Once()
+
+	// Expect a PUT to the redirected server, which returns an error.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "PUT" &&
 			request.URL.Host == "redirected-server" &&
@@ -291,15 +342,13 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 	})).Return(&http.Response{
 		Status:     "Internal Server Error",
 		StatusCode: http.StatusInternalServerError,
-		Request:    &http.Request{URL: newURL("http://default/a/journal")},
-		Body:       ioutil.NopCloser(body),
+		Body:       ioutil.NopCloser(bytes.NewBufferString("some reason")),
 		Header: http.Header{
 			WriteHeadHeader: []string{"12341234"},
 		},
 	}, nil).Once()
 
-	s.client.httpClient = mockClient
-	res := s.client.Put(AppendArgs{Journal: "a/journal", Content: content})
+	res = s.client.Put(journal.AppendArgs{Journal: "a/journal", Content: content})
 	c.Check(res.Error, gc.ErrorMatches, `Internal Server Error \(some reason\)`)
 
 	// WriteHead was parsed despite the failure.
@@ -310,16 +359,15 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 	// exist yet.
 	c.Check(gazetteMap.Get("writers").(*expvar.Map).Get("a/journal"), gc.IsNil)
 
-	// This time, return success.
+	// Expect a PUT, and this time return success.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "PUT" &&
 			// Cache is cleared, so "default" pops up again.
-			request.URL.Host == "default" &&
+			request.URL.Host == "redirected-server" &&
 			request.URL.Path == "/a/journal" &&
 			request.ContentLength == 6
 	})).Return(&http.Response{
 		StatusCode: http.StatusNoContent, // Indicates success.
-		Request:    &http.Request{URL: newURL("http://default/a/journal")},
 		Body:       ioutil.NopCloser(nil),
 		Header: http.Header{
 			WriteHeadHeader: []string{"12341235"},
@@ -329,7 +377,7 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 		c.Check(request.Body, gc.DeepEquals, ioutil.NopCloser(content))
 	}).Once()
 
-	res = s.client.Put(AppendArgs{Journal: "a/journal", Content: content})
+	res = s.client.Put(journal.AppendArgs{Journal: "a/journal", Content: content})
 	c.Check(res.Error, gc.IsNil)
 	c.Check(res.WriteHead, gc.Equals, int64(12341235))
 	mockClient.AssertExpectations(c)
@@ -343,14 +391,14 @@ func (s *ClientSuite) TestPut(c *gc.C) {
 }
 
 func (s *ClientSuite) TestReadResultParsingErrorCases(c *gc.C) {
-	args := ReadArgs{Journal: "a/journal"}
+	args := journal.ReadArgs{Journal: "a/journal"}
 
 	{ // Expect 416 is mapped into ErrNotYetAvailable.
 		response := newReadResponseFixture()
 		response.StatusCode = http.StatusRequestedRangeNotSatisfiable
 
 		result, _ := s.client.parseReadResult(args, response)
-		c.Check(result.Error, gc.Equals, ErrNotYetAvailable)
+		c.Check(result.Error, gc.Equals, journal.ErrNotYetAvailable)
 	}
 	{ // Missing Content-Range.
 		response := newReadResponseFixture()
@@ -407,16 +455,13 @@ func (s *ClientSuite) TestReadResultParsingErrorCases(c *gc.C) {
 
 func (s *ClientSuite) TestAppendResultParsingErrorCases(c *gc.C) {
 	response := newReadResponseFixture()
-	response.StatusCode = http.StatusNotFound
-	response.Status = "404 Not Found"
-	response.Body = ioutil.NopCloser(strings.NewReader("not found"))
+	response.StatusCode = http.StatusGone
 
-	c.Check(s.client.parseAppendResponse(response).Error, gc.ErrorMatches,
-		`404 Not Found \(not found\)`)
+	c.Check(s.client.parseAppendResponse(response).Error, gc.Equals, journal.ErrNotBroker)
 }
 
 func (s *ClientSuite) TestBuildReadURL(c *gc.C) {
-	args := ReadArgs{
+	args := journal.ReadArgs{
 		Journal:  "a/journal",
 		Blocking: true,
 		Deadline: time.Now().Add(10 * time.Millisecond),
@@ -426,7 +471,7 @@ func (s *ClientSuite) TestBuildReadURL(c *gc.C) {
 	c.Check(strings.Contains(url.String(), "blockms="), gc.Equals, true)
 	c.Check(strings.Contains(url.String(), "blockms=0"), gc.Equals, false)
 
-	args = ReadArgs{Journal: "a/journal"}
+	args = journal.ReadArgs{Journal: "a/journal"}
 	url = s.client.buildReadURL(args)
 	c.Check(strings.Contains(url.String(), "block=false"), gc.Equals, true)
 	c.Check(strings.Contains(url.String(), "blockms="), gc.Equals, false)
