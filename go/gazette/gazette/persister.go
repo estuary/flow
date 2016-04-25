@@ -11,10 +11,10 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/coreos/go-etcd/etcd"
+	etcd "github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 
 	"github.com/pippio/api-server/cloudstore"
-	"github.com/pippio/api-server/discovery"
 	"github.com/pippio/gazette/async"
 	"github.com/pippio/gazette/journal"
 )
@@ -30,7 +30,7 @@ const (
 type Persister struct {
 	directory string
 	cfs       cloudstore.FileSystem
-	etcd      discovery.EtcdService
+	keysAPI   etcd.KeysAPI
 	routeKey  string
 
 	queue        map[string]journal.Fragment
@@ -44,11 +44,11 @@ type Persister struct {
 }
 
 func NewPersister(directory string, cfs cloudstore.FileSystem,
-	etcd discovery.EtcdService, routeKey string) *Persister {
+	keysAPI etcd.KeysAPI, routeKey string) *Persister {
 	p := &Persister{
 		cfs:              cfs,
 		directory:        directory,
-		etcd:             etcd,
+		keysAPI:          keysAPI,
 		osRemove:         os.Remove,
 		persisterLockTTL: kPersisterLockTTL,
 		queue:            make(map[string]journal.Fragment),
@@ -144,20 +144,30 @@ func (p *Persister) converge() {
 }
 
 func (p *Persister) convergeOne(fragment journal.Fragment) bool {
-	lockPath := PersisterLocksRoot + fragment.ContentName()
+	var lockPath = PersisterLocksRoot + fragment.ContentName()
+	var lockIndex uint64
 
 	// Attempt to lock this fragment for upload.
-	if err := p.etcd.Create(lockPath, p.routeKey, p.persisterLockTTL); err != nil {
+	if response, err := p.keysAPI.Set(context.Background(), lockPath, p.routeKey,
+		&etcd.SetOptions{
+			PrevExist: etcd.PrevNoExist,
+			TTL:       p.persisterLockTTL,
+		},
+	); err != nil {
 		// Log if this is not an Etcd "Key already exists" error.
-		if etcdErr, ok := err.(*etcd.EtcdError); !ok || etcdErr.ErrorCode != 105 {
+		if etcdErr, _ := err.(etcd.Error); etcdErr.Code != etcd.ErrorCodeNodeExist {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentName}).
 				Warn("failed to lock fragment for persisting")
 		}
 		return false
+	} else {
+		lockIndex = response.Index
 	}
+
 	// Arrange to remove the lock on exit.
 	defer func() {
-		if err := p.etcd.Delete(lockPath, false); err != nil {
+		if _, err := p.keysAPI.Delete(context.Background(), lockPath,
+			&etcd.DeleteOptions{PrevIndex: lockIndex}); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentName}).
 				Error("failed to delete fragment persister lock")
 		}
@@ -202,9 +212,16 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 
 	// Wait for |done|, periodically refreshing the held lock.
 	done.WaitWithPeriodicTask(p.persisterLockTTL/2, func() {
-		if err := p.etcd.Update(lockPath, p.routeKey, p.persisterLockTTL); err != nil {
+		if resp, err := p.keysAPI.Set(context.Background(), lockPath, p.routeKey,
+			&etcd.SetOptions{
+				PrevExist: etcd.PrevExist,
+				PrevIndex: lockIndex,
+				TTL:       p.persisterLockTTL,
+			}); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentName}).
 				Error("failed to update held fragment lock for persisting")
+		} else {
+			lockIndex = resp.Index
 		}
 	})
 

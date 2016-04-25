@@ -7,17 +7,17 @@ import (
 	"sort"
 	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/pippio/api-server/cloudstore"
-	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
 )
 
 type PersisterSuite struct {
-	etcd      *discovery.EtcdMemoryService
+	keysAPI   *consensus.MockKeysAPI
 	cfs       cloudstore.FileSystem
 	file      *journal.MockFragmentFile
 	fragment  journal.Fragment
@@ -25,9 +25,7 @@ type PersisterSuite struct {
 }
 
 func (s *PersisterSuite) SetUpTest(c *gc.C) {
-	s.etcd = discovery.NewEtcdMemoryService()
-	s.etcd.MakeDirectory(PersisterLocksRoot)
-
+	s.keysAPI = new(consensus.MockKeysAPI)
 	s.cfs = cloudstore.NewTmpFileSystem()
 	s.file = &journal.MockFragmentFile{}
 	s.fragment = journal.Fragment{
@@ -38,7 +36,7 @@ func (s *PersisterSuite) SetUpTest(c *gc.C) {
 			11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
 		File: s.file,
 	}
-	s.persister = NewPersister("base/directory", s.cfs, s.etcd, "route-key")
+	s.persister = NewPersister("base/directory", s.cfs, s.keysAPI, "route-key")
 }
 
 func (s *PersisterSuite) TearDownTest(c *gc.C) {
@@ -46,36 +44,33 @@ func (s *PersisterSuite) TearDownTest(c *gc.C) {
 }
 
 func (s *PersisterSuite) TestPersistence(c *gc.C) {
-	kContentFixture := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	var contentFixture = []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	var lockPath = PersisterLocksRoot + s.fragment.ContentName()
 
-	// Monitor persister locks. Expect a lock to be obtained, refreshed,
-	// and then released.
-	subscriber := &discovery.MockEtcdSubscriber{}
-	s.expectLockUnlock(subscriber, c)
-	blockUntilRefresh := make(chan time.Time)
+	// Expect lock is created, refreshed, and deleted.
+	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
+		&etcd.SetOptions{
+			PrevExist: etcd.PrevNoExist,
+			TTL:       10 * time.Millisecond,
+		}).Return(&etcd.Response{Index: 1234}, nil)
 
-	subscriber.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
-		if r.Action != discovery.EtcdUpdateOp {
-			return false
-		}
-		c.Check(r.Node.Key, gc.Equals, PersisterLocksRoot+s.fragment.ContentName())
+	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
+		&etcd.SetOptions{
+			PrevExist: etcd.PrevExist,
+			PrevIndex: 1234,
+			TTL:       10 * time.Millisecond,
+		}).Return(&etcd.Response{Index: 2345}, nil)
 
-		if blockUntilRefresh != nil {
-			close(blockUntilRefresh)
-			blockUntilRefresh = nil
-		}
-		return true
-	}), mock.AnythingOfType("*etcd.Node"))
-
-	c.Check(s.etcd.Subscribe(PersisterLocksRoot, subscriber), gc.IsNil)
+	s.keysAPI.On("Delete", mock.Anything, lockPath,
+		&etcd.DeleteOptions{PrevIndex: 2345}).Return(&etcd.Response{}, nil)
 
 	// Expect fragment.File to be read. Return a value fixture we'll verify later.
 	s.file.On("ReadAt", mock.AnythingOfType("[]uint8"), int64(0)).
 		Return(10, nil).
-		WaitUntil(blockUntilRefresh). // Delay until a lock refresh occurrs.
+		After(7 * time.Millisecond). // Block long enough to trigger lock refresh.
 		Run(func(args mock.Arguments) {
-		copy(args.Get(0).([]byte), kContentFixture)
-	}).Once()
+			copy(args.Get(0).([]byte), contentFixture)
+		}).Once()
 
 	// Intercept and validate the call to os.Remove.
 	s.persister.osRemove = func(path string) error {
@@ -84,10 +79,10 @@ func (s *PersisterSuite) TestPersistence(c *gc.C) {
 		return nil
 	}
 
-	s.persister.persisterLockTTL = time.Millisecond
+	s.persister.persisterLockTTL = 10 * time.Millisecond
 	s.persister.convergeOne(s.fragment)
 
-	subscriber.AssertExpectations(c)
+	s.keysAPI.AssertExpectations(c)
 	s.file.AssertExpectations(c)
 	c.Check(s.persister.osRemove, gc.IsNil)
 
@@ -95,16 +90,18 @@ func (s *PersisterSuite) TestPersistence(c *gc.C) {
 	r, err := s.cfs.Open(s.fragment.ContentPath())
 	c.Check(err, gc.IsNil)
 	content, _ := ioutil.ReadAll(r)
-	c.Check(content, gc.DeepEquals, kContentFixture)
+	c.Check(content, gc.DeepEquals, contentFixture)
 }
 
 func (s *PersisterSuite) TestLockIsAlreadyHeld(c *gc.C) {
-	s.etcd.Create(PersisterLocksRoot+s.fragment.ContentName(), "another-broker", 0)
+	var lockPath = PersisterLocksRoot + s.fragment.ContentName()
 
-	// Expect that no persister lock changes are made.
-	subscriber := &discovery.MockEtcdSubscriber{}
-	subscriber.On("OnEtcdUpdate", mock.Anything, mock.Anything).Return().Once()
-	c.Check(s.etcd.Subscribe(PersisterLocksRoot, subscriber), gc.IsNil)
+	// Expect lock creation is attempted, but return an error that it exists.
+	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
+		&etcd.SetOptions{
+			PrevExist: etcd.PrevNoExist,
+			TTL:       kPersisterLockTTL,
+		}).Return(nil, etcd.Error{Code: etcd.ErrorCodeNodeExist})
 
 	// Note we're implicitly verifying that the local file is not read,
 	// by not setting up expectations.
@@ -117,7 +114,7 @@ func (s *PersisterSuite) TestLockIsAlreadyHeld(c *gc.C) {
 	}
 	s.persister.convergeOne(s.fragment)
 
-	subscriber.AssertExpectations(c)
+	s.keysAPI.AssertExpectations(c)
 	s.file.AssertExpectations(c)
 
 	// Expect it's not present on target filesystem.
@@ -126,6 +123,8 @@ func (s *PersisterSuite) TestLockIsAlreadyHeld(c *gc.C) {
 }
 
 func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
+	var lockPath = PersisterLocksRoot + s.fragment.ContentName()
+
 	{
 		c.Assert(s.cfs.MkdirAll(s.fragment.Journal.String(), 0740), gc.IsNil)
 		w, err := s.cfs.OpenFile(s.fragment.ContentPath(),
@@ -136,9 +135,14 @@ func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
 	}
 
 	// Expect a lock to be obtained, and then released.
-	subscriber := &discovery.MockEtcdSubscriber{}
-	s.expectLockUnlock(subscriber, c)
-	c.Check(s.etcd.Subscribe(PersisterLocksRoot, subscriber), gc.IsNil)
+	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
+		&etcd.SetOptions{
+			PrevExist: etcd.PrevNoExist,
+			TTL:       kPersisterLockTTL,
+		}).Return(&etcd.Response{Index: 1234}, nil)
+
+	s.keysAPI.On("Delete", mock.Anything, lockPath,
+		&etcd.DeleteOptions{PrevIndex: 1234}).Return(&etcd.Response{}, nil)
 
 	// Expect fragment.File is *not* read, but that the file *is* removed.
 	s.persister.osRemove = func(path string) error {
@@ -148,7 +152,7 @@ func (s *PersisterSuite) TestTargetFileAlreadyExists(c *gc.C) {
 	}
 	s.persister.convergeOne(s.fragment)
 
-	subscriber.AssertExpectations(c)
+	s.keysAPI.AssertExpectations(c)
 	s.file.AssertExpectations(c)
 	c.Check(s.persister.osRemove, gc.IsNil)
 }
@@ -173,35 +177,6 @@ func (s *PersisterSuite) TestEmptyFragment(c *gc.C) {
 
 	c.Check(s.persister.queue, gc.HasLen, 0)
 	c.Check(s.persister.osRemove, gc.IsNil) // Verify osRemove() was called.
-}
-
-func (s *PersisterSuite) expectLockUnlock(sub *discovery.MockEtcdSubscriber, c *gc.C) {
-	treeArg := mock.AnythingOfType("*etcd.Node")
-	lockKey := PersisterLocksRoot + s.fragment.ContentName()
-
-	// Expect callback on initial subscription.
-	sub.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
-		return r.Action == discovery.EtcdGetOp
-	}), treeArg).Return().Once()
-
-	// Expect a persister lock to be created.
-	sub.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
-		if r.Action != discovery.EtcdCreateOp {
-			return false
-		}
-		c.Check(r.Node.Key, gc.Equals, lockKey)
-		c.Check(r.Node.Value, gc.Equals, "route-key")
-		return true
-	}), treeArg).Return().Once()
-
-	// Expect a persister lock to be released.
-	sub.On("OnEtcdUpdate", mock.MatchedBy(func(r *etcd.Response) bool {
-		if r.Action != discovery.EtcdDeleteOp {
-			return false
-		}
-		c.Check(r.Node.Key, gc.Equals, lockKey)
-		return true
-	}), treeArg).Return().Once()
 }
 
 func (s *PersisterSuite) TestStringFunction(c *gc.C) {
