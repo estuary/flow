@@ -102,7 +102,7 @@ func (m *master) init(runner *Runner, replica *replica) error {
 	}
 	log.WithFields(log.Fields{"shard": m.shard}).Info("makeLive finished")
 
-	if m.database, err = newDatabase(fsm, m.localDir, runner.Writer); err != nil {
+	if m.database, err = newDatabase(fsm, m.localDir, runner.Gazette); err != nil {
 		return err
 	}
 
@@ -130,7 +130,7 @@ func (m *master) startPumpingMessages(runner *Runner) (<-chan message.Message, e
 
 	// Begin pumping messages from consumed journals.
 	var messages = make(chan message.Message, messageBufferSize)
-	var pump = newPump(runner.Getter, messages, m.cancelCh)
+	var pump = newPump(runner.Gazette, messages, m.cancelCh)
 	var group *TopicGroup
 
 	for _, g := range runner.Consumer.Groups() {
@@ -196,8 +196,6 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 				if lastWriteBarrier.Error != nil {
 					panic("expected write to resolve without error, or not resolve")
 				}
-				m.database.recorder.UpdateWriteHead(lastWriteBarrier.AppendResult.WriteHead)
-
 				lastWriteBarrier.Ready = nil
 				continue
 			case msg = <-maybeSrc:
@@ -227,7 +225,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			txTimeoutTimer.Reset(maxTransactionTime)
 		}
 
-		if err = runner.Consumer.Consume(msg, m, publisher{runner.Writer}); err != nil {
+		if err = runner.Consumer.Consume(msg, m, publisher{runner.Gazette}); err != nil {
 			return err
 		}
 
@@ -242,7 +240,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 	COMMIT_TX:
 
-		if err = runner.Consumer.Flush(m, publisher{runner.Writer}); err != nil {
+		if err = runner.Consumer.Flush(m, publisher{runner.Gazette}); err != nil {
 			return err
 		}
 		storeOffsets(m.database.writeBatch, txOffsets)

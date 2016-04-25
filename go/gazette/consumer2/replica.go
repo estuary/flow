@@ -38,7 +38,7 @@ func newReplica(shard *shard, runner *Runner, tree *etcd.Node) (*replica, error)
 func (r *replica) serve(runner *Runner) {
 	defer close(r.servingCh)
 
-	err := r.player.Play(runner.Getter)
+	err := r.player.Play(runner.Gazette)
 
 	if err != nil && err != recoverylog.ErrPlaybackCancelled {
 		log.WithFields(log.Fields{"shard": r.shard, "err": err}).Error("replication failed")

@@ -24,9 +24,8 @@ type Runner struct {
 	// Required number of replicas of the consumer.
 	ReplicaCount int
 
-	Etcd   etcd.Client
-	Getter journal.Getter
-	Writer journal.Writer
+	Etcd    etcd.Client
+	Gazette journal.Client
 
 	// Optional hooks for notification of Shard lifecycle. These are largely
 	// intended to facilicate testing cases.
@@ -97,8 +96,8 @@ func (r *Runner) PathRoot() string      { return r.ConsumerRoot }
 func (r *Runner) Replicas() int         { return r.ReplicaCount }
 
 // TODO(johnny): Issue 1197. Wire this to recoverylog.Player.
-func (r *Runner) ItemState(shardName string) string         { return "ready" }
-func (r *Runner) ItemIsReadyForPromotion(state string) bool { return state == "ready" }
+func (r *Runner) ItemState(shardName string) string               { return "ready" }
+func (r *Runner) ItemIsReadyForPromotion(item, state string) bool { return state == "ready" }
 
 func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etcd.Node) {
 	shard, exists := r.liveShards[name]

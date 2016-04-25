@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"strconv"
 	"testing"
 	"time"
@@ -72,9 +73,11 @@ const (
 )
 
 type ConsumerSuite struct {
-	etcdClient    etcd.Client
-	gazetteClient *gazette.Client
-	writer        *gazette.WriteService
+	etcdClient etcd.Client
+	gazette    struct {
+		*gazette.Client
+		*gazette.WriteService
+	}
 	runFinishedCh chan struct{}
 }
 
@@ -90,7 +93,7 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
 	c.Assert(err, gc.IsNil)
 
-	s.gazetteClient, err = gazette.NewClient(*endpoints.GazetteEndpoint)
+	s.gazette.Client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
 	c.Assert(err, gc.IsNil)
 
 	// Skip suite if Etcd is not available.
@@ -99,14 +102,14 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 		c.Skip("Etcd not available: " + err.Error())
 	}
 	// Skip if a Gazette endpoint is not reachable.
-	result, _ := s.gazetteClient.Head(journal.ReadArgs{Journal: kAddSubtractLog, Offset: -1})
-	if result.Error != journal.ErrNotYetAvailable {
+	result, _ := s.gazette.Head(journal.ReadArgs{Journal: kAddSubtractLog, Offset: -1})
+	if _, ok := result.Error.(net.Error); ok {
 		c.Skip("Gazette not available: " + result.Error.Error())
 		return
 	}
 
-	s.writer = gazette.NewWriteService(s.gazetteClient)
-	s.writer.Start()
+	s.gazette.WriteService = gazette.NewWriteService(s.gazette.Client)
+	s.gazette.WriteService.Start()
 
 	s.runFinishedCh = make(chan struct{})
 }
@@ -119,15 +122,15 @@ func (s *ConsumerSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *ConsumerSuite) TearDownSuite(c *gc.C) {
-	if s.writer != nil {
-		s.writer.Stop()
+	if s.gazette.WriteService != nil {
+		s.gazette.WriteService.Stop()
 	}
 }
 
 func (s *ConsumerSuite) TestBasic(c *gc.C) {
 	var csvReader = s.openResultReader(kAddSubtractLog, c)
 	var reverseReader = s.openResultReader(kReverseLog, c)
-	var generator = newTestGenerator(s.writer)
+	var generator = newTestGenerator(s.gazette)
 
 	go s.startRunner(c, 0)
 	generator.publishSomeValues(c)
@@ -144,7 +147,7 @@ func (s *ConsumerSuite) TestHandoffWithMultipleRunners(c *gc.C) {
 	// responsibility for processing around the "cluster". publishSomeValues
 	// regulates publishing over the course of > 1s, so we expect publishes to
 	// race startRunner, and we expect to get the right answer anyway.
-	var generator = newTestGenerator(s.writer)
+	var generator = newTestGenerator(s.gazette)
 
 	go s.startRunner(c, 0)
 	generator.publishSomeValues(c)
@@ -176,9 +179,8 @@ func (s *ConsumerSuite) buildRunner(i int) *Runner {
 		RecoveryLogRoot: "pippio-journals/integration-tests/consumer2",
 		ReplicaCount:    0,
 
-		Etcd:   s.etcdClient,
-		Getter: s.gazetteClient,
-		Writer: s.writer,
+		Etcd:    s.etcdClient,
+		Gazette: s.gazette,
 	}
 }
 
@@ -193,8 +195,11 @@ func (s *ConsumerSuite) stopRunner(c *gc.C, i int) {
 }
 
 func (s *ConsumerSuite) openResultReader(name journal.Name, c *gc.C) io.Reader {
+	if err := s.gazette.Create(name); err != nil && err != journal.ErrExists {
+		c.Fatal(err)
+	}
 	// Issue a long-lived Gazette read to the result journal.
-	readResp, reader := s.gazetteClient.GetDirect(journal.ReadArgs{
+	readResp, reader := s.gazette.GetDirect(journal.ReadArgs{
 		Journal:  name,
 		Offset:   -1,
 		Deadline: time.Now().Add(time.Minute),

@@ -33,7 +33,10 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 	}
 
 	for name := range offsets {
-		result, _ := runner.Getter.Get(journal.ReadArgs{Journal: name, Offset: -1})
+		if err := runner.Gazette.Create(name); err != nil && err != journal.ErrExists {
+			return err
+		}
+		result, _ := runner.Gazette.Get(journal.ReadArgs{Journal: name, Offset: -1})
 		if result.Error != journal.ErrNotYetAvailable {
 			return result.Error
 		}
@@ -52,14 +55,8 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		var id = ShardID{group.Name, shard}
 		var opLog = recoveryLog(runner.RecoveryLogRoot, id)
 
-		// Determine recovery-log head.
-		result, _ := runner.Getter.Get(journal.ReadArgs{Journal: opLog, Offset: -1})
-		if result.Error != journal.ErrNotYetAvailable {
-			return result.Error
-		}
-
 		var fsm = recoverylog.NewFSM(recoverylog.FSMHints{
-			LogMark: journal.Mark{Journal: opLog, Offset: result.WriteHead}})
+			LogMark: journal.Mark{Journal: opLog}})
 
 		localDir, err := ioutil.TempDir("", "reset-shards")
 		if err != nil {
@@ -68,7 +65,7 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		defer os.RemoveAll(localDir)
 
 		// Open the database & store offsets,
-		db, err := newDatabase(fsm, localDir, runner.Writer)
+		db, err := newDatabase(fsm, localDir, runner.Gazette)
 		if err != nil {
 			return err
 		}
