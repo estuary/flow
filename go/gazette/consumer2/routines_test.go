@@ -5,19 +5,24 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/mock"
 	rocks "github.com/tecbot/gorocksdb"
 
+	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
 	"github.com/pippio/gazette/topic"
 )
 
-type RoutinesSuite struct{}
+type RoutinesSuite struct {
+	keysAPI *consensus.MockKeysAPI
+}
 
 var (
 	id8  = ShardID{"foo", 8}
@@ -25,6 +30,10 @@ var (
 	id30 = ShardID{"bar", 30}
 	id42 = ShardID{"quux", 42}
 )
+
+func (s *RoutinesSuite) SetUpTest(c *gc.C) {
+	s.keysAPI = new(consensus.MockKeysAPI)
+}
 
 func (s *RoutinesSuite) TestShardName(c *gc.C) {
 	c.Check(id42.String(), gc.Equals, "shard-quux-042")
@@ -38,16 +47,16 @@ func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
 	runner := &Runner{RecoveryLogRoot: "path/to/recovery/logs/"}
 
 	// Expect valid hints are found & loaded.
-	hints, err := loadHints(id12, runner, s.treeFixture())
+	hints, err := loadHintsFromEtcd(id12, runner, s.treeFixture())
 	c.Check(err, gc.IsNil)
 	c.Check(hints, gc.DeepEquals, s.hintsFixture())
 
 	// Malformed hints.
-	hints, err = loadHints(id30, runner, s.treeFixture())
+	hints, err = loadHintsFromEtcd(id30, runner, s.treeFixture())
 	c.Check(err, gc.ErrorMatches, "invalid character .*")
 
 	// Missing hints.
-	hints, err = loadHints(id8, runner, s.treeFixture())
+	hints, err = loadHintsFromEtcd(id8, runner, s.treeFixture())
 	c.Check(err, gc.IsNil)
 	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{
 		LogMark: journal.NewMark("path/to/recovery/logs/shard-foo-008", -1),
@@ -73,6 +82,30 @@ func (s *RoutinesSuite) TestLoadOffsetsFromEtcd(c *gc.C) {
 
 	offsets, err = loadOffsetsFromEtcd(badTree)
 	c.Check(err, gc.ErrorMatches, "strconv.ParseInt: .*")
+}
+
+func (s *RoutinesSuite) TestStoreHintsToEtcd(c *gc.C) {
+	hintsPath := "/foo/hints/shard-baz-012"
+	shard012, _ := json.Marshal(s.hintsFixture())
+
+	s.keysAPI.On("Set", mock.Anything, hintsPath, string(shard012),
+		mock.Anything).Return(&etcd.Response{}, nil)
+
+	storeHintsToEtcd(hintsPath, string(shard012), s.keysAPI)
+	s.keysAPI.AssertExpectations(c)
+}
+
+func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
+	rootPath := "foo"
+	offsets := make(map[journal.Name]int64)
+	offsets["journal/part-001"] = 1000
+	offsets["journal/part-002"] = 2000
+	for k, v := range offsets {
+		s.keysAPI.On("Set", mock.Anything, offsetPath(rootPath, k), strconv.FormatInt(v, 16),
+			mock.Anything).Return(&etcd.Response{}, nil)
+	}
+	storeOffsetsToEtcd(rootPath, offsets, s.keysAPI)
+	s.keysAPI.AssertExpectations(c)
 }
 
 func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
@@ -102,7 +135,7 @@ func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
 		"journal/part-002":       43,
 		"other-journal/part-003": 44,
 	}
-	storeOffsets(wb, offsets)
+	storeOffsetsToDB(wb, offsets)
 	clearOffsets(offsets)
 	c.Check(db.Write(wo, wb), gc.Equals, nil)
 

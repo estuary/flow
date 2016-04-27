@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/context"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
@@ -98,6 +100,10 @@ func hintsPath(consumerPath string, shard ShardID) string {
 	return consumerPath + "/" + hintsPrefix + "/" + shard.String()
 }
 
+func offsetPath(consumerPath string, name journal.Name) string {
+	return consumerPath + "/" + offsetsPrefix + "/" + name.String()
+}
+
 // Maps |shard| to its recovery log journal.
 func recoveryLog(logRoot string, shard ShardID) journal.Name {
 	return journal.Name(path.Join(logRoot, shard.String()))
@@ -113,7 +119,7 @@ func abort(runner *Runner, shard ShardID) {
 
 // Loads JSON-encoded FSMHints from |tree| for |shard|. If hints do not exist,
 // initializes new hints using the default RecoveryLogRoot root.
-func loadHints(shard ShardID, runner *Runner, tree *etcd.Node) (recoverylog.FSMHints, error) {
+func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recoverylog.FSMHints, error) {
 	var hints recoverylog.FSMHints
 
 	key := hintsPath(tree.Key, shard)
@@ -130,6 +136,16 @@ func loadHints(shard ShardID, runner *Runner, tree *etcd.Node) (recoverylog.FSMH
 		Offset:  -1,
 	}
 	return hints, nil
+}
+
+// Stores |hints| in Etcd.
+func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI) {
+	_, err := keysAPI.Set(context.Background(), hintsPath, hints, nil)
+	// Etcd Set is best-effort.
+	if err != nil {
+		log.WithFields(log.Fields{"path": hintsPath, "err": err}).
+			Warn("failed to store hints")
+	}
 }
 
 // Converts |offset| into a base-16 encoded string.
@@ -160,6 +176,20 @@ func loadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
 		result[journal.Name(name)] = offset
 	}
 	return result, nil
+}
+
+// Stores legacy |offsets| in Etcd.
+func storeOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI etcd.KeysAPI) {
+	for name, offset := range offsets {
+		offsetPath := offsetPath(rootPath, name)
+		_, err := keysAPI.Set(context.Background(), offsetPath,
+			strconv.FormatInt(offset, 16), nil)
+		// Etcd Set is best-effort.
+		if err != nil {
+			log.WithFields(log.Fields{"path": offsetPath, "err": err}).
+				Warn("failed to store offset")
+		}
+	}
 }
 
 // Loads from |db| offsets previously serialized by storeAndClearOffsets.
@@ -193,7 +223,7 @@ func loadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]
 }
 
 // Stores |offsets| to |wb| using an identical encoding as loadOffsetsFromDB.
-func storeOffsets(wb *rocks.WriteBatch, offsets map[journal.Name]int64) {
+func storeOffsetsToDB(wb *rocks.WriteBatch, offsets map[journal.Name]int64) {
 	for name, offset := range offsets {
 		key := encoding.EncodeNullAscending(nil)
 		key = encoding.EncodeStringAscending(key, "mark")
@@ -210,6 +240,15 @@ func clearOffsets(offsets map[journal.Name]int64) {
 	for name := range offsets {
 		delete(offsets, name)
 	}
+}
+
+// Copies |offsets| to a new map.
+func copyOffsets(offsets map[journal.Name]int64) map[journal.Name]int64 {
+	copy := make(map[journal.Name]int64)
+	for k, v := range offsets {
+		copy[k] = v
+	}
+	return copy
 }
 
 // Resolves discrepancies in DB & Etcd-stored offsets. Policy is to use an Etcd

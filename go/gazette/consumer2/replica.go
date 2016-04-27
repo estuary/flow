@@ -14,7 +14,7 @@ type replica struct {
 }
 
 func newReplica(shard *shard, runner *Runner, tree *etcd.Node) (*replica, error) {
-	hints, err := loadHints(shard.id, runner, tree)
+	hints, err := loadHintsFromEtcd(shard.id, runner, tree)
 	if err != nil {
 		return nil, err
 	}

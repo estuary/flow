@@ -69,7 +69,7 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		if err != nil {
 			return err
 		}
-		storeOffsets(db.writeBatch, offsets)
+		storeOffsetsToDB(db.writeBatch, offsets)
 
 		// Commit, and store resulting hints to Etcd.
 		barrier, err := db.commit()

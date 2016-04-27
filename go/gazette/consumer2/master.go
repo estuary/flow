@@ -7,7 +7,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	rocks "github.com/tecbot/gorocksdb"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
@@ -16,9 +15,9 @@ import (
 )
 
 var (
-	storeHintsInterval = time.Minute
-	maxTransactionTime = 200 * time.Millisecond
-	messageBufferSize  = 1024
+	storeToEctdInterval = time.Minute
+	maxTransactionTime  = 200 * time.Millisecond
+	messageBufferSize   = 1024
 )
 
 type master struct {
@@ -151,7 +150,7 @@ func (m *master) startPumpingMessages(runner *Runner) (<-chan message.Message, e
 
 func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) error {
 	// Rate at which we publish recovery hints to Etcd.
-	var storeHintsInterval = time.NewTicker(storeHintsInterval)
+	var storeToEctdInterval = time.NewTicker(storeToEctdInterval)
 
 	// Timepoint at which the current transaction began.
 	// Set on the first message of a new transaction.
@@ -243,10 +242,10 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		if err = runner.Consumer.Flush(m, publisher{runner.Gazette}); err != nil {
 			return err
 		}
-		storeOffsets(m.database.writeBatch, txOffsets)
+		storeOffsetsToDB(m.database.writeBatch, txOffsets)
 
 		select {
-		case <-storeHintsInterval.C:
+		case <-storeToEctdInterval.C:
 			// It's time to write recovery hints to Etcd. We must be careful of
 			// ordering here, as RocksDB may be performing background file operations.
 			// We build hints *before* we commit, then sync to Etcd *after* the write
@@ -263,16 +262,12 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 				return err
 			}
 
-			// Actual Etcd Set is async and best-effort.
-			go func(hints string, barrier *journal.AsyncAppend) {
+			go func(hints string, offsets map[journal.Name]int64, barrier *journal.AsyncAppend) {
 				<-barrier.Ready
 
-				_, err := runner.KeysAPI().Set(context.Background(), m.hintsPath, hints, nil)
-				if err != nil {
-					log.WithFields(log.Fields{"path": m.hintsPath, "err": err}).
-						Warn("failed to store hints")
-				}
-			}(hints, lastWriteBarrier)
+				storeHintsToEtcd(m.hintsPath, hints, runner.KeysAPI())
+				storeOffsetsToEtcd(runner.ConsumerRoot, offsets, runner.KeysAPI())
+			}(hints, copyOffsets(txOffsets), lastWriteBarrier)
 
 		default:
 			if lastWriteBarrier, err = m.database.commit(); err != nil {
