@@ -129,6 +129,8 @@ func (c *WriteService) Start() {
 
 // Stops the write service loop. Returns only after all writes have completed.
 func (c *WriteService) Stop() {
+	varz.SetStatWriter(nil)
+
 	for i := range c.writeQueue {
 		close(c.writeQueue[i])
 	}
