@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"encoding/json"
+	"flag"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -15,8 +16,10 @@ import (
 )
 
 var (
-	storeToEctdInterval = time.Minute
-	maxTransactionTime  = 200 * time.Millisecond
+	maxConsumeQuantum = flag.Duration("maxConsumeQuantum", 200*time.Millisecond,
+		"Max quantum of time a consumer may process messages before committing.")
+
+	storeToEtcdInterval = time.Minute
 	messageBufferSize   = 1024
 )
 
@@ -150,7 +153,7 @@ func (m *master) startPumpingMessages(runner *Runner) (<-chan message.Message, e
 
 func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) error {
 	// Rate at which we publish recovery hints to Etcd.
-	var storeToEctdInterval = time.NewTicker(storeToEctdInterval)
+	var storeToEtcdInterval = time.NewTicker(storeToEtcdInterval)
 
 	// Timepoint at which the current transaction began.
 	// Set on the first message of a new transaction.
@@ -178,9 +181,9 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		// We allow messages to process in the current transaction only if we're
 		// within the transaction timeout. Though we may stall an arbitrarily long
 		// time waiting for |lastWriteBarrier|, we only wish to process messages
-		// during the first |maxTransactionTime| of the transaction.
+		// during the first |maxConsumeQuantum| of the transaction.
 		var maybeSrc <-chan message.Message
-		if txMessages == 0 || lastTimeoutTick.Before(txBegin.Add(maxTransactionTime)) {
+		if txMessages == 0 || lastTimeoutTick.Before(txBegin.Add(*maxConsumeQuantum)) {
 			maybeSrc = source
 		}
 
@@ -221,7 +224,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		// Does this message begin a new transaction?
 		if txMessages == 0 {
 			txBegin = time.Now()
-			txTimeoutTimer.Reset(maxTransactionTime)
+			txTimeoutTimer.Reset(*maxConsumeQuantum)
 		}
 
 		if err = runner.Consumer.Consume(msg, m, publisher{runner.Gazette}); err != nil {
@@ -245,7 +248,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		storeOffsetsToDB(m.database.writeBatch, txOffsets)
 
 		select {
-		case <-storeToEctdInterval.C:
+		case <-storeToEtcdInterval.C:
 			// It's time to write recovery hints to Etcd. We must be careful of
 			// ordering here, as RocksDB may be performing background file operations.
 			// We build hints *before* we commit, then sync to Etcd *after* the write
@@ -277,10 +280,10 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 		// Record transaction metrics.
 		var txDuration = time.Now().Sub(txBegin)
-		if txDuration > maxTransactionTime {
+		if txDuration > *maxConsumeQuantum {
 			// Percent of transaction which was stalled waiting for a previous commit.
 			varz.ObtainCount("gazette", "consumer", "txStalledMicros").
-				Add((txDuration - maxTransactionTime).Nanoseconds() / 1000)
+				Add((txDuration - *maxConsumeQuantum).Nanoseconds() / 1000)
 		}
 		varz.ObtainCount("gazette", "consumer", "txTotalMicros").
 			Add(txDuration.Nanoseconds() / 1000)

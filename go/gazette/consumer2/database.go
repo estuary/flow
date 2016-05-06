@@ -58,7 +58,7 @@ func newDatabase(fsm *recoverylog.FSM, dir string, writer journal.Writer) (*data
 	// files may grow to 4GB, but they are typically written very slowly and thus
 	// artificially inflate the recovery log horizon. We use a much smaller limit
 	// to encourage more frequent snapshotting and rolling into new files.
-	db.options.SetMaxManifestFileSize(1 << 20) // 1048576 bytes.
+	db.options.SetMaxManifestFileSize(1 << 17) // 131072 bytes.
 
 	db.DB, err = rocks.OpenDb(db.options, dir)
 	if err != nil {
