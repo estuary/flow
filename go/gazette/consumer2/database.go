@@ -20,7 +20,9 @@ type database struct {
 	writeBatch   *rocks.WriteBatch
 }
 
-func newDatabase(fsm *recoverylog.FSM, dir string, writer journal.Writer) (*database, error) {
+func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, dir string,
+	writer journal.Writer) (*database, error) {
+
 	recorder, err := recoverylog.NewRecorder(fsm, len(dir), writer)
 	if err != nil {
 		return nil, err
@@ -32,7 +34,7 @@ func newDatabase(fsm *recoverylog.FSM, dir string, writer journal.Writer) (*data
 		recorder:    recorder,
 
 		env:          rocks.NewObservedEnv(recorder),
-		options:      rocks.NewDefaultOptions(),
+		options:      options,
 		readOptions:  rocks.NewDefaultReadOptions(),
 		writeOptions: rocks.NewDefaultWriteOptions(),
 		writeBatch:   rocks.NewWriteBatch(),

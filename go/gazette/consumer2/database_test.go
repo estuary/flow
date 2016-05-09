@@ -6,6 +6,7 @@ import (
 
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
+	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
@@ -31,7 +32,10 @@ func (s *DatabaseSuite) TestDatabase(c *gc.C) {
 	writer.On("Write", logName, mock.AnythingOfType("[]uint8")).Return(&result, nil)
 	writer.On("ReadFrom", logName, mock.Anything).Return(&result, nil)
 
-	db, err := newDatabase(fsm, path, writer)
+	var opts = rocks.NewDefaultOptions()
+	defer opts.Destroy()
+
+	db, err := newDatabase(opts, fsm, path, writer)
 
 	// Expect that database operations are being replicated to |logName|.
 	c.Check(err, gc.IsNil)

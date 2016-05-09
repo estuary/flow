@@ -20,7 +20,7 @@ var (
 		"Max quantum of time a consumer may process messages before committing.")
 
 	storeToEtcdInterval = time.Minute
-	messageBufferSize   = 1024
+	messageBufferSize   = 1 << 12 // 4096.
 )
 
 type master struct {
@@ -104,7 +104,12 @@ func (m *master) init(runner *Runner, replica *replica) error {
 	}
 	log.WithFields(log.Fields{"shard": m.shard}).Info("makeLive finished")
 
-	if m.database, err = newDatabase(fsm, m.localDir, runner.Gazette); err != nil {
+	opts := rocks.NewDefaultOptions()
+	if initer, ok := runner.Consumer.(OptionsIniter); ok {
+		initer.InitOptions(opts)
+	}
+
+	if m.database, err = newDatabase(opts, fsm, m.localDir, runner.Gazette); err != nil {
 		return err
 	}
 

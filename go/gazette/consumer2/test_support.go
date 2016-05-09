@@ -7,6 +7,7 @@ import (
 	"os"
 
 	log "github.com/Sirupsen/logrus"
+	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
@@ -49,6 +50,9 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		return err
 	}
 
+	var options = rocks.NewDefaultOptions()
+	defer options.Destroy()
+
 	// For each shard, initialize a database at the recovery-log head which
 	// captures |offsets| but is otherwise empty. Then store hints to Etcd.
 	for shard := 0; shard != shards; shard++ {
@@ -65,7 +69,7 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		defer os.RemoveAll(localDir)
 
 		// Open the database & store offsets,
-		db, err := newDatabase(fsm, localDir, runner.Gazette)
+		db, err := newDatabase(options, fsm, localDir, runner.Gazette)
 		if err != nil {
 			return err
 		}

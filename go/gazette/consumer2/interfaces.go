@@ -71,3 +71,9 @@ type Consumer interface {
 type ShardIniter interface {
 	InitShard(Shard) error
 }
+
+// Optional Consumer interface for customization of Shard database options
+// prior to initial open.
+type OptionsIniter interface {
+	InitOptions(*rocks.Options)
+}
