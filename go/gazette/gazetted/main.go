@@ -21,6 +21,7 @@ import (
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/keepalive"
 )
 
 var (
@@ -130,7 +131,7 @@ func main() {
 	gazette.NewWriteAPI(router).Register(m)
 
 	go func() {
-		err := http.Serve(listener, m)
+		err := http.Serve(keepalive.TCPListener{listener.(*net.TCPListener)}, m)
 
 		if _, ok := err.(net.Error); ok {
 			return // Don't log on listener.Close.

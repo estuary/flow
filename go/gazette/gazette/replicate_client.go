@@ -19,6 +19,7 @@ import (
 
 	"github.com/pippio/api-server/discovery"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/keepalive"
 )
 
 const (
@@ -148,7 +149,7 @@ func (t *replicaClientTransaction) takeConn() (replicaClientConn, error) {
 	if err != nil {
 		return replicaClientConn{}, err
 	}
-	raw, err := net.Dial("tcp", url.Host)
+	raw, err := keepalive.Dialer.Dial("tcp", url.Host)
 	if err != nil {
 		t.client.endpoint.InvalidateResolution()
 		return replicaClientConn{}, err
