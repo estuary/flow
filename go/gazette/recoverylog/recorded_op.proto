@@ -21,8 +21,9 @@ message RecordedOp {
   // expected checksum arrived at after applying the previous operation.
   required fixed32 checksum = 2 [(gogoproto.nullable) = false];
 
-  // A randomly-assigned, constant ID of the recorder of this op.
-  required fixed32 recorder = 3 [(gogoproto.nullable) = false];
+  // A randomly-assigned, constant ID of the author of this operation.
+  required fixed32 author = 3 [(gogoproto.nullable) = false,
+                               (gogoproto.casttype) = "Author"];
 
   // RecordedOp is a union-type over the remaining fields.
 

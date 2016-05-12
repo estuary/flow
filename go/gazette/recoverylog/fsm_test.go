@@ -47,7 +47,7 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 		LogMark:       journal.NewMark("a/log", 1234),
 		FirstChecksum: 0xfeedbeef,
 		FirstSeqNo:    42,
-		Recorders:     []RecorderRange{{100, 50}, {200, 60}},
+		Authors:       []AuthorRange{{100, 50}, {200, 60}},
 		SkipWrites:    []Fnode{45},
 		Properties:    map[string]string{"/IDENTITY": "foo-bar-baz"},
 	})
@@ -68,7 +68,7 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 		LogMark:       journal.NewMark("a/log", 1236),
 		FirstChecksum: 0xfeedbeef,
 		FirstSeqNo:    42,
-		Recorders:     []RecorderRange{{100, 43}},
+		Authors:       []AuthorRange{{100, 43}},
 		Properties:    map[string]string{"/IDENTITY": "foo-bar-baz"},
 	})
 }
@@ -207,13 +207,13 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 		LogMark:       journal.NewMark("a/log", 1),
 		FirstChecksum: 0xfeedbeef,
 		FirstSeqNo:    42,
-		Recorders:     []RecorderRange{{100, 43}, {200, 47}},
+		Authors:       []AuthorRange{{100, 43}, {200, 47}},
 		SkipWrites:    []Fnode{43},
 	})
 
 	// Expect that the Fnode & its recorder are still tracked (since 42 is live).
 	c.Check(s.fsm.TrackedFnodes, gc.DeepEquals, []Fnode{42, 43})
-	c.Check(s.fsm.Recorders, gc.DeepEquals, []RecorderRange{{100, 43}, {200, 47}})
+	c.Check(s.fsm.Authors, gc.DeepEquals, []AuthorRange{{100, 43}, {200, 47}})
 
 	// Create Fnode 48, and then fully unlink Fnode 42.
 	c.Check(s.create(48, 0x11bc1ac9, 300, "/other/path"), gc.IsNil)
@@ -224,14 +224,14 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 
 	// Expect that Fnodes 42 & 43 have been reclaimed, along with their recorders.
 	c.Check(s.fsm.TrackedFnodes, gc.DeepEquals, []Fnode{48})
-	c.Check(s.fsm.Recorders, gc.DeepEquals, []RecorderRange{{300, 49}})
+	c.Check(s.fsm.Authors, gc.DeepEquals, []AuthorRange{{300, 49}})
 
 	// Produced hints are now only sufficient to replay Fnode 48.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
 		LogMark:       journal.NewMark("a/log", 9),
 		FirstChecksum: 0x11bc1ac9,
 		FirstSeqNo:    48,
-		Recorders:     []RecorderRange{{300, 49}},
+		Authors:       []AuthorRange{{300, 49}},
 	})
 
 	// Unlink 48 such that no live files remain.
@@ -247,7 +247,7 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 		LogMark:       journal.NewMark("a/log", 11),
 		FirstChecksum: 0x5be3273b,
 		FirstSeqNo:    51,
-		Recorders:     []RecorderRange{},
+		Authors:       []AuthorRange{},
 	})
 }
 
@@ -297,10 +297,10 @@ func (s *FSMSuite) TestFnodeWrites(c *gc.C) {
 	c.Check(s.write(46, 0xd2622223, 100, 42), gc.IsNil)
 }
 
-func (s *FSMSuite) TestUseOfHintedRecorders(c *gc.C) {
+func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
 	s.fsm = NewFSM(FSMHints{
-		LogMark:   journal.Mark{Journal: "a/log"},
-		Recorders: []RecorderRange{{100, 42}, {200, 44}, {300, 45}, {400, 47}}})
+		LogMark: journal.Mark{Journal: "a/log"},
+		Authors: []AuthorRange{{100, 42}, {200, 44}, {300, 45}, {400, 47}}})
 
 	// Intermix a "bad" recorder (666) which uses valid SeqNo & Checksums.
 	// Expect that we still reconstruct the recorder-hinted history.
@@ -316,25 +316,25 @@ func (s *FSMSuite) TestUseOfHintedRecorders(c *gc.C) {
 	c.Check(s.write(44, s.fsm.NextChecksum, 200, 15), gc.Equals, ErrFnodeNotTracked)
 	c.Check(s.write(45, s.fsm.NextChecksum, 200, 15), gc.Equals, ErrNotHinted)
 
-	// Recorder 300 is valid for just one SeqNo.
+	// Author 300 is valid for just one SeqNo.
 	c.Check(s.write(45, s.fsm.NextChecksum, 666, 42), gc.Equals, ErrNotHinted)
 	c.Check(s.write(45, s.fsm.NextChecksum, 300, 42), gc.IsNil)
 	c.Check(s.write(46, s.fsm.NextChecksum, 300, 42), gc.Equals, ErrNotHinted)
 
-	// Recorder 400 closes out the sequence.
+	// Author 400 closes out the sequence.
 	c.Check(s.create(46, s.fsm.NextChecksum, 400, "/another/path"), gc.IsNil)
 	c.Check(s.write(47, s.fsm.NextChecksum, 400, 46), gc.IsNil)
 
 	// Expect that produced hints are now identical to the input hints.
-	c.Check(s.fsm.BuildHints().Recorders, gc.DeepEquals,
-		[]RecorderRange{{100, 42}, {200, 44}, {300, 45}, {400, 47}})
+	c.Check(s.fsm.BuildHints().Authors, gc.DeepEquals,
+		[]AuthorRange{{100, 42}, {200, 44}, {300, 45}, {400, 47}})
 
 	// Now that the hinted range has completed, any recorder is allowed.
 	c.Check(s.unlink(48, s.fsm.NextChecksum, 666, 42, "/good/path"), gc.IsNil)
 	c.Check(s.write(49, s.fsm.NextChecksum, 666, 46), gc.IsNil)
 
-	c.Check(s.fsm.BuildHints().Recorders, gc.DeepEquals,
-		[]RecorderRange{{400, 47}, {666, 49}})
+	c.Check(s.fsm.BuildHints().Authors, gc.DeepEquals,
+		[]AuthorRange{{400, 47}, {666, 49}})
 }
 
 func (s *FSMSuite) apply(op RecordedOp) error {
@@ -347,34 +347,34 @@ func (s *FSMSuite) apply(op RecordedOp) error {
 	return s.fsm.Apply(&op, []byte(strconv.FormatInt(s.fsm.LogMark.Offset, 10)))
 }
 
-func (s *FSMSuite) create(seqNo int64, checksum uint32, rec uint32,
+func (s *FSMSuite) create(seqNo int64, checksum uint32, auth Author,
 	path string) error {
-	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
+	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Author: auth,
 		Create: &RecordedOp_Create{Path: path}})
 }
 
-func (s *FSMSuite) link(seqNo int64, checksum uint32, rec uint32,
+func (s *FSMSuite) link(seqNo int64, checksum uint32, auth Author,
 	fnode Fnode, path string) error {
-	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
+	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Author: auth,
 		Link: &RecordedOp_Link{Fnode: fnode, Path: path}})
 }
 
-func (s *FSMSuite) unlink(seqNo int64, checksum uint32, rec uint32,
+func (s *FSMSuite) unlink(seqNo int64, checksum uint32, auth Author,
 	fnode Fnode, path string) error {
-	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
+	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Author: auth,
 		Unlink: &RecordedOp_Link{Fnode: fnode, Path: path}})
 }
 
-func (s *FSMSuite) write(seqNo int64, checksum uint32, rec uint32, fnode Fnode) error {
+func (s *FSMSuite) write(seqNo int64, checksum uint32, auth Author, fnode Fnode) error {
 	// Write Length & Offset are ignored by FSM (though note they're captured
 	// in the checksum digest FSM produces).
-	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
+	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Author: auth,
 		Write: &RecordedOp_Write{Fnode: fnode}})
 }
 
-func (s *FSMSuite) property(seqNo int64, checksum uint32, rec uint32,
+func (s *FSMSuite) property(seqNo int64, checksum uint32, auth Author,
 	path, content string) error {
-	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Recorder: rec,
+	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Author: auth,
 		Property: &RecordedOp_Property{Path: path, Content: content}})
 }
 

@@ -253,7 +253,7 @@ func (s *PlaybackSuite) frame(op RecordedOp) *bytes.Buffer {
 		op.SeqNo = 1
 	}
 	op.Checksum = s.player.fsm.NextChecksum
-	op.Recorder = 100
+	op.Author = 100
 
 	var frame []byte
 	message.Frame(&op, &frame)

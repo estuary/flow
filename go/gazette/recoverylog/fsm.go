@@ -25,6 +25,12 @@ var (
 // Fnode value equal to the RecordedOp.SeqNo which created it.
 type Fnode int64
 
+// Processes which create RecordedOps are assigned a unique Author ID:
+// a random, unique identifier which represents the process. It's used by FSM to
+// allow for reconcilliation of divergent histories in the recovery log, through
+// hints as to which Authors produced which SeqNo ranges in the final history.
+type Author uint32
+
 type FnodeState struct {
 	// Active current paths of this Fnode.
 	Links map[string]struct{}
@@ -39,12 +45,12 @@ type FnodeState struct {
 	Offset int64
 }
 
-// Processes which create RecordedOps are assigned a unique Recorder.ID: a
+// Processes which create RecordedOps are assigned a unique Author ID: a
 // random, unique identifier which represents the process. It's used by FSM
 // allow for reconcilliation of divergent histories in the recovery log, through
-// hints as to which Recorders produced which SeqNo ranges in the final history.
-type RecorderRange struct {
-	ID        uint32
+// hints as to which Authors produced which SeqNo ranges in the final history.
+type AuthorRange struct {
+	ID        Author
 	LastSeqNo int64
 }
 
@@ -85,8 +91,8 @@ type FSM struct {
 	// links). Successive Fnodes have greater SeqNo and may be live or dead.
 	TrackedFnodes []Fnode
 	// Encountered recorders of SeqNo ranges, ordered on RecoderRange.LastSeqNo.
-	// RecorderRanges are reclaimed when they no longer cover a TrackedFnode.
-	Recorders []RecorderRange
+	// AuthorRanges are reclaimed when they no longer cover a TrackedFnode.
+	Authors []AuthorRange
 
 	// Hints are used for a few purposes:
 	// * Determining the journal Mark, SeqNo, and checksum which playback
@@ -111,7 +117,7 @@ type FSMHints struct {
 	FirstSeqNo    int64
 
 	// Captures the recoders of processed operations, starting from FirstSeqNo.
-	Recorders []RecorderRange
+	Authors []AuthorRange `json:"Recorders"`
 	// Ordered Fnodes which are unlinked between FirstSeqNo and the log head.
 	SkipWrites []Fnode
 
@@ -133,7 +139,7 @@ func NewFSM(hints FSMHints) *FSM {
 		LiveNodes:     make(map[Fnode]FnodeState),
 		Links:         make(map[string]Fnode),
 		TrackedFnodes: []Fnode{},
-		Recorders:     []RecorderRange{},
+		Authors:       []AuthorRange{},
 		hints:         hints,
 	}
 }
@@ -152,9 +158,9 @@ func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 		return ErrChecksumMismatch
 	}
 
-	// If hints remain, ensure that op.Recorder is hinted for this op.SeqNo.
-	if len(m.hints.Recorders) != 0 && m.hints.Recorders[0].ID != op.Recorder {
-		// This is a consistent operation, but written by a non-hinted recorder
+	// If hints remain, ensure that op.Author is hinted for this op.SeqNo.
+	if len(m.hints.Authors) != 0 && m.hints.Authors[0].ID != op.Author {
+		// This is a consistent operation, but written by a non-hinted Author
 		// for this SeqNo: the operation represents a (likely dead) branch in
 		// recovery-log history relative to the FSMHints we're re-building.
 		return ErrNotHinted
@@ -177,15 +183,15 @@ func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 		m.NextSeqNo += 1
 		m.NextChecksum = crc32.Update(m.NextChecksum, crcTable, frame)
 
-		// Capture a change in Recorder ID.
-		if l := len(m.Recorders); l == 0 || m.Recorders[l-1].ID != op.Recorder {
-			m.Recorders = append(m.Recorders, RecorderRange{ID: op.Recorder})
+		// Capture a change in Author.
+		if l := len(m.Authors); l == 0 || m.Authors[l-1].ID != op.Author {
+			m.Authors = append(m.Authors, AuthorRange{ID: op.Author})
 		}
-		m.Recorders[len(m.Recorders)-1].LastSeqNo = op.SeqNo
+		m.Authors[len(m.Authors)-1].LastSeqNo = op.SeqNo
 
 		// Pop a hinted recorder whose SeqNo range has just completed.
-		if len(m.hints.Recorders) != 0 && m.hints.Recorders[0].LastSeqNo == op.SeqNo {
-			m.hints.Recorders = m.hints.Recorders[1:]
+		if len(m.hints.Authors) != 0 && m.hints.Authors[0].LastSeqNo == op.SeqNo {
+			m.hints.Authors = m.hints.Authors[1:]
 		}
 	}
 	return err
@@ -267,13 +273,13 @@ func (m *FSM) applyUnlink(op *RecordedOp_Link) error {
 		}
 		m.TrackedFnodes = m.TrackedFnodes[1:]
 	}
-	// Reclaim Recorders with a LastSeqNo occurring before all TrackedFnodes.
-	for len(m.Recorders) != 0 {
+	// Reclaim Authors with a LastSeqNo occurring before all TrackedFnodes.
+	for len(m.Authors) != 0 {
 		if len(m.TrackedFnodes) != 0 &&
-			m.Recorders[0].LastSeqNo >= int64(m.TrackedFnodes[0]) {
+			m.Authors[0].LastSeqNo >= int64(m.TrackedFnodes[0]) {
 			break
 		}
-		m.Recorders = m.Recorders[1:]
+		m.Authors = m.Authors[1:]
 	}
 	return nil
 }
@@ -309,7 +315,7 @@ func (m *FSM) BuildHints() FSMHints {
 		LogMark:       m.LogMark,
 		FirstChecksum: m.NextChecksum,
 		FirstSeqNo:    m.NextSeqNo,
-		Recorders:     []RecorderRange{},
+		Authors:       []AuthorRange{},
 		Properties:    m.Properties,
 	}
 	// Retrieve the earliest SeqNo, Checksum, and Offset of a live Fnode. Note
@@ -327,11 +333,11 @@ func (m *FSM) BuildHints() FSMHints {
 	}
 	// Only return recorder ranges if tracked Fnodes are hinted.
 	if len(m.TrackedFnodes) != 0 {
-		hints.Recorders = append([]RecorderRange{}, m.Recorders...)
+		hints.Authors = append([]AuthorRange{}, m.Authors...)
 	}
 	return hints
 }
 
 func (m *FSM) HasHints() bool {
-	return len(m.hints.Recorders) != 0 || len(m.hints.SkipWrites) != 0
+	return len(m.hints.Authors) != 0 || len(m.hints.SkipWrites) != 0
 }

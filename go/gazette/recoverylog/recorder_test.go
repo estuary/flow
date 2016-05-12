@@ -59,7 +59,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 
 	op := s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(1))
-	c.Check(op.Recorder, gc.Not(gc.Equals), uint32(0))
+	c.Check(op.Author, gc.Not(gc.Equals), Author(0))
 	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
 
 	s.recorder.NewWritableFile(s.tmpDir + "/other/file")
@@ -67,7 +67,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 
 	op = s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(2))
-	c.Check(op.Recorder, gc.Not(gc.Equals), uint32(0))
+	c.Check(op.Author, gc.Not(gc.Equals), Author(0))
 	c.Check(op.Create.Path, gc.Equals, "/other/file")
 }
 
@@ -259,7 +259,7 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 		LogMark:       expectMark,
 		FirstChecksum: expectChecksum,
 		FirstSeqNo:    2,
-		Recorders:     []RecorderRange{{ID: s.recorder.id, LastSeqNo: 4}},
+		Authors:       []AuthorRange{{ID: s.recorder.id, LastSeqNo: 4}},
 	})
 
 	s.writes.Reset()

@@ -29,7 +29,7 @@ var propertyFiles = map[string]struct{}{
 type Recorder struct {
 	fsm *FSM
 	// Generated unique ID of this Recorder.
-	id uint32
+	id Author
 	// Prefix length to strip from filenames in recorded operations.
 	stripLen int
 	// Client for interacting with |opLog|.
@@ -48,7 +48,7 @@ func NewRecorder(fsm *FSM, stripLen int, writer journal.Writer) (*Recorder, erro
 
 	recorder := &Recorder{
 		fsm:      fsm,
-		id:       uint32(recorderId.Int64()) + 1,
+		id:       Author(recorderId.Int64()) + 1,
 		stripLen: stripLen,
 		writer:   writer,
 	}
@@ -220,7 +220,7 @@ func (r *Recorder) process(op RecordedOp) []byte {
 		op.SeqNo = r.fsm.NextSeqNo
 	}
 	op.Checksum = r.fsm.NextChecksum
-	op.Recorder = r.id
+	op.Author = r.id
 
 	var frame []byte
 	if err := message.Frame(&op, &frame); err != nil {
