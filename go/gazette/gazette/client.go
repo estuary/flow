@@ -277,14 +277,11 @@ func (c *Client) Put(args journal.AppendArgs) journal.AppendResult {
 		}
 	}
 
-	// Use Seek() to determine the content length.
+	// Use Seek() to determine the content length, if available.
 	rs := args.Content.(io.ReadSeeker)
 	if start, err := rs.Seek(0, os.SEEK_CUR); err != nil {
-		return journal.AppendResult{Error: err}
 	} else if end, err := rs.Seek(0, os.SEEK_END); err != nil {
-		return journal.AppendResult{Error: err}
 	} else if _, err := rs.Seek(start, os.SEEK_SET); err != nil {
-		return journal.AppendResult{Error: err}
 	} else {
 		request.ContentLength = end - start
 	}
