@@ -37,7 +37,7 @@ func (w *retryWatcher) Next(ctx context.Context) (*etcd.Response, error) {
 	if w.cur != nil {
 		r, err := w.cur.Next(ctx)
 
-		if etcdErr, _ := err.(*etcd.Error); etcdErr != nil {
+		if etcdErr, _ := err.(etcd.Error); etcdErr != nil {
 			// If the error code indicates that further Next() attempts will fail,
 			// clear the current etcd.Watcher to force a full tree refresh.
 			if etcdErr.Code == etcd.ErrorCodeEventIndexCleared ||
