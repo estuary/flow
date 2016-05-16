@@ -178,7 +178,7 @@ func (r *Recorder) RenameFile(srcPath, targetPath string) {
 			log.WithFields(log.Fields{"err": err, "path": targetPath}).Panic("reading file")
 		}
 		updateProperty = r.process(RecordedOp{
-			Property: &RecordedOp_Property{Path: target, Content: string(content)}})
+			Property: &Property{Path: target, Content: string(content)}})
 	} else {
 		linkTarget = r.process(RecordedOp{
 			Link: &RecordedOp_Link{Fnode: fnode, Path: target}})

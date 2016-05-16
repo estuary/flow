@@ -35,7 +35,8 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	s.promise = make(chan struct{})
 	close(s.promise)
 
-	s.recorder, err = NewRecorder(NewFSM(EmptyHints("a/journal")), len(s.tmpDir), s)
+	fsm, _ := NewFSM(FSMHints{Log: "a/journal"})
+	s.recorder, err = NewRecorder(fsm, len(s.tmpDir), s)
 	c.Check(err, gc.IsNil)
 
 	// Expect recorder initialized Offset to the current write head.
@@ -249,17 +250,18 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 
 	// Expect hints will start from the next Fnode.
 	expectChecksum := s.recorder.fsm.NextChecksum
-	expectMark := s.recorder.fsm.LogMark
+	expectOffset := s.recorder.fsm.LogMark.Offset
 
 	s.recorder.NewWritableFile(s.tmpDir + "/a/path").Append([]byte("file-write"))
 	s.recorder.DeleteFile(s.tmpDir + "/delete/path")
 
 	// Expect that hints are produced for the current FSM state.
 	c.Check(s.recorder.BuildHints(), gc.DeepEquals, FSMHints{
-		LogMark:       expectMark,
-		FirstChecksum: expectChecksum,
-		FirstSeqNo:    2,
-		Authors:       []AuthorRange{{ID: s.recorder.id, LastSeqNo: 4}},
+		Log: kOpLog,
+		LiveNodes: []HintedFnode{
+			{Fnode: 2, Segments: []Segment{
+				{Author: s.recorder.id, FirstSeqNo: 2, FirstChecksum: expectChecksum,
+					FirstOffset: expectOffset, LastSeqNo: 3}}}},
 	})
 
 	s.writes.Reset()

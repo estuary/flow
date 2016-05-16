@@ -61,7 +61,7 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 	replica1 := NewTestReplica(&env)
 	defer replica1.teardown()
 
-	replica1.startReading(s.initialHints(c))
+	replica1.startReading(FSMHints{Log: kTestLogName})
 	c.Assert(replica1.makeLive(), gc.IsNil)
 
 	replica1.put("key3", "value three!")
@@ -95,9 +95,8 @@ func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
 	defer replica2.teardown()
 
 	// Both replicas begin reading at the same time.
-	hints := s.initialHints(c)
-	replica1.startReading(hints)
-	replica2.startReading(hints)
+	replica1.startReading(FSMHints{Log: kTestLogName})
+	replica2.startReading(FSMHints{Log: kTestLogName})
 
 	// |replica1| is made live and writes content, while |replica2| is reading.
 	c.Assert(replica1.makeLive(), gc.IsNil)
@@ -126,8 +125,8 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	replica2 := NewTestReplica(&env)
 	defer replica2.teardown()
 
-	replica1.startReading(s.initialHints(c))
-	replica2.startReading(s.initialHints(c))
+	replica1.startReading(FSMHints{Log: kTestLogName})
+	replica2.startReading(FSMHints{Log: kTestLogName})
 
 	// |replica1| begins as master.
 	c.Assert(replica1.makeLive(), gc.IsNil)
@@ -170,7 +169,7 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 	defer r.teardown()
 
 	var err error
-	r.player, err = PreparePlayback(s.initialHints(c), r.tmpdir)
+	r.player, err = PreparePlayback(FSMHints{Log: kTestLogName}, r.tmpdir)
 	c.Assert(err, gc.IsNil)
 
 	makeLiveExit := make(chan error)
@@ -201,7 +200,7 @@ func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
 	defer r.teardown()
 
 	var err error
-	r.player, err = PreparePlayback(s.initialHints(c), r.tmpdir)
+	r.player, err = PreparePlayback(FSMHints{Log: kTestLogName}, r.tmpdir)
 	c.Assert(err, gc.IsNil)
 
 	r.player.Cancel()
@@ -209,15 +208,6 @@ func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
 
 	_, err = r.player.MakeLive()
 	c.Check(err, gc.Equals, ErrPlaybackCancelled)
-}
-
-// Returns hints at the current log head and beginning with SeqNo 1
-// (eg, resulting in an empty database).
-func (s *RecoveryLogSuite) initialHints(c *gc.C) FSMHints {
-	return FSMHints{
-		LogMark:    journal.NewMark(kTestLogName, -1),
-		FirstSeqNo: 1,
-	}
 }
 
 // Test state shared by multiple testReplica instances.

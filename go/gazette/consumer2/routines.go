@@ -121,19 +121,17 @@ func abort(runner *Runner, shard ShardID) {
 // initializes new hints using the default RecoveryLogRoot root.
 func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recoverylog.FSMHints, error) {
 	var hints recoverylog.FSMHints
-
-	key := hintsPath(tree.Key, shard)
-	parent, i := consensus.FindNode(tree, key)
+	var key = hintsPath(tree.Key, shard)
+	var parent, i = consensus.FindNode(tree, key)
 
 	if i < len(parent.Nodes) && parent.Nodes[i].Key == key {
-		err := json.Unmarshal([]byte(parent.Nodes[i].Value), &hints)
-		return hints, err
+		if err := json.Unmarshal([]byte(parent.Nodes[i].Value), &hints); err != nil {
+			return recoverylog.FSMHints{}, err
+		}
 	}
 
-	// Persisted hints don't exist. Initialize them.
-	hints.LogMark = journal.Mark{
-		Journal: recoveryLog(runner.RecoveryLogRoot, shard),
-		Offset:  -1,
+	if hints.Log == "" {
+		hints.Log = recoveryLog(runner.RecoveryLogRoot, shard)
 	}
 	return hints, nil
 }

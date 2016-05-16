@@ -23,6 +23,9 @@ const (
 	kBlockInterval = 1 * time.Second
 	// Cool-off applied on non-aborting errors.
 	kErrCooloffInterval = 5 * time.Second
+	// Byte-delta threshold between current offset and next playback offset,
+	// at which we will abort a current log reader and re-open at the next offset.
+	logSkipThreshold = 1 << 29 // 512MB.
 )
 
 // Error returned by Player.Play() & MakeLive() upon Player.Cancel().
@@ -57,8 +60,13 @@ func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
 		return nil, err
 	}
 
+	fsm, err := NewFSM(hints)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Player{
-		fsm:          NewFSM(hints),
+		fsm:          fsm,
 		localDir:     localDir,
 		backingFiles: make(map[Fnode]*os.File),
 		cancelCh:     make(chan struct{}),
@@ -145,11 +153,17 @@ func (p *Player) Play(client journal.Client) error {
 			// Pass.
 		}
 
-		result, reader := client.Get(journal.ReadArgs{
+		var readArgs = journal.ReadArgs{
 			Journal:  p.fsm.LogMark.Journal,
 			Offset:   p.fsm.LogMark.Offset,
 			Deadline: time.Now().Add(kBlockInterval),
-		})
+		}
+
+		// Do FSM hints indicate we should jump forward in the log?
+		if s := p.fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > readArgs.Offset {
+			readArgs.Offset = s[0].FirstOffset
+		}
+		result, reader := client.Get(readArgs)
 
 		if result.Error != nil {
 			log.WithFields(log.Fields{"err": result.Error, "mark": p.fsm.LogMark}).
@@ -213,7 +227,12 @@ func (p *Player) playSomeLog(r io.ReadCloser) error {
 				// Common when recovering from the middle of the log. makeLive() asserts
 				// that only tracked fnodes remain when playback completes.
 			} else if fsmErr == ErrWrongSeqNo && op.SeqNo < p.fsm.NextSeqNo {
-				// Replay of a previous operation.
+				// |op| is prior to the next hinted SeqNo.
+				if s := p.fsm.hintedSegments; len(s) != 0 &&
+					s[0].FirstOffset-mr.Mark.Offset > logSkipThreshold {
+					// Return early to abort the current reader.
+					return nil
+				}
 			} else {
 				log.WithFields(log.Fields{"op": op, "err": fsmErr}).Warn("playback FSM error")
 			}
@@ -271,10 +290,6 @@ func (p *Player) unlink(fnode Fnode) error {
 func (p *Player) write(op *RecordedOp_Write, r io.Reader) error {
 	r = io.LimitReader(r, op.Length)
 
-	if p.fsm.LiveNodes[op.Fnode].SkipWrites {
-		_, err := io.CopyN(ioutil.Discard, r, op.Length)
-		return err
-	}
 	backingFile := p.backingFiles[Fnode(op.Fnode)]
 
 	// Seek and write at the indicated offset.
@@ -310,12 +325,9 @@ func (p *Player) write(op *RecordedOp_Write, r io.Reader) error {
 
 func (p *Player) makeLive() error {
 	if p.fsm.HasHints() {
-		return fmt.Errorf("FSM has remaining unused hints: %+v", p.fsm.hints)
+		return fmt.Errorf("FSM has remaining unused hints: %+v", p.fsm)
 	}
 	for fnode, liveNode := range p.fsm.LiveNodes {
-		if liveNode.SkipWrites {
-			return fmt.Errorf("fnode %d hinted to SkipWrites but is still live", fnode)
-		}
 		backingFile := p.backingFiles[fnode]
 		delete(p.backingFiles, fnode)
 

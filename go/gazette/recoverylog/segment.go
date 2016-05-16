@@ -5,17 +5,6 @@ import (
 	"sort"
 )
 
-// A Segment represents a contiguous chunk of recovery log, identified by its
-// (single) Author, first SeqNo, Checksum, & corresponding approximate
-// lower-bound offset, and finally by a last SeqNo.
-type Segment struct {
-	Author
-	FirstSeqNo    int64
-	FirstOffset   int64 // May be a lower-bound.
-	FirstChecksum uint32
-	LastSeqNo     int64 // Inclusive.
-}
-
 // SegmentSet is a collection of Segment with the following invariants:
 //  * Entries have strictly increasing SeqNo, and are non-overlapping
 //    (s[i].LastSeqNo < s[i+1].SeqNo; note this implies a single author

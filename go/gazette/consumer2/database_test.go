@@ -20,8 +20,8 @@ func (s *DatabaseSuite) TestDatabase(c *gc.C) {
 	defer func() { c.Assert(os.RemoveAll(path), gc.IsNil) }()
 
 	var logName journal.Name = "a/recovery/log"
-	var fsm = recoverylog.NewFSM(recoverylog.FSMHints{
-		LogMark: journal.Mark{Journal: logName}})
+	fsm, err := recoverylog.NewFSM(recoverylog.FSMHints{Log: logName})
+	c.Assert(err, gc.IsNil)
 
 	var result = journal.AsyncAppend{
 		Ready: make(chan struct{}),

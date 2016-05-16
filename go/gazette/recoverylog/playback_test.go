@@ -32,10 +32,14 @@ func (s *PlaybackSuite) SetUpTest(c *gc.C) {
 	var err error
 
 	hintsFixture := FSMHints{
-		LogMark:    journal.NewMark("a/recovery/log", 1234),
-		FirstSeqNo: 42,
-		SkipWrites: []Fnode{43},
-		Properties: map[string]string{"/property/path": "prop-value"},
+		Log: "a/recovery/log",
+		LiveNodes: []HintedFnode{
+			{Fnode: 42, Segments: []Segment{
+				{Author: 100, FirstSeqNo: 42, LastSeqNo: 45}}},
+			{Fnode: 44, Segments: []Segment{
+				{Author: 100, FirstSeqNo: 44, LastSeqNo: 44}}},
+		},
+		Properties: []Property{{Path: "/property/path", Content: "prop-value"}},
 	}
 	s.player, err = PreparePlayback(hintsFixture, s.localDir)
 	c.Check(err, gc.IsNil)
@@ -47,7 +51,7 @@ func (s *PlaybackSuite) TestPlayerInit(c *gc.C) {
 	_, err := os.Stat(filepath.Join(s.localDir, kFnodeStagingDir))
 	c.Check(err, gc.IsNil) // Staging directory was created.
 
-	c.Check(s.player.fsm.LogMark, gc.Equals, journal.NewMark("a/recovery/log", 1234))
+	c.Check(s.player.fsm.LogMark, gc.Equals, journal.NewMark("a/recovery/log", -1))
 	c.Check(s.player.backingFiles, gc.HasLen, 0)
 }
 
@@ -157,7 +161,8 @@ func (s *PlaybackSuite) TestWrites(c *gc.C) {
 	buf = s.frameWrite(43, 5, 10)
 	buf.WriteString("0123456789")
 	c.Check(s.apply(c, buf), gc.IsNil)
-	c.Check(getContent(43), gc.Equals, "")
+	_, err := os.Stat(s.player.stagedPath(43))
+	c.Check(os.IsNotExist(err), gc.Equals, true)
 }
 
 func (s *PlaybackSuite) TestUnderlyingWriteError(c *gc.C) {
@@ -235,15 +240,6 @@ func (s *PlaybackSuite) TestHintsRemainOnMakeLive(c *gc.C) {
 
 	err := s.player.makeLive()
 	c.Check(err, gc.ErrorMatches, "FSM has remaining unused hints.*")
-}
-
-func (s *PlaybackSuite) TestSkippedFileRemainsOnMakeLive(c *gc.C) {
-	c.Check(s.apply(c, s.frameCreate("/a/path")), gc.IsNil)
-	c.Check(s.apply(c, s.frameCreate("/skipped/path")), gc.IsNil)
-	c.Check(s.apply(c, s.frameLink(42, "/linked/path")), gc.IsNil)
-
-	err := s.player.makeLive()
-	c.Check(err, gc.ErrorMatches, "fnode 43 hinted to SkipWrites but is still live")
 }
 
 func (s *PlaybackSuite) frame(op RecordedOp) *bytes.Buffer {

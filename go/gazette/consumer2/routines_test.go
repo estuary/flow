@@ -59,7 +59,7 @@ func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
 	hints, err = loadHintsFromEtcd(id8, runner, s.treeFixture())
 	c.Check(err, gc.IsNil)
 	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{
-		LogMark: journal.NewMark("path/to/recovery/logs/shard-foo-008", -1),
+		Log: "path/to/recovery/logs/shard-foo-008",
 	})
 }
 
@@ -318,12 +318,8 @@ func (s *RoutinesSuite) treeFixture() *etcd.Node {
 
 func (s *RoutinesSuite) hintsFixture() recoverylog.FSMHints {
 	return recoverylog.FSMHints{
-		LogMark:       journal.Mark{Journal: "some/recovery/logs/shard-baz-012", Offset: 1234},
-		FirstChecksum: 1212123,
-		FirstSeqNo:    45645,
-		Recorders:     []recoverylog.RecorderRange{{ID: 123, LastSeqNo: 456}},
-		SkipWrites:    []recoverylog.Fnode{42, 46},
-		Properties:    map[string]string{"foo": "bar"},
+		Log:        "some/recovery/logs/shard-baz-012",
+		Properties: []recoverylog.Property{{Path: "foo", Content: "bar"}},
 	}
 }
 

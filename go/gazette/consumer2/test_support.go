@@ -59,8 +59,10 @@ func resetGroup(runner *Runner, group TopicGroup) error {
 		var id = ShardID{group.Name, shard}
 		var opLog = recoveryLog(runner.RecoveryLogRoot, id)
 
-		var fsm = recoverylog.NewFSM(recoverylog.FSMHints{
-			LogMark: journal.Mark{Journal: opLog}})
+		fsm, err := recoverylog.NewFSM(recoverylog.FSMHints{Log: opLog})
+		if err != nil {
+			return err
+		}
 
 		localDir, err := ioutil.TempDir("", "reset-shards")
 		if err != nil {

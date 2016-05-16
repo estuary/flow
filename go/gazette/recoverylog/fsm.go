@@ -3,6 +3,7 @@ package recoverylog
 import (
 	"fmt"
 	"hash/crc32"
+	"sort"
 
 	"github.com/pippio/gazette/journal"
 )
@@ -11,7 +12,6 @@ var (
 	ErrChecksumMismatch = fmt.Errorf("checksum mismatch")
 	ErrFnodeNotTracked  = fmt.Errorf("fnode not tracked")
 	ErrLinkExists       = fmt.Errorf("link exists")
-	ErrNoSuchFnode      = fmt.Errorf("no such fnode")
 	ErrNoSuchLink       = fmt.Errorf("fnode has no such link")
 	ErrNotHinted        = fmt.Errorf("op recorder is not hinted")
 	ErrPropertyExists   = fmt.Errorf("property exists")
@@ -28,30 +28,14 @@ type Fnode int64
 // Processes which create RecordedOps are assigned a unique Author ID:
 // a random, unique identifier which represents the process. It's used by FSM to
 // allow for reconcilliation of divergent histories in the recovery log, through
-// hints as to which Authors produced which SeqNo ranges in the final history.
+// hints as to which Authors produced which Segments in the final history.
 type Author uint32
 
 type FnodeState struct {
 	// Active current paths of this Fnode.
 	Links map[string]struct{}
-	// True iff this Fnode has been hinted to be unlinked already at
-	// a later point in the log, in which case writes may be ignored.
-	SkipWrites bool
-	// Checksum of the operation which created this Fnode.
-	// Retained only to facilitate building FSMHints.
-	CreatedChecksum uint32
-	// Approximate offset of this Fnode's creation operation in the log.
-	// Retained only to facilitate building FSMHints.
-	Offset int64
-}
-
-// Processes which create RecordedOps are assigned a unique Author ID: a
-// random, unique identifier which represents the process. It's used by FSM
-// allow for reconcilliation of divergent histories in the recovery log, through
-// hints as to which Authors produced which SeqNo ranges in the final history.
-type AuthorRange struct {
-	ID        Author
-	LastSeqNo int64
+	// Ordered log Segments which contain Fnode operations.
+	Segments []Segment
 }
 
 // FSM implements a finite state machine over RecordedOp. In particular FSM
@@ -67,9 +51,6 @@ type FSM struct {
 	NextSeqNo    int64
 	NextChecksum uint32
 
-	// First SeqNo encountered by this FSM.
-	FirstSeqNo int64
-
 	// Target paths and contents of small files which are managed outside of
 	// regular Fnode tracking. Property updates are triggered upon rename of
 	// a tracked Fnode to a well-known property file path.
@@ -82,116 +63,97 @@ type FSM struct {
 	Properties map[string]string
 
 	// Maps from Fnode to current state of the node.
-	LiveNodes map[Fnode]FnodeState
+	LiveNodes map[Fnode]*FnodeState
 	// Indexes current target paths of LiveNodes.
 	Links map[string]Fnode
 
-	// Fnodes which must be tracked for re-constructing the processing history of
-	// this FSM. Namely, the first TrackedFnodes[0] is always live (with active
-	// links). Successive Fnodes have greater SeqNo and may be live or dead.
-	TrackedFnodes []Fnode
-	// Encountered recorders of SeqNo ranges, ordered on RecoderRange.LastSeqNo.
-	// AuthorRanges are reclaimed when they no longer cover a TrackedFnode.
-	Authors []AuthorRange
-
-	// Hints are used for a few purposes:
-	// * Determining the journal Mark, SeqNo, and checksum which playback
-	//   should commence from.
-	// * Identifying encountered Fnodes which will be fully unlinked prior to log
-	//   end, and for which local writes may be skipped during playback.
-	// * Consistently resolving any branches in the log. Specifically, a branch
-	//   is reflected by two operations with identical SeqNo and Checksum from
-	//   two different recorders. If a hinted range is available FSM will prefer
-	//   the hinted recorder, enabling exact correspondence to the hinted history.
-	hints FSMHints
+	// Ordered, non-overlapping segments of log to process.
+	hintedSegments []Segment
+	// Ordered Fnodes which are still live at |hintedSegments| completion.
+	hintedFnodes []Fnode
 }
 
-// Memoized state which allows an FSM to most-efficiently reach parity with
-// the FSM which produced the FSMHints.
-type FSMHints struct {
-	// (Potentially approximate) lower-bound log mark to begin reading from.
-	LogMark journal.Mark
-
-	// First Checksum & SeqNo to begin processing from.
-	FirstChecksum uint32
-	FirstSeqNo    int64
-
-	// Captures the recoders of processed operations, starting from FirstSeqNo.
-	Authors []AuthorRange `json:"Recorders"`
-	// Ordered Fnodes which are unlinked between FirstSeqNo and the log head.
-	SkipWrites []Fnode
-
-	// Property files and contents. See FSM.Properties.
-	Properties map[string]string
-}
-
-func EmptyHints(log journal.Name) FSMHints {
-	return FSMHints{LogMark: journal.Mark{Journal: log}}
-}
-
-func NewFSM(hints FSMHints) *FSM {
-	return &FSM{
-		LogMark:       hints.LogMark,
-		NextSeqNo:     hints.FirstSeqNo,
-		NextChecksum:  hints.FirstChecksum,
-		FirstSeqNo:    hints.FirstSeqNo,
-		Properties:    hints.Properties,
-		LiveNodes:     make(map[Fnode]FnodeState),
-		Links:         make(map[string]Fnode),
-		TrackedFnodes: []Fnode{},
-		Authors:       []AuthorRange{},
-		hints:         hints,
+func NewFSM(hints FSMHints) (*FSM, error) {
+	var fsm = &FSM{
+		LogMark:      journal.NewMark(hints.Log, -1),
+		NextSeqNo:    1,
+		NextChecksum: 0,
+		Properties:   make(map[string]string),
+		LiveNodes:    make(map[Fnode]*FnodeState),
+		Links:        make(map[string]Fnode),
 	}
+
+	// Flatten all hinted LiveNodes Segments into single |set|.
+	var set SegmentSet
+	for i, n := range hints.LiveNodes {
+		if i != 0 && fsm.hintedFnodes[i-1] >= n.Fnode {
+			return nil, fmt.Errorf("invalid hint fnode ordering")
+		}
+		fsm.hintedFnodes = append(fsm.hintedFnodes, n.Fnode)
+
+		for _, s := range n.Segments {
+			if err := set.Add(s); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if len(set) != 0 {
+		fsm.NextSeqNo, fsm.NextChecksum = set[0].FirstSeqNo, set[0].FirstChecksum
+		fsm.hintedSegments = []Segment(set)
+	}
+
+	// Flatten hinted properties into |fsm|.
+	for _, p := range hints.Properties {
+		fsm.Properties[p.Path] = p.Content
+	}
+	return fsm, nil
 }
 
 func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
-	if m.NextSeqNo == 0 {
-		// Initial condition: assign NextSeqNo and Checksum from first SeqNo seen.
-		m.FirstSeqNo = op.SeqNo
-		m.NextChecksum = op.Checksum
-		m.NextSeqNo = op.SeqNo
-	}
-
-	if op.SeqNo == 0 || op.SeqNo != m.NextSeqNo {
+	if op.SeqNo != m.NextSeqNo {
 		return ErrWrongSeqNo
 	} else if op.Checksum != m.NextChecksum {
 		return ErrChecksumMismatch
 	}
 
 	// If hints remain, ensure that op.Author is hinted for this op.SeqNo.
-	if len(m.hints.Authors) != 0 && m.hints.Authors[0].ID != op.Author {
+	if len(m.hintedSegments) != 0 && m.hintedSegments[0].Author != op.Author {
 		// This is a consistent operation, but written by a non-hinted Author
 		// for this SeqNo: the operation represents a (likely dead) branch in
 		// recovery-log history relative to the FSMHints we're re-building.
 		return ErrNotHinted
 	}
 
+	// Note apply*() functions do not modify FSM state if they return an error.
 	var err error
 	if op.Create != nil {
 		err = m.applyCreate(op)
 	} else if op.Link != nil {
-		err = m.applyLink(op.Link)
+		err = m.applyLink(op)
 	} else if op.Unlink != nil {
-		err = m.applyUnlink(op.Unlink)
+		err = m.applyUnlink(op)
 	} else if op.Write != nil {
-		err = m.applyWrite(op.Write)
+		err = m.applyWrite(op)
 	} else if op.Property != nil {
 		err = m.applyProperty(op.Property)
 	}
 
-	if err == nil || err == ErrFnodeNotTracked {
-		m.NextSeqNo += 1
-		m.NextChecksum = crc32.Update(m.NextChecksum, crcTable, frame)
+	if err != nil && err != ErrFnodeNotTracked {
+		// No state transition (or FSM mutation) occurred.
+		return err
+	}
 
-		// Capture a change in Author.
-		if l := len(m.Authors); l == 0 || m.Authors[l-1].ID != op.Author {
-			m.Authors = append(m.Authors, AuthorRange{ID: op.Author})
-		}
-		m.Authors[len(m.Authors)-1].LastSeqNo = op.SeqNo
+	// Step the FSM to the next state.
+	m.NextSeqNo += 1
+	m.NextChecksum = crc32.Update(m.NextChecksum, crcTable, frame)
 
-		// Pop a hinted recorder whose SeqNo range has just completed.
-		if len(m.hints.Authors) != 0 && m.hints.Authors[0].LastSeqNo == op.SeqNo {
-			m.hints.Authors = m.hints.Authors[1:]
+	// If we've exhausted the current hinted Segment, pop and skip to the next.
+	if len(m.hintedSegments) != 0 && m.hintedSegments[0].LastSeqNo < m.NextSeqNo {
+		m.hintedSegments = m.hintedSegments[1:]
+
+		if len(m.hintedSegments) != 0 {
+			m.NextSeqNo = m.hintedSegments[0].FirstSeqNo
+			m.NextChecksum = m.hintedSegments[0].FirstChecksum
 		}
 	}
 	return err
@@ -206,96 +168,72 @@ func (m *FSM) applyCreate(op *RecordedOp) error {
 	// Assigned fnode ID is the SeqNo of the current operation.
 	fnode := Fnode(op.SeqNo)
 
-	// Determine whether there's a hint to skip writes for |fnode|.
-	var skipWrites bool
-	if len(m.hints.SkipWrites) != 0 && m.hints.SkipWrites[0] == fnode {
-		m.hints.SkipWrites = m.hints.SkipWrites[1:] // Remove the hint.
-		skipWrites = true
+	// Determine whether |fnode| is hinted.
+	if len(m.hintedFnodes) != 0 {
+		if m.hintedFnodes[0] != fnode {
+			return ErrFnodeNotTracked
+		}
+		m.hintedFnodes = m.hintedFnodes[1:] // Pop hint.
 	}
 
-	m.LiveNodes[fnode] = FnodeState{
-		CreatedChecksum: op.Checksum,
-		Offset:          m.LogMark.Offset,
-		Links:           map[string]struct{}{op.Create.Path: {}},
-		SkipWrites:      skipWrites,
-	}
+	node := &FnodeState{Links: map[string]struct{}{op.Create.Path: {}}}
+	m.extendSegments(&node.Segments, op)
 
+	m.LiveNodes[fnode] = node
 	m.Links[op.Create.Path] = fnode
-	m.TrackedFnodes = append(m.TrackedFnodes, fnode)
 
 	return nil
 }
 
-func (m *FSM) applyLink(op *RecordedOp_Link) error {
-	if _, ok := m.Links[op.Path]; ok {
+func (m *FSM) applyLink(op *RecordedOp) error {
+	if _, ok := m.Links[op.Link.Path]; ok {
 		return ErrLinkExists
-	} else if _, ok := m.Properties[op.Path]; ok {
+	} else if _, ok := m.Properties[op.Link.Path]; ok {
 		return ErrPropertyExists
-	} else if int64(op.Fnode) < m.FirstSeqNo {
+	}
+	node, ok := m.LiveNodes[op.Link.Fnode]
+	if !ok {
 		return ErrFnodeNotTracked
 	}
-	node, ok := m.LiveNodes[op.Fnode]
-	if !ok {
-		return ErrNoSuchFnode
-	}
 
-	node.Links[op.Path] = struct{}{}
-	m.Links[op.Path] = op.Fnode
+	node.Links[op.Link.Path] = struct{}{}
+	m.Links[op.Link.Path] = op.Link.Fnode
+	m.extendSegments(&node.Segments, op)
+
 	return nil
 }
 
-func (m *FSM) applyUnlink(op *RecordedOp_Link) error {
-	if int64(op.Fnode) < m.FirstSeqNo {
-		return ErrFnodeNotTracked
-	}
-	node, ok := m.LiveNodes[op.Fnode]
+func (m *FSM) applyUnlink(op *RecordedOp) error {
+	node, ok := m.LiveNodes[op.Unlink.Fnode]
 	if !ok {
-		return ErrNoSuchFnode
-	}
-
-	if _, ok := node.Links[op.Path]; !ok {
+		return ErrFnodeNotTracked
+	} else if _, ok = node.Links[op.Unlink.Path]; !ok {
 		return ErrNoSuchLink
 	}
-	delete(m.Links, op.Path)
-	delete(node.Links, op.Path)
 
-	if len(node.Links) != 0 {
-		// Fnode has remaining live links.
-		return nil
-	}
-	// Fnode is no longer live (all links are removed).
-	delete(m.LiveNodes, op.Fnode)
+	delete(m.Links, op.Unlink.Path)
+	delete(node.Links, op.Unlink.Path)
+	m.extendSegments(&node.Segments, op)
 
-	// Walk through TrackedFnodes, reclaiming a contiguous prefix of dead entries.
-	for len(m.TrackedFnodes) != 0 {
-		if _, live := m.LiveNodes[m.TrackedFnodes[0]]; live {
-			break
-		}
-		m.TrackedFnodes = m.TrackedFnodes[1:]
+	if len(node.Links) == 0 {
+		// Fnode is no longer live (all links are removed).
+		delete(m.LiveNodes, op.Unlink.Fnode)
 	}
-	// Reclaim Authors with a LastSeqNo occurring before all TrackedFnodes.
-	for len(m.Authors) != 0 {
-		if len(m.TrackedFnodes) != 0 &&
-			m.Authors[0].LastSeqNo >= int64(m.TrackedFnodes[0]) {
-			break
-		}
-		m.Authors = m.Authors[1:]
-	}
+
 	return nil
 }
 
-func (m *FSM) applyWrite(op *RecordedOp_Write) error {
-	if int64(op.Fnode) < m.FirstSeqNo {
+func (m *FSM) applyWrite(op *RecordedOp) error {
+	node, ok := m.LiveNodes[op.Write.Fnode]
+	if !ok {
 		return ErrFnodeNotTracked
 	}
-	_, ok := m.LiveNodes[op.Fnode]
-	if !ok {
-		return ErrNoSuchFnode
-	}
+	m.extendSegments(&node.Segments, op)
+
 	return nil
 }
 
-func (m *FSM) applyProperty(op *RecordedOp_Property) error {
+func (m *FSM) applyProperty(op *Property) error {
 	if _, ok := m.Links[op.Path]; ok {
 		return ErrLinkExists
 	} else if content, ok := m.Properties[op.Path]; ok && content != op.Content {
@@ -310,34 +248,44 @@ func (m *FSM) applyProperty(op *RecordedOp_Property) error {
 
 // Constructs memoized hints enabling a future FSM to rebuild this FSM's state.
 func (m *FSM) BuildHints() FSMHints {
-	// Init hints to the next expected op in the log.
-	hints := FSMHints{
-		LogMark:       m.LogMark,
-		FirstChecksum: m.NextChecksum,
-		FirstSeqNo:    m.NextSeqNo,
-		Authors:       []AuthorRange{},
-		Properties:    m.Properties,
+	var hints = FSMHints{
+		Log: m.LogMark.Journal,
 	}
-	// Retrieve the earliest SeqNo, Checksum, and Offset of a live Fnode. Note
-	// an invariant of FSM is that the first |TrackedFnodes| is in |LiveNodes|.
-	for _, fnode := range m.TrackedFnodes {
-		if state, isLive := m.LiveNodes[fnode]; isLive {
-			if int64(fnode) < hints.FirstSeqNo {
-				hints.FirstSeqNo = int64(fnode)
-				hints.FirstChecksum = state.CreatedChecksum
-				hints.LogMark.Offset = state.Offset
-			}
-		} else {
-			hints.SkipWrites = append(hints.SkipWrites, fnode)
-		}
+
+	// Flatten LiveNodes into ordered HintedFnodes.
+	for fnode, state := range m.LiveNodes {
+		hints.LiveNodes = append(hints.LiveNodes, HintedFnode{fnode, state.Segments})
 	}
-	// Only return recorder ranges if tracked Fnodes are hinted.
-	if len(m.TrackedFnodes) != 0 {
-		hints.Authors = append([]AuthorRange{}, m.Authors...)
+	sort.Sort(FnodeOrder(hints.LiveNodes))
+
+	// Flatten properties.
+	for path, content := range m.Properties {
+		hints.Properties = append(hints.Properties, Property{Path: path, Content: content})
 	}
 	return hints
 }
 
 func (m *FSM) HasHints() bool {
-	return len(m.hints.Authors) != 0 || len(m.hints.SkipWrites) != 0
+	return len(m.hintedSegments) != 0 || len(m.hintedFnodes) != 0
 }
+
+func (m *FSM) extendSegments(s *[]Segment, op *RecordedOp) {
+	if l := len(*s); l != 0 && (*s)[l-1].Author == op.Author {
+		(*s)[l-1].LastSeqNo = op.SeqNo
+	} else {
+		*s = append(*s, Segment{
+			Author:        op.Author,
+			FirstChecksum: op.Checksum,
+			FirstOffset:   m.LogMark.Offset,
+			FirstSeqNo:    op.SeqNo,
+			LastSeqNo:     op.SeqNo,
+		})
+	}
+}
+
+// sort.Interface HintedFnode implementation ordered on Fnode.
+type FnodeOrder []HintedFnode
+
+func (n FnodeOrder) Len() int           { return len(n) }
+func (n FnodeOrder) Less(i, j int) bool { return n[i].Fnode < n[j].Fnode }
+func (n FnodeOrder) Swap(i, j int)      { n[i], n[j] = n[j], n[i] }

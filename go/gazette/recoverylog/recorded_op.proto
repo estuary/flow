@@ -61,14 +61,54 @@ message RecordedOp {
   };
   optional Write write = 7;
 
-  // Properties are small files which rarely change, and are thus managed
-  // outside of regular Fnode tracking. See FSM.Properties.
-  message Property {
-    option (gogoproto.goproto_unrecognized) = false;
-
-    required string path = 1 [(gogoproto.nullable) = false];
-
-    required string content = 2 [(gogoproto.nullable) = false];
-  };
   optional Property property = 8;
+};
+
+// Properties are small files which rarely change, and are thus managed
+// outside of regular Fnode tracking. See FSM.Properties.
+message Property {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required string path = 1 [(gogoproto.nullable) = false];
+
+  required string content = 2 [(gogoproto.nullable) = false];
+};
+
+// A Segment represents a contiguous chunk of recovery log, identified by its
+// (single) Author, FirstSeqNo, Checksum, & corresponding approximate
+// lower-bound offset, and finally by a LastSeqNo.
+// Next tag: 6.
+message Segment {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required fixed32 author = 1 [(gogoproto.nullable) = false,
+                               (gogoproto.casttype) = "Author"];
+  required int64 first_seq_no = 2 [(gogoproto.nullable) = false];
+  required int64 first_offset = 3 [(gogoproto.nullable) = false];
+  required fixed32 first_checksum = 4 [(gogoproto.nullable) = false];
+  required int64 last_seq_no = 5 [(gogoproto.nullable) = false];
+};
+
+// Memoized state which allows an FSM to efficiently reach parity with the FSM
+// which produced the FSMHints. FSMHints must minimally specify a recovery Log.
+// Hints which are otherwise zero implicitly define an FSM which is empty, and
+// should begin recording or playback at the log write head.
+message FSMHints {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required string log = 1 [(gogoproto.nullable) = false,
+      (gogoproto.casttype) = "github.com/pippio/gazette/journal.Name"];
+
+  repeated HintedFnode live_nodes = 2 [(gogoproto.nullable) = false];
+
+  repeated Property properties = 3 [(gogoproto.nullable) = false];
+};
+
+// A HintedFnode hints specific log Segments which contain Fnode operations.
+message HintedFnode {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required int64 fnode = 1 [(gogoproto.nullable) = false,
+                            (gogoproto.casttype) = "Fnode"];
+  repeated Segment segments = 2 [(gogoproto.nullable) = false];
 };
