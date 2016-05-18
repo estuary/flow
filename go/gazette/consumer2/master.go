@@ -3,6 +3,9 @@ package consumer
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
+	"runtime"
+	"strconv"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -21,6 +24,10 @@ var (
 
 	storeToEtcdInterval = time.Minute
 	messageBufferSize   = 1 << 12 // 4096.
+
+	// Buffered channel used to synchronize and enforce limits on maximum
+	// transaction concurrency.
+	txConcurrencyCh flaggedBufferedChan
 )
 
 type master struct {
@@ -173,11 +180,21 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 	// Last sent time on txTimeoutTimer.
 	var lastTimeoutTick time.Time
+	// A write barrier which never selects.
+	var zeroedAsyncAppend journal.AsyncAppend
 	// Commit write-barrier of a previous transaction, which selects only after
-	// the previous transaction has been sync'd by Gaette. We allow a current
-	// transaction to process in the meantime (so we don't stall on Gazette IO),
+	// the previous transaction has been sync'd by Gazette. We allow a current
+	// transaction to process in the meantime (so we don't stall on Gazette I/O),
 	// but it cannot commit until |lastWriteBarrier| is selectable.
-	var lastWriteBarrier = new(journal.AsyncAppend)
+	var lastWriteBarrier = &zeroedAsyncAppend
+
+	// We synchronize transaction concurrency via |txConcurrencyCh|. We must
+	// return a held lock on exit if we are in a transaction (txBegin != 0).
+	defer func() {
+		if !txBegin.IsZero() {
+			txConcurrencyCh <- struct{}{}
+		}
+	}()
 
 	for {
 		var err error
@@ -203,7 +220,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 				if lastWriteBarrier.Error != nil {
 					panic("expected write to resolve without error, or not resolve")
 				}
-				lastWriteBarrier.Ready = nil
+				lastWriteBarrier = &zeroedAsyncAppend
 				continue
 			case msg = <-maybeSrc:
 				goto CONSUME_MSG
@@ -228,6 +245,8 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 		// Does this message begin a new transaction?
 		if txMessages == 0 {
+			// The transaction begins only after a transaction lock is obtained.
+			<-txConcurrencyCh
 			txBegin = time.Now()
 			txTimeoutTimer.Reset(*maxConsumeQuantum)
 		}
@@ -300,6 +319,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		clearOffsets(txOffsets)
 		txMessages = 0
 		txBegin = time.Time{}
+		txConcurrencyCh <- struct{}{} // Release transaction lock.
 
 		if runner.ShardPostCommitHook != nil {
 			runner.ShardPostCommitHook(m)
@@ -316,3 +336,37 @@ func (m *master) Database() *rocks.DB               { return m.database.DB }
 func (m *master) Transaction() *rocks.WriteBatch    { return m.database.writeBatch }
 func (m *master) ReadOptions() *rocks.ReadOptions   { return m.database.readOptions }
 func (m *master) WriteOptions() *rocks.WriteOptions { return m.database.writeOptions }
+
+// A buffered channel which can be sized by flag.Var.
+type flaggedBufferedChan chan struct{}
+
+// flag.Value implementation.
+func (c *flaggedBufferedChan) Set(v string) error {
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		return err
+	}
+	c.setSize(i)
+	return nil
+}
+
+// flag.Value implementation.
+func (c *flaggedBufferedChan) String() string {
+	return fmt.Sprintf("%v", *c)
+}
+
+// Re-allocates and fills |c| to size |i|.
+func (c *flaggedBufferedChan) setSize(i int) {
+	*c = make(flaggedBufferedChan, i)
+	for j := 0; j < i; j++ {
+		*c <- struct{}{}
+	}
+}
+
+func init() {
+	txConcurrencyCh.setSize(runtime.GOMAXPROCS(0)) // Default to GOMAXPROCS.
+
+	flag.Var(&txConcurrencyCh, "maxConcurrentTx",
+		"Maximum number of transactions which may execute concurrently. "+
+			"Defaults to GOMAXPROCS if not set.")
+}

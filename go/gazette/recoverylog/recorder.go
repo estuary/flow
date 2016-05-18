@@ -295,6 +295,9 @@ func (r *Recorder) recordFrame(frame []byte) *journal.AsyncAppend {
 func (r *Recorder) updateWriteHead(write *journal.AsyncAppend) {
 	if r.pendingWrite == nil {
 		r.pendingWrite = write
+	} else if r.pendingWrite.Ready == nil {
+		// Indicates |pendingWrite| was modified outside of Recorder.
+		panic("pendingWrite.Ready is nil")
 	}
 
 	select {
