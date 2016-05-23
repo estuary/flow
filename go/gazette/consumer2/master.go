@@ -22,12 +22,19 @@ var (
 	maxConsumeQuantum = flag.Duration("maxConsumeQuantum", 200*time.Millisecond,
 		"Max quantum of time a consumer may process messages before committing.")
 
-	storeToEtcdInterval = time.Minute
-	messageBufferSize   = 1 << 12 // 4096.
-
 	// Buffered channel used to synchronize and enforce limits on maximum
 	// transaction concurrency.
 	txConcurrencyCh flaggedBufferedChan
+)
+
+const (
+	storeToEtcdInterval = time.Minute
+
+	// Channel size used between message decode & comsumption. Needs to be rather
+	// large, to avoid processing stalls.
+	messageBufferSize = 1 << 17 // 131072.
+	// Frequency with which the consume loop yields to the scheduler.
+	messageYieldInterval = 256
 )
 
 type master struct {
@@ -187,6 +194,8 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 	// transaction to process in the meantime (so we don't stall on Gazette I/O),
 	// but it cannot commit until |lastWriteBarrier| is selectable.
 	var lastWriteBarrier = &zeroedAsyncAppend
+	// Specific topic.Publisher implementation passed to Consumers.
+	var publisher = publisher{runner.Gazette}
 
 	// We synchronize transaction concurrency via |txConcurrencyCh|. We must
 	// return a held lock on exit if we are in a transaction (txBegin != 0).
@@ -228,7 +237,14 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		} else {
 			// We have a transaction with at least one message, and the previous
 			// write barrier has completed. We're able to commit at any time.
-			// We attempt to consume additional ready messages, but do not block.
+
+			// We attempt to consume additional ready messages, and do not block,
+			// but we do occasionally yield to the scheduler to ensure the decoding
+			// goroutine has opportunity to keep |maybeSrc| full.
+			if txMessages%messageYieldInterval == 0 {
+				runtime.Gosched()
+			}
+
 			select {
 			case <-m.cancelCh:
 				return nil
@@ -251,7 +267,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			txTimeoutTimer.Reset(*maxConsumeQuantum)
 		}
 
-		if err = runner.Consumer.Consume(msg, m, publisher{runner.Gazette}); err != nil {
+		if err = runner.Consumer.Consume(msg, m, publisher); err != nil {
 			return err
 		}
 
@@ -266,7 +282,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 	COMMIT_TX:
 
-		if err = runner.Consumer.Flush(m, publisher{runner.Gazette}); err != nil {
+		if err = runner.Consumer.Flush(m, publisher); err != nil {
 			return err
 		}
 		storeOffsetsToDB(m.database.writeBatch, txOffsets)
