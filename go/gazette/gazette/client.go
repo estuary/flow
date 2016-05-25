@@ -16,7 +16,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
-	"github.com/youtube/vitess/go/cgzip"
 
 	"github.com/pippio/gazette/journal"
 )
@@ -35,6 +34,7 @@ const (
 
 type httpClient interface {
 	Do(*http.Request) (*http.Response, error)
+	Get(url string) (*http.Response, error)
 }
 
 var kContentRangeRegexp = regexp.MustCompile("bytes\\s+(\\d+)-\\d+/\\d+")
@@ -229,28 +229,13 @@ func (c *Client) makeReadStatsWrapper(stream io.ReadCloser, name journal.Name, o
 func (c *Client) openFragment(location *url.URL,
 	result journal.ReadResult) (io.ReadCloser, error) {
 
-	r, err := http.NewRequest("GET", location.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Setting Accept-Encoding: gzip ourselves disables Go's native transparent
-	// stream decompression of gzip-encoded payload on a per-request basis.
-	// https://golang.org/src/net/http/transport.go#L110
-	r.Header.Set("Accept-Encoding", "gzip")
-
-	response, err := c.httpClient.Do(r)
+	response, err := c.httpClient.Get(location.String())
 	if err != nil {
 		return nil, err
 	} else if response.StatusCode != http.StatusOK {
 		response.Body.Close()
 		return nil, fmt.Errorf("fetching fragment: %s", response.Status)
 	}
-
-	if response.Header.Get("Content-Encoding") == "gzip" {
-		response.Body = &cgzipReader{body: response.Body}
-	}
-
 	// Attempt to seek to |result.Offset| within the fragment.
 	delta := result.Offset - result.Fragment.Begin
 	if _, err := io.CopyN(ioutil.Discard, response.Body, delta); err != nil {
@@ -455,30 +440,6 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 		c.locationCache.Add(request.URL.Path, response.Request.URL)
 	}
 	return response, err
-}
-
-// Based on private |gzipReader| from src/net/http/transport.go
-type cgzipReader struct {
-	body, zr io.ReadCloser
-}
-
-func (gz *cgzipReader) Read(p []byte) (n int, err error) {
-	if gz.zr == nil {
-		gz.zr, err = cgzip.NewReader(gz.body)
-		if err != nil {
-			return 0, err
-		}
-	}
-	return gz.zr.Read(p)
-}
-
-func (gz *cgzipReader) Close() error {
-	if gz.zr != nil {
-		if err := gz.zr.Close(); err != nil {
-			return err
-		}
-	}
-	return gz.body.Close()
 }
 
 type readStatsWrapper struct {
