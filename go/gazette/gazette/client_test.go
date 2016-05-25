@@ -188,9 +188,16 @@ func (s *ClientSuite) TestGetWithFragmentLocation(c *gc.C) {
 	})).Return(newReadResponseFixture(), nil).Once()
 
 	// Expect a following GET request to the returned cloud URL.
-	mockClient.On("Get", "http://cloud/fragment/location").Return(&http.Response{
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "GET" &&
+			request.URL.String() == "http://cloud/fragment/location" &&
+			request.Header.Get("Accept-Encoding") == "gzip"
+	})).Return(&http.Response{
 		StatusCode: http.StatusOK,
-		Body:       ioutil.NopCloser(strings.NewReader("xxxxxfragment-content...")),
+		Header:     http.Header{"Content-Encoding": []string{"gzip"}},
+
+		// gzipped version of: "xxxxxfragment-content..."
+		Body: ioutil.NopCloser(strings.NewReader("\x1f\x8b\x08\x00\xe8\xbbDW\x00\x03\xab\xa8\x00\x82\xb4\xa2\xc4\xf4\xdc\xd4\xbc\x12\xdd\xe4\xfc\xbc\x12 \xad\xa7\xa7\x07\x00'9*\xe4\x18\x00\x00\x00")),
 	}, nil).Once()
 
 	s.client.httpClient = mockClient
@@ -220,7 +227,11 @@ func (s *ClientSuite) TestGetWithFragmentLocationFails(c *gc.C) {
 	})).Return(newReadResponseFixture(), nil).Once()
 
 	// Expect a following GET request to the returned cloud URL, which fails.
-	mockClient.On("Get", "http://cloud/fragment/location").Return(&http.Response{
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "GET" &&
+			request.URL.String() == "http://cloud/fragment/location" &&
+			request.Header.Get("Accept-Encoding") == "gzip"
+	})).Return(&http.Response{
 		StatusCode: http.StatusInternalServerError,
 		Status:     "Internal Error",
 		Body:       ioutil.NopCloser(strings.NewReader("message")),
@@ -242,16 +253,22 @@ func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
 
 	location := newURL("http://cloud/location")
 	readResult := journal.ReadResult{Offset: 1005, WriteHead: 3000, Fragment: fragmentFixture}
+	requestMatcher := func(request *http.Request) bool {
+		return request.Method == "GET" &&
+			request.URL.String() == "http://cloud/location" &&
+			request.Header.Get("Accept-Encoding") == "gzip"
+	}
 
 	// Expect response errors are passed through.
-	mockClient.On("Get", "http://cloud/location").Return(nil, errors.New("error!")).Once()
+	mockClient.On("Do", mock.MatchedBy(requestMatcher)).Return(
+		nil, errors.New("error!")).Once()
 
 	body, err := s.client.openFragment(location, readResult)
 	c.Check(body, gc.IsNil)
 	c.Check(err, gc.ErrorMatches, "error!")
 
 	// Expect non-200 is turned into an error.
-	mockClient.On("Get", "http://cloud/location").Return(&http.Response{
+	mockClient.On("Do", mock.MatchedBy(requestMatcher)).Return(&http.Response{
 		StatusCode: http.StatusTeapot,
 		Status:     "error!",
 		Body:       ioutil.NopCloser(nil),
@@ -262,7 +279,7 @@ func (s *ClientSuite) TestGetPersistedErrorCases(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, "fetching fragment: error!")
 
 	// Seek failure (too little content). Expect error is returned.
-	mockClient.On("Get", "http://cloud/location").Return(&http.Response{
+	mockClient.On("Do", mock.MatchedBy(requestMatcher)).Return(&http.Response{
 		StatusCode: http.StatusOK,
 		Body:       ioutil.NopCloser(strings.NewReader("abc")),
 	}, nil).Once()
