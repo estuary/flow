@@ -18,12 +18,41 @@ import (
 	"github.com/pippio/gazette/recoverylog"
 )
 
+// Important tuning flags for Gazette consumers:
+//
+// |maxConsumeQuantum| and |minConsumeQuantum| constrain how long a consumer
+// transaction *may* and *must* run for, respectively, in between commits
+// to the recovery log.
+//
+// |maxConsumeQuantum| bounds the frequency of mandatory commits, but
+// transactions may run for less time if an input Message stall occurs
+// (specifically, no Message is ready to be selected without blocking).
+//
+// |minConsumeQuantum| forces a transaction to block for input if needed,
+// until the quantum has elapsed. The default of zero implies transactions
+// should commit as soon as an input stall occurs, which minimizes latency
+// while still allowing for batched processing of multiple ready messages.
+// This default is appropriate for most consumers, particularly those which
+// retain state on a per-Message basis.
+//
+// Values of |minConsumeQuantum| other than zero principally make sense for
+// consumers which do extensive aggregation of Messages between commits.
+// For such consumers, larger Consume quantums result in fewer overall
+// recovery-log writes and potentially higher throughput.
+//
+// Relatedly, |maxConcurrentTx| bounds the maximum concurrency of independent
+// consumer transactions. For consumers doing extensive aggregation, it can
+// be beneficial to maximize compute resource available to a small number of
+// transactions while completely stalling others. The combination of
+// |minConsumeQuantum| and |maxConcurrentTx| gives such consumers a means to
+// bound the rate of writes to the recovery log without sacrificing throughput.
 var (
 	maxConsumeQuantum = flag.Duration("maxConsumeQuantum", 200*time.Millisecond,
 		"Max quantum of time a consumer may process messages before committing.")
+	minConsumeQuantum = flag.Duration("minConsumeQuantum", 0,
+		"Min quantum of time a consumer must process messages before committing.")
 
-	// Buffered channel used to synchronize and enforce limits on maximum
-	// transaction concurrency.
+	// Flagged as |maxConcurrentTx|.
 	txConcurrencyCh flaggedBufferedChan
 )
 
@@ -177,16 +206,19 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 	// Timepoint at which the current transaction began.
 	// Set on the first message of a new transaction.
 	var txBegin time.Time
-	// Upper-bounds the amount of time a transaction may take.
-	// Reset on the first message of a new transaction.
-	var txTimeoutTimer = time.NewTimer(0)
+	// Used to bound the quantum of time a transaction may (max) or must (min)
+	// take. Reset on the first message of a new transaction.
+	var txTimer = time.NewTimer(0)
+	// Last sent time on txTimer.
+	var lastTick time.Time
+	// Whether |minConsumeQuantum| & |maxConsumeQuantum| have been exceeded.
+	var minQuantumElapsed, maxQuantumElapsed bool
+
 	// Number of messages processed in the current transaction.
 	var txMessages int
 	// Last offset for each journal observed in the current transaction.
 	var txOffsets = make(map[journal.Name]int64)
 
-	// Last sent time on txTimeoutTimer.
-	var lastTimeoutTick time.Time
 	// A write barrier which never selects.
 	var zeroedAsyncAppend journal.AsyncAppend
 	// Commit write-barrier of a previous transaction, which selects only after
@@ -210,21 +242,23 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 		var msg message.Message
 
 		// We allow messages to process in the current transaction only if we're
-		// within the transaction timeout. Though we may stall an arbitrarily long
-		// time waiting for |lastWriteBarrier|, we only wish to process messages
-		// during the first |maxConsumeQuantum| of the transaction.
+		// within |maxConsumeQuantum|. Ie, though we may stall an arbitrarily long
+		// time waiting for |lastWriteBarrier|, only during the first
+		// |maxConsumeQuantum| will we actually Consume messages.
 		var maybeSrc <-chan message.Message
-		if txMessages == 0 || lastTimeoutTick.Before(txBegin.Add(*maxConsumeQuantum)) {
+		if !maxQuantumElapsed {
 			maybeSrc = source
 		}
 
-		if txMessages == 0 || lastWriteBarrier.Ready != nil {
-			// We must block until both conditions are resolved.
+		// We block if the minimum quantum hasn't elapsed (or we're not in a
+		// transaction in the first place). We also block if the previous
+		// transaction still has not sync'd to Gazette.
+		if !minQuantumElapsed || lastWriteBarrier.Ready != nil {
 			select {
 			case <-m.cancelCh:
 				return nil
-			case lastTimeoutTick = <-txTimeoutTimer.C:
-				continue
+			case lastTick = <-txTimer.C:
+				goto TIMER_TICK
 			case <-lastWriteBarrier.Ready:
 				if lastWriteBarrier.Error != nil {
 					panic("expected write to resolve without error, or not resolve")
@@ -248,8 +282,8 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			select {
 			case <-m.cancelCh:
 				return nil
-			case lastTimeoutTick = <-txTimeoutTimer.C:
-				continue
+			case lastTick = <-txTimer.C:
+				goto TIMER_TICK
 			case msg = <-maybeSrc:
 				goto CONSUME_MSG
 			default:
@@ -257,14 +291,32 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			}
 		}
 
+	TIMER_TICK:
+
+		// Note that txTimer can fire at *any* time. Ticks may be delayed or
+		// duplicated, and we can't assume alignment with a current transaction.
+		if txBegin.IsZero() || txBegin.After(lastTick) {
+			continue // No-op.
+		}
+
+		minQuantumElapsed = !lastTick.Before(txBegin.Add(*minConsumeQuantum))
+		maxQuantumElapsed = !lastTick.Before(txBegin.Add(*maxConsumeQuantum))
+
+		if !minQuantumElapsed {
+			txTimer.Reset(*minConsumeQuantum - lastTick.Sub(txBegin))
+		} else if !maxQuantumElapsed {
+			txTimer.Reset(*maxConsumeQuantum - lastTick.Sub(txBegin))
+		}
+		continue // End of TIMER_TICK.
+
 	CONSUME_MSG:
 
 		// Does this message begin a new transaction?
 		if txMessages == 0 {
 			// The transaction begins only after a transaction lock is obtained.
-			<-txConcurrencyCh
+			<-txConcurrencyCh // May block for multiples of |maxConsumeQuantum|.
 			txBegin = time.Now()
-			txTimeoutTimer.Reset(*maxConsumeQuantum)
+			txTimer.Reset(*minConsumeQuantum)
 		}
 
 		if err = runner.Consumer.Consume(msg, m, publisher); err != nil {
@@ -333,9 +385,10 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 		// Reset for next transaction.
 		clearOffsets(txOffsets)
-		txMessages = 0
+		minQuantumElapsed, maxQuantumElapsed = false, false
 		txBegin = time.Time{}
 		txConcurrencyCh <- struct{}{} // Release transaction lock.
+		txMessages = 0
 
 		if runner.ShardPostCommitHook != nil {
 			runner.ShardPostCommitHook(m)
