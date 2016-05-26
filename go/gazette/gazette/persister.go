@@ -184,7 +184,7 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 		// Create the journal's fragment directory, if not already present.
 		if err := p.cfs.MkdirAll(fragment.Journal.String(), 0750); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.Journal}).
-				Error("failed to make fragment directory")
+				Warn("failed to make fragment directory")
 			return
 		}
 
@@ -197,14 +197,14 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 			return
 		} else if err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
-				Error("failed to open fragment for writing")
+				Warn("failed to open fragment for writing")
 			return
 		}
 		r := io.NewSectionReader(fragment.File, 0, fragment.End-fragment.Begin)
 
 		if _, err := p.cfs.CopyAtomic(w, r); err != nil {
 			log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
-				Error("failed to copy fragment")
+				Warn("failed to copy fragment")
 		} else {
 			*success = true
 		}
