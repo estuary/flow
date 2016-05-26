@@ -155,19 +155,21 @@ func PatchTree(tree *etcd.Node, response *etcd.Response) (*etcd.Node, error) {
 
 		if isEtcdUpsertOp(response.Action) {
 			parent.Nodes[ind] = response.Node
-		} else {
+		} else if isEtcdRemoveOp(response.Action) {
 			// Remove the target node.
 			if ind+1 < len(parent.Nodes) {
 				copy(parent.Nodes[ind:], parent.Nodes[ind+1:])
 			}
 			parent.Nodes = parent.Nodes[:len(parent.Nodes)-1]
+		} else {
+			return tree, errors.New("unknown action")
 		}
 		return tree, nil
 	}
 
-	// The target node doesn't exist. A removal op indicates an inconsistency.
-	if isEtcdRemoveOp(response.Action) {
-		return tree, errors.New("unexpected removal")
+	// The target doesn't exist. A non-upsert action indicates an inconsistency.
+	if !isEtcdUpsertOp(response.Action) {
+		return tree, errors.New("non-upsert of missing key")
 	}
 
 	spliceNode := response.Node

@@ -52,8 +52,10 @@ func (w *retryWatcher) Next(ctx context.Context) (*etcd.Response, error) {
 	r, err := w.keysAPI.Get(ctx, w.key, w.getOpts)
 
 	if err == nil {
-		w.watchOpts.AfterIndex = r.Index
-		w.cur = w.keysAPI.Watcher(w.key, w.watchOpts)
+		var opts = *w.watchOpts // Clone & update.
+		opts.AfterIndex = r.Index
+
+		w.cur = w.keysAPI.Watcher(w.key, &opts)
 	}
 	return r, err
 }

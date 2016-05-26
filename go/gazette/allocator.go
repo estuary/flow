@@ -169,6 +169,12 @@ func Allocate(alloc Allocator) error {
 		allocExtract(&params)
 		desiredMaster, desiredTotal := targetCounts(&params)
 
+		log.WithFields(log.Fields{
+			"allocParams":   params,
+			"desiredMaster": desiredMaster,
+			"desiredTotal":  desiredTotal,
+		}).Debug("allocator params")
+
 		if response, err := allocAction(&params, desiredMaster, desiredTotal); err != nil {
 			log.WithField("err", err).Warn("failed to apply allocation action")
 

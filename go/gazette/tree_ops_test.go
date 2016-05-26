@@ -148,6 +148,13 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 		})
 		c.Check(err, gc.ErrorMatches, "unexpected create")
 		c.Check(tree, gc.Not(gc.IsNil))
+
+		tree, err = PatchTree(tree, &etcd.Response{
+			Node:   &etcd.Node{Key: "/foo/bbb/c", Value: "patched update"},
+			Action: "foobar",
+		})
+		c.Check(err, gc.ErrorMatches, "unknown action")
+		c.Check(tree, gc.Not(gc.IsNil))
 	}
 	{
 		// Deletion of a nested value.
@@ -163,7 +170,7 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 
 		_, err = PatchTree(tree, &etcd.Response{
 			Node: &etcd.Node{Key: "/foo/aaa/3", Value: ""}, Action: store.Expire})
-		c.Check(err, gc.ErrorMatches, "unexpected removal")
+		c.Check(err, gc.ErrorMatches, "non-upsert of missing key")
 		c.Check(tree, gc.Not(gc.IsNil))
 
 		c.Check(tree.Nodes[1].Nodes, gc.HasLen, 2) // Precondition.
