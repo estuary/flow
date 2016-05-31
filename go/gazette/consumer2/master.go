@@ -60,8 +60,9 @@ const (
 	storeToEtcdInterval = time.Minute
 
 	// Channel size used between message decode & comsumption. Needs to be rather
-	// large, to avoid processing stalls.
-	messageBufferSize = 1 << 17 // 131072.
+	// large, to avoid processing stalls. Current value will tolerate a data
+	// delay of up to 82ms @ 100K messages / sec without stalling.
+	messageBufferSize = 1 << 13 // 8192.
 	// Frequency with which the consume loop yields to the scheduler.
 	messageYieldInterval = 256
 )
