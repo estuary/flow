@@ -294,10 +294,20 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 	TIMER_TICK:
 
-		// Note that txTimer can fire at *any* time. Ticks may be delayed or
-		// duplicated, and we can't assume alignment with a current transaction.
-		if txBegin.IsZero() || txBegin.After(lastTick) {
-			continue // No-op.
+		// Note that |txTimer| can fire at *any* time. Ticks may be delayed, and
+		// we can't assume alignment with a current transaction. We *can* assume
+		// that a timer.Reset() will result in at least one tick being generated,
+		// even if the specified time.Duration is zero or negative.
+		if txBegin.IsZero() {
+			// No current transaction. Timer will be Reset at next transaction start.
+			continue
+		}
+
+		// A delayed tick of a previous transaction, or an NTP clock adjustment
+		// may mean that ticks jump backwards relative to |txBegin|. We fix time
+		// to never be earlier than the current transaction start.
+		if txBegin.After(lastTick) {
+			lastTick = txBegin
 		}
 
 		minQuantumElapsed = !lastTick.Before(txBegin.Add(*minConsumeQuantum))
