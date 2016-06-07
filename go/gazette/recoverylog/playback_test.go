@@ -72,7 +72,7 @@ func (s *PlaybackSuite) TestCreateErrors(c *gc.C) {
 	c.Check(ioutil.WriteFile(s.player.stagedPath(42), []byte("whoops"), 0644), gc.IsNil)
 
 	// Expect that we fail with an aborting error.
-	c.Check(s.apply(c, s.frameCreate("/a/path")), gc.FitsTypeOf, abortPlaybackErr{})
+	c.Check(s.apply(c, s.frameCreate("/a/path")), gc.ErrorMatches, "open /.*/42: file exists")
 	c.Check(s.player.backingFiles, gc.HasLen, 0)
 }
 
@@ -101,7 +101,6 @@ func (s *PlaybackSuite) TestUnlinkCloseError(c *gc.C) {
 	s.player.backingFiles[42].Close()
 
 	err := s.apply(c, s.frameUnlink(42, "/a/path"))
-	c.Check(err, gc.FitsTypeOf, abortPlaybackErr{})
 	c.Check(err, gc.ErrorMatches, "invalid argument")
 
 	c.Check(s.player.backingFiles, gc.HasLen, 1)
@@ -114,7 +113,6 @@ func (s *PlaybackSuite) TestUnlinkRemoveError(c *gc.C) {
 	c.Check(os.Remove(s.player.backingFiles[42].Name()), gc.IsNil)
 
 	err := s.apply(c, s.frameUnlink(42, "/a/path"))
-	c.Check(err, gc.FitsTypeOf, abortPlaybackErr{})
 	c.Check(err, gc.ErrorMatches, "remove .*: no such file or directory")
 
 	c.Check(s.player.backingFiles, gc.HasLen, 1)
@@ -175,7 +173,6 @@ func (s *PlaybackSuite) TestUnderlyingWriteError(c *gc.C) {
 	buf := s.frameWrite(42, 0, 5)
 	buf.WriteString("abcde")
 	err := s.apply(c, buf)
-	c.Check(err, gc.FitsTypeOf, abortPlaybackErr{})
 	c.Check(err, gc.ErrorMatches, "^write.*")
 
 	// Seek returns an error. Expect it's aborting.
@@ -184,7 +181,6 @@ func (s *PlaybackSuite) TestUnderlyingWriteError(c *gc.C) {
 	buf = s.frameWrite(42, 0, 5)
 	buf.WriteString("abcde")
 	err = s.apply(c, buf)
-	c.Check(err, gc.FitsTypeOf, abortPlaybackErr{})
 	c.Check(err, gc.ErrorMatches, "^seek.*")
 }
 
@@ -196,11 +192,11 @@ func (s *PlaybackSuite) TestWriteUntrackedError(c *gc.C) {
 	// Note apply() verifies that |buf| is fully consumed.
 	c.Check(s.apply(c, buf), gc.IsNil)
 
-	// While discarding, non-aborting read errors are passed through.
+	// While discarding, EOF errors are passed through and mapped to UnexpectedEOF
 	buf = s.frameWrite(15, 0, 11)
-	buf.WriteString("0123456789")
+	buf.WriteString("0123456789") // 10 bytes of content for 11-byte operation.
 
-	c.Check(s.apply(c, buf), gc.Equals, io.EOF)
+	c.Check(s.apply(c, buf), gc.Equals, io.ErrUnexpectedEOF)
 }
 
 func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
@@ -274,17 +270,14 @@ func (s *PlaybackSuite) frameWrite(fnode Fnode, offset, length int64) *bytes.Buf
 }
 
 func (s *PlaybackSuite) apply(c *gc.C, buf *bytes.Buffer) error {
-	bufLen := int64(buf.Len())
-	initialOffset := s.player.fsm.LogMark.Offset
-
-	err := s.player.playSomeLog(ioutil.NopCloser(buf))
+	err := s.player.playOperation(buf, nil)
 
 	// Expect offset is incremented by whole-message boundary, only on success.
 	if err == nil {
-		c.Check(s.player.fsm.LogMark.Offset, gc.Equals, initialOffset+bufLen)
 		c.Check(buf.Len(), gc.Equals, 0) // Fully consumed.
-	} else {
-		c.Check(s.player.fsm.LogMark.Offset, gc.Equals, initialOffset)
+
+		// Expect a successive operation passes through an EOF at the message boundary.
+		c.Check(s.player.playOperation(buf, nil), gc.Equals, io.EOF)
 	}
 	return err
 }

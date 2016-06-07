@@ -21,11 +21,6 @@ const (
 	kFnodeStagingDir = ".fnodes"
 	// Duration for which Player reads of the recovery log block.
 	kBlockInterval = 1 * time.Second
-	// Cool-off applied on non-aborting errors.
-	kErrCooloffInterval = 5 * time.Second
-	// Byte-delta threshold between current offset and next playback offset,
-	// at which we will abort a current log reader and re-open at the next offset.
-	logSkipThreshold = 1 << 29 // 512MB.
 )
 
 // Error returned by Player.Play() & MakeLive() upon Player.Cancel().
@@ -76,12 +71,6 @@ func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
 	}, nil
 }
 
-// A number of errors can be generated during playback, but most are retry-able.
-// abortPlaybackErr signals an unrecoverable error which should abort playback.
-type abortPlaybackErr struct {
-	error
-}
-
 // Requests that Player finalize playback. An exit without error means Play()
 // has exited as well, after successfully restoring local file state to match
 // operations in the recovery-log through the current write head. The Player
@@ -110,150 +99,123 @@ func (p *Player) SetCancelChan(cancelCh chan struct{}) {
 // Begins playing the prepared player. Returns on the first encountered
 // unrecoverable error, or upon a successful MakeLive().
 func (p *Player) Play(client journal.Client) error {
+
+	// Error checks in this function consistently use |err|. We defer sending
+	// |err| on return, to make it available for MakeLive as well.
 	var err error
 	defer func() { p.playExitCh <- err }()
 
-	var writeHead int64
+	var rr = journal.NewRetryReader(p.fsm.LogMark, client)
+	defer rr.Close()
 
-	// Closure which issues a write barrier to transactionally determine the
-	// minimum write head that we must read through. This will also create the
-	// recovery log, if it doesn't exist.
-	writeBarrier := func() error {
-		if barrier, err := client.Write(p.fsm.LogMark.Journal, nil); err != nil {
-			return err
-		} else if <-barrier.Ready; barrier.Error != nil {
-			return barrier.Error
-		} else {
-			writeHead = barrier.WriteHead
-			return nil
-		}
-	}
-	if err = writeBarrier(); err != nil {
-		return err
-	}
+	// Configure |rr| to periodically return EOF when no content is available.
+	rr.EOFTimeout = kBlockInterval
 
-	// Play until we're asked to make a snapshot live, *and* we're at the
-	// recovery-log write head.
-	for makeLive, atHead := false, false; !makeLive || !atHead; {
+	var scratchBuffer [32 * 1024]byte
+	var makeLiveBarrier *journal.AsyncAppend
+
+	// Play until we're asked to make ourselves live, we've read through to the
+	// transactionally determined recoverylog WriteHead, and we time out
+	// waiting for new log content.
+	for {
+
 		select {
 		case <-p.makeLiveCh:
-			makeLive = true
-			p.makeLiveCh = nil // Don't receive again.
+			p.makeLiveCh = nil // Don't select again.
 
-			// Transactionally update |writeHead|. We must read through this offset
-			// before we consider playback to be complete.
-			if err = writeBarrier(); err != nil {
+			// Issue an empty write (a write barrier) to transactionally determine
+			// the minimum WriteHead we must read through.
+			if makeLiveBarrier, err = client.Write(p.fsm.LogMark.Journal, nil); err != nil {
 				return err
 			}
-			continue
+			<-makeLiveBarrier.Ready
+
+			if err = makeLiveBarrier.Error; err != nil {
+				return err
+			}
+			continue // For RecoveryLogSuite.TestPlayThenCancel. Not required for correctness.
 		case <-p.cancelCh:
 			err = ErrPlaybackCancelled
 			return err
 		default:
-			// Pass.
+			// Non-blocking.
 		}
 
-		var readArgs = journal.ReadArgs{
-			Journal:  p.fsm.LogMark.Journal,
-			Offset:   p.fsm.LogMark.Offset,
-			Deadline: time.Now().Add(kBlockInterval),
+		if s := p.fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > rr.Mark.Offset {
+			// Seek the RetryReader forward to the next hinted offset.
+			if _, err = rr.Seek(s[0].FirstOffset, os.SEEK_SET); err != nil {
+				return err
+			}
 		}
 
-		// Do FSM hints indicate we should jump forward in the log?
-		if s := p.fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > readArgs.Offset {
-			readArgs.Offset = s[0].FirstOffset
-		}
-		result, reader := client.Get(readArgs)
+		if err = p.playOperation(rr, scratchBuffer[:]); err == io.EOF {
+			// EOF is returned only on operation message boundaries, and under
+			// RetryReader EOFTimeout semantics, only when a deadline read request
+			// completed with no content.
 
-		if result.Error != nil {
-			log.WithFields(log.Fields{"err": result.Error, "mark": p.fsm.LogMark}).
-				Warn("while fetching log")
-			time.Sleep(kErrCooloffInterval)
-			continue
-		}
+			if makeLiveBarrier != nil {
+				var target = makeLiveBarrier.WriteHead
 
-		if result.WriteHead > writeHead {
-			// A Read WriteHead can increment the target |writeHead|, but should not
-			// decrease it. Reads are not transactional, and we can get a stale offset.
-			writeHead = result.WriteHead
-		}
-		p.fsm.LogMark.Offset = result.Offset
-		err = p.playSomeLog(reader)
+				// A read WriteHead can increase that of |makeLiveBarrier|, but should
+				// not decrease it. Reads are not transactional and can be stale.
+				if rr.Result.WriteHead > target {
+					target = rr.Result.WriteHead
+				}
 
-		if abortErr, ok := err.(abortPlaybackErr); ok {
-			err = abortErr.error
-			return err
-		} else if err != nil {
-			log.WithFields(log.Fields{"err": err, "mark": p.fsm.LogMark}).
-				Warn("during log playback")
-			time.Sleep(kErrCooloffInterval)
+				if rr.Mark.Offset == target {
+					// Exit condition: we timed out waiting for content, we've been asked
+					// to make ourselves Live, and we've read to the target write head.
+					err = p.makeLive()
+					return err
+				}
+			}
+		} else if err == nil {
+			p.fsm.LogMark.Offset = rr.Mark.Offset
 		} else {
-			// We issue blocking reads, so for this condition to be satisfied we must
-			// have read through to the WriteHead that existed at read start, and
-			// during the blocking interval no additional content arrived (otherwise
-			// our offset would be beyond |writeHead|).
-			atHead = (p.fsm.LogMark.Offset == writeHead)
+			// Any other error aborts playback.
+			return err
 		}
 	}
-	err = p.makeLive()
-	return err
 }
 
-func (p *Player) playSomeLog(r io.ReadCloser) error {
-	var err error
-	var frame []byte
+func (p *Player) playOperation(r io.Reader, b []byte) error {
+	var op RecordedOp
 
-	mr := journal.NewMarkedReader(p.fsm.LogMark, r)
-	defer mr.Close()
-
-	for err == nil {
-		// Step mark forward only at whole message boundaries.
-		p.fsm.LogMark = mr.Mark
-
-		var op RecordedOp
-		if _, err = message.Parse(&op, mr, &frame); err == io.EOF {
-			// EOF on message boundary is not an error.
-			return nil
-		} else if err != nil {
-			continue
-		}
-
-		// Run the operation through the FSM to verify validity.
-		fsmErr := p.fsm.Apply(&op, frame)
-		if fsmErr != nil {
-			// Log but otherwise ignore FSM errors: |player| is still in a consistent
-			// state, and we may make further progress later in the log.
-			if fsmErr == ErrFnodeNotTracked {
-				// Common when recovering from the middle of the log. makeLive() asserts
-				// that only tracked fnodes remain when playback completes.
-			} else if fsmErr == ErrWrongSeqNo && op.SeqNo < p.fsm.NextSeqNo {
-				// |op| is prior to the next hinted SeqNo.
-				if s := p.fsm.hintedSegments; len(s) != 0 &&
-					s[0].FirstOffset-mr.Mark.Offset > logSkipThreshold {
-					// Return early to abort the current reader.
-					return nil
-				}
-			} else {
-				log.WithFields(log.Fields{"op": op, "err": fsmErr}).Warn("playback FSM error")
-			}
-
-			// For bytestream consistency Write ops must still skip |op.Length| bytes.
-			if op.Write != nil {
-				_, err = io.CopyN(ioutil.Discard, mr, op.Write.Length)
-			}
-			continue
-		}
-
-		// The operation is valid. Apply local playback actions.
-		if op.Create != nil {
-			err = p.create(Fnode(op.SeqNo))
-		} else if op.Unlink != nil {
-			err = p.unlink(op.Unlink.Fnode)
-		} else if op.Write != nil {
-			err = p.write(op.Write, mr)
-		}
+	if _, err := message.Parse(&op, r, &b); err != nil {
+		return err
 	}
-	return err
+
+	// Run the operation through the FSM to verify validity.
+	if fsmErr := p.fsm.Apply(&op, b); fsmErr != nil {
+		// Log but otherwise ignore FSM errors: the Player is still in a consistent
+		// state, and we may make further progress later in the log.
+		if fsmErr == ErrFnodeNotTracked {
+			// Fnode is deleted later in the log, and is no longer hinted.
+		} else if fsmErr == ErrWrongSeqNo && op.SeqNo < p.fsm.NextSeqNo {
+			// |op| is prior to the next hinted SeqNo. We may have started reading
+			// from a lower-bound offset, or it may be a duplicated write.
+		} else {
+			log.WithFields(log.Fields{"op": op, "err": fsmErr}).Warn("playback FSM error")
+		}
+
+		// For bytestream consistency Write ops must still skip |op.Length| bytes.
+		if op.Write != nil {
+			if err := copyFixed(ioutil.Discard, r, op.Write.Length, b); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// The operation is valid. Apply local playback actions.
+	if op.Create != nil {
+		return p.create(Fnode(op.SeqNo))
+	} else if op.Unlink != nil {
+		return p.unlink(op.Unlink.Fnode)
+	} else if op.Write != nil {
+		return p.write(op.Write, r, b)
+	}
+	return nil
 }
 
 func (p *Player) stagedPath(fnode Fnode) string {
@@ -267,7 +229,7 @@ func (p *Player) create(fnode Fnode) error {
 	if err == nil {
 		p.backingFiles[fnode] = backingFile
 	}
-	return asAbortingError(err)
+	return err
 }
 
 func (p *Player) unlink(fnode Fnode) error {
@@ -279,48 +241,33 @@ func (p *Player) unlink(fnode Fnode) error {
 
 	// Close and remove the local backing file.
 	if err := backingFile.Close(); err != nil {
-		return asAbortingError(err)
+		return err
 	} else if err = os.Remove(p.stagedPath(fnode)); err != nil {
-		return asAbortingError(err)
+		return err
 	}
 	delete(p.backingFiles, fnode)
 	return nil
 }
 
-func (p *Player) write(op *RecordedOp_Write, r io.Reader) error {
-	r = io.LimitReader(r, op.Length)
+func (p *Player) write(op *RecordedOp_Write, r io.Reader, b []byte) error {
+	var backingFile = p.backingFiles[Fnode(op.Fnode)]
 
-	backingFile := p.backingFiles[Fnode(op.Fnode)]
-
-	// Seek and write at the indicated offset.
+	// Seek to the indicated offset.
 	if _, err := backingFile.Seek(op.Offset, 0); err != nil {
-		return asAbortingError(err)
+		return err
 	}
+	return copyFixed(backingFile, r, op.Length, b)
+}
 
-	// Copy from |r| to |fnode|, separately tracking read & write errors.
-	// Write errors are aborting, while read errors are not.
-	var total int64
-	var readErr, writeErr error
-	buffer := make([]byte, 4*1024)
+// Copies exactly |length| bytes from |r| to |w| using temporary buffer |b|.
+func copyFixed(w io.Writer, r io.Reader, length int64, b []byte) error {
+	n, err := io.CopyBuffer(w, io.LimitReader(r, length), b[:cap(b)])
 
-	for readErr == nil && writeErr == nil {
-		var nr, nw int
-		nr, readErr = r.Read(buffer[:])
-		nw, writeErr = backingFile.Write(buffer[:nr])
-
-		if nr != nw && writeErr == nil {
-			writeErr = io.ErrShortWrite
-		}
-		total += int64(nw)
-	}
-	if writeErr != nil {
-		return asAbortingError(writeErr)
-	} else if readErr != io.EOF {
-		return readErr
-	} else if total != op.Length {
+	// Map an EOF prior to |length| bytes as unexpected.
+	if err == nil && n != length {
 		return io.ErrUnexpectedEOF
 	}
-	return nil
+	return err
 }
 
 func (p *Player) makeLive() error {
@@ -375,12 +322,4 @@ func (p *Player) makeLive() error {
 		}
 	}
 	return nil
-}
-
-func asAbortingError(err error) error {
-	if err != nil {
-		return abortPlaybackErr{err}
-	} else {
-		return nil
-	}
 }
