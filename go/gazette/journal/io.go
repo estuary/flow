@@ -1,14 +1,20 @@
 package journal
 
 import (
+	"errors"
 	"io"
+	"io/ioutil"
+	"os"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 )
 
-// Effectively a constant; mutable for test support.
-var kRetryReaderErrCooloff = 5 * time.Second
+// Effectively constants; mutable for test support.
+var (
+	retryReaderErrCooloff = 5 * time.Second
+	timeNow               = time.Now
+)
 
 // A MarkedReader delegates reads to an underlying reader, and maintains
 // |Mark| such that it always points to the next byte to be read.
@@ -42,9 +48,17 @@ func (r *MarkedReader) Close() error {
 
 // A RetryReader masks encountered errors, transparently handling retries to
 // present its clients with an infinite-length bytestream which may block for
-// an arbitrarily long period of time, but also never returns an error / EOF.
+// an arbitrarily long period of time.
 type RetryReader struct {
 	MarkedReader
+	// Duration RetryReader should block for new content before returning EOF.
+	// Specifically, RetryReader will issue reads with server deadline EOFTimeout,
+	// and return EOF on Read iff the read is server-closed with no content.
+	// If EOFTimeout is zero, EOF is never returned by Read.
+	EOFTimeout time.Duration
+	// Result of the most recent read.
+	Result ReadResult
+
 	getter  Getter
 	cooloff bool
 }
@@ -58,46 +72,101 @@ func NewRetryReader(mark Mark, getter Getter) *RetryReader {
 
 func (rr *RetryReader) Read(p []byte) (int, error) {
 	if rr.cooloff {
-		time.Sleep(kRetryReaderErrCooloff)
+		time.Sleep(retryReaderErrCooloff)
 		rr.cooloff = false
 	}
 
+	var firstRead bool
+
 	if rr.ReadCloser == nil {
-		args := ReadArgs{
-			Journal:  rr.Mark.Journal,
-			Offset:   rr.Mark.Offset,
-			Blocking: true,
-		}
+		firstRead = true // First read of the current reader.
 
-		var result ReadResult
-		result, rr.ReadCloser = rr.getter.Get(args)
-
-		if result.Error != nil {
-			if result.Error == ErrNotFound && args.Offset == 0 {
+		if args, err := rr.open(); err != nil {
+			if err == ErrNotFound && args.Offset <= 0 {
 				// Initialization case: We're reading from the beginning of a journal
-				// which doesn't yet exist. Silently retry until it does.
-			} else {
-				log.WithFields(log.Fields{"args": args, "err": result.Error}).Warn("open failed")
+				// which doesn't exist yet.
+				if rr.EOFTimeout != 0 {
+					return 0, io.EOF
+				}
+			} else if err != nil {
+				log.WithFields(log.Fields{"args": args, "err": rr.Result.Error}).Warn("open failed")
 			}
-			rr.onError(true)
+			// Under the io.Reader contract, zero-length reads are allowed.
+			// The caller will retry.
 			return 0, nil
-		} else if o := rr.Mark.Offset; o != 0 && o != -1 && o != result.Offset {
-			// Offset jumps should be very uncommon, but are possible
-			// (eg, data could be missing from the middle of a journal).
-			log.WithFields(log.Fields{"mark": rr.Mark, "result": result}).Warn("offset jump")
 		}
-		rr.Mark.Offset = result.Offset
 	}
-
 	n, err := rr.MarkedReader.Read(p)
 
-	if err != nil {
-		if err != io.EOF {
-			log.WithFields(log.Fields{"mark": rr.Mark, "err": err}).Warn("read failed")
+	if err == io.EOF {
+		rr.onError(false)
+
+		if firstRead && rr.EOFTimeout != 0 {
+			// We received a server EOF on a deadline request with no content.
+			// Pass through the EOF.
+			return n, io.EOF
 		}
-		rr.onError(err != io.EOF)
+	} else if err != nil {
+		rr.onError(true)
+
+		// Log, but mask the error.
+		log.WithFields(log.Fields{"mark": rr.Mark, "err": err}).Warn("read failed")
 	}
 	return n, nil
+}
+
+func (rr *RetryReader) open() (ReadArgs, error) {
+	var args = ReadArgs{
+		Journal:  rr.Mark.Journal,
+		Offset:   rr.Mark.Offset,
+		Blocking: rr.EOFTimeout == 0,
+	}
+	if rr.EOFTimeout != 0 {
+		args.Deadline = timeNow().Add(rr.EOFTimeout)
+	}
+
+	rr.Result, rr.ReadCloser = rr.getter.Get(args)
+
+	if rr.Result.Error != nil {
+		rr.onError(true)
+		return args, rr.Result.Error
+	}
+
+	if o := rr.Mark.Offset; o != 0 && o != -1 && o != rr.Result.Offset {
+		// Offset jumps should be very uncommon, but are possible if data has
+		// been expunged from the middle of a journal.
+		log.WithFields(log.Fields{"mark": rr.Mark, "result": rr.Result}).Warn("offset jump")
+	}
+	rr.Mark.Offset = rr.Result.Offset
+	return args, nil
+}
+
+func (rr *RetryReader) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case os.SEEK_SET:
+		// |offset| is absolute.
+	case os.SEEK_CUR:
+		offset = rr.Mark.Offset + offset
+	default:
+		// SEEK_END is not supported.
+		return rr.Mark.Offset, errors.New("invalid whence")
+	}
+
+	var delta = offset - rr.Mark.Offset
+	rr.Mark.Offset = offset
+
+	if rr.ReadCloser == nil || delta < 0 || offset >= rr.Result.Fragment.End {
+		// Seek cannot be satisfied with the open reader. Close to retry.
+		rr.onError(false)
+		return rr.Mark.Offset, nil
+	}
+
+	if _, err := io.CopyN(ioutil.Discard, rr.ReadCloser, delta); err != nil {
+		log.WithFields(log.Fields{"delta": delta, "err": err}).Warn("seeking reader")
+		return rr.Mark.Offset, rr.Close() // Close to retry.
+	}
+
+	return rr.Mark.Offset, nil
 }
 
 func (rr *RetryReader) onError(shouldCooloff bool) {
