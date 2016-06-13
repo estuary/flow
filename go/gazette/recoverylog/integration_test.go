@@ -71,7 +71,19 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 	replica2 := NewTestReplica(&env)
 	defer replica2.teardown()
 
-	replica2.startReading(replica1.recorder.BuildHints())
+	hints := replica1.recorder.BuildHints()
+
+	// |replica1| was initialized from empty hints and began writing at the
+	// recoverylog head (offset -1). However, expect that the produced hints
+	// reference absolute offsets of the log.
+	c.Assert(hints.LiveNodes, gc.NotNil)
+	for _, node := range hints.LiveNodes {
+		for _, s := range node.Segments {
+			c.Check(s.FirstOffset >= 0, gc.Equals, true)
+		}
+	}
+
+	replica2.startReading(hints)
 	c.Assert(replica2.makeLive(), gc.IsNil)
 
 	replica2.expectValues(map[string]string{

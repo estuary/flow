@@ -270,14 +270,16 @@ func (s *PlaybackSuite) frameWrite(fnode Fnode, offset, length int64) *bytes.Buf
 }
 
 func (s *PlaybackSuite) apply(c *gc.C, buf *bytes.Buffer) error {
-	err := s.player.playOperation(buf, nil)
+	mark := journal.NewMark("a/recovery/log", 1234)
+	err := s.player.playOperation(buf, mark, nil)
+	c.Check(s.player.fsm.LogMark, gc.Equals, mark)
 
 	// Expect offset is incremented by whole-message boundary, only on success.
 	if err == nil {
 		c.Check(buf.Len(), gc.Equals, 0) // Fully consumed.
 
 		// Expect a successive operation passes through an EOF at the message boundary.
-		c.Check(s.player.playOperation(buf, nil), gc.Equals, io.EOF)
+		c.Check(s.player.playOperation(buf, mark, nil), gc.Equals, io.EOF)
 	}
 	return err
 }

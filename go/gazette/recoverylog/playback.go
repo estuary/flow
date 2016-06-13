@@ -148,7 +148,17 @@ func (p *Player) Play(client journal.Client) error {
 			}
 		}
 
-		if err = p.playOperation(rr, scratchBuffer[:]); err == io.EOF {
+		// Play the next operation from |rr|. If required, coerce |rr| to first
+		// pre-fetch the current Mark via a 0-byte Read, in order to resolve
+		// the absolute offset of the next operation.
+		for rr.ReadCloser == nil && err == nil {
+			_, err = rr.Read(nil)
+		}
+		if err == nil {
+			err = p.playOperation(rr, rr.Mark, scratchBuffer[:])
+		}
+
+		if err == io.EOF {
 			// EOF is returned only on operation message boundaries, and under
 			// RetryReader EOFTimeout semantics, only when a deadline read request
 			// completed with no content.
@@ -169,18 +179,17 @@ func (p *Player) Play(client journal.Client) error {
 					return err
 				}
 			}
-		} else if err == nil {
-			p.fsm.LogMark.Offset = rr.Mark.Offset
-		} else {
+		} else if err != nil {
 			// Any other error aborts playback.
 			return err
 		}
 	}
 }
 
-func (p *Player) playOperation(r io.Reader, b []byte) error {
+func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
 	var op RecordedOp
 
+	p.fsm.LogMark = mark
 	if _, err := message.Parse(&op, r, &b); err != nil {
 		return err
 	}
