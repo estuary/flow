@@ -162,6 +162,7 @@ func (p *Player) Play(client journal.Client) error {
 			// EOF is returned only on operation message boundaries, and under
 			// RetryReader EOFTimeout semantics, only when a deadline read request
 			// completed with no content.
+			err = nil
 
 			if makeLiveBarrier != nil {
 				var target = makeLiveBarrier.WriteHead
