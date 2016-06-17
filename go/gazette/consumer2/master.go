@@ -84,7 +84,7 @@ type master struct {
 }
 
 func newMaster(shard *shard, tree *etcd.Node) (*master, error) {
-	etcdOffsets, err := loadOffsetsFromEtcd(tree)
+	etcdOffsets, err := LoadOffsetsFromEtcd(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +372,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 				<-barrier.Ready
 
 				storeHintsToEtcd(m.hintsPath, hints, runner.KeysAPI())
-				storeOffsetsToEtcd(runner.ConsumerRoot, offsets, runner.KeysAPI())
+				StoreOffsetsToEtcd(runner.ConsumerRoot, offsets, runner.KeysAPI())
 			}(hints, copyOffsets(txOffsets), lastWriteBarrier)
 
 		default:

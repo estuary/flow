@@ -64,7 +64,7 @@ func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
 }
 
 func (s *RoutinesSuite) TestLoadOffsetsFromEtcd(c *gc.C) {
-	offsets, err := loadOffsetsFromEtcd(s.treeFixture())
+	offsets, err := LoadOffsetsFromEtcd(s.treeFixture())
 	c.Check(err, gc.IsNil)
 
 	c.Check(offsets, gc.DeepEquals, map[journal.Name]int64{
@@ -73,14 +73,14 @@ func (s *RoutinesSuite) TestLoadOffsetsFromEtcd(c *gc.C) {
 		"other-journal/part-002": 44,
 	})
 
-	offsets, err = loadOffsetsFromEtcd(&etcd.Node{Key: "/foo", Dir: true})
+	offsets, err = LoadOffsetsFromEtcd(&etcd.Node{Key: "/foo", Dir: true})
 	c.Check(err, gc.IsNil)
 	c.Check(offsets, gc.IsNil)
 
 	badTree := s.treeFixture()
 	badTree.Nodes[1].Nodes[1].Nodes[0].Value = "invalid" // other-journal/part-002.
 
-	offsets, err = loadOffsetsFromEtcd(badTree)
+	offsets, err = LoadOffsetsFromEtcd(badTree)
 	c.Check(err, gc.ErrorMatches, "strconv.ParseInt: .*")
 }
 
@@ -101,10 +101,10 @@ func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
 	offsets["journal/part-001"] = 1000
 	offsets["journal/part-002"] = 2000
 	for k, v := range offsets {
-		s.keysAPI.On("Set", mock.Anything, offsetPath(rootPath, k), strconv.FormatInt(v, 16),
+		s.keysAPI.On("Set", mock.Anything, OffsetPath(rootPath, k), strconv.FormatInt(v, 16),
 			mock.Anything).Return(&etcd.Response{}, nil)
 	}
-	storeOffsetsToEtcd(rootPath, offsets, s.keysAPI)
+	StoreOffsetsToEtcd(rootPath, offsets, s.keysAPI)
 	s.keysAPI.AssertExpectations(c)
 }
 

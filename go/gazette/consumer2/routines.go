@@ -100,7 +100,7 @@ func hintsPath(consumerPath string, shard ShardID) string {
 	return consumerPath + "/" + hintsPrefix + "/" + shard.String()
 }
 
-func offsetPath(consumerPath string, name journal.Name) string {
+func OffsetPath(consumerPath string, name journal.Name) string {
 	return consumerPath + "/" + offsetsPrefix + "/" + name.String()
 }
 
@@ -157,7 +157,7 @@ func offsetFromString(str string) (int64, error) {
 }
 
 // Loads legacy offsets stored in Etcd under |tree|.
-func loadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
+func LoadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
 	node := consensus.Child(tree, offsetsPrefix)
 	if node == nil {
 		return nil, nil
@@ -177,9 +177,9 @@ func loadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
 }
 
 // Stores legacy |offsets| in Etcd.
-func storeOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI etcd.KeysAPI) {
+func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI etcd.KeysAPI) {
 	for name, offset := range offsets {
-		offsetPath := offsetPath(rootPath, name)
+		offsetPath := OffsetPath(rootPath, name)
 		_, err := keysAPI.Set(context.Background(), offsetPath,
 			strconv.FormatInt(offset, 16), nil)
 		// Etcd Set is best-effort.
