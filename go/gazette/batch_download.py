@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright 2015 Pippio Inc, https://pippio.com
+# Copyright 2015-2016 Arbor Technologies, Inc. https://arbor.io
 #
 # The MIT License (MIT)
 #
@@ -42,7 +42,7 @@ class StreamDownloader(object):
     directory, which captures metadata used to perform incremental downloads
     across invocations."""
 
-    # Headers returned by Pippio, which are parsed by the client and allow for
+    # Headers returned by Arbor, which are parsed by the client and allow for
     # direct retrieval of content from a cloud-storage provider.
     CONTENT_RANGE_HEADER = 'Content-Range'
     CONTENT_RANGE_REGEXP = 'bytes\s+(\d+)-\d+/\d+'
@@ -92,32 +92,21 @@ class StreamDownloader(object):
 
         basename = stream_url.split('/')[-1]
         path_tmp = os.path.join(self.output_dir,
-                                ".%s.%016x.CURRENT.gz" % (basename, offset))
-        output = gzip.open(path_tmp, 'w')
+                                ".%s.%016x.CURRENT" % (basename, offset))
 
-        # Check if the fragment is available to be directly downloaded (eg,
-        # from cloud storage. Omit file:// URLs (returned in some Pippio test
-        # environments).
-        if location is not None and not location.startswith('file://'):
-            delta = self._transfer_from_location(offset, fragment, location,
-                                                 output)
-        else:
-            # Repeat the request as a GET to directly transfer.
-            full_url = "%s?offset=%d&block=false" % (stream_url, offset)
-            response = self.session.get(full_url,
-                                        timeout=self.SOCKET_TIMEOUT_SECONDS,
-                                        stream=True, verify=True)
-
-            logging.debug("GET %s (%s)\n\t%s", full_url, response.status_code,
-                          response.headers)
-
-            # Expect a 20X response.
-            response.raise_for_status()
-
-            delta = self._transfer(response.raw, output)
+        with open(path_tmp, 'w') as output:
+            # Check if the fragment is available to be directly downloaded (eg,
+            # from cloud storage. Omit file:// URLs (returned in some Arbor
+            # test environments).
+            if location and not location.startswith('file://'):
+                # Transmission from cloud storage is always gzipped. Request
+                # the raw gzip so we don't have to do anything.
+                delta = self._transfer_from_location(offset, fragment, location,
+                                                     output)
+            else:
+                delta = self._transfer_from_broker(stream_url, offset, output)
 
         # Close and move to final location.
-        output.close()
         path_final = os.path.join(self.output_dir, "%s.%016x.%016x.gz" % (
                                   basename, offset, offset+delta))
         self._rename(path_tmp, path_final)
@@ -125,8 +114,8 @@ class StreamDownloader(object):
         self._metadata['offsets'][stream_url] = offset + delta
         self._store_metadata()
 
-        logging.info("wrote %s (%d bytes at offset %d)", path_final, delta,
-                     offset)
+        logging.info('wrote %s (%d bytes at offset %d)',
+                     path_final, delta, offset)
 
         # If we've read through the write head (at the time of the response),
         # don't attempt another read. Otherwise we can get into loops reading
@@ -141,19 +130,51 @@ class StreamDownloader(object):
         if skip_delta < 0:
             raise RuntimeError("Unexpected offset: %d (%r)", offset, fragment)
 
-        stream = self.session.get(location, stream=True, verify=True)
-        stream.raise_for_status()
+        response = self.session.get(location, stream=True, verify=True)
+        response.raise_for_status()
 
-        return self._transfer(stream.raw, stream_out, skip_delta)
+        # This code assumes from here on out that GCS always returns compressed
+        # fragments.
+        assert(response.headers['Content-Encoding'] == 'gzip')
+
+        if skip_delta > 0:
+            # As |skip_delta| refers to a skip offset of the uncompressed data,
+            # we must decompress to skip, then recompress afterward.
+            with gzip.GzipFile(fileobj=stream_out) as gzipped:
+                return self._transfer(response.raw, gzipped, skip_delta)
+        else:
+            # Alternatively, if we are reading the entire gzipped fragment,
+            # no conversion required. As the delta, return the size of this
+            # fragment, as we will have transferred fewer actual bytes.
+            self._transfer(response.raw, stream_out, skip_delta)
+            return fragment[1] - fragment[0]
+
+    def _transfer_from_broker(self, stream_url, offset, stream_out):
+        full_url = "%s?offset=%d&block=false" % (stream_url, offset)
+        response = self.session.get(full_url,
+                                    timeout=self.SOCKET_TIMEOUT_SECONDS,
+                                    stream=True, verify=True)
+
+        logging.debug("GET %s (%s)\n\t%s", full_url, response.status_code,
+                      response.headers)
+
+        # Expect a 20X response.
+        response.raise_for_status()
+
+        # Compress the uncompressed stream data from the broker.
+        with gzip.GzipFile(fileobj=stream_out) as gzipped:
+            return self._transfer(response.raw, gzipped)
 
     def _transfer(self, stream_in, stream_out, skip_delta=0):
         """Transfers from |stream_in| to |stream_out|, skipping |skip_delta|
-        leading bytes. The number of bytes transferred *after* |skip_delta|
-        is returned."""
+        leading decompressed bytes. The number of bytes transferred *after*
+        |skip_delta| is returned."""
 
         delta = 0
+        decode_content = skip_delta > 0
         while True:
-            buf = stream_in.read(self.BUFFER_SIZE, decode_content=True)
+            buf = stream_in.read(self.BUFFER_SIZE,
+                                 decode_content=decode_content)
             if not buf:
                 return delta
 
@@ -239,7 +260,7 @@ def new_authenticated_session(auth_url, user, password):
 def main(argv):
 
     parser = argparse.ArgumentParser(description='Provides batch record '
-                                     'download from a Pippio stream')
+                                     'download from an Arbor stream.')
     parser.add_argument('--url', required=True, help='Stream URL to '
                         'download (ex, https://pippio.com/api/stream/records)')
     parser.add_argument('--user', help='Username to authenticate as')
