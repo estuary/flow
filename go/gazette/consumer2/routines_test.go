@@ -144,7 +144,7 @@ func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
 	c.Check(offsets, gc.HasLen, 0)
 
 	// Expect they're recovered from the database.
-	recovered, err := loadOffsetsFromDB(db, ro)
+	recovered, err := LoadOffsetsFromDB(db, ro)
 	c.Check(err, gc.IsNil)
 	c.Check(recovered, gc.DeepEquals, map[journal.Name]int64{
 		"journal/part-001":       42,
@@ -174,7 +174,7 @@ func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
 
 	for _, tc := range cases {
 		c.Check(db.Put(wo, tc.key, tc.value), gc.IsNil)
-		_, err = loadOffsetsFromDB(db, ro)
+		_, err = LoadOffsetsFromDB(db, ro)
 		c.Check(err, gc.ErrorMatches, tc.expect)
 
 		c.Check(db.Delete(wo, tc.key), gc.IsNil) // Cleanup.

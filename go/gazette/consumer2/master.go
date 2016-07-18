@@ -171,7 +171,7 @@ func (m *master) init(runner *Runner, replica *replica) error {
 }
 
 func (m *master) startPumpingMessages(runner *Runner) (<-chan message.Message, error) {
-	dbOffsets, err := loadOffsetsFromDB(m.database.DB, m.database.readOptions)
+	dbOffsets, err := LoadOffsetsFromDB(m.database.DB, m.database.readOptions)
 	if err != nil {
 		return nil, err
 	}

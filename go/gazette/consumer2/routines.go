@@ -191,7 +191,7 @@ func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI
 }
 
 // Loads from |db| offsets previously serialized by storeAndClearOffsets.
-func loadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]int64, error) {
+func LoadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]int64, error) {
 	markPrefix := encoding.EncodeNullAscending(nil)
 	markPrefix = encoding.EncodeStringAscending(markPrefix, "mark")
 
@@ -220,7 +220,7 @@ func loadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]
 	return result, nil
 }
 
-// Stores |offsets| to |wb| using an identical encoding as loadOffsetsFromDB.
+// Stores |offsets| to |wb| using an identical encoding as LoadOffsetsFromDB.
 func storeOffsetsToDB(wb *rocks.WriteBatch, offsets map[journal.Name]int64) {
 	for name, offset := range offsets {
 		key := encoding.EncodeNullAscending(nil)
