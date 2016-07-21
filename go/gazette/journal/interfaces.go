@@ -2,6 +2,7 @@ package journal
 
 import (
 	"io"
+	"net/http"
 	"net/url"
 )
 
@@ -51,6 +52,13 @@ type Header interface {
 // Performs a Gazette POST operation.
 type Creator interface {
 	Create(journal Name) error
+}
+
+// Provides low-level routing and access to a Gazette service, suitable for
+// proxying requests and modeled on http.Client. The client will perform
+// journal-based routing to the appropriate Gazette instance. See gazette.Client.
+type Doer interface {
+	Do(*http.Request) (*http.Response, error)
 }
 
 // Composes Creator, Getter, Header, and Writer.

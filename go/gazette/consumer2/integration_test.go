@@ -255,7 +255,7 @@ type testGenerator struct {
 
 func newTestGenerator(writer journal.Writer) *testGenerator {
 	return &testGenerator{
-		publisher:         publisher{writer},
+		publisher:         message.SimplePublisher{writer},
 		addValues:         make(map[int64]int64),
 		addSubtractValues: make(map[int64]int64),
 		stringValues:      make(map[stringMessage]struct{}),

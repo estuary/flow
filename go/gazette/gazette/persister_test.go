@@ -51,14 +51,23 @@ func (s *PersisterSuite) TestPersistence(c *gc.C) {
 	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
 		&etcd.SetOptions{
 			PrevExist: etcd.PrevNoExist,
-			TTL:       10 * time.Millisecond,
-		}).Return(&etcd.Response{Index: 1234}, nil)
+			TTL:       4 * time.Millisecond,
+		}).Return(&etcd.Response{Index: 1234}, nil).Once()
 
 	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
 		&etcd.SetOptions{
 			PrevExist: etcd.PrevExist,
 			PrevIndex: 1234,
-			TTL:       10 * time.Millisecond,
+			TTL:       4 * time.Millisecond,
+		}).Return(&etcd.Response{Index: 2345}, nil).Once()
+
+	// We *may* see an additional Set, if the lock refresh Goroutine races and
+	// wins against the blocking ReadAt fixture.
+	s.keysAPI.On("Set", mock.Anything, lockPath, "route-key",
+		&etcd.SetOptions{
+			PrevExist: etcd.PrevExist,
+			PrevIndex: 2345,
+			TTL:       4 * time.Millisecond,
 		}).Return(&etcd.Response{Index: 2345}, nil)
 
 	s.keysAPI.On("Delete", mock.Anything, lockPath,
@@ -67,7 +76,7 @@ func (s *PersisterSuite) TestPersistence(c *gc.C) {
 	// Expect fragment.File to be read. Return a value fixture we'll verify later.
 	s.file.On("ReadAt", mock.AnythingOfType("[]uint8"), int64(0)).
 		Return(10, nil).
-		After(7 * time.Millisecond). // Block long enough to trigger lock refresh.
+		After(3 * time.Millisecond). // Block long enough to trigger lock refresh.
 		Run(func(args mock.Arguments) {
 			copy(args.Get(0).([]byte), contentFixture)
 		}).Once()
@@ -79,10 +88,9 @@ func (s *PersisterSuite) TestPersistence(c *gc.C) {
 		return nil
 	}
 
-	s.persister.persisterLockTTL = 10 * time.Millisecond
+	s.persister.persisterLockTTL = 4 * time.Millisecond
 	s.persister.convergeOne(s.fragment)
 
-	s.keysAPI.AssertExpectations(c)
 	s.file.AssertExpectations(c)
 	c.Check(s.persister.osRemove, gc.IsNil)
 

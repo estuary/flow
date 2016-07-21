@@ -228,7 +228,11 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 	// but it cannot commit until |lastWriteBarrier| is selectable.
 	var lastWriteBarrier = &zeroedAsyncAppend
 	// Specific topic.Publisher implementation passed to Consumers.
-	var publisher = publisher{runner.Gazette}
+	// TODO(johnny): Eventually, we want to track partitions written to under the
+	// current transaction (for later confirmation), and will also ensure that
+	// messages are appropriately tagged and sequenced. We can do so with a
+	// transaction-aware topic.Publisher. For now, use SimplePublisher.
+	var publisher = message.SimplePublisher{Writer: runner.Gazette}
 
 	// We synchronize transaction concurrency via |txConcurrencyCh|. We must
 	// return a held lock on exit if we are in a transaction (txBegin != 0).
