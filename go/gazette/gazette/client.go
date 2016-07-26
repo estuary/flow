@@ -347,14 +347,25 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 		}
 	}
 
-	// Attempt to parse fragment.
-	fragmentNameStr := response.Header.Get(FragmentNameHeader)
+	// Attempt to parse fragment information.
+	var fragmentNameStr = response.Header.Get(FragmentNameHeader)
 	if fragmentNameStr != "" {
 		if fragment, err := journal.ParseFragment(args.Journal, fragmentNameStr); err != nil {
 			result.Error = fmt.Errorf("parsing %s: %s", FragmentNameHeader, err)
 			return
 		} else {
 			result.Fragment = fragment
+		}
+	}
+
+	// Attach |RemoteModTime| if possible.
+	var fragmentLastModifiedStr = response.Header.Get(FragmentLastModifiedHeader)
+	if fragmentLastModifiedStr != "" {
+		var err error
+		result.Fragment.RemoteModTime, err = time.Parse(http.TimeFormat, fragmentLastModifiedStr)
+		if err != nil {
+			result.Error = fmt.Errorf("parsing %s: %s", FragmentLastModifiedHeader, err)
+			return
 		}
 	}
 
@@ -440,6 +451,60 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 		c.locationCache.Add(request.URL.Path, response.Request.URL)
 	}
 	return response, err
+}
+
+// Returns the |Fragment| whose Modified time is closest to but prior to the
+// given |t|. Can return a zeroed Fragment structure, if no fragment matches.
+func (c *Client) FragmentBeforeTime(name journal.Name, t time.Time) (journal.Fragment, error) {
+	var nearestFragment journal.Fragment
+	var off int64
+
+	// Locate the nearest fragment to the |minimumTime|, starting at offset 0,
+	// by going until we find the first one that exceeds that time.
+	for {
+		var args = journal.ReadArgs{Journal: name, Offset: off}
+		var result journal.ReadResult
+
+		if result, _ = c.Head(args); result.Error != nil {
+			return nearestFragment, result.Error
+		} else if result.Fragment.RemoteModTime.IsZero() {
+			// No remote fragment means we've reached the end of
+			// fragment-backed byte ranges.
+			return nearestFragment, nil
+		}
+
+		// Check the next fragment. If its modification time is found to
+		// precede |t|, set |nearestFragment| to it and keep going.  Otherwise,
+		// return |nearestFragment| right away.
+		if nearestFragment.Journal == "" || result.Fragment.RemoteModTime.Before(t) {
+			nearestFragment = result.Fragment
+			off = result.Fragment.End
+		} else {
+			return nearestFragment, nil
+		}
+	}
+}
+
+// Returns a list of |Fragment|s that service the given offset range in |journal|.
+func (c *Client) FragmentsInRange(name journal.Name, minOff, maxOff int64) ([]journal.Fragment, error) {
+	var off = minOff
+	var fragments []journal.Fragment
+
+	for off < maxOff {
+		var args = journal.ReadArgs{Journal: name, Offset: off}
+		var result journal.ReadResult
+		if result, _ = c.Head(args); result.Error != nil {
+			return nil, result.Error
+		} else if result.Fragment.Journal == "" {
+			// Reached the end of offsets with fragments.
+			break
+		} else {
+			fragments = append(fragments, result.Fragment)
+			off = result.Fragment.End
+		}
+	}
+
+	return fragments, nil
 }
 
 type readStatsWrapper struct {

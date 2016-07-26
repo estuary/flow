@@ -28,6 +28,7 @@ type Fragment struct {
 	// Backing file of the fragment, if present locally.
 	File FragmentFile
 	// If fragment is remote, the time of last modification.
+	// NOTE(joshk): Does not get set in Client use.
 	// TODO(johnny): Is this the appropriate factoring?
 	RemoteModTime time.Time
 }
@@ -62,11 +63,11 @@ func (f Fragment) IsLocal() bool {
 	return f.File != nil
 }
 
-func (f Fragment) AsDirectURL(cfs cloudstore.FileSystem) (*url.URL, error) {
+func (f Fragment) AsDirectURL(cfs cloudstore.FileSystem, duration time.Duration) (*url.URL, error) {
 	if f.IsLocal() {
 		return nil, errors.New("not a remote fragment")
 	}
-	return cfs.ToURL(f.ContentPath(), "GET", time.Minute)
+	return cfs.ToURL(f.ContentPath(), "GET", duration)
 }
 
 func ParseFragment(journal Name, contentName string) (Fragment, error) {

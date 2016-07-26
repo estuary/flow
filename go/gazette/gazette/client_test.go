@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,13 +21,15 @@ import (
 const (
 	kFragmentFixtureStr = "00000000000003e8-00000000000007d0-" +
 		"0102030405060708090a0b0c0d0e0f1011121314"
+	kFragmentLastModifiedStr = "Mon, 11 Jul 2016 23:45:59 GMT"
 )
 
 var fragmentFixture = journal.Fragment{
-	Journal: "a/journal",
-	Begin:   1000,
-	End:     2000,
-	Sum:     [...]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+	Journal:       "a/journal",
+	Begin:         1000,
+	End:           2000,
+	RemoteModTime: time.Date(2016, 7, 11, 23, 45, 59, 0, time.UTC),
+	Sum:           [...]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
 }
 
 type ClientSuite struct {
@@ -48,10 +51,11 @@ func newReadResponseFixture() *http.Response {
 		// Return a successful HEAD response, which was redirected from http://default.
 		StatusCode: http.StatusPartialContent,
 		Header: http.Header{
-			"Content-Range":        []string{"bytes 1005-9999999999/9999999999"},
-			WriteHeadHeader:        []string{"3000"},
-			FragmentNameHeader:     []string{kFragmentFixtureStr},
-			FragmentLocationHeader: []string{"http://cloud/fragment/location"},
+			"Content-Range":            []string{"bytes 1005-9999999999/9999999999"},
+			WriteHeadHeader:            []string{"3000"},
+			FragmentNameHeader:         []string{kFragmentFixtureStr},
+			FragmentLastModifiedHeader: []string{kFragmentLastModifiedStr},
+			FragmentLocationHeader:     []string{"http://cloud/fragment/location"},
 		},
 		Request: &http.Request{
 			URL: newURL("http://redirected-server/a/journal"),
@@ -480,11 +484,100 @@ func (s *ClientSuite) TestBuildReadURL(c *gc.C) {
 // Regression test for issue #890.
 func (s *ClientSuite) TestDialerIsNonNil(c *gc.C) {
 	// What we really want to test is that TCP keep-alive is set. There isn't a
-	// great way to test this, as Dail is a closure over net.Dialer. At least
-	// satisfy ourselves that a non-default dailer is used (a requirement for
+	// great way to test this, as Dial is a closure over net.Dialer. At least
+	// satisfy ourselves that a non-default dialer is used (a requirement for
 	// automatic setting of TCP keep-alive).
 	client, _ := NewClient("http://default")
 	c.Check(client.httpClient.(*http.Client).Transport.(*http.Transport).Dial, gc.NotNil)
+}
+
+func (s *ClientSuite) TestFragmentBeforeTime(c *gc.C) {
+	var nextResponse = newReadResponseFixture()
+	// Offset 2000-4096.
+	nextResponse.Header.Set(FragmentNameHeader, "00000000000007d0-0000000000001000-"+
+		"02030405060708090a0b0c0d0e0f101112131415")
+	// One day after |frag1|.
+	nextResponse.Header.Set(FragmentLastModifiedHeader, "Mon, 12 Jul 2016 23:45:59 GMT")
+
+	var mockClient = new(mockHttpClient)
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		c.Log(request.Method + " " + request.URL.String())
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=0"
+	})).Return(newReadResponseFixture(), nil).Once()
+
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		c.Log(request.Method + " " + request.URL.String())
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://redirected-server/a/journal?block=false&offset=2000"
+	})).Return(nextResponse, nil).Once()
+
+	// Original request's fragment is picked, because the next one's timestamp
+	// exceeds the requested time.
+	s.client.httpClient = mockClient
+	frag, err := s.client.FragmentBeforeTime("a/journal",
+		time.Date(2016, 7, 12, 23, 45, 59, 0, time.UTC))
+
+	c.Assert(err, gc.IsNil)
+	c.Check(frag, gc.DeepEquals, fragmentFixture)
+}
+
+func (s *ClientSuite) TestFragmentBeforeTimeNoMatch(c *gc.C) {
+	// Simulate response when there is no fragment. Should behave well.
+	var response = newReadResponseFixture()
+	response.Header.Del(FragmentNameHeader)
+	response.Header.Del(FragmentLastModifiedHeader)
+
+	var mockClient = new(mockHttpClient)
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		c.Log(request.Method + " " + request.URL.String())
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://default/a/journal?block=false&offset=0"
+	})).Return(response, nil).Once()
+
+	s.client.httpClient = mockClient
+	frag, err := s.client.FragmentBeforeTime("a/journal",
+		time.Date(2016, 7, 12, 23, 45, 59, 0, time.UTC))
+
+	c.Assert(err, gc.IsNil)
+	c.Check(frag, gc.DeepEquals, journal.Fragment{})
+}
+
+func (s *ClientSuite) TestFragmentsInRange(c *gc.C) {
+	var mockClient = new(mockHttpClient)
+	var response = newReadResponseFixture()
+
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		c.Log(request.Method + " " + request.URL.String())
+		var offStr = request.URL.Query()["offset"][0]
+
+		// Round |off| to nearest multiple of 1000 (e.g., the broker has 1000
+		// byte fragments starting from 0, no matter what user asks for.)
+		off, _ := strconv.Atoi(offStr)
+		off -= off % 1000
+		var fakeFrag = journal.Fragment{
+			Begin: int64(off),
+			End:   int64(off + 1000),
+			Sum:   [...]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		}
+		response.Header.Set(FragmentNameHeader, fakeFrag.ContentName())
+		response.Header.Del(FragmentLastModifiedHeader)
+
+		return request.Method == "HEAD" && request.URL.Path == "/a/journal"
+	})).Return(response, nil).Times(5)
+
+	s.client.httpClient = mockClient
+	frags, err := s.client.FragmentsInRange("a/journal", 1001, 5999)
+	c.Assert(err, gc.IsNil)
+	c.Check(frags, gc.DeepEquals, []journal.Fragment{
+		{Journal: "a/journal", Begin: 1000, End: 2000},
+		{Journal: "a/journal", Begin: 2000, End: 3000},
+		{Journal: "a/journal", Begin: 3000, End: 4000},
+		{Journal: "a/journal", Begin: 4000, End: 5000},
+		{Journal: "a/journal", Begin: 5000, End: 6000},
+	})
+
+	mockClient.AssertExpectations(c)
 }
 
 func newURL(s string) *url.URL {

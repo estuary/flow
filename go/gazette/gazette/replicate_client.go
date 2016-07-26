@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	CommitDeltaHeader      = "X-Commit-Delta"
-	FragmentLocationHeader = "X-Fragment-Location"
-	FragmentNameHeader     = "X-Fragment-Name"
-	RouteTokenHeader       = "X-Route-Token"
-	WriteHeadHeader        = "X-Write-Head"
+	CommitDeltaHeader          = "X-Commit-Delta"
+	FragmentLastModifiedHeader = "X-Fragment-Last-Modified"
+	FragmentLocationHeader     = "X-Fragment-Location"
+	FragmentNameHeader         = "X-Fragment-Name"
+	RouteTokenHeader           = "X-Route-Token"
+	WriteHeadHeader            = "X-Write-Head"
 
 	ReplicateClientIdlePoolSize = 6
 )

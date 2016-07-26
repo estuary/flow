@@ -178,10 +178,11 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 		// This allows the client to abort this request (or better: use HEAD first),
 		// and then directly fetch content from cloud storage.
 		if !result.Fragment.IsLocal() {
-			url, err := result.Fragment.AsDirectURL(h.cfs)
+			url, err := result.Fragment.AsDirectURL(h.cfs, time.Minute)
 
 			if err == nil {
 				w.Header().Add(FragmentLocationHeader, url.String())
+				w.Header().Add(FragmentLastModifiedHeader, result.Fragment.RemoteModTime.Format(http.TimeFormat))
 			} else {
 				log.WithFields(log.Fields{"err": err, "fragment": result.Fragment}).
 					Warn("failed to generate remote URL")
