@@ -10,8 +10,12 @@ import (
 )
 
 const (
-	kIndexWatcherPeriod              = 5 * time.Minute
-	kIndexWatcherIncrementalLoadSize = 50
+	indexWatcherPeriod = 5 * time.Minute
+
+	// The value of 1,000 was chosen as it's the default "maxResults" value in
+	// Google Cloud Storage's objects list API:
+	//   https://cloud.google.com/storage/docs/json_api/v1/objects/list
+	indexWatcherIncrementalLoadSize = 1000
 )
 
 // IndexWatcher monitors a journal's storage location in the cloud filesystem
@@ -61,7 +65,7 @@ func (w *IndexWatcher) loop() {
 	// Copy so we can locally nil it after closing.
 	initialLoad := w.initialLoad
 
-	ticker := time.NewTicker(kIndexWatcherPeriod)
+	ticker := time.NewTicker(indexWatcherPeriod)
 loop:
 	for {
 		if err := w.onRefresh(); err != nil {
@@ -102,7 +106,7 @@ func (w *IndexWatcher) onRefresh() error {
 	}
 	// Perform iterative incremental loads until no new fragments are available.
 	for {
-		files, err := dir.Readdir(kIndexWatcherIncrementalLoadSize)
+		files, err := dir.Readdir(indexWatcherIncrementalLoadSize)
 
 		for _, file := range files {
 			if file.IsDir() {
