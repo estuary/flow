@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 var ErrInvalidDelta = errors.New("invalid delta")
@@ -75,7 +74,7 @@ func (s *Spool) Commit(delta int64) error {
 		return s.setErr(err)
 	} else if _, err = io.CopyN(s.sha1Summer, s.File, delta); err != nil {
 		return s.setErr(err)
-	} else if err := syscall.Fdatasync(int(s.File.Fd())); err != nil {
+	} else if err := fdatasync(int(s.File.Fd())); err != nil {
 		return s.setErr(err)
 	}
 	s.delta = 0
