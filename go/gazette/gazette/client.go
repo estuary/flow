@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -106,15 +107,26 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 
 // If you want to use your own |http.Transport| with Gazette, start with this one.
 func MakeHttpTransport() *http.Transport {
-	// Build from a clone of DefaultTransport.
-	httpTransport := *(http.DefaultTransport.(*http.Transport))
+	// See definition of |http.DefaultTransport| here:
+	// https://golang.org/pkg/net/http/#RoundTripper
+	// We don't use |http.DefaultTransport| itself, as it is difficult to
+	// deep-copy it.
+	var httpTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 
 	// When testing, fragment locations are "persisted" to the local filesystem,
 	// and file:// URL's are returned by Gazette servers. Register a protocol
 	// handler so they may be opened by the client.
 	httpTransport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
 
-	return &httpTransport
+	return httpTransport
 }
 
 func (c *Client) Head(args journal.ReadArgs) (journal.ReadResult, *url.URL) {
