@@ -545,9 +545,8 @@ func (s *ClientSuite) TestFragmentBeforeTimeNoMatch(c *gc.C) {
 	var mockClient = new(mockHttpClient)
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		c.Log(request.Method + " " + request.URL.String())
-		return request.Method == "HEAD" &&
-			request.URL.String() == "http://default/a/journal?block=false&offset=0"
-	})).Return(response, nil).Once()
+		return request.Method == "HEAD"
+	})).Return(response, nil)
 
 	s.client.httpClient = mockClient
 	frag, err := s.client.FragmentBeforeTime("a/journal",
