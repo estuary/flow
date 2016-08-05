@@ -24,13 +24,17 @@ const (
 	kFragmentLastModifiedStr = "Mon, 11 Jul 2016 23:45:59 GMT"
 )
 
-var fragmentFixture = journal.Fragment{
-	Journal:       "a/journal",
-	Begin:         1000,
-	End:           2000,
-	RemoteModTime: time.Date(2016, 7, 11, 23, 45, 59, 0, time.UTC),
-	Sum:           [...]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-}
+var (
+	fakeSum = [...]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+
+	fragmentFixture = journal.Fragment{
+		Journal:       "a/journal",
+		Begin:         1000,
+		End:           2000,
+		RemoteModTime: time.Date(2016, 7, 11, 23, 45, 59, 0, time.UTC),
+		Sum:           fakeSum,
+	}
+)
 
 type ClientSuite struct {
 	client *Client
@@ -492,34 +496,44 @@ func (s *ClientSuite) TestDialerIsNonNil(c *gc.C) {
 }
 
 func (s *ClientSuite) TestFragmentBeforeTime(c *gc.C) {
-	var nextResponse = newReadResponseFixture()
-	// Offset 2000-4096.
-	nextResponse.Header.Set(FragmentNameHeader, "00000000000007d0-0000000000001000-"+
-		"02030405060708090a0b0c0d0e0f101112131415")
-	// One day after |frag1|.
-	nextResponse.Header.Set(FragmentLastModifiedHeader, "Mon, 12 Jul 2016 23:45:59 GMT")
-
 	var mockClient = new(mockHttpClient)
-	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
-		c.Log(request.Method + " " + request.URL.String())
-		return request.Method == "HEAD" &&
-			request.URL.String() == "http://default/a/journal?block=false&offset=0"
-	})).Return(newReadResponseFixture(), nil).Once()
+	var response = newReadResponseFixture()
+	var baseDate = time.Date(2016, 7, 12, 23, 0, 0, 0, time.UTC)
 
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		c.Log(request.Method + " " + request.URL.String())
-		return request.Method == "HEAD" &&
-			request.URL.String() == "http://redirected-server/a/journal?block=false&offset=2000"
-	})).Return(nextResponse, nil).Once()
+
+		// Every fragment contains 1000 bytes, and is timed an hour after the
+		// last fragment.
+		var off, err = strconv.Atoi(request.URL.Query()["offset"][0])
+		c.Assert(err, gc.IsNil)
+		var fragmentIndex = int64(off) / 1000
+
+		var fragment = journal.Fragment{
+			Begin:         fragmentIndex * 1000,
+			End:           (fragmentIndex + 1) * 1000,
+			RemoteModTime: baseDate.Add(time.Hour * time.Duration(fragmentIndex)),
+			Sum:           fakeSum,
+		}
+
+		response.Header.Set(FragmentNameHeader, fragment.ContentName())
+		response.Header.Set(FragmentLastModifiedHeader, fragment.RemoteModTime.Format(http.TimeFormat))
+
+		return true
+	})).Return(response, nil).Times(14)
 
 	// Original request's fragment is picked, because the next one's timestamp
 	// exceeds the requested time.
 	s.client.httpClient = mockClient
 	frag, err := s.client.FragmentBeforeTime("a/journal",
-		time.Date(2016, 7, 12, 23, 45, 59, 0, time.UTC))
+		time.Date(2016, 7, 13, 0, 46, 0, 0, time.UTC))
 
+	var expect = fragmentFixture
+	expect.RemoteModTime = baseDate.Add(time.Hour)
 	c.Assert(err, gc.IsNil)
-	c.Check(frag, gc.DeepEquals, fragmentFixture)
+	c.Check(frag, gc.DeepEquals, expect)
+
+	mockClient.AssertExpectations(c)
 }
 
 func (s *ClientSuite) TestFragmentBeforeTimeNoMatch(c *gc.C) {

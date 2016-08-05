@@ -468,32 +468,42 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 // Returns the |Fragment| whose Modified time is closest to but prior to the
 // given |t|. Can return a zeroed Fragment structure, if no fragment matches.
 func (c *Client) FragmentBeforeTime(name journal.Name, t time.Time) (journal.Fragment, error) {
-	var nearestFragment journal.Fragment
-	var off int64
+	var args = journal.ReadArgs{Journal: name}
+	var result journal.ReadResult
 
-	// Locate the nearest fragment to the |minimumTime|, starting at offset 0,
-	// by going until we find the first one that exceeds that time.
-	for {
-		var args = journal.ReadArgs{Journal: name, Offset: off}
-		var result journal.ReadResult
+	if result, _ = c.Head(args); result.Error != nil {
+		return journal.Fragment{}, result.Error
+	}
+
+	// Retrieve the latest write-head of the journal. We then binary-search
+	// between 0 and the write-head to locate the fragment.
+	var writeHead = result.WriteHead
+	var off = search(writeHead, func(off int64) bool {
+		args.Offset = off
 
 		if result, _ = c.Head(args); result.Error != nil {
-			return nearestFragment, result.Error
+			panic(result.Error)
 		} else if result.Fragment.RemoteModTime.IsZero() {
 			// No remote fragment means we've reached the end of
-			// fragment-backed byte ranges.
-			return nearestFragment, nil
-		}
-
-		// Check the next fragment. If its modification time is found to
-		// precede |t|, set |nearestFragment| to it and keep going.  Otherwise,
-		// return |nearestFragment| right away.
-		if nearestFragment.Journal == "" || result.Fragment.RemoteModTime.Before(t) {
-			nearestFragment = result.Fragment
-			off = result.Fragment.End
+			// fragment-backed byte ranges. We assume that means it is after
+			// the desired timestamp.
+			return true
 		} else {
-			return nearestFragment, nil
+			return result.Fragment.RemoteModTime.After(t)
 		}
+	})
+
+	// Cannot satisfy the time |t| condition.
+	if off >= writeHead {
+		return journal.Fragment{}, nil
+	}
+
+	// TODO(joshk): Find a way to skip the last Head() call.
+	args.Offset = off - 1
+	if result, _ = c.Head(args); result.Error != nil {
+		return journal.Fragment{}, result.Error
+	} else {
+		return result.Fragment, nil
 	}
 }
 
@@ -536,4 +546,22 @@ func (r readStatsWrapper) Read(p []byte) (n int, err error) {
 
 func (r readStatsWrapper) Close() error {
 	return r.stream.Close()
+}
+
+// Version of sort.Search which uses int64 parameters.
+func search(n int64, f func(int64) bool) int64 {
+	// Define f(-1) == false and f(n) == true.
+	// Invariant: f(i-1) == false, f(j) == true.
+	var i, j int64 = 0, n
+	for i < j {
+		h := i + (j-i)/2 // avoid overflow when computing h
+		// i ≤ h < j
+		if !f(h) {
+			i = h + 1 // preserves f(i-1) == false
+		} else {
+			j = h // preserves f(j) == true
+		}
+	}
+	// i == j, f(i-1) == false, and f(j) (= f(i)) == true  =>  answer is i.
+	return i
 }
