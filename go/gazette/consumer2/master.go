@@ -134,6 +134,11 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		return
 	}
 
+	// Let the consumer tear down the context, if desired.
+	if halter, ok := runner.Consumer.(ShardHalter); ok {
+		halter.HaltShard(m)
+	}
+
 	if runner.ShardPostStopHook != nil {
 		runner.ShardPostStopHook(m)
 	}

@@ -94,6 +94,16 @@ func (gs TopicGroups) Validate() error {
 	return nil
 }
 
+// Flattens |topics| into multiple groups, each having a single Description.
+func TopicDescriptionsToSimpleGroups(topics []*topic.Description) TopicGroups {
+	var groups = make(TopicGroups, len(topics))
+	for i, t := range topics {
+		groups[i].Name = path.Base(t.Name)
+		groups[i].Topics = []*topic.Description{t}
+	}
+	return groups
+}
+
 // Maps a consumer |tree| and |shard| to the full path for storing FSMHints.
 // Eg, hintsPath(tree{/a/consumer}, 42) => "/a/consumer/hints/shard-042".
 func hintsPath(consumerPath string, shard ShardID) string {

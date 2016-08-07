@@ -7,17 +7,25 @@ import (
 	"github.com/pippio/gazette/topic"
 )
 
-type ShardID struct {
-	Group string
-	Index int
-}
-
+// A TopicGroup is a named group of Topics which should be processed together.
+// Topics in a group are expected to share a message partitioning mechanism,
+// and will be arranged such that messages sharing a RoutingKey are seen by
+// the same Shard. This enables a continuous "join" capability across topics.
+// A topic's Partitions must be a multiple of all other topics in the group.
+// Where topics have mismatched numbers of partitions, topics with fewer
+// partitions have each partition procesed by multiple Shards.
 type TopicGroup struct {
 	Name   string
 	Topics []*topic.Description
 }
 
 type TopicGroups []TopicGroup
+
+// A ShardID identifies a Shard by its TopicGroup name and index.
+type ShardID struct {
+	Group string
+	Index int
+}
 
 type Shard interface {
 	// The concrete ID of this Shard.
@@ -70,6 +78,15 @@ type Consumer interface {
 // to an initial Consume. A common use case is to initialize the shard cache.
 type ShardIniter interface {
 	InitShard(Shard) error
+}
+
+// Optional Consumer interface for notification the Shard is no longer being
+// processed by this Consumer. No further Consume or Flush calls will occur,
+// nor will further writes to the recovery log. A common use case is to hint
+// to the Consumer that external resources or connections associated with the
+// Shard should be released.
+type ShardHalter interface {
+	HaltShard(Shard)
 }
 
 // Optional Consumer interface for customization of Shard database options
