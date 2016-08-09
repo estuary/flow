@@ -35,6 +35,7 @@ func (p *pump) pump(topic *topic.Description, mark journal.Mark) {
 
 		if err := decoder.Decode(msg); err != nil {
 			log.WithFields(log.Fields{"mark": rr.Mark, "err": err}).Error("message decode")
+			continue
 		}
 
 		select {
