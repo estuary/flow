@@ -484,6 +484,42 @@ func allocAction(p *allocParams, desiredMaster, desiredTotal int) (*etcd.Respons
 
 		return create(key)
 	}
+	// 9) Deadlock avoidance: Select a random master to release, iff:
+	//  * We are currently the item master.
+	//  * The item has the required number of ready replicas.
+	//  * We hold exactly as many master slots as we'd like.
+	//  * We have too many items overall.
+	if len(p.Item.Master) == desiredMaster &&
+		len(p.Item.Master)+len(p.Item.Replica) > desiredTotal &&
+		len(p.Item.Releaseable) != 0 {
+
+		var entry = p.Item.Releaseable[rand.Int()%len(p.Item.Releaseable)]
+		log.WithField("key", entry.Key).Debug("releasing EXTRA mastered item lock")
+		return compareAndDelete(entry)
+	}
+	// 10) Deadlock avoidance: Select a random item to replicate with delay, iff:
+	//  * We don't hold an entry for the item.
+	//  * The item has an open replica slot.
+	//  * We have the exact right number of items overall (we'll be going over).
+	//  * We are not actively seeking to exit.
+	//
+	// Note that this case means an allocator can potentially fail to converge.
+	// We resolve this in practice by sleeping for a period of time: if there's
+	// another allocator that actively seeks more replicas, we'd prefer that they
+	// win. Sleeping is safe because we've already asserted that all held keys
+	// have at least 1/2 of their TTL remaining.
+	if len(p.Item.Master)+len(p.Item.Replica) == desiredTotal &&
+		len(p.Item.Master) == desiredMaster &&
+		len(p.Item.OpenReplicas) != 0 &&
+		p.Member.Entry != nil {
+
+		var name = p.Item.OpenReplicas[rand.Int()%len(p.Item.OpenReplicas)]
+		var key = itemKey(p, name)
+
+		time.Sleep(100 * time.Millisecond)
+		log.WithField("key", key).Debug("aquiring EXTRA item replica lock")
+		return create(key)
+	}
 	return nil, nil
 }
 

@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -56,7 +57,7 @@ func (s *AllocRunSuite) SetUpTest(c *gc.C) {
 
 func (s *AllocRunSuite) TestSingle(c *gc.C) {
 	alloc := newTestAlloc(s, "my-key")
-	go alloc.run(c)
+	go alloc.createAndRun(c)
 
 	// Stage 1: Expect that we acquired master locks on all items.
 	s.wait(waitFor{idle: []string{"my-key"}})
@@ -96,7 +97,7 @@ func (s *AllocRunSuite) TestHandlingOfNestedItemDirectories(c *gc.C) {
 	c.Check(err, gc.IsNil)
 
 	alloc := newTestAlloc(s, "my-key")
-	go alloc.run(c)
+	go alloc.createAndRun(c)
 
 	// Stage 1: Expect that we acquired a replica lock on "some" (We interpret
 	// "nested" to be the master lock, due to its earlier creation index).
@@ -116,8 +117,8 @@ func (s *AllocRunSuite) TestAsyncItemCreationAndRemoval(c *gc.C) {
 
 	alloc1 := newTestAlloc(s, "alloc-1")
 	alloc2 := newTestAlloc(s, "alloc-2")
-	go alloc1.run(c)
-	go alloc2.run(c)
+	go alloc1.createAndRun(c)
+	go alloc2.createAndRun(c)
 
 	// Stage 1: Expect fixed items have master & replica entries.
 	s.wait(waitFor{idle: []string{"alloc-1", "alloc-2"}})
@@ -169,6 +170,98 @@ func (s *AllocRunSuite) TestAsyncItemCreationAndRemoval(c *gc.C) {
 	}
 }
 
+func (s *AllocRunSuite) TestDeadlockSimple(c *gc.C) {
+	s.replicas = 1
+	s.fixedItems = []string{"item-1", "item-2"}
+
+	var alloc1 = newTestAlloc(s, "alloc-1")
+	var alloc2 = newTestAlloc(s, "alloc-2")
+
+	go alloc1.createAndRun(c)
+	go alloc2.createAndRun(c)
+
+	// Stage 1: |alloc1| & |alloc2| aquire master and replica on item-1, item-2.
+	s.wait(waitFor{idle: []string{"alloc-1", "alloc-2"}})
+	for _, item := range s.fixedItems {
+		c.Check(s.routes[item].Entries.Len(), gc.Equals, 2)
+	}
+
+	// Stage 2: Start |alloc3|, *then* create a third item (order is important).
+	var alloc3 = newTestAlloc(s, "alloc-3")
+	c.Assert(Create(alloc3), gc.IsNil)
+
+	// Create a new item (by adding its directory).
+	var _, err = s.KeysAPI().Set(context.Background(), s.PathRoot()+"/items/a-new-item", "",
+		&etcd.SetOptions{Dir: true})
+	c.Check(err, gc.IsNil)
+
+	go alloc3.run(c)
+	s.wait(waitFor{idle: []string{"alloc-1", "alloc-2", "alloc-3"}})
+
+	// Expect that we did not deadlock: that all items are fully replicated
+	for _, route := range s.routes {
+		c.Check(route.Entries.Len(), gc.Equals, 2)
+	}
+
+	s.replicas = 0 // Allow allocators to exit.
+	for _, a := range []Allocator{alloc1, alloc2, alloc3} {
+		c.Check(Cancel(a), gc.IsNil)
+	}
+	s.wait(waitFor{exit: []string{"alloc-1", "alloc-2", "alloc-3"}})
+}
+
+func (s *AllocRunSuite) TestDeadlockExtended(c *gc.C) {
+	if testing.Short() {
+		c.Skip("skipping in --short mode")
+		return
+	}
+
+	s.replicas = 2
+
+	// Create items such that every desired master & replica slot of every
+	// allocator must be utilized for each item to be fully replicated.
+	s.fixedItems = s.fixedItems[:0]
+	for i := 0; i != 20*(s.replicas+1)*4; i++ {
+		s.fixedItems = append(s.fixedItems, fmt.Sprintf("item-%04d", i))
+	}
+
+	var allocs []testAllocator
+	var names []string
+
+	// Start four allocators, and wait for them to converge.
+	for i := 0; i != 4; i++ {
+		var name = fmt.Sprintf("alloc-%02d", i)
+		var alloc = newTestAlloc(s, name)
+		go alloc.createAndRun(c)
+
+		allocs = append(allocs, alloc)
+		names = append(names, name)
+	}
+	s.wait(waitFor{idle: names})
+
+	c.Log("simulating rolling update of alloc-0")
+	c.Check(Cancel(allocs[0]), gc.IsNil)
+	var actions = s.wait(waitFor{exit: names[:1], idle: names[1:]})
+
+	go allocs[0].createAndRun(c)
+	actions += s.wait(waitFor{idle: names})
+
+	// Expect all items are fully replicated.
+	for _, item := range s.fixedItems {
+		c.Check(s.routes[item].Entries.Len(), gc.Equals, 3)
+	}
+
+	// Regression check: experimentally |actions| is in range [2000-2400].
+	c.Check(actions < 2500, gc.Equals, true)
+	c.Log("actions: ", actions)
+
+	s.replicas = 0 // Allow allocators to exit.
+	for _, a := range allocs {
+		c.Check(Cancel(a), gc.IsNil)
+	}
+	s.wait(waitFor{exit: names})
+}
+
 func (s *AllocRunSuite) TestAllocatorHandoff(c *gc.C) {
 	s.replicas = 1
 
@@ -176,14 +269,14 @@ func (s *AllocRunSuite) TestAllocatorHandoff(c *gc.C) {
 	alloc2 := newTestAlloc(s, "alloc-2")
 	alloc3 := newTestAlloc(s, "alloc-3")
 
-	go alloc1.run(c)
+	go alloc1.createAndRun(c)
 
 	// Stage 1: |alloc1| has acquired master on all items.
 	s.wait(waitFor{idle: []string{"alloc-1"}})
 	for _, item := range s.fixedItems {
 		c.Check(s.routes[item].Index("alloc-1"), gc.Equals, 0)
 	}
-	go alloc2.run(c)
+	go alloc2.createAndRun(c)
 
 	// Stage 2: Mastered items are split between both allocators.
 	s.wait(waitFor{idle: []string{"alloc-1", "alloc-2"}})
@@ -197,7 +290,7 @@ func (s *AllocRunSuite) TestAllocatorHandoff(c *gc.C) {
 		"alloc-2": 1,
 	})
 	c.Check(Cancel(alloc1), gc.IsNil)
-	go alloc3.run(c)
+	go alloc3.createAndRun(c)
 
 	// Stage 3. First allocator has exited. Items are still split.
 	s.wait(waitFor{exit: []string{"alloc-1"}, idle: []string{"alloc-2", "alloc-3"}})
@@ -241,12 +334,13 @@ func (t *AllocRunSuite) masterCounts() map[string]int {
 }
 
 // Helper which uses testNotifier hooks in Allocate(), along with tracking
-// exits of Allocate() calls from run(), to determine when a set of concurrent
+// exits of Allocate() calls from createAndRun(), to determine when a set of concurrent
 // Allocate() calls are fully idle and/or exited. This is done by returning only
 // after all instances have become idle (have no actions to perform) at the
 // largest "acted" index returned by any instance.
-func (s *AllocRunSuite) wait(desc waitFor) {
+func (s *AllocRunSuite) wait(desc waitFor) int {
 	var maxIndex uint64 = 1
+	var actions int
 
 	state := make(map[string]uint64)
 	for _, n := range desc.idle {
@@ -262,6 +356,7 @@ func (s *AllocRunSuite) wait(desc waitFor) {
 			if msg.index > maxIndex {
 				maxIndex = msg.index
 			}
+			actions += 1
 			continue
 		} else if msg.exit {
 			// Exit notification.
@@ -280,7 +375,7 @@ func (s *AllocRunSuite) wait(desc waitFor) {
 			}
 		}
 		if done {
-			return
+			return actions
 		}
 	}
 }
@@ -331,8 +426,13 @@ func newTestAlloc(s *AllocRunSuite, key string) testAllocator {
 	}
 }
 
-func (t testAllocator) run(c *gc.C) {
+func (t testAllocator) createAndRun(c *gc.C) {
 	c.Assert(Create(t), gc.IsNil)
+	c.Check(Allocate(t), gc.IsNil)
+	t.notifyCh <- notify{key: t.instanceKey, exit: true}
+}
+
+func (t testAllocator) run(c *gc.C) {
 	c.Check(Allocate(t), gc.IsNil)
 	t.notifyCh <- notify{key: t.instanceKey, exit: true}
 }
