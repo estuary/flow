@@ -512,12 +512,11 @@ func (c *Client) FragmentsInRange(name journal.Name, minOff, maxOff int64) ([]jo
 	var off = minOff
 	var fragments []journal.Fragment
 
-	for off < maxOff {
+	for maxOff == -1 || off < maxOff {
 		var args = journal.ReadArgs{Journal: name, Offset: off}
-		var result journal.ReadResult
-		if result, _ = c.Head(args); result.Error != nil {
+		if result, locURI := c.Head(args); result.Error != nil {
 			return nil, result.Error
-		} else if result.Fragment.Journal == "" {
+		} else if locURI == nil {
 			// Reached the end of offsets with fragments.
 			break
 		} else {
