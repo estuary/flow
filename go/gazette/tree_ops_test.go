@@ -11,27 +11,27 @@ import (
 type TreeOpsSuite struct{}
 
 func (s *TreeOpsSuite) TestChildLookup(c *gc.C) {
-	fixture := s.fixture()
+	var fixture = s.fixture()
 
-	c.Check(Child(fixture, "aa"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "aa"), gc.IsNil)
 	c.Check(Child(fixture, "aaa"), gc.Equals, fixture.Nodes[0])
-	c.Check(Child(fixture, "aaa", "0"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "aaa", "0"), gc.IsNil)
 	c.Check(Child(fixture, "aaa", "1"), gc.Equals, fixture.Nodes[0].Nodes[0])
-	c.Check(Child(fixture, "aaa", "2"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "aaa", "2"), gc.IsNil)
 	c.Check(Child(fixture, "aaa", "3"), gc.Equals, fixture.Nodes[0].Nodes[1])
-	c.Check(Child(fixture, "aaa", "4"), gc.Equals, (*etcd.Node)(nil))
-	c.Check(Child(fixture, "aaaa"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "aaa", "4"), gc.IsNil)
+	c.Check(Child(fixture, "aaaa"), gc.IsNil)
 	c.Check(Child(fixture, "bbb"), gc.Equals, fixture.Nodes[1])
-	c.Check(Child(fixture, "bbbb"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "bbbb"), gc.IsNil)
 	c.Check(Child(fixture, "ccc"), gc.Equals, fixture.Nodes[2])
-	c.Check(Child(fixture, "ddd"), gc.Equals, (*etcd.Node)(nil))
+	c.Check(Child(fixture, "ddd"), gc.IsNil)
 }
 
 func (s *TreeOpsSuite) TestForEachChildIteration(c *gc.C) {
-	fixture := s.fixture()
+	var fixture = s.fixture()
 
 	var expect map[string]*etcd.Node
-	cb := func(name string, node *etcd.Node) {
+	var cb = func(name string, node *etcd.Node) {
 		c.Check(node.Key, gc.DeepEquals, expect[name].Key)
 		c.Check(node.Dir, gc.Equals, expect[name].Dir)
 		delete(expect, name)
@@ -71,9 +71,9 @@ func (s *TreeOpsSuite) TestForEachChildIteration(c *gc.C) {
 }
 
 func (s *TreeOpsSuite) TestFindNode(c *gc.C) {
-	fixture := s.fixture()
+	var fixture = s.fixture()
 
-	parent, ind := FindNode(fixture, "/foo")
+	var parent, ind = FindNode(fixture, "/foo")
 	c.Check(parent, gc.IsNil)
 	c.Check(ind, gc.Equals, -1)
 
@@ -113,7 +113,7 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 	var err error
 	{
 		var tree *etcd.Node
-		fixture := s.fixture()
+		var fixture = s.fixture()
 
 		tree, err = PatchTree(tree, &etcd.Response{Node: fixture, Action: store.Get})
 		c.Check(err, gc.IsNil)
@@ -133,7 +133,7 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 	}
 	{
 		// Update of a present, nested value.
-		tree := s.fixture()
+		var tree = s.fixture()
 
 		tree, err = PatchTree(tree, &etcd.Response{
 			Node:   &etcd.Node{Key: "/foo/bbb/c", Value: "patched update"},
@@ -158,7 +158,7 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 	}
 	{
 		// Deletion of a nested value.
-		tree := s.fixture()
+		var tree = s.fixture()
 		c.Check(tree.Nodes[0].Nodes, gc.HasLen, 2) // Precondition.
 
 		tree, err = PatchTree(tree, &etcd.Response{
@@ -183,7 +183,7 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 	}
 	{
 		// Insertions of new values.
-		tree := s.fixture()
+		var tree = s.fixture()
 		c.Check(tree.Nodes[0].Nodes, gc.HasLen, 2) // Precondition.
 
 		tree, err = PatchTree(tree, &etcd.Response{
@@ -205,9 +205,9 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 	}
 	{
 		// Insertion requiring intermediate directories.
-		tree := s.fixture()
+		var tree = s.fixture()
 
-		apple := tree.Nodes[2].Nodes[0]
+		var apple = tree.Nodes[2].Nodes[0]
 		c.Check(apple.Nodes, gc.HasLen, 1) // Precondition.
 		tree, err = PatchTree(tree, &etcd.Response{
 			Node:   &etcd.Node{Key: "/foo/ccc/apple/on/two/three", Value: "insert"},
@@ -221,18 +221,18 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 		c.Check(apple.Nodes[0].Dir, gc.Equals, true)
 		c.Check(apple.Nodes[1].Key, gc.Equals, "/foo/ccc/apple/one")
 
-		appleOn := apple.Nodes[0]
+		var appleOn = apple.Nodes[0]
 		c.Check(appleOn.Nodes[0].Key, gc.Equals, "/foo/ccc/apple/on/two")
 		c.Check(appleOn.Nodes[0].Dir, gc.Equals, true)
 
-		appleOnTwo := appleOn.Nodes[0]
+		var appleOnTwo = appleOn.Nodes[0]
 		c.Check(appleOnTwo.Nodes[0].Key, gc.Equals, "/foo/ccc/apple/on/two/three")
 		c.Check(appleOnTwo.Nodes[0].Dir, gc.Equals, false)
 		c.Check(appleOnTwo.Nodes[0].Value, gc.Equals, "insert")
 	}
 	{
 		// Deletion of a directory.
-		tree := s.fixture()
+		var tree = s.fixture()
 		c.Check(tree.Nodes, gc.HasLen, 3) // Precondition.
 
 		tree, err = PatchTree(tree, &etcd.Response{
@@ -248,8 +248,8 @@ func (s *TreeOpsSuite) TestPatchTree(c *gc.C) {
 }
 
 func (s *TreeOpsSuite) TestDeepCopy(c *gc.C) {
-	tree1 := s.fixture()
-	tree2 := CopyNode(tree1)
+	var tree1 = s.fixture()
+	var tree2 = CopyNode(tree1)
 
 	// Expect trees are deeply equal, but that instances are recursively distinct.
 	c.Check(tree1, gc.DeepEquals, tree2)
@@ -277,7 +277,7 @@ func (s *TreeOpsSuite) TestTerminals(c *gc.C) {
 }
 
 func (s *TreeOpsSuite) TestMapAdapter(c *gc.C) {
-	a := MapAdapter(s.fixture())
+	var a = MapAdapter(s.fixture())
 
 	c.Check(a.Get(""), gc.Equals, "")
 	c.Check(a.Get("aaa/3"), gc.Equals, "feed")

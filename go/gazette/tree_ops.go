@@ -26,13 +26,13 @@ var (
 )
 
 // Returns whether an etcd.Response.Action is an insert or update.
-func isEtcdUpsertOp(action string) bool {
+func IsEtcdUpsertOp(action string) bool {
 	_, ok := EtcdUpsertOps[action]
 	return ok
 }
 
 // Returns whether an etcd.Response.Action is a removal.
-func isEtcdRemoveOp(action string) bool {
+func IsEtcdRemoveOp(action string) bool {
 	_, ok := EtcdRemoveOps[action]
 	return ok
 }
@@ -153,9 +153,9 @@ func PatchTree(tree *etcd.Node, response *etcd.Response) (*etcd.Node, error) {
 			return tree, errors.New("unexpected create")
 		}
 
-		if isEtcdUpsertOp(response.Action) {
+		if IsEtcdUpsertOp(response.Action) {
 			parent.Nodes[ind] = response.Node
-		} else if isEtcdRemoveOp(response.Action) {
+		} else if IsEtcdRemoveOp(response.Action) {
 			// Remove the target node.
 			if ind+1 < len(parent.Nodes) {
 				copy(parent.Nodes[ind:], parent.Nodes[ind+1:])
@@ -168,7 +168,7 @@ func PatchTree(tree *etcd.Node, response *etcd.Response) (*etcd.Node, error) {
 	}
 
 	// The target doesn't exist. A non-upsert action indicates an inconsistency.
-	if !isEtcdUpsertOp(response.Action) {
+	if !IsEtcdUpsertOp(response.Action) {
 		return tree, errors.New("non-upsert of missing key")
 	}
 
