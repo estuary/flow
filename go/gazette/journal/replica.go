@@ -82,8 +82,8 @@ func (r *Replica) StartBrokeringWithPeers(routeToken RouteToken, peers []Replica
 	var config BrokerConfig
 	config.RouteToken = routeToken
 	config.WriteHead = r.tail.EndOffset()
-
 	config.Replicas = append(peers, r.head)
+
 	r.broker.UpdateConfig(config)
 }
 

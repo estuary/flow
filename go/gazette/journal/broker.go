@@ -52,7 +52,7 @@ func NewBroker(journal Name) *Broker {
 	b := &Broker{
 		journal:       journal,
 		appendOps:     make(chan AppendOp, AppendOpBufferSize),
-		configUpdates: make(chan BrokerConfig, 1),
+		configUpdates: make(chan BrokerConfig, 16),
 		commitBytes:   varz.ObtainCount("gazette", "commitBytes"),
 		coalesce:      varz.ObtainAverage("gazette", "coalesce"),
 		stop:          make(chan struct{}),
