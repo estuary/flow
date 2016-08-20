@@ -17,7 +17,7 @@ const (
 	MemberPrefix = "members" // Directory root for member announcements.
 	ItemsPrefix  = "items"   // Directory root for allocated items.
 
-	lockDuration          = time.Minute * 5 // Duration of held locks
+	lockDuration          = 2 * time.Hour // Duration of held locks
 	allocErrSleepInterval = time.Second * 5
 )
 
