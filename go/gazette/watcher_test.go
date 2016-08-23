@@ -11,11 +11,11 @@ import (
 type ModelSuite struct{}
 
 func (s *ModelSuite) TestBlockUntilModified(c *gc.C) {
-	ctx := context.Background()
+	var ctx = context.Background()
 	var keys MockKeysAPI
 	var watcher MockWatcher
 
-	modelWatcher := RetryWatcher(&keys, "foo",
+	var modelWatcher = RetryWatcher(&keys, "foo",
 		&etcd.GetOptions{}, &etcd.WatcherOptions{})
 
 	keys.On("Get", ctx, "foo", &etcd.GetOptions{}).
@@ -27,17 +27,20 @@ func (s *ModelSuite) TestBlockUntilModified(c *gc.C) {
 	keys.On("Watcher", "foo",
 		&etcd.WatcherOptions{AfterIndex: 1234}).Return(&watcher).Once()
 
-	watcher.On("Next", ctx).After(5*time.Millisecond).Return(&etcd.Response{Node: &etcd.Node{ModifiedIndex: 2345}}, nil).Once()
+	watcher.On("Next", ctx).Return(&etcd.Response{Node: &etcd.Node{ModifiedIndex: 2345}}, nil).Once()
 
-	var reloaded bool
+	var unblocked = make(chan struct{})
 	go func() {
 		BlockUntilModified(modelWatcher, uint64(1234))
-		reloaded = true
+		unblocked <- struct{}{}
 	}()
 
-	c.Check(reloaded, gc.Equals, false)
-	time.Sleep(10 * time.Millisecond)
-	c.Check(reloaded, gc.Equals, true)
+	select {
+	case <-unblocked:
+	case <-time.After(10 * time.Second):
+		c.Log("did not unblock")
+		c.FailNow()
+	}
 
 	keys.AssertExpectations(c)
 }

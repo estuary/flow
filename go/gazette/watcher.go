@@ -6,6 +6,8 @@ import (
 	"golang.org/x/net/context"
 )
 
+// BlockUntilModified blocks until the watcher is modified beyond
+// the passed index.
 func BlockUntilModified(watcher etcd.Watcher, index uint64) {
 	for {
 		if resp, err := watcher.Next(context.Background()); err != nil {
