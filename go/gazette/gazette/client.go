@@ -500,6 +500,10 @@ func (c *Client) FragmentBeforeTime(name journal.Name, t time.Time) (journal.Fra
 
 	// TODO(joshk): Find a way to skip the last Head() call.
 	args.Offset = off - 1
+	if args.Offset < 0 {
+		args.Offset = 0
+	}
+
 	if result, _ = c.Head(args); result.Error != nil {
 		return journal.Fragment{}, result.Error
 	} else {
