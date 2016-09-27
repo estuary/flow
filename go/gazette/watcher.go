@@ -1,9 +1,10 @@
 package consensus
 
 import (
+	"context"
+
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
-	"golang.org/x/net/context"
 )
 
 // BlockUntilModified blocks until the watcher is modified beyond

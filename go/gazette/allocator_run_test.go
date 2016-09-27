@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -9,7 +10,6 @@ import (
 
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/api-server/endpoints"
 )

@@ -1,11 +1,11 @@
 package consensus
 
 import (
+	"context"
 	"time"
 
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
-	"golang.org/x/net/context"
 )
 
 type ModelSuite struct{}

@@ -1,10 +1,10 @@
 package consensus
 
 import (
+	"context"
 	"errors"
 
 	gc "github.com/go-check/check"
-	"golang.org/x/net/context"
 
 	etcd "github.com/coreos/etcd/client"
 )

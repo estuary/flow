@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 	"os"
@@ -10,7 +11,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
-	"golang.org/x/net/context"
 )
 
 const (
