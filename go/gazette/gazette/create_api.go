@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"path"
@@ -9,7 +10,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"

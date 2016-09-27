@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/gazette/async"

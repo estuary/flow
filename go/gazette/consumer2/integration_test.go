@@ -3,6 +3,7 @@ package consumer
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 	uuid "github.com/satori/go.uuid"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/api-server/endpoints"
 	"github.com/pippio/consensus"

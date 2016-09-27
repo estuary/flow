@@ -1,8 +1,8 @@
 package consumer
 
 import (
+	"context"
 	"encoding/json"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"os"
 

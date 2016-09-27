@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"net"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
-	"golang.org/x/net/context"
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/endpoints"

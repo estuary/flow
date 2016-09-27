@@ -1,14 +1,13 @@
 package consumer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
 	"strconv"
 	"strings"
-
-	"golang.org/x/net/context"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/cockroachdb/cockroach/util/encoding"
