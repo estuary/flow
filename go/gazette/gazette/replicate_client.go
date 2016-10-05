@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"sync"
@@ -18,8 +17,10 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/api-server/discovery"
+	"github.com/pippio/gazette/httpdump"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/keepalive"
+	"net/http/httputil"
 )
 
 const (
@@ -86,9 +87,10 @@ func (t *replicaClientTransaction) start(op journal.ReplicateOp) {
 	}
 	req.URL.RawQuery = queryArgs.Encode()
 	req.Header.Add("Expect", "100-continue")
+	req.Header.Add("Trailer", CommitDeltaHeader)
 	req.TransferEncoding = []string{"chunked"}
 
-	reqBytes, err := httputil.DumpRequest(req, false)
+	reqBytes, err := httpdump.DumpRequest(req, false)
 	if err != nil {
 		op.Result <- journal.ReplicateResult{Error: err}
 		return
