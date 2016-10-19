@@ -117,14 +117,7 @@ func main() {
 		}
 	}()
 
-	var runner = gazette.Runner{
-		Etcd:          etcdClient,
-		LocalRouteKey: localRoute,
-		ReplicaCount:  *replicaCount,
-		Router:        router,
-	}
-
-	m := mux.NewRouter()
+	var m = mux.NewRouter()
 	gazette.NewCreateAPI(keysAPI, *replicaCount).Register(m)
 	gazette.NewReadAPI(router, cfs).Register(m)
 	gazette.NewReplicateAPI(router).Register(m)
@@ -139,6 +132,7 @@ func main() {
 		log.WithField("err", err).Error("http.Serve failed")
 	}()
 
+	var runner = gazette.NewRunner(etcdClient, localRoute, *replicaCount, router)
 	if err := runner.Run(); err != nil {
 		log.WithField("err", err).Error("runner.Run() failed")
 	}

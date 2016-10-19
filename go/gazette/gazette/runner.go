@@ -7,6 +7,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 
+	"github.com/pippio/api-server/varz"
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
 )
@@ -14,10 +15,27 @@ import (
 const ServiceRoot = "/gazette/cluster"
 
 type Runner struct {
-	Etcd          etcd.Client
-	ReplicaCount  int
-	LocalRouteKey string
-	Router        *Router
+	client        etcd.Client
+	localRouteKey string
+	replicaCount  int
+	router        *Router
+}
+
+type transition struct {
+	index int
+	name  journal.Name
+	token journal.RouteToken
+}
+
+func NewRunner(client etcd.Client, localRouteKey string, replicaCount int, router *Router) *Runner {
+	var runner = Runner{
+		client:        client,
+		localRouteKey: localRouteKey,
+		replicaCount:  replicaCount,
+		router:        router,
+	}
+
+	return &runner
 }
 
 func (r *Runner) Run() error {
@@ -26,10 +44,10 @@ func (r *Runner) Run() error {
 
 // consumer.Allocator implementation.
 func (r *Runner) FixedItems() []string         { return nil }
-func (r *Runner) InstanceKey() string          { return r.LocalRouteKey }
-func (r *Runner) KeysAPI() etcd.KeysAPI        { return etcd.NewKeysAPI(r.Etcd) }
+func (r *Runner) InstanceKey() string          { return r.localRouteKey }
+func (r *Runner) KeysAPI() etcd.KeysAPI        { return etcd.NewKeysAPI(r.client) }
 func (r *Runner) PathRoot() string             { return ServiceRoot }
-func (r *Runner) Replicas() int                { return r.ReplicaCount }
+func (r *Runner) Replicas() int                { return r.replicaCount }
 func (r *Runner) ItemState(item string) string { return "ready" }
 
 func (r *Runner) ItemIsReadyForPromotion(item, state string) bool {
@@ -43,24 +61,26 @@ func (r *Runner) ItemIsReadyForPromotion(item, state string) bool {
 	// Peer is ready for promotion iff |item| is locally brokered, and has served
 	// a Append operation. This implies the current toplogy has served at least
 	// one successful two-phase commit, and that all replicas are thus consistent.
-	return r.Router.HasServedAppend(name)
+	return r.router.HasServedAppend(name)
 }
 
 func (r *Runner) ItemRoute(item string, route consensus.Route, index int, tree *etcd.Node) {
-	name, err := itemToJournal(item)
+	defer varz.ObtainBenchmark("gazette", "ItemRoute").Stop()
+
+	var name, err = itemToJournal(item)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err, "item": item}).
 			Error("failed to decode journal")
 		return
 	}
-	rt, err := routeToToken(route)
+	token, err := routeToToken(route)
 	if err != nil {
 		log.WithFields(log.Fields{"route": route, "err": err}).
 			Error("failed to extract route token")
 		return
 	}
 
-	r.Router.transition(name, rt, index, r.ReplicaCount)
+	r.router.transition(name, token, index, r.replicaCount)
 }
 
 func itemToJournal(s string) (journal.Name, error) {

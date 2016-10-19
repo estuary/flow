@@ -37,14 +37,14 @@ type IndexWatcher struct {
 
 func NewIndexWatcher(journal Name, cfs cloudstore.FileSystem,
 	updates chan<- Fragment) *IndexWatcher {
-	w := &IndexWatcher{
+
+	return &IndexWatcher{
 		journal:     journal,
 		cfs:         cfs,
 		updates:     updates,
 		stop:        make(chan struct{}),
 		initialLoad: make(chan struct{}),
 	}
-	return w
 }
 
 func (w *IndexWatcher) StartWatchingIndex() *IndexWatcher {

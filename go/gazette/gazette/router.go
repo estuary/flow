@@ -25,12 +25,15 @@ type ReplicaFactory func(journal.Name) JournalReplica
 type Router struct {
 	replicaFactory ReplicaFactory
 
-	routes   map[journal.Name]*journalRoute
+	routes map[journal.Name]*journalRoute
+
+	// This mutex guards any read or write operation on |routes| *and* its
+	// underlying |*journalRoute| values.
 	routesMu sync.Mutex
 }
 
 func NewRouter(factory ReplicaFactory) *Router {
-	r := &Router{
+	var r = &Router{
 		replicaFactory: factory,
 		routes:         make(map[journal.Name]*journalRoute),
 	}
@@ -41,10 +44,7 @@ func NewRouter(factory ReplicaFactory) *Router {
 }
 
 func (r *Router) Read(op journal.ReadOp) {
-	r.routesMu.Lock()
-	defer r.routesMu.Unlock()
-
-	if route, ok := r.routes[op.Journal]; !ok || route.token == "" {
+	if route, ok := r.readRoute(op.Journal); !ok || route.token == "" {
 		op.Result <- journal.ReadResult{Error: journal.ErrNotFound}
 	} else if route.replica == nil {
 		op.Result <- journal.ReadResult{
@@ -52,13 +52,12 @@ func (r *Router) Read(op journal.ReadOp) {
 			RouteToken: route.token,
 		}
 	} else {
-
 		// Proxy result to extend with RouteToken.
-		forward := op.Result
+		var forward = op.Result
 		op.Result = make(chan journal.ReadResult, 1)
 
 		go func(token journal.RouteToken) {
-			result := <-op.Result
+			var result = <-op.Result
 			result.RouteToken = token
 			forward <- result
 		}(route.token)
@@ -68,10 +67,7 @@ func (r *Router) Read(op journal.ReadOp) {
 }
 
 func (r *Router) Append(op journal.AppendOp) {
-	r.routesMu.Lock()
-	defer r.routesMu.Unlock()
-
-	if route, ok := r.routes[op.Journal]; !ok || route.token == "" {
+	if route, ok := r.readRoute(op.Journal); !ok || route.token == "" {
 		op.Result <- journal.AppendResult{Error: journal.ErrNotFound}
 	} else if !route.broker {
 		op.Result <- journal.AppendResult{
@@ -84,14 +80,13 @@ func (r *Router) Append(op journal.AppendOp) {
 			RouteToken: route.token,
 		}
 	} else {
-
 		// Proxy result to extend with RouteToken, and to potentially update
 		// |lastAppendToken| on a successful Append.
-		forward := op.Result
+		var forward = op.Result
 		op.Result = make(chan journal.AppendResult, 1)
 
 		go func(token, lastAppendToken journal.RouteToken) {
-			result := <-op.Result
+			var result = <-op.Result
 			result.RouteToken = token
 
 			if result.Error != nil || token == lastAppendToken {
@@ -100,15 +95,20 @@ func (r *Router) Append(op journal.AppendOp) {
 			}
 
 			r.routesMu.Lock()
-			defer r.routesMu.Unlock()
-
 			// Note that we must use the retained |token|, and not |route.token|,
 			// as the latter may have changed out from under us during the call.
 			// Similarly |route.lastAppendToken| may have been updated: in this
 			// case we don't care, as it will still converge to the correct value.
-			route.lastAppendToken = token
-			forward <- result
+			// Furthermore, if this route no longer exists, the update is a no-op.
 
+			// NOTE(joshk): If we are here, the route must exist, and keys are
+			// never deleted out of |r.routes|, so blind assignment should
+			// work. Bypassing the 'ok' test here amounts to an assertion of
+			// this reality.
+			r.routes[op.Journal].lastAppendToken = token
+			r.routesMu.Unlock()
+
+			forward <- result
 		}(route.token, route.lastAppendToken)
 
 		route.replica.Append(op)
@@ -116,10 +116,7 @@ func (r *Router) Append(op journal.AppendOp) {
 }
 
 func (r *Router) Replicate(op journal.ReplicateOp) {
-	r.routesMu.Lock()
-	defer r.routesMu.Unlock()
-
-	if route, ok := r.routes[op.Journal]; !ok {
+	if route, ok := r.readRoute(op.Journal); !ok {
 		op.Result <- journal.ReplicateResult{Error: journal.ErrNotFound}
 	} else if route.replica == nil {
 		op.Result <- journal.ReplicateResult{Error: journal.ErrNotReplica}
@@ -135,10 +132,7 @@ func (r *Router) Replicate(op journal.ReplicateOp) {
 // indicator for consistency, as a successful Append ensures that all replicas
 // reached agreement on the route token & write head during the transaction.
 func (r *Router) HasServedAppend(name journal.Name) bool {
-	r.routesMu.Lock()
-	defer r.routesMu.Unlock()
-
-	route, ok := r.routes[name]
+	var route, ok = r.readRoute(name)
 	return ok && route.brokerReady && route.token == route.lastAppendToken
 }
 
@@ -185,17 +179,23 @@ type journalRoute struct {
 	token, lastAppendToken journal.RouteToken
 }
 
+// Updates |routes| with new information about the journal. Creates a route if
+// it does not already exist, or updates the existing one otherwise. Holds the
+// lock to update both |routes| and underlying |journalRoute| objects.
+// Once created, a route cannot be removed from |routes| without restarting the
+// process.
 func (r *Router) transition(name journal.Name, rt journal.RouteToken,
 	index, requiredReplicas int) {
-	r.routesMu.Lock()
-	defer r.routesMu.Unlock()
 
 	// We are a replica if our index is within the range of required replicas.
 	// Note the broker is a replica, and |requiredReplicas| is zero-indexed
 	// (eg |requiredReplicas| of 2 implies one master and two replicas).
 	var replica = index != -1 && index <= requiredReplicas
 
-	route, ok := r.routes[name]
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	var route, ok = r.routes[name]
 	if !ok {
 		// Journal |name| is being tracked for the first time.
 		route = new(journalRoute)
@@ -239,6 +239,16 @@ func (r *Router) transition(name journal.Name, rt journal.RouteToken,
 	}
 }
 
+func (r *Router) readRoute(name journal.Name) (journalRoute, bool) {
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
+
+	if route, ok := r.routes[name]; ok {
+		return *route, ok
+	}
+	return journalRoute{}, false
+}
+
 // Builds a Replicator for each non-master replica of |route|.
 func routePeers(rt journal.RouteToken) []journal.Replicator {
 	var peers []journal.Replicator
@@ -248,7 +258,7 @@ func routePeers(rt journal.RouteToken) []journal.Replicator {
 			// Skip local token.
 			continue
 		}
-		ep := &discovery.Endpoint{BaseURL: url}
+		var ep = &discovery.Endpoint{BaseURL: url}
 		peers = append(peers, NewReplicateClient(ep))
 	}
 	return peers
@@ -256,12 +266,12 @@ func routePeers(rt journal.RouteToken) []journal.Replicator {
 
 // Issues an HTTP redirect the current request applied to the journal broker.
 func brokerRedirect(w http.ResponseWriter, r *http.Request, rt journal.RouteToken, code int) {
-	broker := string(rt)
+	var broker = string(rt)
 	if ind := strings.IndexByte(broker, '|'); ind != -1 {
 		broker = broker[:ind]
 	}
 
-	redirect, err := url.Parse(broker)
+	var redirect, err = url.Parse(broker)
 	if err != nil {
 		log.WithFields(log.Fields{"err": err, "broker": broker}).Error("failed to parse URL")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
