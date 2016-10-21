@@ -71,7 +71,7 @@ func (h *Head) loop() {
 	if h.spool != nil {
 		h.persister.Persist(h.spool.Fragment)
 	}
-	log.WithField("journal", h.journal).Info("head loop exiting")
+	log.WithField("journal", h.journal).Debug("head loop exiting")
 	close(h.stop)
 }
 

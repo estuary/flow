@@ -100,7 +100,7 @@ func (t *Tail) loop() {
 		}
 	}
 	close(t.endOffset) // After close(), EndOffset() will thereafter return 0.
-	log.WithField("journal", t.journal).Info("tail loop exiting")
+	log.WithField("journal", t.journal).Debug("tail loop exiting")
 	close(t.stop)
 }
 

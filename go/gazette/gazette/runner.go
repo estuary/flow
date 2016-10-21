@@ -21,12 +21,6 @@ type Runner struct {
 	router        *Router
 }
 
-type transition struct {
-	index int
-	name  journal.Name
-	token journal.RouteToken
-}
-
 func NewRunner(client etcd.Client, localRouteKey string, replicaCount int, router *Router) *Runner {
 	var runner = Runner{
 		client:        client,

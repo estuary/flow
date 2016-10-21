@@ -87,7 +87,7 @@ loop:
 		close(initialLoad)
 	}
 	ticker.Stop()
-	log.WithField("journal", w.journal).Info("index watch loop exiting")
+	log.WithField("journal", w.journal).Debug("index watch loop exiting")
 	close(w.stop)
 }
 

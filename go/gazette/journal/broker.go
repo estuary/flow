@@ -116,13 +116,13 @@ func (b *Broker) loop() {
 			}
 		}
 	}
-	log.WithField("journal", b.journal).Info("broker exiting")
+	log.WithField("journal", b.journal).Debug("broker exiting")
 	close(b.stop)
 }
 
 func (b *Broker) onConfigUpdate(config BrokerConfig) {
 	log.WithFields(log.Fields{"config": config, "journal": b.journal}).
-		Info("updated config")
+		Debug("updated config")
 
 	b.config.RouteToken = config.RouteToken
 	b.config.Replicas = config.Replicas

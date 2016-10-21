@@ -45,7 +45,7 @@ func NewReplica(journal Name, localDir string, persister FragmentPersister,
 		}
 		r.index.WaitForInitialLoad()
 
-		log.WithField("journal", journal).Info("starting head and broker")
+		log.WithField("journal", journal).Debug("starting head and broker")
 
 		r.head.StartServingOps(r.tail.EndOffset())
 		r.broker.StartServingOps(r.tail.EndOffset())
@@ -70,14 +70,14 @@ func (r *Replica) Read(op ReadOp) {
 // Switch the Replica into pure-replica mode.
 func (r *Replica) StartReplicating(routeToken RouteToken) {
 	log.WithFields(log.Fields{"journal": r.journal, "route": routeToken}).
-		Info("now replicating")
+		Debug("now replicating")
 }
 
 // Switch the Replica into broker mode. Appends will be brokered to |peers| with
 // the topology captured by |routeToken|.
 func (r *Replica) StartBrokeringWithPeers(routeToken RouteToken, peers []Replicator) {
 	log.WithFields(log.Fields{"journal": r.journal, "route": routeToken}).
-		Info("now brokering")
+		Debug("now brokering")
 
 	var config BrokerConfig
 	config.RouteToken = routeToken
@@ -88,13 +88,13 @@ func (r *Replica) StartBrokeringWithPeers(routeToken RouteToken, peers []Replica
 }
 
 func (r *Replica) Shutdown() {
-	log.WithField("journal", r.journal).Info("beginning journal shutdown")
+	log.WithField("journal", r.journal).Debug("beginning journal shutdown")
 	go func() {
 		r.broker.Stop()
 		r.head.Stop()
 		r.index.Stop()
 		close(r.updates)
 		r.tail.Stop()
-		log.WithField("journal", r.journal).Info("completed journal shutdown")
+		log.WithField("journal", r.journal).Debug("completed journal shutdown")
 	}()
 }

@@ -105,6 +105,9 @@ func (r *Router) Append(op journal.AppendOp) {
 			// never deleted out of |r.routes|, so blind assignment should
 			// work. Bypassing the 'ok' test here amounts to an assertion of
 			// this reality.
+
+			// TODO(joshk): Store |lastAppendToken| as a pointer for ease of
+			// updating at this point.
 			r.routes[op.Journal].lastAppendToken = token
 			r.routesMu.Unlock()
 
