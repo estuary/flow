@@ -1,8 +1,8 @@
 package consensus
 
 import (
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	etcd "github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 )
 
 // RetryWatcher() composes Get() and Watch() of etcd.KeysAPI to provide a

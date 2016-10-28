@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	etcd "github.com/coreos/etcd/client"
 	"github.com/coreos/etcd/store"
+	"golang.org/x/net/context"
 )
 
 var (
