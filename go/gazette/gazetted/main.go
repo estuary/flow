@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"flag"
 	"net"
 	"net/http"
@@ -18,7 +17,6 @@ import (
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/endpoints"
 	"github.com/pippio/api-server/varz"
-	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/keepalive"
@@ -67,12 +65,7 @@ func main() {
 	}
 	keysAPI := etcd.NewKeysAPI(etcdClient)
 
-	properties, err := keysAPI.Get(context.Background(), "/properties",
-		&etcd.GetOptions{Recursive: true, Sort: true})
-	if err != nil {
-		log.WithField("err", err).Fatal("failed to initialize etcd /properties")
-	}
-	cfs, err := cloudstore.DefaultFileSystem(consensus.MapAdapter(properties.Node))
+	cfs, err := cloudstore.DefaultFileSystem(nil)
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to initialize cloudstore")
 	}
