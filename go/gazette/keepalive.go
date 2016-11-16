@@ -1,6 +1,7 @@
 package keepalive
 
 import (
+	"context"
 	"net"
 	"time"
 )
@@ -9,6 +10,15 @@ import (
 var Dialer = &net.Dialer{
 	Timeout:   30 * time.Second,
 	KeepAlive: 30 * time.Second,
+}
+
+// DialerFunc dials |addr| with |timeout|. It's designed to be easily used
+// as a grpc.DialOption, eg:
+//   option.WithGRPCDialOption(grpc.WithDialer(keepalive.DialerFunc))
+func DialerFunc(addr string, timeout time.Duration) (net.Conn, error) {
+	var ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return Dialer.DialContext(ctx, "tcp", addr)
 }
 
 // NOTE(joshk): Copied, renamed and exported from:
