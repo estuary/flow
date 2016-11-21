@@ -47,9 +47,9 @@ import (
 // |minConsumeQuantum| and |maxConcurrentTx| gives such consumers a means to
 // bound the rate of writes to the recovery log without sacrificing throughput.
 var (
-	maxConsumeQuantum = flag.Duration("maxConsumeQuantum", 200*time.Millisecond,
+	maxConsumeQuantum = flag.Duration("maxConsumeQuantum", 2*time.Second,
 		"Max quantum of time a consumer may process messages before committing.")
-	minConsumeQuantum = flag.Duration("minConsumeQuantum", 0,
+	minConsumeQuantum = flag.Duration("minConsumeQuantum", time.Second,
 		"Min quantum of time a consumer must process messages before committing.")
 
 	// Flagged as |maxConcurrentTx|.

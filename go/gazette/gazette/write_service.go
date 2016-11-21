@@ -16,7 +16,7 @@ import (
 	"github.com/pippio/gazette/journal"
 )
 
-var writeConcurrency = flag.Int("gazetteWriteConcurrency", 2,
+var writeConcurrency = flag.Int("gazetteWriteConcurrency", 4,
 	"Concurrency of asynchronous, locally-spooled Gazette write client")
 
 // Time to wait in between broker write errors.
