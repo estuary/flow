@@ -4,7 +4,7 @@ import "sync"
 
 // RingMutexMap is a ring buffer which maps keys to buffer spaces, each holding
 // a user-defined value and Mutex. Typically a key is a hash value of some
-// kind, and the MutexRingMap allows raced processes colliding on a given hash
+// kind, and the RingMutexMap allows raced processes colliding on a given hash
 // key to sequence their activities and to share state. RingMutexMap operates
 // over a bounded ring buffer, which means that colliding keys will coordinate
 // only if they complete within a single loop through the ring.
