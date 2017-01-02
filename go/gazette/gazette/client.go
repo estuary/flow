@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,7 +17,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
 
+	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/keepalive"
 )
 
 const (
@@ -112,13 +113,14 @@ func MakeHttpTransport() *http.Transport {
 	// We don't use |http.DefaultTransport| itself, as it is difficult to
 	// deep-copy it.
 	var httpTransport = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		Dial: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout:   10 * time.Second,
+		Dial: keepalive.Dialer.Dial,
+		// Force cloud storage to decompress fragments. Go's standard `gzip`
+		// package is several times slower than zlib, and we additionally see a
+		// parallelism benefit when multiple fragments are fetched concurrently.
+		DisableCompression:    true,
 		ExpectContinueTimeout: 1 * time.Second,
+		Proxy:               http.ProxyFromEnvironment,
+		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
 	// When testing, fragment locations are "persisted" to the local filesystem,
@@ -254,6 +256,9 @@ func (c *Client) openFragment(location *url.URL,
 		response.Body.Close()
 		return nil, fmt.Errorf("seeking fragment: %s", err)
 	}
+
+	clientReadBytes.Add(delta)
+	clientDiscardBytes.Add(delta)
 	return response.Body, nil // Success.
 }
 
@@ -543,6 +548,7 @@ func (r readStatsWrapper) Read(p []byte) (n int, err error) {
 	if n, err = r.stream.Read(p); err == nil {
 		r.offset.Add(int64(n))
 		r.read.Add(int64(n))
+		clientReadBytes.Add(int64(n))
 	}
 	return
 }
@@ -568,3 +574,8 @@ func search(n int64, f func(int64) bool) int64 {
 	// i == j, f(i-1) == false, and f(j) (= f(i)) == true  =>  answer is i.
 	return i
 }
+
+var (
+	clientReadBytes    = varz.ObtainCount("gazette", "readBytes")
+	clientDiscardBytes = varz.ObtainCount("gazette", "discardBytes")
+)

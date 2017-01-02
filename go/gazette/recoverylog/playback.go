@@ -12,6 +12,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 )
@@ -223,6 +224,7 @@ func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
 	} else if op.Unlink != nil {
 		return p.unlink(op.Unlink.Fnode)
 	} else if op.Write != nil {
+		recoverBytes.Add(op.Write.Length)
 		return p.write(op.Write, r, b)
 	}
 	return nil
@@ -333,3 +335,7 @@ func (p *Player) makeLive() error {
 	}
 	return nil
 }
+
+var (
+	recoverBytes = varz.ObtainCount("gazette", "recoverylog", "recoverBytes")
+)
