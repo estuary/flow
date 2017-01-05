@@ -62,48 +62,45 @@ func (w *IndexWatcher) Stop() {
 }
 
 func (w *IndexWatcher) loop() {
-	// Copy so we can locally nil it after closing.
-	initialLoad := w.initialLoad
+	var ticker = time.NewTicker(indexWatcherPeriod)
+	var signal = w.initialLoad
 
-	ticker := time.NewTicker(indexWatcherPeriod)
-loop:
-	for {
+	for done := false; !done; {
 		if err := w.onRefresh(); err != nil {
 			log.WithFields(log.Fields{"journal": w.journal, "err": err}).
 				Warn("failed to refresh index")
-		} else if initialLoad != nil {
-			close(initialLoad)
-			initialLoad = nil
+		} else if signal != nil {
+			close(signal) // Unblocks reads of |w.initialLoad|.
+			signal = nil
 		}
 
 		select {
 		case <-ticker.C:
 		case <-w.stop:
-			break loop
+			done = true
 		}
 	}
-	if initialLoad != nil {
-		// Attempts to wait for initial load will no longer block.
-		close(initialLoad)
+	if signal != nil {
+		close(signal)
 	}
 	ticker.Stop()
-	log.WithField("journal", w.journal).Debug("index watch loop exiting")
 	close(w.stop)
 }
 
 func (w *IndexWatcher) onRefresh() error {
 	// Add a trailing slash to unambiguously represent a directory. Some cloud
 	// FileSystems (eg, GCS) require this if no subordinate files are present.
-	dirPath := w.journal.String() + "/"
+	var dirname = w.journal.String() + "/"
 
 	// Open the fragment directory, making it first if necessary.
-	if err := w.cfs.MkdirAll(dirPath, 0750); err != nil {
+	if err := w.cfs.MkdirAll(dirname, 0750); err != nil {
 		return err
 	}
-	dir, err := w.cfs.Open(dirPath)
+	var dir, err = w.cfs.Open(dirname)
 	if err != nil {
 		return err
 	}
+
 	// Perform iterative incremental loads until no new fragments are available.
 	for {
 		files, err := dir.Readdir(indexWatcherIncrementalLoadSize)
@@ -114,14 +111,21 @@ func (w *IndexWatcher) onRefresh() error {
 					Warning("unexpected directory in fragment index")
 				continue
 			}
+
 			fragment, err := ParseFragment(w.journal, file.Name())
 			if err != nil {
 				log.WithFields(log.Fields{"path": file.Name(), "err": err}).
 					Warning("failed to parse content-name")
-			} else {
-				fragment.RemoteModTime = file.ModTime()
-				w.updates <- fragment
+				continue
 			}
+
+			if file.Size() == 0 && fragment.Size() > 0 {
+				log.WithField("path", file.Name()).Error("zero-length fragment")
+				continue
+			}
+
+			fragment.RemoteModTime = file.ModTime()
+			w.updates <- fragment
 		}
 
 		if err == io.EOF {
