@@ -5,6 +5,7 @@ import (
 	"flag"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
+	"golang.org/x/net/context"
+	"golang.org/x/net/trace"
+	"google.golang.org/api/gensupport"
 
 	"github.com/pippio/api-server/cloudstore"
 	"github.com/pippio/api-server/endpoints"
@@ -37,6 +41,7 @@ const brokerPulseInterval = 10 * time.Second
 
 func main() {
 	varz.Initialize("gazetted")
+	gensupport.RegisterHook(traceRequests)
 
 	var localRoute string
 	if ip, err := endpoints.RoutableIP(); err != nil {
@@ -133,4 +138,46 @@ func main() {
 
 	persister.Stop()
 	log.Info("service stop complete")
+}
+
+// Support for net/trace tracing of package gensupport HTTP requests,
+// which are used by the GCS client.
+type requestStringer http.Request
+
+func (s *requestStringer) String() string {
+	var b, err = httputil.DumpRequest((*http.Request)(s), false)
+	if err != nil {
+		panic(err) // Shouldn't happen as body isn't written.
+	}
+	return string(b)
+}
+
+type responseStringer http.Response
+
+func (s *responseStringer) String() string {
+	var b, err = httputil.DumpResponse((*http.Response)(s), false)
+	if err != nil {
+		panic(err) // Shouldn't happen as body isn't written.
+	}
+	return string(b)
+}
+
+func traceRequests(ctx context.Context, req *http.Request) func(resp *http.Response) {
+	var tr = trace.New("gensupport", req.Method)
+	tr.LazyLog((*requestStringer)(req), false)
+
+	return func(resp *http.Response) {
+		defer tr.Finish()
+
+		if resp == nil {
+			tr.LazyPrintf("<nil Response>")
+			tr.SetError()
+			return
+		}
+
+		tr.LazyLog((*responseStringer)(resp), false)
+		if resp.StatusCode >= 400 {
+			tr.SetError()
+		}
+	}
 }
