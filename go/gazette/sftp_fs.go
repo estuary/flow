@@ -29,9 +29,11 @@ const (
 
 // Redeclaring SSH error codes since the originals are not exported
 // http://api.libssh.org/master/group__libssh__sftp.html#member-group
+// NOTE(Azim): File exists errors are actually mapping to SSH_ERR_FAILURE
+// (4) instead of file exists (11). Going to leave it for now.
 const (
-	SSH_ERR_FILE_NOT_FOUND = 2
-	SSH_ERR_FAILURE        = 4
+	SSHErrFileNotFound = 2
+	SSHErrFileExists   = 11
 )
 
 // Luckily sftp.File already meets most of the File interface.
@@ -161,6 +163,13 @@ func newSFTPFs(properties Properties, host string, path string, user *url.Userin
 	var err error
 	var res = sftpFs{properties, host, path, user, nil}
 	res.client, err = res.makeSFTPClient()
+	if err != nil {
+		return nil, err
+	}
+	// Create the path in the destination FS if it doesn't exist. This behavior is
+	// unique to SFTP but brings behavior to parity with other cloud storage filesystems
+	// in which directories are not first-class citizens.
+	err = res.MkdirAll("", os.ModeDir)
 	return &res, err
 }
 
@@ -178,9 +187,9 @@ func (s *sftpFs) OpenFile(name string, flag int, perm os.FileMode) (File, error)
 
 	if file, err := s.client.OpenFile(path, flag); err != nil {
 		// Convert SSH errors into OS-Compliant errors
-		if isSSHError(err, SSH_ERR_FILE_NOT_FOUND) {
+		if isSSHError(err, SSHErrFileNotFound) {
 			return nil, os.ErrNotExist
-		} else if isSSHError(err, SSH_ERR_FAILURE) {
+		} else if isSSHError(err, SSHErrFileExists) {
 			// This branch is for the EXCL flag.
 			// Not sure if this is catching it properly
 			return nil, os.ErrExist
@@ -230,7 +239,7 @@ func (s *sftpFs) MkdirAll(fullPath string, perm os.FileMode) error {
 func (s *sftpFs) Remove(name string) error {
 	var path = s.client.Join(s.path, name)
 	if err := s.client.Remove(path); err != nil {
-		if isSSHError(err, SSH_ERR_FILE_NOT_FOUND) {
+		if isSSHError(err, SSHErrFileNotFound) {
 			return os.ErrNotExist
 		}
 		return err
@@ -362,7 +371,7 @@ func isSSHError(err error, sshCode uint32) bool {
 func (s *sftpFs) isDir(path string) (bool, error) {
 	if stat, err := s.client.Lstat(path); err == nil {
 		return stat.IsDir(), nil
-	} else if isSSHError(err, SSH_ERR_FILE_NOT_FOUND) {
+	} else if isSSHError(err, SSHErrFileNotFound) {
 		return false, nil
 	} else {
 		return false, err
