@@ -11,7 +11,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/api-server/endpoints"
+	"github.com/pippio/endpoints"
 )
 
 type AllocRunSuite struct {
