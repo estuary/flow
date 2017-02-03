@@ -17,9 +17,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/hashicorp/golang-lru"
 
-	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/keepalive"
+	"github.com/pippio/varz"
 )
 
 const (

@@ -13,7 +13,7 @@ import (
 	gc "github.com/go-check/check"
 	"github.com/gorilla/mux"
 
-	"github.com/pippio/api-server/cloudstore"
+	"github.com/pippio/cloudstore"
 	"github.com/pippio/gazette/journal"
 )
 

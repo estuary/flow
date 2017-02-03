@@ -12,7 +12,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/api-server/varz"
+	"github.com/pippio/varz"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/recoverylog"

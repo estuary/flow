@@ -7,7 +7,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 
-	"github.com/pippio/api-server/varz"
+	"github.com/pippio/varz"
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
 )

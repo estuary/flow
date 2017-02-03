@@ -13,7 +13,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/api-server/discovery"
 	"github.com/pippio/gazette/journal"
 )
 
@@ -261,7 +260,7 @@ func routePeers(rt journal.RouteToken) []journal.Replicator {
 			// Skip local token.
 			continue
 		}
-		var ep = &discovery.Endpoint{BaseURL: url}
+		var ep = &CachedURL{Base: url}
 		peers = append(peers, NewReplicateClient(ep))
 	}
 	return peers

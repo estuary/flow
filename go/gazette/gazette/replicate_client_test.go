@@ -8,7 +8,6 @@ import (
 
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/api-server/discovery"
 	"github.com/pippio/gazette/journal"
 )
 
@@ -19,7 +18,7 @@ type ReplicateClientSuite struct {
 
 func (s *ReplicateClientSuite) SetUpSuite(c *gc.C) {
 	s.server = httptest.NewServer(s)
-	s.client = NewReplicateClient(&discovery.Endpoint{BaseURL: s.server.URL})
+	s.client = NewReplicateClient(&CachedURL{Base: s.server.URL})
 }
 
 func (s *ReplicateClientSuite) TearDownSuite(c *gc.C) {

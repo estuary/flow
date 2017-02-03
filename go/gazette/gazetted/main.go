@@ -18,12 +18,12 @@ import (
 	"golang.org/x/net/trace"
 	"google.golang.org/api/gensupport"
 
-	"github.com/pippio/api-server/cloudstore"
-	"github.com/pippio/api-server/endpoints"
-	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/cloudstore"
+	"github.com/pippio/endpoints"
 	"github.com/pippio/keepalive"
+	"github.com/pippio/varz"
 )
 
 var (

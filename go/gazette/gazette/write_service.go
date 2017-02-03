@@ -12,7 +12,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/api-server/varz"
+	"github.com/pippio/varz"
 	"github.com/pippio/gazette/journal"
 )
 

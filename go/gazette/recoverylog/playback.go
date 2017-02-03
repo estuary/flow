@@ -12,9 +12,9 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/api-server/varz"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
+	"github.com/pippio/varz"
 )
 
 const (

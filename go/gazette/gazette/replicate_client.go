@@ -16,7 +16,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/api-server/discovery"
 	"github.com/pippio/gazette/httpdump"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/keepalive"
@@ -35,7 +34,7 @@ const (
 )
 
 type ReplicateClient struct {
-	endpoint *discovery.Endpoint
+	endpoint *CachedURL
 	idlePool chan replicaClientConn
 }
 
@@ -52,13 +51,14 @@ type replicaClientTransaction struct {
 	request *http.Request
 }
 
-func NewReplicateClient(ep *discovery.Endpoint) ReplicateClient {
-	// Use a global map of pools keyed on BaseURL to facilitate connection re-use.
+func NewReplicateClient(ep *CachedURL) ReplicateClient {
+	// Use a global map of pools keyed on |ep.Base| to facilitate connection
+	// re-use.
 	idlePoolsMu.Lock()
-	idlePool, ok := idlePools[ep.BaseURL]
+	idlePool, ok := idlePools[ep.Base]
 	if !ok {
 		idlePool = make(chan replicaClientConn, ReplicateClientIdlePoolSize)
-		idlePools[ep.BaseURL] = idlePool
+		idlePools[ep.Base] = idlePool
 	}
 	idlePoolsMu.Unlock()
 
@@ -203,7 +203,7 @@ func (t *replicaClientTransaction) Commit(delta int64) error {
 }
 
 var (
-	// Pool idle connections keyed on BaseURL of an endpoint.
+	// Pool idle connections keyed on Base of an endpoint.
 	idlePools   map[string]chan replicaClientConn
 	idlePoolsMu sync.Mutex
 )

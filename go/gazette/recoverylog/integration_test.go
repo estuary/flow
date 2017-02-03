@@ -12,7 +12,7 @@ import (
 	"github.com/pippio/gazette/message"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/api-server/endpoints"
+	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 )

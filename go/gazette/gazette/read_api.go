@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 
-	"github.com/pippio/api-server/cloudstore"
+	"github.com/pippio/cloudstore"
 	"github.com/pippio/gazette/journal"
 )
 
