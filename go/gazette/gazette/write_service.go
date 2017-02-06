@@ -12,8 +12,8 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/varz"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/varz"
 )
 
 var writeConcurrency = flag.Int("gazetteWriteConcurrency", 4,

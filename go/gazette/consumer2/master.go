@@ -12,10 +12,10 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/varz"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/recoverylog"
+	"github.com/pippio/varz"
 )
 
 // Important tuning flags for Gazette consumers:

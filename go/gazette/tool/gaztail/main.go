@@ -9,10 +9,10 @@ import (
 
 	// Used for querying topic partitions.
 	"github.com/pippio/endpoints"
-	_ "github.com/pippio/graph"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
+	_ "github.com/pippio/graph"
 	"github.com/pippio/topics"
 )
 
