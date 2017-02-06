@@ -19,8 +19,8 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/pippio/endpoints"
 	"github.com/pippio/consensus"
+	"github.com/pippio/endpoints"
 )
 
 var hostKeyAlgorithms = []string{"ssh-rsa", "ssh-dss", "ecdsa-sha2-nistp256"}
