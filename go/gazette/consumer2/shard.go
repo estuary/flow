@@ -26,17 +26,23 @@ type shard struct {
 	replica *replica
 	master  *master
 
+	// A "zombie" shard is a prior shard instance of the same |id| which has been
+	// cancelled, but is still tearing down. We must allow it to fully exit
+	// before taking an action which might clobber it.
+	zombie *shard
+
 	// cancelCh is plumbed through replica & master, and acts as a single
 	// channel by which to signal cancellation of all shard processing.
 	cancelCh chan struct{}
 }
 
-func newShard(id ShardID, runner *Runner) *shard {
+func newShard(id ShardID, runner *Runner, zombie *shard) *shard {
 	return &shard{
+		cancelCh: make(chan struct{}),
 		id:       id,
 		localDir: filepath.Join(runner.LocalDir, id.String()),
 		state:    shardStateInit,
-		cancelCh: make(chan struct{}),
+		zombie:   zombie,
 	}
 }
 
@@ -60,7 +66,15 @@ func (s *shard) transitionReplica(runner *Runner, tree *etcd.Node) {
 		return
 	}
 
-	go s.replica.serve(runner)
+	go func() {
+		if s.zombie != nil {
+			// Wait for prior shard instance to tear down before replicating.
+			s.zombie.blockUntilHalted()
+			s.zombie = nil
+		}
+
+		s.replica.serve(runner)
+	}()
 }
 
 // Called from Allocate() goroutine. Cannot block.

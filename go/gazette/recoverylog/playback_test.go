@@ -31,7 +31,7 @@ func (s *PlaybackSuite) TearDownSuite(c *gc.C) {
 func (s *PlaybackSuite) SetUpTest(c *gc.C) {
 	var err error
 
-	hintsFixture := FSMHints{
+	var hintsFixture = FSMHints{
 		Log: "a/recovery/log",
 		LiveNodes: []HintedFnode{
 			{Fnode: 42, Segments: []Segment{
@@ -41,23 +41,26 @@ func (s *PlaybackSuite) SetUpTest(c *gc.C) {
 		},
 		Properties: []Property{{Path: "/property/path", Content: "prop-value"}},
 	}
-	s.player, err = PreparePlayback(hintsFixture, s.localDir)
+	s.player, err = NewPlayer(hintsFixture, s.localDir)
 	c.Check(err, gc.IsNil)
+
+	c.Check(s.player.preparePlayback(), gc.IsNil)
 }
 
 func (s *PlaybackSuite) TestPlayerInit(c *gc.C) {
 	c.Check(s.player.localDir, gc.Equals, s.localDir)
 
-	_, err := os.Stat(filepath.Join(s.localDir, kFnodeStagingDir))
+	_, err := os.Stat(filepath.Join(s.localDir, fnodeStagingDir))
 	c.Check(err, gc.IsNil) // Staging directory was created.
 
 	c.Check(s.player.fsm.LogMark, gc.Equals, journal.NewMark("a/recovery/log", -1))
 	c.Check(s.player.backingFiles, gc.HasLen, 0)
+	c.Check(s.player.IsAtLogHead(), gc.Equals, false)
 }
 
 func (s *PlaybackSuite) TestStagingPaths(c *gc.C) {
 	c.Check(s.player.stagedPath(1234), gc.Equals,
-		filepath.Join(s.localDir, kFnodeStagingDir, "1234"))
+		filepath.Join(s.localDir, fnodeStagingDir, "1234"))
 }
 
 func (s *PlaybackSuite) TestCreate(c *gc.C) {
@@ -217,7 +220,7 @@ func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
 		}
 	}
 	// Expect staging directory has been removed.
-	expect(filepath.Join(s.localDir, kFnodeStagingDir), false)
+	expect(filepath.Join(s.localDir, fnodeStagingDir), false)
 
 	// Expect files have been linked into final locations.
 	expect(filepath.Join(s.localDir, "a/path"), true)

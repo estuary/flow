@@ -177,24 +177,19 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 }
 
 func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
-	r := NewTestReplica(&testEnv{c, s.gazette})
+	var r = NewTestReplica(&testEnv{c, s.gazette})
 	defer r.teardown()
 
 	var err error
-	r.player, err = PreparePlayback(FSMHints{Log: kTestLogName}, r.tmpdir)
+	r.player, err = NewPlayer(FSMHints{Log: kTestLogName}, r.tmpdir)
 	c.Assert(err, gc.IsNil)
 
-	makeLiveExit := make(chan error)
-	go func() { _, err := r.player.MakeLive(); makeLiveExit <- err }()
-
-	// After a delay, write a frame and then Cancel(). The written frame ensures
-	// that the at-head condition of the first Play() iteration fails. Otherwise,
-	// we could miss seeing the cancel altogether (and exit with success).
-	time.AfterFunc(kBlockInterval/2, func() {
+	// After a delay, write a frame and then Cancel.
+	time.AfterFunc(blockInterval/2, func() {
 		var frame []byte
 		message.Frame(&RecordedOp{}, &frame)
 
-		res := s.gazette.Put(journal.AppendArgs{
+		var res = s.gazette.Put(journal.AppendArgs{
 			Journal: kTestLogName,
 			Content: bytes.NewReader(frame),
 		})
@@ -204,7 +199,9 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 	})
 
 	c.Check(r.player.Play(r.gazette), gc.Equals, ErrPlaybackCancelled)
-	c.Check(<-makeLiveExit, gc.Equals, ErrPlaybackCancelled)
+
+	_, err = r.player.MakeLive()
+	c.Check(err, gc.Equals, ErrPlaybackCancelled)
 }
 
 func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
@@ -212,7 +209,7 @@ func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {
 	defer r.teardown()
 
 	var err error
-	r.player, err = PreparePlayback(FSMHints{Log: kTestLogName}, r.tmpdir)
+	r.player, err = NewPlayer(FSMHints{Log: kTestLogName}, r.tmpdir)
 	c.Assert(err, gc.IsNil)
 
 	r.player.Cancel()
@@ -257,7 +254,7 @@ func NewTestReplica(env *testEnv) *testReplica {
 
 func (r *testReplica) startReading(hints FSMHints) {
 	var err error
-	r.player, err = PreparePlayback(hints, r.tmpdir)
+	r.player, err = NewPlayer(hints, r.tmpdir)
 	r.Assert(err, gc.IsNil)
 
 	go func() {
@@ -271,6 +268,7 @@ func (r *testReplica) makeLive() error {
 	if err != nil {
 		return err
 	}
+	r.Check(r.player.IsAtLogHead(), gc.Equals, true)
 
 	r.recorder, err = NewRecorder(fsm, len(r.tmpdir), r.gazette)
 	r.Assert(err, gc.IsNil)

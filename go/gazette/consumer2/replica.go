@@ -14,7 +14,7 @@ type replica struct {
 }
 
 func newReplica(shard *shard, runner *Runner, tree *etcd.Node) (*replica, error) {
-	hints, err := loadHintsFromEtcd(shard.id, runner, tree)
+	var hints, err = loadHintsFromEtcd(shard.id, runner, tree)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +22,7 @@ func newReplica(shard *shard, runner *Runner, tree *etcd.Node) (*replica, error)
 	log.WithFields(log.Fields{"shard": shard.id, "hints": hints, "dir": shard.localDir}).
 		Info("replicating with hints")
 
-	player, err := recoverylog.PreparePlayback(hints, shard.localDir)
+	player, err := recoverylog.NewPlayer(hints, shard.localDir)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func newReplica(shard *shard, runner *Runner, tree *etcd.Node) (*replica, error)
 func (r *replica) serve(runner *Runner) {
 	defer close(r.servingCh)
 
-	err := r.player.Play(runner.Gazette)
+	var err = r.player.Play(runner.Gazette)
 
 	if err != nil && err != recoverylog.ErrPlaybackCancelled {
 		log.WithFields(log.Fields{"shard": r.shard, "err": err}).Error("replication failed")

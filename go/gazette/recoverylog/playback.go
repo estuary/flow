@@ -19,9 +19,9 @@ import (
 
 const (
 	// Subdirectory into which Fnodes are played-back.
-	kFnodeStagingDir = ".fnodes"
+	fnodeStagingDir = ".fnodes"
 	// Duration for which Player reads of the recovery log block.
-	kBlockInterval = 1 * time.Second
+	blockInterval = 1 * time.Second
 )
 
 // Error returned by Player.Play() & MakeLive() upon Player.Cancel().
@@ -40,23 +40,14 @@ type Player struct {
 	makeLiveCh chan struct{}
 	// Closed by Play() to signal to MakeLive() that Play() has exited.
 	playExitCh chan error
+	// Closed by Play() to signal that playback has reached the log head.
+	atHeadCh chan struct{}
 }
 
-// Prepares playback of |hints| into |localDir|. The recovery log may actively
-// be in use by another process while playback occurs, allowing for warm-
-// standby replication.
-func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
-	// File nodes are staged into a directory within |localDir| during playback.
-	fileNodesDir := filepath.Join(localDir, kFnodeStagingDir)
-
-	// Remove all prior content under |localDir|.
-	if err := os.RemoveAll(localDir); err != nil {
-		return nil, err
-	} else if err := os.MkdirAll(fileNodesDir, 0777); err != nil {
-		return nil, err
-	}
-
-	fsm, err := NewFSM(hints)
+// NewPlayer returns a new Player for recovering the log indicated by |hints|
+// into |localDir|. An error is returned if FSMHints are invalid.
+func NewPlayer(hints FSMHints, localDir string) (*Player, error) {
+	var fsm, err = NewFSM(hints)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +60,7 @@ func PreparePlayback(hints FSMHints, localDir string) (*Player, error) {
 		makeLiveCh:   make(chan struct{}),
 		// Buffered because Play() may exit before MakeLive() is called.
 		playExitCh: make(chan error, 1),
+		atHeadCh:   make(chan struct{}),
 	}, nil
 }
 
@@ -85,6 +77,18 @@ func (p *Player) MakeLive() (*FSM, error) {
 		return nil, err
 	}
 	return p.fsm, nil
+}
+
+// IsAtLogHead returns true if playback has reached the WriteHead returned
+// by a Gazette Journal read. Note that Gazette reads are not transactional,
+// and this determination may be slightly stale.
+func (p *Player) IsAtLogHead() bool {
+	select {
+	case <-p.atHeadCh:
+		return true
+	default:
+		return false
+	}
 }
 
 // Requests that Player cancel playback and exit with an error.
@@ -106,14 +110,19 @@ func (p *Player) Play(client journal.Client) error {
 	var err error
 	defer func() { p.playExitCh <- err }()
 
+	if err = p.preparePlayback(); err != nil {
+		return err
+	}
+
 	var rr = journal.NewRetryReader(p.fsm.LogMark, client)
 	defer rr.Close()
 
 	// Configure |rr| to periodically return EOF when no content is available.
-	rr.EOFTimeout = kBlockInterval
+	rr.EOFTimeout = blockInterval
 
 	var scratchBuffer [32 * 1024]byte
 	var makeLiveBarrier *journal.AsyncAppend
+	var atHeadCh = p.atHeadCh // Retain on stack so it may be nil'd.
 
 	// Play until we're asked to make ourselves live, we've read through to the
 	// transactionally determined recoverylog WriteHead, and we time out
@@ -134,10 +143,11 @@ func (p *Player) Play(client journal.Client) error {
 			if err = makeLiveBarrier.Error; err != nil {
 				return err
 			}
-			continue // For RecoveryLogSuite.TestPlayThenCancel. Not required for correctness.
+
 		case <-p.cancelCh:
 			err = ErrPlaybackCancelled
 			return err
+
 		default:
 			// Non-blocking.
 		}
@@ -165,6 +175,11 @@ func (p *Player) Play(client journal.Client) error {
 			// completed with no content.
 			err = nil
 
+			if atHeadCh != nil {
+				close(atHeadCh)
+				atHeadCh = nil
+			}
+
 			if makeLiveBarrier != nil {
 				var target = makeLiveBarrier.WriteHead
 
@@ -184,8 +199,25 @@ func (p *Player) Play(client journal.Client) error {
 		} else if err != nil {
 			// Any other error aborts playback.
 			return err
+		} else if atHeadCh != nil && rr.Result.WriteHead <= rr.Mark.Offset {
+			// Signal that playback has reached the approximate log head.
+			close(atHeadCh)
+			atHeadCh = nil
 		}
 	}
+}
+
+func (p *Player) preparePlayback() error {
+	// File nodes are staged into a directory within |localDir| during playback.
+	var fileNodesDir = filepath.Join(p.localDir, fnodeStagingDir)
+
+	// Remove all prior content under |p.localDir|.
+	if err := os.RemoveAll(p.localDir); err != nil {
+		return err
+	} else if err := os.MkdirAll(fileNodesDir, 0777); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
@@ -232,7 +264,7 @@ func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
 
 func (p *Player) stagedPath(fnode Fnode) string {
 	fname := strconv.FormatInt(int64(fnode), 10)
-	return filepath.Join(p.localDir, kFnodeStagingDir, fname)
+	return filepath.Join(p.localDir, fnodeStagingDir, fname)
 }
 
 func (p *Player) create(fnode Fnode) error {
@@ -313,7 +345,7 @@ func (p *Player) makeLive() error {
 		log.WithField("files", p.backingFiles).Panic("backing files not in FSM")
 	}
 	// Remove staging directory.
-	if err := os.Remove(filepath.Join(p.localDir, kFnodeStagingDir)); err != nil {
+	if err := os.Remove(filepath.Join(p.localDir, fnodeStagingDir)); err != nil {
 		return err
 	}
 

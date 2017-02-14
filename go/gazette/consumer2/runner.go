@@ -11,6 +11,17 @@ import (
 	"github.com/pippio/gazette/message"
 )
 
+const (
+	// Peer is ready to immediately transition to shard master.
+	Ready = "ready"
+	// Peer is still rebuilding from the recovery log.
+	Recovering = "recovering"
+	// Peer is responsible for a consumer Shard it doesn't know about.
+	// This typically happens when topics are removed from a consumer,
+	// but remain in (and should be removed from) the consumer's Etcd directory.
+	UnknownShard = "unknown-shard"
+)
+
 type Runner struct {
 	Consumer Consumer
 	// An identifier for this particular runner. Eg, the hostname.
@@ -95,37 +106,60 @@ func (r *Runner) KeysAPI() etcd.KeysAPI { return etcd.NewKeysAPI(r.Etcd) }
 func (r *Runner) PathRoot() string      { return r.ConsumerRoot }
 func (r *Runner) Replicas() int         { return r.ReplicaCount }
 
-// TODO(johnny): Issue 1197. Wire this to recoverylog.Player.
-func (r *Runner) ItemState(shardName string) string               { return "ready" }
-func (r *Runner) ItemIsReadyForPromotion(item, state string) bool { return state == "ready" }
+func (r *Runner) ItemState(name string) string {
+	if shard, ok := r.liveShards[name]; !ok {
+		return UnknownShard
+	} else if shard.replica.player.IsAtLogHead() {
+		return Ready
+	} else {
+		return Recovering
+	}
+}
+
+func (r *Runner) ItemIsReadyForPromotion(item, state string) bool {
+	return state == Ready
+}
 
 func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etcd.Node) {
-	shard, exists := r.liveShards[name]
+	var current, exists = r.liveShards[name]
 
-	// |index| captures the allocator's role in processing |shard|.
-	isMaster, isReplica := (index == 0), (index > 0 && index < r.ReplicaCount)
+	// |index| captures the allocator's role in processing |current|.
+	var isMaster, isReplica = (index == 0), (index > 0 && index <= r.ReplicaCount)
 
 	if !exists && (isMaster || isReplica) {
-		ind := sort.Search(len(r.shardIDs), func(i int) bool {
+		var ind = sort.Search(len(r.shardIDs), func(i int) bool {
 			return r.shardIDs[i].String() >= name
 		})
 		if ind >= len(r.shardIDs) || r.shardIDs[ind].String() != name {
 			log.WithField("shard", name).Warn("unexpected consumer shard name")
 			return
 		}
-		shard = newShard(r.shardIDs[ind], r)
-		r.liveShards[name] = shard
+
+		// Look for a matching zombie shard (ie, still in tear-down). This happens
+		// if, for example, a prior shard master gives up control and then
+		// immediately becomes a shard replica. Other races are possible.
+		var zombie *shard
+
+		for s := range r.zombieShards {
+			if s.id.String() == name {
+				delete(r.zombieShards, s)
+				zombie = s
+			}
+		}
+
+		current = newShard(r.shardIDs[ind], r, zombie)
+		r.liveShards[name] = current
 	}
 
 	if isMaster {
-		shard.transitionMaster(r, tree)
+		current.transitionMaster(r, tree)
 	} else if isReplica {
-		shard.transitionReplica(r, tree)
+		current.transitionReplica(r, tree)
 	} else if exists {
-		shard.transitionCancel()
+		current.transitionCancel()
 
 		delete(r.liveShards, name)
-		r.zombieShards[shard] = struct{}{}
+		r.zombieShards[current] = struct{}{}
 	}
 
 	// Non-blocking reap of previously-cancelled shards.

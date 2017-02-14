@@ -118,7 +118,7 @@ func (s *ConsumerSuite) SetUpTest(c *gc.C) {
 	// Truncate existing recovery logs to read from current write heads.
 	// Note: Setting up may fail due to stale etcd keys. Wait 1 minute or
 	// delete the stale etcd directory structure yourself.
-	c.Assert(ResetShardsToJournalHeads(s.buildRunner(0)), gc.IsNil)
+	c.Assert(ResetShardsToJournalHeads(s.buildRunner(0, 0)), gc.IsNil)
 }
 
 func (s *ConsumerSuite) TearDownSuite(c *gc.C) {
@@ -132,11 +132,67 @@ func (s *ConsumerSuite) TestBasic(c *gc.C) {
 	var reverseReader = s.openResultReader(kReverseLog, c)
 	var generator = newTestGenerator(s.gazette)
 
-	go s.startRunner(c, 0)
+	var runner = s.buildRunner(0, 0)
+	go s.serveRunner(c, runner)
+
+	generator.publishSomeValues(c)
+	generator.verifyExpectedOutputs(c, csvReader, reverseReader)
+
+	s.stopRunner(c, runner)
+}
+
+func (s *ConsumerSuite) TestHandoffBlocksUntilReady(c *gc.C) {
+	var generator = newTestGenerator(s.gazette)
+
+	var runner = s.buildRunner(0, 2) // Require 2 replicas.
+	go s.serveRunner(c, runner)
+
+	// Verifies |runner| doesn't exit over the next second.
+	var expectDoesntExit = func() {
+		select {
+		case <-s.runFinishedCh:
+			c.Error("consumer runner exited")
+		case <-time.After(time.Second):
+			// Pass.
+		}
+	}
+
+	// Updates a peer consumer's item fixture statuses in Etcd.
+	var setPeerStatus = func(peer, status string) {
+
+		for _, group := range runner.Consumer.Groups() {
+			var n, _ = group.NumShards()
+
+			for i := 0; i != n; i++ {
+				var shard = ShardID{group.Name, i}.String()
+				var key = runner.PathRoot() + "/" + consensus.ItemsPrefix + "/" + shard + "/" + peer
+
+				var _, err = runner.KeysAPI().Set(context.Background(),
+					key, status, &etcd.SetOptions{TTL: 2 * time.Second})
+				c.Check(err, gc.IsNil)
+			}
+		}
+	}
+
 	generator.publishSomeValues(c)
 
-	generator.verifyExpectedOutputs(c, csvReader, reverseReader)
-	s.stopRunner(c, 0)
+	// Cancel the runner. It should still run until two replicas declare themselves ready.
+	c.Check(consensus.Cancel(runner), gc.IsNil)
+	expectDoesntExit()
+
+	setPeerStatus("peer-1", Ready)
+	setPeerStatus("peer-2", Recovering)
+	expectDoesntExit()
+
+	// Allow the consumer to exit.
+	setPeerStatus("peer-2", Ready)
+
+	select {
+	case <-s.runFinishedCh:
+		// Pass.
+	case <-time.After(time.Second):
+		c.Error("consumer didn't exit")
+	}
 }
 
 func (s *ConsumerSuite) TestHandoffWithMultipleRunners(c *gc.C) {
@@ -149,48 +205,52 @@ func (s *ConsumerSuite) TestHandoffWithMultipleRunners(c *gc.C) {
 	// race startRunner, and we expect to get the right answer anyway.
 	var generator = newTestGenerator(s.gazette)
 
-	go s.startRunner(c, 0)
+	var r0 = s.buildRunner(0, 1)
+	go s.serveRunner(c, r0)
 	generator.publishSomeValues(c)
 
-	go s.startRunner(c, 1)
+	var r1 = s.buildRunner(1, 1)
+	go s.serveRunner(c, r1)
 	generator.publishSomeValues(c)
 
-	s.stopRunner(c, 0)
+	s.stopRunner(c, r0) // r0 hands off to r1.
 	generator.publishSomeValues(c)
 
-	go s.startRunner(c, 2)
+	var r2 = s.buildRunner(2, 1)
+	go s.serveRunner(c, r2)
 	generator.publishSomeValues(c)
 
-	s.stopRunner(c, 1)
+	s.stopRunner(c, r1) // r1 hands off to r2.
 	generator.publishSomeValues(c)
 
 	// Verify expected values appear in the merged output log.
 	generator.verifyExpectedOutputs(c, csvReader, reverseReader)
 
-	s.stopRunner(c, 2)
+	r2.ReplicaCount = 0 // Drop replica count so that runner will exit.
+	s.stopRunner(c, r2)
 }
 
-func (s *ConsumerSuite) buildRunner(i int) *Runner {
+func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
 	return &Runner{
 		Consumer:        new(testConsumer),
 		LocalRouteKey:   fmt.Sprintf("test-consumer-%d", i),
 		LocalDir:        fmt.Sprintf("/var/tmp/integration-tests/consumer2/runner-%d", i),
 		ConsumerRoot:    kConsumerRoot,
 		RecoveryLogRoot: "pippio-journals/integration-tests/consumer2",
-		ReplicaCount:    0,
+		ReplicaCount:    replicas,
 
 		Etcd:    s.etcdClient,
 		Gazette: s.gazette,
 	}
 }
 
-func (s *ConsumerSuite) startRunner(c *gc.C, i int) {
-	c.Check(s.buildRunner(i).Run(), gc.IsNil)
+func (s *ConsumerSuite) serveRunner(c *gc.C, r *Runner) {
+	c.Check(r.Run(), gc.IsNil)
 	s.runFinishedCh <- struct{}{}
 }
 
-func (s *ConsumerSuite) stopRunner(c *gc.C, i int) {
-	c.Check(consensus.Cancel(s.buildRunner(i)), gc.IsNil)
+func (s *ConsumerSuite) stopRunner(c *gc.C, r *Runner) {
+	c.Check(consensus.Cancel(r), gc.IsNil)
 	<-s.runFinishedCh
 }
 
