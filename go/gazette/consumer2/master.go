@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"runtime"
 	"strconv"
 	"time"
@@ -109,6 +110,9 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		if m.database != nil {
 			m.database.teardown()
 		}
+		if err := os.RemoveAll(m.localDir); err != nil {
+			log.WithField("err", err).Error("failed to remove local DB")
+		}
 		close(m.servingCh)
 	}()
 
@@ -121,7 +125,15 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		return
 	}
 
-	messages, err := m.startPumpingMessages(runner)
+	// Let the consumer tear down the context, if desired.
+	if runner.ShardPostStopHook != nil {
+		defer runner.ShardPostStopHook(m)
+	}
+	if halter, ok := runner.Consumer.(ShardHalter); ok {
+		defer halter.HaltShard(m)
+	}
+
+	var messages, err = m.startPumpingMessages(runner)
 	if err != nil {
 		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("message pump start")
 		abort(runner, m.shard)
@@ -133,27 +145,18 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		abort(runner, m.shard)
 		return
 	}
-
-	// Let the consumer tear down the context, if desired.
-	if halter, ok := runner.Consumer.(ShardHalter); ok {
-		halter.HaltShard(m)
-	}
-
-	if runner.ShardPostStopHook != nil {
-		runner.ShardPostStopHook(m)
-	}
 }
 
 func (m *master) init(runner *Runner, replica *replica) error {
 	// Ask replica to become "live" once caught up to the recovery-log write head.
 	// This could potentially take a while, depending on how far behind we are.
-	fsm, err := replica.player.MakeLive()
+	var fsm, err = replica.player.MakeLive()
 	if err != nil {
 		return err
 	}
 	log.WithFields(log.Fields{"shard": m.shard}).Info("makeLive finished")
 
-	opts := rocks.NewDefaultOptions()
+	var opts = rocks.NewDefaultOptions()
 	if initer, ok := runner.Consumer.(OptionsIniter); ok {
 		initer.InitOptions(opts)
 	}
