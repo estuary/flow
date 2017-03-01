@@ -40,7 +40,7 @@ var (
 const brokerPulseInterval = 10 * time.Second
 
 func main() {
-	varz.Initialize("gazetted")
+	defer varz.Initialize("gazetted").Cleanup()
 	gensupport.RegisterHook(traceRequests)
 
 	var localRoute string
