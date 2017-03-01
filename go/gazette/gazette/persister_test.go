@@ -44,6 +44,8 @@ func (s *PersisterSuite) TearDownTest(c *gc.C) {
 }
 
 func (s *PersisterSuite) TestPersistence(c *gc.C) {
+	c.Skip("PUB-1980 flake")
+
 	var contentFixture = []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	var lockPath = PersisterLocksRoot + s.fragment.ContentName()
 
