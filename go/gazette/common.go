@@ -46,8 +46,6 @@ func (ep *Endpoint) Validate() error {
 			return errors.New("must specify aws secret access key")
 		} else if ep.S3Bucket == "" {
 			return errors.New("must specify s3 bucket")
-		} else if ep.S3Subfolder == "" {
-			return errors.New("must specify s3 subfolder")
 		}
 		//TODO: something about global canned acl and region?
 	}
