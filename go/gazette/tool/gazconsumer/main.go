@@ -366,7 +366,7 @@ func fetchReadHead(name string, client *http.Client, url string, output chan<- j
 	resp, result.err = client.Get(url)
 
 	if result.err != nil {
-		log.WithFields(log.Fields{"url": url, "err": result.err}).Error(
+		log.WithFields(log.Fields{"url": url, "err": result.err}).Warn(
 			"failed to access debug URL")
 	} else if result.err = json.NewDecoder(resp.Body).Decode(&vars); result.err != nil {
 		log.WithFields(log.Fields{"url": url, "err": result.err}).Error(
