@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -169,8 +170,11 @@ func newSFTPFs(properties Properties, host string, path string, user *url.Userin
 	// Create the path in the destination FS if it doesn't exist. This behavior is
 	// unique to SFTP but brings behavior to parity with other cloud storage filesystems
 	// in which directories are not first-class citizens.
-	err = res.MkdirAll("", os.ModeDir)
-	return &res, err
+	if err = res.MkdirAll(path, os.ModeDir); err != nil {
+		return nil, err
+	}
+	log.WithField("fs", res).Debug("using sftp client")
+	return &res, nil
 }
 
 // Generalized open call. It opens the named file with the specified |flag|
@@ -226,7 +230,7 @@ func (s *sftpFs) MkdirAll(fullPath string, perm os.FileMode) error {
 	for _, nextPath := range accumPaths(fullPath, s.path, s.client.Join) {
 		if isDir, err := s.isDir(nextPath); err != nil {
 			return err
-		} else if !isDir {
+		} else if !isDir && nextPath != "" {
 			if err := s.client.Mkdir(nextPath); err != nil {
 				return err
 			}
