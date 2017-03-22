@@ -1,8 +1,4 @@
-// ca-watcher observes an Etcd prefix for new certificate chain + private key
-// files underneath it. Created or updated files under this prefix which
-// contain valid PEM data are translated to files in /etc/ssl/private for
-// HAProxy to use. By supplying -reloadCmd, ca-watcher is also able to reload
-// the web server so that it sees new or changed certificates.
+// gazconsumer lol
 package main
 
 import (
@@ -24,6 +20,8 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	"github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
+
+	"io"
 
 	"github.com/pippio/consensus"
 	"github.com/pippio/endpoints"
@@ -61,12 +59,95 @@ type memberData struct {
 	totalLag          int64
 }
 
+type ConsumerData struct {
+	memberNames  []string
+	journalNames []string
+	members      map[string]memberData
+	owners       map[string]string
+
+	journalLag map[string]int64
+}
+
+func (cd ConsumerData) TotalLag() int64 {
+	var res int64 = 0
+	for _, lag := range cd.journalLag {
+		res += lag
+	}
+	return res
+}
+
 func main() {
 	endpoints.ParseFromEnvironment()
 	log.SetFormatter(new(log.JSONFormatter))
 	flag.Parse()
 	varz.StartDebugListener()
 
+	printLags()
+	//var cdata = makeConsumerData(flag.Arg(0))
+	//printOutput(cdata)
+	// fmt.Printf("Mike Lag: %s", cdata.journalLag)
+
+	//printOutput(cdata)
+}
+
+func printOutput(cdata ConsumerData) {
+	if *short {
+		var consumerLag int64
+		for _, member := range cdata.memberNames {
+			var info = cdata.members[member]
+			if info.totalLag != infinityLag {
+				consumerLag += info.totalLag
+			}
+		}
+		fmt.Println(consumerLag / bytesPerGigabyte)
+	} else {
+		printLong(cdata, os.Stdout)
+	}
+}
+
+func printLong(cdata ConsumerData, out io.Writer) {
+	var journalsTable = tablewriter.NewWriter(out)
+	journalsTable.SetHeader([]string{"Journal", "Lag", "Owner"})
+	sort.Strings(cdata.journalNames)
+	for _, journal := range cdata.journalNames {
+		var owner = cdata.owners[journal]
+		if lag, ok := cdata.journalLag[journal]; !ok || lag == journalNotBeingRead {
+			journalsTable.Append([]string{journal, "<no data>", owner})
+		} else if lag == 0 {
+			journalsTable.Append([]string{journal, "<up-to-date>", owner})
+		} else {
+			journalsTable.Append([]string{journal, humanize.Bytes(uint64(lag)), owner})
+		}
+	}
+	journalsTable.Render()
+	var membersTable = tablewriter.NewWriter(out)
+	membersTable.SetHeader([]string{"Member", "Masters", "Replicas", "Total Lag"})
+	sort.Strings(cdata.memberNames)
+	for _, member := range cdata.memberNames {
+		var info = cdata.members[member]
+		var lagStr string
+		if info.totalLag == infinityLag {
+			lagStr = "\u221e"
+		} else {
+			lagStr = humanize.Bytes(uint64(info.totalLag))
+		}
+
+		membersTable.Append([]string{
+			member, strconv.Itoa(info.masters), strconv.Itoa(info.replicas), lagStr})
+	}
+	membersTable.Render()
+}
+
+func makeConsumerData(topic string) ConsumerData {
+	var cdata ConsumerData
+	cdata.members = make(map[string]memberData)
+	cdata.owners = make(map[string]string)
+	readHeads, writeHeads := getHeads(topic, &cdata)
+	getJournalLag(writeHeads, readHeads, &cdata)
+	return cdata
+}
+
+func makeServices(topic string) (*http.Client, *gazette.Client, *etcd.Response) {
 	var httpClient = &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: gazette.MakeHttpTransport(),
@@ -75,24 +156,80 @@ func main() {
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to init gazette client")
 	}
-
 	etcdClient, err := etcd.New(etcd.Config{
 		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to init etcd client")
 	}
 	var keysAPI = etcd.NewKeysAPI(etcdClient)
-
-	var key = path.Join(flag.Arg(0), "items")
+	var key = path.Join(topic, "items")
 	shardsRoot, err := keysAPI.Get(context.Background(), key,
 		&etcd.GetOptions{Recursive: true, Sort: true})
 	if err != nil {
 		log.WithFields(log.Fields{"err": err, "key": key}).Fatal("can't load etcd key")
 	}
+	return httpClient, gazetteClient, shardsRoot
+}
 
-	var memberNames, journalNames []string
-	var members = make(map[string]memberData)
-	var owners = make(map[string]string)
+type MemberInfo struct {
+	Journal journal.Name
+	Member  string
+	Master  bool
+}
+
+func makeEtcd(topic string) *etcd.Response {
+	etcdClient, err := etcd.New(etcd.Config{
+		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
+	if err != nil {
+		log.WithField("err", err).Fatal("failed to init etcd client")
+	}
+	var keysAPI = etcd.NewKeysAPI(etcdClient)
+	var key = path.Join(topic, "items")
+	shardsRoot, err := keysAPI.Get(context.Background(), key,
+		&etcd.GetOptions{Recursive: true, Sort: true})
+	if err != nil {
+		log.WithFields(log.Fields{"err": err, "key": key}).Fatal("can't load etcd key")
+	}
+	return shardsRoot
+}
+
+func getMasterRepInfo(topic string) []MemberInfo {
+	shardsRoot := makeEtcd(topic)
+
+	var memberInfos []MemberInfo
+
+	for _, node := range shardsRoot.Node.Nodes {
+		var route = consensus.NewRoute(shardsRoot, node)
+		var prefix = len(route.Item.Key) + 1
+
+		// Derive journal name from item name.
+		var parts = strings.Split(path.Base(route.Item.Key), "-")
+		var journalName = fmt.Sprintf("pippio-journals/%s/part-%s",
+			strings.Join(parts[1:len(parts)-1], "-"), parts[len(parts)-1])
+
+		for i, member := range route.Entries {
+			var memberID = member.Key[prefix:]
+
+			// |memberID| should be an IP:port pair.
+			if host, _, err := net.SplitHostPort(memberID); err != nil {
+				log.WithFields(log.Fields{"master": memberID, "err": err}).Error(
+					"route replica name is not a host/port pair")
+			} else {
+				memberInfos = append(memberInfos, MemberInfo{
+					Member:  host,
+					Master:  (i == 0),
+					Journal: journal.Name(journalName),
+				})
+			}
+		}
+	}
+
+	return memberInfos
+}
+
+func getHeads(topic string, cdata *ConsumerData) (map[string]int64, map[string]int64) {
+	httpClient, gazetteClient, shardsRoot := makeServices(topic)
+
 	var readHeadOutput = make(chan journalHeadResult, 1024)
 	var writeHeadOutput = make(chan journalHeadResult, 1024)
 	var readHeadWg = new(sync.WaitGroup)
@@ -106,7 +243,7 @@ func main() {
 		var journal = fmt.Sprintf("pippio-journals/%s/part-%s",
 			strings.Join(parts[1:len(parts)-1], "-"), parts[len(parts)-1])
 
-		journalNames = append(journalNames, journal)
+		cdata.journalNames = append(cdata.journalNames, journal)
 		writeHeadWg.Add(1)
 		go fetchWriteHead(journal, gazetteClient, writeHeadOutput, writeHeadWg)
 
@@ -118,19 +255,18 @@ func main() {
 
 		for i, member := range route.Entries {
 			var memberID = member.Key[prefix:]
-			var info, ok = members[memberID]
+			var info, ok = cdata.members[memberID]
 
 			if !ok {
-				memberNames = append(memberNames, memberID)
+				cdata.memberNames = append(cdata.memberNames, memberID)
 			}
 
 			if i == 0 {
 				info.masters++
-				owners[journal] = memberID
+				cdata.owners[journal] = memberID
 
 				// |memberID| should be an IP:port pair.
-				var host string
-				if host, _, err = net.SplitHostPort(memberID); err != nil {
+				if host, _, err := net.SplitHostPort(memberID); err != nil {
 					log.WithFields(log.Fields{"master": memberID, "err": err}).Error(
 						"route replica name is not a host/port pair")
 				} else {
@@ -142,13 +278,16 @@ func main() {
 				info.replicas++
 			}
 
-			members[memberID] = info
+			cdata.members[memberID] = info
 		}
 	}
+	return collectHeads(readHeadWg, readHeadOutput, writeHeadWg, writeHeadOutput)
+}
 
+func collectHeads(readHeadWg *sync.WaitGroup, readHeadOutput chan journalHeadResult,
+	writeHeadWg *sync.WaitGroup, writeHeadOutput chan journalHeadResult) (map[string]int64, map[string]int64) {
 	var readHeads = make(map[string]int64)
 	var writeHeads = make(map[string]int64)
-
 	readHeadWg.Wait()
 	close(readHeadOutput)
 	for r := range readHeadOutput {
@@ -158,7 +297,6 @@ func main() {
 		}
 		readHeads[r.name] = r.head
 	}
-
 	writeHeadWg.Wait()
 	close(writeHeadOutput)
 	for r := range writeHeadOutput {
@@ -168,12 +306,15 @@ func main() {
 		}
 		writeHeads[r.name] = r.head
 	}
+	return readHeads, writeHeads
+}
 
+func getJournalLag(writeHeads map[string]int64, readHeads map[string]int64, cdata *ConsumerData) map[string]int64 {
 	// Determine total lag value per-member.
 	var journalLag = make(map[string]int64)
 	for journal, writeHead := range writeHeads {
-		var owner = owners[journal]
-		var member = members[owner]
+		var owner = cdata.owners[journal]
+		var member = cdata.members[owner]
 		if readHead, ok := readHeads[journal]; !ok {
 			// |journalLag[journal]| remains unavailable.
 		} else if readHead == journalNotBeingRead {
@@ -188,53 +329,10 @@ func main() {
 				journalLag[journal] = 0
 			}
 		}
-		members[owner] = member
+		cdata.members[owner] = member
 	}
-
-	if *short {
-		var consumerLag int64
-		for _, member := range memberNames {
-			var info = members[member]
-			if info.totalLag != infinityLag {
-				consumerLag += info.totalLag
-			}
-		}
-		fmt.Println(consumerLag / bytesPerGigabyte)
-	} else {
-		var journalsTable = tablewriter.NewWriter(os.Stdout)
-		journalsTable.SetHeader([]string{"Journal", "Lag", "Owner"})
-
-		sort.Strings(journalNames)
-		for _, journal := range journalNames {
-			var owner = owners[journal]
-			if lag, ok := journalLag[journal]; !ok || lag == journalNotBeingRead {
-				journalsTable.Append([]string{journal, "<no data>", owner})
-			} else if lag == 0 {
-				journalsTable.Append([]string{journal, "<up-to-date>", owner})
-			} else {
-				journalsTable.Append([]string{journal, humanize.Bytes(uint64(lag)), owner})
-			}
-		}
-		journalsTable.Render()
-
-		var membersTable = tablewriter.NewWriter(os.Stdout)
-		membersTable.SetHeader([]string{"Member", "Masters", "Replicas", "Total Lag"})
-
-		sort.Strings(memberNames)
-		for _, member := range memberNames {
-			var info = members[member]
-			var lagStr string
-			if info.totalLag == infinityLag {
-				lagStr = "\u221e"
-			} else {
-				lagStr = humanize.Bytes(uint64(info.totalLag))
-			}
-
-			membersTable.Append([]string{
-				member, strconv.Itoa(info.masters), strconv.Itoa(info.replicas), lagStr})
-		}
-		membersTable.Render()
-	}
+	cdata.journalLag = journalLag
+	return journalLag
 }
 
 type journalHeadResult struct {
