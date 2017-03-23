@@ -167,12 +167,6 @@ func newSFTPFs(properties Properties, host string, path string, user *url.Userin
 	if err != nil {
 		return nil, err
 	}
-	// Create the path in the destination FS if it doesn't exist. This behavior is
-	// unique to SFTP but brings behavior to parity with other cloud storage filesystems
-	// in which directories are not first-class citizens.
-	if err = res.MkdirAll(path, os.ModeDir); err != nil {
-		return nil, err
-	}
 	log.WithField("fs", res).Debug("using sftp client")
 	return &res, nil
 }
