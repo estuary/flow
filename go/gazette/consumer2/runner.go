@@ -5,6 +5,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	etcd3 "github.com/coreos/etcd/clientv3"
 
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
@@ -36,6 +37,7 @@ type Runner struct {
 	ReplicaCount int
 
 	Etcd    etcd.Client
+	Etcd3   *etcd3.Client
 	Gazette journal.Client
 
 	// Optional hooks for notification of Shard lifecycle. These are largely
