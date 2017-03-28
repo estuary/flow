@@ -1,4 +1,9 @@
-// gazconsumer lol
+// Given a list of -prefix arguments, expand those prefixes to a list of Etcd
+// paths to Gazette consumers and compare the state of the consumer to the
+// state of the source journals to determine how much data backlog exists for
+// each consumer. In monitor mode, expose all consumers as Prometheus metrics
+// for continuous monitoring. Otherwise, print the state of each consumer as a
+// table to stdout.
 package main
 
 import (
@@ -36,9 +41,11 @@ const (
 )
 
 var (
-	monitor         = flag.Bool("monitor", false, "Use arguments to provide metrics to Prometheus.")
-	monitorInterval = flag.Duration("monitorInterval", time.Minute, "How often to update metrics.")
-	prefixList      prefixFlagSet
+	monitor = flag.Bool("monitor", false,
+		"Use arguments to provide metrics to Prometheus.")
+	monitorInterval = flag.Duration("monitorInterval", time.Minute,
+		"How often to update metrics.")
+	prefixList prefixFlagSet
 
 	// Global service objects.
 	keysAPI       etcd.KeysAPI
@@ -80,7 +87,7 @@ type journalData struct {
 	state string
 }
 
-func (cd consumerData) TotalLag() int64 {
+func (cd consumerData) totalLag() int64 {
 	var res int64 = 0
 	for _, data := range cd.journalLag {
 		res += data.lag
@@ -121,13 +128,15 @@ func main() {
 	}
 }
 
+// Check all specified consumers once, and log metrics or to stdout based on
+// whether |monitor| mode is enabled.
 func checkConsumers(consumerList []string) {
 	for _, consumer := range consumerList {
-		var cdata = makeConsumerData(consumer)
+		var cdata = buildConsumerData(consumer)
 		// Do not log statistics for consumers with 0 members.
 		if *monitor {
 			if len(cdata.memberNames) > 0 {
-				varz.ObtainCount("gazconsumer", "lag", "#consumer", consumer).Set(cdata.TotalLag())
+				varz.ObtainCount("gazconsumer", "lag", "#consumer", consumer).Set(cdata.totalLag())
 			}
 		} else {
 			fmt.Printf("Consumer: %s\n\n", consumer)
@@ -136,6 +145,7 @@ func checkConsumers(consumerList []string) {
 	}
 }
 
+// Human readable output for a |consumerData|.
 func printLong(cdata consumerData, out io.Writer) {
 	var journalsTable = tablewriter.NewWriter(out)
 	journalsTable.SetHeader([]string{"Journal", "Lag", "State", "Owner"})
@@ -166,93 +176,49 @@ func printLong(cdata consumerData, out io.Writer) {
 	membersTable.Render()
 }
 
-func makeConsumerData(consumerPath string) consumerData {
+// Given a |consumerPath| pointing to a valid consumer in Etcd, build a
+// |consumerData| structure showing all the journals being read by that
+// consumer and the state of each live consuming master of each of those
+// journals.
+func buildConsumerData(consumerPath string) consumerData {
 	var key = path.Join(consumerPath, "items")
-	shardsRoot, err := keysAPI.Get(context.Background(), key,
+	var itemsRoot, err = keysAPI.Get(context.Background(), key,
 		&etcd.GetOptions{Recursive: true, Sort: true})
 	if err != nil {
 		log.WithFields(log.Fields{"err": err, "key": key}).Fatal("can't load etcd key")
 	}
-	key = path.Join(consumerPath, "offsets")
 
 	// Optional: Use Etcd offsets of the consumer to produce a maximum lag that
 	// can be relied upon even for shards that are in-transition. If the offsets
-	// don't exist, carry on.
-	offsetsRoot, _ := keysAPI.Get(context.Background(), key,
+	// don't exist, |makeEtcdOffsetMap| does nothing.
+	key = path.Join(consumerPath, "offsets")
+	var offsetsRoot, _ = keysAPI.Get(context.Background(), key,
 		&etcd.GetOptions{Recursive: true})
-	var etcdOffsets = makeEtcdOffsetMap(key, offsetsRoot)
+	var etcdOffsets = makeEtcdOffsetMap(key, offsetsRoot.Node)
 
-	var cdata consumerData
-	cdata.members = make(map[string]memberData)
-	cdata.owners = make(map[string]string)
-	readHeads, writeHeads := getHeads(shardsRoot, &cdata)
-	getJournalLag(etcdOffsets, writeHeads, readHeads, &cdata)
-	return cdata
-}
-
-type MemberInfo struct {
-	Journal journal.Name
-	Member  string
-	Master  bool
-}
-
-func makeEtcd(topic string) *etcd.Response {
-	etcdClient, err := etcd.New(etcd.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
-	if err != nil {
-		log.WithField("err", err).Fatal("failed to init etcd client")
-	}
-	var keysAPI = etcd.NewKeysAPI(etcdClient)
-	var key = path.Join(topic, "items")
-	shardsRoot, err := keysAPI.Get(context.Background(), key,
-		&etcd.GetOptions{Recursive: true, Sort: true})
-	if err != nil {
-		log.WithFields(log.Fields{"err": err, "key": key}).Fatal("can't load etcd key")
-	}
-	return shardsRoot
-}
-
-func getMasterRepInfo(topic string) []MemberInfo {
-	shardsRoot := makeEtcd(topic)
-
-	var memberInfos []MemberInfo
-
-	for _, node := range shardsRoot.Node.Nodes {
-		var route = consensus.NewRoute(shardsRoot, node)
-		var prefix = len(route.Item.Key) + 1
-
-		// Derive journal name from item name.
-		var parts = strings.Split(path.Base(route.Item.Key), "-")
-		var journalName = fmt.Sprintf("pippio-journals/%s/part-%s",
-			strings.Join(parts[1:len(parts)-1], "-"), parts[len(parts)-1])
-
-		for i, member := range route.Entries {
-			var memberID = member.Key[prefix:]
-
-			// |memberID| should be an IP:port pair.
-			if host, _, err := net.SplitHostPort(memberID); err != nil {
-				log.WithFields(log.Fields{"master": memberID, "err": err}).Error(
-					"route replica name is not a host/port pair")
-			} else {
-				memberInfos = append(memberInfos, MemberInfo{
-					Member:  host,
-					Master:  (i == 0),
-					Journal: journal.Name(journalName),
-				})
-			}
-		}
+	var consumer = consumerData{
+		members: make(map[string]memberData),
+		owners:  make(map[string]string),
 	}
 
-	return memberInfos
+	var readHeads, writeHeads = getHeads(itemsRoot, &consumer)
+	getJournalLag(etcdOffsets, writeHeads, readHeads, &consumer)
+
+	return consumer
 }
 
-func getHeads(shardsRoot *etcd.Response, cdata *consumerData) (map[string]int64, map[string]int64) {
+// Based on the items/ hierarchy of a Gazette consumer |itemsRoot|, populate
+// |cdata| with:
+// - The read-heads for all journals being mastered by all replicas in the
+//   consumer group.
+// - The write-heads for all the journals (asking Gazette itself.)
+func getHeads(itemsRoot *etcd.Response, cdata *consumerData) (map[string]int64, map[string]int64) {
 	var readHeadOutput = make(chan journalHeadResult, 1024)
 	var writeHeadOutput = make(chan journalHeadResult, 1024)
 	var readHeadWg = new(sync.WaitGroup)
 	var writeHeadWg = new(sync.WaitGroup)
-	for _, node := range shardsRoot.Node.Nodes {
-		var route = consensus.NewRoute(shardsRoot, node)
+	for _, node := range itemsRoot.Node.Nodes {
+		var route = consensus.NewRoute(itemsRoot, node)
 		var prefix = len(route.Item.Key) + 1
 
 		// Derive journal name from item name.
@@ -291,6 +257,7 @@ func getHeads(shardsRoot *etcd.Response, cdata *consumerData) (map[string]int64,
 					log.WithFields(log.Fields{"master": memberID, "err": err}).Error(
 						"route replica name is not a host/port pair")
 				} else {
+					// Connect to the debug port (8090) of the IP.
 					var debugURL = fmt.Sprintf("http://%s:8090/debug/vars", host)
 					readHeadWg.Add(1)
 					go fetchReadHead(journal, httpClient, debugURL, readHeadOutput, readHeadWg)
@@ -305,6 +272,8 @@ func getHeads(shardsRoot *etcd.Response, cdata *consumerData) (map[string]int64,
 	return collectHeads(readHeadWg, readHeadOutput, writeHeadWg, writeHeadOutput)
 }
 
+// Wait for dispatched calls of fetchReadHead and fetchWriteHead to return, and
+// collect the results in |readHeads| and |writeHeads| return values.
 func collectHeads(readHeadWg *sync.WaitGroup, readHeadOutput chan journalHeadResult,
 	writeHeadWg *sync.WaitGroup, writeHeadOutput chan journalHeadResult) (map[string]int64, map[string]int64) {
 	var readHeads = make(map[string]int64)
@@ -330,6 +299,13 @@ func collectHeads(readHeadWg *sync.WaitGroup, readHeadOutput chan journalHeadRes
 	return readHeads, writeHeads
 }
 
+// Using the collected values:
+// - |readHeads| from live consumer processes
+// - |etcdOffsets| from Gazette consumer state snapshot located in Etcd which lower-bounds
+//   the state of the consumer in the absence of a live member
+// - |writeHeads| from Gazette indicating the size of each source journal
+// Populate |cdata| which contains information about the total lag of the consumer on a per
+// shard basis.
 func getJournalLag(etcdOffsets, writeHeads, readHeads map[string]int64, cdata *consumerData) {
 	// Determine total lag value per-member.
 	var journalLag = make(map[string]journalData)
@@ -381,6 +357,8 @@ type journalHeadResult struct {
 	err  error
 }
 
+// Worker method to request the write-head (e.g. latest offset) of a specified
+// journal from Gazette. Parallelized so all requests occur simultaneously.
 func fetchWriteHead(name string, client *gazette.Client, output chan<- journalHeadResult, wg *sync.WaitGroup) {
 	var args = journal.ReadArgs{Journal: journal.Name(name)}
 	var result, _ = client.Head(args)
@@ -388,11 +366,14 @@ func fetchWriteHead(name string, client *gazette.Client, output chan<- journalHe
 	wg.Done()
 }
 
+// Worker method to request the read-head (e.g. latest read offset) of a
+// specified journal on a specified replica of a consumer which is mastering
+// the shard, by connecting to the replica's debug port and checking its
+// .gazette.readers JSON field.  Parallelized so all requests occur
+// simultaneously.
 func fetchReadHead(name string, client *http.Client, url string, output chan<- journalHeadResult, wg *sync.WaitGroup) {
 	var vars varsData
 	var result = journalHeadResult{name: name}
-
-	// Connect to the debug port (8090) of the IP.
 	var resp *http.Response
 	resp, result.err = client.Get(url)
 
@@ -416,6 +397,11 @@ func fetchReadHead(name string, client *http.Client, url string, output chan<- j
 	wg.Done()
 }
 
+// Checks all members of |prefixList| to see if it is a Gazette consumer
+// directory (e.g. containing "items" or "members" children) or not. If it is,
+// return it. If not, and it is a directory, visit the child nodes to see if
+// they are Gazette consumers. Returns a list of valid consumer Etcd prefixes
+// that result from walking the Etcd hierarchy.
 func expandPrefixList(prefixList []string) []string {
 	var consumerList []string
 	for i := 0; i < len(prefixList); i++ {
@@ -446,13 +432,18 @@ func expandPrefixList(prefixList []string) []string {
 	return consumerList
 }
 
-func makeEtcdOffsetMap(key string, r *etcd.Response) map[string]int64 {
+// Given |root| as the etcd.Node representing the offsets/ directory of a
+// Gazette consumer, build a journal : read offset mapping that represents our
+// best guess for what the lag value for a given journal is when there is
+// nothing actively reading that journal. The key is that the lag cannot be
+// greater than the amount stored in Etcd.
+func makeEtcdOffsetMap(key string, root *etcd.Node) map[string]int64 {
 	var offsets = make(map[string]int64)
-	if r == nil {
+	if root == nil {
 		return offsets
 	}
 
-	var visit = r.Node.Nodes
+	var visit = root.Nodes
 	for i := 0; i < len(visit); i++ {
 		var node = visit[i]
 		if node.Dir {
@@ -469,6 +460,7 @@ func makeEtcdOffsetMap(key string, r *etcd.Response) map[string]int64 {
 	return offsets
 }
 
+// Collect successive -prefix /x/y/z flag usages into a slice.
 type prefixFlagSet []string
 
 func (f *prefixFlagSet) String() string {
