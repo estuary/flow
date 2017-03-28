@@ -33,7 +33,6 @@ import (
 const (
 	bytesPerGigabyte    = 1024 * 1024 * 1024
 	journalNotBeingRead = -1
-	minimumLag          = 1048576 * 512
 )
 
 var (
@@ -73,13 +72,18 @@ type consumerData struct {
 	members      map[string]memberData
 	owners       map[string]string
 
-	journalLag map[string]int64
+	journalLag map[string]journalData
+}
+
+type journalData struct {
+	lag   int64
+	state string
 }
 
 func (cd consumerData) TotalLag() int64 {
 	var res int64 = 0
-	for _, lag := range cd.journalLag {
-		res += lag
+	for _, data := range cd.journalLag {
+		res += data.lag
 	}
 	return res
 }
@@ -120,8 +124,13 @@ func main() {
 func checkConsumers(consumerList []string) {
 	for _, consumer := range consumerList {
 		var cdata = makeConsumerData(consumer)
-		varz.ObtainCount("gazette", "consumer", "lag", "#consumer", consumer).Set(cdata.TotalLag())
-		if !*monitor {
+		// Do not log statistics for consumers with 0 members.
+		if *monitor {
+			if len(cdata.memberNames) > 0 {
+				varz.ObtainCount("gazconsumer", "lag", "#consumer", consumer).Set(cdata.TotalLag())
+			}
+		} else {
+			fmt.Printf("Consumer: %s\n\n", consumer)
 			printLong(cdata, os.Stdout)
 		}
 	}
@@ -129,20 +138,14 @@ func checkConsumers(consumerList []string) {
 
 func printLong(cdata consumerData, out io.Writer) {
 	var journalsTable = tablewriter.NewWriter(out)
-	journalsTable.SetHeader([]string{"Journal", "Lag", "Owner"})
+	journalsTable.SetHeader([]string{"Journal", "Lag", "State", "Owner"})
 	sort.Strings(cdata.journalNames)
 	for _, journal := range cdata.journalNames {
 		var owner = cdata.owners[journal]
-		if lag, ok := cdata.journalLag[journal]; !ok {
-			journalsTable.Append([]string{journal, "<no data>", owner})
-		} else if cdata.members[owner].states[journal] == "recovering" {
-			journalsTable.Append([]string{journal, "<recovering>", owner})
-		} else if lag == journalNotBeingRead {
-			journalsTable.Append([]string{journal, "<owned, not reading>", owner})
-		} else if lag == 0 {
-			journalsTable.Append([]string{journal, "<up-to-date>", owner})
+		if data, ok := cdata.journalLag[journal]; !ok {
+			journalsTable.Append([]string{journal, "unknown", data.state, owner})
 		} else {
-			journalsTable.Append([]string{journal, humanize.Bytes(uint64(lag)), owner})
+			journalsTable.Append([]string{journal, humanize.Bytes(uint64(data.lag)), data.state, owner})
 		}
 	}
 	journalsTable.Render()
@@ -170,11 +173,20 @@ func makeConsumerData(consumerPath string) consumerData {
 	if err != nil {
 		log.WithFields(log.Fields{"err": err, "key": key}).Fatal("can't load etcd key")
 	}
+	key = path.Join(consumerPath, "offsets")
+
+	// Optional: Use Etcd offsets of the consumer to produce a maximum lag that
+	// can be relied upon even for shards that are in-transition. If the offsets
+	// don't exist, carry on.
+	offsetsRoot, _ := keysAPI.Get(context.Background(), key,
+		&etcd.GetOptions{Recursive: true})
+	var etcdOffsets = makeEtcdOffsetMap(key, offsetsRoot)
+
 	var cdata consumerData
 	cdata.members = make(map[string]memberData)
 	cdata.owners = make(map[string]string)
 	readHeads, writeHeads := getHeads(shardsRoot, &cdata)
-	getJournalLag(writeHeads, readHeads, &cdata)
+	getJournalLag(etcdOffsets, writeHeads, readHeads, &cdata)
 	return cdata
 }
 
@@ -318,30 +330,49 @@ func collectHeads(readHeadWg *sync.WaitGroup, readHeadOutput chan journalHeadRes
 	return readHeads, writeHeads
 }
 
-func getJournalLag(writeHeads map[string]int64, readHeads map[string]int64, cdata *consumerData) map[string]int64 {
+func getJournalLag(etcdOffsets, writeHeads, readHeads map[string]int64, cdata *consumerData) {
 	// Determine total lag value per-member.
-	var journalLag = make(map[string]int64)
+	var journalLag = make(map[string]journalData)
 	for journal, writeHead := range writeHeads {
 		var owner = cdata.owners[journal]
 		var member = cdata.members[owner]
-		if readHead, ok := readHeads[journal]; !ok {
+		var readHead int64
+		var ok bool
+		var state = "OK"
+		var etcdState string
+
+		if readHead, ok = readHeads[journal]; !ok {
 			// |journalLag[journal]| remains unavailable.
+		} else if etcdState, ok = member.states[journal]; ok && etcdState == "recovering" {
+			// The shard reports that it is recovering. For now, use the read
+			// offsets of the journal stored in Etcd, assuming that the replica
+			// will recover to that point eventually (e.g. the lag cannot
+			// be less than that amount.)
+			state = "Recovering"
+			readHead = etcdOffsets[journal]
 		} else if readHead == journalNotBeingRead {
-			journalLag[journal] = journalNotBeingRead
-			member.hasUnreadJournals = true
+			// The shard is not recovering, but is not busy reading the
+			// journal.
+			state = "NotReading"
+			readHead = etcdOffsets[journal]
+		} else if readHead < etcdOffsets[journal] {
+			// The shard is not recovering and is actively reading. The
+			// offsets stored for this shard in Etcd exceed the ones reported
+			// by the replica.
+			state = "EtcdAhead"
+			readHead = etcdOffsets[journal]
+		}
+
+		var delta = writeHead - readHead
+		if delta >= 0 {
+			journalLag[journal] = journalData{lag: delta, state: state}
+			member.totalLag += delta
 		} else {
-			var delta = writeHead - readHead
-			if delta >= minimumLag {
-				journalLag[journal] = delta
-				member.totalLag += delta
-			} else {
-				journalLag[journal] = 0
-			}
+			journalLag[journal] = journalData{lag: 0, state: state}
 		}
 		cdata.members[owner] = member
 	}
 	cdata.journalLag = journalLag
-	return journalLag
 }
 
 type journalHeadResult struct {
@@ -413,6 +444,29 @@ func expandPrefixList(prefixList []string) []string {
 	}
 
 	return consumerList
+}
+
+func makeEtcdOffsetMap(key string, r *etcd.Response) map[string]int64 {
+	var offsets = make(map[string]int64)
+	if r == nil {
+		return offsets
+	}
+
+	var visit = r.Node.Nodes
+	for i := 0; i < len(visit); i++ {
+		var node = visit[i]
+		if node.Dir {
+			visit = append(visit, node.Nodes...)
+		} else {
+			var off, err = strconv.ParseInt(node.Value, 16, 64)
+			if err != nil {
+				log.WithFields(log.Fields{"key": key, "err": err}).Warn("can't parse offset")
+			} else {
+				offsets[strings.TrimPrefix(node.Key, key+"/")] = off
+			}
+		}
+	}
+	return offsets
 }
 
 type prefixFlagSet []string
