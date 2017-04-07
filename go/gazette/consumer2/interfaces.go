@@ -13,7 +13,7 @@ import (
 // the same Shard. This enables a continuous "join" capability across topics.
 // A topic's Partitions must be a multiple of all other topics in the group.
 // Where topics have mismatched numbers of partitions, topics with fewer
-// partitions have each partition procesed by multiple Shards.
+// partitions have each partition proessed by multiple Shards.
 type TopicGroup struct {
 	Name   string
 	Topics []*topic.Description
