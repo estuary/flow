@@ -33,6 +33,46 @@ func (s *CommonSuite) TestLocationFromAWSEndpoint(c *gc.C) {
 	c.Check(uri, gc.Equals, "s3://testbucket/testfolder")
 	c.Check(properties.Get("AWSAccessKeyID"), gc.Equals, "SOMEACCESSKEY")
 	c.Check(properties.Get("AWSSecretAccessKey"), gc.Equals, "SOMESECRET")
+	c.Check(properties.Get("S3SSEAlgorithm"), gc.Equals, "AES256")
+}
+
+func (s *CommonSuite) TestS3Validate(c *gc.C) {
+	var ep Endpoint
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "can't tell what sort of Endpoint this is")
+	ep.AWSAccessKeyID = "AKIATHINGY"
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "must specify aws secret access key")
+	ep.AWSSecretAccessKey = "XOXOXOXOXOXO"
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "must specify s3 bucket")
+	ep.S3Bucket = "pippio-uploads"
+
+	c.Check(ep.Validate(), gc.IsNil)
+	ep.S3SSEAlgorithm = "rot13"
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "no such SSE algorithm: rot13")
+	ep.S3SSEAlgorithm = "AES256"
+
+	c.Check(ep.Validate(), gc.IsNil)
+}
+
+func (s *CommonSuite) TestSFTPValidate(c *gc.C) {
+	var ep = Endpoint{SFTPHostname: "sftp.yourface.com"}
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "must specify sftp port")
+	ep.SFTPPort = "22"
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "must specify sftp username")
+	ep.SFTPUsername = "pacman"
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "must specify sftp password")
+	ep.SFTPPassword = "iheartmisspacman"
+
+	c.Check(ep.Validate(), gc.ErrorMatches, "must specify sftp directory")
+	ep.SFTPDirectory = "/blinky"
+
+	c.Check(ep.Validate(), gc.IsNil)
 }
 
 func (s *CommonSuite) TestLocationFromSFTPEndpoint(c *gc.C) {
@@ -49,7 +89,8 @@ const testAWSEndpoint = `
   "s3_bucket": "testbucket",
   "s3_subfolder": "testfolder",
   "aws_secret_access_key": "SOMESECRET",
-  "aws_access_key_id": "SOMEACCESSKEY"
+  "aws_access_key_id": "SOMEACCESSKEY",
+  "sse": "AES256"
 }
 `
 

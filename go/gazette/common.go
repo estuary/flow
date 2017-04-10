@@ -3,7 +3,9 @@ package cloudstore
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"sort"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
@@ -19,15 +21,23 @@ type Endpoint struct {
 	S3Bucket           string `json:"s3_bucket"`
 	S3Subfolder        string `json:"s3_subfolder"`
 
+	// TODO(joshk): Migrate this to 's3_sse_algorithm'.
+	S3SSEAlgorithm string `json:"sse"`
+
 	// TODO(joshk): Support GCS
 
 	// SFTP
-	SFTPHostname  string `json:"sftp_hostname"`
+	SFTPHostname string `json:"sftp_hostname"`
+	// TODO(joshk): This should be an integer.
 	SFTPPort      string `json:"sftp_port"`
 	SFTPUsername  string `json:"sftp_username"`
 	SFTPPassword  string `json:"sftp_password"`
 	SFTPDirectory string `json:"sftp_directory"`
 }
+
+var (
+	validSSEAlgorithms = []string{"AES256"}
+)
 
 // Validate satisfies the model interface
 func (ep *Endpoint) Validate() error {
@@ -46,9 +56,15 @@ func (ep *Endpoint) Validate() error {
 			return errors.New("must specify aws secret access key")
 		} else if ep.S3Bucket == "" {
 			return errors.New("must specify s3 bucket")
+		} else if ep.S3SSEAlgorithm != "" && !contains(validSSEAlgorithms, ep.S3SSEAlgorithm) {
+			return fmt.Errorf("no such SSE algorithm: %s", ep.S3SSEAlgorithm)
 		}
 		//TODO: something about global canned acl and region?
+	} else {
+		return errors.New("can't tell what sort of Endpoint this is")
 	}
+
+	// Fall through on success.
 	return nil
 }
 
@@ -89,6 +105,7 @@ func (ep *Endpoint) Properties(keyPath string) Properties {
 			AWSAccessKeyID:     ep.AWSAccessKeyID,
 			AWSSecretAccessKey: ep.AWSSecretAccessKey,
 			S3GlobalCannedACL:  ep.S3GlobalCannedACL,
+			S3SSEAlgorithm:     ep.S3SSEAlgorithm,
 			S3Region:           ep.S3Region,
 		}
 	} else if ep.IsSFTP() {
@@ -139,4 +156,12 @@ type mapProperties map[string]string
 
 func (mp mapProperties) Get(key string) string {
 	return mp[key]
+}
+
+func contains(slice []string, element string) bool {
+	// |sort.SearchStrings| returns the index of the occurrence or insertion
+	// point if the element doesn't exist. Verify both that the returned index
+	// is in-bounds, and that its value matches the search term.
+	var i = sort.SearchStrings(slice, element)
+	return i < len(slice) && slice[i] == element
 }

@@ -23,6 +23,7 @@ const (
 	AWSSecretAccessKey = "AWSSecretAccessKey"
 	S3Region           = "S3Region"
 	S3GlobalCannedACL  = "S3GlobalCannedACL"
+	S3SSEAlgorithm     = "S3SSEAlgorithm"
 )
 
 // Maps Amazon S3 into an API compatible with cloudstore.FileSystem.
@@ -141,9 +142,10 @@ func (fs *s3Fs) OpenFile(name string, flag int, perm os.FileMode) (File, error) 
 
 		// Begin a multipart upload.
 		var params = s3.CreateMultipartUploadInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(path),
-			ACL:    cannedACL,
+			ACL:                  cannedACL,
+			Bucket:               aws.String(bucket),
+			Key:                  aws.String(path),
+			ServerSideEncryption: fs.sseAlgorithm(),
 		}
 
 		resp, err := svc.CreateMultipartUpload(&params)
@@ -312,6 +314,14 @@ func (fs *s3Fs) credentials() *credentials.Credentials {
 
 func (fs *s3Fs) region() string {
 	return fs.properties.Get(S3Region)
+}
+
+func (fs *s3Fs) sseAlgorithm() *string {
+	if a := fs.properties.Get(S3SSEAlgorithm); a != "" {
+		return aws.String(a)
+	} else {
+		return nil
+	}
 }
 
 func (fs *s3Fs) svc() *s3.S3 {
