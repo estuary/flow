@@ -5,6 +5,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	etcd3 "github.com/coreos/etcd/clientv3"
 )
 
 type shardState string
@@ -78,11 +79,11 @@ func (s *shard) transitionReplica(runner *Runner, tree *etcd.Node) {
 }
 
 // Called from Allocate() goroutine. Cannot block.
-func (s *shard) transitionMaster(runner *Runner, tree *etcd.Node) {
+func (s *shard) transitionMaster(runner *Runner, tree *etcd.Node, client *etcd3.Client) {
 	switch s.state {
 	case shardStateInit:
 		s.transitionReplica(runner, tree)
-		s.transitionMaster(runner, tree)
+		s.transitionMaster(runner, tree, client)
 		return
 	case shardStateReplica:
 		s.state = shardStateMaster
@@ -94,7 +95,7 @@ func (s *shard) transitionMaster(runner *Runner, tree *etcd.Node) {
 	}
 
 	var err error
-	if s.master, err = newMaster(s, tree); err != nil {
+	if s.master, err = newMaster(s, tree, client); err != nil {
 		log.WithFields(log.Fields{"shard": s.id, "err": err}).Error("failed to init master")
 		go abort(runner, s.id)
 		return
