@@ -2,6 +2,7 @@ package cloudstore
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -268,7 +269,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 
 		var objects, err = svc.ListObjectsV2(&listParams)
 		if err != nil {
-			return err
+			return fmt.Errorf("listing objects: %s", err.Error())
 		}
 
 		for i := range objects.Contents {
@@ -282,7 +283,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 			// Strip the full prefix. |rel| is now relative to |path|.
 			var rel, err = filepath.Rel(subPath, *objects.Contents[i].Key)
 			if err != nil {
-				return err
+				return fmt.Errorf("obtaining relative path: %s", err.Error())
 			}
 
 			if werr := walkFn(filepath.Join(root, rel), fp, nil); werr == filepath.SkipDir {
@@ -292,7 +293,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 				return errors.New("SkipDir not implemented for s3Fs")
 			} else if werr != nil {
 				// Allow caller to abort Walk operation.
-				return werr
+				return fmt.Errorf("walking directory: %s", err.Error())
 			}
 		}
 
@@ -302,8 +303,6 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 
 		continuation = objects.NextContinuationToken
 	}
-
-	return nil
 }
 
 // TODO(joshk): Support IAM roles. Only matters if we are actually deployed on AWS.
