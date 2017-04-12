@@ -319,6 +319,8 @@ func getJournalLag(etcdOffsets, writeHeads, readHeads map[string]int64, cdata *c
 
 		if readHead, ok = readHeads[journal]; !ok {
 			// |journalLag[journal]| remains unavailable.
+			state = "NoOwner"
+			readHead = etcdOffsets[journal]
 		} else if etcdState, ok = member.states[journal]; ok && etcdState == "recovering" {
 			// The shard reports that it is recovering. For now, use the read
 			// offsets of the journal stored in Etcd, assuming that the replica
