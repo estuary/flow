@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/schema"
 
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/varz"
 )
 
 type ReplicateAPI struct {
@@ -79,7 +80,8 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.WithField("err", err).Error("failed to commit transaction")
+	log.WithField("err", err).Warn("failed to commit transaction")
+	varz.ObtainCount("gazette", "failedCommit").Add(1)
 	http.Error(w, err.Error(), http.StatusInternalServerError)
 	return
 }
