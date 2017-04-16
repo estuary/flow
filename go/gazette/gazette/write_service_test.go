@@ -89,9 +89,9 @@ func (s *WriteServiceSuite) TestParallelWriteSpooling(c *gc.C) {
 
 func (s *WriteServiceSuite) TestWriteLifecycle(c *gc.C) {
 	// Shorten the write error cool-off interval for this test.
-	actualTimeout := kWriteServiceCooloffTimeout
-	kWriteServiceCooloffTimeout = time.Millisecond
-	defer func() { kWriteServiceCooloffTimeout = actualTimeout }()
+	actualTimeout := writeServiceCoolOffTimeout
+	writeServiceCoolOffTimeout = time.Millisecond
+	defer func() { writeServiceCoolOffTimeout = actualTimeout }()
 
 	var mockClient mockHttpClient
 
