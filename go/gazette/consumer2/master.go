@@ -11,10 +11,8 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
-	etcd3 "github.com/coreos/etcd/clientv3"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/recoverylog"
@@ -87,17 +85,7 @@ type master struct {
 }
 
 func newMaster(shard *shard, tree *etcd.Node) (*master, error) {
-	// Create an etcd3 client to pass in here
-	var client *etcd3.Client
-	var err error
-	client, err = etcd3.New(etcd3.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-
-	etcdOffsets, err := LoadOffsetsFromEtcd(tree, client)
+	etcdOffsets, err := LoadOffsetsFromEtcd(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -395,8 +383,8 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 			go func(hints string, offsets map[journal.Name]int64, barrier *journal.AsyncAppend) {
 				<-barrier.Ready
 
-				storeHintsToEtcd(m.hintsPath, hints, runner.KeysAPI(), runner.Etcd3)
-				StoreOffsetsToEtcd(runner.ConsumerRoot, offsets, runner.KeysAPI(), runner.Etcd3)
+				storeHintsToEtcd(m.hintsPath, hints, runner.KeysAPI())
+				StoreOffsetsToEtcd(runner.ConsumerRoot, offsets, runner.KeysAPI())
 			}(hints, copyOffsets(txOffsets), lastWriteBarrier)
 
 		default:

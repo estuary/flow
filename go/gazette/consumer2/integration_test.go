@@ -15,7 +15,6 @@ import (
 	"time"
 
 	etcd "github.com/coreos/etcd/client"
-	etcd3 "github.com/coreos/etcd/clientv3"
 	gc "github.com/go-check/check"
 	uuid "github.com/satori/go.uuid"
 
@@ -74,9 +73,8 @@ const (
 )
 
 type ConsumerSuite struct {
-	etcdClient  etcd.Client
-	etcdClient3 *etcd3.Client
-	gazette     struct {
+	etcdClient etcd.Client
+	gazette    struct {
 		*gazette.Client
 		*gazette.WriteService
 	}
@@ -95,10 +93,6 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
 	c.Assert(err, gc.IsNil)
 
-	s.etcdClient3, err = etcd3.New(etcd3.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
-	c.Assert(err, gc.IsNil)
-
 	s.gazette.Client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
 	c.Assert(err, gc.IsNil)
 
@@ -106,10 +100,6 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 	if _, err = etcd.NewKeysAPI(s.etcdClient).Get(context.Background(), "/",
 		&etcd.GetOptions{Recursive: false}); err != nil {
 		c.Skip("Etcd not available: " + err.Error())
-	}
-	// Skip suite if Etcd3 is not available.
-	if _, err = s.etcdClient3.Get(context.Background(), "/"); err != nil {
-		c.Skip("Etcd3 not available: " + err.Error())
 	}
 	// Skip if a Gazette endpoint is not reachable.
 	result, _ := s.gazette.Head(journal.ReadArgs{Journal: kAddSubtractLog, Offset: -1})
@@ -250,7 +240,6 @@ func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
 		ReplicaCount:    replicas,
 
 		Etcd:    s.etcdClient,
-		Etcd3:   s.etcdClient3,
 		Gazette: s.gazette,
 	}
 }

@@ -12,7 +12,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
-	etcd3 "github.com/coreos/etcd/clientv3"
 	"github.com/pippio/consensus"
 	rocks "github.com/tecbot/gorocksdb"
 
@@ -132,37 +131,14 @@ func abort(runner *Runner, shard ShardID) {
 func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recoverylog.FSMHints, error) {
 	var hints recoverylog.FSMHints
 	var key = hintsPath(tree.Key, shard)
-	var err error
+	var parent, i = consensus.FindNode(tree, key)
 
-	// Attempt to grab it from V3
-	var client = runner.Etcd3
-	var resp *etcd3.GetResponse
-	resp, err = client.Get(context.Background(), key)
-	if err != nil {
-		// At this point do not consider V3 errors breaking, since we can
-		// move on to V2. But warn
-		log.WithFields(log.Fields{"key": key, "err": err}).
-			Warn("failed to read from V3 store")
-	}
-	if resp.Count != 0 {
-		// Did find a key but couldn't unmarshal it. In this case we should err
-		if err = json.Unmarshal(resp.Kvs[0].Value, &hints); err != nil {
+	if i < len(parent.Nodes) && parent.Nodes[i].Key == key {
+		if err := json.Unmarshal([]byte(parent.Nodes[i].Value), &hints); err != nil {
 			return recoverylog.FSMHints{}, err
 		}
 	}
 
-	// Nothing in V3. Look in V2 instead.
-	if hints.Log == "" {
-		var parent, i = consensus.FindNode(tree, key)
-
-		if i < len(parent.Nodes) && parent.Nodes[i].Key == key {
-			if err := json.Unmarshal([]byte(parent.Nodes[i].Value), &hints); err != nil {
-				return recoverylog.FSMHints{}, err
-			}
-		}
-	}
-
-	// Still nothing? Initialize new hints with default
 	if hints.Log == "" {
 		hints.Log = recoveryLog(runner.RecoveryLogRoot, shard)
 	}
@@ -170,19 +146,12 @@ func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recovery
 }
 
 // Stores |hints| in Etcd.
-func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI, client *etcd3.Client) {
-	var err error
-	_, err = client.Put(context.Background(), hintsPath, hints, nil)
-	if err != nil {
-		log.WithFields(log.Fields{"path": hintsPath, "err": err}).
-			Warn("failed to store hints (v3)")
-	}
-
-	_, err = keysAPI.Set(context.Background(), hintsPath, hints, nil)
+func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI) {
+	_, err := keysAPI.Set(context.Background(), hintsPath, hints, nil)
 	// Etcd Set is best-effort.
 	if err != nil {
 		log.WithFields(log.Fields{"path": hintsPath, "err": err}).
-			Warn("failed to store hints (v2)")
+			Warn("failed to store hints")
 	}
 }
 
@@ -197,77 +166,36 @@ func offsetFromString(str string) (int64, error) {
 }
 
 // Loads legacy offsets stored in Etcd under |tree|.
-func LoadOffsetsFromEtcd(tree *etcd.Node, client *etcd3.Client) (map[journal.Name]int64, error) {
-	var err error
-
-	// Check whether we're passed a Node first.
-	// Need to do this before loading from V3 because the node key will be
-	// what we search V3 on.
+func LoadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
 	node := consensus.Child(tree, offsetsPrefix)
 	if node == nil {
 		return nil, nil
 	}
 
 	var result = make(map[journal.Name]int64)
+	for _, n := range consensus.TerminalNodes(node) {
+		name := n.Key[len(node.Key)+1:]
 
-	// Attempt to load from V3
-	var resp *etcd3.GetResponse
-	resp, err = client.Get(context.Background(), node.Key, etcd3.WithPrefix())
-	if err != nil {
-		return nil, err
-	}
-
-	for _, kv := range resp.Kvs {
-		result, err = populateOffsetMap(string(kv.Key), string(kv.Value), len(node.Key), result)
+		offset, err := offsetFromString(n.Value)
 		if err != nil {
 			return nil, err
 		}
+		result[journal.Name(name)] = offset
 	}
-
-	// Prefer values from V3 store. If the map is empty then grab from V2
-	if len(result) == 0 {
-		for _, n := range consensus.TerminalNodes(node) {
-			result, err = populateOffsetMap(n.Key, n.Value, len(node.Key), result)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-	return result, nil
-}
-
-func populateOffsetMap(key, value string, prefixLen int, result map[journal.Name]int64) (map[journal.Name]int64, error) {
-	name := key[prefixLen+1:]
-	offset, err := offsetFromString(value)
-	if err != nil {
-		return nil, err
-	}
-	result[journal.Name(name)] = offset
 	return result, nil
 }
 
 // Stores legacy |offsets| in Etcd.
-func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI etcd.KeysAPI, client *etcd3.Client) {
+func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI etcd.KeysAPI) {
 	for name, offset := range offsets {
 		offsetPath := OffsetPath(rootPath, name)
-		var offsetStr = strconv.FormatInt(offset, 16)
-		var err error
-
-		_, err = client.Put(context.Background(), offsetPath,
-			offsetStr, nil)
-		if err != nil {
-			log.WithFields(log.Fields{"path": offsetPath, "err": err}).
-				Warn("failed to store offset (v3)")
-		}
-
-		_, err = keysAPI.Set(context.Background(), offsetPath,
-			offsetStr, nil)
+		_, err := keysAPI.Set(context.Background(), offsetPath,
+			strconv.FormatInt(offset, 16), nil)
 		// Etcd Set is best-effort.
 		if err != nil {
 			log.WithFields(log.Fields{"path": offsetPath, "err": err}).
-				Warn("failed to store offset (v2)")
+				Warn("failed to store offset")
 		}
-
 	}
 }
 

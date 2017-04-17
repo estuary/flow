@@ -10,8 +10,6 @@ import (
 
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
-	etcd3 "github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/mvcc/mvccpb"
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 	rocks "github.com/tecbot/gorocksdb"
@@ -24,8 +22,6 @@ import (
 
 type RoutinesSuite struct {
 	keysAPI *consensus.MockKeysAPI
-	kv      *consensus.MockKV
-	client3 *etcd3.Client
 }
 
 var (
@@ -37,8 +33,6 @@ var (
 
 func (s *RoutinesSuite) SetUpTest(c *gc.C) {
 	s.keysAPI = new(consensus.MockKeysAPI)
-	s.kv = new(consensus.MockKV)
-	s.client3 = &etcd3.Client{KV: s.kv}
 }
 
 func (s *RoutinesSuite) TestShardName(c *gc.C) {
@@ -50,14 +44,7 @@ func (s *RoutinesSuite) TestHintsPath(c *gc.C) {
 }
 
 func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
-	runner := &Runner{
-		RecoveryLogRoot: "path/to/recovery/logs/",
-		Etcd3:           s.client3,
-	}
-
-	// Not testing V3, return nothing so it will fall through to V2
-	s.kv.On("Get", mock.Anything, mock.Anything, mock.Anything).
-		Return(new(etcd3.GetResponse), nil)
+	runner := &Runner{RecoveryLogRoot: "path/to/recovery/logs/"}
 
 	// Expect valid hints are found & loaded.
 	hints, err := loadHintsFromEtcd(id12, runner, s.treeFixture())
@@ -76,81 +63,8 @@ func (s *RoutinesSuite) TestLoadHints(c *gc.C) {
 	})
 }
 
-func (s *RoutinesSuite) TestLoadHintsFromV3(c *gc.C) {
-	runner := &Runner{
-		RecoveryLogRoot: "path/to/recovery/logs/",
-		Etcd3:           s.client3,
-	}
-
-	shard012, _ := json.Marshal(s.hintsFixture())
-	shard042, _ := json.Marshal(s.hintsFixture2())
-
-	// Don't use the fixture, to avoid masking problems in the V3 bits by
-	// returning the correct values out of the V2 store. Includes one hint
-	// which is unique to the V2 store
-	var blankNode = &etcd.Node{
-		Key: "/foo",
-		Dir: true,
-		Nodes: etcd.Nodes{
-			{Key: "/foo/hints/shard-quux-042", Value: string(shard042)},
-		},
-	}
-
-	// Ideally these would be in a fixture. Until we're at the point where we
-	// can mock up a StoreMap with these values, just use mock functions
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-baz-012", mock.Anything).
-		Return(&etcd3.GetResponse{
-			Kvs: []*mvccpb.KeyValue{
-				&mvccpb.KeyValue{Value: shard012},
-			},
-			Count: 1,
-		}, nil)
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-bar-030", mock.Anything).
-		Return(&etcd3.GetResponse{
-			Kvs: []*mvccpb.KeyValue{
-				&mvccpb.KeyValue{Value: []byte("... malformed ...")},
-			},
-			Count: 1,
-		}, nil)
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-foo-008", mock.Anything).
-		Return(&etcd3.GetResponse{
-			Count: 0,
-		}, nil)
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-quux-042", mock.Anything).
-		Return(&etcd3.GetResponse{
-			Count: 0,
-		}, nil)
-
-	// Expect valid hints are found & loaded.
-	hints, err := loadHintsFromEtcd(id12, runner, blankNode)
-	c.Check(err, gc.IsNil)
-	c.Check(hints, gc.DeepEquals, s.hintsFixture())
-
-	// Malformed hints.
-	hints, err = loadHintsFromEtcd(id30, runner, blankNode)
-	c.Check(err, gc.ErrorMatches, "invalid character .*")
-
-	// Missing hints.
-	hints, err = loadHintsFromEtcd(id8, runner, blankNode)
-	c.Check(err, gc.IsNil)
-	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{
-		Log: "path/to/recovery/logs/shard-foo-008",
-	})
-
-	// Missing from V3, found in V2.
-	hints, err = loadHintsFromEtcd(id42, runner, blankNode)
-	c.Check(err, gc.IsNil)
-	c.Check(hints, gc.DeepEquals, s.hintsFixture2())
-	
-	s.kv.AssertExpectations(c)
-}
-
 func (s *RoutinesSuite) TestLoadOffsetsFromEtcd(c *gc.C) {
-	// Respond to V3 Gets but don't return anything
-	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.Anything).Return(
-		new(etcd3.GetResponse), nil)
-
-	offsets, err := LoadOffsetsFromEtcd(s.treeFixture(), s.client3)
+	offsets, err := LoadOffsetsFromEtcd(s.treeFixture())
 	c.Check(err, gc.IsNil)
 
 	c.Check(offsets, gc.DeepEquals, map[journal.Name]int64{
@@ -159,77 +73,15 @@ func (s *RoutinesSuite) TestLoadOffsetsFromEtcd(c *gc.C) {
 		"other-journal/part-002": 44,
 	})
 
-	offsets, err = LoadOffsetsFromEtcd(&etcd.Node{Key: "/foo", Dir: true}, s.client3)
+	offsets, err = LoadOffsetsFromEtcd(&etcd.Node{Key: "/foo", Dir: true})
 	c.Check(err, gc.IsNil)
 	c.Check(offsets, gc.IsNil)
 
 	badTree := s.treeFixture()
 	badTree.Nodes[1].Nodes[1].Nodes[0].Value = "invalid" // other-journal/part-002.
 
-	offsets, err = LoadOffsetsFromEtcd(badTree, s.client3)
+	offsets, err = LoadOffsetsFromEtcd(badTree)
 	c.Check(err, gc.ErrorMatches, "strconv.ParseInt: .*")
-
-	s.kv.AssertExpectations(c)
-}
-
-func (s *RoutinesSuite) TestLoadOffsetsFromEtcd3(c *gc.C) {
-	// Tree with no offsets, so we know any returned values are coming from V3
-	var tree = &etcd.Node{
-		Key: "/foo", Dir: true,
-		Nodes: etcd.Nodes{
-			{Key: "/foo/offsets", Dir: true},
-		},
-	}
-
-	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.Anything).Return(&etcd3.GetResponse{
-		Kvs: []*mvccpb.KeyValue{
-			&mvccpb.KeyValue{
-				Key:   []byte("/foo/offsets/journal/part-001"),
-				Value: []byte("2a"),
-			},
-			&mvccpb.KeyValue{
-				Key:   []byte("/foo/offsets/journal/part-002"),
-				Value: []byte("2b"),
-			},
-			&mvccpb.KeyValue{
-				Key:   []byte("/foo/offsets/other-journal/part-002"),
-				Value: []byte("2c"),
-			},
-		},
-		Count: 3,
-	}, nil).Once()
-
-	offsets, err := LoadOffsetsFromEtcd(tree, s.client3)
-	c.Check(err, gc.IsNil)
-
-	c.Check(offsets, gc.DeepEquals, map[journal.Name]int64{
-		"journal/part-001":       42,
-		"journal/part-002":       43,
-		"other-journal/part-002": 44,
-	})
-
-	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.Anything).Return(&etcd3.GetResponse{
-		Kvs: []*mvccpb.KeyValue{
-			&mvccpb.KeyValue{
-				Key:   []byte("/foo/offsets/journal/part-001"),
-				Value: []byte("2a"),
-			},
-			&mvccpb.KeyValue{
-				Key:   []byte("/foo/offsets/journal/part-002"),
-				Value: []byte("2b"),
-			},
-			&mvccpb.KeyValue{
-				Key:   []byte("/foo/offsets/other-journal/part-002"),
-				Value: []byte("invalid"),
-			},
-		},
-		Count: 3,
-	}, nil).Once()
-
-	offsets, err = LoadOffsetsFromEtcd(tree, s.client3)
-	c.Check(err, gc.ErrorMatches, "strconv.ParseInt: .*")
-
-	s.kv.AssertExpectations(c)
 }
 
 func (s *RoutinesSuite) TestStoreHintsToEtcd(c *gc.C) {
@@ -239,12 +91,8 @@ func (s *RoutinesSuite) TestStoreHintsToEtcd(c *gc.C) {
 	s.keysAPI.On("Set", mock.Anything, hintsPath, string(shard012),
 		mock.Anything).Return(&etcd.Response{}, nil)
 
-	s.kv.On("Put", mock.Anything, hintsPath, string(shard012),
-		mock.Anything).Return(&etcd3.PutResponse{}, nil)
-
-	storeHintsToEtcd(hintsPath, string(shard012), s.keysAPI, s.client3)
+	storeHintsToEtcd(hintsPath, string(shard012), s.keysAPI)
 	s.keysAPI.AssertExpectations(c)
-	s.kv.AssertExpectations(c)
 }
 
 func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
@@ -255,12 +103,9 @@ func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
 	for k, v := range offsets {
 		s.keysAPI.On("Set", mock.Anything, OffsetPath(rootPath, k), strconv.FormatInt(v, 16),
 			mock.Anything).Return(&etcd.Response{}, nil)
-		s.kv.On("Put", mock.Anything, OffsetPath(rootPath, k), strconv.FormatInt(v, 16),
-			mock.Anything).Return(&etcd3.PutResponse{}, nil)
 	}
-	StoreOffsetsToEtcd(rootPath, offsets, s.keysAPI, s.client3)
+	StoreOffsetsToEtcd(rootPath, offsets, s.keysAPI)
 	s.keysAPI.AssertExpectations(c)
-	s.kv.AssertExpectations(c)
 }
 
 func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
@@ -475,12 +320,6 @@ func (s *RoutinesSuite) hintsFixture() recoverylog.FSMHints {
 	return recoverylog.FSMHints{
 		Log:        "some/recovery/logs/shard-baz-012",
 		Properties: []recoverylog.Property{{Path: "foo", Content: "bar"}},
-	}
-}
-
-func (s *RoutinesSuite) hintsFixture2() recoverylog.FSMHints {
-	return recoverylog.FSMHints{
-		Log: "some/recovery/logs/shard-quux-042",
 	}
 }
 
