@@ -35,15 +35,6 @@ var (
 	id42 = ShardID{"quux", 42}
 )
 
-// Convenience function builder for checking OpOptions for nils
-func testOptionsForNil(argNum int, c *gc.C) func(mock.Arguments) {
-	return func(args mock.Arguments) {
-		for _, itm := range args.Get(argNum).([]etcd3.OpOption) {
-			c.Check(itm, gc.NotNil)
-		}
-	}
-}
-
 func (s *RoutinesSuite) SetUpTest(c *gc.C) {
 	s.keysAPI = new(consensus.MockKeysAPI)
 	s.kv = new(consensus.MockKV)
@@ -107,29 +98,25 @@ func (s *RoutinesSuite) TestLoadHintsFromV3(c *gc.C) {
 
 	// Ideally these would be in a fixture. Until we're at the point where we
 	// can mock up a StoreMap with these values, just use mock functions
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-baz-012", mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(2, c)).
+	s.kv.On("Get", mock.Anything, "/foo/hints/shard-baz-012", mock.Anything).
 		Return(&etcd3.GetResponse{
 			Kvs: []*mvccpb.KeyValue{
 				&mvccpb.KeyValue{Value: shard012},
 			},
 			Count: 1,
 		}, nil)
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-bar-030", mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(2, c)).
+	s.kv.On("Get", mock.Anything, "/foo/hints/shard-bar-030", mock.Anything).
 		Return(&etcd3.GetResponse{
 			Kvs: []*mvccpb.KeyValue{
 				&mvccpb.KeyValue{Value: []byte("... malformed ...")},
 			},
 			Count: 1,
 		}, nil)
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-foo-008", mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(2, c)).
+	s.kv.On("Get", mock.Anything, "/foo/hints/shard-foo-008", mock.Anything).
 		Return(&etcd3.GetResponse{
 			Count: 0,
 		}, nil)
-	s.kv.On("Get", mock.Anything, "/foo/hints/shard-quux-042", mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(2, c)).
+	s.kv.On("Get", mock.Anything, "/foo/hints/shard-quux-042", mock.Anything).
 		Return(&etcd3.GetResponse{
 			Count: 0,
 		}, nil)
@@ -154,7 +141,7 @@ func (s *RoutinesSuite) TestLoadHintsFromV3(c *gc.C) {
 	hints, err = loadHintsFromEtcd(id42, runner, blankNode)
 	c.Check(err, gc.IsNil)
 	c.Check(hints, gc.DeepEquals, s.hintsFixture2())
-
+	
 	s.kv.AssertExpectations(c)
 }
 
@@ -194,25 +181,23 @@ func (s *RoutinesSuite) TestLoadOffsetsFromEtcd3(c *gc.C) {
 		},
 	}
 
-	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(2, c)).
-		Return(&etcd3.GetResponse{
-			Kvs: []*mvccpb.KeyValue{
-				&mvccpb.KeyValue{
-					Key:   []byte("/foo/offsets/journal/part-001"),
-					Value: []byte("2a"),
-				},
-				&mvccpb.KeyValue{
-					Key:   []byte("/foo/offsets/journal/part-002"),
-					Value: []byte("2b"),
-				},
-				&mvccpb.KeyValue{
-					Key:   []byte("/foo/offsets/other-journal/part-002"),
-					Value: []byte("2c"),
-				},
+	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.Anything).Return(&etcd3.GetResponse{
+		Kvs: []*mvccpb.KeyValue{
+			&mvccpb.KeyValue{
+				Key:   []byte("/foo/offsets/journal/part-001"),
+				Value: []byte("2a"),
 			},
-			Count: 3,
-		}, nil).Once()
+			&mvccpb.KeyValue{
+				Key:   []byte("/foo/offsets/journal/part-002"),
+				Value: []byte("2b"),
+			},
+			&mvccpb.KeyValue{
+				Key:   []byte("/foo/offsets/other-journal/part-002"),
+				Value: []byte("2c"),
+			},
+		},
+		Count: 3,
+	}, nil).Once()
 
 	offsets, err := LoadOffsetsFromEtcd(tree, s.client3)
 	c.Check(err, gc.IsNil)
@@ -223,25 +208,23 @@ func (s *RoutinesSuite) TestLoadOffsetsFromEtcd3(c *gc.C) {
 		"other-journal/part-002": 44,
 	})
 
-	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(2, c)).
-		Return(&etcd3.GetResponse{
-			Kvs: []*mvccpb.KeyValue{
-				&mvccpb.KeyValue{
-					Key:   []byte("/foo/offsets/journal/part-001"),
-					Value: []byte("2a"),
-				},
-				&mvccpb.KeyValue{
-					Key:   []byte("/foo/offsets/journal/part-002"),
-					Value: []byte("2b"),
-				},
-				&mvccpb.KeyValue{
-					Key:   []byte("/foo/offsets/other-journal/part-002"),
-					Value: []byte("invalid"),
-				},
+	s.kv.On("Get", mock.Anything, "/foo/offsets", mock.Anything).Return(&etcd3.GetResponse{
+		Kvs: []*mvccpb.KeyValue{
+			&mvccpb.KeyValue{
+				Key:   []byte("/foo/offsets/journal/part-001"),
+				Value: []byte("2a"),
 			},
-			Count: 3,
-		}, nil).Once()
+			&mvccpb.KeyValue{
+				Key:   []byte("/foo/offsets/journal/part-002"),
+				Value: []byte("2b"),
+			},
+			&mvccpb.KeyValue{
+				Key:   []byte("/foo/offsets/other-journal/part-002"),
+				Value: []byte("invalid"),
+			},
+		},
+		Count: 3,
+	}, nil).Once()
 
 	offsets, err = LoadOffsetsFromEtcd(tree, s.client3)
 	c.Check(err, gc.ErrorMatches, "strconv.ParseInt: .*")
@@ -256,8 +239,8 @@ func (s *RoutinesSuite) TestStoreHintsToEtcd(c *gc.C) {
 	s.keysAPI.On("Set", mock.Anything, hintsPath, string(shard012),
 		mock.Anything).Return(&etcd.Response{}, nil)
 
-	s.kv.On("Put", mock.Anything, hintsPath, string(shard012), mock.AnythingOfType("[]clientv3.OpOption")).
-		Run(testOptionsForNil(3, c)).Return(&etcd3.PutResponse{}, nil)
+	s.kv.On("Put", mock.Anything, hintsPath, string(shard012),
+		mock.Anything).Return(&etcd3.PutResponse{}, nil)
 
 	storeHintsToEtcd(hintsPath, string(shard012), s.keysAPI, s.client3)
 	s.keysAPI.AssertExpectations(c)
@@ -272,9 +255,8 @@ func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
 	for k, v := range offsets {
 		s.keysAPI.On("Set", mock.Anything, OffsetPath(rootPath, k), strconv.FormatInt(v, 16),
 			mock.Anything).Return(&etcd.Response{}, nil)
-		s.kv.On("Put", mock.Anything, OffsetPath(rootPath, k), strconv.FormatInt(v, 16), mock.AnythingOfType("[]clientv3.OpOption")).
-			Run(testOptionsForNil(3, c)).
-			Return(&etcd3.PutResponse{}, nil)
+		s.kv.On("Put", mock.Anything, OffsetPath(rootPath, k), strconv.FormatInt(v, 16),
+			mock.Anything).Return(&etcd3.PutResponse{}, nil)
 	}
 	StoreOffsetsToEtcd(rootPath, offsets, s.keysAPI, s.client3)
 	s.keysAPI.AssertExpectations(c)

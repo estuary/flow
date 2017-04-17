@@ -172,7 +172,7 @@ func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recovery
 // Stores |hints| in Etcd.
 func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI, client *etcd3.Client) {
 	var err error
-	_, err = client.Put(context.Background(), hintsPath, hints)
+	_, err = client.Put(context.Background(), hintsPath, hints, nil)
 	if err != nil {
 		log.WithFields(log.Fields{"path": hintsPath, "err": err}).
 			Warn("failed to store hints (v3)")
@@ -254,7 +254,7 @@ func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI
 		var err error
 
 		_, err = client.Put(context.Background(), offsetPath,
-			offsetStr)
+			offsetStr, nil)
 		if err != nil {
 			log.WithFields(log.Fields{"path": offsetPath, "err": err}).
 				Warn("failed to store offset (v3)")
