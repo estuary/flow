@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	etcd "github.com/coreos/etcd/client"
-	etcd3 "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/store"
 	"golang.org/x/net/context"
 )
@@ -272,15 +271,4 @@ type KeysAPI interface {
 }
 type Watcher interface {
 	Next(context.Context) (*etcd.Response, error)
-}
-
-// Putting here for consistency with the other mock interfaces - should
-// likely move somewhere else once more of consensus moves to etcd3
-type KV interface {
-    Put(ctx context.Context, key, val string, opts ...etcd3.OpOption) (*etcd3.PutResponse, error)
-    Get(ctx context.Context, key string, opts ...etcd3.OpOption) (*etcd3.GetResponse, error)
-    Delete(ctx context.Context, key string, opts ...etcd3.OpOption) (*etcd3.DeleteResponse, error)
-    Compact(ctx context.Context, rev int64, opts ...etcd3.CompactOption) (*etcd3.CompactResponse, error)
-    Do(ctx context.Context, op etcd3.Op) (etcd3.OpResponse, error)
-    Txn(ctx context.Context) etcd3.Txn
 }
