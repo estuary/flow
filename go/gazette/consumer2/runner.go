@@ -154,7 +154,7 @@ func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etc
 	}
 
 	if isMaster {
-		current.transitionMaster(r, tree, r.Etcd3)
+		current.transitionMaster(r, tree)
 	} else if isReplica {
 		current.transitionReplica(r, tree)
 	} else if exists {
