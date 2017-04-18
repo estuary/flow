@@ -16,7 +16,7 @@ var ErrDesyncDetected = errors.New("detected de-synchronization")
 // Frames |m| into |buf|. If |buf| doesn't have enough capacity, it is re-allocatted.
 func Frame(m topic.Marshallable, buf *[]byte) error {
 	length := m.Size() + HeaderLength
-	sizeBuffer(buf, length)
+	SizeBuffer(buf, length)
 	out := *buf
 
 	// Header is a magic word (for de-sync detection), and a 4-byte length.
@@ -66,7 +66,7 @@ func Parse(m topic.Unmarshallable, r io.Reader, buf *[]byte) (delta int, err err
 	}
 	// Next 4 bytes are message length.
 	length := int(binary.LittleEndian.Uint32(header[4:]))
-	sizeBuffer(buf, length)
+	SizeBuffer(buf, length)
 
 	if n, err := io.ReadFull(r, *buf); err == io.EOF {
 		return 0, io.ErrUnexpectedEOF
@@ -103,7 +103,7 @@ func ParseExactFrame(m topic.Unmarshallable, frame []byte) error {
 }
 
 // Size |buf| to |length|. If |buf| has insufficient capacity, it is re-allocated.
-func sizeBuffer(buf *[]byte, length int) {
+func SizeBuffer(buf *[]byte, length int) {
 	if cap(*buf) < length {
 		*buf = make([]byte, length, cap(*buf)+length)
 	} else {

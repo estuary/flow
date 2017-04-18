@@ -178,11 +178,11 @@ func (s *FramerSuite) TestBufferSizing(c *gc.C) {
 	fixture := []byte{'f', 'o', 'o', '0', '0', '0'}
 	out := fixture
 
-	sizeBuffer(&out, 3)
+	SizeBuffer(&out, 3)
 	c.Check(&out[0], gc.Equals, &fixture[0]) // No reallocation.
 	c.Check(len(out), gc.Equals, 3)
 
-	sizeBuffer(&out, 9)
+	SizeBuffer(&out, 9)
 	c.Check(&out[0], gc.Not(gc.Equals), &fixture[0]) // Reallocation occurred.
 	c.Check(cap(out), gc.Equals, 15)
 	c.Check(len(out), gc.Equals, 9)
