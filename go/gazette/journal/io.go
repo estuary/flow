@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"time"
+	"bufio"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -44,6 +45,13 @@ func (r *MarkedReader) Close() error {
 		return rc.Close()
 	}
 	return nil
+}
+
+func (r *MarkedReader) AdjustedMark(br *bufio.Reader) Mark {
+	return Mark{
+		Journal: r.Mark.Journal,
+		Offset: r.Mark.Offset - int64(br.Buffered()),
+	}
 }
 
 // A RetryReader masks encountered errors, transparently handling retries to
