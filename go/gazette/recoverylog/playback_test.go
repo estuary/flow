@@ -1,6 +1,7 @@
 package recoverylog
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"io/ioutil"
@@ -10,7 +11,7 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
 type PlaybackSuite struct {
@@ -252,9 +253,11 @@ func (s *PlaybackSuite) frame(op RecordedOp) *bytes.Buffer {
 	op.Checksum = s.player.fsm.NextChecksum
 	op.Author = 100
 
-	var frame []byte
-	message.Frame(&op, &frame)
-	return bytes.NewBuffer(frame)
+	if frame, err := topic.FixedFraming.Encode(&op, nil); err != nil {
+		panic(err.Error())
+	} else {
+		return bytes.NewBuffer(frame)
+	}
 }
 
 func (s *PlaybackSuite) frameCreate(path string) *bytes.Buffer {
@@ -275,16 +278,14 @@ func (s *PlaybackSuite) frameWrite(fnode Fnode, offset, length int64) *bytes.Buf
 }
 
 func (s *PlaybackSuite) apply(c *gc.C, buf *bytes.Buffer) error {
-	mark := journal.NewMark(aRecoveryLog, 1234)
-	err := s.player.playOperation(buf, mark, nil)
-	c.Check(s.player.fsm.LogMark, gc.Equals, mark)
+	var br = bufio.NewReader(buf)
+	var err = s.player.playOperation(br)
 
-	// Expect offset is incremented by whole-message boundary, only on success.
 	if err == nil {
-		c.Check(buf.Len(), gc.Equals, 0) // Fully consumed.
-
-		// Expect a successive operation passes through an EOF at the message boundary.
-		c.Check(s.player.playOperation(buf, mark, nil), gc.Equals, io.EOF)
+		// Expect entire buffer is consumed.
+		c.Check(br.Buffered(), gc.Equals, 0)
+		// Expect a successive operation passes through an EOF.
+		c.Check(s.player.playOperation(br), gc.Equals, io.EOF)
 	}
 	return err
 }

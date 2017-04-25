@@ -14,7 +14,7 @@ import (
 	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
 const (
@@ -186,8 +186,8 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 
 	// After a delay, write a frame and then Cancel.
 	time.AfterFunc(blockInterval/2, func() {
-		var frame []byte
-		message.Frame(&RecordedOp{}, &frame)
+		var frame, err = topic.FixedFraming.Encode(&RecordedOp{}, nil)
+		c.Assert(err, gc.IsNil)
 
 		var res = s.gazette.Put(journal.AppendArgs{
 			Journal: kTestLogName,

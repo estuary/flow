@@ -1,6 +1,7 @@
 package recoverylog
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -8,12 +9,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 	"github.com/pippio/varz"
 )
 
@@ -121,9 +123,9 @@ func (p *Player) Play(client journal.Client) error {
 	// Configure |rr| to periodically return EOF when no content is available.
 	rr.EOFTimeout = blockInterval
 
-	var scratchBuffer [32 * 1024]byte
-	var makeLiveBarrier *journal.AsyncAppend
 	var atHeadCh = p.atHeadCh // Retain on stack so it may be nil'd.
+	var br = bufio.NewReader(rr)
+	var makeLiveBarrier *journal.AsyncAppend
 
 	// Play until we're asked to make ourselves live, we've read through to the
 	// transactionally determined recoverylog WriteHead, and we time out
@@ -153,21 +155,20 @@ func (p *Player) Play(client journal.Client) error {
 			// Non-blocking.
 		}
 
-		if s := p.fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > rr.Mark.Offset {
+		if s := p.fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > rr.AdjustedMark(br).Offset {
 			// Seek the RetryReader forward to the next hinted offset.
 			if _, err = rr.Seek(s[0].FirstOffset, os.SEEK_SET); err != nil {
 				return err
 			}
+			br.Reset(rr)
+			continue
 		}
 
-		// Play the next operation from |rr|. If required, coerce |rr| to first
-		// pre-fetch the current Mark via a 0-byte Read, in order to resolve
-		// the absolute offset of the next operation.
-		for rr.ReadCloser == nil && err == nil {
-			_, err = rr.Read(nil)
-		}
-		if err == nil {
-			err = p.playOperation(rr, rr.Mark, scratchBuffer[:])
+		// Play the next operation. First Peek to ensure the next byte has been
+		// pre-fetched, which guarantees resolution of the absolute operation offset.
+		if _, err = br.Peek(1); err == nil {
+			p.fsm.LogMark = rr.AdjustedMark(br)
+			err = p.playOperation(br)
 		}
 
 		if err == io.EOF {
@@ -221,19 +222,22 @@ func (p *Player) preparePlayback() error {
 	return nil
 }
 
-func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
+func (p *Player) playOperation(br *bufio.Reader) error {
+	var b, err = topic.FixedFraming.Unpack(br)
 	var op RecordedOp
 
-	p.fsm.LogMark = mark
-	if _, err := message.Parse(&op, r, &b); err == message.ErrDesyncDetected {
-		log.WithField("mark", mark).Warn("detected de-synchronization")
-		// Fall through. |op| is a valid, decoded message.
+	if err != nil {
+		return err
+	} else if err = topic.FixedFraming.Unmarshal(b, &op); err == topic.ErrDesyncDetected {
+		// Garbage frame. Treat as no-op operation, allowing playback to continue.
+		log.WithField("mark", p.fsm.LogMark).Warn("detected de-synchronization")
+		return nil
 	} else if err != nil {
 		return err
 	}
 
 	// Run the operation through the FSM to verify validity.
-	if fsmErr := p.fsm.Apply(&op, b); fsmErr != nil {
+	if fsmErr := p.fsm.Apply(&op, b[topic.FixedFrameHeaderLength:]); fsmErr != nil {
 		// Log but otherwise ignore FSM errors: the Player is still in a consistent
 		// state, and we may make further progress later in the log.
 		if fsmErr == ErrFnodeNotTracked {
@@ -247,7 +251,7 @@ func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
 
 		// For bytestream consistency Write ops must still skip |op.Length| bytes.
 		if op.Write != nil {
-			if err := copyFixed(ioutil.Discard, r, op.Write.Length, b); err != nil {
+			if err := copyFixed(ioutil.Discard, br, op.Write.Length); err != nil {
 				return err
 			}
 		}
@@ -261,7 +265,7 @@ func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
 		return p.unlink(op.Unlink.Fnode)
 	} else if op.Write != nil {
 		recoverBytes.Add(op.Write.Length)
-		return p.write(op.Write, r, b)
+		return p.write(op.Write, br)
 	}
 	return nil
 }
@@ -297,19 +301,21 @@ func (p *Player) unlink(fnode Fnode) error {
 	return nil
 }
 
-func (p *Player) write(op *RecordedOp_Write, r io.Reader, b []byte) error {
+func (p *Player) write(op *RecordedOp_Write, r io.Reader) error {
 	var backingFile = p.backingFiles[Fnode(op.Fnode)]
 
 	// Seek to the indicated offset.
 	if _, err := backingFile.Seek(op.Offset, 0); err != nil {
 		return err
 	}
-	return copyFixed(backingFile, r, op.Length, b)
+	return copyFixed(backingFile, r, op.Length)
 }
 
 // Copies exactly |length| bytes from |r| to |w| using temporary buffer |b|.
-func copyFixed(w io.Writer, r io.Reader, length int64, b []byte) error {
-	n, err := io.CopyBuffer(w, io.LimitReader(r, length), b[:cap(b)])
+func copyFixed(w io.Writer, r io.Reader, length int64) error {
+	var b = copyBuffers.Get().(*[]byte)
+	var n, err = io.CopyBuffer(w, io.LimitReader(r, length), *b)
+	copyBuffers.Put(b)
 
 	// Map an EOF prior to |length| bytes as unexpected.
 	if err == nil && n != length {
@@ -374,4 +380,11 @@ func (p *Player) makeLive() error {
 
 var (
 	recoverBytes = varz.ObtainCount("gazette", "recoverylog", "recoverBytes")
+
+	copyBuffers = sync.Pool{
+		New: func() interface{} {
+			var b = make([]byte, 32*1024)
+			return &b
+		},
+	}
 )

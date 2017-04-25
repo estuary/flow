@@ -1,6 +1,7 @@
 package recoverylog
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"io/ioutil"
@@ -11,15 +12,16 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
-const kOpLog = journal.Name("a/journal")
+const opLog = journal.Name("a/journal")
 
 type RecorderSuite struct {
 	recorder  *Recorder
 	tmpDir    string
 	writes    *bytes.Buffer // Captured log writes.
+	br        *bufio.Reader // Wraps |writes|.
 	writeHead int64
 	promise   chan struct{} // Returned promise fixture for captured writes.
 }
@@ -31,11 +33,12 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 
 	// Retain writes, defaulting to a resolved Ready promise for each one.
 	s.writes = bytes.NewBuffer(nil)
+	s.br = bufio.NewReader(s.writes)
 	s.writeHead = 42
 	s.promise = make(chan struct{})
 	close(s.promise)
 
-	fsm, _ := NewFSM(FSMHints{Log: "a/journal"})
+	fsm, _ := NewFSM(FSMHints{Log: opLog})
 	s.recorder, err = NewRecorder(fsm, len(s.tmpDir), s)
 	c.Check(err, gc.IsNil)
 
@@ -45,7 +48,8 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 
 func (s *RecorderSuite) TearDownTest(c *gc.C) {
 	// Expect the test consumed all framed operations.
-	c.Check(s.writes.Len(), gc.Equals, 0)
+	var _, err = s.br.Peek(1)
+	c.Check(err, gc.Equals, io.EOF)
 
 	// After issuing a final write, expect the FSM offset is up to date with
 	// collective length of all written frames.
@@ -257,30 +261,32 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 
 	// Expect that hints are produced for the current FSM state.
 	c.Check(s.recorder.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: kOpLog,
+		Log: opLog,
 		LiveNodes: []HintedFnode{
 			{Fnode: 2, Segments: []Segment{
 				{Author: s.recorder.id, FirstSeqNo: 2, FirstChecksum: expectChecksum,
 					FirstOffset: expectOffset, LastSeqNo: 3}}}},
 	})
 
+	// Clear recorded frames not checked in this test.
 	s.writes.Reset()
+	s.br.Reset(s.writes)
 }
 
 func (s *RecorderSuite) parseOp(c *gc.C) RecordedOp {
-	var op RecordedOp
-	var frame []byte
+	var frame, err = topic.FixedFraming.Unpack(s.br)
+	c.Assert(err, gc.IsNil)
 
-	_, err := message.Parse(&op, s.writes, &frame)
-	c.Check(err, gc.IsNil)
+	var op RecordedOp
+	c.Check(topic.FixedFraming.Unmarshal(frame, &op), gc.IsNil)
 
 	return op
 }
 
 func (s *RecorderSuite) readLen(c *gc.C, length int64) string {
-	buf := make([]byte, length)
+	var buf = make([]byte, length)
 
-	n, err := s.writes.Read(buf)
+	var n, err = io.ReadFull(s.br, buf)
 	c.Check(err, gc.IsNil)
 	c.Check(n, gc.Equals, int(length))
 
