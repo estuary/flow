@@ -51,8 +51,8 @@ func main() {
 			log.WithField("name", flag.Arg(0)).Fatal("no such topic")
 		}
 
-		for p := 0; p < t.Partitions; p++ {
-			processJournal(client, t.Journal(p))
+		for _, j := range t.Partitions() {
+			processJournal(client, j)
 		}
 	} else {
 		processJournal(client, name)
