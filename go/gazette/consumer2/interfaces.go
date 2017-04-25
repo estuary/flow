@@ -3,33 +3,22 @@ package consumer
 import (
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/topic"
 )
 
-// A TopicGroup is a named group of Topics which should be processed together.
-// Topics in a group are expected to share a message partitioning mechanism,
-// and will be arranged such that messages sharing a RoutingKey are seen by
-// the same Shard. This enables a continuous "join" capability across topics.
-// A topic's Partitions must be a multiple of all other topics in the group.
-// Where topics have mismatched numbers of partitions, topics with fewer
-// partitions have each partition processed by multiple Shards.
-type TopicGroup struct {
-	Name   string
-	Topics []*topic.Description
-}
+// ShardID uniquely identifies a specific Shard. A ShardID must be consistent
+// across processes for the entire duration of the Consumer lifetime.
+type ShardID string
 
-type TopicGroups []TopicGroup
-
-// A ShardID identifies a Shard by its TopicGroup name and index.
-type ShardID struct {
-	Group string
-	Index int
+func (id ShardID) String() string {
+	return string(id)
 }
 
 type Shard interface {
 	// The concrete ID of this Shard.
 	ID() ShardID
+	// The consumed Partition of this Shard.
+	Partition() topic.Partition
 
 	// A consumer may wish to maintain in-memory state for
 	// performance reasons. Examples could include:
@@ -56,22 +45,19 @@ type Shard interface {
 }
 
 type Consumer interface {
-	// The topic groups this consumer is consuming. Each topic within a group
-	// is subject to constraints over the partitions in each topic within that
-	// group.  The constraints don't apply between groups, so create separate
-	// groups for topics you wish to consume independently from each other.
-	Groups() TopicGroups
+	// Topics this Consumer is consuming.
+	Topics() []*topic.Description
 
 	// Called when a message becomes available from one of the consumer’s
 	// joined topics. If the returned error is non-nil, the Shard is assumed to
 	// be in an unhealthy state and will be torn down.
-	Consume(message.Message, Shard, topic.Publisher) error
+	Consume(topic.Envelope, Shard, *topic.Publisher) error
 
 	// Called when a consumer transaction is about to complete. If the Shard
 	// Cache() contains any modified state, it must be persisted to Transaction()
 	// during this call. As in Consume(), a returned error will result in the
 	// tear-down of the Shard.
-	Flush(Shard, topic.Publisher) error
+	Flush(Shard, *topic.Publisher) error
 }
 
 // Optional Consumer interface for notification of Shard initialization prior

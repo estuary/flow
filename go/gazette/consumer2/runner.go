@@ -8,7 +8,7 @@ import (
 
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/topic"
 )
 
 const (
@@ -39,37 +39,51 @@ type Runner struct {
 	Gazette journal.Client
 
 	// Optional hooks for notification of Shard lifecycle. These are largely
-	// intended to facilicate testing cases.
+	// intended to facilitate testing cases.
 	ShardPreInitHook     func(Shard)
-	ShardPostConsumeHook func(message.Message, Shard)
+	ShardPostConsumeHook func(topic.Envelope, Shard)
 	ShardPostCommitHook  func(Shard)
 	ShardPostStopHook    func(Shard)
 
-	shardIDs     []ShardID           // Ordered shard IDs.
-	liveShards   map[string]*shard   // Live shards, by name.
+	partitions map[journal.Name]*topic.Description // Previously enumerated topic partitions.
+	shardNames []string                            // Allocator FixedItems support.
+
+	allShards    map[ShardID]topic.Partition // All shards and their Partition, by name.
+	liveShards   map[ShardID]*shard  // Live shards, by name.
 	zombieShards map[*shard]struct{} // Cancelled shards which are shutting down.
 }
 
+func (r *Runner) updateShards() {
+	var added bool
+	for _, t := range r.Consumer.Topics() {
+		for _, j := range t.Partitions() {
+			if _, ok := r.partitions[j]; !ok {
+				r.partitions[j] = t
+				added = true
+			}
+		}
+	}
+	if !added {
+		return
+	}
+
+	r.allShards = EnumerateShards(r.Consumer)
+
+	var names []string
+	for id := range r.allShards {
+		names = append(names, id.String())
+	}
+	sort.Strings(names)
+	r.shardNames = names
+}
+
 func (r *Runner) Run() error {
-	r.liveShards = make(map[string]*shard)
+	r.partitions = make(map[journal.Name]*topic.Description)
+	r.allShards = make(map[ShardID]topic.Partition)
+	r.liveShards = make(map[ShardID]*shard)
 	r.zombieShards = make(map[*shard]struct{})
 
-	groups := r.Consumer.Groups()
-	if err := groups.Validate(); err != nil {
-		return err
-	}
-
-	for _, group := range groups {
-		numShards, err := group.NumShards()
-		if err != nil {
-			return err
-		}
-		for id := 0; id != numShards; id++ {
-			r.shardIDs = append(r.shardIDs, ShardID{group.Name, id})
-		}
-	}
-
-	err := consensus.CreateAndAllocateWithSignalHandling(r)
+	var err = consensus.CreateAndAllocateWithSignalHandling(r)
 
 	// Allocate should exit only after all shards have been cancelled.
 	if err == nil && len(r.liveShards) != 0 {
@@ -91,23 +105,18 @@ func (r *Runner) Run() error {
 	return err
 }
 
-func (r *Runner) shardNames() []string {
-	ret := make([]string, len(r.shardIDs))
-	for i := range r.shardIDs {
-		ret[i] = r.shardIDs[i].String()
-	}
-	return ret
-}
-
 // consumer.Allocator implementation.
-func (r *Runner) FixedItems() []string  { return r.shardNames() }
+func (r *Runner) FixedItems() []string  {
+	r.updateShards()
+	return r.shardNames
+}
 func (r *Runner) InstanceKey() string   { return r.LocalRouteKey }
 func (r *Runner) KeysAPI() etcd.KeysAPI { return etcd.NewKeysAPI(r.Etcd) }
 func (r *Runner) PathRoot() string      { return r.ConsumerRoot }
 func (r *Runner) Replicas() int         { return r.ReplicaCount }
 
 func (r *Runner) ItemState(name string) string {
-	if shard, ok := r.liveShards[name]; !ok {
+	if shard, ok := r.liveShards[ShardID(name)]; !ok {
 		return UnknownShard
 	} else if shard.replica.player.IsAtLogHead() {
 		return Ready
@@ -121,17 +130,16 @@ func (r *Runner) ItemIsReadyForPromotion(item, state string) bool {
 }
 
 func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etcd.Node) {
-	var current, exists = r.liveShards[name]
+	var id = ShardID(name)
+	var current, exists = r.liveShards[id]
 
 	// |index| captures the allocator's role in processing |current|.
 	var isMaster, isReplica = (index == 0), (index > 0 && index <= r.ReplicaCount)
 
 	if !exists && (isMaster || isReplica) {
-		var ind = sort.Search(len(r.shardIDs), func(i int) bool {
-			return r.shardIDs[i].String() >= name
-		})
-		if ind >= len(r.shardIDs) || r.shardIDs[ind].String() != name {
-			log.WithField("shard", name).Warn("unexpected consumer shard name")
+		var partition, ok = r.allShards[id]
+		if !ok {
+			log.WithField("shard", id).Warn("unexpected consumer shard name")
 			return
 		}
 
@@ -141,14 +149,14 @@ func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etc
 		var zombie *shard
 
 		for s := range r.zombieShards {
-			if s.id.String() == name {
+			if s.id == id {
 				delete(r.zombieShards, s)
 				zombie = s
 			}
 		}
 
-		current = newShard(r.shardIDs[ind], r, zombie)
-		r.liveShards[name] = current
+		current = newShard(id, partition, r, zombie)
+		r.liveShards[id] = current
 	}
 
 	if isMaster {
@@ -158,7 +166,7 @@ func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etc
 	} else if exists {
 		current.transitionCancel()
 
-		delete(r.liveShards, name)
+		delete(r.liveShards, id)
 		r.zombieShards[current] = struct{}{}
 	}
 

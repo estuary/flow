@@ -3,7 +3,6 @@ package consumer
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path"
 	"strconv"
@@ -32,78 +31,44 @@ const (
 	validGroupChars = "abcdefghijklmnopqrstuvwxyz0123456789-"
 )
 
-// Maps ID to padded name, eg shardName(42) => "shard-042".
-func (id ShardID) String() string {
-	return fmt.Sprintf("shard-%s-%03d", id.Group, id.Index)
+// Generates a ShardID for a topic.Partition. Shards are named as:
+//  "shard-{path.Base(topic.Name)}-{Base(partition)}". As a special case, if the
+// partition was created using standard "my-topic/part-123" enumeration, the
+// "part-" prefix of the journal base name is removed resulting in final ShardIDs
+// like "shard-my-topic-123".
+//
+// This method is deprecated, but maintained for compatibility with existing
+// ShardIDs used in production.
+// TODO(johnny): Move to a globally unique ShardID, which is content-addressed
+// from the (Consumer, Topic, Journal)-tuple names.
+func ShardName_DEPRECATED(p topic.Partition) ShardID {
+	var group = path.Base(p.Topic.Name)
+	var name = path.Base(p.Journal.String())
+
+	// Remove standard prefix for Journals created with topic.EnumeratePartitions.
+	name = strings.TrimPrefix(name, "part-")
+
+	return ShardID(fmt.Sprintf("shard-%s-%s", group, name))
 }
 
-// Ensures that a topic group has a name and consumes at least one topic.
-// Note: Topic compatibility is not validated here. It is done in NumShards.
-func (g TopicGroup) Validate() error {
-	if g.Name == "" {
-		return errors.New("a TopicGroup must have a name")
-	} else if strings.Trim(g.Name, validGroupChars) != "" {
-		return fmt.Errorf("a TopicGroup name must consist only of [a-z0-9-]+: %s", g.Name)
-	} else if len(g.Topics) == 0 {
-		return errors.New("a TopicGroup must consume at least one topic")
-	}
-	return nil
-}
+// EnumerateShards returns a mapping of unique ShardIDs and their Partitions
+// implied by the Consumer and its set of consumed Topics.
+func EnumerateShards(c Consumer) map[ShardID]topic.Partition {
+	var m = make(map[ShardID]topic.Partition)
 
-// Determines the number of shards implied by a consumption of |topics|,
-// or returns error if |topics| have incompatible partition counts.
-func (g TopicGroup) NumShards() (int, error) {
-	var n int
-	for _, t1 := range g.Topics {
-		for _, t2 := range g.Topics {
-			if t1.Partitions%t2.Partitions != 0 && t2.Partitions%t1.Partitions != 0 {
-				return 0, errors.New("topic partitions must be multiples of each other")
-			}
-		}
-		if t1.Partitions > n {
-			n = t1.Partitions
-		}
-	}
-	return n, nil
-}
+	for _, t := range c.Topics() {
+		for _, j := range t.Partitions() {
+			var p = topic.Partition{Topic: t, Journal: j}
+			// TODO(johnny): Move to a content-addressed global shard ID, derived from
+			// consumer, topic, and partition names.
+			var shardID = ShardName_DEPRECATED(p)
 
-// Returns the journals |shard| should consume across |topics|.
-func (g TopicGroup) JournalsForShard(shardIndex int) map[journal.Name]*topic.Description {
-	var journals = make(map[journal.Name]*topic.Description)
-	for _, topic := range g.Topics {
-		journals[topic.Journal(shardIndex%topic.Partitions)] = topic
-	}
-	return journals
-}
-
-// Ensures that the topic groups are sorted by distinct group name for
-// |consumer.Allocator| compliance.
-func (gs TopicGroups) Validate() error {
-	var lastName string
-	if len(gs) == 0 {
-		return errors.New("must specify at least one TopicGroup")
-	}
-	for _, group := range gs {
-		if err := group.Validate(); err != nil {
-			return err
-		} else if lastName == "" || lastName < group.Name {
-			lastName = group.Name
-		} else {
-			return fmt.Errorf("consumer groups must be sorted and names must not repeat: %s", group.Name)
+			m[shardID] = p
 		}
 	}
-	return nil
+	return m
 }
 
-// Flattens |topics| into multiple groups, each having a single Description.
-func TopicDescriptionsToSimpleGroups(topics []*topic.Description) TopicGroups {
-	var groups = make(TopicGroups, len(topics))
-	for i, t := range topics {
-		groups[i].Name = path.Base(t.Name)
-		groups[i].Topics = []*topic.Description{t}
-	}
-	return groups
-}
 
 // Maps a consumer |tree| and |shard| to the full path for storing FSMHints.
 // Eg, hintsPath(tree{/a/consumer}, 42) => "/a/consumer/hints/shard-042".

@@ -23,56 +23,48 @@ import (
 	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/recoverylog"
 	"github.com/pippio/gazette/topic"
 )
 
-// Test topics for events which add or subtract an amount to a key. Note that
-// subtractTopic has a different Partitions count than addTopic. The import is
-// that subtractions will be seen by just one shard, but additions will be seen
-// by two. We thus produce up to two merged values for each key: the
-// combination of additions, and the combination of additions + subtractions.
-//
-// Additionally, to test independent handling of multiple topic groups, we also
-// consume a topic of UUIDs that get reversed and place into an output journal,
-// which should occur _out_ of lockstep with the handling of adds/subtracts.
 var (
-	addTopic = &topic.Description{
-		Name:       "pippio-journals/integration-tests/add-updates",
-		Partitions: 2,
-		RoutingKey: func(m interface{}) string {
-			return strconv.FormatInt(m.(*addSubMessage).Key, 16)
-		},
-		GetMessage: func() topic.Unmarshallable {
-			return new(addSubMessage)
-		},
-		PutMessage: func(m topic.Unmarshallable) {},
+	// Test topics for events which add or subtract an amount to a key.
+	// We compute and emit the running value of the key.
+	addSubTopic = &topic.Description{
+		Name:       "pippio-journals/integration-tests/add-subtract-updates",
+		Framing:    topic.FixedFraming,
+		GetMessage: func() topic.Message { return new(addSubMessage) },
+		PutMessage: func(m topic.Message) {},
 	}
-
-	subtractTopic = &topic.Description{
-		Name:       "pippio-journals/integration-tests/subtract-updates",
-		Partitions: 4,
-		RoutingKey: addTopic.RoutingKey,
-		GetMessage: addTopic.GetMessage,
-		PutMessage: addTopic.PutMessage,
-	}
-
+	// Test topic of UUIDs that get reversed and place into an output journal.
 	reverseInTopic = &topic.Description{
 		Name:       "pippio-journals/integration-tests/reverse-in",
-		Partitions: 3,
-		RoutingKey: func(m interface{}) string { return string(*m.(*stringMessage)) },
-		GetMessage: func() topic.Unmarshallable { return new(stringMessage) },
-		PutMessage: func(m topic.Unmarshallable) {},
+		Framing:    topic.FixedFraming,
+		GetMessage: func() topic.Message { return new(stringMessage) },
+		PutMessage: func(m topic.Message) {},
 	}
 )
 
 // Output journal into which merged CSV key/value rows are produced.
 const (
-	kAddSubtractLog journal.Name = "pippio-journals/integration-tests/add-subtract-merged"
-	kReverseLog     journal.Name = "pippio-journals/integration-tests/reverse-out"
-	kConsumerRoot                = "/gazette/consumers/tests/consumer2-test"
+	addSubOutput  journal.Name = "pippio-journals/integration-tests/add-subtract-merged"
+	reverseOutput journal.Name = "pippio-journals/integration-tests/reverse-out"
+	consumerRoot               = "/gazette/consumers/tests/consumer2-test"
 )
+
+func init() {
+	addSubTopic.Partitions = topic.EnumeratePartitions(addSubTopic.Name, 4)
+	addSubTopic.MappedPartition = topic.ModuloPartitionMapping(addSubTopic.Partitions,
+		func(m topic.Message, b []byte) []byte {
+			return strconv.AppendInt(b, m.(*addSubMessage).Key, 16)
+		})
+
+	reverseInTopic.Partitions = topic.EnumeratePartitions(reverseInTopic.Name, 3)
+	reverseInTopic.MappedPartition = topic.ModuloPartitionMapping(reverseInTopic.Partitions,
+		func(m topic.Message, b []byte) []byte {
+			return append(b, *m.(*stringMessage)...)
+		})
+}
 
 type ConsumerSuite struct {
 	etcdClient etcd.Client
@@ -105,7 +97,7 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 		c.Skip("Etcd not available: " + err.Error())
 	}
 	// Skip if a Gazette endpoint is not reachable.
-	result, _ := s.gazette.Head(journal.ReadArgs{Journal: kAddSubtractLog, Offset: -1})
+	var result, _ = s.gazette.Head(journal.ReadArgs{Journal: addSubOutput, Offset: -1})
 	if _, ok := result.Error.(net.Error); ok {
 		c.Skip("Gazette not available: " + result.Error.Error())
 		return
@@ -131,8 +123,8 @@ func (s *ConsumerSuite) TearDownSuite(c *gc.C) {
 }
 
 func (s *ConsumerSuite) TestBasic(c *gc.C) {
-	var csvReader = s.openResultReader(kAddSubtractLog, c)
-	var reverseReader = s.openResultReader(kReverseLog, c)
+	var csvReader = s.openResultReader(addSubOutput, c)
+	var reverseReader = s.openResultReader(reverseOutput, c)
 	var generator = newTestGenerator(s.gazette)
 
 	var runner = s.buildRunner(0, 0)
@@ -162,18 +154,12 @@ func (s *ConsumerSuite) TestHandoffBlocksUntilReady(c *gc.C) {
 
 	// Updates a peer consumer's item fixture statuses in Etcd.
 	var setPeerStatus = func(peer, status string) {
+		for shard := range EnumerateShards(runner.Consumer) {
+			var key = runner.PathRoot() + "/" + consensus.ItemsPrefix + "/" + shard.String() + "/" + peer
 
-		for _, group := range runner.Consumer.Groups() {
-			var n, _ = group.NumShards()
-
-			for i := 0; i != n; i++ {
-				var shard = ShardID{group.Name, i}.String()
-				var key = runner.PathRoot() + "/" + consensus.ItemsPrefix + "/" + shard + "/" + peer
-
-				var _, err = runner.KeysAPI().Set(context.Background(),
-					key, status, &etcd.SetOptions{TTL: 2 * time.Second})
-				c.Check(err, gc.IsNil)
-			}
+			var _, err = runner.KeysAPI().Set(context.Background(),
+				key, status, &etcd.SetOptions{TTL: 2 * time.Second})
+			c.Check(err, gc.IsNil)
 		}
 	}
 
@@ -199,8 +185,8 @@ func (s *ConsumerSuite) TestHandoffBlocksUntilReady(c *gc.C) {
 }
 
 func (s *ConsumerSuite) TestHandoffWithMultipleRunners(c *gc.C) {
-	var csvReader = s.openResultReader(kAddSubtractLog, c)
-	var reverseReader = s.openResultReader(kReverseLog, c)
+	var csvReader = s.openResultReader(addSubOutput, c)
+	var reverseReader = s.openResultReader(reverseOutput, c)
 
 	// Intermix starting & stopping runners with message processing, handing off
 	// responsibility for processing around the "cluster". publishSomeValues
@@ -272,7 +258,7 @@ func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
 		Consumer:        new(testConsumer),
 		LocalRouteKey:   fmt.Sprintf("test-consumer-%d", i),
 		LocalDir:        fmt.Sprintf("/var/tmp/integration-tests/consumer2/runner-%d", i),
-		ConsumerRoot:    kConsumerRoot,
+		ConsumerRoot:    consumerRoot,
 		RecoveryLogRoot: "pippio-journals/integration-tests/consumer2",
 		ReplicaCount:    replicas,
 
@@ -342,9 +328,9 @@ func (s *stringMessage) MarshalTo(b []byte) (n int, err error) {
 // respective topics. testGenerator maintains an expected final result for each
 // published key.
 type testGenerator struct {
-	publisher                    topic.Publisher
-	addValues, addSubtractValues map[int64]int64
-	stringValues                 map[stringMessage]struct{}
+	publisher    *topic.Publisher
+	addSubValues map[int64]int64
+	stringValues map[stringMessage]struct{}
 
 	cancelCh chan struct{}
 	doneCh   chan struct{}
@@ -352,10 +338,9 @@ type testGenerator struct {
 
 func newTestGenerator(writer journal.Writer) *testGenerator {
 	return &testGenerator{
-		publisher:         message.SimplePublisher{writer},
-		addValues:         make(map[int64]int64),
-		addSubtractValues: make(map[int64]int64),
-		stringValues:      make(map[stringMessage]struct{}),
+		publisher:    topic.NewPublisher(writer),
+		addSubValues: make(map[int64]int64),
+		stringValues: make(map[stringMessage]struct{}),
 	}
 }
 
@@ -371,14 +356,12 @@ func (g *testGenerator) publishSomeValues(c *gc.C) {
 			Update: int64(src.Int31()),
 		}
 
-		if src.Int()%2 == 0 { // Add.
-			c.Check(g.publisher.Publish(&msg, addTopic), gc.IsNil)
-			g.addValues[msg.Key] = g.addValues[msg.Key] + msg.Update
-			g.addSubtractValues[msg.Key] = g.addSubtractValues[msg.Key] + msg.Update
-		} else { // Subtract.
-			c.Check(g.publisher.Publish(&msg, subtractTopic), gc.IsNil)
-			g.addSubtractValues[msg.Key] = g.addSubtractValues[msg.Key] - msg.Update
+		if src.Int()%2 == 1 {
+			msg.Update = -msg.Update
 		}
+
+		c.Check(g.publisher.Publish(&msg, addSubTopic), gc.IsNil)
+		g.addSubValues[msg.Key] = g.addSubValues[msg.Key] + msg.Update
 
 		// Writing to string topic.
 		var smsg = stringMessage(uuid.NewV4().String())
@@ -392,12 +375,12 @@ func (g *testGenerator) publishSomeValues(c *gc.C) {
 }
 
 func (g *testGenerator) verifyExpectedOutputs(c *gc.C, addReader, reverseReader io.Reader) {
-	csvReader := csv.NewReader(addReader)
-	reverseScanner := bufio.NewScanner(reverseReader)
+	var csvReader = csv.NewReader(addReader)
+	var reverseScanner = bufio.NewScanner(reverseReader)
 
 	// Consume merged output, looking for expected values.
-	for len(g.addValues) != 0 && len(g.addSubtractValues) != 0 {
-		record, err := csvReader.Read()
+	for len(g.addSubValues) != 0 {
+		var record, err = csvReader.Read()
 		c.Assert(err, gc.IsNil)
 
 		key, err := strconv.ParseInt(record[0], 10, 64)
@@ -405,18 +388,15 @@ func (g *testGenerator) verifyExpectedOutputs(c *gc.C, addReader, reverseReader 
 		value, err := strconv.ParseInt(record[1], 10, 64)
 		c.Assert(err, gc.IsNil)
 
-		if g.addValues[key] == value {
-			delete(g.addValues, key)
-		}
-		if g.addSubtractValues[key] == value {
-			delete(g.addSubtractValues, key)
+		if g.addSubValues[key] == value {
+			delete(g.addSubValues, key)
 		}
 	}
 
-	uniqueItems := make(map[stringMessage]struct{})
+	var uniqueItems = make(map[stringMessage]struct{})
 	for reverseScanner.Scan() {
-		key := reverse(reverseScanner.Text())
-		_, ok := g.stringValues[stringMessage(key)]
+		var key = reverse(reverseScanner.Text())
+		var _, ok = g.stringValues[stringMessage(key)]
 		c.Check(ok, gc.Equals, true)
 		uniqueItems[stringMessage(key)] = struct{}{}
 		if len(uniqueItems) == len(g.stringValues) {
@@ -429,17 +409,8 @@ func (g *testGenerator) verifyExpectedOutputs(c *gc.C, addReader, reverseReader 
 // A test Consumer which combines add & subtract updates into |kAddSubtractLog|.
 type testConsumer struct{}
 
-func (c *testConsumer) Groups() TopicGroups {
-	return TopicGroups{
-		{
-			Name:   "add-subtract",
-			Topics: []*topic.Description{addTopic, subtractTopic},
-		},
-		{
-			Name:   "reverse",
-			Topics: []*topic.Description{reverseInTopic},
-		},
-	}
+func (c *testConsumer) Topics() []*topic.Description {
+	return []*topic.Description{addSubTopic, reverseInTopic}
 }
 
 func (c *testConsumer) InitShard(s Shard) error {
@@ -447,13 +418,13 @@ func (c *testConsumer) InitShard(s Shard) error {
 	return nil
 }
 
-func (c *testConsumer) Consume(m message.Message, s Shard, pub topic.Publisher) error {
-	switch m.Value.(type) {
+func (c *testConsumer) Consume(m topic.Envelope, s Shard, pub *topic.Publisher) error {
+	switch m.Message.(type) {
 	case *addSubMessage:
-		event := m.Value.(*addSubMessage)
-		cache := s.Cache().(map[int64]int64)
+		var event = m.Message.(*addSubMessage)
+		var cache = s.Cache().(map[int64]int64)
 
-		value, ok := cache[event.Key]
+		var value, ok = cache[event.Key]
 		if !ok {
 			// Fill from RocksDB.
 			key := strconv.FormatInt(event.Key, 10)
@@ -466,32 +437,29 @@ func (c *testConsumer) Consume(m message.Message, s Shard, pub topic.Publisher) 
 			}
 		}
 
-		if m.Topic == addTopic {
-			cache[event.Key] = value + event.Update
-		} else {
-			cache[event.Key] = value - event.Update
-		}
+		cache[event.Key] = value + event.Update
+
 	case *stringMessage:
 		// RocksDB coverage already exists for the add-subtract test. Just
 		// reverse the string and write to the Publisher immediately.
 		// Note: Breaks 'exactly-once' processing just for this topic group.
-		s := string(*m.Value.(*stringMessage))
-		pub.Write(kReverseLog, []byte(reverse(s)+"\n"))
+		s := string(*m.Message.(*stringMessage))
+		pub.Write(reverseOutput, []byte(reverse(s)+"\n"))
 	}
 	return nil
 }
 
-func (c *testConsumer) Flush(s Shard, pub topic.Publisher) error {
-	cache := s.Cache().(map[int64]int64)
-	writeBatch := s.Transaction()
+func (c *testConsumer) Flush(s Shard, pub *topic.Publisher) error {
+	var cache = s.Cache().(map[int64]int64)
+	var writeBatch = s.Transaction()
 
 	for key, value := range cache {
-		keyStr, valStr := strconv.FormatInt(key, 10), strconv.FormatInt(value, 10)
+		var keyStr, valStr = strconv.FormatInt(key, 10), strconv.FormatInt(value, 10)
 		writeBatch.Put([]byte(keyStr), []byte(valStr))
 
 		// Publish the current merged value to the result log.
-		out := fmt.Sprintf("%d,%d\n", key, value)
-		if _, err := pub.Write(kAddSubtractLog, []byte(out)); err != nil {
+		var out = fmt.Sprintf("%d,%d\n", key, value)
+		if _, err := pub.Write(addSubOutput, []byte(out)); err != nil {
 			return err
 		}
 		delete(cache, key) // Reset for next transaction.

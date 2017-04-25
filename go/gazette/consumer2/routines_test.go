@@ -3,7 +3,6 @@ package consumer
 import (
 	"encoding/json"
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"strconv"
 	"testing"
@@ -25,10 +24,10 @@ type RoutinesSuite struct {
 }
 
 var (
-	id8  = ShardID{"foo", 8}
-	id12 = ShardID{"baz", 12}
-	id30 = ShardID{"bar", 30}
-	id42 = ShardID{"quux", 42}
+	id8  = ShardID("shard-foo-008")
+	id12 = ShardID("shard-baz-012")
+	id30 = ShardID("shard-bar-030")
+	id42 = ShardID("shard-quux-042")
 )
 
 func (s *RoutinesSuite) SetUpTest(c *gc.C) {
@@ -211,84 +210,21 @@ func (s *RoutinesSuite) TestOffsetMerge(c *gc.C) {
 }
 
 func (s *RoutinesSuite) TestTopicShardMapping(c *gc.C) {
-	foo := &topic.Description{Name: "foo", Partitions: 1}
-	bar := &topic.Description{Name: "bar", Partitions: 4}
-	baz := &topic.Description{Name: "baz", Partitions: 16}
+	var consumer testConsumer
 
-	var topics [3]*topic.Description
-	for i, j := range rand.Perm(len(topics)) {
-		topics[i] = []*topic.Description{foo, bar, baz}[j]
-	}
+	var shards = EnumerateShards(&consumer)
+	c.Check(shards, gc.HasLen, 7)
 
-	group := TopicGroup{Name: "test", Topics: topics[:]}
-	n, err := group.NumShards()
-	c.Check(n, gc.Equals, 16)
-	c.Check(err, gc.IsNil)
+	c.Check(shards, gc.DeepEquals, map[ShardID]topic.Partition{
+		"shard-add-subtract-updates-000": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-000", Topic: addSubTopic},
+		"shard-add-subtract-updates-001": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-001", Topic: addSubTopic},
+		"shard-add-subtract-updates-002": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-002", Topic: addSubTopic},
+		"shard-add-subtract-updates-003": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-003", Topic: addSubTopic},
 
-	c.Check(group.JournalsForShard(5), gc.DeepEquals,
-		map[journal.Name]*topic.Description{
-			"foo/part-000": foo, // 5 % 2.
-			"bar/part-001": bar, // 5 % 4.
-			"baz/part-005": baz, // 5 % 16.
-		})
-	c.Check(group.JournalsForShard(14), gc.DeepEquals,
-		map[journal.Name]*topic.Description{
-			"foo/part-000": foo, // 14 % 2.
-			"bar/part-002": bar, // 14 % 4.
-			"baz/part-014": baz, // 14 % 16.
-		})
-
-	// foo => 2 partitions. Expect it's still mappable.
-	foo.Partitions = 2
-	n, err = group.NumShards()
-	c.Check(n, gc.Equals, 16)
-	c.Check(err, gc.IsNil)
-
-	c.Check(group.JournalsForShard(7), gc.DeepEquals,
-		map[journal.Name]*topic.Description{
-			"foo/part-001": foo, // 7 % 2
-			"bar/part-003": bar, // 7 % 4
-			"baz/part-007": baz, // 7 % 16
-		})
-
-	// foo => 3 partitions. Expect it's an invalid configuration.
-	foo.Partitions = 3
-	_, err = group.NumShards()
-	c.Check(err, gc.ErrorMatches, "topic partitions must be multiples of each other")
-}
-
-func (s *RoutinesSuite) TestGroupValidation(c *gc.C) {
-	// No point starting the consumer if you don't want to consume anything.
-	groups := TopicGroups{}
-	c.Check(groups.Validate(), gc.ErrorMatches, "must specify at least one TopicGroup")
-
-	// Initially, the two TopicGroups both don't have names.
-	groups = TopicGroups{{}, {}}
-	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup must have a name")
-
-	// Now assign a special name to the first one.
-	groups[0].Name = "Special/Name"
-	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup name must consist only of.*")
-
-	// Now the names are both valid, but there's no topics consumed.
-	groups[0].Name = "same-name"
-	groups[1].Name = "same-name"
-	c.Check(groups.Validate(), gc.ErrorMatches, "a TopicGroup must consume at least one topic")
-
-	// Now there are consumed topics, but the names are identical.
-	t1 := &topic.Description{Name: "topic-one", Partitions: 3}
-	t2 := &topic.Description{Name: "topic-two", Partitions: 4}
-	groups[0].Topics = []*topic.Description{t1}
-	groups[1].Topics = []*topic.Description{t2}
-	c.Check(groups.Validate(), gc.ErrorMatches, "consumer groups must be sorted and names must not repeat: same-name")
-
-	// The names are unique but now groups[0] lexically precedes groups[1].
-	groups[0].Name = "the-new-name"
-	c.Check(groups.Validate(), gc.ErrorMatches, "consumer groups must be sorted and names must not repeat: same-name")
-
-	// Finally, the groups structure is valid.
-	groups[0], groups[1] = groups[1], groups[0]
-	c.Check(groups.Validate(), gc.IsNil)
+		"shard-reverse-in-000": {Journal: "pippio-journals/integration-tests/reverse-in/part-000", Topic: reverseInTopic},
+		"shard-reverse-in-001": {Journal: "pippio-journals/integration-tests/reverse-in/part-001", Topic: reverseInTopic},
+		"shard-reverse-in-002": {Journal: "pippio-journals/integration-tests/reverse-in/part-002", Topic: reverseInTopic},
+	})
 }
 
 func (s *RoutinesSuite) treeFixture() *etcd.Node {

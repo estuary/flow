@@ -14,8 +14,8 @@ import (
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/message"
 	"github.com/pippio/gazette/recoverylog"
+	"github.com/pippio/gazette/topic"
 	"github.com/pippio/varz"
 )
 
@@ -69,8 +69,9 @@ const (
 )
 
 type master struct {
-	shard    ShardID
-	localDir string
+	shard     ShardID
+	partition topic.Partition
+	localDir  string
 
 	// Etcd path into which FSMHints are stored.
 	hintsPath string
@@ -85,7 +86,7 @@ type master struct {
 }
 
 func newMaster(shard *shard, tree *etcd.Node) (*master, error) {
-	etcdOffsets, err := LoadOffsetsFromEtcd(tree)
+	var etcdOffsets, err = LoadOffsetsFromEtcd(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +98,7 @@ func newMaster(shard *shard, tree *etcd.Node) (*master, error) {
 
 	return &master{
 		shard:       shard.id,
+		partition:   shard.partition,
 		localDir:    shard.localDir,
 		hintsPath:   hintsPath(tree.Key, shard.id),
 		etcdOffsets: etcdOffsets,
@@ -189,37 +191,28 @@ func (m *master) init(runner *Runner, replica *replica) error {
 	return nil
 }
 
-func (m *master) startPumpingMessages(runner *Runner) (<-chan message.Message, error) {
-	dbOffsets, err := LoadOffsetsFromDB(m.database.DB, m.database.readOptions)
+func (m *master) startPumpingMessages(runner *Runner) (<-chan topic.Envelope, error) {
+	var dbOffsets, err = LoadOffsetsFromDB(m.database.DB, m.database.readOptions)
 	if err != nil {
 		return nil, err
 	}
 	log.WithFields(log.Fields{"shard": m.shard, "offsets": dbOffsets}).Info("loaded offsets")
 
-	offsets := mergeOffsets(dbOffsets, m.etcdOffsets)
+	var offsets = mergeOffsets(dbOffsets, m.etcdOffsets)
 
 	// Begin pumping messages from consumed journals.
-	var messages = make(chan message.Message, messageBufferSize)
+	var messages = make(chan topic.Envelope, messageBufferSize)
 	var pump = newPump(runner.Gazette, messages, m.cancelCh)
-	var group *TopicGroup
 
-	for _, g := range runner.Consumer.Groups() {
-		if g.Name == m.shard.Group {
-			group = &g
-			break
-		}
-	}
-	if group == nil {
-		panic("could not locate topic group in consumer: " + m.shard.Group)
-	}
+	go pump.pump(m.partition.Topic, journal.Mark{
+		Journal: m.partition.Journal,
+		Offset:  offsets[m.partition.Journal],
+	})
 
-	for name, topic := range group.JournalsForShard(m.shard.Index) {
-		go pump.pump(topic, journal.Mark{Journal: name, Offset: offsets[name]})
-	}
 	return messages, nil
 }
 
-func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) error {
+func (m *master) consumerLoop(runner *Runner, source <-chan topic.Envelope) error {
 	// Rate at which we publish recovery hints to Etcd.
 	var storeToEtcdInterval = time.NewTicker(storeToEtcdInterval)
 
@@ -251,7 +244,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 	// current transaction (for later confirmation), and will also ensure that
 	// messages are appropriately tagged and sequenced. We can do so with a
 	// transaction-aware topic.Publisher. For now, use SimplePublisher.
-	var publisher = message.SimplePublisher{Writer: runner.Gazette}
+	var publisher = topic.NewPublisher(runner.Gazette)
 
 	// We synchronize transaction concurrency via |txConcurrencyCh|. We must
 	// return a held lock on exit if we are in a transaction (txBegin != 0).
@@ -263,13 +256,13 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 	for {
 		var err error
-		var msg message.Message
+		var msg topic.Envelope
 
 		// We allow messages to process in the current transaction only if we're
 		// within |maxConsumeQuantum|. Ie, though we may stall an arbitrarily long
 		// time waiting for |lastWriteBarrier|, only during the first
 		// |maxConsumeQuantum| will we actually Consume messages.
-		var maybeSrc <-chan message.Message
+		var maybeSrc <-chan topic.Envelope
 		if !maxQuantumElapsed {
 			maybeSrc = source
 		}
@@ -359,7 +352,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 		txMessages += 1
 		txOffsets[msg.Mark.Journal] = msg.Mark.Offset
-		msg.Topic.PutMessage(msg.Value)
+		msg.Topic.PutMessage(msg.Message)
 
 		if runner.ShardPostConsumeHook != nil {
 			runner.ShardPostConsumeHook(msg, m)
@@ -433,6 +426,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan message.Message) err
 
 // Shard interface implementation.
 func (m *master) ID() ShardID                       { return m.shard }
+func (m *master) Partition() topic.Partition        { return m.partition }
 func (m *master) Cache() interface{}                { return m.cache }
 func (m *master) SetCache(c interface{})            { m.cache = c }
 func (m *master) Database() *rocks.DB               { return m.database.DB }
