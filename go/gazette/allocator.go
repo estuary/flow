@@ -18,7 +18,11 @@ const (
 	ItemsPrefix  = "items"   // Directory root for allocated items.
 
 	lockDuration          = time.Minute * 5 // Duration of held locks.
-	allocErrSleepInterval = time.Second * 5
+	allocErrSleepInterval = time.Second * 5 // Sleep cool-off on errors.
+	// Maximum sleep interval. This is a tighter bound than that required
+	// for lock resets, to ensure that ItemStates are polled and updated
+	// into Etcd with sufficient frequency.
+	allocMaxSleepInterval = time.Second * 5
 )
 
 var ErrAllocatorInstanceExists = errors.New("Allocator member key exists")
@@ -199,8 +203,13 @@ func Allocate(alloc Allocator) error {
 			// Termination condition: no Etcd entries remain.
 			return nil
 		} else {
-			// Arrange to sleep until |nextDeadline|.
-			deadlineTimer.Reset(nextDeadline.Sub(time.Now()))
+			// Arrange to sleep until the earlier of |nextDeadline| or
+			// |allocMaxSleepInterval|.
+			if d := nextDeadline.Sub(time.Now()); d < allocMaxSleepInterval {
+				deadlineTimer.Reset(d)
+			} else {
+				deadlineTimer.Reset(allocMaxSleepInterval)
+			}
 			deadlineCh = deadlineTimer.C
 
 			if testNotifier != nil {
