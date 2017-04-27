@@ -32,7 +32,7 @@ const (
 	kWriteQueueSize    = 1024    // Allows a total of 128GiB of spooled writes.
 
 	// Local disk-backed temporary directory where pending writes are spooled.
-	kWriteTmpDirectory = "/var/tmp/gazette-writes"
+	gazetteWriteTmpDir = "/var/tmp/gazette-writes"
 
 	// journal.Name for where varz stats get written.
 	StatsJournalName = "pippio-journals/debug/vars"
@@ -48,11 +48,7 @@ type pendingWrite struct {
 
 var pendingWritePool = sync.Pool{
 	New: func() interface{} {
-		err := os.MkdirAll(kWriteTmpDirectory, 0700)
-		if err != nil {
-			return err
-		}
-		f, err := ioutil.TempFile(kWriteTmpDirectory, "gazette-write")
+		f, err := ioutil.TempFile(gazetteWriteTmpDir, "gazette-write")
 		if err != nil {
 			return err
 		}
@@ -109,7 +105,7 @@ type WriteService struct {
 }
 
 func NewWriteService(client *Client) *WriteService {
-	writeService := &WriteService{
+	var writeService = &WriteService{
 		client:     client,
 		stopped:    make(chan struct{}),
 		writeQueue: nil,
@@ -135,6 +131,11 @@ func (c *WriteService) SetConcurrency(concurrency int) {
 // Begins the write service loop. Be sure to invoke Stop() prior to process
 // exit, to ensure that all pending writes have been flushed.
 func (c *WriteService) Start() {
+	var err = os.MkdirAll(gazetteWriteTmpDir, 0700)
+	if err != nil {
+		panic(err)
+	}
+
 	go c.monitorDiskSpace()
 	for i := range c.writeQueue {
 		go c.serveWrites(i)
@@ -158,7 +159,7 @@ func (c *WriteService) monitorDiskSpace() {
 	var stat syscall.Statfs_t
 
 	for _ = range time.Tick(time.Minute) {
-		var err = syscall.Statfs(kWriteTmpDirectory, &stat)
+		var err = syscall.Statfs(gazetteWriteTmpDir, &stat)
 		if err != nil {
 			// This should never happen.
 			log.WithField("err", err).Fatal("checking free disk space")

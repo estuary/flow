@@ -29,6 +29,11 @@ func (r errReader) Read(p []byte) (int, error) {
 	}
 }
 
+func (s *WriteServiceSuite) SetUpSuite(c *gc.C) {
+	var err = os.MkdirAll(gazetteWriteTmpDir, 0755)
+	c.Assert(err, gc.IsNil)
+}
+
 func (s *WriteServiceSuite) TestBasicWriteSpooling(c *gc.C) {
 	iface := pendingWritePool.Get()
 
