@@ -58,7 +58,7 @@ var (
 )
 
 const (
-	storeToEtcdInterval = time.Minute
+	storeToEtcdInterval = time.Hour
 
 	// Channel size used between message decode & comsumption. Needs to be rather
 	// large, to avoid processing stalls. Current value will tolerate a data
