@@ -194,7 +194,10 @@ func buildConsumerData(consumerPath string) consumerData {
 	key = path.Join(consumerPath, "offsets")
 	var offsetsRoot, _ = keysAPI.Get(context.Background(), key,
 		&etcd.GetOptions{Recursive: true})
-	var etcdOffsets = makeEtcdOffsetMap(key, offsetsRoot.Node)
+	var etcdOffsets map[string]int64
+	if offsetsRoot != nil && offsetsRoot.Node != nil {
+		etcdOffsets = makeEtcdOffsetMap(key, offsetsRoot.Node)
+	}
 
 	var consumer = consumerData{
 		members: make(map[string]memberData),
@@ -441,10 +444,6 @@ func expandPrefixList(prefixList []string) []string {
 // greater than the amount stored in Etcd.
 func makeEtcdOffsetMap(key string, root *etcd.Node) map[string]int64 {
 	var offsets = make(map[string]int64)
-	if root == nil {
-		return offsets
-	}
-
 	var visit = root.Nodes
 	for i := 0; i < len(visit); i++ {
 		var node = visit[i]
