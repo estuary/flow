@@ -37,7 +37,7 @@ func (s *CommonSuite) TestLocationFromAWSEndpoint(c *gc.C) {
 }
 
 func (s *CommonSuite) TestS3Validate(c *gc.C) {
-	var ep Endpoint
+	var ep Endpoint_DEPRECATED
 
 	c.Check(ep.Validate(), gc.ErrorMatches, "can't tell what sort of Endpoint this is")
 	ep.AWSAccessKeyID = "AKIATHINGY"
@@ -58,7 +58,7 @@ func (s *CommonSuite) TestS3Validate(c *gc.C) {
 }
 
 func (s *CommonSuite) TestSFTPValidate(c *gc.C) {
-	var ep = Endpoint{SFTPHostname: "sftp.yourface.com"}
+	var ep = Endpoint_DEPRECATED{SFTPHostname: "sftp.yourface.com"}
 
 	c.Check(ep.Validate(), gc.ErrorMatches, "must specify sftp port")
 	ep.SFTPPort = "22"

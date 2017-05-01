@@ -56,7 +56,7 @@ func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	rand.Seed(time.Now().Unix())
 
 	if *s3AccessKeyID != "" || *sftpKeyPath != "" {
-		var fakeProperties = mapProperties{
+		var fakeProperties = MapProperties{
 			AWSAccessKeyID:     *s3AccessKeyID,
 			AWSSecretAccessKey: *s3SecretAccessKey,
 			S3Region:           *s3Region,

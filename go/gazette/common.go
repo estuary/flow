@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	"golang.org/x/net/context"
 )
 
-type Endpoint struct {
+// Endpoint_DEPRECATED is the old-style partner-endpoint, to be replaced
+// by the Endpoint interface.
+type Endpoint_DEPRECATED struct {
 	// AWS
 	AWSAccessKeyID     string `json:"aws_access_key_id"`
 	AWSSecretAccessKey string `json:"aws_secret_access_key"`
@@ -35,12 +36,8 @@ type Endpoint struct {
 	SFTPDirectory string `json:"sftp_directory"`
 }
 
-var (
-	validSSEAlgorithms = []string{"AES256"}
-)
-
 // Validate satisfies the model interface
-func (ep *Endpoint) Validate() error {
+func (ep *Endpoint_DEPRECATED) Validate() error {
 	if ep.IsSFTP() {
 		if ep.SFTPPort == "" {
 			return errors.New("must specify sftp port")
@@ -69,17 +66,17 @@ func (ep *Endpoint) Validate() error {
 }
 
 // IsS3 returns whether or not the config describes an S3 endpoint.
-func (ep *Endpoint) IsS3() bool {
+func (ep *Endpoint_DEPRECATED) IsS3() bool {
 	return ep.AWSAccessKeyID != ""
 }
 
 // IsSFTP returns whether or not the config describes an SFTP endpoint.
-func (ep *Endpoint) IsSFTP() bool {
+func (ep *Endpoint_DEPRECATED) IsSFTP() bool {
 	return ep.SFTPHostname != ""
 }
 
 // Subfolder returns the value of the directory beyond the root to upload a file to.
-func (ep *Endpoint) Subfolder() string {
+func (ep *Endpoint_DEPRECATED) Subfolder() string {
 	if ep.IsS3() {
 		return ep.S3Subfolder
 	} else if ep.IsSFTP() {
@@ -88,8 +85,8 @@ func (ep *Endpoint) Subfolder() string {
 	panic("unable to determine subfolder")
 }
 
-// URI returns a fully qualified URI string for the given Endpoint.
-func (ep *Endpoint) URI() string {
+// URI returns a fully qualified URI string for the given endpoint .
+func (ep *Endpoint_DEPRECATED) URI() string {
 	if ep.IsS3() {
 		return "s3://" + ep.S3Bucket + "/" + ep.S3Subfolder
 	} else if ep.IsSFTP() {
@@ -99,9 +96,9 @@ func (ep *Endpoint) URI() string {
 }
 
 // Properties returns a cloudstore.Properties map for the given Endpoint.
-func (ep *Endpoint) Properties(keyPath string) Properties {
+func (ep *Endpoint_DEPRECATED) Properties(keyPath string) Properties {
 	if ep.IsS3() {
-		return mapProperties{
+		return MapProperties{
 			AWSAccessKeyID:     ep.AWSAccessKeyID,
 			AWSSecretAccessKey: ep.AWSSecretAccessKey,
 			S3GlobalCannedACL:  ep.S3GlobalCannedACL,
@@ -109,7 +106,7 @@ func (ep *Endpoint) Properties(keyPath string) Properties {
 			S3Region:           ep.S3Region,
 		}
 	} else if ep.IsSFTP() {
-		return mapProperties{
+		return MapProperties{
 			SFTPUsername: ep.SFTPUsername,
 			SFTPPassword: ep.SFTPPassword,
 			SFTPKeyPath:  keyPath,
@@ -122,7 +119,7 @@ func (ep *Endpoint) Properties(keyPath string) Properties {
 // LocationFromEndpoint returns a URI and properties given a partner-endpoints-style path
 // in etcd. Optionally, |keyPath| can be attached to SFTP authentication.
 func LocationFromEndpoint(keysAPI etcd.KeysAPI, path, keyPath string) (string, Properties) {
-	var endpoint Endpoint
+	var endpoint Endpoint_DEPRECATED
 	var resp, err = keysAPI.Get(context.Background(), path,
 		&etcd.GetOptions{Recursive: true, Sort: true})
 	if err != nil {
@@ -138,7 +135,7 @@ func LocationFromEndpoint(keysAPI etcd.KeysAPI, path, keyPath string) (string, P
 }
 
 func PropertiesFromFile(path string) Properties {
-	var mp mapProperties
+	var mp MapProperties
 	fobj, err := os.Open(path)
 	if err != nil {
 		log.WithFields(log.Fields{"path": path, "err": err}).Fatal(
@@ -150,18 +147,4 @@ func PropertiesFromFile(path string) Properties {
 			"failed to decode properties file")
 	}
 	return mp
-}
-
-type mapProperties map[string]string
-
-func (mp mapProperties) Get(key string) string {
-	return mp[key]
-}
-
-func contains(slice []string, element string) bool {
-	// |sort.SearchStrings| returns the index of the occurrence or insertion
-	// point if the element doesn't exist. Verify both that the returned index
-	// is in-bounds, and that its value matches the search term.
-	var i = sort.SearchStrings(slice, element)
-	return i < len(slice) && slice[i] == element
 }

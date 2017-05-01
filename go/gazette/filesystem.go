@@ -74,11 +74,6 @@ type FileSystem interface {
 	Walk(root string, walkFn filepath.WalkFunc) error
 }
 
-// Properties gets values for keys, and allows a Filesytem to configure itself.
-type Properties interface {
-	Get(string) string
-}
-
 // Selects a FileSystem implementation from |rawURL|. Implementations are
 // determined by URL scheme, and the path roots the resulting FileSystem.
 // Depending on provider, options are passed as URL query arguments.
