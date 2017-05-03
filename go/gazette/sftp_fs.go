@@ -175,6 +175,12 @@ func newSFTPFs(properties Properties, host string, path string, user *url.Userin
 // and |perm|. Returns a file object or a dir object, both of which
 // meet the File interface.
 func (s *sftpFs) OpenFile(name string, flag int, perm os.FileMode) (File, error) {
+	log.WithFields(log.Fields{
+		"name": name,
+		"path": s.client.Join(s.path, name),
+		"flag": flag,
+		"perm": perm,
+	}).Debug("OpenFile called")
 	var path = s.client.Join(s.path, name)
 
 	if isDir, err := s.isDir(path); err != nil {
