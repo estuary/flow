@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,7 +16,10 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/sftp"
+	"github.com/samuel/go-socks/socks"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/pippio/endpoints"
 )
 
 // Used for properties.Get.
@@ -24,6 +28,7 @@ const (
 	SFTPPassword = "SFTPPassword"
 	SFTPKeyPath  = "SFTPKeyPath"
 	SFTPPort     = "SFTPPort"
+	SFTPReqProxy = "SFTPReqProxy"
 
 	SFTPDefaultPort = "22"
 )
@@ -333,6 +338,20 @@ func (s *sftpFs) useKeyAuth() bool {
 	return s.properties.Get(SFTPKeyPath) != ""
 }
 
+func (s *sftpFs) requiresProxy() bool {
+	var prox = s.properties.Get(SFTPReqProxy)
+	var b bool
+	var err error
+	if b, err = strconv.ParseBool(prox); err != nil {
+		// If we have a problem parsing the req_proxy boolean, log it as a
+		// warning, but continue.
+		log.WithFields(log.Fields{"require_proxy": prox, "err": err}).
+			Warn("couldn't parse proxy bool")
+		return false
+	}
+	return b
+}
+
 func (s *sftpFs) makeSFTPClient() (*sftp.Client, error) {
 	var auth ssh.AuthMethod
 	if s.useKeyAuth() {
@@ -352,13 +371,44 @@ func (s *sftpFs) makeSFTPClient() (*sftp.Client, error) {
 		Auth: []ssh.AuthMethod{auth},
 	}
 
-	if sshClient, err := ssh.Dial("tcp", s.host+":"+s.port(), config); err != nil {
+	if sshClient, err := makeSSHClient(s.host+":"+s.port(), config, s.requiresProxy()); err != nil {
 		return nil, err
 	} else if sftpClient, err := sftp.NewClient(sshClient); err != nil {
 		return nil, err
 	} else {
 		return sftpClient, err
 	}
+}
+
+// makeSSHClient creates an SSH Client, forwarding the connection through the
+// SOCKS jumphost if required.
+func makeSSHClient(addr string, config *ssh.ClientConfig, reqProxy bool) (*ssh.Client, error) {
+	var baseConnection net.Conn
+	var err error
+
+	if reqProxy {
+		var proxy = &socks.Proxy{*endpoints.SocksEndpoint, "", ""}
+		baseConnection, err = proxy.Dial("tcp", addr)
+	} else {
+		baseConnection, err = net.Dial("tcp", addr)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Vars which we take from the NewClientConn and pass straight into NewClient:
+	var (
+		conn  ssh.Conn
+		newCh <-chan ssh.NewChannel
+		reqCh <-chan *ssh.Request
+	)
+
+	conn, newCh, reqCh, err = ssh.NewClientConn(baseConnection, addr, config)
+	if err != nil {
+		return nil, err
+	}
+	return ssh.NewClient(conn, newCh, reqCh), nil
 }
 
 func isSSHError(err error, sshCode uint32) bool {
