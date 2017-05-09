@@ -1,6 +1,7 @@
 package cloudstore
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,18 @@ const (
 	SFTPDefaultPort = "22"
 )
 
+const (
+	// All current versions of the IETF spec mandate that servers should accept
+	// packets of at least 32k, but can reject larger packets. To prevent additional
+	// network overhead from trying to "find" the server's acceptable packet
+	// length, we'll just assume that there's a hard limit at 32k, and do our best
+	// to write in chunks as close to that as possible.
+	maxSFTPPacketSize = 1 << 15
+
+	// Turn on/off in-memory buffering for writes
+	useWriteBuffer = true
+)
+
 // Redeclaring SSH error codes since the originals are not exported
 // http://api.libssh.org/master/group__libssh__sftp.html#member-group
 // NOTE(Azim): File exists errors are actually mapping to SSH_ERR_FAILURE
@@ -46,8 +59,39 @@ const (
 type sftpFile struct {
 	*sftp.File
 
+	// Lazy-initialized buffer to spool file writes in memory.
+	buf *bufio.Writer
+
 	// Need this so we can Remove the file if CopyAtomic fails.
 	partialPath string
+}
+
+// Write is a buffered write call to the underlying SFTP file. We use the SFTP
+// max packet size as our buffer size to allow Write to be called many times
+// with small amounts of data and yet only incur the network overhead of SFTP
+// once per 32k chunk, optimizing chatty writers over slow connections.
+func (f *sftpFile) Write(p []byte) (int, error) {
+	if useWriteBuffer && f.buf == nil {
+		f.buf = bufio.NewWriterSize(f.File, maxSFTPPacketSize)
+	}
+	if useWriteBuffer {
+		return f.buf.Write(p)
+	}
+	return f.File.Write(p)
+}
+
+// Close flushes the buffered writes and closes the remote connection. It's
+// important for the caller to check the error here, since the final buffered
+// write may not have been sent until this point.
+func (f *sftpFile) Close() error {
+	if f.buf == nil {
+		// Fall through
+	} else if err := f.buf.Flush(); err != nil {
+		return fmt.Errorf("flushing buffer: %s", err.Error())
+	} else if err := f.File.Close(); err != nil {
+		return fmt.Errorf("closing file: %s", err.Error())
+	}
+	return nil
 }
 
 func (f *sftpFile) Readdir(count int) ([]os.FileInfo, error) {
