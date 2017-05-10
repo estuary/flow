@@ -148,12 +148,23 @@ func (m *master) serve(runner *Runner, replica *replica) {
 }
 
 func (m *master) init(runner *Runner, replica *replica) error {
+	var err error
+	var fsm *recoverylog.FSM
+
 	// Ask replica to become "live" once caught up to the recovery-log write head.
 	// This could potentially take a while, depending on how far behind we are.
-	var fsm, err = replica.player.MakeLive()
+	fsm, err = replica.player.MakeLive()
 	if err != nil {
 		return err
 	}
+
+	// Write last recovered hints to etcd.
+	if err := prepAndStoreHintsToEtcd(fsm.BuildHints(), m.hintsPath+".lastRecovered", runner.KeysAPI()); err != nil {
+		return err
+	} else {
+		log.WithFields(log.Fields{"shard": replica.shard}).Info("stored last recovered hints to etcd")
+	}
+
 	log.WithFields(log.Fields{"shard": m.shard}).Info("makeLive finished")
 
 	var opts = rocks.NewDefaultOptions()

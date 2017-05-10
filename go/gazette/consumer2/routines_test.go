@@ -95,6 +95,15 @@ func (s *RoutinesSuite) TestStoreHintsToEtcd(c *gc.C) {
 	s.keysAPI.AssertExpectations(c)
 }
 
+func (s *RoutinesSuite) TestPrepAndStoreHintsToEtcd(c *gc.C) {
+	hintsPath := "/foo/hints/shard-baz-012.lastRecovered"
+	shard012, _ := json.Marshal(s.hintsFixture())
+	s.keysAPI.On("Set", mock.Anything, hintsPath, string(shard012),
+		mock.Anything).Return(&etcd.Response{}, nil)
+	c.Assert(prepAndStoreHintsToEtcd(s.hintsFixture(), hintsPath, s.keysAPI), gc.IsNil)
+	s.keysAPI.AssertExpectations(c)
+}
+
 func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
 	rootPath := "foo"
 	offsets := make(map[journal.Name]int64)

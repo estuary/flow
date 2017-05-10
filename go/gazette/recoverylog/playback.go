@@ -114,6 +114,7 @@ func (p *Player) Play(client journal.Client) error {
 		return err
 	}
 
+	// Note - here the fsm.LogMark is initialized to -1 on a new Player.
 	var rr = journal.NewRetryReader(p.fsm.LogMark, client)
 	defer rr.Close()
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -23,6 +24,7 @@ import (
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/message"
+	"github.com/pippio/gazette/recoverylog"
 	"github.com/pippio/gazette/topic"
 )
 
@@ -79,6 +81,7 @@ type ConsumerSuite struct {
 		*gazette.WriteService
 	}
 	runFinishedCh chan struct{}
+	preInitHookCh chan error
 }
 
 func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
@@ -228,6 +231,40 @@ func (s *ConsumerSuite) TestHandoffWithMultipleRunners(c *gc.C) {
 
 	r2.ReplicaCount = 0 // Drop replica count so that runner will exit.
 	s.stopRunner(c, r2)
+}
+
+func (s *ConsumerSuite) validateLastReadHints(shard Shard) {
+	s.preInitHookCh <- nil
+}
+
+func (s *ConsumerSuite) TestMasterWritesLastReadHints(c *gc.C) {
+	var runner = s.buildRunner(0, 1)
+	runner.ShardPreInitHook = s.validateLastReadHints
+	var keysAPI = runner.KeysAPI()
+	var sid = ShardID{"add-subtract", 0}
+	var shard = newShard(sid, runner, nil)
+	var cons, _ = keysAPI.Get(context.Background(), kConsumerRoot,
+		&etcd.GetOptions{Recursive: true, Sort: true})
+	s.preInitHookCh = make(chan error, 1)
+
+	// Start up a consumer shard and play back.
+	shard.transitionMaster(runner, cons.Node)
+
+	// Block until pre init hook is called by shard.
+	<-s.preInitHookCh
+
+	// Get hints and last recovered hints from etcd and compare them.
+	var err error
+	var resp, lrResp *etcd.Response
+	resp, err = keysAPI.Get(context.Background(), hintsPath(kConsumerRoot, sid), nil)
+	c.Assert(err, gc.IsNil)
+	lrResp, err = keysAPI.Get(context.Background(), hintsPath(kConsumerRoot, sid)+".lastRecovered", nil)
+	c.Assert(err, gc.IsNil)
+	playedHintsMatchRecordedHints(resp, lrResp, c)
+
+	// Clean up shard and recovered hints.
+	shard.transitionCancel()
+	keysAPI.Delete(context.Background(), hintsPath(kConsumerRoot, sid)+".lastRecovered", nil)
 }
 
 func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
@@ -469,6 +506,23 @@ func reverse(in string) string {
 		out[l-i-1] = c
 	}
 	return string(out)
+}
+
+func playedHintsMatchRecordedHints(hintsNode, lrHintsNode *etcd.Response, c *gc.C) {
+	var lpSeg recoverylog.Segment
+	var hints, lrHints recoverylog.FSMHints
+	c.Assert(json.Unmarshal([]byte(hintsNode.Node.Value), &hints), gc.IsNil)
+	c.Assert(json.Unmarshal([]byte(lrHintsNode.Node.Value), &lrHints), gc.IsNil)
+	for n, liveNode := range hints.LiveNodes {
+		for s, seg := range liveNode.Segments {
+			lpSeg = lrHints.LiveNodes[n].Segments[s]
+			c.Assert(seg.GetAuthor(), gc.Equals, lpSeg.GetAuthor())
+			c.Assert(seg.GetFirstChecksum(), gc.Equals, lpSeg.GetFirstChecksum())
+			c.Assert(seg.GetFirstSeqNo(), gc.Equals, lpSeg.GetFirstSeqNo())
+			c.Assert(seg.GetLastSeqNo(), gc.Equals, lpSeg.GetLastSeqNo())
+			c.Assert(seg.GetFirstOffset() <= lpSeg.GetFirstOffset(), gc.Equals, true)
+		}
+	}
 }
 
 var _ = gc.Suite(&ConsumerSuite{})

@@ -9,12 +9,12 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
-	"github.com/pippio/gazette/message"
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/message"
 )
 
 const (

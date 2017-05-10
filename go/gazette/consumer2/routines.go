@@ -25,8 +25,10 @@ import (
 // independently of their uses in `master` and `replica`.
 
 const (
-	hintsPrefix     = "hints"   // Etcd directory into which FSM hints are stored.
-	offsetsPrefix   = "offsets" // Legacy Etcd offsets path.
+	// Etcd directory into which FSM hints are stored.
+	hintsPrefix = "hints"
+	// Legacy Etcd offsets path.
+	offsetsPrefix   = "offsets"
 	validGroupChars = "abcdefghijklmnopqrstuvwxyz0123456789-"
 )
 
@@ -146,13 +148,24 @@ func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recovery
 }
 
 // Stores |hints| in Etcd.
-func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI) {
+func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI) error {
 	_, err := keysAPI.Set(context.Background(), hintsPath, hints, nil)
 	// Etcd Set is best-effort.
 	if err != nil {
 		log.WithFields(log.Fields{"path": hintsPath, "err": err}).
 			Warn("failed to store hints")
+		return err
 	}
+	return nil
+}
+
+func prepAndStoreHintsToEtcd(fsmHints recoverylog.FSMHints, hintsPath string, keysAPI etcd.KeysAPI) error {
+	if bb, err := json.Marshal(fsmHints); err != nil {
+		return err
+	} else if err := storeHintsToEtcd(hintsPath, string(bb), keysAPI); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Converts |offset| into a base-16 encoded string.

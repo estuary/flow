@@ -18,6 +18,8 @@ type PlaybackSuite struct {
 	player   *Player
 }
 
+const aRecoveryLog journal.Name = "a/recovery/log"
+
 func (s *PlaybackSuite) SetUpSuite(c *gc.C) {
 	var err error
 	s.localDir, err = ioutil.TempDir("", "playback-suite")
@@ -32,7 +34,7 @@ func (s *PlaybackSuite) SetUpTest(c *gc.C) {
 	var err error
 
 	var hintsFixture = FSMHints{
-		Log: "a/recovery/log",
+		Log: aRecoveryLog,
 		LiveNodes: []HintedFnode{
 			{Fnode: 42, Segments: []Segment{
 				{Author: 100, FirstSeqNo: 42, LastSeqNo: 45}}},
@@ -53,7 +55,7 @@ func (s *PlaybackSuite) TestPlayerInit(c *gc.C) {
 	_, err := os.Stat(filepath.Join(s.localDir, fnodeStagingDir))
 	c.Check(err, gc.IsNil) // Staging directory was created.
 
-	c.Check(s.player.fsm.LogMark, gc.Equals, journal.NewMark("a/recovery/log", -1))
+	c.Check(s.player.fsm.LogMark, gc.Equals, journal.NewMark(aRecoveryLog, -1))
 	c.Check(s.player.backingFiles, gc.HasLen, 0)
 	c.Check(s.player.IsAtLogHead(), gc.Equals, false)
 }
@@ -273,7 +275,7 @@ func (s *PlaybackSuite) frameWrite(fnode Fnode, offset, length int64) *bytes.Buf
 }
 
 func (s *PlaybackSuite) apply(c *gc.C, buf *bytes.Buffer) error {
-	mark := journal.NewMark("a/recovery/log", 1234)
+	mark := journal.NewMark(aRecoveryLog, 1234)
 	err := s.player.playOperation(buf, mark, nil)
 	c.Check(s.player.fsm.LogMark, gc.Equals, mark)
 
