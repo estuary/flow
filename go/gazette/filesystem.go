@@ -14,6 +14,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/pippio/endpoints"
 )
 
@@ -89,12 +90,35 @@ func NewFileSystem(properties Properties, rawURL string) (FileSystem, error) {
 		var _, compress = url.Query()["compress"]
 		return newGCSFS(properties, url.Host+url.Path, compress)
 	} else if url.Scheme == "s3" {
-		return &s3Fs{properties, url.Host + url.Path}, nil
+		var sp Properties
+		if properties == nil {
+			sp, err = getS3ConfigProperties()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			sp = properties
+		}
+		return newS3FS(sp, url.Host+url.Path)
 	} else if url.Scheme == "sftp" {
 		return newSFTPFs(properties, url.Host, url.Path, url.User)
 	} else {
 		return nil, errors.New("filesystem not supported: " + rawURL)
 	}
+}
+
+func getS3ConfigProperties() (S3Properties, error) {
+	endpoints.ParseFromEnvironment()
+	var ak = *endpoints.AWSAccessKeyId
+	var as = *endpoints.AWSSecretAccessKey
+
+	return S3Properties{
+		AWSAccessKeyID:     ak,
+		AWSSecretAccessKey: as,
+		S3Region:           "us-east-1",
+		S3GlobalCannedACL:  s3.ObjectCannedACLBucketOwnerFullControl,
+		S3SSEAlgorithm:     "",
+	}, nil
 }
 
 func DefaultFileSystem(properties Properties) (FileSystem, error) {

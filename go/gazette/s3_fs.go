@@ -34,6 +34,19 @@ type s3Fs struct {
 	prefix string
 }
 
+type S3Properties map[string]string
+
+func (s S3Properties) Get(key string) string {
+	return s[key]
+}
+
+func newS3FS(properties Properties, prefix string) (*s3Fs, error) {
+	return &s3Fs{
+		properties: properties,
+		prefix:     prefix,
+	}, nil
+}
+
 // Opens a S3 file for reading or for writing (O_RDWR is not supported).
 // O_CREATE is enforced, and O_CREATE|O_EXCL is emulated (best effort) by
 // checking for file existence prior to open. Files opened for O_RDONLY are
