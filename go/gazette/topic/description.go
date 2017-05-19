@@ -12,15 +12,15 @@ import (
 // Message is a discrete piece of topic content.
 type Message interface{}
 
-// A Framing specifies the serialization used to encode Messages within a topic.
+// Framing specifies the serialization used to encode Messages within a topic.
 type Framing interface {
 	// Encode appends the serialization of |msg| onto buffer |b|,
 	// returning the resulting buffer.
 	Encode(msg Message, b []byte) ([]byte, error)
-	// Unpack reads and returns a complete framed message from the Reader.
-	// It returns an error of the underlying Reader, or of a framing corruption.
-	// The returned []byte may be invalidated by a subsequent use of the Reader
-	// or Extract call.
+	// Unpack reads and returns a complete framed message from the Reader,
+	// including any applicable message header or suffix. It returns an error of
+	// the underlying Reader, or of a framing corruption. The returned []byte may
+	// be invalidated by a subsequent use of the Reader or Extract call.
 	Unpack(*bufio.Reader) ([]byte, error)
 	// Unmarshals Message from the supplied frame, previously produced by Extract.
 	// It returns a Message-level decoding error, which does not invalidate the
@@ -35,8 +35,12 @@ type Fixupable interface {
 	Fixup() error
 }
 
-// Description
+// Description details the required properties of a Topic implementation.
 type Description struct {
+	// Name of the Topic. Topics are typically named and arranged in a directory
+	// structure using forward-slash delimiters, and the topic Name is a prefix
+	// for all its Partition names. This is a convention only and is not enforced,
+	// and some use cases may motivate exceptions to the rule.
 	Name string
 	// Partitions returns Journal partitions of this Topic. The returned Journals
 	// may be held constant, or may change across invocations (eg, in response to
@@ -62,7 +66,7 @@ type Description struct {
 	RetentionDuration time.Duration
 }
 
-// A Partition pairs a Gazette Journal with the topic it implements.
+// Partition pairs a Gazette Journal with the topic it implements.
 type Partition struct {
 	Topic   *Description
 	Journal journal.Name

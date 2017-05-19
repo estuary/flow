@@ -117,6 +117,28 @@ func (s *FixedFramingSuite) TestIncompleteBufferHandling(c *gc.C) {
 	c.Check(err, gc.IsNil)
 }
 
+func (s *FixedFramingSuite) TestUnderflowReadingDesyncHeader(c *gc.C) {
+	var fixture = append(bytes.Repeat([]byte{'x'}, 13+8),
+		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
+		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't')
+	var r = bufio.NewReaderSize(bytes.NewReader(fixture), 16)
+
+	// Reads and returns 13 bytes of desync'd content, with no magic word.
+	var b, err = FixedFraming.Unpack(r)
+	c.Check(err, gc.IsNil)
+	c.Check(b, gc.DeepEquals, fixture[0:13])
+
+	// Next read returns only 8 bytes, because the following bytes are valid header.
+	b, err = FixedFraming.Unpack(r)
+	c.Check(err, gc.IsNil)
+	c.Check(b, gc.DeepEquals, fixture[13:13+8])
+
+	// Final read returns a full frame.
+	b, err = FixedFraming.Unpack(r)
+	c.Check(err, gc.IsNil)
+	c.Check(b, gc.DeepEquals, fixture[13+8:])
+}
+
 func testReader(t []byte) *bufio.Reader {
 	// Using a small buffered reader forces the message content Peek
 	// underflow handling / ReadFull path.

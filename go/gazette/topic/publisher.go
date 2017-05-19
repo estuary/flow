@@ -16,7 +16,8 @@ func NewPublisher(w journal.Writer) *Publisher {
 }
 
 // Publish frames |msg|, routes it to the appropriate Topic partition, and
-// writes the resulting encoding.
+// writes the resulting encoding. If |msg| implements `Validate() error`,
+// the message is Validated prior to framing, and any validation error returned.
 func (p Publisher) Publish(msg Message, to *Description) error {
 	// Enforce optional Message validation.
 	if v, ok := msg.(interface {

@@ -1,12 +1,12 @@
 package journal
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"io/ioutil"
 	"os"
 	"time"
-	"bufio"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -47,10 +47,12 @@ func (r *MarkedReader) Close() error {
 	return nil
 }
 
+// AdjustedMark returns the current Mark adjusted for content read by |br|
+// (which must wrap this MarkedReader`) but unconsumed from |br|'s buffer.
 func (r *MarkedReader) AdjustedMark(br *bufio.Reader) Mark {
 	return Mark{
 		Journal: r.Mark.Journal,
-		Offset: r.Mark.Offset - int64(br.Buffered()),
+		Offset:  r.Mark.Offset - int64(br.Buffered()),
 	}
 }
 

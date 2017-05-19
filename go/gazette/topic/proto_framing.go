@@ -15,6 +15,8 @@ import (
 // detection, followed by a little-endian uint32 length, followed by payload bytes.
 var FixedFraming = new(fixedFraming)
 
+const FixedFrameHeaderLength = 8
+
 type fixedFraming struct{}
 
 func (*fixedFraming) Encode(msg Message, b []byte) ([]byte, error) {
@@ -45,6 +47,10 @@ func (*fixedFraming) Encode(msg Message, b []byte) ([]byte, error) {
 	return b, nil
 }
 
+// Unpack returns the next fixed frame of content from the Reader, including
+// the frame header. If the magic word is not detected (indicating a desync),
+// Unpack attempts to continue reading until the next magic word, returning
+// the interleaved but desynchronized content.
 func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	var b, err = r.Peek(FixedFrameHeaderLength)
 
@@ -90,6 +96,9 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	return b, err
 }
 
+// Unmarshal verifies the frame header and unpacks Message content. If the frame
+// header indicates a desync occurred (incorrect magic word), ErrDesyncDetected
+// is returned.
 func (*fixedFraming) Unmarshal(b []byte, msg Message) error {
 	var p, ok = msg.(interface {
 		Unmarshal([]byte) error
@@ -107,10 +116,8 @@ func matchesMagicWord(b []byte) bool {
 	return b[0] == magicWord[0] && b[1] == magicWord[1] && b[2] == magicWord[2] && b[3] == magicWord[3]
 }
 
-const FixedFrameHeaderLength = 8
-
 var (
-	// Error returned upon detection of a stream desync. Recoverable.
+	// Error returned by Unmarshal upon detection of an invalid frame.
 	ErrDesyncDetected = errors.New("detected de-synchronization")
 
 	magicWord = [4]byte{0x66, 0x33, 0x93, 0x36}
