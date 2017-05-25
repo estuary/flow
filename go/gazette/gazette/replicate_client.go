@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"sync"
@@ -19,7 +20,6 @@ import (
 	"github.com/pippio/gazette/httpdump"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/keepalive"
-	"net/http/httputil"
 )
 
 const (

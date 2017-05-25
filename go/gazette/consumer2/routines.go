@@ -12,9 +12,9 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
-	"github.com/pippio/consensus"
 	rocks "github.com/tecbot/gorocksdb"
 
+	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
 	"github.com/pippio/gazette/topic"

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/stretchr/testify/mock"
 )
 
 type WriteServiceSuite struct{}
