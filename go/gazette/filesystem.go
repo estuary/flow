@@ -13,8 +13,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-
 	"github.com/aws/aws-sdk-go/service/s3"
+
 	"github.com/pippio/endpoints"
 )
 
