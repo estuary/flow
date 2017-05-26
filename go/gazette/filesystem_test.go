@@ -37,8 +37,6 @@ var (
 	s3AccessKeyID     = flag.String("testS3AccessKeyID", "", "S3 Access Key ID")
 	s3SecretAccessKey = flag.String("testS3SecretAccessKey", "", "S3 Secret Access Key")
 	s3Region          = flag.String("testS3Region", "us-east-1", "S3 Region")
-
-	sftpKeyPath = flag.String("testSFTPKeyPath", "", "Path to SFTP Key")
 )
 
 type FileSystemSuite struct {
@@ -55,12 +53,11 @@ func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	// Prepare random seed for large file test.
 	rand.Seed(time.Now().Unix())
 
-	if *s3AccessKeyID != "" || *sftpKeyPath != "" {
+	if *s3AccessKeyID != "" {
 		var fakeProperties = MapProperties{
 			AWSAccessKeyID:     *s3AccessKeyID,
 			AWSSecretAccessKey: *s3SecretAccessKey,
 			S3Region:           *s3Region,
-			SFTPKeyPath:        *sftpKeyPath,
 		}
 
 		fsProperties = fakeProperties

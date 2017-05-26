@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 
 	log "github.com/Sirupsen/logrus"
@@ -106,10 +107,19 @@ func (ep *Endpoint_DEPRECATED) Properties(keyPath string) Properties {
 			S3Region:           ep.S3Region,
 		}
 	} else if ep.IsSFTP() {
+		var keyBytes []byte
+		var err error
+		if keyPath != "" {
+			keyBytes, err = ioutil.ReadFile(keyPath)
+			if err != nil {
+				panic("could not read from key path")
+			}
+		}
+
 		return MapProperties{
 			SFTPUsername: ep.SFTPUsername,
 			SFTPPassword: ep.SFTPPassword,
-			SFTPKeyPath:  keyPath,
+			SFTPKey:      string(keyBytes),
 			SFTPPort:     ep.SFTPPort,
 		}
 	}

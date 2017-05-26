@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -27,9 +26,9 @@ import (
 const (
 	SFTPUsername = "SFTPUsername"
 	SFTPPassword = "SFTPPassword"
-	SFTPKeyPath  = "SFTPKeyPath"
 	SFTPPort     = "SFTPPort"
 	SFTPReqProxy = "SFTPReqProxy"
+	SFTPKey      = "SFTPKey"
 
 	SFTPDefaultPort = "22"
 )
@@ -379,7 +378,7 @@ func (s *sftpFs) password() string {
 }
 
 func (s *sftpFs) useKeyAuth() bool {
-	return s.properties.Get(SFTPKeyPath) != ""
+	return s.properties.Get(SFTPKey) != ""
 }
 
 func (s *sftpFs) requiresProxy() bool {
@@ -399,9 +398,9 @@ func (s *sftpFs) requiresProxy() bool {
 func (s *sftpFs) makeSFTPClient() (*sftp.Client, error) {
 	var auth ssh.AuthMethod
 	if s.useKeyAuth() {
-		if keyBytes, err := ioutil.ReadFile(s.properties.Get(SFTPKeyPath)); err != nil {
-			return nil, err
-		} else if signer, err := ssh.ParsePrivateKey(keyBytes); err != nil {
+		var keyBytes = []byte(s.properties.Get(SFTPKey))
+
+		if signer, err := ssh.ParsePrivateKey(keyBytes); err != nil {
 			return nil, err
 		} else {
 			auth = ssh.PublicKeys(signer)

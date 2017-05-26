@@ -15,6 +15,7 @@ type SFTPEndpoint struct {
 	SFTPPassword  string `json:"password"`
 	SFTPDirectory string `json:"directory"`
 	SFTPReqProxy  string `json:"req_proxy"`
+	SFTPKey       string `json:"ssh_key"`
 }
 
 // Validate satisfies the model interface.
@@ -38,7 +39,6 @@ func (ep *SFTPEndpoint) CheckPermissions() error {
 
 // Connect satisfies the Endpoint interface, returning a usable connection to the
 // underlying SFTP filesystem.
-// NOTE(Azim): SFTPKeyPath should be passed in as an additional property.
 func (ep *SFTPEndpoint) Connect(more Properties) (FileSystem, error) {
 	var prop, err = mergeProperties(more, ep.properties())
 	if err != nil {
@@ -47,13 +47,13 @@ func (ep *SFTPEndpoint) Connect(more Properties) (FileSystem, error) {
 	return NewFileSystem(prop, ep.uri())
 }
 
-//TODO(Azim): can we pass |keyPath| in some sort of arbitrary connectionArgs?
 func (ep *SFTPEndpoint) properties() Properties {
 	return MapProperties{
 		SFTPUsername: ep.SFTPUsername,
 		SFTPPassword: ep.SFTPPassword,
 		SFTPPort:     ep.SFTPPort,
 		SFTPReqProxy: ep.SFTPReqProxy,
+		SFTPKey:      ep.SFTPKey,
 	}
 }
 
