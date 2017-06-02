@@ -41,13 +41,13 @@ func appendExpiredJournalFragments(jname journal.Name, horizon time.Time,
 	// Get all fragments associated with journal older than retention time.
 	if err := cfs.Walk(string(jname), func(fname string, finfo os.FileInfo, err error) error {
 		var modTime = finfo.ModTime()
-		if *mode != "silent" {
+		if strings.Compare(*mode, "silent") != 0 {
 			log.WithFields(log.Fields{
 				"cfsPath":     fname,
 				"fragment":    finfo.Name(),
 				"sizeMb":      float64(finfo.Size()) / 1024.0 / 1024.0,
 				"lastModTime": modTime,
-			}).Debug("Scanning fragment for retention...")
+			}).Info("Scanning fragment for retention...")
 		}
 		if modTime.Before(horizon) {
 			fragments = append(fragments, cfsFragment{finfo, fname})
@@ -124,11 +124,12 @@ func checkThenDelete(cfs cloudstore.FileSystem, toDelete []cfsFragment) error {
 	return err
 }
 
+func init() {
+	flag.Var(&topicList, "topic", "Topic to check for expired fragments.")
+}
+
 func main() {
 	defer varz.Initialize("gazretention").Cleanup()
-
-	flag.Var(&topicList, "topic", "Topic to check for expired fragments.")
-	flag.Parse()
 
 	var cfs, err = cloudstore.NewFileSystem(nil, *endpoints.CloudFS)
 	if err != nil {
