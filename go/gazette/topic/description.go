@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"time"
 
 	"github.com/pippio/gazette/journal"
 )
@@ -37,6 +38,8 @@ type Description struct {
 	// If non-nil, returns a used instance of the message type. This is
 	// typically used for pooling of message instances.
 	PutMessage func(Unmarshallable) `json:"-"`
+	// How far back from the present we must keep the data around.
+	RetentionDuration time.Duration
 }
 
 func (d *Description) Journal(partition int) journal.Name {

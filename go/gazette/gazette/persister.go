@@ -180,34 +180,7 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 	var success bool
 	go func(success *bool) {
 		defer done.Resolve()
-
-		// Create the journal's fragment directory, if not already present.
-		if err := p.cfs.MkdirAll(fragment.Journal.String(), 0750); err != nil {
-			log.WithFields(log.Fields{"err": err, "path": fragment.Journal}).
-				Warn("failed to make fragment directory")
-			return
-		}
-
-		w, err := p.cfs.OpenFile(fragment.ContentPath(),
-			os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
-
-		if os.IsExist(err) {
-			// Already present on target file system. No need to re-upload.
-			*success = true
-			return
-		} else if err != nil {
-			log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
-				Warn("failed to open fragment for writing")
-			return
-		}
-		r := io.NewSectionReader(fragment.File, 0, fragment.End-fragment.Begin)
-
-		if _, err := p.cfs.CopyAtomic(w, r); err != nil {
-			log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
-				Warn("failed to copy fragment")
-		} else {
-			*success = true
-		}
+		*success = transferFragmentToGCS(p.cfs, fragment)
 	}(&success)
 
 	// Wait for |done|, periodically refreshing the held lock.
@@ -229,6 +202,36 @@ func (p *Persister) convergeOne(fragment journal.Fragment) bool {
 		p.removeLocal(fragment)
 	}
 	return success
+}
+
+func transferFragmentToGCS(cfs cloudstore.FileSystem, fragment journal.Fragment) bool {
+	// Create the journal's fragment directory, if not already present.
+	if err := cfs.MkdirAll(fragment.Journal.String(), 0750); err != nil {
+		log.WithFields(log.Fields{"err": err, "path": fragment.Journal}).
+			Warn("failed to make fragment directory")
+		return false
+	}
+
+	var w, err = cfs.OpenFile(fragment.ContentPath(),
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
+
+	if os.IsExist(err) {
+		// Already present on target file system. No need to re-upload.
+		return true
+	} else if err != nil {
+		log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
+			Warn("failed to open fragment for writing")
+		return false
+	}
+	var r = io.NewSectionReader(fragment.File, 0, fragment.End-fragment.Begin)
+
+	if _, err := cfs.CopyAtomic(w, r); err != nil {
+		log.WithFields(log.Fields{"err": err, "path": fragment.ContentPath()}).
+			Warn("failed to copy fragment")
+		return false
+	} else {
+		return true
+	}
 }
 
 func (p *Persister) removeLocal(fragment journal.Fragment) {
