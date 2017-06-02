@@ -49,8 +49,9 @@ func UnmarshalEndpoint(data []byte) (Endpoint, error) {
 // only contains a |Name| field, it's important to maintain this inheritence
 // to allow us to use |Name| as a primary key in the endpoint namespace.
 type BaseEndpoint struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name                   string `json:"name"`
+	Type                   string `json:"type"`
+	PermissionTestFilename string `json:"permission_test_filename"`
 }
 
 // Validate satisfies the Model interface from model-builder. Endpoint implementations
