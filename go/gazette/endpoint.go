@@ -18,31 +18,30 @@ type Endpoint interface {
 	// by the Endpoint. |Properties| passed will be merged with those defined in the
 	// Endpoint, overwriting the Endpoint properties where necessary.
 	Connect(Properties) (FileSystem, error)
+	// Validate inspects the endpoint and confirms that all internal fields are
+	// well-formed. Also satisfies the Model interface.
+	Validate() error
 }
 
 // UnmarshalEndpoint takes a byte array of json data (usually from etcd) and
 // returns the appropriate |Endpoint| interface implementation.
-func UnmarshalEndpoint(data []byte) (Endpoint, error) {
+func UnmarshalEndpoint(data []byte) (ep Endpoint, err error) {
 	var base BaseEndpoint
-	if err := json.Unmarshal(data, &base); err != nil {
-		return nil, err
+	if err = json.Unmarshal(data, &base); err != nil {
+		return
 	}
 	switch base.Type {
 	case "s3":
-		var ep S3Endpoint
-		if err := json.Unmarshal(data, &ep); err != nil {
-			return nil, err
-		}
-		return &ep, nil
+		ep = new(S3Endpoint)
 	case "sftp":
-		var ep SFTPEndpoint
-		if err := json.Unmarshal(data, &ep); err != nil {
-			return nil, err
-		}
-		return &ep, nil
+		ep = new(SFTPEndpoint)
+	case "gcs":
+		ep = new(GCSEndpoint)
 	default:
 		panic(fmt.Sprintf("unknown endpoint type: %s", base.Type))
 	}
+	err = json.Unmarshal(data, &ep)
+	return
 }
 
 // BaseEndpoint provides common fields for all endpoints. Though it currently
