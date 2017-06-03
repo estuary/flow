@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"io"
 )
 
 // S3Endpoint is a fully-defined S3 endpoint with bucket and subfolder.
@@ -65,9 +66,9 @@ func (ep *S3Endpoint) CheckPermissions() error {
 		}
 	} else {
 		// Try at least to read a file list.
-		if dir, err := fs.OpenFile(".", os.O_RDONLY, 0); err != nil {
+		if dir, err := fs.OpenFile("/", os.O_RDONLY, 0); err != nil {
 			return fmt.Errorf("could not open directory: %s", err)
-		} else if _, err := dir.Readdir(0); err != nil {
+		} else if _, err := dir.Readdir(0); err != nil  && err != io.EOF {
 			return fmt.Errorf("could not read from directory: %s", err)
 		}
 	}
