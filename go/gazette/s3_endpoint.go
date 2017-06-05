@@ -3,9 +3,9 @@ package cloudstore
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
-	"io"
 )
 
 // S3Endpoint is a fully-defined S3 endpoint with bucket and subfolder.
@@ -55,12 +55,12 @@ func (ep *S3Endpoint) CheckPermissions() error {
 	defer fs.Close()
 
 	if fname != "" {
-		if file, err := fs.OpenFile(fname, os.O_RDWR|os.O_CREATE, 0640); err != nil {
+		if file, err := fs.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640); err != nil {
 			return fmt.Errorf("could not open file: %s", err)
 		} else if _, err := file.Write([]byte("")); err != nil {
 			return fmt.Errorf("could not write to file: %s", err)
 		} else if err := file.Close(); err != nil {
-			return fmt.Errorf("could not close file: %s", err)
+			return fmt.Errorf("could not flush file: %s", err)
 		} else if err := fs.Remove(fname); err != nil {
 			return fmt.Errorf("could not remove file: %s", err)
 		}
@@ -68,7 +68,7 @@ func (ep *S3Endpoint) CheckPermissions() error {
 		// Try at least to read a file list.
 		if dir, err := fs.OpenFile("/", os.O_RDONLY, 0); err != nil {
 			return fmt.Errorf("could not open directory: %s", err)
-		} else if _, err := dir.Readdir(0); err != nil  && err != io.EOF {
+		} else if _, err := dir.Readdir(0); err != nil && err != io.EOF {
 			return fmt.Errorf("could not read from directory: %s", err)
 		}
 	}

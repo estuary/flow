@@ -3,8 +3,8 @@ package cloudstore
 import (
 	"errors"
 	"fmt"
-	"os"
 	"io"
+	"os"
 )
 
 // SFTPEndpoint is a fully-defined SFTP endpoint with subfolder.
@@ -51,12 +51,12 @@ func (ep *SFTPEndpoint) CheckPermissions() error {
 	defer fs.Close()
 
 	if fname != "" {
-		if file, err := fs.OpenFile(fname, os.O_RDWR|os.O_CREATE, 0640); err != nil {
+		if file, err := fs.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640); err != nil {
 			return fmt.Errorf("could not open file: %s", err)
 		} else if _, err := file.Write([]byte("")); err != nil {
 			return fmt.Errorf("could not write to file: %s", err)
 		} else if err := file.Close(); err != nil {
-			return fmt.Errorf("could not close file: %s", err)
+			return fmt.Errorf("could not flush file: %s", err)
 		} else if err := fs.Remove(fname); err != nil {
 			return fmt.Errorf("could not remove file: %s", err)
 		}
