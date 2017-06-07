@@ -24,8 +24,8 @@ func (ep *SFTPEndpoint) Validate() error {
 		return errors.New("must specify sftp port")
 	} else if ep.SFTPUsername == "" {
 		return errors.New("must specify sftp username")
-	} else if ep.SFTPPassword == "" {
-		return errors.New("must specify sftp password")
+	} else if ep.SFTPPassword == "" && ep.SFTPKey == "" {
+		return errors.New("must either specify password or key")
 	} else if ep.SFTPDirectory == "" {
 		return errors.New("must specify sftp directory")
 	}
