@@ -33,7 +33,13 @@ func (p *pump) pump(topic *topic.Description, mark journal.Mark) {
 	for {
 		msg := topic.GetMessage()
 
-		if err := decoder.Decode(msg); err != nil {
+		var err = decoder.Decode(msg)
+		// Only WARN level log for desync.
+		// See https://jira.liveramp.com/browse/PUB-1777 for detail.
+		if err == message.ErrDesyncDetected {
+			log.WithFields(log.Fields{"mark": rr.Mark, "err": err}).Warn("message decode")
+			continue
+		} else if err != nil {
 			log.WithFields(log.Fields{"mark": rr.Mark, "err": err}).Error("message decode")
 			continue
 		}
