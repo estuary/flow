@@ -20,7 +20,7 @@ func checkPermissions(ep Endpoint, fname string) error {
 	defer fs.Close()
 
 	if fname != "" {
-		if file, err := fs.OpenFile(fname, os.O_WRONLY|os.O_CREATE, 0640); err != nil {
+		if file, err := fs.OpenFile(fname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640); err != nil {
 			return fmt.Errorf("could not open file: %s", err)
 		} else if _, err := file.Write([]byte("")); err != nil {
 			return fmt.Errorf("could not write to file: %s", err)
@@ -31,7 +31,7 @@ func checkPermissions(ep Endpoint, fname string) error {
 		}
 	} else {
 		// Try at least to read a file list.
-		if dir, err := fs.OpenFile("/", os.O_RDONLY, 0); err != nil {
+		if dir, err := fs.OpenFile("", os.O_RDONLY, 0); err != nil {
 			return fmt.Errorf("could not open directory: %s", err)
 		} else if _, err := dir.Readdir(0); err != nil && err != io.EOF {
 			return fmt.Errorf("could not read from directory: %s", err)
