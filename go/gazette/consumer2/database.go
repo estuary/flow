@@ -51,7 +51,10 @@ func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, dir string,
 	// Note that the consumer loop also installs a write-barrier between
 	// transactions, which will block a current transaction from committing
 	// until the previous one has been fully synced by Gazette.
-	db.options.SetDisableDataSync(true)
+
+	// TODO(johnny): This option has been removed from Rocks. Research if
+	// there's another option we should use.
+	//db.options.SetDisableDataSync(true)
 
 	// The MANIFEST file is a WAL of database file state, including current live
 	// SST files and their begin & ending key ranges. A new MANIFEST-00XYZ is
