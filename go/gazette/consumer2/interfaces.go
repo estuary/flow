@@ -35,8 +35,14 @@ type Shard interface {
 	// Returns the database of the Shard.
 	Database() *rocks.DB
 
-	// Current transaction of the consumer shard. All writes to the
-	// database must be issued through the returned WriteBatch.
+	// Current Transaction of the consumer shard. All writes issued through
+	// Transaction will commit atomically and be check-pointed with consumed
+	// Journal offsets. This provides exactly-once processing of Journal content
+	// (though note that Gazette is itself an at-least once system, and Journal
+	// writes themselves could be duplicated). Writes may be done directly to
+	// the database, in which case they will be applied at-least once (for
+	// example, because a Shard is recovered to a state after a write was applied
+	// but before corresponding Journal offsets were written).
 	Transaction() *rocks.WriteBatch
 
 	// Returns initialized read and write options for the database.

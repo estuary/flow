@@ -1,7 +1,10 @@
 package consumer
 
 import (
+	"context"
+	"path"
 	"sort"
+	"sync"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
@@ -49,8 +52,59 @@ type Runner struct {
 	shardNames []string                            // Allocator FixedItems support.
 
 	allShards    map[ShardID]topic.Partition // All shards and their Partition, by name.
-	liveShards   map[ShardID]*shard  // Live shards, by name.
-	zombieShards map[*shard]struct{} // Cancelled shards which are shutting down.
+	liveShards   map[ShardID]*shard          // Live shards, by name.
+	zombieShards map[*shard]struct{}         // Cancelled shards which are shutting down.
+
+	inspectCh chan func(*etcd.Node)
+}
+
+func (r *Runner) CurrentConsumerState(context.Context, *Empty) (*ConsumerState, error) {
+	var out = &ConsumerState{
+		Root:          r.ConsumerRoot,
+		LocalRouteKey: r.LocalRouteKey,
+		ReplicaCount:  int32(r.ReplicaCount),
+	}
+
+	var mu sync.Mutex
+	var cond = sync.NewCond(&mu)
+
+	r.inspectCh <- func(tree *etcd.Node) {
+		consensus.WalkItems(tree, r.FixedItems(), func(name string, route consensus.Route) {
+			var partition, ok = r.allShards[ShardID(name)]
+			if !ok {
+				return
+			}
+
+			var shard = ConsumerState_Shard{
+				Id:        name,
+				Topic:     partition.Topic.Name,
+				Partition: partition.Journal.String(),
+			}
+
+			for _, e := range route.Entries {
+				var replica = ConsumerState_Replica{
+					Endpoint: path.Base(e.Key),
+				}
+
+				switch e.Value {
+				case Ready:
+					replica.Status = ConsumerState_Replica_READY
+				case Recovering:
+					replica.Status = ConsumerState_Replica_RECOVERING
+				default:
+					replica.Status = ConsumerState_Replica_INVALID
+				}
+				shard.Replicas = append(shard.Replicas, replica)
+			}
+			out.Shards = append(out.Shards, shard)
+		})
+		cond.Signal()
+	}
+
+	mu.Lock()
+	cond.Wait()
+
+	return out, nil
 }
 
 func (r *Runner) updateShards() {
@@ -82,6 +136,7 @@ func (r *Runner) Run() error {
 	r.allShards = make(map[ShardID]topic.Partition)
 	r.liveShards = make(map[ShardID]*shard)
 	r.zombieShards = make(map[*shard]struct{})
+	r.inspectCh = make(chan func(*etcd.Node))
 
 	var err = consensus.CreateAndAllocateWithSignalHandling(r)
 
@@ -106,7 +161,7 @@ func (r *Runner) Run() error {
 }
 
 // consumer.Allocator implementation.
-func (r *Runner) FixedItems() []string  {
+func (r *Runner) FixedItems() []string {
 	r.updateShards()
 	return r.shardNames
 }
@@ -177,3 +232,5 @@ func (r *Runner) ItemRoute(name string, rt consensus.Route, index int, tree *etc
 		}
 	}
 }
+
+func (r *Runner) InspectChan() chan func(*etcd.Node) { return r.inspectCh }

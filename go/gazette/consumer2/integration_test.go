@@ -49,7 +49,7 @@ var (
 const (
 	addSubOutput  journal.Name = "pippio-journals/integration-tests/add-subtract-merged"
 	reverseOutput journal.Name = "pippio-journals/integration-tests/reverse-out"
-	consumerRoot               = "/gazette/consumers/tests/consumer2-test"
+	consumerRoot               = "/tests/ConsumerSuite"
 )
 
 func init() {
@@ -73,7 +73,6 @@ type ConsumerSuite struct {
 		*gazette.WriteService
 	}
 	runFinishedCh chan struct{}
-	preInitHookCh chan error
 }
 
 func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
@@ -132,6 +131,31 @@ func (s *ConsumerSuite) TestBasic(c *gc.C) {
 
 	generator.publishSomeValues(c)
 	generator.verifyExpectedOutputs(c, csvReader, reverseReader)
+
+	s.stopRunner(c, runner)
+}
+
+func (s *ConsumerSuite) TestConsumerState(c *gc.C) {
+	var runner = s.buildRunner(0, 0)
+	go s.serveRunner(c, runner)
+
+	var generator = newTestGenerator(s.gazette)
+	generator.publishSomeValues(c)
+
+	var state, err = runner.CurrentConsumerState(context.Background(), nil)
+	c.Check(err, gc.IsNil)
+
+	c.Check(state.Root, gc.Equals, runner.ConsumerRoot)
+	c.Check(state.LocalRouteKey, gc.Equals, runner.LocalRouteKey)
+	c.Check(state.ReplicaCount, gc.Equals, int32(runner.ReplicaCount))
+
+	c.Check(state.Shards, gc.HasLen, len(addSubTopic.Partitions())+len(reverseInTopic.Partitions()))
+	c.Check(state.Shards[0].Topic, gc.Equals, addSubTopic.Name)
+	c.Check(state.Shards[0].Partition, gc.Equals, addSubTopic.Partitions()[0].String())
+	c.Check(state.Shards[0].Id, gc.Equals, "shard-add-subtract-updates-000")
+
+	c.Check(state.Shards[0].Replicas, gc.HasLen, 1)
+	c.Check(state.Shards[0].Replicas[0].Endpoint, gc.Equals, runner.LocalRouteKey)
 
 	s.stopRunner(c, runner)
 }
@@ -219,38 +243,54 @@ func (s *ConsumerSuite) TestHandoffWithMultipleRunners(c *gc.C) {
 	s.stopRunner(c, r2)
 }
 
-func (s *ConsumerSuite) validateLastReadHints(shard Shard) {
-	s.preInitHookCh <- nil
-}
-
 func (s *ConsumerSuite) TestMasterWritesLastReadHints(c *gc.C) {
 	var runner = s.buildRunner(0, 1)
-	runner.ShardPreInitHook = s.validateLastReadHints
+	var initCh = make(chan struct{})
+
+	runner.ShardPreInitHook = func (shard Shard) {
+		close(initCh)
+	}
 	var keysAPI = runner.KeysAPI()
-	var sid = ShardID{"add-subtract", 0}
-	var shard = newShard(sid, runner, nil)
-	var cons, _ = keysAPI.Get(context.Background(), kConsumerRoot,
+	var sid = ShardID("shard-add-subtract-updates-000")
+	var shard = newShard(sid, topic.Partition{
+		Topic: addSubTopic,
+		Journal: addSubTopic.Partitions()[0],
+	}, runner, nil)
+	var cons, _ = keysAPI.Get(context.Background(), consumerRoot,
 		&etcd.GetOptions{Recursive: true, Sort: true})
-	s.preInitHookCh = make(chan error, 1)
 
 	// Start up a consumer shard and play back.
 	shard.transitionMaster(runner, cons.Node)
 
 	// Block until pre init hook is called by shard.
-	<-s.preInitHookCh
+	<-initCh
 
 	// Get hints and last recovered hints from etcd and compare them.
 	var err error
 	var resp, lrResp *etcd.Response
-	resp, err = keysAPI.Get(context.Background(), hintsPath(kConsumerRoot, sid), nil)
+	resp, err = keysAPI.Get(context.Background(), hintsPath(consumerRoot, sid), nil)
 	c.Assert(err, gc.IsNil)
-	lrResp, err = keysAPI.Get(context.Background(), hintsPath(kConsumerRoot, sid)+".lastRecovered", nil)
+	lrResp, err = keysAPI.Get(context.Background(), hintsPath(consumerRoot, sid)+".lastRecovered", nil)
 	c.Assert(err, gc.IsNil)
-	playedHintsMatchRecordedHints(resp, lrResp, c)
+
+	var lpSeg recoverylog.Segment
+	var hints, lrHints recoverylog.FSMHints
+	c.Assert(json.Unmarshal([]byte(resp.Node.Value), &hints), gc.IsNil)
+	c.Assert(json.Unmarshal([]byte(lrResp.Node.Value), &lrHints), gc.IsNil)
+	for n, liveNode := range hints.LiveNodes {
+		for s, seg := range liveNode.Segments {
+			lpSeg = lrHints.LiveNodes[n].Segments[s]
+			c.Assert(seg.GetAuthor(), gc.Equals, lpSeg.GetAuthor())
+			c.Assert(seg.GetFirstChecksum(), gc.Equals, lpSeg.GetFirstChecksum())
+			c.Assert(seg.GetFirstSeqNo(), gc.Equals, lpSeg.GetFirstSeqNo())
+			c.Assert(seg.GetLastSeqNo(), gc.Equals, lpSeg.GetLastSeqNo())
+			c.Assert(seg.GetFirstOffset() <= lpSeg.GetFirstOffset(), gc.Equals, true)
+		}
+	}
 
 	// Clean up shard and recovered hints.
 	shard.transitionCancel()
-	keysAPI.Delete(context.Background(), hintsPath(kConsumerRoot, sid)+".lastRecovered", nil)
+	keysAPI.Delete(context.Background(), hintsPath(consumerRoot, sid)+".lastRecovered", nil)
 }
 
 func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
@@ -474,23 +514,6 @@ func reverse(in string) string {
 		out[l-i-1] = c
 	}
 	return string(out)
-}
-
-func playedHintsMatchRecordedHints(hintsNode, lrHintsNode *etcd.Response, c *gc.C) {
-	var lpSeg recoverylog.Segment
-	var hints, lrHints recoverylog.FSMHints
-	c.Assert(json.Unmarshal([]byte(hintsNode.Node.Value), &hints), gc.IsNil)
-	c.Assert(json.Unmarshal([]byte(lrHintsNode.Node.Value), &lrHints), gc.IsNil)
-	for n, liveNode := range hints.LiveNodes {
-		for s, seg := range liveNode.Segments {
-			lpSeg = lrHints.LiveNodes[n].Segments[s]
-			c.Assert(seg.GetAuthor(), gc.Equals, lpSeg.GetAuthor())
-			c.Assert(seg.GetFirstChecksum(), gc.Equals, lpSeg.GetFirstChecksum())
-			c.Assert(seg.GetFirstSeqNo(), gc.Equals, lpSeg.GetFirstSeqNo())
-			c.Assert(seg.GetLastSeqNo(), gc.Equals, lpSeg.GetLastSeqNo())
-			c.Assert(seg.GetFirstOffset() <= lpSeg.GetFirstOffset(), gc.Equals, true)
-		}
-	}
 }
 
 var _ = gc.Suite(&ConsumerSuite{})

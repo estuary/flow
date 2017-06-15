@@ -13,7 +13,7 @@ import (
 // Test type which conforms to consumer.Shard, and manages setup & teardown
 // of a test RocksDB instance.
 type Shard struct {
-	IDFixture consumer.ShardID
+	IDFixture        consumer.ShardID
 	PartitionFixture topic.Partition
 
 	tmpdir string
@@ -40,6 +40,7 @@ func (s *Shard) ReadOptions() *rocks.ReadOptions   { return s.ro }
 func (s *Shard) WriteOptions() *rocks.WriteOptions { return s.wo }
 
 // Initializes a Shard & database backed by a temporary directory.
+// TODO(johnny): Since this is test support, panic on error (rather than returning it).
 func NewShard(prefix string) (*Shard, error) {
 	var s = new(Shard)
 	var err error
@@ -71,6 +72,23 @@ func (s *Shard) FlushTransaction() error {
 	var err = s.db.Write(s.wo, s.tx)
 	s.tx.Clear()
 	return err
+}
+
+// DatabaseContents enumerates and returns keys and values from the database
+// as a map. As this is a test support method, it panics on iterator error.
+func (s *Shard) DatabaseContent() map[string]string {
+	var results = make(map[string]string)
+
+	var it = s.db.NewIterator(s.ro)
+	defer it.Close()
+
+	for it.SeekToFirst(); it.Valid(); it.Next() {
+		results[string(it.Key().Data())] = string(it.Value().Data())
+	}
+	if err := it.Err(); err != nil {
+		panic(err.Error())
+	}
+	return results
 }
 
 // Closes and removes the Shard database.
