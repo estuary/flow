@@ -86,24 +86,23 @@ func appendExpiredJournalFragments(jname journal.Name, horizon time.Time,
 	return fragments, nil
 }
 
-func appendExpiredTopicFragments(tname *topic.Description, cfs cloudstore.FileSystem,
+func appendExpiredTopicFragments(desc *topic.Description, cfs cloudstore.FileSystem,
 	fragments []cfsFragment) ([]cfsFragment, error) {
 	var now = time.Now()
 	var horizon time.Time
 	var err error
 	// If retention duration is unspecified, set horizon to unix epoch.
-	if tname.RetentionDuration == 0 {
+	if desc.RetentionDuration == 0 {
 		horizon = time.Unix(0, 0)
 	} else {
-		horizon = now.Add(-tname.RetentionDuration)
+		horizon = now.Add(-desc.RetentionDuration)
 	}
-	if _, ok := retentionStats[tname]; !ok {
-		retentionStats[tname] = make(map[journal.Name]*journalStats)
+	if _, ok := retentionStats[desc]; !ok {
+		retentionStats[desc] = make(map[journal.Name]*journalStats)
 	}
-	currentTopic = tname
-	for part := 0; part < tname.Partitions; part++ {
-		fragments, err = appendExpiredJournalFragments(tname.Journal(part),
-			horizon, cfs, fragments)
+	currentTopic = desc
+	for _, part := range desc.Partitions() {
+		fragments, err = appendExpiredJournalFragments(part, horizon, cfs, fragments)
 		if err != nil {
 			break
 		}

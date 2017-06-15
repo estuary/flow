@@ -20,7 +20,7 @@ const (
 var (
 	testTopic = topic.Description{
 		Name:              testJournal,
-		Partitions:        2,
+		Partitions:        topic.EnumeratePartitions(testJournal, 2),
 		RetentionDuration: testDuration,
 	}
 	msg1 = testMessage{
@@ -75,7 +75,7 @@ func (s *RetentionSuite) TestMessagesAreRetained(c *gc.C) {
 func (s *RetentionSuite) TestNoRetentionSpecifiedRetains(c *gc.C) {
 	var noRetain = topic.Description{
 		Name:       testJournal,
-		Partitions: 2,
+		Partitions: topic.EnumeratePartitions(testJournal, 2),
 	}
 	enforceTopicRetention(&noRetain, s.cfs, c)
 	checkTestMessagesAreRetained(s.cfs, c)
