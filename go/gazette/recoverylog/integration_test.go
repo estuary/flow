@@ -129,12 +129,12 @@ func (s *RecoveryLogSuite) TestSimpleWarmStandby(c *gc.C) {
 }
 
 func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
-	env := testEnv{c, s.gazette}
+	var env = testEnv{c, s.gazette}
 
 	// Begin with two replicas, both reading from the initial state.
-	replica1 := NewTestReplica(&env)
+	var replica1 = NewTestReplica(&env)
 	defer replica1.teardown()
-	replica2 := NewTestReplica(&env)
+	var replica2 = NewTestReplica(&env)
 	defer replica2.teardown()
 
 	replica1.startReading(FSMHints{Log: kTestLogName})
@@ -151,10 +151,17 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	replica1.put("rep1 baz", "value baz")
 	replica2.put("rep2 bing", "value bing")
 
+	// Ensure all writes are sync'd to the recoverylog.
+	var flushOpts = rocks.NewDefaultFlushOptions()
+	flushOpts.SetWait(true)
+	replica1.db.Flush(flushOpts)
+	replica2.db.Flush(flushOpts)
+	flushOpts.Destroy()
+
 	// New |replica3| is hinted from |replica1|, and |replica4| from |replica2|.
-	replica3 := NewTestReplica(&env)
+	var replica3 = NewTestReplica(&env)
 	defer replica3.teardown()
-	replica4 := NewTestReplica(&env)
+	var replica4 = NewTestReplica(&env)
 	defer replica4.teardown()
 
 	replica3.startReading(replica1.recorder.BuildHints())
