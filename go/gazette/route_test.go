@@ -69,7 +69,6 @@ func (s *RouteSuite) fixture() Route {
 	}
 
 	rt := Route{
-		EtcdIndex: 1234,
 		Item:      item,
 		Entries:   append([]*etcd.Node{}, item.Nodes...),
 	}

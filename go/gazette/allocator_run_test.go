@@ -56,7 +56,9 @@ func (s *AllocRunSuite) SetUpTest(c *gc.C) {
 }
 
 func (s *AllocRunSuite) TestSingle(c *gc.C) {
-	alloc := newTestAlloc(s, "my-key")
+	var alloc = newTestAlloc(s, "my-key")
+	alloc.inspectCh = make(chan func(*etcd.Node))
+
 	go alloc.createAndRun(c)
 
 	// Stage 1: Expect that we acquired master locks on all items.
@@ -66,6 +68,21 @@ func (s *AllocRunSuite) TestSingle(c *gc.C) {
 		c.Check(s.routes[item].Entries, gc.HasLen, 1)
 		c.Check(s.routes[item].Index("my-key"), gc.Equals, 0)
 	}
+
+	// Perform the same check via the InspectChan mechanism.
+	var inspectionDoneCh = make(chan struct{})
+
+	alloc.inspectCh <- func(tree *etcd.Node) {
+		var i int
+		WalkItems(tree, nil, func(name string, route Route) {
+			c.Check(s.fixedItems[i], gc.Equals, name)
+			c.Check(route.Index("my-key"), gc.Equals, 0)
+			i++
+		})
+		c.Check(i, gc.Equals, len(s.fixedItems))
+		close(inspectionDoneCh)
+	}
+	<-inspectionDoneCh
 
 	// Interlude: Expect that an attempt to Create the same Allocator fails.
 	c.Check(Create(testAllocator{AllocRunSuite: s, instanceKey: "my-key"}),
@@ -395,9 +412,7 @@ func (s *AllocRunSuite) ItemRoute(item string, rt Route, ind int, tree *etcd.Nod
 	s.routesMu.Lock()
 	defer s.routesMu.Unlock()
 
-	if s.routes[item].EtcdIndex < rt.EtcdIndex {
-		s.routes[item] = rt.Copy()
-	}
+	s.routes[item] = rt.Copy()
 }
 
 // Represents a specific Allocator in the test context.
@@ -406,10 +421,12 @@ type testAllocator struct {
 	*AllocRunSuite
 
 	instanceKey string
+	inspectCh   chan func(*etcd.Node)
 }
 
 // Allocator interface.
-func (t testAllocator) InstanceKey() string { return t.instanceKey }
+func (t testAllocator) InstanceKey() string                { return t.instanceKey }
+func (t testAllocator) InspectChan() chan func(*etcd.Node) { return t.inspectCh }
 
 // testNotifier interface.
 func (t testAllocator) IdleAt(index uint64) {

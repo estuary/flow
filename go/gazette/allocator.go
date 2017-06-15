@@ -27,7 +27,7 @@ const (
 
 var ErrAllocatorInstanceExists = errors.New("Allocator member key exists")
 
-// Interface for types which perform distributed allocation of items.
+// Allocator is an interface which performs distributed allocation of items.
 type Allocator interface {
 	KeysAPI() etcd.KeysAPI
 	// Etcd path which roots shared state for this Context.
@@ -57,6 +57,17 @@ type Allocator interface {
 	// within |tree| in response to a route change. Note that |route| or |tree|
 	// must be copied if retained beyond this call
 	ItemRoute(item string, route Route, index int, tree *etcd.Node)
+}
+
+// Inspector is an optional interface of an Allocator which allows for
+// inspections of the Allocator state tree.
+type Inspector interface {
+	// InspectChan returns a channel which may request invocations to inspect
+	// state in between allocator actions. The callback is invoked from the
+	// Allocator's goroutine and has exclusive read access to the |tree| for the
+	// call duration. Because of this, callbacks must be non-blocking. The
+	// callback must not modify |tree|.
+	InspectChan() chan func(tree *etcd.Node)
 }
 
 // Attempts to create an Allocator member lock reflecting instance |alloc|.
@@ -130,6 +141,11 @@ func Allocate(alloc Allocator) error {
 	var now time.Time        // Current timepoint.
 	var modifiedIndex uint64 // Current Etcd ModifiedIndex.
 
+	var inspectCh chan func(tree *etcd.Node)
+	if inspector, ok := alloc.(Inspector); ok {
+		inspectCh = inspector.InspectChan()
+	}
+
 	// When idle, manages deadline at which we must wake for next lock refresh.
 	var deadlineTimer = time.NewTimer(0)
 	var deadlineCh = deadlineTimer.C
@@ -159,6 +175,9 @@ func Allocate(alloc Allocator) error {
 				continue
 			}
 			modifiedIndex = response.Node.ModifiedIndex
+		case callback := <-inspectCh:
+			callback(tree)
+			continue
 		}
 
 		// Disable timer notifications until explicitly re-enabled.
@@ -330,31 +349,40 @@ type allocParams struct {
 	}
 }
 
-// From |p.Input|, builds |p.Item| and |p.Member| descriptions of allocParams.
-func allocExtract(p *allocParams) {
-	var itemsDir etcd.Node
-	if d := Child(p.Input.Tree, ItemsPrefix); d != nil {
-		itemsDir = *d
+// WalkItems performs a zipped, outer-join iteration of items under ItemsPrefix of |tree|,
+// and |fixedItems| (which must be ordered). The argument callback |cb| is invoked for
+// each item, and must not retain |route| after each call.
+func WalkItems(tree *etcd.Node, fixedItems []string, cb func(name string, route Route)) {
+	var dir etcd.Node
+	if d := Child(tree, ItemsPrefix); d != nil {
+		dir = *d
 	} else {
 		// Fabricate items directory if it doesn't exist.
-		itemsDir = etcd.Node{Key: p.Input.Tree.Key + "/" + ItemsPrefix, Dir: true}
+		dir = etcd.Node{Key: tree.Key + "/" + ItemsPrefix, Dir: true}
 	}
 
-	// Perform a zipped, outer-join iteration of |items| and |desiredItems|.
+	// Perform a zipped, outer-join iteration of |dir| items and |fixedItems|.
 	var scratch [8]*etcd.Node // Re-usable buffer for building Route.Entries.
-	forEachChild(&itemsDir, p.FixedItems(), func(name string, node *etcd.Node) {
-		p.Item.Count += 1
-
+	forEachChild(&dir, fixedItems, func(name string, node *etcd.Node) {
 		// Bypass NewRoute to avoid extra deep copies and because we know (per the
-		// ItemRoute contract) that |route| will not be retained.
+		// callback contract) that |route| will not be retained.
 		var route = Route{
-			EtcdIndex: p.Input.Index,
-			Item:      node,
-			Entries:   append(scratch[:0], node.Nodes...),
+			Item:    node,
+			Entries: append(scratch[:0], node.Nodes...),
 		}
 		route.init()
 
-		index := route.Index(p.InstanceKey())
+		cb(name, route)
+	})
+}
+
+// From |p.Input|, builds |p.Item| and |p.Member| descriptions of allocParams.
+func allocExtract(p *allocParams) {
+
+	WalkItems(p.Input.Tree, p.FixedItems(), func(name string, route Route) {
+		p.Item.Count += 1
+
+		var index = route.Index(p.InstanceKey())
 		p.ItemRoute(name, route, index, p.Input.Tree)
 
 		if index == -1 {

@@ -9,10 +9,6 @@ import (
 
 // Represents an agreed-upon, ordered set of responsible processes for an item.
 type Route struct {
-	// Etcd ModifiedIndex which this Route reflects. This is not a modification
-	// index of the route itself, but rather is an effective assertion that Route
-	// is valid as-of |EtcdIndex|.
-	EtcdIndex uint64
 	// Directory Node of item.
 	Item *etcd.Node
 	// Entries of |Item.Nodes|, ordered on increasing CreatedIndex. 'Master' is
@@ -25,7 +21,6 @@ type Route struct {
 // Initializes a new Route from the |response| and |node|.
 func NewRoute(response *etcd.Response, node *etcd.Node) Route {
 	rt := Route{
-		EtcdIndex: response.Index,
 		Item:      node,
 		Entries:   append(etcd.Nodes{}, node.Nodes...), // Copy, as we'll re-order.
 	}
@@ -64,7 +59,6 @@ func (rt Route) IsReadyForHandoff(alloc Allocator) bool {
 // Performs a deep-copy of Route.
 func (rt Route) Copy() Route {
 	return Route{
-		EtcdIndex: rt.EtcdIndex,
 		Item:      CopyNode(rt.Item),
 		Entries:   CopyNodes(rt.Entries),
 	}

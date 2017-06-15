@@ -66,7 +66,6 @@ func (s *AllocSuite) TestAllocParamExtraction(c *gc.C) {
 			Run(func(args mock.Arguments) {
 				rt := args.Get(1).(Route)
 
-				c.Check(rt.EtcdIndex, gc.Equals, params.Input.Index)
 				c.Check(rt.Item.Key, gc.Equals, "/foo/items/"+name)
 
 				c.Check(len(rt.Entries), gc.Equals, len(exp.keys))
@@ -112,7 +111,6 @@ func (s *AllocSuite) TestAllocParamExtractionEmptyTree(c *gc.C) {
 	params.Input.Tree = &etcd.Node{Dir: true, Key: "/foo"}
 
 	alloc.On("ItemRoute", "a-item", mock.MatchedBy(func(rt Route) bool {
-		c.Check(rt.EtcdIndex, gc.Equals, params.Input.Index)
 		c.Check(rt.Item.Key, gc.Equals, "/foo/items/a-item")
 		c.Check(rt.Entries, gc.HasLen, 0)
 		return true
