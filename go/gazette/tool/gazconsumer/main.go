@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -26,8 +27,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
 
-	"io"
-
 	"github.com/pippio/consensus"
 	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/gazette"
@@ -36,11 +35,12 @@ import (
 )
 
 const (
-	bytesPerGigabyte    = 1024 * 1024 * 1024
 	journalNotBeingRead = -1
 )
 
 var (
+	minimumDisplayLagFlag = flag.String("minimumDisplayLag", "10MB",
+		"Minimum lag to display. Anything lower is displayed as Zero.")
 	monitor = flag.Bool("monitor", false,
 		"Use arguments to provide metrics to Prometheus.")
 	monitorInterval = flag.Duration("monitorInterval", time.Minute,
@@ -99,6 +99,8 @@ func main() {
 	flag.Var(&prefixList, "prefix", "Specify an Etcd prefix to check for consumers.")
 	defer varz.Initialize("gazconsumer").Cleanup()
 
+	minimumDisplayLag = calcMinimumDisplayLag()
+
 	httpClient = &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: gazette.MakeHttpTransport(),
@@ -145,6 +147,14 @@ func checkConsumers(consumerList []string) {
 	}
 }
 
+func bytesForDisplay(lag int64) string {
+	if minimumDisplayLag > uint64(lag) {
+		lag = 0
+	}
+
+	return humanize.Bytes(uint64(lag))
+}
+
 // Human readable output for a |consumerData|.
 func printLong(cdata consumerData, out io.Writer) {
 	var journalsTable = tablewriter.NewWriter(out)
@@ -155,7 +165,7 @@ func printLong(cdata consumerData, out io.Writer) {
 		if data, ok := cdata.journalLag[journal]; !ok {
 			journalsTable.Append([]string{journal, "unknown", data.state, owner})
 		} else {
-			journalsTable.Append([]string{journal, humanize.Bytes(uint64(data.lag)), data.state, owner})
+			journalsTable.Append([]string{journal, bytesForDisplay(data.lag), data.state, owner})
 		}
 	}
 	journalsTable.Render()
@@ -171,7 +181,7 @@ func printLong(cdata consumerData, out io.Writer) {
 
 		membersTable.Append([]string{
 			member, strconv.Itoa(info.masters), strconv.Itoa(info.replicas),
-			fmt.Sprintf(lagFmt, humanize.Bytes(uint64(info.totalLag)))})
+			fmt.Sprintf(lagFmt, bytesForDisplay(info.totalLag))})
 	}
 	membersTable.Render()
 }
@@ -472,3 +482,14 @@ func (f *prefixFlagSet) Set(prefix string) error {
 	*f = append(*f, prefix)
 	return nil
 }
+
+func calcMinimumDisplayLag() uint64 {
+	if thresh, err := humanize.ParseBytes(*minimumDisplayLagFlag); err != nil {
+		log.WithField("err", err).WithField("flag", *minimumDisplayLagFlag).Fatal("Invalid minimum lag")
+		return 0
+	} else {
+		return thresh
+	}
+}
+
+var minimumDisplayLag uint64
