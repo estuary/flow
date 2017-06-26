@@ -257,7 +257,7 @@ func getHeads(itemsRoot *etcd.Response, cdata *consumerData) (map[string]int64, 
 				info.states = make(map[string]string)
 			}
 
-			// Stores "ready" or "recovering" state.
+			// Stores "primary", "ready" or "recovering" state.
 			info.states[journal] = member.Value
 
 			if i == 0 {

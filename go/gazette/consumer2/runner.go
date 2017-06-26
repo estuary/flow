@@ -1,13 +1,12 @@
 package consumer
 
 import (
-	"context"
 	"path"
 	"sort"
-	"sync"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 
 	"github.com/pippio/consensus"
 	"github.com/pippio/gazette/journal"
@@ -15,7 +14,9 @@ import (
 )
 
 const (
-	// Peer is ready to immediately transition to shard master.
+	// Peer is actively serving the Shard.
+	Primary = "primary"
+	// Peer is ready to immediately transition to Shard primary.
 	Ready = "ready"
 	// Peer is still rebuilding from the recovery log.
 	Recovering = "recovering"
@@ -65,20 +66,25 @@ func (r *Runner) CurrentConsumerState(context.Context, *Empty) (*ConsumerState, 
 		ReplicaCount:  int32(r.ReplicaCount),
 	}
 
-	var mu sync.Mutex
-	var cond = sync.NewCond(&mu)
+	var doneCh = make(chan struct{})
 
 	r.inspectCh <- func(tree *etcd.Node) {
+		for _, n := range consensus.Child(tree, consensus.MemberPrefix).Nodes {
+			// Member Nodes are already sorted on node Key.
+			out.Endpoints = append(out.Endpoints, path.Base(n.Key))
+		}
 		consensus.WalkItems(tree, r.FixedItems(), func(name string, route consensus.Route) {
-			var partition, ok = r.allShards[ShardID(name)]
+			var shardID = ShardID(name)
+
+			var partition, ok = r.allShards[shardID]
 			if !ok {
 				return
 			}
 
 			var shard = ConsumerState_Shard{
-				Id:        name,
+				Id:        shardID,
 				Topic:     partition.Topic.Name,
-				Partition: partition.Journal.String(),
+				Partition: partition.Journal,
 			}
 
 			for _, e := range route.Entries {
@@ -87,6 +93,8 @@ func (r *Runner) CurrentConsumerState(context.Context, *Empty) (*ConsumerState, 
 				}
 
 				switch e.Value {
+				case Primary:
+					replica.Status = ConsumerState_Replica_PRIMARY
 				case Ready:
 					replica.Status = ConsumerState_Replica_READY
 				case Recovering:
@@ -96,13 +104,13 @@ func (r *Runner) CurrentConsumerState(context.Context, *Empty) (*ConsumerState, 
 				}
 				shard.Replicas = append(shard.Replicas, replica)
 			}
+
+			// WalkItems enumerates in sorted |name| order.
 			out.Shards = append(out.Shards, shard)
 		})
-		cond.Signal()
+		close(doneCh)
 	}
-
-	mu.Lock()
-	cond.Wait()
+	<-doneCh
 
 	return out, nil
 }
@@ -173,6 +181,8 @@ func (r *Runner) Replicas() int         { return r.ReplicaCount }
 func (r *Runner) ItemState(name string) string {
 	if shard, ok := r.liveShards[ShardID(name)]; !ok {
 		return UnknownShard
+	} else if shard.master != nil && shard.master.didFinishInit() {
+		return Primary
 	} else if shard.replica.player.IsAtLogHead() {
 		return Ready
 	} else {

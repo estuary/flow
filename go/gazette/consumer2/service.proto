@@ -4,6 +4,10 @@ package consumer;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
 // Empty is an empty message, which exists to support RPC APIs taking no arguments.
 message Empty {};
 
@@ -17,6 +21,8 @@ message ConsumerState {
   string local_route_key = 2;
   // Degree of Shard stand-by replication employed by the consumer.
   int32 replica_count = 3;
+  // All live peer endpoints of the consumer, in sorted "host:port" network format.
+  repeated string endpoints = 4;
 
   message Replica {
     // Addressable endpoint of the replica, in "host:port" network format.
@@ -27,21 +33,23 @@ message ConsumerState {
       INVALID = 0;
       RECOVERING = 1;
       READY = 2;
+      PRIMARY = 3;
     };
     Status status = 2;
   };
 
   message Shard {
     // The unique ID of this Shard.
-    string id = 1;
+    string id = 1 [(gogoproto.casttype) = "ShardID"];
     // The topic name of this Shard.
     string topic = 2;
     // The journal name of this Shard's topic partition.
-    string partition = 3;
+    string partition = 3 [(gogoproto.casttype) = "github.com/pippio/gazette/journal.Name"];
     // Assigned replicas and their processing status.
     repeated Replica replicas = 5 [(gogoproto.nullable) = false];
   };
-  repeated Shard shards = 4 [(gogoproto.nullable) = false];
+  // All Shards of this Consumer, in sorted Shard id order.
+  repeated Shard shards = 5 [(gogoproto.nullable) = false];
 };
 
 // Consumer service provides basic APIs supported by all Gazette Consumers.

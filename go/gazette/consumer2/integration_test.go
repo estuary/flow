@@ -149,10 +149,12 @@ func (s *ConsumerSuite) TestConsumerState(c *gc.C) {
 	c.Check(state.LocalRouteKey, gc.Equals, runner.LocalRouteKey)
 	c.Check(state.ReplicaCount, gc.Equals, int32(runner.ReplicaCount))
 
+	c.Check(state.Endpoints, gc.DeepEquals, []string{runner.LocalRouteKey})
+
 	c.Check(state.Shards, gc.HasLen, len(addSubTopic.Partitions())+len(reverseInTopic.Partitions()))
 	c.Check(state.Shards[0].Topic, gc.Equals, addSubTopic.Name)
-	c.Check(state.Shards[0].Partition, gc.Equals, addSubTopic.Partitions()[0].String())
-	c.Check(state.Shards[0].Id, gc.Equals, "shard-add-subtract-updates-000")
+	c.Check(state.Shards[0].Partition, gc.Equals, addSubTopic.Partitions()[0])
+	c.Check(state.Shards[0].Id, gc.Equals, ShardID("shard-add-subtract-updates-000"))
 
 	c.Check(state.Shards[0].Replicas, gc.HasLen, 1)
 	c.Check(state.Shards[0].Replicas[0].Endpoint, gc.Equals, runner.LocalRouteKey)

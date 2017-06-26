@@ -69,7 +69,6 @@ func EnumerateShards(c Consumer) map[ShardID]topic.Partition {
 	return m
 }
 
-
 // Maps a consumer |tree| and |shard| to the full path for storing FSMHints.
 // Eg, hintsPath(tree{/a/consumer}, 42) => "/a/consumer/hints/shard-042".
 func hintsPath(consumerPath string, shard ShardID) string {
@@ -250,4 +249,38 @@ func mergeOffsets(db, etcd map[journal.Name]int64) map[journal.Name]int64 {
 		}
 	}
 	return result
+}
+
+// BlockUntilShardsAreServing uses |inspector| to observe the consumer
+// allocator tree, and returns only after all shards are being served.
+// This is test-support function.
+func BlockUntilShardsAreServing(inspector consensus.Inspector) {
+	var ch = inspector.InspectChan()
+
+	for done := false; !done; {
+		ch <- func(n *etcd.Node) {
+
+			var items etcd.Nodes
+			if dir := consensus.Child(n, consensus.ItemsPrefix); dir == nil {
+				return
+			} else {
+				items = dir.Nodes
+			}
+
+			// Count number of items having a "primary" replica.
+			var numPrimary int
+			for _, item := range items {
+				for _, replica := range item.Nodes {
+					if replica.Value == Primary {
+						numPrimary += 1
+						break
+					}
+				}
+			}
+
+			if numPrimary == len(items) && numPrimary > 0 {
+				done = true
+			}
+		}
+	}
 }

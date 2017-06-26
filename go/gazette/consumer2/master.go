@@ -80,6 +80,7 @@ type master struct {
 
 	cancelCh  <-chan struct{} // master.serve exists when selectable.
 	servingCh chan struct{}   // Blocks until master.serve exits.
+	initCh    chan struct{}   // Selectable after initialization completes.
 
 	database *database
 	cache    interface{}
@@ -104,7 +105,17 @@ func newMaster(shard *shard, tree *etcd.Node) (*master, error) {
 		etcdOffsets: etcdOffsets,
 		cancelCh:    shard.cancelCh,
 		servingCh:   make(chan struct{}),
+		initCh:      make(chan struct{}),
 	}, nil
+}
+
+func (m *master) didFinishInit() bool {
+	select {
+	case <-m.initCh:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *master) serve(runner *Runner, replica *replica) {
@@ -141,6 +152,7 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		abort(runner, m.shard)
 		return
 	}
+	close(m.initCh)
 
 	if err = m.consumerLoop(runner, messages); err != nil {
 		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("consumer loop failed")
