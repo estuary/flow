@@ -225,7 +225,10 @@ func (p *Player) playOperation(r io.Reader, mark journal.Mark, b []byte) error {
 	var op RecordedOp
 
 	p.fsm.LogMark = mark
-	if _, err := message.Parse(&op, r, &b); err != nil {
+	if _, err := message.Parse(&op, r, &b); err == message.ErrDesyncDetected {
+		log.WithField("mark", mark).Warn("detected de-synchronization")
+		// Fall through. |op| is a valid, decoded message.
+	} else if err != nil {
 		return err
 	}
 
