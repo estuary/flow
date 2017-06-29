@@ -299,7 +299,7 @@ func itemOfItemKey(alloc Allocator, key string) string {
 // POD type built by individual iterations of the Allocate() protocol,
 // to succinctly describe global allocator state.
 type allocParams struct {
-	Allocator
+	Allocator `json:"-"`
 
 	Input struct {
 		Time  time.Time
