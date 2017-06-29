@@ -191,7 +191,7 @@ func (c *Client) update() error {
 			log.WithFields(log.Fields{"endpoint": ep, "err": err}).
 				Fatal("non-blocking grpc.Dial returned error")
 		} else {
-			log.WithField("endpoint", ep).Info("built new GRPC ClientConn")
+			log.WithField("endpoint", ep).Debug("built new GRPC ClientConn")
 			conns[ep] = conn
 		}
 	}
