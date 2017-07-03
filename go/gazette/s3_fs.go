@@ -75,7 +75,7 @@ func (fs *s3Fs) OpenFile(name string, flag int, perm os.FileMode) (File, error) 
 			// File does not exist, not a fatal error.
 		} else if err != nil {
 			// Unrelated error, treat as fatal.
-			return nil, err
+			return nil, fmt.Errorf("s3 head file object: %s", err)
 		} else {
 			// File exists; make a *s3.Object from the HeadObject result.
 			statObject = &s3.Object{
@@ -103,7 +103,7 @@ func (fs *s3Fs) OpenFile(name string, flag int, perm os.FileMode) (File, error) 
 
 			listObjects, err := svc.ListObjectsV2(&listParams)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("s3 list objects: %s", err)
 			} else if len(listObjects.Contents) != 0 || len(listObjects.CommonPrefixes) != 0 {
 				// Rewrite |path| as a directory.
 				path = path + "/"
@@ -164,7 +164,7 @@ func (fs *s3Fs) OpenFile(name string, flag int, perm os.FileMode) (File, error) 
 
 		resp, err := svc.CreateMultipartUpload(&params)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("s3 create multipart upload: %s", err)
 		} else if resp.UploadId == nil {
 			return nil, errors.New("expected UploadId in MultipartUpload creation")
 		}
@@ -211,7 +211,7 @@ func (fs *s3Fs) Remove(name string) error {
 	}
 
 	_, err = svc.DeleteObject(&deleteParams)
-	return err
+	return fmt.Errorf("s3 delete object: %s", err)
 }
 
 // CopyAtomic copies files contents, while being sensitive to the consistency
@@ -238,9 +238,9 @@ func (fs *s3Fs) ToURL(path, method string, validFor time.Duration) (*url.URL, er
 
 	req, _ := fs.svc().GetObjectRequest(&params)
 	if urlStr, err := req.Presign(validFor); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("s3 presign: %s", err)
 	} else if urlObj, err := url.Parse(urlStr); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("s3 url parse: %s", err)
 	} else {
 		return urlObj, nil
 	}
@@ -282,7 +282,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 
 		var objects, err = svc.ListObjectsV2(&listParams)
 		if err != nil {
-			return fmt.Errorf("listing objects: %s", err.Error())
+			return fmt.Errorf("s3 list objects: %s", err.Error())
 		}
 
 		for i := range objects.Contents {
@@ -296,7 +296,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 			// Strip the full prefix. |rel| is now relative to |path|.
 			var rel, err = filepath.Rel(subPath, *objects.Contents[i].Key)
 			if err != nil {
-				return fmt.Errorf("obtaining relative path: %s", err.Error())
+				return fmt.Errorf("s3 relative path: %s", err.Error())
 			}
 
 			if werr := walkFn(filepath.Join(root, rel), fp, nil); werr == filepath.SkipDir {
@@ -306,7 +306,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 				return errors.New("SkipDir not implemented for s3Fs")
 			} else if werr != nil {
 				// Allow caller to abort Walk operation.
-				return fmt.Errorf("walking directory: %s", err.Error())
+				return fmt.Errorf("s3 walking directory: %s", err.Error())
 			}
 		}
 
