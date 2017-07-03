@@ -48,10 +48,11 @@ const (
 // Redeclaring SSH error codes since the originals are not exported
 // http://api.libssh.org/master/group__libssh__sftp.html#member-group
 // NOTE(Azim): File exists errors are actually mapping to SSH_ERR_FAILURE
-// (4) instead of file exists (11). Going to leave it for now.
+// (4) instead of file exists (11). Compensating for that since we need to
+// minimally be able to tell when a file exists, although this may mask others.
 const (
 	SSHErrFileNotFound = 2
-	SSHErrFileExists   = 11
+	SSHErrFileExists   = 4
 )
 
 // Luckily sftp.File already meets most of the File interface.
