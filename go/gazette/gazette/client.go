@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"encoding/json"
 	"expvar"
 	"fmt"
 	"io"
@@ -39,6 +40,16 @@ type httpClient interface {
 	Get(url string) (*http.Response, error)
 }
 
+type requestData struct {
+	Method    string
+	Timestamp time.Time
+}
+
+type currentRequestList struct {
+	m  map[string]requestData
+	mu sync.Mutex
+}
+
 var kContentRangeRegexp = regexp.MustCompile("bytes\\s+(\\d+)-\\d+/\\d+")
 
 type Client struct {
@@ -56,6 +67,9 @@ type Client struct {
 		sync.Mutex
 		readers, writers *expvar.Map
 	}
+	// Expvar'd list of timestamped, in-flight requests, for debugging hung
+	// requests.
+	requests *currentRequestList
 
 	// Underlying HTTP Client to use for all requests.
 	httpClient httpClient
@@ -93,6 +107,7 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 		defaultEndpoint: ep,
 		locationCache:   cache,
 		httpClient:      hc,
+		requests:        &currentRequestList{m: make(map[string]requestData)},
 		timeNow:         time.Now,
 	}
 
@@ -102,6 +117,7 @@ func NewClientWithHttpClient(endpoint string, hc *http.Client) (*Client, error) 
 
 	gazetteMap.Set("readers", c.stats.readers)
 	gazetteMap.Set("writers", c.stats.writers)
+	gazetteMap.Set("requests", c.requests)
 
 	return c, nil
 }
@@ -412,6 +428,37 @@ func (c *Client) parseReadResult(args journal.ReadArgs,
 	return
 }
 
+// Note: This String() implementation is primarily for the benefit of expvar,
+// which expects the string to be a serialized JSON object.
+func (l *currentRequestList) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if msg, err := json.Marshal(l.m); err != nil {
+		return fmt.Sprintf("%q", err.Error())
+	} else {
+		return string(msg)
+	}
+}
+
+// Not to be confused with client.Put, basically a map interface with locking.
+// Creates or updates a key in the locked map.
+func (l *currentRequestList) Put(key string, value requestData) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.m[key] = value
+}
+
+// Not to be confused with client.Put, basically a map interface with locking.
+// Deletes a key from the locked map.
+func (l *currentRequestList) Delete(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	delete(l.m, key)
+}
+
 func (c *Client) parseAppendResponse(response *http.Response) journal.AppendResult {
 	var result = journal.AppendResult{
 		Error: journal.ErrorFromResponse(response),
@@ -448,6 +495,9 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 		request.URL.Host = c.defaultEndpoint.Host
 		// Note that Path & RawQuery are not re-written.
 	}
+
+	c.requests.Put(request.URL.String(), requestData{request.Method, c.timeNow()})
+	defer c.requests.Delete(request.URL.String())
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
