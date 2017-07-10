@@ -239,6 +239,11 @@ func (f *s3File) Sys() interface{} {
 	return nil
 }
 
+func (f *s3File) Version() int64 {
+	// TODO(dclark): get S3 obj version.
+	return 0
+}
+
 func (f *s3File) reader() (io.ReadCloser, error) {
 	var err error
 	if f.readCloser == nil {

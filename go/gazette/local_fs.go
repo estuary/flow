@@ -32,6 +32,11 @@ func (f localFile) ContentSignature() (string, error) {
 	}
 }
 
+func (f localFile) Version() int64 {
+	//TODO(dclark): Return unix timestamp lastMod.
+	return 0
+}
+
 func (fs localFs) toPath(name string) string {
 	return filepath.Join(filepath.FromSlash(string(fs.Dir)), filepath.FromSlash(name))
 }

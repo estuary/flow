@@ -257,10 +257,11 @@ func (fs *gcsFs) Walk(root string, walkFn filepath.WalkFunc) error {
 		}
 
 		var fp = &gcsFile{
-			fs:     fs,
-			bucket: bucket,
-			path:   obj.Name,
-			attrs:  obj,
+			fs:         fs,
+			bucket:     bucket,
+			path:       obj.Name,
+			attrs:      obj,
+			generation: obj.Generation,
 		}
 
 		// Strip the full prefix. |rel| is now relative to |path|.
@@ -318,6 +319,9 @@ type gcsFile struct {
 	// If |compressor| is non-nil, it is backed by |writer|.
 	writer     *storage.Writer
 	compressor io.WriteCloser
+
+	// Generation info
+	generation int64
 
 	err error
 }
@@ -515,6 +519,10 @@ func (f *gcsFile) IsDir() bool {
 // os.FileInfo interface method.
 func (f *gcsFile) Sys() interface{} {
 	return nil
+}
+
+func (f *gcsFile) Version() int64 {
+	return f.generation
 }
 
 func (f *gcsFile) transfer(from io.Reader) (int64, error) {
