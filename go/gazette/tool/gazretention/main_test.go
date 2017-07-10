@@ -133,6 +133,15 @@ func writeTestMessagesToCFS(cfs cloudstore.FileSystem, c *gc.C) {
 	c.Check(file2.Close(), gc.IsNil)
 }
 
+func deleteFragments(cfs cloudstore.FileSystem, toDelete []cfsFragment) error {
+	for _, frag := range toDelete {
+		if err := cfs.Remove(frag.path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var _ = gc.Suite(&RetentionSuite{})
 
 func Test(t *testing.T) { gc.TestingT(t) }
