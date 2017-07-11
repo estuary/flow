@@ -244,8 +244,7 @@ func getHeads(itemsRoot *etcd.Response, cdata *consumerData) (map[string]int64, 
 		go fetchWriteHead(journal, gazetteClient, writeHeadOutput, writeHeadWg)
 
 		if len(route.Entries) == 0 {
-			// Item has no master.
-			log.WithField("item", route.Item.Key).Warn("no master for item")
+			// Item has no master. This is normal if the consumer is not running.
 			continue
 		}
 
