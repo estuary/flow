@@ -21,8 +21,8 @@ type Route struct {
 // Initializes a new Route from the |response| and |node|.
 func NewRoute(response *etcd.Response, node *etcd.Node) Route {
 	rt := Route{
-		Item:      node,
-		Entries:   append(etcd.Nodes{}, node.Nodes...), // Copy, as we'll re-order.
+		Item:    node,
+		Entries: append(etcd.Nodes{}, node.Nodes...), // Copy, as we'll re-order.
 	}
 	rt.init()
 	return rt
@@ -59,8 +59,8 @@ func (rt Route) IsReadyForHandoff(alloc Allocator) bool {
 // Performs a deep-copy of Route.
 func (rt Route) Copy() Route {
 	return Route{
-		Item:      CopyNode(rt.Item),
-		Entries:   CopyNodes(rt.Entries),
+		Item:    CopyNode(rt.Item),
+		Entries: CopyNodes(rt.Entries),
 	}
 }
 
