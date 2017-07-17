@@ -9,27 +9,27 @@ import (
 type JsonFramingSuite struct{}
 
 func (s *JsonFramingSuite) TestFramingWithFixture(c *gc.C) {
-	var buf, err = JsonFraming.Encode(struct{
-		A int
-		B string
+	var buf, err = JsonFraming.Encode(struct {
+		A       int
+		B       string
 		ignored int
 	}{42, "the answer", 53}, nil)
 
 	c.Check(err, gc.IsNil)
-	c.Check(string(buf), gc.Equals, `{"A":42,"B":"the answer"}` + "\n")
+	c.Check(string(buf), gc.Equals, `{"A":42,"B":"the answer"}`+"\n")
 
 	// Append another message.
 	var orig = buf
 	buf, err = JsonFraming.Encode(struct{ Bar int }{63}, buf)
 
 	c.Check(err, gc.IsNil)
-	c.Check(string(buf), gc.Equals, `{"A":42,"B":"the answer"}` + "\n" + `{"Bar":63}` + "\n")
+	c.Check(string(buf), gc.Equals, `{"A":42,"B":"the answer"}`+"\n"+`{"Bar":63}`+"\n")
 
 	c.Check(&orig[0], gc.Equals, &buf[0]) // No reallocation occurred.
 }
 
 func (s *JsonFramingSuite) TestEncodingError(c *gc.C) {
-	var buf, err = JsonFraming.Encode(struct{
+	var buf, err = JsonFraming.Encode(struct {
 		Unencodable chan struct{}
 	}{}, nil)
 
@@ -42,9 +42,9 @@ func (s *JsonFramingSuite) TestDecodeWithFixture(c *gc.C) {
 
 	var frame, err = JsonFraming.Unpack(testReader(fixture))
 	c.Check(err, gc.IsNil)
-	c.Check(len(frame), gc.Equals, len(fixture) - len("extra"))
+	c.Check(len(frame), gc.Equals, len(fixture)-len("extra"))
 
-	var msg struct { B string }
+	var msg struct{ B string }
 	c.Check(JsonFraming.Unmarshal(frame, &msg), gc.IsNil)
 	c.Check(msg.B, gc.Equals, "test message content")
 }
@@ -62,7 +62,7 @@ func (s *JsonFramingSuite) TestMessageDecodeError(c *gc.C) {
 	var frame, err = JsonFraming.Unpack(testReader(fixture))
 	c.Check(err, gc.IsNil)
 
-	var msg struct { B string }
+	var msg struct{ B string }
 	c.Check(JsonFraming.Unmarshal(frame, &msg), gc.ErrorMatches, "invalid character .*")
 }
 

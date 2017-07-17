@@ -46,11 +46,11 @@ func (s *TopicSuite) TestModuloRoutingWithCommonFactors(c *gc.C) {
 	// Build three topics such that each partition count is a multiple
 	// of random lesser partition factors.
 	var r = rand.New(rand.NewSource(seed))
-	var A, B, C = 1+r.Int()%8, 1+r.Int()%8, 1+r.Int()%8
+	var A, B, C = 1 + r.Int()%8, 1 + r.Int()%8, 1 + r.Int()%8
 
 	var topics = []Description{
-		{Partitions: EnumeratePartitions("a*b*c", A * B * C)},
-		{Partitions: EnumeratePartitions("a*b", A * B)},
+		{Partitions: EnumeratePartitions("a*b*c", A*B*C)},
+		{Partitions: EnumeratePartitions("a*b", A*B)},
 		{Partitions: EnumeratePartitions("a", A)},
 	}
 	for i := range topics {

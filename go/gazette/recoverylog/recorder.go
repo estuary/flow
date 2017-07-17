@@ -221,7 +221,7 @@ func (r *Recorder) process(op RecordedOp, b []byte) []byte {
 	if b, err = topic.FixedFraming.Encode(&op, b); err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("framing")
 	}
-	if err = r.fsm.Apply(&op, b[offset + topic.FixedFrameHeaderLength:]); err != nil {
+	if err = r.fsm.Apply(&op, b[offset+topic.FixedFrameHeaderLength:]); err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("recorder FSM error")
 	}
 	return b

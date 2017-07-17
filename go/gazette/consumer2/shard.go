@@ -42,12 +42,12 @@ type shard struct {
 
 func newShard(id ShardID, partition topic.Partition, runner *Runner, zombie *shard) *shard {
 	return &shard{
-		cancelCh: make(chan struct{}),
-		id:       id,
+		cancelCh:  make(chan struct{}),
+		id:        id,
 		partition: partition,
-		localDir: filepath.Join(runner.LocalDir, id.String()),
-		state:    shardStateInit,
-		zombie:   zombie,
+		localDir:  filepath.Join(runner.LocalDir, id.String()),
+		state:     shardStateInit,
+		zombie:    zombie,
 	}
 }
 

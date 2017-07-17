@@ -249,13 +249,13 @@ func (s *ConsumerSuite) TestMasterWritesLastReadHints(c *gc.C) {
 	var runner = s.buildRunner(0, 1)
 	var initCh = make(chan struct{})
 
-	runner.ShardPreInitHook = func (shard Shard) {
+	runner.ShardPreInitHook = func(shard Shard) {
 		close(initCh)
 	}
 	var keysAPI = runner.KeysAPI()
 	var sid = ShardID("shard-add-subtract-updates-000")
 	var shard = newShard(sid, topic.Partition{
-		Topic: addSubTopic,
+		Topic:   addSubTopic,
 		Journal: addSubTopic.Partitions()[0],
 	}, runner, nil)
 	var cons, _ = keysAPI.Get(context.Background(), consumerRoot,

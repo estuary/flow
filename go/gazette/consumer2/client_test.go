@@ -5,11 +5,11 @@ import (
 	"sort"
 
 	gc "github.com/go-check/check"
-	"google.golang.org/grpc"
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
 )
 
-type ClientSuite struct {}
+type ClientSuite struct{}
 
 func (s *ClientSuite) TestClientInitializationAndUpdate(c *gc.C) {
 	var s0, s1 = buildMockServer(c), buildMockServer(c)
@@ -52,15 +52,15 @@ func (s *ClientSuite) TestClientInitializationAndUpdate(c *gc.C) {
 
 	fixture.Endpoints = sortStrings([]string{s0.addr, s1.addr, s2.addr})
 	fixture.Shards = append(fixture.Shards, ConsumerState_Shard{
-			Id:        "shard-three",
-			Topic:     "a/topic",
-			Partition: "partition/three",
-			Replicas: []ConsumerState_Replica{
-				{
-					Endpoint: s2.addr,
-					Status:   ConsumerState_Replica_PRIMARY,
-				},
+		Id:        "shard-three",
+		Topic:     "a/topic",
+		Partition: "partition/three",
+		Replicas: []ConsumerState_Replica{
+			{
+				Endpoint: s2.addr,
+				Status:   ConsumerState_Replica_PRIMARY,
 			},
+		},
 	})
 	s0.mock.On("CurrentConsumerState", mock.Anything, &Empty{}).Return(fixture, nil).Once()
 
@@ -79,7 +79,7 @@ func (s *ClientSuite) TestClientInitializationAndUpdate(c *gc.C) {
 }
 
 type mockConsumerServer struct {
-	srv *grpc.Server
+	srv  *grpc.Server
 	mock *MockConsumerServer
 	addr string
 }
@@ -96,7 +96,7 @@ func buildMockServer(c *gc.C) mockConsumerServer {
 	go srv.Serve(l)
 
 	return mockConsumerServer{
-		srv: srv,
+		srv:  srv,
 		mock: m,
 		addr: l.Addr().String(),
 	}
