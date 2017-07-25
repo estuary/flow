@@ -7,7 +7,7 @@ import "sync"
 // kind, and the RingMutexMap allows raced processes colliding on a given hash
 // key to sequence their activities and to share state. RingMutexMap operates
 // over a bounded ring buffer, which means that colliding keys will coordinate
-// only if they complete within a single loop through the ring.
+// only if they compete within a single loop through the ring.
 type RingMutexMap struct {
 	ring [ringSize]struct {
 		key uint64
@@ -39,7 +39,7 @@ func (rm *RingMutexMap) Lock(key uint64) (interface{}, *sync.Mutex) {
 	//  * (ring[i].Mu)
 	//  * (ring[i].Mu, rm.mu)
 	//
-	// Note we cannot ever lock (rm.mu, ring[i].Mu) as that allows the
+	// Note we must never lock (rm.mu, ring[i].Mu) as that allows the
 	// possibility of deadlock.
 
 	for {
