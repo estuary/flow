@@ -33,7 +33,7 @@ func checkPermissions(ep Endpoint, fname string) error {
 		// Try at least to read a file list.
 		if dir, err := fs.OpenFile("", os.O_RDONLY, 0); err != nil {
 			return fmt.Errorf("could not open directory: %s", err)
-		} else if _, err := dir.Readdir(0); err != nil && err != io.EOF {
+		} else if _, err := dir.Readdir(1); err != nil && err != io.EOF {
 			return fmt.Errorf("could not read from directory: %s", err)
 		}
 	}
