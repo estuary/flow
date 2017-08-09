@@ -480,8 +480,10 @@ func (c *Client) parseAppendResponse(response *http.Response) journal.AppendResu
 // redirect or response with a Location: header. On error, cache entries are
 // expunged (eg, future requests are performed against the default endpoint).
 func (c *Client) Do(request *http.Request) (*http.Response, error) {
+	var cacheKey = request.URL.Path // We may mutate |request| later.
+
 	// Apply a cached re-write for this request path if found.
-	if cached, ok := c.locationCache.Get(request.URL.Path); ok {
+	if cached, ok := c.locationCache.Get(cacheKey); ok {
 		location := cached.(*url.URL)
 		request.URL.Scheme = location.Scheme
 		request.URL.User = location.User
@@ -501,21 +503,21 @@ func (c *Client) Do(request *http.Request) (*http.Response, error) {
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		c.locationCache.Remove(request.URL.Path)
+		c.locationCache.Remove(cacheKey)
 		return response, err
 	}
 
 	if location, err := response.Location(); err == nil {
 		// The response included a Location header. Cache it for future use.
 		// It probably also indicates request failure as well (30X or 404 response).
-		c.locationCache.Add(request.URL.Path, location)
+		c.locationCache.Add(cacheKey, location)
 	} else if err != http.ErrNoLocation {
 		log.WithField("err", err).Warn("parsing Gazette Location header")
 	} else if response.Request != nil {
-		// We sucessfully talked to a Gazette server. Cache the final request path
+		// We successfully talked to a Gazette server. Cache the final request path
 		// resulting in this response. If we followed a redirect chain, this will
 		// cache the redirected URL for future use.
-		c.locationCache.Add(request.URL.Path, response.Request.URL)
+		c.locationCache.Add(cacheKey, response.Request.URL)
 	}
 	return response, err
 }

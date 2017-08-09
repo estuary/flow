@@ -68,30 +68,52 @@ func newReadResponseFixture() *http.Response {
 	}
 }
 
-func (s *ClientSuite) TestHeadRequest(c *gc.C) {
-	mockClient := &mockHttpClient{}
+func (s *ClientSuite) TestHeadRequestWithInvalidation(c *gc.C) {
+	var mockClient = &mockHttpClient{}
 
+	// Note we use a slightly non-standard fixture of "a/journal/path"
+	// (vs "a/journal") to excercise handling of URL.Path re-writes
+	// in this test.
 	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
 		return request.Method == "HEAD" &&
-			request.URL.String() == "http://default/a/journal?block=false&offset=1005"
+			request.URL.String() == "http://default/a/journal/path?block=true&offset=1005"
 	})).Return(newReadResponseFixture(), nil).Once()
 
 	s.client.httpClient = mockClient
 	result, loc := s.client.Head(
-		journal.ReadArgs{Journal: "a/journal", Offset: 1005, Blocking: false})
+		journal.ReadArgs{Journal: "a/journal/path", Offset: 1005, Blocking: true})
+
+	var expectFragment = fragmentFixture
+	expectFragment.Journal = "a/journal/path"
 
 	c.Check(result, gc.DeepEquals, journal.ReadResult{
 		Offset:    1005,
 		WriteHead: 3000,
-		Fragment:  fragmentFixture,
+		Fragment:  expectFragment,
 	})
 	c.Check(loc, gc.DeepEquals, newURL("http://cloud/fragment/location"))
 
 	mockClient.AssertExpectations(c)
 
 	// Expect that the redirected location was cached.
-	cached, _ := s.client.locationCache.Get("/a/journal")
+	cached, _ := s.client.locationCache.Get("/a/journal/path")
 	c.Check(cached, gc.DeepEquals, newURL("http://redirected-server/a/journal"))
+
+	// Repeat the request. This time, the cached server returns a network error.
+	mockClient.On("Do", mock.MatchedBy(func(request *http.Request) bool {
+		return request.Method == "HEAD" &&
+			request.URL.String() == "http://redirected-server/a/journal?block=false&offset=1005"
+	})).Return(nil, io.ErrUnexpectedEOF).Once()
+
+	result, loc = s.client.Head(
+		journal.ReadArgs{Journal: "a/journal/path", Offset: 1005, Blocking: false})
+
+	c.Check(result.Error, gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(loc, gc.IsNil)
+
+	// Expect the cache was cleared.
+	_, ok := s.client.locationCache.Get("/a/journal/path")
+	c.Check(ok, gc.Equals, false)
 }
 
 func (s *ClientSuite) TestDirectGet(c *gc.C) {
