@@ -209,6 +209,10 @@ func (s *RecoveryLogSuite) TestPlayThenCancel(c *gc.C) {
 
 	_, err = r.player.MakeLive()
 	c.Check(err, gc.Equals, ErrPlaybackCancelled)
+
+	// Expect the local directory was deleted.
+	_, err = os.Stat(r.player.localDir)
+	c.Check(os.IsNotExist(err), gc.Equals, true)
 }
 
 func (s *RecoveryLogSuite) TestCancelThenPlay(c *gc.C) {

@@ -110,7 +110,13 @@ func (p *Player) Play(client journal.Client) error {
 	// Error checks in this function consistently use |err|. We defer sending
 	// |err| on return, to make it available for MakeLive as well.
 	var err error
-	defer func() { p.playExitCh <- err }()
+	defer func() {
+		if err != nil {
+			// Remove partial content from disk on playback failure or cancel.
+			p.cleanupAfterAbort()
+		}
+		p.playExitCh <- err
+	}()
 
 	if err = p.preparePlayback(); err != nil {
 		return err
@@ -220,6 +226,17 @@ func (p *Player) preparePlayback() error {
 		return err
 	}
 	return nil
+}
+
+func (p *Player) cleanupAfterAbort() {
+	for _, fnode := range p.backingFiles {
+		if err := fnode.Close(); err != nil {
+			log.WithField("err", err).Warn("closing fnode after abort")
+		}
+	}
+	if err := os.RemoveAll(p.localDir); err != nil {
+		log.WithField("err", err).Warn("removing localDir after abort")
+	}
 }
 
 func (p *Player) playOperation(br *bufio.Reader) error {
