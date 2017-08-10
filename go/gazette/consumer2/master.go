@@ -174,7 +174,7 @@ func (m *master) init(runner *Runner, replica *replica) error {
 
 	// Write last recovered hints to etcd.
 	if err := prepAndStoreHintsToEtcd(fsm.BuildHints(), m.hintsPath+".lastRecovered", runner.KeysAPI()); err != nil {
-		return err
+		log.WithField("err", err).Warn("failed to store last recovered hints on master init.")
 	} else {
 		log.WithFields(log.Fields{"shard": replica.shard}).Info("stored last recovered hints to etcd")
 	}
