@@ -1,3 +1,4 @@
+// Package async implements a simple Promise API.
 package async
 
 import (
@@ -7,17 +8,18 @@ import (
 // Promise is a simple notification primitive for asynchronous events.
 type Promise chan struct{}
 
-// Resolves a Promise to wake any clients currently waiting on it.
+// Resolve wakes any clients currently waiting on the Promise
 func (s Promise) Resolve() {
 	close(s)
 }
 
-// Synchronously wait for this Promise to be resolved.
+// Wait synchronously blocks until the Promise is resolved.
 func (s Promise) Wait() {
 	<-s
 }
 
-// Repeatedly invokes |task| with period |period| until the Promise is resolved.
+// WaitWithPeriodicTask repeatedly invokes |task| with period |period| until
+// the Promise is resolved.
 func (s Promise) WaitWithPeriodicTask(period time.Duration, task func()) {
 	ticker := time.NewTicker(period)
 
