@@ -161,7 +161,9 @@ func (fs *gcsFs) OpenFile(name string, flag int, perm os.FileMode) (File, error)
 		var w = fs.client.Bucket(bucket).Object(path).NewWriter(context.Background())
 		var compressor io.WriteCloser
 
-		if fs.compress {
+		// TODO(johnny, PUB-4052): Hack to skip gzip compression on recovery logs.
+		// Fix this by implementing configurable compression on journal hierarchies.
+		if fs.compress && !isRecoveryLog(name) {
 			w.ContentEncoding = "gzip"
 			w.ContentType = "application/octet-stream"
 			compressor = gzip.NewWriter(w)
@@ -546,4 +548,8 @@ func (f *gcsFile) transfer(from io.Reader) (int64, error) {
 	}
 
 	return n, f.Close()
+}
+
+func isRecoveryLog(path string) bool {
+	return strings.Contains(path, "recovery-logs")
 }
