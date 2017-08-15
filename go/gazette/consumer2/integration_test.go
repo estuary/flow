@@ -19,8 +19,8 @@ import (
 	gc "github.com/go-check/check"
 	uuid "github.com/satori/go.uuid"
 
-	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/consensus"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
@@ -80,14 +80,17 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 		c.Skip("skipping consumer2 integration tests in short mode")
 	}
 
-	endpoints.ParseFromEnvironment()
+	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
+	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+
+	envflag.Parse()
 
 	var err error
 	s.etcdClient, err = etcd.New(etcd.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
+		Endpoints: []string{"http://" + *etcdEndpoint}})
 	c.Assert(err, gc.IsNil)
 
-	s.gazette.Client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
+	s.gazette.Client, err = gazette.NewClient(*gazetteEndpoint)
 	c.Assert(err, gc.IsNil)
 
 	// Skip suite if Etcd is not available.

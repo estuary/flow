@@ -27,8 +27,8 @@ import (
 	humanize "github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
 
-	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/consensus"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/varz"
@@ -45,7 +45,9 @@ var (
 		"Use arguments to provide metrics to Prometheus.")
 	monitorInterval = flag.Duration("monitorInterval", time.Minute,
 		"How often to update metrics.")
-	prefixList prefixFlagSet
+	prefixList      prefixFlagSet
+	etcdEndpoint    = envflag.NewEtcdServiceEndpoint()
+	gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
 
 	// Global service objects.
 	keysAPI       etcd.KeysAPI
@@ -97,6 +99,7 @@ func (cd consumerData) totalLag() int64 {
 
 func main() {
 	flag.Var(&prefixList, "prefix", "Specify an Etcd prefix to check for consumers.")
+	envflag.Parse()
 	defer varz.Initialize("gazconsumer").Cleanup()
 
 	minimumDisplayLag = calcMinimumDisplayLag()
@@ -107,12 +110,12 @@ func main() {
 	}
 
 	var err error
-	gazetteClient, err = gazette.NewClient(*endpoints.GazetteEndpoint)
+	gazetteClient, err = gazette.NewClient(*gazetteEndpoint)
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to init gazette client")
 	}
 	etcdClient, err := etcd.New(etcd.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
+		Endpoints: []string{"http://" + *etcdEndpoint}})
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to init etcd client")
 	}

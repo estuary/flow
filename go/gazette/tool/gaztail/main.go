@@ -7,12 +7,11 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	// Used for querying topic partitions.
-	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
-	_ "github.com/pippio/graph"
+	_ "github.com/pippio/graph" // Used for querying topic partitions.
 	"github.com/pippio/topics"
 )
 
@@ -23,14 +22,16 @@ var (
 	follow    = flag.Bool("f", false, "Continue tailing until interrupt.")
 	topicMode = flag.Bool("topic", false,
 		"Argument refers to a topic, and <bytes> should be read from each one.")
+	gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
 )
 
 func main() {
 	log.SetOutput(os.Stderr)
-	endpoints.ParseFromEnvironment()
+
+	envflag.Parse()
 	flag.Parse()
 
-	client, err := gazette.NewClient(*endpoints.GazetteEndpoint)
+	client, err := gazette.NewClient(*gazetteEndpoint)
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to connect to gazette")
 	}

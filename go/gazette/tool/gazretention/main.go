@@ -11,7 +11,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/cloudstore"
-	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
 	_ "github.com/pippio/graph" // Register topics
@@ -31,6 +31,7 @@ var (
 	topicList      topics.Flag
 	retentionStats = make(statsMap)
 	currentTopic   *topic.Description
+	cloudFSUrl     = envflag.NewCloudFSURL()
 )
 
 type statsMap map[*topic.Description]map[journal.Name]*journalStats
@@ -71,7 +72,7 @@ func appendExpiredJournalFragments(jname journal.Name, horizon time.Time,
 
 		if modTime.Before(horizon) {
 			var ver interface{}
-			if *endpoints.CloudFS == gcsPrefix {
+			if *cloudFSUrl == gcsPrefix {
 				ver = finfo.(cloudstore.File).Version()
 			}
 			fragments = append(fragments, cfsFragment{finfo, fname, ver})
@@ -123,7 +124,7 @@ func displayAndLogFragmentsInfo(fragments []cfsFragment) {
 			"sizeMb":      float64(frag.Size()) / oneMb,
 			"lastModTime": frag.ModTime(),
 		}).Debug("Expired fragment found.")
-		if *endpoints.CloudFS == gcsPrefix {
+		if *cloudFSUrl == gcsPrefix {
 			fmt.Printf(gcsPrefix+frag.path+"#%v\n", frag.ver)
 		} else {
 			fmt.Println(frag.path)
@@ -218,11 +219,12 @@ func init() {
 }
 
 func main() {
+	envflag.Parse()
 	defer varz.InitializeStandalone("gazretention").Cleanup()
 
 	log.SetFormatter(&log.JSONFormatter{})
 
-	var cfs, err = cloudstore.NewFileSystem(nil, *endpoints.CloudFS)
+	var cfs, err = cloudstore.NewFileSystem(nil, *cloudFSUrl)
 	if err != nil {
 		log.WithField("err", err).Fatal("cannot initialize cloudstore")
 	}

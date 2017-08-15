@@ -11,7 +11,7 @@ import (
 	gc "github.com/go-check/check"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
@@ -29,10 +29,11 @@ type RecoveryLogSuite struct {
 }
 
 func (s *RecoveryLogSuite) SetUpSuite(c *gc.C) {
-	endpoints.ParseFromEnvironment()
+	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+	envflag.Parse()
 
 	var err error
-	s.gazette.Client, err = gazette.NewClient(*endpoints.GazetteEndpoint)
+	s.gazette.Client, err = gazette.NewClient(*gazetteEndpoint)
 	c.Assert(err, gc.IsNil)
 
 	// Skip if in Short mode, or if a Gazette endpoint is not reach-able.

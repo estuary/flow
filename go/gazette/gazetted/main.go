@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"net"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 	"google.golang.org/api/gensupport"
 
 	"github.com/pippio/cloudstore"
-	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/keepalive"
@@ -40,11 +41,14 @@ var (
 const brokerPulseInterval = 10 * time.Second
 
 func main() {
+	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
+
+	envflag.Parse()
 	defer varz.Initialize("gazetted").Cleanup()
 	gensupport.RegisterHook(traceRequests)
 
 	var localRoute string
-	if ip, err := endpoints.RoutableIP(); err != nil {
+	if ip, err := routableIP(); err != nil {
 		log.WithField("err", err).Fatal("failed to acquire routable IP")
 	} else {
 		localRoute = url.QueryEscape("http://" + ip.String() + ":8081")
@@ -53,7 +57,7 @@ func main() {
 	log.WithFields(log.Fields{
 		"spoolDir":     *spoolDirectory,
 		"replicaCount": *replicaCount,
-		"etcdEndpoint": *endpoints.EtcdEndpoint,
+		"etcdEndpoint": *etcdEndpoint,
 		"localRoute":   localRoute,
 		"releaseTag":   *varz.ReleaseTag,
 	}).Info("flag configuration")
@@ -64,7 +68,7 @@ func main() {
 	}
 
 	etcdClient, err := etcd.New(etcd.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
+		Endpoints: []string{"http://" + *etcdEndpoint}})
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to init etcd client")
 	}
@@ -180,4 +184,18 @@ func traceRequests(ctx context.Context, req *http.Request) func(resp *http.Respo
 			tr.SetError()
 		}
 	}
+}
+
+// routableIP returns an externally-routable IP address.
+func routableIP() (net.IP, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	for _, addr := range addrs {
+		if ip, ok := addr.(*net.IPNet); ok && !ip.IP.IsLoopback() {
+			return ip.IP, nil
+		}
+	}
+	return nil, errors.New("no non-loopback IP")
 }

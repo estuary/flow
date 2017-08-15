@@ -6,17 +6,19 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 )
 
 func main() {
+	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+
 	log.SetOutput(os.Stderr)
-	endpoints.ParseFromEnvironment()
+	envflag.Parse()
 	flag.Parse()
 
-	client, err := gazette.NewClient(*endpoints.GazetteEndpoint)
+	client, err := gazette.NewClient(*gazetteEndpoint)
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to connect to gazette")
 	}
