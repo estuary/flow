@@ -11,7 +11,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
 
-	"github.com/pippio/consensus"
+	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/journal"
 )
 

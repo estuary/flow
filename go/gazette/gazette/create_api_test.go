@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/pippio/consensus"
+	"github.com/pippio/gazette/consensus"
 )
 
 type CreateAPISuite struct {

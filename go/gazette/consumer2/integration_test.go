@@ -19,8 +19,8 @@ import (
 	gc "github.com/go-check/check"
 	uuid "github.com/satori/go.uuid"
 
-	"github.com/pippio/consensus"
 	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
