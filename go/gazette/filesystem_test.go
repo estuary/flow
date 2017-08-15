@@ -22,8 +22,8 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/consensus"
 	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/consensus"
 )
 
 const (
