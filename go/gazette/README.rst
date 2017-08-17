@@ -18,7 +18,7 @@ Package Layout
 ``topic``
   A client library for topic descriptions and partitioned writes.
 
-``consumer2``
+``consumer``
   A client library for distributed, stateful topic consumption.
 
 ``async``

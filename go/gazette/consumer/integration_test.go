@@ -77,7 +77,7 @@ type ConsumerSuite struct {
 
 func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 	if testing.Short() {
-		c.Skip("skipping consumer2 integration tests in short mode")
+		c.Skip("skipping consumer integration tests in short mode")
 	}
 
 	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
@@ -302,9 +302,9 @@ func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
 	return &Runner{
 		Consumer:        new(testConsumer),
 		LocalRouteKey:   fmt.Sprintf("test-consumer-%d", i),
-		LocalDir:        fmt.Sprintf("/var/tmp/integration-tests/consumer2/runner-%d", i),
+		LocalDir:        fmt.Sprintf("/var/tmp/integration-tests/consumer/runner-%d", i),
 		ConsumerRoot:    consumerRoot,
-		RecoveryLogRoot: "pippio-journals/integration-tests/consumer2",
+		RecoveryLogRoot: "pippio-journals/integration-tests/consumer",
 		ReplicaCount:    replicas,
 
 		Etcd:    s.etcdClient,

@@ -6,7 +6,7 @@ import (
 
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/consumer2"
+	"github.com/pippio/gazette/consumer"
 	"github.com/pippio/gazette/topic"
 )
 
