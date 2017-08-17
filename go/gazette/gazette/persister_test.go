@@ -11,7 +11,7 @@ import (
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/pippio/cloudstore"
+	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/journal"
 )

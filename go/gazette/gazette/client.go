@@ -19,7 +19,7 @@ import (
 	"github.com/hashicorp/golang-lru"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/keepalive"
+	"github.com/pippio/gazette/keepalive"
 	"github.com/pippio/varz"
 )
 

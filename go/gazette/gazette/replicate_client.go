@@ -19,7 +19,7 @@ import (
 
 	"github.com/pippio/gazette/httpdump"
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/keepalive"
+	"github.com/pippio/gazette/keepalive"
 )
 
 const (

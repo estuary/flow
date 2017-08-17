@@ -14,8 +14,8 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 
-	"github.com/pippio/cloudstore"
 	"github.com/pippio/gazette/async"
+	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/journal"
 )
 

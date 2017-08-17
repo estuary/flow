@@ -10,7 +10,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/cloudstore"
+	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/keepalive"
+	"github.com/pippio/gazette/keepalive"
 )
 
 // Client interacts with a Gazette Consumer to maintain an updated pool

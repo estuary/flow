@@ -6,7 +6,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/pippio/cloudstore"
+	"github.com/pippio/gazette/cloudstore"
 )
 
 const (
