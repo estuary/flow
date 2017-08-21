@@ -44,7 +44,7 @@ func main() {
 	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
 	var cloudFSUrl = envflag.NewCloudFSURL()
 
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 	defer varz.Initialize("gazetted").Cleanup()
 	gensupport.RegisterHook(traceRequests)
 

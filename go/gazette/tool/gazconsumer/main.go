@@ -99,7 +99,7 @@ func (cd consumerData) totalLag() int64 {
 
 func main() {
 	flag.Var(&prefixList, "prefix", "Specify an Etcd prefix to check for consumers.")
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 	defer varz.Initialize("gazconsumer").Cleanup()
 
 	minimumDisplayLag = calcMinimumDisplayLag()

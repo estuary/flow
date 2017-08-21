@@ -219,7 +219,7 @@ func init() {
 }
 
 func main() {
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 	defer varz.InitializeStandalone("gazretention").Cleanup()
 
 	log.SetFormatter(&log.JSONFormatter{})

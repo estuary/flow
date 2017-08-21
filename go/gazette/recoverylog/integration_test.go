@@ -30,7 +30,7 @@ type RecoveryLogSuite struct {
 
 func (s *RecoveryLogSuite) SetUpSuite(c *gc.C) {
 	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 
 	var err error
 	s.gazette.Client, err = gazette.NewClient(*gazetteEndpoint)

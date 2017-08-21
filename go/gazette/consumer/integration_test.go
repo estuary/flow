@@ -83,7 +83,7 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
 	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
 
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 
 	var err error
 	s.etcdClient, err = etcd.New(etcd.Config{

@@ -15,7 +15,7 @@ func main() {
 	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
 
 	log.SetOutput(os.Stderr)
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 	flag.Parse()
 
 	client, err := gazette.NewClient(*gazetteEndpoint)
