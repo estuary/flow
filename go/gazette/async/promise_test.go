@@ -25,9 +25,11 @@ func ExamplePromise_Wait() {
 	// Post-wait logic runs.
 }
 
-// Unfortunately this example uses a race condition to keep the example simple
-// and straightforward. Although unlikely in practice, it is possible for this
-// test to fail.
+// Unfortunately, this example is not made testable because it inherently
+// operates as a race condition between two independent things. To get a
+// deterministic test, the `resolve` would need to be triggered by the periodic
+// task, making for an extremely contrived example. This example errs on the
+// side of providing a more standard use case.
 func ExamplePromise_WaitWithPeriodicTask() {
 	var p = make(Promise)
 
@@ -42,10 +44,4 @@ func ExamplePromise_WaitWithPeriodicTask() {
 		i += 1
 		fmt.Printf("%d\n", i)
 	})
-
-	// Output:
-	// 1
-	// 2
-	// 3
-	// 4
 }
