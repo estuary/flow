@@ -29,6 +29,7 @@ import (
 
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/varz"
@@ -46,8 +47,8 @@ var (
 	monitorInterval = flag.Duration("monitorInterval", time.Minute,
 		"How often to update metrics.")
 	prefixList      prefixFlagSet
-	etcdEndpoint    = envflag.NewEtcdServiceEndpoint()
-	gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+	etcdEndpoint    = envflagfactory.NewEtcdServiceEndpoint()
+	gazetteEndpoint = envflagfactory.NewGazetteServiceEndpoint()
 
 	// Global service objects.
 	keysAPI       etcd.KeysAPI

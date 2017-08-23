@@ -21,6 +21,7 @@ import (
 
 	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/keepalive"
@@ -41,8 +42,8 @@ var (
 const brokerPulseInterval = 10 * time.Second
 
 func main() {
-	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
-	var cloudFSUrl = envflag.NewCloudFSURL()
+	var etcdEndpoint = envflagfactory.NewEtcdServiceEndpoint()
+	var cloudFSUrl = envflagfactory.NewCloudFSURL()
 
 	envflag.CommandLine.Parse()
 	defer varz.Initialize("gazetted").Cleanup()

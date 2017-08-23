@@ -12,6 +12,7 @@ import (
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
@@ -29,7 +30,7 @@ type RecoveryLogSuite struct {
 }
 
 func (s *RecoveryLogSuite) SetUpSuite(c *gc.C) {
-	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+	var gazetteEndpoint = envflagfactory.NewGazetteServiceEndpoint()
 	envflag.CommandLine.Parse()
 
 	var err error

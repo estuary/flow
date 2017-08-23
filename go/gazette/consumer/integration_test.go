@@ -21,6 +21,7 @@ import (
 
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/recoverylog"
@@ -80,8 +81,8 @@ func (s *ConsumerSuite) SetUpSuite(c *gc.C) {
 		c.Skip("skipping consumer integration tests in short mode")
 	}
 
-	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
-	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+	var etcdEndpoint = envflagfactory.NewEtcdServiceEndpoint()
+	var gazetteEndpoint = envflagfactory.NewGazetteServiceEndpoint()
 
 	envflag.CommandLine.Parse()
 

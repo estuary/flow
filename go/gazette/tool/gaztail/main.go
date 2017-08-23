@@ -8,6 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
@@ -22,7 +23,7 @@ var (
 	follow    = flag.Bool("f", false, "Continue tailing until interrupt.")
 	topicMode = flag.Bool("topic", false,
 		"Argument refers to a topic, and <bytes> should be read from each one.")
-	gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+	gazetteEndpoint = envflagfactory.NewGazetteServiceEndpoint()
 )
 
 func main() {

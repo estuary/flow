@@ -7,12 +7,13 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 )
 
 func main() {
-	var gazetteEndpoint = envflag.NewGazetteServiceEndpoint()
+	var gazetteEndpoint = envflagfactory.NewGazetteServiceEndpoint()
 
 	log.SetOutput(os.Stderr)
 	envflag.CommandLine.Parse()

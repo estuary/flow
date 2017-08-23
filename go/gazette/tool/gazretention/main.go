@@ -12,6 +12,7 @@ import (
 
 	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/topic"
 	_ "github.com/pippio/graph" // Register topics
@@ -31,7 +32,7 @@ var (
 	topicList      topics.Flag
 	retentionStats = make(statsMap)
 	currentTopic   *topic.Description
-	cloudFSUrl     = envflag.NewCloudFSURL()
+	cloudFSUrl     = envflagfactory.NewCloudFSURL()
 )
 
 type statsMap map[*topic.Description]map[journal.Name]*journalStats
