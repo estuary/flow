@@ -44,7 +44,7 @@ func (s *envflagSuite) TestString(c *check.C) {
 	var sut = efs.String("dummyName", "DUMMYNAME_URL", "http://default.example/hello", "Foo bar baz")
 
 	// String creates underlying flag.
-	var actualFlag = fs.Lookup("ossdummyName")
+	var actualFlag = fs.Lookup("dummyName")
 	c.Assert(actualFlag, check.NotNil)
 	c.Check(actualFlag.DefValue, check.Equals, "http://default.example/hello")
 	c.Check(actualFlag.Usage, check.Equals, "Foo bar baz (DUMMYNAME_URL)")

@@ -43,7 +43,7 @@ const brokerPulseInterval = 10 * time.Second
 
 func main() {
 	var etcdEndpoint = envflagfactory.NewEtcdServiceEndpoint()
-	var cloudFSUrl = envflagfactory.NewCloudFSURL()
+	var cloudFSURL = envflagfactory.NewCloudFSURL()
 
 	envflag.CommandLine.Parse()
 	defer varz.Initialize("gazetted").Cleanup()
@@ -76,7 +76,7 @@ func main() {
 	}
 	keysAPI := etcd.NewKeysAPI(etcdClient)
 
-	cfs, err := cloudstore.NewFileSystem(nil, *cloudFSUrl)
+	cfs, err := cloudstore.NewFileSystem(nil, *cloudFSURL)
 	if err != nil {
 		log.WithField("err", err).Fatal("failed to initialize cloudstore")
 	}

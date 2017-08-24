@@ -24,6 +24,8 @@ import (
 
 	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/consensus"
+	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 )
 
 const (
@@ -37,6 +39,7 @@ var (
 	s3AccessKeyID     = flag.String("testS3AccessKeyID", "", "S3 Access Key ID")
 	s3SecretAccessKey = flag.String("testS3SecretAccessKey", "", "S3 Secret Access Key")
 	s3Region          = flag.String("testS3Region", "us-east-1", "S3 Region")
+	cloudFSURL        = envflagfactory.NewCloudFSURL()
 )
 
 type FileSystemSuite struct {
@@ -47,6 +50,7 @@ func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	var fsProperties Properties
 
 	endpoints.ParseFromEnvironment()
+	envflag.CommandLine.Parse()
 	s3ParseFromEnvironment(c)
 	flag.Parse()
 
@@ -84,7 +88,7 @@ func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	}
 
 	var err error
-	s.cfs, err = DefaultFileSystem(fsProperties)
+	s.cfs, err = NewFileSystem(fsProperties, *cloudFSURL)
 	if err != nil {
 		c.Log("Using temp filesystem: failed to initialize DefaultFilesystem: ", err)
 		s.cfs = NewTmpFileSystem()

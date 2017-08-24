@@ -10,11 +10,11 @@ import (
 	"strings"
 )
 
-// flagPrefix is prefixed to the flag name to avoid conflicts with existing
+// serviceFlagPrefix is prefixed to the flag name to avoid conflicts with existing
 // flags.
 //
 // TODO(rupert): Remove this when package endpoints is fully decoupled.
-const flagPrefix = "oss"
+const serviceFlagPrefix = "oss"
 
 type parseableFromEnv interface {
 	parseFromEnv()
@@ -79,7 +79,7 @@ func (fs *FlagSet) ServiceEndpoint(name, value, usage string) *string {
 	var evHost = prefix + "_SERVICE_HOST"
 	var evPort = prefix + "_SERVICE_PORT"
 
-	var ptr = fs.fs.String(flagPrefix+name+"Endpoint", value, fmt.Sprintf("%s (%s, %s)", usage, evHost, evPort))
+	var ptr = fs.fs.String(serviceFlagPrefix+name+"Endpoint", value, fmt.Sprintf("%s (%s, %s)", usage, evHost, evPort))
 	fs.addFlag(name, serviceEndpointFlag{evHost, evPort, ptr})
 	return ptr
 }
@@ -92,7 +92,7 @@ func (fs *FlagSet) ServiceEndpoint(name, value, usage string) *string {
 // This is a general flag creation utility which is why flagName and
 // envvarName are provided separately rather than generated from a common base.
 func (fs *FlagSet) String(flagName, envvarName, value, usage string) *string {
-	var ptr = fs.fs.String(flagPrefix+flagName, value, fmt.Sprintf("%s (%s)", usage, envvarName))
+	var ptr = fs.fs.String(flagName, value, fmt.Sprintf("%s (%s)", usage, envvarName))
 
 	fs.addFlag(envvarName, stringFlag{envvarName, ptr})
 	return ptr

@@ -125,10 +125,6 @@ func getS3ConfigProperties() (S3Properties, error) {
 	}, nil
 }
 
-func DefaultFileSystem(properties Properties) (FileSystem, error) {
-	return NewFileSystem(properties, *endpoints.CloudFS)
-}
-
 // Returns a FileSystem backed by a new temporary directory. The returned
 // FileSystem should be Close()d after use to clear temporary files.
 func NewTmpFileSystem() FileSystem {

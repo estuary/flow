@@ -32,7 +32,7 @@ var (
 	topicList      topics.Flag
 	retentionStats = make(statsMap)
 	currentTopic   *topic.Description
-	cloudFSUrl     = envflagfactory.NewCloudFSURL()
+	cloudFSURL     = envflagfactory.NewCloudFSURL()
 )
 
 type statsMap map[*topic.Description]map[journal.Name]*journalStats
@@ -73,7 +73,7 @@ func appendExpiredJournalFragments(jname journal.Name, horizon time.Time,
 
 		if modTime.Before(horizon) {
 			var ver interface{}
-			if *cloudFSUrl == gcsPrefix {
+			if *cloudFSURL == gcsPrefix {
 				ver = finfo.(cloudstore.File).Version()
 			}
 			fragments = append(fragments, cfsFragment{finfo, fname, ver})
@@ -125,7 +125,7 @@ func displayAndLogFragmentsInfo(fragments []cfsFragment) {
 			"sizeMb":      float64(frag.Size()) / oneMb,
 			"lastModTime": frag.ModTime(),
 		}).Debug("Expired fragment found.")
-		if *cloudFSUrl == gcsPrefix {
+		if *cloudFSURL == gcsPrefix {
 			fmt.Printf(gcsPrefix+frag.path+"#%v\n", frag.ver)
 		} else {
 			fmt.Println(frag.path)
@@ -225,7 +225,7 @@ func main() {
 
 	log.SetFormatter(&log.JSONFormatter{})
 
-	var cfs, err = cloudstore.NewFileSystem(nil, *cloudFSUrl)
+	var cfs, err = cloudstore.NewFileSystem(nil, *cloudFSURL)
 	if err != nil {
 		log.WithField("err", err).Fatal("cannot initialize cloudstore")
 	}

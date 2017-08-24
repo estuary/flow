@@ -61,8 +61,8 @@ func ExampleFlagSet_String() {
 	efs := envflag.NewFlagSet(fs)
 
 	efs.String("callback", "CALLBACK_URL", "http://my.example/callback", "HTTP callback")
-	fmt.Println(fs.Lookup("osscallback").Name)
+	fmt.Println(fs.Lookup("callback").Name)
 
 	// Output:
-	// osscallback
+	// callback
 }
