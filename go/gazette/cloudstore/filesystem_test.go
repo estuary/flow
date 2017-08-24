@@ -22,7 +22,6 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/endpoints"
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
@@ -40,6 +39,7 @@ var (
 	s3SecretAccessKey = flag.String("testS3SecretAccessKey", "", "S3 Secret Access Key")
 	s3Region          = flag.String("testS3Region", "us-east-1", "S3 Region")
 	cloudFSURL        = envflagfactory.NewCloudFSURL()
+	etcdEndpoint      = envflagfactory.NewEtcdServiceEndpoint()
 )
 
 type FileSystemSuite struct {
@@ -49,7 +49,6 @@ type FileSystemSuite struct {
 func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	var fsProperties Properties
 
-	endpoints.ParseFromEnvironment()
 	envflag.CommandLine.Parse()
 	s3ParseFromEnvironment(c)
 	flag.Parse()
@@ -68,7 +67,7 @@ func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	} else {
 		// If a real CFS can be prepared, use it for this test.
 		etcdClient, err := etcd.New(etcd.Config{
-			Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
+			Endpoints: []string{"http://" + *etcdEndpoint}})
 		if err != nil {
 			c.Log("Using temp filesystem: no connectivity to etcd: ", err)
 			s.cfs = NewTmpFileSystem()

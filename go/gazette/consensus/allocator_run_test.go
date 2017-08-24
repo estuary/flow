@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"math"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/endpoints"
+	"github.com/pippio/gazette/envflag"
 )
 
 type AllocRunSuite struct {
@@ -33,8 +34,13 @@ func (s *AllocRunSuite) SetUpSuite(c *gc.C) {
 		c.Skip("skipping allocator integration tests in short mode")
 	}
 
+	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
+
+	envflag.Parse()
+	flag.Parse()
+
 	s.etcdClient, _ = etcd.New(etcd.Config{
-		Endpoints: []string{"http://" + *endpoints.EtcdEndpoint}})
+		Endpoints: []string{"http://" + *etcdEndpoint}})
 
 	// Skip suite if Etcd is not available.
 	if _, err := s.KeysAPI().Get(context.Background(), "/",
