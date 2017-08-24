@@ -14,8 +14,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/aws/aws-sdk-go/service/s3"
-
-	"github.com/pippio/endpoints"
 )
 
 // File extends the read-only http.File interface with an io.Writer.
@@ -112,13 +110,9 @@ func NewFileSystem(properties Properties, rawURL string) (FileSystem, error) {
 }
 
 func getS3ConfigProperties() (S3Properties, error) {
-	endpoints.ParseFromEnvironment()
-	var ak = *endpoints.AWSAccessKeyId
-	var as = *endpoints.AWSSecretAccessKey
-
 	return S3Properties{
-		AWSAccessKeyID:     ak,
-		AWSSecretAccessKey: as,
+		AWSAccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		AWSSecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
 		S3Region:           "us-east-1",
 		S3GlobalCannedACL:  s3.ObjectCannedACLBucketOwnerFullControl,
 		S3SSEAlgorithm:     "",
