@@ -13,6 +13,7 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/gazette/envflag"
+	"github.com/pippio/gazette/envflagfactory"
 )
 
 type AllocRunSuite struct {
@@ -34,9 +35,9 @@ func (s *AllocRunSuite) SetUpSuite(c *gc.C) {
 		c.Skip("skipping allocator integration tests in short mode")
 	}
 
-	var etcdEndpoint = envflag.NewEtcdServiceEndpoint()
+	var etcdEndpoint = envflagfactory.NewEtcdServiceEndpoint()
 
-	envflag.Parse()
+	envflag.CommandLine.Parse()
 	flag.Parse()
 
 	s.etcdClient, _ = etcd.New(etcd.Config{
