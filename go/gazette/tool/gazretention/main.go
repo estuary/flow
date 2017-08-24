@@ -3,9 +3,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -13,247 +17,185 @@ import (
 	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/topic"
-	_ "github.com/pippio/graph" // Register topics
-	"github.com/pippio/topics"
 	"github.com/pippio/varz"
 )
 
 const (
-	// See https://cloud.google.com/storage/pricinghttps://cloud.google.com/storage/pricing
-	// for detail.
-	gcpGbMonth = 0.026
-	oneMb      = 1024.0 * 1024.0
-	gcsPrefix  = "gs://"
+	oneMb       = 1024 * 1024
+	serviceName = "gazretention"
 )
 
 var (
-	topicList      topics.Flag
-	retentionStats = make(statsMap)
-	currentTopic   *topic.Description
-	cloudFSURL     = envflagfactory.NewCloudFSURL()
+	prefix = flag.String("prefix", "", "The directory prefix to search.")
+	dur    = flag.String("dur", "0s",
+		"Files found that are older than |dur| from now will be returned.")
+	config = flag.String("config", "",
+		"Filepath to JSON config file of an array of prefix and durations.")
+	nprocs = flag.Int("nprocs", 8,
+		"How many deletes to run in parallel")
+	cloudFSUrl = envflagfactory.NewCloudFSURL()
 )
-
-type statsMap map[*topic.Description]map[journal.Name]*journalStats
-
-type journalStats struct {
-	name        journal.Name
-	totalSize   float64
-	totalFiles  int
-	deleteSize  float64
-	deleteFiles int
-}
 
 type cfsFragment struct {
 	os.FileInfo
-	path string
-	ver  interface{}
+	path   string
+	prefix string
 }
 
-func appendExpiredJournalFragments(jname journal.Name, horizon time.Time,
-	cfs cloudstore.FileSystem, fragments []cfsFragment) ([]cfsFragment, error) {
-	if _, ok := retentionStats[currentTopic][jname]; !ok {
-		retentionStats[currentTopic][jname] = &journalStats{name: jname}
-	}
-	// Get all fragments associated with journal older than retention time.
-	if err := cfs.Walk(string(jname), func(fname string, finfo os.FileInfo, err error) error {
-		var modTime = finfo.ModTime()
-		var sizeMb = float64(finfo.Size()) / oneMb
-		log.WithFields(log.Fields{
-			"cfsPath":     fname,
-			"fragment":    finfo.Name(),
-			"sizeMb":      float64(finfo.Size()) / oneMb,
-			"lastModTime": modTime,
-		}).Debug("Scanning fragment for retention...")
+// findExpiredFragments searches the provided cloudstore filesystem |cfs| under
+// the directory specified by |prefix| and returns any files found modified
+// after now - |duration|.
+func appendExpiredFragments(prefix string, duration time.Duration,
+	frags []*cfsFragment, cfs cloudstore.FileSystem) ([]*cfsFragment, error) {
+	var horizon time.Time
 
-		var jStats = retentionStats[currentTopic][jname]
-		jStats.totalFiles += 1
-		jStats.totalSize += sizeMb
+	// Default of a 0 duration keeps any files written after unix epoch.
+	if duration == 0 {
+		horizon = time.Unix(0, 0)
+	} else {
+		horizon = time.Now().Add(-duration)
+	}
+
+	// Get all fragments associated with journal older than retention time.
+	if err := cfs.Walk(prefix, func(fname string, finfo os.FileInfo, err error) error {
+		var modTime = finfo.ModTime()
 
 		if modTime.Before(horizon) {
-			var ver interface{}
-			if *cloudFSURL == gcsPrefix {
-				ver = finfo.(cloudstore.File).Version()
-			}
-			fragments = append(fragments, cfsFragment{finfo, fname, ver})
-			jStats.deleteSize += sizeMb
-			jStats.deleteFiles += 1
+			log.WithFields(log.Fields{
+				"cfsPath":     fname,
+				"fragment":    finfo.Name(),
+				"sizeMb":      float64(finfo.Size()) / oneMb,
+				"lastModTime": modTime,
+			}).Debug("Expired fragment found...")
+			frags = append(frags, &cfsFragment{finfo, fname, prefix})
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	return fragments, nil
+	return frags, nil
 }
 
-func appendExpiredTopicFragments(desc *topic.Description, cfs cloudstore.FileSystem,
-	fragments []cfsFragment) ([]cfsFragment, error) {
-	var now = time.Now()
-	var horizon time.Time
-	var err error
-	// If retention duration is unspecified, set horizon to unix epoch.
-	if desc.RetentionDuration == 0 {
-		horizon = time.Unix(0, 0)
+// deleteExpiredFrags deletes and emits stats on expired fragments |expFrags|
+// found on the filesystem |cfs|.
+func deleteExpiredFrags(expFrags []*cfsFragment, cfs cloudstore.FileSystem) error {
+	// Make a channel that accepts fragments.
+	var ch = make(chan *cfsFragment, 256)
+	var numErrs int64 = 0
+
+	// Make a WaitGroup that tracks the completion of the goroutines.
+	var wg sync.WaitGroup
+	wg.Add(*nprocs)
+
+	// Create |*nprocs| goroutines that read from the channel and delete files
+	// in a loop, incrementing a stats every time.
+	for i := 0; i < *nprocs; i++ {
+		go func(f <-chan *cfsFragment) {
+			for frag := range f {
+				if err := cfs.Remove(frag.path); err != nil {
+					atomic.AddInt64(&numErrs, 1)
+					log.WithField("err", err).Error("error deleting file.")
+				} else {
+					varz.ObtainCount(serviceName, "delete", "count",
+						"#prefix", frag.prefix).Add(1)
+					varz.ObtainCount(serviceName, "delete", "sizeMb",
+						"#prefix", frag.prefix).Add(frag.Size() / oneMb)
+					log.WithField("path", frag.path).Debug("deleted file.")
+				}
+			}
+			wg.Done()
+		}(ch)
+	}
+
+	// Fill the channel with the content of |expFrags|.
+	for _, frag := range expFrags {
+		ch <- frag
+	}
+
+	// Tell the goroutines to die.
+	close(ch)
+
+	// Wait for the goroutines to finish.
+	wg.Wait()
+
+	if numErrs > 0 {
+		return fmt.Errorf("could not delete %d files.", numErrs)
 	} else {
-		horizon = now.Add(-desc.RetentionDuration)
-	}
-	if _, ok := retentionStats[desc]; !ok {
-		retentionStats[desc] = make(map[journal.Name]*journalStats)
-	}
-	currentTopic = desc
-	for _, part := range desc.Partitions() {
-		fragments, err = appendExpiredJournalFragments(part, horizon, cfs, fragments)
-		if err != nil {
-			break
-		}
-	}
-
-	return fragments, err
-}
-
-func displayAndLogFragmentsInfo(fragments []cfsFragment) {
-	if len(fragments) < 1 {
-		log.Info("No expired fragments found.")
-		return
-	}
-	for _, frag := range fragments {
-		log.WithFields(log.Fields{
-			"cfsPath":     frag.path,
-			"fragment":    frag.Name(),
-			"sizeMb":      float64(frag.Size()) / oneMb,
-			"lastModTime": frag.ModTime(),
-		}).Debug("Expired fragment found.")
-		if *cloudFSURL == gcsPrefix {
-			fmt.Printf(gcsPrefix+frag.path+"#%v\n", frag.ver)
-		} else {
-			fmt.Println(frag.path)
-		}
+		return nil
 	}
 }
 
-func calculateAndLogSummaryStats(retentionStats statsMap) {
-	// Display stats about fragments found for deletion.
-	var totalMb float64
-	var deleteMb float64
-	var totalFiles int
-	var deleteFiles int
-	var deletePercentage float64
+// readAndParseConf reads a JSON-formatted config file |fp| which contains a map
+// of prefix and retention durations.
+func readAndParseConf(fp string) (map[string]string, error) {
+	var err error
+	var raw []byte
+	var confMap map[string]string
 
-	var topicTotalMb float64
-	var topicDeleteMb float64
-	var topicTotalFiles int
-	var topicDeleteFiles int
-	for tname, jmap := range retentionStats {
-		topicTotalMb = 0
-		topicDeleteMb = 0
-		topicTotalFiles = 0
-		topicDeleteFiles = 0
-		for _, jstats := range jmap {
-			topicTotalMb += jstats.totalSize
-			topicDeleteMb += jstats.deleteSize
-			topicTotalFiles += jstats.totalFiles
-			topicDeleteFiles += jstats.deleteFiles
-		}
-		var topicTotalGb = topicTotalMb / 1024.0
-		var topicDeleteGb = topicDeleteMb / 1024.0
-		deletePercentage = 0
-		if topicTotalGb > 0 {
-			deletePercentage = 100 * topicDeleteGb / topicTotalGb
-		}
-		var topicFields = log.Fields{
-			"name":             tname.Name,
-			"totalGb":          topicTotalGb,
-			"deleteGb":         topicDeleteGb,
-			"totalCost":        topicTotalGb * gcpGbMonth,
-			"deleteCost":       topicDeleteGb * gcpGbMonth,
-			"totalFiles":       topicTotalFiles,
-			"deleteFiles":      topicDeleteFiles,
-			"deletePercentage": deletePercentage,
-		}
-		log.WithFields(topicFields).Info("Topic stats")
-		for jname, jstats := range jmap {
-			var journalTotalGb = jstats.totalSize / 1024.0
-			var journalDeleteGb = jstats.deleteSize / 1024.0
-			deletePercentage = 0
-			if journalTotalGb > 0 {
-				deletePercentage = 100 * journalDeleteGb / journalTotalGb
-			}
-			var journalFields = log.Fields{
-				"name":             jname,
-				"totalGb":          journalTotalGb,
-				"deleteGb":         journalDeleteGb,
-				"totalCost":        journalTotalGb * gcpGbMonth,
-				"deleteCost":       journalDeleteGb * gcpGbMonth,
-				"totalFiles":       jstats.totalFiles,
-				"deleteFiles":      jstats.deleteFiles,
-				"deletePercentage": deletePercentage,
-			}
-			log.WithFields(journalFields).Info("Journal stats")
-		}
-		totalMb += topicTotalMb
-		deleteMb += topicDeleteMb
-		totalFiles += topicTotalFiles
-		deleteFiles += topicDeleteFiles
+	raw, err = ioutil.ReadFile(fp)
+	if err != nil {
+		return confMap, err
 	}
 
-	deletePercentage = 0
-	if totalMb > 0 {
-		deletePercentage = 100 * deleteMb / totalMb
+	err = json.Unmarshal(raw, &confMap)
+	if err != nil {
+		return confMap, err
 	}
-	var totalFields = log.Fields{
-		"name":             "total",
-		"totalGb":          totalMb / 1024.0,
-		"deleteGb":         deleteMb / 1024.0,
-		"totalCost":        gcpGbMonth * totalMb / 1024.0,
-		"deleteCost":       gcpGbMonth * deleteMb / 1024.0,
-		"totalFiles":       totalFiles,
-		"deleteFiles":      deleteFiles,
-		"deletePercentage": deletePercentage,
-	}
-	log.WithFields(totalFields).Info("Total stats")
-}
 
-func init() {
-	flag.Var(&topicList, "topic", "Topic to check for expired fragments.")
+	return confMap, nil
 }
 
 func main() {
 	envflag.CommandLine.Parse()
-	defer varz.InitializeStandalone("gazretention").Cleanup()
+	defer varz.InitializeStandalone(serviceName).Cleanup()
 
 	log.SetFormatter(&log.JSONFormatter{})
 
-	var cfs, err = cloudstore.NewFileSystem(nil, *cloudFSURL)
-	if err != nil {
-		log.WithField("err", err).Fatal("cannot initialize cloudstore")
-	}
+	var err error
+	var cfs cloudstore.FileSystem
+	var tdur time.Duration
+	var confMap map[string]string
+	var expFrags []*cfsFragment
 
-	// Check the "-topic" flag presence, if not specified, use all topics.
-	var tList []*topic.Description
-	if len(topicList.Topics) == 0 {
-		for _, t := range topics.ByName {
-			tList = append(tList, t)
+	// Get either prefix or filepath to parse.
+	if *prefix != "" {
+		confMap[*prefix] = *dur
+	} else if *config != "" {
+		confMap, err = readAndParseConf(*config)
+		if err != nil {
+			log.WithField("err", err).Fatal("Failed to parse conf file")
 		}
 	} else {
-		tList = topicList.Topics
+		log.Fatal("-prefix or -config must be specified.")
 	}
 
-	// For each topic, gather expired fragments, log, and delete.
-	for _, t := range tList {
-		var toDelete []cfsFragment
-		log.WithField("topic", t).Info("Evaluating topic for retention.")
+	cfs, err = cloudstore.NewFileSystem(nil, *cloudFSUrl)
+	if err != nil {
+		log.WithField("err", err).Fatal("cannot initialize cloudstore.")
+	}
 
-		// Attempt to gather expired fragments for topic.
-		toDelete, err = appendExpiredTopicFragments(t, cfs, toDelete)
+	for pref, duration := range confMap {
+		log.WithField("prefix", pref).
+			Info("Gathering expired journal fragments...")
+		tdur, err = time.ParseDuration(duration)
 		if err != nil {
-			log.WithField("error gathering fragments", err).
-				Errorf("Topic retention for %s failed.", t.Name)
-			return
+			log.WithField("err", err).Error("invalid retention duration.")
+			continue
 		}
-		displayAndLogFragmentsInfo(toDelete)
+		expFrags, err = appendExpiredFragments(pref, tdur, expFrags, cfs)
+		if err != nil {
+			log.WithField("err", err).Error("cannot parse filesystem.")
+		}
 	}
 
-	calculateAndLogSummaryStats(retentionStats)
+	if len(expFrags) > 0 {
+		log.Info("Deleting expired fragments...")
+		err = deleteExpiredFrags(expFrags, cfs)
+		if err != nil {
+			log.WithField("err", err).Fatal("Unable to delete expired fragments.")
+		}
+	} else {
+		log.Info("No expired fragments found!")
+	}
 }

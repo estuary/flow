@@ -109,11 +109,6 @@ func (f *sftpFile) ContentSignature() (string, error) {
 	}
 }
 
-func (f *sftpFile) Version() int64 {
-	//TODO(dclark): return unix timestamp of lastMod.
-	return 0
-}
-
 type sftpDir struct {
 	path       string
 	client     *sftp.Client
@@ -151,11 +146,6 @@ func (d *sftpDir) Seek(offset int64, whence int) (int64, error) {
 
 func (d *sftpDir) Write(p []byte) (int, error) {
 	return 0, fmt.Errorf("Write call on SFTP Dir %v", d.path)
-}
-
-func (d *sftpDir) Version() int64 {
-	//TODO(dclark): return unix timestamp of lastMod.
-	return 0
 }
 
 // Object to encapsulate the readdir behavior

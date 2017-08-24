@@ -9,7 +9,6 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/topic"
 )
 
 const (
@@ -18,11 +17,6 @@ const (
 )
 
 var (
-	testTopic = topic.Description{
-		Name:              testJournal,
-		Partitions:        topic.EnumeratePartitions(testJournal, 2),
-		RetentionDuration: testDuration,
-	}
 	msg1 = testMessage{
 		Foo: 1,
 		Bar: "abc",
@@ -62,31 +56,28 @@ func (s *RetentionSuite) TestEnforceTopicRetention(c *gc.C) {
 	// Ensure enough retention duration has expired.
 	time.Sleep(testDuration + time.Millisecond)
 
-	enforceTopicRetention(&testTopic, s.cfs, c)
+	enforceTopicRetention(testJournal, testDuration, s.cfs, c)
 	checkTestMessagesAreRemoved(s.cfs, c)
 }
 
 func (s *RetentionSuite) TestMessagesAreRetained(c *gc.C) {
 	// Enforce right away so files are retained.
-	enforceTopicRetention(&testTopic, s.cfs, c)
+	enforceTopicRetention(testJournal, testDuration, s.cfs, c)
 	checkTestMessagesAreRetained(s.cfs, c)
 }
 
 func (s *RetentionSuite) TestNoRetentionSpecifiedRetains(c *gc.C) {
-	var noRetain = topic.Description{
-		Name:       testJournal,
-		Partitions: topic.EnumeratePartitions(testJournal, 2),
-	}
-	enforceTopicRetention(&noRetain, s.cfs, c)
+	enforceTopicRetention(testJournal, 0, s.cfs, c)
 	checkTestMessagesAreRetained(s.cfs, c)
 }
 
-func enforceTopicRetention(topic *topic.Description, cfs cloudstore.FileSystem, c *gc.C) {
-	var toDelete []cfsFragment
+func enforceTopicRetention(prefix string, dur time.Duration,
+	cfs cloudstore.FileSystem, c *gc.C) {
+	var toDelete []*cfsFragment
 	var err error
-	toDelete, err = appendExpiredTopicFragments(topic, cfs, toDelete)
+	toDelete, err = appendExpiredFragments(prefix, dur, toDelete, cfs)
 	c.Check(err, gc.IsNil)
-	c.Check(deleteFragments(cfs, toDelete), gc.IsNil)
+	c.Check(deleteExpiredFrags(toDelete, cfs), gc.IsNil)
 }
 
 func checkTestMessagesAreRemoved(cfs cloudstore.FileSystem, c *gc.C) {
@@ -131,15 +122,6 @@ func writeTestMessagesToCFS(cfs cloudstore.FileSystem, c *gc.C) {
 	var msg2b, _ = json.Marshal(msg2)
 	file1.Write(msg2b)
 	c.Check(file2.Close(), gc.IsNil)
-}
-
-func deleteFragments(cfs cloudstore.FileSystem, toDelete []cfsFragment) error {
-	for _, frag := range toDelete {
-		if err := cfs.Remove(frag.path); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 var _ = gc.Suite(&RetentionSuite{})

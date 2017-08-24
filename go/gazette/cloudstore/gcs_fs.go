@@ -523,10 +523,6 @@ func (f *gcsFile) Sys() interface{} {
 	return nil
 }
 
-func (f *gcsFile) Version() int64 {
-	return f.generation
-}
-
 func (f *gcsFile) transfer(from io.Reader) (int64, error) {
 	var n int64
 

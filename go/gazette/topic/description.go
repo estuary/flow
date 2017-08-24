@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"hash/fnv"
-	"time"
 
 	"github.com/pippio/gazette/journal"
 )
@@ -62,8 +61,6 @@ type Description struct {
 	PutMessage func(Message) `json:"-"`
 	// Serialization used for Topic messages.
 	Framing
-	// How far back from the present we must keep the data around.
-	RetentionDuration time.Duration
 }
 
 // Partition pairs a Gazette Journal with the topic it implements.

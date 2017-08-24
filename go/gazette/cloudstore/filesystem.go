@@ -25,10 +25,6 @@ type File interface {
 	// a content sum or ETag (in the case of cloud storage providers).
 	// Calling this should not require a calculation that reads the whole file.
 	ContentSignature() (string, error)
-	// Version is used to get the specific version of the object in cloud-storage
-	// where buckets have some versioning enabled. For non-versioned-bucket files
-	// this method can return nil or the modification time of the file.
-	Version() int64
 }
 
 // FileSystem extends the read-only methods of http.FileSystem with methods
