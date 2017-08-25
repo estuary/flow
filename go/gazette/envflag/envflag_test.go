@@ -23,7 +23,7 @@ func (s *envflagSuite) TestServiceEndpoint(c *check.C) {
 	var sut = efs.ServiceEndpoint("dummyName", "default value", "Foo bar baz")
 
 	// Envflags create underlying flags.
-	var actualFlag = fs.Lookup("ossdummyNameEndpoint")
+	var actualFlag = fs.Lookup("dummyNameEndpoint")
 	c.Assert(actualFlag, check.NotNil)
 	c.Check(actualFlag.DefValue, check.Equals, "default value")
 	c.Check(actualFlag.Usage, check.Equals, "Foo bar baz (DUMMYNAME_SERVICE_HOST, DUMMYNAME_SERVICE_PORT)")

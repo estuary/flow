@@ -10,12 +10,6 @@ import (
 	"strings"
 )
 
-// serviceFlagPrefix is prefixed to the flag name to avoid conflicts with existing
-// flags.
-//
-// TODO(rupert): Remove this when package endpoints is fully decoupled.
-const serviceFlagPrefix = "oss"
-
 type parseableFromEnv interface {
 	parseFromEnv()
 }
@@ -79,7 +73,7 @@ func (fs *FlagSet) ServiceEndpoint(name, value, usage string) *string {
 	var evHost = prefix + "_SERVICE_HOST"
 	var evPort = prefix + "_SERVICE_PORT"
 
-	var ptr = fs.fs.String(serviceFlagPrefix+name+"Endpoint", value, fmt.Sprintf("%s (%s, %s)", usage, evHost, evPort))
+	var ptr = fs.fs.String(name+"Endpoint", value, fmt.Sprintf("%s (%s, %s)", usage, evHost, evPort))
 	fs.addFlag(name, serviceEndpointFlag{evHost, evPort, ptr})
 	return ptr
 }

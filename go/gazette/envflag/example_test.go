@@ -48,10 +48,10 @@ func ExampleFlagSet_ServiceEndpoint() {
 	efs := envflag.NewFlagSet(fs)
 
 	efs.ServiceEndpoint("api", "localhost:80", "API endpoint")
-	fmt.Println(fs.Lookup("ossapiEndpoint").Name)
+	fmt.Println(fs.Lookup("apiEndpoint").Name)
 
 	// Output:
-	// ossapiEndpoint
+	// apiEndpoint
 }
 
 func ExampleFlagSet_String() {
