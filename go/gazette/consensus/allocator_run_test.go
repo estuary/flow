@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
@@ -81,7 +82,7 @@ func (s *AllocRunSuite) TestSingle(c *gc.C) {
 
 	alloc.inspectCh <- func(tree *etcd.Node) {
 		var i int
-		WalkItems(tree, nil, func(name string, route Route) {
+		WalkItems(tree, nil, time.Now(), func(name string, route Route) {
 			c.Check(s.fixedItems[i], gc.Equals, name)
 			c.Check(route.Index("my-key"), gc.Equals, 0)
 			i++

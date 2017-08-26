@@ -3,6 +3,7 @@ package consumer
 import (
 	"path"
 	"sort"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
@@ -73,7 +74,7 @@ func (r *Runner) CurrentConsumerState(context.Context, *Empty) (*ConsumerState, 
 			// Member Nodes are already sorted on node Key.
 			out.Endpoints = append(out.Endpoints, path.Base(n.Key))
 		}
-		consensus.WalkItems(tree, r.FixedItems(), func(name string, route consensus.Route) {
+		consensus.WalkItems(tree, r.FixedItems(), time.Now(), func(name string, route consensus.Route) {
 			var shardID = ShardID(name)
 
 			var partition, ok = r.allShards[shardID]

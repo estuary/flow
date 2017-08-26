@@ -17,7 +17,17 @@ const (
 	MemberPrefix = "members" // Directory root for member announcements.
 	ItemsPrefix  = "items"   // Directory root for allocated items.
 
-	lockDuration          = time.Minute * 5 // Duration of held locks.
+	// Duration of locks held in Etcd.
+	lockDuration = time.Minute * 5
+	// We refresh a lock after 1/2 of the TTL has elapsed.
+	lockRefreshHorizon = lockDuration / 2
+	// We ignore a lock with less than 1/8 of its TTL remaining, though it cannot
+	// be claimed by another owner until its TTL has fully elapsed. Assuming
+	// bounded clock skew, this precludes dual ownership in the case of net-split
+	// to Etcd where a subset of partitioned processes never see Etcd apply
+	// the expiration, and other connected processes see a new owner.
+	lockInvalidHorizon = lockRefreshHorizon / 4
+
 	allocErrSleepInterval = time.Second * 5 // Sleep cool-off on errors.
 	// Maximum sleep interval. This is a tighter bound than that required
 	// for lock resets, to ensure that ItemStates are polled and updated
@@ -355,7 +365,7 @@ type allocParams struct {
 // WalkItems performs a zipped, outer-join iteration of items under ItemsPrefix
 // of |tree|, and |fixedItems| (which must be ordered). The argument callback
 // |cb| is invoked for each item, and must not retain |route| after each call.
-func WalkItems(tree *etcd.Node, fixedItems []string, cb func(name string, route Route)) {
+func WalkItems(tree *etcd.Node, fixedItems []string, now time.Time, cb func(name string, route Route)) {
 	var dir etcd.Node
 	if d := Child(tree, ItemsPrefix); d != nil {
 		dir = *d
@@ -373,7 +383,7 @@ func WalkItems(tree *etcd.Node, fixedItems []string, cb func(name string, route 
 			Item:    node,
 			Entries: append(scratch[:0], node.Nodes...),
 		}
-		route.init()
+		route.init(now)
 
 		cb(name, route)
 	})
@@ -383,7 +393,7 @@ func WalkItems(tree *etcd.Node, fixedItems []string, cb func(name string, route 
 // |p.Input|.
 func allocExtract(p *allocParams) {
 
-	WalkItems(p.Input.Tree, p.FixedItems(), func(name string, route Route) {
+	WalkItems(p.Input.Tree, p.FixedItems(), p.Input.Time, func(name string, route Route) {
 		p.Item.Count += 1
 
 		var index = route.Index(p.InstanceKey())
@@ -424,8 +434,8 @@ func allocExtract(p *allocParams) {
 // current parameters, as an Etcd operation. Etcd response and error code are
 // passed through. If both are nil, no action was available to be attempted.
 func allocAction(p *allocParams, desiredMaster, desiredTotal int) (*etcd.Response, error) {
-	// Locks are refreshed when less than 1/2 of their TTL remains.
-	var horizon = p.Input.Time.Add(lockDuration / 2)
+	// Locks are refreshed when less than |lockRefreshHorzion| remains of their TTL.
+	var horizon = p.Input.Time.Add(lockRefreshHorizon)
 
 	// Helper which CASs |node| to |value| with TTL.
 	var compareAndSet = func(node *etcd.Node, value string) (*etcd.Response, error) {
@@ -580,9 +590,8 @@ func targetCounts(p *allocParams) (desiredMaster, desiredTotal int) {
 }
 
 // nextDeadline computes the next deadline by finding the minimum Expiration of
-// all held Etcd entries, and subtracting 1/2 of lockDuration. Eg, we wish to
-// refresh a held entry once its remaining TTL is less than 1/2 of
-// lockDuration.
+// all held Etcd entries, and subtracting |lockRefreshHorizon|. Eg, we wish to
+// refresh a held entry once its remaining TTL is less than |lockRefreshHorizon|.
 func nextDeadline(p *allocParams) time.Time {
 	var firstExpire time.Time
 	if p.Member.Entry != nil {
@@ -602,5 +611,5 @@ func nextDeadline(p *allocParams) time.Time {
 	if firstExpire.IsZero() {
 		return time.Time{}
 	}
-	return firstExpire.Add(-lockDuration / 2)
+	return firstExpire.Add(-lockRefreshHorizon)
 }
