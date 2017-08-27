@@ -122,7 +122,7 @@ func main() {
 	}()
 
 	var m = mux.NewRouter()
-	gazette.NewCreateAPI(keysAPI, *replicaCount).Register(m)
+	gazette.NewCreateAPI(cfs, keysAPI, *replicaCount).Register(m)
 	gazette.NewReadAPI(router, cfs).Register(m)
 	gazette.NewReplicateAPI(router).Register(m)
 	gazette.NewWriteAPI(router).Register(m)

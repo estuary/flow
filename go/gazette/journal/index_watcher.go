@@ -88,15 +88,8 @@ func (w *IndexWatcher) loop() {
 }
 
 func (w *IndexWatcher) onRefresh() error {
-	// Add a trailing slash to unambiguously represent a directory. Some cloud
-	// FileSystems (eg, GCS) require this if no subordinate files are present.
-	var dirname = w.journal.String() + "/"
-
-	// Open the fragment directory, making it first if necessary.
-	if err := w.cfs.MkdirAll(dirname, 0750); err != nil {
-		return err
-	}
-	var dir, err = w.cfs.Open(dirname)
+	// Open the fragment directory.
+	var dir, err = w.cfs.Open(w.journal.String())
 	if err != nil {
 		return err
 	}

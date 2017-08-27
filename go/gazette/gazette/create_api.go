@@ -11,6 +11,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
 
+	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/journal"
 )
@@ -19,12 +20,18 @@ import (
 // item directory for the Journal under Gazette's consensus.Allocator root
 // and responds to the client when the Journal is ready for transactions.
 type CreateAPI struct {
+	cfs              cloudstore.FileSystem
 	keysAPI          etcd.KeysAPI
 	requiredReplicas int
 }
 
-func NewCreateAPI(keysAPI etcd.KeysAPI, requiredReplicas int) *CreateAPI {
-	return &CreateAPI{keysAPI: keysAPI, requiredReplicas: requiredReplicas}
+func NewCreateAPI(cfs cloudstore.FileSystem, keysAPI etcd.KeysAPI,
+	requiredReplicas int) *CreateAPI {
+	return &CreateAPI{
+		cfs:              cfs,
+		keysAPI:          keysAPI,
+		requiredReplicas: requiredReplicas,
+	}
 }
 
 func (h *CreateAPI) Register(router *mux.Router) {
@@ -32,32 +39,42 @@ func (h *CreateAPI) Register(router *mux.Router) {
 }
 
 func (h *CreateAPI) Create(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Path[1:]
-	path := path.Join(ServiceRoot, consensus.ItemsPrefix, url.QueryEscape(name))
+	var name = path.Clean(r.URL.Path[1:])
 
-	response, err := h.keysAPI.Set(context.Background(), path, "", &etcd.SetOptions{
-		Dir:       true,
-		PrevExist: etcd.PrevNoExist,
-	})
+	// Create the fragment directory. Add a trailing slash to unambiguously
+	// represent it as a directory: some cloudstore implementations (eg, GCS)
+	// require this if no subordinate files are present.
+	if err := h.cfs.MkdirAll(name+"/", 0750); err != nil {
+		http.Error(w, err.Error(), journal.StatusCodeForError(err))
+		return
+	}
+
+	// Create an allocated item entry in Etcd.
+	var itemPath = path.Join(ServiceRoot, consensus.ItemsPrefix, url.QueryEscape(name))
+	var response, err = h.keysAPI.Set(context.Background(), itemPath, "",
+		&etcd.SetOptions{
+			Dir:       true,
+			PrevExist: etcd.PrevNoExist,
+		})
 	// Map a etcd NodeExist error into corresponding journal error.
 	if etcdErr, _ := err.(etcd.Error); etcdErr.Code == etcd.ErrorCodeNodeExist {
 		err = journal.ErrExists
 	}
-
 	if err != nil {
 		http.Error(w, err.Error(), journal.StatusCodeForError(err))
 		return
 	}
-	log.WithFields(log.Fields{"path": path, "name": name}).Info("created journal")
+
+	log.WithFields(log.Fields{"path": itemPath, "name": name}).Info("created journal")
 
 	// Briefly block until we see the required number of ready replicas under
 	// the new item. If we returned immediately, the client will likely race
 	// its next request against the consensus.Allocator (and often win!).
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	var ctx, cancel = context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	var tree = response.Node
-	var watcher = h.keysAPI.Watcher(path, &etcd.WatcherOptions{
+	var watcher = h.keysAPI.Watcher(itemPath, &etcd.WatcherOptions{
 		AfterIndex: response.Index,
 		Recursive:  true,
 	})
