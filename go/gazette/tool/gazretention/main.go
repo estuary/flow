@@ -60,11 +60,17 @@ func appendExpiredFragments(prefix string, duration time.Duration,
 	if err := cfs.Walk(prefix, func(fname string, finfo os.FileInfo, err error) error {
 		var modTime = finfo.ModTime()
 
+		var sizeMb = float64(finfo.Size()) / oneMb
+
+		// Stats collection while we're parsing journal fragments anyway.
+		varz.ObtainCount(serviceName, "totalCount", "#prefix", prefix).Add(1)
+		varz.ObtainCount(serviceName, "totalSize", "#prefix", prefix).Add(int64(sizeMb))
+
 		if modTime.Before(horizon) {
 			log.WithFields(log.Fields{
 				"cfsPath":     fname,
 				"fragment":    finfo.Name(),
-				"sizeMb":      float64(finfo.Size()) / oneMb,
+				"sizeMb":      sizeMb,
 				"lastModTime": modTime,
 			}).Debug("Expired fragment found...")
 			frags = append(frags, &cfsFragment{finfo, fname, prefix})
