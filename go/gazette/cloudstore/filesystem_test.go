@@ -6,7 +6,6 @@ package cloudstore
 
 import (
 	"bytes"
-	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -19,10 +18,8 @@ import (
 	"testing/iotest"
 	"time"
 
-	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
 )
@@ -39,7 +36,6 @@ var (
 	s3SecretAccessKey = flag.String("testS3SecretAccessKey", "", "S3 Secret Access Key")
 	s3Region          = flag.String("testS3Region", "us-east-1", "S3 Region")
 	cloudFSURL        = envflagfactory.NewCloudFSURL()
-	etcdEndpoint      = envflagfactory.NewEtcdServiceEndpoint()
 )
 
 type FileSystemSuite struct {
@@ -47,7 +43,7 @@ type FileSystemSuite struct {
 }
 
 func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
-	var fsProperties Properties
+	var properties Properties
 
 	envflag.CommandLine.Parse()
 	s3ParseFromEnvironment(c)
@@ -57,40 +53,17 @@ func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
 	rand.Seed(time.Now().Unix())
 
 	if *s3AccessKeyID != "" {
-		var fakeProperties = MapProperties{
+		properties = MapProperties{
 			AWSAccessKeyID:     *s3AccessKeyID,
 			AWSSecretAccessKey: *s3SecretAccessKey,
 			S3Region:           *s3Region,
 		}
-
-		fsProperties = fakeProperties
-	} else {
-		// If a real CFS can be prepared, use it for this test.
-		etcdClient, err := etcd.New(etcd.Config{
-			Endpoints: []string{"http://" + *etcdEndpoint}})
-		if err != nil {
-			c.Log("Using temp filesystem: no connectivity to etcd: ", err)
-			s.cfs = NewTmpFileSystem()
-			return
-		}
-		keysAPI := etcd.NewKeysAPI(etcdClient)
-
-		properties, err := keysAPI.Get(context.Background(), "/properties",
-			&etcd.GetOptions{Recursive: true, Sort: true})
-		if err != nil {
-			c.Log("Using temp filesystem: failed to initialize /properties: ", err)
-			s.cfs = NewTmpFileSystem()
-			return
-		}
-
-		fsProperties = consensus.MapAdapter(properties.Node)
 	}
 
 	var err error
-	s.cfs, err = NewFileSystem(fsProperties, *cloudFSURL)
+	s.cfs, err = NewFileSystem(properties, *cloudFSURL)
 	if err != nil {
-		c.Log("Using temp filesystem: failed to initialize DefaultFilesystem: ", err)
-		s.cfs = NewTmpFileSystem()
+		c.Fatal("Using temp filesystem: failed to initialize DefaultFilesystem: ", err)
 	}
 }
 
@@ -313,6 +286,20 @@ func (s *FileSystemSuite) TestCreateExclusiveEmptyFile(c *gc.C) {
 		_, err := s.cfs.Open("path/to/empty-file")
 		c.Check(err, gc.IsNil) // Visible.
 	}
+}
+
+func (s *FileSystemSuite) TestMakeDirectory(c *gc.C) {
+	// Note this tests assumes an existing regular file fixture "path/to/fixture".
+
+	// Creating an existing directory always succeeds.
+	c.Check(s.cfs.MkdirAll("path/to/", 0750), gc.IsNil)
+
+	// Creating a directory having a regular file prefix succeeds.
+	c.Check(s.cfs.MkdirAll("path/to/fix", 0750), gc.IsNil)
+	s.cfs.Remove("path/to/fix")
+
+	// Creating a directory on top of a regular file fails.
+	c.Check(s.cfs.MkdirAll("path/to/fixture", 0750), gc.FitsTypeOf, new(os.PathError))
 }
 
 func (s *FileSystemSuite) TestOpenReadNotExist(c *gc.C) {

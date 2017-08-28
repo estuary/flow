@@ -186,9 +186,28 @@ func (fs *gcsFs) Open(name string) (http.File, error) {
 	return fs.OpenFile(name, os.O_RDONLY, 0)
 }
 
-func (fs *gcsFs) MkdirAll(path string, perm os.FileMode) error {
-	// Directories implicitly exist in GCS.
-	return nil
+func (fs *gcsFs) MkdirAll(name string, _ os.FileMode) error {
+	var bucket, path = pathToBucketAndSubpath(fs.prefix, name)
+	path = strings.TrimRight(path, "/")
+
+	// Ensure we can list files under |bucket| and |path|.
+	var iter = fs.client.Bucket(bucket).Objects(context.Background(), &storage.Query{Prefix: path})
+	iter.PageInfo().MaxSize = 1
+
+	if obj, err := iter.Next(); err == nil {
+		if obj.Name == path {
+			// Simulate POSIX rules: that a regular file and directory cannot have the same name.
+			return &os.PathError{Err: os.ErrExist, Path: path}
+		} else {
+			// |obj| is prefixed by |path| but is not path exactly.
+			return nil
+		}
+	} else if err == iterator.Done {
+		// Empty directory.
+		return nil
+	} else {
+		return err
+	}
 }
 
 func (fs *gcsFs) Remove(name string) error {
