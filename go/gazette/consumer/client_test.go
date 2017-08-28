@@ -31,17 +31,17 @@ func (s *ClientSuite) TestClientInitializationAndUpdate(c *gc.C) {
 	c.Check(shard.Id, gc.Equals, ShardID("shard-zero"))
 
 	conn, shard, err = client.PartitionClient("partition/one")
-	c.Check(err, gc.Equals, errNoReadyPartitionClient)
+	c.Check(err, gc.Equals, ErrNoReadyPartitionClient)
 	c.Check(conn, gc.IsNil)
 	c.Check(shard.Id, gc.Equals, ShardID("shard-one"))
 
 	conn, shard, err = client.PartitionClient("partition/two")
-	c.Check(err, gc.Equals, errNoReadyPartitionClient)
+	c.Check(err, gc.Equals, ErrNoReadyPartitionClient)
 	c.Check(conn, gc.IsNil)
 	c.Check(shard.Id, gc.Equals, ShardID("shard-two"))
 
 	conn, shard, err = client.PartitionClient("partition/three")
-	c.Check(err, gc.Equals, errNoSuchConsumerPartition)
+	c.Check(err, gc.Equals, ErrNoSuchConsumerPartition)
 	c.Check(conn, gc.IsNil)
 
 	var s2 = buildMockServer(c)

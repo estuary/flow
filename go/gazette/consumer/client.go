@@ -54,8 +54,8 @@ const (
 )
 
 var (
-	errNoSuchConsumerPartition = errors.New("no such consumer partition")
-	errNoReadyPartitionClient  = errors.New("no ready consumer partition replica client")
+	ErrNoSuchConsumerPartition = errors.New("no such consumer partition")
+	ErrNoReadyPartitionClient  = errors.New("no ready consumer partition replica client")
 )
 
 func NewClient(endpoint string) (*Client, error) {
@@ -93,11 +93,11 @@ func (c *Client) PartitionClient(partition journal.Name) (*grpc.ClientConn, Cons
 	c.mu.Unlock()
 
 	if shard, ok := index[partition]; !ok {
-		return nil, shard, errNoSuchConsumerPartition
+		return nil, shard, ErrNoSuchConsumerPartition
 	} else if len(shard.Replicas) == 0 || shard.Replicas[0].Status != ConsumerState_Replica_PRIMARY {
-		return nil, shard, errNoReadyPartitionClient
+		return nil, shard, ErrNoReadyPartitionClient
 	} else if conn, ok := conns[shard.Replicas[0].Endpoint]; !ok {
-		return nil, shard, errNoReadyPartitionClient
+		return nil, shard, ErrNoReadyPartitionClient
 	} else {
 		return conn, shard, nil
 	}
