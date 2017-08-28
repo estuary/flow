@@ -107,7 +107,7 @@ func (s *PlaybackSuite) TestUnlinkCloseError(c *gc.C) {
 	s.player.backingFiles[42].Close()
 
 	err := s.apply(c, s.frameUnlink(42, "/a/path"))
-	c.Check(err, gc.ErrorMatches, "invalid argument")
+	c.Check(err, gc.ErrorMatches, ".*file already closed")
 
 	c.Check(s.player.backingFiles, gc.HasLen, 1)
 }
