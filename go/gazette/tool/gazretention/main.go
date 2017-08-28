@@ -63,8 +63,8 @@ func appendExpiredFragments(prefix string, duration time.Duration,
 		var sizeMb = float64(finfo.Size()) / oneMb
 
 		// Stats collection while we're parsing journal fragments anyway.
-		varz.ObtainCount(serviceName, "totalCount", "#prefix", prefix).Add(1)
-		varz.ObtainCount(serviceName, "totalSize", "#prefix", prefix).Add(int64(sizeMb))
+		varz.ObtainCount(serviceName, "total", "count", "#prefix", prefix).Add(1)
+		varz.ObtainCount(serviceName, "total", "size", "#prefix", prefix).Add(int64(sizeMb))
 
 		if modTime.Before(horizon) {
 			log.WithFields(log.Fields{
