@@ -32,9 +32,6 @@ const (
 )
 
 var (
-	s3AccessKeyID     = flag.String("testS3AccessKeyID", "", "S3 Access Key ID")
-	s3SecretAccessKey = flag.String("testS3SecretAccessKey", "", "S3 Secret Access Key")
-	s3Region          = flag.String("testS3Region", "us-east-1", "S3 Region")
 	cloudFSURL        = envflagfactory.NewCloudFSURL()
 )
 
@@ -43,25 +40,14 @@ type FileSystemSuite struct {
 }
 
 func (s *FileSystemSuite) SetUpSuite(c *gc.C) {
-	var properties Properties
-
 	envflag.CommandLine.Parse()
-	s3ParseFromEnvironment(c)
 	flag.Parse()
 
 	// Prepare random seed for large file test.
 	rand.Seed(time.Now().Unix())
 
-	if *s3AccessKeyID != "" {
-		properties = MapProperties{
-			AWSAccessKeyID:     *s3AccessKeyID,
-			AWSSecretAccessKey: *s3SecretAccessKey,
-			S3Region:           *s3Region,
-		}
-	}
-
 	var err error
-	s.cfs, err = NewFileSystem(properties, *cloudFSURL)
+	s.cfs, err = NewFileSystem(nil, *cloudFSURL)
 	if err != nil {
 		c.Fatal("Using temp filesystem: failed to initialize DefaultFilesystem: ", err)
 	}
@@ -493,20 +479,6 @@ func (s *FileSystemSuite) TestWalk(c *gc.C) {
 }
 
 func boxInt64(n int64) *int64 { return &n }
-
-func s3ParseFromEnvironment(c *gc.C) {
-	var val = os.Getenv("AWS_ACCESS_KEY_ID")
-	if val != "" {
-		c.Log("got AWS_ACCESS_KEY_ID environment variable")
-		*s3AccessKeyID = val
-	}
-
-	val = os.Getenv("AWS_SECRET_ACCESS_KEY")
-	if val != "" {
-		c.Log("got AWS_SECRET_ACCESS_KEY environment variable")
-		*s3SecretAccessKey = val
-	}
-}
 
 var _ = gc.Suite(&FileSystemSuite{})
 

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -184,8 +185,29 @@ func (fs *s3Fs) Open(name string) (http.File, error) {
 	return fs.OpenFile(name, os.O_RDONLY, 0)
 }
 
-func (fs *s3Fs) MkdirAll(path string, perm os.FileMode) error {
-	// Directories implicitly exist in S3.
+func (fs *s3Fs) MkdirAll(name string, perm os.FileMode) error {
+	// Ensure we can list files under |bucket| and |path|.
+	var bucket, path = pathToBucketAndSubpath(fs.prefix, name)
+	path = strings.TrimRight(path, "/")
+
+	var listParams = s3.ListObjectsV2Input{
+		Bucket:  aws.String(bucket),
+		Prefix:  aws.String(path),
+		MaxKeys: aws.Int64(1),
+	}
+
+	var objects, err = fs.svc().ListObjectsV2(&listParams)
+	if err != nil {
+		return err
+	}
+
+	if len(objects.Contents) > 0 {
+		if *objects.Contents[0].Key == path {
+			// Simulate POSIX rules: that a regular file and directory cannot have the same name.
+			return &os.PathError{Err: os.ErrExist, Path: path}
+		}
+		// An object which is prefixed by |path| is allowed.
+	}
 	return nil
 }
 
@@ -211,7 +233,7 @@ func (fs *s3Fs) Remove(name string) error {
 	}
 
 	_, err = svc.DeleteObject(&deleteParams)
-	return fmt.Errorf("s3 delete object: %s", err)
+	return err
 }
 
 // CopyAtomic copies files contents, while being sensitive to the consistency
