@@ -2,6 +2,7 @@ package journal
 
 import (
 	"io"
+	"os"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -90,7 +91,13 @@ func (w *IndexWatcher) loop() {
 func (w *IndexWatcher) onRefresh() error {
 	// Open the fragment directory.
 	var dir, err = w.cfs.Open(w.journal.String())
-	if err != nil {
+	if os.IsNotExist(err) {
+		// Non-existent directories are permitted. In theory, we should be stricter
+		// here because the CreateAPI first makes the journal fragment directory.
+		// In practice, cloud filesystems don't universally support POSIX directory
+		// semantics, so tolerate implementations which return "does not exist".
+		return nil
+	} else if err != nil {
 		return err
 	}
 
