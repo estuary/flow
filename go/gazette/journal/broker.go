@@ -6,6 +6,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/varz"
 )
 
@@ -243,6 +244,9 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 		b.config.writtenSinceRoll += int64(commitDelta)
 		b.commitBytes.Add(commitDelta)
 		b.coalesce.Add(float64(len(pending)))
+
+		metrics.CommittedBytesTotal.Add(float64(commitDelta))
+		metrics.CoalescedAppendsTotal.Add(float64(len(pending)))
 	}
 	if sawError == nil {
 		// The transacton was fully replicated. Notify client(s) of success and

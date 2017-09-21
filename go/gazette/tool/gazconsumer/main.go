@@ -26,12 +26,14 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/varz"
 )
 
@@ -127,6 +129,8 @@ func main() {
 
 	checkConsumers(consumerList)
 	if *monitor {
+		prometheus.MustRegister(metrics.GazconsumerCollectors()...)
+
 		for _ = range time.Tick(*monitorInterval) {
 			consumerList = expandPrefixList(prefixList)
 			checkConsumers(consumerList)
@@ -143,6 +147,7 @@ func checkConsumers(consumerList []string) {
 		if *monitor {
 			if len(cdata.memberNames) > 0 {
 				varz.ObtainCount("gazconsumer", "lag", "#consumer", consumer).Set(cdata.totalLag())
+				metrics.GazconsumerLagBytes.WithLabelValues(consumer).Set(float64(cdata.totalLag()))
 			}
 		} else {
 			fmt.Printf("Consumer: %s\n\n", consumer)

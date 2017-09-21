@@ -15,6 +15,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/gazette/topic"
 	"github.com/pippio/varz"
 )
@@ -282,6 +283,7 @@ func (p *Player) playOperation(br *bufio.Reader) error {
 		return p.unlink(op.Unlink.Fnode)
 	} else if op.Write != nil {
 		recoverBytes.Add(op.Write.Length)
+		metrics.RecoveryLogRecoveredBytesTotal.Add(float64(op.Write.Length))
 		return p.write(op.Write, br)
 	}
 	return nil

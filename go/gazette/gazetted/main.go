@@ -15,6 +15,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
 	"google.golang.org/api/gensupport"
@@ -25,6 +26,7 @@ import (
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/keepalive"
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/varz"
 )
 
@@ -47,6 +49,8 @@ func main() {
 
 	envflag.CommandLine.Parse()
 	defer varz.Initialize("gazetted").Cleanup()
+
+	prometheus.MustRegister(metrics.GazetteCollectors()...)
 	gensupport.RegisterHook(traceRequests)
 
 	var localRoute string
