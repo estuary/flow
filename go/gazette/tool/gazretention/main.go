@@ -64,12 +64,6 @@ func appendExpiredFragments(prefix string, duration time.Duration,
 
 		var sizeMb = float64(finfo.Size()) / oneMb
 
-		// Stats collection while we're parsing journal fragments anyway.
-		varz.ObtainCount(serviceName, "total", "count", "#prefix", prefix).Add(1)
-		varz.ObtainCount(serviceName, "total", "size", "#prefix", prefix).Add(int64(sizeMb))
-		metrics.GazretentionParsedFragmentsTotal.WithLabelValues(prefix).Inc()
-		metrics.GazretentionParsedBytesTotal.WithLabelValues(prefix).Add(float64(finfo.Size()))
-
 		if modTime.Before(horizon) {
 			log.WithFields(log.Fields{
 				"cfsPath":     fname,
@@ -78,6 +72,13 @@ func appendExpiredFragments(prefix string, duration time.Duration,
 				"lastModTime": modTime,
 			}).Debug("Expired fragment found...")
 			frags = append(frags, &cfsFragment{finfo, fname, prefix})
+		} else {
+			// Stats collection while we're parsing journal fragments anyway.
+			// Only increment on fragments we plan on keeping.
+			varz.ObtainCount(serviceName, "retained", "count", "#prefix", prefix).Add(1)
+			varz.ObtainCount(serviceName, "retained", "size", "#prefix", prefix).Add(int64(sizeMb))
+			metrics.GazretentionRetainedFragmentsTotal.WithLabelValues(prefix).Inc()
+			metrics.GazretentionRetainedBytesTotal.WithLabelValues(prefix).Add(float64(finfo.Size()))
 		}
 		return nil
 	}); err != nil {

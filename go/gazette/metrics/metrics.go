@@ -61,10 +61,10 @@ func GazconsumerCollectors() []prometheus.Collector {
 
 // Keys for gazretention metrics.
 const (
-	GazretentionParsedFragmentsTotalKey  = "x_gazretention_parsed_fragments_total"
-	GazretentionParsedBytesTotalKey      = "x_gazretention_parsed_bytes_total"
-	GazretentionDeletedFragmentsTotalKey = "x_gazretention_deleted_fragments_total"
 	GazretentionDeletedBytesTotalKey     = "x_gazretention_deleted_bytes_total"
+	GazretentionDeletedFragmentsTotalKey = "x_gazretention_deleted_fragments_total"
+	GazretentionRetainedBytesTotalKey      = "x_gazretention_retained_bytes_total"
+	GazretentionRetainedFragmentsTotalKey  = "x_gazretention_retained_fragments_total"
 )
 
 // Collectors for gazretention metrics.
@@ -77,13 +77,13 @@ var (
 		Name: GazretentionDeletedFragmentsTotalKey,
 		Help: "Cumulative number of fragments deleted.",
 	}, []string{"prefix"})
-	GazretentionParsedBytesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: GazretentionParsedBytesTotalKey,
-		Help: "Cumulative number of bytes parsed.",
+	GazretentionRetainedBytesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: GazretentionRetainedBytesTotalKey,
+		Help: "Cumulative number of bytes retained.",
 	}, []string{"prefix"})
-	GazretentionParsedFragmentsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: GazretentionParsedFragmentsTotalKey,
-		Help: "Cumulative number of fragments parsed.",
+	GazretentionRetainedFragmentsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: GazretentionRetainedFragmentsTotalKey,
+		Help: "Cumulative number of fragments retained.",
 	}, []string{"prefix"})
 )
 
@@ -91,8 +91,8 @@ func GazretentionCollectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		GazretentionDeletedBytesTotal,
 		GazretentionDeletedFragmentsTotal,
-		GazretentionParsedBytesTotal,
-		GazretentionParsedFragmentsTotal,
+		GazretentionRetainedBytesTotal,
+		GazretentionRetainedFragmentsTotal,
 	}
 }
 
