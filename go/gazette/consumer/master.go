@@ -14,6 +14,7 @@ import (
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/gazette/recoverylog"
 	"github.com/pippio/gazette/topic"
 	"github.com/pippio/varz"
@@ -415,12 +416,16 @@ func (m *master) consumerLoop(runner *Runner, source <-chan topic.Envelope) erro
 			// Percent of transaction which was stalled waiting for a previous commit.
 			varz.ObtainCount("gazette", "consumer", "txStalledMicros").
 				Add((txDuration - *maxConsumeQuantum).Nanoseconds() / 1000)
+			metrics.GazetteConsumerTxStalledSecondsTotal.Add((txDuration - *maxConsumeQuantum).Seconds())
 		}
 		varz.ObtainCount("gazette", "consumer", "txTotalMicros").
 			Add(txDuration.Nanoseconds() / 1000)
+		metrics.GazetteConsumerTxSecondsTotal.Add(txDuration.Seconds())
 
 		varz.ObtainCount("gazette", "consumer", "txMessages").Add(int64(txMessages))
 		varz.ObtainCount("gazette", "consumer", "txCount").Add(1)
+		metrics.GazetteConsumerTxMessagesTotal.Add(float64(txMessages))
+		metrics.GazetteConsumerTxCountTotal.Inc()
 
 		// Reset for next transaction.
 		clearOffsets(txOffsets)

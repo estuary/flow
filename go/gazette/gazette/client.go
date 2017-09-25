@@ -20,6 +20,7 @@ import (
 
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/keepalive"
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/varz"
 )
 
@@ -77,6 +78,8 @@ type Client struct {
 	timeNow func() time.Time
 }
 
+// NewClient returns a new Client. To export metrics, register the
+// prometheus.Collector instances in metrics.GazetteClientCollectors().
 func NewClient(endpoint string) (*Client, error) {
 	return NewClientWithHttpClient(endpoint, &http.Client{})
 }
@@ -275,6 +278,9 @@ func (c *Client) openFragment(location *url.URL,
 
 	clientReadBytes.Add(delta)
 	clientDiscardBytes.Add(delta)
+	var deltaF64 = float64(delta)
+	metrics.GazetteReadBytesTotal.Add(deltaF64)
+	metrics.GazetteDiscardBytesTotal.Add(deltaF64)
 	return response.Body, nil // Success.
 }
 
@@ -601,6 +607,7 @@ func (r readStatsWrapper) Read(p []byte) (n int, err error) {
 		r.offset.Add(int64(n))
 		r.read.Add(int64(n))
 		clientReadBytes.Add(int64(n))
+		metrics.GazetteReadBytesTotal.Add(float64(n))
 	}
 	return
 }

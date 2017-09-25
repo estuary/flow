@@ -14,6 +14,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/varz"
 )
 
@@ -324,6 +325,10 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 		varz.ObtainAverage("gazette", "avgWriteMs").
 			Add(float64(time.Now().Sub(write.started)) / float64(time.Millisecond))
 		varz.ObtainCount("gazette", "writeBytes").Add(write.offset)
+
+		metrics.GazetteWriteDurationTotal.Add(time.Now().Sub(write.started).Seconds())
+		metrics.GazetteWriteBytesTotal.Add(float64(write.offset))
+		metrics.GazetteWriteCountTotal.Inc()
 
 		if err := releasePendingWrite(write); err != nil {
 			log.WithField("err", err).Error("failed to release pending write")

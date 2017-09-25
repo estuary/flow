@@ -71,7 +71,7 @@ type ReadArgs struct {
 	//  * If -1, then the read is performed from the current write head.
 	// All other values specify an exact byte offset which must be read from.
 	Offset int64
-	// DEPRICATED.  To be replaced by |Deadline|.  Whether this operation should
+	// DEPRECATED.  To be replaced by |Deadline|.  Whether this operation should
 	// block until the requested offset becomes available.
 	Blocking bool
 	// The time at which blocking will expire

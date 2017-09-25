@@ -130,6 +130,7 @@ func main() {
 	checkConsumers(consumerList)
 	if *monitor {
 		prometheus.MustRegister(metrics.GazconsumerCollectors()...)
+		prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 
 		for _ = range time.Tick(*monitorInterval) {
 			consumerList = expandPrefixList(prefixList)
