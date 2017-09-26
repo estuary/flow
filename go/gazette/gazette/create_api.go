@@ -7,9 +7,9 @@ import (
 	"path"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/consensus"

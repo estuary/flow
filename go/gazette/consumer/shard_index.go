@@ -3,7 +3,7 @@ package consumer
 import (
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 // ShardIndex tracks Shard instances by ShardID. It provides for acquisition

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/journal"

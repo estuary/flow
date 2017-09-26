@@ -1,8 +1,8 @@
 package consumer
 
 import (
-	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/recoverylog"
 )

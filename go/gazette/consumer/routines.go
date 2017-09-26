@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/cockroachdb/cockroach/util/encoding"
 	etcd "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/consensus"

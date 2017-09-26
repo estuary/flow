@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/cloudstore"
 	"github.com/pippio/gazette/journal"

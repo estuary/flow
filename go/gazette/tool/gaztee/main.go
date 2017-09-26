@@ -4,7 +4,7 @@ import (
 	"flag"
 	"os"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"

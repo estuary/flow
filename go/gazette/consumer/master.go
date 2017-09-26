@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
 
 	"github.com/pippio/gazette/journal"

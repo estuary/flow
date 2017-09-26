@@ -3,8 +3,8 @@ package consumer
 import (
 	"path/filepath"
 
-	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/topic"
 )

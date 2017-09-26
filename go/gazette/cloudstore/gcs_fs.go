@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	gzip "github.com/youtube/vitess/go/cgzip"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"

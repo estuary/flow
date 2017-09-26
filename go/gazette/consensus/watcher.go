@@ -3,8 +3,8 @@ package consensus
 import (
 	"context"
 
-	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
 )
 
 // BlockUntilModified blocks until the watcher is modified beyond

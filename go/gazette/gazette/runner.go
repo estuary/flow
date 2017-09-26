@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/journal"
