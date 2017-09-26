@@ -10,6 +10,7 @@ const (
 	CoalescedAppendsTotalKey          = "x_gazette_coalesced_appends_total"
 	CommittedBytesTotalKey            = "x_gazette_committed_bytes_total"
 	FailedCommitsTotalKey             = "x_gazette_failed_commits_total"
+	ItemRouteDurationSecondsKey       = "x_gazette_item_route_duration_seconds"
 	RecoveryLogRecoveredBytesTotalKey = "x_gazette_recoverylog_recovered_bytes_total"
 )
 
@@ -27,6 +28,10 @@ var (
 		Name: FailedCommitsTotalKey,
 		Help: "Cumulative number of failed commits.",
 	})
+	ItemRouteDurationSeconds = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: ItemRouteDurationSecondsKey,
+		Help: "Benchmarking of Runner.ItemRoute calls.",
+	})
 	RecoveryLogRecoveredBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: RecoveryLogRecoveredBytesTotalKey,
 		Help: "Cumulative number of bytes recovered.",
@@ -38,6 +43,7 @@ func GazetteCollectors() []prometheus.Collector {
 		CoalescedAppendsTotal,
 		CommittedBytesTotal,
 		FailedCommitsTotal,
+		ItemRouteDurationSeconds,
 		RecoveryLogRecoveredBytesTotal,
 	}
 }
@@ -61,10 +67,10 @@ func GazconsumerCollectors() []prometheus.Collector {
 
 // Keys for gazretention metrics.
 const (
-	GazretentionDeletedBytesTotalKey     = "x_gazretention_deleted_bytes_total"
-	GazretentionDeletedFragmentsTotalKey = "x_gazretention_deleted_fragments_total"
-	GazretentionRetainedBytesTotalKey      = "x_gazretention_retained_bytes_total"
-	GazretentionRetainedFragmentsTotalKey  = "x_gazretention_retained_fragments_total"
+	GazretentionDeletedBytesTotalKey      = "x_gazretention_deleted_bytes_total"
+	GazretentionDeletedFragmentsTotalKey  = "x_gazretention_deleted_fragments_total"
+	GazretentionRetainedBytesTotalKey     = "x_gazretention_retained_bytes_total"
+	GazretentionRetainedFragmentsTotalKey = "x_gazretention_retained_fragments_total"
 )
 
 // Collectors for gazretention metrics.

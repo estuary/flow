@@ -3,13 +3,14 @@ package gazette
 import (
 	"bytes"
 	"net/url"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	etcd "github.com/coreos/etcd/client"
 
 	"github.com/pippio/gazette/consensus"
 	"github.com/pippio/gazette/journal"
-	"github.com/pippio/varz"
+	"github.com/pippio/gazette/metrics"
 )
 
 const ServiceRoot = "/gazette/cluster"
@@ -59,7 +60,10 @@ func (r *Runner) ItemIsReadyForPromotion(item, state string) bool {
 }
 
 func (r *Runner) ItemRoute(item string, route consensus.Route, index int, tree *etcd.Node) {
-	defer varz.ObtainBenchmark("gazette", "ItemRoute").Stop()
+	defer func(start time.Time) {
+		var s = time.Since(start).Seconds()
+		metrics.ItemRouteDurationSeconds.Observe(s)
+	}(time.Now())
 
 	var name, err = itemToJournal(item)
 	if err != nil {
