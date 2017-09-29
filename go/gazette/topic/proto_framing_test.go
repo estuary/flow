@@ -12,6 +12,12 @@ import (
 
 type FixedFramingSuite struct{}
 
+func (s *FixedFramingSuite) TestImplementsFraming(c *gc.C) {
+	// Verified by the compiler.
+	var _ Framing = FixedFraming
+	c.Succeed()
+}
+
 func (s *FixedFramingSuite) TestFramingWithFixture(c *gc.C) {
 	var buf, err = FixedFraming.Encode(frameablestring("test message content"), nil)
 	c.Check(err, gc.IsNil)

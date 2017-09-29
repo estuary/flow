@@ -13,6 +13,7 @@ var JsonFraming = new(jsonFraming)
 
 type jsonFraming struct{}
 
+// Encode implements topic.Framing.
 func (*jsonFraming) Encode(msg Message, b []byte) ([]byte, error) {
 	var buf = bytes.NewBuffer(b)
 
@@ -22,10 +23,12 @@ func (*jsonFraming) Encode(msg Message, b []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Unpack implements topic.Framing.
 func (*jsonFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	return unpackLine(r)
 }
 
+// Unmarshal implements topic.Framing.
 func (*jsonFraming) Unmarshal(line []byte, msg Message) error {
 	return json.Unmarshal(line, msg)
 }

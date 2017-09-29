@@ -19,6 +19,7 @@ const FixedFrameHeaderLength = 8
 
 type fixedFraming struct{}
 
+// Encode implements topic.Framing.
 func (*fixedFraming) Encode(msg Message, b []byte) ([]byte, error) {
 	var p, ok = msg.(interface {
 		Size() int
@@ -51,6 +52,8 @@ func (*fixedFraming) Encode(msg Message, b []byte) ([]byte, error) {
 // the frame header. If the magic word is not detected (indicating a desync),
 // Unpack attempts to continue reading until the next magic word, returning
 // the interleaved but desynchronized content.
+//
+// It implements topic.Framing.
 func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	var b, err = r.Peek(FixedFrameHeaderLength)
 
@@ -99,6 +102,8 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 // Unmarshal verifies the frame header and unpacks Message content. If the frame
 // header indicates a desync occurred (incorrect magic word), ErrDesyncDetected
 // is returned.
+//
+// It implements topic.Framing.
 func (*fixedFraming) Unmarshal(b []byte, msg Message) error {
 	var p, ok = msg.(interface {
 		Unmarshal([]byte) error

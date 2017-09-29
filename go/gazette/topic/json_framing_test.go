@@ -8,6 +8,12 @@ import (
 
 type JsonFramingSuite struct{}
 
+func (s *JsonFramingSuite) TestImplementsFraming(c *gc.C) {
+	// Verified by the compiler.
+	var _ Framing = JsonFraming
+	c.Succeed()
+}
+
 func (s *JsonFramingSuite) TestFramingWithFixture(c *gc.C) {
 	var buf, err = JsonFraming.Encode(struct {
 		A       int

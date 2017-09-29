@@ -35,6 +35,8 @@ type BrokerConfig struct {
 	writtenSinceRoll int64
 }
 
+// Broker is responsible for scattering journal writes to each replica, i.e.,
+// brokering transactions.
 type Broker struct {
 	journal Name
 
@@ -61,6 +63,8 @@ func NewBroker(journal Name) *Broker {
 	return b
 }
 
+// StartServingOps starts a loop to consume config updates and serves
+// appends. Updates are always handled before appends.
 func (b *Broker) StartServingOps(writeHead int64) *Broker {
 	b.config.WriteHead = writeHead
 	go b.loop()
@@ -75,6 +79,8 @@ func (b *Broker) UpdateConfig(config BrokerConfig) {
 	b.configUpdates <- config
 }
 
+// Stop shuts down the broker. It blocks until all pending config updates and
+// appends are handled.
 func (b *Broker) Stop() {
 	close(b.appendOps)
 	close(b.configUpdates)
@@ -82,6 +88,8 @@ func (b *Broker) Stop() {
 }
 
 func (b *Broker) loop() {
+	// The configUpdates and appendOps channels are set to nil to indicate they
+	// have been closed.
 	for b.configUpdates != nil || b.appendOps != nil {
 		// Consume available config updates prior to serving appends.
 		select {
