@@ -29,12 +29,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/consensus"
-	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
+	"github.com/pippio/gazette/mainboilerplate"
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 const (
@@ -101,9 +100,11 @@ func (cd consumerData) totalLag() int64 {
 }
 
 func main() {
+	defer mainboilerplate.LogPanic()
+
 	flag.Var(&prefixList, "prefix", "Specify an Etcd prefix to check for consumers.")
-	envflag.CommandLine.Parse()
-	defer varz.Initialize("gazconsumer").Cleanup()
+
+	mainboilerplate.Initialize()
 
 	minimumDisplayLag = calcMinimumDisplayLag()
 
@@ -147,7 +148,6 @@ func checkConsumers(consumerList []string) {
 		// Do not log statistics for consumers with 0 members.
 		if *monitor {
 			if len(cdata.memberNames) > 0 {
-				varz.ObtainCount("gazconsumer", "lag", "#consumer", consumer).Set(cdata.totalLag())
 				metrics.GazconsumerLagBytes.WithLabelValues(consumer).Set(float64(cdata.totalLag()))
 			}
 		} else {

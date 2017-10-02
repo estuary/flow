@@ -15,7 +15,6 @@ import (
 
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 var (
@@ -34,9 +33,6 @@ const (
 
 	// Local disk-backed temporary directory where pending writes are spooled.
 	gazetteWriteTmpDir = "/var/tmp/gazette-writes"
-
-	// journal.Name for where varz stats get written.
-	StatsJournalName = "pippio-journals/debug/vars"
 )
 
 type pendingWrite struct {
@@ -115,9 +111,6 @@ func NewWriteService(client *Client) *WriteService {
 
 	writeService.SetConcurrency(*writeConcurrency)
 
-	// We can now write stats to a Gazette journal.
-	varz.SetStatWriter(writeService.WriterFor(StatsJournalName, false))
-
 	return writeService
 }
 
@@ -145,8 +138,6 @@ func (c *WriteService) Start() {
 
 // Stops the write service loop. Returns only after all writes have completed.
 func (c *WriteService) Stop() {
-	varz.SetStatWriter(nil)
-
 	for i := range c.writeQueue {
 		close(c.writeQueue[i])
 	}
@@ -319,12 +310,6 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 		// Success. Notify any waiting clients.
 		write.result.AppendResult = result
 		close(write.result.Ready)
-
-		varz.ObtainAverage("gazette", "avgWriteSize").
-			Add(float64(write.offset))
-		varz.ObtainAverage("gazette", "avgWriteMs").
-			Add(float64(time.Now().Sub(write.started)) / float64(time.Millisecond))
-		varz.ObtainCount("gazette", "writeBytes").Add(write.offset)
 
 		metrics.GazetteWriteDurationTotal.Add(time.Now().Sub(write.started).Seconds())
 		metrics.GazetteWriteBytesTotal.Add(float64(write.offset))

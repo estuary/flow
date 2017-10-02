@@ -17,7 +17,6 @@ import (
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/metrics"
 	"github.com/pippio/gazette/topic"
-	"github.com/pippio/varz"
 )
 
 const (
@@ -282,7 +281,6 @@ func (p *Player) playOperation(br *bufio.Reader) error {
 	} else if op.Unlink != nil {
 		return p.unlink(op.Unlink.Fnode)
 	} else if op.Write != nil {
-		recoverBytes.Add(op.Write.Length)
 		metrics.RecoveryLogRecoveredBytesTotal.Add(float64(op.Write.Length))
 		return p.write(op.Write, br)
 	}
@@ -398,8 +396,6 @@ func (p *Player) makeLive() error {
 }
 
 var (
-	recoverBytes = varz.ObtainCount("gazette", "recoverylog", "recoverBytes")
-
 	copyBuffers = sync.Pool{
 		New: func() interface{} {
 			var b = make([]byte, 32*1024)

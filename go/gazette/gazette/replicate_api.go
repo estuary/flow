@@ -11,7 +11,6 @@ import (
 
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 type ReplicateAPI struct {
@@ -82,7 +81,6 @@ func (h *ReplicateAPI) Replicate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.WithField("err", err).Warn("failed to commit transaction")
-	varz.ObtainCount("gazette", "failedCommit").Add(1)
 	metrics.FailedCommitsTotal.Inc()
 	http.Error(w, err.Error(), http.StatusInternalServerError)
 	return

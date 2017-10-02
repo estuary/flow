@@ -21,13 +21,12 @@ import (
 	"google.golang.org/api/gensupport"
 
 	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
 	"github.com/pippio/gazette/gazette"
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/keepalive"
+	"github.com/pippio/gazette/mainboilerplate"
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 var (
@@ -44,11 +43,12 @@ var (
 const brokerPulseInterval = 10 * time.Second
 
 func main() {
+	defer mainboilerplate.LogPanic()
+
 	var etcdEndpoint = envflagfactory.NewEtcdServiceEndpoint()
 	var cloudFSURL = envflagfactory.NewCloudFSURL()
 
-	envflag.CommandLine.Parse()
-	defer varz.Initialize("gazetted").Cleanup()
+	mainboilerplate.Initialize()
 
 	prometheus.MustRegister(metrics.GazetteCollectors()...)
 	gensupport.RegisterHook(traceRequests)
@@ -65,7 +65,6 @@ func main() {
 		"replicaCount": *replicaCount,
 		"etcdEndpoint": *etcdEndpoint,
 		"localRoute":   localRoute,
-		"releaseTag":   *varz.ReleaseTag,
 	}).Info("flag configuration")
 
 	// Fail fast if spool directory cannot be created.

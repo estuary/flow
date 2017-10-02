@@ -16,15 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/envflag"
 	"github.com/pippio/gazette/envflagfactory"
+	"github.com/pippio/gazette/mainboilerplate"
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 const (
-	oneMb       = 1024 * 1024
-	serviceName = "gazretention"
+	oneMb = 1024 * 1024
 )
 
 var (
@@ -75,8 +73,6 @@ func appendExpiredFragments(prefix string, duration time.Duration,
 		} else {
 			// Stats collection while we're parsing journal fragments anyway.
 			// Only increment on fragments we plan on keeping.
-			varz.ObtainCount(serviceName, "retained", "count", "#prefix", prefix).Add(1)
-			varz.ObtainCount(serviceName, "retained", "size", "#prefix", prefix).Add(int64(sizeMb))
 			metrics.GazretentionRetainedFragmentsTotal.WithLabelValues(prefix).Inc()
 			metrics.GazretentionRetainedBytesTotal.WithLabelValues(prefix).Add(float64(finfo.Size()))
 		}
@@ -108,10 +104,6 @@ func deleteExpiredFrags(expFrags []*cfsFragment, cfs cloudstore.FileSystem) erro
 					atomic.AddInt64(&numErrs, 1)
 					log.WithField("err", err).Error("error deleting file.")
 				} else {
-					varz.ObtainCount(serviceName, "delete", "count",
-						"#prefix", frag.prefix).Add(1)
-					varz.ObtainCount(serviceName, "delete", "sizeMb",
-						"#prefix", frag.prefix).Add(frag.Size() / oneMb)
 					metrics.GazretentionDeletedFragmentsTotal.
 						WithLabelValues(frag.prefix).Inc()
 					metrics.GazretentionDeletedBytesTotal.
@@ -162,12 +154,11 @@ func readAndParseConf(fp string) (map[string]string, error) {
 }
 
 func main() {
-	envflag.CommandLine.Parse()
-	defer varz.InitializeStandalone(serviceName).Cleanup()
+	defer mainboilerplate.LogPanic()
+
+	mainboilerplate.Initialize()
 
 	prometheus.MustRegister(metrics.GazretentionCollectors()...)
-
-	log.SetFormatter(&log.JSONFormatter{})
 
 	var err error
 	var cfs cloudstore.FileSystem

@@ -613,3 +613,7 @@ func nextDeadline(p *allocParams) time.Time {
 	}
 	return firstExpire.Add(-lockRefreshHorizon)
 }
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}

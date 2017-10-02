@@ -7,7 +7,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 const (
@@ -45,9 +44,6 @@ type Broker struct {
 	configUpdates chan BrokerConfig
 	config        BrokerConfig
 
-	commitBytes *varz.Count
-	coalesce    *varz.Average
-
 	stop chan struct{}
 }
 
@@ -56,8 +52,6 @@ func NewBroker(journal Name) *Broker {
 		journal:       journal,
 		appendOps:     make(chan AppendOp, AppendOpBufferSize),
 		configUpdates: make(chan BrokerConfig, 16),
-		commitBytes:   varz.ObtainCount("gazette", "commitBytes"),
-		coalesce:      varz.ObtainAverage("gazette", "coalesce"),
 		stop:          make(chan struct{}),
 	}
 	return b
@@ -250,8 +244,6 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 	if sawSuccess {
 		b.config.WriteHead += commitDelta
 		b.config.writtenSinceRoll += int64(commitDelta)
-		b.commitBytes.Add(commitDelta)
-		b.coalesce.Add(float64(len(pending)))
 
 		metrics.CommittedBytesTotal.Add(float64(commitDelta))
 		metrics.CoalescedAppendsTotal.Add(float64(len(pending)))

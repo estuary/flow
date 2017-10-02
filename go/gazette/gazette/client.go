@@ -21,7 +21,6 @@ import (
 	"github.com/pippio/gazette/journal"
 	"github.com/pippio/gazette/keepalive"
 	"github.com/pippio/gazette/metrics"
-	"github.com/pippio/varz"
 )
 
 const (
@@ -276,8 +275,6 @@ func (c *Client) openFragment(location *url.URL,
 		return nil, fmt.Errorf("seeking fragment: %s", err)
 	}
 
-	clientReadBytes.Add(delta)
-	clientDiscardBytes.Add(delta)
 	var deltaF64 = float64(delta)
 	metrics.GazetteReadBytesTotal.Add(deltaF64)
 	metrics.GazetteDiscardBytesTotal.Add(deltaF64)
@@ -606,7 +603,6 @@ func (r readStatsWrapper) Read(p []byte) (n int, err error) {
 	if n, err = r.stream.Read(p); err == nil {
 		r.offset.Add(int64(n))
 		r.read.Add(int64(n))
-		clientReadBytes.Add(int64(n))
 		metrics.GazetteReadBytesTotal.Add(float64(n))
 	}
 	return
@@ -633,8 +629,3 @@ func search(n int64, f func(int64) bool) int64 {
 	// i == j, f(i-1) == false, and f(j) (= f(i)) == true  =>  answer is i.
 	return i
 }
-
-var (
-	clientReadBytes    = varz.ObtainCount("gazette", "readBytes")
-	clientDiscardBytes = varz.ObtainCount("gazette", "discardBytes")
-)
