@@ -50,7 +50,7 @@ func GazetteCollectors() []prometheus.Collector {
 
 // Keys for gazconsumer metrics.
 const (
-	GazconsumerLagBytesKey = "x_gazconsumer_lag_bytes"
+	GazconsumerLagBytesKey = "gazconsumer_lag_bytes"
 )
 
 // Collectors for gazconsumer metrics.
