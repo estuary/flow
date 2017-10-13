@@ -206,4 +206,6 @@ func main() {
 	} else {
 		log.Info("No expired fragments found!")
 	}
+	log.Infof("Done! Uncovered and performed delete on %d fragments.",
+		len(expFrags))
 }
