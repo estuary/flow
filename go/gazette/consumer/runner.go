@@ -141,6 +141,10 @@ func (r *Runner) updateShards() {
 }
 
 func (r *Runner) Run() error {
+	if r.ConsumerRoot == "" {
+		log.Fatal("ConsumerRoot cannot be empty")
+	}
+
 	r.partitions = make(map[journal.Name]*topic.Description)
 	r.allShards = make(map[ShardID]topic.Partition)
 	r.liveShards = make(map[ShardID]*shard)
