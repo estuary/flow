@@ -13,8 +13,8 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/gazette/envflag"
-	"github.com/pippio/gazette/envflagfactory"
+	"github.com/LiveRamp/gazette/envflag"
+	"github.com/LiveRamp/gazette/envflagfactory"
 )
 
 type AllocRunSuite struct {

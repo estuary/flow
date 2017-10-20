@@ -8,9 +8,9 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/consensus"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/metrics"
+	"github.com/LiveRamp/gazette/consensus"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/metrics"
 )
 
 const ServiceRoot = "/gazette/cluster"

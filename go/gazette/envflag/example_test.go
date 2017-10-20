@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/pippio/gazette/envflag"
+	"github.com/LiveRamp/gazette/envflag"
 )
 
 func Example() {

@@ -19,13 +19,13 @@ import (
 	gc "github.com/go-check/check"
 	uuid "github.com/satori/go.uuid"
 
-	"github.com/pippio/gazette/consensus"
-	"github.com/pippio/gazette/envflag"
-	"github.com/pippio/gazette/envflagfactory"
-	"github.com/pippio/gazette/gazette"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/recoverylog"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/consensus"
+	"github.com/LiveRamp/gazette/envflag"
+	"github.com/LiveRamp/gazette/envflagfactory"
+	"github.com/LiveRamp/gazette/gazette"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/recoverylog"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 var (

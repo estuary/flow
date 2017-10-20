@@ -3,7 +3,7 @@ package journal
 import (
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/cloudstore"
 )
 
 // Replica manages journal components required to serve brokered writes,

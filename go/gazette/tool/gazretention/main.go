@@ -15,10 +15,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/envflagfactory"
-	"github.com/pippio/gazette/mainboilerplate"
-	"github.com/pippio/gazette/metrics"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/envflagfactory"
+	"github.com/LiveRamp/gazette/mainboilerplate"
+	"github.com/LiveRamp/gazette/metrics"
 )
 
 const (

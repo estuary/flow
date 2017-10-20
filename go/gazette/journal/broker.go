@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/metrics"
+	"github.com/LiveRamp/gazette/metrics"
 )
 
 const (

@@ -11,9 +11,9 @@ import (
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/consensus"
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/consensus"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 type PersisterSuite struct {

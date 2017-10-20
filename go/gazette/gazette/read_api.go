@@ -12,8 +12,8 @@ import (
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 type ReadAPI struct {

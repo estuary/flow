@@ -20,13 +20,13 @@ import (
 	"golang.org/x/net/trace"
 	"google.golang.org/api/gensupport"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/envflagfactory"
-	"github.com/pippio/gazette/gazette"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/keepalive"
-	"github.com/pippio/gazette/mainboilerplate"
-	"github.com/pippio/gazette/metrics"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/envflagfactory"
+	"github.com/LiveRamp/gazette/gazette"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/keepalive"
+	"github.com/LiveRamp/gazette/mainboilerplate"
+	"github.com/LiveRamp/gazette/metrics"
 )
 
 var (

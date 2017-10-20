@@ -11,11 +11,11 @@ import (
 	gc "github.com/go-check/check"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/envflag"
-	"github.com/pippio/gazette/envflagfactory"
-	"github.com/pippio/gazette/gazette"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/envflag"
+	"github.com/LiveRamp/gazette/envflagfactory"
+	"github.com/LiveRamp/gazette/gazette"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 const (

@@ -9,8 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/keepalive"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/keepalive"
 )
 
 // Client interacts with a Gazette Consumer to maintain an updated pool

@@ -11,8 +11,8 @@ import (
 
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 const opLog = journal.Name("a/journal")

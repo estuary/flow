@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 // MemoryWriter is an implementation of journal.Writer which uses a provided Framing and

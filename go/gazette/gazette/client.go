@@ -18,9 +18,9 @@ import (
 	"github.com/hashicorp/golang-lru"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/keepalive"
-	"github.com/pippio/gazette/metrics"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/keepalive"
+	"github.com/LiveRamp/gazette/metrics"
 )
 
 const (

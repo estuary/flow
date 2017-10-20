@@ -9,9 +9,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/recoverylog"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/recoverylog"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 // Test support function. Initializes all shards of |runner| to empty database

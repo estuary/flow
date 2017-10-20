@@ -7,9 +7,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/gazette"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/metrics"
+	"github.com/LiveRamp/gazette/gazette"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/metrics"
 )
 
 func ExampleNewClient() {

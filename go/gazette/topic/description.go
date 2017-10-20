@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 // Message is a discrete piece of topic content.

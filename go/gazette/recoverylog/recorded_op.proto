@@ -99,7 +99,7 @@ message FSMHints {
   option (gogoproto.goproto_unrecognized) = false;
 
   required string log = 1 [(gogoproto.nullable) = false,
-      (gogoproto.casttype) = "github.com/pippio/gazette/journal.Name"];
+      (gogoproto.casttype) = "github.com/LiveRamp/gazette/journal.Name"];
 
   repeated HintedFnode live_nodes = 2 [(gogoproto.nullable) = false];
 

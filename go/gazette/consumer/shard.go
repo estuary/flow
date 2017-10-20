@@ -6,7 +6,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 type shardState string

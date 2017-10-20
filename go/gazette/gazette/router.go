@@ -13,7 +13,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 // Builds a JournalReplica instance with the given journal.Name.

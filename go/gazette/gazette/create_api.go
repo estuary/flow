@@ -11,9 +11,9 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/consensus"
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/consensus"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 // API for creation of a new Journal. In particular, CreateAPI creates an Etcd

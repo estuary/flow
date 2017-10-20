@@ -3,7 +3,7 @@ package consumer
 import (
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 // ShardID uniquely identifies a specific Shard. A ShardID must be consistent

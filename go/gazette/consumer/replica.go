@@ -4,7 +4,7 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/recoverylog"
+	"github.com/LiveRamp/gazette/recoverylog"
 )
 
 type replica struct {

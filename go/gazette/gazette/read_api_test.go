@@ -13,8 +13,8 @@ import (
 	gc "github.com/go-check/check"
 	"github.com/gorilla/mux"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 type ReadAPISuite struct {

@@ -5,7 +5,7 @@ import (
 
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 type FSMSuite struct {

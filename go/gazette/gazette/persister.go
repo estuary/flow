@@ -14,9 +14,9 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/async"
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/async"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 const (

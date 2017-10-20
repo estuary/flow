@@ -13,8 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 // Well-known RocksDB paths which should be treated as properties,

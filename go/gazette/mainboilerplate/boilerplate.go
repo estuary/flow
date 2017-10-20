@@ -14,8 +14,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/envflag"
-	"github.com/pippio/gazette/envflagfactory"
+	"github.com/LiveRamp/gazette/envflag"
+	"github.com/LiveRamp/gazette/envflagfactory"
 )
 
 const (

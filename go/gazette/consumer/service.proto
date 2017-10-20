@@ -44,7 +44,7 @@ message ConsumerState {
     // The topic name of this Shard.
     string topic = 2;
     // The journal name of this Shard's topic partition.
-    string partition = 3 [(gogoproto.casttype) = "github.com/pippio/gazette/journal.Name"];
+    string partition = 3 [(gogoproto.casttype) = "github.com/LiveRamp/gazette/journal.Name"];
     // Assigned replicas and their processing status.
     repeated Replica replicas = 5 [(gogoproto.nullable) = false];
   };

@@ -3,7 +3,7 @@ package topic
 import (
 	"sync"
 
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 // A Publisher publishes Messages to a Topic.

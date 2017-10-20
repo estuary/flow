@@ -6,8 +6,8 @@ import (
 
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/consumer"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/consumer"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 // Test type which conforms to consumer.Shard, and manages setup & teardown

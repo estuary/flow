@@ -8,7 +8,7 @@ import (
 
 	gc "github.com/go-check/check"
 
-	"github.com/pippio/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/cloudstore"
 )
 
 const (

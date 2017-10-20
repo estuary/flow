@@ -5,8 +5,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 type pump struct {

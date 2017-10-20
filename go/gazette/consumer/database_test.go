@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	rocks "github.com/tecbot/gorocksdb"
 
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/recoverylog"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/recoverylog"
 )
 
 type DatabaseSuite struct{}

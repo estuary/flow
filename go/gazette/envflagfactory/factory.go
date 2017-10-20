@@ -4,7 +4,7 @@
 // programs.
 package envflagfactory
 
-import "github.com/pippio/gazette/envflag"
+import "github.com/LiveRamp/gazette/envflag"
 
 // NewGazetteServiceEndpoint defines the gazette service endpoint flag.
 func NewGazetteServiceEndpoint() *string {

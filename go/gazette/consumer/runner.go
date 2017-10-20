@@ -9,9 +9,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 
-	"github.com/pippio/gazette/consensus"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/topic"
+	"github.com/LiveRamp/gazette/consensus"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/topic"
 )
 
 const (

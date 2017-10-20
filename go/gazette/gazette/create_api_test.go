@@ -10,8 +10,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/pippio/gazette/cloudstore"
-	"github.com/pippio/gazette/consensus"
+	"github.com/LiveRamp/gazette/cloudstore"
+	"github.com/LiveRamp/gazette/consensus"
 )
 
 type CreateAPISuite struct {

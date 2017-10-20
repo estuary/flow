@@ -17,9 +17,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/pippio/gazette/httpdump"
-	"github.com/pippio/gazette/journal"
-	"github.com/pippio/gazette/keepalive"
+	"github.com/LiveRamp/gazette/httpdump"
+	"github.com/LiveRamp/gazette/journal"
+	"github.com/LiveRamp/gazette/keepalive"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"hash/crc32"
 	"sort"
 
-	"github.com/pippio/gazette/journal"
+	"github.com/LiveRamp/gazette/journal"
 )
 
 var (
