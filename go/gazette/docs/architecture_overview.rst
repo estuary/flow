@@ -46,18 +46,15 @@ the journals.
 
 Assigning Brokers to a Journal
 ```````````````````````````````
-Gazette uses `etcd <http://github.com/coreos/etcd>`_ to track broker membership,
-ie. the complete set of brokers which are live. The etcd server ensures that
-each broker is aware of updates to the topology, but is not aware of the
-journals or other concerns.
+Gazette uses `etcd`_ to track broker membership, ie. the complete set of brokers
+which are live. The etcd server ensures that each broker is aware of updates to
+the topology, but is not aware of the journals or other concerns.
 
-Gazette uses `highest random weight hashing
-<http://en.wikipedia.org/wiki/Rendezvous_hashing>`_ to assign a responsible
-broker and set of replicas for each journal, which allows each broker to
-independently determine which set of brokers is responsible for a specific
-journal. The journal name is used as a routing key. Note that a single broker
-may be a member of more than one replica set, and thus responsible for more than
-one journal.
+Gazette uses `highest random weight hashing`_ to assign a responsible broker and
+set of replicas for each journal, which allows each broker to independently
+determine which set of brokers is responsible for a specific journal. The
+journal name is used as a routing key. Note that a single broker may be a member
+of more than one replica set, and thus responsible for more than one journal.
 
 The assignment of brokers to journals is only changed when the topology of the
 larger broker pool changes, for example when a broker is added to or removed
@@ -86,6 +83,9 @@ broker pool, the next-highest-ranked broker (Broker-1) will become master. The
 new third-highest-ranked broker (Broker-3) will join the replica set for writes
 to journal *J*.
 
+.. _etcd: http://github.com/coreos/etcd
+.. _highest random weight hashing: http://en.wikipedia.org/wiki/Rendezvous_hashing
+
 Write Transactions
 ```````````````````
 
@@ -97,11 +97,11 @@ The steps of a successful write transaction are as follows:
 2) The master looks at the write and determines that it is writing to the
    current journal, as well as what master believes is the current write-offset.
    The master will queue up any other competing writes.
-3) The master begins a `two-phase commit <http://en.wikipedia.org/wiki/Two-phase_commit_protocol>`_.
-   It sends (its idea of) the current write-offset and the topology of the
-   replica set to the other two broker-nodes in the replica set.
+3) The master begins a `two-phase commit`_.  It sends (its idea of) the current
+   write-offset and the topology of the replica set to the other two
+   broker-nodes in the replica set.
 4) If a non-master broker-node agrees with master, it sends back a `100 continue
-   response <http://httpstatusdogs.com/100-continue>`_ to the master.
+   response`_ to the master.
 5) If master receives the continue response from all replica set members, it
    enters the second phase of the commit. It will send the write to its own log,
    and to the other members to be replicated.
@@ -113,6 +113,9 @@ The steps of a successful write transaction are as follows:
    an event signifying that they have synced their data to disk.
 9) If all syncs are successful, master sends back a success message to the
    writer. Otherwise, if anything has gone wrong, it sends back a failure.
+
+.. _two-phase commit: http://en.wikipedia.org/wiki/Two-phase_commit_protocol
+.. _100 continue response: http://httpstatusdogs.com/100-continue
 
 On the other hand, due to partitions or other issues, the transaction may be
 unsuccessful. For example, one of the broker-nodes may believe the write offset
@@ -179,11 +182,12 @@ Given this separation of concerns, one could expect that reading from a Gazette
 journal might return an incomplete hunk of a message. This can happen, but only
 in the case of partial HTTP reads. In terms of fully flushed writes, only
 complete messages end up being written to Gazette. When a partial HTTP read does
-occur, a `client abstraction
-<https://git.liveramp.net/arbortech/workspace/blob/master/src/github.com/pippio/gazette/journal/io.go>`_
-exists to tell us how many more bytes to wait for to read a complete message. At
-any rate, ensuring that writes are of entire messages and nothing smaller makes
-Gazette capable of acting as a message-stream rather than just a byte-stream.
+occur, a `client abstraction`_ exists to tell us how many more bytes to wait for
+to read a complete message. At any rate, ensuring that writes are of entire
+messages and nothing smaller makes Gazette capable of acting as a message-stream
+rather than just a byte-stream.
+
+.. _client abstraction: https://git.liveramp.net/arbortech/workspace/blob/master/src/github.com/LiveRamp/gazette/journal/io.go>
 
 Often, we do not want to record all messages corresponding to a particular topic
 in one journal, as this limits horizontal scaling with regards to reads from the
@@ -240,16 +244,19 @@ that they should ‘check point’, ie. write their current offset back to local
 storage. This local storage is likely to be a database, where local state
 (including the read offsets) is represented and written to.
 
-We use `RocksDB <http://github.com/facebook/rocksdb>`_ as a local
-storage engine for the consumers, due to the use of `LSM trees
-<https://www.cs.umb.edu/~poneil/lsmtree.pdf>`_. We plan to write custom hooks
-for RocksDB to make use of the output of their compaction. We can transform the
-compacted records to write updated values to wherever we desire. This is
-discussed more in the document linked in the (Joins) section below.
+We use `RocksDB`_ as a local
+storage engine for the consumers, due to the use of `LSM trees`_. We plan to
+write custom hooks for RocksDB to make use of the output of their compaction. We
+can transform the compacted records to write updated values to wherever we
+desire. This is discussed more in the document linked in the (Joins) section
+below.
 
 So far, we have covered the core components of Gazette. Below, we will discuss
 future, planned additions to the Gazette system, and their effects on Gazette’s
 basic architecture.
+
+.. _RocksDB: http://github.com/facebook/rocksdb
+.. _LSM trees: https://www.cs.umb.edu/~poneil/lsmtree.pdf
 
 Tracking Local State.
 ``````````````````````

@@ -1,8 +1,8 @@
 package cloudstore
 
 // How to test individual cloudstore.Filesystem implementations:
-//  * Local: go test -v github.com/pippio/gazette/cloudstore -check.vv -cloudFS file:///tmp/path
-//  * GCS:   go test -v github.com/pippio/gazette/cloudstore -check.vv -cloudFS "gs://pippio-uploads/test?compress" -gcpServiceAccount /path/to/account/credentials.json
+//  * Local: go test -v github.com/LiveRamp/gazette/cloudstore -check.vv -cloudFS file:///tmp/path
+//  * GCS:   go test -v github.com/LiveRamp/gazette/cloudstore -check.vv -cloudFS "gs://pippio-uploads/test?compress" -gcpServiceAccount /path/to/account/credentials.json
 
 import (
 	"bytes"
