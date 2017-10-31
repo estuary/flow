@@ -58,6 +58,11 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	var b, err = r.Peek(FixedFrameHeaderLength)
 
 	if err != nil {
+		// If buffer just contains a trailing newline, return EOF.
+		// This can be the case for hadoop streaming unpacking of PixelEvents.
+		if err == io.EOF && len(b) == 1 && b[0] == 0x0a {
+			return nil, io.EOF
+		}
 		if err == io.EOF && len(b) != 0 {
 			// If we read at least one byte, then an EOF is unexpected (it should
 			// occur only on whole-message boundaries).

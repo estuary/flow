@@ -70,6 +70,26 @@ func (s *FixedFramingSuite) TestDecodingError(c *gc.C) {
 	c.Check(string(msg), gc.Equals, "test messa")
 }
 
+func (s *FixedFramingSuite) TestDecodeTrailingNewLine(c *gc.C) {
+	var fixture = []byte{
+		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
+		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't',
+		'\n'}
+
+	var bufReader = testReader(fixture)
+	var frame, err = FixedFraming.Unpack(bufReader)
+	c.Check(err, gc.IsNil)
+	c.Check(frame, gc.DeepEquals, fixture[:len(fixture)-1])
+
+	var msg frameablestring
+	c.Check(FixedFraming.Unmarshal(frame, &msg), gc.IsNil)
+	c.Check(string(msg), gc.Equals, "test message content")
+
+	// Read offset should now be at the \n, ensure this returns an EOF.
+	var _, eofErr = FixedFraming.Unpack(bufReader)
+	c.Check(eofErr, gc.Equals, io.EOF)
+}
+
 func (s *FixedFramingSuite) TestDesyncHandling(c *gc.C) {
 	var fixture = []byte{'f', 'o', 'o', 'b', 'a', 'r',
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
