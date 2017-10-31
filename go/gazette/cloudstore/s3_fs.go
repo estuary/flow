@@ -328,7 +328,7 @@ func (fs *s3Fs) Walk(root string, walkFn filepath.WalkFunc) error {
 				return errors.New("SkipDir not implemented for s3Fs")
 			} else if werr != nil {
 				// Allow caller to abort Walk operation.
-				return fmt.Errorf("s3 walking directory: %s", err.Error())
+				return fmt.Errorf("s3 walking directory: %s", werr.Error())
 			}
 		}
 
@@ -367,11 +367,16 @@ func (fs *s3Fs) svc() *s3.S3 {
 			DisableCompression: true,
 		},
 	}
-	var config = aws.NewConfig().WithCredentials(fs.credentials()).
-		WithRegion(fs.region()).WithHTTPClient(client)
-	var session = session.New(config)
+	// If environment variables are nil, the aws client will look for them in
+	// ~/.aws/credentials automatically.
+	var config = aws.NewConfig().WithRegion(fs.region()).WithHTTPClient(client)
+	// Overwrite credentials on aws client config to be from env vars if specified.
+	if fs.properties.Get(AWSAccessKeyID) != "" ||
+		fs.properties.Get(AWSSecretAccessKey) != "" {
+		config = config.WithCredentials(fs.credentials())
+	}
 
-	return s3.New(session)
+	return s3.New(session.Must(session.NewSession(config)))
 }
 
 func isAWSNotFound(err error) bool {
