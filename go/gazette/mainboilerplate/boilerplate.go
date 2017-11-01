@@ -40,6 +40,7 @@ func Initialize() {
 	initFlags()
 	initLog(*logLevel)
 	initMetrics(*metricsPort, *metricsPath)
+	RegisterSignalHandlers()
 }
 
 // initFlags parses flags from the environment and command line, in that order.
