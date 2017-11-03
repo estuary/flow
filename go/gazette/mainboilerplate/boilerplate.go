@@ -1,12 +1,16 @@
 // Package mainboilerplate contains shared boilerplate for this project's
 // programs. The idea is to provide a selection of narrowly scoped methods so
 // callers do not have to buy-in to an all-or-nothing approach.
+//
+// Importing this package will automatically register net/http/pprof HTTP
+// handlers.
 package mainboilerplate
 
 import (
 	"flag"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"runtime"
 	"strings"
