@@ -3,7 +3,6 @@ package consensus
 import (
 	"path"
 	"sort"
-	"time"
 
 	etcd "github.com/coreos/etcd/client"
 )
@@ -20,12 +19,12 @@ type Route struct {
 }
 
 // NewRoute initializes a new Route from the |response| and |node|.
-func NewRoute(node *etcd.Node) Route {
-	var rt = Route{
+func NewRoute(response *etcd.Response, node *etcd.Node) Route {
+	rt := Route{
 		Item:    node,
 		Entries: append(etcd.Nodes{}, node.Nodes...), // Copy, as we'll re-order.
 	}
-	rt.init(time.Now())
+	rt.init()
 	return rt
 }
 
@@ -66,19 +65,7 @@ func (rt Route) Copy() Route {
 	}
 }
 
-func (rt *Route) init(now time.Time) {
-	// Strip entries which expire in the very near future. They should have been refreshed
-	// already, and we want to stop using those routes prior to absolute expiration.
-	var i, j int
-	for nearFuture := now.Add(lockInvalidHorizon); i != len(rt.Entries); {
-		if rt.Entries[i].Expiration == nil || rt.Entries[i].Expiration.After(nearFuture) {
-			rt.Entries[j] = rt.Entries[i]
-			j++
-		}
-		i++
-	}
-	rt.Entries = rt.Entries[:j]
-
+func (rt Route) init() {
 	sort.Sort(createdIndexOrder(rt.Entries))
 }
 

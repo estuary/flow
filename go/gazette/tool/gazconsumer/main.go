@@ -241,7 +241,7 @@ func getHeads(itemsRoot *etcd.Response, cdata *consumerData) (map[string]int64, 
 	var readHeadWg = new(sync.WaitGroup)
 	var writeHeadWg = new(sync.WaitGroup)
 	for _, node := range itemsRoot.Node.Nodes {
-		var route = consensus.NewRoute(node)
+		var route = consensus.NewRoute(itemsRoot, node)
 		var prefix = len(route.Item.Key) + 1
 
 		// Derive journal name from item name.
