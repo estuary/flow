@@ -15,7 +15,10 @@ import (
 	"github.com/LiveRamp/gazette/topic"
 )
 
-const opLog = journal.Name("a/journal")
+const (
+	aRecoveryLog journal.Name = "pippio-journals/integration-tests/recovery-log"
+	anAuthor     Author       = 1234
+)
 
 type RecorderSuite struct {
 	recorder  *Recorder
@@ -28,6 +31,7 @@ type RecorderSuite struct {
 
 func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	var err error
+
 	s.tmpDir, err = ioutil.TempDir("", "recorder-suite")
 	c.Assert(err, gc.IsNil)
 
@@ -38,9 +42,8 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	s.promise = make(chan struct{})
 	close(s.promise)
 
-	fsm, _ := NewFSM(FSMHints{Log: opLog})
-	s.recorder, err = NewRecorder(fsm, len(s.tmpDir), s)
-	c.Check(err, gc.IsNil)
+	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
+	s.recorder = NewRecorder(fsm, anAuthor, len(s.tmpDir), s)
 
 	// Expect recorder initialized Offset to the current write head.
 	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(42))
@@ -64,7 +67,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 
 	op := s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(1))
-	c.Check(op.Author, gc.Not(gc.Equals), Author(0))
+	c.Check(op.Author, gc.Equals, anAuthor)
 	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
 
 	s.recorder.NewWritableFile(s.tmpDir + "/other/file")
@@ -72,7 +75,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 
 	op = s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(2))
-	c.Check(op.Author, gc.Not(gc.Equals), Author(0))
+	c.Check(op.Author, gc.Equals, anAuthor)
 	c.Check(op.Create.Path, gc.Equals, "/other/file")
 }
 
@@ -261,7 +264,7 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 
 	// Expect that hints are produced for the current FSM state.
 	c.Check(s.recorder.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: opLog,
+		Log: aRecoveryLog,
 		LiveNodes: []HintedFnode{
 			{Fnode: 2, Segments: []Segment{
 				{Author: s.recorder.id, FirstSeqNo: 2, FirstChecksum: expectChecksum,
@@ -271,6 +274,12 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 	// Clear recorded frames not checked in this test.
 	s.writes.Reset()
 	s.br.Reset(s.writes)
+}
+
+func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {
+	var author, err = NewRandomAuthorID()
+	c.Check(err, gc.IsNil)
+	c.Check(author, gc.Not(gc.Equals), Author(0)) // Zero is never returned.
 }
 
 func (s *RecorderSuite) parseOp(c *gc.C) RecordedOp {

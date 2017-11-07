@@ -90,16 +90,7 @@ func (s *RoutinesSuite) TestStoreHintsToEtcd(c *gc.C) {
 	s.keysAPI.On("Set", mock.Anything, hintsPath, string(shard012),
 		mock.Anything).Return(&etcd.Response{}, nil)
 
-	storeHintsToEtcd(hintsPath, string(shard012), s.keysAPI)
-	s.keysAPI.AssertExpectations(c)
-}
-
-func (s *RoutinesSuite) TestPrepAndStoreHintsToEtcd(c *gc.C) {
-	hintsPath := "/foo/hints/shard-baz-012.lastRecovered"
-	shard012, _ := json.Marshal(s.hintsFixture())
-	s.keysAPI.On("Set", mock.Anything, hintsPath, string(shard012),
-		mock.Anything).Return(&etcd.Response{}, nil)
-	c.Assert(prepAndStoreHintsToEtcd(s.hintsFixture(), hintsPath, s.keysAPI), gc.IsNil)
+	maybeEtcdSet(s.keysAPI, hintsPath, hintsJSONString(s.hintsFixture()))
 	s.keysAPI.AssertExpectations(c)
 }
 

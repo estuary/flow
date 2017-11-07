@@ -1,7 +1,6 @@
 package consumer
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -119,88 +118,80 @@ func (m *master) didFinishInit() bool {
 }
 
 func (m *master) serve(runner *Runner, replica *replica) {
+	var err error
+
 	defer func() {
+		// Error checks in this function consistently use |err|.
+		if err != nil {
+			abort(runner, m.shard)
+		}
 		if m.database != nil {
 			m.database.teardown()
 		}
-		if err := os.RemoveAll(m.localDir); err != nil {
+		if err = os.RemoveAll(m.localDir); err != nil {
 			log.WithField("err", err).Error("failed to remove local DB")
 		}
 		close(m.servingCh)
 	}()
 
-	if err := m.init(runner, replica); err == recoverylog.ErrPlaybackCancelled {
-		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Info("makeLive cancelled")
-		return
-	} else if err != nil {
-		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("master init failed")
-		abort(runner, m.shard)
+	var author recoverylog.Author
+	if author, err = recoverylog.NewRandomAuthorID(); err != nil {
+		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("NewRandomAuthorID failed")
 		return
 	}
 
-	// Let the consumer tear down the context, if desired.
-	if runner.ShardPostStopHook != nil {
-		defer runner.ShardPostStopHook(m)
-	}
-	if halter, ok := runner.Consumer.(ShardHalter); ok {
-		defer halter.HaltShard(m)
-	}
-
-	var messages, err = m.startPumpingMessages(runner)
-	if err != nil {
-		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("message pump start")
-		abort(runner, m.shard)
+	// Ask player to inject a hand-off to our generated |author|
+	// so that other tailing readers will apply our write operations over
+	// those of a previous writer which may still be shutting down.
+	var fsm = replica.player.InjectHandoff(author)
+	if fsm == nil {
+		log.WithFields(log.Fields{"shard": m.shard}).Warn("InjectHandoff returned nil FSM")
+		// Note that Play must have returned an error (and the playback handler will abort).
 		return
 	}
-	close(m.initCh)
 
-	if err = m.consumerLoop(runner, messages); err != nil {
-		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("consumer loop failed")
-		abort(runner, m.shard)
-		return
-	}
-}
-
-func (m *master) init(runner *Runner, replica *replica) error {
-	var err error
-	var fsm *recoverylog.FSM
-
-	// Ask replica to become "live" once caught up to the recovery-log write head.
-	// This could potentially take a while, depending on how far behind we are.
-	fsm, err = replica.player.MakeLive()
-	if err != nil {
-		return err
-	}
-
-	// Write last recovered hints to etcd.
-	if err := prepAndStoreHintsToEtcd(fsm.BuildHints(), m.hintsPath+".lastRecovered", runner.KeysAPI()); err != nil {
-		log.WithField("err", err).Warn("failed to store last recovered hints on master init.")
-	} else {
-		log.WithFields(log.Fields{"shard": replica.shard}).Info("stored last recovered hints to etcd")
-	}
-
-	log.WithFields(log.Fields{"shard": m.shard}).Info("makeLive finished")
+	// Attempt to write last-recovered hints into Etcd.
+	maybeEtcdSet(runner.KeysAPI(), m.hintsPath+".lastRecovered", hintsJSONString(fsm.BuildHints()))
 
 	var opts = rocks.NewDefaultOptions()
 	if initer, ok := runner.Consumer.(OptionsIniter); ok {
 		initer.InitOptions(opts)
 	}
 
-	if m.database, err = newDatabase(opts, fsm, m.localDir, runner.Gazette); err != nil {
-		return err
+	if m.database, err = newDatabase(opts, fsm, author, m.localDir, runner.Gazette); err != nil {
+		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("failed to open database")
+		return
 	}
 
-	if runner.ShardPreInitHook != nil {
-		runner.ShardPreInitHook(m)
-	}
-
-	// Let the consumer initialize the context, if desired.
+	// Let the consumer and runner perform any desired initialization or teardown.
 	if initer, ok := runner.Consumer.(ShardIniter); ok {
-		if err := initer.InitShard(m); err != nil {
-			return err
+		if err = initer.InitShard(m); err != nil {
+			log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("failed to InitShard")
+			return
 		}
 	}
-	return nil
+	if halter, ok := runner.Consumer.(ShardHalter); ok {
+		defer halter.HaltShard(m)
+	}
+
+	if runner.ShardPostInitHook != nil {
+		runner.ShardPostInitHook(m)
+	}
+	if runner.ShardPostStopHook != nil {
+		defer runner.ShardPostStopHook(m)
+	}
+
+	var messages <-chan topic.Envelope
+	if messages, err = m.startPumpingMessages(runner); err != nil {
+		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("message pump start")
+		return
+	}
+	close(m.initCh)
+
+	if err = m.consumerLoop(runner, messages); err != nil {
+		log.WithFields(log.Fields{"shard": m.shard, "err": err}).Error("consumer loop failed")
+		return
+	}
 }
 
 func (m *master) startPumpingMessages(runner *Runner) (<-chan topic.Envelope, error) {
@@ -385,12 +376,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan topic.Envelope) erro
 			// We build hints *before* we commit, then sync to Etcd *after* the write
 			// barrier resolves. This ensures hinted content is committed to the log
 			// before it's observable by outside processes.
-			var hints string
-			if b, err := json.Marshal(m.database.recorder.BuildHints()); err != nil {
-				return err
-			} else {
-				hints = string(b)
-			}
+			var hints = hintsJSONString(m.database.recorder.BuildHints())
 
 			if lastWriteBarrier, err = m.database.commit(); err != nil {
 				return err
@@ -399,7 +385,7 @@ func (m *master) consumerLoop(runner *Runner, source <-chan topic.Envelope) erro
 			go func(hints string, offsets map[journal.Name]int64, barrier *journal.AsyncAppend) {
 				<-barrier.Ready
 
-				storeHintsToEtcd(m.hintsPath, hints, runner.KeysAPI())
+				maybeEtcdSet(runner.KeysAPI(), m.hintsPath, hints)
 				StoreOffsetsToEtcd(runner.ConsumerRoot, offsets, runner.KeysAPI())
 			}(hints, copyOffsets(txOffsets), lastWriteBarrier)
 

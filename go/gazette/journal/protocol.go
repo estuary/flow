@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -66,24 +67,28 @@ type ReplicateOp struct {
 
 type ReadArgs struct {
 	Journal Name
-	// Offset to begin reading from. Values 0 and -1 have special handling:
-	//  * If 0, the read is performed at the first available journal offset.
-	//  * If -1, then the read is performed from the current write head.
-	// All other values specify an exact byte offset which must be read from.
+	// Desired offset to begin reading from. Value -1 has special handling, where
+	// the read is performed from the current write head. All other positive
+	// values specify a desired exact byte offset to read from. If the offset is
+	// not available (eg, because it represents a portion of Journal which has
+	// been permantently deleted), the broker will return the next available
+	// offset. Callers should therefore always inspect the ReadResult Offset.
 	Offset int64
-	// DEPRECATED.  To be replaced by |Deadline|.  Whether this operation should
-	// block until the requested offset becomes available.
+	// Whether the operation should block until content becomes available.
+	// ErrNotYetAvailable is returned if a non-blocking read has no ready content.
 	Blocking bool
+	// Context which may cancel or supply a deadline for the operation.
+	Context context.Context
+
+	// Deprecated: Server-side support for deadlines will be removed. Use
+	// context.WithDeadline instead.
 	// The time at which blocking will expire
 	Deadline time.Time
 }
 
 type ReadResult struct {
 	Error error
-	// The effective |Offset| of the operation. It will differ from
-	// ReadOp.Offset only for special requested values 0 and -1:
-	//  * If 0, |Offset| reflects the first available offset.
-	//  * If -1, |Offset| reflects the write head at operation start.
+	// The effective offset of the operation.
 	Offset int64
 	// Write head at the completion of the operation.
 	WriteHead int64

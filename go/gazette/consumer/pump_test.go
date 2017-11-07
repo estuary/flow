@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"bytes"
+	"context"
 	"io"
 
 	gc "github.com/go-check/check"
@@ -23,8 +24,12 @@ func (s *PumpSuite) TestPump(c *gc.C) {
 
 	// Return a result fixture which skips forward from 0 => 1234.
 	var getter journal.MockGetter
-	getter.On("Get", journal.ReadArgs{Journal: "a/journal", Offset: 0, Blocking: true}).
-		Return(journal.ReadResult{Offset: 1234}, reader).Once()
+	getter.On("Get", journal.ReadArgs{
+		Journal:  "a/journal",
+		Offset:   0,
+		Blocking: true,
+		Context:  context.TODO(),
+	}).Return(journal.ReadResult{Offset: 1234}, reader).Once()
 
 	var desc = &topic.Description{
 		GetMessage: func() topic.Message {

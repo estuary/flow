@@ -20,15 +20,12 @@ type database struct {
 	writeBatch   *rocks.WriteBatch
 }
 
-func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, dir string,
+func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, author recoverylog.Author, dir string,
 	writer journal.Writer) (*database, error) {
 
-	recorder, err := recoverylog.NewRecorder(fsm, len(dir), writer)
-	if err != nil {
-		return nil, err
-	}
+	var recorder = recoverylog.NewRecorder(fsm, author, len(dir), writer)
 
-	db := &database{
+	var db = &database{
 		recoveryLog: fsm.LogMark.Journal,
 		logWriter:   writer,
 		recorder:    recorder,
@@ -51,10 +48,7 @@ func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, dir string,
 	// Note that the consumer loop also installs a write-barrier between
 	// transactions, which will block a current transaction from committing
 	// until the previous one has been fully synced by Gazette.
-
-	// TODO(johnny): This option has been removed from Rocks. Research if
-	// there's another option we should use.
-	//db.options.SetDisableDataSync(true)
+	db.writeOptions.SetSync(false)
 
 	// The MANIFEST file is a WAL of database file state, including current live
 	// SST files and their begin & ending key ranges. A new MANIFEST-00XYZ is
@@ -65,8 +59,8 @@ func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, dir string,
 	// to encourage more frequent snapshotting and rolling into new files.
 	db.options.SetMaxManifestFileSize(1 << 17) // 131072 bytes.
 
-	db.DB, err = rocks.OpenDb(db.options, dir)
-	if err != nil {
+	var err error
+	if db.DB, err = rocks.OpenDb(db.options, dir); err != nil {
 		return db, err
 	}
 	return db, nil

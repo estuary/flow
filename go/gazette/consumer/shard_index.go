@@ -23,7 +23,7 @@ type shardIndexEntry struct {
 // RegisterWithRunner registers the ShardIndex to watch the Runner,
 // indexing the live set of mastered Shards.
 func (i *ShardIndex) RegisterWithRunner(r *Runner) {
-	r.ShardPreInitHook = i.IndexShard
+	r.ShardPostInitHook = i.IndexShard
 	r.ShardPostStopHook = i.DeindexShard
 }
 

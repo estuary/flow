@@ -45,7 +45,7 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 	}
 	s.fsm = s.newFSM(c, hints)
 
-	c.Check(s.fsm.LogMark, gc.Equals, journal.NewMark("a/log", -1))
+	c.Check(s.fsm.LogMark, gc.Equals, journal.NewMark("a/log", 0))
 	c.Check(s.fsm.hintedSegments[0].FirstOffset, gc.Equals, int64(1234))
 	s.fsm.LogMark.Offset = 1234 // Skip FSM forward to FirstOffset.
 

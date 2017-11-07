@@ -57,8 +57,13 @@ func resetShard(runner *Runner, id ShardID, partition topic.Partition) error {
 	}
 	defer os.RemoveAll(localDir)
 
+	author, err := recoverylog.NewRandomAuthorID()
+	if err != nil {
+		return err
+	}
+
 	// Open the database & store offsets,
-	db, err := newDatabase(options, fsm, localDir, runner.Gazette)
+	db, err := newDatabase(options, fsm, author, localDir, runner.Gazette)
 	if err != nil {
 		return err
 	}

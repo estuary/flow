@@ -75,7 +75,7 @@ type FSM struct {
 
 func NewFSM(hints FSMHints) (*FSM, error) {
 	var fsm = &FSM{
-		LogMark:      journal.NewMark(hints.Log, -1),
+		LogMark:      journal.NewMark(hints.Log, 0),
 		NextSeqNo:    1,
 		NextChecksum: 0,
 		Properties:   make(map[string]string),

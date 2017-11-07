@@ -154,6 +154,9 @@ func (c *Client) Head(args journal.ReadArgs) (journal.ReadResult, *url.URL) {
 	if err != nil {
 		return journal.ReadResult{Error: err}, nil
 	}
+	if args.Context != nil {
+		request = request.WithContext(args.Context)
+	}
 	response, err := c.Do(request)
 	if err != nil {
 		return journal.ReadResult{Error: err}, nil
@@ -168,6 +171,9 @@ func (c *Client) GetDirect(args journal.ReadArgs) (journal.ReadResult, io.ReadCl
 	request, err := http.NewRequest("GET", c.buildReadURL(args).String(), nil)
 	if err != nil {
 		return journal.ReadResult{Error: err}, nil
+	}
+	if args.Context != nil {
+		request = request.WithContext(args.Context)
 	}
 	response, err := c.Do(request)
 	if err != nil {

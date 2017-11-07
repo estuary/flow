@@ -253,7 +253,7 @@ func (s *ConsumerSuite) TestMasterWritesLastReadHints(c *gc.C) {
 	var runner = s.buildRunner(0, 1)
 	var initCh = make(chan struct{})
 
-	runner.ShardPreInitHook = func(shard Shard) {
+	runner.ShardPostInitHook = func(shard Shard) {
 		close(initCh)
 	}
 	var keysAPI = runner.KeysAPI()

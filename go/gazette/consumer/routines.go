@@ -111,22 +111,23 @@ func loadHintsFromEtcd(shard ShardID, runner *Runner, tree *etcd.Node) (recovery
 	return hints, nil
 }
 
-// Stores |hints| in Etcd.
-func storeHintsToEtcd(hintsPath string, hints string, keysAPI etcd.KeysAPI) error {
-	_, err := keysAPI.Set(context.Background(), hintsPath, hints, nil)
-	// Etcd Set is best-effort.
-	if err != nil {
-		log.WithFields(log.Fields{"path": hintsPath, "err": err}).
-			Warn("failed to store hints")
-		return err
+// hintsJSONString returns the JSON string encoding of |hints|.
+func hintsJSONString(hints recoverylog.FSMHints) string {
+	if b, err := json.Marshal(hints); err != nil {
+		panic(err.Error()) // JSON serialization of FSMHints can never fail.
+	} else {
+		return string(b)
 	}
-	return nil
 }
 
-func prepAndStoreHintsToEtcd(fsmHints recoverylog.FSMHints, hintsPath string, keysAPI etcd.KeysAPI) error {
-	if bb, err := json.Marshal(fsmHints); err != nil {
-		return err
-	} else if err := storeHintsToEtcd(hintsPath, string(bb), keysAPI); err != nil {
+// maybeEtcdSet attempts to set |key| to |value|, consuming an encountered error
+// by logging a warning. This routine simplifies usages making best-effort attempts
+// to write to Etcd which are permitted to fail.
+func maybeEtcdSet(keysAPI etcd.KeysAPI, key string, value string) error {
+	var _, err = keysAPI.Set(context.Background(), key, value, nil)
+	// Etcd Set is best-effort.
+	if err != nil {
+		log.WithFields(log.Fields{"key": key, "err": err}).Warn("failed to set etcd key")
 		return err
 	}
 	return nil
@@ -162,17 +163,12 @@ func LoadOffsetsFromEtcd(tree *etcd.Node) (map[journal.Name]int64, error) {
 	return result, nil
 }
 
+// Deprecated: We are removing support for offsets written to Etcd. Rocksdb
+// will be the sole source-of-truth for read offsets.
 // Stores legacy |offsets| in Etcd.
 func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI etcd.KeysAPI) {
 	for name, offset := range offsets {
-		offsetPath := OffsetPath(rootPath, name)
-		_, err := keysAPI.Set(context.Background(), offsetPath,
-			strconv.FormatInt(offset, 16), nil)
-		// Etcd Set is best-effort.
-		if err != nil {
-			log.WithFields(log.Fields{"path": offsetPath, "err": err}).
-				Warn("failed to store offset")
-		}
+		maybeEtcdSet(keysAPI, OffsetPath(rootPath, name), strconv.FormatInt(offset, 16))
 	}
 }
 

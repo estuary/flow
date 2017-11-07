@@ -11,7 +11,7 @@ func (s *ShardIndexSuite) TestRegistration(c *gc.C) {
 	var runner Runner
 	ind.RegisterWithRunner(&runner)
 
-	c.Check(runner.ShardPreInitHook, gc.NotNil)  // equals ind.addShard.
+	c.Check(runner.ShardPostInitHook, gc.NotNil) // equals ind.addShard.
 	c.Check(runner.ShardPostStopHook, gc.NotNil) // equals ind.removeShardAndWait.
 }
 

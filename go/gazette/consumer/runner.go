@@ -45,7 +45,7 @@ type Runner struct {
 
 	// Optional hooks for notification of Shard lifecycle. These are largely
 	// intended to facilitate testing cases.
-	ShardPreInitHook     func(Shard)
+	ShardPostInitHook    func(Shard)
 	ShardPostConsumeHook func(topic.Envelope, Shard)
 	ShardPostCommitHook  func(Shard)
 	ShardPostStopHook    func(Shard)
@@ -188,7 +188,7 @@ func (r *Runner) ItemState(name string) string {
 		return UnknownShard
 	} else if shard.master != nil && shard.master.didFinishInit() {
 		return Primary
-	} else if shard.replica.player.IsAtLogHead() {
+	} else if shard.replica.player.IsTailing() {
 		return Ready
 	} else {
 		return Recovering

@@ -38,12 +38,10 @@ func newReplica(shard *shard, runner *Runner, tree *etcd.Node) (*replica, error)
 func (r *replica) serve(runner *Runner) {
 	defer close(r.servingCh)
 
-	var err = r.player.Play(runner.Gazette)
-
-	if err != nil && err != recoverylog.ErrPlaybackCancelled {
+	if err := r.player.Play(runner.Gazette); err != nil {
 		log.WithFields(log.Fields{"shard": r.shard, "err": err}).Error("replication failed")
 		abort(runner, r.shard)
-		return
+	} else {
+		log.WithFields(log.Fields{"shard": r.shard}).Info("finished serving replica")
 	}
-	log.WithFields(log.Fields{"shard": r.shard, "err": err}).Info("finished serving replica")
 }

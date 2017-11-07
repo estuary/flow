@@ -26,46 +26,50 @@ var propertyFiles = map[string]struct{}{
 
 // Recorder observes a sequence of changes to a file-system, and preserves
 // those changes via a written Gazette journal of file-system operations.
+// Note that we can't ever fail to write some portion of the recorded log, and
+// then return control back to the database (and its client). To do so would
+// allow for inconsistency in the local database state, vs the recorded log. For
+// this reason, Recorder's implementation is crash-only and Panic()s on error.
 type Recorder struct {
 	fsm *FSM
 	// Generated unique ID of this Recorder.
 	id Author
 	// Prefix length to strip from filenames in recorded operations.
 	stripLen int
-	// Client for interacting with |opLog|.
+	// Client for interacting with the recovery log.
 	writer journal.Writer
 	// A recent write, which will be used to update the FSM Offset once committed.
 	pendingWrite *journal.AsyncAppend
-	// Used to serialize access to |fsm| and writes to |opLog|.
+	// Used to serialize access to |fsm| and writes to the recovery log.
 	mu sync.Mutex
 }
 
-func NewRecorder(fsm *FSM, stripLen int, writer journal.Writer) (*Recorder, error) {
-	recorderId, err := rand.Int(rand.Reader, big.NewInt(math.MaxUint32-1))
-	if err != nil {
-		return nil, err
-	}
-
-	recorder := &Recorder{
+// NewRecorder creates and returns a Recorder.
+func NewRecorder(fsm *FSM, id Author, stripLen int, writer journal.Writer) *Recorder {
+	var recorder = &Recorder{
 		fsm:      fsm,
-		id:       Author(recorderId.Int64()) + 1,
+		id:       id,
 		stripLen: stripLen,
 		writer:   writer,
 	}
 
 	// Issue an initial WriteBarrier to determine a lower-bound offset
 	// for all subsequent recorded operations.
-	op := recorder.WriteBarrier()
+	var op = recorder.WriteBarrier()
 	<-op.Ready
 	recorder.fsm.LogMark.Offset = op.WriteHead
 
-	return recorder, nil
+	return recorder
 }
 
-// Note that we can't ever fail to write some portion of the recorded log, and
-// then return control back to the database (and its client). To do so would
-// allow for inconsistency in the local database state, vs the recorded log. For
-// this reason, Recorder's implementation is crash-only and Panic()s on error.
+// NewRandomAuthorID creates and returns a new, randomized Author ID.
+func NewRandomAuthorID() (Author, error) {
+	if id, err := rand.Int(rand.Reader, big.NewInt(math.MaxUint32-1)); err != nil {
+		return 0, err
+	} else {
+		return Author(id.Int64()) + 1, nil
+	}
+}
 
 func (r *Recorder) normalizePath(path string) string {
 	return filepath.Clean(path[r.stripLen:])
@@ -90,10 +94,9 @@ func (r *Recorder) NewWritableFile(path string) rocks.WritableFileObserver {
 	var frame []byte
 
 	if prevExists {
-		frame = r.process(RecordedOp{
-			Unlink: &RecordedOp_Link{Fnode: prevFnode, Path: path}}, nil)
+		frame = r.process(newUnlinkOp(prevFnode, path), nil)
 	}
-	frame = r.process(RecordedOp{Create: &RecordedOp_Create{Path: path}}, frame)
+	frame = r.process(newCreateOp(path), frame)
 
 	// Perform an atomic write of both operations.
 	r.recordFrame(frame)
@@ -116,8 +119,7 @@ func (r *Recorder) DeleteFile(path string) {
 		log.WithFields(log.Fields{"path": path}).Panic("delete of unknown path")
 	}
 
-	r.recordFrame(r.process(
-		RecordedOp{Unlink: &RecordedOp_Link{Fnode: fnode, Path: path}}, nil))
+	r.recordFrame(r.process(newUnlinkOp(fnode, path), nil))
 }
 
 // rocks.EnvObserver implementation.
@@ -140,22 +142,21 @@ func (r *Recorder) LinkFile(src, target string) {
 		log.WithFields(log.Fields{"path": src}).Panic("link of unknown path")
 	}
 
-	r.recordFrame(r.process(
-		RecordedOp{Link: &RecordedOp_Link{Fnode: fnode, Path: target}}, nil))
+	r.recordFrame(r.process(newLinkOp(fnode, target), nil))
 }
 
 // rocks.EnvObserver implementation.
 func (r *Recorder) RenameFile(srcPath, targetPath string) {
-	src, target := r.normalizePath(srcPath), r.normalizePath(targetPath)
+	var src, target = r.normalizePath(srcPath), r.normalizePath(targetPath)
 
 	defer r.mu.Unlock()
 	r.mu.Lock()
 
-	fnode, ok := r.fsm.Links[src]
+	var fnode, ok = r.fsm.Links[src]
 	if !ok {
 		log.WithFields(log.Fields{"path": src}).Panic("link of unknown path")
 	}
-	prevFnode, prevExists := r.fsm.Links[target]
+	var prevFnode, prevExists = r.fsm.Links[target]
 
 	// Decompose the rename into multiple operations:
 	//  * Unlinking |prevFnode| linked at |target| if |prevExists|.
@@ -165,24 +166,19 @@ func (r *Recorder) RenameFile(srcPath, targetPath string) {
 	var frame []byte
 
 	if prevExists {
-		frame = r.process(RecordedOp{
-			Unlink: &RecordedOp_Link{Fnode: prevFnode, Path: target}}, frame)
+		frame = r.process(newUnlinkOp(prevFnode, target), frame)
 	}
 
 	if _, isProperty := propertyFiles[target]; isProperty {
-		content, err := ioutil.ReadFile(targetPath)
+		var content, err = ioutil.ReadFile(targetPath)
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "path": targetPath}).Panic("reading file")
 		}
-		frame = r.process(RecordedOp{
-			Property: &Property{Path: target, Content: string(content)}}, frame)
+		frame = r.process(newPropertyOp(target, string(content)), frame)
 	} else {
-		frame = r.process(RecordedOp{
-			Link: &RecordedOp_Link{Fnode: fnode, Path: target}}, frame)
+		frame = r.process(newLinkOp(fnode, target), frame)
 	}
-
-	frame = r.process(RecordedOp{
-		Unlink: &RecordedOp_Link{Fnode: fnode, Path: src}}, frame)
+	frame = r.process(newUnlinkOp(fnode, src), frame)
 
 	// Perform an atomic write of all four potential operations.
 	r.recordFrame(frame)
@@ -207,22 +203,23 @@ func (r *Recorder) WriteBarrier() *journal.AsyncAppend {
 }
 
 func (r *Recorder) process(op RecordedOp, b []byte) []byte {
-	if r.fsm.NextSeqNo == 0 {
-		op.SeqNo = 1
-	} else {
-		op.SeqNo = r.fsm.NextSeqNo
-	}
-	op.Checksum = r.fsm.NextChecksum
 	op.Author = r.id
+	op.SeqNo = r.fsm.NextSeqNo
+	op.Checksum = r.fsm.NextChecksum
 
-	var err error
 	var offset = len(b)
+	b = frameRecordedOp(op, b)
 
+	if err := r.fsm.Apply(&op, b[offset+topic.FixedFrameHeaderLength:]); err != nil {
+		log.WithFields(log.Fields{"op": op, "err": err}).Panic("recorder FSM error")
+	}
+	return b
+}
+
+func frameRecordedOp(op RecordedOp, b []byte) []byte {
+	var err error
 	if b, err = topic.FixedFraming.Encode(&op, b); err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("framing")
-	}
-	if err = r.fsm.Apply(&op, b[offset+topic.FixedFrameHeaderLength:]); err != nil {
-		log.WithFields(log.Fields{"op": op, "err": err}).Panic("recorder FSM error")
 	}
 	return b
 }
@@ -240,11 +237,7 @@ func (r *fileRecorder) Append(data []byte) {
 	defer r.mu.Unlock()
 	r.mu.Lock()
 
-	var frame = r.process(RecordedOp{Write: &RecordedOp_Write{
-		Fnode:  r.fnode,
-		Offset: r.offset,
-		Length: int64(len(data)),
-	}}, nil)
+	var frame = r.process(newWriteOp(r.fnode, r.offset, int64(len(data))), nil)
 
 	// Perform an atomic write of the operation and its data.
 	r.recordFromReader(io.MultiReader(
@@ -303,4 +296,24 @@ func (r *Recorder) updateWriteHead(write *journal.AsyncAppend) {
 		// |pendingWrite| hasn't committed yet. Drop |write|.
 		return
 	}
+}
+
+func newCreateOp(path string) RecordedOp {
+	return RecordedOp(RecordedOp{Create: &RecordedOp_Create{Path: path}})
+}
+
+func newLinkOp(fnode Fnode, path string) RecordedOp {
+	return RecordedOp{Link: &RecordedOp_Link{Fnode: fnode, Path: path}}
+}
+
+func newUnlinkOp(fnode Fnode, path string) RecordedOp {
+	return RecordedOp{Unlink: &RecordedOp_Link{Fnode: fnode, Path: path}}
+}
+
+func newWriteOp(fnode Fnode, offset, length int64) RecordedOp {
+	return RecordedOp{Write: &RecordedOp_Write{Fnode: fnode, Offset: offset, Length: length}}
+}
+
+func newPropertyOp(path, content string) RecordedOp {
+	return RecordedOp{Property: &Property{Path: path, Content: content}}
 }

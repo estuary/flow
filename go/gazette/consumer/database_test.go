@@ -23,6 +23,9 @@ func (s *DatabaseSuite) TestDatabase(c *gc.C) {
 	fsm, err := recoverylog.NewFSM(recoverylog.FSMHints{Log: logName})
 	c.Assert(err, gc.IsNil)
 
+	author, err := recoverylog.NewRandomAuthorID()
+	c.Assert(err, gc.IsNil)
+
 	var result = journal.AsyncAppend{
 		Ready: make(chan struct{}),
 	}
@@ -35,7 +38,7 @@ func (s *DatabaseSuite) TestDatabase(c *gc.C) {
 	var opts = rocks.NewDefaultOptions()
 	defer opts.Destroy()
 
-	db, err := newDatabase(opts, fsm, path, writer)
+	db, err := newDatabase(opts, fsm, author, path, writer)
 
 	// Expect that database operations are being replicated to |logName|.
 	c.Check(err, gc.IsNil)
