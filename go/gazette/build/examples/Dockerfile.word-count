@@ -1,0 +1,14 @@
+FROM gazette-build:latest AS build
+
+COPY examples /go/src/github.com/LiveRamp/gazette/examples
+
+# Build each of the word-count consumers as plugins.
+RUN go build --buildmode=plugin -o /go/bin/shuffler.so \
+      github.com/LiveRamp/gazette/examples/word-count/shuffler
+RUN go build --buildmode=plugin -o /go/bin/counter.so \
+      github.com/LiveRamp/gazette/examples/word-count/counter
+
+FROM gazette-base:latest
+COPY --from=build /go/bin/run-consumer /usr/local/bin
+COPY --from=build /go/bin/shuffler.so /usr/local/lib
+COPY --from=build /go/bin/counter.so /usr/local/lib

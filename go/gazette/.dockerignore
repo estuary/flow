@@ -1,0 +1,3 @@
+**/*.pb.go
+**/mock_*.go
+vendor

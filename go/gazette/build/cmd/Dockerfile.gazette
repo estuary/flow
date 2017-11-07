@@ -1,0 +1,4 @@
+FROM gazette-build:latest AS build
+
+FROM gazette-base:latest
+COPY --from=build /go/bin/gazette /usr/local/bin

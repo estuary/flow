@@ -25,7 +25,7 @@ func (*jsonFraming) Encode(msg Message, b []byte) ([]byte, error) {
 
 // Unpack implements topic.Framing.
 func (*jsonFraming) Unpack(r *bufio.Reader) ([]byte, error) {
-	return unpackLine(r)
+	return UnpackLine(r)
 }
 
 // Unmarshal implements topic.Framing.
@@ -33,9 +33,9 @@ func (*jsonFraming) Unmarshal(line []byte, msg Message) error {
 	return json.Unmarshal(line, msg)
 }
 
-// unpackLine returns bytes through to the first encountered newline "\n". If
+// UnpackLine returns bytes through to the first encountered newline "\n". If
 // the complete line is in the Reader buffer, no alloc or copy is needed.
-func unpackLine(r *bufio.Reader) ([]byte, error) {
+func UnpackLine(r *bufio.Reader) ([]byte, error) {
 	// Fast path: a line is fully contained in the buffer.
 	var line, err = r.ReadSlice('\n')
 

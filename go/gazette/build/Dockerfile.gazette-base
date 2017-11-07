@@ -1,0 +1,39 @@
+FROM golang:latest AS builder
+
+ENV ROCKSDB_VERSION=5.3.5 PROTO_VERSION=3.4.0
+
+# Install dependencies for building & running RocksDB.
+RUN apt-get update -y \
+ && apt-get install --no-install-recommends -y \
+      build-essential \
+      curl \
+      libbz2-dev \
+      libgflags-dev \
+      libjemalloc-dev \
+      liblz4-dev \
+      libsnappy-dev \
+      libzstd-dev \
+      unzip \
+      zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install a protobuf compiler & google protobuf sources.
+RUN curl -L -o /opt/protobuf.zip \
+      https://github.com/google/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-x86_64.zip \
+ && unzip /opt/protobuf.zip -d /usr/local \
+ && rm /opt/protobuf.zip \
+ && chmod a+rx /usr/local/bin/protoc \
+ && chmod -R a+rX /usr/local/include/google
+
+# Install RocksDB and the `ldb` & `sst_dump` tools.
+RUN curl -L -o /opt/rocksdb.tgz \
+      https://github.com/facebook/rocksdb/archive/rocksdb-${ROCKSDB_VERSION}.tar.gz \
+ && mkdir -p /opt/rocksdb \
+ && tar xzf /opt/rocksdb.tgz -C /opt/rocksdb --strip-components=1 \
+ && rm /opt/rocksdb.tgz \
+ && cd /opt/rocksdb \
+ && USE_SSE=1 DEBUG_LEVEL=0 make shared_lib tools \
+ && make install \
+ && cp ldb sst_dump /usr/local/bin \
+ && make clean \
+ && ldconfig
