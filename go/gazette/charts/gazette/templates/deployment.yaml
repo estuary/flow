@@ -1,0 +1,83 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ template "gazette.fullname" . }}
+  labels:
+    app: {{ template "gazette.name" . }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+  {{ toYaml .Values.strategy | indent 2 }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "gazette.name" . }}
+        release: {{ .Release.Name }}
+    spec:
+      volumes:
+      - name: scratch
+        emptyDir: {}
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.port }}
+          name: service
+        - containerPort: {{ .Values.service.monitoringPort }}
+          name: monitoring
+        args: [
+          "/usr/local/bin/gazette",
+          "-cloudFS", "{{ .Values.cloudFS }}",
+          "-etcdEndpoint", "{{ .Values.etcd }}",
+          "-replicaCount", "2",
+        ]
+        env:
+        - name: RW_DIRECTORIES
+          value: /var/tmp
+        {{ if .Values.awsEndpoint }}
+        - name: AWS_ENDPOINT
+          value: {{ .Values.awsEndpoint }}
+        {{ end }}
+        # TODO(johnny): Use a k8 secret for these.
+        {{ if .Values.awsAccessKeyID }}
+        - name: AWS_ACCESS_KEY_ID
+          value: {{ .Values.awsAccessKeyID }}
+        {{ end }}
+        {{ if .Values.awsSecretKey }}
+        - name: AWS_SECRET_ACCESS_KEY
+          value: {{ .Values.awsSecretKey }}
+        {{ end }}
+#        livenessProbe:
+#          httpGet:
+#            path: /
+#            port: {{ .Values.service.port }}
+#        readinessProbe:
+#          httpGet:
+#            path: /
+#            port: {{ .Values.service.monitoringPort }}
+        resources:
+{{ toYaml .Values.resources | indent 10 }}
+        volumeMounts:
+        - mountPath: /var/tmp
+          name: scratch
+{{- if .Values.podAntiAffinity }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ template "gazette.name" . }}
+            topologyKey: kubernetes.io/hostname
+{{- end}}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+    {{- if .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+    {{- end }}

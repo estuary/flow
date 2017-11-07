@@ -90,7 +90,7 @@ func (w *IndexWatcher) loop() {
 
 func (w *IndexWatcher) onRefresh() error {
 	// Open the fragment directory.
-	var dir, err = w.cfs.Open(w.journal.String())
+	var dir, err = w.cfs.Open(w.journal.String() + "/")
 	if os.IsNotExist(err) {
 		// Non-existent directories are permitted. In theory, we should be stricter
 		// here because the CreateAPI first makes the journal fragment directory.

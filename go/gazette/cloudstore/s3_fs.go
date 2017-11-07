@@ -370,6 +370,15 @@ func (fs *s3Fs) svc() *s3.S3 {
 	// If environment variables are nil, the aws client will look for them in
 	// ~/.aws/credentials automatically.
 	var config = aws.NewConfig().WithRegion(fs.region()).WithHTTPClient(client)
+
+	if e := os.Getenv("AWS_DISABLE_SSL"); e == "1" || e == "true" {
+		config.DisableSSL = aws.Bool(true)
+	}
+	if e := os.Getenv("AWS_ENDPOINT"); e != "" {
+		config.Endpoint = aws.String(e)
+		config.S3ForcePathStyle = aws.Bool(true)
+	}
+
 	// Overwrite credentials on aws client config to be from env vars if specified.
 	if fs.properties.Get(AWSAccessKeyID) != "" ||
 		fs.properties.Get(AWSSecretAccessKey) != "" {

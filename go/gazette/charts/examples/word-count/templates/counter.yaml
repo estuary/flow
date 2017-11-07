@@ -1,0 +1,29 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: {{ template "word-count.fullname" . }}-counter
+  labels:
+    app: {{ template "word-count.name" . }}-counter
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "word-count.name" . }}-counter
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+      - name: {{ .Chart.Name }}-counter
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args: [
+          "/usr/local/bin/run-consumer",
+          "-dir", "/var/tmp",
+          "-etcd", "{{ .Values.etcd }}",
+          "-gazette", "{{ .Values.gazette }}",
+          "-name", "examples/word-count/counter",
+          "-plugin", "/usr/local/lib/counter.so",
+          ]
