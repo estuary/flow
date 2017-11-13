@@ -6,6 +6,8 @@ import (
 	"github.com/LiveRamp/gazette/topic"
 )
 
+//go:generate mockery -inpkg -name=Shard
+
 // ShardID uniquely identifies a specific Shard. A ShardID must be consistent
 // across processes for the entire duration of the Consumer lifetime.
 type ShardID string

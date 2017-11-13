@@ -10,6 +10,9 @@ import (
 	"golang.org/x/net/context"
 )
 
+//go:generate mockery -inpkg -name=KeysAPI
+//go:generate mockery -inpkg -name=Watcher
+
 var (
 	etcdUpsertOps = map[string]struct{}{
 		store.CompareAndSwap: {},

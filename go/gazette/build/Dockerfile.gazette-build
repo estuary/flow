@@ -41,22 +41,7 @@ RUN base=github.com/LiveRamp/gazette ; \
       protoc -I src/ -I src/$base/vendor/ --plugin=/go/bin/protoc-gen-gogo \
         --gogo_out=plugins=grpc:src/ $tgt ; \
     done ; \
-    \
-    for tgt in \
-      $base/consensus/Allocator \
-      $base/consensus/KeysAPI \
-      $base/consensus/Watcher \
-      $base/consumer/ConsumerServer \
-      $base/consumer/Shard \
-      $base/gazette/httpClient \
-      $base/journal/Doer \
-      $base/journal/FragmentFile \
-      $base/journal/Getter \
-      $base/journal/Header \
-      $base/journal/Writer \
-    ; do \
-      mockery -inpkg -name $(basename ${tgt}) -dir /go/src/$(dirname ${tgt}) ; \
-    done ;
+    go generate "$base/..." ;
 
 # Copy compiled targets.
 # TODO(johnny): Move all executable targets under gazette/cmd.

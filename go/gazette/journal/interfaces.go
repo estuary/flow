@@ -6,6 +6,12 @@ import (
 	"net/url"
 )
 
+//go:generate mockery -inpkg -name=Doer
+//go:generate mockery -inpkg -name=FragmentFile
+//go:generate mockery -inpkg -name=Getter
+//go:generate mockery -inpkg -name=Header
+//go:generate mockery -inpkg -name=Writer
+
 // A typed journal name. By convention, journals are named using a forward-
 // slash notation which captures their hierarchical relationships into
 // organizations, topics and partitions. For example, a complete Name might be:

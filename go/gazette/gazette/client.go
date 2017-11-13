@@ -23,6 +23,8 @@ import (
 	"github.com/LiveRamp/gazette/metrics"
 )
 
+//go:generate mockery -inpkg -name=httpClient
+
 const (
 	// By default, all client operations are applied against the default
 	// endpoint. However, the client will cache the last |kClientRouteCacheSize|

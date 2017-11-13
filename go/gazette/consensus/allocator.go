@@ -13,6 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+//go:generate mockery -inpkg -name=Allocator
+
 const (
 	MemberPrefix = "members" // Directory root for member announcements.
 	ItemsPrefix  = "items"   // Directory root for allocated items.
