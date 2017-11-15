@@ -1,6 +1,7 @@
 package gazette
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +20,11 @@ func (s *RouterSuite) TestReadConditions(c *gc.C) {
 
 	var resultCh = make(chan journal.ReadResult, 1)
 	var op = journal.ReadOp{
-		ReadArgs: journal.ReadArgs{Journal: "foo/bar"},
-		Result:   resultCh,
+		ReadArgs: journal.ReadArgs{
+			Journal: "foo/bar",
+			Context: context.Background(),
+		},
+		Result: resultCh,
 	}
 
 	// Journal is not known.
@@ -65,8 +69,11 @@ func (s *RouterSuite) TestAppendConditions(c *gc.C) {
 
 	var resultCh = make(chan journal.AppendResult, 1)
 	var op = journal.AppendOp{
-		AppendArgs: journal.AppendArgs{Journal: "foo/bar"},
-		Result:     resultCh,
+		AppendArgs: journal.AppendArgs{
+			Journal: "foo/bar",
+			Context: context.Background(),
+		},
+		Result: resultCh,
 	}
 
 	// Journal is not known.
@@ -135,8 +142,11 @@ func (s *RouterSuite) TestReplicateConditions(c *gc.C) {
 
 	var resultCh = make(chan journal.ReplicateResult, 1)
 	var op = journal.ReplicateOp{
-		ReplicateArgs: journal.ReplicateArgs{Journal: "foo/bar"},
-		Result:        resultCh,
+		ReplicateArgs: journal.ReplicateArgs{
+			Journal: "foo/bar",
+			Context: context.Background(),
+		},
+		Result: resultCh,
 	}
 
 	router.Replicate(op)

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/trace"
 )
 
 const (
@@ -152,6 +153,9 @@ func (t *Tail) onRead(op ReadOp) {
 					t.deadline.next = op.Deadline
 					t.deadline.timer.Reset(op.Deadline.Sub(time.Now()))
 				}
+			}
+			if tr, ok := trace.FromContext(op.Context); ok {
+				tr.LazyPrintf("Tail.onRead: blocked read")
 			}
 			t.blockedReads = append(t.blockedReads, op)
 		} else {

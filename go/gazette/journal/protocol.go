@@ -47,6 +47,17 @@ type ReplicateArgs struct {
 	RouteToken
 	// Flags whether replicas should begin a new spool for this transaction.
 	NewSpool bool
+	// Context which may trace, cancel or supply a deadline for the operation.
+	Context context.Context
+}
+
+func (a ReplicateArgs) String() string {
+	return fmt.Sprintf("%+v", struct {
+		Journal   Name
+		WriteHead int64
+		RouteToken
+		NewSpool bool
+	}{a.Journal, a.WriteHead, a.RouteToken, a.NewSpool})
 }
 
 type ReplicateResult struct {
@@ -56,6 +67,13 @@ type ReplicateResult struct {
 	ErrorWriteHead int64
 	// Set iff |Error| is nil.
 	Writer WriteCommitter
+}
+
+func (a ReplicateResult) String() string {
+	return fmt.Sprintf("%+v", struct {
+		Error          error
+		ErrorWriteHead int64
+	}{a.Error, a.ErrorWriteHead})
 }
 
 type ReplicateOp struct {
@@ -77,13 +95,22 @@ type ReadArgs struct {
 	// Whether the operation should block until content becomes available.
 	// ErrNotYetAvailable is returned if a non-blocking read has no ready content.
 	Blocking bool
-	// Context which may cancel or supply a deadline for the operation.
+	// Context which may trace, cancel or supply a deadline for the operation.
 	Context context.Context
 
 	// Deprecated: Server-side support for deadlines will be removed. Use
 	// context.WithDeadline instead.
 	// The time at which blocking will expire
 	Deadline time.Time
+}
+
+func (a ReadArgs) String() string {
+	return fmt.Sprintf("%+v", struct {
+		Journal  Name
+		Offset   int64
+		Blocking bool
+		Deadline time.Time
+	}{a.Journal, a.Offset, a.Blocking, a.Deadline})
 }
 
 type ReadResult struct {
@@ -96,6 +123,18 @@ type ReadResult struct {
 	RouteToken
 	// Result fragment, set iff |Error| is nil.
 	Fragment Fragment
+}
+
+func (a ReadResult) String() string {
+	return fmt.Sprintf("%+v", struct {
+		Error     error
+		Offset    int64
+		WriteHead int64
+		RouteToken
+		Fragment string
+		IsLocal  bool
+	}{a.Error, a.Offset, a.WriteHead, a.RouteToken,
+		a.Fragment.ContentPath(), a.Fragment.File != nil})
 }
 
 type ReadOp struct {
@@ -111,6 +150,14 @@ type AppendArgs struct {
 	// until io.EOF, and abort the append (without committing any content)
 	// if any other error is returned by |Content.Read()|.
 	Content io.Reader
+	// Context which may trace, cancel or supply a deadline for the operation.
+	Context context.Context
+}
+
+func (a AppendArgs) String() string {
+	return fmt.Sprintf("%+v", struct {
+		Journal Name
+	}{a.Journal})
 }
 
 type AppendResult struct {
@@ -120,6 +167,14 @@ type AppendResult struct {
 	WriteHead int64
 	// RouteToken of the Journal. Set on ErrNotBroker.
 	RouteToken
+}
+
+func (a AppendResult) String() string {
+	return fmt.Sprintf("%+v", struct {
+		Error     error
+		WriteHead int64
+		RouteToken
+	}{a.Error, a.WriteHead, a.RouteToken})
 }
 
 type AppendOp struct {

@@ -2,6 +2,7 @@ package journal
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing/iotest"
 
@@ -26,12 +27,14 @@ func (s *BrokerSuite) SetUpTest(c *gc.C) {
 	s.broker.Append(AppendOp{
 		AppendArgs: AppendArgs{
 			Content: bytes.NewBufferString("write one "),
+			Context: context.Background(),
 		},
 		Result: s.appendResults,
 	})
 	s.broker.Append(AppendOp{
 		AppendArgs: AppendArgs{
 			Content: bytes.NewBufferString("write two "),
+			Context: context.Background(),
 		},
 		Result: s.appendResults,
 	})
@@ -163,6 +166,7 @@ func (s *BrokerSuite) TestBrokenReadHandling(c *gc.C) {
 		AppendArgs: AppendArgs{
 			Content: iotest.OneByteReader(
 				iotest.TimeoutReader(bytes.NewBufferString("!!!!"))),
+			Context: context.Background(),
 		},
 		Result: s.appendResults,
 	})
@@ -170,6 +174,7 @@ func (s *BrokerSuite) TestBrokenReadHandling(c *gc.C) {
 	s.broker.Append(AppendOp{
 		AppendArgs: AppendArgs{
 			Content: bytes.NewBufferString(" separate"),
+			Context: context.Background(),
 		},
 		Result: s.appendResults,
 	})

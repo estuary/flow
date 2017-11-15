@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/trace"
 
 	"github.com/LiveRamp/gazette/journal"
 )
@@ -43,90 +44,161 @@ func NewRouter(factory ReplicaFactory) *Router {
 }
 
 func (r *Router) Read(op journal.ReadOp) {
-	if route, ok := r.readRoute(op.Journal); !ok || route.token == "" {
-		op.Result <- journal.ReadResult{Error: journal.ErrNotFound}
-	} else if route.replica == nil {
-		op.Result <- journal.ReadResult{
-			Error:      journal.ErrNotReplica,
-			RouteToken: route.token,
-		}
-	} else {
-		// Proxy result to extend with RouteToken.
-		var forward = op.Result
-		op.Result = make(chan journal.ReadResult, 1)
-
-		go func(token journal.RouteToken) {
-			var result = <-op.Result
-			result.RouteToken = token
-			forward <- result
-		}(route.token)
-
-		route.replica.Read(op)
+	if tr, ok := trace.FromContext(op.Context); ok {
+		tr.LazyPrintf("Read request: %s", op.ReadArgs)
 	}
+
+	var route, ok = r.readRoute(op.Journal)
+	var result journal.ReadResult
+
+	if !ok || route.token == "" {
+		// This journal is unknown to us.
+		result = journal.ReadResult{Error: journal.ErrNotFound}
+	} else if route.replica == nil {
+		// We're not a replica for this journal.
+		result = journal.ReadResult{Error: journal.ErrNotReplica, RouteToken: route.token}
+	}
+
+	if result.Error != nil {
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Read result: %s", result)
+			tr.SetError()
+		}
+		op.Result <- result
+		return
+	}
+
+	// Proxy result to extend with RouteToken and trace.
+	var forward = op.Result
+	op.Result = make(chan journal.ReadResult, 1)
+
+	go func(token journal.RouteToken) {
+		var result = <-op.Result
+		result.RouteToken = token
+
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Read result: %s", result)
+
+			switch result.Error {
+			case nil, journal.ErrNotYetAvailable:
+				// Pass.
+			default:
+				tr.SetError()
+			}
+		}
+		forward <- result
+	}(route.token)
+
+	route.replica.Read(op)
 }
 
 func (r *Router) Append(op journal.AppendOp) {
-	if route, ok := r.readRoute(op.Journal); !ok || route.token == "" {
-		op.Result <- journal.AppendResult{Error: journal.ErrNotFound}
+	if tr, ok := trace.FromContext(op.Context); ok {
+		tr.LazyPrintf("Append request: %s", op.AppendArgs)
+	}
+
+	var route, ok = r.readRoute(op.Journal)
+	var result journal.AppendResult
+
+	if !ok || route.token == "" {
+		// This journal is unknown to us.
+		result = journal.AppendResult{Error: journal.ErrNotFound}
 	} else if !route.broker {
-		op.Result <- journal.AppendResult{
-			Error:      journal.ErrNotBroker,
-			RouteToken: route.token,
-		}
+		// We are not the broker for this journal.
+		result = journal.AppendResult{Error: journal.ErrNotBroker, RouteToken: route.token}
 	} else if !route.brokerReady {
-		op.Result <- journal.AppendResult{
+		// We are the broker, but do not have the required number of replicas.
+		result = journal.AppendResult{
 			Error:      journal.ErrReplicationFailed,
 			RouteToken: route.token,
 		}
-	} else {
-		// Proxy result to extend with RouteToken, and to potentially update
-		// |lastAppendToken| on a successful Append.
-		var forward = op.Result
-		op.Result = make(chan journal.AppendResult, 1)
+	}
 
-		go func(token, lastAppendToken journal.RouteToken) {
-			var result = <-op.Result
-			result.RouteToken = token
+	if result.Error != nil {
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Append result: %s", result)
+			tr.SetError()
+		}
+		op.Result <- result
+		return
+	}
 
-			if result.Error != nil || token == lastAppendToken {
-				forward <- result
-				return
+	// Proxy result to extend with RouteToken, and to potentially update
+	// |lastAppendToken| on a successful Append.
+	var forward = op.Result
+	op.Result = make(chan journal.AppendResult, 1)
+
+	go func(token, lastAppendToken journal.RouteToken) {
+		var result = <-op.Result
+		result.RouteToken = token
+
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Append result: %s", result)
+			if result.Error != nil {
+				tr.SetError()
 			}
+		}
 
+		if result.Error == nil && token != lastAppendToken {
+			// Note that the journal route may have changed on us during the
+			// append operation, and we therefore apply our retained |token|
+			// rather than its present value under |r.routes|.
+			// Similarly |route.lastAppendToken| may have been updated by a raced
+			// append: in this case we don't care, as it will still converge to
+			// the correct value.
 			r.routesMu.Lock()
-			// Note that we must use the retained |token|, and not |route.token|,
-			// as the latter may have changed out from under us during the call.
-			// Similarly |route.lastAppendToken| may have been updated: in this
-			// case we don't care, as it will still converge to the correct value.
-			// Furthermore, if this route no longer exists, the update is a no-op.
-
-			// NOTE(joshk): If we are here, the route must exist, and keys are
-			// never deleted out of |r.routes|, so blind assignment should
-			// work. Bypassing the 'ok' test here amounts to an assertion of
-			// this reality.
-
-			// TODO(joshk): Store |lastAppendToken| as a pointer for ease of
-			// updating at this point.
 			r.routes[op.Journal].lastAppendToken = token
 			r.routesMu.Unlock()
+		}
 
-			forward <- result
-		}(route.token, route.lastAppendToken)
+		forward <- result
+	}(route.token, route.lastAppendToken)
 
-		route.replica.Append(op)
-	}
+	route.replica.Append(op)
 }
 
 func (r *Router) Replicate(op journal.ReplicateOp) {
-	if route, ok := r.readRoute(op.Journal); !ok {
-		op.Result <- journal.ReplicateResult{Error: journal.ErrNotFound}
-	} else if route.replica == nil {
-		op.Result <- journal.ReplicateResult{Error: journal.ErrNotReplica}
-	} else if op.RouteToken != route.token {
-		op.Result <- journal.ReplicateResult{Error: journal.ErrWrongRouteToken}
-	} else {
-		route.replica.Replicate(op)
+	if tr, ok := trace.FromContext(op.Context); ok {
+		tr.LazyPrintf("Replicate request: %s", op.ReplicateArgs)
 	}
+
+	var route, ok = r.readRoute(op.Journal)
+	var result journal.ReplicateResult
+
+	if !ok {
+		result = journal.ReplicateResult{Error: journal.ErrNotFound}
+	} else if route.replica == nil {
+		result = journal.ReplicateResult{Error: journal.ErrNotReplica}
+	} else if route.token != op.RouteToken {
+		result = journal.ReplicateResult{Error: journal.ErrWrongRouteToken}
+	}
+
+	if result.Error != nil {
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Replicate result: %s", result)
+			tr.SetError()
+		}
+		op.Result <- result
+		return
+	}
+
+	// Proxy result to enable tracing.
+	var forward = op.Result
+	op.Result = make(chan journal.ReplicateResult, 1)
+
+	go func() {
+		var result = <-op.Result
+
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Replicate result: %s", result)
+			if result.Error != nil {
+				tr.SetError()
+			}
+		}
+		forward <- result
+	}()
+
+	route.replica.Replicate(op)
 }
 
 // Returns whether |name| is both locally brokered and has successfully served

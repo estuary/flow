@@ -22,10 +22,14 @@ func (h *WriteAPI) Register(router *mux.Router) {
 }
 
 func (h *WriteAPI) Write(w http.ResponseWriter, r *http.Request) {
+	r = maybeTrace(r, "WriteAPI.Write")
+	defer finishTrace(r)
+
 	var op = journal.AppendOp{
 		AppendArgs: journal.AppendArgs{
 			Journal: journal.Name(r.URL.Path[1:]),
 			Content: r.Body,
+			Context: r.Context(),
 		},
 		Result: make(chan journal.AppendResult, 1),
 	}

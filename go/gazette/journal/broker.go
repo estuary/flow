@@ -1,10 +1,12 @@
 package journal
 
 import (
+	"context"
 	"errors"
 	"io"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/trace"
 
 	"github.com/LiveRamp/gazette/metrics"
 )
@@ -110,7 +112,7 @@ func (b *Broker) loop() {
 			if b.config.writtenSinceRoll > kSpoolRollSize {
 				b.config.writtenSinceRoll = 0
 			}
-			if writers, err := b.phaseOne(); err != nil {
+			if writers, err := b.phaseOne(op.Context); err != nil {
 				op.Result <- AppendResult{Error: ErrReplicationFailed}
 
 				log.WithField("err", err).Warn("transaction failed (phase one)")
@@ -139,29 +141,44 @@ func (b *Broker) onConfigUpdate(config BrokerConfig) {
 }
 
 // Opens a write-stream with each replica for this transaction.
-func (b *Broker) phaseOne() ([]WriteCommitter, error) {
+func (b *Broker) phaseOne(ctx context.Context) ([]WriteCommitter, error) {
 	if len(b.config.Replicas) == 0 {
 		return nil, errors.New("no configured replicas")
 	}
 	// Scatter replication request to each replica.
-	results := make(chan ReplicateResult)
+	var results = make(chan ReplicateResult)
+
+	var args = ReplicateArgs{
+		Journal:    b.journal,
+		RouteToken: b.config.RouteToken,
+		NewSpool:   b.config.writtenSinceRoll == 0,
+		WriteHead:  b.config.WriteHead,
+
+		// Replication requests are scoped to the lifecycle of the Broker, rather
+		// than the |ctx| of the initiating append request.
+		// TODO(johnny): The Broker should have its own cancel-able Context, used here.
+		Context: context.TODO(),
+	}
+	if tr, ok := trace.FromContext(ctx); ok {
+		tr.LazyPrintf("Broker.phaseOne request: %v", args)
+	}
+
 	for _, r := range b.config.Replicas {
 		r.Replicate(ReplicateOp{
-			ReplicateArgs: ReplicateArgs{
-				Journal:    b.journal,
-				RouteToken: b.config.RouteToken,
-				NewSpool:   b.config.writtenSinceRoll == 0,
-				WriteHead:  b.config.WriteHead,
-			},
-			Result: results,
+			ReplicateArgs: args,
+			Result:        results,
 		})
 	}
 	// Gather responses.
 	var writers []WriteCommitter
 	var err error
 
-	for _ = range b.config.Replicas {
-		result := <-results
+	for range b.config.Replicas {
+		var result = <-results
+
+		if tr, ok := trace.FromContext(ctx); ok {
+			tr.LazyPrintf("Broker.phaseOne result: %v", result)
+		}
 
 		if result.Error != nil {
 			if result.ErrorWriteHead > b.config.WriteHead {
@@ -172,6 +189,7 @@ func (b *Broker) phaseOne() ([]WriteCommitter, error) {
 			writers = append(writers, result.Writer)
 		}
 	}
+
 	// Require that all replicas accept the transaction.
 	if len(writers) != len(b.config.Replicas) {
 		scatterCommit(writers, 0) // Tell replicas to abort.
@@ -186,8 +204,7 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 
 	var commitDelta int64
 	var readErr, writeErr error
-
-	buf := make([]byte, 32*1024) // io.Copy's buffer size.
+	var buf = make([]byte, 32*1024) // io.Copy's buffer size.
 
 	// Consume waiting AppendOps, streaming them to writers.
 	for {
@@ -201,10 +218,17 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 			commitDelta += readSize
 			pending = append(pending, op)
 		}
+
+		if tr, ok := trace.FromContext(op.Context); ok {
+			tr.LazyPrintf("Broker.phaseTwo read %d bytes; commit delta %d; readErr %v; writeErr %v",
+				readSize, commitDelta, readErr, writeErr)
+		}
+
 		// Break if any error occurred or we've reached a commit threshold.
 		if readErr != nil || writeErr != nil || commitDelta >= kCommitThreshold {
 			break
 		}
+
 		// Pop another append. Break if the channel blocks or closes.
 		var ok bool
 		select {
@@ -216,6 +240,7 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 			break
 		}
 	}
+
 	// If a write error occurred to any replica, roll back this transaction.
 	if writeErr != nil {
 		log.WithFields(log.Fields{"err": writeErr, "delta": commitDelta}).
@@ -225,11 +250,11 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 
 	// Scatter / gather to close each writer in parallel.
 	// Retain a replica write error, if any occur.
-	var sawError error = writeErr
+	var sawError = writeErr
 	var sawSuccess bool
+	var commitErrs = scatterCommit(writers, commitDelta)
 
-	commitErrs := scatterCommit(writers, commitDelta)
-	for _ = range writers {
+	for range writers {
 		if err := <-commitErrs; err != nil {
 			if sawError == nil {
 				sawError = err
@@ -248,20 +273,24 @@ func (b *Broker) phaseTwo(writers []WriteCommitter, op AppendOp) error {
 		metrics.CommittedBytesTotal.Add(float64(commitDelta))
 		metrics.CoalescedAppendsTotal.Add(float64(len(pending)))
 	}
-	if sawError == nil {
-		// The transacton was fully replicated. Notify client(s) of success and
-		// new write-head.
-		for _, p := range pending {
-			p.Result <- AppendResult{Error: nil, WriteHead: b.config.WriteHead}
-		}
-		return nil
-	} else {
+
+	if sawError != nil {
 		// At least one replica failed. The client must retry.
 		for _, p := range pending {
+			if tr, ok := trace.FromContext(p.Context); ok {
+				tr.LazyPrintf("Broker.phaseTwo abort: %v", sawError)
+			}
 			p.Result <- AppendResult{Error: ErrReplicationFailed}
 		}
 		return sawError
 	}
+
+	// The transaction was fully replicated. Notify client(s) of success and
+	// new write-head.
+	for _, p := range pending {
+		p.Result <- AppendResult{Error: nil, WriteHead: b.config.WriteHead}
+	}
+	return nil
 }
 
 func streamToWriters(dst []WriteCommitter, src io.Reader,

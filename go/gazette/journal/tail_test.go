@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"context"
 	"time"
 
 	gc "github.com/go-check/check"
@@ -32,8 +33,10 @@ func (s *TailSuite) TestNonblockingSuccess(c *gc.C) {
 		ReadArgs: ReadArgs{
 			Journal: "a/journal",
 			Offset:  150,
+			Context: context.Background(),
 		},
-		Result: results})
+		Result: results,
+	})
 
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Offset:    150,
@@ -50,8 +53,13 @@ func (s *TailSuite) TestNonblockingFailure(c *gc.C) {
 
 	// Explicit Read at current write head.
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Offset: 200},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal: "a/journal",
+			Offset:  200,
+			Context: context.Background(),
+		},
+		Result: results,
+	})
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
 		Offset:    200,
@@ -59,8 +67,13 @@ func (s *TailSuite) TestNonblockingFailure(c *gc.C) {
 	})
 	// Read at current write head (implicit).
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Offset: -1},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal: "a/journal",
+			Offset:  -1,
+			Context: context.Background(),
+		},
+		Result: results,
+	})
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
 		Offset:    200,
@@ -68,8 +81,13 @@ func (s *TailSuite) TestNonblockingFailure(c *gc.C) {
 	})
 	// Read of a previous, uncovered offset.
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Offset: 50},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal: "a/journal",
+			Offset:  50,
+			Context: context.Background(),
+		},
+		Result: results,
+	})
 	c.Check(<-results, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
 		Offset:    50,
@@ -82,11 +100,23 @@ func (s *TailSuite) TestBlockingRead(c *gc.C) {
 
 	results := make(chan ReadResult, 2)
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 200},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal:  "a/journal",
+			Blocking: true,
+			Offset:   200,
+			Context:  context.Background(),
+		},
+		Result: results,
+	})
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 300},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal:  "a/journal",
+			Blocking: true,
+			Offset:   300,
+			Context:  context.Background(),
+		},
+		Result: results,
+	})
 	c.Check(len(results), gc.Equals, 0)
 
 	fragment1 := Fragment{Journal: "a/journal", Begin: 300, End: 400}
@@ -111,8 +141,14 @@ func (s *TailSuite) TestBlockingRead(c *gc.C) {
 
 	// Read at implicit write head.
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: -1},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal:  "a/journal",
+			Blocking: true,
+			Offset:   -1,
+			Context:  context.Background(),
+		},
+		Result: results,
+	})
 	// Note: this call re-enters tail.loop(), causing the op to queue.
 	c.Check(s.tail.EndOffset(), gc.Equals, int64(400))
 
@@ -136,6 +172,7 @@ func (s *TailSuite) TestDelayedRead(c *gc.C) {
 			Offset:   200,
 			Blocking: true,
 			Deadline: deadline,
+			Context:  context.Background(),
 		},
 		Result: results,
 	})
@@ -159,6 +196,7 @@ func (s *TailSuite) TestDelayedReadWakes(c *gc.C) {
 			Offset:   200,
 			Blocking: true,
 			Deadline: deadline,
+			Context:  context.Background(),
 		},
 		Result: results,
 	})
@@ -177,11 +215,23 @@ func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
 
 	results := make(chan ReadResult, 2)
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 200},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal:  "a/journal",
+			Blocking: true,
+			Offset:   200,
+			Context:  context.Background(),
+		},
+		Result: results,
+	})
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 300},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal:  "a/journal",
+			Blocking: true,
+			Offset:   300,
+			Context:  context.Background(),
+		},
+		Result: results,
+	})
 	c.Check(len(results), gc.Equals, 0)
 
 	close(s.updates)
@@ -203,8 +253,14 @@ func (s *TailSuite) TestClosingUpdatesUnblocksReads(c *gc.C) {
 
 	// Additional blocking reads immediately resolve.
 	s.tail.Read(ReadOp{
-		ReadArgs: ReadArgs{Journal: "a/journal", Blocking: true, Offset: 200},
-		Result:   results})
+		ReadArgs: ReadArgs{
+			Journal:  "a/journal",
+			Blocking: true,
+			Offset:   200,
+			Context:  context.Background(),
+		},
+		Result: results,
+	})
 	result = <-results
 	c.Check(result, gc.DeepEquals, ReadResult{
 		Error:     ErrNotYetAvailable,
@@ -222,8 +278,13 @@ func (s *TailSuite) TestReadFromZeroSkipsToFirstAvailable(c *gc.C) {
 
 	for _, block := range []bool{true, false} {
 		s.tail.Read(ReadOp{
-			ReadArgs: ReadArgs{Journal: "a/journal", Blocking: block},
-			Result:   results})
+			ReadArgs: ReadArgs{
+				Journal:  "a/journal",
+				Blocking: block,
+				Context:  context.Background(),
+			},
+			Result: results,
+		})
 
 		c.Check(<-results, gc.DeepEquals, ReadResult{
 			Offset:    100,
@@ -246,8 +307,14 @@ func (s *TailSuite) TestReadFromMiddleSkipsToFirstAvailable(c *gc.C) {
 
 	for _, block := range []bool{true, false} {
 		s.tail.Read(ReadOp{
-			ReadArgs: ReadArgs{Journal: "a/journal", Offset: 250, Blocking: block},
-			Result:   results})
+			ReadArgs: ReadArgs{
+				Journal:  "a/journal",
+				Offset:   250,
+				Blocking: block,
+				Context:  context.Background(),
+			},
+			Result: results,
+		})
 
 		c.Check(<-results, gc.DeepEquals, ReadResult{
 			Offset:    300,

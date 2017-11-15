@@ -114,6 +114,7 @@ func main() {
 					AppendArgs: journal.AppendArgs{
 						Journal: name,
 						Content: &emptyBuffer,
+						Context: context.Background(),
 					},
 					Result: resultCh,
 				})

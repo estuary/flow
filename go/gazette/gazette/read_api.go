@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/trace"
 
 	"github.com/LiveRamp/gazette/cloudstore"
 	"github.com/LiveRamp/gazette/journal"
@@ -36,7 +37,10 @@ func (h *ReadAPI) Register(router *mux.Router) {
 }
 
 func (h *ReadAPI) Head(w http.ResponseWriter, r *http.Request) {
-	op, result := h.initialRead(w, r)
+	r = maybeTrace(r, "ReadAPI.Head")
+	defer finishTrace(r)
+
+	var op, result = h.initialRead(w, r)
 
 	switch result.Error {
 	case nil, journal.ErrNotYetAvailable, journal.ErrNotReplica, journal.ErrNotFound:
@@ -47,7 +51,10 @@ func (h *ReadAPI) Head(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ReadAPI) Read(w http.ResponseWriter, r *http.Request) {
-	op, result := h.initialRead(w, r)
+	r = maybeTrace(r, "ReadAPI.Read")
+	defer finishTrace(r)
+
+	var op, result = h.initialRead(w, r)
 
 	// Loop performing incremental reads and copying to the client. If we fail
 	// here, we log and just drop the connection (since we've already written
@@ -115,10 +122,14 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 	var op journal.ReadOp
 	var result journal.ReadResult
 
-	if result.Error = r.ParseForm(); result.Error != nil {
-		http.Error(w, result.Error.Error(), http.StatusBadRequest)
-		return op, result
-	} else if result.Error = h.decoder.Decode(&schema, r.Form); result.Error != nil {
+	if result.Error = r.ParseForm(); result.Error == nil {
+		result.Error = h.decoder.Decode(&schema, r.Form)
+	}
+	if result.Error != nil {
+		if tr, ok := trace.FromContext(r.Context()); ok {
+			tr.LazyPrintf("parsing request: %v", result.Error)
+			tr.SetError()
+		}
 		http.Error(w, result.Error.Error(), http.StatusBadRequest)
 		return op, result
 	}
@@ -134,6 +145,7 @@ func (h *ReadAPI) initialRead(w http.ResponseWriter, r *http.Request) (journal.R
 			Journal:  journal.Name(r.URL.Path[1:]),
 			Offset:   schema.Offset,
 			Blocking: false,
+			Context:  r.Context(),
 		},
 		Result: make(chan journal.ReadResult, 1),
 	}
