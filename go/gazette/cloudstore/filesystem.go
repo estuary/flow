@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
 )
@@ -105,11 +107,33 @@ func NewFileSystem(properties Properties, rawURL string) (FileSystem, error) {
 	}
 }
 
+func getEC2Metadata() *ec2metadata.EC2Metadata {
+	sess, err := session.NewSession()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).
+			Panic("couldn't create AWS session with default settings")
+	}
+
+	return ec2metadata.New(sess)
+}
+
+func getS3Region() string {
+	ec2Metadata := getEC2Metadata()
+
+	region, err := ec2Metadata.Region()
+	if err != nil {
+		log.WithFields(log.Fields{"err": err}).
+			Panic("couldn't retrieve AWS region")
+	}
+
+	return region
+}
+
 func getS3ConfigProperties() (S3Properties, error) {
 	return S3Properties{
 		AWSAccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 		AWSSecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		S3Region:           "us-east-1",
+		S3Region:           getS3Region(),
 		S3GlobalCannedACL:  s3.ObjectCannedACLBucketOwnerFullControl,
 		S3SSEAlgorithm:     "",
 	}, nil
