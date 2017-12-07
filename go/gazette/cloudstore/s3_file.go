@@ -85,8 +85,6 @@ func (f *s3File) Write(p []byte) (int, error) {
 		if f.compressor != nil {
 			f.compressor.Close()
 		}
-		f.compressor = nil
-		buf.Reset()
 		// If necessary, spill spool to S3 multipart chunk.
 	} else if buf.Len() > MaxSpoolSizeBytes {
 		if f.err = f.uploadSpool(); f.err != nil {
@@ -124,6 +122,9 @@ func (f *s3File) Close() error {
 		}
 
 		_, f.err = f.svc.CompleteMultipartUpload(&params)
+		if f.compressor != nil {
+			f.compressor.Close()
+		}
 	} else {
 		panic("cannot determine kind of s3File object for Close()")
 	}
@@ -384,4 +385,23 @@ func (f *s3File) listObjects() ([]os.FileInfo, error) {
 // upload purposes.
 func (f *s3File) isUpload() bool {
 	return f.uploadId != nil
+}
+
+func (f *s3File) transfer(from io.Reader) (int64, error) {
+	var n int64
+	if f.compressor != nil {
+		n, f.err = io.Copy(f.compressor, from)
+	} else {
+		var buf = &f.spool
+		n, f.err = io.Copy(buf, from)
+	}
+
+	if f.err != nil {
+		if f.compressor != nil {
+			f.compressor.Close()
+		}
+		return n, f.err
+	}
+
+	return n, f.Close()
 }

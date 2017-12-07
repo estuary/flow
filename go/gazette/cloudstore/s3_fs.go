@@ -248,12 +248,7 @@ func (fs *s3Fs) Remove(name string) error {
 // guarantees provided by Amazon S3. In particular, |to| is aborted
 // (s3File.uploadId is aborted explicitly) if a write *or read* error occurs.
 func (fs *s3Fs) CopyAtomic(to File, from io.Reader) (n int64, err error) {
-	if n, err = io.Copy(to.(*s3File), from); err == nil {
-		// Completes the multipart upload.
-		to.Close()
-	}
-	return
-
+	return to.(*s3File).transfer(from)
 }
 
 // For the specified |path|, generates a signed URL which makes it so that the
