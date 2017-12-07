@@ -88,6 +88,7 @@ func NewFileSystem(properties Properties, rawURL string) (FileSystem, error) {
 		var _, compress = url.Query()["compress"]
 		return newGCSFS(properties, url.Host+url.Path, compress)
 	} else if url.Scheme == "s3" {
+		var _, compress = url.Query()["compress"]
 		var sp Properties
 		if properties == nil {
 			sp, err = getS3ConfigProperties()
@@ -97,7 +98,7 @@ func NewFileSystem(properties Properties, rawURL string) (FileSystem, error) {
 		} else {
 			sp = properties
 		}
-		return newS3FS(sp, url.Host+url.Path)
+		return newS3FS(sp, url.Host+url.Path, compress)
 	} else if url.Scheme == "sftp" {
 		return newSFTPFs(properties, url.Host, url.Path, url.User)
 	} else {
