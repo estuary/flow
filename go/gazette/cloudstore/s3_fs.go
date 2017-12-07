@@ -170,11 +170,19 @@ func (fs *s3Fs) OpenFile(name string, flag int, perm os.FileMode) (File, error) 
 			return nil, errors.New("expected UploadId in MultipartUpload creation")
 		}
 
+		spool := bytes.Buffer
+		var compressor io.WriteCloser
+		if fs.compress {
+			compressor = gzip.NewWriter(&spool)
+		}
+
 		return &s3File{
-			svc:      svc,
-			bucket:   aws.String(bucket),
-			key:      aws.String(path),
-			uploadId: resp.UploadId,
+			svc:        svc,
+			bucket:     aws.String(bucket),
+			key:        aws.String(path),
+			uploadId:   resp.UploadId,
+			spool:      spool,
+			compressor: compressor,
 		}, nil
 	} else {
 		return nil, errors.New("unsupported file flags")
