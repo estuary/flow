@@ -9,11 +9,6 @@ RUN curl -fsSL -o /usr/local/bin/dep \
 COPY Gopkg.toml Gopkg.lock /go/src/github.com/LiveRamp/gazette/
 RUN cd /go/src/github.com/LiveRamp/gazette/ && dep ensure -vendor-only
 
-# Install code-generation binary dependencies.
-RUN vendor=github.com/LiveRamp/gazette/vendor/ \
-  && go install $vendor/github.com/gogo/protobuf/protoc-gen-gogo \
-  && go get github.com/vektra/mockery/cmd/mockery
-
 # Copy library packages.
 # TODO(johnny): Move all library packages under gazette/pkg.
 COPY async /go/src/github.com/LiveRamp/gazette/async
@@ -30,18 +25,6 @@ COPY mainboilerplate /go/src/github.com/LiveRamp/gazette/mainboilerplate
 COPY metrics /go/src/github.com/LiveRamp/gazette/metrics
 COPY recoverylog /go/src/github.com/LiveRamp/gazette/recoverylog
 COPY topic /go/src/github.com/LiveRamp/gazette/topic
-
-# Generate protobuf and test mock targets.
-RUN base=github.com/LiveRamp/gazette ; \
-    set -x ; \
-    for tgt in \
-      $base/consumer/service.proto \
-      $base/recoverylog/recorded_op.proto \
-    ; do \
-      protoc -I src/ -I src/$base/vendor/ --plugin=/go/bin/protoc-gen-gogo \
-        --gogo_out=plugins=grpc:src/ $tgt ; \
-    done ; \
-    go generate "$base/..." ;
 
 # Copy compiled targets.
 # TODO(johnny): Move all executable targets under gazette/cmd.

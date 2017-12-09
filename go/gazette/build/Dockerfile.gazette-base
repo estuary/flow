@@ -1,6 +1,6 @@
 FROM golang:latest AS builder
 
-ENV ROCKSDB_VERSION=5.3.5 PROTO_VERSION=3.4.0
+ENV ROCKSDB_VERSION=5.3.5
 
 # Install dependencies for building & running RocksDB.
 RUN apt-get update -y \
@@ -16,14 +16,6 @@ RUN apt-get update -y \
       unzip \
       zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
-
-# Install a protobuf compiler & google protobuf sources.
-RUN curl -L -o /opt/protobuf.zip \
-      https://github.com/google/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-x86_64.zip \
- && unzip /opt/protobuf.zip -d /usr/local \
- && rm /opt/protobuf.zip \
- && chmod a+rx /usr/local/bin/protoc \
- && chmod -R a+rX /usr/local/include/google
 
 # Install RocksDB and the `ldb` & `sst_dump` tools.
 RUN curl -L -o /opt/rocksdb.tgz \
