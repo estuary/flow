@@ -3,8 +3,8 @@ package word_count
 import (
 	"bufio"
 
-	"github.com/LiveRamp/gazette/journal"
-	"github.com/LiveRamp/gazette/topic"
+	"github.com/LiveRamp/gazette/pkg/journal"
+	"github.com/LiveRamp/gazette/pkg/topic"
 )
 
 type Sentence struct {

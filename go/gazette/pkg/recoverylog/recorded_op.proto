@@ -1,0 +1,134 @@
+syntax = "proto2";
+
+package recoverylog;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.stringer_all) = true;
+option (gogoproto.goproto_stringer_all) = false;
+
+
+// RecordedOp records states changes occuring within a local file-system.
+// Next tag: 9.
+message RecordedOp {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  // Monotonically-increasing sequence number of this operation.
+  required int64 seq_no = 1 [(gogoproto.nullable) = false];
+
+  // Previous FSM checksum to which this operation should be applied (eg, the
+  // expected checksum arrived at after applying the previous operation.
+  required fixed32 checksum = 2 [(gogoproto.nullable) = false];
+
+  // A randomly-assigned, constant ID of the author of this operation.
+  required fixed32 author = 3 [(gogoproto.nullable) = false,
+                               (gogoproto.casttype) = "Author"];
+
+  // RecordedOp is a union-type over the remaining fields.
+
+  // A no-op may also be represented as a RecordedOp with no fields set. This
+  // is principally useful for issuing transactional write-barriers at log
+  // handoff. Eg, given a log Player which desires to be the log Recorder:
+  //
+  //   1) The Player will read all available log content, and then inject
+  //      what it understands to be a correctly sequenced no-op with
+  //      its unique author ID. Note that this injected operation may well
+  //      lose a write race with another Recorder, resulting in its being
+  //      mis-sequenced and ignored by other readers.
+  //
+  //   2) It will continue to read the log until its no-op is read.
+  //      If the operation is mis-sequenced, it will restart from step 1.
+  //
+  //   3) If the no-op is sequenced correctly, it will terminate playback
+  //      immediately after the no-op and transition to recording new log
+  //      operations. Any following, raced writes must be mis-sequenced,
+  //      having lost the write race, and will be ignored by other readers.
+
+  // Creates a new file-node with id |seq_no|, initially linked to |path|.
+  message Create {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    required string path = 1 [(gogoproto.nullable) = false];
+  };
+  optional Create create = 4;
+
+  // Links / unlinks |fnode| to |path|.
+  message Link {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    required int64 fnode = 1 [(gogoproto.nullable) = false,
+                              (gogoproto.casttype) = "Fnode"];
+    required string path = 2 [(gogoproto.nullable) = false];
+  };
+  optional Link link = 5;
+  optional Link unlink = 6;
+
+  // Indicates |length| bytes should be written at |offset| to |fnode|.
+  // In a serialization stream, we expect |length| raw bytes of content to
+  // immediately follow this operation.
+  message Write {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    required int64 fnode = 1 [(gogoproto.nullable) = false,
+                              (gogoproto.casttype) = "Fnode"];
+    // Byte-offset within file to which the write is applied.
+    optional int64 offset = 2 [(gogoproto.nullable) = false];
+    // Length of the write.
+    optional int64 length = 3 [(gogoproto.nullable) = false];
+  };
+  optional Write write = 7;
+
+  optional Property property = 8;
+};
+
+// Properties are small files which rarely change, and are thus managed
+// outside of regular Fnode tracking. See FSM.Properties.
+message Property {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required string path = 1 [(gogoproto.nullable) = false];
+
+  required string content = 2 [(gogoproto.nullable) = false];
+};
+
+// A Segment represents a contiguous chunk of recovery log, identified by its
+// (single) Author, FirstSeqNo, Checksum, & corresponding approximate
+// lower-bound offset, and finally by a LastSeqNo.
+// Next tag: 6.
+message Segment {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required fixed32 author = 1 [(gogoproto.nullable) = false,
+                               (gogoproto.casttype) = "Author"];
+  required int64 first_seq_no = 2 [(gogoproto.nullable) = false];
+  required int64 first_offset = 3 [(gogoproto.nullable) = false];
+  required fixed32 first_checksum = 4 [(gogoproto.nullable) = false];
+  required int64 last_seq_no = 5 [(gogoproto.nullable) = false];
+};
+
+// Memoized state which allows an FSM to efficiently reach parity with the FSM
+// which produced the FSMHints. FSMHints must minimally specify a recovery Log.
+// Hints which are otherwise zero implicitly define an FSM which is empty, and
+// should begin recording or playback at the log write head.
+message FSMHints {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required string log = 1 [(gogoproto.nullable) = false,
+      (gogoproto.casttype) = "github.com/LiveRamp/gazette/pkg/journal.Name"];
+
+  repeated HintedFnode live_nodes = 2 [(gogoproto.nullable) = false];
+
+  repeated Property properties = 3 [(gogoproto.nullable) = false];
+};
+
+// A HintedFnode hints specific log Segments which contain Fnode operations.
+message HintedFnode {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  required int64 fnode = 1 [(gogoproto.nullable) = false,
+                            (gogoproto.casttype) = "Fnode"];
+  repeated Segment segments = 2 [(gogoproto.nullable) = false];
+};

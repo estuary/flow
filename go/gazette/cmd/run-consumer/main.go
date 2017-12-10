@@ -10,8 +10,8 @@ import (
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/LiveRamp/gazette/consumer"
-	"github.com/LiveRamp/gazette/gazette"
+	"github.com/LiveRamp/gazette/pkg/consumer"
+	"github.com/LiveRamp/gazette/pkg/gazette"
 )
 
 var (

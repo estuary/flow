@@ -9,46 +9,10 @@ RUN curl -fsSL -o /usr/local/bin/dep \
 COPY Gopkg.toml Gopkg.lock /go/src/github.com/LiveRamp/gazette/
 RUN cd /go/src/github.com/LiveRamp/gazette/ && dep ensure -vendor-only
 
-# Copy library packages.
-# TODO(johnny): Move all library packages under gazette/pkg.
-COPY async /go/src/github.com/LiveRamp/gazette/async
-COPY cloudstore /go/src/github.com/LiveRamp/gazette/cloudstore
-COPY consensus /go/src/github.com/LiveRamp/gazette/consensus
-COPY consumer /go/src/github.com/LiveRamp/gazette/consumer
-COPY envflag /go/src/github.com/LiveRamp/gazette/envflag
-COPY envflagfactory /go/src/github.com/LiveRamp/gazette/envflagfactory
-COPY gazette /go/src/github.com/LiveRamp/gazette/gazette
-COPY httpdump /go/src/github.com/LiveRamp/gazette/httpdump
-COPY journal /go/src/github.com/LiveRamp/gazette/journal
-COPY keepalive /go/src/github.com/LiveRamp/gazette/keepalive
-COPY mainboilerplate /go/src/github.com/LiveRamp/gazette/mainboilerplate
-COPY metrics /go/src/github.com/LiveRamp/gazette/metrics
-COPY recoverylog /go/src/github.com/LiveRamp/gazette/recoverylog
-COPY topic /go/src/github.com/LiveRamp/gazette/topic
-
-# Copy compiled targets.
-# TODO(johnny): Move all executable targets under gazette/cmd.
+# Copy, install, and test library and binary packages.
+COPY pkg /go/src/github.com/LiveRamp/gazette/pkg
 COPY cmd /go/src/github.com/LiveRamp/gazette/cmd
-COPY gazetted/main.go /go/src/github.com/LiveRamp/gazette/cmd/gazette/main.go
-
-# Install all targets.
-# TODO(johnny): RUN go install github.com/LiveRamp/gazette/pkg/...
+RUN go install github.com/LiveRamp/gazette/pkg/...
 RUN go install github.com/LiveRamp/gazette/cmd/...
-
-# Test all packages.
-# TODO(johnny): RUN go test github.com/LiveRamp/gazette/pkg/...
-RUN go test github.com/LiveRamp/gazette/async
-RUN go test github.com/LiveRamp/gazette/cloudstore
-RUN go test github.com/LiveRamp/gazette/consensus
-RUN go test github.com/LiveRamp/gazette/consumer
-RUN go test github.com/LiveRamp/gazette/envflag
-RUN go test github.com/LiveRamp/gazette/envflagfactory
-RUN go test github.com/LiveRamp/gazette/gazette
-RUN go test github.com/LiveRamp/gazette/httpdump
-RUN go test github.com/LiveRamp/gazette/journal
-RUN go test github.com/LiveRamp/gazette/keepalive
-RUN go test github.com/LiveRamp/gazette/mainboilerplate
-RUN go test github.com/LiveRamp/gazette/metrics
-RUN go test github.com/LiveRamp/gazette/recoverylog
-RUN go test github.com/LiveRamp/gazette/topic
+RUN go test github.com/LiveRamp/gazette/pkg/...
 RUN go test github.com/LiveRamp/gazette/cmd/...

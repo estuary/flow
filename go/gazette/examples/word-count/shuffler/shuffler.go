@@ -6,9 +6,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/LiveRamp/gazette/consumer"
 	"github.com/LiveRamp/gazette/examples/word-count"
-	"github.com/LiveRamp/gazette/topic"
+	"github.com/LiveRamp/gazette/pkg/consumer"
+	"github.com/LiveRamp/gazette/pkg/topic"
 )
 
 type shuffler struct{}
