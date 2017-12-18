@@ -110,7 +110,7 @@ func getS3ConfigProperties() (S3Properties, error) {
 	return S3Properties{
 		AWSAccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 		AWSSecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		S3Region:           "us-east-1",
+		S3Region:           os.Getenv("AWS_DEFAULT_REGION"),
 		S3GlobalCannedACL:  s3.ObjectCannedACLBucketOwnerFullControl,
 		S3SSEAlgorithm:     "",
 	}, nil

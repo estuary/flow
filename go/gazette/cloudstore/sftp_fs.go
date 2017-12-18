@@ -477,7 +477,7 @@ func isSSHError(err error, sshCode uint32) bool {
 func (s *sftpFs) isDir(path string) (bool, error) {
 	if stat, err := s.client.Lstat(path); err == nil {
 		return stat.IsDir(), nil
-	} else if isSSHError(err, SSHErrFileNotFound) {
+	} else if err == os.ErrNotExist || isSSHError(err, SSHErrFileNotFound) {
 		return false, nil
 	} else {
 		return false, err
