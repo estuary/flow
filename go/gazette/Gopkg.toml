@@ -23,7 +23,7 @@
 
 [[constraint]]
   name = "cloud.google.com/go"
-  version = "0.15.0"
+  version = "0.4.0"
 
 [[constraint]]
   name = "github.com/aws/aws-sdk-go"
@@ -117,4 +117,4 @@
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  version = "1.7.1"
+  version = "1.0.4"
