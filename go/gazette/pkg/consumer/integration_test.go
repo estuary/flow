@@ -406,13 +406,15 @@ func (g *testGenerator) publishSomeValues(c *gc.C) {
 			msg.Update = -msg.Update
 		}
 
-		c.Check(g.publisher.Publish(&msg, addSubTopic), gc.IsNil)
+		var _, err = g.publisher.Publish(&msg, addSubTopic)
+		c.Check(err, gc.IsNil)
 		g.addSubValues[msg.Key] = g.addSubValues[msg.Key] + msg.Update
 
 		// Writing to string topic.
 		var smsg = stringMessage(uuid.NewV4().String())
 		g.stringValues[smsg] = struct{}{}
-		c.Check(g.publisher.Publish(&smsg, reverseInTopic), gc.IsNil)
+		_, err = g.publisher.Publish(&smsg, reverseInTopic)
+		c.Check(err, gc.IsNil)
 
 		if i%100 == 0 {
 			time.Sleep(10 * time.Millisecond)

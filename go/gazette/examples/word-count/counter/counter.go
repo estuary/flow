@@ -55,7 +55,7 @@ func (counter) Flush(s consumer.Shard, pub *topic.Publisher) error {
 		writeBatch.Put([]byte(word), []byte(strconv.AppendInt(nil, int64(count), 10)))
 
 		// Publish the updated word count to the output topic.
-		if err := pub.Publish(&word_count.Record{Word: word, Count: count}, word_count.Counts); err != nil {
+		if _, err := pub.Publish(&word_count.Record{Word: word, Count: count}, word_count.Counts); err != nil {
 			return err
 		}
 		delete(cache.pendingCounts, word) // Reset for next transaction.

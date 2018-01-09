@@ -22,7 +22,7 @@ func (shuffler) Consume(env topic.Envelope, s consumer.Shard, pub *topic.Publish
 		func(r rune) bool { return !unicode.IsLetter(r) })
 
 	for _, w := range words {
-		if err := pub.Publish(&word_count.Record{Word: w, Count: 1}, word_count.Deltas); err != nil {
+		if _, err := pub.Publish(&word_count.Record{Word: w, Count: 1}, word_count.Deltas); err != nil {
 			return err
 		}
 	}
