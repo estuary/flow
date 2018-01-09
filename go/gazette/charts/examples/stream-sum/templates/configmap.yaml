@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  name: {{ template "stream-sum.fullname" . }}
+data:
+  config.yaml: |
+    # YAML Configuration of the `stream-sum` example.
+
+    # The `service` section is read & used by the `summer` consumer (only).
+    service:
+      # Absolute path in Etcd of the service consensus.Allocator.
+      allocatorRoot: /examples/stream-sum/summer
+      # Unique key of this consumer instance. By convention, this is a bound "host:port" address.
+      localRouteKey:
+      # Path of consumer plugin to load & run.
+      plugin: /go/bin/summer.so
+      # Path prefix for the consumer's recovery-log Journals.
+      recoveryLogRoot: examples/stream-sum/recovery-logs
+      # Number of warm-standby replicas to allocate for each Consumer shard.
+      shardStandbys: 1
+      # Local directory for ephemeral serving files.
+      workdir: /var/tmp
+
+    # The `chunker` section is read & used by the `chunker` job (only).
+    chunker:
+      # Total number of streams to create. -1 for infinite.
+      numStreams: {{ .Values.chunker.numStreams }}
+      # Number of chunks for each stream.
+      chunksPerStream: {{ .Values.chunker.chunksPerStream }}
+
+    # Service addresses to use.
+    etcd:
+      endpoint: "{{ .Values.etcd.endpoint }}"
+    gazette:
+      endpoint: "{{ .Values.gazette.endpoint }}"

@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "stream-sum.fullname" . }}-chunker
+  labels:
+    app: {{ template "stream-sum.name" . }}-chunker
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  parallelism: {{ .Values.chunker.numJobs }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "stream-sum.name" . }}-chunker
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}-chunker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [
+            "/go/bin/chunker",
+            "-config", "/etc/config/config.yaml",
+          ]
+          volumeMounts:
+            - mountPath: /etc/config
+              name: config-volume
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ template "stream-sum.fullname" . }}
+      restartPolicy: Never
