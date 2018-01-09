@@ -1,0 +1,17 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: docker:17.05.0-ce-git
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build and test Gazette
+          command: docker build . -f build/Dockerfile.gazette-build --tag gazette-build
+      - run:
+          name: Build the command image
+          command: docker build . -f build/cmd/Dockerfile.gazette --tag gazette
+      - run:
+          name: Build the examples
+          command: docker build . -f build/examples/Dockerfile.word-count --tag word-count

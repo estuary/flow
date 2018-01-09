@@ -1,4 +1,4 @@
 FROM gazette-build:latest AS build
 
-FROM gazette-base:latest
+FROM liveramp/gazette-base:1.0.0
 COPY --from=build /go/bin/gazette /usr/local/bin

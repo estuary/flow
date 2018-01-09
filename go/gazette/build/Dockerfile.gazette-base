@@ -1,4 +1,4 @@
-FROM golang:latest AS builder
+FROM golang:1.9.2 AS builder
 
 ENV ROCKSDB_VERSION=5.3.5
 
