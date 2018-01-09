@@ -1,3 +1,9 @@
+|circleci status|
+
+.. |circleci status| image:: https://circleci.com/gh/LiveRamp/gazette.svg?style=svg
+   :target: https://circleci.com/gh/LiveRamp/gazette
+
+
 Gazette
 =======
 
