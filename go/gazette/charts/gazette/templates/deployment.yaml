@@ -38,18 +38,15 @@ spec:
         env:
         - name: RW_DIRECTORIES
           value: /var/tmp
-        {{ if .Values.awsEndpoint }}
+        {{ if .Values.aws }}
         - name: AWS_ENDPOINT
-          value: {{ .Values.awsEndpoint }}
-        {{ end }}
-        # TODO(johnny): Use a k8 secret for these.
-        {{ if .Values.awsAccessKeyID }}
+          value: {{ .Values.aws.endpoint }}
         - name: AWS_ACCESS_KEY_ID
-          value: {{ .Values.awsAccessKeyID }}
-        {{ end }}
-        {{ if .Values.awsSecretKey }}
+          value: {{ .Values.aws.accessKeyID }}
         - name: AWS_SECRET_ACCESS_KEY
-          value: {{ .Values.awsSecretKey }}
+          value: {{ .Values.aws.secretKey }}
+        - name: AWS_DEFAULT_REGION
+          value: {{ .Values.aws.defaultRegion }}
         {{ end }}
 #        livenessProbe:
 #          httpGet:
