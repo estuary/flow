@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,8 +20,6 @@ var (
 	// Time to wait in between broker write errors. Exposed for debugging.
 	writeServiceCoolOffTimeout = time.Second * 5
 
-	diskUsageThreshold = flag.Int("diskUsageThreshold", 75,
-		"HWM in % at which to block further writes to Gazette.")
 	writeConcurrency = flag.Int("gazetteWriteConcurrency", 4,
 		"Concurrency of asynchronous, locally-spooled Gazette write client")
 )
@@ -91,14 +88,6 @@ type WriteService struct {
 	// Indexes pendingWrite's which are in |writeQueue|, and still append-able.
 	writeIndex   map[journal.Name]*pendingWrite
 	writeIndexMu sync.Mutex
-
-	// RWMutex used in the following way:
-	// - Calls to obtainPendingWrite lock it for READ.
-	// - A disk usage checker goroutine will lock it for WRITE if disk usage
-	//   exceeds a stated threshold, causing calls to obtainPendingWrite to
-	//   block until the condition is resolved. The goroutine logs at ERROR
-	//   until the condition is resolved, so it is easy to diagnose.
-	diskUsageMu sync.RWMutex
 }
 
 func NewWriteService(client *Client) *WriteService {
@@ -130,7 +119,6 @@ func (c *WriteService) Start() {
 		panic(err)
 	}
 
-	go c.monitorDiskSpace()
 	for i := range c.writeQueue {
 		go c.serveWrites(i)
 	}
@@ -143,43 +131,6 @@ func (c *WriteService) Stop() {
 	}
 	for _ = range c.writeQueue {
 		<-c.stopped
-	}
-}
-
-func (c *WriteService) monitorDiskSpace() {
-	var wasAlarming bool
-	var stat syscall.Statfs_t
-
-	for _ = range time.Tick(time.Minute) {
-		var err = syscall.Statfs(gazetteWriteTmpDir, &stat)
-		if err != nil {
-			// This should never happen.
-			log.WithField("err", err).Fatal("checking free disk space")
-		}
-
-		var usagePct = int(((stat.Blocks - stat.Bavail) * 100) / stat.Blocks)
-		if usagePct > *diskUsageThreshold {
-			if !wasAlarming {
-				// Remind ourselves for next check.
-				wasAlarming = true
-
-				// Hold the RWMutex in WRITE. This eventually prevents writes
-				// from succeeding, without explicitly failing them. However,
-				// ongoing writes will prevent the write lock from being taken,
-				// there is a chance of starvation.
-				c.diskUsageMu.Lock()
-			} else {
-				// We were in an alarm state, and still need to be.
-				// Log noisily.
-				log.WithField("usagePct", usagePct).Error(
-					"WriteService remains in stop-writes mode")
-			}
-		} else if wasAlarming {
-			// We were in an alarm state, and can now stand down.
-			// Allow ongoing callers to proceed with their write.
-			c.diskUsageMu.Unlock()
-			wasAlarming = false
-		}
 	}
 }
 
@@ -218,12 +169,6 @@ func (c *WriteService) Write(name journal.Name, buf []byte) (*journal.AsyncAppen
 func (c *WriteService) ReadFrom(name journal.Name, r io.Reader) (*journal.AsyncAppend, error) {
 	var result *journal.AsyncAppend
 	var writeErr error
-
-	// Obtain a 'read lock' on the disk usage RWMutex. During a disk condition,
-	// this blocks, rather than explicitly failing the write, preventing
-	// repeated spinning and re-attempts at writes.
-	c.diskUsageMu.RLock()
-	defer c.diskUsageMu.RUnlock()
 
 	c.writeIndexMu.Lock()
 	write, isNew, obtainErr := c.obtainWrite(name)
