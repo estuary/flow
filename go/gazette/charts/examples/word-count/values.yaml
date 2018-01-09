@@ -6,5 +6,8 @@ image:
   repository: word-count
   tag: latest
   pullPolicy: IfNotPresent
-etcd: "http://etcd-cluster-client:2379"
-gazette: "http://gazette-gazette:8081"
+etcd:
+  endpoint: "http://etcd-cluster-client:2379"
+gazette:
+  endpoint: "http://gazette-gazette:8081"
+

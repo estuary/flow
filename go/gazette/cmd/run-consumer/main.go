@@ -2,42 +2,94 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"os"
-	"path/filepath"
+	"path"
 	"plugin"
+	"strings"
 
 	etcd "github.com/coreos/etcd/client"
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/LiveRamp/gazette/pkg/consumer"
 	"github.com/LiveRamp/gazette/pkg/gazette"
+	"github.com/LiveRamp/gazette/pkg/metrics"
 )
 
-var (
-	dir             = flag.String("dir", "", "Path into which Shards should be staged")
-	etcdEndpoint    = flag.String("etcd", "", "Etcd endpoint")
-	gazetteEndpoint = flag.String("gazette", "", "Gazette endpoint")
-	name            = flag.String("name", "", "Etcd consumer name")
-	standbys        = flag.Int("standbys", 0, "Number of warm stand-bys per shard")
-	pluginPath      = flag.String("plugin", "", "Path to consumer plugin")
-)
+var configFile = flag.String("config", "", "Path to configuration file. "+
+	"Defaults to `consumer-config.{toml|yaml|json}` in the current working directory.")
+
+type Config struct {
+	Service struct {
+		AllocatorRoot   string // Absolute path in Etcd of the service consensus.Allocator.
+		LocalRouteKey   string // Unique key of this consumer instance. By convention, this is bound "host:port" address.
+		Plugin          string // Path of consumer plugin to load & run.
+		RecoveryLogRoot string // Path prefix for the consumer's recovery-log Journals.
+		ShardStandbys   uint8  // Number of warm-standby replicas to allocate for each Consumer shard.
+		Workdir         string // Local directory for ephemeral serving files.
+	}
+	Etcd    struct{ Endpoint string } // Etcd endpoint to use.
+	Gazette struct{ Endpoint string } // Gazette endpoint to use.
+}
+
+type HostPort struct{ Host, Port string }
+
+func (hp HostPort) Addr() string { return net.JoinHostPort(hp.Host, hp.Port) }
+
+func (cfg Config) Validate() error {
+	if !path.IsAbs(cfg.Service.AllocatorRoot) {
+		return fmt.Errorf("Service.AllocatorRoot not an absolute path: %s", cfg.Service.AllocatorRoot)
+	} else if cfg.Service.RecoveryLogRoot == "" {
+		return fmt.Errorf("Service.RecoveryLogRoot not specified")
+	} else if cfg.Service.Workdir == "" {
+		return fmt.Errorf("Service.Workdir not specified")
+	} else if cfg.Service.LocalRouteKey == "" {
+		return fmt.Errorf("Service.LocalRouteKey not specified")
+	} else if cfg.Etcd.Endpoint == "" {
+		return fmt.Errorf("Etcd.Endpoint not specified")
+	} else if cfg.Gazette.Endpoint == "" {
+		return fmt.Errorf("Gazette.Endpoint not specified")
+	}
+	return nil
+}
 
 func main() {
+	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
+	prometheus.MustRegister(metrics.GazetteConsumerCollectors()...)
 	flag.Parse()
 
-	log.WithFields(log.Fields{
-		"dir":      *dir,
-		"etcd":     *etcdEndpoint,
-		"gazette":  *gazetteEndpoint,
-		"plugin":   *pluginPath,
-		"name":     *name,
-		"standbys": *standbys,
-	}).Info("using flags")
+	if *configFile != "" {
+		viper.SetConfigFile(*configFile)
+	} else {
+		viper.AddConfigPath(".")
+		viper.SetConfigName("consumer-config")
+	}
 
-	var module, err = plugin.Open(*pluginPath)
+	if err := viper.ReadInConfig(); err != nil {
+		log.WithField("err", err).Fatal("failed to read config")
+	} else {
+		log.WithField("path", viper.ConfigFileUsed()).Info("read config")
+	}
+
+	// Allow environment variables to override file configuration.
+	// Treat variable underscores as nested-path specifiers.
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		log.WithField("err", err).Fatal("failed to unmarshal")
+	} else if err := config.Validate(); err != nil {
+		viper.Debug()
+		log.WithFields(log.Fields{"err": err, "cfg": config, "env": os.Environ()}).Fatal("config validation failed")
+	}
+
+	var module, err = plugin.Open(config.Service.Plugin)
 	if err != nil {
-		log.WithFields(log.Fields{"path": os.Args[1], "err": err}).Fatal("failed to open plugin module")
+		log.WithFields(log.Fields{"path": config.Service.Plugin, "err": err}).Fatal("failed to open plugin module")
 	}
 	flag.Parse() // Parse again to initialize any plugin flags.
 
@@ -50,46 +102,26 @@ func main() {
 		instance = *c
 	}
 
-	addrs, err := net.InterfaceAddrs()
+	etcdClient, err := etcd.New(etcd.Config{Endpoints: []string{config.Etcd.Endpoint}})
 	if err != nil {
-		log.WithField("err", err).Fatal("failed to lookup network interfaces")
+		log.WithField("err", err).Fatal("failed to init etcd client")
 	}
-
-	var routeKey string
-	for _, addr := range addrs {
-		if ip, ok := addr.(*net.IPNet); ok && !ip.IP.IsLoopback() {
-			routeKey = ip.IP.String()
-		}
-	}
-	if routeKey == "" {
-		log.WithField("err", err).Fatal("failed to identify a route-able network interface")
-	}
-
-	etcdClient, err := etcd.New(etcd.Config{Endpoints: []string{*etcdEndpoint}})
+	gazClient, err := gazette.NewClient(config.Gazette.Endpoint)
 	if err != nil {
-		log.WithFields(log.Fields{"err": err, "endpoint": *etcdEndpoint}).
-			Fatal("failed to init etcd client")
-	}
-
-	gazClient, err := gazette.NewClient(*gazetteEndpoint)
-	if err != nil {
-		log.WithFields(log.Fields{"err": err, "endpoint": *gazetteEndpoint}).
-			Fatal("failed to create Gazette client")
+		log.WithField("err", err).Fatal("failed to init gazette client")
 	}
 
 	var writeService = gazette.NewWriteService(gazClient)
 	writeService.Start()
+	defer writeService.Stop() // Flush writes on exit.
 
-	// Flush writes on exit.
-	defer writeService.Stop()
-
-	var runner = consumer.Runner{
+	var runner = &consumer.Runner{
 		Consumer:        instance,
-		LocalRouteKey:   routeKey,
-		LocalDir:        *dir,
-		ConsumerRoot:    filepath.Join("/gazette/consumers/", *name),
-		RecoveryLogRoot: filepath.Join("/recovery-logs/", *name)[1:], // Strip leading '/'.
-		ReplicaCount:    *standbys,
+		ConsumerRoot:    config.Service.AllocatorRoot,
+		LocalDir:        config.Service.Workdir,
+		LocalRouteKey:   config.Service.LocalRouteKey,
+		RecoveryLogRoot: config.Service.RecoveryLogRoot,
+		ReplicaCount:    int(config.Service.ShardStandbys),
 
 		Etcd: etcdClient,
 		Gazette: struct {

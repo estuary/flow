@@ -16,14 +16,28 @@ spec:
         release: {{ .Release.Name }}
     spec:
       containers:
-      - name: {{ .Chart.Name }}-counter
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
-        args: [
-          "/usr/local/bin/run-consumer",
-          "-dir", "/var/tmp",
-          "-etcd", "{{ .Values.etcd }}",
-          "-gazette", "{{ .Values.gazette }}",
-          "-name", "examples/word-count/counter",
-          "-plugin", "/usr/local/lib/counter.so",
+        - name: {{ .Chart.Name }}-counter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [
+            "/go/bin/run-consumer",
+            "-config", "/etc/config/config.yaml",
           ]
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: SERVICE_ALLOCATORROOT
+              value: "/examples/word-count/counter"
+            - name: SERVICE_LOCALROUTEKEY
+              value: "$(POD_IP):8080"
+            - name: SERVICE_PLUGIN
+              value: "/go/bin/counter.so"
+          volumeMounts:
+            - mountPath: /etc/config
+              name: config-volume
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ template "word-count.fullname" . }}
