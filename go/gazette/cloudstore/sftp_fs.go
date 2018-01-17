@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
-	"github.com/samuel/go-socks/socks"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
@@ -25,7 +24,6 @@ const (
 	SFTPUsername = "SFTPUsername"
 	SFTPPassword = "SFTPPassword"
 	SFTPPort     = "SFTPPort"
-	SFTPReqProxy = "SFTPReqProxy"
 	SFTPKey      = "SFTPKey"
 
 	SFTPDefaultPort = "22"
@@ -63,6 +61,16 @@ type sftpFile struct {
 	// Need this so we can Remove the file if CopyAtomic fails.
 	partialPath string
 }
+
+// SSHConnDialer is used to set up the ssh connection by the sftp fs client.
+type SSHConnDialer interface {
+	Dial(network, address string) (net.Conn, error)
+}
+
+// DefaultSSHConnDialer allows users to configure their own ssh connection
+// dialer for a more complex ssh connection used for setting up
+// the sftp fs client.
+var DefaultSSHConnDialer SSHConnDialer = new(net.Dialer)
 
 // Write is a buffered write call to the underlying SFTP file. We use the SFTP
 // max packet size as our buffer size to allow Write to be called many times
@@ -380,20 +388,6 @@ func (s *sftpFs) useKeyAuth() bool {
 	return s.properties.Get(SFTPKey) != ""
 }
 
-func (s *sftpFs) requiresProxy() bool {
-	var prox = s.properties.Get(SFTPReqProxy)
-	var b bool
-	var err error
-	if b, err = strconv.ParseBool(prox); err != nil {
-		// If we have a problem parsing the req_proxy boolean, log it as a
-		// warning, but continue.
-		log.WithFields(log.Fields{"require_proxy": prox, "err": err}).
-			Warn("couldn't parse proxy bool")
-		return false
-	}
-	return b
-}
-
 func (s *sftpFs) makeSFTPClient() (*sftp.Client, error) {
 	var auth ssh.AuthMethod
 	if s.useKeyAuth() {
@@ -413,7 +407,7 @@ func (s *sftpFs) makeSFTPClient() (*sftp.Client, error) {
 		Auth: []ssh.AuthMethod{auth},
 	}
 
-	if sshClient, err := makeSSHClient(s.host+":"+s.port(), config, s.requiresProxy()); err != nil {
+	if sshClient, err := makeSSHClient(s.host+":"+s.port(), config); err != nil {
 		return nil, err
 	} else if sftpClient, err := sftp.NewClient(sshClient); err != nil {
 		return nil, err
@@ -422,18 +416,12 @@ func (s *sftpFs) makeSFTPClient() (*sftp.Client, error) {
 	}
 }
 
-// makeSSHClient creates an SSH Client, forwarding the connection through the
-// SOCKS jumphost if required.
-func makeSSHClient(addr string, config *ssh.ClientConfig, reqProxy bool) (*ssh.Client, error) {
+// makeSSHClient creates an SSH Client
+func makeSSHClient(addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	var baseConnection net.Conn
 	var err error
 
-	if reqProxy {
-		var proxy = &socks.Proxy{socksEndpoint(), "", ""}
-		baseConnection, err = proxy.Dial("tcp", addr)
-	} else {
-		baseConnection, err = net.Dial("tcp", addr)
-	}
+	baseConnection, err = DefaultSSHConnDialer.Dial("tcp", addr)
 
 	if err != nil {
 		return nil, err
@@ -451,16 +439,6 @@ func makeSSHClient(addr string, config *ssh.ClientConfig, reqProxy bool) (*ssh.C
 		return nil, err
 	}
 	return ssh.NewClient(conn, newCh, reqCh), nil
-}
-
-func socksEndpoint() string {
-	var socksHost = os.Getenv("SOCKS_SERVER_SERVICE_HOST")
-	var socksPort = os.Getenv("SOCKS_SERVER_SERVICE_PORT")
-	if socksHost == "" || socksPort == "" {
-		return "127.0.0.1:1080"
-	} else {
-		return socksHost + ":" + socksPort
-	}
 }
 
 func isSSHError(err error, sshCode uint32) bool {
