@@ -8,17 +8,19 @@ import "github.com/LiveRamp/gazette/envflag"
 
 // NewGazetteServiceEndpoint defines the gazette service endpoint flag.
 func NewGazetteServiceEndpoint() *string {
-	return envflag.CommandLine.ServiceEndpoint(
+	return envflag.CommandLine.String(
 		"gazette",
-		"127.0.0.1:8081",
+		"GAZETTE_SERVICE_ENDPOINT",
+		"gazette.example:8081",
 		"Gazette network service host:port.")
 }
 
 // NewEtcdServiceEndpoint defines the Etcd service endpoint flag.
 func NewEtcdServiceEndpoint() *string {
-	return envflag.CommandLine.ServiceEndpoint(
+	return envflag.CommandLine.String(
 		"etcd",
-		"127.0.0.1:2379",
+		"ETCD_SERVICE_ENDPOINT",
+		"etcd.example:2379",
 		"Etcd network service host:port.")
 }
 

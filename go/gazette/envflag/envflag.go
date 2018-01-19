@@ -7,30 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 )
 
 type parseableFromEnv interface {
 	parseFromEnv()
-}
-
-// serviceEndpointFlag holds the metadata for an envflag representing a service
-// endpoint. A service endpoint is a host-port pair.
-type serviceEndpointFlag struct {
-	// host and port are the pair of names of the environment variables.
-	host, port string
-	// ptr is the address of the string variable that stores the value of the
-	// flag. This typically is the return value of a flag.String call.
-	ptr *string
-}
-
-// parseFromEnv implements parseableFromEnv
-func (f serviceEndpointFlag) parseFromEnv() {
-	if h := os.Getenv(f.host); h != "" {
-		if p := os.Getenv(f.port); p != "" {
-			*f.ptr = h + ":" + p
-		}
-	}
 }
 
 // stringFlag holds the metadata for an envflag representing a simple string. A
@@ -63,24 +43,9 @@ func NewFlagSet(fs *flag.FlagSet) *FlagSet {
 	return &FlagSet{fs: fs}
 }
 
-// ServiceEndpoint defines a service endpoint flag. A service endpoint is a
-// host-port value, parsed either from a pair of environment variables
-// "<NAME>_SERVICE_HOST", "<NAME>_SERVICE_PORT" or a single colon-delimited
-// command-line argument "-oss<name>Endpoint". The return value is the address
-// of a string variable that stores the value of the flag.
-func (fs *FlagSet) ServiceEndpoint(name, value, usage string) *string {
-	var prefix = strings.ToUpper(name)
-	var evHost = prefix + "_SERVICE_HOST"
-	var evPort = prefix + "_SERVICE_PORT"
-
-	var ptr = fs.fs.String(name+"Endpoint", value, fmt.Sprintf("%s (%s, %s)", usage, evHost, evPort))
-	fs.addFlag(name, serviceEndpointFlag{evHost, evPort, ptr})
-	return ptr
-}
-
 // String defines a string flag. A string flag is a single string value, parsed
 // either from an environment variable "<envvarName>" or a command-line
-// argument "-oss<flagName". The return value is the address of a string
+// argument "-<flagName". The return value is the address of a string
 // variable that stores the value of the flag.
 //
 // This is a general flag creation utility which is why flagName and
