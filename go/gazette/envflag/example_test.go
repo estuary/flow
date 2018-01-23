@@ -11,10 +11,10 @@ func Example() {
 	// Define envflags. Because this example is testable, long descriptive
 	// names have been chosen to reduce the chances of an environment variable
 	// by that name actually existing.
-	dbEndpoint := envflag.CommandLine.ServiceEndpoint(
-		"envflagExampleMysql", "mysql.example:3306", "MySQL endpoint")
-	redisEndpoint := envflag.CommandLine.ServiceEndpoint(
-		"envflagExampleRedis", "redis.example:6379", "Redis endpoint")
+	dbEndpoint := envflag.CommandLine.String(
+		"envflagExampleMysql", "MYSQL_SERVICE_ENDPOINT_EXAMPLE", "mysql.example:3306", "MySQL endpoint")
+	redisEndpoint := envflag.CommandLine.String(
+		"envflagExampleRedis", "REDIS_SERVICE_ENDPOINT_EXAMPLE", "redis.example:6379", "Redis endpoint")
 	pingURL := envflag.CommandLine.String(
 		"ping", "ENVFLAG_EXAMPLE_PING_URL", "http://localhost/ping", "URL to ping")
 	user := envflag.CommandLine.String(
@@ -41,22 +41,7 @@ func Example() {
 	// nobody
 }
 
-func ExampleFlagSet_ServiceEndpoint() {
-	// For now, command-line flag names are prefixed with "oss" to avoid
-	// collisions. This will be removed before final release.
-	fs := flag.NewFlagSet("Example", flag.PanicOnError)
-	efs := envflag.NewFlagSet(fs)
-
-	efs.ServiceEndpoint("api", "localhost:80", "API endpoint")
-	fmt.Println(fs.Lookup("apiEndpoint").Name)
-
-	// Output:
-	// apiEndpoint
-}
-
 func ExampleFlagSet_String() {
-	// For now, command-line flag names are prefixed with "oss" to avoid
-	// collisions. This will be removed before final release.
 	fs := flag.NewFlagSet("Example", flag.PanicOnError)
 	efs := envflag.NewFlagSet(fs)
 

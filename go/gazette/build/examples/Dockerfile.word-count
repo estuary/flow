@@ -8,7 +8,7 @@ RUN go build --buildmode=plugin -o /go/bin/shuffler.so \
 RUN go build --buildmode=plugin -o /go/bin/counter.so \
       github.com/LiveRamp/gazette/examples/word-count/counter
 
-FROM gazette-base:latest
+FROM liveramp/gazette-base:1.0.0
 COPY --from=build /go/bin/run-consumer /usr/local/bin
 COPY --from=build /go/bin/shuffler.so /usr/local/lib
 COPY --from=build /go/bin/counter.so /usr/local/lib

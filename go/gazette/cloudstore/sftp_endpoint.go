@@ -14,7 +14,6 @@ type SFTPEndpoint struct {
 	SFTPUsername  string `json:"username"`
 	SFTPPassword  string `json:"password"`
 	SFTPDirectory string `json:"directory"`
-	SFTPReqProxy  string `json:"req_proxy"`
 	SFTPKey       string `json:"ssh_key"`
 }
 
@@ -52,7 +51,6 @@ func (ep *SFTPEndpoint) properties() Properties {
 		SFTPUsername: ep.SFTPUsername,
 		SFTPPassword: ep.SFTPPassword,
 		SFTPPort:     ep.SFTPPort,
-		SFTPReqProxy: ep.SFTPReqProxy,
 		SFTPKey:      ep.SFTPKey,
 	}
 }
