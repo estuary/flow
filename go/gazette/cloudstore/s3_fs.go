@@ -1,6 +1,7 @@
 package cloudstore
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/LiveRamp/gazette/keepalive"
+	gzip "github.com/youtube/vitess/go/cgzip"
 )
 
 const (
@@ -32,7 +34,8 @@ const (
 type s3Fs struct {
 	properties Properties
 	// Prefix roots all files within this filesystem.
-	prefix string
+	prefix   string
+	compress bool
 }
 
 type S3Properties map[string]string
@@ -41,10 +44,11 @@ func (s S3Properties) Get(key string) string {
 	return s[key]
 }
 
-func newS3FS(properties Properties, prefix string) (*s3Fs, error) {
+func newS3FS(properties Properties, prefix string, compress bool) (*s3Fs, error) {
 	return &s3Fs{
 		properties: properties,
 		prefix:     prefix,
+		compress:   compress,
 	}, nil
 }
 
@@ -170,11 +174,20 @@ func (fs *s3Fs) OpenFile(name string, flag int, perm os.FileMode) (File, error) 
 			return nil, errors.New("expected UploadId in MultipartUpload creation")
 		}
 
+		var buf = new(bytes.Buffer)
+		var spool = *buf
+		var compressor io.WriteCloser
+		if fs.compress {
+			compressor = gzip.NewWriter(&spool)
+		}
+
 		return &s3File{
-			svc:      svc,
-			bucket:   aws.String(bucket),
-			key:      aws.String(path),
-			uploadId: resp.UploadId,
+			svc:        svc,
+			bucket:     aws.String(bucket),
+			key:        aws.String(path),
+			uploadId:   resp.UploadId,
+			spool:      spool,
+			compressor: compressor,
 		}, nil
 	} else {
 		return nil, errors.New("unsupported file flags")
@@ -240,12 +253,7 @@ func (fs *s3Fs) Remove(name string) error {
 // guarantees provided by Amazon S3. In particular, |to| is aborted
 // (s3File.uploadId is aborted explicitly) if a write *or read* error occurs.
 func (fs *s3Fs) CopyAtomic(to File, from io.Reader) (n int64, err error) {
-	if n, err = io.Copy(to.(*s3File), from); err == nil {
-		// Completes the multipart upload.
-		to.Close()
-	}
-	return
-
+	return to.(*s3File).transfer(from)
 }
 
 // For the specified |path|, generates a signed URL which makes it so that the

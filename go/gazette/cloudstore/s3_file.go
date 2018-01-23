@@ -50,6 +50,7 @@ type s3File struct {
 	uploadId      *string
 	uploadedParts []*s3.CompletedPart
 	spool         bytes.Buffer
+	compressor    io.WriteCloser
 
 	// Global error state for this file.
 	err error
@@ -72,21 +73,25 @@ func (f *s3File) Read(p []byte) (int, error) {
 
 // File interface method.
 func (f *s3File) Write(p []byte) (int, error) {
+	var n int
 	var buf = &f.spool
-
-	// Write to in-memory spool.
-	n, err := buf.Write(p)
-	if err != nil {
-		return n, err
+	if f.compressor != nil {
+		n, f.err = f.compressor.Write(p)
+	} else {
+		n, f.err = buf.Write(p)
 	}
 
-	// If necessary, spill spool to S3 multipart chunk.
-	if buf.Len() > MaxSpoolSizeBytes {
+	if f.err != nil {
+		if f.compressor != nil {
+			f.compressor.Close()
+		}
+		// If necessary, spill spool to S3 multipart chunk.
+	} else if buf.Len() > MaxSpoolSizeBytes {
 		if f.err = f.uploadSpool(); f.err != nil {
 			return 0, f.err
 		}
 	}
-	return n, err
+	return n, f.err
 }
 
 // File interface method.
@@ -117,6 +122,9 @@ func (f *s3File) Close() error {
 		}
 
 		_, f.err = f.svc.CompleteMultipartUpload(&params)
+		if f.compressor != nil {
+			f.compressor.Close()
+		}
 	} else {
 		panic("cannot determine kind of s3File object for Close()")
 	}
@@ -377,4 +385,23 @@ func (f *s3File) listObjects() ([]os.FileInfo, error) {
 // upload purposes.
 func (f *s3File) isUpload() bool {
 	return f.uploadId != nil
+}
+
+func (f *s3File) transfer(from io.Reader) (int64, error) {
+	var n int64
+	if f.compressor != nil {
+		n, f.err = io.Copy(f.compressor, from)
+	} else {
+		var buf = &f.spool
+		n, f.err = io.Copy(buf, from)
+	}
+
+	if f.err != nil {
+		if f.compressor != nil {
+			f.compressor.Close()
+		}
+		return n, f.err
+	}
+
+	return n, f.Close()
 }
