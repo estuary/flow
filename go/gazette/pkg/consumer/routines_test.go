@@ -107,6 +107,15 @@ func (s *RoutinesSuite) TestStoreOffsetsToEtcd(c *gc.C) {
 	s.keysAPI.AssertExpectations(c)
 }
 
+func (s *RoutinesSuite) TestOffsetKeyValueRegression(c *gc.C) {
+	var key = AppendOffsetKeyEncoding([]byte{0xff, 0xff}, "bar/baz")
+	c.Check(key, gc.DeepEquals, []byte{0xff, 0xff, 0x00, 0x12, 'm', 'a', 'r', 'k',
+		0x0, 0x1, 0x12, 'b', 'a', 'r', '/', 'b', 'a', 'z', 0x00, 0x1})
+
+	var value = AppendOffsetValueEncoding([]byte{0xff, 0xff}, 123456)
+	c.Check(value, gc.DeepEquals, []byte{0xff, 0xff, 0xf8, 0x1, 0xe2, 0x40})
+}
+
 func (s *RoutinesSuite) TestLoadAndStoreOffsetsToDB(c *gc.C) {
 	path, err := ioutil.TempDir("", "routines-suite")
 	c.Assert(err, gc.IsNil)

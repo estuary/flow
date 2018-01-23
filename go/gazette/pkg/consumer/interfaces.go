@@ -68,6 +68,13 @@ type Consumer interface {
 	Flush(Shard, *topic.Publisher) error
 }
 
+// Optional Consumer interface for implementations which prune or expire
+// keys & values from the Shard database on a Consumer-specific criteria.
+// This interface intentionally overlaps with `rocks.CompactionFilter`.
+type Filterer interface {
+	Filter(level int, key, val []byte) (remove bool, newVal []byte)
+}
+
 // Optional Consumer interface for notification of Shard initialization prior
 // to an initial Consume. A common use case is to initialize the shard cache.
 type ShardIniter interface {

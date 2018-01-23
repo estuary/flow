@@ -172,29 +172,44 @@ func StoreOffsetsToEtcd(rootPath string, offsets map[journal.Name]int64, keysAPI
 	}
 }
 
+// AppendOffsetKeyEncoding encodes |name| into a database key representing
+// a consumer journal offset checkpoint. A |name| of "" will generate a
+// key which prefixes all other offset key encodings.
+func AppendOffsetKeyEncoding(b []byte, name journal.Name) []byte {
+	b = encoding.EncodeNullAscending(b)
+	b = encoding.EncodeStringAscending(b, "mark")
+	if name != "" {
+		b = encoding.EncodeStringAscending(b, string(name))
+	}
+	return b
+}
+
+// AppendOffsetValueEncoding encodes |offset| into a database value representing
+// a consumer journal offset checkpoint.
+func AppendOffsetValueEncoding(b []byte, offset int64) []byte {
+	return encoding.EncodeVarintAscending(b, offset)
+}
+
 // Loads from |db| offsets previously serialized by storeAndClearOffsets.
 func LoadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]int64, error) {
-	markPrefix := encoding.EncodeNullAscending(nil)
-	markPrefix = encoding.EncodeStringAscending(markPrefix, "mark")
+	var prefix = AppendOffsetKeyEncoding(nil, "")
+	var result = make(map[journal.Name]int64)
 
-	result := make(map[journal.Name]int64)
-
-	it := db.NewIterator(dbRO)
+	var it = db.NewIterator(dbRO)
 	defer it.Close()
 
-	for it.Seek(markPrefix); it.ValidForPrefix(markPrefix); it.Next() {
-		key, val := it.Key().Data(), it.Value().Data()
+	for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+		var key, val = it.Key().Data(), it.Value().Data()
 
-		_, name, err1 := encoding.DecodeStringAscending(key[len(markPrefix):], nil)
-		_, offset, err2 := encoding.DecodeVarintAscending(val)
+		var _, name, err1 = encoding.DecodeStringAscending(key[len(prefix):], nil)
+		var _, offset, err2 = encoding.DecodeVarintAscending(val)
 
 		it.Key().Free()
 		it.Value().Free()
 
 		if err1 != nil {
 			return nil, err1
-		}
-		if err2 != nil {
+		} else if err2 != nil {
 			return nil, err2
 		}
 		result[journal.Name(name)] = offset
@@ -205,13 +220,7 @@ func LoadOffsetsFromDB(db *rocks.DB, dbRO *rocks.ReadOptions) (map[journal.Name]
 // Stores |offsets| to |wb| using an identical encoding as LoadOffsetsFromDB.
 func storeOffsetsToDB(wb *rocks.WriteBatch, offsets map[journal.Name]int64) {
 	for name, offset := range offsets {
-		key := encoding.EncodeNullAscending(nil)
-		key = encoding.EncodeStringAscending(key, "mark")
-		key = encoding.EncodeStringAscending(key, string(name))
-
-		value := encoding.EncodeVarintAscending(nil, offset)
-
-		wb.Put(key, value)
+		wb.Put(AppendOffsetKeyEncoding(nil, name), AppendOffsetValueEncoding(nil, offset))
 	}
 }
 

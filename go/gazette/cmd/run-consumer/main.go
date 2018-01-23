@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"path"
 	"plugin"
@@ -34,10 +33,6 @@ type Config struct {
 	Etcd    struct{ Endpoint string } // Etcd endpoint to use.
 	Gazette struct{ Endpoint string } // Gazette endpoint to use.
 }
-
-type HostPort struct{ Host, Port string }
-
-func (hp HostPort) Addr() string { return net.JoinHostPort(hp.Host, hp.Port) }
 
 func (cfg Config) Validate() error {
 	if !path.IsAbs(cfg.Service.AllocatorRoot) {
