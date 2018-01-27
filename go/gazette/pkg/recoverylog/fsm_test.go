@@ -347,7 +347,7 @@ func (s *FSMSuite) TestFnodeWrites(c *gc.C) {
 }
 
 func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
-	hints := FSMHints{
+	var hints = FSMHints{
 		Log: "a/log",
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
@@ -363,23 +363,23 @@ func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
 
 	// Intermix a "bad" recorder (666) which uses valid SeqNo & Checksums.
 	// Expect that we still reconstruct the recorder-hinted history.
-	c.Check(s.create(42, 0x0, 666, "/evil/path"), gc.Equals, ErrNotHinted)
+	c.Check(s.create(42, 0x0, 666, "/evil/path"), gc.Equals, ErrNotHintedAuthor)
 	c.Check(s.create(42, 0x0, 100, "/good/path"), gc.IsNil)
 
-	// A write from recorder 100 fails.
-	c.Check(s.write(43, s.fsm.NextChecksum, 100, 42), gc.Equals, ErrWrongSeqNo)
+	// A write from recorder 100 fails (200 is hinted next).
+	c.Check(s.write(43, s.fsm.NextChecksum, 100, 42), gc.Equals, ErrNotHintedAuthor)
 	// Operation 43 is not hinted by a Segment. Recorder 200 is hinted for 44.
 	c.Check(s.write(43, s.fsm.NextChecksum, 200, 15), gc.Equals, ErrWrongSeqNo)
 	c.Check(s.write(44, 0x0, 200, 42), gc.IsNil) // Expect checksum was reset.
-	c.Check(s.write(45, s.fsm.NextChecksum, 200, 42), gc.Equals, ErrNotHinted)
+	c.Check(s.write(45, s.fsm.NextChecksum, 200, 42), gc.Equals, ErrNotHintedAuthor)
 
 	// Author 300 is valid for just one SeqNo (45).
-	c.Check(s.write(45, s.fsm.NextChecksum, 666, 42), gc.Equals, ErrNotHinted)
+	c.Check(s.write(45, s.fsm.NextChecksum, 666, 42), gc.Equals, ErrNotHintedAuthor)
 	c.Check(s.write(45, 0x0, 300, 42), gc.IsNil) // Expect checksum was reset.
-	c.Check(s.write(46, s.fsm.NextChecksum, 300, 42), gc.Equals, ErrNotHinted)
+	c.Check(s.write(46, s.fsm.NextChecksum, 300, 42), gc.Equals, ErrNotHintedAuthor)
 
 	// Author 400 closes out the sequence.
-	c.Check(s.write(46, s.fsm.NextChecksum, 666, 42), gc.Equals, ErrNotHinted)
+	c.Check(s.write(46, s.fsm.NextChecksum, 666, 42), gc.Equals, ErrNotHintedAuthor)
 	c.Check(s.create(46, 0x0, 400, "/another/path"), gc.IsNil)
 	c.Check(s.write(47, s.fsm.NextChecksum, 400, 46), gc.IsNil)
 

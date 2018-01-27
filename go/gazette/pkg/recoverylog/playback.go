@@ -446,6 +446,10 @@ func playOperation(br *bufio.Reader, dir string, fsm *FSM, files fnodeFileMap) (
 		// state, and we may make further progress later in the log.
 		if fsmErr == ErrFnodeNotTracked {
 			// Fnode is deleted later in the log, and is no longer hinted.
+		} else if fsmErr == ErrNotHintedAuthor {
+			// The FSM has remaining playback hints, and this operation doesn't match
+			// the next expected Author. This happens frequently during Recorder hand-off;
+			// the operation is a dead branch of the log.
 		} else if fsmErr == ErrWrongSeqNo && op.SeqNo < fsm.NextSeqNo {
 			// |op| is prior to the next hinted SeqNo. We may have started reading
 			// from a lower-bound offset, or it may be a duplicated write.

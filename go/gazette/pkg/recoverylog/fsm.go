@@ -13,7 +13,7 @@ var (
 	ErrFnodeNotTracked  = fmt.Errorf("fnode not tracked")
 	ErrLinkExists       = fmt.Errorf("link exists")
 	ErrNoSuchLink       = fmt.Errorf("fnode has no such link")
-	ErrNotHinted        = fmt.Errorf("op recorder is not hinted")
+	ErrNotHintedAuthor  = fmt.Errorf("op author does not match the next hinted author")
 	ErrPropertyExists   = fmt.Errorf("property exists")
 	ErrWrongSeqNo       = fmt.Errorf("wrong sequence number")
 
@@ -110,18 +110,19 @@ func NewFSM(hints FSMHints) (*FSM, error) {
 }
 
 func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
+	// If hints remain, ensure that op.Author is the expected next operation author.
+	if len(m.hintedSegments) != 0 && m.hintedSegments[0].Author != op.Author {
+		// This may be a consistent operation, but is written by a non-hinted
+		// Author for the next SeqNo of interest: the operation represents a
+		// (likely dead) branch in recovery-log history relative to the
+		// FSMHints we're re-building.
+		return ErrNotHintedAuthor
+	}
+
 	if op.SeqNo != m.NextSeqNo {
 		return ErrWrongSeqNo
 	} else if op.Checksum != m.NextChecksum {
 		return ErrChecksumMismatch
-	}
-
-	// If hints remain, ensure that op.Author is hinted for this op.SeqNo.
-	if len(m.hintedSegments) != 0 && m.hintedSegments[0].Author != op.Author {
-		// This is a consistent operation, but written by a non-hinted Author
-		// for this SeqNo: the operation represents a (likely dead) branch in
-		// recovery-log history relative to the FSMHints we're re-building.
-		return ErrNotHinted
 	}
 
 	// Note apply*() functions do not modify FSM state if they return an error.
