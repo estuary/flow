@@ -246,17 +246,20 @@ func (m *FSM) applyProperty(op *Property) error {
 	return nil
 }
 
-// Constructs memoized hints enabling a future FSM to rebuild this FSM's state.
+// BuildHints constructs FSMHints which enable a future FSM to rebuild this FSM's state.
 func (m *FSM) BuildHints() FSMHints {
 	var hints = FSMHints{
 		Log: m.LogMark.Journal,
 	}
 
-	// Flatten LiveNodes into ordered HintedFnodes.
+	// Flatten LiveNodes into FnodeSegments.
 	for fnode, state := range m.LiveNodes {
-		hints.LiveNodes = append(hints.LiveNodes, HintedFnode{fnode, state.Segments})
+		hints.LiveNodes = append(hints.LiveNodes, FnodeSegments{fnode, state.Segments})
 	}
-	sort.Sort(FnodeOrder(hints.LiveNodes))
+	// Order LiveNodes on ascending Fnode ID, which is also the order LiveNodes will appear in the log.
+	sort.Slice(hints.LiveNodes, func(i, j int) bool {
+		return hints.LiveNodes[i].Fnode < hints.LiveNodes[j].Fnode
+	})
 
 	// Flatten properties.
 	for path, content := range m.Properties {
@@ -265,7 +268,7 @@ func (m *FSM) BuildHints() FSMHints {
 	return hints
 }
 
-func (m *FSM) HasHints() bool {
+func (m *FSM) hasRemainingHints() bool {
 	return len(m.hintedSegments) != 0 || len(m.hintedFnodes) != 0
 }
 
@@ -282,10 +285,3 @@ func (m *FSM) extendSegments(s *[]Segment, op *RecordedOp) {
 		})
 	}
 }
-
-// sort.Interface HintedFnode implementation ordered on Fnode.
-type FnodeOrder []HintedFnode
-
-func (n FnodeOrder) Len() int           { return len(n) }
-func (n FnodeOrder) Less(i, j int) bool { return n[i].Fnode < n[j].Fnode }
-func (n FnodeOrder) Swap(i, j int)      { n[i], n[j] = n[j], n[i] }

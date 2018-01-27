@@ -536,7 +536,7 @@ func copyFixed(w io.Writer, r io.Reader, length int64) error {
 // indicated by |fsm| under |dir|, and creates any property files of |fsm|.
 // |files| must exactly match live nodes of |fsm| or makeLive panics.
 func makeLive(dir string, fsm *FSM, files fnodeFileMap) error {
-	if fsm.HasHints() {
+	if fsm.hasRemainingHints() {
 		return fmt.Errorf("FSM has remaining unused hints: %+v", fsm)
 	}
 	for fnode, liveNode := range fsm.LiveNodes {

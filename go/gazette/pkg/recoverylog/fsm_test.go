@@ -31,7 +31,7 @@ func (s *FSMSuite) TestInitFromSeqNoZero(c *gc.C) {
 func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 	hints := FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{
 					Author:        100,
@@ -88,17 +88,17 @@ func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
 	})
 	// Expect LiveNodes tracks Segments and links.
 	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*FnodeState{
-		42: &FnodeState{
+		42: {
 			Links: map[string]struct{}{"/path/A": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 42, FirstOffset: 1,
 				FirstChecksum: 0xfeedbeef, LastSeqNo: 42}},
 		},
-		43: &FnodeState{
+		43: {
 			Links: map[string]struct{}{"/another/path": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 43, FirstOffset: 2,
 				FirstChecksum: 0x2d28e063, LastSeqNo: 43}},
 		},
-		44: &FnodeState{
+		44: {
 			Links: map[string]struct{}{"/path/B": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 44, FirstOffset: 5,
 				FirstChecksum: 0xf11e2261, LastSeqNo: 44}},
@@ -108,7 +108,7 @@ func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
 
 func (s *FSMSuite) TestFnodeCreationNotHinted(c *gc.C) {
 	s.fsm = s.newFSM(c, FSMHints{
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{{Author: 100, FirstChecksum: 0xfeedbeef,
 				FirstOffset: 1234, FirstSeqNo: 42, LastSeqNo: 100}}},
 			{Fnode: 44, Segments: []Segment{{Author: 100, FirstChecksum: 0xf11e2261,
@@ -129,12 +129,12 @@ func (s *FSMSuite) TestFnodeCreationNotHinted(c *gc.C) {
 		"/final/path": 44,
 	})
 	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*FnodeState{
-		42: &FnodeState{
+		42: {
 			Links: map[string]struct{}{"/path/A": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 42, FirstOffset: 1,
 				FirstChecksum: 0xfeedbeef, LastSeqNo: 42}},
 		},
-		44: &FnodeState{
+		44: {
 			Links: map[string]struct{}{"/final/path": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 44, FirstOffset: 3,
 				FirstChecksum: 0xf11e2261, LastSeqNo: 44}},
@@ -172,14 +172,14 @@ func (s *FSMSuite) TestFnodeLinking(c *gc.C) {
 		"/target/two":    43,
 	})
 	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*FnodeState{
-		42: &FnodeState{
+		42: {
 			Links: map[string]struct{}{"/existing/path": {}, "/target/one": {}},
 			Segments: []Segment{
 				// Expect Link operation extended current author segment.
 				{Author: 100, FirstSeqNo: 42, FirstOffset: 1,
 					FirstChecksum: 0xfeedbeef, LastSeqNo: 44}},
 		},
-		43: &FnodeState{
+		43: {
 			Links: map[string]struct{}{"/source/path": {}, "/target/two": {}},
 			Segments: []Segment{
 				// Under a different author, a new Segment was appended.
@@ -232,7 +232,7 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 	// Hints reflect both Fnode 42 & 43.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{Author: 0x64, FirstSeqNo: 42, FirstOffset: 1,
 					FirstChecksum: 0xfeedbeef, LastSeqNo: 42}}},
@@ -254,7 +254,7 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 	// Produced hints capture Fnode 42 only.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{Author: 0x64, FirstSeqNo: 42, FirstOffset: 1,
 					FirstChecksum: 0xfeedbeef, LastSeqNo: 42}}},
@@ -271,7 +271,7 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 	// Produced hints are now only sufficient to replay Fnode 48.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 48, Segments: []Segment{
 				{Author: 0x12c, FirstSeqNo: 48, FirstOffset: 9,
 					FirstChecksum: 0x11bc1ac9, LastSeqNo: 48}}},
@@ -337,7 +337,7 @@ func (s *FSMSuite) TestFnodeWrites(c *gc.C) {
 
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				// Expect write operations extended Fnode Segments.
 				{Author: 0x64, FirstSeqNo: 42, FirstOffset: 1,
@@ -349,7 +349,7 @@ func (s *FSMSuite) TestFnodeWrites(c *gc.C) {
 func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
 	hints := FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{Author: 100, FirstOffset: 2, FirstSeqNo: 42, LastSeqNo: 42},
 				{Author: 200, FirstOffset: 5, FirstSeqNo: 44, LastSeqNo: 44},
@@ -392,7 +392,7 @@ func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
 
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
 		Log: "a/log",
-		LiveNodes: []HintedFnode{{Fnode: 46, Segments: []Segment{
+		LiveNodes: []FnodeSegments{{Fnode: 46, Segments: []Segment{
 			{Author: 400, FirstSeqNo: 46, FirstOffset: 11, LastSeqNo: 47},
 			{Author: 666, FirstSeqNo: 49, FirstOffset: 14,
 				FirstChecksum: 0x1cab6124, LastSeqNo: 49},

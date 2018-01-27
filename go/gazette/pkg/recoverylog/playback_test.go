@@ -489,7 +489,7 @@ func expectFileContent(c *gc.C, path, content string) {
 func hintsFixture() FSMHints {
 	return FSMHints{
 		Log: aRecoveryLog,
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{Author: anAuthor, FirstSeqNo: 42, LastSeqNo: 45, FirstOffset: 11111}}},
 			{Fnode: 44, Segments: []Segment{

@@ -71,7 +71,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
 
 	s.recorder.NewWritableFile(s.tmpDir + "/other/file")
-	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(79))
+	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(74))
 
 	op = s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(2))
@@ -126,7 +126,7 @@ func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
 	s.recorder.NewWritableFile(s.tmpDir + "/source/path")
 	_ = s.parseOp(c)
 
-	// Excercise handling for duplicate '//' prefixes.
+	// Exercise handling for duplicate '//' prefixes.
 	s.recorder.RenameFile(s.tmpDir+"//source/path", s.tmpDir+"/target/path")
 
 	// Expect unlink of Fnode 1 from target path.
@@ -265,7 +265,7 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 	// Expect that hints are produced for the current FSM state.
 	c.Check(s.recorder.BuildHints(), gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
-		LiveNodes: []HintedFnode{
+		LiveNodes: []FnodeSegments{
 			{Fnode: 2, Segments: []Segment{
 				{Author: s.recorder.id, FirstSeqNo: 2, FirstChecksum: expectChecksum,
 					FirstOffset: expectOffset, LastSeqNo: 3}}}},
