@@ -32,7 +32,6 @@ spec:
         args: [
           "/usr/local/bin/gazette",
           "-cloudFS", "{{ .Values.cloudFS }}",
-          "-etcdEndpoint", "{{ .Values.etcd }}",
           "-replicaCount", "2",
         ]
         env:
@@ -47,6 +46,8 @@ spec:
           value: {{ .Values.aws.secretKey }}
         - name: AWS_DEFAULT_REGION
           value: {{ .Values.aws.defaultRegion }}
+        - name: ETCD_SERVICE_ENDPOINT
+          value: {{ .Values.etcd }}
         {{ end }}
 #        livenessProbe:
 #          httpGet:
