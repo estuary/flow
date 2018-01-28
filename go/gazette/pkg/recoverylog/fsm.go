@@ -167,7 +167,7 @@ func (m *FSM) applyCreate(op *RecordedOp) error {
 		return ErrPropertyExists
 	}
 	// Assigned fnode ID is the SeqNo of the current operation.
-	fnode := Fnode(op.SeqNo)
+	var fnode = Fnode(op.SeqNo)
 
 	// Determine whether |fnode| is hinted.
 	if len(m.hintedFnodes) != 0 {
@@ -177,8 +177,8 @@ func (m *FSM) applyCreate(op *RecordedOp) error {
 		m.hintedFnodes = m.hintedFnodes[1:] // Pop hint.
 	}
 
-	node := &FnodeState{Links: map[string]struct{}{op.Create.Path: {}}}
-	m.extendSegments(&node.Segments, op)
+	var node = &FnodeState{Links: map[string]struct{}{op.Create.Path: {}}}
+	node.Segments = m.extendSegments(node.Segments, op)
 
 	m.LiveNodes[fnode] = node
 	m.Links[op.Create.Path] = fnode
@@ -192,20 +192,20 @@ func (m *FSM) applyLink(op *RecordedOp) error {
 	} else if _, ok := m.Properties[op.Link.Path]; ok {
 		return ErrPropertyExists
 	}
-	node, ok := m.LiveNodes[op.Link.Fnode]
+	var node, ok = m.LiveNodes[op.Link.Fnode]
 	if !ok {
 		return ErrFnodeNotTracked
 	}
 
 	node.Links[op.Link.Path] = struct{}{}
 	m.Links[op.Link.Path] = op.Link.Fnode
-	m.extendSegments(&node.Segments, op)
+	node.Segments = m.extendSegments(node.Segments, op)
 
 	return nil
 }
 
 func (m *FSM) applyUnlink(op *RecordedOp) error {
-	node, ok := m.LiveNodes[op.Unlink.Fnode]
+	var node, ok = m.LiveNodes[op.Unlink.Fnode]
 	if !ok {
 		return ErrFnodeNotTracked
 	} else if _, ok = node.Links[op.Unlink.Path]; !ok {
@@ -214,7 +214,7 @@ func (m *FSM) applyUnlink(op *RecordedOp) error {
 
 	delete(m.Links, op.Unlink.Path)
 	delete(node.Links, op.Unlink.Path)
-	m.extendSegments(&node.Segments, op)
+	node.Segments = m.extendSegments(node.Segments, op)
 
 	if len(node.Links) == 0 {
 		// Fnode is no longer live (all links are removed).
@@ -225,11 +225,11 @@ func (m *FSM) applyUnlink(op *RecordedOp) error {
 }
 
 func (m *FSM) applyWrite(op *RecordedOp) error {
-	node, ok := m.LiveNodes[op.Write.Fnode]
+	var node, ok = m.LiveNodes[op.Write.Fnode]
 	if !ok {
 		return ErrFnodeNotTracked
 	}
-	m.extendSegments(&node.Segments, op)
+	node.Segments = m.extendSegments(node.Segments, op)
 
 	return nil
 }
@@ -273,16 +273,28 @@ func (m *FSM) hasRemainingHints() bool {
 	return len(m.hintedSegments) != 0 || len(m.hintedFnodes) != 0
 }
 
-func (m *FSM) extendSegments(s *[]Segment, op *RecordedOp) {
-	if l := len(*s); l != 0 && (*s)[l-1].Author == op.Author {
-		(*s)[l-1].LastSeqNo = op.SeqNo
-	} else {
-		*s = append(*s, Segment{
-			Author:        op.Author,
-			FirstChecksum: op.Checksum,
-			FirstOffset:   m.LogMark.Offset,
-			FirstSeqNo:    op.SeqNo,
-			LastSeqNo:     op.SeqNo,
-		})
+func (m *FSM) extendSegments(s []Segment, op *RecordedOp) []Segment {
+	if l := len(s) - 1; l >= 0 && s[l].Author == op.Author {
+		s[l].LastSeqNo = op.SeqNo
+
+		if op.LastOffset != 0 {
+			s[l].LastOffset = op.LastOffset
+		}
+		return s
 	}
+
+	// Prefer a RecordedOp offset if available, and fall back to the LogMark
+	// (which may be a lower-bound).
+	var offset = op.FirstOffset
+	if offset == 0 {
+		offset = m.LogMark.Offset
+	}
+
+	return append(s, Segment{
+		Author:        op.Author,
+		FirstChecksum: op.Checksum,
+		FirstOffset:   offset,
+		FirstSeqNo:    op.SeqNo,
+		LastSeqNo:     op.SeqNo,
+	})
 }
