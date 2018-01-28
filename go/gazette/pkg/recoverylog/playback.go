@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,17 +26,18 @@ type Player struct {
 	handoffCh chan Author
 	exitCh    chan *FSM
 
-	// TODO(johnny): Plumb through a Context, and remove this.
+	// TODO(johnny): Plumb through a Context, and remove this (Issue #37).
 	cancelCh <-chan struct{}
 }
 
 // NewPlayer returns a new Player for recovering the log indicated by |hints|
 // into |dir|. An error is returned if |hints| are invalid.
 func NewPlayer(hints FSMHints, dir string) (*Player, error) {
+	// Validate |hints| are well formed, but discard the built FSM
+	// (PlayContext, typically run in a spawned goroutine, manages its own).
 	if _, err := NewFSM(hints); err != nil {
 		return nil, err
 	}
-
 	return &Player{
 		hints:     hints,
 		dir:       dir,
@@ -89,18 +89,20 @@ func (p *Player) IsTailing() bool {
 	}
 }
 
-// TODO(johnny): Plumb Context through Play, and remove.
-// Deprecated. SetCancelChan arranges for a subsequent Play
-// invocation to cancel playback upon |cancelCh| becoming select-able.
+// SetCancelChan arranges for a subsequent Play invocation to cancel playback upon
+// |cancelCh| becoming select-able.
+//
+// Deprecated: Plumb Context through Play, and remove (Issue #37).
 func (p *Player) SetCancelChan(cancelCh <-chan struct{}) {
 	p.cancelCh = cancelCh
 }
 
-// Deprecated. Play using the prepared Player. Returns on the first encountered
+// Play using the prepared Player. Returns on the first encountered
 // unrecoverable error, or upon a successful MakeLive or Handoff.
+//
+// Deprecated: Remove after context is plumbed through (Issue #37).
 func (p *Player) Play(client journal.Client) error {
 	// Start an adapter to close the playLog Context on cancelCh being selectable.
-	// TODO(johnny): Remove after context is plumbed through Play.
 	var ctx, cancel = context.WithCancel(context.TODO())
 	if p.cancelCh != nil {
 		go func() {
@@ -114,7 +116,7 @@ func (p *Player) Play(client journal.Client) error {
 // playerReader is a cancel-able, buffered RetryReader which may be
 // asynchronously Peeked. This is a requirement for the playback loop, which
 // generally wants to use blocking reads while retaining an ability to cancel
-// pending read operations due to a signal to begin exiting.
+// pending read operations upon a signal to begin exiting.
 type playerReader struct {
 	rr          journal.RetryReader
 	br          *bufio.Reader      // Wraps |rr|.
@@ -261,40 +263,39 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 
 	// Issue a write barrier to determine the transactional, current log head.
 	var asyncAppend *journal.AsyncAppend
-	if asyncAppend, err = client.Write(fsm.LogMark.Journal, nil); err != nil {
+	if asyncAppend, err = client.Write(hints.Log, nil); err != nil {
 		return
 	}
 	<-asyncAppend.Ready
 
-	// Offset we expect to have read through prior to exiting.
+	// Next journal |mark| being read.
+	var mark = journal.Mark{Journal: hints.Log, Offset: 0}
+	// Offset we expect to have read through prior to exiting
 	var writeHead = asyncAppend.WriteHead
 
-	var reader = newPlayerReader(ctx, fsm.LogMark, client)
+	var reader = newPlayerReader(ctx, mark, client)
 	defer func() { reader.abort() }() // Defer must be wrapped, as |reader| may change.
 
 	for {
 
-		if s := fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > fsm.LogMark.Offset {
+		if s := fsm.hintedSegments; len(s) != 0 && s[0].FirstOffset > mark.Offset {
 			// Use hinted offset to opportunistically skip through dead chunks of the log.
 			// Note that FSM is responsible for updating |hintedSegments| as they're applied.
-			fsm.LogMark.Offset = s[0].FirstOffset
-		} else if state == playerStateBackfill && fsm.LogMark.Offset == writeHead {
+			mark.Offset = s[0].FirstOffset
+		} else if state == playerStateBackfill && mark.Offset == writeHead {
 			// We've completed back-fill and are now tailing the journal.
 			state = playerStateTail
 			close(tailingCh)
-		} else if fsm.LogMark.Offset == -1 {
-			// In the absence of hinted segments, read from the current log head.
-			fsm.LogMark.Offset = writeHead
 		}
 
 		switch state {
 		case playerStateBackfill, playerStateTail, playerStateReadHandoffBarrier:
 			// Always perform blocking reads from these states.
-			reader = prepareRead(ctx, reader, fsm.LogMark.Offset, true)
+			reader = prepareRead(ctx, reader, mark.Offset, true)
 		case playerStateExitAtHead, playerStateInjectHandoffAtHead:
 			// If we believe we're at the log head and want to do something once we confirm it
 			// (exit, or inject a no-op), use non-blocking reads.
-			reader = prepareRead(ctx, reader, fsm.LogMark.Offset, fsm.LogMark.Offset < writeHead)
+			reader = prepareRead(ctx, reader, mark.Offset, mark.Offset < writeHead)
 		}
 
 		// Begin a read of the next operation. Wait for it to error or for the
@@ -321,10 +322,10 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 		}
 
 		if err == journal.ErrNotYetAvailable {
-			if fsm.LogMark.Offset < writeHead {
+			if mark.Offset < writeHead {
 				// This error is returned only by a non-blocking reader, and we should have used
 				// a non-blocking reader only if we were already at |writeHead|.
-				log.WithFields(log.Fields{"mark": fsm.LogMark, "writeHead": writeHead}).
+				log.WithFields(log.Fields{"mark": mark, "writeHead": writeHead}).
 					Panic("unexpected ErrNotYetAvailable")
 			}
 
@@ -341,7 +342,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 					Author:   handoff,
 				}, nil)
 
-				if asyncAppend, err = client.Write(fsm.LogMark.Journal, noop); err != nil {
+				if asyncAppend, err = client.Write(mark.Journal, noop); err != nil {
 					return
 				}
 				<-asyncAppend.Ready
@@ -360,34 +361,36 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 		// Gazette read operations can potentially update the log mark. Specifically,
 		// if the requested offset has been deleted from the log, the broker will
 		// return the next available offset.
-		fsm.LogMark = reader.rr.AdjustedMark(reader.br)
-
+		mark = reader.rr.AdjustedMark(reader.br)
+		// The read result may have told us that the journal write-head increased,
+		// in which case we want to be sure to read through that offset.
 		if reader.rr.LastResult.WriteHead > writeHead {
 			writeHead = reader.rr.LastResult.WriteHead
 		}
 
-		// Parse and apply the operation. Track the operation author, and whether it
-		// was correctly sequenced by the FSM (or otherwise, was ignored).
-		var opAuthor Author
-		var opApplied bool
+		var op RecordedOp
+		var applied bool
 
-		if opAuthor, opApplied, err = playOperation(reader.br, dir, fsm, files); err == topic.ErrDesyncDetected {
-			// ErrDesyncDetected is returned by FixedFraming.Unmarshal (and not Unpack, meaning the reader
-			// is still in a good state). This frame is garbage, but playback can continue.
-			log.WithField("mark", fsm.LogMark).Warn("detected de-synchronization")
-		} else if err != nil {
-			return
+		if op, applied, err = playOperation(reader.br, mark, fsm, dir, files); err != nil {
+			return // playOperation returns only unrecoverable errors.
 		}
 
-		// Update again to reflect the next operation offset we intend to apply.
-		fsm.LogMark = reader.rr.AdjustedMark(reader.br)
+		// Update |mark| again to reflect the next operation offset we intend to apply.
+		// For byte-stream consistency, un-applied Write ops must skip |op.Length| bytes of the stream.
+		if mark = reader.rr.AdjustedMark(reader.br); !applied && op.Write != nil {
+			mark.Offset += op.Write.Length
+		}
+		if op.LastOffset != 0 && mark.Offset != op.LastOffset {
+			log.WithFields(log.Fields{"op": op, "mark": mark}).Panic("LastOffset must agree with mark")
+		}
 
-		if handoff != 0 && opAuthor == handoff {
+		// Are we attempting to inject a hand-off and this operation matches our Author?
+		if handoff != 0 && op.Author == handoff {
 			if state != playerStateReadHandoffBarrier {
 				log.WithField("state", state).Panic("unexpected state")
 			}
 
-			if opApplied {
+			if applied {
 				// We successfully sequenced a no-op into the log, taking control of
 				// the log from a current recorder (if one exists).
 				state = playerStateComplete
@@ -426,15 +429,15 @@ func cleanupAfterAbort(dir string, files fnodeFileMap) {
 }
 
 // decodeOperation unpacks, unmarshals, and sets offsets of a RecordedOp from Reader |br| at |offset|.
-func decodeOperation(br *bufio.Reader, offset int64) (op RecordedOp, b []byte, err error) {
-	if b, err = topic.FixedFraming.Unpack(br); err != nil {
+func decodeOperation(br *bufio.Reader, offset int64) (op RecordedOp, frame []byte, err error) {
+	if frame, err = topic.FixedFraming.Unpack(br); err != nil {
 		return
-	} else if err = topic.FixedFraming.Unmarshal(b, &op); err != nil {
+	} else if err = topic.FixedFraming.Unmarshal(frame, &op); err != nil {
 		return
 	}
 
 	// First and last offsets are meta-fields never populated by Recorder, and known only upon playback.
-	op.FirstOffset, op.LastOffset = offset, offset+int64(len(b))
+	op.FirstOffset, op.LastOffset = offset, offset+int64(len(frame))
 
 	if op.Write != nil {
 		op.LastOffset += op.Write.Length
@@ -442,54 +445,69 @@ func decodeOperation(br *bufio.Reader, offset int64) (op RecordedOp, b []byte, e
 	return
 }
 
-// playOperation reads and applies a single RecordedOp from |br|. It returns
-// the operation |author| and whether it was successfully |applied| to the FSM,
-// and any other encountered playback |err|.
-func playOperation(br *bufio.Reader, dir string, fsm *FSM, files fnodeFileMap) (author Author, applied bool, err error) {
-	var b []byte
-	var op RecordedOp
-
-	if op, b, err = decodeOperation(br, fsm.LogMark.Offset); err != nil {
-		return
+// applyOperation attempts to transition |fsm| with operation |op|. It returns whether
+// a state transition was applied, or whether an unexpected FSM error occurred. Common and
+// expected FSM errors are squelched.
+func applyOperation(op RecordedOp, frame []byte, fsm *FSM) (bool, error) {
+	if err := fsm.Apply(&op, frame[topic.FixedFrameHeaderLength:]); err == nil {
+		return true, nil
+	} else if err == ErrFnodeNotTracked {
+		// Fnode is hinted as being deleted later in the log. This occurs regularly
+		// and we handle by not applying local filesystem operations for this Fnode
+		// (as we know it'll be deleted anyway).
+	} else if err == ErrNotHintedAuthor {
+		// The FSM has remaining playback hints, and this operation doesn't match
+		// the next expected Author. This happens frequently during Recorder hand-off;
+		// the operation is a dead branch of the log.
+	} else if err == ErrWrongSeqNo && op.SeqNo < fsm.NextSeqNo {
+		// |op| is prior to the next hinted SeqNo. We may have started reading
+		// from a lower-bound offset, or it may be a duplicated write.
+	} else {
+		return false, err
 	}
-	author = op.Author
+	return false, nil
+}
 
-	// Run the operation through the FSM to verify validity.
-	if fsmErr := fsm.Apply(&op, b[topic.FixedFrameHeaderLength:]); fsmErr != nil {
-		// Log but otherwise ignore FSM errors: the Player is still in a consistent
-		// state, and we may make further progress later in the log.
-		if fsmErr == ErrFnodeNotTracked {
-			// Fnode is deleted later in the log, and is no longer hinted.
-		} else if fsmErr == ErrNotHintedAuthor {
-			// The FSM has remaining playback hints, and this operation doesn't match
-			// the next expected Author. This happens frequently during Recorder hand-off;
-			// the operation is a dead branch of the log.
-		} else if fsmErr == ErrWrongSeqNo && op.SeqNo < fsm.NextSeqNo {
-			// |op| is prior to the next hinted SeqNo. We may have started reading
-			// from a lower-bound offset, or it may be a duplicated write.
-		} else {
-			log.WithFields(log.Fields{"mark": fsm.LogMark, "op": op, "err": fsmErr}).Warn("playback FSM error")
-		}
-
-		// For bytestream consistency Write ops must still skip |op.Length| bytes.
-		if op.Write != nil {
-			err = copyFixed(ioutil.Discard, br, op.Write.Length)
-		}
-		return
-	}
-
-	applied = true
-
-	// The operation is valid. Apply local playback actions.
+// reenactOperation replays local file actions represented by RecordedOp |op|, which has been applied to |fsm|.
+func reenactOperation(op RecordedOp, fsm *FSM, br *bufio.Reader, dir string, files fnodeFileMap) error {
 	if op.Create != nil {
-		err = create(dir, Fnode(op.SeqNo), files)
+		return create(dir, Fnode(op.SeqNo), files)
 	} else if op.Unlink != nil {
-		err = unlink(dir, op.Unlink.Fnode, fsm, files)
+		return unlink(dir, op.Unlink.Fnode, fsm, files)
 	} else if op.Write != nil {
 		metrics.RecoveryLogRecoveredBytesTotal.Add(float64(op.Write.Length))
-		err = write(op.Write, br, files)
+		return write(op.Write, br, files)
+	}
+	return nil
+}
+
+// playOperation composes operation decode, application, and re-enactment. It logs warnings on recoverable
+// errors, and surfaces only those which should abort playback.
+func playOperation(br *bufio.Reader, mark journal.Mark, fsm *FSM, dir string,
+	files fnodeFileMap) (op RecordedOp, applied bool, err error) {
+
+	// Unpack the next frame and its unmarshaled RecordedOp.
+	var frame []byte
+	if op, frame, err = decodeOperation(br, mark.Offset); err != nil {
+		if err == topic.ErrDesyncDetected {
+			// ErrDesyncDetected is returned by FixedFraming.Unmarshal (and not Unpack, meaning the reader
+			// is still in a good state). This frame is garbage, but playback can continue.
+			log.WithField("mark", mark).Warn("detected de-synchronization")
+			err = nil
+		}
+		// Other errors are unexpected & unrecoverable.
+		return
 	}
 
+	// Attempt to transition the FSM by the operation, and if applies, reenact the local filesystem action.
+	if applied, err = applyOperation(op, frame, fsm); err != nil {
+		// We expect FSM errors to be rare, but they can happen under normal operation (eg, during
+		// hand-off, or if multiple Recorders briefly run concurrently, creating branched log histories).
+		log.WithFields(log.Fields{"mark": mark, "err": err, "op": op}).Info("did not apply FSM operation")
+		err = nil
+	} else if applied {
+		err = reenactOperation(op, fsm, br, dir, files)
+	}
 	return
 }
 

@@ -264,9 +264,9 @@ func (s *PlaybackSuite) TestWrites(c *gc.C) {
 	c.Check(poh.skips(c, poh.frame(newCreateOp("/skipped/path"))), gc.IsNil) // Fnode 43 is skipped by hintsFixture.
 
 	var getContent = func(fnode Fnode) string {
-		var bytes, err = ioutil.ReadFile(stagedPath(poh.dir, fnode))
+		var b, err = ioutil.ReadFile(stagedPath(poh.dir, fnode))
 		c.Check(err, gc.IsNil)
-		return string(bytes)
+		return string(b)
 	}
 
 	// Perform a few writes, occurring out of order and with repetition of write range.
@@ -341,56 +341,44 @@ func (s *PlaybackSuite) TestWriteUntrackedError(c *gc.C) {
 	c.Check(poh.skips(c, b), gc.Equals, io.ErrUnexpectedEOF)
 }
 
-func (s *PlaybackSuite) TestRecoveryFromDesync(c *gc.C) {
-	var poh = newPlayOperationHelper(c)
-	defer poh.destroy(c)
-
-	var b = append([]byte("garbage"), poh.frame(newCreateOp("/a/path"))...)
-	var br = bufio.NewReader(bytes.NewReader(b))
-
-	// Expect first playOperation call returns an error.
-	var author, applied, err = playOperation(br, poh.dir, poh.fsm, poh.files)
-
-	c.Check(author, gc.Equals, Author(0))
-	c.Check(applied, gc.Equals, false)
-	c.Check(err, gc.Equals, topic.ErrDesyncDetected)
-
-	// However, the garbage frame was read through, and the next operation succeeds.
-	c.Check(br.Buffered(), gc.Equals, len(b)-len("garbage"))
-
-	author, applied, err = playOperation(br, poh.dir, poh.fsm, poh.files)
-	c.Check(author, gc.Equals, anAuthor)
-	c.Check(applied, gc.Equals, true)
-	c.Check(err, gc.Equals, nil)
-
-	c.Check(br.Buffered(), gc.Equals, 0)
-	c.Check(poh.files[42].Name(), gc.Equals, stagedPath(poh.dir, 42))
-}
-
-func (s *PlaybackSuite) TestDecodeOffsetsRegression(c *gc.C) {
-	var op RecordedOp
-	var err error
-
-	var verify = func(expect RecordedOp, first, last int64) {
-		c.Check(err, gc.IsNil)
-
-		expect.FirstOffset, expect.LastOffset = first, last
-		c.Check(op, gc.DeepEquals, expect)
+func (s *PlaybackSuite) TestOperationDecode(c *gc.C) {
+	var parts = [][]byte{
+		frameRecordedOp(newCreateOp("/a/path"), nil),
+		[]byte("... invalid data ..."),
+		frameRecordedOp(newWriteOp(123, 0, 6), nil),
+		frameRecordedOp(newCreateOp("/other/path"), nil),
+		frameRecordedOp(newCreateOp("/fin"), nil),
+	}
+	var expect = []struct {
+		err error
+		op  RecordedOp
+	}{
+		{op: newCreateOp("/a/path")},
+		{err: topic.ErrDesyncDetected},
+		{op: newWriteOp(123, 0, 6)},
+		{op: newCreateOp("/other/path")},
+		{op: newCreateOp("/fin")},
 	}
 
-	// Expect decoded operation includes first & last offset of the exact operation frame.
-	var b = frameRecordedOp(newCreateOp("/a/path"), nil)
-	var br = bufio.NewReader(bytes.NewReader(append(b, "extra"...)))
+	var br = bufio.NewReader(bytes.NewReader(bytes.Join(parts, nil)))
 
-	op, _, err = decodeOperation(br, 123)
-	verify(newCreateOp("/a/path"), 123, 123+int64(len(b)))
+	var offset int
+	for i, exp := range expect {
+		var op, frame, err = decodeOperation(br, int64(offset))
+		c.Check(frame, gc.DeepEquals, parts[i])
 
-	// For write operations, expect the last offset also accounts for the write length.
-	b = frameRecordedOp(newWriteOp(99, 88, 77), b[:0])
-	br = bufio.NewReader(bytes.NewReader(append(b, "extra"...)))
+		if exp.err != nil {
+			c.Check(err, gc.Equals, exp.err)
+			c.Check(op, gc.DeepEquals, RecordedOp{})
+		} else {
+			c.Check(err, gc.IsNil)
 
-	op, _, err = decodeOperation(br, 123)
-	verify(newWriteOp(99, 88, 77), 123, 123+int64(len(b))+77)
+			exp.op.FirstOffset = int64(offset)
+			exp.op.LastOffset = int64(offset+len(parts[i])) + exp.op.GetWrite().GetLength()
+			c.Check(op, gc.DeepEquals, exp.op)
+		}
+		offset += len(parts[i])
+	}
 }
 
 func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
@@ -423,9 +411,9 @@ func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
 	expect(filepath.Join(poh.dir, "skipped/path"), false)
 
 	// Expect property file was written.
-	var bytes, err = ioutil.ReadFile(filepath.Join(poh.dir, "property/path"))
+	var b, err = ioutil.ReadFile(filepath.Join(poh.dir, "property/path"))
 	c.Check(err, gc.IsNil)
-	c.Check(string(bytes), gc.Equals, "prop-value")
+	c.Check(string(b), gc.Equals, "prop-value")
 }
 
 func (s *PlaybackSuite) TestErrWhenHintsRemainOnMakeLive(c *gc.C) {
@@ -445,7 +433,7 @@ func (s *PlaybackSuite) TestPlayerFinishAtWriteHead(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 	defer os.RemoveAll(dir)
 
-	recFSM, err := NewFSM(FSMHints{})
+	recFSM, err := NewFSM(FSMHints{Log: aRecoveryLog})
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and then a Player from initial Recorder hints.
@@ -489,7 +477,7 @@ func (s *PlaybackSuite) TestPlayerInjectHandoff(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 	defer os.RemoveAll(dir2)
 
-	recFSM, err := NewFSM(FSMHints{})
+	recFSM, err := NewFSM(FSMHints{Log: aRecoveryLog})
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and two Players from initial Recorder hints.
@@ -602,10 +590,16 @@ func (poh playOperationHelper) skips(c *gc.C, b []byte) error {
 
 func (poh playOperationHelper) playOp(c *gc.C, b []byte, expectAuthor Author, expectApply bool) error {
 	var br = bufio.NewReader(bytes.NewReader(b))
-	var author, applied, err = playOperation(br, poh.dir, poh.fsm, poh.files)
 
-	c.Check(author, gc.Equals, expectAuthor)
+	var op, applied, err = playOperation(br, journal.Mark{}, poh.fsm, poh.dir, poh.files)
+
+	c.Check(op.Author, gc.Equals, expectAuthor)
 	c.Check(applied, gc.Equals, expectApply)
+
+	if !applied && op.Write != nil {
+		// playLog seeks the RetryReader in this case. For tests, we just read and discard the extra content.
+		err = copyFixed(ioutil.Discard, br, op.Write.Length)
+	}
 
 	if err == nil {
 		c.Check(br.Buffered(), gc.Equals, 0) // |br| fully consumed.

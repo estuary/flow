@@ -4,33 +4,39 @@ import (
 	"strconv"
 
 	gc "github.com/go-check/check"
-
-	"github.com/LiveRamp/gazette/pkg/journal"
 )
 
 type FSMSuite struct {
 	fsm *FSM
+
+	// Ordinarily the framed operation bytes are digested by FSM to produce
+	// updated checksums. To decouple these tests from the particular encoding,
+	// we digest over the string value of an offset maintained by the test to
+	// produce unique but stable 'frames' for each operation. In other words,
+	// |offset| determines the checksum fixtures used in these tests.
+	offset int64
 }
 
 func (s *FSMSuite) SetUpTest(c *gc.C) {
 	s.fsm = nil
+	s.offset = 0
 }
 
 func (s *FSMSuite) TestInitFromSeqNoZero(c *gc.C) {
-	s.fsm = s.newFSM(c, FSMHints{Log: "a/log"})
+	s.fsm = s.newFSM(c, FSMHints{Log: aRecoveryLog})
 
 	// Expect that operations starting from SeqNo 1 apply correctly.
 	c.Check(s.create(1, 0x00000000, 100, "/path/A"), gc.IsNil)
 	c.Check(s.link(2, 0x90f599e3, 100, 1, "/path/B"), gc.IsNil)
 
-	c.Check(s.fsm.LogMark, gc.Equals, journal.NewMark("a/log", 2))
+	c.Check(s.fsm.Log, gc.Equals, aRecoveryLog)
 	c.Check(s.fsm.NextChecksum, gc.Equals, uint32(0x7355c460))
 	c.Check(s.fsm.NextSeqNo, gc.Equals, int64(3))
 }
 
 func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
-	hints := FSMHints{
-		Log: "a/log",
+	var hints = FSMHints{
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{
@@ -45,14 +51,15 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 	}
 	s.fsm = s.newFSM(c, hints)
 
-	c.Check(s.fsm.LogMark, gc.Equals, journal.NewMark("a/log", 0))
+	c.Check(s.fsm.Log, gc.Equals, aRecoveryLog)
 	c.Check(s.fsm.hintedSegments[0].FirstOffset, gc.Equals, int64(1234))
-	s.fsm.LogMark.Offset = 1234 // Skip FSM forward to FirstOffset.
 
 	c.Check(s.fsm.NextChecksum, gc.Equals, uint32(0xfeedbeef))
 	c.Check(s.fsm.NextSeqNo, gc.Equals, int64(42))
 	c.Check(s.fsm.Properties, gc.DeepEquals,
 		map[string]string{"/IDENTITY": "foo-bar-baz"})
+
+	s.offset = 1234 // Skip "offset" forward to first hinted value.
 
 	// Expect that operations only start applying from SeqNo 42.
 	c.Check(s.create(41, 0xfeedbeef, 100, "/path/A"), gc.Equals, ErrWrongSeqNo)
@@ -60,12 +67,16 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 	c.Check(s.link(43, 0xc132d1d7, 100, 42, "/path/B"), gc.IsNil)
 
 	// Expect hints reflect operations 42 & 43, and pass-through Properties.
-	hints.LiveNodes[0].Segments[0].FirstOffset = 1236 // Update to true offset.
+	// Tweak |hints| to reflect that FSM observed "true" offsets for FirstOffset/LastOffset.
+	hints.LiveNodes[0].Segments[0].FirstOffset = 1236
+	hints.LiveNodes[0].Segments[0].LastOffset = 1238
+
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, hints)
 }
 
 func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
 	s.fsm = s.newFSM(c, FSMHints{
+		Log:        aRecoveryLog,
 		Properties: []Property{{Path: "/property/path", Content: "content"}},
 	})
 	s.fsm.NextSeqNo, s.fsm.NextChecksum = 42, 0xfeedbeef
@@ -87,27 +98,28 @@ func (s *FSMSuite) TestFnodeCreation(c *gc.C) {
 		"/path/B":       44,
 	})
 	// Expect LiveNodes tracks Segments and links.
-	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*FnodeState{
+	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*fnodeState{
 		42: {
 			Links: map[string]struct{}{"/path/A": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 42, FirstOffset: 1,
-				FirstChecksum: 0xfeedbeef, LastSeqNo: 42}},
+				FirstChecksum: 0xfeedbeef, LastSeqNo: 42, LastOffset: 2}},
 		},
 		43: {
 			Links: map[string]struct{}{"/another/path": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 43, FirstOffset: 2,
-				FirstChecksum: 0x2d28e063, LastSeqNo: 43}},
+				FirstChecksum: 0x2d28e063, LastSeqNo: 43, LastOffset: 3}},
 		},
 		44: {
 			Links: map[string]struct{}{"/path/B": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 44, FirstOffset: 5,
-				FirstChecksum: 0xf11e2261, LastSeqNo: 44}},
+				FirstChecksum: 0xf11e2261, LastSeqNo: 44, LastOffset: 6}},
 		},
 	})
 }
 
 func (s *FSMSuite) TestFnodeCreationNotHinted(c *gc.C) {
 	s.fsm = s.newFSM(c, FSMHints{
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{{Author: 100, FirstChecksum: 0xfeedbeef,
 				FirstOffset: 1234, FirstSeqNo: 42, LastSeqNo: 100}}},
@@ -128,22 +140,22 @@ func (s *FSMSuite) TestFnodeCreationNotHinted(c *gc.C) {
 		"/path/A":     42,
 		"/final/path": 44,
 	})
-	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*FnodeState{
+	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*fnodeState{
 		42: {
 			Links: map[string]struct{}{"/path/A": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 42, FirstOffset: 1,
-				FirstChecksum: 0xfeedbeef, LastSeqNo: 42}},
+				FirstChecksum: 0xfeedbeef, LastSeqNo: 42, LastOffset: 2}},
 		},
 		44: {
 			Links: map[string]struct{}{"/final/path": {}},
 			Segments: []Segment{{Author: 100, FirstSeqNo: 44, FirstOffset: 3,
-				FirstChecksum: 0xf11e2261, LastSeqNo: 44}},
+				FirstChecksum: 0xf11e2261, LastSeqNo: 44, LastOffset: 4}},
 		},
 	})
 }
 
 func (s *FSMSuite) TestFnodeLinking(c *gc.C) {
-	s.fsm = s.newFSM(c, FSMHints{})
+	s.fsm = s.newFSM(c, FSMHints{Log: aRecoveryLog})
 	s.fsm.NextSeqNo, s.fsm.NextChecksum = 42, 0xfeedbeef
 
 	c.Check(s.create(42, 0xfeedbeef, 100, "/existing/path"), gc.IsNil)
@@ -171,22 +183,22 @@ func (s *FSMSuite) TestFnodeLinking(c *gc.C) {
 		"/target/one":    42,
 		"/target/two":    43,
 	})
-	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*FnodeState{
+	c.Check(s.fsm.LiveNodes, gc.DeepEquals, map[Fnode]*fnodeState{
 		42: {
 			Links: map[string]struct{}{"/existing/path": {}, "/target/one": {}},
 			Segments: []Segment{
 				// Expect Link operation extended current author segment.
 				{Author: 100, FirstSeqNo: 42, FirstOffset: 1,
-					FirstChecksum: 0xfeedbeef, LastSeqNo: 44}},
+					FirstChecksum: 0xfeedbeef, LastSeqNo: 44, LastOffset: 4}},
 		},
 		43: {
 			Links: map[string]struct{}{"/source/path": {}, "/target/two": {}},
 			Segments: []Segment{
 				// Under a different author, a new Segment was appended.
 				{Author: 100, FirstSeqNo: 43, FirstOffset: 2,
-					FirstChecksum: 0x2d28e063, LastSeqNo: 43},
+					FirstChecksum: 0x2d28e063, LastSeqNo: 43, LastOffset: 3},
 				{Author: 200, FirstSeqNo: 47, FirstOffset: 9,
-					FirstChecksum: 0xc8dac550, LastSeqNo: 47},
+					FirstChecksum: 0xc8dac550, LastSeqNo: 47, LastOffset: 10},
 			},
 		},
 	})
@@ -195,7 +207,7 @@ func (s *FSMSuite) TestFnodeLinking(c *gc.C) {
 }
 
 func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
-	s.fsm = s.newFSM(c, FSMHints{Log: "a/log"})
+	s.fsm = s.newFSM(c, FSMHints{Log: aRecoveryLog})
 	s.fsm.NextSeqNo, s.fsm.NextChecksum = 42, 0xfeedbeef
 
 	c.Check(s.create(42, 0xfeedbeef, 100, "/path/A"), gc.IsNil)
@@ -231,17 +243,17 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 
 	// Hints reflect both Fnode 42 & 43.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: "a/log",
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{Author: 0x64, FirstSeqNo: 42, FirstOffset: 1,
-					FirstChecksum: 0xfeedbeef, LastSeqNo: 42}}},
+					FirstChecksum: 0xfeedbeef, LastSeqNo: 42, LastOffset: 2}}},
 			{Fnode: 43, Segments: []Segment{
 				{Author: 0x64, FirstSeqNo: 43, FirstOffset: 2,
-					FirstChecksum: 0x2d28e063, LastSeqNo: 43},
+					FirstChecksum: 0x2d28e063, LastSeqNo: 43, LastOffset: 3},
 				// Expect unlink operation extended the Fnode's Segments.
 				{Author: 0xc8, FirstSeqNo: 44, FirstOffset: 3,
-					FirstChecksum: 0xf11e2261, LastSeqNo: 46}}},
+					FirstChecksum: 0xf11e2261, LastSeqNo: 46, LastOffset: 8}}},
 		},
 	})
 
@@ -253,11 +265,11 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 
 	// Produced hints capture Fnode 42 only.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: "a/log",
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				{Author: 0x64, FirstSeqNo: 42, FirstOffset: 1,
-					FirstChecksum: 0xfeedbeef, LastSeqNo: 42}}},
+					FirstChecksum: 0xfeedbeef, LastSeqNo: 42, LastOffset: 2}}},
 		},
 	})
 
@@ -270,11 +282,11 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 
 	// Produced hints are now only sufficient to replay Fnode 48.
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: "a/log",
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 48, Segments: []Segment{
 				{Author: 0x12c, FirstSeqNo: 48, FirstOffset: 9,
-					FirstChecksum: 0x11bc1ac9, LastSeqNo: 48}}},
+					FirstChecksum: 0x11bc1ac9, LastSeqNo: 48, LastOffset: 10}}},
 		},
 	})
 
@@ -286,11 +298,12 @@ func (s *FSMSuite) TestFnodeUnlinking(c *gc.C) {
 	c.Check(s.fsm.LiveNodes, gc.HasLen, 0)
 
 	// Hints are now empty.
-	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{Log: "a/log"})
+	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{Log: aRecoveryLog})
 }
 
 func (s *FSMSuite) TestPropertyUpdates(c *gc.C) {
 	s.fsm = s.newFSM(c, FSMHints{
+		Log:        aRecoveryLog,
 		Properties: []Property{{Path: "/a/property", Content: "content"}},
 	})
 	s.fsm.NextSeqNo, s.fsm.NextChecksum = 42, 0xfeedbeef
@@ -320,7 +333,7 @@ func (s *FSMSuite) TestPropertyUpdates(c *gc.C) {
 }
 
 func (s *FSMSuite) TestFnodeWrites(c *gc.C) {
-	s.fsm = s.newFSM(c, FSMHints{Log: "a/log"})
+	s.fsm = s.newFSM(c, FSMHints{Log: aRecoveryLog})
 	s.fsm.NextSeqNo, s.fsm.NextChecksum = 42, 0xfeedbeef
 
 	c.Check(s.create(42, 0xfeedbeef, 100, "/path/A"), gc.IsNil)
@@ -336,27 +349,27 @@ func (s *FSMSuite) TestFnodeWrites(c *gc.C) {
 	c.Check(s.write(46, 0x2009a120, 100, 42), gc.IsNil)
 
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: "a/log",
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
 				// Expect write operations extended Fnode Segments.
 				{Author: 0x64, FirstSeqNo: 42, FirstOffset: 1,
-					FirstChecksum: 0xfeedbeef, LastSeqNo: 46}}},
+					FirstChecksum: 0xfeedbeef, LastSeqNo: 46, LastOffset: 6}}},
 		},
 	})
 }
 
 func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
 	var hints = FSMHints{
-		Log: "a/log",
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
-				{Author: 100, FirstOffset: 2, FirstSeqNo: 42, LastSeqNo: 42},
-				{Author: 200, FirstOffset: 5, FirstSeqNo: 44, LastSeqNo: 44},
-				{Author: 300, FirstOffset: 8, FirstSeqNo: 45, LastSeqNo: 45},
+				{Author: 100, FirstOffset: 2, FirstSeqNo: 42, LastSeqNo: 42, LastOffset: 3},
+				{Author: 200, FirstOffset: 5, FirstSeqNo: 44, LastSeqNo: 44, LastOffset: 6},
+				{Author: 300, FirstOffset: 8, FirstSeqNo: 45, LastSeqNo: 45, LastOffset: 9},
 			}},
 			{Fnode: 46, Segments: []Segment{
-				{Author: 400, FirstOffset: 11, FirstSeqNo: 46, LastSeqNo: 47}}},
+				{Author: 400, FirstOffset: 11, FirstSeqNo: 46, LastSeqNo: 47, LastOffset: 13}}},
 		},
 	}
 	s.fsm = s.newFSM(c, hints)
@@ -391,30 +404,27 @@ func (s *FSMSuite) TestUseOfHintedAuthors(c *gc.C) {
 	c.Check(s.write(49, s.fsm.NextChecksum, 666, 46), gc.IsNil)
 
 	c.Check(s.fsm.BuildHints(), gc.DeepEquals, FSMHints{
-		Log: "a/log",
+		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{{Fnode: 46, Segments: []Segment{
-			{Author: 400, FirstSeqNo: 46, FirstOffset: 11, LastSeqNo: 47},
+			{Author: 400, FirstSeqNo: 46, FirstOffset: 11, LastSeqNo: 47, LastOffset: 13},
 			{Author: 666, FirstSeqNo: 49, FirstOffset: 14,
-				FirstChecksum: 0x1cab6124, LastSeqNo: 49},
+				FirstChecksum: 0x1cab6124, LastSeqNo: 49, LastOffset: 15},
 		}}},
 	})
 }
 
 func (s *FSMSuite) apply(op RecordedOp) error {
-	// Ordinarily |op| bytes (as framed by the recorder) is digested by FSM to
-	// produce updated checksums. To decouple these tests from the particular
-	// protobuf encoding, here we maintain a total count of applied operations
-	// per-test, and digest over its string conversion to produce unique but
-	// stable 'frames' for each operation.
-	if s.fsm.LogMark.Offset == -1 {
-		s.fsm.LogMark.Offset = 0
-	}
-	s.fsm.LogMark.Offset += 1
-	return s.fsm.Apply(&op, []byte(strconv.FormatInt(s.fsm.LogMark.Offset, 10)))
+	// Create a unique "frame" from |offset| for FSM to digest over, in production of checksums.
+	s.offset += 1
+	var frame = []byte(strconv.FormatInt(s.offset, 10))
+
+	op.FirstOffset = s.offset
+	op.LastOffset = s.offset + 1
+
+	return s.fsm.Apply(&op, frame)
 }
 
-func (s *FSMSuite) create(seqNo int64, checksum uint32, auth Author,
-	path string) error {
+func (s *FSMSuite) create(seqNo int64, checksum uint32, auth Author, path string) error {
 	return s.apply(RecordedOp{SeqNo: seqNo, Checksum: checksum, Author: auth,
 		Create: &RecordedOp_Create{Path: path}})
 }

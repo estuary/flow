@@ -46,7 +46,7 @@ func (s *RecorderSuite) SetUpTest(c *gc.C) {
 	s.recorder = NewRecorder(fsm, anAuthor, len(s.tmpDir), s)
 
 	// Expect recorder initialized Offset to the current write head.
-	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(42))
+	c.Check(s.recorder.writeHead, gc.Equals, int64(42))
 }
 
 func (s *RecorderSuite) TearDownTest(c *gc.C) {
@@ -57,7 +57,7 @@ func (s *RecorderSuite) TearDownTest(c *gc.C) {
 	// After issuing a final write, expect the FSM offset is up to date with
 	// collective length of all written frames.
 	s.recorder.WriteBarrier()
-	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, s.writeHead)
+	c.Check(s.recorder.writeHead, gc.Equals, s.writeHead)
 
 	os.RemoveAll(s.tmpDir)
 }
@@ -71,7 +71,7 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
 
 	s.recorder.NewWritableFile(s.tmpDir + "/other/file")
-	c.Check(s.recorder.fsm.LogMark.Offset, gc.Equals, int64(74))
+	c.Check(s.recorder.writeHead, gc.Equals, int64(74))
 
 	op = s.parseOp(c)
 	c.Check(op.SeqNo, gc.Equals, int64(2))
@@ -256,8 +256,8 @@ func (s *RecorderSuite) TestHints(c *gc.C) {
 	s.recorder.NewWritableFile(s.tmpDir + "/delete/path")
 
 	// Expect hints will start from the next Fnode.
-	expectChecksum := s.recorder.fsm.NextChecksum
-	expectOffset := s.recorder.fsm.LogMark.Offset
+	var expectChecksum = s.recorder.fsm.NextChecksum
+	var expectOffset = s.recorder.writeHead
 
 	s.recorder.NewWritableFile(s.tmpDir + "/a/path").Append([]byte("file-write"))
 	s.recorder.DeleteFile(s.tmpDir + "/delete/path")

@@ -8,9 +8,7 @@ import (
 )
 
 type database struct {
-	recoveryLog journal.Name
-	logWriter   journal.Writer
-	recorder    *recoverylog.Recorder
+	recorder *recoverylog.Recorder
 
 	*rocks.DB
 	env          *rocks.Env
@@ -26,9 +24,7 @@ func newDatabase(options *rocks.Options, fsm *recoverylog.FSM, author recoverylo
 	var recorder = recoverylog.NewRecorder(fsm, author, len(dir), writer)
 
 	var db = &database{
-		recoveryLog: fsm.LogMark.Journal,
-		logWriter:   writer,
-		recorder:    recorder,
+		recorder: recorder,
 
 		env:          rocks.NewObservedEnv(recorder),
 		options:      options,
@@ -75,7 +71,7 @@ func (db *database) commit() (*journal.AsyncAppend, error) {
 	// Issue an empty write. As writes from a client to a journal are applied
 	// strictly in order, this is effectively a commit barrier: when it resolves,
 	// the client knows the commit has been fully synced by Gazette.
-	return db.logWriter.Write(db.recoveryLog, nil)
+	return db.recorder.WriteBarrier(), nil
 }
 
 func (db *database) teardown() {

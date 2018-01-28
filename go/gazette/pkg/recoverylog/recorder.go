@@ -31,6 +31,7 @@ var propertyFiles = map[string]struct{}{
 // allow for inconsistency in the local database state, vs the recorded log. For
 // this reason, Recorder's implementation is crash-only and Panic()s on error.
 type Recorder struct {
+	// State machine managing RecordedOp transitions.
 	fsm *FSM
 	// Generated unique ID of this Recorder.
 	id Author
@@ -38,7 +39,9 @@ type Recorder struct {
 	stripLen int
 	// Client for interacting with the recovery log.
 	writer journal.Writer
-	// A recent write, which will be used to update the FSM Offset once committed.
+	// Last observed write head of the recovery log journal.
+	writeHead int64
+	// A recent write, which will be used to update |writeHead| once committed.
 	pendingWrite *journal.AsyncAppend
 	// Used to serialize access to |fsm| and writes to the recovery log.
 	mu sync.Mutex
@@ -53,11 +56,11 @@ func NewRecorder(fsm *FSM, id Author, stripLen int, writer journal.Writer) *Reco
 		writer:   writer,
 	}
 
-	// Issue an initial WriteBarrier to determine a lower-bound offset
+	// Issue a write barrier to determine the current write head, which is a lower-bound offset
 	// for all subsequent recorded operations.
 	var op = recorder.WriteBarrier()
 	<-op.Ready
-	recorder.fsm.LogMark.Offset = op.WriteHead
+	recorder.writeHead = op.WriteHead
 
 	return recorder
 }
@@ -71,11 +74,7 @@ func NewRandomAuthorID() (Author, error) {
 	}
 }
 
-func (r *Recorder) normalizePath(path string) string {
-	return filepath.Clean(path[r.stripLen:])
-}
-
-// rocks.EnvObserver implementation.
+// NewWritableFile is an implementation of rocks.EnvObserver to track the creation of new files.
 func (r *Recorder) NewWritableFile(path string) rocks.WritableFileObserver {
 	path = r.normalizePath(path)
 
@@ -103,7 +102,7 @@ func (r *Recorder) NewWritableFile(path string) rocks.WritableFileObserver {
 	return &fileRecorder{r, r.fsm.Links[path], 0}
 }
 
-// rocks.EnvObserver implementation.
+// DeleteFile is an implementation of rocks.EnvObserver to track file deletions.
 func (r *Recorder) DeleteFile(path string) {
 	path = r.normalizePath(path)
 
@@ -122,10 +121,10 @@ func (r *Recorder) DeleteFile(path string) {
 	r.recordFrame(r.process(newUnlinkOp(fnode, path), nil))
 }
 
-// rocks.EnvObserver implementation.
+// DeleteDir is an implementation of rocks.EnvObserver to track directory deletions.
 func (r *Recorder) DeleteDir(dirname string) { /* No-op */ }
 
-// rocks.EnvObserver implementation.
+// LinkFile is an implementation of rocks.EnvObserver to track file hard-links.
 func (r *Recorder) LinkFile(src, target string) {
 	src, target = r.normalizePath(src), r.normalizePath(target)
 
@@ -145,7 +144,7 @@ func (r *Recorder) LinkFile(src, target string) {
 	r.recordFrame(r.process(newLinkOp(fnode, target), nil))
 }
 
-// rocks.EnvObserver implementation.
+// RenameFile is an implementation of rocks.EnvObserver to track file renames.
 func (r *Recorder) RenameFile(srcPath, targetPath string) {
 	var src, target = r.normalizePath(srcPath), r.normalizePath(targetPath)
 
@@ -184,8 +183,8 @@ func (r *Recorder) RenameFile(srcPath, targetPath string) {
 	r.recordFrame(frame)
 }
 
-// Builds and returns a set of state-machine hints which may be used to fully
-// reconstruct the state of this Recorder.
+// BuildHints returns FSMHints which may be played back to fully reconstruct the
+// local filesystem state observed by this Recorder.
 func (r *Recorder) BuildHints() FSMHints {
 	defer r.mu.Unlock()
 	r.mu.Lock()
@@ -193,13 +192,17 @@ func (r *Recorder) BuildHints() FSMHints {
 	return r.fsm.BuildHints()
 }
 
-// Issues an empty write. When this barrier write completes, it is
-// guaranteed that all content written prior to barrier has also committed.
+// WriteBarrier issues an zero-byte write. When this barrier write completes, it is
+// guaranteed that all content written prior to the barrier has also committed.
 func (r *Recorder) WriteBarrier() *journal.AsyncAppend {
 	defer r.mu.Unlock()
 	r.mu.Lock()
 
 	return r.recordFrame(nil)
+}
+
+func (r *Recorder) normalizePath(path string) string {
+	return filepath.Clean(path[r.stripLen:])
 }
 
 func (r *Recorder) process(op RecordedOp, b []byte) []byte {
@@ -209,6 +212,10 @@ func (r *Recorder) process(op RecordedOp, b []byte) []byte {
 
 	var offset = len(b)
 	b = frameRecordedOp(op, b)
+
+	// Use writeHead as a lower-bound for FirstOffset. As a meta-field, it's not
+	// stored in the written frame, but is used by FSM in the production of hints.
+	op.FirstOffset = r.writeHead
 
 	if err := r.fsm.Apply(&op, b[offset+topic.FixedFrameHeaderLength:]); err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("recorder FSM error")
@@ -224,6 +231,7 @@ func frameRecordedOp(op RecordedOp, b []byte) []byte {
 	return b
 }
 
+// fileRecorder records operations applied to a specific file opened with NewWritableFile.
 type fileRecorder struct {
 	*Recorder
 
@@ -232,7 +240,7 @@ type fileRecorder struct {
 	offset int64
 }
 
-// rocks.EnvObserver implementation.
+// Append is an implementation of rocks.WriteableFileObserver to track file appends.
 func (r *fileRecorder) Append(data []byte) {
 	defer r.mu.Unlock()
 	r.mu.Lock()
@@ -247,14 +255,19 @@ func (r *fileRecorder) Append(data []byte) {
 	r.offset += int64(len(data))
 }
 
-// rocks.EnvObserver implementation.
-func (r *fileRecorder) Close()                         {}
+// Close is a no-op implementation of rocks.WriteableFileObserver.
+func (r *fileRecorder) Close() {}
+
+// Sync, Fsync, and RangeSync are implementations of rocks.WritableFileObserver which
+// issue and block on a WriteBarrier. This behavior means that when RocksDB issues an
+// underlying file sync (eg, to ensure durability of a transaction), that sync completes
+// only after all recorded operations have *also* been committed to the recovery log.
 func (r *fileRecorder) Sync()                          { <-r.WriteBarrier().Ready }
 func (r *fileRecorder) Fsync()                         { <-r.WriteBarrier().Ready }
 func (r *fileRecorder) RangeSync(offset, nbytes int64) { <-r.WriteBarrier().Ready }
 
 func (r *Recorder) recordFromReader(frame io.Reader) *journal.AsyncAppend {
-	result, err := r.writer.ReadFrom(r.fsm.LogMark.Journal, frame)
+	result, err := r.writer.ReadFrom(r.fsm.Log, frame)
 	if err != nil {
 		log.WithField("err", err).Panic("writing op frame")
 	}
@@ -263,7 +276,7 @@ func (r *Recorder) recordFromReader(frame io.Reader) *journal.AsyncAppend {
 }
 
 func (r *Recorder) recordFrame(frame []byte) *journal.AsyncAppend {
-	result, err := r.writer.Write(r.fsm.LogMark.Journal, frame)
+	result, err := r.writer.Write(r.fsm.Log, frame)
 	if err != nil {
 		log.WithField("err", err).Panic("writing op frame")
 	}
@@ -271,13 +284,16 @@ func (r *Recorder) recordFrame(frame []byte) *journal.AsyncAppend {
 	return result
 }
 
+// updateWriteHead performs a non-blocking check to determine if a recent issued
+// write has completed, and if so, it updates the |writeHead| attached to Recorder.
+// It may retain |write| to inspect on a future invocation. Rationale:
+//
 // We want to regularly shift forward the FSM offset to reflect operations
 // which have been recorded, so that we minimize the amount of recovery log
-// which must be read on playback. We additionally want to use WriteHeads
+// which must be read on playback. We additionally want to use write heads
 // returned directly from Gazette (rather than, eg, counting bytes) as this
 // provides a tight bound while still being correct in the case of competing
-// writes from multiple Recorders. With each issued write, we check whether
-// a previously retained write has completed and update the FSM offset if so.
+// writes from multiple Recorders.
 func (r *Recorder) updateWriteHead(write *journal.AsyncAppend) {
 	if r.pendingWrite == nil {
 		r.pendingWrite = write
@@ -290,7 +306,7 @@ func (r *Recorder) updateWriteHead(write *journal.AsyncAppend) {
 	case <-r.pendingWrite.Ready:
 		// A previous append operation has completed. Update from the returned
 		// WriteHead, and track |write| as the next |pendingWrite|.
-		r.fsm.LogMark.Offset = r.pendingWrite.WriteHead
+		r.writeHead = r.pendingWrite.WriteHead
 		r.pendingWrite = write
 	default:
 		// |pendingWrite| hasn't committed yet. Drop |write|.
