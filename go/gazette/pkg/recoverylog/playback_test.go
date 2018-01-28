@@ -13,6 +13,7 @@ import (
 	gc "github.com/go-check/check"
 
 	"github.com/LiveRamp/gazette/pkg/journal"
+	"github.com/LiveRamp/gazette/pkg/topic"
 )
 
 type PlaybackSuite struct{}
@@ -340,6 +341,58 @@ func (s *PlaybackSuite) TestWriteUntrackedError(c *gc.C) {
 	c.Check(poh.skips(c, b), gc.Equals, io.ErrUnexpectedEOF)
 }
 
+func (s *PlaybackSuite) TestRecoveryFromDesync(c *gc.C) {
+	var poh = newPlayOperationHelper(c)
+	defer poh.destroy(c)
+
+	var b = append([]byte("garbage"), poh.frame(newCreateOp("/a/path"))...)
+	var br = bufio.NewReader(bytes.NewReader(b))
+
+	// Expect first playOperation call returns an error.
+	var author, applied, err = playOperation(br, poh.dir, poh.fsm, poh.files)
+
+	c.Check(author, gc.Equals, Author(0))
+	c.Check(applied, gc.Equals, false)
+	c.Check(err, gc.Equals, topic.ErrDesyncDetected)
+
+	// However, the garbage frame was read through, and the next operation succeeds.
+	c.Check(br.Buffered(), gc.Equals, len(b)-len("garbage"))
+
+	author, applied, err = playOperation(br, poh.dir, poh.fsm, poh.files)
+	c.Check(author, gc.Equals, anAuthor)
+	c.Check(applied, gc.Equals, true)
+	c.Check(err, gc.Equals, nil)
+
+	c.Check(br.Buffered(), gc.Equals, 0)
+	c.Check(poh.files[42].Name(), gc.Equals, stagedPath(poh.dir, 42))
+}
+
+func (s *PlaybackSuite) TestDecodeOffsetsRegression(c *gc.C) {
+	var op RecordedOp
+	var err error
+
+	var verify = func(expect RecordedOp, first, last int64) {
+		c.Check(err, gc.IsNil)
+
+		expect.FirstOffset, expect.LastOffset = first, last
+		c.Check(op, gc.DeepEquals, expect)
+	}
+
+	// Expect decoded operation includes first & last offset of the exact operation frame.
+	var b = frameRecordedOp(newCreateOp("/a/path"), nil)
+	var br = bufio.NewReader(bytes.NewReader(append(b, "extra"...)))
+
+	op, _, err = decodeOperation(br, 123)
+	verify(newCreateOp("/a/path"), 123, 123+int64(len(b)))
+
+	// For write operations, expect the last offset also accounts for the write length.
+	b = frameRecordedOp(newWriteOp(99, 88, 77), b[:0])
+	br = bufio.NewReader(bytes.NewReader(append(b, "extra"...)))
+
+	op, _, err = decodeOperation(br, 123)
+	verify(newWriteOp(99, 88, 77), 123, 123+int64(len(b))+77)
+}
+
 func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
 	var poh = newPlayOperationHelper(c)
 	defer poh.destroy(c)
@@ -411,11 +464,16 @@ func (s *PlaybackSuite) TestPlayerFinishAtWriteHead(c *gc.C) {
 	rec.NewWritableFile("baz").Append([]byte("bing"))
 	f.Append([]byte(" world"))
 
+	// Model a bad, interleaved raw write. We expect this can never actually happen,
+	// but want playback to be resilient should it occur.
+	broker.Write(aRecoveryLog, []byte("... garbage data ..."))
+	f.Append([]byte("!"))
+
 	// Expect we recover all content.
 	var fsm = player.FinishAtWriteHead()
 	c.Check(fsm, gc.NotNil)
 
-	expectFileContent(c, dir+"/foo/bar", "hello world")
+	expectFileContent(c, dir+"/foo/bar", "hello world!")
 	expectFileContent(c, dir+"/baz", "bing")
 }
 
@@ -449,22 +507,25 @@ func (s *PlaybackSuite) TestPlayerInjectHandoff(c *gc.C) {
 	go func() { c.Check(handoffPlayer.PlayContext(context.Background(), broker), gc.IsNil) }()
 	go func() { c.Check(tailPlayer.PlayContext(context.Background(), broker), gc.IsNil) }()
 
-	// Record more content, giving both players a chance to catch up.
+	// Record more content, giving both players a chance to catch up. Also mix in bad,
+	// raw writes. These should never actually happen, but Playback shouldn't break if they do.
 	f.Append([]byte("hello"))
 	time.Sleep(time.Millisecond)
 
+	broker.Write(aRecoveryLog, []byte("... bad interleaved raw data ..."))
 	rec.NewWritableFile("baz").Append([]byte("bing"))
 
 	// Queue a |rec| write which will precede |handoffPlayer|'s first attempt
 	// to inject a no-op. |handoffPlayer| will retry after losing the race.
 	broker.DelayWrites = true
+	broker.Write(aRecoveryLog, []byte("... bad interleaved raw data ..."))
 	f.Append([]byte(" world"))
 	broker.DelayWrites = false
 
 	var handoffFSM = handoffPlayer.InjectHandoff(1337)
 	c.Check(handoffFSM, gc.NotNil)
 
-	f.Append([]byte("ignored due to lost write race"))
+	f.Append([]byte("final write of |rec|, ignored because |handoffPlayer| injected a handoff"))
 
 	var tailFSM = tailPlayer.FinishAtWriteHead()
 	c.Check(tailFSM, gc.NotNil)
@@ -491,9 +552,9 @@ func hintsFixture() FSMHints {
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 42, Segments: []Segment{
-				{Author: anAuthor, FirstSeqNo: 42, LastSeqNo: 45, FirstOffset: 11111}}},
+				{Author: anAuthor, FirstSeqNo: 42, FirstOffset: 11111, LastSeqNo: 45}}},
 			{Fnode: 44, Segments: []Segment{
-				{Author: anAuthor, FirstSeqNo: 44, LastSeqNo: 44, FirstOffset: 22222}}},
+				{Author: anAuthor, FirstSeqNo: 44, FirstOffset: 22222, LastSeqNo: 44}}},
 		},
 		Properties: []Property{{Path: "/property/path", Content: "prop-value"}},
 	}

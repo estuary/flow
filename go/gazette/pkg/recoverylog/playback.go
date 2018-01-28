@@ -19,6 +19,7 @@ import (
 	"github.com/LiveRamp/gazette/pkg/topic"
 )
 
+// Player reads from a log to rebuild encoded file operations onto the local filesystem.
 type Player struct {
 	hints     FSMHints
 	dir       string
@@ -370,7 +371,11 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 		var opAuthor Author
 		var opApplied bool
 
-		if opAuthor, opApplied, err = playOperation(reader.br, dir, fsm, files); err != nil {
+		if opAuthor, opApplied, err = playOperation(reader.br, dir, fsm, files); err == topic.ErrDesyncDetected {
+			// ErrDesyncDetected is returned by FixedFraming.Unmarshal (and not Unpack, meaning the reader
+			// is still in a good state). This frame is garbage, but playback can continue.
+			log.WithField("mark", fsm.LogMark).Warn("detected de-synchronization")
+		} else if err != nil {
 			return
 		}
 
@@ -420,6 +425,23 @@ func cleanupAfterAbort(dir string, files fnodeFileMap) {
 	}
 }
 
+// decodeOperation unpacks, unmarshals, and sets offsets of a RecordedOp from Reader |br| at |offset|.
+func decodeOperation(br *bufio.Reader, offset int64) (op RecordedOp, b []byte, err error) {
+	if b, err = topic.FixedFraming.Unpack(br); err != nil {
+		return
+	} else if err = topic.FixedFraming.Unmarshal(b, &op); err != nil {
+		return
+	}
+
+	// First and last offsets are meta-fields never populated by Recorder, and known only upon playback.
+	op.FirstOffset, op.LastOffset = offset, offset+int64(len(b))
+
+	if op.Write != nil {
+		op.LastOffset += op.Write.Length
+	}
+	return
+}
+
 // playOperation reads and applies a single RecordedOp from |br|. It returns
 // the operation |author| and whether it was successfully |applied| to the FSM,
 // and any other encountered playback |err|.
@@ -427,17 +449,9 @@ func playOperation(br *bufio.Reader, dir string, fsm *FSM, files fnodeFileMap) (
 	var b []byte
 	var op RecordedOp
 
-	if b, err = topic.FixedFraming.Unpack(br); err != nil {
-		return
-	} else if err = topic.FixedFraming.Unmarshal(b, &op); err == topic.ErrDesyncDetected {
-		// Garbage frame. Treat as no-op operation, allowing playback to continue.
-		err = nil
-		log.WithField("mark", fsm.LogMark).Warn("detected de-synchronization")
-		return
-	} else if err != nil {
+	if op, b, err = decodeOperation(br, fsm.LogMark.Offset); err != nil {
 		return
 	}
-
 	author = op.Author
 
 	// Run the operation through the FSM to verify validity.

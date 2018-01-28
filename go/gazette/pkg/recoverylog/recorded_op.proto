@@ -9,21 +9,25 @@ option (gogoproto.sizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
 // RecordedOp records states changes occuring within a local file-system.
-// Next tag: 9.
+// Next tag: 11.
 message RecordedOp {
   option (gogoproto.goproto_unrecognized) = false;
 
   // Monotonically-increasing sequence number of this operation.
   int64 seq_no = 1;
-
   // Previous FSM checksum to which this operation should be applied (eg, the
   // expected checksum arrived at after applying the previous operation.
   fixed32 checksum = 2;
-
   // Author is the unique ID of the Recorder which wrote this RecordedOp.
   // Each Recorder randomly generates an Author ID at startup, and thereafter
   // applies it to all operations it records.
   fixed32 author = 3 [(gogoproto.casttype) = "Author"];
+  // First and last byte offset (exclusive) of this RecordedOp. These are meta-
+  // fields which are not populated in the recorded log (as Recorders cannot
+  // know at what offsets their writes will land in the log). Instead, Players
+  // attach offsets as they deserialize RecordedOps from the committed log.
+  int64 first_offset = 9;
+  int64 last_offset = 10;
 
   // RecordedOp is a union-type over the remaining fields.
 
@@ -108,7 +112,7 @@ message Property {
 // limitations, and use Segments to resolve conflicts of possible interpretation
 // of the log. Segments produced by a Player are exact, since Players observe all
 // recorded operations at their exact offsets.
-// Next tag: 6.
+// Next tag: 7.
 message Segment {
   option (gogoproto.goproto_unrecognized) = false;
 
@@ -127,6 +131,9 @@ message Segment {
   fixed32 first_checksum = 4;
   // Last (highest) sequence number of RecordedOps within this Segment.
   int64 last_seq_no = 5;
+  // Last offset (exclusive) of the Segment. Zero means the offset is not known
+  // (eg, because the Segment was produced by a Recorder).
+  int64 last_offset = 6;
 };
 
 // FnodeSegments captures log Segments containing all RecordedOps of the Fnode.
