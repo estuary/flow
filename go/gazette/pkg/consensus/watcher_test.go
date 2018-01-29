@@ -16,7 +16,7 @@ func (s *ModelSuite) TestBlockUntilModified(c *gc.C) {
 	var watcher MockWatcher
 
 	var modelWatcher = RetryWatcher(&keys, "foo",
-		&etcd.GetOptions{}, &etcd.WatcherOptions{})
+		&etcd.GetOptions{}, &etcd.WatcherOptions{}, nil)
 
 	keys.On("Get", ctx, "foo", &etcd.GetOptions{}).
 		Return(&etcd.Response{

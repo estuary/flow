@@ -100,13 +100,18 @@ func Allocate(alloc Allocator) error {
 	// Channels for receiving & cancelling watched tree updates.
 	var watchCh = make(chan *etcd.Response)
 	var cancelWatch = make(chan struct{})
-	defer func() { close(cancelWatch) }()
+	var refreshTicker = time.NewTicker(time.Minute * 10)
+	defer func() {
+		close(cancelWatch)
+		refreshTicker.Stop()
+	}()
 
 	var tree *etcd.Node // Watched tree rooted at alloc.PathRoot().
 
 	watcher := RetryWatcher(alloc.KeysAPI(), alloc.PathRoot(),
 		&etcd.GetOptions{Recursive: true, Sort: true},
-		&etcd.WatcherOptions{Recursive: true})
+		&etcd.WatcherOptions{Recursive: true},
+		refreshTicker.C)
 
 	// Load initial tree. Fail-fast on any error.
 	if r, err := watcher.Next(context.Background()); err != nil {
