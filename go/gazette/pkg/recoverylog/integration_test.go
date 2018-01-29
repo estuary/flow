@@ -2,7 +2,6 @@ package recoverylog
 
 import (
 	"context"
-	"errors"
 	"io/ioutil"
 	"net"
 	"os"
@@ -59,15 +58,10 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 	var replica1 = NewTestReplica(&env)
 	defer replica1.teardown()
 
-	replica1.startReading(FSMHints{Log: aRecoveryLog})
-	c.Assert(replica1.makeLive(), gc.IsNil)
-
+	replica1.startWriting(aRecoveryLog)
 	replica1.put("key3", "value three!")
 	replica1.put("key1", "value one")
 	replica1.put("key2", "value2")
-
-	var replica2 = NewTestReplica(&env)
-	defer replica2.teardown()
 
 	var hints = replica1.recorder.BuildHints()
 
@@ -81,8 +75,11 @@ func (s *RecoveryLogSuite) TestSimpleStopAndStart(c *gc.C) {
 		}
 	}
 
+	var replica2 = NewTestReplica(&env)
+	defer replica2.teardown()
+
 	replica2.startReading(hints)
-	c.Assert(replica2.makeLive(), gc.IsNil)
+	replica2.makeLive()
 
 	replica2.expectValues(map[string]string{
 		"key1": "value one",
@@ -109,19 +106,20 @@ func (s *RecoveryLogSuite) TestWarmStandbyHandoff(c *gc.C) {
 	var replica3 = NewTestReplica(&env)
 	defer replica3.teardown()
 
-	// Both replicas begin reading at the same time.
-	replica1.startReading(FSMHints{Log: aRecoveryLog})
-	replica2.startReading(FSMHints{Log: aRecoveryLog})
-	replica3.startReading(FSMHints{Log: aRecoveryLog})
+	replica1.startWriting(aRecoveryLog)
+	var hints = replica1.recorder.BuildHints()
 
-	// |replica1| is made live and writes content, while |replica2| & |replica3| are reading.
-	c.Assert(replica1.makeLive(), gc.IsNil)
+	// Both replicas begin reading at the same time.
+	replica2.startReading(hints)
+	replica3.startReading(hints)
+
+	// |replica1| writes content, while |replica2| & |replica3| are reading.
 	replica1.put("key foo", "baz")
 	replica1.put("key bar", "bing")
 	replica1.db.Flush(fo) // Synchronize to log.
 
 	// Make |replica2| live. Expect |replica1|'s content to be present.
-	c.Assert(replica2.makeLive(), gc.IsNil)
+	replica2.makeLive()
 	replica2.expectValues(map[string]string{
 		"key foo": "baz",
 		"key bar": "bing",
@@ -134,7 +132,7 @@ func (s *RecoveryLogSuite) TestWarmStandbyHandoff(c *gc.C) {
 	replica2.put("raced", "and wins")
 	replica2.db.Flush(fo)
 
-	c.Assert(replica3.makeLive(), gc.IsNil)
+	replica3.makeLive()
 	replica2.expectValues(map[string]string{
 		"key foo": "baz",
 		"key bar": "bing",
@@ -150,21 +148,19 @@ func (s *RecoveryLogSuite) TestWarmStandbyHandoff(c *gc.C) {
 func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	var env = testEnv{c, s.gazette}
 
-	// Begin with two replicas, both reading from the initial state.
+	// Begin with two replicas.
 	var replica1 = NewTestReplica(&env)
 	defer replica1.teardown()
 	var replica2 = NewTestReplica(&env)
 	defer replica2.teardown()
 
-	replica1.startReading(FSMHints{Log: aRecoveryLog})
-	replica2.startReading(FSMHints{Log: aRecoveryLog})
-
-	// |replica1| begins as master.
-	c.Assert(replica1.makeLive(), gc.IsNil)
+	// |replica1| begins as primary.
+	replica1.startWriting(aRecoveryLog)
+	replica2.startReading(replica1.recorder.BuildHints())
 	replica1.put("key one", "value one")
 
 	// |replica2| now becomes live. |replica1| and |replica2| intersperse writes.
-	c.Assert(replica2.makeLive(), gc.IsNil)
+	replica2.makeLive()
 	replica1.put("rep1 foo", "value foo")
 	replica2.put("rep2 bar", "value bar")
 	replica1.put("rep1 baz", "value baz")
@@ -184,9 +180,9 @@ func (s *RecoveryLogSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	defer replica4.teardown()
 
 	replica3.startReading(replica1.recorder.BuildHints())
-	c.Assert(replica3.makeLive(), gc.IsNil)
+	replica3.makeLive()
 	replica4.startReading(replica2.recorder.BuildHints())
-	c.Assert(replica4.makeLive(), gc.IsNil)
+	replica4.makeLive()
 
 	// Expect |replica3| recovered |replica1| history.
 	replica3.expectValues(map[string]string{
@@ -286,13 +282,20 @@ func (r *testReplica) startReading(hints FSMHints) {
 	}()
 }
 
-// Finish playback, build a new recorder, and open an observed database.
-func (r *testReplica) makeLive() error {
-	var fsm = r.player.InjectHandoff(r.author)
-	if fsm == nil {
-		return errors.New("returned nil FSM")
-	}
+func (r *testReplica) startWriting(log journal.Name) {
+	var fsm, err = NewFSM(FSMHints{Log: log})
+	r.Assert(err, gc.IsNil)
+	r.initDB(fsm)
+}
 
+// Finish playback, build a new recorder, and open an observed database.
+func (r *testReplica) makeLive() {
+	var fsm = r.player.InjectHandoff(r.author)
+	r.Assert(fsm, gc.NotNil)
+	r.initDB(fsm)
+}
+
+func (r *testReplica) initDB(fsm *FSM) {
 	r.recorder = NewRecorder(fsm, r.author, len(r.tmpdir), r.gazette)
 
 	r.dbO = rocks.NewDefaultOptions()
@@ -307,7 +310,6 @@ func (r *testReplica) makeLive() error {
 	var err error
 	r.db, err = rocks.OpenDb(r.dbO, r.tmpdir)
 	r.Assert(err, gc.IsNil)
-	return nil
 }
 
 func (r *testReplica) put(key, value string) {

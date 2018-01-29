@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	aRecoveryLog journal.Name = "pippio-journals/integration-tests/recovery-log"
+	aRecoveryLog journal.Name = "examples/integration-tests/recovery-log"
 	anAuthor     Author       = 1234
 )
 

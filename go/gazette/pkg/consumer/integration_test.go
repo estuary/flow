@@ -32,14 +32,14 @@ var (
 	// Test topics for events which add or subtract an amount to a key.
 	// We compute and emit the running value of the key.
 	addSubTopic = &topic.Description{
-		Name:       "pippio-journals/integration-tests/add-subtract-updates",
+		Name:       "examples/integration-tests/add-subtract-updates",
 		Framing:    topic.FixedFraming,
 		GetMessage: func() topic.Message { return new(addSubMessage) },
 		PutMessage: func(m topic.Message) {},
 	}
 	// Test topic of UUIDs that get reversed and place into an output journal.
 	reverseInTopic = &topic.Description{
-		Name:       "pippio-journals/integration-tests/reverse-in",
+		Name:       "examples/integration-tests/reverse-in",
 		Framing:    topic.FixedFraming,
 		GetMessage: func() topic.Message { return new(stringMessage) },
 		PutMessage: func(m topic.Message) {},
@@ -48,8 +48,8 @@ var (
 
 // Output journal into which merged CSV key/value rows are produced.
 const (
-	addSubOutput  journal.Name = "pippio-journals/integration-tests/add-subtract-merged"
-	reverseOutput journal.Name = "pippio-journals/integration-tests/reverse-out"
+	addSubOutput  journal.Name = "examples/integration-tests/add-subtract-merged"
+	reverseOutput journal.Name = "examples/integration-tests/reverse-out"
 	consumerRoot               = "/tests/ConsumerSuite"
 )
 
@@ -305,7 +305,7 @@ func (s *ConsumerSuite) buildRunner(i, replicas int) *Runner {
 		LocalRouteKey:   fmt.Sprintf("test-consumer-%d", i),
 		LocalDir:        fmt.Sprintf("/var/tmp/integration-tests/consumer/runner-%d", i),
 		ConsumerRoot:    consumerRoot,
-		RecoveryLogRoot: "pippio-journals/integration-tests/consumer",
+		RecoveryLogRoot: "examples/integration-tests/consumer",
 		ReplicaCount:    replicas,
 
 		Etcd:    s.etcdClient,

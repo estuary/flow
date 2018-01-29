@@ -207,14 +207,14 @@ func (s *RoutinesSuite) TestTopicShardMapping(c *gc.C) {
 	c.Check(shards, gc.HasLen, 7)
 
 	c.Check(shards, gc.DeepEquals, map[ShardID]topic.Partition{
-		"shard-add-subtract-updates-000": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-000", Topic: addSubTopic},
-		"shard-add-subtract-updates-001": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-001", Topic: addSubTopic},
-		"shard-add-subtract-updates-002": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-002", Topic: addSubTopic},
-		"shard-add-subtract-updates-003": {Journal: "pippio-journals/integration-tests/add-subtract-updates/part-003", Topic: addSubTopic},
+		"shard-add-subtract-updates-000": {Journal: "examples/integration-tests/add-subtract-updates/part-000", Topic: addSubTopic},
+		"shard-add-subtract-updates-001": {Journal: "examples/integration-tests/add-subtract-updates/part-001", Topic: addSubTopic},
+		"shard-add-subtract-updates-002": {Journal: "examples/integration-tests/add-subtract-updates/part-002", Topic: addSubTopic},
+		"shard-add-subtract-updates-003": {Journal: "examples/integration-tests/add-subtract-updates/part-003", Topic: addSubTopic},
 
-		"shard-reverse-in-000": {Journal: "pippio-journals/integration-tests/reverse-in/part-000", Topic: reverseInTopic},
-		"shard-reverse-in-001": {Journal: "pippio-journals/integration-tests/reverse-in/part-001", Topic: reverseInTopic},
-		"shard-reverse-in-002": {Journal: "pippio-journals/integration-tests/reverse-in/part-002", Topic: reverseInTopic},
+		"shard-reverse-in-000": {Journal: "examples/integration-tests/reverse-in/part-000", Topic: reverseInTopic},
+		"shard-reverse-in-001": {Journal: "examples/integration-tests/reverse-in/part-001", Topic: reverseInTopic},
+		"shard-reverse-in-002": {Journal: "examples/integration-tests/reverse-in/part-002", Topic: reverseInTopic},
 	})
 }
 
