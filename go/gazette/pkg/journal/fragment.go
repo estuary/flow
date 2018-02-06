@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -92,6 +93,47 @@ func ParseFragment(journal Name, contentName string) (Fragment, error) {
 	return r, err
 }
 
+// NewWalkFuncAdapter returns a filepath.WalkFunc which parses encountered files
+// as Fragments, and passes each to the provided |callback|. Prefix |rewrites| may
+// be included, as pairs of "from", "to" prefixes which are applied in order. For
+// example, NewWalkFuncAdapter(cb, "/from/", "/foo/to/", "/foo/", "/") would rewrite
+// path "/from/bar" => "/to/bar".
+func NewWalkFuncAdapter(callback func(Fragment) error, rewrites ...string) filepath.WalkFunc {
+	if len(rewrites)%2 != 0 {
+		panic(fmt.Sprintf("invalid odd-length rewrites: %#v", rewrites))
+	}
+
+	return func(fpath string, finfo os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		} else if finfo.IsDir() {
+			return nil
+		}
+
+		for i := 0; i != len(rewrites); i += 2 {
+			if strings.HasPrefix(fpath, rewrites[i]) {
+				fpath = path.Join(rewrites[i+1], fpath[len(rewrites[i]):])
+			}
+		}
+
+		fragment, err := ParseFragment(Name(path.Dir(fpath)), path.Base(fpath))
+		if err != nil {
+			log.WithFields(log.Fields{"path": fpath, "err": err}).Warning("parsing fragment")
+			return nil
+		} else if finfo.Size() == 0 && fragment.Size() > 0 {
+			log.WithFields(log.Fields{"path": fpath}).Error("zero-length fragment")
+			return nil
+		}
+
+		fragment.RemoteModTime = finfo.ModTime()
+		return callback(fragment)
+	}
+}
+
+// LocalFragments returns fragments of |journal| under the local |directory|.
+//
+// TODO(johnny): Collapse with NewWalkFuncAdapter above, or deprecate as part of
+// a larger local-fragment change (Issues #30 & #31).
 func LocalFragments(directory string, journal Name) []Fragment {
 	var out []Fragment
 
