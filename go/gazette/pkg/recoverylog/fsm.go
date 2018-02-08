@@ -21,7 +21,7 @@ var (
 )
 
 // An Fnode is an identifier which represents a file across its renames, links,
-// and unlinks within a file-system. When a file is created, it's assigned an
+// and un-links within a file-system. When a file is created, it's assigned an
 // Fnode value equal to the RecordedOp.SeqNo which created it.
 type Fnode int64
 
@@ -73,7 +73,40 @@ type FSM struct {
 	hintedFnodes []Fnode
 }
 
+// LiveLogSegments flattens hinted LiveNodes into an ordered list of Fnodes,
+// and the set of recovery log Segments which fully contain them.
+func (m FSMHints) LiveLogSegments() ([]Fnode, SegmentSet, error) {
+	var fnodes []Fnode
+	var set SegmentSet
+
+	for i, n := range m.LiveNodes {
+		if len(n.Segments) == 0 || Fnode(n.Segments[0].FirstSeqNo) != n.Fnode {
+			return nil, nil, fmt.Errorf("expected Fnode to match Segment FirstSeqNo: %v", n)
+		} else if i != 0 && fnodes[i-1] >= n.Fnode {
+			return nil, nil, fmt.Errorf("expected monotonic Fnode ordering: %v vs %v", fnodes[i-1], n.Fnode)
+		}
+		fnodes = append(fnodes, n.Fnode)
+
+		for _, s := range n.Segments {
+			if err := set.Add(s); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return fnodes, set, nil
+}
+
+// NewFSM returns an FSM which is prepared to apply the provided |hints|.
 func NewFSM(hints FSMHints) (*FSM, error) {
+	if hints.Log == "" {
+		return nil, fmt.Errorf("hinted log not provided")
+	}
+
+	var fnodes, set, err = hints.LiveLogSegments()
+	if err != nil {
+		return nil, err
+	}
+
 	var fsm = &FSM{
 		Log:          hints.Log,
 		NextSeqNo:    1,
@@ -81,25 +114,9 @@ func NewFSM(hints FSMHints) (*FSM, error) {
 		Properties:   make(map[string]string),
 		LiveNodes:    make(map[Fnode]*fnodeState),
 		Links:        make(map[string]Fnode),
-	}
-	if fsm.Log == "" {
-		return nil, fmt.Errorf("hinted log not provided")
+		hintedFnodes: fnodes,
 	}
 
-	// Flatten all hinted LiveNodes Segments into single |set|.
-	var set SegmentSet
-	for i, n := range hints.LiveNodes {
-		if i != 0 && fsm.hintedFnodes[i-1] >= n.Fnode {
-			return nil, fmt.Errorf("invalid hint fnode ordering")
-		}
-		fsm.hintedFnodes = append(fsm.hintedFnodes, n.Fnode)
-
-		for _, s := range n.Segments {
-			if err := set.Add(s); err != nil {
-				return nil, err
-			}
-		}
-	}
 	if len(set) != 0 {
 		fsm.NextSeqNo, fsm.NextChecksum = set[0].FirstSeqNo, set[0].FirstChecksum
 		fsm.hintedSegments = []Segment(set)
@@ -112,6 +129,14 @@ func NewFSM(hints FSMHints) (*FSM, error) {
 	return fsm, nil
 }
 
+// Apply attempts to transition the FSMs state by |op| & |frame|. It either
+// performs a transition, or returns an error detailing how the operation
+// is not consistent with prior applied operations or hints. A state
+// transition occurs if and only if the returned err is nil, with one
+// exception: ErrFnodeNotTracked may be returned to indicate that the operation
+// is consistent and a transition occurred, but that FSMHints also indicate the
+// Fnode no longer exists at the point-in-time at which the FSMHints were created,
+// and the caller may therefor want to skip corresponding local playback actions.
 func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 	// If hints remain, ensure that op.Author is the expected next operation author.
 	if len(m.hintedSegments) != 0 && m.hintedSegments[0].Author != op.Author {

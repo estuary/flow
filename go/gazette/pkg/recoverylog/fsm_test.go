@@ -34,6 +34,46 @@ func (s *FSMSuite) TestInitFromSeqNoZero(c *gc.C) {
 	c.Check(s.fsm.NextSeqNo, gc.Equals, int64(3))
 }
 
+func (s *FSMSuite) TestFlatteningLiveLogSegments(c *gc.C) {
+	var hints = FSMHints{
+		Log: aRecoveryLog,
+		LiveNodes: []FnodeSegments{
+			{Fnode: 2, Segments: []Segment{
+				{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 700, FirstChecksum: 0x22},
+			}},
+			{Fnode: 4, Segments: []Segment{
+				{Author: 0x1, FirstSeqNo: 4, LastSeqNo: 9, FirstOffset: 400, LastOffset: 901, FirstChecksum: 0x44},
+			}},
+			{Fnode: 10, Segments: []Segment{
+				{Author: 0x2, FirstSeqNo: 10, LastSeqNo: 10, FirstOffset: 1000, LastOffset: 1001, FirstChecksum: 0x10},
+			}},
+		},
+	}
+
+	var fnodes, set, err = hints.LiveLogSegments()
+	c.Check(err, gc.IsNil)
+	c.Check(fnodes, gc.DeepEquals, []Fnode{2, 4, 10})
+	c.Check(set, gc.DeepEquals, SegmentSet{
+		{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 200, LastOffset: 901, FirstChecksum: 0x22},
+		{Author: 0x2, FirstSeqNo: 10, LastSeqNo: 10, FirstOffset: 1000, LastOffset: 1001, FirstChecksum: 0x10},
+	})
+
+	// Expect it complains if Fnode != FirstSeqNo.
+	hints.LiveNodes = append(hints.LiveNodes, FnodeSegments{Fnode: 13, Segments: []Segment{{FirstSeqNo: 14}}})
+	_, _, err = hints.LiveLogSegments()
+	c.Check(err, gc.ErrorMatches, "expected Fnode to match Segment FirstSeqNo: .*")
+
+	// Or if segments are inconsistent.
+	hints.LiveNodes[1].Segments[0].Author = 0x3
+	_, _, err = hints.LiveLogSegments()
+	c.Check(err, gc.ErrorMatches, "expected Segment Author equality: .*")
+
+	// Or if Fnodes are mis-ordered.
+	hints.LiveNodes[1], hints.LiveNodes[0] = hints.LiveNodes[0], hints.LiveNodes[1]
+	_, _, err = hints.LiveLogSegments()
+	c.Check(err, gc.ErrorMatches, "expected monotonic Fnode ordering: .*")
+}
+
 func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 	var hints = FSMHints{
 		Log: aRecoveryLog,
