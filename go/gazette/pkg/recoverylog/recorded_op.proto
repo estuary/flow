@@ -129,7 +129,7 @@ message Segment {
   int64 first_offset = 3;
   // Checksum of the RecordedOp having |first_seq_no|.
   fixed32 first_checksum = 4;
-  // Last (highest) sequence number of RecordedOps within this Segment.
+  // Last (highest, inclusive) sequence number of RecordedOps within this Segment.
   int64 last_seq_no = 5;
   // Last offset (exclusive) of the Segment. Zero means the offset is not known
   // (eg, because the Segment was produced by a Recorder).

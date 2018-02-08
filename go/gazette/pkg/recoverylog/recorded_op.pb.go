@@ -46,7 +46,7 @@ type RecordedOp struct {
 	// Previous FSM checksum to which this operation should be applied (eg, the
 	// expected checksum arrived at after applying the previous operation.
 	Checksum uint32 `protobuf:"fixed32,2,opt,name=checksum,proto3" json:"checksum,omitempty"`
-	// Author is the unique ID of the Recorder which write this RecordedOp.
+	// Author is the unique ID of the Recorder which wrote this RecordedOp.
 	// Each Recorder randomly generates an Author ID at startup, and thereafter
 	// applies it to all operations it records.
 	Author Author `protobuf:"fixed32,3,opt,name=author,proto3,casttype=Author" json:"author,omitempty"`
@@ -277,7 +277,7 @@ type Segment struct {
 	FirstOffset int64 `protobuf:"varint,3,opt,name=first_offset,json=firstOffset,proto3" json:"first_offset,omitempty"`
 	// Checksum of the RecordedOp having |first_seq_no|.
 	FirstChecksum uint32 `protobuf:"fixed32,4,opt,name=first_checksum,json=firstChecksum,proto3" json:"first_checksum,omitempty"`
-	// Last (highest) sequence number of RecordedOps within this Segment.
+	// Last (highest, inclusive) sequence number of RecordedOps within this Segment.
 	LastSeqNo int64 `protobuf:"varint,5,opt,name=last_seq_no,json=lastSeqNo,proto3" json:"last_seq_no,omitempty"`
 	// Last offset (exclusive) of the Segment. Zero means the offset is not known
 	// (eg, because the Segment was produced by a Recorder).
