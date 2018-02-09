@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -49,26 +48,6 @@ This appends the contents of localFileOne & Two to example/journal/name.`,
 		}
 	},
 }
-
-func userConfirms(message string) {
-	if defaultYes {
-		return
-	}
-	fmt.Println(message)
-	fmt.Print("Confirm (y/N): ")
-
-	var response string
-	fmt.Scanln(&response)
-
-	for _, opt := range []string{"y", "yes"} {
-		if strings.ToLower(response) == opt {
-			return
-		}
-	}
-	log.Fatal("aborted by user")
-}
-
-var defaultYes bool
 
 func init() {
 	rootCmd.AddCommand(appendCmd)

@@ -1,12 +1,17 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"net/url"
 	"os"
 	"plugin"
 	"strings"
 
+	"github.com/LiveRamp/gazette/pkg/cloudstore"
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -14,6 +19,7 @@ import (
 
 	"github.com/LiveRamp/gazette/pkg/consumer"
 	"github.com/LiveRamp/gazette/pkg/gazette"
+	"github.com/LiveRamp/gazette/pkg/recoverylog"
 )
 
 var configFile string
@@ -130,9 +136,75 @@ func writeService() *gazette.WriteService {
 	return lazyWriteService
 }
 
+func cloudFS() cloudstore.FileSystem {
+	if lazyCFS == nil {
+		var cfs, err = cloudstore.NewFileSystem(nil, viper.GetString("cloud.fs.url"))
+		if err != nil {
+			log.WithField("err", err).Fatal("cannot initialize cloud filesystem")
+		}
+		lazyCFS = cfs
+	}
+	return lazyCFS
+}
+
+func userConfirms(message string) {
+	if defaultYes {
+		return
+	}
+	fmt.Println(message)
+	fmt.Print("Confirm (y/N): ")
+
+	var response string
+	fmt.Scanln(&response)
+
+	for _, opt := range []string{"y", "yes"} {
+		if strings.ToLower(response) == opt {
+			return
+		}
+	}
+	log.Fatal("aborted by user")
+}
+
+// loadHints loads FSMHints given a locator, which can take the form of a simple path
+// to a file on disk, or an "etcd:///path/to/key".
+func loadHints(locator string) recoverylog.FSMHints {
+	var u, err = url.Parse(locator)
+	switch {
+	case err != nil:
+		log.WithField("err", err).Fatal("failed to parse URL")
+	case u.Host != "":
+		log.WithField("host", u.Host).Fatal("url.Host should be empty (use `etcd:///path/to/key` syntax)")
+	case u.Scheme != "" && u.Scheme != "etcd":
+		log.WithField("scheme", u.Scheme).Fatal("url.Scheme must be empty or `etcd://`")
+	case u.RawQuery != "":
+		log.WithField("query", u.RawQuery).Fatal("url.Query must be empty")
+	}
+
+	var content []byte
+
+	if u.Scheme == "etcd" {
+		var r, err = etcd.NewKeysAPI(etcdClient()).Get(context.Background(), u.Path, nil)
+		if err != nil {
+			log.WithField("err", err).Fatal("failed to read hints from Etcd")
+		}
+		content = []byte(r.Node.Value)
+	} else if content, err = ioutil.ReadFile(u.Path); err != nil {
+		log.WithFields(log.Fields{"err": err, "path": u.Path}).Fatal("failed to read hints file")
+	}
+
+	var hints recoverylog.FSMHints
+	if err = json.Unmarshal(content, &hints); err != nil {
+		log.WithFields(log.Fields{"err": err, "hints": string(content)}).Fatal("failed to unmarshal hints")
+	}
+	return hints
+}
+
 var (
-	lazyGazetteClient  *gazette.Client
-	lazyEtcdClient     etcd.Client
-	lazyWriteService   *gazette.WriteService
+	lazyCFS            cloudstore.FileSystem
 	lazyConsumerPlugin consumer.Consumer
+	lazyEtcdClient     etcd.Client
+	lazyGazetteClient  *gazette.Client
+	lazyWriteService   *gazette.WriteService
+
+	defaultYes bool
 )

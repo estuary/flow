@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 
-	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
@@ -20,28 +19,21 @@ var shardCmd = &cobra.Command{
 }
 
 var shardRecoverCmd = &cobra.Command{
-	Use:   "recover [etcd-hints-path] [local-output-path]",
+	Use:   "recover [hints-locator] [local-output-path]",
 	Short: "Recover contents of the indicated log hints.",
-	Long: `Recover replays the recoverylog indicated by the argument Etcd hints
-path into a local output directory, and additionally writes recovered JSON hints
-upon completion.`,
+	Long: `Recover replays the recoverylog indicated by the argument hints
+into a local output directory, and additionally writes recovered JSON hints
+upon completion.
+
+hints-locator may be a path to a local file ("path/to/hints") or an Etcd
+key specifier ("etcd:///path/to/hints").
+`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) != 2 {
 			cmd.Usage()
 			log.Fatal("invalid arguments")
 		}
-		var hintsPath, tgtPath = args[0], args[1]
-
-		var hintsResp, err = etcd.NewKeysAPI(etcdClient()).Get(context.Background(), hintsPath, nil)
-		if err != nil {
-			log.WithField("err", err).Fatal("failed to read hints from Etcd")
-		}
-
-		var hints recoverylog.FSMHints
-		if err = json.Unmarshal([]byte(hintsResp.Node.Value), &hints); err != nil {
-			log.WithFields(log.Fields{"err": err, "resp": *hintsResp}).
-				Fatal("failed to unmarshal hints")
-		}
+		var hints, tgtPath = loadHints(args[0]), args[1]
 
 		player, err := recoverylog.NewPlayer(hints, tgtPath)
 		if err != nil {
@@ -66,7 +58,7 @@ upon completion.`,
 		}
 
 		// Write recovered hints under |tgtPath|.
-		var recoveredPath = path.Join(tgtPath, path.Base(hintsPath)+".recoveredHints.json")
+		var recoveredPath = path.Join(tgtPath, "recoveredHints.json")
 
 		fout, err := os.Create(recoveredPath)
 		if err == nil {
