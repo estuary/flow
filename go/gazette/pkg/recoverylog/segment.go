@@ -78,13 +78,36 @@ func (s *SegmentSet) Add(segment Segment) error {
 	return nil
 }
 
+// Intersect returns a slice of this SegmentSet which overlaps with
+// the provided [firstOffset, lastOffset) range.
+func (s SegmentSet) Intersect(firstOffset, lastOffset int64) SegmentSet {
+	if lastOffset < firstOffset {
+		panic("invalid range")
+	}
+
+	// Find the first Segment which has a FirstOffset >= |lastOffset|, if one exists.
+	// This is the (exclusive) end of our range.
+	var j = sort.Search(len(s), func(i int) bool {
+		return s[i].FirstOffset >= lastOffset
+	})
+
+	// Walk backwards until we find a Segment having LastOffset != 0 and
+	// <= |firstOffset|, which is the (exclusive) beginning of our range. Since
+	// we enforce LastOffset monotonicity, and also that only a strict suffix
+	// may have LastOffset == 0, we're guaranteed no preceding Segment may overlap.
+	var i = j
+	for ; i != 0 && (s[i-1].LastOffset == 0 || s[i-1].LastOffset > firstOffset); i-- {
+	}
+	return s[i:j:j]
+}
+
 // reduceSegment returns a single Segment which is the reduction of |a| and |b|,
 // an error indicating a data-model inconsistency, or errNotReducible if a
 // reduction cannot be performed.
 func reduceSegment(a, b Segment) (Segment, error) {
 	// Establish invariants:
 	//  * a.FirstSeqNo <= b.FirstSeqNo.
-	//  * If FirstSeqNo's are equal, than a.LastSeqNo >= b.LastSeqNo.
+	//  * If FirstSeqNo's are equal, then a.LastSeqNo >= b.LastSeqNo.
 	//
 	// This leaves the remaining possible cases:
 	//

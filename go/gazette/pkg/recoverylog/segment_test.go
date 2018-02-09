@@ -243,6 +243,41 @@ func (s *SegmentSuite) TestSetConsistencyChecks(c *gc.C) {
 	}
 }
 
+func (s *SegmentSuite) TestIntersectionCases(c *gc.C) {
+	var model = modelSegmentSet()
+
+	var cases = []struct {
+		first, last int64
+		expect      SegmentSet
+	}{
+		{0, 100000, model},
+		{0, 500, model[0:0]},
+		{0, 501, model[0:1]},
+		{1000, 1001, model[0:1]},
+		{1000, 1100, model[0:1]},
+		{1000, 1101, model[0:2]},
+		{1000, 1300, model[0:2]},
+		{1000, 1301, model},
+		{1000, 100000, model},
+		{1001, 1001, model[1:1]},
+		{1001, 1100, model[1:1]},
+		{1001, 1101, model[1:2]},
+		{1100, 1101, model[1:2]},
+		{1101, 1101, model[2:2]},
+		{1101, 1300, model[2:2]},
+		{1101, 1301, model[2:3]},
+		{1300, 1301, model[2:3]},
+		{1300, 100000, model[2:3]},
+		{1500, 100000, model[2:3]},
+		{1501, 100000, model[3:3]},
+		{10000, 100000, model[3:3]},
+	}
+
+	for _, tc := range cases {
+		c.Check(model.Intersect(tc.first, tc.last), gc.DeepEquals, tc.expect)
+	}
+}
+
 func permuteAndAdd(c *gc.C, to SegmentSet, from []Segment) SegmentSet {
 	for _, i := range rand.Perm(len(from)) {
 		c.Check(to.Add(from[i]), gc.IsNil)
