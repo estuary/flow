@@ -57,7 +57,7 @@ var (
 )
 
 const (
-	storeToEtcdInterval = time.Hour
+	storeToEtcdInterval = 5 * time.Minute
 
 	// Channel size used between message decode & comsumption. Needs to be rather
 	// large, to avoid processing stalls. Current value will tolerate a data
@@ -150,8 +150,12 @@ func (m *master) serve(runner *Runner, replica *replica) {
 		return
 	}
 
-	// Attempt to write last-recovered hints into Etcd.
-	maybeEtcdSet(runner.KeysAPI(), m.hintsPath+".lastRecovered", hintsJSONString(fsm.BuildHints()))
+	// We've completed log playback, and we're almost certainly the most recent shard primary
+	// to do so. Begin recording updated FSMHints into Etcd, and additionally perform a one-
+	// time back up our recovered hints under a `.lastRecovered` suffix.
+	var hintsString = hintsJSONString(fsm.BuildHints())
+	maybeEtcdSet(runner.KeysAPI(), m.hintsPath, hintsString)
+	maybeEtcdSet(runner.KeysAPI(), m.hintsPath+".lastRecovered", hintsString)
 
 	var opts = rocks.NewDefaultOptions()
 	if initer, ok := runner.Consumer.(OptionsIniter); ok {

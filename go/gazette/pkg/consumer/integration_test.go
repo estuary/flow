@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -24,7 +23,6 @@ import (
 	"github.com/LiveRamp/gazette/pkg/envflagfactory"
 	"github.com/LiveRamp/gazette/pkg/gazette"
 	"github.com/LiveRamp/gazette/pkg/journal"
-	"github.com/LiveRamp/gazette/pkg/recoverylog"
 	"github.com/LiveRamp/gazette/pkg/topic"
 )
 
@@ -279,20 +277,7 @@ func (s *ConsumerSuite) TestMasterWritesLastReadHints(c *gc.C) {
 	lrResp, err = keysAPI.Get(context.Background(), hintsPath(consumerRoot, sid)+".lastRecovered", nil)
 	c.Assert(err, gc.IsNil)
 
-	var lpSeg recoverylog.Segment
-	var hints, lrHints recoverylog.FSMHints
-	c.Assert(json.Unmarshal([]byte(resp.Node.Value), &hints), gc.IsNil)
-	c.Assert(json.Unmarshal([]byte(lrResp.Node.Value), &lrHints), gc.IsNil)
-	for n, liveNode := range hints.LiveNodes {
-		for s, seg := range liveNode.Segments {
-			lpSeg = lrHints.LiveNodes[n].Segments[s]
-			c.Assert(seg.GetAuthor(), gc.Equals, lpSeg.GetAuthor())
-			c.Assert(seg.GetFirstChecksum(), gc.Equals, lpSeg.GetFirstChecksum())
-			c.Assert(seg.GetFirstSeqNo(), gc.Equals, lpSeg.GetFirstSeqNo())
-			c.Assert(seg.GetLastSeqNo(), gc.Equals, lpSeg.GetLastSeqNo())
-			c.Assert(seg.GetFirstOffset() <= lpSeg.GetFirstOffset(), gc.Equals, true)
-		}
-	}
+	c.Check(resp.Node.Value, gc.Equals, lrResp.Node.Value)
 
 	// Clean up shard and recovered hints.
 	shard.transitionCancel()
