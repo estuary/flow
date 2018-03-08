@@ -223,6 +223,70 @@ func (s *IOSuite) TestSeeking(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, "io.SeekEnd whence is not supported")
 }
 
+func (s *IOSuite) TestBufferedSeekAdjustment(c *gc.C) {
+	var getter = new(MockGetter)
+	var ctx = context.Background()
+	var rr = NewRetryReaderContext(ctx, Mark{"a/journal", 0}, getter)
+	var br = bufio.NewReaderSize(rr, 16)
+
+	var checkRead = func(expect string) {
+		var buffer = make([]byte, len(expect))
+
+		var n, err = br.Read(buffer[:])
+		c.Check(n, gc.Equals, len(expect))
+		c.Check(err, gc.IsNil)
+		c.Check(string(buffer[:n]), gc.Equals, expect)
+	}
+
+	// Seek of a closed reader just updates the offset.
+	var n, err = rr.AdjustedSeek(100, io.SeekStart, br)
+	c.Check(n, gc.Equals, int64(100))
+	c.Check(err, gc.IsNil)
+
+	// Perform initial read, opening the reader and reading four bytes.
+	getter.On("Get", ReadArgs{Journal: "a/journal", Offset: 100, Blocking: true, Context: ctx}).
+		Return(ReadResult{
+			Offset:   100,
+			Fragment: Fragment{End: 132},
+		},
+			// Return a reader with 32 bytes of content.
+			struct {
+				io.Reader
+				closeCh
+			}{strings.NewReader(strings.Repeat("abcd", 8)), make(closeCh)},
+		).Once()
+
+	// Read first four bytes.
+	checkRead("abcd")
+
+	// Expect the RetryReader offset reflects the quantity read and buffered by |br|.
+	c.Check(rr.Mark.Offset, gc.Equals, int64(116))
+	c.Check(br.Buffered(), gc.Equals, 12)
+
+	// Seek forward 6 bytes using a combination of SeekStart & SeekCurrent.
+	n, err = rr.AdjustedSeek(107, io.SeekStart, br)
+	c.Check(n, gc.Equals, int64(107))
+	c.Check(err, gc.IsNil)
+
+	n, err = rr.AdjustedSeek(3, io.SeekCurrent, br)
+	c.Check(n, gc.Equals, int64(110))
+	c.Check(err, gc.IsNil)
+
+	// Underlying reader offset hasn't changed. Content has been discarded from buffer.
+	c.Check(rr.Mark.Offset, gc.Equals, int64(116))
+	c.Check(br.Buffered(), gc.Equals, 6)
+	checkRead("cdab")
+
+	// Seek cannot be satisfied via the buffer, and the underlying reader is seek'd.
+	n, err = rr.AdjustedSeek(19, io.SeekCurrent, br)
+	c.Check(n, gc.Equals, int64(133))
+	c.Check(err, gc.IsNil)
+
+	c.Check(rr.Mark.Offset, gc.Equals, int64(133))
+	c.Check(br.Buffered(), gc.Equals, 0)
+	c.Check(rr.ReadCloser, gc.IsNil)
+}
+
 type closeCh chan struct{}
 
 func (c closeCh) Close() error {
