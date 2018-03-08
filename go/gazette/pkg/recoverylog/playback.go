@@ -198,10 +198,9 @@ func prepareRead(ctx context.Context, pr *playerReader, nextOffset int64, block 
 
 	if !pr.pendingPeek && pr.rr.AdjustedMark(pr.br).Offset != nextOffset {
 		// Seek the RetryReader forward to the next hinted offset.
-		if _, err := pr.rr.Seek(nextOffset, io.SeekStart); err != nil {
+		if _, err := pr.rr.AdjustedSeek(nextOffset, io.SeekStart, pr.br); err != nil {
 			panic(err) // The contract for RetryReader.Seek is that it never return an error.
 		}
-		pr.br.Reset(&pr.rr)
 	}
 
 	return pr

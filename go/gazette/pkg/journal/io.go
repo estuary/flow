@@ -200,6 +200,32 @@ func (rr *RetryReader) Seek(offset int64, whence int) (int64, error) {
 	return offset, nil
 }
 
+// AdjustedSeek sets the offset for the next Read, accounting for buffered data and updating
+// the buffer as needed.
+func (rr *RetryReader) AdjustedSeek(offset int64, whence int, br *bufio.Reader) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		// |offset| is already absolute.
+	case io.SeekCurrent:
+		offset = rr.AdjustedMark(br).Offset + offset
+	default:
+		return rr.AdjustedMark(br).Offset, errors.New("io.SeekEnd whence is not supported")
+	}
+
+	var delta = offset - rr.AdjustedMark(br).Offset
+
+	// Fast path: can we fulfill the seek by discarding a portion of buffered data?
+	if delta >= 0 && delta <= int64(br.Buffered()) {
+		br.Discard(int(delta))
+		return offset, nil
+	}
+
+	// We must Seek the underlying reader, discarding and resetting the current buffer.
+	var n, err = rr.Seek(offset, io.SeekStart)
+	br.Reset(rr)
+	return n, err
+}
+
 func backoff(attempt int) time.Duration {
 	switch attempt {
 	case 0, 1:
