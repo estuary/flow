@@ -176,9 +176,10 @@ func (c *Client) update() error {
 	var conns = make(map[string]*grpc.ClientConn)
 	var index = make(partitionShards)
 
-	// Ensure GRPC connections exist to each client.
-	for _, ep := range state.Endpoints {
-		if conn, ok := oldConns[ep]; ok {
+	var prepare = func(ep string) {
+		if _, ok := conns[ep]; ok {
+			// Pass.
+		} else if conn, ok := oldConns[ep]; ok {
 			conns[ep] = conn
 		} else if conn, err = grpc.Dial(ep,
 			grpc.WithDialer(keepalive.DialerFunc),
@@ -193,6 +194,21 @@ func (c *Client) update() error {
 		} else {
 			log.WithField("endpoint", ep).Debug("built new GRPC ClientConn")
 			conns[ep] = conn
+		}
+	}
+
+	// Ensure GRPC connections exist to each client.
+	for _, ep := range state.Endpoints {
+		prepare(ep)
+	}
+	// TODO(johnny): At present, shards can have primary replicas which are not
+	// captured by |state.Endpoints|. Build connections to these, too.
+	// Issue #50.
+	for _, shard := range state.Shards {
+		for _, replica := range shard.Replicas {
+			if replica.Status == ConsumerState_Replica_PRIMARY {
+				prepare(replica.Endpoint)
+			}
 		}
 	}
 
