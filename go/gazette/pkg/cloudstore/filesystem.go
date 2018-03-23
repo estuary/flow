@@ -42,7 +42,7 @@ type FileSystem interface {
 	// (either via |to.Write()| or *|from.Read()|*), the partially-written content
 	// is removed or never made observable on the target FileSystem (depending on
 	// provider semantics). Otherwise, |to| is visible on the FileSystem after
-	// the call completes. In all cases, |from| is invalidated (eg, Close()d)
+	// the call completes. In all cases, |to| is invalidated (eg, Close()d)
 	// after this call. Re-tryable bulk transfers should generally use
 	// this method for all-or-nothing behavior.
 	CopyAtomic(to File, from io.Reader) (n int64, err error)
