@@ -323,7 +323,7 @@ func (s *sftpFs) CopyAtomic(to File, from io.Reader) (n int64, err error) {
 	if n, err = io.Copy(to, from); err != nil {
 		s.Remove(to.(*sftpFile).partialPath)
 	} else {
-		to.Close()
+		err = to.Close()
 	}
 	return
 }
