@@ -109,6 +109,7 @@ const (
 	GazetteWriteBytesTotalKey           = "gazette_write_bytes_total"
 	GazetteWriteCountTotalKey           = "gazette_write_count_total"
 	GazetteWriteDurationSecondsTotalKey = "gazette_write_duration_seconds_total"
+	GazetteWriteFailureTotalKey         = "gazette_write_failure_total"
 )
 
 // Collectors for gazette.Client and gazette.WriteService metrics.
@@ -133,6 +134,10 @@ var (
 	GazetteWriteDurationTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: GazetteWriteDurationSecondsTotalKey,
 		Help: "Cumulative number of seconds spent writing.",
+	})
+	GazetteWriteFailureTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: GazetteWriteFailureTotalKey,
+		Help: "Cumulative number of write errors returned to clients.",
 	})
 )
 

@@ -206,6 +206,7 @@ func (c *WriteService) serveWrites(index int) {
 		c.writeIndexMu.Unlock()
 
 		if err := c.onWrite(write); err != nil {
+			metrics.GazetteWriteFailureTotal.Inc()
 			log.WithFields(log.Fields{"journal": write.journal, "err": err}).
 				Error("write failed")
 		}
@@ -246,8 +247,7 @@ func (c *WriteService) onWrite(write *pendingWrite) error {
 			continue
 
 		default:
-			log.WithFields(log.Fields{"journal": write.journal, "err": result.Error}).
-				Warn("write failed")
+			metrics.GazetteWriteFailureTotal.Inc()
 			time.Sleep(writeServiceCoolOffTimeout)
 			continue
 		}
