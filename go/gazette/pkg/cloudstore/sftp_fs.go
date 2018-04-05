@@ -94,7 +94,9 @@ func (f *sftpFile) Close() error {
 		// Fall through
 	} else if err := f.buf.Flush(); err != nil {
 		return fmt.Errorf("flushing buffer: %s", err.Error())
-	} else if err := f.File.Close(); err != nil {
+	}
+
+	if err := f.File.Close(); err != nil {
 		return fmt.Errorf("closing file: %s", err.Error())
 	}
 	return nil
