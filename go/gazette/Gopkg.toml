@@ -20,10 +20,9 @@
 #  name = "github.com/x/y"
 #  version = "2.4.0"
 
-
-[[constraint]]
-  name = "cloud.google.com/go"
-  version = "0.4.0"
+required = [
+  "github.com/coreos/bbolt", # Transitive dependency of etcd, further constrained below.
+]
 
 [[constraint]]
   name = "github.com/aws/aws-sdk-go"
@@ -34,61 +33,20 @@
   branch = "master"
   source = "https://github.com/jgraettinger/cockroach-encoding.git"
 
+# bbolt is a transitive dependency from coreos/etcd. At this time, the current
+# version of etcd (v3.3.9) has a dependency on this version of bbolt which is
+# not part of etcd's Gopkg.toml.
 [[constraint]]
-  name = "github.com/coreos/etcd"
-  revision = "377f19b0031f9c0aafe2aec28b6f9019311f52f9"
-
-[[override]]
-  name = "github.com/ugorji/go"
-  revision = "5cd0f2b3b6cca8e3a0a4101821e41a73cb59bed6"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/dustin/go-humanize"
-
-[[constraint]]
-  branch = "v1"
-  name = "github.com/go-check/check"
-
-[[constraint]]
-  name = "github.com/gorilla/mux"
-  version = "1.5.0"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/gorilla/schema"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/hashicorp/golang-lru"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/olekukonko/tablewriter"
+  name = "github.com/coreos/bbolt"
+  version = "v1.3.1-coreos.6"
 
 [[constraint]]
   name = "github.com/pkg/sftp"
   version = "1.0.0"
 
 [[constraint]]
-  name = "github.com/prometheus/client_golang"
-  version = "0.8.0"
-
-[[constraint]]
   name = "github.com/satori/go.uuid"
   version = "1.1.0"
-
-[[constraint]]
-  name = "github.com/sirupsen/logrus"
-  version = "1.0.3"
-
-[[constraint]]
-  name = "github.com/spf13/viper"
-  version = "1.0.0"
-
-[[constraint]]
-  name = "github.com/stretchr/testify"
-  version = "1.1.4"
 
 [[constraint]]
   name = "github.com/tecbot/gorocksdb"
@@ -99,22 +57,3 @@
   name = "github.com/youtube/vitess"
   version = "2.1.1"
 
-[[constraint]]
-  branch = "master"
-  name = "golang.org/x/crypto"
-
-[[constraint]]
-  branch = "master"
-  name = "golang.org/x/net"
-
-[[constraint]]
-  branch = "master"
-  name = "golang.org/x/oauth2"
-
-[[constraint]]
-  branch = "master"
-  name = "google.golang.org/api"
-
-[[constraint]]
-  name = "google.golang.org/grpc"
-  version = "1.0.4"
