@@ -389,7 +389,10 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 				log.WithField("state", state).Panic("unexpected state")
 			}
 
-			if applied {
+			if fsm.hasRemainingHints() {
+				err = fmt.Errorf("FSM has remaining unused hints: %+v", fsm)
+				return
+			} else if applied{
 				// We successfully sequenced a no-op into the log, taking control of
 				// the log from a current recorder (if one exists).
 				state = playerStateComplete
