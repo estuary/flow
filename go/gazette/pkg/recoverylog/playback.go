@@ -389,19 +389,9 @@ func playLog(ctx context.Context, hints FSMHints, dir string, client journal.Cli
 				log.WithField("state", state).Panic("unexpected state")
 			}
 
-			if fsm.hasRemainingHints() {
-				err = fmt.Errorf("FSM has remaining unused hints: %+v", fsm)
-				return
-			} else if applied{
-				// We successfully sequenced a no-op into the log, taking control of
-				// the log from a current recorder (if one exists).
-				state = playerStateComplete
-				err = makeLive(dir, fsm, files)
+			if state, err = attemptCompletion(fsm, dir, files, applied); state == playerStateComplete || err != nil {
 				return
 			}
-
-			// We lost the race to inject our write operation, and must try again.
-			state = playerStateInjectHandoffAtHead
 		}
 	}
 }
@@ -568,6 +558,20 @@ func copyFixed(w io.Writer, r io.Reader, length int64) error {
 		return io.ErrUnexpectedEOF
 	}
 	return err
+}
+
+func attemptCompletion(fsm *FSM, dir string, files fnodeFileMap, applied bool) (playerState, error) {
+	if fsm.hasRemainingHints() {
+		return playerStateInjectHandoffAtHead, fmt.Errorf("FSM has remaining unused hints: %+v", fsm)
+	} else if applied{
+		// We successfully sequenced a no-op into the log, taking control of
+		// the log from a current recorder (if one exists).
+		err := makeLive(dir, fsm, files)
+		return playerStateComplete, err
+	} else {
+		// We lost the race to inject our write operation, and must try again.
+		return playerStateInjectHandoffAtHead, nil
+	}
 }
 
 // makeLive links staged Fnode |files| into each of their hard link locations

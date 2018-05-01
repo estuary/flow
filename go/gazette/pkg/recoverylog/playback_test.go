@@ -425,6 +425,16 @@ func (s *PlaybackSuite) TestErrWhenHintsRemainOnMakeLive(c *gc.C) {
 	c.Check(makeLive(poh.dir, poh.fsm, poh.files), gc.ErrorMatches, "FSM has remaining unused hints.*")
 }
 
+func (s *PlaybackSuite) TestErrWhenHintsRemainWhenAttemptingCompletion(c *gc.C) {
+	var poh = newPlayOperationHelper(c)
+	defer poh.destroy(c)
+
+	c.Check(poh.apply(c, poh.frame(newCreateOp("/a/path"))), gc.IsNil)
+
+	_, err := attemptCompletion(poh.fsm, poh.dir, poh.files, false)
+	c.Check(err, gc.ErrorMatches, "FSM has remaining unused hints.*")
+}
+
 func (s *PlaybackSuite) TestPlayerFinishAtWriteHead(c *gc.C) {
 	var broker = journal.NewMemoryBroker()
 	broker.Write(aRecoveryLog, []byte("irrelevant preceding content"))
