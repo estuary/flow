@@ -566,7 +566,7 @@ func attemptCompletion(fsm *FSM, dir string, files fnodeFileMap, applied bool) (
 	} else if applied{
 		// We successfully sequenced a no-op into the log, taking control of
 		// the log from a current recorder (if one exists).
-		err := makeLive(dir, fsm, files)
+		var err = makeLive(dir, fsm, files)
 		return playerStateComplete, err
 	} else {
 		// We lost the race to inject our write operation, and must try again.
