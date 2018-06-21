@@ -1,6 +1,8 @@
 package consumer
 
 import (
+	"context"
+
 	etcd "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 
@@ -39,7 +41,13 @@ func (r *replica) serve(runner *Runner) {
 	defer close(r.servingCh)
 
 	if err := r.player.Play(runner.Gazette); err != nil {
-		log.WithFields(log.Fields{"shard": r.shard, "err": err}).Error("replication failed")
+		switch err {
+		case context.Canceled:
+			// Do nothing, the shard is no longer being processed by this pod.
+		default:
+			log.WithFields(log.Fields{"shard": r.shard, "err": err}).Error("replication failed")
+		}
+
 		abort(runner, r.shard)
 	} else {
 		log.WithFields(log.Fields{"shard": r.shard}).Info("finished serving replica")

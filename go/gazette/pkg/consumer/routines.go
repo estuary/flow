@@ -15,6 +15,7 @@ import (
 
 	"github.com/LiveRamp/gazette/pkg/consensus"
 	"github.com/LiveRamp/gazette/pkg/journal"
+	"github.com/LiveRamp/gazette/pkg/metrics"
 	"github.com/LiveRamp/gazette/pkg/recoverylog"
 	"github.com/LiveRamp/gazette/pkg/topic"
 )
@@ -88,7 +89,7 @@ func recoveryLog(logRoot string, shard ShardID) journal.Name {
 // circumstances (eg, an unrecoverable local error).
 func abort(runner *Runner, shard ShardID) {
 	if err := consensus.CancelItem(runner, shard.String()); err != nil {
-		log.WithField("err", err).Error("failed to cancel shard lock")
+		metrics.GazetteConsumerFailedShardLocksTotal.Inc()
 	}
 }
 
