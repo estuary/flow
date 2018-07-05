@@ -114,7 +114,7 @@ func consumerPlugin() consumer.Consumer {
 
 		var module, err = plugin.Open(path)
 		if err != nil {
-			log.WithFields(log.Fields{"path": path, "err": err}).Fatal("failed to open plugin module")
+			log.WithFields(log.Fields{"path": path, "err": err}).Fatal("failed to open consumer plugin module")
 		}
 
 		if i, err := module.Lookup("Consumer"); err != nil {
@@ -128,8 +128,27 @@ func consumerPlugin() consumer.Consumer {
 	return lazyConsumerPlugin
 }
 
-func mergePlugin() {
-	// TODO
+func mergePlugin() Merge {
+	if lazyMergePlugin == nil {
+		var path = viper.GetString("merge.plugin")
+		if path == "" {
+			return nil
+		}
+
+		var module, err = plugin.Open(path)
+		if err != nil {
+			log.WithFields(log.Fields{"path": path, "err": err}).Fatal("failed to open merge plugin module")
+		}
+
+		if i, err := module.Lookup("Merge"); err != nil {
+			log.WithField("err", err).Fatal("failed to lookup Merge symbol")
+		} else if merge, ok := i.(*Merge); !ok {
+			log.WithField("instance", i).Fatalf("symbol `Merge` is not a plugin_types.Merge: %#v", i)
+		} else {
+			lazyMergePlugin = *merge
+		}
+	}
+	return lazyMergePlugin
 }
 
 func writeService() *gazette.WriteService {
@@ -206,6 +225,7 @@ func loadHints(locator string) recoverylog.FSMHints {
 var (
 	lazyCFS            cloudstore.FileSystem
 	lazyConsumerPlugin consumer.Consumer
+	lazyMergePlugin    Merge
 	lazyEtcdClient     etcd.Client
 	lazyGazetteClient  *gazette.Client
 	lazyWriteService   *gazette.WriteService

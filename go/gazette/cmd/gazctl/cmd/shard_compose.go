@@ -30,8 +30,8 @@ and builds a new RocksDB holding the resulting key/value set.
 
 If two or more sources provide the same key, by default, the key from the source appearing
 first in the argument list has precedence, and values of other sources are
-dropped. Follow the instructions in shard_compose_plugins.go if you would like to customize 
-this behavior.
+dropped. You can customize how multiple values for the same key are implementing the 
+Merge type as a plugin and passing it in with the "--merge" flag.
 
 Optional "--consumer-offset" and "--consumer-journal" flags are provided to help
 with a special-but-common case, where one desires to update the check-pointed
@@ -84,8 +84,15 @@ the specified offset checkpoint, with precedence over all other sources.
 			iterFuncs = append(iterFuncs, fn)
 		}
 
+		var merge Merge
+		if plugin := mergePlugin(); plugin != nil {
+			merge = plugin
+		} else {
+			merge = First
+		}
+
 		// Combine into a single sorted sequence via a heap iterator.
-		var iterFunc = newHeapIterFunc(First, iterFuncs...)
+		var iterFunc = newHeapIterFunc(merge, iterFuncs...)
 
 		// Optionally wrap with a filtering iterator.
 		if plugin := consumerPlugin(); plugin != nil {
@@ -346,7 +353,7 @@ func newHeapIterFunc(merge Merge, iterFuncs ...iterFunc) iterFunc {
 				// we've exhausted the current key, so return a merged value and put the value we peeked at back
 				heap.Push(&iters, it)
 				mergedValue = merge(currKey, values)
-				return;
+				return
 			}
 
 			values = append(values, append([]byte{}, it.value...))
@@ -354,8 +361,8 @@ func newHeapIterFunc(merge Merge, iterFuncs ...iterFunc) iterFunc {
 			it.key, it.value, it.err = it.fn(it.key, it.value)
 			heap.Push(&iters, it)
 		}
-		if (len(values) > 0) {
-			mergedValue = First(currKey, values)
+		if len(values) > 0 {
+			mergedValue = merge(currKey, values)
 		} else {
 			err = io.EOF
 		}
