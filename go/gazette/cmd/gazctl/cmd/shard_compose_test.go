@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"github.com/LiveRamp/gazette/pkg/consumer"
+	gc "github.com/go-check/check"
 	"io"
 	"strings"
 	"testing"
-	"github.com/LiveRamp/gazette/pkg/consumer"
-	gc "github.com/go-check/check"
 
-	"github.com/LiveRamp/gazette/pkg/consumer/consumertest"
 	"fmt"
+	"github.com/LiveRamp/gazette/pkg/consumer/consumertest"
+	"sort"
 )
 
 // Use a small buffer to exercise bufio.Reader underflow & fill.
@@ -47,36 +48,36 @@ func (s *ShardComposeSuite) TestHexCases(c *gc.C) {
 			},
 		},
 		{ // Simple, valid example.
-			fn: hexIter("0xaaaaaa 0xbbbbbb\n"),
+			fn:         hexIter("0xaaaaaa 0xbbbbbb\n"),
 			expectKeys: [][]byte{{0xaa, 0xaa, 0xaa}},
 			expectVals: [][]byte{{0xbb, 0xbb, 0xbb}},
 		},
 		{ // Key missing 0x prefix.
-			fn: hexIter("aaaaaa 0xbbbbbb\n"),
+			fn:        hexIter("aaaaaa 0xbbbbbb\n"),
 			expectErr: "invalid hex prefix .*",
 		},
 		{ // Value missing 0x prefix.
-			fn: hexIter("0xaaaaaa bbbbbb\n"),
+			fn:        hexIter("0xaaaaaa bbbbbb\n"),
 			expectErr: "invalid hex prefix .*",
 		},
 		{ // Missing value.
-			fn: hexIter("0xaaaaaa\n"),
+			fn:        hexIter("0xaaaaaa\n"),
 			expectErr: "unexpected EOF",
 		},
 		{ // Missing trailing newline.
-			fn: hexIter("0xaaaaaa 0xbbbbbb"),
+			fn:        hexIter("0xaaaaaa 0xbbbbbb"),
 			expectErr: "unexpected EOF",
 		},
 		{ // Invalid key hex.
-			fn: hexIter("0xaaxxaaaa 0xbbbbbb\n"),
+			fn:        hexIter("0xaaxxaaaa 0xbbbbbb\n"),
 			expectErr: "encoding/hex: .*",
 		},
 		{ // Invalid value hex.
-			fn: hexIter("0xaaxxaa 0xbbxxbbbb\n"),
+			fn:        hexIter("0xaaxxaa 0xbbxxbbbb\n"),
 			expectErr: "encoding/hex: .*",
 		},
 		{ // Extra token.
-			fn: hexIter("0xaa 0xbb 0xcc\n"),
+			fn:        hexIter("0xaa 0xbb 0xcc\n"),
 			expectErr: "encoding/hex: .*",
 		},
 	}
@@ -87,19 +88,6 @@ func (s *ShardComposeSuite) TestHexCases(c *gc.C) {
 }
 
 func (s *ShardComposeSuite) TestHeapCases(c *gc.C) {
-	iterf := newHeapIterFunc(First,
-		hexIter(""+
-			"0xcccc 0xdddd\n"+
-			"0xee 0xff\n"+
-			"0xaaaaaa 0xbbbbbb\n"))
-	var k, v []byte
-	var err error
-
-	for i := 0; i < 10; i++ {
-		k, v, err = iterf(k, v)
-		fmt.Println(k, v, err)
-	}
-
 	var cases = []iterFuncTestCase{
 		{ // Simple, valid example.
 			fn: newHeapIterFunc(
@@ -120,7 +108,7 @@ func (s *ShardComposeSuite) TestHeapCases(c *gc.C) {
 					"0xaaaaaa 0xbbbbbb\n")),
 			expectKeys: [][]byte{{0xcc, 0xcc}, {0xee}},
 			expectVals: [][]byte{{0xdd, 0xdd}, {0xff}},
-			expectErr: "invalid iterator order: ee > aaaaaa",
+			expectErr:  "invalid iterator order: ee > aaaaaa",
 		},
 		{ // Composing iterators. Where keys collide, expect all but the first iterator value is dropped.
 			fn: newHeapIterFunc(
@@ -152,7 +140,7 @@ func (s *ShardComposeSuite) TestHeapCases(c *gc.C) {
 			),
 			expectKeys: [][]byte{{0xaa, 0xaa}},
 			expectVals: [][]byte{{0x11, 0x11}},
-			expectErr: "encoding/hex: .*",
+			expectErr:  "encoding/hex: .*",
 		},
 	}
 	for _, tc := range cases {
@@ -171,7 +159,7 @@ func (s *ShardComposeSuite) TestDBIterCases(c *gc.C) {
 
 	var cases = []iterFuncTestCase{
 		{ // Direct iteration of a DB.
-			fn: newDBIterFunc(shard.Database()),
+			fn:         newDBIterFunc(shard.Database()),
 			expectKeys: [][]byte{{0xaa, 0xaa}, {0xbb, 0xbb}},
 			expectVals: [][]byte{{0x11, 0x11}, {0x22, 0x22}},
 		},
@@ -213,17 +201,17 @@ func (s *ShardComposeSuite) TestFilterCases(c *gc.C) {
 
 	var cases = []iterFuncTestCase{
 		{ // Passed through.
-			fn: newFilterIterFunc(filter, hexIter("0xaaaa 0xbbbb\n")),
+			fn:         newFilterIterFunc(filter, hexIter("0xaaaa 0xbbbb\n")),
 			expectKeys: [][]byte{{0xaa, 0xaa}},
 			expectVals: [][]byte{{0xbb, 0xbb}},
 		},
 		{ // Modified.
-			fn: newFilterIterFunc(filter, hexIter("0xaaee 0xbbbb\n")),
+			fn:         newFilterIterFunc(filter, hexIter("0xaaee 0xbbbb\n")),
 			expectKeys: [][]byte{{0xaa, 0xee}},
 			expectVals: [][]byte{{0x00}},
 		},
 		{ // Filtered.
-			fn: newFilterIterFunc(filter, hexIter("0xaaff 0xbbbb\n")),
+			fn:         newFilterIterFunc(filter, hexIter("0xaaff 0xbbbb\n")),
 			expectKeys: [][]byte{},
 			expectVals: [][]byte{},
 		},
@@ -236,6 +224,63 @@ func (s *ShardComposeSuite) TestFilterCases(c *gc.C) {
 				"0xffaa 0xffff\n")), // Passed through.
 			expectKeys: [][]byte{{0xee, 0xee}, {0xff, 0xaa}},
 			expectVals: [][]byte{{0x00}, {0xff, 0xff}},
+		},
+	}
+	for _, tc := range cases {
+		tc.test(c)
+	}
+}
+
+func (s *ShardComposeSuite) TestCustomMergeCases(c *gc.C) {
+	var Last = func(key []byte, values [][]byte) []byte {
+		return values[len(values)-1]
+	}
+
+	var Median = func(key []byte, values [][]byte) []byte {
+		fmt.Println("med")
+		sort.SliceStable(values,
+			func(i, j int) bool {
+				return bytes.Compare(values[i], values[j]) < 1
+			})
+
+		for i := range values {
+			fmt.Println(values[i])
+		}
+
+		l := len(values)
+
+		return values[l/2] // technically not correct in the even case, but this is just a demo
+	}
+
+	var cases = []iterFuncTestCase{
+		{ // Same as test in HeapIter tests, but selecting the last instead of first value
+			fn: newHeapIterFunc(
+				Last,
+				hexIter(""+
+					"0xaabb 0x2222\n"+
+					"0xbbcc 0x3333\n"), // Discarded.
+				hexIter(""+
+					"0xaaaa 0x1111\n"+
+					"0xbbcc 0xfff2\n"+ // Discarded.
+					"0xeeff 0x4444\n"), // Discarded.
+				hexIter(""+
+					"0xbbcc 0xfff3\n"+
+					"0xeeff 0xfff4\n"+
+					"0xffff 0x5555\n"),
+			),
+			expectKeys: [][]byte{{0xaa, 0xaa}, {0xaa, 0xbb}, {0xbb, 0xcc}, {0xee, 0xff}, {0xff, 0xff}},
+			expectVals: [][]byte{{0x11, 0x11}, {0x22, 0x22}, {0xff, 0xf3}, {0xff, 0xf4}, {0x55, 0x55}},
+		},
+		{ // More complicated merge function that must consider all values
+			fn: newHeapIterFunc(Median,
+				hexIter("0xaaaa 0xbbbb\n"),
+				hexIter("0xaaaa 0xcccc\n"),
+				hexIter("0xaaaa 0xffff\n"),
+				hexIter("0xaaaa 0xdddd\n"), // Median value
+				hexIter("0xaaaa 0xeeee\n"),
+			),
+			expectKeys: [][]byte{{0xaa, 0xaa}},
+			expectVals: [][]byte{{0xdd, 0xdd}},
 		},
 	}
 	for _, tc := range cases {
@@ -269,7 +314,7 @@ func (s *ShardComposeSuite) TestOffsetUpdateCases(c *gc.C) {
 				First,
 				newConsumerOffsetIterFunc("foo/bar", 12345),
 				hexIter(""+
-					"0x"+ hex.EncodeToString(fixture)+ " 0xaaaa\n"+
+					"0x"+hex.EncodeToString(fixture)+" 0xaaaa\n"+
 					"0xcccc 0xdddd\n")),
 			expectKeys: [][]byte{fixture, {0xcc, 0xcc}},
 			expectVals: [][]byte{{0xf7, 0x30, 0x39}, {0xdd, 0xdd}},
