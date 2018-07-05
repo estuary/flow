@@ -28,10 +28,10 @@ RocksDB, or a sorted flat file of encoded keys/values in the standard
 "ldb dump / scan --hex" format), optionally applies a provided plugin filter,
 and builds a new RocksDB holding the resulting key/value set.
 
-If two or more sources provide the same key, the key from the source appearing
+If two or more sources provide the same key, by default, the key from the source appearing
 first in the argument list has precedence, and values of other sources are
-dropped (In the future, we may update this tool to incorporate an optional
-merge operator).
+dropped. Follow the instructions in shard_compose_plugins.go if you would like to customize 
+this behavior.
 
 Optional "--consumer-offset" and "--consumer-journal" flags are provided to help
 with a special-but-common case, where one desires to update the check-pointed
@@ -85,7 +85,7 @@ the specified offset checkpoint, with precedence over all other sources.
 		}
 
 		// Combine into a single sorted sequence via a heap iterator.
-		var iterFunc = newHeapIterFunc(iterFuncs...)
+		var iterFunc = newHeapIterFunc(First, iterFuncs...)
 
 		// Optionally wrap with a filtering iterator.
 		if plugin := consumerPlugin(); plugin != nil {
@@ -304,7 +304,7 @@ func newConsumerOffsetIterFunc(name journal.Name, offset int64) iterFunc {
 // each of which must be in ascending sorted order, and producing a single
 // sorted output. Where keys collide, the value of the first iterFunc appearing
 // in the argument list is used, and others are dropped.
-func newHeapIterFunc(iterFuncs ...iterFunc) iterFunc {
+func newHeapIterFunc(merge Merge, iterFuncs ...iterFunc) iterFunc {
 	var iters iterHeap
 
 	for i, fn := range iterFuncs {
@@ -319,7 +319,8 @@ func newHeapIterFunc(iterFuncs ...iterFunc) iterFunc {
 		})
 	}
 
-	return func(prevKey, prevValue []byte) (key, value []byte, err error) {
+	return func(prevKey, prevValue []byte) (currKey, mergedValue []byte, err error) {
+		var values [][]byte
 		for len(iters) != 0 {
 			var it = heap.Pop(&iters).(iter)
 
@@ -330,26 +331,34 @@ func newHeapIterFunc(iterFuncs ...iterFunc) iterFunc {
 				return
 			}
 
-			var c = bytes.Compare(prevKey, it.key)
-			if c > 0 {
-				err = fmt.Errorf("invalid iterator order: %x > %x", prevKey, it.key)
-				return
+			if len(currKey) == 0 {
+				if bytes.Compare(prevKey, it.key) > 0 {
+					err = fmt.Errorf("invalid iterator order: %x > %x", prevKey, it.key)
+					return
+				} else if bytes.Equal(prevKey, it.key) {
+					err = fmt.Errorf("iterator did not advance between invocations: %x == %x", prevKey, it.key)
+					return
+				}
+				currKey = append([]byte{}, it.key...)
 			}
 
-			key = append(prevKey[:0], it.key...)
-			value = append(prevValue[:0], it.value...)
+			if !bytes.Equal(currKey, it.key) {
+				// we've exhausted the current key, so return a merged value and put the value we peeked at back
+				heap.Push(&iters, it)
+				mergedValue = merge(currKey, values)
+				return;
+			}
+
+			values = append(values, append([]byte{}, it.value...))
 
 			it.key, it.value, it.err = it.fn(it.key, it.value)
 			heap.Push(&iters, it)
-
-			if c < 0 {
-				return
-			}
-
-			// Else c == 0, meaning we've already returned a higher-precedence value
-			// for this key. Continue to swallow this key/value.
 		}
-		err = io.EOF
+		if (len(values) > 0) {
+			mergedValue = First(currKey, values)
+		} else {
+			err = io.EOF
+		}
 		return
 	}
 }
@@ -396,6 +405,7 @@ var (
 	composeRecoveryLog string
 	consumerJournal    string
 	consumerOffset     int64
+	mergeFunction      string
 )
 
 const writeBatchSize = 200
@@ -409,4 +419,6 @@ func init() {
 		"Journal for which to update the check-pointed consumption offset. By default, the offset is not modified.")
 	shardComposeCmd.Flags().Int64VarP(&consumerOffset, "consumer-offset", "o", 0,
 		"Byte offset for which to update the check-pointed consumption offset. --consumer-journal must be set if this is.")
+	shardComposeCmd.Flags().StringVarP(&mergeFunction, "merge-function", "m", "first",
+		"Merge function to decide what value to resolve to when multiple input sources have the same key. Defaults to \"first\".")
 }

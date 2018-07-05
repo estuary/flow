@@ -128,6 +128,10 @@ func consumerPlugin() consumer.Consumer {
 	return lazyConsumerPlugin
 }
 
+func mergePlugin() {
+	// TODO
+}
+
 func writeService() *gazette.WriteService {
 	if lazyWriteService == nil {
 		lazyWriteService = gazette.NewWriteService(gazetteClient())
