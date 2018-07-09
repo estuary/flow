@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"github.com/LiveRamp/gazette/pkg/consumer/consumertest"
 	"sort"
+	"strconv"
 )
 
 // Use a small buffer to exercise bufio.Reader underflow & fill.
@@ -91,7 +92,7 @@ func (s *ShardComposeSuite) TestHeapCases(c *gc.C) {
 	var cases = []iterFuncTestCase{
 		{ // Simple, valid example.
 			fn: newHeapIterFunc(
-				First,
+				ExpectOneValue,
 				hexIter(""+
 					"0xaaaaaa 0xbbbbbb\n"+
 					"0xcccc 0xdddd\n"+
@@ -101,7 +102,7 @@ func (s *ShardComposeSuite) TestHeapCases(c *gc.C) {
 		},
 		{ // Reversing ordering results in an error on the out-of-order key.
 			fn: newHeapIterFunc(
-				First,
+				ExpectOneValue,
 				hexIter(""+
 					"0xcccc 0xdddd\n"+
 					"0xee 0xff\n"+
@@ -130,7 +131,7 @@ func (s *ShardComposeSuite) TestHeapCases(c *gc.C) {
 		},
 		{ // Underlying iterator errors are surfaced when encountered.
 			fn: newHeapIterFunc(
-				First,
+				ExpectOneValue,
 				hexIter(""+
 					"0xaabb 0x2222\n"+
 					"0xfoobar bad value\n"),
@@ -326,6 +327,13 @@ func (s *ShardComposeSuite) TestOffsetUpdateCases(c *gc.C) {
 
 type testFilter struct {
 	fn func(key, value []byte) (remove bool, newValue []byte)
+}
+
+func ExpectOneValue(key []byte, values [][]byte) []byte {
+	if len(values) != 1 {
+		panic("Expected 1 value for key " + hex.EncodeToString(key) + " but found " + strconv.Itoa(len(values)))
+	}
+	return values[0]
 }
 
 func (tf testFilter) Filter(level int, key, value []byte) (bool, []byte) { return tf.fn(key, value) }
