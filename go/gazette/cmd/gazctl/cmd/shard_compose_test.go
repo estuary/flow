@@ -237,7 +237,6 @@ func (s *ShardComposeSuite) TestCustomMergeCases(c *gc.C) {
 	}
 
 	var Median = func(key []byte, values [][]byte) []byte {
-		fmt.Println("med")
 		sort.SliceStable(values,
 			func(i, j int) bool {
 				return bytes.Compare(values[i], values[j]) < 1
