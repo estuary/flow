@@ -30,8 +30,8 @@ and builds a new RocksDB holding the resulting key/value set.
 
 If two or more sources provide the same key, by default, the key from the source appearing
 first in the argument list has precedence, and values of other sources are
-dropped. You can customize how multiple values for the same key are implementing the 
-Merge type as a plugin and passing it in with the "--merge" flag.
+dropped. You can customize how multiple values for the same key are merged by implementing
+the Merge type as a plugin and passing it in with the "--merge" flag.
 
 Optional "--consumer-offset" and "--consumer-journal" flags are provided to help
 with a special-but-common case, where one desires to update the check-pointed
