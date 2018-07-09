@@ -4,16 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
-	"github.com/LiveRamp/gazette/pkg/consumer"
-	gc "github.com/go-check/check"
 	"io"
 	"strings"
 	"testing"
 
+	"github.com/LiveRamp/gazette/pkg/consumer"
+	gc "github.com/go-check/check"
+
 	"fmt"
-	"github.com/LiveRamp/gazette/pkg/consumer/consumertest"
 	"sort"
 	"strconv"
+
+	"github.com/LiveRamp/gazette/pkg/consumer/consumertest"
 )
 
 // Use a small buffer to exercise bufio.Reader underflow & fill.
