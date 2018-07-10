@@ -1,20 +1,19 @@
 package cmd
 
 import (
+	"fmt"
 	"bufio"
 	"bytes"
 	"encoding/hex"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/LiveRamp/gazette/pkg/consumer"
 	gc "github.com/go-check/check"
 
-	"fmt"
-	"sort"
-	"strconv"
-
+	"github.com/LiveRamp/gazette/pkg/consumer"
 	"github.com/LiveRamp/gazette/pkg/consumer/consumertest"
 )
 
