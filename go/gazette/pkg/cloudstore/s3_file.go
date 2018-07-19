@@ -386,22 +386,3 @@ func (f *s3File) listObjects() ([]os.FileInfo, error) {
 func (f *s3File) isUpload() bool {
 	return f.uploadId != nil
 }
-
-func (f *s3File) transfer(from io.Reader) (int64, error) {
-	var n int64
-	if f.compressor != nil {
-		n, f.err = io.Copy(f.compressor, from)
-	} else {
-		var buf = &f.spool
-		n, f.err = io.Copy(buf, from)
-	}
-
-	if f.err != nil {
-		if f.compressor != nil {
-			f.compressor.Close()
-		}
-		return n, f.err
-	}
-
-	return n, f.Close()
-}
