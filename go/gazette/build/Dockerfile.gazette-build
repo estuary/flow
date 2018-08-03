@@ -1,4 +1,4 @@
-FROM liveramp/gazette-base:1.0.0 AS builder
+FROM liveramp/gazette-base:1.1.0 AS builder
 
 ENV DEP_VERSION=v0.3.2
 

@@ -52,30 +52,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/cockroachdb/c-jemalloc"
-  packages = ["."]
-  revision = "bc40252301328e963d752cbc8e30702db03e52f2"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/cockroachdb/c-lz4"
-  packages = ["."]
-  revision = "834d3303c9e84b1045bc57c3eb3723ee8cb4d33b"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/cockroachdb/c-rocksdb"
-  packages = ["."]
-  revision = "0dd42399d1f02019c982d1752beee2f145fdd2dd"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/cockroachdb/c-snappy"
-  packages = ["."]
-  revision = "c0cd3c9ce92f195001595e1fbbe66f045daad34f"
-
-[[projects]]
-  branch = "master"
   name = "github.com/cockroachdb/cockroach"
   packages = [
     "util",
@@ -377,7 +353,7 @@
 [[projects]]
   name = "github.com/tecbot/gorocksdb"
   packages = ["."]
-  revision = "736494885839fb191f59399d9c572a4fbf1b9f9e"
+  revision = "22dabfda16ecbdd40858aca4e7898ee8d592d647"
   source = "https://github.com/LiveRamp/gorocksdb.git"
 
 [[projects]]
@@ -541,6 +517,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a4c79944bc191ae022d035a55e0add3a8b68c373a45667490ad20f400b35a19e"
+  inputs-digest = "fa1958be542374d6b89a5692c76b19ccd95b9cc575dbff1ac8e74134a3be2a6c"
   solver-name = "gps-cdcl"
   solver-version = 1

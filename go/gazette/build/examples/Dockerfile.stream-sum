@@ -9,7 +9,7 @@ RUN go install github.com/LiveRamp/gazette/examples/stream-sum/chunker
 
 RUN go test github.com/LiveRamp/gazette/examples/stream-sum/...
 
-FROM liveramp/gazette-base:1.0.0
+FROM liveramp/gazette-base:1.1.0
 COPY --from=build \
         /go/bin/chunker \
         /go/bin/run-consumer \

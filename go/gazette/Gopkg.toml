@@ -92,7 +92,7 @@
 
 [[constraint]]
   name = "github.com/tecbot/gorocksdb"
-  revision = "736494885839fb191f59399d9c572a4fbf1b9f9e"
+  revision = "22dabfda16ecbdd40858aca4e7898ee8d592d647"
   source = "https://github.com/LiveRamp/gorocksdb.git"
 
 [[constraint]]
