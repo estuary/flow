@@ -8,7 +8,7 @@ compiler. This image is used both for building gazette itself, and also for
 multi-stage Dockerfiles which pick out compiled binaries of the gazette build
 but still require the RocksDB runtime::
 
-  docker pull liveramp/gazette-base:1.0.0
+  docker pull liveramp/gazette-base:1.1.0
 
 Build and test Gazette. This image includes all Gazette source, vendored
 dependencies, compiled packages and binaries, and only completes after
