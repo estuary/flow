@@ -23,7 +23,7 @@ import (
 	"time"
 
 	etcd "github.com/coreos/etcd/client"
-	humanize "github.com/dustin/go-humanize"
+	"github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -38,6 +38,19 @@ import (
 
 const (
 	journalNotBeingRead = -1
+	stateNotReading     = "NotReading"
+	stateRecovering     = "Recovering"
+	stateOK             = "OK"
+	stateEtcdAhead      = "EtcdAhead"
+	stateNoOwner        = "NoOwner"
+
+	// Keys for gazconsumer metrics.
+	GazconsumerLagBytesKey          = "gazconsumer_lag_bytes"
+	GazconsumerShardIsRecoveringKey = "gazconsumer_shard_is_recovering"
+	GazconsumerShardIsNotReadingKey = "gazconsumer_shard_is_not_reading"
+	GazconsumerShardIsOKKey         = "gazconsumer_shard_is_ok"
+	GazconsumerShardIsEtcdAheadKey  = "gazconsumer_shard_is_etcd_ahead"
+	GazconsumerShardIsNoOwnerKey    = "gazconsumer_shard_is_no_owner"
 )
 
 var (
@@ -55,6 +68,34 @@ var (
 	keysAPI       etcd.KeysAPI
 	gazetteClient *gazette.Client
 	httpClient    *http.Client
+
+	// Collectors for gazconsumer metrics.
+	GazconsumerLagBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: GazconsumerLagBytesKey,
+		Help: "Lag of the consumer on a per shard basis.",
+	}, []string{"consumer"})
+
+	// Binary metrics that indicate whether the shard is in a particular state.
+	GazconsumerShardIsRecovering = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: GazconsumerShardIsRecoveringKey,
+		Help: "Binary value where 1 indicates shard state is 'Recovering', and 0 otherwise.",
+	}, []string{"consumer", "journal"})
+	GazconsumerShardIsNotReading = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: GazconsumerShardIsNotReadingKey,
+		Help: "Binary value where 1 indicates shard state is 'Not Reading', and 0 otherwise.",
+	}, []string{"consumer", "journal"})
+	GazconsumerShardIsOK = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: GazconsumerShardIsOKKey,
+		Help: "Binary value where 1 indicates shard state is 'OK', and 0 otherwise.",
+	}, []string{"consumer", "journal"})
+	GazconsumerShardIsEtcdAhead = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: GazconsumerShardIsEtcdAheadKey,
+		Help: "Binary value where 1 indicates shard state is 'Etcd Ahead', and 0 otherwise.",
+	}, []string{"consumer", "journal"})
+	GazconsumerShardIsNoOwner = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: GazconsumerShardIsNoOwnerKey,
+		Help: "Binary value where 1 indicates shard state is 'No Owner', and 0 otherwise.",
+	}, []string{"consumer", "journal"})
 )
 
 type varsData struct {
@@ -83,7 +124,7 @@ type consumerData struct {
 	members      map[string]memberData
 	owners       map[string]string
 
-	journalLag map[string]journalData
+	journals map[string]journalData
 }
 
 type journalData struct {
@@ -93,10 +134,31 @@ type journalData struct {
 
 func (cd consumerData) totalLag() int64 {
 	var res int64 = 0
-	for _, data := range cd.journalLag {
+	for _, data := range cd.journals {
 		res += data.lag
 	}
 	return res
+}
+
+func GazconsumerShardStates() []*prometheus.GaugeVec {
+	return []*prometheus.GaugeVec{
+		GazconsumerShardIsNotReading,
+		GazconsumerShardIsNoOwner,
+		GazconsumerShardIsEtcdAhead,
+		GazconsumerShardIsOK,
+		GazconsumerShardIsRecovering,
+	}
+}
+
+func GazconsumerCollectors() []prometheus.Collector {
+	return []prometheus.Collector{
+		GazconsumerLagBytes,
+		GazconsumerShardIsRecovering,
+		GazconsumerShardIsNotReading,
+		GazconsumerShardIsOK,
+		GazconsumerShardIsNoOwner,
+		GazconsumerShardIsEtcdAhead,
+	}
 }
 
 func main() {
@@ -130,7 +192,7 @@ func main() {
 
 	checkConsumers(consumerList)
 	if *monitor {
-		prometheus.MustRegister(metrics.GazconsumerCollectors()...)
+		prometheus.MustRegister(GazconsumerCollectors()...)
 		prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 
 		for _ = range time.Tick(*monitorInterval) {
@@ -148,11 +210,46 @@ func checkConsumers(consumerList []string) {
 		// Do not log statistics for consumers with 0 members.
 		if *monitor {
 			if len(cdata.memberNames) > 0 {
-				metrics.GazconsumerLagBytes.WithLabelValues(consumer).Set(float64(cdata.totalLag()))
+				updateConsumerMetrics(cdata, consumer)
 			}
 		} else {
 			fmt.Printf("Consumer: %s\n\n", consumer)
 			printLong(cdata, os.Stdout)
+		}
+	}
+}
+
+// Log metrics based on the consumer's data; namely, total lag and the state of each shard.
+func updateConsumerMetrics(cdata consumerData, consumer string) {
+	GazconsumerLagBytes.WithLabelValues(consumer).Set(float64(cdata.totalLag()))
+
+	var currentState *prometheus.GaugeVec
+	for journal, data := range cdata.journals {
+		switch data.state {
+		case stateNotReading:
+			currentState = GazconsumerShardIsNotReading
+		case stateNoOwner:
+			currentState = GazconsumerShardIsNoOwner
+		case stateEtcdAhead:
+			currentState = GazconsumerShardIsEtcdAhead
+		case stateOK:
+			currentState = GazconsumerShardIsOK
+		case stateRecovering:
+			currentState = GazconsumerShardIsRecovering
+		default:
+			log.WithFields(log.Fields{
+				"consumer": consumer,
+				"journal":  journal,
+				"state":    data.state,
+			}).Warn("Unknown state encountered for consumer shard.")
+			continue
+		}
+		for _, m := range GazconsumerShardStates() {
+			if m == currentState {
+				m.WithLabelValues(consumer, journal).Set(1)
+			} else {
+				m.WithLabelValues(consumer, journal).Set(0)
+			}
 		}
 	}
 }
@@ -172,7 +269,7 @@ func printLong(cdata consumerData, out io.Writer) {
 	sort.Strings(cdata.journalNames)
 	for _, journal := range cdata.journalNames {
 		var owner = cdata.owners[journal]
-		if data, ok := cdata.journalLag[journal]; !ok {
+		if data, ok := cdata.journals[journal]; !ok {
 			journalsTable.Append([]string{journal, "unknown", data.state, owner})
 		} else {
 			journalsTable.Append([]string{journal, bytesForDisplay(data.lag), data.state, owner})
@@ -330,49 +427,49 @@ func collectHeads(readHeadWg *sync.WaitGroup, readHeadOutput chan journalHeadRes
 // shard basis.
 func getJournalLag(etcdOffsets, writeHeads, readHeads map[string]int64, cdata *consumerData) {
 	// Determine total lag value per-member.
-	var journalLag = make(map[string]journalData)
+	var journals = make(map[string]journalData)
 	for journal, writeHead := range writeHeads {
 		var owner = cdata.owners[journal]
 		var member = cdata.members[owner]
 		var readHead int64
 		var ok bool
-		var state = "OK"
+		var state = stateOK
 		var etcdState string
 
 		if readHead, ok = readHeads[journal]; !ok {
-			// |journalLag[journal]| remains unavailable.
-			state = "NoOwner"
+			// |journals[journal]| remains unavailable.
+			state = stateNoOwner
 			readHead = etcdOffsets[journal]
 		} else if etcdState, ok = member.states[journal]; ok && etcdState == "recovering" {
 			// The shard reports that it is recovering. For now, use the read
 			// offsets of the journal stored in Etcd, assuming that the replica
 			// will recover to that point eventually (e.g. the lag cannot
 			// be less than that amount.)
-			state = "Recovering"
+			state = stateRecovering
 			readHead = etcdOffsets[journal]
 		} else if readHead == journalNotBeingRead {
 			// The shard is not recovering, but is not busy reading the
 			// journal.
-			state = "NotReading"
+			state = stateNotReading
 			readHead = etcdOffsets[journal]
 		} else if readHead < etcdOffsets[journal] {
 			// The shard is not recovering and is actively reading. The
 			// offsets stored for this shard in Etcd exceed the ones reported
 			// by the replica.
-			state = "EtcdAhead"
+			state = stateEtcdAhead
 			readHead = etcdOffsets[journal]
 		}
 
 		var delta = writeHead - readHead
 		if delta >= 0 {
-			journalLag[journal] = journalData{lag: delta, state: state}
+			journals[journal] = journalData{lag: delta, state: state}
 			member.totalLag += delta
 		} else {
-			journalLag[journal] = journalData{lag: 0, state: state}
+			journals[journal] = journalData{lag: 0, state: state}
 		}
 		cdata.members[owner] = member
 	}
-	cdata.journalLag = journalLag
+	cdata.journals = journals
 }
 
 type journalHeadResult struct {

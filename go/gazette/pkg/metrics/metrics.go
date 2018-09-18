@@ -48,23 +48,6 @@ func GazetteCollectors() []prometheus.Collector {
 	}
 }
 
-// Keys for gazconsumer metrics.
-const (
-	GazconsumerLagBytesKey = "gazconsumer_lag_bytes"
-)
-
-// Collectors for gazconsumer metrics.
-var (
-	GazconsumerLagBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: GazconsumerLagBytesKey,
-		Help: "Lag of the consumer on a per shard basis.",
-	}, []string{"consumer"})
-)
-
-func GazconsumerCollectors() []prometheus.Collector {
-	return []prometheus.Collector{GazconsumerLagBytes}
-}
-
 // Keys for gazretention metrics.
 const (
 	GazretentionDeletedBytesTotalKey      = "gazretention_deleted_bytes_total"
