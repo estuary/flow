@@ -2,16 +2,25 @@ version: 2
 jobs:
   build:
     docker:
-      - image: docker:17.05.0-ce-git
+      - image: docker:stable
     steps:
       - checkout
-      - setup_remote_docker
+
+      - setup_remote_docker:
+          docker_layer_caching: true
+
       - run:
-          name: Build and test Gazette
-          command: docker build . -f build/Dockerfile.gazette-build --tag gazette-build
+          name: Build and test V1 Gazette
+          command: docker build . --file build/Dockerfile.gazette-build --tag gazette-build
+
       - run:
-          name: Build the command image
-          command: docker build . -f build/cmd/Dockerfile.gazette --tag gazette
+          name: Build the V1 binary image
+          command: docker build . --file build/cmd/Dockerfile.gazette
+
       - run:
-          name: Build the examples
-          command: docker build . -f build/examples/Dockerfile.word-count --tag word-count
+          name: Build V1 stream-sum example
+          command: docker build . --file build/examples/Dockerfile.stream-sum
+
+      - run:
+          name: Build and test V2 Gazette
+          command: ./v2/build/all.sh

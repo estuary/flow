@@ -29,6 +29,19 @@ required = [
   version = "1.12.19"
 
 [[constraint]]
+  name = "github.com/pkg/sftp"
+  version = "1.0.0"
+
+[[constraint]]
+  name = "github.com/satori/go.uuid"
+  version = "1.1.0"
+
+[[constraint]]
+  name = "github.com/youtube/vitess"
+  version = "2.1.1"
+
+# Use an old, pinned version of the cockroach DB keyspace encoding utilities.
+[[constraint]]
   name = "github.com/cockroachdb/cockroach"
   branch = "master"
   source = "https://github.com/jgraettinger/cockroach-encoding.git"
@@ -40,20 +53,19 @@ required = [
   name = "github.com/coreos/bbolt"
   version = "v1.3.1-coreos.6"
 
+# Require an unreleased `master` revision of go-flags, which includes the "env-namespace" feature.
 [[constraint]]
-  name = "github.com/pkg/sftp"
-  version = "1.0.0"
+  name = "github.com/jessevdk/go-flags"
+  revision = "1c38ed7ad0cc3d9e66649ac398c30e45f395c4eb"
 
+# Require an unreleased `master` revision of gogo/protobuf, which includes the "goproto_unkeyed_all"
+# and "goproto_sizecache_all" extensions.
 [[constraint]]
-  name = "github.com/satori/go.uuid"
-  version = "1.1.0"
+  name = "github.com/gogo/protobuf"
+  revision = "e14cafb6a2c249986e51c4b65c3206bf18578715"
 
+# We require that gorocksdb match our RocksDB version pin (currently 5.14.2)
 [[constraint]]
   name = "github.com/tecbot/gorocksdb"
   revision = "22dabfda16ecbdd40858aca4e7898ee8d592d647"
   source = "https://github.com/LiveRamp/gorocksdb.git"
-
-[[constraint]]
-  name = "github.com/youtube/vitess"
-  version = "2.1.1"
-
