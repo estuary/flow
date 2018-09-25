@@ -1,12 +1,12 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/clientv3"
 	gc "github.com/go-check/check"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
 )
 
 type ItemStateSuite struct{}
@@ -404,11 +404,8 @@ func (s *ItemStateSuite) TestBuildPackOps(c *gc.C) {
 }
 
 func buildItemStateFixture(c *gc.C, fixture map[string]string) (*keyspace.KeySpace, *itemState) {
-	var client = etcdCluster.RandClient()
-	var ctx = context.Background()
-
-	var _, err = client.Delete(ctx, "", clientv3.WithPrefix())
-	c.Assert(err, gc.IsNil)
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 
 	for k, v := range fixture {
 		var _, err = client.Put(ctx, k, v)

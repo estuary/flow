@@ -1,29 +1,21 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
-	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/integration"
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	gc "github.com/go-check/check"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
 )
 
 func BenchmarkAll(b *testing.B) {
-	var fakeT testing.T
-	etcdCluster = integration.NewClusterV3(&fakeT, &integration.ClusterConfig{Size: 1})
-
-	var client = etcdCluster.RandClient()
-
 	b.Run("simulated-deploy", func(b *testing.B) {
-		benchmarkSimulatedDeploy(b, client)
+		benchmarkSimulatedDeploy(b)
 	})
-	etcdCluster.Terminate(&fakeT)
 }
 
 type BenchmarkHealthSuite struct{}
@@ -31,20 +23,19 @@ type BenchmarkHealthSuite struct{}
 // TestBenchmarkHealth runs benchmarks with a small N to ensure they don't bit rot.
 func (s *BenchmarkHealthSuite) TestBenchmarkHealth(c *gc.C) {
 	var fakeB = testing.B{N: 50}
-	var client = etcdCluster.RandClient()
 
-	benchmarkSimulatedDeploy(&fakeB, client)
+	benchmarkSimulatedDeploy(&fakeB)
 }
 
 var _ = gc.Suite(&BenchmarkHealthSuite{})
 
-func benchmarkSimulatedDeploy(b *testing.B, client *clientv3.Client) {
+func benchmarkSimulatedDeploy(b *testing.B) {
+	var client = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
 	var ctx, _ = context.WithCancel(context.Background())
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
 	var state = NewObservedState(ks, MemberKey(ks, "zone-b", "leader"))
-
-	var _, err = client.Delete(ctx, "", clientv3.WithPrefix())
-	assert.NoError(b, err)
 
 	var NItems = b.N
 
@@ -134,7 +125,7 @@ func benchmarkSimulatedDeploy(b *testing.B, client *clientv3.Client) {
 		Context:  ctx,
 		Etcd:     client,
 		State:    state,
-		testHook: testHook,
+		TestHook: testHook,
 	}))
 }
 

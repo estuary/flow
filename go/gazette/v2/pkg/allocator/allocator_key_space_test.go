@@ -1,11 +1,12 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/LiveRamp/gazette/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	gc "github.com/go-check/check"
@@ -16,9 +17,6 @@ type AllocKeySpaceSuite struct{}
 // buildAllocKeySpaceFixture constructs a KeySpace fixture used by a number
 // of tests across this package.
 func buildAllocKeySpaceFixture(c *gc.C, ctx context.Context, client *clientv3.Client) {
-	var _, err = client.Delete(ctx, "", clientv3.WithPrefix())
-	c.Assert(err, gc.IsNil)
-
 	for k, v := range map[string]string{
 		"/root/items/item-1":   `{"R": 2}`, // Items index 0
 		"/root/items/item-two": `{"R": 1}`, // 1
@@ -105,8 +103,8 @@ func (s *AllocKeySpaceSuite) TestKeyConstructorsAssertSepOrdering(c *gc.C) {
 }
 
 func (s *AllocKeySpaceSuite) TestAllocKeySpaceDecoding(c *gc.C) {
-	var client = etcdCluster.RandClient()
-	var ctx = context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -146,8 +144,8 @@ func (s *AllocKeySpaceSuite) TestAllocKeySpaceDecoding(c *gc.C) {
 }
 
 func (s *AllocKeySpaceSuite) TestKeyAndLookupHelpers(c *gc.C) {
-	var client = etcdCluster.RandClient()
-	var ctx = context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -187,8 +185,8 @@ func (s *AllocKeySpaceSuite) TestKeyAndLookupHelpers(c *gc.C) {
 }
 
 func (s *AllocKeySpaceSuite) TestAssignmentCompare(c *gc.C) {
-	var client = etcdCluster.RandClient()
-	var ctx = context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -259,67 +257,67 @@ func (s *AllocKeySpaceSuite) TestLeftJoin(c *gc.C) {
 		}
 	}
 
-	var expect = []cursor{
+	var expect = []LeftJoinCursor{
 		// 1.01, 1.02 <=> 1.1
-		{left: 0, rightBegin: 0, rightEnd: 1},
-		{left: 1, rightBegin: 0, rightEnd: 1},
+		{Left: 0, RightBegin: 0, RightEnd: 1},
+		{Left: 1, RightBegin: 0, RightEnd: 1},
 		// 3.03 <=> empty
-		{left: 2, rightBegin: 1, rightEnd: 1},
+		{Left: 2, RightBegin: 1, RightEnd: 1},
 		// 4.04, 4.05 <=> 4.2, 4.3, 4.4
-		{left: 3, rightBegin: 1, rightEnd: 4},
-		{left: 4, rightBegin: 1, rightEnd: 4},
+		{Left: 3, RightBegin: 1, RightEnd: 4},
+		{Left: 4, RightBegin: 1, RightEnd: 4},
 		// 5.06 <=> 5.5, 5.6
-		{left: 5, rightBegin: 4, rightEnd: 6},
+		{Left: 5, RightBegin: 4, RightEnd: 6},
 		// 7.07 <=> 7.9
-		{left: 6, rightBegin: 8, rightEnd: 9},
+		{Left: 6, RightBegin: 8, RightEnd: 9},
 		// 9.08, 9.09 <=> empty
-		{left: 7, rightBegin: 9, rightEnd: 9},
-		{left: 8, rightBegin: 9, rightEnd: 9},
+		{Left: 7, RightBegin: 9, RightEnd: 9},
+		{Left: 8, RightBegin: 9, RightEnd: 9},
 	}
 
-	var lj = leftJoin{
-		lenL:    len(L1),
-		lenR:    len(L2),
-		compare: compare,
+	var lj = LeftJoin{
+		LenL:    len(L1),
+		LenR:    len(L2),
+		Compare: compare,
 	}
 	for _, tc := range expect {
-		var cur, ok = lj.next()
+		var cur, ok = lj.Next()
 		c.Check(ok, gc.Equals, true)
 		c.Check(cur, gc.Equals, tc)
 	}
-	var _, ok = lj.next()
+	var _, ok = lj.Next()
 	c.Check(ok, gc.Equals, false)
 
-	// Run again, this time reverse L1/L2 left/right side order.
+	// Run again, this time reverse L1/L2 Left/right side order.
 
-	expect = []cursor{
+	expect = []LeftJoinCursor{
 		// 1.1 <=> 1.01, 1.05
-		{left: 0, rightBegin: 0, rightEnd: 2},
+		{Left: 0, RightBegin: 0, RightEnd: 2},
 		// 4.2, 4.3, 4.4 <=> 4.04, 4.05
-		{left: 1, rightBegin: 3, rightEnd: 5},
-		{left: 2, rightBegin: 3, rightEnd: 5},
-		{left: 3, rightBegin: 3, rightEnd: 5},
+		{Left: 1, RightBegin: 3, RightEnd: 5},
+		{Left: 2, RightBegin: 3, RightEnd: 5},
+		{Left: 3, RightBegin: 3, RightEnd: 5},
 		// 5.5, 5.6 <=> 5.06
-		{left: 4, rightBegin: 5, rightEnd: 6},
-		{left: 5, rightBegin: 5, rightEnd: 6},
+		{Left: 4, RightBegin: 5, RightEnd: 6},
+		{Left: 5, RightBegin: 5, RightEnd: 6},
 		// 6.7, 6.8 <=> empty
-		{left: 6, rightBegin: 6, rightEnd: 6},
-		{left: 7, rightBegin: 6, rightEnd: 6},
+		{Left: 6, RightBegin: 6, RightEnd: 6},
+		{Left: 7, RightBegin: 6, RightEnd: 6},
 		// 7.9 <=> empty
-		{left: 8, rightBegin: 6, rightEnd: 7},
+		{Left: 8, RightBegin: 6, RightEnd: 7},
 	}
 
-	lj = leftJoin{
-		lenL:    len(L2),
-		lenR:    len(L1),
-		compare: func(l, r int) int { return -1 * compare(r, l) },
+	lj = LeftJoin{
+		LenL:    len(L2),
+		LenR:    len(L1),
+		Compare: func(l, r int) int { return -1 * compare(r, l) },
 	}
 	for _, tc := range expect {
-		var cur, ok = lj.next()
+		var cur, ok = lj.Next()
 		c.Check(ok, gc.Equals, true)
 		c.Check(cur, gc.Equals, tc)
 	}
-	_, ok = lj.next()
+	_, ok = lj.Next()
 	c.Check(ok, gc.Equals, false)
 }
 

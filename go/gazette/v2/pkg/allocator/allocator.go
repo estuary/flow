@@ -1,17 +1,16 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
+	"github.com/LiveRamp/gazette/v2/pkg/allocator/push_relabel"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
-	"github.com/LiveRamp/gazette/pkg/v3.allocator/push_relabel"
 )
 
 type AllocateArgs struct {
@@ -20,9 +19,8 @@ type AllocateArgs struct {
 	Etcd *clientv3.Client
 	// Allocator state, which is derived from a Watched KeySpace.
 	State *State
-
-	// testHook is an optional testing hook, invoked after each convergence round.
-	testHook func(round int, isIdle bool)
+	// TestHook is an optional testing hook, invoked after each convergence round.
+	TestHook func(round int, isIdle bool)
 }
 
 // Allocate observes the Allocator KeySpace, and if this Allocator instance is
@@ -107,8 +105,8 @@ func Allocate(args AllocateArgs) error {
 				log.WithFields(log.Fields{"err": err, "round": round, "rev": ks.Header.Revision}).
 					Warn("converge iteration failed (will retry)")
 			} else {
-				if args.testHook != nil {
-					args.testHook(round, ks.Header.Revision == txnResponse.Header.Revision)
+				if args.TestHook != nil {
+					args.TestHook(round, ks.Header.Revision == txnResponse.Header.Revision)
 				}
 				round++
 			}
@@ -127,36 +125,39 @@ func Allocate(args AllocateArgs) error {
 	}
 }
 
-// converge identifies and applies incremental changes which bring the current
-// state closer to the |desired| state, subject to Item and Member constraints.
+// converge identifies and applies allowed incremental changes which bring the
+// current state closer to the |desired| state. A change is allowed iff it does
+// not cause any Item or Member replication constraints to be violated (eg, by
+// leaving an Item with too few consistent replicas, or a Member with too many
+// assigned Items).
 func converge(txn checkpointTxn, as *State, desired []Assignment) error {
 	var itemState = itemState{global: as}
-	var lastCRE int // cur.rightEnd of the previous iteration.
+	var lastCRE int // cur.RightEnd of the previous iteration.
 
 	// Walk Items, joined with their current Assignments. Simultaneously walk
 	// |desired| Assignments to join against those as well.
-	var it = leftJoin{
-		lenL: len(as.Items),
-		lenR: len(as.Assignments),
-		compare: func(l, r int) int {
+	var it = LeftJoin{
+		LenL: len(as.Items),
+		LenR: len(as.Assignments),
+		Compare: func(l, r int) int {
 			return strings.Compare(itemAt(as.Items, l).ID, assignmentAt(as.Assignments, r).ItemID)
 		},
 	}
-	for cur, ok := it.next(); ok; cur, ok = it.next() {
+	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
 		// Remove any Assignments skipped between the last cursor iteration, and this
-		// one. They must not have an Associated Item (eg, it was deleted).
-		if err := removeDeadAssignments(txn, as.KS, as.Assignments[lastCRE:cur.rightBegin]); err != nil {
+		// one. They must not have an associated Item (eg, it was deleted).
+		if err := removeDeadAssignments(txn, as.KS, as.Assignments[lastCRE:cur.RightBegin]); err != nil {
 			return err
 		}
-		lastCRE = cur.rightEnd
+		lastCRE = cur.RightEnd
 
-		var itemID, limit = itemAt(as.Items, cur.left).ID, 0
+		var itemID, limit = itemAt(as.Items, cur.Left).ID, 0
 		// Determine leading sub-slice of |desired| which are Assignments of |itemID|.
 		for ; limit != len(desired) && desired[limit].ItemID == itemID; limit++ {
 		}
 
 		// Initialize |itemState|, computing the delta of current and |desired| Item Assignments.
-		itemState.init(cur.left, as.Assignments[cur.rightBegin:cur.rightEnd], desired[:limit])
+		itemState.init(cur.Left, as.Assignments[cur.RightBegin:cur.RightEnd], desired[:limit])
 		if err := itemState.constrainAndBuildOps(txn); err != nil {
 			return err
 		}
@@ -171,6 +172,7 @@ func converge(txn checkpointTxn, as *State, desired []Assignment) error {
 }
 
 // removeDeadAssignments removes Assignments |asn|, after verifying each has no associated Item.
+// This is a sanity check that our removal hasn't raced a re-creation of the Item.
 func removeDeadAssignments(txn checkpointTxn, ks *keyspace.KeySpace, asn keyspace.KeyValues) error {
 	for len(asn) != 0 {
 		var itemID, limit = assignmentAt(asn, 0).ItemID, 1
@@ -237,6 +239,9 @@ type batchedTxn struct {
 // apply |fixedCmps| on every underlying Txn it issues (eg, they needn't be added
 // with If to each checkpoint).
 func newBatchedTxn(ctx context.Context, kv clientv3.KV, fixedCmps ...clientv3.Cmp) *batchedTxn {
+	if len(fixedCmps) >= maxTxnOps {
+		panic("too many fixedCmps")
+	}
 	return &batchedTxn{
 		txnDo: func(txn clientv3.Op) (*clientv3.TxnResponse, error) {
 			if r, err := kv.Do(ctx, txn); err != nil {

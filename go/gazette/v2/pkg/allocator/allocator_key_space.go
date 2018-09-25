@@ -1,4 +1,4 @@
-package v3_allocator
+package allocator
 
 import (
 	"bytes"
@@ -6,16 +6,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LiveRamp/gazette/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 )
 
 const (
-	// Item keys are structured as "prefix/items/id"
+	// ItemsPrefix prefixes Item keys, eg "root/items/id"
 	ItemsPrefix = "/items/"
-	// Member keys are structured as "prefix/members/zone#suffix"
+	// MembersPrefix prefixes Member keys, eg "root/members/zone#suffix"
 	MembersPrefix = "/members/"
-	// Assignment keys are structured as "prefix/assign/item-id#zone#member-suffix#slot"
+	// AssignmentsPrefix prefixes Assignment keys, eg "prefix/assign/item-id#zone#member-suffix#slot"
 	AssignmentsPrefix = "/assign/"
 	// '#' is selected as separator, because it's the first visual ASCII character
 	// which is not interpreted by shells (preceding visual characters are " and !).
@@ -31,14 +31,14 @@ const (
 // MemberValue is a user-defined Member representation which also supports
 // required APIs for use by Allocator.
 type MemberValue interface {
-	// Maximum number of Items this Member may be assigned.
+	// ItemLimit is the maximum number of Items this Member may be assigned.
 	ItemLimit() int
 }
 
 // ItemValue is a user-defined Item representation which also supports required
 // APIs for use by Allocator.
 type ItemValue interface {
-	// Desired number of assignments for this Item.
+	// DesiredReplication for this Item.
 	DesiredReplication() int
 	// IsConsistent returns true if the |assignment| is consistent. Some
 	// implementations may determine consistency within the context of
@@ -50,9 +50,9 @@ type ItemValue interface {
 // AssignmentValue is a user-defined Assignment representation.
 type AssignmentValue interface{}
 
-// AllocatorDecoder decodes "raw" Etcd values of Items, Members, and Assignments
+// Decoder decodes "raw" Etcd values of Items, Members, and Assignments
 // into their user-defined representations.
-type AllocatorDecoder interface {
+type Decoder interface {
 	DecodeItem(id string, raw *mvccpb.KeyValue) (ItemValue, error)
 	DecodeMember(zone, suffix string, raw *mvccpb.KeyValue) (MemberValue, error)
 	DecodeAssignment(itemID, memberZone, memberSuffix string, slot int, raw *mvccpb.KeyValue) (AssignmentValue, error)
@@ -89,11 +89,11 @@ type LocalItem struct {
 }
 
 // NewAllocatorKeyValueDecoder returns a KeyValueDecoder utilizing the supplied
-// AllocatorDecoder, and suitable for use with NewKeySpace of the same |prefix|.
+// Decoder, and suitable for use with NewKeySpace of the same |prefix|.
 // Some implementations may wish to further wrap the returned KeyValueDecoder
 // to enable recognition and decoding of additional custom prefixes and entity
 // types, beyond the Allocator's Members, Items, & Assignments.
-func NewAllocatorKeyValueDecoder(prefix string, decode AllocatorDecoder) keyspace.KeyValueDecoder {
+func NewAllocatorKeyValueDecoder(prefix string, decode Decoder) keyspace.KeyValueDecoder {
 	var membersPrefix = prefix + MembersPrefix
 	var itemsPrefix = prefix + ItemsPrefix
 	var assignmentsPrefix = prefix + AssignmentsPrefix
@@ -137,7 +137,7 @@ func NewAllocatorKeyValueDecoder(prefix string, decode AllocatorDecoder) keyspac
 
 // NewAllocatorKeySpace is a convenience for
 // `NewKeySpace(prefix, NewAllocatorKeyValueDecoder(prefix, decode))`.
-func NewAllocatorKeySpace(prefix string, decode AllocatorDecoder) *keyspace.KeySpace {
+func NewAllocatorKeySpace(prefix string, decode Decoder) *keyspace.KeySpace {
 	return keyspace.NewKeySpace(prefix, NewAllocatorKeyValueDecoder(prefix, decode))
 }
 
@@ -214,54 +214,54 @@ func compareAssignment(l, r Assignment) int {
 	return 0
 }
 
-// leftJoin performs a left join of two comparable, index-able, and ordered collections.
-type leftJoin struct {
+// LeftJoin performs a Left join of two comparable, index-able, and ordered collections.
+type LeftJoin struct {
 	// length of the collections.
-	lenL, lenR int
-	// compare returns -1 if |l| orders before |r|, 0 if they are equal,
+	LenL, LenR int
+	// Compare returns -1 if |l| orders before |r|, 0 if they are equal,
 	// and 1 if |l| is greater.
-	compare func(l, r int) int
+	Compare func(l, r int) int
 
-	cursor
+	LeftJoinCursor
 }
 
-// cursor is a leftJoin result row, relating a |left| index with a
-// [rightBegin, rightEnd) range of indices comparing as equal.
-type cursor struct {
-	left, rightBegin, rightEnd int
+// LeftJoinCursor is a LeftJoin result row, relating a |Left| index with a
+// [RightBegin, RightEnd) range of indices comparing as equal.
+type LeftJoinCursor struct {
+	Left, RightBegin, RightEnd int
 }
 
 // next returns the next cursor of the join and true, or if no rows remain in
 // the join, a zero-valued cursor and false.
-func (j *leftJoin) next() (cursor, bool) {
-	for j.left < j.lenL {
+func (j *LeftJoin) Next() (LeftJoinCursor, bool) {
+	for j.Left < j.LenL {
 		var c int
 
-		if j.rightEnd == j.lenR {
+		if j.RightEnd == j.LenR {
 			c = -1
 		} else {
-			c = j.compare(j.left, j.rightEnd)
+			c = j.Compare(j.Left, j.RightEnd)
 		}
 
 		switch c {
 		case -1:
-			// Left-hand entry is before next right-hand entry. Return left-hand entry with accumulated right-hand entries.
-			var cur = j.cursor
-			// Step to next left-hand entry. Reset right-hand range to iterate over the accumulated entries again.
-			j.left, j.rightEnd = j.left+1, j.rightBegin
+			// Left-hand entry is before next right-hand entry. Return Left-hand entry with accumulated right-hand entries.
+			var cur = j.LeftJoinCursor
+			// Step to next Left-hand entry. Reset right-hand range to iterate over the accumulated entries again.
+			j.Left, j.RightEnd = j.Left+1, j.RightBegin
 			return cur, true
 		case 0:
 			// Left-hand entry matches right-hand entry. Accumulate and step to next right-hand entry.
-			j.rightEnd++
+			j.RightEnd++
 		case 1:
 			// Left-hand entry is greater than right-hand entry. Skip right-hand entry.
-			if j.rightBegin != j.rightEnd {
-				panic("leftJoin inputs are not ordered")
+			if j.RightBegin != j.RightEnd {
+				panic("LeftJoin inputs are not ordered")
 			}
-			j.rightEnd, j.rightBegin = j.rightEnd+1, j.rightEnd+1
+			j.RightEnd, j.RightBegin = j.RightEnd+1, j.RightEnd+1
 		}
 	}
-	return cursor{}, false
+	return LeftJoinCursor{}, false
 }
 
 func assertAboveSep(s string) {

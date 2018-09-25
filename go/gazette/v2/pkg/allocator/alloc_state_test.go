@@ -1,16 +1,18 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 	"math"
 
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
 	gc "github.com/go-check/check"
 )
 
 type AllocStateSuite struct{}
 
 func (s *AllocStateSuite) TestExtractOverFixture(c *gc.C) {
-	var client, ctx = etcdCluster.RandClient(), context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -76,7 +78,8 @@ func (s *AllocStateSuite) TestExtractOverFixture(c *gc.C) {
 }
 
 func (s *AllocStateSuite) TestLeaderSelection(c *gc.C) {
-	var client, ctx = etcdCluster.RandClient(), context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	// Note the fixture adds keys in random order (the leader may differ each run).
 	buildAllocKeySpaceFixture(c, ctx, client)
 
@@ -100,8 +103,9 @@ func (s *AllocStateSuite) TestLeaderSelection(c *gc.C) {
 }
 
 func (s *AllocStateSuite) TestExitCondition(c *gc.C) {
-	var client, ctx = etcdCluster.RandClient(), context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
 	buildAllocKeySpaceFixture(c, ctx, client)
+	defer etcdtest.Cleanup()
 
 	var _, err = client.Put(ctx, "/root/members/us-east#allowed-to-exit", `{"R": 0}`)
 	c.Assert(err, gc.IsNil)
@@ -124,8 +128,9 @@ func (s *AllocStateSuite) TestExitCondition(c *gc.C) {
 }
 
 func (s *AllocStateSuite) TestLoadRatio(c *gc.C) {
-	var client, ctx = etcdCluster.RandClient(), context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
 	buildAllocKeySpaceFixture(c, ctx, client)
+	defer etcdtest.Cleanup()
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
 	var state = NewObservedState(ks, MemberKey(ks, "us-east", "foo"))

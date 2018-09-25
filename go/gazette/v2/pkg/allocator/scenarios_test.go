@@ -1,12 +1,12 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/clientv3"
 	gc "github.com/go-check/check"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
 )
 
 type ScenariosSuite struct {
@@ -16,10 +16,12 @@ type ScenariosSuite struct {
 }
 
 func (s *ScenariosSuite) SetUpSuite(c *gc.C) {
-	s.client = etcdCluster.RandClient()
+	s.client = etcdtest.TestClient()
 	s.ctx = context.Background()
 	s.ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
 }
+
+func (s *ScenariosSuite) TearDownSuite(c *gc.C) { etcdtest.Cleanup() }
 
 func (s *ScenariosSuite) SetUpTest(c *gc.C) {
 	var _, err = s.client.Delete(s.ctx, "", clientv3.WithPrefix())
@@ -650,7 +652,7 @@ func serveUntilIdle(c *gc.C, ctx context.Context, client *clientv3.Client, ks *k
 		Context: ctx,
 		Etcd:    client,
 		State:   state,
-		testHook: func(round int, idle bool) {
+		TestHook: func(round int, idle bool) {
 			if idle {
 				result = round // Preserve and return the round on which the Allocator became idle.
 				cancel()

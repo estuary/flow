@@ -1,18 +1,18 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 
+	pr "github.com/LiveRamp/gazette/v2/pkg/allocator/push_relabel"
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
 	gc "github.com/go-check/check"
-
-	pr "github.com/LiveRamp/gazette/pkg/v3.allocator/push_relabel"
 )
 
 type FlowNetworkSuite struct{}
 
 func (s *FlowNetworkSuite) TestFlowOverSimpleFixture(c *gc.C) {
-	var client = etcdCluster.RandClient()
-	var ctx = context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})

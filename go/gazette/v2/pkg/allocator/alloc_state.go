@@ -1,4 +1,4 @@
-package v3_allocator
+package allocator
 
 import (
 	"hash/crc64"
@@ -6,9 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
 )
 
 // State is an extracted representation of the allocator KeySpace. Clients may
@@ -56,14 +55,18 @@ func NewObservedState(ks *keyspace.KeySpace, localKey string) *State {
 // observe extracts a current State representation from the KeySpace,
 // pivoted around the Member instance identified by |LocalKey|.
 func (s *State) observe() {
-	*s = State{
-		KS:       s.KS,
-		LocalKey: s.LocalKey,
 
-		Members:     s.KS.Prefixed(s.KS.Root + MembersPrefix),
-		Items:       s.KS.Prefixed(s.KS.Root + ItemsPrefix),
-		Assignments: s.KS.Prefixed(s.KS.Root + AssignmentsPrefix),
-	}
+	// Re-init fields of State in preparation for extraction from the KeySpace.
+	// KS & LocalKey are not modified, and may be concurrently accessed.
+	s.Members = s.KS.Prefixed(s.KS.Root + MembersPrefix)
+	s.Items = s.KS.Prefixed(s.KS.Root + ItemsPrefix)
+	s.Assignments = s.KS.Prefixed(s.KS.Root + AssignmentsPrefix)
+	s.LocalMemberInd = -1
+	s.LocalItems = s.LocalItems[:0]
+	s.Zones = s.Zones[:0]
+	s.MemberSlots = 0
+	s.ItemSlots = 0
+	s.NetworkHash = 0
 	s.MemberTotalCount = make([]int, len(s.Members))
 	s.MemberPrimaryCount = make([]int, len(s.Members))
 
@@ -99,29 +102,29 @@ func (s *State) observe() {
 	//   * Initialize |NetworkHash|.
 	//   * Collect Items and Assignments which map to the |LocalKey| Member.
 	//   * Accumulate per-Member counts of primary and total Assignments.
-	var it = leftJoin{
-		lenL: len(s.Items),
-		lenR: len(s.Assignments),
-		compare: func(l, r int) int {
+	var it = LeftJoin{
+		LenL: len(s.Items),
+		LenR: len(s.Assignments),
+		Compare: func(l, r int) int {
 			return strings.Compare(itemAt(s.Items, l).ID, assignmentAt(s.Assignments, r).ItemID)
 		},
 	}
-	for cur, ok := it.next(); ok; cur, ok = it.next() {
-		var item = itemAt(s.Items, cur.left)
+	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
+		var item = itemAt(s.Items, cur.Left)
 		var r = item.DesiredReplication()
 
 		s.ItemSlots += r
-		s.NetworkHash = foldCRC(s.NetworkHash, s.Items[cur.left].Raw.Key, r)
+		s.NetworkHash = foldCRC(s.NetworkHash, s.Items[cur.Left].Raw.Key, r)
 
-		for r := cur.rightBegin; r != cur.rightEnd; r++ {
+		for r := cur.RightBegin; r != cur.RightEnd; r++ {
 			var a = assignmentAt(s.Assignments, r)
 			var key = MemberKey(s.KS, a.MemberZone, a.MemberSuffix)
 
 			if key == s.LocalKey {
 				s.LocalItems = append(s.LocalItems, LocalItem{
-					Item:        s.Items[cur.left],
-					Assignments: s.Assignments[cur.rightBegin:cur.rightEnd],
-					Index:       r - cur.rightBegin,
+					Item:        s.Items[cur.Left],
+					Assignments: s.Assignments[cur.RightBegin:cur.RightEnd],
+					Index:       r - cur.RightBegin,
 				})
 			}
 			if ind, found := s.Members.Search(key); found {

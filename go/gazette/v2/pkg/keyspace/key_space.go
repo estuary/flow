@@ -34,6 +34,11 @@ type KeySpace struct {
 	// will appear synchronously with changes to the KeySpace itself, from the
 	// perspective of a client appropriately utilizing a read-lock.
 	Observers []func()
+	// WatchApplyDelay is the duration for which KeySpace should allow Etcd
+	// WatchResponses to queue before applying all responses to the KeySpace.
+	// This Nagle-like mechanism amortizes the cost of applying many
+	// WatchResponses arriving in close succession. Default is 30ms.
+	WatchApplyDelay time.Duration
 	// Mu guards Header, KeyValues, and Observers. It must be locked before any are accessed.
 	Mu sync.RWMutex
 
@@ -51,9 +56,10 @@ func NewKeySpace(prefix string, decoder KeyValueDecoder) *KeySpace {
 		panic(fmt.Sprintf("expected prefix to be a cleaned path (%s != %s)", c, prefix))
 	}
 	var ks = &KeySpace{
-		Root:     prefix,
-		decode:   decoder,
-		updateCh: make(chan struct{}),
+		Root:            prefix,
+		WatchApplyDelay: 30 * time.Millisecond,
+		decode:          decoder,
+		updateCh:        make(chan struct{}),
 	}
 	return ks
 }
@@ -148,7 +154,7 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 			} else if err := resp.Err(); err != nil {
 				return err
 			} else if len(responses) == 0 {
-				applyTimer.Reset(watchApplyDelay)
+				applyTimer.Reset(ks.WatchApplyDelay)
 			}
 			responses = append(responses, resp)
 		case <-applyTimer.C:
@@ -320,5 +326,3 @@ func (h *watchResponseHeap) Pop() interface{} {
 	*h = old[0 : n-1]
 	return x
 }
-
-var watchApplyDelay = time.Millisecond * 20

@@ -1,4 +1,4 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
@@ -23,11 +23,9 @@ type Announcement struct {
 // Announce a key and value to etcd under the LeaseID, asserting the key doesn't
 // already exist. If the key does exist, Announce will retry until it disappears
 // (eg, due to a former lease timeout) or the Context is cancelled.
-func Announce(ctx context.Context, etcd *clientv3.Client, key, value string,
-	lease clientv3.LeaseID) (*Announcement, error) {
-
+func Announce(etcd *clientv3.Client, key, value string, lease clientv3.LeaseID) *Announcement {
 	for {
-		var resp, err = etcd.Txn(ctx).
+		var resp, err = etcd.Txn(context.Background()).
 			If(clientv3.Compare(clientv3.Version(key), "=", 0)).
 			Then(clientv3.OpPut(key, value, clientv3.WithLease(lease))).
 			Commit()
@@ -41,24 +39,19 @@ func Announce(ctx context.Context, etcd *clientv3.Client, key, value string,
 				Key:      key,
 				Revision: resp.Header.Revision,
 				etcd:     etcd,
-			}, nil
+			}
 		}
 
 		log.WithFields(log.Fields{"err": err, "key": key}).
 			Warn("failed to announce key (will retry)")
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(announceConflictRetryInterval):
-			// Pass.
-		}
+		time.Sleep(announceConflictRetryInterval)
 	}
 }
 
 // Update the value of a current Announcement.
-func (a *Announcement) Update(ctx context.Context, value string) error {
-	var resp, err = a.etcd.Txn(ctx).
+func (a *Announcement) Update(value string) error {
+	var resp, err = a.etcd.Txn(context.Background()).
 		If(clientv3.Compare(clientv3.ModRevision(a.Key), "=", a.Revision)).
 		Then(clientv3.OpPut(a.Key, value, clientv3.WithIgnoreLease())).
 		Commit()

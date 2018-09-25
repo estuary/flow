@@ -5,23 +5,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
 	"github.com/coreos/etcd/clientv3"
 	epb "github.com/coreos/etcd/etcdserver/etcdserverpb"
-	"github.com/coreos/etcd/integration"
 	gc "github.com/go-check/check"
 )
 
 type KeySpaceSuite struct{}
 
 func (s *KeySpaceSuite) TestLoadAndWatch(c *gc.C) {
-	var client = etcdCluster.RandClient()
+	var client = etcdtest.TestClient()
 	var ctx, cancel = context.WithCancel(context.Background())
 
-	var _, err = client.Delete(ctx, "", clientv3.WithPrefix())
-	c.Assert(err, gc.IsNil)
+	defer etcdtest.Cleanup()
 
 	// Fix some initial keys and values.
-	_, err = client.Put(ctx, "/one", "1")
+	_, err := client.Put(ctx, "/one", "1")
 	c.Assert(err, gc.IsNil)
 	_, err = client.Put(ctx, "/foo", "invalid value is logged and skipped")
 	c.Assert(err, gc.IsNil)
@@ -116,7 +115,7 @@ func (s *KeySpaceSuite) TestWatchResponseApply(c *gc.C) {
 	verifyDecodedKeyValues(c, ks.KeyValues,
 		map[string]int{"/some/key": 99, "/other/key": 100})
 
-	// Key/value inconsistencies are logged but returned as an error.
+	// Key/value inconsistencies are logged but not returned as an error.
 	resp = []clientv3.WatchResponse{{
 		Header: epb.ResponseHeader{ClusterId: 9999, Revision: 11},
 		Events: []*clientv3.Event{
@@ -259,13 +258,6 @@ func (s *KeySpaceSuite) TestWaitForRevision(c *gc.C) {
 	c.Check(ks.WaitForRevision(ctx, 101), gc.Equals, context.Canceled)
 }
 
-var (
-	_           = gc.Suite(&KeySpaceSuite{})
-	etcdCluster *integration.ClusterV3
-)
+var _ = gc.Suite(&KeySpaceSuite{})
 
-func Test(t *testing.T) {
-	etcdCluster = integration.NewClusterV3(t, &integration.ClusterConfig{Size: 1})
-	gc.TestingT(t)
-	etcdCluster.Terminate(t)
-}
+func Test(t *testing.T) { gc.TestingT(t) }

@@ -1,19 +1,20 @@
-package v3_allocator
+package allocator
 
 import (
 	"context"
 	"testing"
 
+	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
 	"github.com/coreos/etcd/clientv3"
 	epb "github.com/coreos/etcd/etcdserver/etcdserverpb"
-	"github.com/coreos/etcd/integration"
 	gc "github.com/go-check/check"
 )
 
 type AllocatorSuite struct{}
 
 func (s *AllocatorSuite) TestRemoveDeadAssignments(c *gc.C) {
-	var client, ctx = etcdCluster.RandClient(), context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -23,7 +24,7 @@ func (s *AllocatorSuite) TestRemoveDeadAssignments(c *gc.C) {
 	var txn mockTxnBuilder
 
 	// Only "item-missing" is actually a dead Assignment in the fixture, but we can
-	// still pass all Assignments and verify checks and ops of the resulting
+	// still pass all Assignments and verify Cmps and Ops of the resulting
 	// transaction (which wouldn't actually succeed, since Items exist).
 	c.Check(removeDeadAssignments(&txn, ks, assignments), gc.IsNil)
 
@@ -52,7 +53,8 @@ func (s *AllocatorSuite) TestRemoveDeadAssignments(c *gc.C) {
 }
 
 func (s *AllocatorSuite) TestConvergeFixtureCases(c *gc.C) {
-	var client, ctx = etcdCluster.RandClient(), context.Background()
+	var client, ctx = etcdtest.TestClient(), context.Background()
+	defer etcdtest.Cleanup()
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
@@ -175,13 +177,6 @@ func (s *AllocatorSuite) TestTxnBatching(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, "transaction checks did not succeed")
 }
 
-var (
-	_           = gc.Suite(&AllocatorSuite{})
-	etcdCluster *integration.ClusterV3
-)
+var _ = gc.Suite(&AllocatorSuite{})
 
-func Test(t *testing.T) {
-	etcdCluster = integration.NewClusterV3(t, &integration.ClusterConfig{Size: 1})
-	gc.TestingT(t)
-	etcdCluster.Terminate(t)
-}
+func Test(t *testing.T) { gc.TestingT(t) }

@@ -1,11 +1,11 @@
-package v3_allocator
+package allocator
 
 import (
 	"sort"
 	"strings"
 
-	"github.com/LiveRamp/gazette/pkg/keyspace"
-	pr "github.com/LiveRamp/gazette/pkg/v3.allocator/push_relabel"
+	pr "github.com/LiveRamp/gazette/v2/pkg/allocator/push_relabel"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 )
 
 // flowNetwork models an allocation state as a flow network, representing Items,
@@ -73,18 +73,18 @@ func (fn *flowNetwork) init(s *State) {
 	// slots to the number of member slots.
 	var remainingSlots = s.MemberSlots
 
-	// Perform a left-join of |Items| with |Assignments| (ordered on item ID, member zone, member suffix).
+	// Perform a Left-join of |Items| with |Assignments| (ordered on item ID, member zone, member suffix).
 	// Build arcs from Source to each Item, to ZoneItems, to Members, and finally to the Sink.
-	var it = leftJoin{
-		lenL: len(s.Items),
-		lenR: len(s.Assignments),
-		compare: func(l, r int) int {
+	var it = LeftJoin{
+		LenL: len(s.Items),
+		LenR: len(s.Assignments),
+		Compare: func(l, r int) int {
 			return strings.Compare(itemAt(s.Items, l).ID, assignmentAt(s.Assignments, r).ItemID)
 		},
 	}
-	for cur, ok := it.next(); ok; cur, ok = it.next() {
-		var item = cur.left
-		var itemAssignments = s.Assignments[cur.rightBegin:cur.rightEnd]
+	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
+		var item = cur.Left
+		var itemAssignments = s.Assignments[cur.RightBegin:cur.RightEnd]
 		var itemSlots = itemAt(s.Items, item).DesiredReplication()
 
 		switch {
@@ -140,46 +140,46 @@ func buildItemArcs(s *State, fn *flowNetwork, item int, itemAssignments keyspace
 	// Previous flow is the number of current Assignments.
 	addArc(&fn.source, &fn.items[item], itemSlots, len(itemAssignments))
 
-	// Perform a left-join of all Zones with |itemAssignments| (also ordered on zone).
-	var zit = leftJoin{
-		lenL: len(s.Zones),
-		lenR: len(itemAssignments),
-		compare: func(l, r int) int {
+	// Perform a Left-join of all Zones with |itemAssignments| (also ordered on zone).
+	var zit = LeftJoin{
+		LenL: len(s.Zones),
+		LenR: len(itemAssignments),
+		Compare: func(l, r int) int {
 			return strings.Compare(s.Zones[l], assignmentAt(itemAssignments, r).MemberZone)
 		},
 	}
-	// Within the join, we'll be performing nested left-joins of |Members| with
+	// Within the join, we'll be performing nested Left-joins of |Members| with
 	// Assignments in the current zone. Take advantage of the fact that |Members|
-	// is also ordered on zone and begin each iteration where the last left off,
+	// is also ordered on zone and begin each iteration where the last Left off,
 	// so that total time is O(len(fn.Zones) + len(Members)).
 	var moff int
 
-	for zcur, ok := zit.next(); ok; zcur, ok = zit.next() {
-		var zone = zcur.left
+	for zcur, ok := zit.Next(); ok; zcur, ok = zit.Next() {
+		var zone = zcur.Left
 		var zoneItem = item*len(s.Zones) + zone
-		var zoneAssignments = itemAssignments[zcur.rightBegin:zcur.rightEnd]
+		var zoneAssignments = itemAssignments[zcur.RightBegin:zcur.RightEnd]
 
 		// Arc from Item to ZoneItem, with capacity of |zoneSlots|, and previous flow being
 		// the total number of current Assignments to Members in this zone.
 		addArc(&fn.items[item], &fn.zoneItems[zoneItem], zoneSlots, len(zoneAssignments))
 
-		// Perform a left-join of |Members| with |zoneAssignments| (also ordered on member suffix).
-		var mit = leftJoin{
-			lenL: len(s.Members) - moff,
-			lenR: len(zoneAssignments),
-			compare: func(l, r int) int {
+		// Perform a Left-join of |Members| with |zoneAssignments| (also ordered on member suffix).
+		var mit = LeftJoin{
+			LenL: len(s.Members) - moff,
+			LenR: len(zoneAssignments),
+			Compare: func(l, r int) int {
 				return strings.Compare(memberAt(s.Members, l+moff).Suffix, assignmentAt(zoneAssignments, r).MemberSuffix)
 			},
 		}
-		for mcur, ok := mit.next(); ok; mcur, ok = mit.next() {
-			var member = mcur.left + moff
+		for mcur, ok := mit.Next(); ok; mcur, ok = mit.Next() {
+			var member = mcur.Left + moff
 
 			switch c := strings.Compare(s.Zones[zone], memberAt(s.Members, member).Zone); c {
 			case -1:
 				// We've ranged through all Members having this zone. Set |moff|
 				// so the next iteration begins with the next zone.
 				moff = member
-				mit = leftJoin{} // Zero such that next iteration terminates.
+				mit = LeftJoin{} // Zero such that next iteration terminates.
 				continue
 			case 1:
 				// |Zones| must include all Zones appearing in |Members|,
@@ -189,7 +189,7 @@ func buildItemArcs(s *State, fn *flowNetwork, item int, itemAssignments keyspace
 
 			// Arc from ZoneItem to Member, with capacity of 1 and a previous flow being
 			// the number of current Assignments to this member (which can be zero or one).
-			addArc(&fn.zoneItems[zoneItem], &fn.members[member], 1, mcur.rightEnd-mcur.rightBegin)
+			addArc(&fn.zoneItems[zoneItem], &fn.members[member], 1, mcur.RightEnd-mcur.RightBegin)
 		}
 	}
 }

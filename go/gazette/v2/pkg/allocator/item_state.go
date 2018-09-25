@@ -1,11 +1,10 @@
-package v3_allocator
+package allocator
 
 import (
 	"sort"
 
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/clientv3"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
 )
 
 // itemState is an extracted representation of an Item and a collection of
