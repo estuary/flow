@@ -146,23 +146,15 @@ func (s *PlaybackSuite) TestReadPrepCases(c *gc.C) {
 			Return(journal.ReadResult{
 				Offset:   100,
 				Fragment: journal.Fragment{Begin: 95, End: 105},
-			}, ioutil.NopCloser(&fixtureReader{ctx: prIn.rr.Context, n: 6})).Once()
+			}, ioutil.NopCloser(&fixtureReader{ctx: prIn.rr.Context, n: 10})).Once()
 
 		prIn.rr.Blocking = tc.prevBlock
 		prIn.br.ReadByte()
 
 		var prOut = prepareRead(ctx, prIn, tc.offset, tc.nextBlock)
 
-		if tc.expectNew {
-			c.Check(prOut, gc.Not(gc.Equals), prIn)
-		} else {
-			c.Check(prOut, gc.Equals, prIn)
-		}
-		if tc.expectClosed {
-			c.Check(prOut.rr.MarkedReader.ReadCloser, gc.IsNil)
-		} else {
-			c.Check(prOut.rr.MarkedReader.ReadCloser, gc.NotNil)
-		}
+		c.Check(prOut != prIn, gc.Equals, tc.expectNew)
+		c.Check(prOut.rr.MarkedReader.ReadCloser == nil, gc.Equals, tc.expectClosed)
 		c.Check(prOut.rr.Mark.Offset, gc.Equals, tc.offset)
 		c.Check(prOut.rr.Blocking, gc.Equals, tc.nextBlock)
 	}

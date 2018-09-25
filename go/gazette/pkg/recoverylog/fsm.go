@@ -281,7 +281,10 @@ func (m *FSM) BuildHints() FSMHints {
 
 	// Flatten LiveNodes into FnodeSegments.
 	for fnode, state := range m.LiveNodes {
-		hints.LiveNodes = append(hints.LiveNodes, FnodeSegments{fnode, state.Segments})
+		hints.LiveNodes = append(hints.LiveNodes, FnodeSegments{
+			Fnode: fnode,
+			Segments: append([]Segment(nil), state.Segments...),
+		})
 	}
 	// Order LiveNodes on ascending Fnode ID, which is also the order LiveNodes will appear in the log.
 	sort.Slice(hints.LiveNodes, func(i, j int) bool {
