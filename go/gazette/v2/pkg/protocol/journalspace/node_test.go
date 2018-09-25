@@ -3,7 +3,7 @@ package journalspace
 import (
 	"testing"
 
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
 
@@ -36,7 +36,7 @@ func (s *NodeSuite) TestValidationCases(c *gc.C) {
 	node.Name = "invalid name"
 	node.Revision = 123
 	c.Check(node.Validate(), gc.ErrorMatches,
-		`Name: not base64 alphabet \(invalid name\)`)
+		`Name: not a valid token \(invalid name\)`)
 
 	node.Name = "item"
 	c.Check(node.Validate(), gc.ErrorMatches,

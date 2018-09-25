@@ -1,10 +1,8 @@
 package protocol
 
 import (
-	"math/rand"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
-	"github.com/LiveRamp/gazette/pkg/v3.allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 )
 
 // Initialize Route with the provided allocator Assignments.
@@ -12,7 +10,7 @@ func (m *Route) Init(assignments keyspace.KeyValues) {
 	*m = Route{Primary: -1, Members: m.Members[:0]}
 
 	for _, kv := range assignments {
-		var a = kv.Decoded.(v3_allocator.Assignment)
+		var a = kv.Decoded.(allocator.Assignment)
 		if a.Slot == 0 {
 			m.Primary = int32(len(m.Members))
 		}
@@ -41,7 +39,7 @@ func (m *Route) AttachEndpoints(ks *keyspace.KeySpace) {
 		m.Endpoints = make([]Endpoint, len(m.Members))
 	}
 	for i, b := range m.Members {
-		if member, ok := v3_allocator.LookupMember(ks, b.Zone, b.Suffix); !ok {
+		if member, ok := allocator.LookupMember(ks, b.Zone, b.Suffix); !ok {
 			continue // Assignment with missing Member. Ignore.
 		} else {
 			m.Endpoints[i] = member.MemberValue.(interface {
@@ -108,25 +106,4 @@ func (m Route) MarshalString() string {
 		panic(err.Error()) // Cannot happen, as we use no custom marshalling.
 	}
 	return string(d)
-}
-
-// SelectReplica returns an index of |Members|, preferring:
-//  * |id| if present in |Members|, falling back to
-//  * A randomly selected member sharing |id.Zone|, falling back to
-//  * A randomly selected member.
-//  It panics if the Route has no Members.
-func (m Route) SelectReplica(id ProcessSpec_ID) int {
-	for i, b := range m.Members {
-		if b == id {
-			return i
-		}
-	}
-	var p = rand.Perm(len(m.Members))
-
-	for _, i := range p {
-		if m.Members[i].Zone == id.Zone {
-			return i
-		}
-	}
-	return p[0]
 }

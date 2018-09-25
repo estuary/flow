@@ -3,7 +3,7 @@ package journalspace
 import (
 	"strings"
 
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
 // Node represents a collection of JournalSpecs which are related by

@@ -2,9 +2,9 @@ package protocol
 
 // Validate returns an error if the ProcessSpec_ID is not well-formed.
 func (m ProcessSpec_ID) Validate() error {
-	if err := ValidateB64Str(m.Zone, minZoneLen, maxZoneLen); err != nil {
+	if err := ValidateToken(m.Zone, minZoneLen, maxZoneLen); err != nil {
 		return ExtendContext(err, "Zone")
-	} else if err := ValidateB64Str(m.Suffix, minBrokerSuffixLen, maxBrokerSuffixLen); err != nil {
+	} else if err := ValidateToken(m.Suffix, minBrokerSuffixLen, maxBrokerSuffixLen); err != nil {
 		return ExtendContext(err, "Suffix")
 	}
 	return nil
@@ -48,6 +48,9 @@ func (m *BrokerSpec) MarshalString() string {
 	}
 	return string(d)
 }
+
+// ZeroLimit zeros the BrokerSpec JournalLimit.
+func (m *BrokerSpec) ZeroLimit() { m.JournalLimit = 0 }
 
 // v3_allocator.MemberValue implementation.
 func (m *BrokerSpec) ItemLimit() int { return int(m.JournalLimit) }

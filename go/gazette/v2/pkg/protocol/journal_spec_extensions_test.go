@@ -3,10 +3,9 @@ package protocol
 import (
 	"time"
 
+	"github.com/LiveRamp/gazette/v2/pkg/allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	gc "github.com/go-check/check"
-
-	"github.com/LiveRamp/gazette/pkg/keyspace"
-	"github.com/LiveRamp/gazette/pkg/v3.allocator"
 )
 
 type JournalSuite struct{}
@@ -20,7 +19,7 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 		{"/leading/slash", `cannot begin with '/' \(/leading/slash\)`},
 		{"trailing/slash/", `must be a clean path \(trailing/slash/\)`},
 		{"extra-middle//slash", `must be a clean path \(extra-middle//slash\)`},
-		{"not-$%|-base64", `not base64 alphabet \(.*\)`},
+		{"not-$%|-a valid token", `not a valid token \(.*\)`},
 		{"", `invalid length \(0; expected 4 <= .*`},
 		{"zz", `invalid length \(2; expected 4 <= .*`},
 	}
@@ -37,13 +36,7 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	var spec = JournalSpec{
 		Name:        "a/journal",
 		Replication: 3,
-
-		LabelSet: LabelSet{
-			Labels: []Label{
-				{"aaa", "bbb"},
-			},
-		},
-
+		LabelSet:    MustLabelSet("aaa", "bbb"),
 		Fragment: JournalSpec_Fragment{
 			Length:           1 << 18,
 			CompressionCodec: CompressionCodec_GZIP,
@@ -67,13 +60,18 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	spec.Replication = 3
 
 	spec.Labels[0].Name = "xxx xxx"
-	c.Check(spec.Validate(), gc.ErrorMatches, `Labels.Labels\[0\].Name: not base64 alphabet \(xxx xxx\)`)
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels.Labels\[0\].Name: not a valid token \(xxx xxx\)`)
 
 	spec.Labels[0].Name = "name"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Labels cannot include label "name"`)
 	spec.Labels[0].Name = "prefix"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Labels cannot include label "prefix"`)
-	spec.Labels[0].Name = "aaa"
+	spec.Labels[0].Name = "framing"
+	c.Check(spec.Validate(), gc.ErrorMatches, `Label "framing" contains an invalid value \(bbb\)`)
+	spec.Labels[0].Value = FramingFixed
+	spec.Labels = append(spec.Labels, Label{Name: "framing", Value: FramingJSON})
+	c.Check(spec.Validate(), gc.ErrorMatches, `Label "framing" cannot have multiple values`)
+	spec.Labels = spec.Labels[:1]
 
 	spec.Fragment.Length = 0
 	c.Check(spec.Validate(), gc.ErrorMatches, `Fragment: invalid Length \(0; expected 1024 <= length <= \d+\)`)
@@ -125,6 +123,16 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	c.Check(f.Validate(), gc.ErrorMatches, `Stores\[2\]: not absolute \(invalid\)`)
 }
 
+func (s *JournalSuite) TestMetaLabelExtraction(c *gc.C) {
+	c.Check(ExtractJournalSpecMetaLabels(&JournalSpec{Name: "path/to/my/journal"}, MustLabelSet("label", "buffer")),
+		gc.DeepEquals, MustLabelSet(
+			"name", "path/to/my/journal",
+			"prefix", "path/",
+			"prefix", "path/to/",
+			"prefix", "path/to/my/",
+		))
+}
+
 func (s *JournalSuite) TestConsistencyCases(c *gc.C) {
 	var routes [3]Route
 	var assignments keyspace.KeyValues
@@ -132,12 +140,12 @@ func (s *JournalSuite) TestConsistencyCases(c *gc.C) {
 	for i := range routes {
 		routes[i].Primary = 0
 		routes[i].Members = []ProcessSpec_ID{
-			{"zone/a", "member/1"},
-			{"zone/a", "member/3"},
-			{"zone/b", "member/2"},
+			{Zone: "zone/a", Suffix: "member/1"},
+			{Zone: "zone/a", Suffix: "member/3"},
+			{Zone: "zone/b", Suffix: "member/2"},
 		}
 		assignments = append(assignments, keyspace.KeyValue{
-			Decoded: v3_allocator.Assignment{
+			Decoded: allocator.Assignment{
 				AssignmentValue: &routes[i],
 				MemberSuffix:    routes[0].Members[i].Suffix,
 				MemberZone:      routes[0].Members[i].Zone,
@@ -153,7 +161,7 @@ func (s *JournalSuite) TestConsistencyCases(c *gc.C) {
 	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, false)
 
 	routes[0].Primary = 0
-	routes[1].Members = append(routes[1].Members, ProcessSpec_ID{"zone/b", "member/4"})
+	routes[1].Members = append(routes[1].Members, ProcessSpec_ID{Zone: "zone/b", Suffix: "member/4"})
 	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, false)
 
 	routes[1].Members = routes[0].Members

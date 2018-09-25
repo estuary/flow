@@ -1,16 +1,20 @@
 package protocol
 
 import (
+	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	epb "github.com/coreos/etcd/etcdserver/etcdserverpb"
 )
 
 // Validate returns an error if the Header is not well-formed.
 func (m Header) Validate() error {
-	if err := m.ProcessId.Validate(); err != nil {
-		return ExtendContext(err, "ProcessId")
-	} else if err := m.Route.Validate(); err != nil {
+	if m.ProcessId != (ProcessSpec_ID{}) {
+		if err := m.ProcessId.Validate(); err != nil {
+			return ExtendContext(err, "ProcessId")
+		}
+	}
+	if err := m.Route.Validate(); err != nil {
 		return ExtendContext(err, "Route")
-	} else if err := m.Etcd.Validate(); err != nil {
+	} else if err = m.Etcd.Validate(); err != nil {
 		return ExtendContext(err, "Etcd")
 	}
 	return nil
@@ -38,4 +42,21 @@ func FromEtcdResponseHeader(h epb.ResponseHeader) Header_Etcd {
 		Revision:  h.Revision,
 		RaftTerm:  h.RaftTerm,
 	}
+}
+
+// NewUnroutedHeader returns a Header with its ProcessId and Etcd fields derived
+// from the v3_allocator.State, and Route left as zero-valued. It is a helper for
+// APIs which do not utilize item resolution but still return Headers (eg, List
+// and Update).
+func NewUnroutedHeader(s *allocator.State) (hdr Header) {
+	defer s.KS.Mu.RUnlock()
+	s.KS.Mu.RLock()
+
+	if s.LocalMemberInd != -1 {
+		var member = s.Members[s.LocalMemberInd].Decoded.(allocator.Member)
+		hdr.ProcessId = ProcessSpec_ID{Zone: member.Zone, Suffix: member.Suffix}
+	}
+	hdr.Route = Route{Primary: -1}
+	hdr.Etcd = FromEtcdResponseHeader(s.KS.Header)
+	return
 }

@@ -42,12 +42,13 @@ func NewValidationError(format string, args ...interface{}) error {
 	return &ValidationError{Err: fmt.Errorf(format, args...)}
 }
 
-// ValidateB64Str ensures |n| is a base64 string of length |min| <= len(n) <= |max|.
-func ValidateB64Str(n string, min, max int) error {
+// ValidateToken ensures the string consists only of |tokenAlphabet| characters,
+// and is of length |min| <= len(n) <= |max|.
+func ValidateToken(n string, min, max int) error {
 	if l := len(n); l < min || l > max {
 		return NewValidationError("invalid length (%d; expected %d <= length <= %d)", l, min, max)
-	} else if len(strings.Trim(n, base64Alphabet)) != 0 {
-		return NewValidationError("not base64 alphabet (%s)", n)
+	} else if len(strings.Trim(n, tokenAlphabet)) != 0 {
+		return NewValidationError("not a valid token (%s)", n)
 	}
 	return nil
 }
@@ -55,5 +56,6 @@ func ValidateB64Str(n string, min, max int) error {
 const (
 	// Note that any character with ordinal value less than or equal to '#' (35),
 	// which is the allocator KeySpace separator, must not be included in this alphabet.
-	base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_+/="
+	// The alphabet leads with '-' to facilitate escaping in |reToken|.
+	tokenAlphabet = "-_+/.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )

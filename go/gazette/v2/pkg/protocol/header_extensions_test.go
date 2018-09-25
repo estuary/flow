@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"github.com/LiveRamp/gazette/v2/pkg/allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	gc "github.com/go-check/check"
 )
@@ -44,8 +46,8 @@ func (s *HeaderSuite) TestEtcdConversion(c *gc.C) {
 
 func (s *HeaderSuite) TestHeaderValidationCases(c *gc.C) {
 	var model = Header{
-		ProcessId: ProcessSpec_ID{"no-suffix", ""},
-		Route:     Route{Primary: 2, Members: []ProcessSpec_ID{{"zone", "name"}}},
+		ProcessId: ProcessSpec_ID{Zone: "no-suffix", Suffix: ""},
+		Route:     Route{Primary: 2, Members: []ProcessSpec_ID{{Zone: "zone", Suffix: "name"}}},
 		Etcd: Header_Etcd{
 			ClusterId: 0,
 			MemberId:  34,
@@ -54,13 +56,40 @@ func (s *HeaderSuite) TestHeaderValidationCases(c *gc.C) {
 		},
 	}
 	c.Check(model.Validate(), gc.ErrorMatches, `ProcessId.Suffix: invalid length .*`)
-	model.ProcessId = ProcessSpec_ID{"zone", "name"}
+	model.ProcessId = ProcessSpec_ID{Zone: "zone", Suffix: "name"}
 	c.Check(model.Validate(), gc.ErrorMatches, `Route: invalid Primary .*`)
 	model.Route.Primary = 0
 	c.Check(model.Validate(), gc.ErrorMatches, `Etcd: invalid ClusterId .*`)
 	model.Etcd.ClusterId = 12
 
 	c.Check(model.Validate(), gc.IsNil)
+
+	// Empty ProcessId is permitted.
+	model.ProcessId = ProcessSpec_ID{}
+	c.Check(model.Validate(), gc.IsNil)
+}
+
+func (s *HeaderSuite) TestUnroutedHeader(c *gc.C) {
+	var etcd = etcdserverpb.ResponseHeader{
+		ClusterId: 12,
+		MemberId:  34,
+		Revision:  56,
+		RaftTerm:  78,
+	}
+	var fixture = &allocator.State{
+		LocalMemberInd: 0,
+		Members: keyspace.KeyValues{
+			{Decoded: allocator.Member{Zone: "zone", Suffix: "suffix"}},
+		},
+		KS: &keyspace.KeySpace{
+			Header: etcd,
+		},
+	}
+	c.Check(NewUnroutedHeader(fixture), gc.DeepEquals, Header{
+		ProcessId: ProcessSpec_ID{Zone: "zone", Suffix: "suffix"},
+		Route:     Route{Primary: -1},
+		Etcd:      FromEtcdResponseHeader(etcd),
+	})
 }
 
 var _ = gc.Suite(&HeaderSuite{})

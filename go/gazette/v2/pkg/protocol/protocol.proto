@@ -6,8 +6,12 @@ import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
+option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.goproto_sizecache_all) = false;
+option (gogoproto.goproto_unkeyed_all) = false;
+option (gogoproto.goproto_unrecognized_all) = false;
 option (gogoproto.marshaler_all) = true;
-option (gogoproto.sizer_all) = true;
+option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
 // Status is a response status code, used universally across Gazette RPC APIs.
@@ -68,17 +72,15 @@ enum CompressionCodec {
 // Label defines a key & value pair which can be attached to entities like
 // JournalSpecs and BrokerSpecs. Labels may be used to provide identifying
 // attributes which do not directly imply semantics to the core system, but
-// are meaningful to users or for higher-level Gazette tools. For example,
-// topics of JournalSpecs are represented as the well-known label "topic".
+// are meaningful to users or for higher-level Gazette tools.
 message Label {
-  option (gogoproto.goproto_unrecognized) = false;
   string name = 1;
   string value = 2;
 }
 
 // LabelSet is a collection of labels and their values.
 message LabelSet {
-  // Labels of the set. Instances must be unique and in sorted order.
+  // Labels of the set. Instances must be unique and sorted over (Name, Value).
   repeated Label labels = 1 [
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\",omitempty\""];
@@ -94,6 +96,10 @@ message LabelSelector {
   // empty, no Labels are excluded. An exclude Label with empty ("") value
   // excludes a Label of the same name having any value.
   LabelSet exclude = 2 [(gogoproto.nullable) = false];
+
+  // LabelSelector implements a custom String function returning the canonical,
+  // parseable string representation of the selector.
+  option (gogoproto.goproto_stringer) = false;
 }
 
 // JournalSpec describes a Journal and its configuration.
@@ -214,6 +220,9 @@ message ProcessSpec {
   ID id = 1 [(gogoproto.nullable) = false];
   // Advertised URL of the process.
   string endpoint = 2 [(gogoproto.casttype) = "Endpoint"];
+
+  // Route.AttachEndpoints makes use of the `GetEndpoint() Endpoint` interface.
+  option (gogoproto.goproto_getters) = true;
 }
 
 
@@ -250,9 +259,6 @@ message Fragment {
 
 // SHA1Sum is a 160-bit SHA1 digest.
 message SHA1Sum {
-  option (gogoproto.goproto_unrecognized) = false;
-  option (gogoproto.equal) = true;
-
   fixed64 part1 = 1;
   fixed64 part2 = 2;
   fixed32 part3 = 3;
@@ -390,10 +396,10 @@ message ListResponse {
   string next_page_token = 4;
 }
 
-message UpdateRequest {
-  // Update defines an insertion, update, or deletion to be applied to the set
+message ApplyRequest {
+  // Change defines an insertion, update, or deletion to be applied to the set
   // of JournalSpecs. Exactly one of |upsert| or |delete| must be set.
-  message Update {
+  message Change {
     // Expected ModRevision of the current JournalSpec. If the Journal is being
     // created, expect_mod_revision is zero.
     int64 expect_mod_revision = 1;
@@ -403,11 +409,11 @@ message UpdateRequest {
     // Journal to be deleted. expect_mod_revision must not be zero.
     string delete = 3 [(gogoproto.casttype) = "Journal"];
   }
-  repeated Update updates = 1 [(gogoproto.nullable) = false];
+  repeated Change changes = 1 [(gogoproto.nullable) = false];
 }
 
-message UpdateResponse {
-  // Status of the Update RPC.
+message ApplyResponse {
+  // Status of the Apply RPC.
   Status status = 1;
   // Header of the response.
   Header header = 2 [(gogoproto.nullable) = false];
@@ -415,8 +421,6 @@ message UpdateResponse {
 
 // Route captures the current topology of an item and the processes serving it.
 message Route {
-  option (gogoproto.goproto_unrecognized) = false;
-
   // Members of the Route, ordered on ascending ProcessSpec.ID (zone, suffix).
   repeated ProcessSpec.ID members = 1 [(gogoproto.nullable) = false];
   // Index of the ProcessSpec serving as primary within |members|,
@@ -430,7 +434,9 @@ message Route {
 // Header captures metadata such as the process responsible for processing
 // an RPC, and its effective Etcd state.
 message Header {
-  // ID of the process responsible for request processing.
+  // ID of the process responsible for request processing. May be empty iff
+  // Header is being used within a proxied request, and that request may be
+  // dispatched to any member of the Route.
   ProcessSpec.ID process_id = 1 [(gogoproto.nullable) = false];
   // Route of processes specifically responsible for this RPC, or an empty Route
   // if any process is capable of serving the RPC.
@@ -455,14 +461,18 @@ message Header {
   Etcd etcd = 3 [(gogoproto.nullable) = false];
 }
 
-// Broker is the Gazette broker service API.
-// It provides capabilities for enumerating, updating, reading, appending to,
-// and replicating Gazette journals.
-// TODO(johnny): Rename this Broker => Journal as a separate patch-set.
-service Broker {
-  rpc Read(ReadRequest) returns (stream ReadResponse);
-  rpc Append(stream AppendRequest) returns (AppendResponse);
-  rpc Replicate(stream ReplicateRequest) returns (stream ReplicateResponse);
+// Journal is the Gazette broker service API for interacting with Journals.
+service Journal {
+  // List Journals, their JournalSpecs and current Routes.
   rpc List(ListRequest) returns (ListResponse);
-  rpc Update(UpdateRequest) returns (UpdateResponse);
+  // Apply changes to the collection of Journals managed by the brokers.
+  rpc Apply(ApplyRequest) returns (ApplyResponse);
+  // Read from a specific Journal.
+  rpc Read(ReadRequest) returns (stream ReadResponse);
+  // Append content to a specific Journal.
+  rpc Append(stream AppendRequest) returns (AppendResponse);
+  // Replicate appended content of a Journal. Replicate is used between broker
+  // peers in the course of processing Append transactions, but is not intended
+  // for direct use by clients.
+  rpc Replicate(stream ReplicateRequest) returns (stream ReplicateResponse);
 }

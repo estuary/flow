@@ -5,6 +5,23 @@ import (
 	"strings"
 )
 
+// RoutedJournalClient composes a JournalClient and DispatchRouter.
+type RoutedJournalClient interface {
+	JournalClient
+	DispatchRouter
+}
+
+// NewRoutedJournalClient composes a JournalClient and DispatchRouter.
+func NewRoutedJournalClient(jc JournalClient, dr DispatchRouter) RoutedJournalClient {
+	return struct {
+		JournalClient
+		DispatchRouter
+	}{
+		JournalClient:  jc,
+		DispatchRouter: dr,
+	}
+}
+
 // Validate returns an error if the ReadRequest is not well-formed.
 func (m *ReadRequest) Validate() error {
 	if m.Header != nil {
@@ -209,11 +226,15 @@ func (m *ListRequest) Validate() error {
 	if err := m.Selector.Validate(); err != nil {
 		return ExtendContext(err, "Selector")
 	}
-	if v, ok := m.Selector.Include.ValueOf("prefix"); ok && !strings.HasSuffix(v, "/") {
-		return NewValidationError("Selector.Include.Labels[\"prefix\"]: expected trailing '/'")
+	for _, v := range m.Selector.Include.ValuesOf("prefix") {
+		if !strings.HasSuffix(v, "/") {
+			return NewValidationError("Selector.Include.Labels[\"prefix\"]: expected trailing '/' (%+v)", v)
+		}
 	}
-	if v, ok := m.Selector.Exclude.ValueOf("prefix"); ok && !strings.HasSuffix(v, "/") {
-		return NewValidationError("Selector.Exclude.Labels[\"prefix\"]: expected trailing '/'")
+	for _, v := range m.Selector.Exclude.ValuesOf("prefix") {
+		if !strings.HasSuffix(v, "/") {
+			return NewValidationError("Selector.Exclude.Labels[\"prefix\"]: expected trailing '/' (%+v)", v)
+		}
 	}
 
 	// PageLimit and PageToken require no extra validation.
@@ -249,16 +270,16 @@ func (m *ListResponse_Journal) Validate() error {
 	return nil
 }
 
-func (m *UpdateRequest) Validate() error {
-	for i, u := range m.Updates {
+func (m *ApplyRequest) Validate() error {
+	for i, u := range m.Changes {
 		if err := u.Validate(); err != nil {
-			return ExtendContext(err, "Updates[%d]", i)
+			return ExtendContext(err, "Changes[%d]", i)
 		}
 	}
 	return nil
 }
 
-func (m *UpdateRequest_Update) Validate() error {
+func (m *ApplyRequest_Change) Validate() error {
 	if m.Upsert != nil {
 		if m.Delete != "" {
 			return NewValidationError("both Upsert and Delete are set (expected exactly one)")
@@ -279,7 +300,7 @@ func (m *UpdateRequest_Update) Validate() error {
 	return nil
 }
 
-func (m *UpdateResponse) Validate() error {
+func (m *ApplyResponse) Validate() error {
 	if err := m.Status.Validate(); err != nil {
 		return ExtendContext(err, "Status")
 	} else if err = m.Header.Validate(); err != nil {

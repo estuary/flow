@@ -2,10 +2,11 @@ package protocol
 
 import (
 	"path"
+	"strings"
 	"time"
 
-	"github.com/LiveRamp/gazette/pkg/keyspace"
-	"github.com/LiveRamp/gazette/pkg/v3.allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 )
 
 // Journal uniquely identifies a journal brokered by Gazette.
@@ -19,7 +20,7 @@ type Journal string
 // the base64 alphabet, a clean path (as defined by path.Clean), and must not
 // begin with a '/'.
 func (n Journal) Validate() error {
-	if err := ValidateB64Str(n.String(), minJournalNameLen, maxJournalNameLen); err != nil {
+	if err := ValidateToken(n.String(), minJournalNameLen, maxJournalNameLen); err != nil {
 		return err
 	} else if path.Clean(n.String()) != n.String() {
 		return NewValidationError("must be a clean path (%s)", n)
@@ -41,10 +42,12 @@ func (m *JournalSpec) Validate() error {
 			m.Replication, maxJournalReplication)
 	} else if err = m.LabelSet.Validate(); err != nil {
 		return ExtendContext(err, "Labels")
-	} else if _, ok := m.LabelSet.ValueOf("name"); ok {
+	} else if len(m.LabelSet.ValuesOf("name")) != 0 {
 		return NewValidationError(`Labels cannot include label "name"`)
-	} else if _, ok = m.LabelSet.ValueOf("prefix"); ok {
+	} else if len(m.LabelSet.ValuesOf("prefix")) != 0 {
 		return NewValidationError(`Labels cannot include label "prefix"`)
+	} else if err = validateFramingLabel(m.LabelSet); err != nil {
+		return err
 	} else if err = m.Fragment.Validate(); err != nil {
 		return ExtendContext(err, "Fragment")
 	} else if err = m.Flags.Validate(); err != nil {
@@ -109,7 +112,7 @@ func (m *JournalSpec) IsConsistent(_ keyspace.KeyValue, assignments keyspace.Key
 	rt.Init(assignments)
 
 	for _, a := range assignments {
-		if !rt.Equivalent(a.Decoded.(v3_allocator.Assignment).AssignmentValue.(*Route)) {
+		if !rt.Equivalent(a.Decoded.(allocator.Assignment).AssignmentValue.(*Route)) {
 			return false
 		}
 	}
@@ -123,7 +126,7 @@ func UnionJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Replication == 0 {
 		a.Replication = b.Replication
 	}
-	a.LabelSet = UnionLabelSets(b.LabelSet, a.LabelSet)
+	a.LabelSet = UnionLabelSets(b.LabelSet, a.LabelSet, LabelSet{})
 
 	if a.Fragment.Length == 0 {
 		a.Fragment.Length = b.Fragment.Length
@@ -152,7 +155,7 @@ func IntersectJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Replication != b.Replication {
 		a.Replication = 0
 	}
-	a.LabelSet = IntersectLabelSets(a.LabelSet, b.LabelSet)
+	a.LabelSet = IntersectLabelSets(a.LabelSet, b.LabelSet, LabelSet{})
 
 	if a.Fragment.Length != b.Fragment.Length {
 		a.Fragment.Length = 0
@@ -181,7 +184,7 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Replication == b.Replication {
 		a.Replication = 0
 	}
-	a.LabelSet = SubtractLabelSet(a.LabelSet, b.LabelSet)
+	a.LabelSet = SubtractLabelSet(a.LabelSet, b.LabelSet, LabelSet{})
 
 	if a.Fragment.Length == b.Fragment.Length {
 		a.Fragment.Length = 0
@@ -204,9 +207,48 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	return a
 }
 
+func ExtractJournalSpecMetaLabels(spec *JournalSpec, out LabelSet) LabelSet {
+	var name = spec.Name.String()
+	out.Labels = append(out.Labels[:0], Label{Name: "name", Value: name})
+
+	for i, j := 0, strings.IndexByte(name, '/'); j != -1; j = strings.IndexByte(name[i:], '/') {
+		i += j + 1
+		out.Labels = append(out.Labels, Label{Name: "prefix", Value: name[:i]})
+	}
+	return out
+}
+
+// validateFramingLabel asserts that a "framing" label, if present, matches a
+// restricted set of values permitted by the `message` package. Formally,
+// this package has no (and should have no) dependency on `message`. However,
+// in the interests of failing fast & providing useful feedback to users, we
+// fold these checks into JournalSpec validation.
+func validateFramingLabel(labels LabelSet) error {
+	var f = labels.ValuesOf("framing")
+
+	switch len(f) {
+	case 0:
+		return nil
+	default:
+		return NewValidationError(`Label "framing" cannot have multiple values`)
+	case 1: // Pass.
+	}
+	switch f[0] {
+	case FramingFixed, FramingJSON:
+		return nil
+	default:
+		return NewValidationError(`Label "framing" contains an invalid value (%s)`, f[0])
+	}
+}
+
 const (
 	minJournalNameLen, maxJournalNameLen   = 4, 512
 	maxJournalReplication                  = 5
 	minRefreshInterval, maxRefreshInterval = time.Second, time.Hour * 24
 	minFragmentLen, maxFragmentLen         = 1 << 10, 1 << 34 // 1024 => 17,179,869,184
+
+	// FramingFixed is the label value for message.FixedFraming.
+	FramingFixed = "fixed"
+	// FramingJSON is the label value for message.JSONFraming.
+	FramingJSON = "json"
 )

@@ -11,12 +11,12 @@ func (s *BrokerSpecSuite) TestIDValidationCases(c *gc.C) {
 		id     ProcessSpec_ID
 		expect string
 	}{
-		{ProcessSpec_ID{"a-zone", "a-name"}, ""}, // Success.
-		{ProcessSpec_ID{"", "a-name"}, "Zone: invalid length .*"},
-		{ProcessSpec_ID{"&*", "a-name"}, "Zone: not base64 .*"},
-		{ProcessSpec_ID{"a-very-very-very-very-looong-zone", "a-name"}, "Zone: invalid length .*"},
-		{ProcessSpec_ID{"a-zone", "ae"}, "Suffix: invalid length .*"},
-		{ProcessSpec_ID{"a-zone", "&*($"}, "Suffix: not base64 .*"},
+		{ProcessSpec_ID{Zone: "a-zone", Suffix: "a-name"}, ""}, // Success.
+		{ProcessSpec_ID{Zone: "", Suffix: "a-name"}, "Zone: invalid length .*"},
+		{ProcessSpec_ID{Zone: "&*", Suffix: "a-name"}, `Zone: not a valid token .*`},
+		{ProcessSpec_ID{Zone: "a-very-very-very-very-looong-zone", Suffix: "a-name"}, "Zone: invalid length .*"},
+		{ProcessSpec_ID{Zone: "a-zone", Suffix: "ae"}, "Suffix: invalid length .*"},
+		{ProcessSpec_ID{Zone: "a-zone", Suffix: "&*($"}, "Suffix: not a valid token .*"},
 	}
 	for _, tc := range cases {
 		if tc.expect == "" {
@@ -30,7 +30,7 @@ func (s *BrokerSpecSuite) TestIDValidationCases(c *gc.C) {
 func (s *BrokerSpecSuite) TestSpecValidationCases(c *gc.C) {
 	var model = BrokerSpec{
 		ProcessSpec: ProcessSpec{
-			Id:       ProcessSpec_ID{"a-zone", "a-name"},
+			Id:       ProcessSpec_ID{Zone: "a-zone", Suffix: "a-name"},
 			Endpoint: "http://foo",
 		},
 		JournalLimit: 5,

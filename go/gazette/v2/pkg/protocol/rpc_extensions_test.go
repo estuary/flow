@@ -252,23 +252,23 @@ func (s *RPCSuite) TestListRequestValidationCases(c *gc.C) {
 	var req = ListRequest{
 		Selector: LabelSelector{
 			Include: LabelSet{Labels: []Label{
-				{"a invalid name", "foo"},
-				{"prefix", "no/trailing/slash"},
+				{Name: "a invalid name", Value: "foo"},
+				{Name: "prefix", Value: "no/trailing/slash"},
 			}},
 			Exclude: LabelSet{Labels: []Label{
-				{"bar", "baz"},
-				{"prefix", "no/trailing/slash"},
+				{Name: "bar", Value: "baz"},
+				{Name: "prefix", Value: "no/trailing/slash"},
 			}},
 		},
 	}
 	c.Check(req.Validate(), gc.ErrorMatches,
-		`Selector.Include.Labels\[0\].Name: not base64 alphabet \(a invalid name\)`)
+		`Selector.Include.Labels\[0\].Name: not a valid token \(a invalid name\)`)
 	req.Selector.Include.Labels[0].Name = "a-valid-name"
 	c.Check(req.Validate(), gc.ErrorMatches,
-		`Selector.Include.Labels\["prefix"\]: expected trailing '/'`)
+		`Selector.Include.Labels\["prefix"\]: expected trailing '/' \(no/trailing/slash\)`)
 	req.Selector.Include.Labels[1].Value = "trailing/slash/"
 	c.Check(req.Validate(), gc.ErrorMatches,
-		`Selector.Exclude.Labels\["prefix"\]: expected trailing '/'`)
+		`Selector.Exclude.Labels\["prefix"\]: expected trailing '/' \(no/trailing/slash\)`)
 	req.Selector.Exclude.Labels[1].Value = "trailing/slash/"
 
 	c.Check(req.Validate(), gc.IsNil)
@@ -300,7 +300,7 @@ func (s *RPCSuite) TestListResponseValidationCases(c *gc.C) {
 	resp.Status = Status_OK
 	c.Check(resp.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
 	resp.Header.Etcd.ClusterId = 1234
-	c.Check(resp.Validate(), gc.ErrorMatches, `Journals\[0\].Spec.Name: not base64 alphabet .*`)
+	c.Check(resp.Validate(), gc.ErrorMatches, `Journals\[0\].Spec.Name: not a valid token \(.*\)`)
 	resp.Journals[0].Spec.Name = "a/journal"
 	c.Check(resp.Validate(), gc.ErrorMatches, `Journals\[0\]: invalid ModRevision \(0; expected > 0\)`)
 	resp.Journals[0].ModRevision = 1
@@ -310,9 +310,9 @@ func (s *RPCSuite) TestListResponseValidationCases(c *gc.C) {
 	c.Check(resp.Validate(), gc.IsNil)
 }
 
-func (s *RPCSuite) TestUpdateRequestValidationCases(c *gc.C) {
-	var req = UpdateRequest{
-		Updates: []UpdateRequest_Update{
+func (s *RPCSuite) TestApplyRequestValidationCases(c *gc.C) {
+	var req = ApplyRequest{
+		Changes: []ApplyRequest_Change{
 			{
 				ExpectModRevision: -1,
 				Upsert:            &JournalSpec{Name: "a/journal"},
@@ -328,11 +328,11 @@ func (s *RPCSuite) TestUpdateRequestValidationCases(c *gc.C) {
 		},
 	}
 
-	c.Check(req.Validate(), gc.ErrorMatches, `Updates\[0\]: both Upsert and Delete are set \(expected exactly one\)`)
-	req.Updates[0].Delete = ""
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[0\]: both Upsert and Delete are set \(expected exactly one\)`)
+	req.Changes[0].Delete = ""
 
-	c.Check(req.Validate(), gc.ErrorMatches, `Updates\[0\].Upsert: invalid Replication .*`)
-	req.Updates[0].Upsert = &JournalSpec{
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[0\].Upsert: invalid Replication .*`)
+	req.Changes[0].Upsert = &JournalSpec{
 		Name:        "a/journal",
 		Replication: 1,
 		Fragment: JournalSpec_Fragment{
@@ -342,20 +342,20 @@ func (s *RPCSuite) TestUpdateRequestValidationCases(c *gc.C) {
 			Retention:        time.Hour,
 		},
 	}
-	c.Check(req.Validate(), gc.ErrorMatches, `Updates\[0\]: invalid ExpectModRevision \(-1; expected >= 0\)`)
-	req.Updates[0].ExpectModRevision = 0
-	c.Check(req.Validate(), gc.ErrorMatches, `Updates\[1\].Delete: not base64 alphabet .*`)
-	req.Updates[1].Delete = "a/journal"
-	c.Check(req.Validate(), gc.ErrorMatches, `Updates\[1\]: invalid ExpectModRevision \(0; expected > 0\)`)
-	req.Updates[1].ExpectModRevision = 1
-	c.Check(req.Validate(), gc.ErrorMatches, `Updates\[2\]: neither Upsert nor Delete are set \(expected exactly one\)`)
-	req.Updates[2].Delete = "other/journal"
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[0\]: invalid ExpectModRevision \(-1; expected >= 0\)`)
+	req.Changes[0].ExpectModRevision = 0
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[1\].Delete: not a valid token \(.*\)`)
+	req.Changes[1].Delete = "a/journal"
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[1\]: invalid ExpectModRevision \(0; expected > 0\)`)
+	req.Changes[1].ExpectModRevision = 1
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[2\]: neither Upsert nor Delete are set \(expected exactly one\)`)
+	req.Changes[2].Delete = "other/journal"
 
 	c.Check(req.Validate(), gc.IsNil)
 }
 
-func (s *RPCSuite) TestUpdateResponseValidationCases(c *gc.C) {
-	var resp = UpdateResponse{
+func (s *RPCSuite) TestApplyResponseValidationCases(c *gc.C) {
+	var resp = ApplyResponse{
 		Status: 9101,
 		Header: *badHeaderFixture(),
 	}
@@ -370,8 +370,8 @@ func (s *RPCSuite) TestUpdateResponseValidationCases(c *gc.C) {
 
 func badHeaderFixture() *Header {
 	return &Header{
-		ProcessId: ProcessSpec_ID{"zone", "name"},
-		Route:     Route{Primary: 0, Members: []ProcessSpec_ID{{"zone", "name"}}},
+		ProcessId: ProcessSpec_ID{Zone: "zone", Suffix: "name"},
+		Route:     Route{Primary: 0, Members: []ProcessSpec_ID{{Zone: "zone", Suffix: "name"}}},
 		Etcd: Header_Etcd{
 			ClusterId: 0, // ClusterId is invalid, but easily fixed up.
 			MemberId:  34,
