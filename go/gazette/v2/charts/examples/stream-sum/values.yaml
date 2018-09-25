@@ -1,0 +1,14 @@
+# Default values for stream-sum.
+# This is a YAML-formatted file.
+
+consumer:
+  replicaCount: 3
+  nameOverride: stream-sum
+  image:
+    repository: liveramp/gazette-examples
+    module: /go/bin/stream-sum-summer.so
+
+chunker:
+  numJobs: 10
+  numStreams: 10000
+  chunksPerStream: 100

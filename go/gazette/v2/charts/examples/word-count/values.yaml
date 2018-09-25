@@ -1,0 +1,24 @@
+# Default values for word-count.
+# This is a YAML-formatted file.
+
+consumer:
+  replicaCount: 3
+
+  # Size of NGrams produced by the consumer.
+  NGramSize: 2
+
+  nameOverride: word-count
+  image:
+    repository: liveramp/gazette-examples
+    module: /go/bin/word-count-counter.so
+
+  configIniTemplate: |-
+    [WordCount]
+    N = {{ .Values.NGramSize }}
+
+    [Broker]
+    ; Size of client route cache.
+    Size = 256
+
+    [Logging]
+    Format = json

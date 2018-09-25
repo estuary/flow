@@ -1,0 +1,88 @@
+# Default values for consumer.
+# This is a YAML-formatted file.
+
+# Number of run-consumer pods to deploy.
+replicaCount: 1
+
+image:
+  repository: "" # Must provide application image.
+  tag: latest
+  pullPolicy: IfNotPresent
+  module: "" # Must provide path to module shared-object.
+
+# nameOverride is the application name assumed by the chart, and must be provided. Eg, "my-application".
+nameOverride: ""
+# fullnameOverride is the combined application and release name, and typically should be omitted.
+# Eg "my-application-my-release-instance-name"
+fullnameOverride: ""
+# Additional labels to be attached to all of the DeploymentSpec, ServiceSpec, and PodSpecs.
+extraLabels: {}
+# Configuration INI template which is rendered and loaded by run-consumer.
+# Users may want to extend with application-specific configuration, using this template.
+configIniTemplate: |-
+  # Configuration INI template loaded by consumer application.
+  # Generated for {{ include "consumer.fullname" . }}
+
+  [Broker]
+  ; Size of client route cache.
+  Size = 256
+
+  [Logging]
+  Format = json
+
+# Users may want to mount a fast local disk as `tmpdir`. Eg, uncomment
+# to use Local SSDs on GKE:
+# tmpdir:
+#   hostPath:
+#     path: /mnt/disks/ssd0/tmp
+#     type: DirectoryOrCreate
+
+# Etcd endpoint used by the consumer.
+etcd:
+  endpoint: http://etcd:2379
+  # Note the chart name will be appended to the etcd partialPrefix.
+  # Eg, given `nameOverride: myApplication`, then the complete
+  # prefix is `/gazette/consumers/myApplication`. 
+  partialPrefix: /gazette/consumers
+# Gazette endpoint used by the consumer.
+gazette:
+  endpoint: http://gazette:80
+
+# Service type and metadata presented by the consumer deployment.
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  path: /
+  hosts:
+    - chart-example.local
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+# Pod resource requests and limits of the run-consumer container.
+resources: {}
+  # Eg,
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+# Additional volumes to be provided to the Deployment.
+extraVolumes: {}
+# Additional volumeMounts to be mounted to the run-consumer container.
+extraVolumeMounts: {}
+# Node selector YAML which is applied to the Deployment.
+nodeSelector: {}
+# Kubernetes tolerations applied to the run-consumer container.
+tolerations: []
+# Node affinities applied to the run-consumer container.
+affinity: {}

@@ -1,0 +1,149 @@
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ include "gazette.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "gazette.name" . }}
+    helm.sh/chart: {{ include "gazette.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "gazette.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "gazette.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /debug/ready
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /debug/ready
+              port: http
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          command:
+            # Run within a shell to allow for interpretation of values.
+            - "/bin/sh"
+            - "-ec"
+            - |
+              exec /go/bin/gazette serve \
+                --broker.port=8080 \
+                --broker.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
+                --etcd.address={{ .Values.etcd.endpoint }} \
+                --etcd.prefix={{ .Values.etcd.prefix }} \
+                --log.format={{ .Values.log.format }} \
+                --log.level={{ .Values.log.level }}
+          env:
+            - name: BROKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BROKER_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Ask the AWS SDK to load ~/.aws/config by default, alongside ~/.aws/credentials.
+            - name: AWS_SDK_LOAD_CONFIG
+              value: "1"
+            # Direct the Google SDK to the well-known location for application default
+            # credentials. This ENV variable isn't required, as this is the default,
+            # but is provided for completeness.
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /root/.config/gcloud/application_default_credentials.json
+
+          volumeMounts:
+            - name: tmpdir
+              mountPath: /tmp
+            - name: zonemap
+              readOnly: true
+              mountPath: /root/.config/zonemap
+            - name: gce-credentials
+              readOnly: true
+              mountPath: /root/.config/gcloud
+            - name: aws-credentials
+              readOnly: true
+              mountPath: /root/.aws
+
+      volumes:
+        # tmpdir is used for all ephemeral and temporary files, such as journal spools.
+        # Defaults to an emptyDir, but operators may want to supply a fast local disk.
+        - name: tmpdir
+          {{- if .Values.tmpdir }}
+{{ toYaml .Values.tmpdir | indent 10 }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+
+        # The deployment must be able to determine the failure zone of the Node
+        # of each Pod. Kubernetes makes this difficult to determine, as the
+        # downward API deliberately does not expose Node labels (and specifically,
+        # the "failure-domain.beta.kubernetes.io/zone" label). This chart pushes
+        # this mapping concern into a "gazette-zonemap" ConfigMap, which must
+        # provide a "node-zone.sh" script capable of accepting a Node name and
+        # returning its failure zone. The cluster operator must generate and apply
+        # a suitable ConfigMap. See:
+        #  * v2/charts/generate-zonemap-gke.sh
+        #  * v2/charts/generate-zonemap-testing.sh
+        - name: zonemap
+          configMap:
+            name: gazette-zonemap
+            items:
+              - key: node-zone.sh
+                path: node-zone.sh
+                mode: 0777
+
+        # Mount optional Secret "gazette-gce-credentials", which should contain a
+        # service account private key named "service-account.json"
+        # See: https://cloud.google.com/docs/authentication/production
+        - name: gce-credentials
+          secret:
+            secretName: gazette-gce-credentials
+            optional: true
+            items:
+            - key: service-account.json
+              path: application_default_credentials.json # Well-known name of default credentials.
+
+        # Mount optional Secret "gazette-aws-credentials", which should contain
+        # "config" and "credentials" files. See:
+        # https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/configuring-sdk.html
+        - name: aws-credentials
+          secret:
+            secretName: gazette-aws-credentials
+            optional: true
+
+      # Give pods plenty of time to shutdown gracefully after SIGTERM.
+      terminationGracePeriodSeconds: 21600
+      automountServiceAccountToken: false
+
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}

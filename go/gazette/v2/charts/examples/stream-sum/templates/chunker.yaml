@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "stream-sum.fullname" . }}-chunker
+  labels:
+    app.kubernetes.io/name: {{ include "stream-sum.name" . }}-chunker
+    helm.sh/chart: {{ include "stream-sum.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  parallelism: {{ .Values.chunker.numJobs }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "stream-sum.name" . }}-chunker
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}-chunker
+          image: {{ .Values.consumer.image.repository }}:{{ .Values.consumer.image.tag }}
+          imagePullPolicy: {{ .Values.consumer.image.pullPolicy }}
+          command:
+            # Run within a shell to allow for interpretation of values.
+            - "/bin/sh"
+            - "-ec"
+            - |
+              exec /go/bin/chunker run \
+                --chunker.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
+                --chunker.streams={{ .Values.chunker.numStreams }} \
+                --chunker.chunks={{ .Values.chunker.numJobs }} \
+                --broker.address={{ .Values.consumer.gazette.endpoint }} \
+                --broker.cache.size=256
+          volumeMounts:
+            - name: zonemap
+              readOnly: true
+              mountPath: /root/.config/zonemap
+      volumes:
+        - name: zonemap
+          configMap:
+            name: gazette-zonemap
+            items:
+              - key: node-zone.sh
+                path: node-zone.sh
+                mode: 511 # Equivalent to 0777.
+
+      restartPolicy: Never
+
