@@ -32,7 +32,5 @@ func removeFileFinalizer(f *os.File) {
 	}
 	if err := os.Remove(f.Name()); err != nil {
 		log.WithFields(log.Fields{"name": f.Name(), "err": err}).Error("failed to Remove file in finalizer")
-	} else {
-		log.WithFields(log.Fields{"name": f.Name()}).Error("removed file in finalizer")
 	}
 }

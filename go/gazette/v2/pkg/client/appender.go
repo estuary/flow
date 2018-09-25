@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"google.golang.org/grpc"
-
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
 // Appender adapts an Append RPC to the io.WriteCloser interface. Its usages
@@ -18,17 +16,12 @@ type Appender struct {
 	Response pb.AppendResponse // AppendResponse sent by broker.
 
 	ctx    context.Context
-	client AppenderClient         // Client against which Read is dispatched.
-	stream pb.Broker_AppendClient // Server stream.
-}
-
-// AppenderClient is the journal Append interface which Appender utilizes.
-type AppenderClient interface {
-	Append(ctx context.Context, opts ...grpc.CallOption) (pb.Broker_AppendClient, error)
+	client pb.RoutedJournalClient  // Client against which Read is dispatched.
+	stream pb.Journal_AppendClient // Server stream.
 }
 
 // NewAppender returns an Appender initialized with the BrokerClient and AppendRequest.
-func NewAppender(ctx context.Context, client AppenderClient, req pb.AppendRequest) *Appender {
+func NewAppender(ctx context.Context, client pb.RoutedJournalClient, req pb.AppendRequest) *Appender {
 	var a = &Appender{
 		Request: req,
 		ctx:     ctx,
@@ -36,6 +29,10 @@ func NewAppender(ctx context.Context, client AppenderClient, req pb.AppendReques
 	}
 	return a
 }
+
+// Reset the Appender to its post-construction state,
+// allowing it to be re-used or re-tried.
+func (a *Appender) Reset() { a.Response, a.stream = pb.AppendResponse{}, nil }
 
 func (a *Appender) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
@@ -49,12 +46,6 @@ func (a *Appender) Write(p []byte) (n int, err error) {
 		// Pass.
 	} else {
 		n = len(p)
-	}
-
-	if err != nil {
-		if u, ok := a.client.(RouteUpdater); ok {
-			u.UpdateRoute(a.Request.Journal, nil) // Purge cached Route.
-		}
 	}
 	return
 }
@@ -74,15 +65,11 @@ func (a *Appender) Close() (err error) {
 		// Pass.
 	} else if err = a.Response.Validate(); err != nil {
 		// Pass.
-	} else if a.Response.Status != pb.Status_OK {
-		err = errors.New(a.Response.Status.String())
-	}
+	} else {
+		a.client.UpdateRoute(a.Request.Journal.String(), &a.Response.Header.Route)
 
-	if u, ok := a.client.(RouteUpdater); ok {
-		if err == nil {
-			u.UpdateRoute(a.Request.Journal, &a.Response.Header.Route)
-		} else {
-			u.UpdateRoute(a.Request.Journal, nil)
+		if a.Response.Status != pb.Status_OK {
+			err = errors.New(a.Response.Status.String())
 		}
 	}
 	return
@@ -103,7 +90,9 @@ func (a *Appender) lazyInit() (err error) {
 		} else if err = a.Request.Validate(); err != nil {
 			return pb.ExtendContext(err, "Request")
 		}
-		a.stream, err = a.client.Append(WithJournalHint(a.ctx, a.Request.Journal))
+
+		a.stream, err = a.client.Append(
+			pb.WithDispatchItemRoute(a.ctx, a.client, a.Request.Journal.String(), true))
 
 		if err == nil {
 			// Send request preamble metadata prior to append content chunks.

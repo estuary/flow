@@ -8,10 +8,9 @@ import (
 	"io"
 	"sync"
 
+	"github.com/LiveRamp/gazette/v2/pkg/broker/teststub"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
-
-	"github.com/LiveRamp/gazette/pkg/broker/teststub"
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
 )
 
 type AppendServiceSuite struct{}
@@ -21,7 +20,8 @@ func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var as = NewAppendService(ctx, broker.MustClient())
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
 
 	var aa = as.StartAppend("a/journal")
 	aa.Writer().WriteString("hello, world")
@@ -35,19 +35,27 @@ func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
 	c.Check(aa.checkpoint, gc.Equals, int64(12))
 	c.Check(aa.next, gc.NotNil)
 	c.Check(aa.next.checkpoint, gc.Equals, int64(0))
+	c.Check(aa.next.fb, gc.IsNil) // |next| has not been returned by StartAppend.
 	c.Check(aa.next.next, gc.IsNil)
+
+	// Expect |aa.next| is now indexed by AppendService, rather than |aa|.
+	c.Check(as.PendingExcept(""), gc.DeepEquals, []*AsyncAppend{aa.next})
 	aa.mu.Unlock()
 
+	// First attempt fails. Expect RPC is retried, and then succeeds.
 	broker.ErrCh <- errors.New("first attempt fails")
-
-	readHelloWorldAppendRequest(c, broker) // RPC is retried.
-	broker.AppendRespCh <- appendResponseFixture
+	readHelloWorldAppendRequest(c, broker)                    // Expect RPC is retried.
+	broker.AppendRespCh <- buildAppendResponseFixture(broker) // Success.
 
 	<-aa.Done()
-	c.Check(aa.Response(), gc.DeepEquals, *appendResponseFixture)
+	c.Check(aa.Response(), gc.DeepEquals, *buildAppendResponseFixture(broker))
 
-	as.Wait() // Expect journal service loop exits.
+	// After completing |aa|, the service loop trivially resolved |aa.next|
+	// as it was still in its initial state, and exited.
+	<-aa.next.Done()
+
 	c.Check(aa.next.next, gc.Equals, tombstoneAsyncAppend)
+	c.Check(as.PendingExcept(""), gc.HasLen, 0)
 }
 
 func (s *AppendServiceSuite) TestAppendPipelineWithAborts(c *gc.C) {
@@ -55,58 +63,56 @@ func (s *AppendServiceSuite) TestAppendPipelineWithAborts(c *gc.C) {
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var as = NewAppendService(ctx, broker.MustClient())
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
 
-	// Empty append is begun, and dispatched to broker.
-	var aa1 = as.StartAppend("a/journal")
-	c.Assert(aa1.Release(), gc.IsNil)
+	var serveCh, cleanup = gateServeAppends()
+	defer cleanup()
 
-	c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
-	c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{})
-	c.Check(<-broker.AppendReqCh, gc.IsNil)
-
-	// While that's processing, a new set of writes, with interleaved aborts, collect.
-	var aa2 = as.StartAppend("a/journal")
+	var aa = as.StartAppend("a/journal")
 
 	// Fix a buffer size larger than a single write, but smaller than the concatenation
 	// to ensure abort rollbacks spill across both the backing file and buffer.
-	aa2.fb.buf = bufio.NewWriterSize(aa2.fb, 7)
+	aa.fb.buf = bufio.NewWriterSize(aa.fb, 7)
 
-	aa2.Writer().WriteString("write one")
-	c.Check(aa2.Release(), gc.IsNil)
+	aa.Writer().WriteString("aborted first write")
+	aa.Require(errors.New("whoops"))
+	c.Check(aa.Release(), gc.ErrorMatches, "whoops")
 
-	aa2 = as.StartAppend("a/journal")
-	aa2.Writer().WriteString("ABT")
-	aa2.Require(errors.New("potato"))
-	c.Check(aa2.Release(), gc.ErrorMatches, "potato")
+	aa = as.StartAppend("a/journal")
+	aa.Writer().WriteString("write one")
+	c.Check(aa.Release(), gc.IsNil)
 
-	aa2 = as.StartAppend("a/journal")
-	aa2.Writer().WriteString(" write two")
-	c.Assert(aa2.Release(), gc.IsNil)
+	aa = as.StartAppend("a/journal")
+	aa.Writer().WriteString("ABT")
+	aa.Require(errors.New("potato"))
+	c.Check(aa.Release(), gc.ErrorMatches, "potato")
 
-	aa2 = as.StartAppend("a/journal")
-	aa2.Writer().WriteString("ABORT ABORT")
-	aa2.Require(errors.New("tomato"))
-	c.Check(aa2.Release(), gc.ErrorMatches, "tomato")
+	aa = as.StartAppend("a/journal")
+	aa.Writer().WriteString(" write two")
+	c.Assert(aa.Release(), gc.IsNil)
 
-	// First response completes, and second request begins.
-	broker.AppendRespCh <- appendResponseFixture
-	<-aa1.Done()
+	aa = as.StartAppend("a/journal")
+	aa.Writer().WriteString("ABORT ABORT")
+	aa.Require(errors.New("tomato"))
+	c.Check(aa.Release(), gc.ErrorMatches, "tomato")
 
+	// Start serveAppends, and expect one Append RPC which reflects writes & rollbacks.
+	close(serveCh)
 	c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
 	c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Content: []byte("write one write two")})
 	c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{})
 	c.Check(<-broker.AppendReqCh, gc.IsNil)
 
-	broker.AppendRespCh <- appendResponseFixture
-	<-aa2.Done()
+	broker.AppendRespCh <- buildAppendResponseFixture(broker)
+	<-aa.Done()
 
-	c.Check(aa2.Response(), gc.DeepEquals, *appendResponseFixture)
+	c.Check(aa.Response(), gc.DeepEquals, *buildAppendResponseFixture(broker))
 
-	as.Wait() // Expect journal service loop exits.
+	WaitForPendingAppends(as.PendingExcept(""))
 }
 
-func (s *AppendServiceSuite) TestAppendSizeCuttoff(c *gc.C) {
+func (s *AppendServiceSuite) TestAppendSizeCutoff(c *gc.C) {
 	defer func(s int64) { appendBufferCutoff = s }(appendBufferCutoff)
 	appendBufferCutoff = 8
 
@@ -114,29 +120,31 @@ func (s *AppendServiceSuite) TestAppendSizeCuttoff(c *gc.C) {
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var as = NewAppendService(ctx, broker.MustClient())
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
+
+	var serveCh, cleanup = gateServeAppends()
+	defer cleanup()
 
 	var chs []<-chan struct{}
 
 	for i := 0; i != 3; i++ {
 		var aa = as.StartAppend("a/journal")
 		aa.Writer().WriteString("hello, ")
-		c.Check(aa.Release(), gc.IsNil)
-
-		aa = as.StartAppend("a/journal")
 		aa.Writer().WriteString("world")
 
-		c.Assert(aa.Release(), gc.IsNil)
+		c.Check(aa.Release(), gc.IsNil)
 		chs = append(chs, aa.Done())
 	}
 
 	// Expect each "hello, world" was grouped into a separate chained RPC.
+	close(serveCh)
 	for i := 0; i != 3; i++ {
 		readHelloWorldAppendRequest(c, broker)
-		broker.AppendRespCh <- appendResponseFixture
+		broker.AppendRespCh <- buildAppendResponseFixture(broker)
 		<-chs[i]
 	}
-	as.Wait()
+	WaitForPendingAppends(as.PendingExcept(""))
 }
 
 func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
@@ -144,7 +152,8 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var as = NewAppendService(ctx, broker.MustClient())
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
 
 	var aa1 = as.StartAppend("a/journal")
 	aa1.Writer().WriteString("hello, world")
@@ -156,10 +165,10 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 	// Install and lock a different mutex on |aa2|.
 	var aa2 = as.appends["a/journal"]
 	c.Check(aa1.next, gc.Equals, aa2)
-	as.appends["a/journal"].mu = new(sync.Mutex)
-	as.appends["a/journal"].mu.Lock()
+	aa2.mu = new(sync.Mutex)
+	aa2.mu.Lock()
 
-	broker.AppendRespCh <- appendResponseFixture
+	broker.AppendRespCh <- buildAppendResponseFixture(broker)
 
 	// Begin an Append, which will grab |aa2| from the index and block on |aa2.mu|.
 	// The service loop will unlock |aa2.mu| just before exit. On obtaining the
@@ -167,10 +176,15 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 	var aa3 = as.StartAppend("a/journal")
 
 	c.Check(aa2.next, gc.Equals, tombstoneAsyncAppend)
-	c.Check(aa3, gc.Not(gc.Equals), aa2)
+	c.Check(aa3 != aa2, gc.Equals, true)
 
-	aa3.Require(errors.New("abort")).Release()
-	as.Wait()
+	aa3.Writer().WriteString("hello, world")
+	c.Check(aa3.Release(), gc.IsNil)
+
+	readHelloWorldAppendRequest(c, broker)
+	broker.AppendRespCh <- buildAppendResponseFixture(broker)
+
+	WaitForPendingAppends(as.PendingExcept(""))
 }
 
 func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
@@ -271,36 +285,94 @@ func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	c.Check(fb.buf.Buffered(), gc.Equals, 0)
 }
 
-func (s *AppendServiceSuite) TestBeginCommitErrorAndRecover(c *gc.C) {
+func (s *AppendServiceSuite) TestReleaseChecksForWriteErrorAndRecovers(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var as = NewAppendService(ctx, broker.MustClient())
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
 
+	var serveCh, cleanup = gateServeAppends()
+	defer cleanup()
+
+	// Begin a write with a small buffer fixture which will fail.
 	var aa = as.StartAppend("a/journal")
-
-	// Swap in a small buffer fixture which will fail to write.
 	var mf = mockFile{n: 2}
 	aa.fb = &appendBuffer{file: &mf}
 	aa.fb.buf = bufio.NewWriterSize(aa.fb, 7)
 
-	aa.Writer().WriteString("hello, world")
+	var _, err = aa.Writer().WriteString("write spills to |mf| and fails")
+	c.Check(err, gc.Equals, io.ErrShortWrite)
+
+	mf.n = 100 // Allow write to proceed after next rollback.
 	c.Check(aa.Release(), gc.Equals, io.ErrShortWrite)
 
-	// Try again, and allow write to proceed.
-	mf.n = 100
+	// Try again. This time the write proceeds.
 	aa = as.StartAppend("a/journal")
 	aa.Writer().WriteString("hello, world")
 	c.Check(aa.Release(), gc.IsNil)
 
+	close(serveCh)
 	readHelloWorldAppendRequest(c, broker) // RPC is dispatched to broker.
-	broker.AppendRespCh <- appendResponseFixture
+	broker.AppendRespCh <- buildAppendResponseFixture(broker)
 
 	<-aa.Done()
-	c.Check(aa.Response(), gc.DeepEquals, *appendResponseFixture)
+	c.Check(aa.Response(), gc.DeepEquals, *buildAppendResponseFixture(broker))
 
-	as.Wait() // Expect journal service loop exits.
+	WaitForPendingAppends(as.PendingExcept(""))
+}
+
+func (s *AppendServiceSuite) TestAppendOrderingCycle(c *gc.C) {
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var broker = teststub.NewBroker(c, ctx)
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
+
+	var serveCh, cleanup = gateServeAppends()
+	defer cleanup()
+
+	// Begin a sequence of writes which is ultimately cyclic over journals.
+	var expect = []struct {
+		journal pb.Journal
+		content string
+	}{
+		{"journal/A", "write one"},
+		{"journal/B", "write two"},
+		{"journal/C", "write three"},
+		{"journal/B", "write four"},
+		{"journal/A", "write five"},
+		{"journal/C", "write six"},
+	}
+
+	for _, exp := range expect {
+		var aa = as.StartAppend(exp.journal, as.PendingExcept(exp.journal)...)
+		aa.Writer().WriteString(exp.content)
+		c.Check(aa.Release(), gc.IsNil)
+
+		// Start a second write which uses the same dependencies, and is batched.
+		var aa2 = as.StartAppend(exp.journal, as.PendingExcept(exp.journal)...)
+		c.Check(aa2, gc.Equals, aa)
+
+		aa2.Writer().WriteString("!")
+		c.Check(aa2.Release(), gc.IsNil)
+	}
+
+	close(serveCh) // Unblock raced service loops for each journal.
+
+	// Expect that we properly read Append RPCs in dependency order.
+	for i := range expect {
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: expect[i].journal})
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Content: []byte(expect[i].content + "!")})
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{})
+		c.Check(<-broker.AppendReqCh, gc.IsNil) // Client EOF.
+
+		broker.AppendRespCh <- buildAppendResponseFixture(broker)
+	}
+
+	WaitForPendingAppends(as.PendingExcept("")) // All loops exited.
 }
 
 func (s *AppendServiceSuite) TestBufferPooling(c *gc.C) {
@@ -319,6 +391,37 @@ func (s *AppendServiceSuite) TestBufferPooling(c *gc.C) {
 	c.Check(ab.offset, gc.Equals, int64(0))
 	c.Check(err, gc.IsNil)
 	c.Check(n, gc.Equals, int64(0))
+}
+
+func (s *AppendServiceSuite) TestSubsetCases(c *gc.C) {
+	var mkAA = func(name pb.Journal) *AsyncAppend {
+		return &AsyncAppend{app: *NewAppender(nil, nil, pb.AppendRequest{Journal: name})}
+	}
+	var list = func(l ...*AsyncAppend) []*AsyncAppend { return l }
+
+	var A, B, C, D = mkAA("A"), mkAA("B"), mkAA("C"), mkAA("D")
+	var C2 = *C
+
+	// Case: Empty list is a subset of the empty list.
+	c.Check(isSubset(list(), list()), gc.Equals, true)
+	// Case: Non-empty list is not a subset of the empty list.
+	c.Check(isSubset(list(D), list()), gc.Equals, false)
+	// Case: Any single item is a subset of all items.
+	for _, aa := range list(A, B, C, D) {
+		c.Check(isSubset(list(aa), list(A, B, C, D)), gc.Equals, true)
+	}
+	// Case: A list is a subset of its identity.
+	c.Check(isSubset(list(A, B, C, D), list(A, B, C, D)), gc.Equals, true)
+	// Case: However, a matched journal with a different *AsyncAppend differs.
+	c.Check(isSubset(list(A, B, C, D), list(A, B, &C2, D)), gc.Equals, false)
+	// Cases: Mixed subsets.
+	c.Check(isSubset(list(A, C), list(A, B, C, D)), gc.Equals, true)
+	c.Check(isSubset(list(B, C), list(A, B, C, D)), gc.Equals, true)
+	c.Check(isSubset(list(B, D), list(A, B, C, D)), gc.Equals, true)
+	// Cases: Mixed non-subsets.
+	c.Check(isSubset(list(A, B, C), list(A, C, D)), gc.Equals, false)
+	c.Check(isSubset(list(B, C, D), list(A, B, C)), gc.Equals, false)
+	c.Check(isSubset(list(A, C, D), list(A, B, D)), gc.Equals, false)
 }
 
 // mockFile delegates to a Buffer, but limits total writes to |n| bytes of
@@ -363,12 +466,21 @@ func readHelloWorldAppendRequest(c *gc.C, broker *teststub.Broker) {
 	c.Check(<-broker.AppendReqCh, gc.IsNil) // Client EOF.
 }
 
-var (
-	_ = gc.Suite(&AppendServiceSuite{})
+func gateServeAppends() (chan<- struct{}, func()) {
+	var ch = make(chan struct{})
+	var realServeAppends = serveAppends
 
-	appendResponseFixture = &pb.AppendResponse{
+	serveAppends = func(s *AppendService, aa *AsyncAppend) {
+		<-ch
+		realServeAppends(s, aa)
+	}
+	return ch, func() { serveAppends = realServeAppends }
+}
+
+func buildAppendResponseFixture(ep interface{ Endpoint() pb.Endpoint }) *pb.AppendResponse {
+	return &pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: headerFixture,
+		Header: buildHeaderFixture(ep),
 		Commit: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            100,
@@ -377,4 +489,6 @@ var (
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 	}
-)
+}
+
+var _ = gc.Suite(&AppendServiceSuite{})

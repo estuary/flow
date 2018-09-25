@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/LiveRamp/gazette/pkg/broker/teststub"
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/broker/teststub"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
 
@@ -18,11 +18,11 @@ func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var routes = make(map[pb.Journal]*pb.Route)
-	var client = routeWrapper{broker.MustClient(), routes}
 
-	var a = NewAppender(ctx, client, pb.AppendRequest{Journal: "a/journal"})
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), NewRouteCache(1, time.Hour))
+	var a = NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
 
+	// Expect to read a number of request frames from the Appender, then respond.
 	go func() {
 		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
 		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Content: []byte("foo")})
@@ -32,7 +32,7 @@ func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
 
 		broker.AppendRespCh <- &pb.AppendResponse{
 			Status: pb.Status_OK,
-			Header: headerFixture,
+			Header: buildHeaderFixture(broker),
 			Commit: &pb.Fragment{
 				Journal:          "a/journal",
 				Begin:            100,
@@ -55,9 +55,10 @@ func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
 	c.Check(a.Response.Commit.Journal, gc.Equals, pb.Journal("a/journal"))
 
 	// Expect Appender advised of the updated Route.
-	c.Check(routes["a/journal"], gc.DeepEquals, &pb.Route{
-		Members: []pb.ProcessSpec_ID{{Zone: "a", Suffix: "broker"}},
-		Primary: 0,
+	c.Check(rjc.Route(ctx, "a/journal"), gc.DeepEquals, pb.Route{
+		Members:   []pb.ProcessSpec_ID{{Zone: "a", Suffix: "broker"}},
+		Endpoints: []pb.Endpoint{broker.Endpoint()},
+		Primary:   0,
 	})
 }
 
@@ -66,10 +67,8 @@ func (s *AppenderSuite) TestBrokerWriteError(c *gc.C) {
 	defer cancel()
 
 	var broker = teststub.NewBroker(c, ctx)
-	var routes = make(map[pb.Journal]*pb.Route)
-	var client = routeWrapper{broker.MustClient(), routes}
-
-	var a = NewAppender(ctx, client, pb.AppendRequest{Journal: "a/journal"})
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var a = NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
 
 	go func() {
 		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
@@ -84,13 +83,10 @@ func (s *AppenderSuite) TestBrokerWriteError(c *gc.C) {
 		time.Sleep(time.Millisecond)
 		n, err = a.Write([]byte("x"))
 	}
-	// NOTE(johnny): For some reason, gRPC translates the broker error into an EOF on attempt Send.
+	// NOTE(johnny): For some reason, gRPC translates the remote error into an
+	// EOF returned by an attempted SendMsg.
 	c.Check(err, gc.Equals, io.EOF)
 	c.Check(n, gc.Equals, 0)
-
-	// Expect Appender cleared any Route advisement.
-	c.Check(routes["a/journal"], gc.IsNil)
-	c.Check(routes, gc.HasLen, 1)
 }
 
 func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
@@ -100,46 +96,49 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 	var broker = teststub.NewBroker(c, ctx)
 
 	var cases = []struct {
-		finish func()
-		err    string
+		finish      func()
+		err         string
+		cachedRoute int
 	}{
 		// Case: return a straight-up error.
 		{
-			finish: func() { broker.ErrCh <- errors.New("an error") },
-			err:    `rpc error: code = Unknown desc = an error`,
+			finish:      func() { broker.ErrCh <- errors.New("an error") },
+			err:         `rpc error: code = Unknown desc = an error`,
+			cachedRoute: 0,
 		},
 		// Case: return a response which fails validation.
 		{
 			finish: func() {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: pb.Status_OK,
-					Header: headerFixture,
+					Header: buildHeaderFixture(broker),
 					Commit: &pb.Fragment{Begin: 1, End: 0},
 				}
 			},
-			err: `Commit.Journal: invalid length .*`,
+			err:         `Commit.Journal: invalid length .*`,
+			cachedRoute: 0,
 		},
 		// Case: return a response with non-OK status.
 		{
 			finish: func() {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: pb.Status_NOT_JOURNAL_PRIMARY_BROKER,
-					Header: headerFixture,
+					Header: buildHeaderFixture(broker),
 					Commit: &pb.Fragment{
 						Journal:          "a/journal",
 						CompressionCodec: pb.CompressionCodec_NONE,
 					},
 				}
 			},
-			err: `NOT_JOURNAL_PRIMARY_BROKER`,
+			err:         `NOT_JOURNAL_PRIMARY_BROKER`,
+			cachedRoute: 1,
 		},
 	}
 
 	for _, tc := range cases {
-
-		var routes = make(map[pb.Journal]*pb.Route)
-		var client = routeWrapper{broker.MustClient(), routes}
-		var a = NewAppender(ctx, client, pb.AppendRequest{Journal: "a/journal"})
+		var rc = NewRouteCache(1, time.Hour)
+		var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
+		var a = NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
 
 		go func() {
 			c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
@@ -153,12 +152,10 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 		var n, err = a.Write([]byte("foo"))
 		c.Check(err, gc.IsNil)
 		c.Check(n, gc.Equals, 3)
-
 		c.Check(a.Close(), gc.ErrorMatches, tc.err)
 
-		// Expect Appender cleared any Route advisement.
-		c.Check(routes["a/journal"], gc.IsNil)
-		c.Check(routes, gc.HasLen, 1)
+		// Depending on the case, Close may have updated the cached Route.
+		c.Check(rc.cache.Len(), gc.Equals, tc.cachedRoute)
 	}
 }
 

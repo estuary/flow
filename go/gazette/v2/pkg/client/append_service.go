@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	log "github.com/sirupsen/logrus"
-
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
 )
 
 // AppendService batches, dispatches, and (if needed) retries asynchronous
@@ -19,60 +19,89 @@ import (
 // pipelined and batched to amortize the cost of broker Append RPCs. It may
 // also simplify implementations for clients who would prefer to simply have
 // writes block until successfully committed, as opposed to handling errors
-// and retries themselves.
+// and retries themselves. AppendService implements the AsyncJournalClient
+// interface.
 type AppendService struct {
+	pb.RoutedJournalClient
 	ctx     context.Context
-	client  AppenderClient
 	appends map[pb.Journal]*AsyncAppend
 	mu      sync.Mutex
-	wg      sync.WaitGroup
 }
 
 // NewAppendService returns an AppendService with the provided Context and BrokerClient.
-func NewAppendService(ctx context.Context, client AppenderClient) *AppendService {
+func NewAppendService(ctx context.Context, client pb.RoutedJournalClient) *AppendService {
 	return &AppendService{
-		ctx:     ctx,
-		client:  client,
-		appends: make(map[pb.Journal]*AsyncAppend),
+		ctx:                 ctx,
+		RoutedJournalClient: client,
+		appends:             make(map[pb.Journal]*AsyncAppend),
 	}
 }
 
-// AsyncAppendClient is the interface which AppendService satisfies.
-type AsyncAppendClient interface {
-	StartAppend(pb.Journal) *AsyncAppend
+// AsyncJournalClient composes a RoutedJournalClient with an API for performing
+// asynchronous Append operations.
+type AsyncJournalClient interface {
+	pb.RoutedJournalClient
+
+	// StartAppend begins a new asynchronous Append RPC. The caller holds exclusive access
+	// to the returned AsyncAppend, and must then:
+	//  * Write content to its Writer
+	//  * Optionally Require that one or more errors are nil.
+	//  * Release the AsyncAppend, allowing queued writes to commit or,
+	//    if an error occurred, to roll back.
+	//
+	// For performance reasons, an Append will often be batched with other Appends
+	// dispatched to this AppendService, and note the Response.Fragment will reflect
+	// the entire batch written to the broker. In all cases, relative order of
+	// Appends is preserved. One or more dependencies may optionally be supplied.
+	// The Append RPC will not begin until all such dependencies have committed.
+	// Dependencies must be ordered on applicable Journal name or StartAppend panics.
+	// StartAppend may retain the slice, and it must not be subsequently modified.
+	StartAppend(journal pb.Journal, dependencies ...*AsyncAppend) *AsyncAppend
+
+	// PendingExcept returns a snapshot of the AsyncAppends being evaluated for all
+	// Journals _other than_ |except|, ordered on Journal. It can be used to build
+	// "barriers" which ensure that all pending writes commit prior to the
+	// commencement of a write which is about to be issued. Eg, given:
+	//
+	//   var aa = as.StartAppend("target", as.PendingExcept("target")...)
+	//   aa.Writer().WriteString("checkpoint")
+	//   aa.Release()
+	//
+	// All ongoing appends to journals other than "target" are guaranteed to commit
+	// before an Append RPC is begun which writes "checkpoint" to journal "target".
+	// PendingExcept("") returns all pending AsyncAppends.
+	PendingExcept(journal pb.Journal) []*AsyncAppend
 }
 
-// StartAppend begins a new asynchronous StartAppend RPC. The caller holds exclusive access
-// to the returned AsyncAppend, and must then:
-//  * Write content to its Writer
-//  * Optionally Require that one or more errors are nil.
-//  * Call Release to release the AsyncAppend, allowing queued writes to commit
-//    or, if an error occurred, to roll back.
-//
-// For performance reasons, an Append will often be batched with other Appends
-// dispatched to this AppendService, and note the Response.Fragment will reflect
-// the entire batch written to the broker. In all cases, relative order of
-// Appends is preserved.
-func (s *AppendService) StartAppend(name pb.Journal) *AsyncAppend {
+// StartAppend implements the AsyncJournalClient interface.
+func (s *AppendService) StartAppend(name pb.Journal, dependencies ...*AsyncAppend) *AsyncAppend {
 	// Fetch the current AsyncAppend for |name|, or start one if none exists.
 	s.mu.Lock()
 	var aa, ok = s.appends[name]
 
 	if !ok {
 		aa = &AsyncAppend{
-			app: *NewAppender(s.ctx, s.client, pb.AppendRequest{Journal: name}),
-			mu:  new(sync.Mutex),
+			app:          *NewAppender(s.ctx, s.RoutedJournalClient, pb.AppendRequest{Journal: name}),
+			dependencies: dependencies,
+			commitCh:     make(chan struct{}),
+			mu:           new(sync.Mutex),
 		}
 		s.appends[name] = aa
-
-		s.wg.Add(1)
 	}
 	s.mu.Unlock()
 
-	// Acquire exclusive write access for journal |name|. This may block on
+	// Acquire exclusive write access for journal |name|. This may race with
 	// other writes in progress, and on mutex acquisition a different AsyncAppend
 	// may now be current for the journal.
 	aa.mu.Lock()
+
+	// Start the service loop (if needed) *after* we acquire |aa.mu|, and
+	// *before* we skip forward to the current AsyncAppend. This ensures
+	// serveAppends starts from the first AsyncAppend of the chain, and
+	// that it blocks until the client completes the first write.
+	if !ok {
+		go serveAppends(s, aa)
+	}
 
 	for aa.next != nil {
 		aa = aa.next // Follow the chain to the current AsyncAppend.
@@ -81,40 +110,58 @@ func (s *AppendService) StartAppend(name pb.Journal) *AsyncAppend {
 	if aa == tombstoneAsyncAppend {
 		// While we were waiting for |aa.mu|, the serveAppends service loop for this
 		// AsyncAppend exited (and it was cleared from |s.appends|). Try again.
-		return s.StartAppend(name)
-	} else if aa.fb == nil {
-		// Initialization case, handled outside of |s.mu| lock being held.
+		return s.StartAppend(name, dependencies...)
+	}
+
+	if aa.checkpoint > appendBufferCutoff || !isSubset(dependencies, aa.dependencies) {
+		// We must chain a new Append RPC, ordered after this one.
+		aa = s.chainNewAppend(aa, dependencies)
+	}
+	if aa.fb == nil {
+		// This is the first time this AsyncAppend is being returned by
+		// StartAppend. Initialize its appendBuffer, which also signals that this
+		// |aa| has been returned by StartAppend, and that a client may be
+		// waiting on its RPC response.
 		aa.fb = appendBufferPool.Get().(*appendBuffer)
-		go s.serveAppends(aa)
-	} else if aa.checkpoint > appendBufferCutoff {
-		// Keep individual Append RPCs relatively small. Chain them to preserve
-		// write ordering.
-		aa = s.chainNewAppend(aa)
 	}
 	return aa
 }
 
-// Wait for all pending appends to complete. Cannot be called concurrently with StartAppend.
-func (s *AppendService) Wait() {
-	s.wg.Wait()
-
+// PendingExcept implements the AsyncJournalClient interface.
+func (s *AppendService) PendingExcept(except pb.Journal) []*AsyncAppend {
 	s.mu.Lock()
-	if len(s.appends) != 0 {
-		panic("len(s.appends) != 0; was Wait called concurrently with StartAppend?")
+	var out = make([]*AsyncAppend, 0, len(s.appends))
+	for _, aa := range s.appends {
+		if aa.Request().Journal != except {
+			out = append(out, aa)
+		}
 	}
 	s.mu.Unlock()
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Request().Journal < out[j].Request().Journal
+	})
+	return out
+}
+
+// WaitForPendingAppends blocks until all |pending| AsyncAppends have completed.
+func WaitForPendingAppends(pending []*AsyncAppend) {
+	for _, aa := range pending {
+		<-aa.Done()
+	}
 }
 
 // chainNewAppend adds and returns a new AsyncAppend, to be ordered after this one.
-func (s *AppendService) chainNewAppend(aa *AsyncAppend) *AsyncAppend {
+func (s *AppendService) chainNewAppend(aa *AsyncAppend, dependencies []*AsyncAppend) *AsyncAppend {
 	// Precondition: aa.mu lock is already held.
 	if aa.next != nil {
 		panic("aa.next != nil")
 	}
 	aa.next = &AsyncAppend{
-		app: *NewAppender(s.ctx, s.client, aa.Request()),
-		fb:  appendBufferPool.Get().(*appendBuffer),
-		mu:  aa.mu,
+		app:          *NewAppender(s.ctx, s.RoutedJournalClient, aa.Request()),
+		dependencies: dependencies,
+		commitCh:     make(chan struct{}),
+		mu:           aa.mu,
 	}
 
 	s.mu.Lock()
@@ -128,13 +175,11 @@ func (s *AppendService) chainNewAppend(aa *AsyncAppend) *AsyncAppend {
 type AsyncAppend struct {
 	app Appender
 
-	// commitCh is closed on commit to signal completion of the AsyncAppend. It's
-	// allocated lazily, such that |commitCh == nil| indicates no clients may be
-	// waiting on this AsyncAppend.
-	commitCh   chan struct{}
-	fb         *appendBuffer // Buffer into which writes are queued.
-	checkpoint int64         // Buffer offset which should be appended.
-	err        error         // Retained Require error which is != nil.
+	dependencies []*AsyncAppend // Appends which must commit before this one may begin.
+	commitCh     chan struct{}  // Closed to signal AsyncAppend has committed.
+	fb           *appendBuffer  // Buffer into which writes are queued.
+	checkpoint   int64          // Buffer |fb| offset to append through.
+	err          error          // Retained Require error which is != nil.
 
 	mu   *sync.Mutex  // Shared mutex over all AsyncAppends of the journal.
 	next *AsyncAppend // Next ordered AsyncAppend of the journal.
@@ -178,12 +223,6 @@ func (p *AsyncAppend) Release() error {
 		return err
 	}
 	p.checkpoint = p.fb.offset + int64(p.fb.buf.Buffered())
-
-	if p.commitCh == nil {
-		// Lazily build |commitCh| to notify serveAppends that Release has been
-		// called on this AsyncAppend at least once.
-		p.commitCh = make(chan struct{})
-	}
 	p.mu.Unlock()
 
 	return nil
@@ -193,7 +232,6 @@ func (p *AsyncAppend) Release() error {
 func (p *AsyncAppend) rollback() {
 	// flush as |p.checkpoint| may reference still-buffered content.
 	retryUntil(p.fb.flush, "failed to flush appendBuffer")
-
 	p.fb.offset = p.checkpoint
 	retryUntil(p.fb.seek, "failed to seek appendBuffer")
 
@@ -209,59 +247,66 @@ func (p *AsyncAppend) Request() pb.AppendRequest { return p.app.Request }
 func (p *AsyncAppend) Response() pb.AppendResponse { return p.app.Response }
 
 // Done returns a channel which selects when the AsyncAppend has committed.
-// If the *AsyncAppend is nil, a nil channel is returned.
 func (p *AsyncAppend) Done() <-chan struct{} { return p.commitCh }
 
 // serveAppends executes Append RPCs specified by a (potentially growing) chain
 // of ordered AsyncAppends. Each RPC is retried until successful. Upon reaching
 // the end of the chain, serveAppends marks its exit with tombstoneAsyncAppend
-// and halts.
-func (s *AppendService) serveAppends(aa *AsyncAppend) {
-	defer s.wg.Done()
-
+// and halts. serveAppends is a var to facilitate testing.
+var serveAppends = func(s *AppendService, aa *AsyncAppend) {
 	aa.mu.Lock()
 
 	for {
-		if aa.commitCh == nil {
-			// Termination condition: |aa| is in it's initial state, and has no queued requests.
-			if aa.next != nil {
-				panic("aa.next != nil") // This AsyncAppend must always be terminal.
-			}
+		// Termination condition: this |aa| can be immediately resolved without
+		// blocking, and no further appends are queued.
+		if aa.next == nil && aa.fb == nil && aa.dependencies == nil {
 
 			s.mu.Lock()
 			delete(s.appends, aa.Request().Journal)
 			s.mu.Unlock()
 
-			releaseFileBuffer(aa.fb)
 			aa.next = tombstoneAsyncAppend
+			close(aa.commitCh)
 			aa.mu.Unlock()
 			return
 		}
 
 		if aa.next == nil {
-			// New appends are directed to this AsyncAppend. Chain a new one, so that
-			// |aa| will no longer be modified even after we release the mutex.
-			s.chainNewAppend(aa)
+			// New appends are still directed to this AsyncAppend. Chain a new one,
+			// so that |aa| will no longer be modified even after we release |aa.mu|.
+			s.chainNewAppend(aa, nil)
 		}
 		aa.mu.Unlock() // Further appends may queue while we dispatch this RPC.
 
-		retryUntil(aa.fb.flush, "failed to flush appendBuffer")
+		for _, dep := range aa.dependencies {
+			<-dep.Done()
+		}
 
-		retryUntil(func() error {
-			var _, err = io.Copy(&aa.app, io.NewSectionReader(aa.fb.file, 0, aa.checkpoint))
+		// If |aa.fb| is nil, then |aa| was never returned by StartAppend and no
+		// client can possibly be waiting on its response. We skip performing
+		// an Append RPC altogether in this case.
 
-			if err == nil {
-				err = aa.app.Close()
-			}
-			if err != nil {
-				// Reset for next attempt.
-				aa.app = *NewAppender(s.ctx, s.client, aa.Request())
-			}
-			return err
-		}, "failed to append to journal")
+		if aa.fb != nil {
+			retryUntil(aa.fb.flush, "failed to flush appendBuffer")
 
-		close(aa.commitCh) // Notify waiting clients of RPC completion.
-		releaseFileBuffer(aa.fb)
+			retryUntil(func() error {
+				var _, err = io.Copy(&aa.app, io.NewSectionReader(aa.fb.file, 0, aa.checkpoint))
+
+				if err == nil {
+					err = aa.app.Close()
+				}
+				if err != nil {
+					aa.app.Reset() // Reset for next attempt.
+				}
+				return err
+			}, "failed to append to journal")
+		}
+
+		close(aa.commitCh) // Notify clients & dependent appends of completion.
+
+		if aa.fb != nil {
+			releaseFileBuffer(aa.fb)
+		}
 
 		aa.mu.Lock()
 		aa = aa.next
@@ -351,6 +396,26 @@ func releaseFileBuffer(fb *appendBuffer) {
 	fb.offset = 0
 	retryUntil(fb.seek, "failed to seek appendBuffer")
 	appendBufferPool.Put(fb)
+}
+
+func isSubset(a, b []*AsyncAppend) bool {
+	var ai, bi, la, lb = 0, 0, len(a), len(b)
+
+	for ai != la && bi != lb {
+		if aj := a[ai].Request().Journal; ai != 0 && aj <= a[ai-1].Request().Journal {
+			panic("[]*AsyncAppend not ordered")
+		} else if bj := b[bi].Request().Journal; aj < bj {
+			return false // aj cannot be in |b|.
+		} else if bj < aj {
+			bi++
+		} else if a[ai] != b[bi] {
+			return false // Same journals, but different write operations.
+		} else {
+			ai++
+			bi++
+		}
+	}
+	return ai == la // Were all items in |a| matched?
 }
 
 var appendBufferPool = sync.Pool{

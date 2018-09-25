@@ -7,9 +7,8 @@ import (
 	"io"
 	"time"
 
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	log "github.com/sirupsen/logrus"
-
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
 )
 
 // RetryReader wraps Reader with error handling and retry behavior, as well as
@@ -27,17 +26,11 @@ type RetryReader struct {
 	Cancel context.CancelFunc
 
 	ctx    context.Context
-	client ReaderClient
+	client pb.RoutedJournalClient
 }
 
 // NewRetryReader returns a RetryReader initialized with the BrokerClient and ReadRequest.
-func NewRetryReader(ctx context.Context, client ReaderClient, req pb.ReadRequest) *RetryReader {
-	// If our BrokerClient is capable of directly routing to responsible brokers,
-	// we don't want brokers to proxy to peers or remote Fragments on our behalf.
-	if _, ok := client.(RouteUpdater); ok {
-		req.DoNotProxy = true
-	}
-
+func NewRetryReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRequest) *RetryReader {
 	var rr = &RetryReader{
 		ctx:    ctx,
 		client: client,
@@ -76,13 +69,6 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 		// Our Read failed. Since we're a retrying reader, we consume and mask
 		// errors (possibly logging a warning), manage our own back-off timer,
 		// and restart the stream when ready for another attempt.
-
-		// Context cancellations are usually wrapped by augmenting errors as they
-		// return up the call stack. If our Reader's context is Done, assume
-		// that is the primary error.
-		if rr.Reader.ctx.Err() != nil {
-			err = rr.Reader.ctx.Err()
-		}
 
 		// Restart the Reader re-using the same context (note we could be racing
 		// this restart with a concurrent call to |rr.Cancel|).

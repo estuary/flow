@@ -9,10 +9,8 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"google.golang.org/grpc"
-
-	"github.com/LiveRamp/gazette/pkg/codecs"
-	pb "github.com/LiveRamp/gazette/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/codecs"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
 // Reader adapts a Read RPC to the io.Reader interface. It additionally supports
@@ -27,18 +25,13 @@ type Reader struct {
 	Response pb.ReadResponse // Most recent ReadResponse from broker.
 
 	ctx    context.Context
-	client ReaderClient         // Client against which Read is dispatched.
-	stream pb.Broker_ReadClient // Server stream.
-	direct io.ReadCloser        // Directly opened Fragment URL.
-}
-
-// ReaderClient is the journal Read interface which Reader utilizes.
-type ReaderClient interface {
-	Read(ctx context.Context, in *pb.ReadRequest, opts ...grpc.CallOption) (pb.Broker_ReadClient, error)
+	client pb.RoutedJournalClient // Client against which Read is dispatched.
+	stream pb.Journal_ReadClient  // Server stream.
+	direct io.ReadCloser          // Directly opened Fragment URL.
 }
 
 // NewReader returns a Reader initialized with the given BrokerClient and ReadRequest.
-func NewReader(ctx context.Context, client ReaderClient, req pb.ReadRequest) *Reader {
+func NewReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRequest) *Reader {
 	var r = &Reader{
 		Request: req,
 		ctx:     ctx,
@@ -66,7 +59,10 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 
 	// Lazy initialization: begin the Read RPC.
 	if r.stream == nil {
-		if r.stream, err = r.client.Read(r.ctx, &r.Request); err == nil {
+		if r.stream, err = r.client.Read(
+			pb.WithDispatchItemRoute(r.ctx, r.client, r.Request.Journal.String(), false),
+			&r.Request,
+		); err == nil {
 			n, err = r.Read(p) // Recurse to attempt read against opened |r.stream|.
 			return             // Surface read or error.
 		}
@@ -81,20 +77,24 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 				err = pb.NewValidationError("invalid ReadResponse offset (%d; expected >= %d)",
 					r.Response.Offset, r.Request.Offset) // Violation of Read API contract.
 			}
+		} else if r.ctx.Err() != nil {
+			// Context cancellations are usually wrapped by augmenting errors as they
+			// return up the call stack. If our Reader's context is Done, assume
+			// that is the primary error.
+			err = r.ctx.Err()
 		}
 	}
 
 	// A note on resource leaks: an invariant of Read is that in invocations where
 	// the returned error != nil, an error has also been read from |r.stream|,
-	// implying that the gRPC transport has been torn down. The exception is if
+	// implying that the gRPC stream has been torn down. The exception is if
 	// response validation fails, which indicates a client / server API version
 	// incompatibility and cannot happen in normal operation.
 
 	if err == nil {
-
 		// If a Header was sent, advise of its advertised journal Route.
-		if u, ok := r.client.(RouteUpdater); r.Response.Header != nil && ok {
-			u.UpdateRoute(r.Request.Journal, &r.Response.Header.Route)
+		if r.Response.Header != nil {
+			r.client.UpdateRoute(r.Request.Journal.String(), &r.Response.Header.Route)
 		}
 
 		if r.Request.Offset < r.Response.Offset {
@@ -108,10 +108,6 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 
 	} else if err != io.EOF {
 		// We read an error _other_ than a graceful tear-down of the stream.
-		// Purge any existing Route advisement for the journal.
-		if u, ok := r.client.(RouteUpdater); ok {
-			u.UpdateRoute(r.Request.Journal, nil)
-		}
 		return
 	}
 
@@ -230,7 +226,7 @@ func NewFragmentReader(r io.ReadCloser, fragment pb.Fragment, offset int64) (io.
 
 	// Attempt to seek to |offset| within the fragment.
 	var delta = offset - fragment.Begin
-	if _, err := io.CopyN(ioutil.Discard, fr, delta); err != nil {
+	if _, err = io.CopyN(ioutil.Discard, fr, delta); err != nil {
 		fr.Close()
 		return nil, err
 	}
