@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 
-	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
@@ -13,18 +12,16 @@ import (
 type AppendSuite struct{}
 
 func (s *AppendSuite) TestSingleAppend(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReadyReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	newTestJournal(c, ks, "a/journal", 2, broker.id, peer.id)
-	broker.replicas["a/journal"].index.ReplaceRemote(fragment.CoverSet{}) // Unblock initial load.
-	var res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
+	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
 
-	var stream, _ = broker.MustClient().Append(pb.WithDispatchDefault(ctx))
+	var stream, _ = broker.MustClient().Append(pb.WithDispatchDefault(tf.ctx))
 	c.Check(stream.Send(&pb.AppendRequest{Journal: "a/journal"}), gc.IsNil)
 	expectPipelineSync(c, peer, res.Header)
 
@@ -67,19 +64,17 @@ func (s *AppendSuite) TestSingleAppend(c *gc.C) {
 }
 
 func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReadyReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	newTestJournal(c, ks, "a/journal", 2, broker.id, peer.id)
-	broker.replicas["a/journal"].index.ReplaceRemote(fragment.CoverSet{}) // Unblock initial load.
-	var res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
+	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
 
 	// Build two raced Append requests.
-	ctx = pb.WithDispatchDefault(ctx)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
 	var stream1, _ = broker.MustClient().Append(ctx)
 	var stream2, _ = broker.MustClient().Append(ctx)
 
@@ -158,19 +153,16 @@ func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
 }
 
 func (s *AppendSuite) TestRollbackCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReadyReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
+	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
 
-	newTestJournal(c, ks, "a/journal", 2, broker.id, peer.id)
-	broker.replicas["a/journal"].index.ReplaceRemote(fragment.CoverSet{}) // Unblock initial load.
-	var res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
-
-	ctx = pb.WithDispatchDefault(ctx)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
 
 	// Case: client explicitly rolls back by closing the stream without first sending an empty chunk.
 	var stream, _ = broker.MustClient().Append(ctx)
@@ -220,14 +212,13 @@ func (s *AppendSuite) TestRollbackCases(c *gc.C) {
 }
 
 func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	ctx = pb.WithDispatchDefault(ctx)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
 
 	// Case: AppendRequest which fails to validate.
 	var stream, _ = broker.MustClient().Append(ctx)
@@ -248,7 +239,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 
 	// Case: Journal with no assigned primary.
 	// Arrange Journal assignment fixture such that R=1, but the broker has Slot=1 (and is not primary).
-	newTestJournal(c, ks, "no/primary", 1, pb.ProcessSpec_ID{}, broker.id)
+	newTestJournal(c, tf, pb.JournalSpec{Name: "no/primary", Replication: 1}, pb.ProcessSpec_ID{}, broker.id)
 	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "no/primary"})
 
 	stream, _ = broker.MustClient().Append(ctx)
@@ -259,7 +250,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NO_JOURNAL_PRIMARY_BROKER, Header: &res.Header})
 
 	// Case: Journal with a primary but not enough replication peers.
-	newTestJournal(c, ks, "not/enough/peers", 3, broker.id, peer.id)
+	newTestJournal(c, tf, pb.JournalSpec{Name: "not/enough/peers", Replication: 3}, broker.id, peer.id)
 	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "not/enough/peers"})
 
 	stream, _ = broker.MustClient().Append(ctx)
@@ -271,21 +262,20 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 }
 
 func (s *AppendSuite) TestProxyCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	newTestJournal(c, ks, "a/journal", 1, peer.id)
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 1}, peer.id)
 	var res, _ = broker.resolve(resolveArgs{
-		ctx:            ctx,
+		ctx:            tf.ctx,
 		journal:        "a/journal",
 		mayProxy:       true,
 		requirePrimary: true,
 	})
-	ctx = pb.WithDispatchDefault(ctx)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
 
 	// Case: initial request is proxied to the peer, with Header attached.
 	var stream, _ = broker.MustClient().Append(ctx)
@@ -466,7 +456,7 @@ func (s *AppendSuite) TestAppenderCases(c *gc.C) {
 	c.Check(req, gc.DeepEquals, &pb.ReplicateRequest{Proposal: expect, Acknowledge: true})
 }
 
-func expectPipelineSync(c *gc.C, peer *testBroker, hdr pb.Header) {
+func expectPipelineSync(c *gc.C, peer testBroker, hdr pb.Header) {
 	// Expect an initial request, with header, synchronizing the replication pipeline.
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
 		Journal: "a/journal",

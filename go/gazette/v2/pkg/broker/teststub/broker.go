@@ -3,69 +3,38 @@ package teststub
 import (
 	"context"
 	"io"
-	"net"
 
+	"github.com/LiveRamp/gazette/v2/pkg/grpctest"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
 )
 
-// Server wraps a protocol.JournalServer with a gRPC server for use within tests.
+// Server is a local gRPC server for use within tests.
 type Server struct {
-	c        *gc.C
-	ctx      context.Context
-	listener net.Listener
-	srv      *grpc.Server
+	grpctest.Server
 }
 
-// NewServer returns a local GRPC server wrapping the provided BrokerServer.
-func NewServer(c *gc.C, ctx context.Context, srv pb.JournalServer) *Server {
-	var l, err = net.Listen("tcp", "127.0.0.1:0")
-	c.Assert(err, gc.IsNil)
+// NewServer returns a grpctest.Server of the provided JournalServer.
+func NewServer(ctx context.Context, journalServer pb.JournalServer) Server {
+	var s = grpctest.NewServer(ctx)
 
-	var p = &Server{
-		c:        c,
-		ctx:      ctx,
-		listener: l,
-		srv:      grpc.NewServer(),
-	}
+	pb.RegisterJournalServer(s.Server, journalServer)
+	go s.Serve()
 
-	pb.RegisterJournalServer(p.srv, srv)
-	go p.srv.Serve(p.listener)
-
-	go func() {
-		<-ctx.Done()
-		p.srv.GracefulStop()
-	}()
-
-	return p
+	return Server{Server: s}
 }
 
-func (s *Server) Endpoint() pb.Endpoint {
-	return pb.Endpoint("http://" + s.listener.Addr().String() + "/path")
-}
-
-func (s *Server) Dial(ctx context.Context) (*grpc.ClientConn, error) {
-	return grpc.DialContext(ctx, s.listener.Addr().String(),
-		grpc.WithInsecure(),
-		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName))
-}
-
-func (s *Server) MustConn() *grpc.ClientConn {
-	var conn, err = s.Dial(s.ctx)
-	s.c.Assert(err, gc.IsNil)
-	return conn
-}
-
-func (s *Server) MustClient() pb.JournalClient {
-	return pb.NewJournalClient(s.MustConn())
+// MustClient returns a JournalClient of the test Server.
+func (s Server) MustClient() pb.JournalClient {
+	return pb.NewJournalClient(s.Conn)
 }
 
 // Broker stubs the read and write loops of broker RPCs, routing them onto
 // channels which can be synchronously read and written within test bodies.
 type Broker struct {
-	*Server
+	Server
+	c *gc.C
 
 	ReplReqCh  chan *pb.ReplicateRequest
 	ReplRespCh chan *pb.ReplicateResponse
@@ -85,6 +54,7 @@ type Broker struct {
 // NewBroker returns a Broker instance served by a local GRPC server.
 func NewBroker(c *gc.C, ctx context.Context) *Broker {
 	var p = &Broker{
+		c:            c,
 		ReplReqCh:    make(chan *pb.ReplicateRequest),
 		ReplRespCh:   make(chan *pb.ReplicateResponse),
 		ReadReqCh:    make(chan *pb.ReadRequest),
@@ -93,10 +63,12 @@ func NewBroker(c *gc.C, ctx context.Context) *Broker {
 		AppendRespCh: make(chan *pb.AppendResponse),
 		ErrCh:        make(chan error),
 	}
-	p.Server = NewServer(c, ctx, p)
+	p.Server = NewServer(ctx, p)
 	return p
 }
 
+// Replicate implements the JournalServer interface by proxying requests &
+// responses through channels ReplReqCh & ReplRespCh.
 func (p *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 	// Start a read loop of requests from |srv|.
 	go func() {
@@ -117,7 +89,7 @@ func (p *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 			select {
 			case p.ReplReqCh <- msg:
 				// Pass.
-			case <-p.ctx.Done():
+			case <-p.Ctx.Done():
 				done = true
 			}
 		}
@@ -131,19 +103,21 @@ func (p *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 		case err := <-p.ErrCh:
 			log.WithFields(log.Fields{"ep": p.Endpoint(), "err": err}).Info("closing")
 			return err
-		case <-p.ctx.Done():
+		case <-p.Ctx.Done():
 			log.WithFields(log.Fields{"ep": p.Endpoint()}).Info("cancelled")
-			return p.ctx.Err()
+			return p.Ctx.Err()
 		}
 	}
 }
 
+// Read implements the JournalServer interface by proxying requests & responses
+// through channels ReadReqCh & ReadResponseCh.
 func (p *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
 	select {
 	case p.ReadReqCh <- req:
 		// Pass.
-	case <-p.ctx.Done():
-		return p.ctx.Err()
+	case <-p.Ctx.Done():
+		return p.Ctx.Err()
 	}
 
 	for {
@@ -154,13 +128,15 @@ func (p *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
 		case err := <-p.ErrCh:
 			log.WithFields(log.Fields{"ep": p.Endpoint(), "err": err}).Info("closing")
 			return err
-		case <-p.ctx.Done():
+		case <-p.Ctx.Done():
 			log.WithFields(log.Fields{"ep": p.Endpoint()}).Info("cancelled")
-			return p.ctx.Err()
+			return p.Ctx.Err()
 		}
 	}
 }
 
+// Append implements the JournalServer interface by proxying requests &
+// responses through channels AppendReqCh & AppendRespCh.
 func (p *Broker) Append(srv pb.Journal_AppendServer) error {
 	// Start a read loop of requests from |srv|.
 	go func() {
@@ -181,7 +157,7 @@ func (p *Broker) Append(srv pb.Journal_AppendServer) error {
 			select {
 			case p.AppendReqCh <- msg:
 				// Pass.
-			case <-p.ctx.Done():
+			case <-p.Ctx.Done():
 				done = true
 			}
 		}
@@ -195,17 +171,19 @@ func (p *Broker) Append(srv pb.Journal_AppendServer) error {
 		case err := <-p.ErrCh:
 			log.WithFields(log.Fields{"ep": p.Endpoint(), "err": err}).Info("closing")
 			return err
-		case <-p.ctx.Done():
+		case <-p.Ctx.Done():
 			log.WithFields(log.Fields{"ep": p.Endpoint()}).Info("cancelled")
-			return p.ctx.Err()
+			return p.Ctx.Err()
 		}
 	}
 }
 
+// List implements the JournalServer interface by proxying through ListFunc.
 func (p *Broker) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
 	return p.ListFunc(ctx, req)
 }
 
+// Apply implements the JournalServer interface by proxying through ApplyFunc.
 func (p *Broker) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
 	return p.ApplyFunc(ctx, req)
 }

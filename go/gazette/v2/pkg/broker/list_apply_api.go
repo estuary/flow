@@ -94,6 +94,5 @@ func (srv *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyR
 		s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
 		s.KS.Mu.RUnlock()
 	}
-
 	return resp, nil
 }

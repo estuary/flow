@@ -1,7 +1,6 @@
 package broker
 
 import (
-	"context"
 	"io"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -11,16 +10,15 @@ import (
 type ReplicateSuite struct{}
 
 func (s *ReplicateSuite) TestStreamAndCommit(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	newTestJournal(c, ks, "a/journal", 2, peer.id, broker.id)
-	var res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
-	var stream, _ = broker.MustClient().Replicate(pb.WithDispatchDefault(ctx))
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, peer.id, broker.id)
+	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
+	var stream, _ = broker.MustClient().Replicate(pb.WithDispatchDefault(tf.ctx))
 
 	// Initial sync.
 	c.Check(stream.Send(&pb.ReplicateRequest{
@@ -64,14 +62,13 @@ func (s *ReplicateSuite) TestStreamAndCommit(c *gc.C) {
 }
 
 func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newMockBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	ctx = pb.WithDispatchDefault(ctx)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
 
 	// Case: Resolution error (Journal not found).
 	var stream, _ = broker.MustClient().Replicate(ctx)
@@ -97,7 +94,7 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 	c.Check(err, gc.Equals, io.EOF)
 
 	// Case: request Route doesn't match the broker's own resolution.
-	newTestJournal(c, ks, "a/journal", 2, peer.id, broker.id)
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, peer.id, broker.id)
 	stream, _ = broker.MustClient().Replicate(ctx)
 	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
 

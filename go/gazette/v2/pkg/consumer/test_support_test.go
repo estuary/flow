@@ -127,16 +127,12 @@ func newTestFixture(c *gc.C) (*testFixture, func()) {
 			service:  svc,
 			state:    state,
 		}, func() {
-
 			// Ensure that the test cleaned up after itself by removing all assignments.
 			var resp, err = etcd.Get(ctx, ks.Root+allocator.AssignmentsPrefix,
 				clientv3.WithPrefix(), clientv3.WithLimit(1))
 
-			if err != nil {
-				c.Check(err, gc.IsNil)
-			} else if len(resp.Kvs) != 0 {
-				c.Check(resp.Kvs, gc.HasLen, 0) // Assert that
-			}
+			c.Check(err, gc.IsNil)
+			c.Check(resp.Kvs, gc.HasLen, 0)
 
 			broker.RevokeLease(c)
 			broker.WaitForExit()

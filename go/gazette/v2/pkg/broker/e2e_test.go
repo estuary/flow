@@ -1,9 +1,6 @@
 package broker
 
 import (
-	"context"
-
-	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
@@ -13,21 +10,16 @@ import (
 type E2ESuite struct{}
 
 func (s *E2ESuite) TestReplicatedAppendAndRead(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
 
-	var ks = NewKeySpace("/root")
-	var broker = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
-	var peer = newTestBroker(c, ctx, ks, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReadyReplica)
+	var peer = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"}, newReadyReplica)
 
-	newTestJournal(c, ks, "journal/one", 2, broker.id, peer.id)
-	newTestJournal(c, ks, "journal/two", 2, peer.id, broker.id)
+	newTestJournal(c, tf, pb.JournalSpec{Name: "journal/one", Replication: 2}, broker.id, peer.id)
+	newTestJournal(c, tf, pb.JournalSpec{Name: "journal/two", Replication: 2}, peer.id, broker.id)
 
-	// "Complete" initial remote load.
-	broker.replicas["journal/one"].index.ReplaceRemote(fragment.CoverSet{})
-	peer.replicas["journal/two"].index.ReplaceRemote(fragment.CoverSet{})
-
-	ctx = pb.WithDispatchDefault(ctx)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
 	var rOne, _ = peer.MustClient().Read(ctx, &pb.ReadRequest{Journal: "journal/one", Block: true})
 	var rTwo, _ = broker.MustClient().Read(ctx, &pb.ReadRequest{Journal: "journal/two", Block: true})
 
@@ -51,8 +43,8 @@ func (s *E2ESuite) TestReplicatedAppendAndRead(c *gc.C) {
 	_, err = rTwo.Recv()
 	c.Check(err, gc.IsNil)
 
-	expectReadResponse(c, rOne, &pb.ReadResponse{Content: []byte("hello")})
-	expectReadResponse(c, rTwo, &pb.ReadResponse{Content: []byte("world!")})
+	expectReadResponse(c, rOne, pb.ReadResponse{Content: []byte("hello")})
+	expectReadResponse(c, rTwo, pb.ReadResponse{Content: []byte("world!")})
 }
 
 var _ = gc.Suite(&E2ESuite{})
