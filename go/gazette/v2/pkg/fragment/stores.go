@@ -19,6 +19,8 @@ func SignGetURL(fragment pb.Fragment, d time.Duration) (string, error) {
 	switch ep.Scheme {
 	case "s3":
 		return s3SignGET(ep, fragment, d)
+	case "gs":
+		return gcsSignGET(ep, fragment, d)
 	case "file":
 		return fsURL(ep, fragment), nil
 	default:
@@ -35,6 +37,8 @@ func Open(ctx context.Context, fragment pb.Fragment) (io.ReadCloser, error) {
 	switch ep.Scheme {
 	case "s3":
 		return s3Open(ctx, ep, fragment)
+	case "gs":
+		return gcsOpen(ctx, ep, fragment)
 	case "file":
 		return fsOpen(ep, fragment)
 	default:
@@ -54,6 +58,8 @@ func Persist(ctx context.Context, spool Spool) error {
 	switch ep.Scheme {
 	case "s3":
 		exists, err = s3Exists(ctx, ep, spool.Fragment.Fragment)
+	case "gs":
+		exists, err = gcsExists(ctx, ep, spool.Fragment.Fragment)
 	case "file":
 		exists, err = fsExists(ep, spool.Fragment.Fragment)
 	default:
@@ -74,6 +80,8 @@ func Persist(ctx context.Context, spool Spool) error {
 	switch ep.Scheme {
 	case "s3":
 		return s3Persist(ctx, ep, spool)
+	case "gs":
+		return gcsPersist(ctx, ep, spool)
 	case "file":
 		return fsPersist(ep, spool)
 	}
@@ -88,6 +96,8 @@ func List(ctx context.Context, store pb.FragmentStore, prefix string, callback f
 	switch ep.Scheme {
 	case "s3":
 		return s3List(ctx, store, ep, prefix, callback)
+	case "gs":
+		return gcsList(ctx, store, ep, prefix, callback)
 	case "file":
 		return fsList(store, ep, prefix, callback)
 	default:

@@ -89,7 +89,7 @@ func (s *IndexSuite) TestQueryAtHead(c *gc.C) {
 
 	go ind.SpoolCommit(buildSet(c, 200, 250)[0])
 
-	resp, _, err = ind.Query(context.Background(), &pb.ReadRequest{Offset: -1, Block: true})
+	resp, _, err = ind.Query(context.Background(), &pb.ReadRequest{Offset: 200, Block: true})
 	c.Check(resp, gc.DeepEquals, &pb.ReadResponse{
 		Offset:    200,
 		WriteHead: 250,

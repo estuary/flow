@@ -9,15 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LiveRamp/gazette/v2/pkg/keepalive"
+	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/LiveRamp/gazette/v2/pkg/keepalive"
-	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
 type s3Cfg struct {
@@ -61,8 +59,6 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, err
 	if err != nil {
 		return false, err
 	}
-
-	// First test whether the Spool has been uploaded by another broker.
 	var headObj = s3.HeadObjectInput{
 		Bucket: aws.String(cfg.bucket),
 		Key:    aws.String(cfg.prefix + fragment.ContentPath()),
@@ -171,33 +167,46 @@ func s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
 	}
 
 	var awsConfig = aws.NewConfig()
-
-	// Override the default http.Transport's behavior of inserting
-	// "Accept-Encoding: gzip" and transparently decompressing client-side.
-	awsConfig.WithHTTPClient(&http.Client{
-		Transport: &http.Transport{
-			DialContext:        keepalive.Dialer.DialContext,
-			DisableCompression: true,
-		},
-	})
+	awsConfig.WithCredentialsChainVerboseErrors(true)
 
 	if cfg.Endpoint != "" {
-		awsConfig = aws.NewConfig()
-		awsConfig.Endpoint = aws.String(cfg.Endpoint)
+		awsConfig.WithEndpoint(cfg.Endpoint)
 		// We must force path style because bucket-named virtual hosts
 		// are not compatible with explicit endpoints.
-		awsConfig.S3ForcePathStyle = aws.Bool(true)
+		awsConfig.WithS3ForcePathStyle(true)
+	} else {
+		// Real S3. Override the default http.Transport's behavior of inserting
+		// "Accept-Encoding: gzip" and transparently decompressing client-side.
+		awsConfig.WithHTTPClient(&http.Client{
+			Transport: &http.Transport{
+				DialContext:        keepalive.Dialer.DialContext,
+				DisableCompression: true,
+			},
+		})
 	}
 
-	if cfg.Profile != "" {
-		awsConfig.Credentials = credentials.NewSharedCredentials("", cfg.Profile)
-	}
-
-	var awsSession *session.Session
-	if awsSession, err = session.NewSession(awsConfig); err != nil {
+	awsSession, err := session.NewSessionWithOptions(session.Options{
+		Config:  *awsConfig,
+		Profile: cfg.Profile,
+	})
+	if err != nil {
 		err = fmt.Errorf("constructing S3 session: %s", err)
 		return
 	}
+
+	creds, err := awsSession.Config.Credentials.Get()
+	if err != nil {
+		err = fmt.Errorf("fetching AWS credentials for profile %q: %s", cfg.Profile, err)
+		return
+	}
+
+	log.WithFields(log.Fields{
+		"endpoint":     cfg.Endpoint,
+		"profile":      cfg.Profile,
+		"region":       awsSession.Config.Region,
+		"keyID":        creds.AccessKeyID,
+		"providerName": creds.ProviderName,
+	}).Info("constructed new aws.Session")
 
 	client = s3.New(awsSession)
 	s3Clients[key] = client
