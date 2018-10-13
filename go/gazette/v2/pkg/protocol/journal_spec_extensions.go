@@ -93,6 +93,26 @@ func (x JournalSpec_Flag) Validate() error {
 	}
 }
 
+// MayRead returns whether reads are permitted.
+func (x JournalSpec_Flag) MayRead() bool {
+	switch x {
+	case JournalSpec_NOT_SPECIFIED, JournalSpec_O_RDONLY, JournalSpec_O_RDWR:
+		return true
+	default:
+		return false
+	}
+}
+
+// MayWrite returns whether writes are permitted.
+func (x JournalSpec_Flag) MayWrite() bool {
+	switch x {
+	case JournalSpec_NOT_SPECIFIED, JournalSpec_O_WRONLY, JournalSpec_O_RDWR:
+		return true
+	default:
+		return false
+	}
+}
+
 // MarshalString returns the marshaled encoding of the JournalSpec as a string.
 func (m *JournalSpec) MarshalString() string {
 	var d, err = m.Marshal()
@@ -108,6 +128,10 @@ func (m *JournalSpec) DesiredReplication() int { return int(m.Replication) }
 // IsConsistent returns true if the Route stored under each of |assignments|
 // agrees with the Route implied by the |assignments| keys.
 func (m *JournalSpec) IsConsistent(_ keyspace.KeyValue, assignments keyspace.KeyValues) bool {
+	if !m.Flags.MayWrite() {
+		return true // Read-only journals can never become inconsistent.
+	}
+
 	var rt Route
 	rt.Init(assignments)
 

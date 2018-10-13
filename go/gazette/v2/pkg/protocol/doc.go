@@ -8,5 +8,5 @@
 // brokers and clients that messages are well-formed without need for additional
 // ad-hoc, repetitive checks (which often become a maintenance burden).
 //
-//go:generate protoc -I . -I ../../vendor  --gogo_out=plugins=grpc:. protocol.proto
+//go:generate protoc -I . -I ../../../vendor  --gogo_out=plugins=grpc:. protocol.proto
 package protocol

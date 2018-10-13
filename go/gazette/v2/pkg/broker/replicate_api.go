@@ -29,26 +29,25 @@ func (srv *Service) Replicate(stream pb.Journal_ReplicateServer) error {
 	})
 	if err != nil {
 		return err
-	}
-
-	// Require that the request Route is equivalent to the Route we resolved to.
-	if res.status == pb.Status_OK && !res.Header.Route.Equivalent(&req.Header.Route) {
-		res.status = pb.Status_WRONG_ROUTE
-	}
-	if res.status != pb.Status_OK {
-		return stream.Send(&pb.ReplicateResponse{
-			Status: res.status,
-			Header: &res.Header,
-		})
+	} else if res.status != pb.Status_OK {
+		return stream.Send(&pb.ReplicateResponse{Status: res.status, Header: &res.Header})
+	} else if !res.Header.Route.Equivalent(&req.Header.Route) {
+		// Require that the request Route is equivalent to the Route we resolved to.
+		return stream.Send(&pb.ReplicateResponse{Status: pb.Status_WRONG_ROUTE, Header: &res.Header})
+	} else if !res.journalSpec.Flags.MayWrite() {
+		// Require that the journal is writable.
+		return stream.Send(&pb.ReplicateResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
 	}
 
 	var spool fragment.Spool
 	if spool, err = acquireSpool(stream.Context(), res.replica, false); err != nil {
 		return err
 	}
+
+	// Serve the long-lived replication pipeline. When it completes, roll-back
+	// any uncommitted content and release ownership of Spool.
 	spool, err = serveReplicate(stream, req, spool)
 
-	// Roll-back any uncommitted content, and release ownership of Spool.
 	spool.MustApply(&pb.ReplicateRequest{Proposal: &spool.Fragment.Fragment})
 	res.replica.spoolCh <- spool
 

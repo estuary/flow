@@ -100,7 +100,6 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 
 	var hdr = res.Header
 	hdr.Route = pb.Route{Primary: -1}
-	hdr.Etcd.Revision -= 1
 
 	c.Check(stream.Send(&pb.ReplicateRequest{
 		Journal: "a/journal",
@@ -162,6 +161,28 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 	// Expect broker closes.
 	_, err = stream.Recv()
 	c.Check(err, gc.ErrorMatches, `.* no ack requested but status != OK: status:FRAGMENT_MISMATCH .*`)
+
+	// Case: journal is read-only.
+	newTestJournal(c, tf, pb.JournalSpec{Name: "read/only", Replication: 2, Flags: pb.JournalSpec_O_RDONLY},
+		peer.id, broker.id)
+
+	stream, _ = broker.MustClient().Replicate(ctx)
+	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "read/only"})
+
+	c.Check(stream.Send(&pb.ReplicateRequest{
+		Journal: "read/only",
+		Header:  &res.Header,
+		Proposal: &pb.Fragment{
+			Journal:          "read/only",
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+		Acknowledge: true,
+	}), gc.IsNil)
+
+	expectReplResponse(c, stream, &pb.ReplicateResponse{
+		Status: pb.Status_NOT_ALLOWED,
+		Header: &res.Header,
+	})
 }
 
 func expectReplResponse(c *gc.C, stream pb.Journal_ReplicateClient, expect *pb.ReplicateResponse) {

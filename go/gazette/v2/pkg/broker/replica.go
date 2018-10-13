@@ -235,6 +235,15 @@ func shutDownReplica(r *replica) {
 }
 
 func pulseJournal(ctx context.Context, journal pb.Journal, ks *keyspace.KeySpace, rjc pb.RoutedJournalClient, etcd clientv3.KV) {
+	ks.Mu.RLock()
+	var item, ok = allocator.LookupItem(ks, journal.String())
+	ks.Mu.RUnlock()
+
+	// Bail out if the JournalSpec has been deleted, or is marked as disallowing writes.
+	if !ok || !item.ItemValue.(*pb.JournalSpec).Flags.MayWrite() {
+		return
+	}
+
 	var app = client.NewAppender(ctx, rjc, pb.AppendRequest{Journal: journal})
 
 	if err := app.Close(); err != nil {

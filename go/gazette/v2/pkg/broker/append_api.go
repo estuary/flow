@@ -37,13 +37,13 @@ func (srv *Service) Append(stream pb.Journal_AppendServer) error {
 		if err != nil {
 			break
 		} else if res.status != pb.Status_OK {
-			err = stream.SendAndClose(&pb.AppendResponse{
-				Status: res.status,
-				Header: &res.Header,
-			})
+			err = stream.SendAndClose(&pb.AppendResponse{Status: res.status, Header: &res.Header})
+			break
+		} else if !res.journalSpec.Flags.MayWrite() {
+			err = stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
 			break
 		} else if res.replica == nil {
-			req.Header = &res.Header
+			req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 			err = proxyAppend(stream, req, srv.jc)
 			break
 		}

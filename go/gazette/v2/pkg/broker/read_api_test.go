@@ -323,6 +323,32 @@ func (s *ReadSuite) TestRemoteFragmentCases(c *gc.C) {
 	c.Check(err, gc.Equals, io.EOF)
 }
 
+func (s *ReadSuite) TestRequestErrorCases(c *gc.C) {
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
+
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var ctx = pb.WithDispatchDefault(tf.ctx)
+
+	// Case: ReadRequest which fails to validate.
+	var stream, err = broker.MustClient().Read(ctx, &pb.ReadRequest{Journal: "/invalid/journal"})
+	c.Assert(err, gc.IsNil)
+
+	_, err = stream.Recv()
+	c.Check(err, gc.ErrorMatches, `rpc error: code = Unknown desc = Journal: cannot begin with '/' .*`)
+
+	// Case: Read of a write-only journal.
+	newTestJournal(c, tf, pb.JournalSpec{Name: "write/only", Replication: 1, Flags: pb.JournalSpec_O_WRONLY}, broker.id)
+	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "write/only"})
+
+	stream, err = broker.MustClient().Read(ctx, &pb.ReadRequest{Journal: "write/only"})
+	c.Assert(err, gc.IsNil)
+
+	resp, err := stream.Recv()
+	c.Assert(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+}
+
 func buildRemoteFragmentFixture(c *gc.C) (frag pb.Fragment, dir string) {
 	const data = "XXXXXremote fragment data"
 

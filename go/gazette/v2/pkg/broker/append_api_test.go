@@ -259,6 +259,17 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 	resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_INSUFFICIENT_JOURNAL_BROKERS, Header: &res.Header})
+
+	// Case: Journal which is marked as read-only.
+	newTestJournal(c, tf, pb.JournalSpec{Name: "read/only", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}, broker.id)
+	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "read/only"})
+
+	stream, _ = broker.MustClient().Append(ctx)
+	c.Check(stream.Send(&pb.AppendRequest{Journal: "read/only"}), gc.IsNil)
+
+	resp, err = stream.CloseAndRecv()
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
 }
 
 func (s *AppendSuite) TestProxyCases(c *gc.C) {

@@ -30,12 +30,11 @@ func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) erro
 	if err != nil {
 		return err
 	} else if res.status != pb.Status_OK {
-		return stream.Send(&pb.ReadResponse{
-			Status: res.status,
-			Header: &res.Header,
-		})
+		return stream.Send(&pb.ReadResponse{Status: res.status, Header: &res.Header})
+	} else if !res.journalSpec.Flags.MayRead() {
+		return stream.Send(&pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
 	} else if res.replica == nil {
-		req.Header = &res.Header
+		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 		return proxyRead(stream, req, svc.jc)
 	}
 

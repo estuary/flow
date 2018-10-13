@@ -41,6 +41,9 @@ enum Status {
   // expect_mod_revision of the UpdateRequest differs from the current
   // ModRevision of the JournalSpec within the store.
   ETCD_TRANSACTION_FAILED = 9;
+  // A disallowed journal access was attempted (eg, a write where the
+  // journal disables writes, or read where journals disable reads).
+  NOT_ALLOWED = 10;
 }
 
 // CompressionCode defines codecs known to Gazette.
