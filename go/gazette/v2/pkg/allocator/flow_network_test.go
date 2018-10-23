@@ -10,6 +10,55 @@ import (
 
 type FlowNetworkSuite struct{}
 
+func (s *FlowNetworkSuite) TestZoneScalingFactors(c *gc.C) {
+	var cases = []struct {
+		itemCount int
+		itemSlots int
+		expect    int
+		zoneSlots []int
+	}{
+		// Two unbalanced zones, fully assignable.
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{80, 30}},
+		// Three unbalanced zones, all items assigned to fixed slots.
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{80, 20, 12}},
+		// Three unbalanced zones; one is smaller than |itemCount|.
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{80, 20, 9}},
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{80, 20, 1}},
+		// Three unbalanced zones; two are smaller than |itemCount|.
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{80, 6, 5}},
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{80, 6, 1}},
+		// Two balanced zones.
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{50, 50}},
+		// Single zone.
+		{itemCount: 10, itemSlots: 30, expect: 30, zoneSlots: []int{50}},
+		// Irregular sizes.
+		{itemCount: 10, itemSlots: 31, expect: 31, zoneSlots: []int{21, 19, 9}},
+		{itemCount: 10, itemSlots: 31, expect: 31, zoneSlots: []int{999, 12, 11}},
+		// Juuust enough member capacity.
+		{itemCount: 19, itemSlots: 40, expect: 40, zoneSlots: []int{21, 20}},
+		// Not enough member capacity.
+		{itemCount: 19, itemSlots: 40, expect: 39, zoneSlots: []int{19, 20}},
+		{itemCount: 10, itemSlots: 40, expect: 39, zoneSlots: []int{19, 20}},
+		{itemCount: 10, itemSlots: 40, expect: 39, zoneSlots: []int{39}},
+		{itemCount: 10, itemSlots: 30, expect: 12, zoneSlots: []int{5, 4, 3}},
+	}
+	for _, tc := range cases {
+		var num, denom = zoneScalingFactors(tc.itemCount, tc.itemSlots, tc.zoneSlots)
+
+		var total int
+		for zone, zs := range tc.zoneSlots {
+			// Sum across zoneSlots. Effectively multiply each by it's zoneSlots
+			// by instead dividing |denom| by zoneSlots (after removing this
+			// component, expect |denom| is constant across zoneSlots).
+			total += num[zone]
+
+			c.Check(denom[zone]/zs, gc.Equals, denom[0]/tc.zoneSlots[0])
+			c.Log(zone, ": ", float64(num[zone])/float64(denom[zone]), " => ", float64(num[zone]*zs)/float64(denom[zone]))
+		}
+		c.Check(total/(denom[0]/tc.zoneSlots[0]), gc.Equals, tc.expect)
+	}
+}
+
 func (s *FlowNetworkSuite) TestFlowOverSimpleFixture(c *gc.C) {
 	var client, ctx = etcdtest.TestClient(), context.Background()
 	defer etcdtest.Cleanup()
@@ -69,13 +118,13 @@ func (s *FlowNetworkSuite) TestFlowOverSimpleFixture(c *gc.C) {
 	verifyNode(c, I2W, &pr.Node{ID: 3, Height: 2, Arcs: []pr.Arc{
 		{Capacity: 1, Priority: 2, Target: MBaz},
 	}})
-	// Verify Member Arcs. Capacities are scaled down 50% (rounded up) from the
-	// Member.ItemLimit, as there are 6 member slots for 3 item slots.
+	// Verify Member Arcs. Capacities are scaled down 2/3 (rounded up) from
+	// the Member.ItemLimit (2 fixed slots per zone, with 3 zone slots).
 	verifyNode(c, MBar, &pr.Node{ID: 0, Height: 1, Arcs: []pr.Arc{
 		{Capacity: 1, Priority: 2, Target: T},
 	}})
 	verifyNode(c, MFoo, &pr.Node{ID: 1, Height: 1, Arcs: []pr.Arc{
-		{Capacity: 1, Priority: 2, Target: T},
+		{Capacity: 2, Priority: 1, Target: T},
 	}})
 	verifyNode(c, MBaz, &pr.Node{ID: 2, Height: 1, Arcs: []pr.Arc{
 		{Capacity: 2, Priority: 2, Target: T},

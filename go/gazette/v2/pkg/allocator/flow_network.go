@@ -6,6 +6,7 @@ import (
 
 	pr "github.com/LiveRamp/gazette/v2/pkg/allocator/push_relabel"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
+	log "github.com/sirupsen/logrus"
 )
 
 // flowNetwork models an allocation state as a flow network, representing Items,
@@ -66,12 +67,43 @@ func (fn *flowNetwork) init(s *State) {
 		Height: uint32(len(fn.items) + len(fn.zoneItems) + len(fn.members) + 2),
 	}
 
-	// We cannot hope to allocate more item slots than there are member slots.
-	// Also, performance and stability of the prioritized push/relabel solver
-	// degrade with the degree of excess flow which cannot be assigned. Make
-	// the solution faster and more stable by bounding the effective item
-	// slots to the number of member slots.
-	var remainingSlots = s.MemberSlots
+	var (
+		// We cannot hope to allocate more Item slots than there are Member slots.
+		// Also, performance and stability of the prioritized push/relabel solver
+		// degrade with the degree of excess flow which cannot be assigned. Make
+		// the solution faster and more stable by bounding the effective Item
+		// slots to the number of Member slots.
+		effectiveSlots int
+		// We generally want to place every Item in every available failure Zone.
+		// However, we're unable to do this if a given Zone doesn't have capacity
+		// to place each Item, in which case we do not require that it do so (and
+		// instead just log a warning).
+		effectiveZones int
+	)
+
+	for zone, zs := range s.ZoneSlots {
+		effectiveSlots += zs
+
+		// A zone is "effective" if it can hold all Items, plus one to
+		// ensure that Assignments can be rotated without deadlock.
+		if zs > len(s.Items) {
+			effectiveZones++
+		} else {
+			log.WithFields(log.Fields{
+				"zone":  s.Zones[zone],
+				"slots": zs,
+				"items": len(s.Items),
+			}).Warn("failure zone has insufficient capacity to place every item (add more zone members?)")
+		}
+	}
+
+	if effectiveSlots <= s.ItemSlots {
+		log.WithFields(log.Fields{
+			"memberSlots": effectiveSlots,
+			"items":       len(s.Items),
+			"itemSlots":   s.ItemSlots,
+		}).Warn("insufficient total member capacity to reach desired item replication (add more members?)")
+	}
 
 	// Perform a Left-join of |Items| with |Assignments| (ordered on item ID, member zone, member suffix).
 	// Build arcs from Source to each Item, to ZoneItems, to Members, and finally to the Sink.
@@ -90,28 +122,37 @@ func (fn *flowNetwork) init(s *State) {
 		switch {
 		case itemSlots < 0:
 			itemSlots = 0
-		case itemSlots > remainingSlots:
-			itemSlots = remainingSlots
+		case itemSlots > effectiveSlots:
+			itemSlots = effectiveSlots
 		}
-		remainingSlots -= itemSlots
+		effectiveSlots -= itemSlots
 
-		buildItemArcs(s, fn, item, itemAssignments, itemSlots)
+		buildItemArcs(s, fn, item, itemAssignments, itemSlots, effectiveZones)
 	}
 
-	for member := range s.Members {
-		var limit = memberAt(s.Members, member).ItemLimit()
+	// Determine scaling factors for each zone.
+	var zsfNum, zsfDenom = zoneScalingFactors(len(s.Items), s.ItemSlots, s.ZoneSlots)
 
-		// If there are more member slots than item slots, scale down the capacity of each
-		// member by the ratio of Items to Members, rounded up. This balances the smaller
-		// set of Items evenly across all Members, rather than having some Members near or
-		// fully allocated while others are idle (which is an otherwise valid max-flow).
-		if s.MemberSlots > s.ItemSlots && s.ItemSlots > 0 {
-			limit = limit * s.ItemSlots
-			if limit%s.MemberSlots == 0 {
-				limit = limit / s.MemberSlots
-			} else {
-				limit = (limit / s.MemberSlots) + 1
-			}
+	// Perform a left-join of |Members| with |Zones|. Add Arcs from each Member to sink.
+	it = LeftJoin{
+		LenL: len(s.Members),
+		LenR: len(s.Zones),
+		Compare: func(l, r int) int {
+			return strings.Compare(memberAt(s.Members, l).Zone, s.Zones[r])
+		},
+	}
+	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
+		var member = cur.Left
+		var zone = cur.RightBegin
+
+		// Calculate scaled member capacity using integer division, rounded up.
+		var limit = memberAt(s.Members, member).ItemLimit() * zsfNum[zone]
+		if limit == 0 {
+			// Pass.
+		} else if limit%zsfDenom[zone] == 0 {
+			limit = limit / zsfDenom[zone]
+		} else {
+			limit = (limit / zsfDenom[zone]) + 1
 		}
 		// Arc from Member to Sink, with capacity of the adjusted Member ItemLimit.
 		// Previous flow is the number of current Assignments.
@@ -126,13 +167,72 @@ func (fn *flowNetwork) init(s *State) {
 	pr.SortNodeArcs(fn.sink)
 }
 
-func buildItemArcs(s *State, fn *flowNetwork, item int, itemAssignments keyspace.KeyValues, itemSlots int) {
+// zoneScalingFactor computes a scaling factor (0, 1] which is applied to Member
+// ItemLimits of a given Zone. Where there are more Member slots than Item slots,
+// this balances the smaller set of Items evenly across Zones and their Members,
+// rather than having some Members near or fully allocated while others are idle
+// (which is an otherwise valid max-flow).
+//
+// The scaling factor is determined in two parts. First, we allocate a "fixed"
+// number of slots for each Zone, which is the smaller of either:
+//
+//   * The number of Items, or
+//   * The total capacity of the Zone.
+//
+// In other words, we never scale a Zone's capacity any lower than would allow
+// us to place every Item in the Zone at least once. We arrive at a fixed
+// scaling ratio which is sufficient for the Zone's fixed slots:
+//
+//                 min(len(Items), zoneSlots)
+//   fixedRatio = ----------------------------
+//                        zoneSlots
+//
+// Let |fixedSlots| be the sum total slots which have been allocated in this
+// fashion across all Zones. Now define a "dynamic" ratio which is this Zone's
+// proportionate share of remaining non-fixed Item slots:
+//
+//                   max(0, ItemSlots - fixedSlots)
+//   dynamicRatio = ---------------------------------
+//                   max(1, MemberSlots - fixedSlots)
+//
+// Intuitively, consider the ratio where fixedSlots = 0: it is the scaling factor
+// which, when applied to MemberSlots, would adjust it to exactly match ItemSlots.
+// Where fixedSlots > 0, the ratio adjusts the non-fixed remainder of MemberSlots
+// to exactly match the non-fixed remainder of ItemSlots. Compose both ratios
+// for the final scaling ratio:
+//
+//   zoneRatio = fixedRatio + (1 - fixedRatio) * dynamicRatio
+//
+// zoneScalingFactors expands this expression to return the ratio as
+// separate integer numerator & denominator components.
+func zoneScalingFactors(itemCount, itemSlots int, zoneSlots []int) (num, denom []int) {
+	num, denom = make([]int, len(zoneSlots)), make([]int, len(zoneSlots))
+	var (
+		memberSlots int
+		fixedSlots  int
+	)
+	for _, zs := range zoneSlots {
+		memberSlots += zs
+		fixedSlots += min(itemCount, zs)
+	}
+	var (
+		itemRemainder   = max(0, min(itemSlots, memberSlots)-fixedSlots)
+		memberRemainder = max(1, memberSlots-fixedSlots)
+	)
+	for zone, zs := range zoneSlots {
+		num[zone] = (memberRemainder-itemRemainder)*min(itemCount, zs) + itemRemainder*zs
+		denom[zone] = zs * memberRemainder
+	}
+	return
+}
+
+func buildItemArcs(s *State, fn *flowNetwork, item int, itemAssignments keyspace.KeyValues, itemSlots, effectiveZones int) {
 	// Item capacity is defined by its replication factor. Within a zone (and
 	// assuming there are multiple Zones), capacity is the replication factor
 	// minus one (eg, requiring that replicas be split across at least two
 	// Zones), lower-bounded to one.
 	var zoneSlots = itemSlots
-	if zoneSlots > 1 && len(s.Zones) > 1 {
+	if zoneSlots > 1 && effectiveZones > 1 {
 		zoneSlots--
 	}
 
@@ -233,4 +333,18 @@ func extractItemFlow(s *State, fn *flowNetwork, item int, out []Assignment) []As
 		return compareAssignment(out[i+start], out[j+start]) < 0
 	})
 	return out
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

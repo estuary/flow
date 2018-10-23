@@ -37,7 +37,7 @@ func (s *AllocStateSuite) TestExtractOverFixture(c *gc.C) {
 
 		// Expect ordered Zones and slot counts were extracted.
 		c.Check(s.Zones, gc.DeepEquals, []string{"us-east", "us-west"})
-		c.Check(s.MemberSlots, gc.Equals, 6)
+		c.Check(s.ZoneSlots, gc.DeepEquals, []int{3, 3})
 		c.Check(s.ItemSlots, gc.Equals, 3)
 		c.Check(s.NetworkHash, gc.Equals, uint64(0x175a17d95541fa12))
 

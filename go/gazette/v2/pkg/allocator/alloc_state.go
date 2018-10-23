@@ -26,7 +26,7 @@ type State struct {
 	LocalItems     []LocalItem // Assignments of this instance.
 
 	Zones       []string // Sorted and unique Zones of |Members|.
-	MemberSlots int      // Total number of item slots summed across all |Members|.
+	ZoneSlots   []int    // Total number of item slots summed across all |Members| of each Zone.
 	ItemSlots   int      // Total desired replication slots summed across all |Items|.
 	NetworkHash uint64   // Content-sum which captures Items & Members, and their constraints.
 
@@ -64,7 +64,7 @@ func (s *State) observe() {
 	s.LocalMemberInd = -1
 	s.LocalItems = s.LocalItems[:0]
 	s.Zones = s.Zones[:0]
-	s.MemberSlots = 0
+	s.ZoneSlots = s.ZoneSlots[:0]
 	s.ItemSlots = 0
 	s.NetworkHash = 0
 	s.MemberTotalCount = make([]int, len(s.Members))
@@ -72,22 +72,23 @@ func (s *State) observe() {
 
 	// Walk Members to:
 	//  * Group the set of ordered |Zones| across all Members.
-	//  * Initialize |MemberSlots|.
+	//  * Initialize |ZoneSlots|.
 	//  * Initialize |NetworkHash|.
 	for i := range s.Members {
 		var m = memberAt(s.Members, i)
-		var l = m.ItemLimit()
+		var slots = m.ItemLimit()
+		var zone = len(s.Zones) - 1
 
-		if len(s.Zones) == 0 {
+		if len(s.Zones) == 0 || s.Zones[zone] < m.Zone {
 			s.Zones = append(s.Zones, m.Zone)
-		} else if z := s.Zones[len(s.Zones)-1]; z < m.Zone {
-			s.Zones = append(s.Zones, m.Zone)
-		} else if z > m.Zone {
+			s.ZoneSlots = append(s.ZoneSlots, 0)
+			zone++
+		} else if s.Zones[zone] > m.Zone {
 			panic("invalid Member order")
 		}
 
-		s.MemberSlots += l
-		s.NetworkHash = foldCRC(s.NetworkHash, s.Members[i].Raw.Key, l)
+		s.ZoneSlots[zone] += slots
+		s.NetworkHash = foldCRC(s.NetworkHash, s.Members[i].Raw.Key, slots)
 	}
 
 	// Fetch |localMember| identified by |LocalKey|.
@@ -111,10 +112,10 @@ func (s *State) observe() {
 	}
 	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
 		var item = itemAt(s.Items, cur.Left)
-		var r = item.DesiredReplication()
+		var slots = item.DesiredReplication()
 
-		s.ItemSlots += r
-		s.NetworkHash = foldCRC(s.NetworkHash, s.Items[cur.Left].Raw.Key, r)
+		s.ItemSlots += slots
+		s.NetworkHash = foldCRC(s.NetworkHash, s.Items[cur.Left].Raw.Key, slots)
 
 		for r := cur.RightBegin; r != cur.RightEnd; r++ {
 			var a = assignmentAt(s.Assignments, r)
@@ -167,7 +168,7 @@ func (s *State) debugLog() {
 		"LocalItems":     len(la),
 		"LocalKey":       s.LocalKey,
 		"LocalMemberInd": s.LocalMemberInd,
-		"MemberSlots":    s.MemberSlots,
+		"ZoneSlots":      s.ZoneSlots,
 		"Members":        len(s.Members),
 		"NetworkHash":    s.NetworkHash,
 		"Revision":       s.KS.Header.Revision,

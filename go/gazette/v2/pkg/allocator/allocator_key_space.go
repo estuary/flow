@@ -231,7 +231,7 @@ type LeftJoinCursor struct {
 	Left, RightBegin, RightEnd int
 }
 
-// next returns the next cursor of the join and true, or if no rows remain in
+// Next returns the next cursor of the join and true, or if no rows remain in
 // the join, a zero-valued cursor and false.
 func (j *LeftJoin) Next() (LeftJoinCursor, bool) {
 	for j.Left < j.LenL {
