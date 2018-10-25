@@ -262,6 +262,7 @@ func (c *mockClientConn) Target() string                                        
 type mockRouter struct{ invalidated string }
 
 func (r *mockRouter) Route(_ context.Context, _ string) Route { return buildRouteFixture() }
+func (r *mockRouter) IsNoopRouter() bool                      { return false }
 
 func (r *mockRouter) UpdateRoute(item string, rt *Route) {
 	if rt != nil {

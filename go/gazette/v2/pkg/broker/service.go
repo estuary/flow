@@ -57,3 +57,5 @@ func (svc *Service) Route(ctx context.Context, item string) pb.Route {
 
 // UpdateRoute is a no-op implementation of protocol.DispatchRouter.
 func (svc *Service) UpdateRoute(string, *pb.Route) {} // No-op.
+// IsNoopRouter returns false.
+func (svc *Service) IsNoopRouter() bool { return false }

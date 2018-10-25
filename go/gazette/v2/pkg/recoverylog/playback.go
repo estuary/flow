@@ -40,10 +40,10 @@ func NewPlayer() *Player {
 // Play uses the prepared Player to play back the FSMHints. It returns on the
 // first encountered unrecoverable error, including context cancellation, or
 // upon a successful FinishAtWriteHead or InjectHandoff.
-func (p *Player) Play(ctx context.Context, hints FSMHints, dir string, cl client.AsyncJournalClient) error {
+func (p *Player) Play(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJournalClient) error {
 	defer close(p.doneCh)
 
-	if fsm, err := playLog(ctx, hints, dir, cl, p.tailingCh, p.handoffCh); err != nil {
+	if fsm, err := playLog(ctx, hints, dir, ajc, p.tailingCh, p.handoffCh); err != nil {
 		return err
 	} else {
 		p.Dir, p.FSM = dir, fsm
@@ -97,11 +97,11 @@ type playerReader struct {
 	block       bool            // Block field of ReadRequest. Retained to avoid a data race.
 }
 
-func newPlayerReader(ctx context.Context, name pb.Journal, cl client.AsyncJournalClient) *playerReader {
-	var rr = client.NewRetryReader(ctx, cl, pb.ReadRequest{
+func newPlayerReader(ctx context.Context, name pb.Journal, ajc client.AsyncJournalClient) *playerReader {
+	var rr = client.NewRetryReader(ctx, ajc, pb.ReadRequest{
 		Journal:    name,
 		Block:      true,
-		DoNotProxy: true,
+		DoNotProxy: !ajc.IsNoopRouter(),
 	})
 
 	var reqCh = make(chan struct{}, 1)
@@ -205,7 +205,7 @@ const (
 // with a zero-valued Author, playLog exits upon reaching the log head. Otherwise,
 // playLog exits upon injecting a properly sequenced no-op RecordedOp which encodes
 // the provided Author. The recovered FSM is returned on success.
-func playLog(ctx context.Context, hints FSMHints, dir string, cl client.AsyncJournalClient,
+func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJournalClient,
 	tailingCh chan<- struct{}, handoffCh <-chan Author) (fsm *FSM, err error) {
 
 	var state = playerStateBackfill
@@ -234,7 +234,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, cl client.AsyncJou
 		// Issue a write barrier to determine the transactional, current log head.
 		// We issue the barrier as a direct Append to fail-fast in the case of
 		// an error such as JOURNAL_DOES_NOT_EXIST.
-		var a = client.NewAppender(ctx, cl, pb.AppendRequest{Journal: hints.Log})
+		var a = client.NewAppender(ctx, ajc, pb.AppendRequest{Journal: hints.Log})
 		if err = a.Close(); err != nil {
 			return
 		}
@@ -251,7 +251,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, cl client.AsyncJou
 		}
 	}
 
-	var reader = newPlayerReader(ctx, hints.Log, cl)
+	var reader = newPlayerReader(ctx, hints.Log, ajc)
 	defer reader.close()
 
 	for {
@@ -327,7 +327,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, cl client.AsyncJou
 				return
 
 			case playerStateInjectHandoffAtHead:
-				var txn = cl.StartAppend(hints.Log)
+				var txn = ajc.StartAppend(hints.Log)
 
 				if err = txn.
 					Require(message.FixedFraming.Marshal(&RecordedOp{

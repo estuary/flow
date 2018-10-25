@@ -96,7 +96,7 @@ func pumpMessages(shard Shard, app Application, journal pb.Journal, offset int64
 		Journal:    journal,
 		Offset:     offset,
 		Block:      true,
-		DoNotProxy: true,
+		DoNotProxy: !shard.JournalClient().IsNoopRouter(),
 	})
 	var br = bufio.NewReader(rr)
 

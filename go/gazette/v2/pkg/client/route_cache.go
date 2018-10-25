@@ -54,6 +54,9 @@ func (rc *RouteCache) Route(ctx context.Context, item string) pb.Route {
 	return pb.Route{Primary: -1}
 }
 
+// IsNoopRouter returns false.
+func (rc *RouteCache) IsNoopRouter() bool { return false }
+
 type cachedRoute struct {
 	route pb.Route
 	at    time.Time

@@ -72,6 +72,7 @@ func (s *AppenderSuite) TestBrokerWriteError(c *gc.C) {
 
 	go func() {
 		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Content: []byte("foo")})
 		broker.ErrCh <- errors.New("an error")
 	}()
 

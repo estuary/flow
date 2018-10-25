@@ -63,6 +63,8 @@ type DispatchRouter interface {
 	Route(ctx context.Context, item string) Route
 	// UpdateRoute for |item|. A nil |route| is treated as an invalidation.
 	UpdateRoute(item string, route *Route)
+	// IsNoopRouter returns true if Route is a no-op.
+	IsNoopRouter() bool
 }
 
 // NoopDispatchRouter is a DispatchRouter which doesn't route.
@@ -70,6 +72,7 @@ type NoopDispatchRouter struct{}
 
 func (NoopDispatchRouter) Route(context.Context, string) Route { return Route{Primary: -1} }
 func (NoopDispatchRouter) UpdateRoute(string, *Route)          {}
+func (NoopDispatchRouter) IsNoopRouter() bool                  { return true }
 
 // dispatcher manages the lifetime of SubConns to individual Endpoints, dialing
 // Endpoints when needed and shutting them down when they are no longer used.
