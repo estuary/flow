@@ -132,7 +132,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	// Subcase 2: We use a placeholder ProcessId.
 	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "peer/only/journal"})
 	c.Check(r.status, gc.Equals, pb.Status_NOT_JOURNAL_BROKER)
-	c.Check(r.Header.ProcessId, gc.Equals, pb.ProcessSpec_ID{Zone: "local BrokerSpec", Suffix: "missing from Etcd"})
+	c.Check(r.Header.ProcessId, gc.Equals, pb.ProcessSpec_ID{Zone: "local-BrokerSpec", Suffix: "missing-from-Etcd"})
 	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, peer))
 }
 

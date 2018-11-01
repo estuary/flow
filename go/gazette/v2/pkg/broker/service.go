@@ -2,10 +2,13 @@ package broker
 
 import (
 	"context"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/coreos/etcd/clientv3"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/trace"
 )
 
@@ -24,16 +27,10 @@ func NewService(state *allocator.State, jc pb.JournalClient, etcd clientv3.KV) *
 
 	svc.resolver = newResolver(state, func(journal pb.Journal) *replica {
 		var rep = newReplica(journal)
-		go maintenanceLoop(rep, state.KS, pb.NewRoutedJournalClient(jc, svc), etcd)
+		go svc.maintenanceLoop(rep)
 		return rep
 	})
 	return svc
-}
-
-func addTrace(ctx context.Context, format string, args ...interface{}) {
-	if tr, ok := trace.FromContext(ctx); ok {
-		tr.LazyPrintf(format, args...)
-	}
 }
 
 // Route an item using the Service resolver. Route implements the
@@ -59,3 +56,97 @@ func (svc *Service) Route(ctx context.Context, item string) pb.Route {
 func (svc *Service) UpdateRoute(string, *pb.Route) {} // No-op.
 // IsNoopRouter returns false.
 func (svc *Service) IsNoopRouter() bool { return false }
+
+// maintenanceLoop performs periodic tasks over a replica:
+//  - Refreshing its remote fragment listings from configured stores.
+//  - Pinging the journal pipeline to ensure its live-ness, and the
+//    consistency of allocator assignment values stored in Etcd.
+func (svc *Service) maintenanceLoop(r *replica) {
+	// Start a timer which triggers refreshes of remote journal fragments. The
+	// duration between each refresh can change based on current configurations,
+	// so each refresh iteration resets the timer with the next interval.
+	var refreshTimer = time.NewTimer(0)
+	defer refreshTimer.Stop()
+	// We ping the journal pipeline periodically, and also on-demand when signalled.
+	var pingTicker = time.NewTicker(healthCheckInterval)
+	defer pingTicker.Stop()
+	// Minimum Etcd revision we must read through on next resolution.
+	var minRevision int64
+
+	for {
+		var args = resolveArgs{
+			ctx:                   r.ctx,
+			journal:               r.journal,
+			mayProxy:              false,
+			requirePrimary:        false,
+			requireFullAssignment: false,
+			minEtcdRevision:       minRevision,
+			proxyHeader:           nil,
+		}
+		var res resolution
+		var err error
+
+		select {
+		case _ = <-refreshTimer.C:
+			goto RefreshFragments
+
+		case _, ok := <-r.maintenanceCh:
+			if !ok {
+				shutDownReplica(r)
+				return
+			}
+			goto CheckHealth
+
+		case _ = <-pingTicker.C:
+			goto CheckHealth
+		}
+
+	RefreshFragments:
+		if res, err = svc.resolver.resolve(args); err != nil {
+			panic(err) // Cannot error, as we control context cancellation.
+		} else if res.status != pb.Status_OK {
+			// Probable shutdown race (eg, we'll next read that |maintenanceCh| is closed).
+			log.WithFields(log.Fields{"status": res.status, "journal": r.journal}).
+				Warn("refreshing fragments: failed to resolve")
+			continue
+		}
+
+		// Begin a background refresh of remote replica fragments. When done,
+		// signal to restart |refreshTimer| with the current refresh interval.
+		go func(r *replica, spec *pb.JournalSpec) {
+			if set, err := fragment.WalkAllStores(r.ctx, spec.Name, spec.Fragment.Stores); err == nil {
+				r.index.ReplaceRemote(set)
+			} else {
+				log.WithFields(log.Fields{
+					"name":     spec.Name,
+					"err":      err,
+					"interval": spec.Fragment.RefreshInterval,
+				}).Warn("failed to refresh remote fragments (will retry)")
+			}
+			refreshTimer.Reset(spec.Fragment.RefreshInterval)
+		}(res.replica, res.journalSpec)
+		continue
+
+	CheckHealth:
+		args.requirePrimary = true
+		args.requireFullAssignment = true
+
+		if res, err = svc.resolver.resolve(args); err != nil {
+			panic(err) // Cannot error, as we control context cancellation.
+		} else if res.status == pb.Status_NOT_JOURNAL_PRIMARY_BROKER {
+			// No-op. Only current primary checks pipeline health.
+		} else if minRevision, err = checkHealth(res, svc.jc, svc.etcd); err != nil {
+			log.WithFields(log.Fields{"err": err, "journal": r.journal}).
+				Warn("pipeline health check failed (will retry)")
+		}
+		continue
+	}
+}
+
+func addTrace(ctx context.Context, format string, args ...interface{}) {
+	if tr, ok := trace.FromContext(ctx); ok {
+		tr.LazyPrintf(format, args...)
+	}
+}
+
+var healthCheckInterval = time.Minute

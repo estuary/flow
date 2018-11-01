@@ -46,6 +46,8 @@ func (srv *Service) Append(stream pb.Journal_AppendServer) error {
 			req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 			err = proxyAppend(stream, req, srv.jc)
 			break
+		} else if err = res.replica.index.WaitForFirstRemoteRefresh(stream.Context()); err != nil {
+			break
 		}
 
 		var pln *pipeline
@@ -55,7 +57,7 @@ func (srv *Service) Append(stream pb.Journal_AppendServer) error {
 			// A peer told us of a future & non-equivalent Route revision.
 			// Continue to attempt to start a pipeline again at |rev|.
 		} else {
-			err = serveAppend(stream, pln, res.journalSpec, res.replica.pipelineCh)
+			err = serveAppend(stream, req, res, pln)
 			break
 		}
 	}
@@ -92,57 +94,57 @@ func proxyAppend(stream grpc.ServerStream, req *pb.AppendRequest, jc pb.JournalC
 }
 
 // serveAppend evaluates a client's Append RPC against the local coordinated pipeline.
-func serveAppend(stream pb.Journal_AppendServer, pln *pipeline, spec *pb.JournalSpec, releaseCh chan<- *pipeline) error {
+func serveAppend(stream pb.Journal_AppendServer, req *pb.AppendRequest, res resolution, pln *pipeline) error {
 	// We start with sole ownership of the _send_ side of the pipeline.
+
+	// The next offset written is always the furthest known journal extent.
+	// Usually this is the tracked pipeline offset, but it's possible that
+	// a larger offset exists in the fragment index.
+	var offset = pln.spool.Fragment.End
+	if eo := res.replica.index.EndOffset(); eo > offset {
+		offset = eo
+	}
+	// If the fragment index contains a larger offset than that of the
+	// pipeline, it's a likely indication that journal consistency was lost
+	// at some point (due to too many broker or Etcd failures). Refuse the
+	// append to prevent inadvertently writing an offset more than once,
+	// unless the request provides an explicit offset.
+	if po := pln.spool.Fragment.End; po != offset && req.Offset == 0 {
+		res.replica.pipelineCh <- pln // Release |pln|.
+		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_INDEX_HAS_GREATER_OFFSET, Header: &res.Header})
+	} else if req.Offset == 0 {
+		// Use |offset| (== |po|).
+	} else if req.Offset != offset {
+		// If a request offset is present, it must match |offset|.
+		res.replica.pipelineCh <- pln // Release |pln|.
+		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_WRONG_APPEND_OFFSET, Header: &res.Header})
+	} else if po != offset {
+		// Send a proposal which rolls the pipeline forward to |offset|.
+		var proposal = pln.spool.Fragment.Fragment
+		proposal.Begin, proposal.End, proposal.Sum = offset, offset, pb.SHA1Sum{}
+
+		pln.scatter(&pb.ReplicateRequest{
+			Proposal:    &proposal,
+			Acknowledge: false,
+		})
+	}
+
 	// Forward the client's content through the pipeline.
-	var appender = beginAppending(pln, spec.Fragment)
+	var appender = beginAppending(pln, res.journalSpec.Fragment)
 	for appender.onRecv(stream.Recv()) {
 	}
 	addTrace(stream.Context(), "read client EOF => %s", appender)
 
-	var plnSendErr = pln.sendErr()
-	var waitFor, closeAfter = pln.barrier()
-
-	if plnSendErr == nil {
-		releaseCh <- pln // Release the send-side of |pln|.
-	} else {
-		pln.closeSend()
-		releaseCh <- nil // Allow a new pipeline to be built.
-
-		log.WithFields(log.Fields{"err": plnSendErr, "journal": spec.Name}).
-			Warn("pipeline send failed")
-	}
-
-	// There may be pipelined commits prior to this one, who have not yet read
-	// their responses. Block until they do so, such that our responses are the
-	// next to receive. Similarly, defer a close to signal to RPCs pipelined
-	// after this one, that they may in turn read their responses. When this
-	// completes, we have sole ownership of the _receive_ side of |pln|.
-	select {
-	case <-waitFor:
-	default:
-		addTrace(stream.Context(), " ... stalled in <-waitFor read barrier")
-		<-waitFor
-	}
-	defer func() { close(closeAfter) }()
-
-	// We expect an acknowledgement from each peer. If we encountered a send
-	// error, we also expect an EOF from remaining non-broken peers.
-	if pln.gatherOK(); plnSendErr != nil {
-		pln.gatherEOF()
-	}
-
-	if pln.recvErr() != nil {
-		log.WithFields(log.Fields{"err": pln.recvErr(), "journal": spec.Name}).
-			Warn("pipeline receive failed")
+	var err = releasePipelineAndGatherResponse(stream.Context(), pln, res.replica.pipelineCh)
+	if err != nil {
+		log.WithFields(log.Fields{"err": err, "journal": res.journalSpec.Name}).
+			Warn("serveAppend: pipeline failed")
 	}
 
 	if appender.reqErr != nil {
 		return appender.reqErr
-	} else if plnSendErr != nil {
-		return plnSendErr
-	} else if pln.recvErr() != nil {
-		return pln.recvErr()
+	} else if err != nil {
+		return err
 	} else {
 		return stream.SendMsg(&pb.AppendResponse{
 			Header: &pln.Header,

@@ -128,10 +128,6 @@ func (m *JournalSpec) DesiredReplication() int { return int(m.Replication) }
 // IsConsistent returns true if the Route stored under each of |assignments|
 // agrees with the Route implied by the |assignments| keys.
 func (m *JournalSpec) IsConsistent(_ keyspace.KeyValue, assignments keyspace.KeyValues) bool {
-	if !m.Flags.MayWrite() {
-		return true // Read-only journals can never become inconsistent.
-	}
-
 	var rt Route
 	rt.Init(assignments)
 

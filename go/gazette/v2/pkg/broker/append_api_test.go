@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
@@ -24,6 +25,7 @@ func (s *AppendSuite) TestSingleAppend(c *gc.C) {
 	var stream, _ = broker.MustClient().Append(pb.WithDispatchDefault(tf.ctx))
 	c.Check(stream.Send(&pb.AppendRequest{Journal: "a/journal"}), gc.IsNil)
 	expectPipelineSync(c, peer, res.Header)
+	expectUnackedSnappyProposal(c, peer)
 
 	c.Check(stream.Send(&pb.AppendRequest{Content: []byte("foo")}), gc.IsNil)
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{Content: []byte("foo"), ContentDelta: 0})
@@ -81,6 +83,8 @@ func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
 	// |stream1| is sequenced first; expect it's replicated to the peer.
 	c.Check(stream1.Send(&pb.AppendRequest{Journal: "a/journal"}), gc.IsNil)
 	expectPipelineSync(c, peer, res.Header)
+	expectUnackedSnappyProposal(c, peer)
+
 	c.Check(stream1.Send(&pb.AppendRequest{Content: []byte("foo")}), gc.IsNil)
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{Content: []byte("foo"), ContentDelta: 0})
 	c.Check(stream1.Send(&pb.AppendRequest{}), gc.IsNil) // Signal commit.
@@ -168,6 +172,7 @@ func (s *AppendSuite) TestRollbackCases(c *gc.C) {
 	var stream, _ = broker.MustClient().Append(ctx)
 	c.Check(stream.Send(&pb.AppendRequest{Journal: "a/journal"}), gc.IsNil)
 	expectPipelineSync(c, peer, res.Header)
+	expectUnackedSnappyProposal(c, peer)
 
 	c.Check(stream.Send(&pb.AppendRequest{Content: []byte("foo")}), gc.IsNil)
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{Content: []byte("foo"), ContentDelta: 0})
@@ -209,6 +214,88 @@ func (s *AppendSuite) TestRollbackCases(c *gc.C) {
 
 	_, err = stream.CloseAndRecv()
 	c.Check(err, gc.ErrorMatches, `rpc error: code = Canceled desc = context canceled`)
+}
+
+func (s *AppendSuite) TestAppendOffsetReset(c *gc.C) {
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
+
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+
+	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
+	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
+
+	// Part 1: Offset is not provided, and remote index has a fragment with larger offset.
+	var stream, _ = broker.MustClient().Append(pb.WithDispatchDefault(tf.ctx))
+	c.Check(stream.Send(&pb.AppendRequest{Journal: "a/journal"}), gc.IsNil)
+
+	// Add a remote Fragment fixture which ends at offset 1024.
+	res.replica.index.ReplaceRemote(fragment.CoverSet{fragment.Fragment{
+		Fragment: pb.Fragment{Journal: "a/journal", Begin: 0, End: 1024}}})
+
+	// Finish empty Append RPC. Expect it fails with INDEX_HAS_GREATER_OFFSET.
+	expectPipelineSync(c, peer, res.Header)
+	c.Check(stream.Send(&pb.AppendRequest{}), gc.IsNil)
+
+	var resp, err = stream.CloseAndRecv()
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
+		Status: pb.Status_INDEX_HAS_GREATER_OFFSET,
+		Header: &res.Header,
+	})
+
+	// Part 2: We now submit a request offset which matches the remote fragment offset.
+	stream, _ = broker.MustClient().Append(pb.WithDispatchDefault(tf.ctx))
+	c.Check(stream.Send(&pb.AppendRequest{Journal: "a/journal", Offset: 1024}), gc.IsNil)
+
+	// Expect an unack'd proposal is sent to peer, rolling the pipeline forward,
+	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            1024,
+			End:              1024,
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+	})
+	// Followed by a proposal update switching to Snappy.
+	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            1024,
+			End:              1024,
+			CompressionCodec: pb.CompressionCodec_SNAPPY,
+		},
+	})
+
+	// Client sends content and EOF.
+	c.Check(stream.Send(&pb.AppendRequest{Content: []byte("foobar")}), gc.IsNil)
+	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{Content: []byte("foobar"), ContentDelta: 0})
+	c.Check(stream.Send(&pb.AppendRequest{}), gc.IsNil)
+	c.Check(stream.CloseSend(), gc.IsNil)
+
+	var expectedFragment = &pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            1024,
+		End:              1030,
+		Sum:              pb.SHA1SumOf("foobar"),
+		CompressionCodec: pb.CompressionCodec_SNAPPY,
+	}
+
+	// Commit is sent to peer.
+	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
+		Proposal:    expectedFragment,
+		Acknowledge: true,
+	})
+	peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK} // Acknowledge.
+
+	resp, err = stream.CloseAndRecv()
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
+		Status: pb.Status_OK,
+		Header: &res.Header,
+		Commit: expectedFragment,
+	})
 }
 
 func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
@@ -270,6 +357,21 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 	resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+
+	// Case: incorrect request Offset.
+	newTestJournal(c, tf, pb.JournalSpec{Name: "valid/journal", Replication: 1}, broker.id)
+	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "valid/journal"})
+
+	// Initial index load with a remote Fragment fixture.
+	res.replica.index.ReplaceRemote(fragment.CoverSet{fragment.Fragment{
+		Fragment: pb.Fragment{Journal: "a/journal", Begin: 0, End: 1024}}})
+
+	stream, _ = broker.MustClient().Append(ctx)
+	c.Check(stream.Send(&pb.AppendRequest{Journal: "valid/journal", Offset: 512}), gc.IsNil)
+
+	resp, err = stream.CloseAndRecv()
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_WRONG_APPEND_OFFSET, Header: &res.Header})
 }
 
 func (s *AppendSuite) TestProxyCases(c *gc.C) {
@@ -479,7 +581,9 @@ func expectPipelineSync(c *gc.C, peer testBroker, hdr pb.Header) {
 		Acknowledge: true,
 	})
 	peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK} // Acknowledge.
+}
 
+func expectUnackedSnappyProposal(c *gc.C, peer testBroker) {
 	// Expect a non-ack'd command to roll the Spool to the SNAPPY codec (configured in the fixture).
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
 		Proposal: &pb.Fragment{

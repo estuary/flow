@@ -163,9 +163,6 @@ func (s *JournalSuite) TestConsistencyCases(c *gc.C) {
 
 	routes[1].Members = append(routes[1].Members, ProcessSpec_ID{Zone: "zone/b", Suffix: "member/4"})
 	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, false)
-
-	spec.Flags = JournalSpec_O_RDONLY // Read-only journals are always consistent.
-	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, true)
 }
 
 func (s *JournalSuite) TestSetOperations(c *gc.C) {

@@ -30,7 +30,8 @@ type Broker struct {
 func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 	var ctx, cancel = context.WithCancel(context.Background())
 
-	var grant, err = etcd.Grant(ctx, 0)
+	// Grant lease with 1m timeout. Test must complete within this time.
+	var grant, err = etcd.Grant(ctx, 60)
 	c.Assert(err, gc.IsNil)
 
 	var ks = broker.NewKeySpace("/brokertest")

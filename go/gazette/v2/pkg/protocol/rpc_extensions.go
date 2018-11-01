@@ -93,7 +93,6 @@ func (m *ReadResponse) Validate() error {
 			return NewValidationError("unexpected FragmentUrl without Fragment (%s)", m.FragmentUrl)
 		}
 	}
-
 	return nil
 }
 
@@ -107,6 +106,8 @@ func (m *AppendRequest) Validate() error {
 		}
 		if err := m.Journal.Validate(); err != nil {
 			return ExtendContext(err, "Journal")
+		} else if m.Offset < 0 {
+			return NewValidationError("invalid Offset (%d; expected >= 0)", m.Offset)
 		} else if len(m.Content) != 0 {
 			return NewValidationError("unexpected Content")
 		}
@@ -114,6 +115,8 @@ func (m *AppendRequest) Validate() error {
 		return NewValidationError("unexpected Header")
 	} else if m.DoNotProxy {
 		return NewValidationError("unexpected DoNotProxy")
+	} else if m.Offset != 0 {
+		return NewValidationError("unexpected Offset")
 	}
 	return nil
 }

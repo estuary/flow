@@ -34,13 +34,10 @@ func (srv *Service) Replicate(stream pb.Journal_ReplicateServer) error {
 	} else if !res.Header.Route.Equivalent(&req.Header.Route) {
 		// Require that the request Route is equivalent to the Route we resolved to.
 		return stream.Send(&pb.ReplicateResponse{Status: pb.Status_WRONG_ROUTE, Header: &res.Header})
-	} else if !res.journalSpec.Flags.MayWrite() {
-		// Require that the journal is writable.
-		return stream.Send(&pb.ReplicateResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
 	}
 
 	var spool fragment.Spool
-	if spool, err = acquireSpool(stream.Context(), res.replica, false); err != nil {
+	if spool, err = acquireSpool(stream.Context(), res.replica); err != nil {
 		return err
 	}
 

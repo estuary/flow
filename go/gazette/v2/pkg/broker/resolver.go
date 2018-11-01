@@ -54,6 +54,8 @@ type resolution struct {
 	pb.Header
 	// JournalSpec of the Journal at the current Etcd Revision.
 	journalSpec *pb.JournalSpec
+	// Assignments of the Journal at the current Etcd Revision.
+	assignments keyspace.KeyValues
 	// replica of the local assigned journal, iff the journal was resolved to this broker
 	// (as opposed to a remote peer).
 	replica *replica
@@ -74,7 +76,7 @@ func (r *resolver) resolve(args resolveArgs) (res resolution, err error) {
 		// local member key has been removed from Etcd. We don't want to outright
 		// fail these requests as we can usefully proxy them. Use a placeholder
 		// to ensure |localID| doesn't match ProcessSpec_ID{}, and for logging.
-		localID = pb.ProcessSpec_ID{Zone: "local BrokerSpec", Suffix: "missing from Etcd"}
+		localID = pb.ProcessSpec_ID{Zone: "local-BrokerSpec", Suffix: "missing-from-Etcd"}
 	}
 
 	if hdr := args.proxyHeader; hdr != nil {
@@ -112,11 +114,11 @@ func (r *resolver) resolve(args resolveArgs) (res resolution, err error) {
 	if item, ok := allocator.LookupItem(ks, args.journal.String()); ok {
 		res.journalSpec = item.ItemValue.(*pb.JournalSpec)
 	}
-	// Extract Route.
-	var assignments = ks.KeyValues.Prefixed(
-		allocator.ItemAssignmentsPrefix(ks, args.journal.String()))
+	// Extract Assignments and build Route.
+	res.assignments = ks.KeyValues.Prefixed(
+		allocator.ItemAssignmentsPrefix(ks, args.journal.String())).Copy()
 
-	res.Route.Init(assignments)
+	res.Route.Init(res.assignments)
 	res.Route.AttachEndpoints(ks)
 
 	// Select a definite ProcessID if we require the primary and there is one,
@@ -191,7 +193,7 @@ func (r *resolver) updateResolutions() {
 		if assignment.Slot == 0 && !item.IsConsistent(keyspace.KeyValue{}, li.Assignments) {
 			// Attempt to signal maintenanceLoop that the journal should be pulsed.
 			select {
-			case rep.signalMaintenanceCh <- struct{}{}:
+			case rep.maintenanceCh <- struct{}{}:
 			default: // Pass (non-blocking).
 			}
 		}
@@ -202,7 +204,7 @@ func (r *resolver) updateResolutions() {
 
 	for _, rep := range prev {
 		// Signal maintenanceLoop to stop the replica.
-		close(rep.signalMaintenanceCh)
+		close(rep.maintenanceCh)
 	}
 	return
 }

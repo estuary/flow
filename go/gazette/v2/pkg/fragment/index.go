@@ -196,9 +196,6 @@ func (fi *Index) WaitForFirstRemoteRefresh(ctx context.Context) error {
 	}
 }
 
-// FirstRemoteRefresh returns a channel which is closed on the first call to ReplaceRemote.
-func (fi *Index) FirstRemoteRefresh() <-chan struct{} { return fi.firstRefreshCh }
-
 // WalkAllStores enumerates Fragments from each of |stores| into the returned
 // CoverSet, or returns an encountered error.
 func WalkAllStores(ctx context.Context, name pb.Journal, stores []pb.FragmentStore) (CoverSet, error) {

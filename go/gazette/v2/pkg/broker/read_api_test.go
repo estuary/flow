@@ -28,7 +28,7 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id)
 
 	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
-	var spool, err = acquireSpool(tf.ctx, res.replica, false)
+	var spool, err = acquireSpool(tf.ctx, res.replica)
 	c.Check(err, gc.IsNil)
 
 	stream, err := broker.MustClient().Read(pb.WithDispatchDefault(tf.ctx),
@@ -105,7 +105,7 @@ func (s *ReadSuite) TestMetadataAndNonBlocking(c *gc.C) {
 	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id)
 
 	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
-	var spool, err = acquireSpool(tf.ctx, res.replica, false)
+	var spool, err = acquireSpool(tf.ctx, res.replica)
 	c.Check(err, gc.IsNil)
 
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("feedbeef")})

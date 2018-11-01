@@ -106,6 +106,7 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 		Header:     badHeaderFixture(),
 		Journal:    "/bad",
 		DoNotProxy: true,
+		Offset:     -1,
 		Content:    []byte("foo"),
 	}
 
@@ -113,6 +114,8 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 	req.Header.Etcd.ClusterId = 12
 	c.Check(req.Validate(), gc.ErrorMatches, `Journal: cannot begin with '/' \(/bad\)`)
 	req.Journal = "good"
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid Offset \(-1; expected >= 0\)`)
+	req.Offset = 100
 	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Content`)
 	req.Content = nil
 
@@ -125,6 +128,8 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 	req.Header = nil
 	c.Check(req.Validate(), gc.ErrorMatches, `unexpected DoNotProxy`)
 	req.DoNotProxy = false
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Offset`)
+	req.Offset = 0
 
 	c.Check(req.Validate(), gc.IsNil)
 

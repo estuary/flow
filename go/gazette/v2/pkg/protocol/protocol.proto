@@ -44,6 +44,14 @@ enum Status {
   // A disallowed journal access was attempted (eg, a write where the
   // journal disables writes, or read where journals disable reads).
   NOT_ALLOWED = 10;
+  // The Append is refused because its requested offset is not equal
+  // to the furthest written offset of the journal.
+  WRONG_APPEND_OFFSET = 11;
+  // The Append is refused because the replication pipeline tracks a smaller
+  // journal offset than that of the remote fragment index. This indicates
+  // that journal replication consistency has been lost in the past, due to
+  // too many broker or Etcd failures.
+  INDEX_HAS_GREATER_OFFSET = 12;
 }
 
 // CompressionCode defines codecs known to Gazette.
@@ -317,6 +325,11 @@ message AppendRequest {
   // If do_not_proxy is true, the broker will not proxy the append if it is
   // not the current primary.
   bool do_not_proxy = 3;
+  // Journal offset at which the append should begin. Most clients should leave
+  // at zero, which uses the broker's tracked offset. The append offset must be
+  // one greater than furthest written offset of the journal, or
+  // WRONG_APPEND_OFFSET is returned.
+  int64 offset = 5;
   // Content chunks to be appended. Immediately prior to closing the stream,
   // the client must send an empty chunk (eg, zero-valued AppendRequest) to
   // indicate the Append should be committed. Absence of this empty chunk
