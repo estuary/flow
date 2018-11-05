@@ -3,8 +3,13 @@ package client
 import (
 	"context"
 	"errors"
+	"io"
+	"math"
+	"time"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Appender adapts an Append RPC to the io.WriteCloser interface. Its usages
@@ -68,7 +73,14 @@ func (a *Appender) Close() (err error) {
 	} else {
 		a.client.UpdateRoute(a.Request.Journal.String(), &a.Response.Header.Route)
 
-		if a.Response.Status != pb.Status_OK {
+		switch a.Response.Status {
+		case pb.Status_OK:
+			// Pass.
+		case pb.Status_NOT_JOURNAL_PRIMARY_BROKER:
+			err = ErrNotJournalPrimaryBroker
+		case pb.Status_WRONG_APPEND_OFFSET:
+			err = ErrWrongAppendOffset
+		default:
 			err = errors.New(a.Response.Status.String())
 		}
 	}
@@ -100,4 +112,43 @@ func (a *Appender) lazyInit() (err error) {
 		}
 	}
 	return
+}
+
+// Append zero or more ReaderAts of |content| to a journal as a single Append
+// transaction. Append retries on transport or routing errors, but fails
+// on all other errors. If no ReaderAts are provided, an Append RPC with no
+// content is issued.
+func Append(ctx context.Context, rjc pb.RoutedJournalClient, req pb.AppendRequest,
+	content ...io.ReaderAt) (pb.AppendResponse, error) {
+
+	for attempt := 0; true; attempt++ {
+		var a = NewAppender(ctx, rjc, req)
+		var err error
+
+		for r := 0; r != len(content) && err == nil; r++ {
+			_, err = io.Copy(a, io.NewSectionReader(content[r], 0, math.MaxInt64))
+		}
+		if err == nil {
+			err = a.Close()
+		} else {
+			a.Abort()
+		}
+
+		if err == nil {
+			return a.Response, nil
+		} else if s, ok := status.FromError(err); ok && s.Code() == codes.Unavailable {
+			// Fallthrough to retry
+		} else if err == ErrNotJournalPrimaryBroker {
+			// Fallthrough.
+		} else {
+			return a.Response, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return a.Response, ctx.Err()
+		case <-time.After(backoff(attempt)):
+		}
+	}
+	panic("not reached")
 }

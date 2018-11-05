@@ -103,7 +103,14 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 			r.Request.Offset = r.Response.Offset
 			err = ErrOffsetJump
 		}
-		// Return empty read, to allow inspection of the updated |r.Response|.
+
+		if r.Response.Status == pb.Status_OK {
+			// Return empty read, to allow inspection of the updated |r.Response|.
+		} else {
+			// The broker will send a stream closure following a !OK status.
+			// Recurse to read that closure, and _then_ return a final error.
+			n, err = r.Read(p)
+		}
 		return
 
 	} else if err != io.EOF {
@@ -277,11 +284,13 @@ func InstallFileTransport(root string) (remove func()) {
 }
 
 var (
-	// Map common broker error status into named errors.
-	ErrOffsetNotYetAvailable = errors.New(pb.Status_OFFSET_NOT_YET_AVAILABLE.String())
-	ErrNotJournalBroker      = errors.New(pb.Status_NOT_JOURNAL_BROKER.String())
-	ErrOffsetJump            = errors.New("offset jump")
+	// Map common broker error statuses into named errors.
+	ErrNotJournalBroker        = errors.New(pb.Status_NOT_JOURNAL_BROKER.String())
+	ErrNotJournalPrimaryBroker = errors.New(pb.Status_NOT_JOURNAL_PRIMARY_BROKER.String())
+	ErrOffsetNotYetAvailable   = errors.New(pb.Status_OFFSET_NOT_YET_AVAILABLE.String())
+	ErrWrongAppendOffset       = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
 
+	ErrOffsetJump            = errors.New("offset jump")
 	ErrSeekRequiresNewReader = errors.New("seek offset requires new Reader")
 	ErrDidNotReadExpectedEOF = errors.New("did not read EOF at expected Fragment.End")
 

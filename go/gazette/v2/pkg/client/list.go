@@ -45,7 +45,8 @@ func (pl *PolledList) periodicRefresh(dur time.Duration) {
 		case <-ticker.C:
 			var resp, err = ListAll(pl.ctx, pl.client, pl.req)
 			if err != nil {
-				log.WithFields(log.Fields{"err": err, "req": pl.req.String()}).Warn("periodic List refresh failed")
+				log.WithFields(log.Fields{"err": err, "req": pl.req.String()}).
+					Warn("periodic List refresh failed (will retry)")
 			} else {
 				pl.resp.Store(resp)
 			}

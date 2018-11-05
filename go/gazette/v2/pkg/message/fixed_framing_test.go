@@ -3,11 +3,11 @@ package message
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"io"
 	"os"
 
 	gc "github.com/go-check/check"
+	"github.com/pkg/errors"
 )
 
 type FixedFramingSuite struct{}
@@ -107,7 +107,7 @@ func (s *FixedFramingSuite) TestDecodeTrailingNewLine(c *gc.C) {
 
 	// Read offset should now be at the \n, ensure this returns an EOF.
 	var _, eofErr = FixedFraming.Unpack(bufReader)
-	c.Check(eofErr, gc.Equals, io.EOF)
+	c.Check(errors.Cause(eofErr), gc.Equals, io.EOF)
 }
 
 func (s *FixedFramingSuite) TestDesyncHandling(c *gc.C) {
@@ -140,23 +140,23 @@ func (s *FixedFramingSuite) TestIncompleteBufferHandling(c *gc.C) {
 
 	// EOF at first byte.
 	var _, err = FixedFraming.Unpack(testReader(fixture[3:3]))
-	c.Check(err, gc.Equals, io.EOF)
+	c.Check(errors.Cause(err), gc.Equals, io.EOF)
 
 	// EOF partway through header.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:10]))
-	c.Check(err, gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
 
 	// EOF while scanning for de-sync'd header.
 	_, err = FixedFraming.Unpack(testReader(fixture[0:6]))
-	c.Check(err, gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
 
 	// EOF just after reading complete header.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:11]))
-	c.Check(err, gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
 
 	// EOF partway through the message.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:22]))
-	c.Check(err, gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
 
 	// Full message. Success.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:]))

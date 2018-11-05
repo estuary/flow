@@ -76,7 +76,7 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 
 		switch err {
 		case context.DeadlineExceeded, context.Canceled:
-			return
+			return // Surface to caller.
 		case ErrOffsetNotYetAvailable:
 			if rr.Reader.Request.Block {
 				// |Block| was set after a non-blocking reader was started. Restart in blocking mode.
@@ -86,8 +86,13 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 		case io.EOF, ErrNotJournalBroker:
 			// Suppress logging for expected errors.
 		default:
-			log.WithFields(log.Fields{"journal": rr.Journal(), "offset": rr.Offset(), "err": err}).
+			log.WithFields(log.Fields{"journal": rr.Journal(), "offset": rr.Offset(), "err": err, "i": i}).
 				Warn("read failure (will retry)")
+		}
+
+		if n != 0 {
+			err = nil // Squelch from caller.
+			return
 		}
 
 		// Wait for a back-off timer, or context cancellation.

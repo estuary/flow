@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
+	"strings"
+	"testing/iotest"
 
 	"github.com/LiveRamp/gazette/v2/pkg/broker/teststub"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -58,6 +60,42 @@ func (s *RetrySuite) TestReaderRetries(c *gc.C) {
 
 	b, err = ioutil.ReadAll(rr)
 	c.Check(err, gc.Equals, context.Canceled)
+}
+
+func (s *RetrySuite) TestMisbehavingReaderCases(c *gc.C) {
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var broker = teststub.NewBroker(c, ctx)
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+
+	// Construct a variety of unusual underlying reader behaviors. Expect
+	// RetryReader retries appropriately and recovers correct content in all cases.
+	var cases = []io.Reader{
+		// Returns content, then EOF.
+		strings.NewReader("foobar"),
+		// Returns content & EOF.
+		iotest.DataErrReader(strings.NewReader("foobar")),
+		// Returns content, then iotest.ErrTimeout.
+		iotest.TimeoutReader(strings.NewReader("foobar")),
+		// Returns content & iotest.ErrTimeout.
+		iotest.DataErrReader(iotest.TimeoutReader(strings.NewReader("foobar"))),
+		// Returns single bytes, then separate EOF.
+		iotest.OneByteReader(strings.NewReader("foobar")),
+	}
+	for _, tc := range cases {
+		var rr = NewRetryReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
+		rr.Reader.direct = ioutil.NopCloser(tc)
+
+		go serveReadFixtures(c, broker,
+			readFixture{content: "bazbing", status: pb.Status_OFFSET_NOT_YET_AVAILABLE},
+		)
+		// Expect reads are retried through OFFSET_NOT_YET_AVAILABLE, which is surfaced to the caller.
+		var b, err = ioutil.ReadAll(rr)
+		c.Check(string(b), gc.Equals, "foobarbazbing")
+		c.Check(err, gc.Equals, ErrOffsetNotYetAvailable)
+		c.Check(rr.Offset(), gc.Equals, int64(100+13))
+	}
 }
 
 func (s *RetrySuite) TestSeeking(c *gc.C) {

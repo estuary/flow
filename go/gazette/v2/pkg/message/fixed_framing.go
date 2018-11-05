@@ -3,10 +3,11 @@ package message
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
 // FixedFraming is a Framing implementation which encodes messages in a binary
@@ -72,7 +73,7 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 
 	if err != nil {
 		// If buffer just contains a trailing newline, return EOF.
-		// This can be the case for hadoop streaming unpacking of PixelEvents.
+		// TODO(johnny): Can we remove this?
 		if err == io.EOF && len(b) == 1 && b[0] == 0x0a {
 			return nil, io.EOF
 		}
@@ -80,6 +81,8 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 			// If we read at least one byte, then an EOF is unexpected (it should
 			// occur only on whole-message boundaries).
 			err = io.ErrUnexpectedEOF
+		} else {
+			err = errors.Wrap(err, "Peek(FixedFrameHeaderLength)")
 		}
 		return nil, err
 	}
@@ -114,7 +117,7 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	// Slow path. Allocate and attempt to Read the full frame.
 	b = make([]byte, size)
 	_, err = io.ReadFull(r, b)
-	return b, err
+	return b, errors.Wrap(err, "io.ReadFull")
 }
 
 // Unmarshal verifies the frame header and unpacks Message content. If the frame

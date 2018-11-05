@@ -110,11 +110,17 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 
 	// Case 1: fragment metadata & URL.
 	var r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
-	var b, err = ioutil.ReadAll(r)
 
-	// Expect fragment URL fixture is opened & read directly.
+	// Initial read is zero-length, but updates Response with FragmentUrl.
+	var n, err = r.Read(nil)
+	c.Check(n, gc.Equals, 0)
+	c.Check(err, gc.IsNil)
+	c.Check(r.Response.Fragment, gc.NotNil)
+
+	// Expect next read opens fragment URL fixture reads directly.
+	b, err := ioutil.ReadAll(r)
 	c.Check(string(b), gc.Equals, "hello, world!!!")
-	c.Check(err, gc.Equals, nil)
+	c.Check(err, gc.IsNil)
 
 	// And that the Route is cached.
 	c.Check(rjc.Route(ctx, "a/journal"), gc.DeepEquals, pb.Route{
@@ -125,7 +131,7 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 
 	// Case 2: fragment metadata, no URL and the offset is jumped.
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: -1})
-	n, err := r.Read(b)
+	n, err = r.Read(b)
 
 	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.Equals, ErrOffsetJump)
@@ -138,9 +144,9 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 
 	// Case 3: NOT_JOURNAL_BROKER => ErrNotJournalBroker.
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
-	b, err = ioutil.ReadAll(r)
+	n, err = r.Read(b)
 
-	c.Check(b, gc.HasLen, 0)
+	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.Equals, ErrNotJournalBroker)
 
 	// Case 4: read content, then OFFSET_NOT_YET_AVAILABLE => ErrOffsetNotYetAvailable.
@@ -152,22 +158,23 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 
 	// Case 5: immediate OFFSET_NOT_YET_AVAILABLE => ErrOffsetNotYetAvailable.
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
-	b, err = ioutil.ReadAll(r)
+	n, err = r.Read(b)
 
-	c.Check(b, gc.HasLen, 0)
+	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.Equals, ErrOffsetNotYetAvailable)
 
-	// Case 6: expect status is dynamically mapped to error.
+	// Case 6: expect other statuses are dynamically mapped to error.
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
-	b, err = ioutil.ReadAll(r)
+	n, err = r.Read(b)
 
-	c.Check(b, gc.HasLen, 0)
+	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.ErrorMatches, pb.Status_INSUFFICIENT_JOURNAL_BROKERS.String())
 
 	// Case 7: streamed content with multiple small reads, offset jump & tracked Route update
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
 
-	_, err = r.Read(nil)
+	n, err = r.Read(nil)
+	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.Equals, ErrOffsetJump)
 
 	// Expect offset was skipped forward to Response.Offset.
@@ -223,8 +230,8 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 	// Case 10: ReadResponse validation fails (invalid fragment).
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
 
-	b, err = ioutil.ReadAll(r)
-	c.Check(b, gc.HasLen, 0)
+	n, err = r.Read(nil)
+	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.ErrorMatches, `ReadResponse.Fragment.Journal: invalid length .*`)
 }
 
