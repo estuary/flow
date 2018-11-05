@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/brokertest"
@@ -17,6 +18,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
+	"github.com/pkg/errors"
 )
 
 type PlaybackSuite struct{}
@@ -28,21 +30,23 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	var ctx = context.Background()
 	var pr = newPlayerReader(ctx, aRecoveryLog, bk)
 
+	var fixture = strings.Repeat("x", message.FixedFrameHeaderLength)
+
 	// Expect we can use peek to asynchronously drive Peek operations.
 	var peekCh = pr.peek()
 	c.Check(pr.pendingPeek, gc.Equals, true)
 
-	writeToLog(c, ctx, bk, "foobar!")
+	writeToLog(c, ctx, bk, fixture+"!")
 	c.Check(<-peekCh, gc.IsNil)
 	pr.pendingPeek = false
 
 	var str, err = pr.br.ReadString('!')
-	c.Check(str, gc.Equals, "foobar!")
+	c.Check(str, gc.Equals, fixture+"!")
 	c.Check(err, gc.IsNil)
 
-	// Read next byte. Peek does not consume input, so multiple peeks
+	// Read next bytes. Peek does not consume input, so multiple peeks
 	// without an interleaving Read are trivially satisfied.
-	writeToLog(c, ctx, bk, "x")
+	writeToLog(c, ctx, bk, fixture)
 	c.Check(<-pr.peek(), gc.IsNil)
 	pr.pendingPeek = false
 	c.Check(<-pr.peek(), gc.IsNil)
@@ -51,7 +55,7 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	b, err := pr.br.Peek(1)
 	c.Check(b, gc.DeepEquals, []byte{'x'})
 	c.Check(err, gc.IsNil)
-	pr.br.Discard(1)
+	pr.br.Discard(len(fixture))
 
 	select {
 	case err = <-pr.peek():
@@ -67,11 +71,11 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	c.Check(<-pr.peek(), gc.Equals, client.ErrOffsetNotYetAvailable)
 	pr.pendingPeek = false
 
-	writeToLog(c, ctx, bk, "yz")
+	writeToLog(c, ctx, bk, fixture+"@")
 
 	// As do reads.
 	b, err = ioutil.ReadAll(pr.br)
-	c.Check(b, gc.DeepEquals, []byte("yz"))
+	c.Check(b, gc.DeepEquals, []byte(fixture+"@"))
 	c.Check(err, gc.Equals, client.ErrOffsetNotYetAvailable)
 
 	// Switch back to blocking reads, and seek backwards in the log.
@@ -81,8 +85,8 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	c.Check(<-pr.peek(), gc.IsNil)
 	pr.pendingPeek = false
 
-	str, err = pr.br.ReadString('z')
-	c.Check(str, gc.Equals, "bar!xyz")
+	str, err = pr.br.ReadString('@')
+	c.Check(str, gc.Equals, fixture[3:]+"!"+fixture+fixture+"@")
 	c.Check(err, gc.IsNil)
 
 	select {
@@ -177,13 +181,13 @@ func (s *PlaybackSuite) TestUnlinkRemoveError(c *gc.C) {
 		c.Check(poh.files[42].Close(), gc.IsNil)
 
 		c.Check(poh.apply(c, poh.frame(newUnlinkOp(42, "/a/path"))),
-			gc.ErrorMatches, "close .*: file already closed")
+			gc.ErrorMatches, `reenactOperation.*: close .*: file already closed`)
 	} else {
 		// Sneak in a Remove such that a successive remove fails.
 		c.Check(os.Remove(poh.files[42].Name()), gc.IsNil)
 
 		c.Check(poh.apply(c, poh.frame(newUnlinkOp(42, "/a/path"))),
-			gc.ErrorMatches, "remove .*: no such file or directory")
+			gc.ErrorMatches, `reenactOperation.*: remove .*: no such file or directory`)
 	}
 
 	c.Check(poh.files, gc.HasLen, 1)
@@ -227,10 +231,10 @@ func (s *PlaybackSuite) TestWrites(c *gc.C) {
 	c.Check(poh.apply(c, b), gc.IsNil)
 	c.Check(getContent(42), gc.Equals, "abcde0123456789")
 
-	// Reader returns early EOF (before op.Length). Expect an ErrUnexpectedEOF.
+	// Reader returns early EOF (before op.Length).
 	b = poh.frame(newWriteOp(42, 15, 10))
 	b = append(b, []byte("short")...)
-	c.Check(poh.apply(c, b), gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(poh.apply(c, b)), gc.Equals, io.EOF)
 	c.Check(getContent(42), gc.Equals, "abcde0123456789short")
 
 	// Writes to skipped fnodes succeed without error, but are ignored.
@@ -240,10 +244,10 @@ func (s *PlaybackSuite) TestWrites(c *gc.C) {
 	var _, err = os.Stat(stagedPath(poh.dir, 43))
 	c.Check(os.IsNotExist(err), gc.Equals, true)
 
-	// Skipped Fnodes will also produce ErrUnexpectedEOF on a short read.
+	// Skipped Fnodes will also produce EOF on a short read.
 	b = poh.frame(newWriteOp(43, 15, 10))
 	b = append(b, []byte("short")...)
-	c.Check(poh.skips(c, b), gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(poh.skips(c, b)), gc.Equals, io.EOF)
 }
 
 func (s *PlaybackSuite) TestUnderlyingWriteErrors(c *gc.C) {
@@ -261,14 +265,14 @@ func (s *PlaybackSuite) TestUnderlyingWriteErrors(c *gc.C) {
 
 	var b = poh.frame(newWriteOp(42, 0, 5))
 	b = append(b, []byte("abcde")...)
-	c.Check(poh.apply(c, b), gc.ErrorMatches, "^write .*")
+	c.Check(poh.apply(c, b), gc.ErrorMatches, `reenactOperation.*: write .*`)
 
 	// Close so that a future Seek returns an error.
 	poh.files[42].Close()
 
 	b = poh.frame(newWriteOp(42, 0, 5))
 	b = append(b, []byte("abcde")...)
-	c.Check(poh.apply(c, b), gc.ErrorMatches, "^seek .*")
+	c.Check(poh.apply(c, b), gc.ErrorMatches, `reenactOperation.*: seek .*`)
 }
 
 func (s *PlaybackSuite) TestWriteUntrackedError(c *gc.C) {
@@ -283,10 +287,10 @@ func (s *PlaybackSuite) TestWriteUntrackedError(c *gc.C) {
 	b = append(b, []byte("0123456789")...)
 	c.Check(poh.skips(c, b), gc.IsNil)
 
-	// Writes of unknown Fnodes will still produce ErrUnexpectedEOF on a short read.
+	// Writes of unknown Fnodes will still produce EOF on a short read.
 	b = poh.frame(op)
 	b = append(b, []byte("short")...)
-	c.Check(poh.skips(c, b), gc.Equals, io.ErrUnexpectedEOF)
+	c.Check(errors.Cause(poh.skips(c, b)), gc.Equals, io.EOF)
 }
 
 func (s *PlaybackSuite) TestOperationDecode(c *gc.C) {
@@ -448,9 +452,10 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	// Record more content. Also mix in bad, raw writes. These should never
 	// actually happen, but Playback shouldn't break if they do.
 	f.RecordWrite([]byte("hello"))
+	<-f.WeakBarrier().Done() // Flush.
 	writeToLog(c, ctx, bk, "... bad interleaved raw data ...")
 	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
-	<-f.WeakBarrier().Done() // Flush all writes.
+	<-f.WeakBarrier().Done() // Flush.
 
 	// Begin a write which will race |handoffPlayer|'s first attempt to inject a no-op.
 	var txn = bk.StartAppend(aRecoveryLog)

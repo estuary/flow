@@ -15,6 +15,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -119,7 +120,7 @@ func newPlayerReader(ctx context.Context, name pb.Journal, ajc client.AsyncJourn
 	// happen in the background to prime for reading the next operation.
 	go func(br *bufio.Reader, reqCh <-chan struct{}, respCh chan<- error) {
 		for range reqCh {
-			var _, err = br.Peek(1)
+			var _, err = br.Peek(message.FixedFrameHeaderLength)
 			respCh <- err
 		}
 		close(respCh)
@@ -223,28 +224,30 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 	}()
 
 	if fsm, err = NewFSM(hints); err != nil {
+		err = extendErr(err, "NewFSM")
 		return
 	} else if err = preparePlayback(dir); err != nil {
+		err = extendErr(err, "preparePlayback(%v)", dir)
 		return
 	}
 
-	// Next offset begin read, and offset we expect to read through prior to playback completion.
+	// Next |offset| to read, and minimum offset we must |readThrough| during playback.
 	var offset, readThrough int64
-	{
-		// Issue a write barrier to determine the transactional, current log head.
-		// We issue the barrier as a direct Append to fail-fast in the case of
-		// an error such as JOURNAL_DOES_NOT_EXIST.
-		var a = client.NewAppender(ctx, ajc, pb.AppendRequest{Journal: hints.Log})
-		if err = a.Close(); err != nil {
-			return
-		}
-		readThrough = a.Response.Commit.End
+
+	// Issue a write barrier to determine the transactional, current log head.
+	// We issue the barrier as a direct Append (rather than using AppendService)
+	// to fail-fast in the case of an error such as JOURNAL_DOES_NOT_EXIST.
+	var barrier pb.AppendResponse
+	if barrier, err = client.Append(ctx, ajc, pb.AppendRequest{Journal: hints.Log}); err != nil {
+		err = extendErr(err, "determining log head")
+		return
 	}
+	readThrough = barrier.Commit.End
 
 	// Sanity-check: all hinted segment offsets should be less than |readThrough|.
 	for _, seg := range fsm.hintedSegments {
 		if seg.FirstOffset >= readThrough || seg.LastOffset > readThrough {
-			err = fmt.Errorf(
+			err = errors.Errorf(
 				"max write-head of %v is %d, vs hinted segment %#v; possible data loss",
 				hints.Log, readThrough, seg)
 			return
@@ -264,7 +267,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 				offset = reader.seek(s[0].FirstOffset)
 			} else if offset >= readThrough {
 				// We've read through |readThrough|, but still have not read all hinted log segments.
-				err = fmt.Errorf("offset %v:%d >= readThrough %d, but FSM has unused hints; possible data loss",
+				err = errors.Errorf("offset %v:%d >= readThrough %d, but FSM has unused hints; possible data loss",
 					hints.Log, offset, readThrough)
 				return
 			}
@@ -323,7 +326,9 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 
 			case playerStateExitAtHead:
 				state = playerStateComplete
-				err = makeLive(dir, fsm, files)
+				if err = makeLive(dir, fsm, files); err != nil {
+					err = extendErr(err, "makeLive after reaching log head")
+				}
 				return
 
 			case playerStateInjectHandoffAtHead:
@@ -336,6 +341,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 						Author:   handoff,
 					}, txn.Writer())).
 					Release(); err != nil {
+					err = extendErr(err, "injecting no-op")
 					return
 				}
 				<-txn.Done()
@@ -355,7 +361,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 
 			// Did the offset jump over a hinted portion of the log? We cannot recover from this error.
 			if s := fsm.hintedSegments; len(s) != 0 && s[0].LastOffset != 0 && s[0].LastOffset < jumpTo {
-				err = fmt.Errorf("offset jumps over hinted segment of %v (from: %d, to: %d, hinted range: %d-%d); possible data loss",
+				err = errors.Errorf("offset jumps over hinted segment of %v (from: %d, to: %d, hinted range: %d-%d); possible data loss",
 					fsm.Log, offset, jumpTo, s[0].FirstOffset, s[0].LastOffset)
 				return
 			}
@@ -368,6 +374,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 
 		} else if err != nil {
 			// Any other Peek error aborts playback.
+			err = extendErr(err, "playerReader.peek")
 			return
 		}
 
@@ -383,6 +390,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 		var applied bool
 
 		if op, applied, err = playOperation(reader.br, offset, fsm, dir, files); err != nil {
+			err = extendErr(err, "playOperation(%d)", offset)
 			return // playOperation returns only unrecoverable errors.
 		}
 
@@ -396,7 +404,9 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 				// We successfully sequenced a no-op into the log, taking control of
 				// the log from a current recorder (if one exists).
 				state = playerStateComplete
-				err = makeLive(dir, fsm, files)
+				if err = makeLive(dir, fsm, files); err != nil {
+					err = extendErr(err, "makeLive after reading handoff barrier")
+				}
 				return
 			} else {
 				// We lost the race to inject our write operation, and must try again.
@@ -502,18 +512,24 @@ func playOperation(br *bufio.Reader, offset int64, fsm *FSM, dir string,
 			log.WithFields(log.Fields{"offset": offset, "log": fsm.Log}).
 				Warn("detected de-synchronization")
 			err = nil
+		} else if err != nil {
+			// Other errors are unrecoverable.
+			err = extendErr(err, "decodeOperation")
 		}
-		// Other errors are unexpected & unrecoverable.
 		return
 	}
 
-	// Attempt to transition the FSM by the operation, and if applies,
+	// Attempt to transition the FSM by the operation, and if it applies,
 	// reenact the local filesystem action.
 	if applied = applyOperation(op, frame, fsm); applied {
-		err = reenactOperation(op, fsm, br, dir, files)
+		if err = reenactOperation(op, fsm, br, dir, files); err != nil {
+			err = extendErr(err, "reenactOperation(%s)", op.String())
+		}
 	} else if op.Write != nil {
 		// We must discard the indicated length for bytestream consistency.
-		err = copyFixed(ioutil.Discard, br, op.Write.Length)
+		if err = copyFixed(ioutil.Discard, br, op.Write.Length); err != nil {
+			err = extendErr(err, "copyFixed(%d)", op.Write.Length)
+		}
 	}
 	return
 }
@@ -560,16 +576,13 @@ func write(op *RecordedOp_Write, br *bufio.Reader, files fnodeFileMap) error {
 	return copyFixed(file, br, op.Length)
 }
 
-// copyFixed is like io.CopyN, but treats an EOF prior to |length| as an
-// ErrUnexpectedEOF. It also minimizes copies over CopyN by re-using the
+// copyFixed is like io.CopyN, but minimizes copies by re-using the
 // bufio.Reader buffer.
 func copyFixed(w io.Writer, br *bufio.Reader, length int64) error {
 	for length != 0 {
 		// Ask |br| to fill its buffer, if empty.
-		if _, err := br.Peek(1); err == io.EOF {
-			return io.ErrUnexpectedEOF
-		} else if err != nil {
-			return err
+		if _, err := br.Peek(1); err != nil {
+			return extendErr(err, "Peek")
 		}
 
 		var n = br.Buffered()
@@ -605,7 +618,7 @@ func makeLive(dir string, fsm *FSM, files fnodeFileMap) error {
 
 		// Link backing-file into target paths.
 		for link := range liveNode.Links {
-			targetPath := filepath.Join(dir, link)
+			var targetPath = filepath.Join(dir, link)
 
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0777); err != nil {
 				return err
@@ -647,6 +660,18 @@ func makeLive(dir string, fsm *FSM, files fnodeFileMap) error {
 		}
 	}
 	return nil
+}
+
+func extendErr(err error, mFmt string, args ...interface{}) error {
+	if err == nil {
+		panic("expected error")
+	} else if _, ok := err.(interface{ StackTrace() errors.StackTrace }); ok {
+		// Avoid attaching another errors.StackTrace if one is already present.
+		return errors.WithMessage(err, fmt.Sprintf(mFmt, args...))
+	} else {
+		// Use Wrapf to simultaneously attach |mFmt| and the current stack trace.
+		return errors.Wrapf(err, mFmt, args...)
+	}
 }
 
 // Subdirectory into which Fnodes are played-back.

@@ -11,6 +11,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
+	"github.com/pkg/errors"
 	rocks "github.com/tecbot/gorocksdb"
 )
 
@@ -176,7 +177,7 @@ func (s *RecordedRocksDBSuite) TestPlayThenCancel(c *gc.C) {
 	var deadlineCtx, _ = context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*10))
 
 	// Blocks until |ctx| is cancelled.
-	c.Check(r.player.Play(deadlineCtx, FSMHints{Log: aRecoveryLog}, r.tmpdir, bk),
+	c.Check(errors.Cause(r.player.Play(deadlineCtx, FSMHints{Log: aRecoveryLog}, r.tmpdir, bk)),
 		gc.Equals, context.DeadlineExceeded)
 
 	r.player.FinishAtWriteHead() // A raced call to FinishAtWriteHead doesn't block.
@@ -199,7 +200,7 @@ func (s *RecordedRocksDBSuite) TestCancelThenPlay(c *gc.C) {
 	cancelFn()
 
 	c.Check(r.player.Play(cancelCtx, FSMHints{Log: aRecoveryLog}, r.tmpdir, bk),
-		gc.ErrorMatches, `rpc error: code = Canceled desc = context canceled`)
+		gc.ErrorMatches, `determining log head: rpc error: code = Canceled desc = context canceled`)
 
 	<-r.player.Done()
 }
