@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/trace"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -110,28 +111,33 @@ func (d *dispatcher) Pick(ctx context.Context, opts balancer.PickOptions) (balan
 	defer d.mu.Unlock()
 	d.mu.Lock()
 
-	// If |id| is not set, select our highest-preference member.
-	if dr.id == (ProcessSpec_ID{}) {
+	var dispatchID = dr.id
+	// If |dispatchID| is not prescribed, select our highest-preference member.
+	if dispatchID == (ProcessSpec_ID{}) {
 		for _, id := range dr.route.Members {
-			if d.less(id, dr.id) {
-				dr.id = id
+			if d.less(id, dispatchID) {
+				dispatchID = id
 			}
 		}
 	}
 
-	msc, ok := d.idConn[dr.id]
+	msc, ok := d.idConn[dispatchID]
 	if !ok {
 		// Initiate a new SubConn to the ProcessSpec_ID.
 		var err error
 		if msc.subConn, err = d.cc.NewSubConn(
-			[]resolver.Address{{Addr: d.idToAddr(dr.route, dr.id), Type: resolver.Backend}},
-			balancer.NewSubConnOptions{}); err != nil {
+			[]resolver.Address{{
+				Addr: d.idToAddr(dr.route, dispatchID),
+				Type: resolver.Backend,
+			}},
+			balancer.NewSubConnOptions{},
+		); err != nil {
 			return nil, nil, err
 		}
 
 		msc.mark = d.sweepMark
-		d.idConn[dr.id] = msc
-		d.connID[msc.subConn] = dr.id
+		d.idConn[dispatchID] = msc
+		d.connID[msc.subConn] = dispatchID
 		d.connState[msc.subConn] = connectivity.Idle
 
 		msc.subConn.Connect()
@@ -140,10 +146,16 @@ func (d *dispatcher) Pick(ctx context.Context, opts balancer.PickOptions) (balan
 	// Update the mark of this markedSubConn to keep it alive.
 	if msc.mark != d.sweepMark {
 		msc.mark = d.sweepMark
-		d.idConn[dr.id] = msc
+		d.idConn[dispatchID] = msc
 	}
 
-	switch state := d.connState[msc.subConn]; state {
+	var state = d.connState[msc.subConn]
+
+	if tr, ok := trace.FromContext(ctx); ok {
+		tr.LazyPrintf("Pick(Route: %s, ID: %s) => %s (%s)",
+			&dr.route, &dr.id, &dispatchID, state)
+	}
+	switch state {
 	case connectivity.Idle, connectivity.Connecting:
 		// gRPC will block until connection becomes ready.
 		return nil, nil, balancer.ErrNoSubConnAvailable
