@@ -10,6 +10,10 @@ jobs:
           docker_layer_caching: true
 
       - run:
+          name: Install bash
+          command: apk add --no-cache bash
+
+      - run:
           name: Build and test V1 Gazette
           command: docker build . --file build/Dockerfile.gazette-build --tag gazette-build
 
