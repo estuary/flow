@@ -1,14 +1,20 @@
-version: 2
+version: 2.1
+commands:
+  prepare_build_env:
+    description: Prepare build environment
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Install bash
+          command: apk add --no-cache bash
 jobs:
-  build:
+  build_v1:
     docker:
       - image: docker:stable
     steps:
-      - checkout
-
-      - setup_remote_docker:
-          docker_layer_caching: true
-
+      - prepare_build_env
       - run:
           name: Install bash
           command: apk add --no-cache bash
@@ -16,15 +22,24 @@ jobs:
       - run:
           name: Build and test V1 Gazette
           command: docker build . --file build/Dockerfile.gazette-build --tag gazette-build
-
       - run:
           name: Build the V1 binary image
           command: docker build . --file build/cmd/Dockerfile.gazette
-
       - run:
           name: Build V1 stream-sum example
           command: docker build . --file build/examples/Dockerfile.stream-sum
 
+  build_v2:
+    docker:
+      - image: docker:stable
+    steps:
+      - prepare_build_env
       - run:
           name: Build and test V2 Gazette
           command: ./v2/build/all.sh
+workflows:
+  version: 2
+  build_all:
+    jobs:
+      - build_v1
+      - build_v2
