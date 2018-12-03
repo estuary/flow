@@ -34,7 +34,7 @@ for test JournalSpec fixtures, but if needed additional buckets can be created:
 .. code-block:: console
 
   # Port-forward to the running Minio pod.
-  $ alias minio_pod="kubectl get pod -l release=minio -o jsonpath={.items[0].metadata.name}"
+  $ alias minio_pod="kubectl get pod -l app=minio -o jsonpath='{.items[0].metadata.name}'"
   $ kubectl port-forward $(minio_pod) 9000
 
   # Access the Minio web UI.
@@ -73,12 +73,13 @@ CLI. For example:
 
 .. code-block:: console
 
+    # Create an interactive shell into a wordcount consumer node. 
+    # This pod will come with all the required CLI tools needed for the demo.
+    $ alias word_count_pod="kubectl get pod -l app.kubernetes.io/name=word-count -o jsonpath='{.items[0].metadata.name}'"
+    $ kubectl exec -it $(word_count_pod) /bin/sh
+
     # Download some test text, "A Tale of Two Cities":
     $ wget http://www.textfiles.com/etext/AUTHORS/DICKENS/dickens-tale-126.txt
-
-    # Port-forward to a consumer pod:
-    $ alias word_count_pod="kubectl get pod -l app.kubernetes.io/name=word-count -o jsonpath={.items[0].metadata.name}"
-    $ kubectl port-forward $(word_count_pod) 8080
 
     # Verify the consumer is operational:
     $ gazctl shards list --primary
