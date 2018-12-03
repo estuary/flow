@@ -38,7 +38,7 @@ RUN curl -L -o /opt/rocksdb.tgz \
  && rm /opt/rocksdb.tgz \
  && cd /opt/rocksdb \
  && USE_SSE=1 DEBUG_LEVEL=0 USE_RTTI=1 make shared_lib tools -j$(nproc) \
- && make install -j$(nproc) \
+ && make install-shared -j$(nproc) \
  && cp ldb sst_dump /usr/local/bin \
  && rm -r /opt/rocksdb \
  && ldconfig
