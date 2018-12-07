@@ -79,6 +79,11 @@ func (m *JournalSpec_Fragment) Validate() error {
 			m.RefreshInterval, minRefreshInterval, maxRefreshInterval)
 	}
 
+	if m.FlushInterval != 0 && m.FlushInterval < minFlushInterval {
+		return NewValidationError("invalid FlushInterval (%s; expected >= %s)",
+			m.FlushInterval, minFlushInterval)
+	}
+
 	// Retention requires no explicit validation (all values permitted).
 
 	return nil
@@ -163,6 +168,9 @@ func UnionJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Fragment.Retention == 0 {
 		a.Fragment.Retention = b.Fragment.Retention
 	}
+	if a.Fragment.FlushInterval == 0 {
+		a.Fragment.FlushInterval = b.Fragment.FlushInterval
+	}
 	if a.Flags == JournalSpec_NOT_SPECIFIED {
 		a.Flags = b.Flags
 	}
@@ -192,6 +200,9 @@ func IntersectJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Fragment.Retention != b.Fragment.Retention {
 		a.Fragment.Retention = 0
 	}
+	if a.Fragment.FlushInterval != b.Fragment.FlushInterval {
+		a.Fragment.FlushInterval = 0
+	}
 	if a.Flags != b.Flags {
 		a.Flags = JournalSpec_NOT_SPECIFIED
 	}
@@ -220,6 +231,9 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	}
 	if a.Fragment.Retention == b.Fragment.Retention {
 		a.Fragment.Retention = 0
+	}
+	if a.Fragment.FlushInterval == b.Fragment.FlushInterval {
+		a.Fragment.FlushInterval = 0
 	}
 	if a.Flags == b.Flags {
 		a.Flags = JournalSpec_NOT_SPECIFIED
@@ -265,6 +279,7 @@ const (
 	minJournalNameLen, maxJournalNameLen   = 4, 512
 	maxJournalReplication                  = 5
 	minRefreshInterval, maxRefreshInterval = time.Second, time.Hour * 24
+	minFlushInterval                       = time.Minute * 10
 	minFragmentLen, maxFragmentLen         = 1 << 10, 1 << 34 // 1024 => 17,179,869,184
 
 	// FramingFixed is the label value for message.FixedFraming.

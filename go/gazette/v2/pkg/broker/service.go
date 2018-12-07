@@ -134,7 +134,7 @@ func (svc *Service) maintenanceLoop(r *replica) {
 		if res, err = svc.resolver.resolve(args); err != nil {
 			panic(err) // Cannot error, as we control context cancellation.
 		} else if res.status == pb.Status_NOT_JOURNAL_PRIMARY_BROKER {
-			// No-op. Only current primary checks pipeline health.
+			// Only current primary checks pipeline health.
 		} else if minRevision, err = checkHealth(res, svc.jc, svc.etcd); err != nil {
 			log.WithFields(log.Fields{"err": err, "journal": r.journal}).
 				Warn("pipeline health check failed (will retry)")

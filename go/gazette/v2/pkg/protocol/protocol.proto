@@ -183,6 +183,13 @@ message JournalSpec {
       (gogoproto.stdduration) = true,
       (gogoproto.nullable) = false,
       (gogoproto.moretags) = "yaml:\",omitempty\""];
+
+    // Flush interval defines a UTC time segment, since epoch time,
+    // after which a spool must be flushed to the FragmentStore.
+    google.protobuf.Duration flush_interval = 6 [
+      (gogoproto.stdduration) = true,
+      (gogoproto.nullable) = false,
+      (gogoproto.moretags) = "yaml:\"flush_interval,omitempty\""];
   }
   Fragment fragment = 4 [
     (gogoproto.nullable) = false,

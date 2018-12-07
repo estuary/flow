@@ -55,14 +55,21 @@ func (s *SpoolSuite) TestNextCases(c *gc.C) {
 	}, false)
 	c.Check(err, gc.IsNil)
 
-	c.Check(spool.Next(), gc.DeepEquals, pb.Fragment{
-		Journal:          "a/journal",
-		Begin:            100,
-		End:              112,
-		Sum:              pb.SHA1SumOf("some content"),
-		CompressionCodec: pb.CompressionCodec_SNAPPY,
-		BackingStore:     "s3://a-bucket",
-	})
+	// Commit appened data
+	var fixedTime = time.Time{}.Add(time.Hour * 24)
+	timeNow = func() time.Time { return fixedTime }
+	// Commit the content that has been applied
+	resp, _ = spool.Apply(&pb.ReplicateRequest{
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            100,
+			End:              112,
+			Sum:              pb.SHA1SumOf("some content"),
+			CompressionCodec: pb.CompressionCodec_SNAPPY,
+			BackingStore:     "s3://a-bucket",
+		}}, false)
+	c.Check(resp.Status, gc.Equals, pb.Status_OK)
+	c.Check(spool.FirstAppendTime, gc.Equals, fixedTime)
 }
 
 func (s *SpoolSuite) TestNoCompression(c *gc.C) {

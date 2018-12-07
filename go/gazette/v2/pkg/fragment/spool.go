@@ -20,6 +20,8 @@ import (
 type Spool struct {
 	// Fragment at time of last commit.
 	Fragment
+	// FirstAppendTime is the timestamp of the first append of the current fragment.
+	FirstAppendTime time.Time
 	// Compressed form of the Fragment, compressed under Fragment.CompressionCodec.
 	compressedFile File
 	// Length of compressed content written to |compressedFile|. Set only after
@@ -148,12 +150,14 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 
 	// Case 2? Apply the |delta| bytes spooled since last commit.
 	if next := s.Next(); next == *r.Proposal {
-
 		if primary && s.CompressionCodec != pb.CompressionCodec_NONE {
 			s.compressThrough(next.End)
 		}
 		s.Fragment.Fragment = next
 		s.observer.SpoolCommit(s.Fragment)
+		if s.FirstAppendTime.IsZero() {
+			s.FirstAppendTime = timeNow()
+		}
 
 		s.delta = 0
 		s.saveSumState()

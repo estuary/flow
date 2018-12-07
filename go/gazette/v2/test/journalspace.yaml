@@ -46,6 +46,8 @@ fragment:
   # Compression codec used to compress fragments. One of:
   # NONE, GZIP, GZIP_OFFLOAD_DECOMPRESSION, SNAPPY, ZSTANDARD.
   compression_codec: SNAPPY
+  # Flush interval defines the minimum frequency which which fragments are flushed.
+  flush_interval: 10m0s
 children:
   # Test journal for basic testing and curl-based examples.
   - name: examples/foobar

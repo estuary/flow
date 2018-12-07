@@ -254,4 +254,110 @@ func (s *ReplicaSuite) TestBasicHealthCheck(c *gc.C) {
 	}
 }
 
+func (s *ReplicaSuite) TestHealthCheckWithFlush(c *gc.C) {
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
+	defer func(f func() time.Time) { timeNow = f }(timeNow)
+
+	var moreThanSixHoursLater = time.Time{}.Add((time.Hour * 6) + (time.Minute * 10))
+	timeNow = func() time.Time { return moreThanSixHoursLater }
+
+	defer func(f func() time.Time) { timeNow = f }(timeNow)
+	var flushIntervalSpec = pb.JournalSpec{
+		Name:        "a/journal",
+		Replication: 1,
+		Fragment: pb.JournalSpec_Fragment{
+			FlushInterval: time.Duration(time.Hour * 6),
+		},
+	}
+
+	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReadyReplica)
+	newTestJournal(c, tf, flushIntervalSpec, broker.id)
+
+	var res, err = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
+	c.Check(err, gc.IsNil)
+
+	// Remove empty spool and insert spool with stubbed observer.
+	_ = <-res.replica.spoolCh
+	var o = new(testSpoolObserver)
+	var spool = fragment.NewSpool("a/journal", o)
+	spool.End = 10
+	spool.FirstAppendTime = time.Time{}.Add((time.Hour * 6) - (time.Minute * 10))
+	spool.Fragment.Sum = pb.SHA1Sum{Part1: 1234}
+	res.replica.spoolCh <- spool
+
+	// CheckHealth should prompt a flush of the current fragment. The fragment should found in o.completes.
+	_, err = checkHealth(res, broker.MustClient(), tf.etcd)
+	c.Check(err, gc.IsNil)
+	c.Check(o.completes[0].Sum, gc.DeepEquals, pb.SHA1Sum{Part1: 1234})
+}
+
+func (s *ReplicaSuite) TestCheckFragmentFlush(c *gc.C) {
+	defer func(f func() time.Time) { timeNow = f }(timeNow)
+
+	var testData = []struct {
+		prepArgs    func(fragment.Spool, pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment)
+		out         pb.Fragment
+		description string
+	}{
+		{
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
+				spool.End = 100
+				spool.FirstAppendTime = time.Time{}.Add(time.Hour * 2)
+				spec.Length = 200
+				spec.FlushInterval = time.Duration(time.Hour * 6)
+				return spool, spec
+			},
+			out: pb.Fragment{
+				Journal:          "a/journal",
+				End:              100,
+				CompressionCodec: 1,
+			},
+			description: "Fragment does not need to be flushed",
+		},
+		{
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
+				spool.End = 200
+				spool.FirstAppendTime = time.Time{}.Add(time.Hour * 2)
+				spec.Length = 100
+				return spool, spec
+			},
+			out: pb.Fragment{
+				Journal:          "a/journal",
+				Begin:            200,
+				End:              200,
+				CompressionCodec: 1,
+			},
+			description: "Fragment exceeds length, get flush proposal",
+		},
+		{
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
+				spool.End = 50
+				spool.FirstAppendTime = time.Time{}.Add(time.Minute)
+				spec.Length = 100
+				spec.FlushInterval = time.Duration(time.Minute * 30)
+				return spool, spec
+			},
+			out: pb.Fragment{
+				Journal:          "a/journal",
+				Begin:            50,
+				End:              50,
+				CompressionCodec: 1,
+			},
+			description: "Fragment contains data from pervious flush interval",
+		},
+	}
+
+	timeNow = func() time.Time { return time.Time{}.Add(time.Hour) }
+	for _, test := range testData {
+		var spool, spec = test.prepArgs(
+			fragment.NewSpool("a/journal", &testSpoolObserver{}),
+			pb.JournalSpec_Fragment{CompressionCodec: 1},
+		)
+		var proposal = nextProposal(spool, spec)
+		c.Log(test.description)
+		c.Check(proposal, gc.DeepEquals, test.out)
+	}
+}
+
 var _ = gc.Suite(&ReplicaSuite{})

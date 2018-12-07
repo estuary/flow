@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
@@ -227,8 +228,10 @@ func updateAssignments(ctx context.Context, assignments keyspace.KeyValues, etcd
 	}
 }
 
-// checkHealth of a resolved journal by actively pinging its replication pipeline
-// with a no-op commit. If successful, attempt to update advertised Etcd
+// checkHealth of a resolved journal by actively pinging its replication pipeline.
+// The commit sent is either a noop commit, or a flush commit prompting a flush of
+// the current fragment if the fragment contains data older than the current
+// flush interval. If successful, attempt to update advertised Etcd
 // Routes of the resolved journal. Returns an Etcd revision to read through
 // prior to the next checkHealth attempt, or an encountered error.
 func checkHealth(res resolution, jc pb.JournalClient, etcd clientv3.KV) (int64, error) {
@@ -246,9 +249,15 @@ func checkHealth(res resolution, jc pb.JournalClient, etcd clientv3.KV) (int64, 
 		return minRevision, nil
 	}
 
-	// Send a no-op, acknowledged Proposal, and read its acknowledgement from peers.
+	var proposal = nextProposal(pln.spool, res.journalSpec.Fragment)
+	// Send a proposal which is either:
+	//  1) A no-op, acknowledged Proposal, and read its acknowledgement from peers.
+	//
+	//  2) An empty propsal where the Begin is at the pervious End signifying that replicas should
+	//     synchronusly roll their Spools to a new empty Fragment.
+	//
 	pln.scatter(&pb.ReplicateRequest{
-		Proposal:    &pln.spool.Fragment.Fragment,
+		Proposal:    &proposal,
 		Acknowledge: true,
 	})
 	if err = releasePipelineAndGatherResponse(ctx, pln, res.replica.pipelineCh); err != nil {
@@ -259,7 +268,49 @@ func checkHealth(res resolution, jc pb.JournalClient, etcd clientv3.KV) (int64, 
 	return minRevision, nil
 }
 
+// nextProposal evaluates the |cur| spool for scenarios warrenting a flush message to be sent to the other
+// replica nodes. In the event that a flush is warrented a flush proposal, otherwise return the original Fragment.
+func nextProposal(cur fragment.Spool, spec pb.JournalSpec_Fragment) pb.Fragment {
+	var flushFragment bool
+	// If the proposed Fragment is non-empty, but not yet at the target length,
+	// don't propose changes to it.
+	if cur.ContentLength() == 0 || cur.ContentLength() > spec.Length {
+		flushFragment = true
+	}
+
+	// If the flush interval of the fragment is less then the number of intervals since the epoch
+	// the fragment needs to be flushed as it contains data that belongs to an old flush interval.
+	var flushIntervalSecs = int64(spec.FlushInterval.Seconds())
+	if flushIntervalSecs > 0 {
+		var secsSinceEpoch = timeNow().Unix()
+		var intervalsSinceEpoch = secsSinceEpoch / flushIntervalSecs
+		var fragmentInterval = cur.FirstAppendTime.Unix() / flushIntervalSecs
+		if fragmentInterval < intervalsSinceEpoch {
+			flushFragment = true
+		}
+	}
+
+	// Return a new proposal which will prompt a flush of the current fragment to the backing store.
+	if flushFragment {
+		var next = cur.Fragment.Fragment
+		next.Begin = next.End
+		next.Sum = pb.SHA1Sum{}
+		next.CompressionCodec = spec.CompressionCodec
+
+		if len(spec.Stores) != 0 {
+			next.BackingStore = spec.Stores[0]
+		} else {
+			next.BackingStore = ""
+		}
+		return next
+	}
+
+	return cur.Fragment.Fragment
+}
+
 var sharedPersister *fragment.Persister
 
 // SetSharedPersister sets the Persister instance used by the `broker` package.
 func SetSharedPersister(p *fragment.Persister) { sharedPersister = p }
+
+var timeNow = time.Now

@@ -327,15 +327,13 @@ func (s *PipelineSuite) TestPipelineSync(c *gc.C) {
 }
 
 type replicationMock struct {
+	testSpoolObserver
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	brokerA, brokerC *teststub.Broker
 
 	spoolCh chan fragment.Spool
-
-	commits   []fragment.Fragment
-	completes []fragment.Spool
 }
 
 func newReplicationMock(c *gc.C) *replicationMock {
@@ -384,9 +382,14 @@ func (m *replicationMock) newPipeline(hdr *pb.Header) *pipeline {
 	return newPipeline(m.ctx, *hdr, <-m.spoolCh, m.spoolCh, m.brokerA.MustClient())
 }
 
-func (m *replicationMock) SpoolCommit(f fragment.Fragment) { m.commits = append(m.commits, f) }
-func (m *replicationMock) SpoolComplete(s fragment.Spool, _ bool) {
-	m.completes = append(m.completes, s)
+type testSpoolObserver struct {
+	commits   []fragment.Fragment
+	completes []fragment.Spool
+}
+
+func (o *testSpoolObserver) SpoolCommit(f fragment.Fragment) { o.commits = append(o.commits, f) }
+func (o *testSpoolObserver) SpoolComplete(s fragment.Spool, _ bool) {
+	o.completes = append(o.completes, s)
 }
 
 var _ = gc.Suite(&PipelineSuite{})
