@@ -17,7 +17,7 @@ var (
 		Log mbp.LogConfig `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	})
 	journalsCfg = new(struct {
-		Broker mbp.AddressConfig `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
+		Broker mbp.ClientConfig `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	})
 	shardsCfg = new(struct {
 		Consumer mbp.AddressConfig `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
@@ -153,6 +153,26 @@ ShardSpecs may be created by setting "revision" to zero or omitting it altogethe
 
 ShardSpecs may be deleted by setting their field "delete" to true.
 `, &cmdShardsApply{})
+
+	_ = addCmd(cmdJournals, "read", "Read journal contents", `
+Read the contents journal or journals as a stream.
+
+Use --selector to supply a LabelSelector which constrains the set of jouranls
+to be read from.
+
+Match JournalSpecs having an exact name:
+>    --selector "name in (foo/bar, baz/bing)"
+
+Match JournalSpecs having a name prefix (must end in '/'):
+>    --selector "prefix = my/prefix/"
+
+Read can run in a blocking fashion with --blocking which will not exit when 
+it has reached the head of the current journal(s). When new data becomes available 
+it will be sent to Stdout.
+
+To read from an arbitrary offset into a journal(s) use the --offset flag. 
+If not passed the default value is -1 which is the will read from the head of the journal.
+`, &cmdJournalRead{})
 
 	mbp.MustParseConfig(parser, iniFilename)
 }
