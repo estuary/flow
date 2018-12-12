@@ -200,7 +200,7 @@ func (s *RecordedRocksDBSuite) TestCancelThenPlay(c *gc.C) {
 	cancelFn()
 
 	c.Check(r.player.Play(cancelCtx, FSMHints{Log: aRecoveryLog}, r.tmpdir, bk),
-		gc.ErrorMatches, `determining log head: rpc error: code = Canceled desc = context canceled`)
+		gc.ErrorMatches, `determining log head: context canceled`)
 
 	<-r.player.Done()
 }

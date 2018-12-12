@@ -81,7 +81,7 @@ func (p *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 			} else if err != nil {
 				done = true
 
-				p.c.Check(err, gc.ErrorMatches, `rpc error: code = Canceled desc = context canceled`)
+				p.c.Check(err, gc.ErrorMatches, `rpc error: code = (Canceled|DeadlineExceeded) .*`)
 			}
 
 			log.WithFields(log.Fields{"ep": p.Endpoint(), "msg": msg, "err": err, "done": done}).Info("read")

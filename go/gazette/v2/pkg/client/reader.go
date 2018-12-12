@@ -11,6 +11,8 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/codecs"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Reader adapts a Read RPC to the io.Reader interface. It additionally supports
@@ -64,25 +66,22 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 			&r.Request,
 		); err == nil {
 			n, err = r.Read(p) // Recurse to attempt read against opened |r.stream|.
-			return             // Surface read or error.
+		} else {
+			err = mapGRPCCtxErr(r.ctx, err)
 		}
+		return
 	}
 
-	if err == nil {
-		// Read and Validate the next frame.
-		if err = r.stream.RecvMsg(&r.Response); err == nil {
-			if err = r.Response.Validate(); err != nil {
-				err = pb.ExtendContext(err, "ReadResponse")
-			} else if r.Response.Status == pb.Status_OK && r.Response.Offset < r.Request.Offset {
-				err = pb.NewValidationError("invalid ReadResponse offset (%d; expected >= %d)",
-					r.Response.Offset, r.Request.Offset) // Violation of Read API contract.
-			}
-		} else if r.ctx.Err() != nil {
-			// Context cancellations are usually wrapped by augmenting errors as they
-			// return up the call stack. If our Reader's context is Done, assume
-			// that is the primary error.
-			err = r.ctx.Err()
+	// Read and Validate the next frame.
+	if err = r.stream.RecvMsg(&r.Response); err == nil {
+		if err = r.Response.Validate(); err != nil {
+			err = pb.ExtendContext(err, "ReadResponse")
+		} else if r.Response.Status == pb.Status_OK && r.Response.Offset < r.Request.Offset {
+			err = pb.NewValidationError("invalid ReadResponse offset (%d; expected >= %d)",
+				r.Response.Offset, r.Request.Offset) // Violation of Read API contract.
 		}
+	} else {
+		err = mapGRPCCtxErr(r.ctx, err)
 	}
 
 	// A note on resource leaks: an invariant of Read is that in invocations where
@@ -281,6 +280,20 @@ func InstallFileTransport(root string) (remove func()) {
 	httpClient = &http.Client{Transport: transport}
 
 	return func() { httpClient = prevClient }
+}
+
+// mapGRPCCtxErr returns ctx.Err() iff |err| represents a gRPC error with a
+// status code matching ctx.Err(). Otherwise, it returns |err| unmodified.
+// In other words, this routine "unwraps" gRPC errors which have their root cause
+// in a local Context error, instead mapping to the common context package errors.
+func mapGRPCCtxErr(ctx context.Context, err error) error {
+	if ctx.Err() == context.DeadlineExceeded && status.Code(err) == codes.DeadlineExceeded {
+		return ctx.Err()
+	}
+	if ctx.Err() == context.Canceled && status.Code(err) == codes.Canceled {
+		return ctx.Err()
+	}
+	return err
 }
 
 var (

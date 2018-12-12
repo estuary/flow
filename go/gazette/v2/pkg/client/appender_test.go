@@ -269,6 +269,29 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, "readerAt error")
 }
 
+func (s *AppenderSuite) TestContextErrorCases(c *gc.C) {
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var broker = teststub.NewBroker(c, ctx)
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var content = strings.NewReader("content")
+
+	// Case 1: context is cancelled.
+	var caseCtx, caseCancel = context.WithCancel(ctx)
+	caseCancel()
+
+	var _, err = Append(caseCtx, rjc, pb.AppendRequest{Journal: "a/journal"}, content)
+	c.Check(err, gc.Equals, context.Canceled)
+
+	// Case 2: context reaches deadline.
+	caseCtx, _ = context.WithTimeout(ctx, time.Microsecond)
+	<-caseCtx.Done() // Block until deadline.
+
+	_, err = Append(caseCtx, rjc, pb.AppendRequest{Journal: "a/journal"}, content)
+	c.Check(err, gc.Equals, context.DeadlineExceeded)
+}
+
 type errReaderAt struct{}
 
 func (errReaderAt) ReadAt(p []byte, off int64) (n int, err error) {

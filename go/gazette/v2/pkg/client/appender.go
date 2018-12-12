@@ -52,6 +52,10 @@ func (a *Appender) Write(p []byte) (n int, err error) {
 	} else {
 		n = len(p)
 	}
+
+	if err != nil {
+		err = mapGRPCCtxErr(a.ctx, err)
+	}
 	return
 }
 
@@ -61,7 +65,7 @@ func (a *Appender) Write(p []byte) (n int, err error) {
 func (a *Appender) Close() (err error) {
 	// Send an empty chunk to signal commit of previously written content
 	if err = a.lazyInit(); err != nil {
-		return
+		// Pass.
 	} else if err = a.stream.SendMsg(new(pb.AppendRequest)); err != nil {
 		// Pass.
 	} else if err = a.stream.CloseSend(); err != nil {
@@ -83,6 +87,10 @@ func (a *Appender) Close() (err error) {
 		default:
 			err = errors.New(a.Response.Status.String())
 		}
+	}
+
+	if err != nil {
+		err = mapGRPCCtxErr(a.ctx, err)
 	}
 	return
 }

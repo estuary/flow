@@ -156,7 +156,7 @@ func (rr *RetryReader) AdjustedSeek(offset int64, whence int, br *bufio.Reader) 
 
 	// Fast path: can we fulfill the seek by discarding a portion of buffered data?
 	if delta >= 0 && delta <= int64(br.Buffered()) {
-		br.Discard(int(delta))
+		_, _ = br.Discard(int(delta))
 		return offset, nil
 	}
 

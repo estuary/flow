@@ -307,6 +307,34 @@ func (s *ReaderSuite) TestReaderSeekCases(c *gc.C) {
 	c.Check(err, gc.Equals, ErrSeekRequiresNewReader)
 }
 
+func (s *ReaderSuite) TestContextErrorCases(c *gc.C) {
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var broker = teststub.NewBroker(c, ctx)
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+
+	// Case 1: context is cancelled.
+	var caseCtx, caseCancel = context.WithCancel(ctx)
+	caseCancel()
+
+	var r = NewReader(caseCtx, rjc, pb.ReadRequest{Journal: "a/journal"})
+	var n, err = r.Read(nil)
+
+	c.Check(err, gc.Equals, context.Canceled)
+	c.Check(n, gc.Equals, 0)
+
+	// Case 2: context reaches deadline.
+	caseCtx, _ = context.WithTimeout(ctx, time.Microsecond)
+	<-caseCtx.Done() // Block until deadline.
+
+	r = NewReader(caseCtx, rjc, pb.ReadRequest{Journal: "a/journal"})
+	n, err = r.Read(nil)
+
+	c.Check(err, gc.Equals, context.DeadlineExceeded)
+	c.Check(n, gc.Equals, 0)
+}
+
 type readFixture struct {
 	status pb.Status
 	err    error

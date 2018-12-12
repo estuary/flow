@@ -72,6 +72,11 @@ func (s *ListSuite) TestListAllCases(c *gc.C) {
 
 	_, err = ListAll(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.ErrorMatches, `WRONG_ROUTE`)
+
+	// Case: It surfaces context.Canceled, rather than a gRPC error.
+	cancel()
+	_, err = ListAll(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
+	c.Check(err, gc.Equals, context.Canceled)
 }
 
 func (s *ListSuite) TestPolledList(c *gc.C) {

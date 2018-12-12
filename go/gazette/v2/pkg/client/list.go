@@ -66,7 +66,7 @@ func ListAll(ctx context.Context, client pb.JournalClient, req pb.ListRequest) (
 	for {
 		// List RPCs may be dispatched to any broker.
 		if r, err := client.List(pb.WithDispatchDefault(ctx), &req); err != nil {
-			return resp, err
+			return resp, mapGRPCCtxErr(ctx, err)
 		} else if err = r.Validate(); err != nil {
 			return resp, err
 		} else if r.Status != pb.Status_OK {
