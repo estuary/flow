@@ -8,6 +8,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/broker"
 	"github.com/LiveRamp/gazette/v2/pkg/broker/teststub"
+	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/coreos/etcd/clientv3"
 	gc "github.com/go-check/check"
@@ -37,6 +38,8 @@ func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 	var ks = broker.NewKeySpace("/brokertest")
 	ks.WatchApplyDelay = 0 // Speed test execution.
 	var key = allocator.MemberKey(ks, zone, suffix)
+	// TODO(jskelcy): Shared Persister race condition in integration tests (Issue #130)
+	broker.SetSharedPersister(fragment.NewPersister(ks))
 
 	var bk = &Broker{
 		cancel: cancel,

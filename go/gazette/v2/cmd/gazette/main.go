@@ -54,7 +54,7 @@ func (serveBroker) Execute(args []string) error {
 	protocol.RegisterJournalServer(srv.GRPCServer, service)
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
 
-	var persister = fragment.NewPersister()
+	var persister = fragment.NewPersister(ks)
 	go persister.Serve()
 	broker.SetSharedPersister(persister)
 

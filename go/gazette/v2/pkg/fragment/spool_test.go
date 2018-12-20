@@ -30,7 +30,6 @@ func (s *SpoolSuite) TestNextCases(c *gc.C) {
 			Begin:            100,
 			End:              100,
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
-			BackingStore:     "s3://a-bucket",
 		}}, false)
 	c.Check(resp.Status, gc.Equals, pb.Status_OK)
 
@@ -39,7 +38,6 @@ func (s *SpoolSuite) TestNextCases(c *gc.C) {
 		Begin:            100,
 		End:              100,
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
-		BackingStore:     "s3://a-bucket",
 	})
 
 	// Case: Fragment with applied content, ready to be committed.
@@ -66,7 +64,6 @@ func (s *SpoolSuite) TestNextCases(c *gc.C) {
 			End:              112,
 			Sum:              pb.SHA1SumOf("some content"),
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
-			BackingStore:     "s3://a-bucket",
 		}}, false)
 	c.Check(resp.Status, gc.Equals, pb.Status_OK)
 	c.Check(spool.FirstAppendTime, gc.Equals, fixedTime)
@@ -170,7 +167,6 @@ func (s *SpoolSuite) TestMismatchButRollForwardCases(c *gc.C) {
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_GZIP,
-			BackingStore:     "s3://a-bucket",
 		},
 	})
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("abcd")})
@@ -402,7 +398,6 @@ func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary 
 			End:              0,
 			Sum:              pb.SHA1Sum{},
 			CompressionCodec: codec,
-			BackingStore:     "s3://a-bucket",
 		}},
 		{
 			Content:      []byte("an init"),
@@ -419,7 +414,6 @@ func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary 
 			End:              17,
 			Sum:              pb.SHA1Sum{Part1: 0x2fb7dcccaa048a26, Part2: 0xaa3f3a6205a4ea6d, Part3: 0xfc0636e6},
 			CompressionCodec: codec,
-			BackingStore:     "s3://a-bucket",
 		}},
 		// Content which is rolled back.
 		{
@@ -437,7 +431,6 @@ func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary 
 			End:              17,
 			Sum:              pb.SHA1Sum{Part1: 0x2fb7dcccaa048a26, Part2: 0xaa3f3a6205a4ea6d, Part3: 0xfc0636e6},
 			CompressionCodec: codec,
-			BackingStore:     "s3://a-bucket",
 		}},
 		{
 			Content:      []byte("final write"),
@@ -450,7 +443,6 @@ func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary 
 			End:              17 + 11,
 			Sum:              pb.SHA1Sum{Part1: 0x61c71d3ba5e95d5d, Part2: 0xdbfc254ba7708df9, Part3: 0x5aeb0169},
 			CompressionCodec: codec,
-			BackingStore:     "s3://a-bucket",
 		}},
 		// Content which is streamed but never committed.
 		{
@@ -468,7 +460,6 @@ func runReplicateSequence(c *gc.C, s *Spool, codec pb.CompressionCodec, primary 
 			End:              17 + 11,
 			Sum:              pb.SHA1Sum{},
 			CompressionCodec: codec,
-			BackingStore:     "s3://a-bucket",
 		}},
 	}
 	for _, req := range seq {

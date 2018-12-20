@@ -472,7 +472,6 @@ func (s *AppendSuite) TestAppenderCases(c *gc.C) {
 			End:              24,
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
-			BackingStore:     "s3://a-bucket/path",
 		},
 		Acknowledge: false,
 	})
@@ -505,7 +504,6 @@ func (s *AppendSuite) TestAppenderCases(c *gc.C) {
 		End:              30,
 		Sum:              pb.SHA1Sum{Part1: 0x8843d7f92416211d, Part2: 0xe9ebb963ff4ce281, Part3: 0x25932878},
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
-		BackingStore:     "s3://a-bucket/path",
 	}
 	req, _ = <-rm.brokerA.ReplReqCh, <-rm.brokerC.ReplReqCh
 	c.Check(req, gc.DeepEquals, &pb.ReplicateRequest{Proposal: expect, Acknowledge: true})

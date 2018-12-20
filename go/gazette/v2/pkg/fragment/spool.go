@@ -128,7 +128,6 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 					Begin:            r.Proposal.End,
 					End:              r.Proposal.End,
 					CompressionCodec: r.Proposal.CompressionCodec,
-					BackingStore:     r.Proposal.BackingStore,
 				},
 			},
 			summer:   sha1.New(),

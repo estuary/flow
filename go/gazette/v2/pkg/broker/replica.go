@@ -297,11 +297,6 @@ func nextProposal(cur fragment.Spool, spec pb.JournalSpec_Fragment) pb.Fragment 
 		next.Sum = pb.SHA1Sum{}
 		next.CompressionCodec = spec.CompressionCodec
 
-		if len(spec.Stores) != 0 {
-			next.BackingStore = spec.Stores[0]
-		} else {
-			next.BackingStore = ""
-		}
 		return next
 	}
 
