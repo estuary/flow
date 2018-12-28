@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -Eeux -o pipefail
+
+# This script builds gazette and its examples. It is intended for use both by
+# devs for local builds and by CI for automated builds.
+#
+# There is special case handling for builds executed by CircleCI. In that
+# case, the build process will pull and use liveramp/gazette-vendor as a cache
+# source since the local build cache is not persisted across CircleCI jobs.
+# This script will push changes to liveramp/gazette-vendor on builds of the
+# master branch.
+#
+# Usage: ./all PROJECT_DIR
+#
+# Globals:
+#   - DOCKER_USER: Username for Docker Hub, a.k.a. Docker ID.
+#   - DOCKER_PASS: Password for DOCKER_USER.
+#
+#  Both globals are only required when in CircleCI.
+#
+# Arguments:
+#   - PROJECT_DIR: The path to the Gazette project root.
+#
+# Example:
+#   ./v2/build/all .
+
+readonly ROOT="${1?project root dir required}"
+
+. "${ROOT}/v2/build/lib.sh"
+
+if [[ "${CIRCLECI:-}" = true ]]; then
+    readonly VENDOR_IMAGE="liveramp/gazette-vendor:latest"
+
+    if [[ "${CIRCLE_REPOSITORY_URL}" = "git@github.com:LiveRamp/gazette.git" && "${CIRCLE_BRANCH}" = "master" ]]; then
+        readonly SHOULD_PUSH_VENDOR=true
+    fi
+fi
+
+docker_build_all "${ROOT}" "${VENDOR_IMAGE:-}"
+
+if [[ "${SHOULD_PUSH_VENDOR:-}" = true ]]; then
+    docker_login
+    docker push "${VENDOR_IMAGE}"
+fi

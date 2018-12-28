@@ -3,12 +3,33 @@ commands:
   prepare_build_env:
     description: Prepare build environment
     steps:
-      - checkout
-      - setup_remote_docker:
-          docker_layer_caching: true
       - run:
           name: Install bash
-          command: apk add --no-cache bash
+          command: apk add --no-cache --no-progress bash
+      - checkout
+      - setup_remote_docker
+  # The release process uses a custom git clone because the built-in "checkout"
+  # step currently has issues with annotated tags.
+  #
+  # - https://discuss.circleci.com/t/checkout-fails-on-workflow-triggered-by-annotated-git-tag/27272.
+  prepare_release_env:
+    description: Prepare build environment (custom checkout)
+    steps:
+      - run:
+          name: Install CLI tools
+          command: |
+            apk update
+            apk add --no-cache --no-progress bash git openssh
+      - run:
+          name: Check out release tag
+          command: |
+            set -x
+            mkdir -p -m 700 ~/.ssh
+            echo "${KNOWN_HOST_GITHUB}" >> ~/.ssh/known_hosts
+            git clone --branch "${CIRCLE_TAG}" --depth 1 "${CIRCLE_REPOSITORY_URL}" .
+          environment:
+            KNOWN_HOST_GITHUB: github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+      - setup_remote_docker
 jobs:
   build_v1:
     docker:
@@ -36,10 +57,26 @@ jobs:
       - prepare_build_env
       - run:
           name: Build and test V2 Gazette
-          command: ./v2/build/all.sh
+          command: ./v2/build/all .
+  publish_images:
+    docker:
+      - image: docker:stable
+    steps:
+      - prepare_release_env
+      - run:
+          name: Build and publish V2 Gazette
+          command: ./v2/build/release . "${CIRCLE_TAG}"
 workflows:
   version: 2
   build_all:
     jobs:
       - build_v1
       - build_v2
+  release:
+    jobs:
+      - publish_images:
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/

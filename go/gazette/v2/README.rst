@@ -20,7 +20,7 @@ Cluster QuickStart
 .. code-block:: console
 
     # Perform a containerized build and test of the project and examples (requires Docker).
-    $ v2/build/all.sh
+    $ v2/build/all .
 
     # (If required) bootstrap a Kubernetes cluster with Helm (https://helm.sh).
     $ v2/test/bootstrap_local_kubernetes.sh
