@@ -171,7 +171,7 @@ it has reached the head of the current journal(s). When new data becomes availab
 it will be sent to Stdout.
 
 To read from an arbitrary offset into a journal(s) use the --offset flag. 
-If not passed the default value is -1 which is the will read from the head of the journal.
+If not passed the default value is -1 which will read from the head of the journal.
 `, &cmdJournalRead{})
 
 	mbp.MustParseConfig(parser, iniFilename)
