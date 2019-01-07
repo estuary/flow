@@ -60,7 +60,7 @@ func newReadyReplica(journal pb.Journal) *replica {
 
 type testBroker struct {
 	id pb.ProcessSpec_ID
-	teststub.Server
+	teststub.LoopbackServer
 
 	*teststub.Broker // nil if not built with newMockBroker.
 	*resolver        // nil if not built with newTestBroker.
@@ -75,7 +75,7 @@ func newTestBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID,
 	var res = newResolver(state, newReplicaFn)
 
 	var svc = &Service{resolver: res, etcd: tf.etcd}
-	var srv = teststub.NewServer(tf.ctx, svc)
+	var srv = teststub.NewLoopbackServer(tf.ctx, svc)
 	svc.jc = srv.MustClient()
 
 	mustKeyValues(c, tf, map[string]string{
@@ -87,9 +87,9 @@ func newTestBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID,
 		}).MarshalString(),
 	})
 	return testBroker{
-		id:       id,
-		Server:   srv,
-		resolver: res,
+		id:             id,
+		LoopbackServer: srv,
+		resolver:       res,
 	}
 }
 
@@ -107,9 +107,9 @@ func newMockBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID) testBroker {
 		}).MarshalString(),
 	})
 	return testBroker{
-		id:     id,
-		Server: broker.Server,
-		Broker: broker,
+		id:             id,
+		LoopbackServer: broker.LoopbackServer,
+		Broker:         broker,
 	}
 }
 

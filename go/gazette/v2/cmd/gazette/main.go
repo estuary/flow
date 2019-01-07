@@ -8,6 +8,7 @@ import (
 	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/server"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -44,10 +45,11 @@ func (serveBroker) Execute(args []string) error {
 	var allocState = allocator.NewObservedState(ks, Config.Broker.MemberKey(ks))
 
 	var etcd = mbp.MustEtcdContext(Config.Etcd.EtcdConfig)
-	var srv = mbp.MustBuildServer(Config.Broker.ServiceConfig)
+	var srv, err = server.New("", Config.Broker.Port)
+	mbp.Must(err, "building Server instance")
 	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
 
-	var lo = protocol.NewJournalClient(srv.Loopback())
+	var lo = protocol.NewJournalClient(srv.MustGRPCLoopback())
 	var service = broker.NewService(allocState, lo, etcd.Etcd)
 	var rjc = protocol.NewRoutedJournalClient(lo, service)
 
@@ -71,8 +73,8 @@ func (serveBroker) Execute(args []string) error {
 func main() {
 	var parser = flags.NewParser(Config, flags.Default)
 
-	parser.AddCommand("serve", "Serve as Gazette broker", `
-serve a Gazette broker with the provided configuration, until signaled to
+	_, _ = parser.AddCommand("serve", "Serve as Gazette broker", `
+Serve a Gazette broker with the provided configuration, until signaled to
 exit (via SIGTERM). Upon receiving a signal, the broker will seek to discharge
 its responsible journals and will exit only when it can safely do so.
 `, &serveBroker{})

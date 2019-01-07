@@ -3,19 +3,15 @@ package mainboilerplate
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
-	"github.com/LiveRamp/gazette/v2/pkg/keepalive"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/server"
 	log "github.com/sirupsen/logrus"
-	"github.com/soheilhy/cmux"
-	"google.golang.org/grpc"
 )
 
 // ZoneConfig configures the zone of the application.
@@ -44,82 +40,6 @@ func (cfg ServiceConfig) MemberKey(ks *keyspace.KeySpace) string {
 	return allocator.MemberKey(ks, cfg.Zone, cfg.ID)
 }
 
-// ServerContext collects an http.ServeMux & grpc.Server, as well as the
-// bound net.Listeners which they serve.
-type ServerContext struct {
-	HTTPMux    *http.ServeMux
-	GRPCServer *grpc.Server
-
-	RawListener  *net.TCPListener
-	CMux         cmux.CMux
-	GRPCListener net.Listener
-	HTTPListener net.Listener
-
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-// MustBuildServer builds and returns a ServerContext from the ServiceConfig.
-func MustBuildServer(cfg ServiceConfig) ServerContext {
-	var raw, err = net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
-	Must(err, "failed to bind local service address", "port", cfg.Port)
-
-	var ctx, cancel = context.WithCancel(context.Background())
-
-	var sl = ServerContext{
-		HTTPMux:     http.DefaultServeMux,
-		GRPCServer:  grpc.NewServer(),
-		RawListener: raw.(*net.TCPListener),
-		ctx:         ctx,
-		cancel:      cancel,
-	}
-
-	sl.CMux = cmux.New(keepalive.TCPListener{TCPListener: sl.RawListener})
-	sl.GRPCListener = sl.CMux.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
-	sl.HTTPListener = sl.CMux.Match(cmux.HTTP1Fast())
-	return sl
-}
-
-// Serve the ServerContext. Fatals if the cmux.CMux, grpc.Server,
-// or http.ServeMux return an error without the Context also having
-// been cancelled.
-func (c *ServerContext) Serve() {
-	go func() {
-		if err := c.CMux.Serve(); err != nil && c.ctx.Err() == nil {
-			Must(err, "cmux.Serve failed")
-		}
-	}()
-	go func() {
-		if err := http.Serve(c.HTTPListener, c.HTTPMux); err != nil && c.ctx.Err() == nil {
-			Must(err, "http.Serve failed")
-		}
-	}()
-	Must(c.GRPCServer.Serve(c.GRPCListener), "grpc.Serve failed")
-}
-
-func (c *ServerContext) GracefulStop() {
-	// GRPCServer.GracefulStop will close GRPCListener, which closes RawListener.
-	// Cancel our context so Serve loops recognize this is a graceful closure.
-	c.cancel()
-
-	c.GRPCServer.GracefulStop()
-}
-
-// Loopback dials and returns a connection to the local gRPC server.
-func (c *ServerContext) Loopback() *grpc.ClientConn {
-	var addr = c.RawListener.Addr().String()
-
-	var cc, err = grpc.DialContext(c.ctx, addr,
-		grpc.WithInsecure(),
-		grpc.WithDialer(keepalive.DialerFunc),
-		grpc.WithBalancerName(protocol.DispatcherGRPCBalancerName))
-
-	if err != nil {
-		log.WithFields(log.Fields{"addr": addr, "err": err}).Fatal("failed to dial service loopback")
-	}
-	return cc
-}
-
 type memberSpec interface {
 	MarshalString() string
 	ZeroLimit()
@@ -131,7 +51,7 @@ type memberSpec interface {
 // allocator.Allocate. It installs a signal handler which zeros the |spec| item
 // limit and updates the announcement, causing the Allocate to gracefully exit.
 // This is the principal service loop of gazette brokers and consumers.
-func AnnounceServeAndAllocate(etcd EtcdContext, srv ServerContext, state *allocator.State, spec memberSpec) {
+func AnnounceServeAndAllocate(etcd EtcdContext, srv *server.Server, state *allocator.State, spec memberSpec) {
 	Must(spec.Validate(), "member specification validation error")
 
 	var ann = allocator.Announce(etcd.Etcd, state.LocalKey, spec.MarshalString(), etcd.Session.Lease())
@@ -152,7 +72,7 @@ func AnnounceServeAndAllocate(etcd EtcdContext, srv ServerContext, state *alloca
 	}()
 
 	// Now that the KeySpace has been loaded, we can begin serving requests.
-	go srv.Serve()
+	go srv.MustServe()
 	go func() { Must(state.KS.Watch(context.Background(), etcd.Etcd), "keyspace Watch failed") }()
 
 	Must(allocator.Allocate(allocator.AllocateArgs{
@@ -163,6 +83,6 @@ func AnnounceServeAndAllocate(etcd EtcdContext, srv ServerContext, state *alloca
 
 	// Close our session to remove our member key. If we were leader,
 	// this notifies peers that we are no longer allocating.
-	etcd.Session.Close()
+	Must(etcd.Session.Close(), "failed to close etcd Session")
 	srv.GracefulStop()
 }

@@ -21,13 +21,12 @@ type Broker struct {
 	etcd   *clientv3.Client
 	idleCh chan struct{}
 	lease  clientv3.LeaseID
-	srv    teststub.Server
+	srv    teststub.LoopbackServer
 	state  *allocator.State
 	svc    broker.Service
 }
 
-// NewBroker returns a ready Broker with the given Context. Note that journals
-// must still be created with CreateJournal before use.
+// NewBroker builds and returns an in-process Broker identified by |zone| and |suffix|.
 func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 	var ctx, cancel = context.WithCancel(context.Background())
 
@@ -44,11 +43,11 @@ func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 	var bk = &Broker{
 		cancel: cancel,
 		etcd:   etcd,
-		idleCh: make(chan struct{}, 1),
+		idleCh: make(chan struct{}),
 		lease:  grant.ID,
 		state:  allocator.NewObservedState(ks, key),
 	}
-	bk.srv = teststub.NewServer(ctx, &bk.svc)
+	bk.srv = teststub.NewLoopbackServer(ctx, &bk.svc)
 	bk.svc = *broker.NewService(bk.state, pb.NewJournalClient(bk.srv.Conn), etcd)
 
 	var spec = pb.BrokerSpec{
@@ -78,7 +77,7 @@ func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 		// not result in a re-allocation.
 		var signalOnIdle bool
 
-		allocator.Allocate(allocator.AllocateArgs{
+		_ = allocator.Allocate(allocator.AllocateArgs{
 			Context: ctx,
 			Etcd:    etcd,
 			State:   bk.state,
@@ -102,6 +101,9 @@ func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 
 // Client of the test Broker.
 func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.Conn) }
+
+// Endpoint of the test Broker.
+func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
 
 // AllocateIdleCh signals when the Broker's Allocate loop took an action, such
 // as updating a journal assignment, and has since become idle.

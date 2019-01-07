@@ -12,6 +12,7 @@ import (
 	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/server"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -40,23 +41,31 @@ func (serveConsumer) Execute(args []string) error {
 	var allocState = allocator.NewObservedState(ks, cfg.Consumer.MemberKey(ks))
 
 	var etcd = mbp.MustEtcdContext(cfg.Etcd.EtcdConfig)
-	var app = Module.NewApplication(Config)
-	var srv = mbp.MustBuildServer(cfg.Consumer.ServiceConfig)
+	var srv, err = server.New("", cfg.Consumer.Port)
+	mbp.Must(err, "building Server instance")
 	protocol.RegisterGRPCDispatcher(cfg.Consumer.Zone)
 
 	if cfg.Broker.Cache.Size <= 0 {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")
 	}
 	var rjc = cfg.Broker.RoutedJournalClient(context.Background())
-	var service = consumer.NewService(app, allocState, rjc, srv.Loopback(), etcd.Etcd)
+	var app = Module.NewApplication()
+	var service = consumer.NewService(app, allocState, rjc, srv.MustGRPCLoopback(), etcd.Etcd)
 
 	consumer.RegisterShardServer(srv.GRPCServer, service)
-	Module.Register(Config, app, srv, service)
+	mbp.Must(Module.InitModule(consumermodule.InitArgs{
+		Context:     context.Background(),
+		Config:      Config,
+		Application: app,
+		Server:      srv,
+		Service:     service,
+	}), "module failed to init")
 
 	mbp.AnnounceServeAndAllocate(etcd, srv, allocState, &consumer.ConsumerSpec{
 		ProcessSpec: cfg.Consumer.ProcessSpec(),
 		ShardLimit:  cfg.Consumer.Limit,
 	})
+	service.Resolver.WaitForLocalReplicas()
 
 	log.Info("goodbye")
 	return nil
@@ -67,7 +76,7 @@ func main() {
 	Config = Module.NewConfig()
 
 	var parser = flags.NewParser(Config, flags.Default)
-	parser.AddCommand("serve", "Serve as Gazette consumer", `
+	_, _ = parser.AddCommand("serve", "Serve as Gazette consumer", `
 		serve a Gazette consumer with the provided configuration, until signaled to
 		exit (via SIGTERM). Upon receiving a signal, the consumer will seek to discharge
 		its responsible shards and will exit only when it can safely do so.

@@ -12,8 +12,6 @@ import (
 	gc "github.com/go-check/check"
 )
 
-// TODO(johnny): Add additional integration tests. Issue #69.
-
 type BrokerSuite struct{}
 
 func (s *BrokerSuite) TestSimpleReadAndWrite(c *gc.C) {
@@ -36,7 +34,7 @@ func (s *BrokerSuite) TestSimpleReadAndWrite(c *gc.C) {
 	// Asynchronously append some content over two lines.
 	var as = client.NewAppendService(context.Background(), rjc)
 	var txn = as.StartAppend("foo/bar")
-	txn.Writer().WriteString("hello, gazette\ngoodbye, gazette")
+	_, _ = txn.Writer().WriteString("hello, gazette\ngoodbye, gazette")
 	c.Check(txn.Release(), gc.IsNil)
 
 	// Expect to read appended content.
@@ -78,7 +76,7 @@ func (s *BrokerSuite) TestReplicatedReadAndWrite(c *gc.C) {
 	// Asynchronously append some content to |bkB|.
 	var as = client.NewAppendService(context.Background(), rjcB)
 	var txn = as.StartAppend("foo/bar")
-	txn.Writer().WriteString("hello, gazette\n")
+	_, _ = txn.Writer().WriteString("hello, gazette\n")
 	c.Check(txn.Release(), gc.IsNil)
 
 	// Expect to read appended content.

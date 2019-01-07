@@ -4,36 +4,46 @@ import (
 	"context"
 	"io"
 
-	"github.com/LiveRamp/gazette/v2/pkg/grpctest"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/server"
 	gc "github.com/go-check/check"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
-// Server is a local gRPC server for use within tests.
-type Server struct {
-	grpctest.Server
+// LoopbackServer serves a JournalServer over a loopback, for use within tests.
+type LoopbackServer struct {
+	*server.Server
+	Conn *grpc.ClientConn
 }
 
-// NewServer returns a grpctest.Server of the provided JournalServer.
-func NewServer(ctx context.Context, journalServer pb.JournalServer) Server {
-	var s = grpctest.NewServer(ctx)
+// NewLoopbackServer returns a LoopbackServer of the provided JournalServer.
+func NewLoopbackServer(ctx context.Context, journalServer pb.JournalServer) LoopbackServer {
+	var srv, err = server.New("127.0.0.1", 0)
+	if err != nil {
+		panic(err)
+	}
+	pb.RegisterJournalServer(srv.GRPCServer, journalServer)
+	var conn = srv.MustGRPCLoopback()
 
-	pb.RegisterJournalServer(s.Server, journalServer)
-	go s.Serve()
+	// Arrange to stop the server when |ctx| is cancelled.
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+		srv.GracefulStop()
+	}()
+	go srv.MustServe()
 
-	return Server{Server: s}
+	return LoopbackServer{Server: srv, Conn: conn}
 }
 
-// MustClient returns a JournalClient of the test Server.
-func (s Server) MustClient() pb.JournalClient {
-	return pb.NewJournalClient(s.Conn)
-}
+// MustClient returns a JournalClient of the test LoopbackServer.
+func (s LoopbackServer) MustClient() pb.JournalClient { return pb.NewJournalClient(s.Conn) }
 
 // Broker stubs the read and write loops of broker RPCs, routing them onto
 // channels which can be synchronously read and written within test bodies.
 type Broker struct {
-	Server
+	LoopbackServer
 	c *gc.C
 
 	ReplReqCh  chan *pb.ReplicateRequest
@@ -63,7 +73,7 @@ func NewBroker(c *gc.C, ctx context.Context) *Broker {
 		AppendRespCh: make(chan *pb.AppendResponse),
 		ErrCh:        make(chan error),
 	}
-	p.Server = NewServer(ctx, p)
+	p.LoopbackServer = NewLoopbackServer(ctx, p)
 	return p
 }
 
