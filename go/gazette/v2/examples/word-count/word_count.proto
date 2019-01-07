@@ -35,6 +35,9 @@ message QueryResponse {
 }
 
 service NGram {
+  // Publish text to the word-count example. The published text is tokenized
+  // into NGrams, indexed, and aggregated into total NGram counts.
   rpc Publish(PublishRequest) returns (PublishResponse);
+  // Query for a specific NGram, or NGram prefixes.
   rpc Query(QueryRequest) returns (QueryResponse);
 }
