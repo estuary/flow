@@ -231,9 +231,9 @@ func (p *AsyncAppend) Release() error {
 // rollback discards all content written to the Writer and releases the AsyncAppend.
 func (p *AsyncAppend) rollback() {
 	// flush as |p.checkpoint| may reference still-buffered content.
-	retryUntil(p.fb.flush, "failed to flush appendBuffer")
+	retryUntil(p.fb.flush, p.app.Request.Journal, "failed to flush appendBuffer")
 	p.fb.offset = p.checkpoint
-	retryUntil(p.fb.seek, "failed to seek appendBuffer")
+	retryUntil(p.fb.seek, p.app.Request.Journal, "failed to seek appendBuffer")
 
 	p.mu.Unlock()
 }
@@ -287,7 +287,7 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend) {
 		// an Append RPC altogether in this case.
 
 		if aa.fb != nil {
-			retryUntil(aa.fb.flush, "failed to flush appendBuffer")
+			retryUntil(aa.fb.flush, aa.app.Request.Journal, "failed to flush appendBuffer")
 
 			retryUntil(func() error {
 				var _, err = io.Copy(&aa.app, io.NewSectionReader(aa.fb.file, 0, aa.checkpoint))
@@ -299,7 +299,7 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend) {
 					aa.app.Reset() // Reset for next attempt.
 				}
 				return err
-			}, "failed to append to journal")
+			}, aa.app.Request.Journal, "failed to append to journal")
 		}
 
 		close(aa.commitCh) // Notify clients & dependent appends of completion.
@@ -394,7 +394,7 @@ func (r returnNReader) Read(p []byte) (int, error) {
 
 func releaseFileBuffer(fb *appendBuffer) {
 	fb.offset = 0
-	retryUntil(fb.seek, "failed to seek appendBuffer")
+	retryUntil(fb.seek, "", "failed to seek appendBuffer")
 	appendBufferPool.Put(fb)
 }
 
@@ -425,19 +425,23 @@ var appendBufferPool = sync.Pool{
 		retryUntil(func() (err error) {
 			fb, err = newAppendBuffer()
 			return
-		}, "failed to create appendBuffer")
+		}, "", "failed to create appendBuffer")
 
 		return fb
 	},
 }
 
-func retryUntil(fn func() error, msg string) {
+func retryUntil(fn func() error, journal pb.Journal, msg string) {
 	for attempt := 0; true; attempt++ {
 		var err = fn()
 		if err == nil {
 			return
 		}
-		log.WithField("err", err).Error(msg + " (will retry)")
+		var fields = log.Fields{"err": err}
+		if journal != "" {
+			fields["journal"] = journal
+		}
+		log.WithFields(fields).Error(msg + " (will retry)")
 		time.Sleep(backoff(attempt))
 	}
 }
