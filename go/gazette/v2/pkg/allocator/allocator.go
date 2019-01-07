@@ -106,7 +106,7 @@ func Allocate(args AllocateArgs) error {
 					Warn("converge iteration failed (will retry)")
 			} else {
 				if args.TestHook != nil {
-					args.TestHook(round, ks.Header.Revision == txnResponse.Header.Revision)
+					args.TestHook(round, txn.noop)
 				}
 				round++
 			}
@@ -233,6 +233,8 @@ type batchedTxn struct {
 	nextOps  []clientv3.Op
 	// Cmps which should be asserted on every underlying Txn.
 	fixedCmps []clientv3.Cmp
+	// Flags whether no operations have committed with this batchedTxn.
+	noop bool
 }
 
 // newBatchedTxn returns a batchedTxn using the given Context and KV. It will
@@ -251,6 +253,7 @@ func newBatchedTxn(ctx context.Context, kv clientv3.KV, fixedCmps ...clientv3.Cm
 			}
 		},
 		fixedCmps: fixedCmps,
+		noop:      true,
 	}
 }
 
@@ -293,6 +296,9 @@ func (b *batchedTxn) Commit() (*clientv3.TxnResponse, error) {
 	} else if !r.Succeeded {
 		return r, fmt.Errorf("transaction checks did not succeed")
 	} else {
+		if len(b.ops) > 0 {
+			b.noop = false
+		}
 		b.cmps, b.ops = b.cmps[:0], b.ops[:0]
 		return r, nil
 	}
