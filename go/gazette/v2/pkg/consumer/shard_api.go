@@ -10,6 +10,34 @@ import (
 	"github.com/coreos/etcd/clientv3"
 )
 
+// Stat dispatches the ShardServer.Stat API.
+func (srv *Service) Stat(ctx context.Context, req *StatRequest) (*StatResponse, error) {
+	var (
+		resp     = new(StatResponse)
+		res, err = srv.Resolver.Resolve(ResolveArgs{
+			Context:     ctx,
+			ShardID:     req.Shard,
+			MayProxy:    req.Header == nil, // MayProxy if request hasn't already been proxied.
+			ProxyHeader: req.Header,
+		})
+	)
+	resp.Status, resp.Header = res.Status, res.Header
+
+	if err != nil || resp.Status != Status_OK {
+		return resp, err
+	} else if res.Store == nil {
+		// Non-local Shard. Proxy to the resolved primary peer.
+		req.Header = &res.Header
+		return NewShardClient(srv.Loopback).Stat(
+			pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId), req)
+	}
+
+	defer res.Done()
+	resp.Offsets, err = res.Store.FetchJournalOffsets()
+
+	return resp, err
+}
+
 // List dispatches the ShardServer.List API.
 func (srv *Service) List(ctx context.Context, req *ListRequest) (*ListResponse, error) {
 	var s = srv.Resolver.state
@@ -88,18 +116,19 @@ func (srv *Service) Apply(ctx context.Context, req *ApplyRequest) (*ApplyRespons
 		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", changes.ExpectModRevision))
 	}
 
-	if txnResp, err := srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil)); err != nil {
+	var txnResp, err = srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil))
+	if err != nil {
 		return resp, err
 	} else if !txnResp.Txn().Succeeded {
 		resp.Status = Status_ETCD_TRANSACTION_FAILED
 	} else {
 		// Delay responding until we have read our own Etcd write.
 		s.KS.Mu.RLock()
-		s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
+		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
 		s.KS.Mu.RUnlock()
 	}
 
-	return resp, nil
+	return resp, err
 }
 
 // ListShards invokes the List RPC, and maps a validation or !OK status to an error.

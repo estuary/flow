@@ -173,15 +173,17 @@ func (r *Replica) servePrimary() {
 	}
 }
 
-// WaitAndTearDown waits for all outstanding goroutines which are accessing
+// waitAndTearDown waits for all outstanding goroutines which are accessing
 // the Replica, and for all pending Appends to complete, and then tears down
 // the store.
-func (r *Replica) WaitAndTearDown() {
+func (r *Replica) waitAndTearDown(done func()) {
 	r.wg.Wait()
+	client.WaitForPendingAppends(r.journalClient.PendingExcept(""))
 
 	if r.store != nil {
 		r.store.Destroy()
 	}
+	done()
 }
 
 // updateStatus publishes |status| under the Shard Assignment key in a checked

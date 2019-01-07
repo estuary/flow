@@ -194,6 +194,38 @@ func (x Status) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the StatRequest is not well-formed.
+func (m *StatRequest) Validate() error {
+	if m.Header != nil {
+		if err := m.Header.Validate(); err != nil {
+			return pb.ExtendContext(err, "Header")
+		}
+	}
+	if err := m.Shard.Validate(); err != nil {
+		return pb.ExtendContext(err, "Shard")
+	}
+	return nil
+}
+
+// Validate returns an error if the StatResponse is not well-formed.
+func (m *StatResponse) Validate() error {
+	if err := m.Status.Validate(); err != nil {
+		return pb.ExtendContext(err, "Status")
+	} else if err = m.Header.Validate(); err != nil {
+		return pb.ExtendContext(err, "Header")
+	}
+	for journal, offset := range m.Offsets {
+		var err = journal.Validate()
+		if err == nil && offset < 0 {
+			err = pb.NewValidationError("invalid offset (%d; expected >= 0)", offset)
+		}
+		if err != nil {
+			return pb.ExtendContext(err, "Offsets[%s]", journal)
+		}
+	}
+	return nil
+}
+
 // Validate returns an error if the ListRequest is not well-formed.
 func (m *ListRequest) Validate() error {
 	if err := m.Selector.Validate(); err != nil {

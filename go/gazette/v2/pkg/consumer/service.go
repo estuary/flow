@@ -16,10 +16,12 @@ import (
 type Service struct {
 	// Resolver of Service shards.
 	Resolver *Resolver
+	// Distributed allocator state of the service.
+	State *allocator.State
 	// Loopback connection which defaults to the local server, but is wired with
-	// a protocol.DispatchBalancer. Consumer applications may use Loopback proxy
-	// application-specific RPCs to peer consumer instances, after performing
-	// shard resolution.
+	// a protocol.DispatchBalancer. Consumer applications may use Loopback to
+	// proxy application-specific RPCs to peer consumer instances, after
+	// performing shard resolution.
 	Loopback *grpc.ClientConn
 	// Journal client for use by consumer applications.
 	Journals pb.RoutedJournalClient
@@ -31,21 +33,11 @@ type Service struct {
 func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalClient, lo *grpc.ClientConn, etcd *clientv3.Client) *Service {
 	return &Service{
 		Resolver: NewResolver(state, func() *Replica { return NewReplica(app, state.KS, etcd, rjc) }),
+		State:    state,
 		Loopback: lo,
 		Journals: rjc,
 		etcd:     etcd,
 	}
-}
-
-// Specs returns the current collection of ShardSpecs.
-func (svc *Service) Specs() (out []*ShardSpec) {
-	defer svc.Resolver.state.KS.Mu.RUnlock()
-	svc.Resolver.state.KS.Mu.RLock()
-
-	for _, kv := range svc.Resolver.state.Items {
-		out = append(out, kv.Decoded.(allocator.Item).ItemValue.(*ShardSpec))
-	}
-	return
 }
 
 func addTrace(ctx context.Context, format string, args ...interface{}) {

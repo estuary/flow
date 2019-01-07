@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
@@ -20,10 +21,11 @@ type JSONFileStore struct {
 	// State is a user-provided instance which is un/marshal-able to JSON.
 	State interface{}
 
-	dir      string
-	fs       afero.Fs
-	offsets  map[pb.Journal]int64
-	recorder *recoverylog.Recorder
+	dir       string
+	fs        afero.Fs
+	offsets   map[pb.Journal]int64
+	offsetsMu sync.Mutex
+	recorder  *recoverylog.Recorder
 }
 
 // NewJSONFileStore returns a new JSONFileStore. |state| is the runtime instance
@@ -65,6 +67,9 @@ func (s *JSONFileStore) Recorder() *recoverylog.Recorder { return s.recorder }
 
 // FetchJournalOffsets returns offsets encoded by the JSONFileStore.
 func (s *JSONFileStore) FetchJournalOffsets() (map[pb.Journal]int64, error) {
+	defer s.offsetsMu.Unlock()
+	s.offsetsMu.Lock()
+
 	var offsets = make(map[pb.Journal]int64)
 	for k, o := range s.offsets {
 		offsets[k] = o
@@ -74,6 +79,9 @@ func (s *JSONFileStore) FetchJournalOffsets() (map[pb.Journal]int64, error) {
 
 // Flush the store's JSONFileState to disk.
 func (s *JSONFileStore) Flush(offsets map[pb.Journal]int64) error {
+	defer s.offsetsMu.Unlock()
+	s.offsetsMu.Lock()
+
 	for k, o := range offsets {
 		s.offsets[k] = o
 	}

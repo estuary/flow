@@ -7,6 +7,43 @@ import (
 
 type ListApplySuite struct{}
 
+func (s *ListApplySuite) TestStatCases(c *gc.C) {
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
+
+	var spec = makeShard("a-shard")
+	tf.allocateShard(c, spec, localID)
+	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+
+	var r = tf.resolver.replicas["a-shard"]
+	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+
+	// Determine the write head of |sourceA|. We expect Stat reports we've
+	// consumed through this offset.
+	var aa = r.JournalClient().StartAppend(sourceA)
+	c.Check(aa.Release(), gc.IsNil)
+	<-aa.Done()
+	var expectOffset = aa.Response().Commit.End
+
+	// Case: Stat of local shard.
+	resp, err := tf.service.Stat(tf.ctx, &StatRequest{Shard: "a-shard"})
+	c.Check(err, gc.IsNil)
+	c.Check(resp.Status, gc.Equals, Status_OK)
+	c.Check(resp.Offsets, gc.DeepEquals, map[pb.Journal]int64{sourceA: expectOffset})
+	c.Check(resp.Header.ProcessId, gc.DeepEquals, localID)
+
+	// Case: Stat of non-existent Shard.
+	resp, err = tf.service.Stat(tf.ctx, &StatRequest{Shard: "missing-shard"})
+	c.Check(err, gc.IsNil)
+	c.Check(resp.Status, gc.Equals, Status_SHARD_NOT_FOUND)
+
+	// TODO(johnny): Proxy case ought to be unit-tested here.
+	// Adding it is currently low-value because it's covered by other E2E tests
+	// and newTestFixture isn't set up for verifying proxy interactions.
+
+	tf.allocateShard(c, spec) // Cleanup.
+}
+
 func (s *ListApplySuite) TestListCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()

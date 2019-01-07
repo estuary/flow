@@ -220,15 +220,33 @@ message ApplyRequest {
 }
 
 message ApplyResponse {
-  // Status of the Update RPC.
+  // Status of the Apply RPC.
   Status status = 1;
   // Header of the response.
   protocol.Header header = 2 [(gogoproto.nullable) = false];
 }
 
+message StatRequest {
+  // Header may be attached by a proxying consumer peer.
+  protocol.Header header = 1;
+  // Shard to Stat.
+  string shard = 2 [(gogoproto.casttype) = "ShardID"];
+}
+
+message StatResponse {
+  // Status of the Stat RPC.
+  Status status = 1;
+  // Header of the response.
+  protocol.Header header = 2 [(gogoproto.nullable) = false];
+  // Offsets of journals being read by the shard.
+  map<string, int64> offsets = 3 [(gogoproto.castkey) = "github.com/LiveRamp/gazette/v2/pkg/protocol.Journal"];
+}
+
 // Shard is the Consumer service API for interacting with Shards. Applications
 // may wish to extend the Shard API with further domain-specific APIs.
 service Shard {
+  // Stat returns detailed status of a given Shard.
+  rpc Stat(StatRequest) returns (StatResponse);
   // List Shards, their ShardSpecs and their processing status.
   rpc List(ListRequest) returns (ListResponse);
   // Apply changes to the collection of Shards managed by the consumer.

@@ -147,6 +147,40 @@ func (s *SpecSuite) TestReplicaStatusReduction(c *gc.C) {
 	c.Check(status, gc.DeepEquals, &ReplicaStatus{Code: ReplicaStatus_FAILED, Errors: []string{"err-1", "err-2"}})
 }
 
+func (s *SpecSuite) TestStatRequestValidationCases(c *gc.C) {
+	var req = StatRequest{
+		Header: badHeaderFixture(),
+		Shard:  "invalid shard",
+	}
+	c.Check(req.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
+	req.Header.Etcd.ClusterId = 1234
+	c.Check(req.Validate(), gc.ErrorMatches, `Shard: not a valid token \(invalid shard\)`)
+	req.Shard = "valid-shard"
+
+	c.Check(req.Validate(), gc.IsNil)
+}
+
+func (s *SpecSuite) TestStatResponseValidationCases(c *gc.C) {
+	var resp = StatResponse{
+		Status: 9101,
+		Header: *badHeaderFixture(),
+		Offsets: map[pb.Journal]int64{
+			"invalid journal": 123,
+		},
+	}
+	c.Check(resp.Validate(), gc.ErrorMatches, `Status: invalid status \(9101\)`)
+	resp.Status = Status_OK
+	c.Check(resp.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
+	resp.Header.Etcd.ClusterId = 1234
+	c.Check(resp.Validate(), gc.ErrorMatches, `Offsets\[invalid journal\]: not a valid token \(invalid journal\)`)
+	delete(resp.Offsets, "invalid journal")
+	resp.Offsets["a/journal"] = -456
+	c.Check(resp.Validate(), gc.ErrorMatches, `Offsets\[a/journal\]: invalid offset \(-456; expected >= 0\)`)
+	resp.Offsets["a/journal"] = 789
+
+	c.Check(resp.Validate(), gc.IsNil)
+}
+
 func (s *SpecSuite) TestListRequestValidationCases(c *gc.C) {
 	var req = ListRequest{
 		Selector: pb.LabelSelector{

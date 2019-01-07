@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -14,6 +15,7 @@ type Resolver struct {
 	state      *allocator.State
 	newReplica func() *Replica
 	replicas   map[ShardID]*Replica
+	wg         sync.WaitGroup
 }
 
 // NewResolver returns a Resolver derived from the allocator.State, which
@@ -180,6 +182,11 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	return
 }
 
+// WaitForLocalReplicas returns after all previously-created replicas have
+// completed outstanding requests & background writes, and have been fully
+// torn down.
+func (r *Resolver) WaitForLocalReplicas() { r.wg.Wait() }
+
 // updateResolutions updates |replicas| to match LocalItems, creating,
 // transitioning, and cancelling Replicas as needed. The KeySpace
 // lock must be held.
@@ -194,6 +201,7 @@ func (r *Resolver) updateResolutions() {
 		var replica, ok = r.replicas[id]
 		if !ok {
 			replica = r.newReplica() // Newly assigned shard.
+			r.wg.Add(1)
 		} else {
 			delete(r.replicas, id) // Move from |r.replicas| to |next|.
 		}
@@ -207,7 +215,7 @@ func (r *Resolver) updateResolutions() {
 	// Any remaining Replicas in |prev| were not in LocalItems.
 	for _, replica := range prev {
 		replica.cancel()
-		go replica.WaitAndTearDown()
+		go replica.waitAndTearDown(r.wg.Done)
 	}
 	return
 }
