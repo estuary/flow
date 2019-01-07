@@ -89,5 +89,5 @@ docker_build_all() {
         --file ${dockerfile} \
         --target examples \
         --tag liveramp/gazette-examples:latest \
-        ${cf_examples}
+        ${cf_examples:-}
 }
