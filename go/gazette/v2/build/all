@@ -40,5 +40,5 @@ docker_build_all "${ROOT}" "${VENDOR_IMAGE:-}"
 
 if [[ "${SHOULD_PUSH_VENDOR:-}" = true ]]; then
     docker_login
-    docker push "${VENDOR_IMAGE}"
+    ${DOCKER} push "${VENDOR_IMAGE}"
 fi

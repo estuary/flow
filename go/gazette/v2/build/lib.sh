@@ -1,3 +1,8 @@
+
+# Use a DOCKER environment variable for the `docker` binary,
+# or default to `docker` if none is provided.
+DOCKER="${DOCKER:-docker}"
+
 # Log in to a Docker registry
 #
 # Globals:
@@ -13,8 +18,8 @@ docker_login() {
 
     # Disable xtrace to hide password ($DOCKER_PASS).
     set +x
-    echo "$DOCKER_PASS" | docker login -u $DOCKER_USER --password-stdin
-    if [[ $restore_x ]]; then
+    echo "${DOCKER_PASS}" | ${DOCKER} login -u ${DOCKER_USER} --password-stdin
+    if [[ ${restore_x} ]]; then
         set -x
     fi
 }
@@ -30,9 +35,9 @@ docker_tag_and_push() {
     declare -r image="$1"
     declare -r tag="$2"
 
-    docker tag "${image}:latest" "${image}:${tag}"
-    docker push "${image}:latest"
-    docker push "${image}:${tag}"
+    ${DOCKER} tag "${image}:latest" "${image}:${tag}"
+    ${DOCKER} push "${image}:latest"
+    ${DOCKER} push "${image}:${tag}"
 }
 
 # Build and tag all targets of the multi-stage build.
@@ -58,8 +63,8 @@ docker_build_all() {
         declare -r cf_examples="--cache-from liveramp/gazette-build:latest --cache-from liveramp/gazette:latest"
 
         # Build the `gazette-vendor` image.
-        docker pull "${vendor_image}"
-        docker build "${root}" \
+        ${DOCKER} pull "${vendor_image}"
+        ${DOCKER} build "${root}" \
             --file "${dockerfile}" \
             --target vendor \
             --tag "${vendor_image}" \
@@ -69,7 +74,7 @@ docker_build_all() {
     # Build and test Gazette. This image includes all Gazette source, vendored
     # dependencies, compiled packages and binaries, and only completes after
     # all tests pass.
-    docker build ${root} \
+    ${DOCKER} build ${root} \
         --file ${dockerfile} \
         --target build \
         --tag liveramp/gazette-build:latest \
@@ -77,7 +82,7 @@ docker_build_all() {
 
     # Create the `gazette` image, which plucks the `gazette`, `gazctl` and
     # `run-consumer` onto a base runtime image.
-    docker build ${root} \
+    ${DOCKER} build ${root} \
         --file ${dockerfile} \
         --target gazette \
         --tag liveramp/gazette:latest \
@@ -85,7 +90,7 @@ docker_build_all() {
 
     # Create the `gazette-examples` image, which further plucks `stream-sum` and
     # `word-count` example artifacts onto the `gazette` image.
-    docker build ${root} \
+    ${DOCKER} build ${root} \
         --file ${dockerfile} \
         --target examples \
         --tag liveramp/gazette-examples:latest \

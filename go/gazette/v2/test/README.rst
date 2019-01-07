@@ -1,6 +1,6 @@
-============================================
-Notes on setting up and testing via Minikube
-============================================
+=====================================================
+Deploying and Testing Gazette on a Kubernetes cluster
+=====================================================
 
 Obtain a Kubernetes Cluster
 ===========================
@@ -10,12 +10,39 @@ Deploying a test Gazette environment requires a Kubernetes cluster with
 `bootstrap_local_kubernetes.sh <bootstrap_local_kubernetes.sh/>`_ for run-able,
 prescriptive documentation of bootstrapping a local Kubernetes cluster with Helm.
 
-Other providers, such as Google Container Engine, may also be used.
+Gazette has been tested with several providers of local Kubernetes environments:
+
+  - `Docker for Desktop <https://www.docker.com/products/docker-desktop/>`_ (with Kubernetes enabled).
+  - `MicroK8s <https://microk8s.io/>`_.
+  - `Minikube <https://kubernetes.io/docs/setup/minikube/>`_.
+
+Cloud providers, such as Google Container Engine, may also be used.
+
+Depending on your provider, you may wish to declare ``KUBECTL`` and ``DOCKER``
+environment variables (which otherwise default to ``kubectl`` and ``docker``,
+respectively). For example, when using MicroK8s:
+
+.. code-block:: console
+
+  # Export DOCKER to use the MicroK8s's docker binary and daemon socket.
+  # At present, microk8s.docker cannot be used directly due to github.com/ubuntu/microk8s/issues/272
+  #
+  # It may also be necessary to disable iptables within the MicroK8s's docker daemon,
+  # which can otherwise interfere with inter-pod ICMP used by the "incubator/etcd" chart.
+  # This is accomplished by adding "--iptables=false" to /var/snap/microk8s/current/args/dockerd.
+  # See: github.com/ubuntu/microk8s/issues/266
+  $ export DOCKER="/snap/microk8s/current/usr/bin/docker -H unix:///var/snap/microk8s/current/docker.sock"
+
+  # Export KUBECTL to use the MicroK8s's kubectl binary (and its kubeconfig).
+  $ export KUBECTL=microk8s.kubectl
+
+  # Gazette scripts now use these variables. Install Tiller to the "microk8s" context.
+  $ v2/test/bootstrap_local_kubernetes.sh microk8s
 
 Deploying A Test Environment
 ============================
 
-The `deploy_test_environment.sh <deploy_test_environment.sh/>`_ script accepts
+The `deploy_test_environment.sh <deploy_test_environment.sh/>`_ script requires
 a Kubernetes context and namespace, and deploys a complete Gazette installation
 into the named cluster & namespace, including:
 
@@ -25,11 +52,11 @@ into the named cluster & namespace, including:
   - Example applications.
 
 While that script can be run directly, it's recommended to first try running it
-incrementally and manually at first, to better understand the steps and what's
-happening with each.
+manually to better understand the steps and what's happening with each.
 
 Note that Minio is started with (only) the ``examples`` bucket. This is sufficient
-for test JournalSpec fixtures, but if needed additional buckets can be created:
+for the bundled example JournalSpec fixtures, but if desired additional buckets
+can be created:
 
 .. code-block:: console
 
