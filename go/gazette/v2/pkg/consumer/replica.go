@@ -128,7 +128,7 @@ func (r *Replica) serveStandby() {
 	}()
 
 	if err := playLog(r, r.player, r.etcd); err != nil {
-		err = extendErr(err, "playLog")
+		err = r.logFailure(extendErr(err, "playLog"))
 		tryUpdateStatus(r, r.ks, r.etcd, newErrorStatus(err))
 	}
 }
@@ -140,7 +140,7 @@ func (r *Replica) servePrimary() {
 
 	var store, offsets, err = completePlayback(r, r.app, r.player, r.etcd)
 	if err != nil {
-		err = extendErr(err, "completePlayback")
+		err = r.logFailure(extendErr(err, "completePlayback"))
 		tryUpdateStatus(r, r.ks, r.etcd, newErrorStatus(err))
 		return
 	}
@@ -156,7 +156,7 @@ func (r *Replica) servePrimary() {
 		r.wg.Add(1)
 		go func(journal pb.Journal, offset int64) {
 			if err := pumpMessages(r, r.app, journal, offset, msgCh); err != nil {
-				err = extendErr(err, "pumpMessages")
+				err = r.logFailure(extendErr(err, "pumpMessages"))
 				tryUpdateStatus(r, r.ks, r.etcd, newErrorStatus(err))
 			}
 			r.wg.Done()
@@ -167,8 +167,8 @@ func (r *Replica) servePrimary() {
 	var hintsTimer = time.NewTimer(storeHintsInterval)
 	defer hintsTimer.Stop()
 
-	if err := consumeMessages(r, r.store, r.app, r.etcd, msgCh, hintsTimer.C); err != nil {
-		err = extendErr(err, "consumeMessages")
+	if err = consumeMessages(r, r.store, r.app, r.etcd, msgCh, hintsTimer.C); err != nil {
+		err = r.logFailure(extendErr(err, "consumeMessages"))
 		tryUpdateStatus(r, r.ks, r.etcd, newErrorStatus(err))
 	}
 }
@@ -184,6 +184,17 @@ func (r *Replica) waitAndTearDown(done func()) {
 		r.store.Destroy()
 	}
 	done()
+}
+
+func (r *Replica) logFailure(err error) error {
+	if err == context.Canceled {
+		return err
+	}
+	log.WithFields(log.Fields{
+		"err":   err,
+		"shard": r.Spec().Id,
+	}).Error("shard processing failed")
+	return err
 }
 
 // updateStatus publishes |status| under the Shard Assignment key in a checked
@@ -215,9 +226,12 @@ func updateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, sta
 // tryUpdateStatus wraps updateStatus with retry behavior.
 func tryUpdateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, status ReplicaStatus) {
 	for attempt := 0; true; attempt++ {
+		if shard.Context().Err() != nil {
+			return // Already cancelled.
+		}
 		select {
 		case <-shard.Context().Done():
-			return // Abort updating status (the Assignment doesn't exist anymore).
+			return // Cancelled while waiting to retry.
 		case <-time.After(backoff(attempt)):
 			// Pass.
 		}
