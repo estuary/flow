@@ -124,7 +124,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	})
 
 	c.Check(rShard.Spec(), gc.DeepEquals, makeShard(shardID))
-	c.Check(rStore.(*JSONFileStore).State, gc.DeepEquals, map[string]string{})
+	c.Check(rStore.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{})
 	rDone()
 
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)

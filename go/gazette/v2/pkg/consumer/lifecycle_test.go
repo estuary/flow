@@ -70,7 +70,7 @@ func (s *LifecycleSuite) TestRecoveryOfNonEmptyLog(c *gc.C) {
 	c.Check(offsets, gc.DeepEquals, map[pb.Journal]int64{"source/A": 123, "source/B": 456})
 	r.store = store
 
-	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, map[string]string{
+	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{
 		"foo": "3",
 		"bar": "2",
 		"baz": "4",
@@ -238,7 +238,7 @@ func (s *LifecycleSuite) TestTxnPriorSyncsThenMinDurElapses(c *gc.C) {
 	c.Check(txn.msgCount, gc.Equals, 3)
 	c.Check(txn.doneCh, gc.IsNil)
 
-	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, map[string]string{"key": "300"})
+	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{"key": "300"})
 	c.Check(r.store.(*JSONFileStore).offsets, gc.DeepEquals, map[pb.Journal]int64{"source/A": 300})
 
 	c.Check(txn.beganAt, gc.Equals, faketime(2))
@@ -303,7 +303,7 @@ func (s *LifecycleSuite) TestTxnMinDurElapsesThenPriorSyncs(c *gc.C) {
 	c.Check(txn.msgCount, gc.Equals, 3)
 	c.Check(txn.doneCh, gc.IsNil)
 
-	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, map[string]string{"key": "300"})
+	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{"key": "300"})
 	c.Check(r.store.(*JSONFileStore).offsets, gc.DeepEquals, map[pb.Journal]int64{"source/A": 300})
 
 	c.Check(txn.beganAt, gc.Equals, faketime(0))
@@ -370,7 +370,7 @@ func (s *LifecycleSuite) TestTxnMaxDurElapsesThenPriorSyncs(c *gc.C) {
 	c.Check(txn.msgCount, gc.Equals, 2)
 	c.Check(txn.doneCh, gc.IsNil)
 
-	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, map[string]string{"key": "200"})
+	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{"key": "200"})
 	c.Check(r.store.(*JSONFileStore).offsets, gc.DeepEquals, map[pb.Journal]int64{"source/A": 200})
 
 	c.Check(txn.beganAt, gc.Equals, faketime(0))
@@ -437,7 +437,7 @@ func (s *LifecycleSuite) TestTxnMaxDurElapsesBusyPipeline(c *gc.C) {
 	c.Check(txn.msgCount, gc.Equals, 2)
 	c.Check(txn.doneCh, gc.IsNil)
 
-	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, map[string]string{"key": "200"})
+	c.Check(r.store.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{"key": "200"})
 	c.Check(r.store.(*JSONFileStore).offsets, gc.DeepEquals, map[pb.Journal]int64{"source/A": 200})
 
 	c.Check(txn.beganAt, gc.Equals, faketime(0))

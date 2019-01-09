@@ -65,7 +65,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	var res, err = cmr1.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: "a-shard"})
 	c.Check(err, gc.IsNil)
 	c.Check(res.Store.(*consumer.JSONFileStore).State, gc.DeepEquals,
-		map[string]string{"the": "quick", "brown": "fox"})
+		&map[string]string{"the": "quick", "brown": "fox"})
 	res.Done() // Release resolution.
 
 	cmr1.ZeroShardLimit(c) // |cmr1| signals its desire to exit.
@@ -89,7 +89,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	res, err = cmr2.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: "a-shard"})
 	c.Check(err, gc.IsNil)
 	c.Check(res.Store.(*consumer.JSONFileStore).State, gc.DeepEquals,
-		map[string]string{"the": "replaced value", "brown": "fox", "added": "key"})
+		&map[string]string{"the": "replaced value", "brown": "fox", "added": "key"})
 	res.Done() // Release resolution.
 
 	cmr2.RevokeLease(c)
@@ -156,7 +156,7 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	var res, err = cmr2.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: "a-shard"})
 	c.Check(err, gc.IsNil)
 	c.Check(res.Store.(*consumer.JSONFileStore).State, gc.DeepEquals,
-		map[string]string{"the": "quick", "brown": "fox"})
+		&map[string]string{"the": "quick", "brown": "fox"})
 	res.Done() // Release resolution.
 
 	cmr2.RevokeLease(c)
@@ -180,7 +180,7 @@ func (testApp) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recor
 func (testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope) error {
 	var js = store.(*consumer.JSONFileStore)
 	var msg = env.Message.(*testMsg)
-	js.State.(map[string]string)[msg.Key] = msg.Value
+	(*js.State.(*map[string]string))[msg.Key] = msg.Value
 	return nil
 }
 

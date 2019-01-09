@@ -65,7 +65,7 @@ func (a *testApplication) BeginTxn(shard Shard, store Store) error { return a.be
 func (a *testApplication) ConsumeMessage(shard Shard, store Store, env message.Envelope) error {
 	var js = store.(*JSONFileStore)
 	var msg = env.Message.(*testMessage)
-	js.State.(map[string]string)[msg.Key] = msg.Value
+	(*js.State.(*map[string]string))[msg.Key] = msg.Value
 	return a.consumeErr
 }
 
@@ -265,7 +265,7 @@ func runSomeTransactions(c *gc.C, shard Shard, app *testApplication, store *JSON
 	}
 	// Verify we reduced the expected final state.
 	c.Check(store.State, gc.DeepEquals,
-		map[string]string{"foo": "fin", "baz": "bing", "ring": "ting"})
+		&map[string]string{"foo": "fin", "baz": "bing", "ring": "ting"})
 
 	<-store.Recorder().WeakBarrier().Done() // Reduce noisy logging by allowing log writes to complete.
 }

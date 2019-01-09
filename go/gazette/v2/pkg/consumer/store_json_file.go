@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sync"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -33,7 +32,7 @@ type JSONFileStore struct {
 // as JSONFileState.State.
 func NewJSONFileStore(rec *recoverylog.Recorder, dir string, state interface{}) (*JSONFileStore, error) {
 	var store = &JSONFileStore{
-		State:    reflect.ValueOf(state).Elem().Interface(),
+		State:    state,
 		dir:      dir,
 		fs:       recoverylog.RecordedAferoFS{Recorder: rec, Fs: afero.NewOsFs()},
 		offsets:  make(map[pb.Journal]int64),
