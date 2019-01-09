@@ -166,11 +166,15 @@ func consumeMessages(shard Shard, store Store, app Application, etcd *clientv3.C
 		// Run the transaction until completion or error.
 		for done := false; !done && err == nil; done, err = txnStep(&txn, &prior, shard, store, app, timer) {
 		}
-		if ba, ok := app.(BeginFinisher); ok && txn.msgCount != 0 {
-			ba.FinishTxn(shard, store)
-		}
 		if err != nil {
 			err = extendErr(err, "txnStep")
+		}
+		if ba, ok := app.(BeginFinisher); ok && txn.msgCount != 0 {
+			if finishErr := ba.FinishTxn(shard, store); err == nil && finishErr != nil {
+				err = extendErr(finishErr, "FinishTxn")
+			}
+		}
+		if err != nil {
 			return
 		}
 

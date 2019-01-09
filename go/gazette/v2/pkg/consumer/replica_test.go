@@ -91,29 +91,52 @@ func (s *ReplicaSuite) TestPumpMessagesError(c *gc.C) {
 	tf.allocateShard(c, makeShard("a-shard")) // Cleanup.
 }
 
-func (s *ReplicaSuite) TestConsumeMessagesError(c *gc.C) {
+func (s *ReplicaSuite) TestConsumeMessagesErrors(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	tf.allocateShard(c, makeShard("a-shard"), localID)
+	var cases = []struct {
+		fn     func()
+		expect string
+	}{
+		// Case: Consume() fails.
+		{
+			func() { tf.app.consumeErr = errors.New("an error") },
+			`consumeMessages: txnStep: app.ConsumeMessage: an error`,
+		},
+		// Case: FinishTxn() fails.
+		{
+			func() { tf.app.finishErr = errors.New("an error") },
+			`consumeMessages: FinishTxn: an error`,
+		},
+		// Case: Both fail. Consume()'s error dominates.
+		{
+			func() {
+				tf.app.consumeErr = errors.New("an error")
+				tf.app.finishErr = errors.New("shadowed error")
+			},
+			`consumeMessages: txnStep: app.ConsumeMessage: an error`,
+		},
+	}
+	for _, tc := range cases {
+		tf.app.consumeErr, tf.app.finishErr = nil, nil // Reset fixture.
 
-	// Expect that status transitions to PRIMARY.
-	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+		tf.allocateShard(c, makeShard("a-shard"), localID)
+		expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
-	// Verify message pump and consumer loops were started.
-	var r = tf.resolver.replicas["a-shard"]
-	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+		var r = tf.resolver.replicas["a-shard"]
+		runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
 
-	tf.app.consumeErr = errors.New("an error") // Cause ConsumeMessage to fail.
+		// Set failure fixture, and write a message to trigger it.
+		tc.fn()
 
-	var aa = r.JournalClient().StartAppend(sourceB)
-	aa.Writer().WriteString("{}\n")
-	c.Check(aa.Release(), gc.IsNil)
+		var aa = r.JournalClient().StartAppend(sourceB)
+		_, _ = aa.Writer().WriteString(`{"key":"foo"}` + "\n")
+		c.Check(aa.Release(), gc.IsNil)
 
-	c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0],
-		gc.Matches, `consumeMessages: txnStep: app.ConsumeMessage: an error`)
-
-	tf.allocateShard(c, makeShard("a-shard")) // Cleanup.
+		c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0], gc.Matches, tc.expect)
+		tf.allocateShard(c, makeShard("a-shard")) // Cleanup.
+	}
 }
 
 var _ = gc.Suite(&ReplicaSuite{})

@@ -40,6 +40,7 @@ type testApplication struct {
 	newMsgErr   error
 	consumeErr  error
 	finalizeErr error
+	finishErr   error
 	// Signals when FinishTxn is called.
 	finishCh chan struct{}
 }
@@ -71,10 +72,11 @@ func (a *testApplication) ConsumeMessage(shard Shard, store Store, env message.E
 
 func (a *testApplication) FinalizeTxn(shard Shard, store Store) error { return a.finalizeErr }
 
-func (a *testApplication) FinishTxn(shard Shard, store Store) {
+func (a *testApplication) FinishTxn(shard Shard, store Store) error {
 	var ch = a.finishCh
 	a.finishCh = make(chan struct{})
 	defer close(ch)
+	return a.finishErr
 }
 
 type testFixture struct {
