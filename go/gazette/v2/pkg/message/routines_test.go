@@ -48,20 +48,21 @@ func (s *RoutinesSuite) TestPublishSuccess(c *gc.C) {
 
 func (s *RoutinesSuite) TestFramingDetermination(c *gc.C) {
 	var spec = &pb.JournalSpec{
-		LabelSet: pb.MustLabelSet("framing", "json"),
+		LabelSet: pb.MustLabelSet("framing", "aaa", "framing", "bbb"),
 	}
-
 	var f, err = JournalFraming(spec)
+	c.Check(err, gc.ErrorMatches, `expected exactly one framing label \(got \[aaa bbb\]\)`)
+
+	spec.LabelSet = pb.MustLabelSet("framing", pb.FramingJSON)
+	f, err = JournalFraming(spec)
 	c.Check(err, gc.IsNil)
 	c.Check(f, gc.Equals, JSONFraming)
 
-	spec.LabelSet.Labels[0].Value = "fixed"
-	f, err = JournalFraming(spec)
+	f, err = FramingByName(pb.FramingFixed)
 	c.Check(err, gc.IsNil)
 	c.Check(f, gc.Equals, FixedFraming)
 
-	spec.LabelSet.Labels[0].Value = "other"
-	_, err = JournalFraming(spec)
+	_, err = FramingByName("other")
 	c.Check(err, gc.ErrorMatches, `unrecognized framing \(other; expected fixed or json\)`)
 }
 

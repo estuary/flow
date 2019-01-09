@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/pkg/errors"
 )
 
@@ -22,6 +23,9 @@ var FixedFraming = new(fixedFraming)
 const FixedFrameHeaderLength = 8
 
 type fixedFraming struct{}
+
+// Name returns protocol.FramingFixed.
+func (f *fixedFraming) Name() string { return protocol.FramingFixed }
 
 // Marshal implements Framing. It returns an error only if Message.Encode fails.
 func (f *fixedFraming) Marshal(msg Message, bw *bufio.Writer) error {

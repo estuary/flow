@@ -34,22 +34,27 @@ func Publish(broker client.AsyncJournalClient, mapping MappingFunc, msg Message)
 	return aa, nil
 }
 
-// JournalFraming returns the Framing implementation corresponding to the
-// "framing" label value of the JournalSpec.
-func JournalFraming(spec *pb.JournalSpec) (Framing, error) {
-	var values = spec.LabelSet.ValuesOf("framing")
-
-	if len(values) != 1 {
-		return nil, fmt.Errorf("expected exactly one framing label (got %+v)", values)
-	}
-	switch values[0] {
+// FramingByName returns the Framing having the corresponding |name|,
+// or returns an error if none match.
+func FramingByName(name string) (Framing, error) {
+	switch name {
 	case pb.FramingFixed:
 		return FixedFraming, nil
 	case pb.FramingJSON:
 		return JSONFraming, nil
 	default:
 		return nil, fmt.Errorf(`unrecognized framing (%s; expected %s or %s)`,
-			values[0], pb.FramingFixed, pb.FramingJSON)
+			name, pb.FramingFixed, pb.FramingJSON)
+	}
+}
+
+// JournalFraming returns the Framing implementation corresponding to the
+// "framing" label value of the JournalSpec.
+func JournalFraming(spec *pb.JournalSpec) (Framing, error) {
+	if values := spec.LabelSet.ValuesOf("framing"); len(values) != 1 {
+		return nil, fmt.Errorf("expected exactly one framing label (got %+v)", values)
+	} else {
+		return FramingByName(values[0])
 	}
 }
 

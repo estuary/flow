@@ -23,6 +23,8 @@ type Envelope struct {
 
 // Framing specifies the serialization used to encode Messages within a topic.
 type Framing interface {
+	// Name of the Framing.
+	Name() string
 	// Marshal a Message to a bufio.Writer. Marshal may assume the Message has
 	// passed validation, if implemented for the message type. It may ignore
 	// any error returned by the provided Writer.

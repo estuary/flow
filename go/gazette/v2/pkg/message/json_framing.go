@@ -3,6 +3,8 @@ package message
 import (
 	"bufio"
 	"encoding/json"
+
+	"github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
 // JSONFraming is a Framing implementation which encodes messages as line-
@@ -10,6 +12,9 @@ import (
 var JSONFraming = new(jsonFraming)
 
 type jsonFraming struct{}
+
+// Name returns protocol.FramingJSON
+func (*jsonFraming) Name() string { return protocol.FramingJSON }
 
 // Marshal implements Framing.
 func (*jsonFraming) Marshal(msg Message, bw *bufio.Writer) error {
