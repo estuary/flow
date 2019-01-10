@@ -4,6 +4,7 @@ package consumertest
 import (
 	"context"
 	"runtime"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/client"
@@ -113,7 +114,11 @@ func (cmr *Consumer) Serve(c *gc.C, ctx context.Context) {
 			} else if !signalOnIdle {
 				return
 			} else {
-				cmr.idleCh <- struct{}{}
+				select {
+				case cmr.idleCh <- struct{}{}:
+				case <-time.After(5 * time.Second):
+					panic("deadlock in consumer TestHook; is your test ignoring a signal to AllocateIdleCh()?")
+				}
 				signalOnIdle = false
 			}
 		},
@@ -121,7 +126,9 @@ func (cmr *Consumer) Serve(c *gc.C, ctx context.Context) {
 }
 
 // AllocateIdleCh signals when the Consumer's Allocate loop took an action, such
-// as updating a shard assignment, and has since become idle.
+// as updating a shard assignment, and has since become idle. Tests must
+// explicitly receive (and confirm as intended) signals sent on Allocator
+// actions, or Consumer will panic.
 func (cmr *Consumer) AllocateIdleCh() <-chan struct{} { return cmr.idleCh }
 
 // ZeroShardLimit of the Consumer. The test Consumer will eventually exit,
@@ -170,14 +177,21 @@ func CreateShards(c *gc.C, cmr *Consumer, specs ...*consumer.ShardSpec) {
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, consumer.ApplyRequest_Change{Upsert: spec})
 	}
+	// Issue the Apply in a goroutine, so that we may concurrently read from
+	// |idleCh|. If Apply were instead called synchronously, there's the
+	// possibility of deadlock on TestHook's send to |idleCh|.
+	var doneCh = make(chan struct{})
+	go func() {
+		var resp, err = consumer.NewShardClient(cmr.Service.Loopback).
+			Apply(pb.WithDispatchDefault(context.Background()), req)
+		c.Assert(err, gc.IsNil)
+		c.Assert(resp.Status, gc.Equals, consumer.Status_OK)
+		close(doneCh)
+	}()
 
-	var resp, err = consumer.NewShardClient(cmr.Service.Loopback).
-		Apply(pb.WithDispatchDefault(context.Background()), req)
-	c.Assert(err, gc.IsNil)
-	c.Assert(resp.Status, gc.Equals, consumer.Status_OK)
-
-	// Wait for shard assignments to update.
+	// Wait for shard assignments to update, and the RPC to complete.
 	<-cmr.AllocateIdleCh()
+	<-doneCh
 }
 
 // WaitForShards queries for shards matching LabelSelector |sel|, determines

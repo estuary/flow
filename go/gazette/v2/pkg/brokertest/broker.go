@@ -88,7 +88,11 @@ func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
 				} else if !signalOnIdle {
 					return
 				} else {
-					bk.idleCh <- struct{}{}
+					select {
+					case bk.idleCh <- struct{}{}:
+					case <-time.After(5 * time.Second):
+						panic("deadlock in broker TestHook; is your test ignoring a signal to AllocateIdleCh()?")
+					}
 					signalOnIdle = false
 				}
 			},
@@ -106,7 +110,9 @@ func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.Co
 func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
 
 // AllocateIdleCh signals when the Broker's Allocate loop took an action, such
-// as updating a journal assignment, and has since become idle.
+// as updating a journal assignment, and has since become idle. Tests must
+// explicitly receive (and confirm as intended) signals sent on Allocator
+// actions, or Broker will panic.
 func (b *Broker) AllocateIdleCh() <-chan struct{} { return b.idleCh }
 
 // ZeroJournalLimit of the Broker. The test Broker will eventually exit,
@@ -166,11 +172,18 @@ func CreateJournals(c *gc.C, bk *Broker, specs ...*pb.JournalSpec) {
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, pb.ApplyRequest_Change{Upsert: spec})
 	}
+	// Issue the Apply in a goroutine, so that we may concurrently read from
+	// |idleCh|. If Apply were instead called synchronously, there's the
+	// possibility of deadlock on TestHook's send to |idleCh|.
+	var doneCh = make(chan struct{})
+	go func() {
+		var resp, err = bk.Client().Apply(pb.WithDispatchDefault(context.Background()), req)
+		c.Assert(err, gc.IsNil)
+		c.Assert(resp.Status, gc.Equals, pb.Status_OK)
+		close(doneCh)
+	}()
 
-	var resp, err = bk.Client().Apply(pb.WithDispatchDefault(context.Background()), req)
-	c.Assert(err, gc.IsNil)
-	c.Assert(resp.Status, gc.Equals, pb.Status_OK)
-
-	// Wait for journal assignments to update.
+	// Wait for journal assignments to update, and the RPC to complete.
 	<-bk.AllocateIdleCh()
+	<-doneCh
 }
