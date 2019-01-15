@@ -31,10 +31,16 @@ func (srv *Service) Stat(ctx context.Context, req *StatRequest) (*StatResponse, 
 		return NewShardClient(srv.Loopback).Stat(
 			pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId), req)
 	}
-
 	defer res.Done()
-	resp.Offsets, err = res.Store.FetchJournalOffsets()
 
+	// Introspect journal consumption offsets from the store.
+	if resp.Offsets, err = res.Store.FetchJournalOffsets(); err == nil {
+		// Recoverylog & other journal writes reflecting processing through
+		// fetched offsets may still be in progress. Block on a WeakBarrier so
+		// that, when we return to the caller, they're assured that all writes
+		// related to processing through the offsets have also committed.
+		<-res.Store.Recorder().WeakBarrier().Done()
+	}
 	return resp, err
 }
 
@@ -118,7 +124,7 @@ func (srv *Service) Apply(ctx context.Context, req *ApplyRequest) (*ApplyRespons
 
 	var txnResp, err = srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil))
 	if err != nil {
-		return resp, err
+		// Pass.
 	} else if !txnResp.Txn().Succeeded {
 		resp.Status = Status_ETCD_TRANSACTION_FAILED
 	} else {
@@ -127,7 +133,6 @@ func (srv *Service) Apply(ctx context.Context, req *ApplyRequest) (*ApplyRespons
 		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
 		s.KS.Mu.RUnlock()
 	}
-
 	return resp, err
 }
 

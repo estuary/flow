@@ -5,9 +5,9 @@ import (
 	gc "github.com/go-check/check"
 )
 
-type ListApplySuite struct{}
+type APISuite struct{}
 
-func (s *ListApplySuite) TestStatCases(c *gc.C) {
+func (s *APISuite) TestStatCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
@@ -44,7 +44,7 @@ func (s *ListApplySuite) TestStatCases(c *gc.C) {
 	tf.allocateShard(c, spec) // Cleanup.
 }
 
-func (s *ListApplySuite) TestListCases(c *gc.C) {
+func (s *APISuite) TestListCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
@@ -111,7 +111,7 @@ func (s *ListApplySuite) TestListCases(c *gc.C) {
 	tf.allocateShard(c, specC)
 }
 
-func (s *ListApplySuite) TestApplyCases(c *gc.C) {
+func (s *APISuite) TestApplyCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
@@ -179,4 +179,4 @@ func (s *ListApplySuite) TestApplyCases(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, `Changes\[0\].Delete: not a valid token \(invalid shard id\)`)
 }
 
-var _ = gc.Suite(&ListApplySuite{})
+var _ = gc.Suite(&APISuite{})
