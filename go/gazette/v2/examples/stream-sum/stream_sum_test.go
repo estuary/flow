@@ -160,7 +160,12 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
 	defer cancel()
 
-	var cmr = consumertest.NewConsumer(c, etcd, rjc, Summer{}, "local", "consumer")
+	var cmr = consumertest.NewConsumer(consumertest.Args{
+		C:        c,
+		Etcd:     etcd,
+		Journals: rjc,
+		App:      Summer{},
+	})
 	go cmr.Serve(c, ctx)
 	consumertest.CreateShards(c, cmr, testShards...)
 

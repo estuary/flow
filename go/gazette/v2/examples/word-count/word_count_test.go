@@ -37,7 +37,12 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 	var app = new(Counter)
 	cfg.WordCount.N = 2
 
-	var cmr = consumertest.NewConsumer(c, etcd, rjc, app, "local", "consumer")
+	var cmr = consumertest.NewConsumer(consumertest.Args{
+		C:        c,
+		Etcd:     etcd,
+		Journals: rjc,
+		App:      app,
+	})
 	c.Assert(Counter{}.InitModule(consumermodule.InitArgs{
 		Context:     ctx,
 		Config:      cfg,

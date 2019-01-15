@@ -31,28 +31,47 @@ type Consumer struct {
 	lease  clientv3.LeaseID
 }
 
+// Args of NewConsumer.
+type Args struct {
+	C        *gc.C
+	Etcd     *clientv3.Client       // Etcd client instance.
+	Journals pb.RoutedJournalClient // Broker client instance.
+	App      consumer.Application   // Application of the consumer.
+	Root     string                 // Consumer root in Etcd. Defaults to "/consumertest".
+	Zone     string                 // Zone of the consumer. Defaults to "local".
+	Suffix   string                 // ID Suffix of the consumer. Defaults to "consumer".
+}
+
 // NewConsumer builds and returns a Consumer.
-func NewConsumer(c *gc.C, etcd *clientv3.Client, rjc pb.RoutedJournalClient,
-	app consumer.Application, zone, suffix string) *Consumer {
+func NewConsumer(args Args) *Consumer {
+	if args.Root == "" {
+		args.Root = "/consumertest"
+	}
+	if args.Zone == "" {
+		args.Zone = "local"
+	}
+	if args.Suffix == "" {
+		args.Suffix = "consumer"
+	}
 
 	var srv, err = server.New("127.0.0.1", 0)
-	c.Assert(err, gc.IsNil)
+	args.C.Assert(err, gc.IsNil)
 
 	// Grant lease with 1m timeout. Test must complete within this time.
-	grant, err := etcd.Grant(context.Background(), 60)
-	c.Assert(err, gc.IsNil)
+	grant, err := args.Etcd.Grant(context.Background(), 60)
+	args.C.Assert(err, gc.IsNil)
 
-	var ks = consumer.NewKeySpace("/consumertest")
-	var key = allocator.MemberKey(ks, zone, suffix)
+	var ks = consumer.NewKeySpace(args.Root)
+	var key = allocator.MemberKey(ks, args.Zone, args.Suffix)
 	var state = allocator.NewObservedState(ks, key)
-	var svc = consumer.NewService(app, state, rjc, srv.MustGRPCLoopback(), etcd)
+	var svc = consumer.NewService(args.App, state, args.Journals, srv.MustGRPCLoopback(), args.Etcd)
 
 	consumer.RegisterShardServer(srv.GRPCServer, svc)
 
 	return &Consumer{
 		spec: consumer.ConsumerSpec{
 			ProcessSpec: pb.ProcessSpec{
-				Id:       pb.ProcessSpec_ID{Zone: zone, Suffix: suffix},
+				Id:       pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix},
 				Endpoint: srv.Endpoint(),
 			},
 			ShardLimit: 100,
@@ -60,7 +79,7 @@ func NewConsumer(c *gc.C, etcd *clientv3.Client, rjc pb.RoutedJournalClient,
 		Service: svc,
 		Server:  srv,
 
-		etcd:   etcd,
+		etcd:   args.Etcd,
 		idleCh: make(chan struct{}),
 		lease:  grant.ID,
 	}

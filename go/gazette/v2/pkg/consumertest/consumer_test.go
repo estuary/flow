@@ -39,7 +39,13 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	var cmr1 = NewConsumer(c, etcd, rjc, testApp{}, "local", "consumer")
+	var cmr1 = NewConsumer(Args{
+		C:        c,
+		Etcd:     etcd,
+		Journals: rjc,
+		App:      testApp{},
+		Zone:     "zone-1",
+	})
 	go cmr1.Serve(c, ctx)
 
 	CreateShards(c, cmr1, &consumer.ShardSpec{
@@ -70,7 +76,13 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 
 	cmr1.ZeroShardLimit(c) // |cmr1| signals its desire to exit.
 
-	var cmr2 = NewConsumer(c, etcd, rjc, testApp{}, "other", "consumer")
+	var cmr2 = NewConsumer(Args{
+		C:        c,
+		Etcd:     etcd,
+		Journals: rjc,
+		App:      testApp{},
+		Zone:     "zone-2",
+	})
 	go cmr2.Serve(c, ctx)
 
 	// |cmr2| is assigned the shard, completes recovery, and is promoted to
@@ -120,7 +132,13 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	var cmr1 = NewConsumer(c, etcd, rjc, testApp{}, "local", "consumer")
+	var cmr1 = NewConsumer(Args{
+		C:        c,
+		Etcd:     etcd,
+		Journals: rjc,
+		App:      testApp{},
+		Zone:     "zone-1",
+	})
 	go cmr1.Serve(c, ctx)
 
 	CreateShards(c, cmr1, &consumer.ShardSpec{
@@ -132,7 +150,13 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 		HotStandbys:    1,
 	})
 
-	var cmr2 = NewConsumer(c, etcd, rjc, testApp{}, "other", "consumer")
+	var cmr2 = NewConsumer(Args{
+		C:        c,
+		Etcd:     etcd,
+		Journals: rjc,
+		App:      testApp{},
+		Zone:     "zone-2",
+	})
 	go cmr2.Serve(c, ctx)
 
 	<-cmr1.AllocateIdleCh() // |cmr2| is assigned as standby.
