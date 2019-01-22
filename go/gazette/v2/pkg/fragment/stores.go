@@ -105,6 +105,22 @@ func List(ctx context.Context, store pb.FragmentStore, prefix string, callback f
 	}
 }
 
+// Remove |fragment| from |store|.
+func Remove(ctx context.Context, store pb.FragmentStore, fragment pb.Fragment) error {
+	var ep = store.URL()
+
+	switch ep.Scheme {
+	case "s3":
+		return s3Remove(ctx, ep, fragment)
+	case "gs":
+		return gcsRemove(ctx, ep, fragment)
+	case "file":
+		return fsRemove(ep, fragment)
+	default:
+		panic("unsupported scheme: " + ep.Scheme)
+	}
+}
+
 func parseStoreArgs(ep *url.URL, args interface{}) error {
 	var decoder = schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(false)

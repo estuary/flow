@@ -105,3 +105,8 @@ func fsList(store pb.FragmentStore, ep *url.URL, prefix string, callback func(pb
 			return nil
 		})
 }
+
+func fsRemove(ep *url.URL, fragment pb.Fragment) error {
+	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path+fragment.ContentPath()))
+	return os.Remove(path)
+}

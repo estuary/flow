@@ -155,6 +155,14 @@ func gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.Si
 	return
 }
 
+func gcsRemove(ctx context.Context, ep *url.URL, fragment pb.Fragment) error {
+	cfg, client, _, err := gcsClient(ep)
+	if err != nil {
+		return err
+	}
+	return client.Bucket(cfg.bucket).Object(cfg.prefix + fragment.ContentPath()).Delete(ctx)
+}
+
 var sharedGCS struct {
 	*storage.Client
 	storage.SignedURLOptions

@@ -150,6 +150,20 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, prefix str
 	})
 }
 
+func s3Remove(ctx context.Context, ep *url.URL, fragment pb.Fragment) error {
+	var cfg, client, err = s3Client(ep)
+	if err != nil {
+		return err
+	}
+	var deleteObj = s3.DeleteObjectInput{
+		Bucket: aws.String(cfg.bucket),
+		Key:    aws.String(cfg.prefix + fragment.ContentPath()),
+	}
+
+	_, err = client.DeleteObjectWithContext(ctx, &deleteObj)
+	return err
+}
+
 func s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
 	if err = parseStoreArgs(ep, &cfg); err != nil {
 		return
