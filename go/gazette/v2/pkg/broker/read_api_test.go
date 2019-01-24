@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -31,7 +32,9 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 	var spool, err = acquireSpool(tf.ctx, res.replica)
 	c.Check(err, gc.IsNil)
 
-	stream, err := broker.MustClient().Read(pb.WithDispatchDefault(tf.ctx),
+	var streamCtx, streamCancel = context.WithCancel(pb.WithDispatchDefault(tf.ctx))
+
+	stream, err := broker.MustClient().Read(streamCtx,
 		&pb.ReadRequest{
 			Journal:      "a/journal",
 			Offset:       0,
@@ -92,7 +95,7 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 		Content: []byte("bing"),
 	})
 
-	cleanup()
+	streamCancel()
 	_, err = stream.Recv()
 	c.Check(err, gc.ErrorMatches, `rpc error: code = Canceled .*`)
 }
