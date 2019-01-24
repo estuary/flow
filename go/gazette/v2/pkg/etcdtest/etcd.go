@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
@@ -18,6 +19,8 @@ import (
 // TestClient returns a client of the embeded Etcd test server. It asserts that
 // the Etcd keyspace is empty (eg, that the prior test cleaned up after itself).
 func TestClient() *clientv3.Client {
+	once.Do(startEmbededEtcd)
+
 	var resp, err = etcdClient.Get(context.Background(), "", clientv3.WithPrefix(), clientv3.WithLimit(5))
 	if err != nil {
 		log.Fatal(err)
@@ -33,7 +36,7 @@ func Cleanup() {
 	}
 }
 
-func init() {
+func startEmbededEtcd() {
 	var cfg = embed.NewConfig()
 	cfg.Dir = filepath.Join(os.TempDir(), "etcdtest.etcd", filepath.Base(os.Args[0]))
 	cfg.LPUrls = nil
@@ -70,6 +73,7 @@ func init() {
 }
 
 var (
+	once       sync.Once
 	embedEtcd  *embed.Etcd
 	etcdClient *clientv3.Client
 )
