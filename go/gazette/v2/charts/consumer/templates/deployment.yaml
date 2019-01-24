@@ -54,7 +54,8 @@ spec:
                 --consumer.port=8080 \
                 --consumer.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
                 --etcd.address={{ .Values.etcd.endpoint }} \
-                --etcd.prefix={{ .Values.etcd.partialPrefix }}/{{ required "Must provide nameOverride" .Values.nameOverride }}
+                --etcd.prefix={{ .Values.etcd.partialPrefix }}/{{ required "Must provide nameOverride" .Values.nameOverride }} \
+{{ .Values.extraArgs | indent 16 }}
           env:
             - name: CONSUMER_ID
               valueFrom:

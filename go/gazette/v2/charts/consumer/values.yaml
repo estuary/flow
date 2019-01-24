@@ -76,6 +76,8 @@ resources: {}
   #  cpu: 100m
   #  memory: 128Mi
 
+# Additional arguments provided to the run-consumer binary.
+extraArgs: ""
 # Additional volumes to be provided to the Deployment.
 extraVolumes: {}
 # Additional volumeMounts to be mounted to the run-consumer container.
