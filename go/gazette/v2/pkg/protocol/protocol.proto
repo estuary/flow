@@ -442,6 +442,47 @@ message ApplyResponse {
   Header header = 2 [(gogoproto.nullable) = false];
 }
 
+message FragmentsRequest {
+  // Header is attached by a proxying broker peer.
+  Header header = 1;
+  // Journal to be read.
+  string journal = 2 [(gogoproto.casttype) = "Journal"]; 
+  // BeginModTime is an optional field specifying an inclusive lower bound on 
+  // the last modified time for a fragment to be returned.
+  google.protobuf.Timestamp begin_mod_time = 3 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+  // EndModTime is an optional field specifying an exclusive upper bound on 
+  // the last mondified time for a fragment to be returned.
+  google.protobuf.Timestamp end_mod_time = 4 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+  // The NextPageToke value returned from a previous, continued FragmentsRequest, if any.
+  int64 next_page_token = 5;
+  // PageLimit is an optional fieled specifying how many fragments to be returned
+  // with the response. The default value for PageLimit is 1000.
+  int32 page_limit = 6;
+  // SignatureTTL is an optional field specifying how long a returned singed URL 
+  // is valid for. The default value for SignatureTTL is 24 hours.
+  google.protobuf.Duration signatureTTL = 7 [(gogoproto.stdduration) = true, (gogoproto.nullable) = true];
+  // If do_not_proxy is true, the broker will not proxy the request to another broker on the client's behalf.
+  bool do_not_proxy = 8;
+}
+
+message FragmentsResponse {
+  // Status of the Apply RPC.
+  Status status = 1;
+  // Header of the response.
+  Header header = 2;
+
+  message SignedFragment {
+    Fragment fragment = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+    string signed_url = 2;
+  }
+
+  // List of fragments with a signed URL for accessing from cloud storage.
+  repeated SignedFragment fragments = 3 [(gogoproto.nullable) = false];
+  // The NextPageToke value to be returned on subsequent Fragments requests. If the value is 
+  // zero then there are no more fragments to be returned for this page.
+  int64 next_page_token = 4;
+}
+
 // Route captures the current topology of an item and the processes serving it.
 message Route {
   // Members of the Route, ordered on ascending ProcessSpec.ID (zone, suffix).
@@ -498,4 +539,6 @@ service Journal {
   // peers in the course of processing Append transactions, but is not intended
   // for direct use by clients.
   rpc Replicate(stream ReplicateRequest) returns (stream ReplicateResponse);
+  // Returns the smallest contigous block of fragments within a specificed time range.
+  rpc Fragments(FragmentsRequest) returns (FragmentsResponse);
 }

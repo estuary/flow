@@ -196,6 +196,14 @@ func (fi *Index) WaitForFirstRemoteRefresh(ctx context.Context) error {
 	}
 }
 
+// Inspect will call |callback| with a CoverSet represeting a snapshot of all the fragments in the index.
+// While |callback| is executing there will be no changes to the fragment set of the index.
+func (fi *Index) Inspect(callback func(CoverSet) error) error {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+	return callback(fi.set)
+}
+
 // WalkAllStores enumerates Fragments from each of |stores| into the returned
 // CoverSet, or returns an encountered error.
 func WalkAllStores(ctx context.Context, name pb.Journal, stores []pb.FragmentStore) (CoverSet, error) {
