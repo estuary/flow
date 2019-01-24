@@ -9,6 +9,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/keepalive"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
 )
@@ -59,7 +60,22 @@ func New(iface string, port uint16) (*Server, error) {
 	}
 
 	srv.CMux = cmux.New(keepalive.TCPListener{TCPListener: srv.RawListener})
-	srv.GRPCListener = srv.CMux.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
+
+	srv.CMux.HandleError(func(err error) bool {
+		if _, ok := err.(net.Error); !ok {
+			log.WithField("err", err).Warn("failed to CMux client connection to a listener")
+		}
+		return true // Continue serving RawListener.
+	})
+
+	// GRPCListener sniffs for HTTP/2 in-the-clear connections which have
+	// "Content-Type: application/grpc". Note this matcher will send an initial
+	// empty SETTINGS frame to the client, as grpc clients delay the first
+	// request until the HTTP/2 handshake has completed.
+	srv.GRPCListener = srv.CMux.MatchWithWriters(
+		cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
+
+	// Connections sending HTTP/1 verbs (GET, PUT, POST etc) are assumed to be HTTP.
 	srv.HTTPListener = srv.CMux.Match(cmux.HTTP1Fast())
 
 	return srv, nil
