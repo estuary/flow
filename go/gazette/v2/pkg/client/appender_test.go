@@ -85,9 +85,7 @@ func (s *AppenderSuite) TestBrokerWriteError(c *gc.C) {
 		time.Sleep(time.Millisecond)
 		n, err = a.Write([]byte("x"))
 	}
-	// NOTE(johnny): For some reason, gRPC translates the remote error into an
-	// EOF returned by an attempted SendMsg.
-	c.Check(err, gc.Equals, io.EOF)
+	c.Check(err, gc.ErrorMatches, "rpc error: code = Unknown desc = an error")
 	c.Check(n, gc.Equals, 0)
 }
 

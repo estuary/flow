@@ -53,12 +53,13 @@ func proxyRead(stream grpc.ServerStream, req *pb.ReadRequest, jc pb.JournalClien
 	var client, err = jc.Read(ctx, req)
 	if err != nil {
 		return err
-	} else if err = client.CloseSend(); err != nil {
-		return err
 	}
+	// Ignore CloseSend's error. Currently, gRPC will never return one. If the
+	// stream is broken, it *could* return io.EOF but we'd rather read the actual
+	// casual error with RecvMsg.
+	_ = client.CloseSend()
 
 	var resp = new(pb.ReadResponse)
-
 	for {
 		if err = client.RecvMsg(resp); err == io.EOF {
 			return nil

@@ -168,11 +168,13 @@ func releasePipelineAndGatherResponse(ctx context.Context, pln *pipeline, releas
 		pln.gatherEOF()
 	}
 
-	if sendErr != nil {
-		return sendErr
-	} else {
-		return pln.recvErr()
+	// recvErr()s are generally more informational that sendErr()s:
+	// gRPC SendMsg returns io.EOF on remote stream breaks, while RecvMsg
+	// returns the actual causal error.
+	if err := pln.recvErr(); err != nil {
+		return err
 	}
+	return sendErr
 }
 
 // shutDownReplica drains replica pipeline & spool channels and cancels its context.

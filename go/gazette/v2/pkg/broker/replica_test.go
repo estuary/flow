@@ -133,7 +133,7 @@ func (s *ReplicaSuite) TestPipelineAcquisitionAndRelease(c *gc.C) {
 	})
 	c.Check(releasePipelineAndGatherResponse(tf.ctx, pln, res.replica.pipelineCh),
 		gc.ErrorMatches,
-		`send to zone:"peer" suffix:"broker2" : rpc error: code = Internal desc = SendMsg called after CloseSend`)
+		`recv from zone:"peer" suffix:"broker2" : rpc error: code = Internal desc = SendMsg called after CloseSend`)
 
 	// Expect a nil pipeline was released.
 	c.Check(<-res.replica.pipelineCh, gc.IsNil)

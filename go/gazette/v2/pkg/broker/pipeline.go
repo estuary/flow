@@ -110,6 +110,8 @@ func (pln *pipeline) scatter(r *pb.ReplicateRequest) {
 				// Copy and update to peer ProcessID.
 				r.Header = boxHeaderProcessID(*r.Header, pln.Route.Members[i])
 			}
+			// Send may return an io.EOF if the remote peer breaks the stream.
+			// We read the actual error in the gather() phase.
 			pln.sendErrs[i] = s.Send(r)
 		}
 	}

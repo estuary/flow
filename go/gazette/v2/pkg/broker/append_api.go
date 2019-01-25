@@ -79,10 +79,11 @@ func proxyAppend(stream grpc.ServerStream, req *pb.AppendRequest, jc pb.JournalC
 	}
 	for {
 		if err = client.SendMsg(req); err != nil {
-			return err
+			break // Client stream is broken. CloseAndRecv() will return causal error.
 		} else if err = stream.RecvMsg(req); err == io.EOF {
 			break
 		} else if err != nil {
+			_, _ = client.CloseAndRecv() // Drain to free resources.
 			return err
 		}
 	}

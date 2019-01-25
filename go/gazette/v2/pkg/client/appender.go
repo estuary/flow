@@ -47,7 +47,7 @@ func (a *Appender) Write(p []byte) (n int, err error) {
 	// Lazy initialization: begin the Append RPC.
 	if err = a.lazyInit(); err != nil {
 		// Pass.
-	} else if err = a.stream.SendMsg(&pb.AppendRequest{Content: p}); err != nil {
+	} else if err = a.sendMsg(&pb.AppendRequest{Content: p}); err != nil {
 		// Pass.
 	} else {
 		n = len(p)
@@ -66,10 +66,12 @@ func (a *Appender) Close() (err error) {
 	// Send an empty chunk to signal commit of previously written content
 	if err = a.lazyInit(); err != nil {
 		// Pass.
-	} else if err = a.stream.SendMsg(new(pb.AppendRequest)); err != nil {
+	} else if err = a.sendMsg(new(pb.AppendRequest)); err != nil {
 		// Pass.
-	} else if err = a.stream.CloseSend(); err != nil {
-		// Pass.
+	} else if _ = a.stream.CloseSend(); false {
+		// Ignore CloseSend's error. Currently, gRPC will never return one. If the
+		// stream is broken, it *could* return io.EOF but we'd rather read the actual
+		// casual error with RecvMsg.
 	} else if err = a.stream.RecvMsg(&a.Response); err != nil {
 		// Pass.
 	} else if err = a.Response.Validate(); err != nil {
@@ -116,8 +118,17 @@ func (a *Appender) lazyInit() (err error) {
 
 		if err == nil {
 			// Send request preamble metadata prior to append content chunks.
-			err = a.stream.SendMsg(&a.Request)
+			err = a.sendMsg(&a.Request)
 		}
+	}
+	return
+}
+
+func (a *Appender) sendMsg(r *pb.AppendRequest) (err error) {
+	if err = a.stream.SendMsg(r); err == io.EOF {
+		// EOF indicates that a server-side error has occurred, but it must
+		// still be read via RecvMsg. See SendMsg docs.
+		err = a.stream.RecvMsg(&a.Response)
 	}
 	return
 }
