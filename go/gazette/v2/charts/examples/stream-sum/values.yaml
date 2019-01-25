@@ -6,7 +6,7 @@ consumer:
   nameOverride: stream-sum
   image:
     repository: liveramp/gazette-examples
-    module: /go/bin/stream-sum-summer.so
+    binary: /go/bin/summer
 
 chunker:
   numJobs: 10

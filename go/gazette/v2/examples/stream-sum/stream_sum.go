@@ -31,10 +31,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LiveRamp/gazette/v2/cmd/run-consumer/consumermodule"
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
 	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
+	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
@@ -137,21 +137,15 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 	return nil
 }
 
-// Summer consumes stream chunks, aggregates chunk data, and emits final sums. It
-// implements both the consumer.Application interface, and the
-// consumermodule.Module interface.
+// Summer consumes stream chunks, aggregates chunk data, and emits final sums.
+// It implements the runconsumer.Application interface.
 type Summer struct{}
 
-// NewConfig returns a new BaseConfig. consumermodule.Module implementation.
-func (Summer) NewConfig() consumermodule.Config { return new(struct{ consumermodule.BaseConfig }) }
+// NewConfig returns a new BaseConfig.
+func (Summer) NewConfig() runconsumer.Config { return new(struct{ runconsumer.BaseConfig }) }
 
-// NewApplication returns a new instance of itself (as Summer is its own consumer.Application).
-// consumermodule.Module implementation.
-func (Summer) NewApplication() consumer.Application { return Summer{} }
-
-// InitModule is a no-op, as Summer provides no client-facing APIs.
-// consumermodule.Module implementation.
-func (Summer) InitModule(args consumermodule.InitArgs) error { return nil }
+// InitApplication is a no-op, as Summer provides no client-facing APIs.
+func (Summer) InitApplication(args runconsumer.InitArgs) error { return nil }
 
 // NewStore builds a RocksDB store for the Shard. consumer.Application implementation.
 func (Summer) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recorder) (consumer.Store, error) {

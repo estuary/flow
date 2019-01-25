@@ -10,7 +10,7 @@ consumer:
   nameOverride: word-count
   image:
     repository: liveramp/gazette-examples
-    module: /go/bin/word-count-counter.so
+    binary: /go/bin/counter
 
   configIniTemplate: |-
     [WordCount]

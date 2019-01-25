@@ -1,13 +1,9 @@
-// +build !norocksdb
-
-// Package counter is a consumer plugin (eg, should be built with
-// `go build --buildmode=plugin`).
+// Package summer runs the stream_sum.Summer consumer.
 package main
 
 import (
-	"github.com/LiveRamp/gazette/v2/cmd/run-consumer/consumermodule"
 	"github.com/LiveRamp/gazette/v2/examples/stream-sum"
+	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 )
 
-func main() {} // Not called.
-var Module consumermodule.Module = stream_sum.Summer{}
+func main() { runconsumer.Main(stream_sum.Summer{}) }

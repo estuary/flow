@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LiveRamp/gazette/v2/cmd/run-consumer/consumermodule"
 	"github.com/LiveRamp/gazette/v2/pkg/brokertest"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
 	"github.com/LiveRamp/gazette/v2/pkg/consumertest"
 	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
@@ -33,9 +33,9 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
 	defer cancel()
 
-	var cfg = new(counterConfig)
 	var app = new(Counter)
-	cfg.WordCount.N = 2
+	var cfg = app.NewConfig()
+	cfg.(*counterConfig).WordCount.N = 2
 
 	var cmr = consumertest.NewConsumer(consumertest.Args{
 		C:        c,
@@ -43,12 +43,11 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 		Journals: rjc,
 		App:      app,
 	})
-	c.Assert(Counter{}.InitModule(consumermodule.InitArgs{
-		Context:     ctx,
-		Config:      cfg,
-		Application: app,
-		Server:      cmr.Server,
-		Service:     cmr.Service,
+	c.Assert(app.InitApplication(runconsumer.InitArgs{
+		Context: ctx,
+		Config:  cfg,
+		Server:  cmr.Server,
+		Service: cmr.Service,
 	}), gc.IsNil)
 	go cmr.Serve(c, ctx)
 	consumertest.CreateShards(c, cmr, testShards...)

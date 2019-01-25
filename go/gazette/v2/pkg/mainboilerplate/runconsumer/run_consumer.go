@@ -1,0 +1,138 @@
+// Package runconsumer extends consumer.Application with support for
+// configuration and application initialization. It provides a Main() function
+// which executes the full consumer life-cycle, including config parsing,
+// service bootstrap, and Shard serving.
+package runconsumer
+
+import (
+	"context"
+
+	"github.com/LiveRamp/gazette/v2/pkg/allocator"
+	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
+	"github.com/LiveRamp/gazette/v2/pkg/metrics"
+	"github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/server"
+	"github.com/jessevdk/go-flags"
+	"github.com/prometheus/client_golang/prometheus"
+	log "github.com/sirupsen/logrus"
+)
+
+// Application interface run by Run.
+type Application interface {
+	consumer.Application
+
+	// NewConfig returns a new, zero-valued Config instance.
+	NewConfig() Config
+	// InitApplication initializes the Application, eg by starting related
+	// services and registering implemented service APIs.
+	InitApplication(InitArgs) error
+}
+
+// InitArgs are arguments passed to Application.InitApplication.
+type InitArgs struct {
+	// Context of the service. Typically this is context.Background(),
+	// but tests may prefer to use a scoped context.
+	Context context.Context
+	// Config previously returned by NewConfig, and since parsed into.
+	Config Config
+	// Server is a dual HTTP and gRPC Server. Applications may register
+	// APIs they implement against the Server mux.
+	Server *server.Server
+	// Service of the consumer. Applications may use the Service to power Shard
+	// resolution, request proxying, and state inspection.
+	Service *consumer.Service
+}
+
+// Config is the top-level configuration object of an Application. It must
+// be parse-able by `go-flags`, and must present a BaseConfig.
+type Config interface {
+	// GetBaseConfig of the Config.
+	GetBaseConfig() BaseConfig
+}
+
+// BaseConfig is the top-level configuration object of a Gazette consumer.
+type BaseConfig struct {
+	Consumer struct {
+		mbp.ServiceConfig
+
+		Limit uint32 `long:"limit" env:"LIMIT" default:"32" description:"Maximum number of Shards this consumer process will allocate"`
+	} `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
+
+	Broker mbp.ClientConfig `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
+
+	Etcd struct {
+		mbp.EtcdConfig
+
+		Prefix string `long:"prefix" env:"PREFIX" description:"Etcd prefix for consumer state and coordination (eg, /gazette/consumers/myApplication)"`
+	} `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
+
+	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
+}
+
+// GetBaseConfig returns itself, and trivially implements the Config interface.
+func (c BaseConfig) GetBaseConfig() BaseConfig { return c }
+
+const iniFilename = "gazette.ini"
+
+type serveConsumer struct {
+	cfg Config
+	app Application
+}
+
+func (sc serveConsumer) Execute(args []string) error {
+	var bc = sc.cfg.GetBaseConfig()
+
+	defer mbp.InitDiagnosticsAndRecover(bc.Diagnostics)()
+	mbp.InitLog(bc.Log)
+
+	log.WithField("config", sc.cfg).Info("starting consumer")
+	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
+	prometheus.MustRegister(metrics.GazetteConsumerCollectors()...)
+
+	var ks = consumer.NewKeySpace(bc.Etcd.Prefix)
+	var allocState = allocator.NewObservedState(ks, bc.Consumer.MemberKey(ks))
+
+	var etcd = mbp.MustEtcdContext(bc.Etcd.EtcdConfig)
+	var srv, err = server.New("", bc.Consumer.Port)
+	mbp.Must(err, "building Server instance")
+	protocol.RegisterGRPCDispatcher(bc.Consumer.Zone)
+
+	if bc.Broker.Cache.Size <= 0 {
+		log.Warn("--broker.cache.size is disabled; consider setting > 0")
+	}
+	var rjc = bc.Broker.RoutedJournalClient(context.Background())
+	var service = consumer.NewService(sc.app, allocState, rjc, srv.MustGRPCLoopback(), etcd.Etcd)
+
+	consumer.RegisterShardServer(srv.GRPCServer, service)
+	mbp.Must(sc.app.InitApplication(InitArgs{
+		Context: context.Background(),
+		Config:  sc.cfg,
+		Server:  srv,
+		Service: service,
+	}), "application failed to init")
+
+	mbp.AnnounceServeAndAllocate(etcd, srv, allocState, &consumer.ConsumerSpec{
+		ProcessSpec: bc.Consumer.ProcessSpec(),
+		ShardLimit:  bc.Consumer.Limit,
+	})
+	service.Resolver.WaitForLocalReplicas()
+
+	log.Info("goodbye")
+	return nil
+}
+
+func Main(app Application) {
+	var cfg = app.NewConfig()
+
+	var parser = flags.NewParser(cfg, flags.Default)
+	_, _ = parser.AddCommand("serve", "Serve as Gazette consumer", `
+		serve a Gazette consumer with the provided configuration, until signaled to
+		exit (via SIGTERM). Upon receiving a signal, the consumer will seek to discharge
+		its responsible shards and will exit only when it can safely do so.
+		`, &serveConsumer{cfg: cfg, app: app})
+
+	mbp.AddPrintConfigCmd(parser, iniFilename)
+	mbp.MustParseConfig(parser, iniFilename)
+}

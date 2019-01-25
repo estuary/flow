@@ -120,7 +120,8 @@ sed -e "s/MINIO_ENDPOINT/http%3A\/\/${MINIO_RELEASE}%3A9000/g" ${V2DIR}/test/jou
   BROKER_ADDRESS=$(releaseSvcAddress ${GAZETTE_RELEASE}) ${GAZCTL} journals apply --specs /dev/stdin
 
 # Install the "stream-sum" chart, first updating dependencies and blocking until release is complete.
-${HELM} install --namespace ${NAMESPACE} --dep-up --wait ${V2DIR}/charts/examples/stream-sum --values /dev/stdin << EOF
+${HELM} dependency update ${V2DIR}/charts/examples/stream-sum
+${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/stream-sum --values /dev/stdin << EOF
 consumer:
   etcd:
     endpoint: http://${ETCD_RELEASE}-etcd:2379
@@ -162,8 +163,9 @@ for i in {1..3}; do
   ${KUBECTL} delete pod -l "app.kubernetes.io/name in (gazette, stream-sum)"
 done
 
-# Install the "word-count" chart.
-${HELM} install --namespace ${NAMESPACE} --dep-up --wait ${V2DIR}/charts/examples/word-count --values /dev/stdin << EOF
+# Update dependencies and install the "word-count" chart.
+${HELM} dependency update ${V2DIR}/charts/examples/word-count
+${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/word-count --values /dev/stdin << EOF
 consumer:
   etcd:
     endpoint: http://${ETCD_RELEASE}-etcd:2379

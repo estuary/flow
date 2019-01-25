@@ -48,9 +48,8 @@ spec:
             - "/bin/sh"
             - "-ec"
             - |
-              exec /go/bin/run-consumer serve \
+              exec {{ required "Must provide image.binary" .Values.image.binary }} serve \
                 --broker.address={{ .Values.gazette.endpoint }} \
-                --consumer.module={{ required "Must provide image.module" .Values.image.module }} \
                 --consumer.port=8080 \
                 --consumer.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
                 --etcd.address={{ .Values.etcd.endpoint }} \

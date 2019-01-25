@@ -8,7 +8,7 @@ image:
   repository: "" # Must provide application image.
   tag: latest
   pullPolicy: IfNotPresent
-  module: "" # Must provide path to module shared-object.
+  binary: "" # Must provide path to a runconsumer.Main() binary.
 
 # nameOverride is the application name assumed by the chart, and must be provided. Eg, "my-application".
 nameOverride: ""
@@ -76,15 +76,15 @@ resources: {}
   #  cpu: 100m
   #  memory: 128Mi
 
-# Additional arguments provided to the run-consumer binary.
+# Additional arguments provided to the binary.
 extraArgs: ""
-# Additional volumes to be provided to the Deployment.
+# Additional volumes to be attached.
 extraVolumes: {}
-# Additional volumeMounts to be mounted to the run-consumer container.
+# Additional volumeMounts to be mounted.
 extraVolumeMounts: {}
 # Node selector YAML which is applied to the Deployment.
 nodeSelector: {}
-# Kubernetes tolerations applied to the run-consumer container.
+# Kubernetes tolerations to be applied.
 tolerations: []
-# Node affinities applied to the run-consumer container.
+# Node affinities to be applied.
 affinity: {}

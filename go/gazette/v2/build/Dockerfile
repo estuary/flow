@@ -78,26 +78,12 @@ COPY v2/examples /go/src/github.com/LiveRamp/gazette/v2/examples
 RUN go install github.com/LiveRamp/gazette/v2/examples/...
 RUN go test github.com/LiveRamp/gazette/v2/examples/...
 
-# Build the stream-sum consumer plugin.
-RUN go build \
-    --buildmode=plugin \
-    -o /go/bin/stream-sum-summer.so \
-    github.com/LiveRamp/gazette/v2/examples/stream-sum/summer
-
-# Build the word-count consumer plugin.
-RUN go build \
-    --buildmode=plugin \
-    -o /go/bin/word-count-counter.so \
-    github.com/LiveRamp/gazette/v2/examples/word-count/counter
-
-
 # Stage 4: Pluck gazette binaries onto base.
 FROM base as gazette
 
 COPY --from=build \
     /go/bin/gazctl \
     /go/bin/gazette \
-    /go/bin/run-consumer \
     /go/bin/
 
 
@@ -106,8 +92,8 @@ FROM gazette as examples
 
 COPY --from=build \
         /go/bin/chunker \
-        /go/bin/word-count-counter.so \
-        /go/bin/stream-sum-summer.so \
+        /go/bin/counter \
+        /go/bin/summer \
         /go/bin/wordcountctl \
     /go/bin/
 

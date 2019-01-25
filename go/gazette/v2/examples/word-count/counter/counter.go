@@ -1,13 +1,9 @@
-// +build !norocksdb
-
-// Package counter is a consumer plugin (eg, should be built with
-// `go build --buildmode=plugin`).
+// Package counter runs the word_count.Counter consumer.
 package main
 
 import (
-	"github.com/LiveRamp/gazette/v2/cmd/run-consumer/consumermodule"
 	"github.com/LiveRamp/gazette/v2/examples/word-count"
+	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 )
 
-func main() {} // Not called.
-var Module consumermodule.Module = word_count.Counter{}
+func main() { runconsumer.Main(new(word_count.Counter)) }

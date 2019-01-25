@@ -15,10 +15,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/LiveRamp/gazette/v2/cmd/run-consumer/consumermodule"
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
@@ -31,8 +31,7 @@ type NGram string
 // Counter consumes NGramCount messages and aggregates total counts of each NGram.
 // It also provides gRPC APIs for publishing text and querying NGram counts. It
 // implements the following interfaces:
-// - consumermodule.Module
-// - consumer.Application
+// - runconsumer.Application
 // - NGramServer (generated gRPC service stub).
 type Counter struct {
 	svc     *consumer.Service
@@ -47,21 +46,14 @@ type counterConfig struct {
 		N int `long:"N" description:"Number of grams per N-gram"`
 	} `group:"WordCount" namespace:"wordcount"`
 
-	consumermodule.BaseConfig
+	runconsumer.BaseConfig
 }
 
 // NewConfig returns a new configuration instance.
-// Implements consumermodule.Module.
-func (Counter) NewConfig() consumermodule.Config { return new(counterConfig) }
-
-// NewApplication returns a new instance of itself (as Counter is its own
-// consumer.Application).
-// Implements consumermodule.Module.
-func (Counter) NewApplication() consumer.Application { return new(Counter) }
+func (Counter) NewConfig() runconsumer.Config { return new(counterConfig) }
 
 // InitModule initializes the application to serve the NGram gRPC service.
-// Implements consumermodule.Module.
-func (Counter) InitModule(args consumermodule.InitArgs) error {
+func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 	var N = args.Config.(*counterConfig).WordCount.N
 	if N == 0 {
 		return errors.New("--wordcount.N must be specified")
@@ -79,19 +71,17 @@ func (Counter) InitModule(args consumermodule.InitArgs) error {
 	}
 
 	// Fill out the Counter instance with fields used by the gRPC API.
-	var app = args.Application.(*Counter)
-
-	app.svc = args.Service
-	app.ajc = client.NewAppendService(args.Context, args.Service.Journals)
-	app.mapping = message.ModuloMapping(
+	counter.svc = args.Service
+	counter.ajc = client.NewAppendService(args.Context, args.Service.Journals)
+	counter.mapping = message.ModuloMapping(
 		func(m message.Message, b []byte) []byte {
 			return append(b, m.(*NGramCount).NGram[:]...)
 		},
 		parts.List,
 	)
-	app.n = N
+	counter.n = N
 
-	RegisterNGramServer(args.Server.GRPCServer, app)
+	RegisterNGramServer(args.Server.GRPCServer, counter)
 	return nil
 }
 
@@ -158,10 +148,10 @@ func (Counter) FinalizeTxn(shard consumer.Shard, store consumer.Store) error {
 // Publish extracts NGrams of the configured length from the PublishRequest,
 // and publishes an NGramCount message for each. It returns after all published
 // messages have committed to their respective journals.
-func (api *Counter) Publish(ctx context.Context, req *PublishRequest) (*PublishResponse, error) {
+func (counter *Counter) Publish(ctx context.Context, req *PublishRequest) (*PublishResponse, error) {
 	var (
 		resp         = new(PublishResponse)
-		N            = api.n                    // Number of tokens per-NGram.
+		N            = counter.n                // Number of tokens per-NGram.
 		grams        = make([]string, N)        // NGram being extracted.
 		delta        = &NGramCount{Count: 1}    // NGramCount delta to publish.
 		buf          bytes.Buffer               // Buffer for the composed NGram.
@@ -175,7 +165,7 @@ func (api *Counter) Publish(ctx context.Context, req *PublishRequest) (*PublishR
 	for i := range grams {
 		grams[i] = "START"
 	}
-	for i := 0; i != len(words)+api.n; i++ {
+	for i := 0; i != len(words)+counter.n; i++ {
 		copy(grams, grams[1:])
 
 		if i < len(words) {
@@ -193,7 +183,7 @@ func (api *Counter) Publish(ctx context.Context, req *PublishRequest) (*PublishR
 		}
 
 		delta.NGram = NGram(buf.String())
-		if aa, err := message.Publish(api.ajc, api.mapping, delta); err != nil {
+		if aa, err := message.Publish(counter.ajc, counter.mapping, delta); err != nil {
 			return resp, err
 		} else if ind, ok := appendsIndex[aa.Request().Journal]; ok {
 			asyncAppends[ind] = aa // Keep only the last AsyncAppend of each journal.
@@ -210,17 +200,17 @@ func (api *Counter) Publish(ctx context.Context, req *PublishRequest) (*PublishR
 // Query a count for an NGram count (or counts for a prefix thereof). If the
 // requested or imputed Shard does not resolve locally, Query will proxy the
 // request to the responsible process.
-func (api *Counter) Query(ctx context.Context, req *QueryRequest) (resp *QueryResponse, err error) {
+func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *QueryResponse, err error) {
 	resp = new(QueryResponse)
 
 	if req.Shard == "" {
-		if req.Shard, err = api.mapPrefixToShard(req.Prefix); err != nil {
+		if req.Shard, err = counter.mapPrefixToShard(req.Prefix); err != nil {
 			return
 		}
 	}
 
 	var res consumer.Resolution
-	if res, err = api.svc.Resolver.Resolve(consumer.ResolveArgs{
+	if res, err = counter.svc.Resolver.Resolve(consumer.ResolveArgs{
 		Context:     ctx,
 		ShardID:     req.Shard,
 		MayProxy:    req.Header == nil, // MayProxy if request hasn't already been proxied.
@@ -233,7 +223,7 @@ func (api *Counter) Query(ctx context.Context, req *QueryRequest) (resp *QueryRe
 	} else if res.Store == nil {
 		req.Header = &res.Header // Proxy to the resolved primary peer.
 
-		return NewNGramClient(api.svc.Loopback).Query(
+		return NewNGramClient(counter.svc.Loopback).Query(
 			pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId), req)
 	}
 	defer res.Done()
@@ -265,19 +255,19 @@ func (api *Counter) Query(ctx context.Context, req *QueryRequest) (resp *QueryRe
 	return
 }
 
-func (api *Counter) mapPrefixToShard(prefix NGram) (shard consumer.ShardID, err error) {
+func (counter *Counter) mapPrefixToShard(prefix NGram) (shard consumer.ShardID, err error) {
 	// Determine the Journal which Prefix maps to, and then the ID of the
 	// ShardSpec which consumes that |journal|.
 	var journal pb.Journal
-	if journal, _, err = api.mapping(&NGramCount{NGram: prefix}); err != nil {
+	if journal, _, err = counter.mapping(&NGramCount{NGram: prefix}); err != nil {
 		return
 	}
 
 	// Walk ShardSpecs to find one which has |journal| as a source.
-	api.svc.State.KS.Mu.RLock()
-	defer api.svc.State.KS.Mu.RUnlock()
+	counter.svc.State.KS.Mu.RLock()
+	defer counter.svc.State.KS.Mu.RUnlock()
 
-	for _, kv := range api.svc.State.Items {
+	for _, kv := range counter.svc.State.Items {
 		var spec = kv.Decoded.(allocator.Item).ItemValue.(*consumer.ShardSpec)
 
 		for _, src := range spec.Sources {
