@@ -116,7 +116,7 @@ readonly GAZCTL="${DOCKER} run \
 
 # Create all test journals. Use `sed` to replace the MINIO_ENDPOINT token with the
 # correct, URL-encoded Minio service address.
-sed -e "s/MINIO_ENDPOINT/http%3A\/\/${MINIO_RELEASE}%3A9000/g" ${V2DIR}/test/journalspace.yaml | \
+sed -e "s/MINIO_RELEASE/${MINIO_RELEASE}/g" ${V2DIR}/test/journalspace.yaml | \
   BROKER_ADDRESS=$(releaseSvcAddress ${GAZETTE_RELEASE}) ${GAZCTL} journals apply --specs /dev/stdin
 
 # Install the "stream-sum" chart, first updating dependencies and blocking until release is complete.

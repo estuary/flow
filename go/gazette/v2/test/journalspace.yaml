@@ -37,7 +37,7 @@ fragment:
   # to the first store in the list, but all stores are refreshed when
   # building the fragment index.
   stores:
-  - "s3://examples/fragments/?profile=minio&endpoint=MINIO_ENDPOINT"
+  - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2FMINIO_RELEASE%3A9000
   # Refresh interval defines the frequency with which stores are re-listed.
   refresh_interval: 1m0s
   # Retention is the time interval after which the fragment is eligible
