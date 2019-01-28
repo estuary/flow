@@ -23,13 +23,11 @@ Cluster QuickStart
     $ v2/build/all .
 
     # (If required) bootstrap a Kubernetes cluster with Helm (https://helm.sh).
-    $ v2/test/bootstrap_local_kubernetes.sh
+    $ v2/test/bootstrap_local_kubernetes.sh my-k8s-context
 
-    # Deploy Gazette brokers and interactive examples to a Kubernetes cluster.
-    # Context defaults to "docker-for-desktop" (if installed) or "minikube".
-    # Namespace defaults to "default".
-    $ v2/test/deploy_test_environment.sh -c ${MY_CONTEXT} -n ${MY_NAMESPACE}
-    Using context "minikube" & namespace "default"
+    # Deploy Gazette brokers to the cluster.
+    $ v2/test/deploy_brokers.sh my-k8s-context my-namespace
+    Using context "my-k8s-context" & namespace "my-namespace"
     ... trimmed output ...
     NOTES:
     The Gazette broker cluster is now running.
@@ -38,6 +36,8 @@ Cluster QuickStart
       echo "Visit http://127.0.0.1:8080 to use your application"
       kubectl port-forward $POD_NAME 8080:80
 
+    # Deploy example applications to the cluster.
+    $ v2/test/deploy_examples.sh my-k8s-context my-namespace
 
 - `build/ <build/>`_ provides an overview of Gazette's build infrastructure.
 

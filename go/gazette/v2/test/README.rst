@@ -39,17 +39,16 @@ respectively). For example, when using MicroK8s:
   # Gazette scripts now use these variables. Install Tiller to the "microk8s" context.
   $ v2/test/bootstrap_local_kubernetes.sh microk8s
 
-Deploying A Test Environment
-============================
+Deploying Brokers
+=================
 
-The `deploy_test_environment.sh <deploy_test_environment.sh/>`_ script requires
-a Kubernetes context and namespace, and deploys a complete Gazette installation
+The `deploy_brokers.sh <deploy_brokers.sh/>`_ script requires a Kubernetes
+context and namespace, and deploys a complete Gazette installation
 into the named cluster & namespace, including:
 
-  - An Etcd V3 cluster, used by Gazette brokers and example applications.
+  - An Etcd V3 cluster, used by Gazette brokers.
   - `Minio <https://www.minio.io/>`_, which provides an ephemeral S3-compatible fragment store.
-  - Gazette brokers, initialized with a collection of test JournalSpecs using the Minio fragment store.
-  - Example applications.
+  - Gazette brokers.
 
 While that script can be run directly, it's recommended to first try running it
 manually to better understand the steps and what's happening with each.
@@ -74,7 +73,12 @@ can be created:
 Example Applications
 --------------------
 
-A collection of example applications are started by ``deploy_test_environment.sh``.
+A collection of example applications are started by `deploy_examples.sh <deploy_examples.sh/>`_,
+which like ``deploy_brokers.sh`` requires a Kubernetes context and namespace. The namespace
+may differ from that of the brokers. ``deploy_examples.sh`` applies a collection of example
+JournalSpecs using the Minio fragment store, starts the ``stream-sum`` and ``word-count``
+applications, and performs a number of disruptive broker and application Pod deletions to
+verify correctness and fast fail-over.
 
 StreamSum
 ~~~~~~~~~
