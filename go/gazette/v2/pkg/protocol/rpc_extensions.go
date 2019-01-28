@@ -126,8 +126,6 @@ func (m *AppendRequest) Validate() error {
 func (m *AppendResponse) Validate() error {
 	if err := m.Status.Validate(); err != nil {
 		return ExtendContext(err, "Status")
-	} else if m.Header == nil {
-		return NewValidationError("expected Header")
 	} else if err = m.Header.Validate(); err != nil {
 		return ExtendContext(err, "Header")
 	} else if m.Status == Status_OK && m.Commit == nil {

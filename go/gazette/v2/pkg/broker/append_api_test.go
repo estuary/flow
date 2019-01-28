@@ -54,7 +54,7 @@ func (s *AppendSuite) TestSingleAppend(c *gc.C) {
 
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: &res.Header,
+		Header: res.Header,
 		Commit: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            0,
@@ -128,7 +128,7 @@ func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
 
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: &res.Header,
+		Header: res.Header,
 		Commit: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            0,
@@ -145,7 +145,7 @@ func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
 
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: &res.Header,
+		Header: res.Header,
 		Commit: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            3,
@@ -242,7 +242,7 @@ func (s *AppendSuite) TestAppendOffsetReset(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
 		Status: pb.Status_INDEX_HAS_GREATER_OFFSET,
-		Header: &res.Header,
+		Header: res.Header,
 	})
 
 	// Part 2: We now submit a request offset which matches the remote fragment offset.
@@ -293,7 +293,7 @@ func (s *AppendSuite) TestAppendOffsetReset(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: &res.Header,
+		Header: res.Header,
 		Commit: expectedFragment,
 	})
 }
@@ -321,7 +321,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 
 	resp, err := stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_JOURNAL_NOT_FOUND, Header: &res.Header})
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_JOURNAL_NOT_FOUND, Header: res.Header})
 	c.Check(resp.Header.Route, gc.DeepEquals, res.Header.Route)
 
 	// Case: Journal with no assigned primary.
@@ -334,7 +334,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 
 	resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NO_JOURNAL_PRIMARY_BROKER, Header: &res.Header})
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NO_JOURNAL_PRIMARY_BROKER, Header: res.Header})
 
 	// Case: Journal with a primary but not enough replication peers.
 	newTestJournal(c, tf, pb.JournalSpec{Name: "not/enough/peers", Replication: 3}, broker.id, peer.id)
@@ -345,7 +345,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 
 	resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_INSUFFICIENT_JOURNAL_BROKERS, Header: &res.Header})
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_INSUFFICIENT_JOURNAL_BROKERS, Header: res.Header})
 
 	// Case: Journal which is marked as read-only.
 	newTestJournal(c, tf, pb.JournalSpec{Name: "read/only", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}, broker.id)
@@ -356,7 +356,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 
 	resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header})
 
 	// Case: incorrect request Offset.
 	newTestJournal(c, tf, pb.JournalSpec{Name: "valid/journal", Replication: 1}, broker.id)
@@ -371,7 +371,7 @@ func (s *AppendSuite) TestRequestErrorCases(c *gc.C) {
 
 	resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_WRONG_APPEND_OFFSET, Header: &res.Header})
+	c.Check(resp, gc.DeepEquals, &pb.AppendResponse{Status: pb.Status_WRONG_APPEND_OFFSET, Header: res.Header})
 }
 
 func (s *AppendSuite) TestProxyCases(c *gc.C) {

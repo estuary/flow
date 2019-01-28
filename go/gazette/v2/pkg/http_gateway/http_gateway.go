@@ -191,9 +191,8 @@ func writeReadResponse(w http.ResponseWriter, r *http.Request, resp pb.ReadRespo
 }
 
 func writeAppendResponse(w http.ResponseWriter, r *http.Request, resp pb.AppendResponse) {
-	if resp.Header != nil {
-		writeHeader(w, r, resp.Header)
-	}
+	writeHeader(w, r, &resp.Header)
+
 	if resp.Commit != nil {
 		w.Header().Add(CommitBeginHeader, strconv.FormatInt(resp.Commit.Begin, 10))
 		w.Header().Add(CommitEndHeader, strconv.FormatInt(resp.Commit.End, 10))

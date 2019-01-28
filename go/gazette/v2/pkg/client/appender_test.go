@@ -33,7 +33,7 @@ func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
 
 		broker.AppendRespCh <- &pb.AppendResponse{
 			Status: pb.Status_OK,
-			Header: buildHeaderFixture(broker),
+			Header: *buildHeaderFixture(broker),
 			Commit: &pb.Fragment{
 				Journal:          "a/journal",
 				Begin:            100,
@@ -112,7 +112,7 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 			finish: func() {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: pb.Status_OK,
-					Header: buildHeaderFixture(broker),
+					Header: *buildHeaderFixture(broker),
 					Commit: &pb.Fragment{Begin: 1, End: 0},
 				}
 			},
@@ -124,7 +124,7 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 			finish: func() {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: pb.Status_NOT_JOURNAL_PRIMARY_BROKER,
-					Header: buildHeaderFixture(broker),
+					Header: *buildHeaderFixture(broker),
 				}
 			},
 			errVal:      ErrNotJournalPrimaryBroker,
@@ -135,7 +135,7 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 			finish: func() {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: pb.Status_WRONG_APPEND_OFFSET,
-					Header: buildHeaderFixture(broker),
+					Header: *buildHeaderFixture(broker),
 				}
 			},
 			errVal:      ErrWrongAppendOffset,
@@ -146,7 +146,7 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 			finish: func() {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: pb.Status_OFFSET_NOT_YET_AVAILABLE,
-					Header: buildHeaderFixture(broker),
+					Header: *buildHeaderFixture(broker),
 				}
 			},
 			errRe:       "OFFSET_NOT_YET_AVAILABLE",
@@ -223,7 +223,7 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 			} else {
 				broker.AppendRespCh <- &pb.AppendResponse{
 					Status: tc.status,
-					Header: buildHeaderFixture(broker),
+					Header: *buildHeaderFixture(broker),
 					Commit: &pb.Fragment{
 						Journal:          "a/journal",
 						Begin:            1234,

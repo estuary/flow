@@ -140,12 +140,11 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 func (s *RPCSuite) TestAppendResponseValidationCases(c *gc.C) {
 	var resp = AppendResponse{
 		Status: 9101,
+		Header: *badHeaderFixture(),
 	}
 
 	c.Check(resp.Validate(), gc.ErrorMatches, `Status: invalid status .*`)
 	resp.Status = Status_OK
-	c.Check(resp.Validate(), gc.ErrorMatches, `expected Header`)
-	resp.Header = badHeaderFixture()
 	c.Check(resp.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
 	resp.Header.Etcd.ClusterId = 12
 	c.Check(resp.Validate(), gc.ErrorMatches, `expected Commit`)

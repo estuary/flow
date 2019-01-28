@@ -30,7 +30,7 @@ func (s *ReplicateSuite) TestStreamAndCommit(c *gc.C) {
 		},
 		Acknowledge: true,
 	}), gc.IsNil)
-	expectReplResponse(c, stream, &pb.ReplicateResponse{Status: pb.Status_OK})
+	expectReplResponse(c, stream, &pb.ReplicateResponse{Status: pb.Status_OK, Header: &res.Header})
 
 	// Replicate content.
 	c.Check(stream.Send(&pb.ReplicateRequest{Content: []byte("foobar"), ContentDelta: 0}), gc.IsNil)
@@ -137,6 +137,7 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 
 	expectReplResponse(c, stream, &pb.ReplicateResponse{
 		Status: pb.Status_FRAGMENT_MISMATCH,
+		Header: &res.Header,
 		Fragment: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            5678, // Spool is rolled forward.

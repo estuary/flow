@@ -480,7 +480,7 @@ func gateServeAppends() (chan<- struct{}, func()) {
 func buildAppendResponseFixture(ep interface{ Endpoint() pb.Endpoint }) *pb.AppendResponse {
 	return &pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: buildHeaderFixture(ep),
+		Header: *buildHeaderFixture(ep),
 		Commit: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            100,

@@ -308,7 +308,7 @@ message ReadRequest {
 message ReadResponse {
   // Status of the Read RPC.
   Status status = 1;
-  // Header of the response. Accompanies the first ReadResponse in the response stream.
+  // Header of the response. Accompanies the first ReadResponse of the response stream.
   Header header = 2;
   // The effective offset of the read. See ReadRequest offset.
   int64 offset = 3;
@@ -348,7 +348,7 @@ message AppendResponse {
   // Status of the Append RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2;
+  Header header = 2 [(gogoproto.nullable) = false];
   // If status is OK, then |commit| is the Fragment which places the
   // committed Append content within the Journal.
   Fragment commit = 3;
@@ -375,7 +375,7 @@ message ReplicateRequest {
 message ReplicateResponse {
   // Status of the Replicate RPC.
   Status status = 1;
-  // Header of the response.
+  // Header of the response. Accompanies the first ReplicateResponse of the response stream.
   Header header = 2;
   // If status is FRAGMENT_MISMATCH, then |fragment| is the replica's
   // Fragment at the current Journal head, which was found to be inconsistent

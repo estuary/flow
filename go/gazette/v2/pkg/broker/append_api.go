@@ -37,10 +37,10 @@ func (srv *Service) Append(stream pb.Journal_AppendServer) error {
 		if err != nil {
 			break
 		} else if res.status != pb.Status_OK {
-			err = stream.SendAndClose(&pb.AppendResponse{Status: res.status, Header: &res.Header})
+			err = stream.SendAndClose(&pb.AppendResponse{Status: res.status, Header: res.Header})
 			break
 		} else if !res.journalSpec.Flags.MayWrite() {
-			err = stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+			err = stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header})
 			break
 		} else if res.replica == nil {
 			req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
@@ -112,13 +112,13 @@ func serveAppend(stream pb.Journal_AppendServer, req *pb.AppendRequest, res reso
 	// unless the request provides an explicit offset.
 	if po := pln.spool.Fragment.End; po != offset && req.Offset == 0 {
 		res.replica.pipelineCh <- pln // Release |pln|.
-		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_INDEX_HAS_GREATER_OFFSET, Header: &res.Header})
+		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_INDEX_HAS_GREATER_OFFSET, Header: res.Header})
 	} else if req.Offset == 0 {
 		// Use |offset| (== |po|).
 	} else if req.Offset != offset {
 		// If a request offset is present, it must match |offset|.
 		res.replica.pipelineCh <- pln // Release |pln|.
-		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_WRONG_APPEND_OFFSET, Header: &res.Header})
+		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_WRONG_APPEND_OFFSET, Header: res.Header})
 	} else if po != offset {
 		// Send a proposal which rolls the pipeline forward to |offset|.
 		var proposal = pln.spool.Fragment.Fragment
@@ -147,8 +147,9 @@ func serveAppend(stream pb.Journal_AppendServer, req *pb.AppendRequest, res reso
 	} else if err != nil {
 		return err
 	} else {
-		return stream.SendMsg(&pb.AppendResponse{
-			Header: &pln.Header,
+		return stream.SendAndClose(&pb.AppendResponse{
+			Status: pb.Status_OK,
+			Header: pln.Header,
 			Commit: appender.reqFragment,
 		})
 	}

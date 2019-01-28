@@ -204,7 +204,7 @@ var (
 
 	appendResponseFixture = pb.AppendResponse{
 		Status: pb.Status_OK,
-		Header: &pb.Header{
+		Header: pb.Header{
 			ProcessId: pb.ProcessSpec_ID{Zone: "a", Suffix: "broker"},
 			Route: pb.Route{
 				Members:   []pb.ProcessSpec_ID{{Zone: "a", Suffix: "broker"}},
