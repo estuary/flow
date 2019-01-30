@@ -314,9 +314,11 @@ message ReadResponse {
   int64 offset = 3;
   // The offset to next be written, by the next append transaction served by
   // broker. In other words, the last offset through which content is
-  // available to be read from the Journal.
+  // available to be read from the Journal. This is a metadata field and will 
+  // not be returned with a content response.
   int64 write_head = 4;
-  // Fragment to which the offset was mapped.
+  // Fragment to which the offset was mapped. This is a metadata field and will 
+  // not be returned with a content response.
   Fragment fragment = 5;
   // If Fragment is remote, a URL from which it may be directly read.
   string fragment_url = 6;
