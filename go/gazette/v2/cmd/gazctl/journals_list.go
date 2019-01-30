@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -24,15 +25,7 @@ type cmdJournalsList struct {
 func (cmd *cmdJournalsList) Execute([]string) error {
 	startup()
 
-	var err error
-	var req pb.ListRequest
-	var ctx = context.Background()
-
-	req.Selector, err = pb.ParseLabelSelector(cmd.Selector)
-	mbp.Must(err, "failed to parse label selector", "selector", cmd.Selector)
-
-	resp, err := client.ListAll(ctx, pb.NewJournalClient(journalsCfg.Broker.Dial(ctx)), req)
-	mbp.Must(err, "failed to list journals")
+	var resp = listJournals(cmd.Selector)
 
 	switch cmd.Format {
 	case "table":
@@ -112,6 +105,24 @@ func (cmd *cmdJournalsList) outputTable(resp *pb.ListResponse) {
 }
 
 func (cmd *cmdJournalsList) outputYAML(resp *pb.ListResponse) {
+	writeHoistedJournalSpecTree(os.Stdout, resp)
+}
+
+func listJournals(s string) *pb.ListResponse {
+	var err error
+	var req pb.ListRequest
+	var ctx = context.Background()
+
+	req.Selector, err = pb.ParseLabelSelector(s)
+	mbp.Must(err, "failed to parse label selector", "selector", s)
+
+	resp, err := client.ListAll(ctx, pb.NewJournalClient(journalsCfg.Broker.Dial(ctx)), req)
+	mbp.Must(err, "failed to list journals")
+
+	return resp
+}
+
+func writeHoistedJournalSpecTree(w io.Writer, resp *pb.ListResponse) {
 	// Initialize Nodes for each journal. Extract a journal specification tree,
 	// and hoist common configuration to parent nodes to minimize config DRY.
 	var nodes []journalspace.Node
@@ -129,5 +140,5 @@ func (cmd *cmdJournalsList) outputYAML(resp *pb.ListResponse) {
 	// Render journal specification tree.
 	b, err := yaml.Marshal(tree)
 	mbp.Must(err, "failed to encode journals")
-	os.Stdout.Write(b)
+	w.Write(b)
 }

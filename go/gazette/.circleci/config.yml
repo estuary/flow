@@ -70,8 +70,14 @@ workflows:
   version: 2
   build_all:
     jobs:
-      - build_v1
-      - build_v2
+      - build_v1:
+          filters:
+            branches:
+              ignore: /^draft[-\/].*/
+      - build_v2:
+          filters:
+            branches:
+              ignore: /^draft[-\/].*/
   release:
     jobs:
       - publish_images:

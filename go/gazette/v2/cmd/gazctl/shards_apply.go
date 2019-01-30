@@ -20,18 +20,7 @@ func (cmd *cmdShardsApply) Execute([]string) error {
 	var shards []yamlShard
 	mbp.Must(cmd.decode(&shards), "failed to decode shards from YAML")
 
-	// Build the complete ApplyRequest
-	var req = new(consumer.ApplyRequest)
-	for i := range shards {
-		var change = consumer.ApplyRequest_Change{ExpectModRevision: shards[i].Revision}
-
-		if shards[i].Delete {
-			change.Delete = shards[i].ShardSpec.Id
-		} else {
-			change.Upsert = &shards[i].ShardSpec
-		}
-		req.Changes = append(req.Changes, change)
-	}
+	var req = newShardSpecApplyRequest(shards)
 	mbp.Must(req.Validate(), "failed to validate ApplyRequest")
 
 	if cmd.DryRun {
@@ -45,4 +34,21 @@ func (cmd *cmdShardsApply) Execute([]string) error {
 
 	log.WithField("rev", resp.Header.Etcd.Revision).Info("successfully applied")
 	return nil
+}
+
+// newShardSpecApplyRequest builds the ApplyRequest.
+func newShardSpecApplyRequest(s []yamlShard) *consumer.ApplyRequest {
+	var req = new(consumer.ApplyRequest)
+	for i := range s {
+		var change = consumer.ApplyRequest_Change{ExpectModRevision: s[i].Revision}
+
+		if s[i].Delete {
+			change.Delete = s[i].ShardSpec.Id
+		} else {
+			change.Upsert = &s[i].ShardSpec
+		}
+		req.Changes = append(req.Changes, change)
+	}
+
+	return req
 }
