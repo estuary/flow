@@ -25,8 +25,8 @@ type Node struct {
 	Children []Node `yaml:",omitempty"`
 }
 
-// IsDir returns whether the Node.JournalSpec.Name ends in a slash ('/').
-func (n Node) IsDir() bool { return n.Name[len(n.Name)-1] == '/' }
+// IsDir returns whether the Node.JournalSpec.Name is empty or ends in a slash ('/').
+func (n Node) IsDir() bool { return len(n.Name) == 0 || n.Name[len(n.Name)-1] == '/' }
 
 // Validate returns an error if the Node hierarchy is not well formed. Note that
 // Validate does *not* also Validate contained JournalSpecs, as partial or

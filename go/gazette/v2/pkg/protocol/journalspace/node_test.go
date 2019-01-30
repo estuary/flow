@@ -47,52 +47,58 @@ func (s *NodeSuite) TestValidationCases(c *gc.C) {
 }
 
 func (s *NodeSuite) TestFlatten(c *gc.C) {
-	var root = Node{
-		JournalSpec: pb.JournalSpec{
-			Name:        "root/",
-			Replication: 1,
-		},
-		Children: []Node{
-			{JournalSpec: pb.JournalSpec{
-				Name:  "root/aaa/",
-				Flags: pb.JournalSpec_O_RDWR,
-			},
-				Children: []Node{
-					{JournalSpec: pb.JournalSpec{
-						Name:  "root/aaa/111",
-						Flags: pb.JournalSpec_O_RDONLY, // Overrides O_RDWR.
-					}},
-					{JournalSpec: pb.JournalSpec{Name: "root/aaa/222"}},
-				}},
-			{JournalSpec: pb.JournalSpec{Name: "root/bbb/"},
-				Children: []Node{
-					{JournalSpec: pb.JournalSpec{
-						Name:        "root/bbb/333/",
-						Replication: 2, // Overrides Replication: 1
-					},
-						Children: []Node{
-							{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/"},
-								Delete: true,
-								Children: []Node{
-									{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/x"}},
-									{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/y"}},
-								}},
-							{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/z"}}}},
-					{JournalSpec: pb.JournalSpec{
-						Name:        "root/bbb/444",
-						Replication: 3, // Overrides Replication: 1
-						Flags:       pb.JournalSpec_O_WRONLY,
-					}},
-				}}}}
+	// Create and flatten two tree fixtures: one with a shared common root, and one without.
+	for _, root := range []pb.Journal{"", "shared-root/"} {
 
-	c.Check(root.Flatten(), gc.DeepEquals, []Node{
-		{JournalSpec: pb.JournalSpec{Name: "root/aaa/111", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}},
-		{JournalSpec: pb.JournalSpec{Name: "root/aaa/222", Replication: 1, Flags: pb.JournalSpec_O_RDWR}},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/x", Replication: 2}, Delete: true},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/y", Replication: 2}, Delete: true},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/z", Replication: 2}},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/444", Replication: 3, Flags: pb.JournalSpec_O_WRONLY}},
-	})
+		var tree = Node{
+			JournalSpec: pb.JournalSpec{
+				Name:        root,
+				Replication: 1,
+			},
+			Children: []Node{
+				{JournalSpec: pb.JournalSpec{
+					Name:  root + "aaa/",
+					Flags: pb.JournalSpec_O_RDWR,
+				},
+					Children: []Node{
+						{JournalSpec: pb.JournalSpec{
+							Name:  root + "aaa/111",
+							Flags: pb.JournalSpec_O_RDONLY, // Overrides O_RDWR.
+						}},
+						{JournalSpec: pb.JournalSpec{Name: root + "aaa/222"}},
+					}},
+				{JournalSpec: pb.JournalSpec{Name: root + "bbb/"},
+					Children: []Node{
+						{JournalSpec: pb.JournalSpec{
+							Name:        root + "bbb/333/",
+							Replication: 2, // Overrides Replication: 1
+						},
+							Children: []Node{
+								{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/"},
+									Delete: true,
+									Children: []Node{
+										{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/x"}},
+										{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/y"}},
+									}},
+								{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/z"}}}},
+						{JournalSpec: pb.JournalSpec{
+							Name:        root + "bbb/444",
+							Replication: 3, // Overrides Replication: 1
+							Flags:       pb.JournalSpec_O_WRONLY,
+						}},
+					}}}}
+
+		c.Check(tree.Validate(), gc.IsNil)
+
+		c.Check(tree.Flatten(), gc.DeepEquals, []Node{
+			{JournalSpec: pb.JournalSpec{Name: root + "aaa/111", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}},
+			{JournalSpec: pb.JournalSpec{Name: root + "aaa/222", Replication: 1, Flags: pb.JournalSpec_O_RDWR}},
+			{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/x", Replication: 2}, Delete: true},
+			{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/y", Replication: 2}, Delete: true},
+			{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/z", Replication: 2}},
+			{JournalSpec: pb.JournalSpec{Name: root + "bbb/444", Replication: 3, Flags: pb.JournalSpec_O_WRONLY}},
+		})
+	}
 }
 
 func (s *NodeSuite) TestSharedPrefixCases(c *gc.C) {
