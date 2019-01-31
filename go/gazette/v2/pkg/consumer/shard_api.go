@@ -122,7 +122,7 @@ func (srv *Service) Apply(ctx context.Context, req *ApplyRequest) (*ApplyRespons
 		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", changes.ExpectModRevision))
 	}
 
-	var txnResp, err = srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil))
+	var txnResp, err = srv.Etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil))
 	if err != nil {
 		// Pass.
 	} else if !txnResp.Txn().Succeeded {

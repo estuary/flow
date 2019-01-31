@@ -25,8 +25,8 @@ type Service struct {
 	Loopback *grpc.ClientConn
 	// Journal client for use by consumer applications.
 	Journals pb.RoutedJournalClient
-
-	etcd clientv3.KV
+	// Etcd client for use by consumer applications.
+	Etcd *clientv3.Client
 }
 
 // NewService constructs a new Service of the Application, driven by allocator.State.
@@ -36,7 +36,7 @@ func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalCli
 		State:    state,
 		Loopback: lo,
 		Journals: rjc,
-		etcd:     etcd,
+		Etcd:     etcd,
 	}
 }
 
