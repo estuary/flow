@@ -59,7 +59,7 @@ func (fs FragmentStore) parse() (*url.URL, error) {
 		return nil, NewValidationError("invalid scheme (%s)", url.Scheme)
 	}
 
-	if path := url.Path; path[len(path)-1] != '/' {
+	if path := url.Path; len(path) == 0 || path[len(path)-1] != '/' {
 		return nil, NewValidationError("path component doesn't end in '/' (%s)", url.Path)
 	}
 	return url, nil

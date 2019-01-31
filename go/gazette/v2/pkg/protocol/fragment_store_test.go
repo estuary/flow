@@ -18,6 +18,7 @@ func (s *FragmentStoreSuite) TestValidation(c *gc.C) {
 		{"file:///mnt/path/", ``},             // Success.
 		{"file:///mnt/path/?query", ``},       // Success.
 
+		{"s3://my-bucket", `path component doesn't end in '/' \(\)`},
 		{"s3://my-bucket/subpath?query", `path component doesn't end in '/' \(/subpath\)`},
 		{":garbage: :garbage:", "parse .* missing protocol scheme"},
 		{"foobar://baz/", `invalid scheme \(foobar\)`},
