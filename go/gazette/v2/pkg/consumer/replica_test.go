@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"context"
 	"errors"
 
 	gc "github.com/go-check/check"
@@ -124,7 +125,10 @@ func (s *ReplicaSuite) TestConsumeMessagesErrors(c *gc.C) {
 		tf.allocateShard(c, makeShard("a-shard"), localID)
 		expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
-		var r = tf.resolver.replicas["a-shard"]
+		var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: "a-shard"})
+		c.Assert(err, gc.IsNil)
+
+		var r = res.Shard.(*Replica)
 		runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
 
 		// Set failure fixture, and write a message to trigger it.
@@ -135,7 +139,10 @@ func (s *ReplicaSuite) TestConsumeMessagesErrors(c *gc.C) {
 		c.Check(aa.Release(), gc.IsNil)
 
 		c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0], gc.Matches, tc.expect)
-		tf.allocateShard(c, makeShard("a-shard")) // Cleanup.
+
+		// Cleanup.
+		res.Done()
+		tf.allocateShard(c, makeShard("a-shard"))
 	}
 }
 
