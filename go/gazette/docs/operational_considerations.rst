@@ -1,4 +1,4 @@
-Operational considerations
+Operational Considerations
 ==========================
 
 This document offers some recommendations based on lessons learned from running 
