@@ -22,6 +22,8 @@ type s3Cfg struct {
 	bucket string
 	prefix string
 
+	rewriterCfg
+
 	// AWS Profile to extract credentials from the shared credentials file.
 	// For details, see:
 	//   https://aws.amazon.com/blogs/security/a-new-and-standardized-way-to-manage-credentials-in-the-aws-sdks/
@@ -48,7 +50,7 @@ func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, erro
 
 	var getObj = s3.GetObjectInput{
 		Bucket: aws.String(cfg.bucket),
-		Key:    aws.String(cfg.prefix + fragment.ContentPath()),
+		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	var req, _ = client.GetObjectRequest(&getObj)
 	return req.Presign(d)
@@ -61,7 +63,7 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, err
 	}
 	var headObj = s3.HeadObjectInput{
 		Bucket: aws.String(cfg.bucket),
-		Key:    aws.String(cfg.prefix + fragment.ContentPath()),
+		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	if _, err = client.HeadObjectWithContext(ctx, &headObj); err == nil {
 		return true, nil
@@ -80,7 +82,7 @@ func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadClos
 
 	var getObj = s3.GetObjectInput{
 		Bucket: aws.String(cfg.bucket),
-		Key:    aws.String(cfg.prefix + fragment.ContentPath()),
+		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	if resp, err := client.GetObjectWithContext(ctx, &getObj); err != nil {
 		return nil, err
@@ -97,7 +99,7 @@ func s3Persist(ctx context.Context, ep *url.URL, spool Spool) error {
 
 	var putObj = s3.PutObjectInput{
 		Bucket: aws.String(cfg.bucket),
-		Key:    aws.String(cfg.prefix + spool.ContentPath()),
+		Key:    aws.String(cfg.rewritePath(cfg.prefix, spool.ContentPath())),
 	}
 
 	if cfg.ACL != "" {
@@ -121,7 +123,7 @@ func s3Persist(ctx context.Context, ep *url.URL, spool Spool) error {
 	return err
 }
 
-func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, prefix string, callback func(pb.Fragment)) error {
+func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
 	var cfg, client, err = s3Client(ep)
 	if err != nil {
 		return err
@@ -129,7 +131,7 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, prefix str
 
 	var list = s3.ListObjectsV2Input{
 		Bucket: aws.String(cfg.bucket),
-		Prefix: aws.String(cfg.prefix + prefix),
+		Prefix: aws.String(cfg.rewritePath(cfg.prefix, name.String()) + "/"),
 	}
 	var strip = len(cfg.prefix)
 

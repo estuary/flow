@@ -210,7 +210,7 @@ func WalkAllStores(ctx context.Context, name pb.Journal, stores []pb.FragmentSto
 	var set CoverSet
 
 	for _, store := range stores {
-		var err = List(ctx, store, name.String()+"/", func(f pb.Fragment) {
+		var err = List(ctx, store, name, func(f pb.Fragment) {
 			set, _ = set.Add(Fragment{Fragment: f})
 		})
 

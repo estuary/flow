@@ -15,12 +15,26 @@ import (
 // of a file:// fragment store. It must be set at program startup prior to use.
 var FileSystemStoreRoot = "/dev/null/invalid/example/path/to/store"
 
-func fsURL(ep *url.URL, fragment pb.Fragment) string {
-	return "file://" + ep.Path + fragment.ContentPath()
+type fsCfg struct {
+	rewriterCfg
+}
+
+func fsURL(ep *url.URL, fragment pb.Fragment) (string, error) {
+	var cfg, err = newFsCfg(ep)
+	if err != nil {
+		return "", err
+	}
+
+	return "file://" + cfg.rewritePath(ep.Path, fragment.ContentPath()), nil
 }
 
 func fsExists(ep *url.URL, fragment pb.Fragment) (bool, error) {
-	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path+fragment.ContentPath()))
+	var cfg, err = newFsCfg(ep)
+	if err != nil {
+		return false, err
+	}
+
+	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, fragment.ContentPath())))
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return false, nil
@@ -32,13 +46,22 @@ func fsExists(ep *url.URL, fragment pb.Fragment) (bool, error) {
 }
 
 func fsOpen(ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
-	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path+fragment.ContentPath()))
-	var f, err = os.Open(path)
-	return f, err
+	var cfg, err = newFsCfg(ep)
+	if err != nil {
+		return nil, err
+	}
+
+	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, fragment.ContentPath())))
+	return os.Open(path)
 }
 
 func fsPersist(ep *url.URL, spool Spool) error {
-	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path+spool.ContentPath()))
+	var cfg, err = newFsCfg(ep)
+	if err != nil {
+		return err
+	}
+
+	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, spool.ContentPath())))
 
 	// Create the journal's fragment directory, if not already present.
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
@@ -46,7 +69,8 @@ func fsPersist(ep *url.URL, spool Spool) error {
 	}
 
 	// Open a temp file under the target path directory.
-	var f, err = ioutil.TempFile(filepath.Dir(path), ".partial-"+filepath.Base(path))
+	var f *os.File
+	f, err = ioutil.TempFile(filepath.Dir(path), ".partial-"+filepath.Base(path))
 	if err != nil {
 		return err
 	}
@@ -74,10 +98,15 @@ func fsPersist(ep *url.URL, spool Spool) error {
 	return err
 }
 
-func fsList(store pb.FragmentStore, ep *url.URL, prefix string, callback func(pb.Fragment)) error {
+func fsList(store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
+	var cfg, err = newFsCfg(ep)
+	if err != nil {
+		return err
+	}
+
 	var root = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path))
 
-	return filepath.Walk(filepath.Join(root, filepath.FromSlash(prefix)),
+	return filepath.Walk(filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, name.String()+"/"))),
 		func(path string, info os.FileInfo, err error) error {
 
 			var name string
@@ -107,6 +136,16 @@ func fsList(store pb.FragmentStore, ep *url.URL, prefix string, callback func(pb
 }
 
 func fsRemove(ep *url.URL, fragment pb.Fragment) error {
-	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path+fragment.ContentPath()))
+	var cfg, err = newFsCfg(ep)
+	if err != nil {
+		return err
+	}
+
+	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, fragment.ContentPath())))
 	return os.Remove(path)
+}
+
+func newFsCfg(ep *url.URL) (cfg fsCfg, err error) {
+	err = parseStoreArgs(ep, &cfg)
+	return cfg, err
 }

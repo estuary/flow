@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"time"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -22,7 +23,7 @@ func SignGetURL(fragment pb.Fragment, d time.Duration) (string, error) {
 	case "gs":
 		return gcsSignGET(ep, fragment, d)
 	case "file":
-		return fsURL(ep, fragment), nil
+		return fsURL(ep, fragment)
 	default:
 		panic("unsupported scheme: " + ep.Scheme)
 	}
@@ -88,18 +89,18 @@ func Persist(ctx context.Context, spool Spool) error {
 	panic("not reached")
 }
 
-// List Fragments of the FragmentStore having the given prefix. |callback| is
+// List Fragments of the FragmentStore for a given journal. |callback| is
 // invoked with each listed Fragment, and any returned error aborts the listing.
-func List(ctx context.Context, store pb.FragmentStore, prefix string, callback func(pb.Fragment)) error {
+func List(ctx context.Context, store pb.FragmentStore, name pb.Journal, callback func(pb.Fragment)) error {
 	var ep = store.URL()
 
 	switch ep.Scheme {
 	case "s3":
-		return s3List(ctx, store, ep, prefix, callback)
+		return s3List(ctx, store, ep, name, callback)
 	case "gs":
-		return gcsList(ctx, store, ep, prefix, callback)
+		return gcsList(ctx, store, ep, name, callback)
 	case "file":
-		return fsList(store, ep, prefix, callback)
+		return fsList(store, ep, name, callback)
 	default:
 		panic("unsupported scheme: " + ep.Scheme)
 	}
@@ -131,4 +132,24 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 		return fmt.Errorf("parsing store URL arguments: %s", err)
 	}
 	return nil
+}
+
+
+// rewriterCfg holds a find/replace pair, often populated by parseStoreArgs()
+// and provides a convenience function to rewrite the given path.
+//
+// It is meant to be embedded by other backend store configs.
+type rewriterCfg struct {
+	Find, Replace string
+}
+
+// rewritePath replace the first occurrence of the find string with the replace
+// string in journal path |j| and appends it to the fragment store path |s|,
+// effectively rewriting the default Journal path. If find is empty or not
+// found, the original |j| is appended.
+func (cfg rewriterCfg) rewritePath(s, j string) string {
+	if cfg.Find == "" {
+		return s+j
+	}
+	return s+strings.Replace(j, cfg.Find, cfg.Replace, 1)
 }

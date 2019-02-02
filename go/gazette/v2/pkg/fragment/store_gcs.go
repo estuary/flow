@@ -19,6 +19,8 @@ import (
 type gcsCfg struct {
 	bucket string
 	prefix string
+
+	rewriterCfg
 }
 
 func gcsSignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, error) {
@@ -29,7 +31,7 @@ func gcsSignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, err
 	opts.Method = "GET"
 	opts.Expires = time.Now().Add(d)
 
-	return storage.SignedURL(cfg.bucket, cfg.prefix+fragment.ContentPath(), &opts)
+	return storage.SignedURL(cfg.bucket, cfg.rewritePath(cfg.prefix, fragment.ContentPath()), &opts)
 }
 
 func gcsExists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
@@ -37,7 +39,7 @@ func gcsExists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists b
 	if err != nil {
 		return false, err
 	}
-	_, err = client.Bucket(cfg.bucket).Object(cfg.prefix + fragment.ContentPath()).Attrs(ctx)
+	_, err = client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).Attrs(ctx)
 	if err == nil {
 		exists = true
 	} else if err == storage.ErrObjectNotExist {
@@ -51,7 +53,7 @@ func gcsOpen(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadClo
 	if err != nil {
 		return nil, err
 	}
-	return client.Bucket(cfg.bucket).Object(cfg.prefix + fragment.ContentPath()).NewReader(ctx)
+	return client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).NewReader(ctx)
 }
 
 func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) error {
@@ -60,7 +62,7 @@ func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	var wc = client.Bucket(cfg.bucket).Object(cfg.prefix + spool.ContentPath()).NewWriter(ctx)
+	var wc = client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, spool.ContentPath())).NewWriter(ctx)
 
 	if spool.CompressionCodec == pb.CompressionCodec_GZIP_OFFLOAD_DECOMPRESSION {
 		wc.ContentEncoding = "gzip"
@@ -78,13 +80,13 @@ func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) error {
 	return err
 }
 
-func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, prefix string, callback func(pb.Fragment)) error {
+func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
 	cfg, client, _, err := gcsClient(ep)
 	if err != nil {
 		return err
 	}
 	var (
-		it    = client.Bucket(cfg.bucket).Objects(ctx, &storage.Query{Prefix: cfg.prefix + prefix})
+		it    = client.Bucket(cfg.bucket).Objects(ctx, &storage.Query{Prefix: cfg.rewritePath(cfg.prefix, name.String()) + "/"})
 		strip = len(cfg.prefix)
 		obj   *storage.ObjectAttrs
 	)
@@ -160,7 +162,7 @@ func gcsRemove(ctx context.Context, ep *url.URL, fragment pb.Fragment) error {
 	if err != nil {
 		return err
 	}
-	return client.Bucket(cfg.bucket).Object(cfg.prefix + fragment.ContentPath()).Delete(ctx)
+	return client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).Delete(ctx)
 }
 
 var sharedGCS struct {
