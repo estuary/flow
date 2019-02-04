@@ -2,6 +2,7 @@ package consumer
 
 import (
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
 	gc "github.com/go-check/check"
 )
 
@@ -177,6 +178,101 @@ func (s *APISuite) TestApplyCases(c *gc.C) {
 		Changes: []ApplyRequest_Change{{Delete: "invalid shard id"}},
 	})
 	c.Check(err, gc.ErrorMatches, `Changes\[0\].Delete: not a valid token \(invalid shard id\)`)
+}
+
+func (s *APISuite) TestHintsCases(c *gc.C) {
+	var tf, cleanup = newTestFixture(c)
+	defer cleanup()
+
+	var spec = makeShard(shardA)
+	tf.allocateShard(c, spec, localID)
+	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+
+	var r = tf.resolver.replicas[shardA]
+	var mkHints = func(id int64) recoverylog.FSMHints {
+		return recoverylog.FSMHints{
+			Log: spec.RecoveryLog(),
+			LiveNodes: []recoverylog.FnodeSegments{{
+				Fnode: recoverylog.Fnode(id),
+				Segments: []recoverylog.Segment{
+					{Author: 0x1234, FirstSeqNo: id, LastSeqNo: id},
+				},
+			}},
+		}
+	}
+
+	var expected []*recoverylog.FSMHints
+	for _, i := range []int64{111, 333, 222} {
+		var hints = mkHints(i)
+		expected = append(expected, &hints)
+	}
+	c.Check(storeRecordedHints(r, mkHints(111), r.etcd), gc.IsNil)
+	c.Check(storeRecoveredHints(r, mkHints(222), r.etcd), gc.IsNil)
+	c.Check(storeRecoveredHints(r, mkHints(333), r.etcd), gc.IsNil)
+
+	var hdr = pb.NewUnroutedHeader(tf.state)
+	// Case: Correctly fetch hints
+	var resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: shardA})
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &GetHintsResponse{
+		Status:       Status_OK,
+		Header:       hdr,
+		PrimaryHints: expected[0],
+		BackupHints:  expected[1:],
+	})
+
+	// Case: No primary hints
+	_, _ = r.etcd.Delete(r.ctx, r.spec.HintPrimaryKey())
+	resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: shardA})
+	c.Check(resp, gc.DeepEquals, &GetHintsResponse{
+		Status:       Status_OK,
+		Header:       hdr,
+		PrimaryHints: nil,
+		BackupHints:  expected[1:],
+	})
+
+	// Case: Hint key has not yet been written to
+	c.Check(storeRecordedHints(r, mkHints(111), r.etcd), gc.IsNil)
+	tf.resolver.replicas[shardA].spec.HintBackups = tf.resolver.replicas[shardA].spec.HintBackups + 1
+	resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: shardA})
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &GetHintsResponse{
+		Status:       Status_OK,
+		Header:       hdr,
+		PrimaryHints: expected[0],
+		BackupHints:  append(expected[1:], nil),
+	})
+
+	// Case: No backup hints
+	tf.resolver.replicas[shardA].spec.HintBackups = 0
+	resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: shardA})
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &GetHintsResponse{
+		Status:       Status_OK,
+		Header:       hdr,
+		PrimaryHints: expected[0],
+	})
+
+	// Case: Fetch hints for a non-existant shard
+	resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: "missing-shard"})
+	c.Check(err, gc.IsNil)
+	c.Check(resp.Status, gc.Equals, Status_SHARD_NOT_FOUND)
+	// Case: Hint does not correspond to correct recovery log
+	var hints = mkHints(444)
+	hints.Log = "incorrect/log"
+	c.Check(storeRecordedHints(r, hints, r.etcd), gc.IsNil)
+	resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: shardA})
+	c.Check(resp, gc.IsNil)
+	c.Check(err.Error(), gc.DeepEquals, "recovered hints recovery log doesn't match ShardSpec.RecoveryLog (incorrect/log vs recovery/logs/shard-A)")
+
+	// Case: Invalid hint has been stored
+	hints = mkHints(555)
+	hints.Log = ""
+	c.Check(storeRecordedHints(r, hints, r.etcd), gc.IsNil)
+	resp, err = tf.service.GetHints(tf.ctx, &GetHintsRequest{Shard: shardA})
+	c.Check(err.Error(), gc.DeepEquals, "validating FSMHints: hinted log not provided")
+
+	tf.allocateShard(c, spec) // Cleanup.
 }
 
 var _ = gc.Suite(&APISuite{})

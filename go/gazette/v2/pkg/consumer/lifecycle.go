@@ -22,10 +22,10 @@ import (
 func playLog(shard Shard, pl *recoverylog.Player, etcd *clientv3.Client) error {
 	if dir, err := ioutil.TempDir("", shard.Spec().Id.String()+"-"); err != nil {
 		return extendErr(err, "creating shard working directory")
-	} else if hints, _, err := fetchHints(shard.Context(), shard.Spec(), etcd); err != nil {
+	} else if h, err := fetchHints(shard.Context(), shard.Spec(), etcd); err != nil {
 		return extendErr(err, "fetching FSM hints")
-	} else if err = pl.Play(shard.Context(), hints, dir, shard.JournalClient()); err != nil {
-		return extendErr(err, "playing log %s", hints.Log)
+	} else if err = pl.Play(shard.Context(), pickFirstHints(h), dir, shard.JournalClient()); err != nil {
+		return extendErr(err, "playing log %s", pickFirstHints(h).Log)
 	}
 	return nil
 }
@@ -200,35 +200,59 @@ func fetchJournalSpec(ctx context.Context, name pb.Journal, journals pb.JournalC
 	return
 }
 
-// fetchHints retrieves and decodes the current, best FSMHints for the ShardSpec. It also
-// returns a TxnResponse holding each of the raw key & values, which can be used for
-// transactional updates of hints.
-func fetchHints(ctx context.Context, spec *ShardSpec, etcd *clientv3.Client) (hints recoverylog.FSMHints, resp *clientv3.TxnResponse, err error) {
-	var ops = []clientv3.Op{clientv3.OpGet(spec.HintPrimaryKey())}
+type fetchedHints struct {
+	spec    *ShardSpec
+	txnResp *clientv3.TxnResponse
+	hints   []*recoverylog.FSMHints
+}
 
+// pickFirstHints retrieves the first hints from |f|. If there are no primary
+// hints available the most recent backup hints will be returned. If there are
+// no hints available an empty set of hints is returned.
+func pickFirstHints(f fetchedHints) recoverylog.FSMHints {
+	for _, currHints := range f.hints {
+		if currHints == nil {
+			continue
+		}
+		return *currHints
+	}
+
+	return recoverylog.FSMHints{Log: f.spec.RecoveryLog()}
+}
+
+// fetchHints retrieves and decodes all FSMHints for the ShardSpec.
+// Nil values will be returned where hint values have not been written. It also
+// returns a TxnResponse holding each of the hints values, which can be used for
+// transactional updates of hints.
+func fetchHints(ctx context.Context, spec *ShardSpec, etcd *clientv3.Client) (out fetchedHints, err error) {
+	var ops = []clientv3.Op{clientv3.OpGet(spec.HintPrimaryKey())}
 	for _, hk := range spec.HintBackupKeys() {
 		ops = append(ops, clientv3.OpGet(hk))
 	}
 
-	if resp, err = etcd.Txn(ctx).If().Then(ops...).Commit(); err != nil {
-		err = extendErr(err, "fetching ShardSpec hint keys")
+	out.spec = spec
+	if out.txnResp, err = etcd.Txn(ctx).If().Then(ops...).Commit(); err != nil {
+		err = extendErr(err, "fetching ShardSpec.HintKeys")
 		return
 	}
-	hints.Log = spec.RecoveryLog()
 
-	// Load the first hint key, in |ops| order, having a populated key/value in Etcd.
-	for i := range resp.Responses {
-		if kvs := resp.Responses[i].GetResponseRange().Kvs; len(kvs) == 0 {
+	for i := range out.txnResp.Responses {
+		var currHints recoverylog.FSMHints
+		if kvs := out.txnResp.Responses[i].GetResponseRange().Kvs; len(kvs) == 0 {
+			out.hints = append(out.hints, nil)
 			continue
-		} else if err = json.Unmarshal(kvs[0].Value, &hints); err != nil {
+		} else if err = json.Unmarshal(kvs[0].Value, &currHints); err != nil {
 			err = extendErr(err, "unmarshal FSMHints")
-		} else if _, err = recoverylog.NewFSM(hints); err != nil { // Validate hints.
+		} else if _, err = recoverylog.NewFSM(currHints); err != nil { // Validate hints.
 			err = extendErr(err, "validating FSMHints")
-		} else if hints.Log != spec.RecoveryLog() {
-			err = errors.Errorf("recovered hints.Log doesn't match ShardSpec.RecoveryLog (%s vs %s)",
-				hints.Log, spec.RecoveryLog())
+		} else if currHints.Log != spec.RecoveryLog() {
+			err = errors.Errorf("recovered hints recovery log doesn't match ShardSpec.RecoveryLog (%s vs %s)",
+				currHints.Log, spec.RecoveryLog())
 		}
-		return
+		if err != nil {
+			return
+		}
+		out.hints = append(out.hints, &currHints)
 	}
 	return
 }
@@ -260,10 +284,10 @@ func storeRecoveredHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3
 	var (
 		spec    = shard.Spec()
 		asn     = shard.Assignment()
-		resp    *clientv3.TxnResponse
 		backups = shard.Spec().HintBackupKeys()
+		h       fetchedHints
 	)
-	if _, resp, err = fetchHints(shard.Context(), spec, etcd); err != nil {
+	if h, err = fetchHints(shard.Context(), spec, etcd); err != nil {
 		return
 	}
 
@@ -277,6 +301,10 @@ func storeRecoveredHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3
 	var cmp []clientv3.Cmp
 	var ops []clientv3.Op
 
+	// The txn responses returned from fetchHints are structured such that the first response will
+	// be the primary response and the subsequent responses are the backup responses, this slice
+	// represents just the backup responses.
+	var backupResponses = h.txnResp.Responses[1:]
 	// Verify our Assignment is still in effect (eg, we're still primary).
 	cmp = append(cmp, clientv3.Compare(clientv3.CreateRevision(string(asn.Raw.Key)),
 		"=", asn.Raw.CreateRevision))
@@ -284,8 +312,7 @@ func storeRecoveredHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3
 	for i := 0; i != len(backups) && val != nil; i++ {
 		ops = append(ops, clientv3.OpPut(backups[i], string(val)))
 
-		// |backups| key responses start of index 1 (resp.Responses[0] is the primary hint).
-		if kvs := resp.Responses[1+i].GetResponseRange().Kvs; len(kvs) == 0 {
+		if kvs := backupResponses[i].GetResponseRange().Kvs; len(kvs) == 0 {
 			// Verify there is still no current key/value at this hints key slot.
 			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(backups[i]), "=", 0))
 			val = nil

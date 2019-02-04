@@ -623,13 +623,17 @@ func (s *LifecycleSuite) TestStoreAndFetchHints(c *gc.C) {
 	// verifyHints confirms that fetchHints returns |id|, and the state of hint
 	// keys in etcd matches |idA|, |idB|, |idC|.
 	var verifyHints = func(id, idA, idB, idC int64) {
-		var hints, resp, err = fetchHints(r.ctx, r.Spec(), r.etcd)
+		var h, err = fetchHints(r.ctx, r.Spec(), r.etcd)
 		c.Check(err, gc.IsNil)
-		c.Check(hints, gc.DeepEquals, mkHints(id))
-		c.Check(resp.Responses, gc.HasLen, 3)
+		c.Check(h.spec, gc.DeepEquals, r.Spec())
+		c.Check(h.txnResp.Responses, gc.HasLen, 3)
+		c.Check(h.hints, gc.HasLen, 3)
+
+		var hints = pickFirstHints(h)
+		c.Check(pickFirstHints(h), gc.DeepEquals, mkHints(id))
 
 		var recovered [3]int64
-		for i, op := range resp.Responses {
+		for i, op := range h.txnResp.Responses {
 			switch len(op.GetResponseRange().Kvs) {
 			case 0: // Pass.
 			case 1:
@@ -666,9 +670,9 @@ func (s *LifecycleSuite) TestStoreAndFetchHints(c *gc.C) {
 	_, _ = r.etcd.Delete(r.ctx, r.spec.HintBackupKeys()[1])
 
 	// When no hints exist, default hints are returned.
-	hints, _, err := fetchHints(r.ctx, r.spec, r.etcd)
+	h, err := fetchHints(r.ctx, r.spec, r.etcd)
 	c.Check(err, gc.IsNil)
-	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{Log: r.spec.RecoveryLog()})
+	c.Check(pickFirstHints(h), gc.DeepEquals, recoverylog.FSMHints{Log: r.spec.RecoveryLog()})
 }
 
 // newLifecycleTestFixture extends newTestFixture by stubbing out |transition|
