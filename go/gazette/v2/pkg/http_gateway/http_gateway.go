@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -159,8 +160,8 @@ func writeReadResponse(w http.ResponseWriter, r *http.Request, resp pb.ReadRespo
 	if resp.Fragment != nil {
 		w.Header().Add(FragmentNameHeader, resp.Fragment.ContentName())
 
-		if !resp.Fragment.ModTime.IsZero() {
-			w.Header().Add(FragmentLastModifiedHeader, resp.Fragment.ModTime.UTC().Format(http.TimeFormat))
+		if resp.Fragment.ModTime != 0 {
+			w.Header().Add(FragmentLastModifiedHeader, time.Unix(resp.Fragment.ModTime, 0).UTC().Format(http.TimeFormat))
 		}
 		if resp.FragmentUrl != "" {
 			w.Header().Add(FragmentLocationHeader, resp.FragmentUrl)

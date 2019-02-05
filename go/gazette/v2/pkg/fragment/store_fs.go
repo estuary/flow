@@ -127,7 +127,7 @@ func fsList(store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(
 			} else if info.Size() == 0 && frag.ContentLength() > 0 {
 				log.WithFields(log.Fields{"path": path}).Warning("zero-length fragment")
 			} else {
-				frag.ModTime = info.ModTime()
+				frag.ModTime = info.ModTime().Unix()
 				frag.BackingStore = store
 				callback(frag)
 			}

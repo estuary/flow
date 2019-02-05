@@ -64,8 +64,8 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 		// yet aware of a Fragment currently being uploaded, should block a read
 		// of an offset covered by that Fragment until it becomes available).
 		if !found && ind != len(fi.set) &&
-			!fi.set[ind].ModTime.IsZero() &&
-			fi.set[ind].ModTime.Before(timeNow().Add(-offsetJumpAgeThreshold)) {
+			fi.set[ind].ModTime != 0 &&
+			fi.set[ind].ModTime < timeNow().Add(-offsetJumpAgeThreshold).Unix() {
 
 			resp.Offset = fi.set[ind].Begin
 			found = true
@@ -77,7 +77,7 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 			resp.Fragment = new(pb.Fragment)
 			*resp.Fragment = fi.set[ind].Fragment
 
-			if resp.Fragment.BackingStore != "" && !resp.Fragment.ModTime.IsZero() {
+			if resp.Fragment.BackingStore != "" && resp.Fragment.ModTime != 0 {
 				resp.FragmentUrl, err = SignGetURL(*resp.Fragment, time.Minute)
 			}
 			addTrace(ctx, "Index.Query(%s) => %s, localFile: %t", req, resp, fi.set[ind].File != nil)

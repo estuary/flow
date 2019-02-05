@@ -197,7 +197,7 @@ var (
 			End:              1500,
 			Sum:              pb.SHA1Sum{Part1: 9876},
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
-			ModTime:          time.Unix(12345678, 0),
+			ModTime:          time.Unix(12345678, 0).Unix(),
 		},
 		FragmentUrl: "http://host/path/to/fragment",
 	}

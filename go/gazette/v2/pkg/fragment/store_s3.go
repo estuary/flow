@@ -143,7 +143,7 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Jo
 			} else if *obj.Size == 0 && frag.ContentLength() > 0 {
 				log.WithFields(log.Fields{"obj": obj}).Warning("zero-length fragment")
 			} else {
-				frag.ModTime = *obj.LastModified
+				frag.ModTime = obj.LastModified.Unix()
 				frag.BackingStore = store
 				callback(frag)
 			}

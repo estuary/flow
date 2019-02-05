@@ -31,7 +31,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 		Journal: "a/missing/journal",
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status: pb.Status_JOURNAL_NOT_FOUND,
 		Header: &res.Header,
 	})
@@ -43,7 +43,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 		Journal: "write/only/journal",
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status: pb.Status_NOT_ALLOWED,
 		Header: &res.Header,
 	})
@@ -55,8 +55,8 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 		c.Check(req, gc.DeepEquals, &pb.FragmentsRequest{
 			Header:        &res.Header,
 			Journal:       "a/journal",
-			BeginModTime:  time.Time{},
-			EndModTime:    time.Time{},
+			BeginModTime:  time.Unix(0, 0).Unix(),
+			EndModTime:    time.Unix(0, 0).Unix(),
 			NextPageToken: 0,
 			DoNotProxy:    false,
 		})
@@ -72,7 +72,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 		Journal: "a/journal",
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		Fragments:     fixture,
@@ -91,12 +91,12 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	var ctx = pb.WithDispatchDefault(tf.ctx)
 	var resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
-		BeginModTime:  time.Unix(50, 0),
-		EndModTime:    time.Unix(40, 0),
+		BeginModTime:  50,
+		EndModTime:    40,
 		NextPageToken: 0,
 		DoNotProxy:    false,
 	})
-	c.Check(err, gc.ErrorMatches, `.* invalid EndModTime \(1970-01-01 00:00:40 \+0000 UTC must be after the 1970-01-01 00:00:50 \+0000 UTC\)`)
+	c.Check(err, gc.ErrorMatches, `.* invalid EndModTime \(40 must be after 50\)`)
 	c.Check(resp, gc.IsNil)
 
 	// Case: Fetch fragments with unbounded time range.
@@ -110,11 +110,11 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	})
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
-		BeginModTime: time.Time{},
-		EndModTime:   time.Time{},
+		BeginModTime: 0,
+		EndModTime:   0,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		Fragments:     fixture,
@@ -124,11 +124,11 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	// Case: Fetch fragments with bounded time range
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
-		BeginModTime: time.Unix(100, 0),
-		EndModTime:   time.Unix(180, 0),
+		BeginModTime: 100,
+		EndModTime:   180,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status: pb.Status_OK,
 		Header: &res.Header,
 		Fragments: []pb.FragmentsResponse_SignedFragment{
@@ -141,12 +141,12 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	// Case: Fetch paginated fragments
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
-		BeginModTime: time.Time{},
-		EndModTime:   time.Time{},
+		BeginModTime: 0,
+		EndModTime:   0,
 		PageLimit:    3,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		Fragments:     fixture[:3],
@@ -154,13 +154,13 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	})
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
-		BeginModTime:  time.Time{},
-		EndModTime:    time.Time{},
+		BeginModTime:  0,
+		EndModTime:    0,
 		PageLimit:     3,
 		NextPageToken: resp.NextPageToken,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		Fragments:     fixture[3:],
@@ -174,7 +174,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 		NextPageToken: 120,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		Fragments:     fixture[3:],
@@ -184,11 +184,11 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	// Case: Fetch fragments outside of time range.
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
-		BeginModTime: time.Unix(10000, 0),
-		EndModTime:   time.Unix(20000, 0),
+		BeginModTime: 10000,
+		EndModTime:   20000,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		NextPageToken: 0,
@@ -197,12 +197,12 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	// Case: Fetch fragments with a NextPageToken larger than max fragment offset.
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
-		BeginModTime:  time.Time{},
-		EndModTime:    time.Time{},
+		BeginModTime:  0,
+		EndModTime:    0,
 		NextPageToken: 1000,
 	})
 	c.Check(err, gc.IsNil)
-	expectFragmentsResponse(c, resp, &pb.FragmentsResponse{
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        &res.Header,
 		NextPageToken: 0,
@@ -213,8 +213,8 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	res.replica.index.ReplaceRemote(buildFragmentSet(fixture))
 	resp, err = rjc.Fragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
-		BeginModTime: time.Time{},
-		EndModTime:   time.Time{},
+		BeginModTime: 0,
+		EndModTime:   0,
 	})
 	c.Check(status.Code(err), gc.DeepEquals, codes.Unknown)
 	c.Check(resp, gc.IsNil)
@@ -228,7 +228,7 @@ var buildSignedFragmentsFixture = func() []pb.FragmentsResponse_SignedFragment {
 				Journal:          "a/journal",
 				Begin:            0,
 				End:              40,
-				ModTime:          time.Time{},
+				ModTime:          0,
 				BackingStore:     pb.FragmentStore("file:///root/one/"),
 				CompressionCodec: pb.CompressionCodec_NONE,
 			},
@@ -239,7 +239,7 @@ var buildSignedFragmentsFixture = func() []pb.FragmentsResponse_SignedFragment {
 				Journal:          "a/journal",
 				Begin:            40,
 				End:              110,
-				ModTime:          time.Unix(101, 0),
+				ModTime:          101,
 				BackingStore:     pb.FragmentStore("file:///root/one/"),
 				CompressionCodec: pb.CompressionCodec_NONE,
 			},
@@ -250,7 +250,7 @@ var buildSignedFragmentsFixture = func() []pb.FragmentsResponse_SignedFragment {
 				Journal:          "a/journal",
 				Begin:            99,
 				End:              130,
-				ModTime:          time.Unix(200, 0),
+				ModTime:          200,
 				BackingStore:     pb.FragmentStore("file:///root/one/"),
 				CompressionCodec: pb.CompressionCodec_NONE,
 			},
@@ -261,7 +261,7 @@ var buildSignedFragmentsFixture = func() []pb.FragmentsResponse_SignedFragment {
 				Journal:          "a/journal",
 				Begin:            131,
 				End:              318,
-				ModTime:          time.Unix(150, 0),
+				ModTime:          150,
 				BackingStore:     pb.FragmentStore("file:///root/one/"),
 				CompressionCodec: pb.CompressionCodec_NONE,
 			},
@@ -272,7 +272,7 @@ var buildSignedFragmentsFixture = func() []pb.FragmentsResponse_SignedFragment {
 				Journal:          "a/journal",
 				Begin:            319,
 				End:              400,
-				ModTime:          time.Unix(290, 0),
+				ModTime:          290,
 				BackingStore:     pb.FragmentStore("file:///root/one/"),
 				CompressionCodec: pb.CompressionCodec_NONE,
 			},
@@ -294,27 +294,6 @@ func buildFragmentSet(fragments []pb.FragmentsResponse_SignedFragment) fragment.
 		set, _ = set.Add(fragment.Fragment{Fragment: f.Fragment})
 	}
 	return set
-}
-
-// expectedFragmentsResponse allows for evaluating pb.FragmentsResponses which contain time.Time values
-// which can not be comapred using refelct.DeepEqual.
-func expectFragmentsResponse(c *gc.C, resp *pb.FragmentsResponse, expected *pb.FragmentsResponse) {
-	// If the expected response has fragments create a copy and reinset it into the response to
-	// avoid mutating fixtures.
-	if len(expected.Fragments) > 0 {
-		var clonedList = make([]pb.FragmentsResponse_SignedFragment, 0, len(expected.Fragments))
-		for _, f := range expected.Fragments {
-			var clone = f
-			clonedList = append(clonedList, clone)
-		}
-		expected.Fragments = clonedList
-	}
-
-	for i := range resp.Fragments {
-		c.Check(expected.Fragments[i].Fragment.ModTime.Equal(resp.Fragments[i].Fragment.ModTime), gc.Equals, true)
-		resp.Fragments[i].Fragment.ModTime, expected.Fragments[i].Fragment.ModTime = time.Time{}, time.Time{}
-	}
-	c.Check(resp, gc.DeepEquals, expected)
 }
 
 var _ = gc.Suite(&FragmentsSuite{})

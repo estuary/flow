@@ -3,7 +3,6 @@ package protocol
 import (
 	"net/url"
 	"strings"
-	"time"
 )
 
 // RoutedJournalClient composes a JournalClient and DispatchRouter.
@@ -320,8 +319,8 @@ func (m *FragmentsRequest) Validate() error {
 	if err := m.Journal.Validate(); err != nil {
 		return ExtendContext(err, "Journal")
 	}
-	if m.EndModTime.Before(m.BeginModTime) {
-		return NewValidationError("invalid EndModTime (%v must be after the %v)", m.EndModTime.In(time.UTC), m.BeginModTime.In(time.UTC))
+	if m.EndModTime < m.BeginModTime {
+		return NewValidationError("invalid EndModTime (%v must be after %v)", m.EndModTime, m.BeginModTime)
 	}
 	if m.NextPageToken < 0 {
 		return NewValidationError("invalid NextPageToken (%v; must be >= 0)", m.NextPageToken)

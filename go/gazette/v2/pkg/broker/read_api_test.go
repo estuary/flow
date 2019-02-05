@@ -366,7 +366,7 @@ func buildRemoteFragmentFixture(c *gc.C) (frag pb.Fragment, dir string) {
 		Sum:              pb.SHA1SumOf(data),
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
 		BackingStore:     pb.FragmentStore("file:///"),
-		ModTime:          time.Unix(1234567, 0),
+		ModTime:          time.Unix(1234567, 0).Unix(),
 	}
 
 	var path = filepath.Join(dir, frag.ContentPath())
@@ -389,20 +389,6 @@ func boxFragment(f pb.Fragment) *pb.Fragment { return &f }
 func expectReadResponse(c *gc.C, stream pb.Journal_ReadClient, expect pb.ReadResponse) {
 	var resp, err = stream.Recv()
 	c.Check(err, gc.IsNil)
-
-	// time.Time cannot be compared with reflect.DeepEqual. Check separately,
-	// without modifying Fragment instance that |expect| points to.
-	if expect.Fragment != nil {
-		var clone = *expect.Fragment
-		expect.Fragment = &clone
-
-		var respModTime time.Time
-		if resp.Fragment != nil {
-			respModTime = resp.Fragment.ModTime
-		}
-		c.Check(expect.Fragment.ModTime.Equal(respModTime), gc.Equals, true)
-		resp.Fragment.ModTime, expect.Fragment.ModTime = time.Time{}, time.Time{}
-	}
 	c.Check(*resp, gc.DeepEquals, expect)
 }
 

@@ -4,7 +4,6 @@ package protocol;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
-import "google/protobuf/timestamp.proto";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
@@ -271,8 +270,9 @@ message Fragment {
   // Fragment store which backs the Fragment. Empty if the Fragment has yet to
   // be persisted and is still local to a Broker.
   string backing_store = 6 [(gogoproto.casttype) = "FragmentStore"];
-  // Modification timestamp of the Fragment within the backing store.
-  google.protobuf.Timestamp mod_time = 7 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+  // Modification timestamp of the Fragment within the backing store, represented as seconds
+  // since the epoch.
+  int64 mod_time = 7;
 }
 
 // SHA1Sum is a 160-bit SHA1 digest.
@@ -447,12 +447,14 @@ message FragmentsRequest {
   Header header = 1;
   // Journal to be read.
   string journal = 2 [(gogoproto.casttype) = "Journal"]; 
-  // BeginModTime is an optional field specifying an inclusive lower bound on 
-  // the last modified time for a fragment to be returned.
-  google.protobuf.Timestamp begin_mod_time = 3 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
-  // EndModTime is an optional field specifying an exclusive upper bound on 
-  // the last mondified time for a fragment to be returned.
-  google.protobuf.Timestamp end_mod_time = 4 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+  // BeginModTime is an optional field specifying an inclusive lower bound on
+  // the modification timestamp for a fragment to be returned. The timestamp is
+  // represented as seconds since the epoch.
+  int64 begin_mod_time = 3;
+  // EndModTime is an optional field specifying an exclusive upper bound on
+  // the modification timestamp for a fragment to be returned. The timestamp is
+  // represented as seconds since the epoch.
+  int64 end_mod_time = 4;
   // The NextPageToke value returned from a previous, continued FragmentsRequest, if any.
   int64 next_page_token = 5;
   // PageLimit is an optional fieled specifying how many fragments to be returned

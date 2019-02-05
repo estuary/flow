@@ -96,7 +96,7 @@ func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.J
 		} else if obj.Size == 0 && frag.ContentLength() > 0 {
 			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name}).Warning("zero-length fragment")
 		} else {
-			frag.ModTime = obj.Updated
+			frag.ModTime = obj.Updated.Unix()
 			frag.BackingStore = store
 			callback(frag)
 		}

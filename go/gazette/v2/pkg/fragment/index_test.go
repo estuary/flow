@@ -119,7 +119,7 @@ func (s *IndexSuite) TestQueryAtMissingMiddle(c *gc.C) {
 	c.Check(resp.Status, gc.Equals, pb.Status_OK)
 
 	// Update ModTime to |baseTime|. Queries still fail (as we haven't passed the time horizon).
-	set[0].ModTime, set[1].ModTime = baseTime, baseTime
+	set[0].ModTime, set[1].ModTime = baseTime.Unix(), baseTime.Unix()
 	ind.ReplaceRemote(set)
 
 	resp, _, _ = ind.Query(context.Background(), &pb.ReadRequest{Offset: 210, Block: false})
@@ -142,9 +142,8 @@ func (s *IndexSuite) TestQueryAtMissingMiddle(c *gc.C) {
 	// jumps forward to the next Fragment.
 	go func() {
 		ind.mu.Lock() // Synchronize |timeNow| access with Query.
-		timeNow = func() time.Time { return baseTime.Add(offsetJumpAgeThreshold + 1) }
+		timeNow = func() time.Time { return baseTime.Add(offsetJumpAgeThreshold + time.Second) }
 		ind.mu.Unlock()
-
 		ind.SpoolCommit(buildSet(c, 400, 420)[0])
 	}()
 
@@ -152,7 +151,7 @@ func (s *IndexSuite) TestQueryAtMissingMiddle(c *gc.C) {
 	c.Check(resp, gc.DeepEquals, &pb.ReadResponse{
 		Offset:    300,
 		WriteHead: 420,
-		Fragment:  &pb.Fragment{Begin: 300, End: 400, ModTime: baseTime},
+		Fragment:  &pb.Fragment{Begin: 300, End: 400, ModTime: baseTime.Unix()},
 	})
 
 	// As the time horizon has been reached, non-blocking reads also offset jump immediately.
