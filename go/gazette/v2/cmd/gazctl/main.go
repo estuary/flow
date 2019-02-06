@@ -185,6 +185,16 @@ If not passed the default value is -1 which will read from the head of the journ
 
 	_ = addCmd(cmdJournals, "edit", "Edit journal specifications", journalsEditLongDesc, &cmdJournalsEdit{})
 	_ = addCmd(cmdShards, "edit", "Edit shard specifications", shardsEditLongDesc, &cmdShardsEdit{})
+	_ = addCmd(cmdShards, "prune", "Removes fragments of a hinted recovery log which are no longer needed", `
+Recovery logs capture every write which has ever occurred in a Shard DB.
+This includes all prior writes of client keys & values, and also RocksDB
+compactions, which can significantly inflate the total volume of writes
+relative to the data currently represented in a RocksDB.
+
+Prune log examines the provided hints to identify Fragments of the log
+which have no intersection with any live files of the DB, and can thus
+be safely deleted.
+`, &cmdShardsPrune{})
 
 	_ = addCmd(cmdJournals, "reset-head", "Reset journal append offset (disaster recovery)", `
 Reset the append offset of journals.
