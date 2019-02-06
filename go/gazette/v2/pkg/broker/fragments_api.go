@@ -32,9 +32,9 @@ func (svc *Service) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*p
 	if err != nil {
 		return nil, err
 	} else if res.status != pb.Status_OK {
-		return &pb.FragmentsResponse{Status: res.status, Header: &res.Header}, nil
+		return &pb.FragmentsResponse{Status: res.status, Header: res.Header}, nil
 	} else if !res.journalSpec.Flags.MayRead() {
-		return &pb.FragmentsResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header}, nil
+		return &pb.FragmentsResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header}, nil
 	} else if res.replica == nil {
 		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 		ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
@@ -55,7 +55,7 @@ func (svc *Service) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*p
 
 	var resp = &pb.FragmentsResponse{
 		Status: pb.Status_OK,
-		Header: &res.Header,
+		Header: res.Header,
 	}
 	if err := res.replica.index.Inspect(func(fragmentSet fragment.CoverSet) error {
 		resp.Fragments, resp.NextPageToken, err = buildSignedFragments(req, fragmentSet)

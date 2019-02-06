@@ -186,7 +186,7 @@ func consumeMessages(shard Shard, store Store, app Application, etcd *clientv3.C
 // fetchJournalSpec retrieves the current JournalSpec.
 func fetchJournalSpec(ctx context.Context, name pb.Journal, journals pb.JournalClient) (spec *pb.JournalSpec, err error) {
 	var lr *pb.ListResponse
-	lr, err = client.ListAll(ctx, journals, pb.ListRequest{
+	lr, err = client.ListAllJournals(ctx, journals, pb.ListRequest{
 		Selector: pb.LabelSelector{
 			Include: pb.LabelSet{Labels: []pb.Label{{Name: "name", Value: name.String()}}},
 		},

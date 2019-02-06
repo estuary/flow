@@ -473,7 +473,7 @@ message FragmentsResponse {
   // Status of the Apply RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2;
+  Header header = 2 [(gogoproto.nullable) = false];;
 
   message SignedFragment {
     Fragment fragment = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];

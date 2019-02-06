@@ -24,7 +24,7 @@ type PolledList struct {
 // An error encountered in the first List RPC is returned. Subsequent RPC errors
 // will be logged as warnings and retried as part of regular refreshes.
 func NewPolledList(ctx context.Context, client pb.JournalClient, dur time.Duration, req pb.ListRequest) (*PolledList, error) {
-	var resp, err = ListAll(ctx, client, req)
+	var resp, err = ListAllJournals(ctx, client, req)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (pl *PolledList) periodicRefresh(dur time.Duration) {
 	for {
 		select {
 		case <-ticker.C:
-			var resp, err = ListAll(pl.ctx, pl.client, pl.req)
+			var resp, err = ListAllJournals(pl.ctx, pl.client, pl.req)
 			if err != nil {
 				log.WithFields(log.Fields{"err": err, "req": pl.req.String()}).
 					Warn("periodic List refresh failed (will retry)")
@@ -57,10 +57,10 @@ func (pl *PolledList) periodicRefresh(dur time.Duration) {
 	}
 }
 
-// ListAll performs multiple List RPCs, as required to join across multiple
+// ListAllJournals performs multiple List RPCs, as required to join across multiple
 // ListResponse pages, and returns the complete ListResponse of the ListRequest.
 // Any encountered error is returned.
-func ListAll(ctx context.Context, client pb.JournalClient, req pb.ListRequest) (*pb.ListResponse, error) {
+func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRequest) (*pb.ListResponse, error) {
 	var resp *pb.ListResponse
 
 	for {
@@ -104,4 +104,35 @@ func ApplyJournals(ctx context.Context, jc pb.JournalClient, req *pb.ApplyReques
 	} else {
 		return r, nil
 	}
+}
+
+// ListAllFragments performs multiple Fragments RPCs, as required to join across multiple
+// FragmentsResponse pages, and returns the completed FragmentResponse.
+// Any encountered error is returned.
+func ListAllFragments(ctx context.Context, client pb.RoutedJournalClient, req pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	var resp *pb.FragmentsResponse
+	var routedCtx = pb.WithDispatchItemRoute(ctx, client, req.Journal.String(), false)
+
+	for {
+		if r, err := client.Fragments(routedCtx, &req); err != nil {
+			return resp, mapGRPCCtxErr(ctx, err)
+		} else if err = r.Validate(); err != nil {
+			return resp, err
+		} else if r.Status != pb.Status_OK {
+			return resp, errors.New(r.Status.String())
+		} else {
+			req.NextPageToken, r.NextPageToken = r.NextPageToken, 0
+
+			if resp == nil {
+				resp = r
+			} else {
+				resp.Fragments = append(resp.Fragments, r.Fragments...)
+			}
+			if req.NextPageToken == 0 {
+				break // All done.
+			}
+		}
+	}
+
+	return resp, nil
 }

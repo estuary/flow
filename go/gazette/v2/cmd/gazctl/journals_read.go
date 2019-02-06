@@ -33,7 +33,7 @@ func (cmd *cmdJournalRead) Execute([]string) error {
 	mbp.Must(err, "failed to parse label selector", "selector", cmd.Selector)
 
 	var listResp *pb.ListResponse
-	listResp, err = client.ListAll(ctx, brokerClient, listRequest)
+	listResp, err = client.ListAllJournals(ctx, brokerClient, listRequest)
 	mbp.Must(err, "failed to resolved journals from selector", cmd.Selector)
 
 	var doneCounter int32

@@ -33,7 +33,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status: pb.Status_JOURNAL_NOT_FOUND,
-		Header: &res.Header,
+		Header: res.Header,
 	})
 
 	// Case: Read from a write only journal.
@@ -45,7 +45,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status: pb.Status_NOT_ALLOWED,
-		Header: &res.Header,
+		Header: res.Header,
 	})
 
 	// Case: Proxy request to peer.
@@ -62,7 +62,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 		})
 		return &pb.FragmentsResponse{
 			Status:        pb.Status_OK,
-			Header:        &res.Header,
+			Header:        res.Header,
 			Fragments:     fixture,
 			NextPageToken: fixture[5].Fragment.End,
 		}, nil
@@ -74,7 +74,7 @@ func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		Fragments:     fixture,
 		NextPageToken: fixture[5].Fragment.End,
 	})
@@ -116,7 +116,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		Fragments:     fixture,
 		NextPageToken: 0,
 	})
@@ -130,7 +130,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status: pb.Status_OK,
-		Header: &res.Header,
+		Header: res.Header,
 		Fragments: []pb.FragmentsResponse_SignedFragment{
 			fixture[1],
 			fixture[3],
@@ -148,7 +148,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		Fragments:     fixture[:3],
 		NextPageToken: fixture[3].Begin,
 	})
@@ -162,7 +162,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		Fragments:     fixture[3:],
 		NextPageToken: 0,
 	})
@@ -176,7 +176,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		Fragments:     fixture[3:],
 		NextPageToken: 0,
 	})
@@ -190,7 +190,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		NextPageToken: 0,
 	})
 
@@ -204,7 +204,7 @@ func (s *FragmentsSuite) TestFragments(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        &res.Header,
+		Header:        res.Header,
 		NextPageToken: 0,
 	})
 

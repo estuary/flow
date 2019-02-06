@@ -116,7 +116,7 @@ func listJournals(s string) *pb.ListResponse {
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := client.ListAll(ctx, pb.NewJournalClient(journalsCfg.Broker.Dial(ctx)), req)
+	resp, err := client.ListAllJournals(ctx, pb.NewJournalClient(journalsCfg.Broker.Dial(ctx)), req)
 	mbp.Must(err, "failed to list journals")
 
 	return resp

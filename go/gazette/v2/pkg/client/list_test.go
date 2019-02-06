@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/broker/teststub"
@@ -11,7 +13,7 @@ import (
 
 type ListSuite struct{}
 
-func (s *ListSuite) TestListAllCases(c *gc.C) {
+func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
@@ -20,7 +22,7 @@ func (s *ListSuite) TestListAllCases(c *gc.C) {
 
 	var mk = buildListResponseFixture // Alias.
 
-	// Case: ListAll submits multiple requests and joins their results.
+	// Case: ListAllJournals submits multiple requests and joins their results.
 	var expect = []pb.ListRequest{
 		{Selector: selector, PageLimit: 10},
 		{Selector: selector, PageLimit: 10, PageToken: "tok-1"},
@@ -42,7 +44,7 @@ func (s *ListSuite) TestListAllCases(c *gc.C) {
 
 	var rc = NewRouteCache(10, time.Hour)
 	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
-	var resp, err = ListAll(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
+	var resp, err = ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
 
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.ListResponse{
@@ -55,7 +57,7 @@ func (s *ListSuite) TestListAllCases(c *gc.C) {
 	expect = []pb.ListRequest{{Selector: selector}}
 	responses = []pb.ListResponse{{Header: hdr, Journals: mk("only/one")}}
 
-	resp, err = ListAll(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
+	resp, err = ListAllJournals(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.ListResponse{Header: hdr, Journals: mk("only/one")})
 
@@ -63,19 +65,19 @@ func (s *ListSuite) TestListAllCases(c *gc.C) {
 	expect = []pb.ListRequest{{Selector: selector}}
 	responses = []pb.ListResponse{{Header: hdr, Journals: mk("invalid name")}}
 
-	_, err = ListAll(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
+	_, err = ListAllJournals(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.ErrorMatches, `Journals\[0\].Spec.Name: not a valid token \(invalid name\)`)
 
 	// Case: It fails on non-OK status.
 	expect = []pb.ListRequest{{Selector: selector}}
 	responses = []pb.ListResponse{{Header: hdr, Status: pb.Status_WRONG_ROUTE}}
 
-	_, err = ListAll(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
+	_, err = ListAllJournals(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.ErrorMatches, `WRONG_ROUTE`)
 
 	// Case: It surfaces context.Canceled, rather than a gRPC error.
 	cancel()
-	_, err = ListAll(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
+	_, err = ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
 	c.Check(err, gc.Equals, context.Canceled)
 }
 
@@ -99,7 +101,7 @@ func (s *ListSuite) TestPolledList(c *gc.C) {
 		return &fixture, nil
 	}
 
-	// Expect NewPolledList calls ListAll once, and List is prepared before return.
+	// Expect NewPolledList calls ListAllJournals once, and List is prepared before return.
 	callCh <- struct{}{}
 
 	var pl, err = NewPolledList(ctx, broker.MustClient(), 5*time.Millisecond, pb.ListRequest{})
@@ -114,6 +116,73 @@ func (s *ListSuite) TestPolledList(c *gc.C) {
 		callCh <- struct{}{} // Wait until |fixture| is certain to be applied.
 	}
 	c.Check(pl.List(), gc.DeepEquals, &fixture)
+}
+
+func (s *ListSuite) TestListAllFragments(c *gc.C) {
+	var ctx = context.Background()
+	var broker = teststub.NewBroker(c, ctx)
+	var hdr = buildHeaderFixture(broker)
+	var fixture1 = &pb.FragmentsResponse{
+		Header:        *hdr,
+		Fragments:     buildSignedFragmentsFixture("a/journal", 0),
+		NextPageToken: 30,
+	}
+	var fixture2 = &pb.FragmentsResponse{
+		Header:        *hdr,
+		Fragments:     buildSignedFragmentsFixture("a/journal", 30),
+		NextPageToken: 0,
+	}
+
+	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+		switch req.NextPageToken {
+		case 0:
+			return fixture1, nil
+		case 30:
+			return fixture2, nil
+		default:
+			return nil, errors.New("should not be called")
+		}
+	}
+
+	var client = pb.NewRoutedJournalClient(broker.MustClient(), NewRouteCache(2, time.Hour))
+	var req = pb.FragmentsRequest{Journal: pb.Journal("a/journal")}
+	// Case: properly coalesce fragment pages
+	var resp, err = ListAllFragments(ctx, client, req)
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+		Header:    *hdr,
+		Fragments: append(fixture1.Fragments, fixture2.Fragments...),
+	})
+
+	// Case: broker non-OK status
+	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+		return &pb.FragmentsResponse{
+			Header: *hdr,
+			Status: pb.Status_JOURNAL_NOT_FOUND,
+		}, nil
+	}
+	resp, err = ListAllFragments(ctx, client, req)
+	c.Check(resp, gc.IsNil)
+	c.Check(err, gc.ErrorMatches, pb.Status_JOURNAL_NOT_FOUND.String())
+
+	// Case: broker error
+	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+		return nil, errors.New("something has gone wrong")
+	}
+	resp, err = ListAllFragments(ctx, client, req)
+	c.Check(resp, gc.IsNil)
+	c.Check(err, gc.ErrorMatches, `rpc error: code = Unknown desc = something has gone wrong`)
+
+	// Case: invalid response
+	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+		return &pb.FragmentsResponse{
+			Header: *hdr,
+			Status: 1000,
+		}, nil
+	}
+	resp, err = ListAllFragments(ctx, client, req)
+	c.Check(resp, gc.IsNil)
+	c.Check(err, gc.ErrorMatches, `Status: invalid status \(1000\)`)
 }
 
 func buildListResponseFixture(names ...pb.Journal) (out []pb.ListResponse_Journal) {
@@ -137,6 +206,33 @@ func buildListResponseFixture(names ...pb.Journal) (out []pb.ListResponse_Journa
 		})
 	}
 	return
+}
+
+func buildSignedFragmentsFixture(journal pb.Journal, startOffset int64) []pb.FragmentsResponse_SignedFragment {
+	return []pb.FragmentsResponse_SignedFragment{
+		{
+			Fragment: pb.Fragment{
+				Journal:          journal,
+				Begin:            startOffset,
+				End:              startOffset + 10,
+				ModTime:          startOffset,
+				BackingStore:     pb.FragmentStore("file:///root/one/"),
+				CompressionCodec: pb.CompressionCodec_NONE,
+			},
+			SignedUrl: fmt.Sprintf("valid_url_%v", startOffset),
+		},
+		{
+			Fragment: pb.Fragment{
+				Journal:          journal,
+				Begin:            startOffset + 20,
+				End:              startOffset + 30,
+				ModTime:          startOffset + 10,
+				BackingStore:     pb.FragmentStore("file:///root/one/"),
+				CompressionCodec: pb.CompressionCodec_NONE,
+			},
+			SignedUrl: fmt.Sprintf("valid_url_%v_%v", startOffset, "_20"),
+		},
+	}
 }
 
 var _ = gc.Suite(&ListSuite{})
