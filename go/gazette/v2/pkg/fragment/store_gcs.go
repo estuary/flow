@@ -157,8 +157,8 @@ func gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.Si
 	return
 }
 
-func gcsRemove(ctx context.Context, ep *url.URL, fragment pb.Fragment) error {
-	cfg, client, _, err := gcsClient(ep)
+func gcsRemove(ctx context.Context, fragment pb.Fragment) error {
+	cfg, client, _, err := gcsClient(fragment.BackingStore.URL())
 	if err != nil {
 		return err
 	}

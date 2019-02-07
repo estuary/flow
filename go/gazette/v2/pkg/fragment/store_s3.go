@@ -152,8 +152,8 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Jo
 	})
 }
 
-func s3Remove(ctx context.Context, ep *url.URL, fragment pb.Fragment) error {
-	var cfg, client, err = s3Client(ep)
+func s3Remove(ctx context.Context, fragment pb.Fragment) error {
+	var cfg, client, err = s3Client(fragment.BackingStore.URL())
 	if err != nil {
 		return err
 	}

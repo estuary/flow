@@ -135,7 +135,8 @@ func fsList(store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(
 		})
 }
 
-func fsRemove(ep *url.URL, fragment pb.Fragment) error {
+func fsRemove(fragment pb.Fragment) error {
+	var ep = fragment.BackingStore.URL()
 	var cfg, err = newFsCfg(ep)
 	if err != nil {
 		return err

@@ -108,17 +108,15 @@ func List(ctx context.Context, store pb.FragmentStore, name pb.Journal, callback
 
 // Remove |fragment| from |store|.
 func Remove(ctx context.Context, store pb.FragmentStore, fragment pb.Fragment) error {
-	var ep = store.URL()
-
-	switch ep.Scheme {
+	switch fragment.BackingStore.URL().Scheme {
 	case "s3":
-		return s3Remove(ctx, ep, fragment)
+		return s3Remove(ctx, fragment)
 	case "gs":
-		return gcsRemove(ctx, ep, fragment)
+		return gcsRemove(ctx, fragment)
 	case "file":
-		return fsRemove(ep, fragment)
+		return fsRemove(fragment)
 	default:
-		panic("unsupported scheme: " + ep.Scheme)
+		panic("unsupported scheme: " + fragment.BackingStore)
 	}
 }
 
@@ -134,7 +132,6 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 	return nil
 }
 
-
 // rewriterCfg holds a find/replace pair, often populated by parseStoreArgs()
 // and provides a convenience function to rewrite the given path.
 //
@@ -149,7 +146,7 @@ type rewriterCfg struct {
 // found, the original |j| is appended.
 func (cfg rewriterCfg) rewritePath(s, j string) string {
 	if cfg.Find == "" {
-		return s+j
+		return s + j
 	}
-	return s+strings.Replace(j, cfg.Find, cfg.Replace, 1)
+	return s + strings.Replace(j, cfg.Find, cfg.Replace, 1)
 }
