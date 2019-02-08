@@ -151,7 +151,7 @@ func UnionJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Replication == 0 {
 		a.Replication = b.Replication
 	}
-	a.LabelSet = UnionLabelSets(b.LabelSet, a.LabelSet, LabelSet{})
+	a.LabelSet = UnionLabelSets(a.LabelSet, b.LabelSet, LabelSet{})
 
 	if a.Fragment.Length == 0 {
 		a.Fragment.Length = b.Fragment.Length
@@ -241,6 +241,9 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	return a
 }
 
+// ExtractJournalSpecMetaLabels adds to the LabelSet a singular label "name",
+// with value of the JournalSpec Name, and multi-label "prefix", having a value
+// for each path component prefix of Name.
 func ExtractJournalSpecMetaLabels(spec *JournalSpec, out LabelSet) LabelSet {
 	var name = spec.Name.String()
 	out.Labels = append(out.Labels[:0], Label{Name: "name", Value: name})

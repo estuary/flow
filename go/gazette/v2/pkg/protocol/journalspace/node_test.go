@@ -1,10 +1,14 @@
 package journalspace
 
 import (
+	"bytes"
+	"strings"
 	"testing"
+	"time"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
+	"gopkg.in/yaml.v2"
 )
 
 type NodeSuite struct{}
@@ -12,7 +16,7 @@ type NodeSuite struct{}
 func (s *NodeSuite) TestValidationCases(c *gc.C) {
 	var node Node
 
-	node.Name = "dir/"
+	node.Spec.Name = "dir/"
 	node.Revision = 1
 	c.Check(node.Validate(), gc.ErrorMatches, `unexpected Revision \(1\)`)
 
@@ -20,25 +24,25 @@ func (s *NodeSuite) TestValidationCases(c *gc.C) {
 	c.Check(node.Validate(), gc.ErrorMatches, `expected one or more Children`)
 
 	node.Children = append(node.Children,
-		Node{JournalSpec: pb.JournalSpec{Name: "foo"}},
-		Node{JournalSpec: pb.JournalSpec{Name: "bar"}})
+		Node{Spec: pb.JournalSpec{Name: "foo"}},
+		Node{Spec: pb.JournalSpec{Name: "bar"}})
 	c.Check(node.Validate(), gc.ErrorMatches,
 		`expected parent Name to prefix child \(dir/ vs foo\)`)
 
-	node.Children[0].Name = "dir/foo"
-	node.Children[1].Name = "dir/bar"
+	node.Children[0].Spec.Name = "dir/foo"
+	node.Children[1].Spec.Name = "dir/bar"
 	c.Check(node.Validate(), gc.ErrorMatches,
 		`expected Children to be ordered \(ind 1; dir/foo vs dir/bar\)`)
 
 	node.Children[0], node.Children[1] = node.Children[1], node.Children[0]
 	c.Check(node.Validate(), gc.IsNil)
 
-	node.Name = "invalid name"
+	node.Spec.Name = "invalid name"
 	node.Revision = 123
 	c.Check(node.Validate(), gc.ErrorMatches,
 		`Name: not a valid token \(invalid name\)`)
 
-	node.Name = "item"
+	node.Spec.Name = "item"
 	c.Check(node.Validate(), gc.ErrorMatches,
 		`expected no Children with non-directory Node \(item\)`)
 
@@ -46,42 +50,42 @@ func (s *NodeSuite) TestValidationCases(c *gc.C) {
 	c.Check(node.Validate(), gc.IsNil)
 }
 
-func (s *NodeSuite) TestFlatten(c *gc.C) {
+func (s *NodeSuite) TestPushDown(c *gc.C) {
 	// Create and flatten two tree fixtures: one with a shared common root, and one without.
 	for _, root := range []pb.Journal{"", "shared-root/"} {
 
 		var tree = Node{
-			JournalSpec: pb.JournalSpec{
+			Spec: pb.JournalSpec{
 				Name:        root,
 				Replication: 1,
 			},
 			Children: []Node{
-				{JournalSpec: pb.JournalSpec{
+				{Spec: pb.JournalSpec{
 					Name:  root + "aaa/",
 					Flags: pb.JournalSpec_O_RDWR,
 				},
 					Children: []Node{
-						{JournalSpec: pb.JournalSpec{
+						{Spec: pb.JournalSpec{
 							Name:  root + "aaa/111",
 							Flags: pb.JournalSpec_O_RDONLY, // Overrides O_RDWR.
 						}},
-						{JournalSpec: pb.JournalSpec{Name: root + "aaa/222"}},
+						{Spec: pb.JournalSpec{Name: root + "aaa/222"}},
 					}},
-				{JournalSpec: pb.JournalSpec{Name: root + "bbb/"},
+				{Spec: pb.JournalSpec{Name: root + "bbb/"},
 					Children: []Node{
-						{JournalSpec: pb.JournalSpec{
+						{Spec: pb.JournalSpec{
 							Name:        root + "bbb/333/",
 							Replication: 2, // Overrides Replication: 1
 						},
 							Children: []Node{
-								{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/"},
-									Delete: true,
+								{Spec: pb.JournalSpec{Name: root + "bbb/333/a/"},
+									Delete: &boxedTrue,
 									Children: []Node{
-										{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/x"}},
-										{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/y"}},
+										{Spec: pb.JournalSpec{Name: root + "bbb/333/a/x"}},
+										{Spec: pb.JournalSpec{Name: root + "bbb/333/a/y"}, Delete: &boxedFalse},
 									}},
-								{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/z"}}}},
-						{JournalSpec: pb.JournalSpec{
+								{Spec: pb.JournalSpec{Name: root + "bbb/333/z"}}}},
+						{Spec: pb.JournalSpec{
 							Name:        root + "bbb/444",
 							Replication: 3, // Overrides Replication: 1
 							Flags:       pb.JournalSpec_O_WRONLY,
@@ -89,16 +93,67 @@ func (s *NodeSuite) TestFlatten(c *gc.C) {
 					}}}}
 
 		c.Check(tree.Validate(), gc.IsNil)
+		tree.PushDown()
 
-		c.Check(tree.Flatten(), gc.DeepEquals, []Node{
-			{JournalSpec: pb.JournalSpec{Name: root + "aaa/111", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}},
-			{JournalSpec: pb.JournalSpec{Name: root + "aaa/222", Replication: 1, Flags: pb.JournalSpec_O_RDWR}},
-			{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/x", Replication: 2}, Delete: true},
-			{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/a/y", Replication: 2}, Delete: true},
-			{JournalSpec: pb.JournalSpec{Name: root + "bbb/333/z", Replication: 2}},
-			{JournalSpec: pb.JournalSpec{Name: root + "bbb/444", Replication: 3, Flags: pb.JournalSpec_O_WRONLY}},
+		c.Check(flatten(tree), gc.DeepEquals, []Node{
+			{Spec: pb.JournalSpec{Name: root + "aaa/111", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}},
+			{Spec: pb.JournalSpec{Name: root + "aaa/222", Replication: 1, Flags: pb.JournalSpec_O_RDWR}},
+			{Spec: pb.JournalSpec{Name: root + "bbb/333/a/x", Replication: 2}, Delete: &boxedTrue},
+			{Spec: pb.JournalSpec{Name: root + "bbb/333/a/y", Replication: 2}, Delete: &boxedFalse},
+			{Spec: pb.JournalSpec{Name: root + "bbb/333/z", Replication: 2}},
+			{Spec: pb.JournalSpec{Name: root + "bbb/444", Replication: 3, Flags: pb.JournalSpec_O_WRONLY}},
 		})
 	}
+}
+
+func (s *NodeSuite) TestPatchAndDeletionMarking(c *gc.C) {
+	var tree = extractTree([]Node{
+		{Spec: pb.JournalSpec{Name: "root/aaa/000"}},
+		{Spec: pb.JournalSpec{Name: "root/aaa/222"}},
+	})
+
+	// Introduce several new Nodes.
+	_ = tree.Patch(Node{Spec: pb.JournalSpec{Name: "root/aaa/111"}})
+	_ = tree.Patch(Node{Spec: pb.JournalSpec{Name: "root/bbb/ccc"}})
+	_ = tree.Patch(Node{Spec: pb.JournalSpec{Name: "ddd"}})
+
+	// Updates of existing Nodes. Update via a mix of fields on the patched
+	// Node, and by directly updated the returned *Node.
+	tree.Patch(Node{Spec: pb.JournalSpec{Name: "root/aaa/000"}}).Spec.Replication = 3
+
+	tree.Patch(Node{
+		Spec:    pb.JournalSpec{Name: "ddd"},
+		Comment: "foo",
+		Delete:  &boxedFalse,
+	}).Revision = 123
+
+	c.Check(tree, gc.DeepEquals, Node{
+		Children: []Node{
+			{
+				Spec:     pb.JournalSpec{Name: "ddd"},
+				Comment:  "foo",
+				Delete:   &boxedFalse,
+				Revision: 123,
+				patched:  true,
+			},
+			{Spec: pb.JournalSpec{Name: "root/aaa/"},
+				Children: []Node{
+					{Spec: pb.JournalSpec{Name: "root/aaa/000", Replication: 3}, patched: true},
+					{Spec: pb.JournalSpec{Name: "root/aaa/111"}, patched: true},
+					{Spec: pb.JournalSpec{Name: "root/aaa/222"}},
+				}},
+			{Spec: pb.JournalSpec{Name: "root/bbb/ccc"}, patched: true},
+		},
+	})
+
+	// Expect MarkUnpatchedForDeletion deletes terminal Nodes not patched within |tree|.
+	tree.MarkUnpatchedForDeletion()
+
+	c.Check(flatten(tree.Children[1]), gc.DeepEquals, []Node{
+		{Spec: pb.JournalSpec{Name: "root/aaa/000", Replication: 3}, patched: true},
+		{Spec: pb.JournalSpec{Name: "root/aaa/111"}, patched: true},
+		{Spec: pb.JournalSpec{Name: "root/aaa/222"}, Delete: &boxedTrue}, // Not visited => marked for deletion.
+	})
 }
 
 func (s *NodeSuite) TestSharedPrefixCases(c *gc.C) {
@@ -122,94 +177,191 @@ func (s *NodeSuite) TestSharedPrefixCases(c *gc.C) {
 
 func (s *NodeSuite) TestSpecHoisting(c *gc.C) {
 	var root = Node{
-		JournalSpec: pb.JournalSpec{Name: "node/"},
+		Spec: pb.JournalSpec{Name: "node/"},
 		Children: []Node{
-			{JournalSpec: pb.JournalSpec{
-				Name:        "node/aaa",
-				Replication: 2,
-				Flags:       pb.JournalSpec_O_RDONLY,
-				LabelSet:    labelSet("name-1", "val-1"),
-			}},
-			{JournalSpec: pb.JournalSpec{
-				Name:        "node/bbb",
-				Replication: 2,
-				Flags:       pb.JournalSpec_O_RDONLY,
-				LabelSet:    labelSet("name-1", "val-1", "name-2", "val-2"),
-			}},
+			{
+				Spec: pb.JournalSpec{
+					Name:        "node/aaa",
+					Replication: 2,
+					Flags:       pb.JournalSpec_O_RDONLY,
+					LabelSet:    pb.MustLabelSet("name-1", "val-1"),
+				},
+				Delete: &boxedTrue,
+			},
+			{
+				Spec: pb.JournalSpec{
+					Name:        "node/bbb",
+					Replication: 2,
+					Flags:       pb.JournalSpec_O_RDONLY,
+					LabelSet:    pb.MustLabelSet("name-1", "val-1", "name-2", "val-2"),
+				},
+				Delete: &boxedTrue,
+			},
 		}}
-	root.HoistSpecs()
+	root.Hoist()
 
 	c.Check(root, gc.DeepEquals, Node{
-		JournalSpec: pb.JournalSpec{
+		Spec: pb.JournalSpec{
 			Name:        "node/",
 			Replication: 2,
 			Flags:       pb.JournalSpec_O_RDONLY,
-			LabelSet:    labelSet("name-1", "val-1"),
+			LabelSet:    pb.MustLabelSet("name-1", "val-1"),
 		},
+		Delete: &boxedTrue,
 		Children: []Node{
-			{JournalSpec: pb.JournalSpec{
+			{Spec: pb.JournalSpec{
 				Name: "node/aaa",
 			}},
-			{JournalSpec: pb.JournalSpec{
+			{Spec: pb.JournalSpec{
 				Name:     "node/bbb",
-				LabelSet: labelSet("name-2", "val-2"),
+				LabelSet: pb.MustLabelSet("name-2", "val-2"),
 			}},
 		}})
 }
 
 func (s *NodeSuite) TestTreeExtraction(c *gc.C) {
-	var root = ExtractTree([]Node{
-		{JournalSpec: pb.JournalSpec{Name: "root/aaa/000"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/aaa/111/foo/i"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/aaa/111/foo/j"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/aaa/222"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/x"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/y"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/z"}},
-		{JournalSpec: pb.JournalSpec{Name: "root/bbb/444"}},
+	var root = extractTree([]Node{
+		{Spec: pb.JournalSpec{Name: "root/aaa/000"}},
+		{Spec: pb.JournalSpec{Name: "root/aaa/111/foo/i"}},
+		{Spec: pb.JournalSpec{Name: "root/aaa/111/foo/j"}},
+		{Spec: pb.JournalSpec{Name: "root/aaa/222"}},
+		{Spec: pb.JournalSpec{Name: "root/bbb/333/a/x"}},
+		{Spec: pb.JournalSpec{Name: "root/bbb/333/a/y"}},
+		{Spec: pb.JournalSpec{Name: "root/bbb/333/z"}},
+		{Spec: pb.JournalSpec{Name: "root/bbb/444"}},
 	})
 
 	c.Check(root, gc.DeepEquals, Node{
-		JournalSpec: pb.JournalSpec{Name: "root/"},
+		Spec: pb.JournalSpec{Name: "root/"},
 		Children: []Node{
-			{JournalSpec: pb.JournalSpec{Name: "root/aaa/"},
+			{Spec: pb.JournalSpec{Name: "root/aaa/"},
 				Children: []Node{
-					{JournalSpec: pb.JournalSpec{Name: "root/aaa/000"}},
+					{Spec: pb.JournalSpec{Name: "root/aaa/000"}},
 					// Expect 111/ and foo/ were *not* mapped into separate nodes,
 					// since there are no terminals under 111/ not also under foo/
-					{JournalSpec: pb.JournalSpec{Name: "root/aaa/111/foo/"},
+					{Spec: pb.JournalSpec{Name: "root/aaa/111/foo/"},
 						Children: []Node{
-							{JournalSpec: pb.JournalSpec{Name: "root/aaa/111/foo/i"}},
-							{JournalSpec: pb.JournalSpec{Name: "root/aaa/111/foo/j"}},
+							{Spec: pb.JournalSpec{Name: "root/aaa/111/foo/i"}},
+							{Spec: pb.JournalSpec{Name: "root/aaa/111/foo/j"}},
 						}},
-					{JournalSpec: pb.JournalSpec{Name: "root/aaa/222"}},
+					{Spec: pb.JournalSpec{Name: "root/aaa/222"}},
 				}},
-			{JournalSpec: pb.JournalSpec{Name: "root/bbb/"},
+			{Spec: pb.JournalSpec{Name: "root/bbb/"},
 				Children: []Node{
-					{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/"},
+					{Spec: pb.JournalSpec{Name: "root/bbb/333/"},
 						Children: []Node{
-							{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/"},
+							{Spec: pb.JournalSpec{Name: "root/bbb/333/a/"},
 								Children: []Node{
-									{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/x"}},
-									{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/a/y"}},
+									{Spec: pb.JournalSpec{Name: "root/bbb/333/a/x"}},
+									{Spec: pb.JournalSpec{Name: "root/bbb/333/a/y"}},
 								}},
-							{JournalSpec: pb.JournalSpec{Name: "root/bbb/333/z"}}}},
-					{JournalSpec: pb.JournalSpec{Name: "root/bbb/444"}},
+							{Spec: pb.JournalSpec{Name: "root/bbb/333/z"}}}},
+					{Spec: pb.JournalSpec{Name: "root/bbb/444"}},
 				}}},
 	})
 }
 
-func labelSet(nv ...string) pb.LabelSet {
-	var ls pb.LabelSet
-	for i := 0; i < len(nv); i += 2 {
-		ls.Labels = append(ls.Labels, pb.Label{Name: nv[i], Value: nv[i+1]})
+func (s *NodeSuite) TestYAMLRoundTrip(c *gc.C) {
+	const yamlFixture = `
+name: foo/
+replication: 3
+labels:
+- name: a-name
+  value: a-val
+fragment:
+  length: 1234
+  compression_codec: SNAPPY
+  stores:
+  - s3://a-bucket/
+  - gcs://another-bucket/
+  refresh_interval: 1m0s
+  retention: 1h0m0s
+  flush_interval: 2m0s
+flags: 4
+children:
+- delete: true
+  name: foo/bar
+- name: foo/baz/1
+- name: foo/baz/2
+  labels:
+  - name: other-name
+    value: ""
+  revision: 1234
+`
+
+	var (
+		dec  = yaml.NewDecoder(strings.NewReader(yamlFixture))
+		tree Node
+	)
+	dec.SetStrict(true)
+	c.Assert(dec.Decode(&tree), gc.IsNil)
+	c.Assert(tree.Validate(), gc.IsNil)
+
+	var fragSpec = pb.JournalSpec_Fragment{
+		Length:           1234,
+		CompressionCodec: pb.CompressionCodec_SNAPPY,
+		Stores:           []pb.FragmentStore{"s3://a-bucket/", "gcs://another-bucket/"},
+		RefreshInterval:  time.Minute,
+		Retention:        time.Hour,
+		FlushInterval:    time.Minute * 2,
 	}
-	if err := ls.Validate(); err != nil {
-		panic(err.Error())
-	}
-	return ls
+
+	tree.PushDown()
+	c.Check(flatten(tree), gc.DeepEquals, []Node{
+		{
+			Spec: pb.JournalSpec{
+				Name:        "foo/bar",
+				Replication: 3,
+				LabelSet:    pb.MustLabelSet("a-name", "a-val"),
+				Fragment:    fragSpec,
+				Flags:       pb.JournalSpec_O_RDWR,
+			},
+			Delete: &boxedTrue,
+		},
+		{
+			Spec: pb.JournalSpec{
+				Name:        "foo/baz/1",
+				Replication: 3,
+				LabelSet:    pb.MustLabelSet("a-name", "a-val"),
+				Fragment:    fragSpec,
+				Flags:       pb.JournalSpec_O_RDWR,
+			},
+		},
+		{
+			Spec: pb.JournalSpec{
+				Name:        "foo/baz/2",
+				Replication: 3,
+				LabelSet:    pb.MustLabelSet("a-name", "a-val", "other-name", ""),
+				Fragment:    fragSpec,
+				Flags:       pb.JournalSpec_O_RDWR,
+			},
+			Revision: 1234,
+		},
+	})
+	tree.Hoist()
+
+	var (
+		bw  bytes.Buffer
+		enc = yaml.NewEncoder(&bw)
+	)
+	c.Check(enc.Encode(&tree), gc.IsNil)
+
+	c.Check(bw.String(), gc.Equals, yamlFixture[1:])
 }
 
-var _ = gc.Suite(&NodeSuite{})
+func flatten(tree Node) []Node {
+	var out []Node
+	_ = tree.WalkTerminalNodes(func(node *Node) error {
+		out = append(out, *node)
+		return nil
+	})
+	return out
+}
+
+var (
+	_          = gc.Suite(&NodeSuite{})
+	boxedTrue  = true
+	boxedFalse = false
+)
 
 func Test(t *testing.T) { gc.TestingT(t) }
