@@ -1,13 +1,12 @@
 # Default values for word-count.
 # This is a YAML-formatted file.
 
-consumer:
+counter:
   replicaCount: 3
 
   # Size of NGrams produced by the consumer.
   NGramSize: 2
 
-  nameOverride: word-count
   image:
     repository: liveramp/gazette-examples
     binary: /go/bin/counter

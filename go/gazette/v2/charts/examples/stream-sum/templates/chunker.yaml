@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}-chunker
-          image: {{ .Values.consumer.image.repository }}:{{ .Values.consumer.image.tag }}
-          imagePullPolicy: {{ .Values.consumer.image.pullPolicy }}
+          image: {{ .Values.summer.image.repository }}:{{ .Values.summer.image.tag }}
+          imagePullPolicy: {{ .Values.summer.image.pullPolicy }}
           command:
             # Run within a shell to allow for interpretation of values.
             - "/bin/sh"
@@ -28,7 +28,7 @@ spec:
                 --chunker.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
                 --chunker.streams={{ .Values.chunker.numStreams }} \
                 --chunker.chunks={{ .Values.chunker.numJobs }} \
-                --broker.address={{ .Values.consumer.gazette.endpoint }} \
+                --broker.address={{ .Values.summer.gazette.endpoint }} \
                 --broker.cache.size=256
           volumeMounts:
             - name: zonemap

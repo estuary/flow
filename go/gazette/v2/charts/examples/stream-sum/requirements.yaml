@@ -1,4 +1,5 @@
 dependencies:
 - name: consumer
-  version: 2.0.1
+  version: 2.0.2
   repository: file://../../consumer
+  alias: summer

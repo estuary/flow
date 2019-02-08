@@ -48,6 +48,16 @@ etcd:
 gazette:
   endpoint: http://gazette:80
 
+# The chart supports global overrides of gazette and etcd endpoints. If these
+# values are non-null, they have precedence over the non-global equivalents.
+# This can be helpful if, for example, multiple consumer charts are being
+# composed within a single Helm chart.
+global:
+  gazette:
+    endpoint: null
+  etcd:
+    endpoint: null
+
 # Service type and metadata presented by the consumer deployment.
 service:
   type: ClusterIP
@@ -76,8 +86,8 @@ resources: {}
   #  cpu: 100m
   #  memory: 128Mi
 
-# Additional arguments provided to the binary.
-extraArgs: ""
+# Template for additional arguments passed to the binary.
+extraArgsTemplate: ""
 # Additional volumes to be attached.
 extraVolumes: {}
 # Additional volumeMounts to be mounted.
