@@ -75,14 +75,14 @@ children:
       labels:
         - name: recoverylog
       children:
-        - name: examples/stream-sum/recovery-logs/shard-chunks-000
-        - name: examples/stream-sum/recovery-logs/shard-chunks-001
-        - name: examples/stream-sum/recovery-logs/shard-chunks-002
-        - name: examples/stream-sum/recovery-logs/shard-chunks-003
-        - name: examples/stream-sum/recovery-logs/shard-chunks-004
-        - name: examples/stream-sum/recovery-logs/shard-chunks-005
-        - name: examples/stream-sum/recovery-logs/shard-chunks-006
-        - name: examples/stream-sum/recovery-logs/shard-chunks-007
+        - name: examples/stream-sum/recovery-logs/chunks-part-000
+        - name: examples/stream-sum/recovery-logs/chunks-part-001
+        - name: examples/stream-sum/recovery-logs/chunks-part-002
+        - name: examples/stream-sum/recovery-logs/chunks-part-003
+        - name: examples/stream-sum/recovery-logs/chunks-part-004
+        - name: examples/stream-sum/recovery-logs/chunks-part-005
+        - name: examples/stream-sum/recovery-logs/chunks-part-006
+        - name: examples/stream-sum/recovery-logs/chunks-part-007
     - name: examples/stream-sum/sums
       labels:
         - name: topic

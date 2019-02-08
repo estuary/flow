@@ -28,18 +28,21 @@ function helm_release {
     jq -r '.Releases | map(select(.Chart | test("'${chart}'")))[0].Name'
 }
 
-# release_address returns the endpoint (eg, "http://172.12.0.10:8080") of the named release.
-# Endpoints are raw IPs, and must have access to the Kubernetes network namespace, but do
-# not require access to kube-DNS (eg can be run on the Linux host, or a docker container).
-# It requires that Services are using Kubernetes recommended labels:
+# release_address returns the endpoint (eg, "http://172.12.0.10:8080") of the named service
+# within the named release. Endpoints are raw IPs, and must have access to the Kubernetes
+# network namespace, but do not require access to kube-DNS (eg can be run on the Linux host,
+# or a docker container).
+#
+# release_address requires that Services are using Kubernetes recommended labels:
 #   https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
 # Note that Gazette, and many public Helm charts do so, but not all (particularly charts
 # generated prior to Helm V2).
 function release_address {
-  declare -r name="${1?missing release name}"
+  declare -r instance="${1?missing release instance name}"
+  declare -r svc="${2?missing service name}"
 
-  host=$(${KUBECTL} --all-namespaces=true get svc -l app.kubernetes.io/instance=${name} -o "jsonpath={.items[0].spec.clusterIP}")
-  port=$(${KUBECTL} --all-namespaces=true get svc -l app.kubernetes.io/instance=${name} -o "jsonpath={.items[0].spec.ports[0].port}")
+  host=$(${KUBECTL} --all-namespaces=true get svc -l app.kubernetes.io/instance=${instance} -l app.kubernetes.io/name=${svc} -o "jsonpath={.items[0].spec.clusterIP}")
+  port=$(${KUBECTL} --all-namespaces=true get svc -l app.kubernetes.io/instance=${instance} -l app.kubernetes.io/name=${svc} -o "jsonpath={.items[0].spec.ports[0].port}")
   echo "http://${host}:${port}"
 }
 
