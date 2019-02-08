@@ -18,11 +18,27 @@ import (
 
 var whitespace = regexp.MustCompile(`^\s*$`)
 
-// EditRetryLoop seeds a temp file, prefixed with |prefix|, with content from
-// selectFn and passes it to applyFn. If applyFn errors, the editor will be
+// RetryLoopArgs is arguments of EditRetryLoop.
+type RetryLoopArgs struct {
+	// FilePrefix
+	FilePrefix string
+	// SelectFn returns content to be displayed within the editor.
+	// It is invoked on each retry of the editing loop.
+	SelectFn func() io.Reader
+	// ApplyFn attempts to apply the edited contents. If it returns
+	// an error, the editor will be re-opened with the error message.
+	ApplyFn func(b []byte) error
+	// AbortIfUnchanged indicates the editing loop should abort if the
+	// editor exits without making any file changes. In this case,
+	// ApplyFn is not called with edited content.
+	AbortIfUnchanged bool
+}
+
+// EditRetryLoop seeds a temp file, prefixed with FilePrefix, with content from
+// SelectFn and passes it to ApplyFn. If ApplyFn errors, the editor will be
 // re-opened with recent error message included in the header comments. The
 // current implementation prefixes comment lines with "#".
-func EditRetryLoop(prefix string, selectFn func() io.Reader, applyFn func(b []byte) error) error {
+func EditRetryLoop(args RetryLoopArgs) error {
 	var (
 		isRetry  bool
 		retryMsg string
@@ -65,13 +81,13 @@ func EditRetryLoop(prefix string, selectFn func() io.Reader, applyFn func(b []by
 			preEdit = userEdits
 		} else {
 			writePostHeader(buf, headerLines)
-			if _, err := io.Copy(buf, selectFn()); err != nil {
+			if _, err := io.Copy(buf, args.SelectFn()); err != nil {
 				return err
 			}
 			preEdit = pruneHeader(buf.Bytes())
 		}
 
-		var edited, currPath, err = editToTempFile(prefix, buf)
+		var edited, currPath, err = editToTempFile(args.FilePrefix, buf)
 		if err != nil {
 			return err
 		}
@@ -94,7 +110,7 @@ func EditRetryLoop(prefix string, selectFn func() io.Reader, applyFn func(b []by
 
 		// When a user does not make any edit, it is interpreted as a
 		// cancellation of the edit attempt.
-		if bytes.Equal(preEdit, userEdits) {
+		if args.AbortIfUnchanged && bytes.Equal(preEdit, userEdits) {
 			if isRetry {
 				// When at least one edit attempt was made before cancelling,
 				// do not remove the temp file as it contains changes.
@@ -111,7 +127,7 @@ func EditRetryLoop(prefix string, selectFn func() io.Reader, applyFn func(b []by
 		}
 
 		// Attempt to apply edits.
-		if err := applyFn(userEdits); err != nil {
+		if err = args.ApplyFn(userEdits); err != nil {
 			isRetry = true
 			retryMsg = err.Error()
 			continue

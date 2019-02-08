@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	"github.com/LiveRamp/gazette/v2/pkg/consumer/shardspace"
 	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
@@ -17,14 +18,14 @@ type cmdShardsApply struct {
 func (cmd *cmdShardsApply) Execute([]string) error {
 	startup()
 
-	var shards []yamlShard
-	mbp.Must(cmd.decode(&shards), "failed to decode shards from YAML")
+	var set shardspace.Set
+	mbp.Must(cmd.decode(&set), "failed to decode shardspace from YAML")
 
-	var req = newShardSpecApplyRequest(shards)
+	var req = newShardSpecApplyRequest(set)
 	mbp.Must(req.Validate(), "failed to validate ApplyRequest")
 
 	if cmd.DryRun {
-		proto.MarshalText(os.Stdout, req)
+		_ = proto.MarshalText(os.Stdout, req)
 		return nil
 	}
 
@@ -37,15 +38,17 @@ func (cmd *cmdShardsApply) Execute([]string) error {
 }
 
 // newShardSpecApplyRequest builds the ApplyRequest.
-func newShardSpecApplyRequest(s []yamlShard) *consumer.ApplyRequest {
-	var req = new(consumer.ApplyRequest)
-	for i := range s {
-		var change = consumer.ApplyRequest_Change{ExpectModRevision: s[i].Revision}
+func newShardSpecApplyRequest(set shardspace.Set) *consumer.ApplyRequest {
+	set.PushDown()
 
-		if s[i].Delete {
-			change.Delete = s[i].ShardSpec.Id
+	var req = new(consumer.ApplyRequest)
+	for i := range set.Shards {
+		var change = consumer.ApplyRequest_Change{ExpectModRevision: set.Shards[i].Revision}
+
+		if set.Shards[i].Delete != nil && *set.Shards[i].Delete == true {
+			change.Delete = set.Shards[i].Spec.Id
 		} else {
-			change.Upsert = &s[i].ShardSpec
+			change.Upsert = &set.Shards[i].Spec
 		}
 		req.Changes = append(req.Changes, change)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/cmd/gazctl/editor"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	"github.com/LiveRamp/gazette/v2/pkg/consumer/shardspace"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -17,7 +18,12 @@ type cmdShardsEdit struct {
 
 func (cmd *cmdShardsEdit) Execute([]string) error {
 	startup()
-	return editor.EditRetryLoop("gazctl-shards-edit-", cmd.selectSpecs, applyShardSpecYAML)
+	return editor.EditRetryLoop(editor.RetryLoopArgs{
+		FilePrefix:       "gazctl-shards-edit-",
+		SelectFn:         cmd.selectSpecs,
+		ApplyFn:          applyShardSpecYAML,
+		AbortIfUnchanged: true,
+	})
 }
 
 func (cmd *cmdShardsEdit) selectSpecs() io.Reader {
@@ -27,18 +33,17 @@ func (cmd *cmdShardsEdit) selectSpecs() io.Reader {
 	if len(resp.Shards) == 0 {
 		log.WithField("selector", cmd.Selector).Panic("no shards match selector")
 	}
-	writeYAMLShardSpec(buf, resp)
+	writeHoistedYAMLShardSpace(buf, resp)
 
 	return buf
 }
 
 func applyShardSpecYAML(b []byte) error {
-	var shards []yamlShard
-	if err := yaml.UnmarshalStrict(b, &shards); err != nil {
+	var set shardspace.Set
+	if err := yaml.UnmarshalStrict(b, &set); err != nil {
 		return err
 	}
-
-	var req = newShardSpecApplyRequest(shards)
+	var req = newShardSpecApplyRequest(set)
 	if err := req.Validate(); err != nil {
 		return err
 	}

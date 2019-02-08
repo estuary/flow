@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	"github.com/LiveRamp/gazette/v2/pkg/consumer/shardspace"
 	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/gogo/protobuf/proto"
@@ -29,7 +30,7 @@ func (cmd *cmdShardsList) Execute([]string) error {
 	case "table":
 		cmd.outputTable(resp)
 	case "yaml":
-		writeYAMLShardSpec(os.Stdout, resp)
+		writeHoistedYAMLShardSpace(os.Stdout, resp)
 	case "json":
 		mbp.Must(json.NewEncoder(os.Stdout).Encode(resp), "failed to encode to json")
 	case "proto":
@@ -115,23 +116,8 @@ func listShards(s string) *consumer.ListResponse {
 	return resp
 }
 
-func writeYAMLShardSpec(w io.Writer, resp *consumer.ListResponse) {
-	var shards []yamlShard
-	for i := range resp.Shards {
-		shards = append(shards, yamlShard{
-			ShardSpec: resp.Shards[i].Spec,
-			Revision:  resp.Shards[i].ModRevision,
-		})
-	}
-	var b, err = yaml.Marshal(shards)
-	w.Write(b)
-	mbp.Must(err, "failed to encode shards")
-}
-
-type yamlShard struct {
-	consumer.ShardSpec `yaml:",omitempty,inline"`
-	// Delete marks that a Shard should be deleted.
-	Delete bool `yaml:",omitempty"`
-	// Revision of the Shard within Etcd.
-	Revision int64 `yaml:",omitempty"`
+func writeHoistedYAMLShardSpace(w io.Writer, resp *consumer.ListResponse) {
+	var b, err = yaml.Marshal(shardspace.FromListResponse(resp))
+	_, _ = w.Write(b)
+	mbp.Must(err, "failed to encode shardspace Set")
 }

@@ -18,7 +18,12 @@ type cmdJournalsEdit struct {
 
 func (cmd *cmdJournalsEdit) Execute([]string) error {
 	startup()
-	return editor.EditRetryLoop("gazctl-journals-edit-", cmd.selectSpecs, cmd.applySpecs)
+	return editor.EditRetryLoop(editor.RetryLoopArgs{
+		FilePrefix:       "gazctl-journals-edit-",
+		SelectFn:         cmd.selectSpecs,
+		ApplyFn:          cmd.applySpecs,
+		AbortIfUnchanged: true,
+	})
 }
 
 // selectSpecs returns the hoisted YAML specs of journals matching the selector.

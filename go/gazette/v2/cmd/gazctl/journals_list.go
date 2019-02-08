@@ -123,22 +123,7 @@ func listJournals(s string) *pb.ListResponse {
 }
 
 func writeHoistedJournalSpecTree(w io.Writer, resp *pb.ListResponse) {
-	// Initialize Nodes for each journal. Extract a journal specification tree,
-	// and hoist common configuration to parent nodes to minimize config DRY.
-	var nodes []journalspace.Node
-
-	for i := range resp.Journals {
-		nodes = append(nodes, journalspace.Node{
-			JournalSpec: resp.Journals[i].Spec,
-			Revision:    resp.Journals[i].ModRevision,
-		})
-	}
-
-	var tree = journalspace.ExtractTree(nodes)
-	tree.HoistSpecs()
-
-	// Render journal specification tree.
-	b, err := yaml.Marshal(tree)
+	b, err := yaml.Marshal(journalspace.FromListResponse(resp))
+	_, _ = w.Write(b)
 	mbp.Must(err, "failed to encode journals")
-	w.Write(b)
 }

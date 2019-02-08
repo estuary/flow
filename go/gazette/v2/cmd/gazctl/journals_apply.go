@@ -43,18 +43,19 @@ func (cmd *cmdJournalsApply) Execute([]string) error {
 // newJournalSpecApplyRequest flattens a journal specification tree into
 // concrete JournalSpecs and builds the request.
 func newJournalSpecApplyRequest(tree *journalspace.Node) *pb.ApplyRequest {
-	var nodes = tree.Flatten()
 	var req = new(pb.ApplyRequest)
-	for i := range nodes {
-		var change = pb.ApplyRequest_Change{ExpectModRevision: nodes[i].Revision}
 
-		if nodes[i].Delete {
-			change.Delete = nodes[i].JournalSpec.Name
+	tree.PushDown()
+	_ = tree.WalkTerminalNodes(func(node *journalspace.Node) error {
+		var change = pb.ApplyRequest_Change{ExpectModRevision: node.Revision}
+
+		if node.Delete != nil && *node.Delete {
+			change.Delete = node.Spec.Name
 		} else {
-			change.Upsert = &nodes[i].JournalSpec
+			change.Upsert = &node.Spec
 		}
 		req.Changes = append(req.Changes, change)
-	}
-
+		return nil
+	})
 	return req
 }
