@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"testing"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
@@ -32,13 +33,14 @@ func (s *SpecSuite) TestShardValidationCases(c *gc.C) {
 
 func (s *SpecSuite) TestShardSpecValidationCases(c *gc.C) {
 	var spec = ShardSpec{
-		Id:             "bad id",
-		Sources:        nil,
-		RecoveryLog:    "bad log",
-		HintKeys:       nil,
-		MaxTxnDuration: +0,
-		MinTxnDuration: -1,
-		LabelSet:       pb.LabelSet{Labels: []pb.Label{{Name: "bad label", Value: "value"}}},
+		Id:                "bad id",
+		Sources:           nil,
+		RecoveryLogPrefix: "bad prefix",
+		HintPrefix:        "",
+		HintBackups:       -1,
+		MaxTxnDuration:    +0,
+		MinTxnDuration:    -1,
+		LabelSet:          pb.LabelSet{Labels: []pb.Label{{Name: "bad label", Value: "value"}}},
 	}
 
 	c.Check(spec.Validate(), gc.ErrorMatches, `Id: not a valid token \(bad id\)`)
@@ -48,10 +50,20 @@ func (s *SpecSuite) TestShardSpecValidationCases(c *gc.C) {
 		{Journal: "journal 2"},
 		{Journal: "journal/1", MinOffset: -1},
 	}
-	c.Check(spec.Validate(), gc.ErrorMatches, `RecoveryLog: not a valid token \(bad log\)`)
-	spec.RecoveryLog = "a/recovery/log"
-	c.Check(spec.Validate(), gc.ErrorMatches, `HintKeys cannot be empty`)
-	spec.HintKeys = []string{""}
+	c.Check(spec.Validate(), gc.ErrorMatches, `RecoveryLog: not a valid token \(bad prefix/a-shard-id\)`)
+	spec.RecoveryLogPrefix = ""
+	c.Check(spec.Validate(), gc.ErrorMatches, `expected RecoveryLogPrefix`)
+	spec.RecoveryLogPrefix = "recovery/logs"
+	c.Check(spec.Validate(), gc.ErrorMatches, `HintPrefix is not an absolute, clean, non-directory path \(\)`)
+	spec.HintPrefix = "relative/path"
+	c.Check(spec.Validate(), gc.ErrorMatches, `HintPrefix is not an absolute, clean, non-directory path \(relative/path\)`)
+	spec.HintPrefix = "/rooted/dir/"
+	c.Check(spec.Validate(), gc.ErrorMatches, `HintPrefix is not an absolute, clean, non-directory path \(/rooted/dir/\)`)
+	spec.HintPrefix = "/rooted//path" // Not clean.
+	c.Check(spec.Validate(), gc.ErrorMatches, `HintPrefix is not an absolute, clean, non-directory path \(/rooted//path\)`)
+	spec.HintPrefix = "/rooted/path"
+	c.Check(spec.Validate(), gc.ErrorMatches, `invalid HintBackups \(-1; expected >= 0\)`)
+	spec.HintBackups = 2
 	c.Check(spec.Validate(), gc.ErrorMatches, `invalid MinTxnDuration \(-1; expected >= 0\)`)
 	spec.MinTxnDuration = 0
 	c.Check(spec.Validate(), gc.ErrorMatches, `invalid MaxTxnDuration \(0; expected > 0\)`)
@@ -66,15 +78,6 @@ func (s *SpecSuite) TestShardSpecValidationCases(c *gc.C) {
 	c.Check(spec.Validate(), gc.ErrorMatches, `Sources.Journal not in unique, sorted order \(index 1; journal/1 <= journal/2\)`)
 	spec.Sources[0], spec.Sources[1] = spec.Sources[1], spec.Sources[0]
 
-	c.Check(spec.Validate(), gc.ErrorMatches, `HintKeys\[0\] is not an absolute, clean, non-directory path \(\)`)
-	spec.HintKeys[0] = "relative/path"
-	c.Check(spec.Validate(), gc.ErrorMatches, `HintKeys\[0\] is not an absolute, clean, non-directory path \(relative/path\)`)
-	spec.HintKeys[0] = "/rooted/dir/"
-	c.Check(spec.Validate(), gc.ErrorMatches, `HintKeys\[0\] is not an absolute, clean, non-directory path \(/rooted/dir/\)`)
-	spec.HintKeys[0] = "/rooted//path" // Not clean.
-	c.Check(spec.Validate(), gc.ErrorMatches, `HintKeys\[0\] is not an absolute, clean, non-directory path \(/rooted//path\)`)
-	spec.HintKeys[0] = "/rooted/path"
-
 	c.Check(spec.Validate(), gc.IsNil)
 }
 
@@ -83,6 +86,8 @@ func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 		Id:          "shard-id",
 		HotStandbys: 2,
 		Disable:     false,
+		HintPrefix:  "/a/path",
+		HintBackups: 2,
 	}
 	c.Check(spec.DesiredReplication(), gc.Equals, 3)
 	spec.Disable = true
@@ -99,6 +104,75 @@ func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 
 	c.Check(ExtractShardSpecMetaLabels(&spec, pb.MustLabelSet("label", "buffer")),
 		gc.DeepEquals, pb.MustLabelSet("id", "shard-id"))
+
+	c.Check(spec.HintPrimaryKey(), gc.Equals, "/a/path/shard-id.primary")
+	c.Check(spec.HintBackupKeys(), gc.DeepEquals, []string{
+		"/a/path/shard-id.backup.0",
+		"/a/path/shard-id.backup.1",
+	})
+}
+
+func (s *SpecSuite) TestSetOperations(c *gc.C) {
+	var model = ShardSpec{
+		Sources: []ShardSpec_Source{
+			{Journal: "a/source", MinOffset: 1234},
+		},
+		RecoveryLogPrefix: "log/prefix",
+		HintPrefix:        "/hints/prefix",
+		HintBackups:       3,
+		MaxTxnDuration:    5 * time.Second,
+		MinTxnDuration:    1 * time.Second,
+		Disable:           true,
+		HotStandbys:       2,
+		LabelSet: pb.LabelSet{
+			Labels: []pb.Label{
+				{Name: "aaa", Value: "val"},
+				{Name: "bbb", Value: "val"},
+				{Name: "ccc", Value: "val"},
+			},
+		},
+	}
+	var other = ShardSpec{
+		Sources: []ShardSpec_Source{
+			{Journal: "other/source", MinOffset: 5678},
+		},
+		RecoveryLogPrefix: "other/log/prefix",
+		HintPrefix:        "/hints/other/prefix",
+		HintBackups:       2,
+		MaxTxnDuration:    time.Hour,
+		MinTxnDuration:    time.Minute,
+		Disable:           false,
+		HotStandbys:       1,
+		LabelSet: pb.LabelSet{
+			Labels: []pb.Label{
+				{Name: "aaa", Value: "other"},
+				{Name: "bbb", Value: "other"},
+				{Name: "ccc", Value: "other"},
+			},
+		},
+	}
+
+	c.Check(UnionShardSpecs(ShardSpec{}, model), gc.DeepEquals, model)
+	c.Check(UnionShardSpecs(model, ShardSpec{}), gc.DeepEquals, model)
+
+	other.Disable = true // Disable == true dominates in union operation.
+	c.Check(UnionShardSpecs(other, model), gc.DeepEquals, other)
+	other.Disable = false
+	c.Check(UnionShardSpecs(model, other), gc.DeepEquals, model)
+
+	c.Check(IntersectShardSpecs(model, model), gc.DeepEquals, model)
+	c.Check(IntersectShardSpecs(model, ShardSpec{}), gc.DeepEquals, ShardSpec{})
+	c.Check(IntersectShardSpecs(ShardSpec{}, model), gc.DeepEquals, ShardSpec{})
+
+	c.Check(IntersectShardSpecs(other, model), gc.DeepEquals, ShardSpec{})
+	c.Check(IntersectShardSpecs(model, other), gc.DeepEquals, ShardSpec{})
+
+	c.Check(SubtractShardSpecs(model, model), gc.DeepEquals, ShardSpec{})
+	c.Check(SubtractShardSpecs(model, ShardSpec{}), gc.DeepEquals, model)
+	c.Check(SubtractShardSpecs(ShardSpec{}, model), gc.DeepEquals, ShardSpec{})
+
+	c.Check(SubtractShardSpecs(other, model), gc.DeepEquals, other)
+	c.Check(SubtractShardSpecs(model, other), gc.DeepEquals, model)
 }
 
 func (s *SpecSuite) TestConsumerSpecValidationCases(c *gc.C) {
@@ -203,11 +277,11 @@ func (s *SpecSuite) TestListResponseValidationCases(c *gc.C) {
 			{
 				ModRevision: 0,
 				Spec: ShardSpec{
-					Id:             "a invalid id",
-					Sources:        []ShardSpec_Source{{Journal: "a/journal"}},
-					RecoveryLog:    "a/log",
-					HintKeys:       []string{"/a/hint/key"},
-					MaxTxnDuration: 1,
+					Id:                "a invalid id",
+					Sources:           []ShardSpec_Source{{Journal: "a/journal"}},
+					RecoveryLogPrefix: "a/log/prefix",
+					HintPrefix:        "/a/hint/prefix",
+					MaxTxnDuration:    1,
 				},
 				Route:  pb.Route{Primary: 0},
 				Status: nil,
@@ -237,11 +311,11 @@ func (s *SpecSuite) TestApplyRequestValidationCases(c *gc.C) {
 			{
 				ExpectModRevision: -1,
 				Upsert: &ShardSpec{
-					Id:             "invalid id",
-					Sources:        []ShardSpec_Source{{Journal: "a/journal"}},
-					RecoveryLog:    "a/log",
-					HintKeys:       []string{"/a/hint/key"},
-					MaxTxnDuration: 1,
+					Id:                "invalid id",
+					Sources:           []ShardSpec_Source{{Journal: "a/journal"}},
+					RecoveryLogPrefix: "a/log/prefix",
+					HintPrefix:        "/a/hint/prefix",
+					MaxTxnDuration:    1,
 				},
 				Delete: "another-id",
 			},

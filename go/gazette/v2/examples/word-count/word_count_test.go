@@ -108,29 +108,24 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*consumer.ShardSpec) {
 	for p := 0; p != parts; p++ {
 		var (
-			part      = fmt.Sprintf("%03d", p)
-			deltaName = pb.Journal("deltas/part-" + part)
-			hintsPath = "/hints/shard-" + part
-			logName   = pb.Journal("logs/part-" + part)
-			shardID   = consumer.ShardID("shard-" + part)
+			part  = fmt.Sprintf("%03d", p)
+			shard = &consumer.ShardSpec{
+				Id:                consumer.ShardID("shard-" + part),
+				Sources:           []consumer.ShardSpec_Source{{Journal: pb.Journal("deltas/part-" + part)}},
+				RecoveryLogPrefix: "recovery/logs",
+				HintPrefix:        "/hints",
+				MaxTxnDuration:    time.Second,
+			}
 		)
 		journals = append(journals,
 			brokertest.Journal(pb.JournalSpec{
-				Name:        deltaName,
+				Name:        shard.Sources[0].Journal,
 				Replication: 1,
 				LabelSet:    pb.MustLabelSet("framing", "fixed", "topic", deltasTopicLabel),
 			}),
-			brokertest.Journal(pb.JournalSpec{Name: logName}),
+			brokertest.Journal(pb.JournalSpec{Name: shard.RecoveryLog()}),
 		)
-		shards = append(shards,
-			&consumer.ShardSpec{
-				Id:             shardID,
-				Sources:        []consumer.ShardSpec_Source{{Journal: deltaName}},
-				RecoveryLog:    logName,
-				HintKeys:       []string{hintsPath},
-				MaxTxnDuration: time.Second,
-			},
-		)
+		shards = append(shards, shard)
 	}
 	return
 }

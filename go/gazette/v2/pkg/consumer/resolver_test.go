@@ -16,7 +16,6 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	defer cleanup()
 
 	var check = func(r Resolution, err error) Resolution { c.Check(err, gc.IsNil); return r }
-	var shardID ShardID = "a-shard"
 
 	// Case: Shard does not exist, nor does our local MemberSpec (yet; it's created by allocateShard below).
 	var r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: "other-shard-ID"}))
@@ -30,9 +29,9 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	})
 
 	// Case: Shard is remote, but has no primary.
-	tf.allocateShard(c, makeShard(shardID), pb.ProcessSpec_ID{}, remoteID)
+	tf.allocateShard(c, makeShard(shardA), pb.ProcessSpec_ID{}, remoteID)
 
-	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardID}))
+	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA}))
 	c.Check(r, gc.DeepEquals, Resolution{
 		Status: Status_NO_SHARD_PRIMARY,
 		Header: pb.Header{
@@ -44,13 +43,13 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 			},
 			Etcd: r.Header.Etcd,
 		},
-		Spec: makeShard(shardID),
+		Spec: makeShard(shardA),
 	})
 
 	// Case: Shard is local, but has a remote primary.
-	tf.allocateShard(c, makeShard(shardID), remoteID, localID)
+	tf.allocateShard(c, makeShard(shardA), remoteID, localID)
 
-	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardID}))
+	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA}))
 	c.Check(r, gc.DeepEquals, Resolution{
 		Status: Status_NOT_SHARD_PRIMARY,
 		Header: pb.Header{
@@ -62,11 +61,11 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 			},
 			Etcd: r.Header.Etcd,
 		},
-		Spec: makeShard(shardID),
+		Spec: makeShard(shardA),
 	})
 
 	// Case: Shard is local, has a remote primary, and we may proxy.
-	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardID, MayProxy: true}))
+	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA, MayProxy: true}))
 	c.Check(r, gc.DeepEquals, Resolution{
 		Status: Status_OK,
 		Header: pb.Header{
@@ -78,7 +77,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 			},
 			Etcd: r.Header.Etcd,
 		},
-		Spec: makeShard(shardID),
+		Spec: makeShard(shardA),
 	})
 
 	// Interlude: wait for our assignment to reach TAILING. This ensures status
@@ -90,12 +89,12 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	// make us primary. Expect Resolve blocks until the Revision is applied, and
 	// until recovery completes and the Store is initialized.
 	time.AfterFunc(10*time.Millisecond, func() {
-		tf.allocateShard(c, makeShard(shardID), localID, remoteID)
+		tf.allocateShard(c, makeShard(shardA), localID, remoteID)
 	})
 
 	r = check(tf.resolver.Resolve(ResolveArgs{
 		Context: tf.ctx,
-		ShardID: shardID,
+		ShardID: shardA,
 		ProxyHeader: &pb.Header{
 			ProcessId: localID,
 			Etcd: pb.Header_Etcd{
@@ -120,26 +119,24 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 			},
 			Etcd: r.Header.Etcd,
 		},
-		Spec: makeShard(shardID),
+		Spec: makeShard(shardA),
 	})
 
-	c.Check(rShard.Spec(), gc.DeepEquals, makeShard(shardID))
+	c.Check(rShard.Spec(), gc.DeepEquals, makeShard(shardA))
 	c.Check(rStore.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{})
 	rDone()
 
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
-	tf.allocateShard(c, makeShard(shardID)) // Cleanup.
+	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }
 
 func (s *ResolverSuite) TestErrorCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	var shardID ShardID = "a-shard"
-
 	tf.app.newStoreErr = errors.New("NewStore error")
-	tf.allocateShard(c, makeShard(shardID), localID)
+	tf.allocateShard(c, makeShard(shardA), localID)
 
 	tf.ks.Mu.RLock()
 	var clusterID, revision = tf.ks.Header.ClusterId, tf.ks.Header.Revision
@@ -148,7 +145,7 @@ func (s *ResolverSuite) TestErrorCases(c *gc.C) {
 	// Case: ProxyHeader has wrong ClusterID.
 	var _, err = tf.resolver.Resolve(ResolveArgs{
 		Context: tf.ctx,
-		ShardID: shardID,
+		ShardID: shardA,
 		ProxyHeader: &pb.Header{
 			ProcessId: localID,
 			Etcd: pb.Header_Etcd{
@@ -161,7 +158,7 @@ func (s *ResolverSuite) TestErrorCases(c *gc.C) {
 	// Case: ProxyHeader has wrong ProcessID.
 	_, err = tf.resolver.Resolve(ResolveArgs{
 		Context: tf.ctx,
-		ShardID: shardID,
+		ShardID: shardA,
 		ProxyHeader: &pb.Header{
 			ProcessId: pb.ProcessSpec_ID{Zone: "wrong", Suffix: "ID"},
 			Etcd: pb.Header_Etcd{
@@ -177,7 +174,7 @@ func (s *ResolverSuite) TestErrorCases(c *gc.C) {
 
 	_, err = tf.resolver.Resolve(ResolveArgs{
 		Context: ctx,
-		ShardID: shardID,
+		ShardID: shardA,
 		ProxyHeader: &pb.Header{
 			ProcessId: localID,
 			Etcd: pb.Header_Etcd{
@@ -192,43 +189,43 @@ func (s *ResolverSuite) TestErrorCases(c *gc.C) {
 	ctx, cancel = context.WithCancel(tf.ctx)
 	time.AfterFunc(10*time.Millisecond, cancel)
 
-	_, err = tf.resolver.Resolve(ResolveArgs{Context: ctx, ShardID: shardID})
+	_, err = tf.resolver.Resolve(ResolveArgs{Context: ctx, ShardID: shardA})
 	c.Check(err, gc.Equals, context.Canceled)
 
 	// Case: Replica context cancelled while waiting for store (which never resolves).
 	time.AfterFunc(10*time.Millisecond, func() {
 		tf.ks.Mu.RLock()
-		tf.resolver.replicas[shardID].cancel()
+		tf.resolver.replicas[shardA].cancel()
 		tf.ks.Mu.RUnlock()
 	})
 
-	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardID})
+	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
 	c.Check(err, gc.Equals, context.Canceled)
 
-	tf.allocateShard(c, makeShard(shardID)) // Cleanup.
+	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }
 
 func (s *ResolverSuite) TestReplicaTransitions(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	tf.allocateShard(c, makeShard("shard-a"), pb.ProcessSpec_ID{}, remoteID)
-	tf.allocateShard(c, makeShard("shard-b"), remoteID, localID)
-	tf.allocateShard(c, makeShard("shard-c"), remoteID, localID)
+	tf.allocateShard(c, makeShard(shardA), pb.ProcessSpec_ID{}, remoteID)
+	tf.allocateShard(c, makeShard(shardB), remoteID, localID)
+	tf.allocateShard(c, makeShard(shardC), remoteID, localID)
 
 	tf.ks.Mu.RLock()
 	c.Check(tf.resolver.replicas, gc.HasLen, 2)
-	var repB = tf.resolver.replicas["shard-b"]
-	var repC = tf.resolver.replicas["shard-c"]
+	var repB = tf.resolver.replicas[shardB]
+	var repC = tf.resolver.replicas[shardC]
 	tf.ks.Mu.RUnlock()
 
 	// Expect |repB| & |repC| begin playback and tail the log.
 	<-repB.player.Tailing()
 	<-repC.player.Tailing()
 
-	// Promote "shard-b" to primary, and cancel "shard-c".
-	tf.allocateShard(c, makeShard("shard-b"), localID, remoteID)
-	tf.allocateShard(c, makeShard("shard-c"))
+	// Promote |shardB| to primary, and cancel |shardC|.
+	tf.allocateShard(c, makeShard(shardB), localID, remoteID)
+	tf.allocateShard(c, makeShard(shardC))
 
 	tf.ks.Mu.RLock()
 	c.Check(tf.resolver.replicas, gc.HasLen, 1)
@@ -239,8 +236,8 @@ func (s *ResolverSuite) TestReplicaTransitions(c *gc.C) {
 	<-repC.player.Done() // Expect |repC| is cancelled.
 	<-repC.Context().Done()
 
-	// Cancel "shard-b".
-	tf.allocateShard(c, makeShard("shard-b"))
+	// Cancel |shardB|.
+	tf.allocateShard(c, makeShard(shardB))
 
 	tf.ks.Mu.RLock()
 	c.Check(tf.resolver.replicas, gc.HasLen, 0)
@@ -248,7 +245,7 @@ func (s *ResolverSuite) TestReplicaTransitions(c *gc.C) {
 
 	<-repB.Context().Done() // Expect |repB| is cancelled.
 
-	tf.allocateShard(c, makeShard("shard-a")) // Cleanup.
+	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }
 
 var _ = gc.Suite(&ResolverSuite{})

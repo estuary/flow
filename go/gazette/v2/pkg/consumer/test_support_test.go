@@ -22,9 +22,13 @@ var (
 )
 
 const (
-	sourceA      pb.Journal = "source/A"
-	sourceB      pb.Journal = "source/B"
-	aRecoveryLog pb.Journal = "recovery/log"
+	sourceA            pb.Journal = "source/A"
+	sourceB            pb.Journal = "source/B"
+	aRecoveryLogPrefix string     = "recovery/logs"
+
+	shardA = "shard-A"
+	shardB = "shard-B"
+	shardC = "shard-C"
 
 	sourceAWriteFixture = "bad leading content"
 )
@@ -72,7 +76,7 @@ func (a *testApplication) ConsumeMessage(shard Shard, store Store, env message.E
 
 func (a *testApplication) FinalizeTxn(shard Shard, store Store) error { return a.finalizeErr }
 
-func (a *testApplication) FinishTxn(shard Shard, store Store) error {
+func (a *testApplication) FinishTxn(shard Shard, store Store, _ error) error {
 	var ch = a.finishCh
 	a.finishCh = make(chan struct{})
 	defer close(ch)
@@ -95,7 +99,9 @@ func newTestFixture(c *gc.C) (*testFixture, func()) {
 	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
 
 	brokertest.CreateJournals(c, broker,
-		brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}),
+		brokertest.Journal(pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/" + shardA)}),
+		brokertest.Journal(pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/" + shardB)}),
+		brokertest.Journal(pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/" + shardC)}),
 		brokertest.Journal(pb.JournalSpec{Name: sourceA, LabelSet: pb.MustLabelSet("framing", "json")}),
 		brokertest.Journal(pb.JournalSpec{Name: sourceB, LabelSet: pb.MustLabelSet("framing", "json")}))
 
@@ -206,14 +212,11 @@ func makeShard(id ShardID) *ShardSpec {
 			{Journal: sourceA, MinOffset: int64(len(sourceAWriteFixture))},
 			{Journal: sourceB},
 		},
-		RecoveryLog: aRecoveryLog,
-		HintKeys: []string{
-			"/hints-A",
-			"/hints-B",
-			"/hints-C",
-		},
-		MinTxnDuration: 10 * time.Millisecond,
-		MaxTxnDuration: 100 * time.Millisecond,
+		RecoveryLogPrefix: aRecoveryLogPrefix,
+		HintPrefix:        "/hints",
+		HintBackups:       2,
+		MinTxnDuration:    10 * time.Millisecond,
+		MaxTxnDuration:    100 * time.Millisecond,
 	}
 }
 

@@ -31,7 +31,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 			Replication: 1,
 			LabelSet:    pb.MustLabelSet("framing", "json"),
 		}),
-		brokertest.Journal(pb.JournalSpec{Name: "a/recoverylog"}),
+		brokertest.Journal(pb.JournalSpec{Name: "recovery/logs/a-shard"}),
 	)
 
 	// Start and serve a consumer, and create a shard fixture.
@@ -49,11 +49,12 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	go cmr1.Serve(c, ctx)
 
 	CreateShards(c, cmr1, &consumer.ShardSpec{
-		Id:             "a-shard",
-		Sources:        []consumer.ShardSpec_Source{{Journal: "a/journal"}},
-		RecoveryLog:    "a/recoverylog",
-		HintKeys:       []string{"/hints/path"},
-		MaxTxnDuration: time.Second,
+		Id:                "a-shard",
+		Sources:           []consumer.ShardSpec_Source{{Journal: "a/journal"}},
+		RecoveryLogPrefix: "recovery/logs",
+		HintPrefix:        "/hints",
+		HintBackups:       1,
+		MaxTxnDuration:    time.Second,
 	})
 
 	// Publish test messages.
@@ -124,7 +125,7 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 			Replication: 1,
 			LabelSet:    pb.MustLabelSet("framing", "json"),
 		}),
-		brokertest.Journal(pb.JournalSpec{Name: "a/recoverylog"}),
+		brokertest.Journal(pb.JournalSpec{Name: "recovery/logs/a-shard"}),
 	)
 
 	// Start and serve a consumer, and create a shard fixture.
@@ -142,12 +143,13 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	go cmr1.Serve(c, ctx)
 
 	CreateShards(c, cmr1, &consumer.ShardSpec{
-		Id:             "a-shard",
-		Sources:        []consumer.ShardSpec_Source{{Journal: "a/journal"}},
-		RecoveryLog:    "a/recoverylog",
-		HintKeys:       []string{"/hints/path"},
-		MaxTxnDuration: time.Second,
-		HotStandbys:    1,
+		Id:                "a-shard",
+		Sources:           []consumer.ShardSpec_Source{{Journal: "a/journal"}},
+		RecoveryLogPrefix: "recovery/logs",
+		HintPrefix:        "/hints",
+		HintBackups:       1,
+		MaxTxnDuration:    time.Second,
+		HotStandbys:       1,
 	})
 
 	var cmr2 = NewConsumer(Args{

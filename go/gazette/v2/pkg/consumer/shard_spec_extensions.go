@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"fmt"
 	"path"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
@@ -42,10 +43,14 @@ func (m *ShardSpec) Validate() error {
 		return pb.ExtendContext(err, "Id")
 	} else if len(m.Sources) == 0 {
 		return pb.NewValidationError("Sources cannot be empty")
-	} else if err = m.RecoveryLog.Validate(); err != nil {
+	} else if m.RecoveryLogPrefix == "" {
+		return pb.NewValidationError("expected RecoveryLogPrefix")
+	} else if err = m.RecoveryLog().Validate(); err != nil {
 		return pb.ExtendContext(err, "RecoveryLog")
-	} else if len(m.HintKeys) == 0 {
-		return pb.NewValidationError("HintKeys cannot be empty")
+	} else if !path.IsAbs(m.HintPrefix) || path.Clean(m.HintPrefix) != m.HintPrefix || path.Base(m.HintPrefix) == "" {
+		return pb.NewValidationError("HintPrefix is not an absolute, clean, non-directory path (%v)", m.HintPrefix)
+	} else if m.HintBackups < 0 {
+		return pb.NewValidationError("invalid HintBackups (%d; expected >= 0)", m.HintBackups)
 	} else if m.MinTxnDuration < 0 {
 		return pb.NewValidationError("invalid MinTxnDuration (%d; expected >= 0)", m.MinTxnDuration)
 	} else if m.MaxTxnDuration <= 0 {
@@ -62,11 +67,6 @@ func (m *ShardSpec) Validate() error {
 		} else if i != 0 && m.Sources[i].Journal <= m.Sources[i-1].Journal {
 			return pb.NewValidationError("Sources.Journal not in unique, sorted order (index %d; %+v <= %+v)",
 				i, m.Sources[i].Journal, m.Sources[i-1].Journal)
-		}
-	}
-	for i, hk := range m.HintKeys {
-		if !path.IsAbs(hk) || path.Clean(hk) != hk || path.Base(hk) == "" {
-			return pb.NewValidationError("HintKeys[%d] is not an absolute, clean, non-directory path (%v)", i, hk)
 		}
 	}
 
@@ -110,6 +110,120 @@ func (m *ShardSpec) IsConsistent(assignment keyspace.KeyValue, _ keyspace.KeyVal
 	default:
 		return false
 	}
+}
+
+// RecoveryLog returns the Journal to which the Shard's recoverylog is recorded.
+func (m *ShardSpec) RecoveryLog() pb.Journal {
+	return pb.Journal(m.RecoveryLogPrefix + "/" + m.Id.String())
+}
+
+// HintPrimaryKey returns the Etcd key to which recorded, primary hints are written.
+func (m *ShardSpec) HintPrimaryKey() string { return m.HintPrefix + "/" + m.Id.String() + ".primary" }
+
+// HintBackupKeys returns Etcd keys to which verified, disaster-recovery hints are written.
+func (m *ShardSpec) HintBackupKeys() []string {
+	var keys = make([]string, m.HintBackups)
+	for i := int32(0); i != m.HintBackups; i++ {
+		keys[i] = fmt.Sprintf("%s/%s.backup.%d", m.HintPrefix, m.Id.String(), i)
+	}
+	return keys
+}
+
+// UnionShardSpecs returns a ShardSpec combining all non-zero-valued fields
+// across |a| and |b|. Where both |a| and |b| provide a non-zero value for
+// a field, the value of |a| is retained.
+func UnionShardSpecs(a, b ShardSpec) ShardSpec {
+	if len(a.Sources) == 0 {
+		a.Sources = append(a.Sources, b.Sources...)
+	}
+	if a.RecoveryLogPrefix == "" {
+		a.RecoveryLogPrefix = b.RecoveryLogPrefix
+	}
+	if a.HintPrefix == "" {
+		a.HintPrefix = b.HintPrefix
+	}
+	if a.HintBackups == 0 {
+		a.HintBackups = b.HintBackups
+	}
+	if a.MaxTxnDuration == 0 {
+		a.MaxTxnDuration = b.MaxTxnDuration
+	}
+	if a.MinTxnDuration == 0 {
+		a.MinTxnDuration = b.MinTxnDuration
+	}
+	if a.Disable == false {
+		a.Disable = b.Disable
+	}
+	if a.HotStandbys == 0 {
+		a.HotStandbys = b.HotStandbys
+	}
+	a.LabelSet = pb.UnionLabelSets(a.LabelSet, b.LabelSet, pb.LabelSet{})
+
+	return a
+}
+
+// IntersectShardSpecs returns a ShardSpec having a non-zero-valued field
+// for each field value which is shared between |a| and |b|.
+func IntersectShardSpecs(a, b ShardSpec) ShardSpec {
+	if !sourcesEq(a.Sources, b.Sources) {
+		a.Sources = nil
+	}
+	if a.RecoveryLogPrefix != b.RecoveryLogPrefix {
+		a.RecoveryLogPrefix = ""
+	}
+	if a.HintPrefix != b.HintPrefix {
+		a.HintPrefix = ""
+	}
+	if a.HintBackups != b.HintBackups {
+		a.HintBackups = 0
+	}
+	if a.MaxTxnDuration != b.MaxTxnDuration {
+		a.MaxTxnDuration = 0
+	}
+	if a.MinTxnDuration != b.MinTxnDuration {
+		a.MinTxnDuration = 0
+	}
+	if a.Disable != b.Disable {
+		a.Disable = false
+	}
+	if a.HotStandbys != b.HotStandbys {
+		a.HotStandbys = 0
+	}
+	a.LabelSet = pb.IntersectLabelSets(a.LabelSet, b.LabelSet, pb.LabelSet{})
+
+	return a
+}
+
+// SubtractShardSpecs returns a ShardSpec derived from |a| but having a
+// zero-valued field for each field which is matched by |b|.
+func SubtractShardSpecs(a, b ShardSpec) ShardSpec {
+	if sourcesEq(a.Sources, b.Sources) {
+		a.Sources = nil
+	}
+	if a.RecoveryLogPrefix == b.RecoveryLogPrefix {
+		a.RecoveryLogPrefix = ""
+	}
+	if a.HintPrefix == b.HintPrefix {
+		a.HintPrefix = ""
+	}
+	if a.HintBackups == b.HintBackups {
+		a.HintBackups = 0
+	}
+	if a.MaxTxnDuration == b.MaxTxnDuration {
+		a.MaxTxnDuration = 0
+	}
+	if a.MinTxnDuration == b.MinTxnDuration {
+		a.MinTxnDuration = 0
+	}
+	if a.Disable == b.Disable {
+		a.Disable = false
+	}
+	if a.HotStandbys == b.HotStandbys {
+		a.HotStandbys = 0
+	}
+	a.LabelSet = pb.SubtractLabelSet(a.LabelSet, b.LabelSet, pb.LabelSet{})
+
+	return a
 }
 
 // ExtractShardSpecMetaLabels returns meta-labels of the ShardSpec, using |out| as a buffer.
@@ -308,6 +422,19 @@ func (m *ApplyResponse) Validate() error {
 		return pb.ExtendContext(err, "Header")
 	}
 	return nil
+}
+
+func sourcesEq(a, b []ShardSpec_Source) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 const (

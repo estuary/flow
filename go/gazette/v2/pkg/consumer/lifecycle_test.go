@@ -25,8 +25,8 @@ func (s *LifecycleSuite) TestRecoveryFromEmptyLog(c *gc.C) {
 	go func() { c.Assert(playLog(r, r.player, r.etcd), gc.IsNil) }()
 
 	// Precondition: no existing hints in etcd.
-	c.Check(mustGet(c, r.etcd, r.spec.HintKeys[0]).Kvs, gc.HasLen, 0)
-	c.Check(mustGet(c, r.etcd, r.spec.HintKeys[1]).Kvs, gc.HasLen, 0)
+	c.Check(mustGet(c, r.etcd, r.spec.HintPrimaryKey()).Kvs, gc.HasLen, 0)
+	c.Check(mustGet(c, r.etcd, r.spec.HintBackupKeys()[0]).Kvs, gc.HasLen, 0)
 
 	var store, offsets, err = completePlayback(r, r.app, r.player, r.etcd)
 	c.Check(err, gc.IsNil)
@@ -36,9 +36,9 @@ func (s *LifecycleSuite) TestRecoveryFromEmptyLog(c *gc.C) {
 	c.Check(offsets, gc.DeepEquals,
 		map[pb.Journal]int64{sourceA: r.spec.Sources[0].MinOffset})
 
-	// Post-condition: recovered (but not recorded) hints were updated.
-	c.Check(mustGet(c, r.etcd, r.spec.HintKeys[0]).Kvs, gc.HasLen, 0)
-	c.Check(mustGet(c, r.etcd, r.spec.HintKeys[1]).Kvs, gc.HasLen, 1)
+	// Post-condition: backup (but not primary) hints were updated.
+	c.Check(mustGet(c, r.etcd, r.spec.HintPrimaryKey()).Kvs, gc.HasLen, 0)
+	c.Check(mustGet(c, r.etcd, r.spec.HintBackupKeys()[0]).Kvs, gc.HasLen, 1)
 }
 
 func (s *LifecycleSuite) TestRecoveryOfNonEmptyLog(c *gc.C) {
@@ -81,7 +81,7 @@ func (s *LifecycleSuite) TestRecoveryFailsFromBadHints(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
-	var _, err = r.etcd.Put(r.ctx, r.spec.HintKeys[0], "invalid hints")
+	var _, err = r.etcd.Put(r.ctx, r.spec.HintPrimaryKey(), "invalid hints")
 	c.Check(err, gc.IsNil)
 
 	// Expect playLog returns an immediate error.
@@ -100,11 +100,11 @@ func (s *LifecycleSuite) TestRecoveryFailsFromPlayError(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
-	r.spec.RecoveryLog = "does/not/exist"
+	r.spec.RecoveryLogPrefix = "does/not/exist"
 
 	// Expect playLog returns an immediate error.
 	c.Check(playLog(r, r.player, r.etcd), gc.ErrorMatches,
-		`playing log does/not/exist: determining log head: JOURNAL_NOT_FOUND`)
+		`playing log does/not/exist/`+shardA+`: determining log head: JOURNAL_NOT_FOUND`)
 
 	// As does completePlayback.
 	var _, _, err = completePlayback(r, r.app, r.player, r.etcd)
@@ -123,7 +123,7 @@ func (s *LifecycleSuite) TestMessagePump(c *gc.C) {
 	}()
 
 	var aa = r.JournalClient().StartAppend(sourceA)
-	aa.Writer().WriteString(
+	_, _ = aa.Writer().WriteString(
 		`{"key":"foo","value":"bar"}
 				bad line
 				{"key":"baz","value":"bing"}
@@ -163,7 +163,7 @@ func (s *LifecycleSuite) TestMessagePumpFailsOnBadFraming(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
-	c.Check(pumpMessages(r, r.app, aRecoveryLog, 0, nil),
+	c.Check(pumpMessages(r, r.app, r.spec.RecoveryLog(), 0, nil),
 		gc.ErrorMatches, `determining framing (.*): expected exactly one framing label \(got \[\]\)`)
 }
 
@@ -175,7 +175,7 @@ func (s *LifecycleSuite) TestMessagePumpFailsOnNewMessageError(c *gc.C) {
 
 	// Write a newline so that pumpMessages completes a message frame read.
 	var aa = r.JournalClient().StartAppend(sourceA)
-	aa.Writer().WriteString("\n")
+	_, _ = aa.Writer().WriteString("\n")
 	c.Check(aa.Release(), gc.IsNil)
 
 	c.Check(pumpMessages(r, r.app, sourceA, 0, nil),
@@ -513,7 +513,7 @@ func (s *LifecycleSuite) TestTxnCancelledAfterStart(c *gc.C) {
 	c.Check(txn.doneCh, gc.IsNil)
 }
 
-func (s *LifecycleSuite) TestConsumeUpdatesRecordedHints(c *gc.C) {
+func (s *LifecycleSuite) TestConsumeUpdatesPrimaryHints(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
@@ -525,7 +525,7 @@ func (s *LifecycleSuite) TestConsumeUpdatesRecordedHints(c *gc.C) {
 		c.Check(consumeMessages(r, r.store, r.app, r.etcd, msgCh, hintsCh), gc.Equals, context.Canceled)
 	}()
 	// Precondition: recorded hints are not set.
-	c.Check(mustGet(c, r.etcd, r.spec.HintKeys[0]).Kvs, gc.HasLen, 0)
+	c.Check(mustGet(c, r.etcd, r.spec.HintPrimaryKey()).Kvs, gc.HasLen, 0)
 
 	hintsCh <- time.Time{}
 
@@ -534,7 +534,7 @@ func (s *LifecycleSuite) TestConsumeUpdatesRecordedHints(c *gc.C) {
 	sendMsgAndWait(r.app.(*testApplication), msgCh)
 	sendMsgAndWait(r.app.(*testApplication), msgCh)
 
-	c.Check(mustGet(c, r.etcd, r.spec.HintKeys[0]).Kvs, gc.HasLen, 1)
+	c.Check(mustGet(c, r.etcd, r.spec.HintPrimaryKey()).Kvs, gc.HasLen, 1)
 }
 
 func (s *LifecycleSuite) TestConsumeErrorCases(c *gc.C) {
@@ -593,9 +593,10 @@ func (s *LifecycleSuite) TestFetchJournalSpec(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	var spec, err = fetchJournalSpec(tf.ctx, aRecoveryLog, tf.broker.Client())
+	var spec, err = fetchJournalSpec(tf.ctx, sourceA, tf.broker.Client())
 	c.Check(err, gc.IsNil)
-	c.Check(spec, gc.DeepEquals, brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}))
+	c.Check(spec, gc.DeepEquals, brokertest.Journal(
+		pb.JournalSpec{Name: sourceA, LabelSet: pb.MustLabelSet("framing", "json")}))
 
 	_, err = fetchJournalSpec(tf.ctx, "not/here", tf.broker.Client())
 	c.Check(err, gc.ErrorMatches, `named journal does not exist \(not/here\)`)
@@ -605,12 +606,12 @@ func (s *LifecycleSuite) TestStoreAndFetchHints(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
-	// Note that |r|'s shard fixture has three HintKeys (/hints-A, /hints-B, /hints-C).
+	// Note that |r|'s shard fixture has three hint keys.
 
 	// mkHints builds a valid FSMHints fixture which is unique on |id|.
 	var mkHints = func(id int64) recoverylog.FSMHints {
 		return recoverylog.FSMHints{
-			Log: aRecoveryLog,
+			Log: r.spec.RecoveryLog(),
 			LiveNodes: []recoverylog.FnodeSegments{{
 				Fnode: recoverylog.Fnode(id),
 				Segments: []recoverylog.Segment{
@@ -628,14 +629,14 @@ func (s *LifecycleSuite) TestStoreAndFetchHints(c *gc.C) {
 		c.Check(resp.Responses, gc.HasLen, 3)
 
 		var recovered [3]int64
-		for i, r := range resp.Responses {
-			switch len(r.GetResponseRange().Kvs) {
+		for i, op := range resp.Responses {
+			switch len(op.GetResponseRange().Kvs) {
 			case 0: // Pass.
 			case 1:
-				json.Unmarshal(r.GetResponseRange().Kvs[0].Value, &hints)
+				c.Check(json.Unmarshal(op.GetResponseRange().Kvs[0].Value, &hints), gc.IsNil)
 				recovered[i] = hints.LiveNodes[0].Segments[0].FirstSeqNo
 			default:
-				c.Fatal("unexpected length ", r)
+				c.Fatal("unexpected length ", op)
 			}
 		}
 		c.Check(recovered, gc.Equals, [3]int64{idA, idB, idC})
@@ -658,16 +659,16 @@ func (s *LifecycleSuite) TestStoreAndFetchHints(c *gc.C) {
 	verifyHints(444, 444, 555, 333)
 
 	// Delete hints in key priority order. Expect older hints are used instead.
-	r.etcd.Delete(r.ctx, r.spec.HintKeys[0])
+	_, _ = r.etcd.Delete(r.ctx, r.spec.HintPrimaryKey())
 	verifyHints(555, 0, 555, 333)
-	r.etcd.Delete(r.ctx, r.spec.HintKeys[1])
+	_, _ = r.etcd.Delete(r.ctx, r.spec.HintBackupKeys()[0])
 	verifyHints(333, 0, 0, 333)
-	r.etcd.Delete(r.ctx, r.spec.HintKeys[2])
+	_, _ = r.etcd.Delete(r.ctx, r.spec.HintBackupKeys()[1])
 
 	// When no hints exist, default hints are returned.
 	hints, _, err := fetchHints(r.ctx, r.spec, r.etcd)
 	c.Check(err, gc.IsNil)
-	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{Log: aRecoveryLog})
+	c.Check(hints, gc.DeepEquals, recoverylog.FSMHints{Log: r.spec.RecoveryLog()})
 }
 
 // newLifecycleTestFixture extends newTestFixture by stubbing out |transition|
@@ -679,10 +680,10 @@ func newLifecycleTestFixture(c *gc.C) (*Replica, func()) {
 	transition = func(r *Replica, spec *ShardSpec, assignment keyspace.KeyValue) {
 		r.spec, r.assignment = spec, assignment
 	}
-	tf.allocateShard(c, makeShard("a-shard"), localID)
+	tf.allocateShard(c, makeShard(shardA), localID)
 
-	return tf.resolver.replicas["a-shard"], func() {
-		tf.allocateShard(c, makeShard("a-shard")) // Remove assignment.
+	return tf.resolver.replicas[shardA], func() {
+		tf.allocateShard(c, makeShard(shardA)) // Remove assignment.
 
 		transition = realTransition
 		cleanup()

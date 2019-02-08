@@ -11,11 +11,11 @@ func (s *APISuite) TestStatCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	var spec = makeShard("a-shard")
+	var spec = makeShard(shardA)
 	tf.allocateShard(c, spec, localID)
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
-	var r = tf.resolver.replicas["a-shard"]
+	var r = tf.resolver.replicas[shardA]
 	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
 
 	// Determine the write head of |sourceA|. We expect Stat reports we've
@@ -26,7 +26,7 @@ func (s *APISuite) TestStatCases(c *gc.C) {
 	var expectOffset = aa.Response().Commit.End
 
 	// Case: Stat of local shard.
-	resp, err := tf.service.Stat(tf.ctx, &StatRequest{Shard: "a-shard"})
+	resp, err := tf.service.Stat(tf.ctx, &StatRequest{Shard: shardA})
 	c.Check(err, gc.IsNil)
 	c.Check(resp.Status, gc.Equals, Status_OK)
 	c.Check(resp.Offsets, gc.DeepEquals, map[pb.Journal]int64{sourceA: expectOffset})
@@ -48,11 +48,11 @@ func (s *APISuite) TestListCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	var specA = makeShard("shard-a")
+	var specA = makeShard(shardA)
 	specA.Labels = append(specA.Labels, pb.Label{Name: "foo", Value: "bar"})
-	var specB = makeShard("shard-b")
+	var specB = makeShard(shardB)
 	specB.Labels = append(specB.Labels, pb.Label{Name: "bar", Value: "baz"})
-	var specC = makeShard("shard-c")
+	var specC = makeShard(shardC)
 
 	tf.allocateShard(c, specA)
 	tf.allocateShard(c, specB, remoteID)
@@ -96,7 +96,7 @@ func (s *APISuite) TestListCases(c *gc.C) {
 
 	// Case: Meta-label "id" selects specific shards.
 	resp, err = tf.service.List(tf.ctx, &ListRequest{
-		Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", "shard-c")},
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", shardC)},
 	})
 	c.Check(err, gc.IsNil)
 	verify(resp, specC)
@@ -115,8 +115,8 @@ func (s *APISuite) TestApplyCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
 
-	var specA = makeShard("shard-a")
-	var specB = makeShard("shard-b")
+	var specA = makeShard(shardA)
+	var specB = makeShard(shardB)
 
 	var verifyAndFetchRev = func(id ShardID, expect ShardSpec) int64 {
 		var resp, err = tf.service.List(tf.ctx, &ListRequest{
@@ -147,28 +147,28 @@ func (s *APISuite) TestApplyCases(c *gc.C) {
 
 	c.Check(must(tf.service.Apply(tf.ctx, &ApplyRequest{
 		Changes: []ApplyRequest_Change{
-			{Upsert: specB, ExpectModRevision: verifyAndFetchRev("shard-b", origSpecB)},
+			{Upsert: specB, ExpectModRevision: verifyAndFetchRev(shardB, origSpecB)},
 		},
 	})).Status, gc.Equals, Status_OK)
 
 	// Case: Delete existing spec A.
 	c.Check(must(tf.service.Apply(tf.ctx, &ApplyRequest{
 		Changes: []ApplyRequest_Change{
-			{Delete: "shard-a", ExpectModRevision: verifyAndFetchRev("shard-a", *specA)},
+			{Delete: shardA, ExpectModRevision: verifyAndFetchRev(shardA, *specA)},
 		},
 	})).Status, gc.Equals, Status_OK)
 
 	// Case: Deletion at wrong revision fails.
 	c.Check(must(tf.service.Apply(tf.ctx, &ApplyRequest{
 		Changes: []ApplyRequest_Change{
-			{Delete: "shard-b", ExpectModRevision: verifyAndFetchRev("shard-b", *specB) - 1},
+			{Delete: shardB, ExpectModRevision: verifyAndFetchRev(shardB, *specB) - 1},
 		},
 	})).Status, gc.Equals, Status_ETCD_TRANSACTION_FAILED)
 
 	// Case: Update at wrong revision fails.
 	c.Check(must(tf.service.Apply(tf.ctx, &ApplyRequest{
 		Changes: []ApplyRequest_Change{
-			{Upsert: specB, ExpectModRevision: verifyAndFetchRev("shard-b", *specB) - 1},
+			{Upsert: specB, ExpectModRevision: verifyAndFetchRev(shardB, *specB) - 1},
 		},
 	})).Status, gc.Equals, Status_ETCD_TRANSACTION_FAILED)
 

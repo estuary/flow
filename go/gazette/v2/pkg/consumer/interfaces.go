@@ -113,13 +113,16 @@ type BeginFinisher interface {
 	// others: this can be accomplished by blocking in BeginTxn until a semaphore
 	// is acquired. A call to BeginTx is always paired with a call to FinishTxn.
 	BeginTxn(Shard, Store) error
-	// FinishTxn is notified that a previously begun transaction has completed.
-	// It allows the Application to perform related cleanup (eg, releasing a
-	// previously acquired semaphore), implement transactional / exactly-once
-	// semantics (via two-phase commit), etc. Note that, because transactions
-	// are pipelined, underlying journal writes of the transaction may still be
-	// ongoing. The Application can use a WeakBarrier() of the Recorder to
-	// condition further writes (eg, a "commit acknowledgement" message in 2PC)
-	// on the consumer transaction having fully committed.
-	FinishTxn(Shard, Store) error
+	// FinishTxn is notified that a previously begun transaction has completed
+	// or errored. It allows the Application to perform related cleanup (eg,
+	// releasing a previously acquired semaphore), implement transactional /
+	// exactly-once semantics (via two-phase commit), etc. Note that, because
+	// transactions are pipelined, underlying journal writes of the transaction
+	// may still be ongoing. The Application can use a WeakBarrier() of the
+	// Recorder to condition further writes (eg, a "commit acknowledgement"
+	// message in 2PC) on the consumer transaction having fully committed.
+	// If the argument error is non-nil, the transaction failed and the Shard
+	// is entering a "failed" state. It is not necessary to pass-through or
+	// return an error just because argument error is non-nil.
+	FinishTxn(Shard, Store, error) error
 }

@@ -170,7 +170,7 @@ func consumeMessages(shard Shard, store Store, app Application, etcd *clientv3.C
 			err = extendErr(err, "txnStep")
 		}
 		if ba, ok := app.(BeginFinisher); ok && txn.msgCount != 0 {
-			if finishErr := ba.FinishTxn(shard, store); err == nil && finishErr != nil {
+			if finishErr := ba.FinishTxn(shard, store, err); err == nil && finishErr != nil {
 				err = extendErr(finishErr, "FinishTxn")
 			}
 		}
@@ -201,21 +201,22 @@ func fetchJournalSpec(ctx context.Context, name pb.Journal, journals pb.JournalC
 }
 
 // fetchHints retrieves and decodes the current, best FSMHints for the ShardSpec. It also
-// returns a TxnResponse holding each of the raw HintKeys values, which can be used for
+// returns a TxnResponse holding each of the raw key & values, which can be used for
 // transactional updates of hints.
 func fetchHints(ctx context.Context, spec *ShardSpec, etcd *clientv3.Client) (hints recoverylog.FSMHints, resp *clientv3.TxnResponse, err error) {
-	var ops []clientv3.Op
-	for _, hk := range spec.HintKeys {
+	var ops = []clientv3.Op{clientv3.OpGet(spec.HintPrimaryKey())}
+
+	for _, hk := range spec.HintBackupKeys() {
 		ops = append(ops, clientv3.OpGet(hk))
 	}
 
 	if resp, err = etcd.Txn(ctx).If().Then(ops...).Commit(); err != nil {
-		err = extendErr(err, "fetching ShardSpec.HintKeys")
+		err = extendErr(err, "fetching ShardSpec hint keys")
 		return
 	}
-	hints.Log = spec.RecoveryLog
+	hints.Log = spec.RecoveryLog()
 
-	// Load the first key of |spec.HintKeys| having a populated key/value in Etcd.
+	// Load the first hint key, in |ops| order, having a populated key/value in Etcd.
 	for i := range resp.Responses {
 		if kvs := resp.Responses[i].GetResponseRange().Kvs; len(kvs) == 0 {
 			continue
@@ -223,16 +224,16 @@ func fetchHints(ctx context.Context, spec *ShardSpec, etcd *clientv3.Client) (hi
 			err = extendErr(err, "unmarshal FSMHints")
 		} else if _, err = recoverylog.NewFSM(hints); err != nil { // Validate hints.
 			err = extendErr(err, "validating FSMHints")
-		} else if hints.Log != spec.RecoveryLog {
+		} else if hints.Log != spec.RecoveryLog() {
 			err = errors.Errorf("recovered hints.Log doesn't match ShardSpec.RecoveryLog (%s vs %s)",
-				hints.Log, spec.RecoveryLog)
+				hints.Log, spec.RecoveryLog())
 		}
 		return
 	}
 	return
 }
 
-// storeRecordedHints writes the FSMHints into the first HintKeys of the spec.
+// storeRecordedHints writes FSMHints into the primary hint key of the spec.
 func storeRecordedHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3.Client) (err error) {
 	var val []byte
 	if val, err = json.Marshal(hints); err != nil {
@@ -242,31 +243,32 @@ func storeRecordedHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3.
 	var asn = shard.Assignment()
 
 	if _, err = etcd.Txn(shard.Context()).
-		// Verify our Assignment is still in effect (eg, we're still primary), then write |hints| to HinKeys[0].
+		// Verify our Assignment is still in effect (eg, we're still primary), then write |hints| to HintPrimaryKey.
 		// Compare CreateRevision to allow for a raced ReplicaState update.
 		If(clientv3.Compare(clientv3.CreateRevision(string(asn.Raw.Key)), "=", asn.Raw.CreateRevision)).
-		Then(clientv3.OpPut(shard.Spec().HintKeys[0], string(val))).
+		Then(clientv3.OpPut(shard.Spec().HintPrimaryKey(), string(val))).
 		Commit(); err != nil {
 		err = extendErr(err, "storing recorded FSMHints")
 	}
 	return
 }
 
-// storeRecoveredHints writes the FSMHints into the second HintKeys of the spec,
-// rotating hints previously stored under the second HintKeys to the third key,
+// storeRecoveredHints writes the FSMHints into the first backup hint key of the spec,
+// rotating hints previously stored under that key to the second backup hint key,
 // and so on as a single transaction.
 func storeRecoveredHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3.Client) (err error) {
-	var spec = shard.Spec()
-	var asn = shard.Assignment()
-	var resp *clientv3.TxnResponse
-
+	var (
+		spec    = shard.Spec()
+		asn     = shard.Assignment()
+		resp    *clientv3.TxnResponse
+		backups = shard.Spec().HintBackupKeys()
+	)
 	if _, resp, err = fetchHints(shard.Context(), spec, etcd); err != nil {
 		return
 	}
 
-	// |hints| is serialized and written to HintKeys[1]. In the same txn,
-	// rotate the current value at HintKeys[1] => HintKeys[2], and so on. We don't
-	// touch HintKeys[0], which holds hints updated by the current primary.
+	// |hints| is serialized and written to backups[1]. In the same txn,
+	// rotate the current value at backups[1] => backups[2], and so on.
 	var val []byte
 	if val, err = json.Marshal(hints); err != nil {
 		return
@@ -279,17 +281,18 @@ func storeRecoveredHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3
 	cmp = append(cmp, clientv3.Compare(clientv3.CreateRevision(string(asn.Raw.Key)),
 		"=", asn.Raw.CreateRevision))
 
-	for i := 1; i != len(spec.HintKeys) && val != nil; i++ {
-		ops = append(ops, clientv3.OpPut(spec.HintKeys[i], string(val)))
+	for i := 0; i != len(backups) && val != nil; i++ {
+		ops = append(ops, clientv3.OpPut(backups[i], string(val)))
 
-		if kvs := resp.Responses[i].GetResponseRange().Kvs; len(kvs) == 0 {
+		// |backups| key responses start of index 1 (resp.Responses[0] is the primary hint).
+		if kvs := resp.Responses[1+i].GetResponseRange().Kvs; len(kvs) == 0 {
 			// Verify there is still no current key/value at this hints key slot.
-			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(spec.HintKeys[i]), "=", 0))
+			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(backups[i]), "=", 0))
 			val = nil
 		} else {
 			// Verify the key/value at this hints key slot is unchanged.
 			// Retain its value to rotate into the next slot (if one exists).
-			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(spec.HintKeys[i]), "=", kvs[0].ModRevision))
+			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(backups[i]), "=", kvs[0].ModRevision))
 			val = kvs[0].Value
 		}
 	}
