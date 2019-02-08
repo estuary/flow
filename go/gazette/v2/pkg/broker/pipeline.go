@@ -236,14 +236,11 @@ func (pln *pipeline) gatherSync(proposal pb.Fragment) (rollToOffset, readThrough
 // An unexpected received message is treated as an error.
 func (pln *pipeline) gatherEOF() {
 	for i, s := range pln.streams {
-		if s == nil {
-			continue
-		}
-		var msg, err = s.Recv()
-
-		if err == io.EOF {
-			// Pass.
-		} else if pln.recvErrs[i] == nil && err != nil {
+		if s == nil || pln.recvErrs[i] != nil {
+			// Local spool placeholder, or the stream has already failed.
+		} else if msg, err := s.Recv(); err == io.EOF {
+			// Graceful stream closure.
+		} else if err != nil {
 			pln.recvErrs[i] = err
 		} else if pln.recvErrs[i] == nil && err == nil {
 			pln.recvErrs[i] = fmt.Errorf("unexpected response: %s", msg.String())

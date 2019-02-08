@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
@@ -84,6 +85,7 @@ func (s *ReplicaSuite) TestPipelineAcquisitionAndRelease(c *gc.C) {
 	// Case: Use a "current" header. It succeeds.
 	pln, rev, err = acquirePipeline(tf.ctx, res.replica, res.Header, jc)
 	c.Check(pln, gc.NotNil)
+	c.Check(pln.Header.Route.Members, gc.DeepEquals, []pb.ProcessSpec_ID{broker.id, peer.id})
 	c.Check(rev, gc.Equals, int64(0))
 	c.Check(err, gc.IsNil)
 
@@ -117,7 +119,8 @@ func (s *ReplicaSuite) TestPipelineAcquisitionAndRelease(c *gc.C) {
 			Slot:         3,
 		}): "",
 	})
-	res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
+	res, err = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
+	c.Check(err, gc.IsNil)
 
 	// Expect the pipeline was re-built, using the updated Route.
 	pln, rev, err = acquirePipeline(tf.ctx, res.replica, res.Header, jc)
@@ -125,15 +128,19 @@ func (s *ReplicaSuite) TestPipelineAcquisitionAndRelease(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(pln.Header.Route.Members, gc.DeepEquals, []pb.ProcessSpec_ID{broker.id, peer.id, peer2.id})
 
-	// Case: Simulate a peer connection error, and scatter a no-op, acknowledged commit.
-	pln.streams[2].CloseSend()
+	// Case: Simulate a connection error which breaks a peer stream.
+	c.Check(pln.streams[2].CloseSend(), gc.IsNil)
+	// Read peer close. Further attempts to read will return EOF.
+	_, err = pln.streams[2].Recv()
+	c.Check(err, gc.Equals, io.EOF)
+
+	// Scatter a no-op, acknowledged commit which fails on the broken stream.
 	pln.scatter(&pb.ReplicateRequest{
 		Proposal:    &pln.spool.Fragment.Fragment,
 		Acknowledge: true,
 	})
-	c.Check(releasePipelineAndGatherResponse(tf.ctx, pln, res.replica.pipelineCh),
-		gc.ErrorMatches,
-		`recv from zone:"peer" suffix:"broker2" : rpc error: code = Internal desc = SendMsg called after CloseSend`)
+	c.Check(releasePipelineAndGatherResponse(tf.ctx, pln, res.replica.pipelineCh), gc.ErrorMatches,
+		`recv from zone:"peer" suffix:"broker2" : EOF`)
 
 	// Expect a nil pipeline was released.
 	c.Check(<-res.replica.pipelineCh, gc.IsNil)
@@ -144,7 +151,9 @@ func (s *ReplicaSuite) TestPipelineAcquisitionAndRelease(c *gc.C) {
 	c.Check(pln, gc.NotNil)
 	c.Check(err, gc.IsNil)
 
-	// Don't return |pln|. Attempts to acquire it block indefinitely, until the context is cancelled.
+	// Clean up but don't return |pln| to the channel. A future attempt to
+	// acquire it will block indefinitely, until the context is cancelled.
+	pln.shutdown(false)
 	go cleanup()
 
 	_, _, err = acquirePipeline(tf.ctx, res.replica, res.Header, jc)
