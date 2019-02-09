@@ -174,7 +174,7 @@ func (srv *Service) GetHints(ctx context.Context, req *GetHintsRequest) (*GetHin
 
 // ListShards invokes the List RPC, and maps a validation or !OK status to an error.
 func ListShards(ctx context.Context, sc ShardClient, req *ListRequest) (*ListResponse, error) {
-	if r, err := sc.List(pb.WithDispatchDefault(ctx), req); err != nil {
+	if r, err := sc.List(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
 		return r, err
 	} else if err = r.Validate(); err != nil {
 		return r, err
@@ -187,7 +187,7 @@ func ListShards(ctx context.Context, sc ShardClient, req *ListRequest) (*ListRes
 
 // ApplyShards invokes the Apply RPC, and maps a validation or !OK status to an error.
 func ApplyShards(ctx context.Context, sc ShardClient, req *ApplyRequest) (*ApplyResponse, error) {
-	if r, err := sc.Apply(pb.WithDispatchDefault(ctx), req); err != nil {
+	if r, err := sc.Apply(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
 		return r, err
 	} else if err = r.Validate(); err != nil {
 		return r, err

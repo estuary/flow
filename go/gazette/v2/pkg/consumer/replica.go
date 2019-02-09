@@ -187,7 +187,7 @@ func (r *Replica) waitAndTearDown(done func()) {
 }
 
 func (r *Replica) logFailure(err error) error {
-	if err == context.Canceled {
+	if errors.Cause(err) == context.Canceled {
 		return err
 	}
 	log.WithFields(log.Fields{
@@ -217,7 +217,7 @@ func updateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, sta
 	if err == nil {
 		// Block until the update is observed in the KeySpace.
 		ks.Mu.RLock()
-		ks.WaitForRevision(shard.Context(), resp.Header.Revision)
+		_ = ks.WaitForRevision(shard.Context(), resp.Header.Revision)
 		ks.Mu.RUnlock()
 	}
 	return err

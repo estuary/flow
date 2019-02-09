@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 // PolledList performs periodic polls of a ListRequest. Its most recent
@@ -65,7 +66,7 @@ func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRe
 
 	for {
 		// List RPCs may be dispatched to any broker.
-		if r, err := client.List(pb.WithDispatchDefault(ctx), &req); err != nil {
+		if r, err := client.List(pb.WithDispatchDefault(ctx), &req, grpc.FailFast(false)); err != nil {
 			return resp, mapGRPCCtxErr(ctx, err)
 		} else if err = r.Validate(); err != nil {
 			return resp, err
@@ -95,7 +96,7 @@ func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRe
 
 // ApplyJournals invokes the Apply RPC, and maps a validation or !OK status to an error.
 func ApplyJournals(ctx context.Context, jc pb.JournalClient, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	if r, err := jc.Apply(pb.WithDispatchDefault(ctx), req); err != nil {
+	if r, err := jc.Apply(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
 		return r, err
 	} else if err = r.Validate(); err != nil {
 		return r, err

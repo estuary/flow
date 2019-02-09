@@ -8,6 +8,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/broker"
 	"github.com/LiveRamp/gazette/v2/pkg/broker/teststub"
+	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/coreos/etcd/clientv3"
@@ -177,9 +178,8 @@ func CreateJournals(c *gc.C, bk *Broker, specs ...*pb.JournalSpec) {
 	// possibility of deadlock on TestHook's send to |idleCh|.
 	var doneCh = make(chan struct{})
 	go func() {
-		var resp, err = bk.Client().Apply(pb.WithDispatchDefault(context.Background()), req)
+		var _, err = client.ApplyJournals(pb.WithDispatchDefault(context.Background()), bk.Client(), req)
 		c.Assert(err, gc.IsNil)
-		c.Assert(resp.Status, gc.Equals, pb.Status_OK)
 		close(doneCh)
 	}()
 
