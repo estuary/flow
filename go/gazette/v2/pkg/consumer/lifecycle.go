@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/client"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -24,6 +25,10 @@ func playLog(shard Shard, pl *recoverylog.Player, etcd *clientv3.Client) error {
 		return extendErr(err, "creating shard working directory")
 	} else if h, err := fetchHints(shard.Context(), shard.Spec(), etcd); err != nil {
 		return extendErr(err, "fetching FSM hints")
+	} else if logSpec, err := fetchJournalSpec(shard.Context(), pickFirstHints(h).Log, shard.JournalClient()); err != nil {
+		return extendErr(err, "fetching JournalSpec")
+	} else if ct := logSpec.LabelSet.ValueOf(labels.ContentType); ct != labels.ContentType_RecoveryLog {
+		return errors.Errorf("expected label %s value %s (got %v)", labels.ContentType, labels.ContentType_RecoveryLog, ct)
 	} else if err = pl.Play(shard.Context(), pickFirstHints(h), dir, shard.JournalClient()); err != nil {
 		return extendErr(err, "playing log %s", pickFirstHints(h).Log)
 	}
@@ -87,7 +92,7 @@ func pumpMessages(shard Shard, app Application, journal pb.Journal, offset int64
 	if err != nil {
 		return extendErr(err, "fetching JournalSpec")
 	}
-	framing, err := message.JournalFraming(spec)
+	framing, err := message.FramingByContentType(spec.LabelSet.ValueOf(labels.ContentType))
 	if err != nil {
 		return extendErr(err, "determining framing (%s)", journal)
 	}

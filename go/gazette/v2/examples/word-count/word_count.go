@@ -18,6 +18,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -52,19 +53,17 @@ type counterConfig struct {
 // NewConfig returns a new configuration instance.
 func (Counter) NewConfig() runconsumer.Config { return new(counterConfig) }
 
-// InitModule initializes the application to serve the NGram gRPC service.
+// InitApplication initializes the application to serve the NGram gRPC service.
 func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 	var N = args.Config.(*counterConfig).WordCount.N
 	if N == 0 {
 		return errors.New("--wordcount.N must be specified")
 	}
 
-	// Build a "deltas" MappingFunc over "topic=examples/word-count/deltas" partitions.
+	// Build a "deltas" MappingFunc over "app.gazette.dev/message-type=NGramCount" partitions.
 	var parts, err = client.NewPolledList(args.Context, args.Service.Journals, time.Minute,
 		pb.ListRequest{
-			Selector: pb.LabelSelector{
-				Include: pb.MustLabelSet("topic", deltasTopicLabel),
-			},
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet(labels.MessageType, "NGramCount")},
 		})
 	if err != nil {
 		return errors.Wrap(err, "building NGramDeltaMapping")
@@ -280,6 +279,3 @@ func (counter *Counter) mapPrefixToShard(prefix NGram) (shard consumer.ShardID, 
 	err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
 	return
 }
-
-// deltasTopicLabel identifies journals which are partitions of NGramCount delta messages.
-const deltasTopicLabel = "examples/word-count/deltas"

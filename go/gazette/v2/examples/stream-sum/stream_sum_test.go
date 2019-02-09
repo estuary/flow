@@ -12,6 +12,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
 	"github.com/LiveRamp/gazette/v2/pkg/consumertest"
 	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
@@ -188,7 +189,10 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*consume
 		brokertest.Journal(pb.JournalSpec{
 			Name:        FinalSumsJournal,
 			Replication: 1,
-			LabelSet:    pb.MustLabelSet("framing", "json"),
+			LabelSet: pb.MustLabelSet(
+				labels.MessageType, "Sum",
+				labels.ContentType, labels.ContentType_JSONLines,
+			),
 		}),
 	)
 	for p := 0; p != parts; p++ {
@@ -206,9 +210,15 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*consume
 			brokertest.Journal(pb.JournalSpec{
 				Name:        shard.Sources[0].Journal,
 				Replication: 1,
-				LabelSet:    pb.MustLabelSet("framing", "json", "topic", chunksTopicLabel),
+				LabelSet: pb.MustLabelSet(
+					labels.MessageType, "Chunk",
+					labels.ContentType, labels.ContentType_JSONLines,
+				),
 			}),
-			brokertest.Journal(pb.JournalSpec{Name: shard.RecoveryLog()}),
+			brokertest.Journal(pb.JournalSpec{
+				Name:     shard.RecoveryLog(),
+				LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+			}),
 		)
 		shards = append(shards, shard)
 	}

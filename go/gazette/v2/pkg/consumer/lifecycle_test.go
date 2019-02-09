@@ -9,6 +9,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/brokertest"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
@@ -77,7 +78,7 @@ func (s *LifecycleSuite) TestRecoveryOfNonEmptyLog(c *gc.C) {
 	})
 }
 
-func (s *LifecycleSuite) TestRecoveryFailsFromBadHints(c *gc.C) {
+func (s *LifecycleSuite) TestRecoveryFailsFromInvalidHints(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
@@ -96,18 +97,61 @@ func (s *LifecycleSuite) TestRecoveryFailsFromBadHints(c *gc.C) {
 	c.Check(err, gc.Equals, context.Canceled)
 }
 
-func (s *LifecycleSuite) TestRecoveryFailsFromPlayError(c *gc.C) {
+func (s *LifecycleSuite) TestRecoveryFailsFromMissingLog(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
 
 	r.spec.RecoveryLogPrefix = "does/not/exist"
 
-	// Expect playLog returns an immediate error.
+	// Case: playLog fails while attempting to fetch spec.
 	c.Check(playLog(r, r.player, r.etcd), gc.ErrorMatches,
-		`playing log does/not/exist/`+shardA+`: determining log head: JOURNAL_NOT_FOUND`)
+		`fetching JournalSpec: named journal does not exist \(does/not/exist/`+shardA+`\)`)
+}
 
-	// As does completePlayback.
-	var _, _, err = completePlayback(r, r.app, r.player, r.etcd)
+func (s *LifecycleSuite) TestRecoveryFailsFromWrongContentType(c *gc.C) {
+	var r, cleanup = newLifecycleTestFixture(c)
+	defer cleanup()
+
+	var ctx = pb.WithDispatchDefault(r.ctx)
+
+	// Fetch current log spec, set an incorrect ContentType, and re-apply.
+	var lr, err = r.JournalClient().List(ctx, &pb.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", r.spec.RecoveryLog().String())},
+	})
+	c.Assert(err, gc.IsNil)
+
+	lr.Journals[0].Spec.LabelSet.SetValue(labels.ContentType, "wrong/type")
+	_, err = r.JournalClient().Apply(ctx, &pb.ApplyRequest{
+		Changes: []pb.ApplyRequest_Change{{Upsert: &lr.Journals[0].Spec, ExpectModRevision: lr.Journals[0].ModRevision}},
+	})
+	c.Assert(err, gc.IsNil)
+
+	// Case: playLog fails while attempting to fetch spec.
+	c.Check(playLog(r, r.player, r.etcd), gc.ErrorMatches,
+		`expected label `+labels.ContentType+` value `+labels.ContentType_RecoveryLog+` \(got wrong/type\)`)
+}
+
+func (s *LifecycleSuite) TestRecoveryFailsFromPlayError(c *gc.C) {
+	var r, cleanup = newLifecycleTestFixture(c)
+	defer cleanup()
+
+	// Write a valid FSMHints that references a log offset that doesn't exist.
+	var fixture = recoverylog.FSMHints{
+		Log: r.spec.RecoveryLog(),
+		LiveNodes: []recoverylog.FnodeSegments{
+			{Fnode: 1, Segments: []recoverylog.Segment{{Author: 123, FirstSeqNo: 1, FirstOffset: 100, LastSeqNo: 1}}},
+		},
+	}
+	var fixtureBytes, _ = json.Marshal(&fixture)
+
+	var _, err = r.etcd.Put(r.ctx, r.spec.HintPrimaryKey(), string(fixtureBytes))
+	c.Check(err, gc.IsNil)
+
+	// Expect playLog returns an immediate error.
+	c.Check(playLog(r, r.player, r.etcd), gc.ErrorMatches, `playing log .*: max write-head of .* is 0, vs .*`)
+
+	// Since the error occurred within Player.Play, it also causes completePlayback to immediately fail.
+	_, _, err = completePlayback(r, r.app, r.player, r.etcd)
 	c.Check(err, gc.ErrorMatches, `completePlayback aborting due to Play failure`)
 }
 
@@ -135,7 +179,7 @@ func (s *LifecycleSuite) TestMessagePump(c *gc.C) {
 	var expect = message.Envelope{
 		JournalSpec: brokertest.Journal(pb.JournalSpec{
 			Name:     "source/A",
-			LabelSet: pb.MustLabelSet("framing", "json"),
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
 		}),
 		Fragment: nil,
 	}
@@ -164,7 +208,7 @@ func (s *LifecycleSuite) TestMessagePumpFailsOnBadFraming(c *gc.C) {
 	defer cleanup()
 
 	c.Check(pumpMessages(r, r.app, r.spec.RecoveryLog(), 0, nil),
-		gc.ErrorMatches, `determining framing (.*): expected exactly one framing label \(got \[\]\)`)
+		gc.ErrorMatches, `determining framing (.*): unrecognized `+labels.ContentType+` \(`+labels.ContentType_RecoveryLog+`\)`)
 }
 
 func (s *LifecycleSuite) TestMessagePumpFailsOnNewMessageError(c *gc.C) {
@@ -596,7 +640,7 @@ func (s *LifecycleSuite) TestFetchJournalSpec(c *gc.C) {
 	var spec, err = fetchJournalSpec(tf.ctx, sourceA, tf.broker.Client())
 	c.Check(err, gc.IsNil)
 	c.Check(spec, gc.DeepEquals, brokertest.Journal(
-		pb.JournalSpec{Name: sourceA, LabelSet: pb.MustLabelSet("framing", "json")}))
+		pb.JournalSpec{Name: sourceA, LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines)}))
 
 	_, err = fetchJournalSpec(tf.ctx, "not/here", tf.broker.Client())
 	c.Check(err, gc.ErrorMatches, `named journal does not exist \(not/here\)`)

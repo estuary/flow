@@ -1,12 +1,14 @@
 package protocol
 
 import (
+	"mime"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 )
 
 // Journal uniquely identifies a journal brokered by Gazette.
@@ -46,14 +48,13 @@ func (m *JournalSpec) Validate() error {
 		return NewValidationError(`Labels cannot include label "name"`)
 	} else if len(m.LabelSet.ValuesOf("prefix")) != 0 {
 		return NewValidationError(`Labels cannot include label "prefix"`)
-	} else if err = validateFramingLabel(m.LabelSet); err != nil {
-		return err
+	} else if err = validateJournalLabelConstraints(m.LabelSet); err != nil {
+		return ExtendContext(err, "Labels")
 	} else if err = m.Fragment.Validate(); err != nil {
 		return ExtendContext(err, "Fragment")
 	} else if err = m.Flags.Validate(); err != nil {
 		return ExtendContext(err, "Flags")
 	}
-
 	return nil
 }
 
@@ -255,27 +256,32 @@ func ExtractJournalSpecMetaLabels(spec *JournalSpec, out LabelSet) LabelSet {
 	return out
 }
 
-// validateFramingLabel asserts that a "framing" label, if present, matches a
-// restricted set of values permitted by the `message` package. Formally,
-// this package has no (and should have no) dependency on `message`. However,
-// in the interests of failing fast & providing useful feedback to users, we
-// fold these checks into JournalSpec validation.
-func validateFramingLabel(labels LabelSet) error {
-	var f = labels.ValuesOf("framing")
-
-	switch len(f) {
-	case 0:
-		return nil
-	default:
-		return NewValidationError(`Label "framing" cannot have multiple values`)
-	case 1: // Pass.
+// validateJournalLabelConstraints asserts expected invariants of MessageType,
+// MessageSubType, and ContentType labels:
+//  * ContentType must parse as a RFC 1521 MIME / media-type.
+//  * If MessageType is present, ContentType must be present and match a known framing.
+//  * If MessageSubType is present, so is MessageType.
+func validateJournalLabelConstraints(ls LabelSet) error {
+	if err := ValidateSingleValueLabels(ls); err != nil {
+		return err
 	}
-	switch f[0] {
-	case FramingFixed, FramingJSON:
-		return nil
-	default:
-		return NewValidationError(`Label "framing" contains an invalid value (%s)`, f[0])
+	var ct = ls.ValuesOf(labels.ContentType)
+	if ct != nil {
+		if _, _, err := mime.ParseMediaType(ct[0]); err != nil {
+			return NewValidationError("parsing %s: %s", labels.ContentType, err)
+		}
 	}
+	if mt := ls.ValuesOf(labels.MessageType); mt != nil {
+		if ct == nil {
+			return NewValidationError("expected %s label alongside %s", labels.ContentType, labels.MessageType)
+		} else if _, ok := labels.FramedContentTypes[ct[0]]; !ok {
+			return NewValidationError("%s label is not a known message framing (%s; expected one of %v)",
+				labels.ContentType, ct[0], labels.FramedContentTypes)
+		}
+	} else if mst := ls.ValuesOf(labels.MessageSubType); mst != nil {
+		return NewValidationError("expected %s label alongside %s", labels.MessageType, labels.MessageSubType)
+	}
+	return nil
 }
 
 const (
@@ -284,9 +290,4 @@ const (
 	minRefreshInterval, maxRefreshInterval = time.Second, time.Hour * 24
 	minFlushInterval                       = time.Minute * 10
 	minFragmentLen, maxFragmentLen         = 1 << 10, 1 << 34 // 1024 => 17,179,869,184
-
-	// FramingFixed is the label value for message.FixedFraming.
-	FramingFixed = "fixed"
-	// FramingJSON is the label value for message.JSONFraming.
-	FramingJSON = "json"
 )

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/LiveRamp/gazette/v2/pkg/client"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
@@ -34,27 +35,16 @@ func Publish(broker client.AsyncJournalClient, mapping MappingFunc, msg Message)
 	return aa, nil
 }
 
-// FramingByName returns the Framing having the corresponding |name|,
+// FramingByContentType returns the Framing having the corresponding |contentType|,
 // or returns an error if none match.
-func FramingByName(name string) (Framing, error) {
-	switch name {
-	case pb.FramingFixed:
+func FramingByContentType(contentType string) (Framing, error) {
+	switch contentType {
+	case labels.ContentType_ProtoFixed:
 		return FixedFraming, nil
-	case pb.FramingJSON:
+	case labels.ContentType_JSONLines:
 		return JSONFraming, nil
 	default:
-		return nil, fmt.Errorf(`unrecognized framing (%s; expected %s or %s)`,
-			name, pb.FramingFixed, pb.FramingJSON)
-	}
-}
-
-// JournalFraming returns the Framing implementation corresponding to the
-// "framing" label value of the JournalSpec.
-func JournalFraming(spec *pb.JournalSpec) (Framing, error) {
-	if values := spec.LabelSet.ValuesOf("framing"); len(values) != 1 {
-		return nil, fmt.Errorf("expected exactly one framing label (got %+v)", values)
-	} else {
-		return FramingByName(values[0])
+		return nil, fmt.Errorf(`unrecognized %s (%s)`, labels.ContentType, contentType)
 	}
 }
 
@@ -96,7 +86,9 @@ func RandomMapping(partitions PartitionsFunc) MappingFunc {
 
 		var ind = rand.Intn(len(parts.Journals))
 		journal = parts.Journals[ind].Spec.Name
-		framing, err = JournalFraming(&parts.Journals[ind].Spec)
+
+		var ct = parts.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
+		framing, err = FramingByContentType(ct)
 		return
 	}
 }
@@ -113,11 +105,13 @@ func ModuloMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFunc {
 		}
 
 		var h = fnv.New32a()
-		h.Write(key(msg, make([]byte, 0, 32)))
+		_, _ = h.Write(key(msg, make([]byte, 0, 32)))
 
 		var ind = int(h.Sum32()) % len(parts.Journals)
 		journal = parts.Journals[ind].Spec.Name
-		framing, err = JournalFraming(&parts.Journals[ind].Spec)
+
+		var ct = parts.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
+		framing, err = FramingByContentType(ct)
 		return
 	}
 }
@@ -144,7 +138,7 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 
 			for i, journal := range lr.Journals {
 				var h = fnv.New32a()
-				h.Write([]byte(journal.Spec.Name))
+				_, _ = h.Write([]byte(journal.Spec.Name))
 				lastHashes[i] = h.Sum32()
 			}
 		}
@@ -163,7 +157,7 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 		}
 
 		var h = fnv.New32a()
-		h.Write(key(msg, make([]byte, 0, 32)))
+		_, _ = h.Write(key(msg, make([]byte, 0, 32)))
 		var sum = h.Sum32()
 
 		var hrw uint32
@@ -175,7 +169,9 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 			}
 		}
 		journal = lr.Journals[ind].Spec.Name
-		framing, err = JournalFraming(&lr.Journals[ind].Spec)
+
+		var ct = lr.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
+		framing, err = FramingByContentType(ct)
 		return
 	}
 }

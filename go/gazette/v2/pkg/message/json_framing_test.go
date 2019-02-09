@@ -75,4 +75,7 @@ func (s *JsonFramingSuite) TestMessageDecodeError(c *gc.C) {
 	c.Check(JSONFraming.Unmarshal(frame, &msg), gc.ErrorMatches, "invalid character .*")
 }
 
-var _ = gc.Suite(&JsonFramingSuite{})
+var (
+	expectJsonIsFraming Framing = new(jsonFraming)
+	_                           = gc.Suite(&JsonFramingSuite{})
+)

@@ -3,6 +3,7 @@ package protocol
 import (
 	"strings"
 
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	gc "github.com/go-check/check"
 )
 
@@ -28,6 +29,14 @@ func (s *LabelSuite) TestLabelValidationCases(c *gc.C) {
 			c.Check(Label{Name: tc.name, Value: tc.value}.Validate(), gc.ErrorMatches, tc.expect)
 		}
 	}
+
+	// No repetition of single-valued labels: no error.
+	c.Check(ValidateSingleValueLabels(MustLabelSet("aaa", "bar", "aaa", "baz", labels.ContentType, "a/type")), gc.IsNil)
+	// Repetition of single-valued label: errors.
+	c.Check(ValidateSingleValueLabels(MustLabelSet("aaa", "bar", labels.ContentType, "a/type", labels.ContentType, "other/type")),
+		gc.ErrorMatches, `expected single-value Label has multiple values \(index 2; label `+labels.ContentType+` value other/type\)`)
+	c.Check(ValidateSingleValueLabels(MustLabelSet(labels.Instance, "a", labels.Instance, "b", "other", "c")),
+		gc.ErrorMatches, `expected single-value Label has multiple values \(index 1; label `+labels.Instance+` value b\)`)
 }
 
 func (s *LabelSuite) TestSetValidationCases(c *gc.C) {
@@ -74,25 +83,67 @@ func (s *LabelSuite) TestValuesOfCases(c *gc.C) {
 	}
 	c.Check(set.Validate(), gc.IsNil)
 	var cases = []struct {
-		name  string
-		value []string
+		name   string
+		values []string
+		value  string
 	}{
-		{"aa", nil},
-		{"aaa", []string{"222", "333", "444"}},
-		{"bbb", nil},
-		{"ccc", []string{""}},
-		{"ddd", nil},
-		{"DDDD", []string{"111"}},
-		{"eee", nil},
-		{"ff", []string{"555"}},
+		{"aa", nil, ""},
+		{"aaa", []string{"222", "333", "444"}, "222"},
+		{"bbb", nil, ""},
+		{"ccc", []string{""}, ""},
+		{"ddd", nil, ""},
+		{"DDDD", []string{"111"}, "111"},
+		{"eee", nil, ""},
+		{"ff", []string{"555"}, "555"},
 	}
 	for _, tc := range cases {
-		if tc.value == nil {
+		if tc.values == nil {
 			c.Check(set.ValuesOf(tc.name), gc.IsNil)
 		} else {
-			c.Check(set.ValuesOf(tc.name), gc.DeepEquals, tc.value)
+			c.Check(set.ValuesOf(tc.name), gc.DeepEquals, tc.values)
 		}
+		c.Check(set.ValueOf(tc.name), gc.Equals, tc.value)
 	}
+}
+
+func (s *LabelSuite) TestSetAddAndRemove(c *gc.C) {
+	var set LabelSet
+	set.AddValue("bb", "3") // Insert empty.
+	set.AddValue("aa", "0") // Insert at beginning.
+	set.AddValue("bb", "1") // Insert in middle.
+	set.AddValue("aa", "2") // Insert in middle.
+	set.AddValue("bb", "3") // Repeat.
+	set.AddValue("bb", "4") // Insert at end.
+
+	c.Check(set, gc.DeepEquals, MustLabelSet("aa", "0", "aa", "2", "bb", "1", "bb", "3", "bb", "4"))
+
+	set.SetValue("bb", "5") // Replace at end.
+	set.SetValue("cc", "6") // Insert at end.
+	set.SetValue("00", "6") // Insert at beginning.
+
+	c.Check(set, gc.DeepEquals, MustLabelSet("00", "6", "aa", "0", "aa", "2", "bb", "5", "cc", "6"))
+
+	set.SetValue("00", "7") // Replace at beginning
+	set.SetValue("aa", "8") // Replace at middle.
+
+	c.Check(set, gc.DeepEquals, MustLabelSet("00", "7", "aa", "8", "bb", "5", "cc", "6"))
+
+	set.AddValue("bb", "9")
+	set.AddValue("00", "00")
+
+	set.Remove("bb") // Remove from middle.
+	set.Remove("bb") // Repeat. Not found (middle).
+	c.Check(set, gc.DeepEquals, MustLabelSet("00", "00", "00", "7", "aa", "8", "cc", "6"))
+
+	set.Remove("0")  // Not found (before beginning).
+	set.Remove("00") // Remove from beginning.
+	c.Check(set, gc.DeepEquals, MustLabelSet("aa", "8", "cc", "6"))
+	set.Remove("dd") // Not found (past end).
+	set.Remove("cc") // Remove from end.
+	c.Check(set, gc.DeepEquals, MustLabelSet("aa", "8"))
+
+	set.Remove("aa")
+	c.Check(set, gc.DeepEquals, LabelSet{Labels: []Label{}})
 }
 
 func (s *LabelSuite) TestUnion(c *gc.C) {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"regexp"
 	"sort"
+
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 )
 
 // Validate returns an error if the Label is not well-formed.
@@ -23,7 +25,7 @@ func MustLabelSet(nv ...string) (set LabelSet) {
 		panic("expected an even number of Name/Value arguments")
 	}
 	for i := 0; i != len(nv); i += 2 {
-		set.Labels = append(set.Labels, Label{Name: nv[i], Value: nv[i+1]})
+		set.AddValue(nv[i], nv[i+1])
 	}
 	if err := set.Validate(); err != nil {
 		panic(err.Error())
@@ -60,14 +62,87 @@ func (m LabelSet) Validate() error {
 
 // ValuesOf returns the values of Label |name|, or nil if it doesn't exist in the LabelSet.
 func (m LabelSet) ValuesOf(name string) (values []string) {
-	var ind = sort.Search(len(m.Labels),
-		func(i int) bool { return m.Labels[i].Name >= name })
+	var ind = sort.Search(len(m.Labels), func(i int) bool { return m.Labels[i].Name >= name })
 
-	for ind < len(m.Labels) && m.Labels[ind].Name == name {
+	for ind != len(m.Labels) && m.Labels[ind].Name == name {
 		values = append(values, m.Labels[ind].Value)
 		ind++
 	}
 	return
+}
+
+// ValueOf returns the first value of Label |name|, or "" if it doesn't exist in the LabelSet.
+func (m LabelSet) ValueOf(name string) string {
+	var ind = sort.Search(len(m.Labels), func(i int) bool { return m.Labels[i].Name >= name })
+
+	if ind != len(m.Labels) && m.Labels[ind].Name == name {
+		return m.Labels[ind].Value
+	}
+	return ""
+}
+
+// SetValue adds Label |name| with |value|, replacing any existing Labels |name|.
+func (m *LabelSet) SetValue(name, value string) {
+	var begin = sort.Search(len(m.Labels), func(i int) bool { return m.Labels[i].Name >= name })
+
+	var end = begin
+	for end != len(m.Labels) && m.Labels[end].Name == name {
+		end++
+	}
+	if begin == end {
+		m.Labels = append(m.Labels, Label{})
+		copy(m.Labels[begin+1:], m.Labels[begin:]) // Insert at |begin|.
+		end = begin + 1
+	}
+
+	m.Labels[begin] = Label{Name: name, Value: value}
+	m.Labels = append(m.Labels[:begin+1], m.Labels[end:]...) // Cut |begin+1, end).
+}
+
+// AddValue adds Label |name| with |value|, retaining any existing Labels |name|.
+func (m *LabelSet) AddValue(name, value string) {
+	var ind = sort.Search(len(m.Labels), func(i int) bool {
+		if m.Labels[i].Name != name {
+			return m.Labels[i].Name > name
+		} else {
+			return m.Labels[i].Value >= value
+		}
+	})
+	var label = Label{Name: name, Value: value}
+
+	if ind != len(m.Labels) && m.Labels[ind] == label {
+		// No-op.
+	} else {
+		m.Labels = append(m.Labels, Label{})
+		copy(m.Labels[ind+1:], m.Labels[ind:])
+		m.Labels[ind] = label
+	}
+}
+
+// Remove all instances of Labels |name|.
+func (m *LabelSet) Remove(name string) {
+	var begin = sort.Search(len(m.Labels), func(i int) bool { return m.Labels[i].Name >= name })
+
+	var end = begin
+	for end != len(m.Labels) && m.Labels[end].Name == name {
+		end++
+	}
+	m.Labels = append(m.Labels[:begin], m.Labels[end:]...) // Cut |begin, end).
+}
+
+// ValidateSingleValueLabels compares the LabelSet to labels.SingleValueLabels,
+// and returns an error if any labels have multiple values.
+func ValidateSingleValueLabels(m LabelSet) error {
+	for i := range m.Labels {
+		if i == 0 || m.Labels[i-1].Name != m.Labels[i].Name {
+			continue
+		}
+		if _, ok := labels.SingleValueLabels[m.Labels[i].Name]; ok {
+			return NewValidationError("expected single-value Label has multiple values (index %d; label %s value %s)",
+				i, m.Labels[i].Name, m.Labels[i].Value)
+		}
+	}
+	return nil
 }
 
 // UnionLabelSets returns the LabelSet having all labels present in either |lhs|

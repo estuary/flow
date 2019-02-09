@@ -5,6 +5,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	gc "github.com/go-check/check"
 )
 
@@ -64,14 +65,29 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 
 	spec.Labels[0].Name = "name"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Labels cannot include label "name"`)
+	spec.Labels[0].Value = "" // Label is rejected even if value is empty.
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels cannot include label "name"`)
 	spec.Labels[0].Name = "prefix"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Labels cannot include label "prefix"`)
-	spec.Labels[0].Name = "framing"
-	c.Check(spec.Validate(), gc.ErrorMatches, `Label "framing" contains an invalid value \(bbb\)`)
-	spec.Labels[0].Value = FramingFixed
-	spec.Labels = append(spec.Labels, Label{Name: "framing", Value: FramingJSON})
-	c.Check(spec.Validate(), gc.ErrorMatches, `Label "framing" cannot have multiple values`)
-	spec.Labels = spec.Labels[:1]
+
+	spec.LabelSet = MustLabelSet(labels.MessageType, "a", labels.MessageType, "b")
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: expected single-value Label has multiple values .*`)
+	spec.LabelSet = MustLabelSet(labels.ContentType, "invalid/content/type")
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: parsing `+labels.ContentType+`: mime: unexpected content after media subtype`)
+	spec.LabelSet = MustLabelSet(labels.ContentType, "")
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: parsing `+labels.ContentType+`: mime: no media type`)
+	spec.LabelSet = MustLabelSet(labels.MessageSubType, "subtype")
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: expected `+labels.MessageType+` label alongside `+labels.MessageSubType)
+	spec.LabelSet = MustLabelSet(labels.MessageSubType, "subtype", labels.MessageType, "type")
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: expected `+labels.ContentType+` label alongside `+labels.MessageType)
+	spec.LabelSet = MustLabelSet(labels.MessageType, "type", labels.ContentType, "wrong")
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: `+labels.ContentType+` label is not a known message framing \(wrong; expected one of map.*`)
+	spec.LabelSet = MustLabelSet(labels.MessageType, "type", labels.ContentType, labels.ContentType_RecoveryLog)
+	c.Check(spec.Validate(), gc.ErrorMatches, `Labels: `+labels.ContentType+` label is not a known message framing .*`)
+	spec.LabelSet = MustLabelSet(labels.MessageType, "type", labels.ContentType, labels.ContentType_JSONLines)
+	c.Check(spec.Validate(), gc.IsNil)
+	spec.LabelSet = MustLabelSet(labels.MessageSubType, "subtype", labels.MessageType, "type", labels.ContentType, labels.ContentType_JSONLines)
+	c.Check(spec.Validate(), gc.IsNil)
 
 	spec.Fragment.Length = 0
 	c.Check(spec.Validate(), gc.ErrorMatches, `Fragment: invalid Length \(0; expected 1024 <= length <= \d+\)`)

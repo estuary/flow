@@ -23,14 +23,14 @@ func (s *FixedFramingSuite) TestMarshalWithFixtures(c *gc.C) {
 	var bw = bufio.NewWriter(&buf)
 
 	c.Check(FixedFraming.Marshal(frameablestring("test message content"), bw), gc.IsNil)
-	bw.Flush()
+	_ = bw.Flush()
 	c.Check(buf.Bytes(), gc.DeepEquals, []byte{
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't'})
 
 	// Append another message.
 	c.Check(FixedFraming.Marshal(frameablestring("foo message"), bw), gc.IsNil)
-	bw.Flush()
+	_ = bw.Flush()
 	c.Check(buf.Bytes(), gc.DeepEquals, []byte{
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't',
@@ -228,4 +228,7 @@ func (f *frameableerror) Unmarshal(buf []byte) error {
 	return errors.New("error!")
 }
 
-var _ = gc.Suite(&FixedFramingSuite{})
+var (
+	expectFixedIsFraming Framing = new(fixedFraming)
+	_                            = gc.Suite(&FixedFramingSuite{})
+)

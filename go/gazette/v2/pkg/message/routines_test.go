@@ -13,6 +13,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/brokertest"
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	gc "github.com/go-check/check"
 )
@@ -47,23 +48,16 @@ func (s *RoutinesSuite) TestPublishSuccess(c *gc.C) {
 }
 
 func (s *RoutinesSuite) TestFramingDetermination(c *gc.C) {
-	var spec = &pb.JournalSpec{
-		LabelSet: pb.MustLabelSet("framing", "aaa", "framing", "bbb"),
-	}
-	var f, err = JournalFraming(spec)
-	c.Check(err, gc.ErrorMatches, `expected exactly one framing label \(got \[aaa bbb\]\)`)
-
-	spec.LabelSet = pb.MustLabelSet("framing", pb.FramingJSON)
-	f, err = JournalFraming(spec)
+	var f, err = FramingByContentType(labels.ContentType_JSONLines)
 	c.Check(err, gc.IsNil)
 	c.Check(f, gc.Equals, JSONFraming)
 
-	f, err = FramingByName(pb.FramingFixed)
+	f, err = FramingByContentType(labels.ContentType_ProtoFixed)
 	c.Check(err, gc.IsNil)
 	c.Check(f, gc.Equals, FixedFraming)
 
-	_, err = FramingByName("other")
-	c.Check(err, gc.ErrorMatches, `unrecognized framing \(other; expected fixed or json\)`)
+	_, err = FramingByContentType(labels.ContentType_RecoveryLog) // Not a valid message framing.
+	c.Check(err, gc.ErrorMatches, `unrecognized `+labels.ContentType+` \(`+labels.ContentType_RecoveryLog+`\)`)
 }
 
 func (s *RoutinesSuite) TestLineUnpackingCases(c *gc.C) {
@@ -101,7 +95,7 @@ func buildPartitionsFuncFixture(count int) PartitionsFunc {
 	}
 	for i := range parts.Journals {
 		parts.Journals[i].Spec.Name = pb.Journal(fmt.Sprintf("a/topic/part-%03d", i))
-		parts.Journals[i].Spec.LabelSet = pb.MustLabelSet("framing", "json")
+		parts.Journals[i].Spec.LabelSet = pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines)
 	}
 	return func() *pb.ListResponse { return parts }
 }

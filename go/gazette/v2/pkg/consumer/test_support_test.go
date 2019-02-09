@@ -9,6 +9,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
@@ -99,17 +100,33 @@ func newTestFixture(c *gc.C) (*testFixture, func()) {
 	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
 
 	brokertest.CreateJournals(c, broker,
-		brokertest.Journal(pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/" + shardA)}),
-		brokertest.Journal(pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/" + shardB)}),
-		brokertest.Journal(pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/" + shardC)}),
-		brokertest.Journal(pb.JournalSpec{Name: sourceA, LabelSet: pb.MustLabelSet("framing", "json")}),
-		brokertest.Journal(pb.JournalSpec{Name: sourceB, LabelSet: pb.MustLabelSet("framing", "json")}))
+		brokertest.Journal(pb.JournalSpec{
+			Name:     pb.Journal(aRecoveryLogPrefix + "/" + shardA),
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+		}),
+		brokertest.Journal(pb.JournalSpec{
+			Name:     pb.Journal(aRecoveryLogPrefix + "/" + shardB),
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+		}),
+		brokertest.Journal(pb.JournalSpec{
+			Name:     pb.Journal(aRecoveryLogPrefix + "/" + shardC),
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+		}),
+		brokertest.Journal(pb.JournalSpec{
+			Name:     sourceA,
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
+		}),
+		brokertest.Journal(pb.JournalSpec{
+			Name:     sourceB,
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
+		}),
+	)
 
 	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	// Write a fixture of invalid content (we'll use MinOffset to skip over it).
 	var a = client.NewAppender(context.Background(), rjc, pb.AppendRequest{Journal: sourceA})
-	a.Write([]byte(sourceAWriteFixture))
+	_, _ = a.Write([]byte(sourceAWriteFixture))
 	c.Assert(a.Close(), gc.IsNil)
 
 	var ks = NewKeySpace("/consumertest")

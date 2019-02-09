@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/pkg/errors"
 )
 
@@ -24,14 +24,14 @@ const FixedFrameHeaderLength = 8
 
 type fixedFraming struct{}
 
-// Name returns protocol.FramingFixed.
-func (f *fixedFraming) Name() string { return protocol.FramingFixed }
+// ContentType returns labels.ContentType_ProtoFixed.
+func (f *fixedFraming) ContentType() string { return labels.ContentType_ProtoFixed }
 
 // Marshal implements Framing. It returns an error only if Message.Encode fails.
 func (f *fixedFraming) Marshal(msg Message, bw *bufio.Writer) error {
 	var b, err = f.Encode(msg, bufferPool.Get().([]byte))
 	if err == nil {
-		bw.Write(b)
+		_, _ = bw.Write(b)
 	}
 	bufferPool.Put(b[:0])
 	return err
@@ -103,7 +103,7 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 				break
 			}
 		}
-		r.Discard(i)
+		_, _ = r.Discard(i)
 		return b[:i], nil
 	}
 
@@ -114,7 +114,7 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	// buffer internal slice without copying. It is invalidated by the next
 	// Unpack (or other Reader operation).
 	if b, err = r.Peek(size); err == nil {
-		r.Discard(size)
+		_, _ = r.Discard(size)
 		return b, nil
 	}
 

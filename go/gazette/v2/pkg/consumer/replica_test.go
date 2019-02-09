@@ -59,7 +59,7 @@ func (s *ReplicaSuite) TestPlayRecoveryLogError(c *gc.C) {
 
 	// Expect that status transitions to FAILED, with a descriptive error.
 	c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0],
-		gc.Matches, `playLog: playing log does/not/exist/`+shardA+`: determining log head: JOURNAL_NOT_FOUND`)
+		gc.Matches, `playLog: fetching JournalSpec: named journal does not exist \(does/not/exist/`+shardA+`\)`)
 
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }

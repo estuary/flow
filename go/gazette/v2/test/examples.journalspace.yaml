@@ -58,10 +58,10 @@ children:
     children:
     - name: examples/stream-sum/chunks/
       labels:
-        - name: framing
-          value: json
-        - name: topic
-          value: "examples/stream-sum/chunks"
+        - name: app.gazette.dev/message-type
+          value: Chunk
+        - name: content-type
+          value: application/x-ndjson
       children:
         - name: examples/stream-sum/chunks/part-000
         - name: examples/stream-sum/chunks/part-001
@@ -73,7 +73,8 @@ children:
         - name: examples/stream-sum/chunks/part-007
     - name: examples/stream-sum/recovery-logs/
       labels:
-        - name: recoverylog
+        - name: content-type
+          value: application/x-gazette-recoverylog
       children:
         - name: examples/stream-sum/recovery-logs/chunks-part-000
         - name: examples/stream-sum/recovery-logs/chunks-part-001
@@ -85,16 +86,18 @@ children:
         - name: examples/stream-sum/recovery-logs/chunks-part-007
     - name: examples/stream-sum/sums
       labels:
-        - name: topic
-          value: "examples/stream-sum/sums"
+        - name: app.gazette.dev/message-type
+          value: Sum
+        - name: content-type
+          value: application/x-ndjson
   - name: examples/word-count/
     children:
     - name: examples/word-count/deltas/
       labels:
-        - name: framing
-          value: fixed
-        - name: topic
-          value: "examples/word-count/deltas"
+        - name: app.dev.gazette/message-type
+          value: NGramCount
+        - name: content-type
+          value: application/x-protobuf-fixed
       children:
         - name: examples/word-count/deltas/part-000
         - name: examples/word-count/deltas/part-001
@@ -102,7 +105,8 @@ children:
         - name: examples/word-count/deltas/part-003
     - name: examples/word-count/recovery-logs/
       labels:
-        - name: recoverylog
+        - name: content-type
+          value: application/x-gazette-recoverylog
       children:
         - name: examples/word-count/recovery-logs/shard-000
         - name: examples/word-count/recovery-logs/shard-001

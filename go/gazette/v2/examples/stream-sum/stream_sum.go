@@ -33,6 +33,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	mbp "github.com/LiveRamp/gazette/v2/pkg/mainboilerplate"
 	"github.com/LiveRamp/gazette/v2/pkg/mainboilerplate/runconsumer"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
@@ -317,7 +318,7 @@ func pumpSums(br *bufio.Reader, ch chan<- Sum) {
 func newChunkMapping(ctx context.Context, jc pb.JournalClient) (message.MappingFunc, error) {
 	if chunkParts, err := client.NewPolledList(ctx, jc, time.Minute, pb.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet("topic", chunksTopicLabel),
+			Include: pb.MustLabelSet(labels.MessageType, "Chunk"),
 		}}); err != nil {
 		return nil, err
 	} else {

@@ -57,6 +57,8 @@ func (m *ShardSpec) Validate() error {
 		return pb.NewValidationError("invalid MaxTxnDuration (%d; expected > 0)", m.MaxTxnDuration)
 	} else if err = m.LabelSet.Validate(); err != nil {
 		return pb.ExtendContext(err, "LabelSet")
+	} else if err = pb.ValidateSingleValueLabels(m.LabelSet); err != nil {
+		return pb.ExtendContext(err, "LabelSet")
 	} else if len(m.LabelSet.ValuesOf("id")) != 0 {
 		return pb.NewValidationError(`Labels cannot include label "id"`)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
 	"github.com/LiveRamp/gazette/v2/pkg/etcdtest"
+	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	"github.com/LiveRamp/gazette/v2/pkg/message"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
@@ -29,9 +30,12 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 		brokertest.Journal(pb.JournalSpec{
 			Name:        "a/journal",
 			Replication: 1,
-			LabelSet:    pb.MustLabelSet("framing", "json"),
+			LabelSet:    pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
 		}),
-		brokertest.Journal(pb.JournalSpec{Name: "recovery/logs/a-shard"}),
+		brokertest.Journal(pb.JournalSpec{
+			Name:     "recovery/logs/a-shard",
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+		}),
 	)
 
 	// Start and serve a consumer, and create a shard fixture.
@@ -123,9 +127,12 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 		brokertest.Journal(pb.JournalSpec{
 			Name:        "a/journal",
 			Replication: 1,
-			LabelSet:    pb.MustLabelSet("framing", "json"),
+			LabelSet:    pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
 		}),
-		brokertest.Journal(pb.JournalSpec{Name: "recovery/logs/a-shard"}),
+		brokertest.Journal(pb.JournalSpec{
+			Name:     "recovery/logs/a-shard",
+			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+		}),
 	)
 
 	// Start and serve a consumer, and create a shard fixture.
