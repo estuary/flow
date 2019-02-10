@@ -33,15 +33,18 @@ func (s *ReaderSuite) TestOpenFragmentURLCases(c *gc.C) {
 	b, err := ioutil.ReadAll(rc)
 	c.Check(err, gc.IsNil)
 	c.Check(string(b), gc.Equals, "XXXXXhello, world!!!")
+	c.Check(rc.Offset, gc.Equals, rc.Fragment.End)
 	c.Check(rc.Close(), gc.IsNil)
 
 	// Case: read a portion of the fragment.
 	rc, err = OpenFragmentURL(ctx, frag, frag.Begin+5, url)
+	c.Check(rc.Offset, gc.Equals, rc.Fragment.Begin+5)
 	c.Check(err, gc.IsNil)
 
 	b, err = ioutil.ReadAll(rc)
 	c.Check(err, gc.IsNil)
 	c.Check(string(b), gc.Equals, "hello, world!!!")
+	c.Check(rc.Offset, gc.Equals, rc.Fragment.End)
 	c.Check(rc.Close(), gc.IsNil)
 
 	// Case: stream ends before Fragment.End.

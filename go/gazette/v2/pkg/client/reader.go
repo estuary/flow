@@ -176,8 +176,8 @@ func (r *Reader) Seek(offset int64, whence int) (int64, error) {
 }
 
 // OpenFragmentURL directly opens |fragment|, which must be available at URL
-// |url|, and returns a ReadCloser which has been pre-seeked to |offset|.
-func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, url string) (io.ReadCloser, error) {
+// |url|, and returns a *FragmentReader which has been pre-seeked to |offset|.
+func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, url string) (*FragmentReader, error) {
 	var req, err = http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, ur
 	if err != nil {
 		return nil, err
 	} else if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("!OK fetching (%s, %q)", resp.Status, url)
 	}
 
@@ -215,52 +215,64 @@ func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, ur
 	return NewFragmentReader(resp.Body, fragment, offset)
 }
 
-// NewFragmentReader wraps |r|, which is a reader of the remote Fragment,
-// with its appropriate decompressor and pre-seeks to the desired |offset|.
-func NewFragmentReader(r io.ReadCloser, fragment pb.Fragment, offset int64) (io.ReadCloser, error) {
-	var decomp, err = codecs.NewCodecReader(r, fragment.CompressionCodec)
+// NewFragmentReader wraps |rc|, which is a io.ReadCloser of raw Fragment bytes,
+// with a returned *FragmentReader which has been pre-seeked to |offset|.
+func NewFragmentReader(rc io.ReadCloser, fragment pb.Fragment, offset int64) (*FragmentReader, error) {
+	var decomp, err = codecs.NewCodecReader(rc, fragment.CompressionCodec)
 	if err != nil {
-		r.Close()
+		_ = rc.Close()
 		return nil, err
 	}
 
-	var fr = &fragReader{
+	var fr = &FragmentReader{
 		decomp:   decomp,
-		raw:      r,
-		fragment: fragment,
+		raw:      rc,
+		Fragment: fragment,
+		Offset:   fragment.Begin,
 	}
 
 	// Attempt to seek to |offset| within the fragment.
 	var delta = offset - fragment.Begin
 	if _, err = io.CopyN(ioutil.Discard, fr, delta); err != nil {
-		fr.Close()
+		_ = fr.Close()
 		return nil, err
 	}
 	return fr, nil
 }
 
-type fragReader struct {
-	decomp   io.ReadCloser
-	raw      io.ReadCloser
-	fragment pb.Fragment
+// FragmentReader is a io.ReadCloser of a Fragment.
+type FragmentReader struct {
+	pb.Fragment       // Fragment being read.
+	Offset      int64 // Next journal offset to be read, in range [Begin, End).
+
+	decomp io.ReadCloser
+	raw    io.ReadCloser
 }
 
-func (fr *fragReader) Read(p []byte) (n int, err error) {
+// Read returns the next bytes of decompressed Fragment content. When Read
+// returns, Offset has been updated to reflect the next byte to be read.
+// Read returns EOF only if the underlying Reader returns EOF at precisely
+// Offset == Fragment.End. If the underlying Reader is too short,
+// io.ErrUnexpectedEOF is returned. If it's too long, ErrDidNotReadExpectedEOF
+// is returned.
+func (fr *FragmentReader) Read(p []byte) (n int, err error) {
 	n, err = fr.decomp.Read(p)
-	fr.fragment.Begin += int64(n)
+	fr.Offset += int64(n)
 
-	if fr.fragment.Begin > fr.fragment.End {
+	if fr.Offset > fr.Fragment.End {
 		// Did we somehow read beyond Fragment.End?
-		n -= int(fr.fragment.Begin - fr.fragment.End)
+		n -= int(fr.Offset - fr.Fragment.End)
 		err = ErrDidNotReadExpectedEOF
-	} else if err == io.EOF && fr.fragment.Begin != fr.fragment.End {
+	} else if err == io.EOF && fr.Offset != fr.Fragment.End {
 		// Did we read EOF before the reaching Fragment.End?
 		err = io.ErrUnexpectedEOF
 	}
 	return
 }
 
-func (fr *fragReader) Close() error {
+// Close closes the underlying ReadCloser and associated
+// decompressor (if any).
+func (fr *FragmentReader) Close() error {
 	var errA, errB = fr.decomp.Close(), fr.raw.Close()
 	if errA != nil {
 		return errA
