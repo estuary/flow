@@ -2,17 +2,18 @@ Operational Considerations
 ==========================
 
 This document offers some recommendations based on lessons learned from running 
-Gazette in production at LiveRamp.
+Gazette in production at LiveRamp. Note that the recommendations here refer
+to V2.
 
 Cloud Costs
 ~~~~~~~~~~~
 
-At LiveRamp, Gazette is deployed entirely in the cloud: both the write clients
-and the Gazette brokers run on a Kubernetes cluster whose underlying nodes are
-spread across multiple zones, and journal content is persisted to cloud storage.
-While relying on cloud infrastructure makes it easy to scale usage up and down as
-needed, it can also make the task of predicting costs more difficult, especially
-for high-traffic systems that deal with data on the order of terabytes each month.
+At LiveRamp, Gazette is deployed entirely in the cloud: both clients and brokers 
+run on a Kubernetes cluster whose underlying nodes are spread across multiple 
+zones, and journal content is persisted to cloud storage. While relying on cloud 
+infrastructure makes it easy to scale usage up and down as needed, it can also 
+make the task of predicting costs more difficult, especially for high-traffic 
+systems like ours that deal with data on the order of terabytes each month.
 
 Storage Costs
 `````````````
@@ -23,25 +24,42 @@ Storage Costs
    a bucket's files be transitioned to cold storage X days after creation (which 
    would keep the data backed up but not immediately accessible for a much lower 
    cost than standard storage), and then finally have it transition to expiry. 
-2. For recovery log journals, use the `prune-log` command-line tool periodically 
-   to delete fragments that are no longer needed. Note that a simple time-based
-   lifecycle policy like the above will not work for recovery logs. 
+2. For backing stores that do not support lifecycle policies, and for more fine-
+   grained control over retention, use `gazctl journals prune` (currently in 
+   development; issue can be tracked here: https://github.com/LiveRamp/gazette/issues/100). 
+   By invoking `gazctl journals prune -l my-selector`, one can have all matching
+   journal fragments that match the label selector and are older than the current
+   configured retention (as specified by the `fragment.retention` property in the
+   `JournalSpec`) be deleted across all configured backing stores. This could be
+   automated via a cron or a regular Kubernetes job. Note that the tradeoff of
+   adopting this approach over (1) is that it entails additional API operations
+   for the deletes, which may cost more depending on what store is being used.
+3. For recovery log journals, use the `gazctl shards prune` command-line tool 
+   periodically to delete fragments that are no longer needed. Note that a 
+   simple time-based lifecycle policy like what is described in (1) will not 
+   work for recovery logs, because historical portions of the recovery log may
+   still contain current database content. To identify whether a recovery log
+   fragment is still needed, we have to examine the shard's current hints 
+   (which is how `gazctl shards prune` works), and the age of the fragment is
+   not relevant.
 
 Data Transfer Costs
 ```````````````````
 
-If write clients and Gazette brokers are spread across multiple availability zones
-or even regions, consider the costs incurred by inter-zone traffic. A client could
-issue a write to a broker in a different zone, and that data might be replicated
-to multiple distinct brokers (depending on the replication factor) in other zones.
-This meants that a write of size X might lead to inter-zone traffic of more than 
-2X in the worst case, and these costs can add up very quickly when billions of
-writes are involved each day.
+If clients and brokers are spread across multiple availability zones or even 
+regions, consider the costs incurred by inter-zone traffic. In the case of
+writes, the client must issue its write to the current primary broker of the 
+journal, regardless of whether that primary is in the same zone as the client.
+The primary in turn replicates the data to all its peers, again regardless of
+their zones. In V2, all journals must be allocated across more than one zone
+to ensure the durability of writes in the face of zone failures, which means
+that a write of size X will always lead to inter-zone traffic of at least 2X.
 
 While there is not currently a way to mitigate data transfer costs due to writes,
-data transfer costs due to reads can be addressed on a Kubernetes deployment 
-via the mechanism of a `gazette-zonemap` ConfigMap: 
-https://github.com/LiveRamp/gazette/blob/master/v2/charts/consumer/templates/deployment.yaml#L55.
-This ensures that a read from a client will go to a broker in the same zone, if
-there is one available.
-
+data transfer costs due to reads can be addressed by using a read strategy where
+a client will prefer to read from a replica that is in the same zone as itself.
+This can be done on a Kubernetes deployment via the mechanism of a 
+`gazette-zonemap` ConfigMap: 
+https://github.com/LiveRamp/gazette/blob/f69dd917aca714333f915385f79d98f0cb4b5c74/v2/charts/consumer/templates/deployment.yaml#L99,
+which essentially provides the deployment with a way to identify what zone each
+Pod is in, and thus enforce the zone-aware read strategy.
