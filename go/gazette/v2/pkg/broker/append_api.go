@@ -112,6 +112,12 @@ func serveAppend(stream pb.Journal_AppendServer, req *pb.AppendRequest, res reso
 	// unless the request provides an explicit offset.
 	if po := pln.spool.Fragment.End; po != offset && req.Offset == 0 {
 		res.replica.pipelineCh <- pln // Release |pln|.
+
+		log.WithFields(log.Fields{
+			"journal": req.Journal,
+			"offset":  pln.spool.Fragment.End,
+			"indexed": offset,
+		}).Warn("failing append because fragment index offset > append offset (was consistency lost?)")
 		return stream.SendAndClose(&pb.AppendResponse{Status: pb.Status_INDEX_HAS_GREATER_OFFSET, Header: res.Header})
 	} else if req.Offset == 0 {
 		// Use |offset| (== |po|).
