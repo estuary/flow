@@ -270,7 +270,12 @@ func expectStatusCode(c *gc.C, state *allocator.State, code ReplicaStatus_Code) 
 	}
 }
 
-func runSomeTransactions(c *gc.C, shard Shard, app *testApplication, store *JSONFileStore) {
+func runSomeTransactions(c *gc.C, shard Shard) {
+	var (
+		r     *Replica = shard.(*Replica)
+		app            = r.app.(*testApplication)
+		store          = r.store.(*JSONFileStore)
+	)
 	for _, write := range []string{
 		`{"key":"foo","value":"bar"}`,
 		`{"key":"baz","value":"bing"}`,
@@ -279,7 +284,7 @@ func runSomeTransactions(c *gc.C, shard Shard, app *testApplication, store *JSON
 	} {
 		var finishCh = app.finishCh
 
-		var aa = shard.JournalClient().StartAppend(sourceA)
+		var aa = r.JournalClient().StartAppend(sourceA)
 		aa.Writer().WriteString(write + "\n")
 		c.Check(aa.Release(), gc.IsNil)
 

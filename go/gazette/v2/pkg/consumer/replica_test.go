@@ -27,8 +27,11 @@ func (s *ReplicaSuite) TestStandbyToPrimaryTransitions(c *gc.C) {
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
 	// Verify message pump and consumer loops were started.
-	var r = tf.resolver.replicas[shardA]
-	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+	var res, err = tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA})
+	c.Check(err, gc.IsNil)
+	defer res.Done()
+
+	runSomeTransactions(c, res.Shard)
 
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }
@@ -43,8 +46,11 @@ func (s *ReplicaSuite) TestDirectToPrimaryTransition(c *gc.C) {
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
 	// Verify message pump and consumer loops were started.
-	var r = tf.resolver.replicas[shardA]
-	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+	var res, err = tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA})
+	c.Check(err, gc.IsNil)
+	defer res.Done()
+
+	runSomeTransactions(c, res.Shard)
 
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }
@@ -128,13 +134,12 @@ func (s *ReplicaSuite) TestConsumeMessagesErrors(c *gc.C) {
 		var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
 		c.Assert(err, gc.IsNil)
 
-		var r = res.Shard.(*Replica)
-		runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+		runSomeTransactions(c, res.Shard)
 
 		// Set failure fixture, and write a message to trigger it.
 		tc.fn()
 
-		var aa = r.JournalClient().StartAppend(sourceB)
+		var aa = res.Shard.JournalClient().StartAppend(sourceB)
 		_, _ = aa.Writer().WriteString(`{"key":"foo"}` + "\n")
 		c.Check(aa.Release(), gc.IsNil)
 

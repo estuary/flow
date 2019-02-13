@@ -16,12 +16,15 @@ func (s *APISuite) TestStatCases(c *gc.C) {
 	tf.allocateShard(c, spec, localID)
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
-	var r = tf.resolver.replicas[shardA]
-	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+	var res, err = tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA})
+	c.Assert(err, gc.IsNil)
+	defer res.Done()
+
+	runSomeTransactions(c, res.Shard)
 
 	// Determine the write head of |sourceA|. We expect Stat reports we've
 	// consumed through this offset.
-	var aa = r.JournalClient().StartAppend(sourceA)
+	var aa = res.Shard.JournalClient().StartAppend(sourceA)
 	c.Check(aa.Release(), gc.IsNil)
 	<-aa.Done()
 	var expectOffset = aa.Response().Commit.End

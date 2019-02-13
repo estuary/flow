@@ -630,7 +630,7 @@ func (s *LifecycleSuite) TestPumpAndConsume(c *gc.C) {
 		c.Check(consumeMessages(r, r.store, r.app, r.etcd, msgCh, nil), gc.Equals, context.Canceled)
 	}()
 
-	runSomeTransactions(c, r, r.app.(*testApplication), r.store.(*JSONFileStore))
+	runSomeTransactions(c, r)
 }
 
 func (s *LifecycleSuite) TestFetchJournalSpec(c *gc.C) {
