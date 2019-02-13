@@ -267,12 +267,17 @@ message GetHintsResponse {
   Status status = 1;
   // Header of the response.
   protocol.Header header = 2 [(gogoproto.nullable) = false];
-  // Primary hints for the shard. Value will be nill of there are no primary hints.
-  recoverylog.FSMHints primary_hints = 3 [(gogoproto.nullable) = true];
+
+  message ResponseHints {
+    // If the hints value does not exist Hints will be nill.
+    recoverylog.FSMHints hints = 1;
+  }
+  // Primary hints for the shard. 
+  ResponseHints primary_hints = 3  [(gogoproto.nullable) = false];
   // List of backup hints for a shard. The most recent recovery log hints will be
   // first, any subsequent hints are for historical backup. If there is no value 
-  // for a hint key the value corresponding hint will be nil.
-  repeated recoverylog.FSMHints backup_hints = 4 [(gogoproto.nullable) = true];
+  // for a hint key the value corresponding hints will be nil.
+  repeated ResponseHints backup_hints = 4 [(gogoproto.nullable) = false];
 }
 
 // Shard is the Consumer service API for interacting with Shards. Applications

@@ -163,11 +163,17 @@ func (srv *Service) GetHints(ctx context.Context, req *GetHintsRequest) (*GetHin
 	}
 
 	if h.hints[0] != nil {
-		resp.PrimaryHints = h.hints[0]
+		resp.PrimaryHints = GetHintsResponse_ResponseHints{
+			Hints: h.hints[0],
+		}
 	}
 
 	if len(h.hints) > 1 {
-		resp.BackupHints = h.hints[1:]
+		for _, hints := range h.hints[1:] {
+			resp.BackupHints = append(resp.BackupHints, GetHintsResponse_ResponseHints{
+				Hints: hints,
+			})
+		}
 	}
 	return resp, nil
 }

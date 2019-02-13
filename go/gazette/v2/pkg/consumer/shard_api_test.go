@@ -204,10 +204,12 @@ func (s *APISuite) TestHintsCases(c *gc.C) {
 		}
 	}
 
-	var expected []*recoverylog.FSMHints
+	var expected []GetHintsResponse_ResponseHints
 	for _, i := range []int64{111, 333, 222} {
 		var hints = mkHints(i)
-		expected = append(expected, &hints)
+		expected = append(expected, GetHintsResponse_ResponseHints{
+			Hints: &hints,
+		})
 	}
 	c.Check(storeRecordedHints(r, mkHints(111), r.etcd), gc.IsNil)
 	c.Check(storeRecoveredHints(r, mkHints(222), r.etcd), gc.IsNil)
@@ -230,7 +232,7 @@ func (s *APISuite) TestHintsCases(c *gc.C) {
 	c.Check(resp, gc.DeepEquals, &GetHintsResponse{
 		Status:       Status_OK,
 		Header:       hdr,
-		PrimaryHints: nil,
+		PrimaryHints: GetHintsResponse_ResponseHints{},
 		BackupHints:  expected[1:],
 	})
 
@@ -243,7 +245,7 @@ func (s *APISuite) TestHintsCases(c *gc.C) {
 		Status:       Status_OK,
 		Header:       hdr,
 		PrimaryHints: expected[0],
-		BackupHints:  append(expected[1:], nil),
+		BackupHints:  append(expected[1:], GetHintsResponse_ResponseHints{}),
 	})
 
 	// Case: No backup hints
