@@ -236,7 +236,7 @@ func (s *AppendSuite) TestAppendOffsetReset(c *gc.C) {
 
 	// Finish empty Append RPC. Expect it fails with INDEX_HAS_GREATER_OFFSET.
 	expectPipelineSync(c, peer, res.Header)
-	c.Check(stream.Send(&pb.AppendRequest{}), gc.IsNil)
+	_ = stream.Send(&pb.AppendRequest{}) // May return EOF if the |broker| error has already arrived.
 
 	var resp, err = stream.CloseAndRecv()
 	c.Check(err, gc.IsNil)
