@@ -22,7 +22,7 @@ readonly GAZCTL="${DOCKER} run \
 
 # Create all test journals. Use `sed` to replace the MINIO_RELEASE token with the
 # correct Minio service address.
-sed -e "s/MINIO_RELEASE/$(helm_release ${BK_NAMESPACE} minio).${BK_NAMESPACE}/g" ${V2DIR}/test/examples.journalspace.yaml | \
+sed -e "s/MINIO_RELEASE/$(helm_release ${BK_NAMESPACE} minio)-minio.${BK_NAMESPACE}/g" ${V2DIR}/test/examples.journalspace.yaml | \
   BROKER_ADDRESS=$(release_address $(helm_release ${BK_NAMESPACE} gazette) gazette) ${GAZCTL} journals apply --specs /dev/stdin
 
 # Install a test "gazette-zonemap" ConfigMap in the namespace,
