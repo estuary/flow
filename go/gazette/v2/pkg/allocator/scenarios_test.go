@@ -51,6 +51,56 @@ func (s *ScenariosSuite) TestInitialAllocation(c *gc.C) {
 	})
 }
 
+func (s *ScenariosSuite) TestInitialAllocationRegressionIssue157(c *gc.C) {
+	c.Skip("This test demonstrates the edge case of Issue 157, and currently fails.")
+
+	c.Check(insert(s.ctx, s.client, ""+
+		"/root/items/item-01", `{"R": 3}`,
+		"/root/items/item-02", `{"R": 3}`,
+		"/root/items/item-03", `{"R": 3}`,
+		"/root/items/item-04", `{"R": 3}`,
+		"/root/items/item-05", `{"R": 3}`,
+		"/root/items/item-06", `{"R": 3}`,
+		"/root/items/item-07", `{"R": 3}`,
+
+		"/root/members/zone-a#member-A1", `{"R": 1024}`,
+		"/root/members/zone-a#member-A2", `{"R": 1024}`,
+		"/root/members/zone-b#member-B1", `{"R": 1024}`,
+	), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
+
+	// Expect Items are fully replicated, each Item spans both zones, and no Member ItemLimit is breached.
+	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
+		"/root/assign/item-01#zone-a#member-A1#0",
+		"/root/assign/item-01#zone-a#member-A2#1",
+		"/root/assign/item-01#zone-b#member-B1#2",
+
+		"/root/assign/item-02#zone-a#member-A1#0",
+		"/root/assign/item-02#zone-a#member-A2#1",
+		"/root/assign/item-02#zone-b#member-B1#2",
+
+		"/root/assign/item-03#zone-a#member-A1#0",
+		"/root/assign/item-03#zone-a#member-A2#1",
+		"/root/assign/item-03#zone-b#member-B1#2",
+
+		"/root/assign/item-04#zone-a#member-A1#0",
+		"/root/assign/item-04#zone-a#member-A2#1",
+		"/root/assign/item-04#zone-b#member-B1#2",
+
+		"/root/assign/item-05#zone-a#member-A1#0",
+		"/root/assign/item-05#zone-a#member-A2#1",
+		"/root/assign/item-05#zone-b#member-B1#2",
+
+		"/root/assign/item-06#zone-a#member-A1#0",
+		"/root/assign/item-06#zone-a#member-A2#1",
+		"/root/assign/item-06#zone-b#member-B1#2",
+
+		"/root/assign/item-07#zone-a#member-A1#0",
+		"/root/assign/item-07#zone-a#member-A2#1",
+		"/root/assign/item-07#zone-b#member-B1#2",
+	})
+}
+
 func (s *ScenariosSuite) TestReplaceWhenNotConsistent(c *gc.C) {
 	c.Check(insert(s.ctx, s.client,
 		"/root/items/item-1", `{"R": 1}`,

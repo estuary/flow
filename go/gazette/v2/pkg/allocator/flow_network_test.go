@@ -41,6 +41,8 @@ func (s *FlowNetworkSuite) TestZoneScalingFactors(c *gc.C) {
 		{itemCount: 10, itemSlots: 40, expect: 39, zoneSlots: []int{19, 20}},
 		{itemCount: 10, itemSlots: 40, expect: 39, zoneSlots: []int{39}},
 		{itemCount: 10, itemSlots: 30, expect: 12, zoneSlots: []int{5, 4, 3}},
+		// Regression test case (issue #157).
+		{itemCount: 7, itemSlots: 21, expect: 21, zoneSlots: []int{2048, 1024}},
 	}
 	for _, tc := range cases {
 		var num, denom = zoneScalingFactors(tc.itemCount, tc.itemSlots, tc.zoneSlots)
