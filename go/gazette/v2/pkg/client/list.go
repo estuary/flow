@@ -94,16 +94,49 @@ func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRe
 	return resp, nil
 }
 
-// ApplyJournals invokes the Apply RPC, and maps a validation or !OK status to an error.
+// ApplyJournals invokes the Apply RPC.
 func ApplyJournals(ctx context.Context, jc pb.JournalClient, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	if r, err := jc.Apply(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
-		return r, err
-	} else if err = r.Validate(); err != nil {
-		return r, err
-	} else if r.Status != pb.Status_OK {
-		return r, errors.New(r.Status.String())
-	} else {
-		return r, nil
+	return ApplyJournalsInBatches(ctx, jc, req, 0)
+}
+
+// ApplyJournalsInBatches applies changes to journals which
+// may be larger than the configured etcd transaction size size. The changes in
+// |req| will be sent serially in batches of size |size|. If
+// |size| is 0 all changes will be attempted as part of a single
+// transaction. This function will return the response of the final
+// ShardClient.Apply call. Response validation or !OK status from Apply RPC are
+// mapped to error.
+func ApplyJournalsInBatches(ctx context.Context, jc pb.JournalClient, req *pb.ApplyRequest, size int) (*pb.ApplyResponse, error) {
+	if len(req.Changes) == 0 {
+		return &pb.ApplyResponse{}, nil
+	}
+	if size == 0 {
+		size = len(req.Changes)
+	}
+	var curReq = &pb.ApplyRequest{}
+	var offset = 0
+
+	for {
+		if len(req.Changes[offset:]) > size {
+			curReq.Changes = req.Changes[offset : offset+size]
+		} else {
+			curReq.Changes = req.Changes[offset:]
+		}
+
+		var resp *pb.ApplyResponse
+		var err error
+		if resp, err = jc.Apply(pb.WithDispatchDefault(ctx), curReq, grpc.WaitForReady(true)); err != nil {
+			return resp, err
+		} else if err = resp.Validate(); err != nil {
+			return resp, err
+		} else if resp.Status != pb.Status_OK {
+			return resp, errors.New(resp.Status.String())
+		}
+
+		offset = offset + len(curReq.Changes)
+		if offset == len(req.Changes) {
+			return resp, nil
+		}
 	}
 }
 

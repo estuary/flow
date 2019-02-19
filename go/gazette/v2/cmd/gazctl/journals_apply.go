@@ -33,10 +33,10 @@ func (cmd *cmdJournalsApply) Execute([]string) error {
 	}
 
 	var ctx = context.Background()
-	resp, err := client.ApplyJournals(ctx, journalsCfg.Broker.JournalClient(ctx), req)
+	var resp, err = client.ApplyJournalsInBatches(ctx, journalsCfg.Broker.JournalClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply journals")
-
 	log.WithField("rev", resp.Header.Etcd.Revision).Info("successfully applied")
+
 	return nil
 }
 

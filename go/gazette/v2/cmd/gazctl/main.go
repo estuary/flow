@@ -40,12 +40,15 @@ type ListConfig struct {
 
 // ApplyConfig is common configuration of apply operations.
 type ApplyConfig struct {
-	SpecsPath string `long:"specs" description:"Path to specifications file to apply. Stdin is used if not set"`
-	DryRun    bool   `long:"dry-run" description:"Perform a dry-run of the apply"`
+	SpecsPath  string `long:"specs" description:"Path to specifications file to apply. Stdin is used if not set"`
+	DryRun     bool   `long:"dry-run" description:"Perform a dry-run of the apply"`
+	MaxTxnSize int    `long:"max-txn-size" default:"0" description:"maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction"`
 }
 
+// EditConfig is common configuration for exit operations.
 type EditConfig struct {
-	Selector string `long:"selector" short:"l" required:"true" description:"Label Selector query to filter on" no-ini:"true"`
+	Selector   string `long:"selector" short:"l" required:"true" description:"Label Selector query to filter on" no-ini:"true"`
+	MaxTxnSize int    `long:"max-txn-size" default:"0" description:"maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction"`
 }
 
 func (cfg ApplyConfig) decode(into interface{}) error {
@@ -147,7 +150,7 @@ journals or parents thereof in the hierarchy. Note that deleted parent prefixes
 will cascade only to JournalSpecs *explicitly listed* as children of the prefix
 in the YAML, and not to other JournalSpecs which may exist with the prefix but
 are not enumerated.
-`, &cmdJournalsApply{})
+`+maxTxnSizeWarning, &cmdJournalsApply{})
 
 	_ = addCmd(cmdShards, "apply", "Apply shard specifications", `
 Apply a collection of ShardSpec creations, updates, or deletions.
@@ -161,7 +164,7 @@ collection of ShardSpecs; this check ensures concurrent modifications are caught
 ShardSpecs may be created by setting "revision" to zero or omitting it altogether.
 
 ShardSpecs may be deleted by setting their field "delete" to true.
-`, &cmdShardsApply{})
+`+maxTxnSizeWarning, &cmdShardsApply{})
 
 	_ = addCmd(cmdJournals, "read", "Read journal contents", `
 Read the contents journal or journals as a stream.
@@ -183,8 +186,8 @@ To read from an arbitrary offset into a journal(s) use the --offset flag.
 If not passed the default value is -1 which will read from the head of the journal.
 `, &cmdJournalRead{})
 
-	_ = addCmd(cmdJournals, "edit", "Edit journal specifications", journalsEditLongDesc, &cmdJournalsEdit{})
-	_ = addCmd(cmdShards, "edit", "Edit shard specifications", shardsEditLongDesc, &cmdShardsEdit{})
+	_ = addCmd(cmdJournals, "edit", "Edit journal specifications", journalsEditLongDesc+maxTxnSizeWarningEdit, &cmdJournalsEdit{})
+	_ = addCmd(cmdShards, "edit", "Edit shard specifications", shardsEditLongDesc+maxTxnSizeWarningEdit, &cmdShardsEdit{})
 	_ = addCmd(cmdShards, "prune", "Removes fragments of a hinted recovery log which are no longer needed", `
 Recovery logs capture every write which has ever occurred in a Shard DB.
 This includes all prior writes of client keys & values, and also RocksDB
@@ -241,6 +244,17 @@ const iniFilename = "gazctl.ini"
 const editCmdLongDescription = `The edit command allows you to directly edit journal specifications matching the supplied LabelSelector. It will open the editor defined by your GAZ_EDITOR or EDITOR environment variables or fall back to 'vi'. Editing from Windows is currently not supported.
 
 Upon exiting the editor, if the file has been changed, it will be validated and applied. If the file is invalid or fails to apply, the editor is re-opened. Exiting the editor with no changes or saving an empty file are interpreted as the user aborting the edit attempt.`
+
+const maxTxnSizeWarning = `
+In the event that this command generates more changes than are possible in a 
+single etcd transaction given the current server configation (default 128). 
+Gazctl supports a  max transaction size flag (--max-txn-size) which will send 
+the changes in batches of at most the max transaction size, however this means
+a loss of transactionality and should be used with caution.`
+
+const maxTxnSizeWarningEdit = maxTxnSizeWarning + ` Instead it is
+recomended that additional label selectors are used to limit the number of 
+changes within this operation.`
 
 type editDescription struct {
 	Type, HelpCommand, Examples string

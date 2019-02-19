@@ -1,6 +1,11 @@
 package consumer
 
 import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/LiveRamp/gazette/v2/pkg/client"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/recoverylog"
 	gc "github.com/go-check/check"
@@ -183,6 +188,84 @@ func (s *APISuite) TestApplyCases(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, `Changes\[0\].Delete: not a valid token \(invalid shard id\)`)
 }
 
+func (s *APISuite) TestApplyShardsInBatches(c *gc.C) {
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var ss = newShardServerStub(ctx, c)
+	var client = NewRoutedShardClient(ss.MustClient(), client.NewRouteCache(2, time.Hour))
+
+	var hdr = buildHeaderFixture(ss)
+	// Case: size is 0. All changes are submitted.
+	var fixture = buildApplyReqFixtue()
+	var expected = &ApplyResponse{
+		Status: Status_OK,
+		Header: *hdr,
+	}
+	ss.ApplyFunc = func(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+		c.Check(req, gc.DeepEquals, fixture)
+		return expected, nil
+	}
+	resp, err := ApplyShardsInBatches(ctx, client, fixture, 0)
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, expected)
+
+	// Case: size == len(req.Changes). All changes are submitted.
+	resp, err = ApplyShardsInBatches(ctx, client, fixture, 3)
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, expected)
+
+	// Case: size < len(req.Changes). Changes are batched.
+	var iter = 0
+	ss.ApplyFunc = func(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+		c.Check(req, gc.DeepEquals, &ApplyRequest{
+			Changes: []ApplyRequest_Change{
+				{Upsert: fixture.Changes[iter].Upsert, ExpectModRevision: 1},
+			},
+		})
+		iter++
+		return expected, nil
+	}
+	resp, err = ApplyShardsInBatches(ctx, client, fixture, 1)
+	c.Check(err, gc.IsNil)
+	c.Check(resp, gc.DeepEquals, expected)
+
+	// Case: empty list of changes.
+	ss.ApplyFunc = func(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+		c.Error("should not be called")
+		return nil, nil
+	}
+	resp, err = ApplyShardsInBatches(ctx, client, &ApplyRequest{}, 1)
+	c.Check(resp, gc.DeepEquals, &ApplyResponse{})
+	c.Check(err, gc.IsNil)
+
+	// Case: Return Error from backend.
+	ss.ApplyFunc = func(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+		return nil, errors.New("something has gone wrong")
+	}
+	resp, err = ApplyShardsInBatches(ctx, client, fixture, 1)
+	c.Check(err, gc.ErrorMatches, "rpc error: code = Unknown desc = something has gone wrong")
+
+	// Case: Status !OK mapped as an error.
+	ss.ApplyFunc = func(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+		return &ApplyResponse{
+			Status: Status_ETCD_TRANSACTION_FAILED,
+			Header: *hdr,
+		}, nil
+	}
+	resp, err = ApplyShardsInBatches(ctx, client, fixture, 1)
+	c.Check(err.Error(), gc.Matches, Status_ETCD_TRANSACTION_FAILED.String())
+
+	// Case: Validation error mapped as error.
+	ss.ApplyFunc = func(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+		return &ApplyResponse{
+			Status: Status_ETCD_TRANSACTION_FAILED,
+		}, nil
+	}
+	resp, err = ApplyShardsInBatches(ctx, client, fixture, 1)
+	c.Check(err, gc.ErrorMatches, `Header.Route: invalid Primary \(0; expected -1 <= Primary < 0\)`)
+}
+
 func (s *APISuite) TestHintsCases(c *gc.C) {
 	var tf, cleanup = newTestFixture(c)
 	defer cleanup()
@@ -278,6 +361,35 @@ func (s *APISuite) TestHintsCases(c *gc.C) {
 	c.Check(err.Error(), gc.DeepEquals, "validating FSMHints: hinted log not provided")
 
 	tf.allocateShard(c, spec) // Cleanup.
+}
+
+func buildHeaderFixture(ep interface{ Endpoint() pb.Endpoint }) *pb.Header {
+	return &pb.Header{
+		ProcessId: pb.ProcessSpec_ID{Zone: "a", Suffix: "broker"},
+		Route: pb.Route{
+			Members:   []pb.ProcessSpec_ID{{Zone: "a", Suffix: "broker"}},
+			Endpoints: []pb.Endpoint{ep.Endpoint()},
+			Primary:   0,
+		},
+		Etcd: pb.Header_Etcd{
+			ClusterId: 12,
+			MemberId:  34,
+			Revision:  56,
+			RaftTerm:  78,
+		},
+	}
+}
+
+func buildApplyReqFixtue() *ApplyRequest {
+	var specA = makeShard(shardA)
+	var specB = makeShard(shardB)
+
+	return &ApplyRequest{
+		Changes: []ApplyRequest_Change{
+			{Upsert: specA, ExpectModRevision: 1},
+			{Upsert: specB, ExpectModRevision: 1},
+		},
+	}
 }
 
 var _ = gc.Suite(&APISuite{})

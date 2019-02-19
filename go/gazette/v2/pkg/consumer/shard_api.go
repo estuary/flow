@@ -191,16 +191,49 @@ func ListShards(ctx context.Context, sc ShardClient, req *ListRequest) (*ListRes
 	}
 }
 
-// ApplyShards invokes the Apply RPC, and maps a validation or !OK status to an error.
+// ApplyShards invokes the Apply RPC.
 func ApplyShards(ctx context.Context, sc ShardClient, req *ApplyRequest) (*ApplyResponse, error) {
-	if r, err := sc.Apply(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
-		return r, err
-	} else if err = r.Validate(); err != nil {
-		return r, err
-	} else if r.Status != Status_OK {
-		return r, errors.New(r.Status.String())
-	} else {
-		return r, nil
+	return ApplyShardsInBatches(ctx, sc, req, 0)
+}
+
+// ApplyShardsInBatches applies changes to shards which
+// may be larger than the configured etcd transaction size size. The changes in
+// |req| will be sent serially in batches of size |size|. If
+// |size| is 0 all changes will be attempted as part of a single
+// transaction. This function will return the response of the final
+// ShardClient.Apply call. Response validation or !OK status from Apply RPC are
+// mapped to error.
+func ApplyShardsInBatches(ctx context.Context, sc ShardClient, req *ApplyRequest, size int) (*ApplyResponse, error) {
+	if len(req.Changes) == 0 {
+		return &ApplyResponse{}, nil
+	}
+	if size == 0 {
+		size = len(req.Changes)
+	}
+	var curReq = &ApplyRequest{}
+	var offset = 0
+
+	for {
+		if len(req.Changes[offset:]) > size {
+			curReq.Changes = req.Changes[offset : offset+size]
+		} else {
+			curReq.Changes = req.Changes[offset:]
+		}
+
+		var resp *ApplyResponse
+		var err error
+		if resp, err = sc.Apply(pb.WithDispatchDefault(ctx), curReq, grpc.WaitForReady(true)); err != nil {
+			return resp, err
+		} else if err = resp.Validate(); err != nil {
+			return resp, err
+		} else if resp.Status != Status_OK {
+			return resp, errors.New(resp.Status.String())
+		}
+
+		offset = offset + len(curReq.Changes)
+		if offset == len(req.Changes) {
+			return resp, nil
+		}
 	}
 }
 
