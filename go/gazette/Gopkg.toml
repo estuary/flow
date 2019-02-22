@@ -64,8 +64,8 @@ required = [
   name = "github.com/gogo/protobuf"
   revision = "e14cafb6a2c249986e51c4b65c3206bf18578715"
 
-# We require that gorocksdb match our RocksDB version pin (currently 5.14.2)
+# We require that gorocksdb match our RocksDB version pin (currently 5.17.2)
 [[constraint]]
   name = "github.com/tecbot/gorocksdb"
-  revision = "22dabfda16ecbdd40858aca4e7898ee8d592d647"
+  version = "v1.2.0"
   source = "https://github.com/LiveRamp/gorocksdb.git"

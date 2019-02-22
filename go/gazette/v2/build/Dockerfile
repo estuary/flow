@@ -2,7 +2,7 @@
 # RocksDB library, its tools, and dependencies.
 FROM golang:1.11 AS base
 
-ARG ROCKSDB_VERSION=5.14.2
+ARG ROCKSDB_VERSION=5.17.2
 ARG ZSTD_VERSION=1.3.5
 
 # Install dependencies for building & running RocksDB.

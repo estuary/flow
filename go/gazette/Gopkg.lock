@@ -695,12 +695,13 @@
   version = "v1.3.0"
 
 [[projects]]
-  digest = "1:6ef99b772e9252c54e362af989aa0ad6be34f304c04e9d52c8431d94b4e2fe2d"
+  digest = "1:833adfd78777b99abd9fcf6d24e687b5f3c4faea8894ad50ab0eb60f351fdf5f"
   name = "github.com/tecbot/gorocksdb"
   packages = ["."]
   pruneopts = ""
-  revision = "22dabfda16ecbdd40858aca4e7898ee8d592d647"
+  revision = "690866229953e77b91d3eae1fa42206001c5c7c9"
   source = "https://github.com/LiveRamp/gorocksdb.git"
+  version = "v1.2.0"
 
 [[projects]]
   branch = "master"
@@ -1017,7 +1018,6 @@
     "github.com/gogo/protobuf/proto",
     "github.com/gogo/protobuf/types",
     "github.com/golang/protobuf/ptypes/duration",
-    "github.com/golang/protobuf/ptypes/timestamp",
     "github.com/golang/snappy",
     "github.com/gorilla/mux",
     "github.com/gorilla/schema",
