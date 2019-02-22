@@ -1,4 +1,4 @@
-// +build !norocksdb
+// +build rocksdb
 
 // Package stream_sum is an example application consisting of three stages:
 //

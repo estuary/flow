@@ -1,4 +1,4 @@
-// +build !norocksdb
+// +build rocksdb
 
 package recoverylog
 
