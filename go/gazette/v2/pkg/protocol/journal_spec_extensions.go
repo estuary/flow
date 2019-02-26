@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"mime"
 	"path"
 	"strings"
@@ -90,6 +91,7 @@ func (m *JournalSpec_Fragment) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the JournalSpec_Flag is malformed.
 func (x JournalSpec_Flag) Validate() error {
 	switch x {
 	case JournalSpec_NOT_SPECIFIED, JournalSpec_O_WRONLY, JournalSpec_O_RDONLY, JournalSpec_O_RDWR:
@@ -119,6 +121,37 @@ func (x JournalSpec_Flag) MayWrite() bool {
 	}
 }
 
+// MarshalYAML maps the JournalSpec_Flag to a YAML value.
+func (x JournalSpec_Flag) MarshalYAML() (interface{}, error) {
+	if s, ok := JournalSpec_Flag_name[int32(x)]; ok {
+		return s, nil
+	} else {
+		return int(x), nil
+	}
+}
+
+// UnmarshalYAML maps a YAML integer directly to a Flag value, or a YAML string
+// to a Flag with corresponding enum name.
+func (x *JournalSpec_Flag) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Directly map YAML integer to flag.
+	var i int
+	if err := unmarshal(&i); err == nil {
+		*x = JournalSpec_Flag(i)
+		return nil
+	}
+	// Otherwise, expect a YAML string which matches an enum name.
+	var str string
+	if err := unmarshal(&str); err != nil {
+		return err
+	}
+	if tag, ok := JournalSpec_Flag_value[str]; !ok {
+		return fmt.Errorf("%q is not a valid JournalSpec_Flag (options are %v)", str, JournalSpec_Flag_value)
+	} else {
+		*x = JournalSpec_Flag(tag)
+		return nil
+	}
+}
+
 // MarshalString returns the marshaled encoding of the JournalSpec as a string.
 func (m *JournalSpec) MarshalString() string {
 	var d, err = m.Marshal()
@@ -128,11 +161,13 @@ func (m *JournalSpec) MarshalString() string {
 	return string(d)
 }
 
-// v3_allocator.ItemValue implementation.
+// DesiredReplication returns the configured Replication of the spec. It
+// implements allocator.ItemValue.
 func (m *JournalSpec) DesiredReplication() int { return int(m.Replication) }
 
 // IsConsistent returns true if the Route stored under each of |assignments|
-// agrees with the Route implied by the |assignments| keys.
+// agrees with the Route implied by the |assignments| keys. It implements
+// allocator.ItemValue.
 func (m *JournalSpec) IsConsistent(_ keyspace.KeyValue, assignments keyspace.KeyValues) bool {
 	var rt Route
 	rt.Init(assignments)

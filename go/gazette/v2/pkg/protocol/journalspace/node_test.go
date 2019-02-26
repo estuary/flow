@@ -277,7 +277,7 @@ fragment:
   refresh_interval: 1m0s
   retention: 1h0m0s
   flush_interval: 2m0s
-flags: 4
+flags: O_RDWR
 children:
 - delete: true
   name: foo/bar

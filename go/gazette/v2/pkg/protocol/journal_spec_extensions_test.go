@@ -7,6 +7,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	"github.com/LiveRamp/gazette/v2/pkg/labels"
 	gc "github.com/go-check/check"
+	"gopkg.in/yaml.v2"
 )
 
 type JournalSuite struct{}
@@ -151,6 +152,36 @@ func (s *JournalSuite) TestMetaLabelExtraction(c *gc.C) {
 			"prefix", "path/to/",
 			"prefix", "path/to/my/",
 		))
+}
+
+func (s *JournalSuite) TestFlagYAMLRoundTrip(c *gc.C) {
+	var cases = []struct {
+		Flag JournalSpec_Flag
+		enc  string
+	}{
+		{JournalSpec_O_RDONLY, "flag: O_RDONLY\n"},
+		{JournalSpec_O_RDWR, "flag: O_RDWR\n"},
+		{JournalSpec_O_RDWR, "flag: O_RDWR\n"},
+		{1 | 2 | 32, "flag: 35\n"},
+	}
+	for _, tc := range cases {
+		var b, err = yaml.Marshal(tc)
+		c.Check(err, gc.IsNil)
+		c.Check(string(b), gc.Equals, tc.enc)
+
+		var f2 = tc
+		f2.Flag = 0
+
+		c.Check(yaml.Unmarshal(b, &f2), gc.IsNil)
+		c.Check(f2.Flag, gc.Equals, tc.Flag)
+	}
+
+	var f JournalSpec_Flag
+	c.Check(yaml.Unmarshal([]byte("1"), &f), gc.IsNil)
+	c.Check(f, gc.Equals, JournalSpec_O_RDONLY)
+
+	c.Check(yaml.Unmarshal([]byte(`"notAnEnum"`), &f), gc.ErrorMatches,
+		`"notAnEnum" is not a valid JournalSpec_Flag \(options are .*\)`)
 }
 
 func (s *JournalSuite) TestConsistencyCases(c *gc.C) {
