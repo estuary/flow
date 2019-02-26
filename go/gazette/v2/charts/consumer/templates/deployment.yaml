@@ -49,12 +49,14 @@ spec:
             - "-ec"
             - |
               exec {{ required "Must provide image.binary" .Values.image.binary }} serve \
-                --broker.address={{ or .Values.global.gazette.endpoint .Values.gazette.endpoint }} \
-                --consumer.port=8080 \
-                --consumer.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
-                --etcd.address={{ or .Values.global.etcd.endpoint .Values.etcd.endpoint }} \
-                --etcd.prefix={{ .Values.etcd.partialPrefix }}/{{ include "consumer.fullname" . }} \
-{{ tpl .Values.extraArgsTemplate . | indent 16 }}
+{{- range $arg, $valueTemplate := .Values.extraArgs }}
+                {{ $arg }}       {{ tpl $valueTemplate $ }} \
+{{- end }}
+                --broker.address {{ or .Values.global.gazette.endpoint .Values.gazette.endpoint }} \
+                --consumer.port  8080 \
+                --consumer.zone  $(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
+                --etcd.address   {{ or .Values.global.etcd.endpoint .Values.etcd.endpoint }} \
+                --etcd.prefix    {{ .Values.etcd.partialPrefix }}/{{ include "consumer.fullname" . }}
           env:
             - name: CONSUMER_ID
               valueFrom:
@@ -78,9 +80,6 @@ spec:
             - name: zonemap
               readOnly: true
               mountPath: /root/.config/zonemap
-            - name: config
-              readOnly: true
-              mountPath: /root/.config/gazette
 
             {{- if .Values.extraVolumeMounts }}
 {{ toYaml .Values.extraVolumeMounts | indent 12 }}
@@ -113,9 +112,6 @@ spec:
               - key: node-zone.sh
                 path: node-zone.sh
                 mode: 511 # Equivalent to 0777.
-        - name: config
-          configMap:
-            name: {{ include "consumer.fullname" . }}
 
         {{- if .Values.extraVolumes }}
 {{ toYaml .Values.extraVolumes | indent 8 }}

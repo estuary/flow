@@ -11,13 +11,5 @@ counter:
     repository: liveramp/gazette-examples
     binary: /go/bin/counter
 
-  configIniTemplate: |-
-    [WordCount]
-    N = {{ .Values.NGramSize }}
-
-    [Broker]
-    ; Size of client route cache.
-    Size = 256
-
-    [Logging]
-    Format = json
+  extraArgs:
+    --wordcount.N: "{{ .Values.NGramSize }}"

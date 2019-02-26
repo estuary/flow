@@ -17,18 +17,6 @@ nameOverride: ""
 fullnameOverride: ""
 # Additional labels to be attached to all of the DeploymentSpec, ServiceSpec, and PodSpecs.
 extraLabels: {}
-# Configuration INI template which is rendered and loaded by run-consumer.
-# Users may want to extend with application-specific configuration, using this template.
-configIniTemplate: |-
-  # Configuration INI template loaded by consumer application.
-  # Generated for {{ include "consumer.fullname" . }}
-
-  [Broker]
-  ; Size of client route cache.
-  Size = 256
-
-  [Logging]
-  Format = json
 
 # Users may want to mount a fast local disk as `tmpdir`. Eg, uncomment
 # to use Local SSDs on GKE:
@@ -86,8 +74,12 @@ resources: {}
   #  cpu: 100m
   #  memory: 128Mi
 
-# Template for additional arguments passed to the binary.
-extraArgsTemplate: ""
+# Additional arguments and value templates passed to the binary.
+extraArgs:
+  # --my.arg: "{{ .Values.myArgValue }}"
+  --broker.cache.size: "256"
+  --log.format: json
+
 # Additional volumes to be attached.
 extraVolumes: {}
 # Additional volumeMounts to be mounted.
