@@ -133,7 +133,7 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 		NextPageToken: 0,
 	}
 
-	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	broker.ListFragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 		switch req.NextPageToken {
 		case 0:
 			return fixture1, nil
@@ -155,7 +155,7 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 	})
 
 	// Case: broker non-OK status
-	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	broker.ListFragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 		return &pb.FragmentsResponse{
 			Header: *hdr,
 			Status: pb.Status_JOURNAL_NOT_FOUND,
@@ -166,7 +166,7 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, pb.Status_JOURNAL_NOT_FOUND.String())
 
 	// Case: broker error
-	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	broker.ListFragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 		return nil, errors.New("something has gone wrong")
 	}
 	resp, err = ListAllFragments(ctx, client, req)
@@ -174,7 +174,7 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 	c.Check(err, gc.ErrorMatches, `rpc error: code = Unknown desc = something has gone wrong`)
 
 	// Case: invalid response
-	broker.FragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	broker.ListFragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 		return &pb.FragmentsResponse{
 			Header: *hdr,
 			Status: 1000,
@@ -315,10 +315,10 @@ func buildListResponseFixture(names ...pb.Journal) (out []pb.ListResponse_Journa
 	return
 }
 
-func buildSignedFragmentsFixture(journal pb.Journal, startOffset int64) []pb.FragmentsResponse_SignedFragment {
-	return []pb.FragmentsResponse_SignedFragment{
+func buildSignedFragmentsFixture(journal pb.Journal, startOffset int64) []pb.FragmentsResponse__Fragment {
+	return []pb.FragmentsResponse__Fragment{
 		{
-			Fragment: pb.Fragment{
+			Spec: pb.Fragment{
 				Journal:          journal,
 				Begin:            startOffset,
 				End:              startOffset + 10,
@@ -329,7 +329,7 @@ func buildSignedFragmentsFixture(journal pb.Journal, startOffset int64) []pb.Fra
 			SignedUrl: fmt.Sprintf("valid_url_%v", startOffset),
 		},
 		{
-			Fragment: pb.Fragment{
+			Spec: pb.Fragment{
 				Journal:          journal,
 				Begin:            startOffset + 20,
 				End:              startOffset + 30,

@@ -41,25 +41,28 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 		// We want this behavior because playback will continue to read offsets & Fragments
 		// after reading past the final hinted Segment.
 		segments[len(segments)-1].LastOffset = 0
-		for _, sf := range fetchFragments(ctx, lastHints.Log) {
-			m.totalFragments++
-			m.bytesTotal += sf.ContentLength()
 
-			if len(segments.Intersect(sf.Begin, sf.End)) == 0 {
+		for _, f := range fetchFragments(ctx, lastHints.Log) {
+			var spec = f.Spec
+
+			m.totalFragments++
+			m.bytesTotal += spec.ContentLength()
+
+			if len(segments.Intersect(spec.Begin, spec.End)) == 0 {
 				log.WithFields(log.Fields{
-					"log":  sf.Journal,
-					"name": sf.ContentName(),
-					"size": sf.ContentLength(),
-					"mod":  sf.ModTime,
+					"log":  spec.Journal,
+					"name": spec.ContentName(),
+					"size": spec.ContentLength(),
+					"mod":  spec.ModTime,
 				}).Warn("pruning fragment")
 
 				m.nPruned++
-				m.bytesPruned += sf.ContentLength()
+				m.bytesPruned += spec.ContentLength()
 
 				if !cmd.DryRun {
-					err = fragment.Remove(ctx, sf.BackingStore, sf.Fragment)
+					err = fragment.Remove(ctx, spec)
 					if err != nil {
-						mbp.Must(err, fmt.Sprintf("error removing fragment %v", sf.ContentPath()))
+						mbp.Must(err, fmt.Sprintf("error removing fragment %v", spec.ContentPath()))
 					}
 
 				}
@@ -91,7 +94,7 @@ func fetchLastHints(ctx context.Context, id consumer.ShardID) *recoverylog.FSMHi
 	return nil
 }
 
-func fetchFragments(ctx context.Context, journal pb.Journal) []pb.FragmentsResponse_SignedFragment {
+func fetchFragments(ctx context.Context, journal pb.Journal) []pb.FragmentsResponse__Fragment {
 	var err error
 	var req = pb.FragmentsRequest{
 		Journal: journal,

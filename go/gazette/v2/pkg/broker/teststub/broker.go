@@ -55,9 +55,9 @@ type Broker struct {
 	AppendReqCh  chan *pb.AppendRequest
 	AppendRespCh chan *pb.AppendResponse
 
-	ListFunc      func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)
-	ApplyFunc     func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)
-	FragmentsFunc func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error)
+	ListFunc          func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)
+	ApplyFunc         func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)
+	ListFragmentsFunc func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error)
 
 	ErrCh chan error
 }
@@ -199,9 +199,9 @@ func (p *Broker) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResp
 	return p.ApplyFunc(ctx, req)
 }
 
-// Fragments implements the JournalServer interface by proxying through FragmentsFunc.
-func (p *Broker) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-	return p.FragmentsFunc(ctx, req)
+// ListFragments implements the JournalServer interface by proxying through FragmentsFunc.
+func (p *Broker) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	return p.ListFragmentsFunc(ctx, req)
 }
 
 func init() { pb.RegisterGRPCDispatcher("local") }

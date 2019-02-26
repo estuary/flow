@@ -106,8 +106,8 @@ func List(ctx context.Context, store pb.FragmentStore, name pb.Journal, callback
 	}
 }
 
-// Remove |fragment| from |store|.
-func Remove(ctx context.Context, store pb.FragmentStore, fragment pb.Fragment) error {
+// Remove |fragment| from its BackingStore.
+func Remove(ctx context.Context, fragment pb.Fragment) error {
 	switch fragment.BackingStore.URL().Scheme {
 	case "s3":
 		return s3Remove(ctx, fragment)

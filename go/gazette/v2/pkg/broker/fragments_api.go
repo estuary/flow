@@ -3,19 +3,15 @@ package broker
 import (
 	"context"
 	"sort"
-	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 )
 
-var (
-	defaultSignatureTTL = time.Hour * 24
-	defaultPageLimit    = int32(1000)
-)
+var defaultPageLimit = int32(1000)
 
-// Fragments dispatches the JournalServer.Fragments API.
-func (svc *Service) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+// ListFragments dispatches the JournalServer.ListFragments API.
+func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -39,12 +35,9 @@ func (svc *Service) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*p
 		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 		ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
 
-		return svc.jc.Fragments(ctx, req)
+		return svc.jc.ListFragments(ctx, req)
 	}
 
-	if req.SignatureTTL == nil {
-		req.SignatureTTL = &defaultSignatureTTL
-	}
 	if req.PageLimit == 0 {
 		req.PageLimit = int32(defaultPageLimit)
 	}
@@ -57,8 +50,8 @@ func (svc *Service) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*p
 		Status: pb.Status_OK,
 		Header: res.Header,
 	}
-	if err := res.replica.index.Inspect(func(fragmentSet fragment.CoverSet) error {
-		resp.Fragments, resp.NextPageToken, err = buildSignedFragments(req, fragmentSet)
+	if err = res.replica.index.Inspect(func(fragmentSet fragment.CoverSet) error {
+		resp.Fragments, resp.NextPageToken, err = listFragments(req, fragmentSet)
 		if err != nil {
 			return err
 		}
@@ -71,64 +64,42 @@ func (svc *Service) Fragments(ctx context.Context, req *pb.FragmentsRequest) (*p
 	return resp, nil
 }
 
-// Returns a list of FragmentsResponse_SignedFragment corresponding to a query as well as the NextPageToken to be used for subsequent
-// requests. If NextPageToken is nil there are no more fragments left in this page.
-func buildSignedFragments(req *pb.FragmentsRequest, set fragment.CoverSet) ([]pb.FragmentsResponse_SignedFragment, int64, error) {
-	var out = make([]pb.FragmentsResponse_SignedFragment, 0, req.PageLimit)
-	var ind = sort.Search(len(set), func(i int) bool {
+// List FragmentsResponse__Fragment matching the query, and return the
+// NextPageToken to be used for subsequent requests. If NextPageToken is nil
+// there are no further Fragments to enumerate.
+func listFragments(req *pb.FragmentsRequest, set fragment.CoverSet) ([]pb.FragmentsResponse__Fragment, int64, error) {
+	// Determine |next| offset within |set| at which we begin or continue enumeration.
+	var next = sort.Search(len(set), func(i int) bool {
 		return set[i].Begin >= req.NextPageToken
 	})
 
-	// If the NextPageToken offset is larger than the largest Begin in the set then
-	// all valid fragments have been returned in previous pages. Return empty slice of fragments.
-	if ind == len(set) {
-		return nil, 0, nil
-	}
+	// TODO(johnny): Sanity check size before allocating?
+	var out = make([]pb.FragmentsResponse__Fragment, 0, req.PageLimit)
 
-	var i int
-	var f fragment.Fragment
-	for i, f = range set[ind:] {
-		if len(out) == cap(out) {
-			break
+	for ; next != len(set) && len(out) != cap(out); next++ {
+		var f = set[next]
+
+		// ModTime may be zero on the Fragment if it's local-only, and not yet
+		// persisted to any store. We included these in the response iff
+		// EndModTime is zero.
+		if (f.ModTime != 0 && f.ModTime < req.BeginModTime) ||
+			(req.EndModTime != 0 && (f.ModTime == 0 || f.ModTime > req.EndModTime)) {
+			continue // Fragment is outside of the allowed time range.
 		}
 
-		// If the query does not specify an EndModTime and there is no BackingStore or ModTime this is a local-only fragment
-		// and can be added to the list of signedFragments, but no signedURL can be constructed for this fragment.
-		if req.EndModTime == 0 && f.BackingStore == "" {
-			out = append(out, pb.FragmentsResponse_SignedFragment{Fragment: f.Fragment})
-			continue
-		}
+		var err error
+		var frag = pb.FragmentsResponse__Fragment{Spec: f.Fragment}
 
-		// Ensure the current fragment is within the time bounds of the query.
-		if f.ModTime >= req.BeginModTime &&
-			(req.EndModTime == 0 || f.ModTime < req.EndModTime) {
-			var signedFragment, err = buildSignedFragment(f.Fragment, *req.SignatureTTL)
-			if err != nil {
-				return []pb.FragmentsResponse_SignedFragment{}, 0, err
+		if req.SignatureTTL != nil && f.BackingStore != "" {
+			if frag.SignedUrl, err = fragment.SignGetURL(frag.Spec, *req.SignatureTTL); err != nil {
+				return nil, 0, err
 			}
-			out = append(out, signedFragment)
 		}
+		out = append(out, frag)
 	}
 
-	var nextIndex = i + ind
-	if len(out) > 0 && nextIndex < len(set)-1 {
-		return out, set[nextIndex].Begin, nil
+	if next != len(set) {
+		return out, set[next].Begin, nil
 	}
 	return out, 0, nil
-}
-
-func buildSignedFragment(f pb.Fragment, ttl time.Duration) (pb.FragmentsResponse_SignedFragment, error) {
-	var signedURL string
-	var err error
-	if f.BackingStore != "" {
-		signedURL, err = fragment.SignGetURL(f, ttl)
-		if err != nil {
-			return pb.FragmentsResponse_SignedFragment{}, err
-		}
-	}
-
-	return pb.FragmentsResponse_SignedFragment{
-		Fragment:  f,
-		SignedUrl: signedURL,
-	}, nil
 }

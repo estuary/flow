@@ -318,17 +318,15 @@ func (m *FragmentsRequest) Validate() error {
 	}
 	if err := m.Journal.Validate(); err != nil {
 		return ExtendContext(err, "Journal")
-	}
-	if m.EndModTime < m.BeginModTime {
+	} else if m.EndModTime != 0 && m.EndModTime < m.BeginModTime {
 		return NewValidationError("invalid EndModTime (%v must be after %v)", m.EndModTime, m.BeginModTime)
-	}
-	if m.NextPageToken < 0 {
+	} else if m.NextPageToken < 0 {
 		return NewValidationError("invalid NextPageToken (%v; must be >= 0)", m.NextPageToken)
-	}
-	if m.PageLimit < 0 {
+	} else if m.PageLimit < 0 {
 		return NewValidationError("invalid PageLimit (%v; must be >= 0)", m.PageLimit)
+	} else if m.SignatureTTL != nil && *m.SignatureTTL <= 0 {
+		return NewValidationError("invalid SignatureTTL (%v; must be > 0s)", *m.SignatureTTL)
 	}
-
 	return nil
 }
 
@@ -338,10 +336,26 @@ func (m *FragmentsResponse) Validate() error {
 	} else if err = m.Header.Validate(); err != nil {
 		return ExtendContext(err, "Header")
 	}
+	for i, f := range m.Fragments {
+		if err := f.Validate(); err != nil {
+			return ExtendContext(err, "Fragments[%d]", i)
+		}
+	}
+
+	// NextPageToken requires no extra validation.
+
 	return nil
 }
 
-// Validate returns an error if the Status is not well-formed.
+func (m *FragmentsResponse__Fragment) Validate() error {
+	if err := m.Spec.Validate(); err != nil {
+		return ExtendContext(err, "Spec")
+	} else if _, err = url.Parse(m.SignedUrl); err != nil {
+		return ExtendContext(&ValidationError{Err: err}, "SignedUrl")
+	}
+	return nil
+}
+
 func (x Status) Validate() error {
 	if _, ok := Status_name[int32(x)]; !ok {
 		return NewValidationError("invalid status (%s)", x)

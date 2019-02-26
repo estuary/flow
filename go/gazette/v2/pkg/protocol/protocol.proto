@@ -459,11 +459,11 @@ message FragmentsRequest {
   int64 end_mod_time = 4;
   // The NextPageToke value returned from a previous, continued FragmentsRequest, if any.
   int64 next_page_token = 5;
-  // PageLimit is an optional fieled specifying how many fragments to be returned
+  // PageLimit is an optional field specifying how many fragments to return
   // with the response. The default value for PageLimit is 1000.
   int32 page_limit = 6;
-  // SignatureTTL is an optional field specifying how long a returned singed URL 
-  // is valid for. The default value for SignatureTTL is 24 hours.
+  // SignatureTTL indicates that a temporary signed GET URL should be returned
+  // with each response Fragment, valid for |signatureTTL|.
   google.protobuf.Duration signatureTTL = 7 [(gogoproto.stdduration) = true, (gogoproto.nullable) = true];
   // If do_not_proxy is true, the broker will not proxy the request to another broker on the client's behalf.
   bool do_not_proxy = 8;
@@ -473,15 +473,16 @@ message FragmentsResponse {
   // Status of the Apply RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2 [(gogoproto.nullable) = false];;
-
-  message SignedFragment {
-    Fragment fragment = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+  Header header = 2 [(gogoproto.nullable) = false];
+  // Fragments of the Response.
+  message _Fragment {
+    Fragment spec = 1 [(gogoproto.nullable) = false];
+    // SignedURL is a temporary URL at which a direct GET of the Fragment may
+    // be issued, signed by the broker's credentials. Set only if the request
+    // specified a SignatureTTL.
     string signed_url = 2;
   }
-
-  // List of fragments with a signed URL for accessing from cloud storage.
-  repeated SignedFragment fragments = 3 [(gogoproto.nullable) = false];
+  repeated _Fragment fragments = 3 [(gogoproto.nullable) = false];
   // The NextPageToke value to be returned on subsequent Fragments requests. If the value is 
   // zero then there are no more fragments to be returned for this page.
   int64 next_page_token = 4;
@@ -543,6 +544,6 @@ service Journal {
   // peers in the course of processing Append transactions, but is not intended
   // for direct use by clients.
   rpc Replicate(stream ReplicateRequest) returns (stream ReplicateResponse);
-  // Returns the smallest contigous block of fragments within a specificed time range.
-  rpc Fragments(FragmentsRequest) returns (FragmentsResponse);
+  // List Fragments of a Journal.
+  rpc ListFragments(FragmentsRequest) returns (FragmentsResponse);
 }

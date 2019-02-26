@@ -148,7 +148,7 @@ func ListAllFragments(ctx context.Context, client pb.RoutedJournalClient, req pb
 	var routedCtx = pb.WithDispatchItemRoute(ctx, client, req.Journal.String(), false)
 
 	for {
-		if r, err := client.Fragments(routedCtx, &req); err != nil {
+		if r, err := client.ListFragments(routedCtx, &req); err != nil {
 			return resp, mapGRPCCtxErr(ctx, err)
 		} else if err = r.Validate(); err != nil {
 			return resp, err

@@ -372,10 +372,13 @@ func (s *RPCSuite) TestApplyResponseValidationCases(c *gc.C) {
 	c.Check(resp.Validate(), gc.IsNil)
 }
 
-func (s *RPCSuite) TestFragmentsRequestValidate(c *gc.C) {
+func (s *RPCSuite) TestFragmentsRequestValidationCases(c *gc.C) {
+	var signatureTTL time.Duration
+
 	var req = FragmentsRequest{
 		Header:        badHeaderFixture(),
 		Journal:       "/bad",
+		SignatureTTL:  &signatureTTL,
 		BeginModTime:  time.Unix(10, 0).Unix(),
 		EndModTime:    time.Unix(5, 0).Unix(),
 		NextPageToken: -1,
@@ -387,12 +390,40 @@ func (s *RPCSuite) TestFragmentsRequestValidate(c *gc.C) {
 	c.Check(req.Validate(), gc.ErrorMatches, `Journal: cannot begin with '/' \(/bad\)`)
 	req.Journal = "good"
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndModTime \(5 must be after 10\)`)
-	req.EndModTime = 100
+	req.EndModTime = 0
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid NextPageToken \(-1; must be >= 0\)`)
 	req.NextPageToken = 10
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid PageLimit \(-1; must be >= 0\)`)
 	req.PageLimit = 10
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid SignatureTTL \(0s; must be > 0s\)`)
+	signatureTTL = time.Second
+
 	c.Check(req.Validate(), gc.IsNil)
+}
+
+func (s *RPCSuite) TestFragmentsResponseValidationCases(c *gc.C) {
+	var resp = FragmentsResponse{
+		Status: 9101,
+		Header: *badHeaderFixture(),
+		Fragments: []FragmentsResponse__Fragment{
+			{
+				Spec:      Fragment{Journal: "in valid", CompressionCodec: CompressionCodec_NONE},
+				SignedUrl: ":gar: :bage:",
+			},
+		},
+	}
+
+	c.Check(resp.Validate(), gc.ErrorMatches, `Status: invalid status \(9101\)`)
+	resp.Status = Status_OK
+	c.Check(resp.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
+	resp.Header.Etcd.ClusterId = 1234
+	c.Check(resp.Validate(), gc.ErrorMatches, `Fragments\[0\].Spec.Journal: not a valid token \(in valid\)`)
+	resp.Fragments[0].Spec.Journal = "valid/name"
+	c.Check(resp.Validate(), gc.ErrorMatches, `Fragments\[0\].SignedUrl: parse :gar: :bage:: missing protocol scheme`)
+	resp.Fragments[0].SignedUrl = "http://host/path"
+	c.Check(resp.Validate(), gc.IsNil)
+	resp.Fragments[0].SignedUrl = ""
+	c.Check(resp.Validate(), gc.IsNil)
 }
 
 func badHeaderFixture() *Header {
