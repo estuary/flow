@@ -100,17 +100,18 @@ func (p *Persister) attemptPersist(spool Spool) {
 		spool.BackingStore = spec.Fragment.Stores[0]
 	} else {
 		log.WithFields(log.Fields{
-			"journal":     spool.Journal,
-			"contentName": spool.ContentName,
-		}).Warn("journal spec has been removed")
+			"journal": spool.Journal,
+			"name":    spool.ContentName(),
+		}).Warn("dropping Spool (JournalSpec was removed)")
 		return
 	}
 
 	if err := p.persistFn(context.Background(), spool); err != nil {
 		log.WithFields(log.Fields{
 			"journal": spool.Journal,
+			"name":    spool.ContentName(),
 			"err":     err,
-		}).Warn("failed to persist Spool")
+		}).Warn("failed to persist Spool (will retry)")
 		p.queue(spool)
 	}
 }
