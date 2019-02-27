@@ -22,6 +22,32 @@ type cmdJournalsList struct {
 	Stores bool `long:"stores" description:"Show fragment store column"`
 }
 
+func init() {
+	_ = mustAddCmd(cmdJournals, "list", "List journals", `
+List journal specifications and status.
+
+Use --selector to supply a LabelSelector which constrains the set of returned
+journals. Journal selectors support additional meta-labels "name" and "prefix".
+
+Match JournalSpecs having an exact name:
+>    --selector "name in (foo/bar, baz/bing)"
+
+Match JournalSpecs having a name prefix (must end in '/'):
+>    --selector "prefix = my/prefix/"
+
+Results can be output in a variety of --format options:
+yaml:  Prints a YAML journal hierarchy, compatible with "journals apply"
+json:  Prints JournalSpecs encoded as JSON
+proto: Prints JournalSpecs encoded in protobuf text format
+table: Prints as a table (see other flags for column choices)
+
+When output as a journal hierarchy, gazctl will "hoist" the returned collection
+of JournalSpecs into a hierarchy of journals having common prefixes and,
+typically, common configuration. This hierarchy is simply sugar for and is
+exactly equivalent to the original JournalSpecs.
+`, &cmdJournalsList{})
+}
+
 func (cmd *cmdJournalsList) Execute([]string) error {
 	startup()
 

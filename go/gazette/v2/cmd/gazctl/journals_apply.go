@@ -16,6 +16,32 @@ type cmdJournalsApply struct {
 	ApplyConfig
 }
 
+func init() {
+	_ = mustAddCmd(cmdJournals, "apply", "Apply journal specifications", `
+Apply a collection of JournalSpec creations, updates, or deletions.
+
+JournalSpecs should be provided as a YAML journal hierarchy, the format
+produced by "gazctl journals list". This YAML hierarchy format is sugar for
+succinctly representing a collection of JournalSpecs, which typically exhibit
+common prefixes and configuration. gazctl will flatten the YAML hierarchy
+into the implicated collection of JournalSpec changes, and send each to the
+brokers for application.
+
+Brokers verify that the etcd "revision" field of each JournalSpec is correct,
+and will fail the entire apply operation if any have since been updated. A
+common operational pattern is to list, edit, and re-apply a collection of
+JournalSpecs; this check ensures concurrent modifications are caught.
+
+JournalSpecs may be created by setting "revision" to zero or omitting altogether.
+
+JournalSpecs may be deleted by setting field "delete" to true on individual
+journals or parents thereof in the hierarchy. Note that deleted parent prefixes
+will cascade only to JournalSpecs *explicitly listed* as children of the prefix
+in the YAML, and not to other JournalSpecs which may exist with the prefix but
+are not enumerated.
+`+maxTxnSizeWarning, &cmdJournalsApply{})
+}
+
 func (cmd *cmdJournalsApply) Execute([]string) error {
 	startup()
 

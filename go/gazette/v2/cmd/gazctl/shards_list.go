@@ -21,6 +21,24 @@ type cmdShardsList struct {
 	ListConfig
 }
 
+func init() {
+	_ = mustAddCmd(cmdShards, "list", "List shards", `
+List shard specifications and status.
+
+Use --selector to supply a LabelSelector which constrains the set of returned
+shards. Shard selectors support an additional meta-label "id".
+
+Match ShardSpecs having a specific ID:
+>    --selector "id in (shard-12, shard-34)"
+
+Results can be output in a variety of --format options:
+yaml:  Prints shards in YAML form, compatible with "shards apply"
+json:  Prints ShardSpecs encoded as JSON
+proto: Prints ShardSpecs encoded in protobuf text format
+table: Prints as a table (see other flags for column choices)
+`, &cmdShardsList{})
+}
+
 func (cmd *cmdShardsList) Execute([]string) error {
 	startup()
 

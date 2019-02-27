@@ -15,6 +15,22 @@ type cmdShardsApply struct {
 	ApplyConfig
 }
 
+func init() {
+	_ = mustAddCmd(cmdShards, "apply", "Apply shard specifications", `
+Apply a collection of ShardSpec creations, updates, or deletions.
+
+ShardSpecs should be provided as a YAML list, the same format produced by
+"gazctl shards list". Consumers verify that the etcd "revision" field of each
+ShardSpec is correct, and will fail the entire apply operation if any have since
+been updated. A common operational pattern is to list, edit, and re-apply a
+collection of ShardSpecs; this check ensures concurrent modifications are caught.
+
+ShardSpecs may be created by setting "revision" to zero or omitting it altogether.
+
+ShardSpecs may be deleted by setting their field "delete" to true.
+`+maxTxnSizeWarning, &cmdShardsApply{})
+}
+
 func (cmd *cmdShardsApply) Execute([]string) error {
 	startup()
 

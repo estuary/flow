@@ -20,6 +20,28 @@ type cmdJournalRead struct {
 	Offset   int64  `long:"offset" short:"o" default:"-1" description:"Offset to beging reading from journal"`
 }
 
+func init() {
+	_ = mustAddCmd(cmdJournals, "read", "Read journal contents", `
+Read the contents journal or journals as a stream.
+
+Use --selector to supply a LabelSelector which constrains the set of journals
+to be read from.
+
+Match JournalSpecs having an exact name:
+>    --selector "name in (foo/bar, baz/bing)"
+
+Match JournalSpecs having a name prefix (must end in '/'):
+>    --selector "prefix = my/prefix/"
+
+Read can run in a blocking fashion with --blocking which will not exit when
+it has reached the head of the current journal(s). When new data becomes available
+it will be sent to Stdout.
+
+To read from an arbitrary offset into a journal(s) use the --offset flag.
+If not passed the default value is -1 which will read from the head of the journal.
+`, &cmdJournalRead{})
+}
+
 func (cmd *cmdJournalRead) Execute([]string) error {
 	startup()
 

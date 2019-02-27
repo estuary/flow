@@ -18,6 +18,19 @@ type cmdShardsPrune struct {
 	DryRun   bool   `long:"dry-run" description:"Perform a dry-run of the apply"`
 }
 
+func init() {
+	_ = mustAddCmd(cmdShards, "prune", "Removes fragments of a hinted recovery log which are no longer needed", `
+Recovery logs capture every write which has ever occurred in a Shard DB.
+This includes all prior writes of client keys & values, and also RocksDB
+compactions, which can significantly inflate the total volume of writes
+relative to the data currently represented in a RocksDB.
+
+Prune log examines the provided hints to identify Fragments of the log
+which have no intersection with any live files of the DB, and can thus
+be safely deleted.
+`, &cmdShardsPrune{})
+}
+
 func (cmd *cmdShardsPrune) Execute([]string) error {
 	startup()
 	var ctx = context.Background()

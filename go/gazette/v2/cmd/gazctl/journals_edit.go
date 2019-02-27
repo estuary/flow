@@ -17,6 +17,10 @@ type cmdJournalsEdit struct {
 	EditConfig
 }
 
+func init() {
+	_ = mustAddCmd(cmdJournals, "edit", "Edit journal specifications", journalsEditLongDesc, &cmdJournalsEdit{})
+}
+
 func (cmd *cmdJournalsEdit) Execute([]string) error {
 	startup()
 	return editor.EditRetryLoop(editor.RetryLoopArgs{

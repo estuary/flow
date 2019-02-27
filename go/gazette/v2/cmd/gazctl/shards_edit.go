@@ -17,6 +17,10 @@ type cmdShardsEdit struct {
 	EditConfig
 }
 
+func init() {
+	_ = mustAddCmd(cmdShards, "edit", "Edit shard specifications", shardsEditLongDesc, &cmdShardsEdit{})
+}
+
 func (cmd *cmdShardsEdit) Execute([]string) error {
 	startup()
 	return editor.EditRetryLoop(editor.RetryLoopArgs{
