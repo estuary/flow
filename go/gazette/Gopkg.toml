@@ -21,24 +21,8 @@
 #  version = "2.4.0"
 
 required = [
-  "github.com/coreos/bbolt", # Transitive dependency of etcd, further constrained below.
+  "github.com/coreos/bbolt", # Transitive dependency of etcd.
 ]
-
-[[constraint]]
-  name = "github.com/aws/aws-sdk-go"
-  version = "1.12.19"
-
-[[constraint]]
-  name = "github.com/pkg/sftp"
-  version = "1.0.0"
-
-[[constraint]]
-  name = "github.com/satori/go.uuid"
-  version = "1.1.0"
-
-[[constraint]]
-  name = "github.com/youtube/vitess"
-  version = "2.1.1"
 
 # Use an old, pinned version of the cockroach DB keyspace encoding utilities.
 [[constraint]]
@@ -46,26 +30,19 @@ required = [
   branch = "master"
   source = "https://github.com/jgraettinger/cockroach-encoding.git"
 
-# bbolt is a transitive dependency from coreos/etcd. At this time, the current
-# version of etcd (v3.3.9) has a dependency on this version of bbolt which is
-# not part of etcd's Gopkg.toml.
-[[constraint]]
-  name = "github.com/coreos/bbolt"
-  version = "v1.3.1-coreos.6"
-
-# Require an unreleased `master` revision of go-flags, which includes the "env-namespace" feature.
+# Require `master` of go-flags, which includes the "env-namespace" feature
+# (and is not yet included in a release).
 [[constraint]]
   name = "github.com/jessevdk/go-flags"
-  revision = "1c38ed7ad0cc3d9e66649ac398c30e45f395c4eb"
+  branch = "master"
 
-# Require an unreleased `master` revision of gogo/protobuf, which includes the "goproto_unkeyed_all"
-# and "goproto_sizecache_all" extensions.
-[[constraint]]
-  name = "github.com/gogo/protobuf"
-  revision = "e14cafb6a2c249986e51c4b65c3206bf18578715"
+# Required by Etcd, which is currently not compatible with v1.1.2
+[[override]]
+  name = "github.com/ugorji/go"
+  version = "=v1.1.1"
 
 # We require that gorocksdb match our RocksDB version pin (currently 5.17.2)
 [[constraint]]
   name = "github.com/tecbot/gorocksdb"
-  version = "v1.2.0"
+  version = "=v1.2.0"
   source = "https://github.com/LiveRamp/gorocksdb.git"
