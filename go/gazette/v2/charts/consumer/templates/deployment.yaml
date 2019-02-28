@@ -18,6 +18,10 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      {{- if .Values.annotations}}
+      annotations:
+{{ toYaml .Values.annotations | trim | indent 8 }}
+      {{- end }}
       labels:
         app.kubernetes.io/name: {{ include "consumer.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}

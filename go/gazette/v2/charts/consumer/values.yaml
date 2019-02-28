@@ -90,3 +90,5 @@ nodeSelector: {}
 tolerations: []
 # Node affinities to be applied.
 affinity: {}
+# Additional annotations to be attached.
+annotations: {}
