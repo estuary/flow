@@ -48,11 +48,13 @@ func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
 	broker.AppendRespCh <- buildAppendResponseFixture(broker) // Success.
 
 	<-aa.Done()
+	c.Check(aa.Err(), gc.IsNil)
 	c.Check(aa.Response(), gc.DeepEquals, *buildAppendResponseFixture(broker))
 
 	// After completing |aa|, the service loop trivially resolved |aa.next|
 	// as it was still in its initial state, and exited.
 	<-aa.next.Done()
+	c.Check(aa.next.Err(), gc.IsNil)
 
 	c.Check(aa.next.next, gc.Equals, tombstoneAsyncAppend)
 	c.Check(as.PendingExcept(""), gc.HasLen, 0)
@@ -185,6 +187,46 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 	broker.AppendRespCh <- buildAppendResponseFixture(broker)
 
 	WaitForPendingAppends(as.PendingExcept(""))
+}
+
+func (s *AppendServiceSuite) TestAppendContextCancellation(c *gc.C) {
+	var ctx, cancel = context.WithCancel(context.Background())
+
+	var broker = teststub.NewBroker(c, ctx)
+	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(ctx, rjc)
+
+	var aa1 = as.StartAppend("a/journal")
+	aa1.Writer().WriteString("hello, world")
+	c.Check(aa1.Release(), gc.IsNil)
+
+	// Read the request, but don't respond.
+	readHelloWorldAppendRequest(c, broker)
+
+	// Start a second, dependent append.
+	var aa2 = as.StartAppend("other/journal", aa1)
+	aa2.Writer().WriteString("another write")
+	c.Check(aa2.Release(), gc.IsNil)
+
+	c.Check(aa1.Err(), gc.IsNil)
+	c.Check(aa2.Err(), gc.IsNil)
+
+	cancel()
+
+	// Expect both AsyncAppends were aborted.
+	<-aa1.Done()
+	<-aa2.Done()
+
+	c.Check(aa1.Err(), gc.Equals, context.Canceled)
+	c.Check(aa2.Err(), gc.Equals, context.Canceled)
+
+	// New appends may be started without issue, but abort immediately.
+	var aa3 = as.StartAppend("a/journal")
+	aa3.Writer().WriteString("final write")
+	c.Check(aa3.Release(), gc.IsNil)
+
+	<-aa3.Done()
+	c.Check(aa3.Err(), gc.Equals, context.Canceled)
 }
 
 func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {

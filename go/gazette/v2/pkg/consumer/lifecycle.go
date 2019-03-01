@@ -155,7 +155,11 @@ func consumeMessages(shard Shard, store Store, app Application, etcd *clientv3.C
 	for {
 		select {
 		case <-hintsCh:
-			if err = storeRecordedHints(shard, store.Recorder().BuildHints(), etcd); err != nil {
+			var hints recoverylog.FSMHints
+			if hints, err = store.Recorder().BuildHints(); err == nil {
+				err = storeRecordedHints(shard, hints, etcd)
+			}
+			if err != nil {
 				err = extendErr(err, "storeRecordedHints")
 				return
 			}

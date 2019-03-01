@@ -55,6 +55,7 @@ type AsyncJournalClient interface {
 	// Appends is preserved. One or more dependencies may optionally be supplied.
 	// The Append RPC will not begin until all such dependencies have committed.
 	// Dependencies must be ordered on applicable Journal name or StartAppend panics.
+	// They must also be AsyncAppends returned by this client, and not another.
 	// StartAppend may retain the slice, and it must not be subsequently modified.
 	StartAppend(journal pb.Journal, dependencies ...*AsyncAppend) *AsyncAppend
 
@@ -179,7 +180,7 @@ type AsyncAppend struct {
 	commitCh     chan struct{}  // Closed to signal AsyncAppend has committed.
 	fb           *appendBuffer  // Buffer into which writes are queued.
 	checkpoint   int64          // Buffer |fb| offset to append through.
-	err          error          // Retained Require error which is != nil.
+	err          error          // Retained Require(error) or aborting Context error.
 
 	mu   *sync.Mutex  // Shared mutex over all AsyncAppends of the journal.
 	next *AsyncAppend // Next ordered AsyncAppend of the journal.
@@ -242,12 +243,25 @@ func (p *AsyncAppend) rollback() {
 // Request is safe to call at all times.
 func (p *AsyncAppend) Request() pb.AppendRequest { return p.app.Request }
 
-// Response returns the AppendResponse from the broker. Response may be called
-// only after calling BeginCommit and waiting for the returned channel to select.
+// Response returns the AppendResponse from the broker, and may be called only
+// after Done selects.
 func (p *AsyncAppend) Response() pb.AppendResponse { return p.app.Response }
 
-// Done returns a channel which selects when the AsyncAppend has committed.
+// Done returns a channel which selects when the AsyncAppend has committed
+// or has been aborted along with the AppendService's Context.
 func (p *AsyncAppend) Done() <-chan struct{} { return p.commitCh }
+
+// Err returns nil if Done is not yet closed, or the AsyncAppend committed.
+// Otherwise, this AsyncAppend was aborted along with the AppendService Context,
+// and Err returns the causal context error (Cancelled or DeadlineExceeded).
+func (p *AsyncAppend) Err() error {
+	select {
+	case <-p.Done():
+		return p.err
+	default:
+		return nil
+	}
+}
 
 // serveAppends executes Append RPCs specified by a (potentially growing) chain
 // of ordered AsyncAppends. Each RPC is retried until successful. Upon reaching
@@ -280,6 +294,12 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend) {
 
 		for _, dep := range aa.dependencies {
 			<-dep.Done()
+
+			if dep.Err() != nil && aa.app.ctx.Err() == nil {
+				// This can happen only if |dep| and |aa| were created by different
+				// AppendServices having differing contexts, which is disallowed.
+				panic("dependency Err() != nil, but our own context.Err == nil")
+			}
 		}
 
 		// If |aa.fb| is nil, then |aa| was never returned by StartAppend and no
@@ -291,14 +311,19 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend) {
 
 			retryUntil(func() error {
 				var _, err = io.Copy(&aa.app, io.NewSectionReader(aa.fb.file, 0, aa.checkpoint))
-
 				if err == nil {
 					err = aa.app.Close()
 				}
-				if err != nil {
-					aa.app.Reset() // Reset for next attempt.
+
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					aa.err = err // Retain for Err to return.
+					return nil   // Break retry loop.
+				} else if err != nil {
+					aa.app.Reset()
+					return err // Retry by returning |err|.
+				} else {
+					return nil // Success; break loop.
 				}
-				return err
 			}, aa.app.Request.Journal, "failed to append to journal")
 		}
 
@@ -452,8 +477,7 @@ var (
 
 	// tombstoneAsyncAppend is chained as the next AsyncAppend to mark that the
 	// journal's service loop has finished processing the chain and halted.
-	// Writers can use tombstoneAsyncAppend to detect that the AsyncAppend they've
-	// fetched from the AppendService is no longer being served, and the operation
-	// should be restarted.
+	// StartAppend uses tombstoneAsyncAppend to detect that the AsyncAppend it has
+	// fetched is no longer being served, and the operation should be restarted.
 	tombstoneAsyncAppend = &AsyncAppend{}
 )

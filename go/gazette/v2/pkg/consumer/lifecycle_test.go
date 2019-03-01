@@ -58,7 +58,8 @@ func (s *LifecycleSuite) TestRecoveryOfNonEmptyLog(c *gc.C) {
 	}
 	c.Check(r.app.FinalizeTxn(r, r.store), gc.IsNil)
 	c.Check(r.store.Flush(map[pb.Journal]int64{sourceA: 123, sourceB: 456}), gc.IsNil)
-	c.Check(storeRecordedHints(r, r.store.Recorder().BuildHints(), r.etcd), gc.IsNil)
+	var hints, _ = r.store.Recorder().BuildHints()
+	c.Check(storeRecordedHints(r, hints, r.etcd), gc.IsNil)
 
 	// Reset for the next player.
 	r.store.Destroy()

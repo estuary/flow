@@ -41,7 +41,8 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	c.Check(op.Create.Path, gc.Equals, "/other/file")
 
 	// Expect two LiveNodes, with increasing FirstOffset (as the commit completed between operations).
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 1, Segments: []Segment{
@@ -69,7 +70,8 @@ func (s *RecorderSuite) TestDeleteFile(c *gc.C) {
 	c.Check(op.Unlink.Path, gc.Equals, "/path/to/file")
 
 	// Expect no LiveNodes remain.
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 	})
 }
@@ -100,7 +102,8 @@ func (s *RecorderSuite) TestOverwriteExistingFile(c *gc.C) {
 	c.Check(op.Create.Path, gc.Equals, "/path/to/file")
 
 	// Expect one LiveNode of Fnode 3.
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 3, Segments: []Segment{
@@ -129,7 +132,8 @@ func (s *RecorderSuite) TestLinkFile(c *gc.C) {
 	c.Check(op.Link.Path, gc.Equals, "/linked")
 
 	// Expect one LiveNode.
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 1, Segments: []Segment{
@@ -175,7 +179,8 @@ func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
 	c.Check(op.Unlink.Path, gc.Equals, "/source/path")
 
 	// Expect only Fnode 2 in LiveNodes.
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 2, Segments: []Segment{
@@ -210,7 +215,8 @@ func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
 	c.Check(op.Unlink.Fnode, gc.Equals, Fnode(1))
 	c.Check(op.Unlink.Path, gc.Equals, "/source/path")
 
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 1, Segments: []Segment{
@@ -255,7 +261,8 @@ func (s *RecorderSuite) TestFileAppends(c *gc.C) {
 	c.Check(op.Write.Offset, gc.Equals, int64(11))
 	c.Check(s.readLen(c, op.Write.Length, br), gc.Equals, "second-write")
 
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 1, Segments: []Segment{
@@ -296,7 +303,8 @@ func (s *RecorderSuite) TestPropertyUpdate(c *gc.C) {
 	c.Check(op.Unlink.Path, gc.Equals, "/tmp_file")
 
 	// Property is tracked under fsm.Properties and produced into FSMHints.
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log:       aRecoveryLog,
 		LiveNodes: nil,
 		Properties: []Property{
@@ -329,12 +337,46 @@ func (s *RecorderSuite) TestMixedNewFileWriteAndDelete(c *gc.C) {
 	op = s.parseOp(c, br)             // Deletion of Fnode 1.
 
 	// Expect Fnode 2 (only) is included in LiveNodes, with its write.
-	c.Check(rec.BuildHints(), gc.DeepEquals, FSMHints{
+	var hints, _ = rec.BuildHints()
+	c.Check(hints, gc.DeepEquals, FSMHints{
 		Log: aRecoveryLog,
 		LiveNodes: []FnodeSegments{
 			{Fnode: 2, Segments: []Segment{
 				{Author: anAuthor, FirstSeqNo: 2, FirstChecksum: 0x950c2859, FirstOffset: offset + 31, LastSeqNo: 3}}}},
 	})
+}
+
+func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
+	brokertest.CreateJournals(c, broker,
+		brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}))
+
+	var ctx, cancel = context.WithCancel(context.Background())
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var ajc = client.NewAppendService(ctx, rjc)
+	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
+	var rec = NewRecorder(fsm, anAuthor, "/strip", ajc)
+
+	cancel()
+
+	// Expect operations continue to sequence, but their appends are aborted
+	// immediately due to the cancellation. We block on barrier.Done to
+	// ensure we're also exercising Recorder inspections of |recentTxn|.
+	for _, n := range []string{"/strip/file2", "/strip/file3"} {
+		rec.RecordCreate(n)
+		var barrier = rec.WeakBarrier()
+		<-barrier.Done()
+		c.Check(barrier.Err(), gc.Equals, context.Canceled)
+	}
+
+	var _, err = rec.BuildHints()
+	c.Check(err, gc.Equals, context.Canceled)
+
+	broker.RevokeLease(c)
+	broker.WaitForExit()
 }
 
 func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {

@@ -334,18 +334,19 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 			case playerStateInjectHandoffAtHead:
 				var txn = ajc.StartAppend(hints.Log)
 
-				if err = txn.
-					Require(message.FixedFraming.Marshal(&RecordedOp{
-						SeqNo:    fsm.NextSeqNo,
-						Checksum: fsm.NextChecksum,
-						Author:   handoff,
-					}, txn.Writer())).
-					Release(); err != nil {
+				err = txn.Require(message.FixedFraming.Marshal(&RecordedOp{
+					SeqNo:    fsm.NextSeqNo,
+					Checksum: fsm.NextChecksum,
+					Author:   handoff,
+				}, txn.Writer())).Release()
+
+				if err == nil {
+					_, err = <-txn.Done(), txn.Err()
+				}
+				if err != nil {
 					err = extendErr(err, "injecting no-op")
 					return
 				}
-				<-txn.Done()
-
 				// We next must read through the op we just wrote.
 				state, readThrough = playerStateReadHandoffBarrier, txn.Response().Commit.End
 

@@ -111,10 +111,12 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 	// Issue an empty append transaction (a write barrier) to determine the
 	// current write-head of the |FinalSumsJournal|, prior to emitting any chunks.
 	var barrier = as.StartAppend(FinalSumsJournal)
-	if err = barrier.Release(); err != nil {
+	if err = barrier.Release(); err == nil {
+		_, err = <-barrier.Done(), barrier.Err()
+	}
+	if err != nil {
 		return errors.Wrap(err, "writing barrier")
 	}
-	<-barrier.Done()
 
 	var rr = client.NewRetryReader(ctx, rjc, pb.ReadRequest{
 		Journal:    barrier.Response().Commit.Journal,

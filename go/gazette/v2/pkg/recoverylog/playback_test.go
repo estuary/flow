@@ -390,7 +390,7 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 	// Start a Recorder, and produce a set of initial hints.
 	var rec = NewRecorder(recFSM, anAuthor, "/strip", bk)
 	var f = rec.RecordCreate("/strip/foo/bar")
-	var hints = rec.BuildHints()
+	var hints, _ = rec.BuildHints()
 
 	// Record more content not captured in |hints|.
 	f.RecordWrite([]byte("hello"))
@@ -439,7 +439,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	// Start a Recorder, and two Players from initial Recorder hints.
 	var rec = NewRecorder(recFSM, anAuthor, "/strip", bk)
 	var f = rec.RecordCreate("/strip/foo/bar")
-	var hints = rec.BuildHints()
+	var hints, _ = rec.BuildHints()
 
 	// |handoffPlayer| will inject a hand-off noop to take ownership of the log.
 	var handoffPlayer = NewPlayer()
@@ -488,7 +488,9 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	c.Check(handoffPlayer.FSM.BuildHints(), gc.DeepEquals, tailPlayer.FSM.BuildHints())
 
 	// Expect players have branched from |rec|'s view of history.
-	c.Check(rec.BuildHints(), gc.Not(gc.DeepEquals), tailPlayer.FSM.BuildHints())
+	hints, err = rec.BuildHints()
+	c.Check(hints, gc.Not(gc.DeepEquals), tailPlayer.FSM.BuildHints())
+	c.Check(err, gc.IsNil)
 }
 
 func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
@@ -512,7 +514,7 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
 
 	// Tweak hints by adding an Fnode & offset which was not actually recorded.
-	var hints = rec.BuildHints()
+	var hints, _ = rec.BuildHints()
 	{
 		var txn = bk.StartAppend(aRecoveryLog) // Determine log head.
 		c.Assert(txn.Release(), gc.IsNil)

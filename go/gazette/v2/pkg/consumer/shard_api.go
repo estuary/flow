@@ -40,7 +40,8 @@ func (srv *Service) Stat(ctx context.Context, req *StatRequest) (*StatResponse, 
 		// fetched offsets may still be in progress. Block on a WeakBarrier so
 		// that, when we return to the caller, they're assured that all writes
 		// related to processing through the offsets have also committed.
-		<-res.Store.Recorder().WeakBarrier().Done()
+		var txn = res.Store.Recorder().WeakBarrier()
+		_, err = <-txn.Done(), txn.Err()
 	}
 	return resp, err
 }

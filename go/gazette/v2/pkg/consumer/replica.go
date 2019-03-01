@@ -61,7 +61,7 @@ func NewReplica(app Application, ks *keyspace.KeySpace, etcd *clientv3.Client, r
 		player:        recoverylog.NewPlayer(),
 		ks:            ks,
 		etcd:          etcd,
-		journalClient: client.NewAppendService(context.Background(), rjc),
+		journalClient: client.NewAppendService(ctx, rjc),
 	}
 	return r
 }

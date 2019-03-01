@@ -29,7 +29,7 @@ func (s *RecordedRocksDBSuite) TestSimpleStopAndStart(c *gc.C) {
 	replica1.put(c, "key1", "value one")
 	replica1.put(c, "key2", "value2")
 
-	var hints = replica1.recorder.BuildHints()
+	var hints, _ = replica1.recorder.BuildHints()
 
 	// |replica1| was initialized from empty hints and began writing at the
 	// recoverylog head (offset -1). However, expect that the produced hints
@@ -74,7 +74,7 @@ func (s *RecordedRocksDBSuite) TestWarmStandbyHandoff(c *gc.C) {
 	defer replica3.teardown(c)
 
 	replica1.startWriting(c, aRecoveryLog)
-	var hints = replica1.recorder.BuildHints()
+	var hints, _ = replica1.recorder.BuildHints()
 
 	// Both replicas begin reading at the same time.
 	replica2.startReading(c, hints)
@@ -124,7 +124,8 @@ func (s *RecordedRocksDBSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 
 	// |replica1| begins as primary.
 	replica1.startWriting(c, aRecoveryLog)
-	replica2.startReading(c, replica1.recorder.BuildHints())
+	var hints, _ = replica1.recorder.BuildHints()
+	replica2.startReading(c, hints)
 	replica1.put(c, "key one", "value one")
 
 	// |replica2| now becomes live. |replica1| and |replica2| intersperse writes.
@@ -147,9 +148,12 @@ func (s *RecordedRocksDBSuite) TestResolutionOfConflictingWriters(c *gc.C) {
 	var replica4 = NewTestReplica(c, bk)
 	defer replica4.teardown(c)
 
-	replica3.startReading(c, replica1.recorder.BuildHints())
+	hints, _ = replica1.recorder.BuildHints()
+	replica3.startReading(c, hints)
 	replica3.makeLive(c)
-	replica4.startReading(c, replica2.recorder.BuildHints())
+
+	hints, _ = replica2.recorder.BuildHints()
+	replica4.startReading(c, hints)
 	replica4.makeLive(c)
 
 	// Expect |replica3| recovered |replica1| history.

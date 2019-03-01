@@ -171,7 +171,7 @@ func (r *Recorder) RecordRename(src, target string) {
 // BuildHints returns FSMHints which may be played back to fully reconstruct the
 // local filesystem state observed by this Recorder. It may block while pending
 // operations sync to the log.
-func (r *Recorder) BuildHints() FSMHints {
+func (r *Recorder) BuildHints() (FSMHints, error) {
 	// We must be careful to not return FSMHints which reference operations
 	// not yet committed to the log. Wrap BuildHints within a write-barrier
 	// transaction, both to protect FSM from concurrent modification, and to
@@ -182,7 +182,7 @@ func (r *Recorder) BuildHints() FSMHints {
 	r.unlockAndReleaseTxn(txn)
 
 	<-txn.Done()
-	return hints
+	return hints, txn.Err()
 }
 
 // StrongBarrier issues a zero-byte append which has dependencies on all other
@@ -219,19 +219,23 @@ func (r *Recorder) lockAndBeginTxn(dependencies ...*client.AsyncAppend) *client.
 	if r.recentTxn == nil {
 		r.recentTxn = txn
 	}
+
 	select {
-	default:
-		// Don't block unless Done is ready.
 	case <-r.recentTxn.Done():
 		// A previous write has completed. Update our |writeHead|.
-		if end := r.recentTxn.Response().Commit.End; end < r.writeHead {
+		if r.recentTxn.Err() != nil {
+			// Aborted. Ignore.
+		} else if end := r.recentTxn.Response().Commit.End; end < r.writeHead {
 			log.WithFields(log.Fields{"writeHead": r.writeHead, "end": end, "log": r.fsm.Log}).
 				Panic("invalid writeHead at lockAndBeginTxn")
 		} else {
 			r.writeHead = end
 			r.recentTxn = txn
 		}
+	default:
+		// Don't block.
 	}
+
 	return txn
 }
 

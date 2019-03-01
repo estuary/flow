@@ -104,8 +104,9 @@ func (r recordedAferoFile) Sync() error {
 	if err := r.File.Sync(); err != nil {
 		return err
 	}
-	<-r.Recorder.StrongBarrier().Done()
-	return nil
+	var txn = r.Recorder.StrongBarrier()
+	<-txn.Done()
+	return txn.Err()
 }
 
 func (r recordedAferoFile) Truncate(int64) error {
