@@ -6,6 +6,7 @@ import (
 	"hash"
 	"io"
 
+	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -144,9 +145,11 @@ func serveAppend(stream pb.Journal_AppendServer, req *pb.AppendRequest, res reso
 
 	var err = releasePipelineAndGatherResponse(stream.Context(), pln, res.replica.pipelineCh)
 	if err != nil {
+		metrics.CommitsTotal.WithLabelValues(metrics.Fail).Inc()
 		log.WithFields(log.Fields{"err": err, "journal": res.journalSpec.Name}).
 			Warn("serveAppend: pipeline failed")
 	}
+	metrics.CommitsTotal.WithLabelValues(metrics.Ok).Inc()
 
 	if appender.reqErr != nil {
 		return appender.reqErr

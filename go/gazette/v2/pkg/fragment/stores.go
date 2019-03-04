@@ -8,8 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/gorilla/schema"
+)
+
+const (
+	getSignedURLOp = "get_signed_url"
+	existsOp       = "exist"
+	openOp         = "open"
+	persistOp      = "persist"
+	listOp         = "list"
+	removeOp       = "remove"
 )
 
 // SignGetURL returns a URL authenticating the bearer to perform a GET operation
@@ -130,6 +140,13 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 		return fmt.Errorf("parsing store URL arguments: %s", err)
 	}
 	return nil
+}
+
+func instrument(provider, op string, err error) {
+	if err != nil {
+		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Fail)
+	}
+	metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Ok)
 }
 
 // rewriterCfg holds a find/replace pair, often populated by parseStoreArgs()

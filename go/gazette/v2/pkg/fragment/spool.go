@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/codecs"
+	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	log "github.com/sirupsen/logrus"
 )
@@ -158,9 +159,11 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 			s.FirstAppendTime = timeNow()
 		}
 
+		metrics.CommittedBytesTotal.Add(float64(s.delta))
 		s.delta = 0
 		s.saveSumState()
 
+		metrics.CommitsTotal.WithLabelValues(pb.Status_OK.String()).Inc()
 		return pb.ReplicateResponse{Status: pb.Status_OK}
 	}
 

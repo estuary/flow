@@ -18,6 +18,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	s3Provider = "s3"
+)
+
 type s3Cfg struct {
 	bucket string
 	prefix string
@@ -42,8 +46,9 @@ type s3Cfg struct {
 	SSE string
 }
 
-func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, error) {
-	var cfg, client, err = s3Client(ep)
+func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, err error) {
+	defer instrument(s3Provider, getSignedURLOp, err)
+	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return "", err
 	}
@@ -53,12 +58,15 @@ func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, erro
 		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	var req, _ = client.GetObjectRequest(&getObj)
-	return req.Presign(d)
+	url, err = req.Presign(d)
+	return url, err
 }
 
-func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, error) {
-	var cfg, client, err = s3Client(ep)
+func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
+	defer instrument(s3Provider, existsOp, err)
+	cfg, client, err := s3Client(ep)
 	if err != nil {
+		exists = false
 		return false, err
 	}
 	var headObj = s3.HeadObjectInput{
@@ -66,16 +74,17 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, err
 		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	if _, err = client.HeadObjectWithContext(ctx, &headObj); err == nil {
-		return true, nil
+		return true, err
 	} else if awsErr, ok := err.(awserr.RequestFailure); ok && awsErr.StatusCode() == http.StatusNotFound {
-		return false, nil
+		return false, err
 	} else {
 		return false, err
 	}
 }
 
-func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
-	var cfg, client, err = s3Client(ep)
+func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.ReadCloser, err error) {
+	defer instrument(s3Provider, openOp, err)
+	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return nil, err
 	}
@@ -84,15 +93,16 @@ func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadClos
 		Bucket: aws.String(cfg.bucket),
 		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
-	if resp, err := client.GetObjectWithContext(ctx, &getObj); err != nil {
+	var resp *s3.GetObjectOutput
+	if resp, err = client.GetObjectWithContext(ctx, &getObj); err != nil {
 		return nil, err
-	} else {
-		return resp.Body, nil
 	}
+	return resp.Body, err
 }
 
-func s3Persist(ctx context.Context, ep *url.URL, spool Spool) error {
-	var cfg, client, err = s3Client(ep)
+func s3Persist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
+	defer instrument(s3Provider, persistOp, err)
+	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return err
 	}
@@ -123,8 +133,9 @@ func s3Persist(ctx context.Context, ep *url.URL, spool Spool) error {
 	return err
 }
 
-func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
-	var cfg, client, err = s3Client(ep)
+func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) (err error) {
+	defer instrument(s3Provider, listOp, err)
+	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return err
 	}
@@ -152,8 +163,9 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Jo
 	})
 }
 
-func s3Remove(ctx context.Context, fragment pb.Fragment) error {
-	var cfg, client, err = s3Client(fragment.BackingStore.URL())
+func s3Remove(ctx context.Context, fragment pb.Fragment) (err error) {
+	defer instrument(s3Provider, removeOp, err)
+	cfg, client, err := s3Client(fragment.BackingStore.URL())
 	if err != nil {
 		return err
 	}
