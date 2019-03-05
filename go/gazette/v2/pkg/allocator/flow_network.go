@@ -1,6 +1,7 @@
 package allocator
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -46,26 +47,40 @@ import (
 //                            |       |
 //                            +-------+
 //
+// TODO(johnny): Update this diagram to reflect the Overflow node (Issue #157).
+//
 type flowNetwork struct {
 	source    pr.Node
 	members   []pr.Node
 	items     []pr.Node
 	zoneItems []pr.Node
+	overflow  pr.Node
 	sink      pr.Node
 }
 
 func (fn *flowNetwork) init(s *State) {
 	// Size Nodes and set labeled height. Push/Relabel initializes all Node labels
 	// to their distance from the Sink node, with the exception of the Source, which
-	// is initialized to the total number of vertices.
+	// is initialized to the total number of nodes.
 	fn.items = pr.InitNodes(fn.items, len(s.Items), 3)
 	fn.zoneItems = pr.InitNodes(fn.zoneItems, len(s.Items)*len(s.Zones), 2)
 	fn.members = pr.InitNodes(fn.members, len(s.Members), 1)
 	fn.sink = pr.Node{Arcs: fn.sink.Arcs[:0], Height: 0}
 	fn.source = pr.Node{
 		Arcs:   fn.source.Arcs[:0],
-		Height: uint32(len(fn.items) + len(fn.zoneItems) + len(fn.members) + 2),
+		Height: uint32(len(fn.items) + len(fn.zoneItems) + len(fn.members) + 3),
 	}
+	// Initialize the Overflow node with a height which is _just_ small enough
+	// that flow is pushed through overflow arcs rather than all the way back to
+	// the Source, terminating the push/relabel algorithm. Rationale:
+	//  * The Source is initialized with height V, the total number of nodes.
+	//  * Flow may be pushed "down" an arc having a height gradient of exactly one.
+	//  * Thus in order to push to the Source, an Item node must have a label of V+1.
+	//  * The Overflow node is distance 3 from an Item node; V + 1 - 3 = V - 2.
+	fn.overflow = pr.Node{Arcs: fn.overflow.Arcs[:0], Height: fn.source.Height - 2}
+	// Add effectively-infinite capacity from the Overflow node to Sink.
+	// Constrained Arcs to the overflow are then added from each member.
+	addArc(&fn.overflow, &fn.sink, math.MaxInt32, 0)
 
 	var (
 		// We cannot hope to allocate more Item slots than there are Member slots.
@@ -146,17 +161,23 @@ func (fn *flowNetwork) init(s *State) {
 		var zone = cur.RightBegin
 
 		// Calculate scaled member capacity using integer division, rounded up.
-		var limit = memberAt(s.Members, member).ItemLimit() * zsfNum[zone]
-		if limit == 0 {
+		var limit = memberAt(s.Members, member).ItemLimit()
+		var scaled = limit * zsfNum[zone]
+
+		if scaled == 0 {
 			// Pass.
-		} else if limit%zsfDenom[zone] == 0 {
-			limit = limit / zsfDenom[zone]
+		} else if scaled%zsfDenom[zone] == 0 {
+			scaled = scaled / zsfDenom[zone]
 		} else {
-			limit = (limit / zsfDenom[zone]) + 1
+			scaled = (scaled / zsfDenom[zone]) + 1
 		}
 		// Arc from Member to Sink, with capacity of the adjusted Member ItemLimit.
 		// Previous flow is the number of current Assignments.
-		addArc(&fn.members[member], &fn.sink, limit, s.MemberTotalCount[member])
+		addArc(&fn.members[member], &fn.sink, scaled, s.MemberTotalCount[member])
+		// Add any remaining capacity via an arc to the Overflow node.
+		if limit > scaled {
+			addArc(&fn.members[member], &fn.overflow, limit-scaled, 0)
+		}
 	}
 
 	// Sort all Node Arcs by priority.
@@ -164,6 +185,7 @@ func (fn *flowNetwork) init(s *State) {
 	pr.SortNodeArcs(fn.items...)
 	pr.SortNodeArcs(fn.zoneItems...)
 	pr.SortNodeArcs(fn.members...)
+	pr.SortNodeArcs(fn.overflow)
 	pr.SortNodeArcs(fn.sink)
 }
 

@@ -52,8 +52,6 @@ func (s *ScenariosSuite) TestInitialAllocation(c *gc.C) {
 }
 
 func (s *ScenariosSuite) TestInitialAllocationRegressionIssue157(c *gc.C) {
-	c.Skip("This test demonstrates the edge case of Issue 157, and currently fails.")
-
 	c.Check(insert(s.ctx, s.client, ""+
 		"/root/items/item-01", `{"R": 3}`,
 		"/root/items/item-02", `{"R": 3}`,

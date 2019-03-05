@@ -88,11 +88,12 @@ func (s *FlowNetworkSuite) TestFlowOverSimpleFixture(c *gc.C) {
 		MBar = &fn.members[0]
 		MFoo = &fn.members[1]
 		MBaz = &fn.members[2]
+		OF   = &fn.overflow
 		T    = &fn.sink
 	)
 
 	// Verify Source Arcs.
-	verifyNode(c, S, &pr.Node{ID: 0, Height: 11, Arcs: []pr.Arc{
+	verifyNode(c, S, &pr.Node{ID: 0, Height: 12, Arcs: []pr.Arc{
 		{Capacity: 2, Priority: 2, Target: I1},
 		{Capacity: 1, Priority: 2, Target: I2},
 	}})
@@ -130,6 +131,7 @@ func (s *FlowNetworkSuite) TestFlowOverSimpleFixture(c *gc.C) {
 	}})
 	verifyNode(c, MBaz, &pr.Node{ID: 2, Height: 1, Arcs: []pr.Arc{
 		{Capacity: 2, Priority: 2, Target: T},
+		{Capacity: 1, Priority: 0, Target: OF},
 	}})
 
 	// Solve the flow network for maximum flow.
