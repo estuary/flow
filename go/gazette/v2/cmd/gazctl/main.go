@@ -69,6 +69,11 @@ type EditConfig struct {
 	MaxTxnSize int    `long:"max-txn-size" default:"0" description:"maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction"`
 }
 
+type pruneConfig struct {
+	Selector string `long:"selector" short:"l" required:"true" description:"Label Selector query to filter on"`
+	DryRun   bool   `long:"dry-run" description:"Perform a dry-run of the apply"`
+}
+
 func (cfg ApplyConfig) decode(into interface{}) error {
 	var buffer []byte
 	var err error
