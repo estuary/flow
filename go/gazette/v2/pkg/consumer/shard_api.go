@@ -192,6 +192,21 @@ func ListShards(ctx context.Context, sc ShardClient, req *ListRequest) (*ListRes
 	}
 }
 
+// StatShard invokes the Stat RPC, and maps a validation or !OK status to an error.
+func StatShard(ctx context.Context, rc RoutedShardClient, req *StatRequest) (*StatResponse, error) {
+	var routedCtx = pb.WithDispatchItemRoute(ctx, rc, req.Shard.String(), false)
+	if r, err := rc.Stat(routedCtx, req, grpc.FailFast(false)); err != nil {
+		return r, err
+	} else if err = r.Validate(); err != nil {
+		return r, err
+	} else if r.Status != Status_OK {
+		return r, errors.New(r.Status.String())
+	} else {
+		return r, nil
+	}
+
+}
+
 // ApplyShards invokes the Apply RPC.
 func ApplyShards(ctx context.Context, sc ShardClient, req *ApplyRequest) (*ApplyResponse, error) {
 	return ApplyShardsInBatches(ctx, sc, req, 0)

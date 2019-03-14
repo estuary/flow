@@ -33,7 +33,8 @@ var (
 		Broker mbp.ClientConfig `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	})
 	shardsCfg = new(struct {
-		Consumer mbp.AddressConfig `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
+		Consumer mbp.ClientConfig `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
+		Broker   mbp.ClientConfig `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	})
 
 	parser = flags.NewParser(baseCfg, flags.Default)
