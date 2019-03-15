@@ -132,6 +132,7 @@ func pumpMessages(shard Shard, app Application, journal pb.Journal, offset int64
 		case <-shard.Context().Done():
 			return extendErr(shard.Context().Err(), "sending msg (%s:%d)", spec.Name, offset)
 		}
+		metrics.GazetteConsumerBytesConsumedTotal.Add(float64(next - offset))
 	}
 }
 
