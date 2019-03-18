@@ -81,6 +81,9 @@ RUN go test -tags rocksdb github.com/LiveRamp/gazette/v2/examples/...
 # Stage 4: Pluck gazette binaries onto base.
 FROM base as gazette
 
+# Install vim in gazette image as it is required for some gazctl commands
+RUN apt-get update && apt-get install -y vim --no-install-recommends
+
 COPY --from=build \
     /go/bin/gazctl \
     /go/bin/gazette \
