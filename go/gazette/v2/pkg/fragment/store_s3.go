@@ -47,7 +47,7 @@ type s3Cfg struct {
 }
 
 func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, err error) {
-	defer instrument(s3Provider, getSignedURLOp, err)
+	defer func() { instrument(s3Provider, getSignedURLOp, err) }()
 	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return "", err
@@ -63,7 +63,7 @@ func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, 
 }
 
 func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
-	defer instrument(s3Provider, existsOp, err)
+	defer func() { instrument(s3Provider, existsOp, err) }()
 	cfg, client, err := s3Client(ep)
 	if err != nil {
 		exists = false
@@ -83,7 +83,7 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bo
 }
 
 func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.ReadCloser, err error) {
-	defer instrument(s3Provider, openOp, err)
+	defer func() { instrument(s3Provider, openOp, err) }()
 	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.R
 }
 
 func s3Persist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
-	defer instrument(s3Provider, persistOp, err)
+	defer func() { instrument(s3Provider, persistOp, err) }()
 	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return err
@@ -134,7 +134,7 @@ func s3Persist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
 }
 
 func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) (err error) {
-	defer instrument(s3Provider, listOp, err)
+	defer func() { instrument(s3Provider, listOp, err) }()
 	cfg, client, err := s3Client(ep)
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Jo
 }
 
 func s3Remove(ctx context.Context, fragment pb.Fragment) (err error) {
-	defer instrument(s3Provider, removeOp, err)
+	defer func() { instrument(s3Provider, removeOp, err) }()
 	cfg, client, err := s3Client(fragment.BackingStore.URL())
 	if err != nil {
 		return err

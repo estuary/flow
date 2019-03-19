@@ -28,7 +28,7 @@ type gcsCfg struct {
 }
 
 func gcsSignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, err error) {
-	defer instrument(gcsProvider, getSignedURLOp, err)
+	defer func() { instrument(gcsProvider, getSignedURLOp, err) }()
 	cfg, _, opts, err := gcsClient(ep)
 	if err != nil {
 		return "", err
@@ -41,7 +41,7 @@ func gcsSignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string,
 }
 
 func gcsExists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
-	defer instrument(gcsProvider, existsOp, err)
+	defer func() { instrument(gcsProvider, existsOp, err) }()
 	cfg, client, _, err := gcsClient(ep)
 	if err != nil {
 		return false, err
@@ -56,7 +56,7 @@ func gcsExists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists b
 }
 
 func gcsOpen(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.ReadCloser, err error) {
-	defer instrument(gcsProvider, openOp, err)
+	defer func() { instrument(gcsProvider, openOp, err) }()
 	cfg, client, _, err := gcsClient(ep)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func gcsOpen(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.
 }
 
 func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
-	defer instrument(gcsProvider, persistOp, err)
+	defer func() { instrument(gcsProvider, persistOp, err) }()
 	cfg, client, _, err := gcsClient(ep)
 	if err != nil {
 		return err
@@ -91,7 +91,7 @@ func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
 }
 
 func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) (err error) {
-	defer instrument(gcsProvider, listOp, err)
+	defer func() { instrument(gcsProvider, listOp, err) }()
 	cfg, client, _, err := gcsClient(ep)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.J
 }
 
 func gcsRemove(ctx context.Context, fragment pb.Fragment) (err error) {
-	defer instrument(gcsProvider, removeOp, err)
+	defer func() { instrument(gcsProvider, removeOp, err) }()
 	cfg, client, _, err := gcsClient(fragment.BackingStore.URL())
 	if err != nil {
 		return err
