@@ -89,7 +89,7 @@ func (ks *KeySpace) Load(ctx context.Context, client *clientv3.Client, rev int64
 		case resp, ok := <-respCh:
 			if !ok {
 				respCh = nil // Finished draining |respCh|.
-			} else if err := patchHeader(&ks.Header, *resp.Header, true); err != nil {
+			} else if err := patchHeader(&ks.Header, *resp.Header, false); err != nil {
 				return err
 			} else {
 				for _, kv := range resp.Kvs {
