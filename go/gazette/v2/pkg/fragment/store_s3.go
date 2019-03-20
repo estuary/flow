@@ -66,7 +66,6 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bo
 	defer func() { instrument(s3Provider, existsOp, err) }()
 	cfg, client, err := s3Client(ep)
 	if err != nil {
-		exists = false
 		return false, err
 	}
 	var headObj = s3.HeadObjectInput{
@@ -74,9 +73,10 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bo
 		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	if _, err = client.HeadObjectWithContext(ctx, &headObj); err == nil {
-		return true, err
+		return true, nil
 	} else if awsErr, ok := err.(awserr.RequestFailure); ok && awsErr.StatusCode() == http.StatusNotFound {
-		return false, err
+		err = nil
+		return false, nil
 	} else {
 		return false, err
 	}
