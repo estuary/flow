@@ -23,7 +23,7 @@ readonly GAZCTL="${DOCKER} run \
 # Create all test journals. Use `sed` to replace the MINIO_RELEASE token with the
 # correct Minio service address.
 sed -e "s/MINIO_RELEASE/$(helm_release ${BK_NAMESPACE} minio)-minio.${BK_NAMESPACE}/g" ${V2DIR}/test/examples.journalspace.yaml | \
-  BROKER_ADDRESS=$(release_address $(helm_release ${BK_NAMESPACE} gazette) gazette) ${GAZCTL} journals apply --specs /dev/stdin
+  BROKER_ADDRESS=$(release_address $(helm_release ${BK_NAMESPACE} gazette) gazette) ${GAZCTL} journals apply --specs -
 
 # Install a test "gazette-zonemap" ConfigMap in the namespace,
 # if one doesn't already exist.
@@ -62,7 +62,7 @@ EOF
 
 # Create shards by piping the enumeration to `gazctl shards apply` with the stream-sum service address.
 stream_sum_shards | \
-  CONSUMER_ADDRESS=$(release_address $(helm_release ${NAMESPACE} stream-sum) summer) ${GAZCTL} shards apply --specs /dev/stdin
+  CONSUMER_ADDRESS=$(release_address $(helm_release ${NAMESPACE} stream-sum) summer) ${GAZCTL} shards apply --specs -
 
 # Be a jerk and delete all gazette & stream-sum consumer pods a few times while
 # verification jobs are still running. Expect this breaks nothing, and all
@@ -106,4 +106,4 @@ EOF
 
 # Create shards by piping the enumeration to `gazctl shards apply` with the word-count service address.
 word_count_shards | \
-  CONSUMER_ADDRESS=$(release_address $(helm_release ${NAMESPACE} word-count) counter) ${GAZCTL} shards apply --specs /dev/stdin
+  CONSUMER_ADDRESS=$(release_address $(helm_release ${NAMESPACE} word-count) counter) ${GAZCTL} shards apply --specs -
