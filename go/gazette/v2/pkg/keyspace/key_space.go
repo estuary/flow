@@ -89,7 +89,7 @@ func (ks *KeySpace) Load(ctx context.Context, client *clientv3.Client, rev int64
 		case resp, ok := <-respCh:
 			if !ok {
 				respCh = nil // Finished draining |respCh|.
-			} else if err := patchHeader(&ks.Header, *resp.Header, false); err != nil {
+			} else if err := patchHeader(&ks.Header, *resp.Header, true); err != nil {
 				return err
 			} else {
 				for _, kv := range resp.Kvs {
@@ -273,15 +273,16 @@ func (ks *KeySpace) onUpdate() {
 	ks.updateCh = make(chan struct{})
 }
 
-// patchHeader updates |h| with an Etcd ResponseHeader. It returns an error if the headers are inconsistent.
-// If |expectSameRevision|, both ResponseHeaders should reference the same Revision (or, |h| must be zero-valued).
-// Otherwise, the |update| Revision is expected to be greater than the current one.
-func patchHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader, expectSameRevision bool) error {
+// patchHeader updates |h| with an Etcd ResponseHeader. It returns an error if
+// the headers are inconsistent. If |allowSameRevision|, |update| Revision is
+// expected to be greater than or equal to the current one; otherwise, it
+// should be strictly greater.
+func patchHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader, allowSameRevision bool) error {
 	if h.ClusterId != 0 && h.ClusterId != update.ClusterId {
 		return fmt.Errorf("etcd ClusterID mismatch (expected %d, got %d)", h.ClusterId, update.ClusterId)
-	} else if expectSameRevision && h.Revision != update.Revision && *h != (etcdserverpb.ResponseHeader{}) {
-		return fmt.Errorf("etcd Revision mismatch (expected = %d, got %d)", h.Revision, update.Revision)
-	} else if !expectSameRevision && h.Revision >= update.Revision {
+	} else if allowSameRevision && update.Revision < h.Revision {
+		return fmt.Errorf("etcd Revision mismatch (expected >= %d, got %d)", h.Revision, update.Revision)
+	} else if !allowSameRevision && update.Revision <= h.Revision {
 		return fmt.Errorf("etcd Revision mismatch (expected > %d, got %d)", h.Revision, update.Revision)
 	}
 
