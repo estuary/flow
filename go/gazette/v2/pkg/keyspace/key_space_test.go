@@ -81,7 +81,7 @@ func (s *KeySpaceSuite) TestHeaderPatching(c *gc.C) {
 	// Revision must be equal.
 	other.Revision = 122
 	c.Check(patchHeader(&h, other, true), gc.ErrorMatches,
-		`etcd Revision mismatch \(expected = 123, got 122\)`)
+		`etcd Revision mismatch \(expected >= 123, got 122\)`)
 
 	other.Revision = 124
 	other.MemberId = 333333
