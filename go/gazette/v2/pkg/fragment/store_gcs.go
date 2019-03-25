@@ -16,10 +16,6 @@ import (
 	"google.golang.org/api/option"
 )
 
-const (
-	gcsProvider = "gcs"
-)
-
 type gcsCfg struct {
 	bucket string
 	prefix string
@@ -27,22 +23,29 @@ type gcsCfg struct {
 	rewriterCfg
 }
 
-func gcsSignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, err error) {
-	defer func() { instrument(gcsProvider, getSignedURLOp, err) }()
-	cfg, _, opts, err := gcsClient(ep)
+type gcsBackend struct {
+	client           *storage.Client
+	signedURLOptions storage.SignedURLOptions
+	clientMu         sync.Mutex
+}
+
+func (s *gcsBackend) Provider() string {
+	return "gcs"
+}
+
+func (s *gcsBackend) SignGet(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, error) {
+	cfg, _, opts, err := s.gcsClient(ep)
 	if err != nil {
 		return "", err
 	}
 	opts.Method = "GET"
 	opts.Expires = time.Now().Add(d)
 
-	url, err = storage.SignedURL(cfg.bucket, cfg.rewritePath(cfg.prefix, fragment.ContentPath()), &opts)
-	return url, err
+	return storage.SignedURL(cfg.bucket, cfg.rewritePath(cfg.prefix, fragment.ContentPath()), &opts)
 }
 
-func gcsExists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
-	defer func() { instrument(gcsProvider, existsOp, err) }()
-	cfg, client, _, err := gcsClient(ep)
+func (s *gcsBackend) Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
+	cfg, client, _, err := s.gcsClient(ep)
 	if err != nil {
 		return false, err
 	}
@@ -55,19 +58,16 @@ func gcsExists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists b
 	return exists, err
 }
 
-func gcsOpen(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.ReadCloser, err error) {
-	defer func() { instrument(gcsProvider, openOp, err) }()
-	cfg, client, _, err := gcsClient(ep)
+func (s *gcsBackend) Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
+	cfg, client, _, err := s.gcsClient(ep)
 	if err != nil {
 		return nil, err
 	}
-	reader, err = client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).NewReader(ctx)
-	return reader, err
+	return client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).NewReader(ctx)
 }
 
-func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
-	defer func() { instrument(gcsProvider, persistOp, err) }()
-	cfg, client, _, err := gcsClient(ep)
+func (s *gcsBackend) Persist(ctx context.Context, ep *url.URL, spool Spool) error {
+	cfg, client, _, err := s.gcsClient(ep)
 	if err != nil {
 		return err
 	}
@@ -90,9 +90,8 @@ func gcsPersist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
 	return err
 }
 
-func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) (err error) {
-	defer func() { instrument(gcsProvider, listOp, err) }()
-	cfg, client, _, err := gcsClient(ep)
+func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
+	cfg, client, _, err := s.gcsClient(ep)
 	if err != nil {
 		return err
 	}
@@ -118,17 +117,15 @@ func gcsList(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.J
 	return err
 }
 
-func gcsRemove(ctx context.Context, fragment pb.Fragment) (err error) {
-	defer func() { instrument(gcsProvider, removeOp, err) }()
-	cfg, client, _, err := gcsClient(fragment.BackingStore.URL())
+func (s *gcsBackend) Remove(ctx context.Context, fragment pb.Fragment) error {
+	cfg, client, _, err := s.gcsClient(fragment.BackingStore.URL())
 	if err != nil {
 		return err
 	}
-	err = client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).Delete(ctx)
-	return err
+	return client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).Delete(ctx)
 }
 
-func gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.SignedURLOptions, err error) {
+func (s *gcsBackend) gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.SignedURLOptions, err error) {
 	if err = parseStoreArgs(ep, &cfg); err != nil {
 		return
 	}
@@ -136,12 +133,12 @@ func gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.Si
 	// enforces that URL Paths end in '/'.
 	cfg.bucket, cfg.prefix = ep.Host, ep.Path[1:]
 
-	sharedGCS.Lock()
-	defer sharedGCS.Unlock()
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
 
-	if sharedGCS.Client != nil {
-		client = sharedGCS.Client
-		opts = sharedGCS.SignedURLOptions
+	if s.client != nil {
+		client = s.client
+		opts = s.signedURLOptions
 		return
 	}
 	var ctx = context.Background()
@@ -165,7 +162,7 @@ func gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.Si
 		GoogleAccessID: conf.Email,
 		PrivateKey:     conf.PrivateKey,
 	}
-	sharedGCS.Client, sharedGCS.SignedURLOptions = client, opts
+	s.client, s.signedURLOptions = client, opts
 
 	log.WithFields(log.Fields{
 		"ProjectID":      creds.ProjectID,
@@ -176,10 +173,4 @@ func gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.Si
 	}).Info("constructed new GCS client")
 
 	return
-}
-
-var sharedGCS struct {
-	*storage.Client
-	storage.SignedURLOptions
-	sync.Mutex
 }

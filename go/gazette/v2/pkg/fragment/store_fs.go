@@ -1,11 +1,13 @@
 package fragment
 
 import (
+	"context"
 	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	log "github.com/sirupsen/logrus"
@@ -19,8 +21,14 @@ type fsCfg struct {
 	rewriterCfg
 }
 
-func fsURL(ep *url.URL, fragment pb.Fragment) (string, error) {
-	var cfg, err = newFsCfg(ep)
+type fsBackend struct{}
+
+func (s fsBackend) Provider() string {
+	return "fs"
+}
+
+func (s fsBackend) SignGet(ep *url.URL, fragment pb.Fragment, _ time.Duration) (string, error) {
+	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return "", err
 	}
@@ -28,8 +36,8 @@ func fsURL(ep *url.URL, fragment pb.Fragment) (string, error) {
 	return "file://" + cfg.rewritePath(ep.Path, fragment.ContentPath()), nil
 }
 
-func fsExists(ep *url.URL, fragment pb.Fragment) (bool, error) {
-	var cfg, err = newFsCfg(ep)
+func (s fsBackend) Exists(_ context.Context, ep *url.URL, fragment pb.Fragment) (bool, error) {
+	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return false, err
 	}
@@ -45,8 +53,8 @@ func fsExists(ep *url.URL, fragment pb.Fragment) (bool, error) {
 	}
 }
 
-func fsOpen(ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
-	var cfg, err = newFsCfg(ep)
+func (s fsBackend) Open(_ context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
+	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +63,8 @@ func fsOpen(ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
 	return os.Open(path)
 }
 
-func fsPersist(ep *url.URL, spool Spool) error {
-	var cfg, err = newFsCfg(ep)
+func (s fsBackend) Persist(_ context.Context, ep *url.URL, spool Spool) error {
+	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return err
 	}
@@ -98,8 +106,8 @@ func fsPersist(ep *url.URL, spool Spool) error {
 	return err
 }
 
-func fsList(store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
-	var cfg, err = newFsCfg(ep)
+func (s fsBackend) List(_ context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
+	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return err
 	}
@@ -135,9 +143,9 @@ func fsList(store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(
 		})
 }
 
-func fsRemove(fragment pb.Fragment) error {
+func (s fsBackend) Remove(_ context.Context, fragment pb.Fragment) error {
 	var ep = fragment.BackingStore.URL()
-	var cfg, err = newFsCfg(ep)
+	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return err
 	}
@@ -146,7 +154,7 @@ func fsRemove(fragment pb.Fragment) error {
 	return os.Remove(path)
 }
 
-func newFsCfg(ep *url.URL) (cfg fsCfg, err error) {
+func (s fsBackend) fsCfg(ep *url.URL) (cfg fsCfg, err error) {
 	err = parseStoreArgs(ep, &cfg)
 	return cfg, err
 }

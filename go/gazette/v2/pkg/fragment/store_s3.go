@@ -18,10 +18,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	s3Provider = "s3"
-)
-
 type s3Cfg struct {
 	bucket string
 	prefix string
@@ -46,9 +42,23 @@ type s3Cfg struct {
 	SSE string
 }
 
-func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, err error) {
-	defer func() { instrument(s3Provider, getSignedURLOp, err) }()
-	cfg, client, err := s3Client(ep)
+type s3Backend struct {
+	clients   map[[2]string]*s3.S3
+	clientsMu sync.Mutex
+}
+
+func newS3Backend() *s3Backend {
+	return &s3Backend{
+		clients: make(map[[2]string]*s3.S3),
+	}
+}
+
+func (s *s3Backend) Provider() string {
+	return "s3"
+}
+
+func (s *s3Backend) SignGet(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, error) {
+	cfg, client, err := s.s3Client(ep)
 	if err != nil {
 		return "", err
 	}
@@ -58,13 +68,11 @@ func s3SignGET(ep *url.URL, fragment pb.Fragment, d time.Duration) (url string, 
 		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 	var req, _ = client.GetObjectRequest(&getObj)
-	url, err = req.Presign(d)
-	return url, err
+	return req.Presign(d)
 }
 
-func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bool, err error) {
-	defer func() { instrument(s3Provider, existsOp, err) }()
-	cfg, client, err := s3Client(ep)
+func (s *s3Backend) Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, error) {
+	cfg, client, err := s.s3Client(ep)
 	if err != nil {
 		return false, err
 	}
@@ -82,9 +90,8 @@ func s3Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (exists bo
 	}
 }
 
-func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.ReadCloser, err error) {
-	defer func() { instrument(s3Provider, openOp, err) }()
-	cfg, client, err := s3Client(ep)
+func (s *s3Backend) Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error) {
+	cfg, client, err := s.s3Client(ep)
 	if err != nil {
 		return nil, err
 	}
@@ -100,9 +107,8 @@ func s3Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (reader io.R
 	return resp.Body, err
 }
 
-func s3Persist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
-	defer func() { instrument(s3Provider, persistOp, err) }()
-	cfg, client, err := s3Client(ep)
+func (s *s3Backend) Persist(ctx context.Context, ep *url.URL, spool Spool) error {
+	cfg, client, err := s.s3Client(ep)
 	if err != nil {
 		return err
 	}
@@ -132,10 +138,8 @@ func s3Persist(ctx context.Context, ep *url.URL, spool Spool) (err error) {
 	_, err = client.PutObjectWithContext(ctx, &putObj)
 	return err
 }
-
-func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) (err error) {
-	defer func() { instrument(s3Provider, listOp, err) }()
-	cfg, client, err := s3Client(ep)
+func (s *s3Backend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
+	cfg, client, err := s.s3Client(ep)
 	if err != nil {
 		return err
 	}
@@ -163,9 +167,8 @@ func s3List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Jo
 	})
 }
 
-func s3Remove(ctx context.Context, fragment pb.Fragment) (err error) {
-	defer func() { instrument(s3Provider, removeOp, err) }()
-	cfg, client, err := s3Client(fragment.BackingStore.URL())
+func (s *s3Backend) Remove(ctx context.Context, fragment pb.Fragment) error {
+	cfg, client, err := s.s3Client(fragment.BackingStore.URL())
 	if err != nil {
 		return err
 	}
@@ -178,7 +181,7 @@ func s3Remove(ctx context.Context, fragment pb.Fragment) (err error) {
 	return err
 }
 
-func s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
+func (s *s3Backend) s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
 	if err = parseStoreArgs(ep, &cfg); err != nil {
 		return
 	}
@@ -186,11 +189,11 @@ func s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
 	// enforces that URL Paths end in '/'.
 	cfg.bucket, cfg.prefix = ep.Host, ep.Path[1:]
 
-	defer s3ClientsMu.Unlock()
-	s3ClientsMu.Lock()
+	defer s.clientsMu.Unlock()
+	s.clientsMu.Lock()
 
 	var key = [2]string{cfg.Endpoint, cfg.Profile}
-	if client = s3Clients[key]; client != nil {
+	if client = s.clients[key]; client != nil {
 		return
 	}
 
@@ -237,12 +240,7 @@ func s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
 	}).Info("constructed new aws.Session")
 
 	client = s3.New(awsSession)
-	s3Clients[key] = client
+	s.clients[key] = client
 
 	return
 }
-
-var (
-	s3Clients   = make(map[[2]string]*s3.S3)
-	s3ClientsMu sync.Mutex
-)

@@ -13,30 +13,48 @@ import (
 	"github.com/gorilla/schema"
 )
 
-const (
-	getSignedURLOp = "get_signed_url"
-	existsOp       = "exist"
-	openOp         = "open"
-	persistOp      = "persist"
-	listOp         = "list"
-	removeOp       = "remove"
-)
+type backend interface {
+	Provider() string
+	SignGet(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, error)
+	Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, error)
+	Open(ctx context.Context, ep *url.URL, fragment pb.Fragment) (io.ReadCloser, error)
+	Persist(ctx context.Context, ep *url.URL, spool Spool) error
+	List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error
+	Remove(ctx context.Context, fragment pb.Fragment) error
+}
+
+var sharedStores = struct {
+	s3  *s3Backend
+	gcs *gcsBackend
+	fs  *fsBackend
+}{
+	s3:  newS3Backend(),
+	gcs: &gcsBackend{},
+	fs:  &fsBackend{},
+}
+
+func getBackend(scheme string) backend {
+	switch scheme {
+	case "s3":
+		return sharedStores.s3
+	case "gs":
+		return sharedStores.gcs
+	case "file":
+		return sharedStores.fs
+	default:
+		panic("unsupported scheme: " + scheme)
+	}
+}
 
 // SignGetURL returns a URL authenticating the bearer to perform a GET operation
 // of the Fragment for the provided Duration from the current time.
 func SignGetURL(fragment pb.Fragment, d time.Duration) (string, error) {
 	var ep = fragment.BackingStore.URL()
+	var b = getBackend(ep.Scheme)
 
-	switch ep.Scheme {
-	case "s3":
-		return s3SignGET(ep, fragment, d)
-	case "gs":
-		return gcsSignGET(ep, fragment, d)
-	case "file":
-		return fsURL(ep, fragment)
-	default:
-		panic("unsupported scheme: " + ep.Scheme)
-	}
+	var signedURL, err = b.SignGet(ep, fragment, d)
+	instrumentStoreOp(b.Provider(), "get_signed_url", err)
+	return signedURL, err
 }
 
 // Open a Reader of the Fragment on the store. The returned ReadCloser does not
@@ -44,17 +62,11 @@ func SignGetURL(fragment pb.Fragment, d time.Duration) (string, error) {
 // decompression in the case of GZIP_OFFLOAD_DECOMPRESSION.
 func Open(ctx context.Context, fragment pb.Fragment) (io.ReadCloser, error) {
 	var ep = fragment.BackingStore.URL()
+	var b = getBackend(ep.Scheme)
 
-	switch ep.Scheme {
-	case "s3":
-		return s3Open(ctx, ep, fragment)
-	case "gs":
-		return gcsOpen(ctx, ep, fragment)
-	case "file":
-		return fsOpen(ep, fragment)
-	default:
-		panic("unsupported scheme: " + ep.Scheme)
-	}
+	var rc, err = b.Open(ctx, ep, fragment)
+	instrumentStoreOp(b.Provider(), "open", err)
+	return rc, err
 }
 
 // Persist a Spool to its store. If the Spool Fragment is already present,
@@ -62,21 +74,10 @@ func Open(ctx context.Context, fragment pb.Fragment) (io.ReadCloser, error) {
 // it will be compressed before being persisted.
 func Persist(ctx context.Context, spool Spool) error {
 	var ep = spool.Fragment.BackingStore.URL()
+	var b = getBackend(ep.Scheme)
 
-	var exists bool
-	var err error
-
-	switch ep.Scheme {
-	case "s3":
-		exists, err = s3Exists(ctx, ep, spool.Fragment.Fragment)
-	case "gs":
-		exists, err = gcsExists(ctx, ep, spool.Fragment.Fragment)
-	case "file":
-		exists, err = fsExists(ep, spool.Fragment.Fragment)
-	default:
-		panic("unsupported scheme: " + ep.Scheme)
-	}
-
+	var exists, err = b.Exists(ctx, ep, spool.Fragment.Fragment)
+	instrumentStoreOp(b.Provider(), "exist", err)
 	if err != nil {
 		return err
 	} else if exists {
@@ -88,46 +89,28 @@ func Persist(ctx context.Context, spool Spool) error {
 		spool.finishCompression()
 	}
 
-	switch ep.Scheme {
-	case "s3":
-		return s3Persist(ctx, ep, spool)
-	case "gs":
-		return gcsPersist(ctx, ep, spool)
-	case "file":
-		return fsPersist(ep, spool)
-	}
-	panic("not reached")
+	err = b.Persist(ctx, ep, spool)
+	instrumentStoreOp(b.Provider(), "persist", err)
+	return err
 }
 
 // List Fragments of the FragmentStore for a given journal. |callback| is
 // invoked with each listed Fragment, and any returned error aborts the listing.
 func List(ctx context.Context, store pb.FragmentStore, name pb.Journal, callback func(pb.Fragment)) error {
 	var ep = store.URL()
+	var b = getBackend(ep.Scheme)
 
-	switch ep.Scheme {
-	case "s3":
-		return s3List(ctx, store, ep, name, callback)
-	case "gs":
-		return gcsList(ctx, store, ep, name, callback)
-	case "file":
-		return fsList(store, ep, name, callback)
-	default:
-		panic("unsupported scheme: " + ep.Scheme)
-	}
+	var err = b.List(ctx, store, ep, name, callback)
+	instrumentStoreOp(b.Provider(), "list", err)
+	return err
 }
 
 // Remove |fragment| from its BackingStore.
 func Remove(ctx context.Context, fragment pb.Fragment) error {
-	switch fragment.BackingStore.URL().Scheme {
-	case "s3":
-		return s3Remove(ctx, fragment)
-	case "gs":
-		return gcsRemove(ctx, fragment)
-	case "file":
-		return fsRemove(fragment)
-	default:
-		panic("unsupported scheme: " + fragment.BackingStore)
-	}
+	var b = getBackend(fragment.BackingStore.URL().Scheme)
+	var err = b.Remove(ctx, fragment)
+	instrumentStoreOp(b.Provider(), "remove", err)
+	return err
 }
 
 func parseStoreArgs(ep *url.URL, args interface{}) error {
@@ -142,7 +125,7 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 	return nil
 }
 
-func instrument(provider, op string, err error) {
+func instrumentStoreOp(provider, op string, err error) {
 	if err != nil {
 		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Fail).Inc()
 	}
