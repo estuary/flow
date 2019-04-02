@@ -128,8 +128,9 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 func instrumentStoreOp(provider, op string, err error) {
 	if err != nil {
 		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Fail).Inc()
+	} else {
+		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Ok).Inc()
 	}
-	metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Ok).Inc()
 }
 
 // rewriterCfg holds a find/replace pair, often populated by parseStoreArgs()
