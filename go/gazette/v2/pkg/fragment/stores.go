@@ -91,6 +91,7 @@ func Persist(ctx context.Context, spool Spool) error {
 
 	err = b.Persist(ctx, ep, spool)
 	instrumentStoreOp(b.Provider(), "persist", err)
+	metrics.StorePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))
 	return err
 }
 

@@ -3,6 +3,7 @@ package broker
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -11,7 +12,10 @@ import (
 
 // Replicate dispatches the JournalServer.Replicate API.
 func (srv *Service) Replicate(stream pb.Journal_ReplicateServer) error {
-	var req, err = stream.Recv()
+	var err error
+	defer instrumentJournalServerOp("replicate", &err, time.Now())
+
+	req, err := stream.Recv()
 	if err != nil {
 		return err
 	} else if err = req.Validate(); err != nil {

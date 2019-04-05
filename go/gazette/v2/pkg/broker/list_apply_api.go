@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -11,13 +12,16 @@ import (
 
 // List dispatches the JournalServer.List API.
 func (srv *Service) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+	var err error
+	defer instrumentJournalServerOp("list", &err, time.Now())
+
 	var s = srv.resolver.state
 
 	var resp = &pb.ListResponse{
 		Status: pb.Status_OK,
 		Header: pb.NewUnroutedHeader(s),
 	}
-	if err := req.Validate(); err != nil {
+	if err = req.Validate(); err != nil {
 		return resp, err
 	}
 
@@ -58,13 +62,16 @@ func (srv *Service) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResp
 
 // Apply dispatches the JournalServer.Apply API.
 func (srv *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
+	var err error
+	defer instrumentJournalServerOp("apply", &err, time.Now())
+
 	var s = srv.resolver.state
 
 	var resp = &pb.ApplyResponse{
 		Status: pb.Status_OK,
 		Header: pb.NewUnroutedHeader(s),
 	}
-	if err := req.Validate(); err != nil {
+	if err = req.Validate(); err != nil {
 		return resp, err
 	}
 
@@ -84,7 +91,8 @@ func (srv *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyR
 		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", change.ExpectModRevision))
 	}
 
-	if txnResp, err := srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil)); err != nil {
+	var txnResp clientv3.OpResponse
+	if txnResp, err = srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil)); err != nil {
 		return resp, err
 	} else if !txnResp.Txn().Succeeded {
 		resp.Status = pb.Status_ETCD_TRANSACTION_FAILED

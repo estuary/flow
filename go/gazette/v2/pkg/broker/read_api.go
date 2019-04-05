@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/client"
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
@@ -13,12 +14,14 @@ import (
 )
 
 // Read dispatches the JournalServer.Read API.
-func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) error {
-	if err := req.Validate(); err != nil {
+func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err error) {
+	defer instrumentJournalServerOp("read", &err, time.Now())
+	if err = req.Validate(); err != nil {
 		return err
 	}
 
-	var res, err = svc.resolver.resolve(resolveArgs{
+	var res resolution
+	res, err = svc.resolver.resolve(resolveArgs{
 		ctx:                   stream.Context(),
 		journal:               req.Journal,
 		mayProxy:              !req.DoNotProxy,
@@ -30,12 +33,15 @@ func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) erro
 	if err != nil {
 		return err
 	} else if res.status != pb.Status_OK {
-		return stream.Send(&pb.ReadResponse{Status: res.status, Header: &res.Header})
+		err = stream.Send(&pb.ReadResponse{Status: res.status, Header: &res.Header})
+		return err
 	} else if !res.journalSpec.Flags.MayRead() {
-		return stream.Send(&pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+		err = stream.Send(&pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+		return err
 	} else if res.replica == nil {
 		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
-		return proxyRead(stream, req, svc.jc)
+		err = proxyRead(stream, req, svc.jc)
+		return err
 	}
 
 	if err = serveRead(stream, req, &res.Header, res.replica.index); err == context.Canceled {

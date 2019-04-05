@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -14,7 +15,10 @@ import (
 
 // Append dispatches the JournalServer.Append API.
 func (srv *Service) Append(stream pb.Journal_AppendServer) error {
-	var req, err = stream.Recv()
+	var err error
+	defer instrumentJournalServerOp("append", &err, time.Now())
+
+	req, err := stream.Recv()
 	if err != nil {
 		return err
 	} else if err = req.Validate(); err != nil {

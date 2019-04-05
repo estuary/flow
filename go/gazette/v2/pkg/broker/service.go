@@ -6,6 +6,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
+	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/coreos/etcd/clientv3"
 	log "github.com/sirupsen/logrus"
@@ -147,6 +148,25 @@ func addTrace(ctx context.Context, format string, args ...interface{}) {
 	if tr, ok := trace.FromContext(ctx); ok {
 		tr.LazyPrintf(format, args...)
 	}
+}
+
+// instrumentJournalServerOp measures and reports the response time of
+// |JournalServer| endpoints tagged by operation name and status (success or
+// failure). This is typically used with a defer statement.
+//
+// Example Usage:
+//
+//  defer instrumentJournalServerOp("append", &err, time.Now())
+func instrumentJournalServerOp(op string, err *error, start time.Time) {
+	var elapsed = time.Since(start)
+	var status = metrics.Fail
+	if err == nil || *err == nil {
+		status = metrics.Ok
+	}
+
+	metrics.JournalServerResponseTimeSeconds.
+		WithLabelValues(op, status).
+		Observe(float64(elapsed / time.Second))
 }
 
 var healthCheckInterval = time.Minute

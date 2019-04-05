@@ -7,6 +7,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator/push_relabel"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
+	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/gogo/protobuf/proto"
@@ -70,6 +71,9 @@ func Allocate(args AllocateArgs) error {
 
 			// Do we need to re-solve for a maximum assignment?
 			if state.NetworkHash != lastNetworkHash {
+				log.WithFields(log.Fields{"last_hash": lastNetworkHash, "next_hash": state.NetworkHash}).
+					Info("re-solving allocation")
+
 				lastNetworkHash = state.NetworkHash
 
 				// Build a prioritized flowNetwork and solve for maximum flow.
@@ -105,6 +109,14 @@ func Allocate(args AllocateArgs) error {
 				log.WithFields(log.Fields{"err": err, "round": round, "rev": ks.Header.Revision}).
 					Warn("converge iteration failed (will retry)")
 			} else {
+				log.WithFields(log.Fields{"hash": state.NetworkHash}).
+					Info("converge iteration successful")
+				metrics.AllocatorConvergeTotal.Inc()
+
+				metrics.AllocatorMembers.Set(float64(len(state.Members)))
+				metrics.AllocatorItems.Set(float64(len(state.Items)))
+				metrics.AllocatorDesiredReplicationSlots.Set(float64(state.ItemSlots))
+
 				if args.TestHook != nil {
 					args.TestHook(round, txn.noop)
 				}

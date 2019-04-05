@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -12,11 +13,15 @@ var defaultPageLimit = int32(1000)
 
 // ListFragments dispatches the JournalServer.ListFragments API.
 func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-	if err := req.Validate(); err != nil {
+	var err error
+	defer instrumentJournalServerOp("list_fragments", &err, time.Now())
+
+	if err = req.Validate(); err != nil {
 		return nil, err
 	}
 
-	var res, err = svc.resolver.resolve(resolveArgs{
+	var res resolution
+	res, err = svc.resolver.resolve(resolveArgs{
 		ctx:                   ctx,
 		journal:               req.Journal,
 		mayProxy:              !req.DoNotProxy,
@@ -28,14 +33,16 @@ func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest)
 	if err != nil {
 		return nil, err
 	} else if res.status != pb.Status_OK {
-		return &pb.FragmentsResponse{Status: res.status, Header: res.Header}, nil
+		return &pb.FragmentsResponse{Status: res.status, Header: res.Header}, err
 	} else if !res.journalSpec.Flags.MayRead() {
-		return &pb.FragmentsResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header}, nil
+		return &pb.FragmentsResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header}, err
 	} else if res.replica == nil {
 		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 		ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
 
-		return svc.jc.ListFragments(ctx, req)
+		var resp *pb.FragmentsResponse
+		resp, err = svc.jc.ListFragments(ctx, req)
+		return resp, err
 	}
 
 	if req.PageLimit == 0 {
@@ -43,7 +50,8 @@ func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest)
 	}
 
 	if err = res.replica.index.WaitForFirstRemoteRefresh(ctx); err != nil {
-		return nil, pb.ExtendContext(err, "error waiting for index")
+		err = pb.ExtendContext(err, "error waiting for index")
+		return nil, err
 	}
 
 	var resp = &pb.FragmentsResponse{
