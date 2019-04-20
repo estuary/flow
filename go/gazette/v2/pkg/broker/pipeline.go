@@ -214,10 +214,13 @@ func (pln *pipeline) gatherSync(proposal pb.Fragment) (rollToOffset, readThrough
 			}
 
 		case pb.Status_FRAGMENT_MISMATCH:
-			if resp.Fragment.Begin != proposal.Begin &&
-				resp.Fragment.End >= proposal.End {
-				// Peer has a Fragment at matched or larger End offset, and with a
-				// differing Begin offset.
+			// If peer has an extant Spool at a greater offset, we must roll forward to it.
+			if (resp.Fragment.End > proposal.End) ||
+				// If the peer rolled its Spool to our offset, but does not have and
+				// therefore cannot extend Fragment content from [Begin, End), we
+				// must start a new Spool beginning at proposal.End.
+				(resp.Fragment.End == proposal.End && resp.Fragment.ContentLength() == 0) {
+
 				if resp.Fragment.End > rollToOffset {
 					rollToOffset = resp.Fragment.End
 				}

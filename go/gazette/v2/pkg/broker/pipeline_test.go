@@ -175,13 +175,40 @@ func (s *PipelineSuite) TestGatherSyncCases(c *gc.C) {
 	}
 	rm.brokerC.ReplRespCh <- &pb.ReplicateResponse{
 		Status:   pb.Status_FRAGMENT_MISMATCH,
-		Fragment: &pb.Fragment{Begin: 567, End: 890},
+		Fragment: &pb.Fragment{End: 800}, // End is larger than proposal.
 	}
 
-	// Expect the new Fragment offset and etcd revision to read through are returned.
+	// Expect the maximum offset and Etcd revision to read through are returned.
 	var rollToOffset, readRev = pln.gatherSync(*req.Proposal)
-	c.Check(rollToOffset, gc.Equals, int64(890))
+	c.Check(rollToOffset, gc.Equals, int64(800))
 	c.Check(readRev, gc.Equals, int64(4567))
+	c.Check(pln.recvErr(), gc.IsNil)
+	c.Check(pln.sendErr(), gc.IsNil)
+
+	// Again. This time one peer returns a zero-length Fragment at proposal End.
+	// (Note that a peer should never send such a response to a zero-length proposal,
+	// but that's not under test here- only our handling of receiving such a response).
+	req.Proposal = &pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            800,
+		End:              800,
+		CompressionCodec: pb.CompressionCodec_NONE,
+	}
+	pln.scatter(req)
+
+	_, _ = <-rm.brokerA.ReplReqCh, <-rm.brokerC.ReplReqCh
+	rm.brokerA.ReplRespCh <- &pb.ReplicateResponse{
+		Status:   pb.Status_FRAGMENT_MISMATCH,
+		Fragment: &pb.Fragment{Begin: 790, End: 890}, // Larger than proposal End.
+	}
+	rm.brokerC.ReplRespCh <- &pb.ReplicateResponse{
+		Status:   pb.Status_FRAGMENT_MISMATCH,
+		Fragment: &pb.Fragment{Begin: 800, End: 800}, // At proposal End.
+	}
+
+	rollToOffset, readRev = pln.gatherSync(*req.Proposal)
+	c.Check(rollToOffset, gc.Equals, int64(890))
+	c.Check(readRev, gc.Equals, int64(0))
 	c.Check(pln.recvErr(), gc.IsNil)
 	c.Check(pln.sendErr(), gc.IsNil)
 
@@ -214,8 +241,10 @@ func (s *PipelineSuite) TestGatherSyncCases(c *gc.C) {
 		Header: rm.header(0, 99), // Revision not greater than |pln|'s.
 	}
 	rm.brokerC.ReplRespCh <- &pb.ReplicateResponse{
-		Status:   pb.Status_FRAGMENT_MISMATCH,
-		Fragment: &pb.Fragment{Begin: 567, End: 889}, // End offset < proposal.
+		Status: pb.Status_FRAGMENT_MISMATCH,
+		// End is at proposal, but is non-empty. This is unexpected as peer
+		// should have instead rolled their Spool to End.
+		Fragment: &pb.Fragment{Begin: 567, End: 890},
 	}
 
 	rollToOffset, readRev = pln.gatherSync(*req.Proposal)
@@ -226,7 +255,7 @@ func (s *PipelineSuite) TestGatherSyncCases(c *gc.C) {
 
 	c.Check(pln.recvErrs[0], gc.ErrorMatches, `unexpected WRONG_ROUTE: process_id:.*`)
 	c.Check(pln.recvErrs[1], gc.IsNil)
-	c.Check(pln.recvErrs[2], gc.ErrorMatches, `unexpected FRAGMENT_MISMATCH: begin:567 end:889 .*`)
+	c.Check(pln.recvErrs[2], gc.ErrorMatches, `unexpected FRAGMENT_MISMATCH: begin:567 end:890 .*`)
 }
 
 func (s *PipelineSuite) TestPipelineSync(c *gc.C) {
