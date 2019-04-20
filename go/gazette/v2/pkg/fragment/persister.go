@@ -30,7 +30,6 @@ func NewPersister(ks *keyspace.KeySpace) *Persister {
 		doneCh:    make(chan struct{}),
 		ks:        ks,
 		persistFn: Persist,
-		ticker:    time.NewTicker(persistInterval),
 	}
 }
 
@@ -57,6 +56,9 @@ func (p *Persister) queue(spool Spool) {
 }
 
 func (p *Persister) Serve() {
+	if p.ticker == nil {
+		p.ticker = time.NewTicker(persistInterval)
+	}
 	for done, exiting := false, false; !done; {
 		if !exiting {
 			select {

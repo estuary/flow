@@ -25,26 +25,28 @@ type replica struct {
 	spoolCh chan fragment.Spool
 	// pipelineCh synchronizes access to the single pipeline of the replica.
 	pipelineCh chan *pipeline
-	// maintenanceCh allows the resolver to notify the replica's
-	// maintenanceLoop of lifecycle events. Notably:
-	//  * resolver signals on KeySpace updates when the replica is primary for
-	//    the journal, and current assignments in Etcd are inconsistent.
-	//  * resolver closes when the replica is no longer routed to this broker,
-	//    and should be gracefully terminated.
-	maintenanceCh chan struct{}
+	// pulsePipelineCh is signaled by the resolver when the replica is primary
+	// for the journal, and current assignments in Etcd are inconsistent.
+	// maintenanceLoop() reads the signal and drives a pipeline synchronization,
+	// which brings the journal and its Etcd route advertisements to consistency.
+	pulsePipelineCh chan struct{}
+	// done is called when the replica has completed graceful shutdown.
+	// C.f. sync.WaitGroup.Done.
+	done func()
 }
 
-func newReplica(journal pb.Journal) *replica {
+func newReplica(journal pb.Journal, done func()) *replica {
 	var ctx, cancel = context.WithCancel(context.Background())
 
 	var r = &replica{
-		journal:       journal,
-		ctx:           ctx,
-		cancel:        cancel,
-		index:         fragment.NewIndex(ctx),
-		spoolCh:       make(chan fragment.Spool, 1),
-		pipelineCh:    make(chan *pipeline, 1),
-		maintenanceCh: make(chan struct{}, 1),
+		journal:         journal,
+		ctx:             ctx,
+		cancel:          cancel,
+		index:           fragment.NewIndex(ctx),
+		spoolCh:         make(chan fragment.Spool, 1),
+		pipelineCh:      make(chan *pipeline, 1),
+		pulsePipelineCh: make(chan struct{}, 1),
+		done:            done,
 	}
 
 	r.spoolCh <- fragment.NewSpool(journal, struct {
@@ -193,6 +195,7 @@ func shutDownReplica(r *replica) {
 	// Cancelling the replica Context will immediately fail any current or
 	// future attempts to deque either.
 	r.cancel()
+	r.done()
 }
 
 // updateAssignments values to reflect the Route implied by |assignments|,

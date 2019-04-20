@@ -17,6 +17,7 @@ type AddressConfig struct {
 }
 
 // Dial the server address using a protocol.Dispatcher balancer.
+// TODO(johnny): Rename => MustDial.
 func (c *AddressConfig) Dial(ctx context.Context) *grpc.ClientConn {
 	var cc, err = grpc.DialContext(ctx, c.Address.URL().Host,
 		grpc.WithInsecure(),
@@ -28,11 +29,13 @@ func (c *AddressConfig) Dial(ctx context.Context) *grpc.ClientConn {
 }
 
 // JournalClient dials and returns a new JournalClient.
+// TODO(johnny): Rename => MustJournalClient.
 func (c *AddressConfig) JournalClient(ctx context.Context) pb.JournalClient {
 	return pb.NewJournalClient(c.Dial(ctx))
 }
 
 // ShardClient dials and returns a new ShardClient.
+// TODO(johnny): Rename => MustShardClient.
 func (c *AddressConfig) ShardClient(ctx context.Context) consumer.ShardClient {
 	return consumer.NewShardClient(c.Dial(ctx))
 }
@@ -56,11 +59,13 @@ func (c *ClientConfig) BuildRouter() pb.DispatchRouter {
 }
 
 // RoutedJournalClient composes Dial and BuildRouter to return a RoutedJournalClient.
+// TODO(johnny): Rename => MustRoutedJournalClient.
 func (c *ClientConfig) RoutedJournalClient(ctx context.Context) pb.RoutedJournalClient {
 	return pb.NewRoutedJournalClient(c.JournalClient(ctx), c.BuildRouter())
 }
 
 // RoutedShardClient composes Dial and BuildRouter to return a RoutedShardClient.
+// TODO(johnny): Rename => MustRoutedShardClient.
 func (c *ClientConfig) RoutedShardClient(ctx context.Context) consumer.RoutedShardClient {
 	return consumer.NewRoutedShardClient(c.ShardClient(ctx), c.BuildRouter())
 }

@@ -50,7 +50,8 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 		Server:  cmr.Server,
 		Service: cmr.Service,
 	}), gc.IsNil)
-	go cmr.Serve(c, ctx)
+	cmr.Tasks.GoRun()
+
 	consumertest.CreateShards(c, cmr, testShards...)
 
 	// Publish text to the word-count API.
@@ -99,11 +100,11 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 	}
 
 	// Shutdown.
-	cmr.RevokeLease(c)
-	cmr.WaitForExit(c)
+	cmr.Tasks.Cancel()
+	c.Check(cmr.Tasks.Wait(), gc.IsNil)
 
-	broker.RevokeLease(c)
-	broker.WaitForExit()
+	broker.Tasks.Cancel()
+	c.Check(broker.Tasks.Wait(), gc.IsNil)
 }
 
 func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*consumer.ShardSpec) {

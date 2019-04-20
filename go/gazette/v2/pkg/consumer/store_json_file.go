@@ -85,7 +85,11 @@ func (s *JSONFileStore) Flush(offsets map[pb.Journal]int64) error {
 		s.offsets[k] = o
 	}
 
-	var f, err = s.fs.OpenFile(s.nextPath(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	// We use O_TRUNC and not O_EXCL as it's possible we recovered a DB which
+	// had written, but not yet renamed its own "next.json". In this case we
+	// over-write the file: it represents a failed consumer transaction
+	// which has been rolled back.
+	var f, err = s.fs.OpenFile(s.nextPath(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return extendErr(err, "creating state file")
 	}

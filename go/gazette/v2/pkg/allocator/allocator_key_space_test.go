@@ -355,7 +355,17 @@ func (i testItem) IsConsistent(assignment keyspace.KeyValue, allAssignments keys
 
 type testMember struct{ R int }
 
-func (m testMember) ItemLimit() int { return m.R }
+func (m testMember) ItemLimit() int  { return m.R }
+func (m testMember) Validate() error { return nil }
+func (m *testMember) ZeroLimit()     { m.R = 0 }
+
+func (m *testMember) MarshalString() string {
+	if b, err := json.Marshal(m); err != nil {
+		panic(err)
+	} else {
+		return string(b)
+	}
+}
 
 type testAssignment struct{ consistent bool }
 

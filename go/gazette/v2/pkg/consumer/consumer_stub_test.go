@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/LiveRamp/gazette/v2/pkg/server"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	gc "github.com/go-check/check"
 	"google.golang.org/grpc"
 )
@@ -15,23 +16,14 @@ type loopbackServer struct {
 }
 
 // newLoopbackServer returns a loopbackServer of the provided ShardServer.
-func newLoopbackServer(ctx context.Context, ss ShardServer) loopbackServer {
+func newLoopbackServer(ss ShardServer) loopbackServer {
 	var srv, err = server.New("127.0.0.1", 0)
 	if err != nil {
 		panic(err)
 	}
 	RegisterShardServer(srv.GRPCServer, ss)
-	var conn = srv.MustGRPCLoopback()
 
-	// Arrange to stop the server when |ctx| is cancelled.
-	go func() {
-		<-ctx.Done()
-		_ = conn.Close()
-		srv.GracefulStop()
-	}()
-	go srv.MustServe()
-
-	return loopbackServer{Server: srv, Conn: conn}
+	return loopbackServer{Server: srv, Conn: srv.MustGRPCLoopback()}
 }
 
 // MustClient returns a ShardClient of the test loopbackServer.
@@ -39,8 +31,9 @@ func (s loopbackServer) MustClient() ShardClient { return NewShardClient(s.Conn)
 
 // shardServerStub stubs the read and write loops of ShardServer RPCs.
 type shardServerStub struct {
+	c     *gc.C
+	tasks *task.Group
 	loopbackServer
-	c *gc.C
 
 	StatFunc     func(context.Context, *StatRequest) (*StatResponse, error)
 	ListFunc     func(context.Context, *ListRequest) (*ListResponse, error)
@@ -49,11 +42,20 @@ type shardServerStub struct {
 }
 
 // newShardServerStub returns a shardServerStub instance served by a local GRPC server.
-func newShardServerStub(ctx context.Context, c *gc.C) *shardServerStub {
+func newShardServerStub(c *gc.C, ctx context.Context) *shardServerStub {
 	var s = &shardServerStub{
-		c: c,
+		c:     c,
+		tasks: task.NewGroup(ctx),
 	}
-	s.loopbackServer = newLoopbackServer(ctx, s)
+	s.loopbackServer = newLoopbackServer(s)
+	s.loopbackServer.QueueTasks(s.tasks)
+
+	s.tasks.Queue("Conn.Close", func() error {
+		<-s.tasks.Context().Done()
+		return s.loopbackServer.Conn.Close()
+	})
+	s.tasks.GoRun()
+
 	return s
 }
 

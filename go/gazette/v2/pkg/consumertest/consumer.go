@@ -3,7 +3,9 @@ package consumertest
 
 import (
 	"context"
+	"os"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
@@ -11,6 +13,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/server"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	"github.com/coreos/etcd/clientv3"
 	gc "github.com/go-check/check"
 	"google.golang.org/grpc"
@@ -24,11 +27,11 @@ type Consumer struct {
 	Server *server.Server
 	// Service of the Consumer, which is available for test applications.
 	Service *consumer.Service
+	// Tasks of the Consumer.
+	Tasks *task.Group
 
-	spec   consumer.ConsumerSpec
-	etcd   *clientv3.Client
-	idleCh chan struct{}
-	lease  clientv3.LeaseID
+	sigCh  chan<- os.Signal
+	idleCh <-chan struct{}
 }
 
 // Args of NewConsumer.
@@ -54,65 +57,18 @@ func NewConsumer(args Args) *Consumer {
 		args.Suffix = "consumer"
 	}
 
+	var ks = consumer.NewKeySpace(args.Root)
+	ks.WatchApplyDelay = 0 // Speedup test execution.
+	var state = allocator.NewObservedState(ks, allocator.MemberKey(ks, args.Zone, args.Suffix))
+
 	var srv, err = server.New("127.0.0.1", 0)
 	args.C.Assert(err, gc.IsNil)
-
-	// Grant lease with 1m timeout. Test must complete within this time.
-	grant, err := args.Etcd.Grant(context.Background(), 60)
-	args.C.Assert(err, gc.IsNil)
-
-	var ks = consumer.NewKeySpace(args.Root)
-	var key = allocator.MemberKey(ks, args.Zone, args.Suffix)
-	var state = allocator.NewObservedState(ks, key)
 	var svc = consumer.NewService(args.App, state, args.Journals, srv.MustGRPCLoopback(), args.Etcd)
-
 	consumer.RegisterShardServer(srv.GRPCServer, svc)
 
-	return &Consumer{
-		spec: consumer.ConsumerSpec{
-			ProcessSpec: pb.ProcessSpec{
-				Id:       pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix},
-				Endpoint: srv.Endpoint(),
-			},
-			ShardLimit: 100,
-		},
-		Service: svc,
-		Server:  srv,
-
-		etcd:   args.Etcd,
-		idleCh: make(chan struct{}),
-		lease:  grant.ID,
-	}
-}
-
-// Serve the consumer by serving its Server loopback and invoking Allocate.
-// Any APIs attached to the loopback Server should be registered before Serve
-// is called. Serve returns once Allocate completes.
-func (cmr *Consumer) Serve(c *gc.C, ctx context.Context) {
-	var ks = cmr.Service.State.KS
-	var key = allocator.MemberKey(ks, cmr.spec.Id.Zone, cmr.spec.Id.Suffix)
-
-	var resp, err = cmr.etcd.Txn(ctx).
-		If(clientv3.Compare(clientv3.Version(key), "=", 0)).
-		Then(clientv3.OpPut(key, cmr.spec.MarshalString(), clientv3.WithLease(cmr.lease))).
-		Commit()
-
-	c.Assert(err, gc.IsNil)
-	c.Assert(resp.Succeeded, gc.Equals, true)
-
-	ks.WatchApplyDelay = 0 // Speedup test execution.
-	c.Assert(ks.Load(ctx, cmr.etcd, resp.Header.Revision), gc.IsNil)
-
-	go func() {
-		c.Assert(ks.Watch(ctx, cmr.etcd), gc.Equals, context.Canceled)
-	}()
-
-	// Arrange to stop the server when |ctx| is cancelled.
-	go func() {
-		<-ctx.Done()
-		cmr.Server.GracefulStop()
-	}()
-	go cmr.Server.MustServe()
+	var tasks = task.NewGroup(context.Background())
+	var sigCh = make(chan os.Signal, 1)
+	var idleCh = make(chan struct{})
 
 	// We signal |idleCh| on the first idle TestHook callback which follows
 	// at least one non-idle TestHook. Intuitively, we signal only if Allocate
@@ -120,12 +76,20 @@ func (cmr *Consumer) Serve(c *gc.C, ctx context.Context) {
 	// We do not signal on, eg, an assignment key/value update which does
 	// not result in a re-allocation.
 	var signalOnIdle bool
-	defer close(cmr.idleCh) // Signal on exit.
 
-	_ = allocator.Allocate(allocator.AllocateArgs{
-		Context: ctx,
-		Etcd:    cmr.etcd,
-		State:   cmr.Service.State,
+	var sessionArgs = allocator.SessionArgs{
+		Etcd:     args.Etcd,
+		LeaseTTL: time.Second * 60,
+		SignalCh: sigCh,
+		Spec: &consumer.ConsumerSpec{
+			ProcessSpec: pb.ProcessSpec{
+				Id:       pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix},
+				Endpoint: srv.Endpoint(),
+			},
+			ShardLimit: 100,
+		},
+		State: state,
+		Tasks: tasks,
 		TestHook: func(_ int, isIdle bool) {
 			if !isIdle {
 				signalOnIdle = true
@@ -134,14 +98,33 @@ func (cmr *Consumer) Serve(c *gc.C, ctx context.Context) {
 				return
 			} else {
 				select {
-				case cmr.idleCh <- struct{}{}:
+				case idleCh <- struct{}{}:
+					// Pass.
+				case <-tasks.Context().Done():
+					return
 				case <-time.After(5 * time.Second):
 					panic("deadlock in consumer TestHook; is your test ignoring a signal to AllocateIdleCh()?")
 				}
 				signalOnIdle = false
 			}
 		},
+	}
+	args.C.Assert(allocator.StartSession(sessionArgs), gc.IsNil)
+
+	srv.QueueTasks(tasks)
+	tasks.Queue("service.Watch", func() error { return svc.Watch(tasks.Context()) })
+	tasks.Queue("loopback.Close", func() error {
+		<-tasks.Context().Done()
+		return svc.Loopback.Close()
 	})
+
+	return &Consumer{
+		Service: svc,
+		Server:  srv,
+		Tasks:   tasks,
+		sigCh:   sigCh,
+		idleCh:  idleCh,
+	}
 }
 
 // AllocateIdleCh signals when the Consumer's Allocate loop took an action, such
@@ -150,45 +133,9 @@ func (cmr *Consumer) Serve(c *gc.C, ctx context.Context) {
 // actions, or Consumer will panic.
 func (cmr *Consumer) AllocateIdleCh() <-chan struct{} { return cmr.idleCh }
 
-// ZeroShardLimit of the Consumer. The test Consumer will eventually exit,
+// Signal the Consumer. The test Consumer will eventually exit,
 // assuming other Consumers(s) are available to take over the assignments.
-func (cmr *Consumer) ZeroShardLimit(c *gc.C) {
-	var state = cmr.Service.State
-
-	state.KS.Mu.RLock()
-	var kv = state.Members[state.LocalMemberInd]
-	state.KS.Mu.RUnlock()
-
-	var spec = *kv.Decoded.(allocator.Member).MemberValue.(*consumer.ConsumerSpec)
-	spec.ZeroLimit()
-
-	resp, err := cmr.etcd.Txn(context.Background()).
-		If(clientv3.Compare(clientv3.ModRevision(string(kv.Raw.Key)), "=", kv.Raw.ModRevision)).
-		Then(clientv3.OpPut(string(kv.Raw.Key), spec.MarshalString(), clientv3.WithIgnoreLease())).
-		Commit()
-
-	c.Assert(err, gc.IsNil)
-	c.Assert(resp.Succeeded, gc.Equals, true)
-}
-
-// RevokeLease of the Consumer, allowing its Allocate loop to immediately exit.
-func (cmr *Consumer) RevokeLease(c *gc.C) {
-	var _, err = cmr.etcd.Revoke(context.Background(), cmr.lease)
-	c.Assert(err, gc.IsNil)
-}
-
-// WaitForExit of the Allocate loop, and complete Consumer teardown.
-// WaitForExit will block indefinitely if the Consumer's Shard limit is not
-// also zeroed (and another Consumer takes over), or its lease revoked.
-func (cmr *Consumer) WaitForExit(c *gc.C) {
-	for range cmr.AllocateIdleCh() {
-		// |idleCh| is closed when Allocate completes.
-	}
-	// Wait for all replicas to finish tear-down.
-	cmr.Service.Resolver.WaitForLocalReplicas()
-	// Close our local grpc.ClientConn.
-	c.Assert(cmr.Service.Loopback.Close(), gc.IsNil)
-}
+func (cmr *Consumer) Signal() { cmr.sigCh <- syscall.SIGTERM }
 
 // CreateShards using the Consumer Apply API, and wait for them to be allocated.
 func CreateShards(c *gc.C, cmr *Consumer, specs ...*consumer.ShardSpec) {

@@ -16,7 +16,7 @@ type ReplicaSuite struct{}
 
 func (s *ReplicaSuite) TestSpoolAcquisition(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
-	var r = newReplica("foobar")
+	var r = newReplica("foobar", func() {})
 
 	var spool, err = acquireSpool(ctx, r)
 	c.Check(err, gc.IsNil)
@@ -177,17 +177,24 @@ func (s *ReplicaSuite) TestShutdown(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	res.replica.pipelineCh <- pln // Release.
 
-	shutDownReplica(res.replica)
+	var doneCalled bool
 
-	// Expect the replica pipeline and spool are torn down, and no longer select-able.
-	select {
-	case <-res.replica.spoolCh:
-		c.Fail()
-	case <-res.replica.pipelineCh:
-		c.Fail()
-	default:
+	res.replica.done = func() {
+		// Expect the replica pipeline and spool were torn down, and no longer select-able.
+		select {
+		case <-res.replica.spoolCh:
+			c.Fail()
+		case <-res.replica.pipelineCh:
+			c.Fail()
+		default:
+		}
+		c.Check(res.replica.ctx.Err(), gc.Equals, context.Canceled)
+
+		doneCalled = true
 	}
-	c.Check(res.replica.ctx.Err(), gc.Equals, context.Canceled)
+
+	shutDownReplica(res.replica)
+	c.Check(doneCalled, gc.Equals, true)
 }
 
 func (s *ReplicaSuite) TestAssignmentUpdateCases(c *gc.C) {

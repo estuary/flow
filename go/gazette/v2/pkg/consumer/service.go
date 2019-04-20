@@ -40,6 +40,14 @@ func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalCli
 	}
 }
 
+// Watch the Service KeySpace and serve any local assignments
+// reflected therein, until the Context is cancelled or an error occurs.
+// Watch shuts down all local replicas prior to return regardless of
+// error status.
+func (svc *Service) Watch(ctx context.Context) error {
+	return svc.Resolver.watch(ctx, svc.Etcd)
+}
+
 func addTrace(ctx context.Context, format string, args ...interface{}) {
 	if tr, ok := trace.FromContext(ctx); ok {
 		tr.LazyPrintf(format, args...)

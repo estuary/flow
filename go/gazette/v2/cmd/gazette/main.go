@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/broker"
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
@@ -9,6 +14,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/server"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -44,29 +50,60 @@ func (serveBroker) Execute(args []string) error {
 	var ks = broker.NewKeySpace(Config.Etcd.Prefix)
 	var allocState = allocator.NewObservedState(ks, Config.Broker.MemberKey(ks))
 
-	var etcd = mbp.MustEtcdContext(Config.Etcd.EtcdConfig)
+	var etcd = Config.Etcd.MustDial()
 	var srv, err = server.New("", Config.Broker.Port)
 	mbp.Must(err, "building Server instance")
 	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
 
 	var lo = protocol.NewJournalClient(srv.MustGRPCLoopback())
-	var service = broker.NewService(allocState, lo, etcd.Etcd)
+	var service = broker.NewService(allocState, lo, etcd)
 	var rjc = protocol.NewRoutedJournalClient(lo, service)
 
 	protocol.RegisterJournalServer(srv.GRPCServer, service)
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
 
+	var tasks = task.NewGroup(context.Background())
+	srv.QueueTasks(tasks)
+
 	var persister = fragment.NewPersister(ks)
-	go persister.Serve()
 	broker.SetSharedPersister(persister)
 
-	mbp.AnnounceServeAndAllocate(etcd, srv, allocState, &protocol.BrokerSpec{
-		ProcessSpec:  Config.Broker.ProcessSpec(),
-		JournalLimit: Config.Broker.Limit,
+	tasks.Queue("persister.Serve", func() error {
+		persister.Serve()
+		return nil
 	})
 
-	persister.Finish()
+	var signalCh = make(chan os.Signal, 1)
+
+	mbp.Must(allocator.StartSession(allocator.SessionArgs{
+		Etcd:     etcd,
+		LeaseTTL: Config.Etcd.LeaseTTL,
+		SignalCh: signalCh,
+		Spec: &protocol.BrokerSpec{
+			JournalLimit: Config.Broker.Limit,
+			ProcessSpec:  Config.Broker.ProcessSpec(),
+		},
+		State: allocState,
+		Tasks: tasks,
+	}), "starting allocator session")
+
+	tasks.Queue("service.Watch", func() error {
+		var err = service.Watch(tasks.Context())
+		// At Watch return, we're assured that all journal replicas have been
+		// fully shut down. Ask the persister to Finish persisting any
+		// outstanding local spools.
+		persister.Finish()
+		return err
+	})
+
+	// Install signal handler & start broker tasks.
+	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
+	tasks.GoRun()
+
+	// Block until all tasks complete. Assert none returned an error.
+	mbp.Must(tasks.Wait(), "broker task failed")
 	log.Info("goodbye")
+
 	return nil
 }
 

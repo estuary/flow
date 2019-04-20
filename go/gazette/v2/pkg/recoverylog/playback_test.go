@@ -658,8 +658,8 @@ func newBrokerAndLog(c *gc.C) (client.AsyncJournalClient, func()) {
 	var as = client.NewAppendService(context.Background(), rjc)
 
 	return as, func() {
-		broker.RevokeLease(c)
-		broker.WaitForExit()
+		broker.Tasks.Cancel()
+		c.Check(broker.Tasks.Wait(), gc.IsNil)
 		etcdtest.Cleanup()
 	}
 }

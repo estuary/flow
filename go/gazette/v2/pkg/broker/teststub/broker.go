@@ -6,6 +6,7 @@ import (
 
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/server"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	gc "github.com/go-check/check"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -18,23 +19,22 @@ type LoopbackServer struct {
 }
 
 // NewLoopbackServer returns a LoopbackServer of the provided JournalServer.
-func NewLoopbackServer(ctx context.Context, journalServer pb.JournalServer) LoopbackServer {
+func NewLoopbackServer(journalServer pb.JournalServer) LoopbackServer {
 	var srv, err = server.New("127.0.0.1", 0)
 	if err != nil {
 		panic(err)
 	}
 	pb.RegisterJournalServer(srv.GRPCServer, journalServer)
-	var conn = srv.MustGRPCLoopback()
 
-	// Arrange to stop the server when |ctx| is cancelled.
-	go func() {
-		<-ctx.Done()
-		_ = conn.Close()
-		srv.GracefulStop()
-	}()
-	go srv.MustServe()
+	return LoopbackServer{Server: srv, Conn: srv.MustGRPCLoopback()}
+}
 
-	return LoopbackServer{Server: srv, Conn: conn}
+func (s LoopbackServer) QueueTasks(tasks *task.Group) {
+	tasks.Queue("conn.Close", func() error {
+		<-tasks.Context().Done()
+		return s.Conn.Close()
+	})
+	s.Server.QueueTasks(tasks)
 }
 
 // MustClient returns a JournalClient of the test LoopbackServer.
@@ -43,8 +43,9 @@ func (s LoopbackServer) MustClient() pb.JournalClient { return pb.NewJournalClie
 // Broker stubs the read and write loops of broker RPCs, routing them onto
 // channels which can be synchronously read and written within test bodies.
 type Broker struct {
-	LoopbackServer
 	c *gc.C
+	LoopbackServer
+	Tasks *task.Group
 
 	ReplReqCh  chan *pb.ReplicateRequest
 	ReplRespCh chan *pb.ReplicateResponse
@@ -66,6 +67,7 @@ type Broker struct {
 func NewBroker(c *gc.C, ctx context.Context) *Broker {
 	var p = &Broker{
 		c:            c,
+		Tasks:        task.NewGroup(ctx),
 		ReplReqCh:    make(chan *pb.ReplicateRequest),
 		ReplRespCh:   make(chan *pb.ReplicateResponse),
 		ReadReqCh:    make(chan *pb.ReadRequest),
@@ -74,7 +76,9 @@ func NewBroker(c *gc.C, ctx context.Context) *Broker {
 		AppendRespCh: make(chan *pb.AppendResponse),
 		ErrCh:        make(chan error),
 	}
-	p.LoopbackServer = NewLoopbackServer(ctx, p)
+	p.LoopbackServer = NewLoopbackServer(p)
+	p.LoopbackServer.QueueTasks(p.Tasks)
+	p.Tasks.GoRun()
 	return p
 }
 

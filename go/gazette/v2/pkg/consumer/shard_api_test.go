@@ -192,7 +192,7 @@ func (s *APISuite) TestApplyShardsInBatches(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	var ss = newShardServerStub(ctx, c)
+	var ss = newShardServerStub(c, ctx)
 	var client = NewRoutedShardClient(ss.MustClient(), client.NewRouteCache(2, time.Hour))
 
 	var hdr = buildHeaderFixture(ss)

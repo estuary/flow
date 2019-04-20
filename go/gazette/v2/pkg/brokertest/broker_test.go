@@ -3,7 +3,6 @@ package brokertest
 import (
 	"bufio"
 	"context"
-	"io"
 	"testing"
 
 	"github.com/LiveRamp/gazette/v2/pkg/client"
@@ -42,14 +41,15 @@ func (s *BrokerSuite) TestSimpleReadAndWrite(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(str, gc.Equals, "hello, gazette\n")
 
-	bk.RevokeLease(c)
+	bk.Tasks.Cancel()
 
-	// Next newline is never observed, but we do receive an EOF on server-initiated close.
+	// Next newline is never observed, but we do receive an EOF or
+	// gRPC "transport is closing" on server-initiated close.
 	str, err = br.ReadString('\n')
-	c.Check(err, gc.Equals, io.EOF)
+	c.Check(err, gc.NotNil)
 	c.Check(str, gc.Equals, "goodbye, gazette")
 
-	bk.WaitForExit()
+	c.Check(bk.Tasks.Wait(), gc.IsNil)
 }
 
 func (s *BrokerSuite) TestReplicatedReadAndWrite(c *gc.C) {
@@ -84,14 +84,14 @@ func (s *BrokerSuite) TestReplicatedReadAndWrite(c *gc.C) {
 	c.Check(err, gc.IsNil)
 	c.Check(str, gc.Equals, "hello, gazette\n")
 
-	// Update |bkA| spec indicating its desire to exit.
-	bkA.ZeroJournalLimit(c)
-	bkB.ZeroJournalLimit(c)
-
+	// Update |bkB| spec indicating its desire to exit.
+	bkB.Signal()
 	updateReplication(c, ctx, rjcA, "foo/bar", 0)
+	<-bkA.AllocateIdleCh()              // Assignments are removed.
+	c.Check(bkB.Tasks.Wait(), gc.IsNil) // Now |bkB| may exit.
 
-	bkA.WaitForExit()
-	bkB.WaitForExit()
+	bkA.Signal()
+	c.Check(bkA.Tasks.Wait(), gc.IsNil)
 }
 
 func updateReplication(c *gc.C, ctx context.Context, bk pb.RoutedJournalClient, journal pb.Journal, r int32) {

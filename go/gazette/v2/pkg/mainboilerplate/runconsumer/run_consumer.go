@@ -6,6 +6,9 @@ package runconsumer
 
 import (
 	"context"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/consumer"
@@ -13,6 +16,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/metrics"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
 	"github.com/LiveRamp/gazette/v2/pkg/server"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -42,6 +46,10 @@ type InitArgs struct {
 	// Service of the consumer. Applications may use the Service to power Shard
 	// resolution, request proxying, and state inspection.
 	Service *consumer.Service
+	// Tasks are independent, cancelable goroutines having the lifetime of
+	// the consumer, such as service loops and the like. Applications may
+	// add additional tasks which should be started with the consumer.
+	Tasks *task.Group
 }
 
 // Config is the top-level configuration object of an Application. It must
@@ -94,7 +102,7 @@ func (sc serveConsumer) Execute(args []string) error {
 	var ks = consumer.NewKeySpace(bc.Etcd.Prefix)
 	var allocState = allocator.NewObservedState(ks, bc.Consumer.MemberKey(ks))
 
-	var etcd = mbp.MustEtcdContext(bc.Etcd.EtcdConfig)
+	var etcd = bc.Etcd.MustDial()
 	var srv, err = server.New("", bc.Consumer.Port)
 	mbp.Must(err, "building Server instance")
 	protocol.RegisterGRPCDispatcher(bc.Consumer.Zone)
@@ -103,7 +111,10 @@ func (sc serveConsumer) Execute(args []string) error {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")
 	}
 	var rjc = bc.Broker.RoutedJournalClient(context.Background())
-	var service = consumer.NewService(sc.app, allocState, rjc, srv.MustGRPCLoopback(), etcd.Etcd)
+	var service = consumer.NewService(sc.app, allocState, rjc, srv.MustGRPCLoopback(), etcd)
+
+	var tasks = task.NewGroup(context.Background())
+	srv.QueueTasks(tasks)
 
 	consumer.RegisterShardServer(srv.GRPCServer, service)
 	mbp.Must(sc.app.InitApplication(InitArgs{
@@ -111,15 +122,33 @@ func (sc serveConsumer) Execute(args []string) error {
 		Config:  sc.cfg,
 		Server:  srv,
 		Service: service,
+		Tasks:   tasks,
 	}), "application failed to init")
 
-	mbp.AnnounceServeAndAllocate(etcd, srv, allocState, &consumer.ConsumerSpec{
-		ProcessSpec: bc.Consumer.ProcessSpec(),
-		ShardLimit:  bc.Consumer.Limit,
-	})
-	service.Resolver.WaitForLocalReplicas()
+	var signalCh = make(chan os.Signal, 1)
 
+	mbp.Must(allocator.StartSession(allocator.SessionArgs{
+		Etcd:     etcd,
+		LeaseTTL: bc.Etcd.LeaseTTL,
+		SignalCh: signalCh,
+		Spec: &consumer.ConsumerSpec{
+			ProcessSpec: bc.Consumer.ProcessSpec(),
+			ShardLimit:  bc.Consumer.Limit,
+		},
+		State: allocState,
+		Tasks: tasks,
+	}), "starting allocator session")
+
+	tasks.Queue("service.Watch", func() error { return service.Watch(tasks.Context()) })
+
+	// Install signal handler, and launch consumer tasks.
+	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
+	tasks.GoRun()
+
+	// Block until all tasks complete. Assert none returned an error.
+	mbp.Must(tasks.Wait(), "consumer task failed")
 	log.Info("goodbye")
+
 	return nil
 }
 

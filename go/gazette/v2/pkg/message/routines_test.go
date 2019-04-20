@@ -43,8 +43,8 @@ func (s *RoutinesSuite) TestPublishSuccess(c *gc.C) {
 	c.Check(string(b), gc.Equals, `{"Data":"beer beer beer"}`+"\n")
 	c.Check(err, gc.Equals, client.ErrOffsetNotYetAvailable)
 
-	bk.RevokeLease(c)
-	bk.WaitForExit()
+	bk.Tasks.Cancel()
+	c.Check(bk.Tasks.Wait(), gc.IsNil)
 }
 
 func (s *RoutinesSuite) TestFramingDetermination(c *gc.C) {

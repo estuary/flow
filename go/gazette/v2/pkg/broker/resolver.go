@@ -3,20 +3,25 @@ package broker
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 // resolver maps journals to responsible broker instances and, potentially, a local replica.
 type resolver struct {
 	state      *allocator.State
 	replicas   map[pb.Journal]*replica
-	newReplica func(pb.Journal) *replica
+	newReplica func(pb.Journal, func()) *replica
+	wg         sync.WaitGroup
 }
 
-func newResolver(state *allocator.State, newReplica func(pb.Journal) *replica) *resolver {
+func newResolver(state *allocator.State, newReplica func(pb.Journal, func()) *replica) *resolver {
 	var r = &resolver{
 		state:      state,
 		replicas:   make(map[pb.Journal]*replica),
@@ -179,21 +184,19 @@ func (r *resolver) updateResolutions() {
 		var assignment = li.Assignments[li.Index].Decoded.(allocator.Assignment)
 		var name = pb.Journal(item.ID)
 
-		var rep *replica
-		var ok bool
-
-		if rep, ok = r.replicas[name]; ok {
-			next[name] = rep
-			delete(r.replicas, name)
+		var replica, ok = r.replicas[name]
+		if !ok {
+			r.wg.Add(1)
+			replica = r.newReplica(name, r.wg.Done) // Newly assigned journal.
 		} else {
-			rep = r.newReplica(name)
-			next[name] = rep
+			delete(r.replicas, name)
 		}
+		next[name] = replica
 
 		if assignment.Slot == 0 && !item.IsConsistent(keyspace.KeyValue{}, li.Assignments) {
 			// Attempt to signal maintenanceLoop that the journal should be pulsed.
 			select {
-			case rep.maintenanceCh <- struct{}{}:
+			case replica.pulsePipelineCh <- struct{}{}:
 			default: // Pass (non-blocking).
 			}
 		}
@@ -202,9 +205,25 @@ func (r *resolver) updateResolutions() {
 	var prev = r.replicas
 	r.replicas = next
 
-	for _, rep := range prev {
-		// Signal maintenanceLoop to stop the replica.
-		close(rep.maintenanceCh)
+	// Any remaining replicas in |prev| were not in LocalItems.
+	r.cancelReplicas(prev)
+}
+
+func (r *resolver) cancelReplicas(m map[pb.Journal]*replica) {
+	for _, replica := range m {
+		log.WithField("name", replica.journal).Info("stopping local journal replica")
+		go shutDownReplica(replica)
 	}
-	return
+}
+
+func (r *resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
+	var err = r.state.KS.Watch(ctx, etcd)
+
+	if errors.Cause(err) == context.Canceled {
+		err = nil
+	}
+	// Tear down any orphaned replicas, and wait for all async shutdowns to complete.
+	r.cancelReplicas(r.replicas)
+	r.wg.Wait()
+	return err
 }

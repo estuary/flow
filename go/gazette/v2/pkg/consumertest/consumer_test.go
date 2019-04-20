@@ -50,7 +50,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 		App:      testApp{},
 		Zone:     "zone-1",
 	})
-	go cmr1.Serve(c, ctx)
+	cmr1.Tasks.GoRun()
 
 	CreateShards(c, cmr1, &consumer.ShardSpec{
 		Id:                "a-shard",
@@ -79,7 +79,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 		&map[string]string{"the": "quick", "brown": "fox"})
 	res.Done() // Release resolution.
 
-	cmr1.ZeroShardLimit(c) // |cmr1| signals its desire to exit.
+	cmr1.Signal() // |cmr1| signals its desire to exit.
 
 	var cmr2 = NewConsumer(Args{
 		C:        c,
@@ -88,11 +88,13 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 		App:      testApp{},
 		Zone:     "zone-2",
 	})
-	go cmr2.Serve(c, ctx)
+	cmr2.Tasks.GoRun()
 
-	// |cmr2| is assigned the shard, completes recovery, and is promoted to
-	// primary. |cmr1| is then able to exit.
-	cmr1.WaitForExit(c)
+	// |cmr1|, which is allocation leader, assigns |cmr2| as standby.
+	<-cmr1.AllocateIdleCh()
+	// |cmr2| becomes ready and is promoted to primary, after which |cmr1|
+	// has no more assignments and is able to exit.
+	c.Check(cmr1.Tasks.Wait(), gc.IsNil)
 
 	// Publish additional test messages, and wait for them to be consumed.
 	wc = client.NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
@@ -109,11 +111,11 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 		&map[string]string{"the": "replaced value", "brown": "fox", "added": "key"})
 	res.Done() // Release resolution.
 
-	cmr2.RevokeLease(c)
-	cmr2.WaitForExit(c)
+	cmr2.Tasks.Cancel()
+	c.Check(cmr2.Tasks.Wait(), gc.IsNil)
 
-	broker.RevokeLease(c)
-	broker.WaitForExit()
+	broker.Tasks.Cancel()
+	c.Check(broker.Tasks.Wait(), gc.IsNil)
 }
 
 func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
@@ -147,7 +149,7 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 		App:      testApp{},
 		Zone:     "zone-1",
 	})
-	go cmr1.Serve(c, ctx)
+	cmr1.Tasks.GoRun()
 
 	CreateShards(c, cmr1, &consumer.ShardSpec{
 		Id:                "a-shard",
@@ -166,7 +168,7 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 		App:      testApp{},
 		Zone:     "zone-2",
 	})
-	go cmr2.Serve(c, ctx)
+	cmr2.Tasks.GoRun()
 
 	<-cmr1.AllocateIdleCh() // |cmr2| is assigned as standby.
 
@@ -180,8 +182,8 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	c.Check(WaitForShards(ctx, rjc, cmr1.Service.Loopback, pb.LabelSelector{}), gc.IsNil)
 
 	// Crash |cmr1|.
-	cmr1.RevokeLease(c)
-	cmr1.WaitForExit(c)
+	cmr1.Tasks.Cancel()
+	c.Check(cmr1.Tasks.Wait(), gc.IsNil)
 
 	<-cmr2.AllocateIdleCh() // |cmr2| takes over the shard.
 
@@ -192,11 +194,11 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 		&map[string]string{"the": "quick", "brown": "fox"})
 	res.Done() // Release resolution.
 
-	cmr2.RevokeLease(c)
-	cmr2.WaitForExit(c)
+	cmr2.Tasks.Cancel()
+	c.Check(cmr2.Tasks.Wait(), gc.IsNil)
 
-	broker.RevokeLease(c)
-	broker.WaitForExit()
+	broker.Tasks.Cancel()
+	c.Check(broker.Tasks.Wait(), gc.IsNil)
 }
 
 type testApp struct{}

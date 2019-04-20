@@ -7,6 +7,9 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/allocator"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 // Resolver maps shards to responsible consumer processes, and manages the set
@@ -182,11 +185,6 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	return
 }
 
-// WaitForLocalReplicas returns after all previously-created replicas have
-// completed outstanding requests & background writes, and have been fully
-// torn down.
-func (r *Resolver) WaitForLocalReplicas() { r.wg.Wait() }
-
 // updateResolutions updates |replicas| to match LocalItems, creating,
 // transitioning, and cancelling Replicas as needed. The KeySpace
 // lock must be held.
@@ -200,8 +198,8 @@ func (r *Resolver) updateResolutions() {
 
 		var replica, ok = r.replicas[id]
 		if !ok {
-			replica = r.newReplica() // Newly assigned shard.
 			r.wg.Add(1)
+			replica = r.newReplica() // Newly assigned shard.
 		} else {
 			delete(r.replicas, id) // Move from |r.replicas| to |next|.
 		}
@@ -213,9 +211,25 @@ func (r *Resolver) updateResolutions() {
 	r.replicas = next
 
 	// Any remaining Replicas in |prev| were not in LocalItems.
-	for _, replica := range prev {
+	r.cancelReplicas(prev)
+}
+
+func (r *Resolver) cancelReplicas(m map[ShardID]*Replica) {
+	for _, replica := range m {
+		log.WithField("id", replica.spec.Id).Info("stopping local shard replica")
 		replica.cancel()
 		go replica.waitAndTearDown(r.wg.Done)
 	}
-	return
+}
+
+func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
+	var err = r.state.KS.Watch(ctx, etcd)
+
+	if errors.Cause(err) == context.Canceled {
+		err = nil
+	}
+	// Tear down any orphaned local replicas, and wait for all async shutdowns to complete.
+	r.cancelReplicas(r.replicas)
+	r.wg.Wait()
+	return err
 }

@@ -375,8 +375,8 @@ func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
 	var _, err = rec.BuildHints()
 	c.Check(err, gc.Equals, context.Canceled)
 
-	broker.RevokeLease(c)
-	broker.WaitForExit()
+	broker.Tasks.Cancel()
+	c.Check(broker.Tasks.Wait(), gc.IsNil)
 }
 
 func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {
@@ -422,13 +422,13 @@ func newBrokerLogAndReader(c *gc.C) (client.AsyncJournalClient, *client.Reader, 
 	var br = bufio.NewReader(r)
 
 	return as, r, br, func() {
-		broker.RevokeLease(c)
+		broker.Tasks.Cancel()
 
-		// Expect read is remotely closed with all content consumed.
+		// Expect we read a closing error (all content consumed).
 		var _, err = br.ReadByte()
-		c.Check(err, gc.Equals, io.EOF)
+		c.Check(err, gc.NotNil)
 
-		broker.WaitForExit()
+		c.Check(broker.Tasks.Wait(), gc.IsNil)
 		etcdtest.Cleanup()
 	}
 }

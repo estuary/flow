@@ -167,7 +167,8 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 		Journals: rjc,
 		App:      Summer{},
 	})
-	go cmr.Serve(c, ctx)
+	cmr.Tasks.GoRun()
+
 	consumertest.CreateShards(c, cmr, testShards...)
 
 	var cfg ChunkerConfig
@@ -178,10 +179,10 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	c.Check(GenerateAndVerifyStreams(ctx, &cfg), gc.IsNil)
 
 	// Shutdown.
-	cmr.RevokeLease(c)
-	cmr.WaitForExit(c)
-	broker.RevokeLease(c)
-	broker.WaitForExit()
+	cmr.Tasks.Cancel()
+	c.Check(cmr.Tasks.Wait(), gc.IsNil)
+	broker.Tasks.Cancel()
+	c.Check(broker.Tasks.Wait(), gc.IsNil)
 }
 
 func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*consumer.ShardSpec) {

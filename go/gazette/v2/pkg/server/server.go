@@ -8,6 +8,7 @@ import (
 
 	"github.com/LiveRamp/gazette/v2/pkg/keepalive"
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
@@ -70,7 +71,7 @@ func New(iface string, port uint16) (*Server, error) {
 
 	// GRPCListener sniffs for HTTP/2 in-the-clear connections which have
 	// "Content-Type: application/grpc". Note this matcher will send an initial
-	// empty SETTINGS frame to the client, as grpc clients delay the first
+	// empty SETTINGS frame to the client, as gRPC clients delay the first
 	// request until the HTTP/2 handshake has completed.
 	srv.GRPCListener = srv.CMux.MatchWithWriters(
 		cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
@@ -86,62 +87,39 @@ func (s *Server) Endpoint() protocol.Endpoint {
 	return protocol.Endpoint("http://" + s.RawListener.Addr().String())
 }
 
-// Serve the Server, including the CMux, HTTP Server, and gRPC server. The first
-// encountered error is returned. If additional Listeners have been derived from
-// the Server.CMux, Serve must first be called to begin serving the CMux itself,
-// and then connections may be Accept()'d from the derived Listeners.
-func (s *Server) Serve() error {
-	var errs = make(chan error, 3)
-
-	go func() {
+// QueueTasks serving the CMux, HTTP, and gRPC component servers onto the task.Group.
+// If additional Listeners are derived from the Server.CMux, attempts to Accept
+// will block until the CMux itself begins serving.
+func (s *Server) QueueTasks(tg *task.Group) {
+	tg.Queue("CMux.Serve", func() error {
 		if err := s.CMux.Serve(); err != nil && s.Ctx.Err() == nil {
-			errs <- err
-		} else {
-			errs <- nil
-		}
-	}()
-	go func() {
-		if err := http.Serve(s.HTTPListener, s.HTTPMux); err != nil && s.Ctx.Err() == nil {
-			errs <- err
-		} else {
-			errs <- nil
-		}
-	}()
-	go func() {
-		errs <- s.GRPCServer.Serve(s.GRPCListener)
-	}()
-
-	// Block until all goroutines finish, or an error is encountered.
-	for i := 0; i != 3; i++ {
-		if err := <-errs; err != nil {
 			return err
 		}
-	}
-	return nil
-}
+		return nil // Swallow error after GracefulStop.
+	})
+	tg.Queue("http.Serve", func() error {
+		if err := http.Serve(s.HTTPListener, s.HTTPMux); err != nil && s.Ctx.Err() == nil {
+			return err
+		}
+		return nil // Swallow error after GracefulStop.
+	})
+	tg.Queue("GRPCServer.Serve", func() error {
+		if err := s.GRPCServer.Serve(s.GRPCListener); err != grpc.ErrServerStopped {
+			return err
+		}
+		return nil // GracefulStop was called before GoServe.
+	})
+	tg.Queue("GRPCServer.GracefulStop", func() error {
+		<-tg.Context().Done() // Block until task.Group is cancelled.
 
-// MustServe calls Serve, and panics on an encountered error.
-func (s *Server) MustServe() {
-	switch err := s.Serve(); err {
-	case nil:
-		// Normal exit after GracefulStop.
-	case grpc.ErrServerStopped:
-		// GracefulStop called before Serve.
-	default:
-		panic(err)
-	}
-}
+		// GRPCServer.GracefulStop will close GRPCListener, which closes RawListener.
+		// Cancel |s.Ctx| so Serve loops and dialed loopback clients recognize this
+		// as a graceful closure.
+		s.cancel()
 
-// GracefulStop the Server. Attempts to Accept() connections from CMux Listeners
-// may begin failing after a GracefulStop call is started. The Server.Ctx may be
-// inspected to determine if the Server is stopping.
-// Returns when server stop is complete.
-func (s *Server) GracefulStop() {
-	// GRPCServer.GracefulStop will close GRPCListener, which closes RawListener.
-	// Cancel our context so Serve loops recognize this is a graceful closure.
-	s.cancel()
-
-	s.GRPCServer.GracefulStop()
+		s.GRPCServer.GracefulStop()
+		return nil
+	})
 }
 
 // GRPCLoopback dials and returns a connection to the local gRPC server.

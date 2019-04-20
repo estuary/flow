@@ -159,8 +159,8 @@ func newTestFixture(c *gc.C) (*testFixture, func()) {
 			c.Check(err, gc.IsNil)
 			c.Check(resp.Kvs, gc.HasLen, 0)
 
-			broker.RevokeLease(c)
-			broker.WaitForExit()
+			broker.Tasks.Cancel()
+			c.Check(broker.Tasks.Wait(), gc.IsNil)
 
 			cancel()
 			etcdtest.Cleanup()

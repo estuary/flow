@@ -10,6 +10,7 @@ import (
 	"github.com/LiveRamp/gazette/v2/pkg/fragment"
 	"github.com/LiveRamp/gazette/v2/pkg/keyspace"
 	pb "github.com/LiveRamp/gazette/v2/pkg/protocol"
+	"github.com/LiveRamp/gazette/v2/pkg/task"
 	"github.com/coreos/etcd/clientv3"
 	gc "github.com/go-check/check"
 )
@@ -28,6 +29,9 @@ func newTestFixture(c *gc.C) (testFixture, func()) {
 
 	c.Assert(ks.Load(ctx, etcd, 0), gc.IsNil)
 	go func() { c.Assert(ks.Watch(ctx, etcd), gc.Equals, context.Canceled) }()
+
+	// Set, but don't start a Persister for the test.
+	SetSharedPersister(fragment.NewPersister(ks))
 
 	return testFixture{
 			ctx:   ctx,
@@ -52,8 +56,8 @@ type testFixture struct {
 // load first completing. In normal operation the broker.Service would spawn a
 // maintenanceLoop() for each replica which drives this action. For tests,
 // we fake it.
-func newReadyReplica(journal pb.Journal) *replica {
-	var r = newReplica(journal)
+func newReadyReplica(journal pb.Journal, done func()) *replica {
+	var r = newReplica(journal, done)
 	r.index.ReplaceRemote(fragment.CoverSet{}) // Initial "load".
 	return r
 }
@@ -69,13 +73,13 @@ type testBroker struct {
 // newTestBroker returns a local testBroker of |id|. |newReplicaFn| should be
 // either |newReadyReplica| or |newReplica|.
 func newTestBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID,
-	newReplicaFn func(journal pb.Journal) *replica) testBroker {
+	newReplicaFn func(journal pb.Journal, done func()) *replica) testBroker {
 
 	var state = allocator.NewObservedState(tf.ks, allocator.MemberKey(tf.ks, id.Zone, id.Suffix))
 	var res = newResolver(state, newReplicaFn)
 
 	var svc = &Service{resolver: res, etcd: tf.etcd}
-	var srv = teststub.NewLoopbackServer(tf.ctx, svc)
+	var srv = teststub.NewLoopbackServer(svc)
 	svc.jc = srv.MustClient()
 
 	mustKeyValues(c, tf, map[string]string{
@@ -86,6 +90,11 @@ func newTestBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID,
 			},
 		}).MarshalString(),
 	})
+
+	var tasks = task.NewGroup(tf.ctx)
+	srv.QueueTasks(tasks)
+	tasks.GoRun()
+
 	return testBroker{
 		id:             id,
 		LoopbackServer: srv,

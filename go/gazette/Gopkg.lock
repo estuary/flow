@@ -832,6 +832,14 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:5e9d1a4b8508ec7da2aca6a46b1dc45dda3a7d8699f152d53fde93646c6cedf1"
+  name = "golang.org/x/sync"
+  packages = ["errgroup"]
+  pruneopts = ""
+  revision = "56d357773e8497dfd526f0727e187720d1093757"
+
+[[projects]]
+  branch = "master"
   digest = "1:0f39f8ca1c492b3b59020cb0f95e6635d5051bf7048a32ac5f9c6bf1adae6ec8"
   name = "golang.org/x/sys"
   packages = [
@@ -1034,6 +1042,7 @@
     "golang.org/x/net/context",
     "golang.org/x/net/trace",
     "golang.org/x/oauth2/google",
+    "golang.org/x/sync/errgroup",
     "google.golang.org/api/gensupport",
     "google.golang.org/api/googleapi",
     "google.golang.org/api/iterator",
