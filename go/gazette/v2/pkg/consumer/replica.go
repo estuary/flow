@@ -163,11 +163,11 @@ func (r *Replica) servePrimary() {
 		}(src.Journal, offsets[src.Journal])
 	}
 
-	// Consume messages from |msgCh| until an error occurs (such as context.Cancelled).
-	var hintsTimer = time.NewTimer(storeHintsInterval)
-	defer hintsTimer.Stop()
+	var hintsTicker = time.NewTicker(storeHintsInterval)
+	defer hintsTicker.Stop()
 
-	if err = consumeMessages(r, r.store, r.app, r.etcd, msgCh, hintsTimer.C); err != nil {
+	// Consume messages from |msgCh| until an error occurs (such as context.Cancelled).
+	if err = consumeMessages(r, r.store, r.app, r.etcd, msgCh, hintsTicker.C); err != nil {
 		err = r.logFailure(extendErr(err, "consumeMessages"))
 		tryUpdateStatus(r, r.ks, r.etcd, newErrorStatus(err))
 	}
