@@ -5,6 +5,7 @@ readonly V2DIR="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"
 readonly USAGE="Usage: $0 kube-context kube-namespace optional-broker-namespace"
 readonly NAMESPACE="${2?Kubernetes namespace is required. ${USAGE}}"
 readonly BK_NAMESPACE="${3:-${NAMESPACE}}"
+readonly REPOSITORY="${REPOSITORY:-liveramp}"
 
 . "${V2DIR}/test/lib.sh"
 configure_environment "${1?Kubernetes context is required. ${USAGE}}"
@@ -17,7 +18,7 @@ readonly GAZCTL="${DOCKER} run \
   --interactive \
   --env BROKER_ADDRESS \
   --env CONSUMER_ADDRESS \
-  liveramp/gazette:latest \
+  ${REPOSITORY}/gazette:latest \
   gazctl"
 
 # Create all test journals. Use `sed` to replace the MINIO_RELEASE token with the
@@ -33,6 +34,8 @@ install_zonemap ${NAMESPACE}
 ${HELM} dependency update ${V2DIR}/charts/examples/stream-sum
 ${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/stream-sum --values /dev/stdin << EOF
 summer:
+  image:
+    repository: ${REPOSITORY}/gazette-examples
   etcd:
     endpoint: http://$(helm_release ${BK_NAMESPACE} etcd)-etcd.${BK_NAMESPACE}:2379
   gazette:
@@ -77,6 +80,8 @@ done
 ${HELM} dependency update ${V2DIR}/charts/examples/word-count
 ${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/word-count --values /dev/stdin << EOF
 counter:
+  image:
+    repository: ${REPOSITORY}/gazette-examples
   etcd:
     endpoint: http://$(helm_release ${BK_NAMESPACE} etcd)-etcd.${BK_NAMESPACE}:2379
   gazette:
