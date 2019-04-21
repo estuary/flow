@@ -1,6 +1,7 @@
 package mainboilerplate
 
 import (
+	"context"
 	"time"
 
 	"github.com/LiveRamp/gazette/v2/pkg/protocol"
@@ -15,7 +16,23 @@ type EtcdConfig struct {
 
 // MustDial builds an Etcd client connection.
 func (c *EtcdConfig) MustDial() *clientv3.Client {
-	var etcd, err = clientv3.NewFromURL(string(c.Address))
+	var etcd, err = clientv3.New(clientv3.Config{
+		Endpoints: []string{string(c.Address)},
+		// Automatically and periodically sync the set of Etcd servers.
+		// If a network split occurs, this allows for attempting different
+		// members until a connectable one is found on our "side" of the network
+		// partition.
+		AutoSyncInterval: time.Minute,
+		// Use aggressive timeouts to quickly cycle through member endpoints,
+		// prior to our lease TTL expiring.
+		DialTimeout:          c.LeaseTTL / 20,
+		DialKeepAliveTime:    c.LeaseTTL / 4,
+		DialKeepAliveTimeout: c.LeaseTTL / 4,
+		// Require a reasonably recent server cluster.
+		RejectOldCluster: true,
+	})
 	Must(err, "failed to build Etcd client")
+
+	Must(etcd.Sync(context.Background()), "initial Etcd endpoint sync failed")
 	return etcd
 }
