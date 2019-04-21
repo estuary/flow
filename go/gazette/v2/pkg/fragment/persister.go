@@ -93,7 +93,11 @@ func (p *Persister) attemptPersist(spool Spool) {
 		return
 	}
 	// Attach the current BackingStore of the Fragment's JournalSpec.
-	if item, ok := allocator.LookupItem(p.ks, spool.Journal.String()); ok {
+	p.ks.Mu.RLock()
+	var item, ok = allocator.LookupItem(p.ks, spool.Journal.String())
+	p.ks.Mu.RUnlock()
+
+	if ok {
 		var spec = item.ItemValue.(*pb.JournalSpec)
 		// Journal spec has no configured store, drop this fragment.
 		if len(spec.Fragment.Stores) == 0 {

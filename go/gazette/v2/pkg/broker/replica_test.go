@@ -318,7 +318,7 @@ func (s *ReplicaSuite) TestCheckFragmentFlush(c *gc.C) {
 	}{
 		{
 			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
-				spool.End = 100
+				spool.Begin, spool.End = 1, 100
 				spool.FirstAppendTime = time.Time{}.Add(time.Hour * 2)
 				spec.Length = 200
 				spec.FlushInterval = time.Duration(time.Hour * 6)
@@ -326,6 +326,7 @@ func (s *ReplicaSuite) TestCheckFragmentFlush(c *gc.C) {
 			},
 			out: pb.Fragment{
 				Journal:          "a/journal",
+				Begin:            1,
 				End:              100,
 				CompressionCodec: 1,
 			},
@@ -333,7 +334,7 @@ func (s *ReplicaSuite) TestCheckFragmentFlush(c *gc.C) {
 		},
 		{
 			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
-				spool.End = 200
+				spool.Begin, spool.End = 1, 200
 				spool.FirstAppendTime = time.Time{}.Add(time.Hour * 2)
 				spec.Length = 100
 				return spool, spec
@@ -348,7 +349,7 @@ func (s *ReplicaSuite) TestCheckFragmentFlush(c *gc.C) {
 		},
 		{
 			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
-				spool.End = 50
+				spool.Begin, spool.End = 1, 50
 				spool.FirstAppendTime = time.Time{}.Add(time.Minute)
 				spec.Length = 100
 				spec.FlushInterval = time.Duration(time.Minute * 30)
@@ -360,7 +361,21 @@ func (s *ReplicaSuite) TestCheckFragmentFlush(c *gc.C) {
 				End:              50,
 				CompressionCodec: 1,
 			},
-			description: "Fragment contains data from pervious flush interval",
+			description: "Fragment contains data from previous flush interval",
+		},
+		{
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
+				spool.Begin, spool.End = 0, 10
+				spec.Length = 100
+				return spool, spec
+			},
+			out: pb.Fragment{
+				Journal:          "a/journal",
+				Begin:            10,
+				End:              10,
+				CompressionCodec: 1,
+			},
+			description: "Fragment is non-empty at Begin == 0",
 		},
 	}
 

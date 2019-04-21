@@ -103,6 +103,16 @@ func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
 
 	// |stream2| follows. Expect it's also replicated, without first performing a pipeline sync.
 	c.Check(stream2.Send(&pb.AppendRequest{Journal: "a/journal"}), gc.IsNil)
+
+	// Expect we rolled forward to a new Spool, after a first write at Begin: 0.
+	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            3,
+			End:              3,
+			CompressionCodec: pb.CompressionCodec_SNAPPY,
+		},
+	})
 	c.Check(stream2.Send(&pb.AppendRequest{Content: []byte("bar")}), gc.IsNil)
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{Content: []byte("bar"), ContentDelta: 0})
 	c.Check(stream2.Send(&pb.AppendRequest{Content: []byte("baz")}), gc.IsNil)
@@ -113,9 +123,9 @@ func (s *AppendSuite) TestPipelinedAppends(c *gc.C) {
 	c.Check(<-peer.ReplReqCh, gc.DeepEquals, &pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
-			Begin:            0,
+			Begin:            3,
 			End:              9,
-			Sum:              pb.SHA1SumOf("foobarbaz"),
+			Sum:              pb.SHA1SumOf("barbaz"),
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
 		Acknowledge: true,

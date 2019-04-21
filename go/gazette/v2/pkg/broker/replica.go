@@ -273,24 +273,34 @@ func checkHealth(res resolution, jc pb.JournalClient, etcd clientv3.KV) (int64, 
 	return minRevision, nil
 }
 
-// nextProposal evaluates the |cur| spool for scenarios warrenting a flush message to be sent to the other
-// replica nodes. In the event that a flush is warrented a flush proposal, otherwise return the original Fragment.
+// nextProposal returns the next Fragment proposal to send to replication Spools,
+// which may be the |cur| Spool Fragment or may be a "rolled", empty Fragment
+// at the prior Spool End.
 func nextProposal(cur fragment.Spool, spec pb.JournalSpec_Fragment) pb.Fragment {
 	var flushFragment bool
-	// If the proposed Fragment is non-empty, but not yet at the target length,
-	// don't propose changes to it.
-	if cur.ContentLength() == 0 || cur.ContentLength() > spec.Length {
+
+	if cl := cur.ContentLength(); cl == 0 {
+		flushFragment = true // Empty fragment is trivially rolled.
+	} else if cl > spec.Length {
+		flushFragment = true // Roll if over the target Fragment length.
+	} else if cur.Begin == 0 {
+		// We should roll after the journal's very first write. This has the
+		// effect of "dirtying" the remote fragment index, and protects against
+		// data loss if N > R consistency is lost (eg, Etcd fails). When the
+		// remote index is dirty, recovering brokers are clued in that writes
+		// against this journal have already occurred (and `gazctl reset-head`
+		// must be run to recover). If the index were instead pristine,
+		// recovering brokers cannot distinguish this case from a newly-created
+		// journal, which risks double-writes to journal offsets.
 		flushFragment = true
 	}
 
-	// If the flush interval of the fragment is less then the number of intervals since the epoch
-	// the fragment needs to be flushed as it contains data that belongs to an old flush interval.
-	var flushIntervalSecs = int64(spec.FlushInterval.Seconds())
-	if flushIntervalSecs > 0 {
-		var secsSinceEpoch = timeNow().Unix()
-		var intervalsSinceEpoch = secsSinceEpoch / flushIntervalSecs
-		var fragmentInterval = cur.FirstAppendTime.Unix() / flushIntervalSecs
-		if fragmentInterval < intervalsSinceEpoch {
+	// If the flush interval of the fragment differs from current number of
+	// intervals since the epoch, the fragment needs to be flushed as it
+	// contains data that belongs to an old flush interval.
+	if interval := int64(spec.FlushInterval.Seconds()); interval > 0 {
+		var first = cur.FirstAppendTime.Unix() / interval
+		if now := timeNow().Unix() / interval; first != now {
 			flushFragment = true
 		}
 	}
