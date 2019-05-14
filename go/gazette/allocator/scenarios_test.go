@@ -42,8 +42,8 @@ func (s *ScenariosSuite) TestInitialAllocation(c *gc.C) {
 
 	// Expect Items are fully replicated, each Item spans both zones, and no Member ItemLimit is breached.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A2#0",
-		"/root/assign/item-2#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-a#member-A1#0",
+		"/root/assign/item-2#zone-a#member-A2#0",
 		"/root/assign/item-2#zone-b#member-B#1",
 		"/root/assign/item-3#zone-a#member-A1#0",
 		"/root/assign/item-3#zone-a#member-A2#1",
@@ -109,10 +109,10 @@ func (s *ScenariosSuite) TestReplaceWhenNotConsistent(c *gc.C) {
 		"/root/members/zone-b#member-B", `{"R": 4}`,
 
 		"/root/members/zone-a#member-old", `{"R": 0}`,
-		"/root/members/zone-a#member-new", `{"R": 2}`,
+		"/root/members/zone-a#member-new", `{"R": 3}`,
 
-		"/root/assign/item-1#zone-a#member-old#0", ``,
-		"/root/assign/item-2#zone-a#member-A#0", ``,
+		"/root/assign/item-1#zone-a#member-A#0", ``,
+		"/root/assign/item-2#zone-a#member-old#0", ``,
 		"/root/assign/item-2#zone-b#member-B#1", ``,
 		"/root/assign/item-3#zone-a#member-A#0", ``,
 		"/root/assign/item-3#zone-a#member-old#1", ``,
@@ -126,14 +126,27 @@ func (s *ScenariosSuite) TestReplaceWhenNotConsistent(c *gc.C) {
 	// Expect member-new has Assignments which will (eventually) allow Assignments
 	// of member-old to be removed.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-new#1",
-		"/root/assign/item-1#zone-a#member-old#0",
-		"/root/assign/item-2#zone-a#member-A#0",
+		"/root/assign/item-1#zone-a#member-A#0",
+		"/root/assign/item-2#zone-a#member-new#2",
+		"/root/assign/item-2#zone-a#member-old#0",
 		"/root/assign/item-2#zone-b#member-B#1",
 		"/root/assign/item-3#zone-a#member-A#0",
 		"/root/assign/item-3#zone-a#member-new#3",
 		"/root/assign/item-3#zone-a#member-old#1",
 		"/root/assign/item-3#zone-b#member-B#2",
+	})
+
+	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 3)
+
+	// Expect member-old is removed, and slot indices are compacted.
+	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
+		"/root/assign/item-1#zone-a#member-A#0",
+		"/root/assign/item-2#zone-a#member-new#1",
+		"/root/assign/item-2#zone-b#member-B#0",
+		"/root/assign/item-3#zone-a#member-A#0",
+		"/root/assign/item-3#zone-a#member-new#2",
+		"/root/assign/item-3#zone-b#member-B#1",
 	})
 }
 
@@ -147,7 +160,7 @@ func (s *ScenariosSuite) TestReplaceWhenConsistent(c *gc.C) {
 		"/root/members/zone-b#member-B", `{"R": 4}`,
 
 		"/root/members/zone-a#member-old", `{"R": 0}`,
-		"/root/members/zone-a#member-new", `{"R": 2}`,
+		"/root/members/zone-a#member-new", `{"R": 3}`,
 
 		"/root/assign/item-1#zone-a#member-A#0", `consistent`,
 		"/root/assign/item-2#zone-a#member-old#0", `consistent`,
@@ -196,7 +209,7 @@ func (s *ScenariosSuite) TestUpdateItemLimit(c *gc.C) {
 		"/root/members/zone-a#member-limit", `{"R": 2}`,
 		"/root/members/zone-b#member-B", `{"R": 4}`,
 
-		"/root/assign/item-1#zone-a#member-limit#0", `consistent`,
+		"/root/assign/item-1#zone-b#member-B#0", `consistent`,
 		"/root/assign/item-2#zone-a#member-A#0", `consistent`,
 		"/root/assign/item-2#zone-b#member-B#1", `consistent`,
 		"/root/assign/item-3#zone-a#member-A#0", `consistent`,
@@ -213,7 +226,8 @@ func (s *ScenariosSuite) TestUpdateItemLimit(c *gc.C) {
 
 	// Expect the scheduler begins to allocate more load to member-limit.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-limit#0",
+		"/root/assign/item-1#zone-a#member-limit#1", // Acquired.
+		"/root/assign/item-1#zone-b#member-B#0",
 		"/root/assign/item-2#zone-a#member-A#0",
 		"/root/assign/item-2#zone-a#member-limit#2", // Acquired.
 		"/root/assign/item-2#zone-b#member-B#1",
@@ -226,7 +240,7 @@ func (s *ScenariosSuite) TestUpdateItemLimit(c *gc.C) {
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 2)
 
-	// Expect member-limit has three Assignments, to the other Member's two.
+	// Expect member-limit has three Assignments, to the other Member's two/one.
 	// Each member is assigned one primary.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
 		"/root/assign/item-1#zone-a#member-limit#0",
@@ -242,9 +256,12 @@ func (s *ScenariosSuite) TestUpdateItemLimit(c *gc.C) {
 		"/root/members/zone-a#member-limit", `{"R": 2}`), gc.IsNil)
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
 
+	// Both member-limit and member-A have scaled R: 2. Where the initial fixture
+	// had member-B with three items, now the allocator lazily leaves two items
+	// each with member-limit & member-A.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A#1", // Acquired.
 		"/root/assign/item-1#zone-a#member-limit#0",
+		"/root/assign/item-2#zone-a#member-A#2", // Acquired.
 		"/root/assign/item-2#zone-a#member-limit#1",
 		"/root/assign/item-2#zone-b#member-B#0",
 		"/root/assign/item-3#zone-a#member-A#0",
@@ -254,17 +271,46 @@ func (s *ScenariosSuite) TestUpdateItemLimit(c *gc.C) {
 
 	// Mark member-A's new Assignment as consistent.
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 2)
 
-	// Once again, each member has two Assignments.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A#0",
-		"/root/assign/item-2#zone-a#member-limit#1",
+		"/root/assign/item-1#zone-a#member-limit#0",
+		"/root/assign/item-2#zone-a#member-A#1",
 		"/root/assign/item-2#zone-b#member-B#0",
 		"/root/assign/item-3#zone-a#member-A#0",
 		"/root/assign/item-3#zone-a#member-limit#1",
 		"/root/assign/item-3#zone-b#member-B#2",
 	})
+
+	// Lower member-limit's limit to 1.
+	c.Check(update(s.ctx, s.client,
+		"/root/members/zone-a#member-limit", `{"R": 1}`), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
+
+	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
+		"/root/assign/item-1#zone-a#member-limit#0",
+		"/root/assign/item-1#zone-b#member-B#1", // Acquired.
+		"/root/assign/item-2#zone-a#member-A#1",
+		"/root/assign/item-2#zone-b#member-B#0",
+		"/root/assign/item-3#zone-a#member-A#0",
+		"/root/assign/item-3#zone-a#member-limit#1",
+		"/root/assign/item-3#zone-b#member-B#2",
+	})
+
+	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
+
+	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
+		"/root/assign/item-1#zone-b#member-B#0",
+		"/root/assign/item-2#zone-a#member-A#1",
+		"/root/assign/item-2#zone-b#member-B#0",
+		"/root/assign/item-3#zone-a#member-A#0",
+		"/root/assign/item-3#zone-a#member-limit#1",
+		"/root/assign/item-3#zone-b#member-B#2",
+	})
+
+	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0) // Nothing to do.
 }
 
 func (s *ScenariosSuite) TestUpdateDesiredReplication(c *gc.C) {
@@ -277,7 +323,7 @@ func (s *ScenariosSuite) TestUpdateDesiredReplication(c *gc.C) {
 		"/root/members/zone-a#member-A2", `{"R": 2}`,
 		"/root/members/zone-b#member-B", `{"R": 4}`,
 
-		"/root/assign/item-1#zone-a#member-A2#0", `consistent`,
+		"/root/assign/item-1#zone-b#member-B#0", `consistent`,
 		"/root/assign/item-2#zone-a#member-A1#0", `consistent`,
 		"/root/assign/item-2#zone-b#member-B#1", `consistent`,
 		"/root/assign/item-3#zone-a#member-A1#0", `consistent`,
@@ -291,31 +337,20 @@ func (s *ScenariosSuite) TestUpdateDesiredReplication(c *gc.C) {
 	c.Check(update(s.ctx, s.client,
 		"/root/items/item-1", `{"R": 3}`,
 		"/root/items/item-3", `{"R": 1}`), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 2)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 4)
 
-	// Note that A1 cannot acquire item-1, as that would put it over it's ItemLimit.
-	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A2#0",
-		"/root/assign/item-1#zone-b#member-B#1", // Acquired.
-		"/root/assign/item-2#zone-a#member-A1#0",
-		"/root/assign/item-2#zone-a#member-A2#2", // Acquired.
-		"/root/assign/item-2#zone-b#member-B#1",
-		"/root/assign/item-3#zone-a#member-A1#0",
-	})
-
-	// Mark Assignments as consistent. This enables A1 to release item-2.
-	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 2)
-
-	// All Items are now fully replicated. Each member has a primary.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
 		"/root/assign/item-1#zone-a#member-A1#2", // Acquired.
-		"/root/assign/item-1#zone-a#member-A2#0",
-		"/root/assign/item-1#zone-b#member-B#1",
-		"/root/assign/item-2#zone-a#member-A2#1",
-		"/root/assign/item-2#zone-b#member-B#0",
-		"/root/assign/item-3#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-a#member-A2#1", // Acquired.
+		"/root/assign/item-1#zone-b#member-B#0",
+		"/root/assign/item-2#zone-a#member-A1#0",
+		"/root/assign/item-2#zone-b#member-B#1",
+		"/root/assign/item-3#zone-a#member-A2#0",
 	})
+
+	// Mark Assignments as consistent. No further changes are required.
+	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
 }
 
 func (s *ScenariosSuite) TestScaleUpFromInsufficientMemberSlots(c *gc.C) {
@@ -401,7 +436,7 @@ func (s *ScenariosSuite) TestScaleDownToInsufficientMemberSlots(c *gc.C) {
 }
 
 func (s *ScenariosSuite) TestScaleUpZonesOneToTwo(c *gc.C) {
-	// Create a fixture with two zones, one large and one too small (ie, < num(items)+1).
+	// Create a fixture with two zones, one large and one too small.
 	c.Check(insert(s.ctx, s.client,
 		"/root/items/item-1", `{"R": 3}`,
 		"/root/items/item-2", `{"R": 3}`,
@@ -410,65 +445,66 @@ func (s *ScenariosSuite) TestScaleUpZonesOneToTwo(c *gc.C) {
 		"/root/members/zone-a#member-A1", `{"R": 100}`,
 		"/root/members/zone-a#member-A2", `{"R": 100}`,
 		"/root/members/zone-a#member-A3", `{"R": 100}`,
-		"/root/members/zone-a#member-A4", `{"R": 100}`,
-		"/root/members/zone-b#member-B", `{"R": 3}`,
+		"/root/members/zone-b#member-B", `{"R": 2}`,
 	), gc.IsNil)
 
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
 
+	// Expect member-B is fully utilized, though its capacity is dwarfed
+	// by other members. Also expect one item is replicated only within
+	// a single zone.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A3#0",
-		"/root/assign/item-1#zone-a#member-A4#1",
-		"/root/assign/item-1#zone-b#member-B#2",
-		"/root/assign/item-2#zone-a#member-A1#0",
-		"/root/assign/item-2#zone-a#member-A2#1",
-		"/root/assign/item-2#zone-a#member-A4#2",
+		"/root/assign/item-1#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-a#member-A2#1",
+		"/root/assign/item-1#zone-a#member-A3#2",
+		"/root/assign/item-2#zone-a#member-A2#0",
+		"/root/assign/item-2#zone-a#member-A3#1",
+		"/root/assign/item-2#zone-b#member-B#2",
 		"/root/assign/item-3#zone-a#member-A1#0",
 		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-a#member-A3#2",
+		"/root/assign/item-3#zone-b#member-B#2",
 	})
 
-	// Increase member-B by one; it's now possible to place all items with one slot leftover.
-	c.Check(update(s.ctx, s.client, "/root/members/zone-b#member-B", `{"R": 4}`), gc.IsNil)
+	// Add one slot. It's now possible to place all items across two zones.
+	c.Check(update(s.ctx, s.client, "/root/members/zone-b#member-B", `{"R": 3}`), gc.IsNil)
 
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 2)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 3)
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
 
 	// Expect all items are now replicated across both zones.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A3#0",
-		"/root/assign/item-1#zone-a#member-A4#1",
+		"/root/assign/item-1#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-a#member-A3#1",
 		"/root/assign/item-1#zone-b#member-B#2",
-		"/root/assign/item-2#zone-a#member-A1#0",
-		"/root/assign/item-2#zone-a#member-A2#1",
-		"/root/assign/item-2#zone-b#member-B#2", // Re-allocated.
+		"/root/assign/item-2#zone-a#member-A2#0",
+		"/root/assign/item-2#zone-a#member-A3#1",
+		"/root/assign/item-2#zone-b#member-B#2",
 		"/root/assign/item-3#zone-a#member-A1#0",
 		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-b#member-B#2", // Re-allocated.
+		"/root/assign/item-3#zone-b#member-B#2",
 	})
 
-	// Add a new item. Zone B is no longer large enough to place every item.
+	// Add a new R:1 item. Able to be placed without upsetting zone constraints.
 	c.Check(insert(s.ctx, s.client, "/root/items/item-4", `{"R": 1}`), gc.IsNil)
 
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 2)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
 
-	// Expect cross-zone replication is relaxed.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A3#0",
-		"/root/assign/item-1#zone-a#member-A4#1",
+		"/root/assign/item-1#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-a#member-A3#1",
 		"/root/assign/item-1#zone-b#member-B#2",
-		"/root/assign/item-2#zone-a#member-A1#0",
-		"/root/assign/item-2#zone-a#member-A2#1",
-		"/root/assign/item-2#zone-a#member-A3#2",
+		"/root/assign/item-2#zone-a#member-A2#0",
+		"/root/assign/item-2#zone-a#member-A3#1",
+		"/root/assign/item-2#zone-b#member-B#2",
 		"/root/assign/item-3#zone-a#member-A1#0",
 		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-a#member-A4#2",
-		"/root/assign/item-4#zone-b#member-B#0",
+		"/root/assign/item-3#zone-b#member-B#2",
+		"/root/assign/item-4#zone-a#member-A1#0", // Added.
 	})
 }
 
@@ -539,7 +575,7 @@ func (s *ScenariosSuite) TestScaleDownZonesTwoToOne(c *gc.C) {
 func (s *ScenariosSuite) TestScaleUpZonesTwoToThree(c *gc.C) {
 	// Create an initial fixture with two zones.
 	c.Check(insert(s.ctx, s.client,
-		"/root/items/item-1", `{"R": 3}`,
+		"/root/items/item-1", `{"R": 2}`,
 		"/root/items/item-2", `{"R": 3}`,
 
 		"/root/members/zone-a#member-A1", `{"R": 100}`,
@@ -547,8 +583,7 @@ func (s *ScenariosSuite) TestScaleUpZonesTwoToThree(c *gc.C) {
 		"/root/members/zone-b#member-B", `{"R": 100}`,
 
 		"/root/assign/item-1#zone-a#member-A1#0", `consistent`,
-		"/root/assign/item-1#zone-a#member-A2#1", `consistent`,
-		"/root/assign/item-1#zone-b#member-B#2", `consistent`,
+		"/root/assign/item-1#zone-b#member-B#1", `consistent`,
 		"/root/assign/item-2#zone-a#member-A1#0", `consistent`,
 		"/root/assign/item-2#zone-a#member-A2#1", `consistent`,
 		"/root/assign/item-2#zone-b#member-B#2", `consistent`,
@@ -556,28 +591,31 @@ func (s *ScenariosSuite) TestScaleUpZonesTwoToThree(c *gc.C) {
 
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0) // Fixture is stable.
 
-	// Insert member-C with two slots. It's under-sized (ie, < num(items)+1).
-	// However, per-zone scaling ramps down allocations to zone-A, preferring
-	// zone-C instead, as this tends to balance items evenly across zones.
-	c.Check(insert(s.ctx, s.client, "/root/members/zone-c#member-C", `{"R": 2}`), gc.IsNil)
+	// Insert member-C with two slots. We expect no changes occur, because the
+	// zone is not needed to meet zone constraints, member scaling allows two
+	// replicas per member, and we'd rather keep the current solution.
+	c.Check(insert(s.ctx, s.client, "/root/members/zone-c#member-C", `{"R": 100}`), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
+
+	// Increase the replication factor of items.
+	c.Check(update(s.ctx, s.client, "/root/items/item-1", `{"R": 3}`), gc.IsNil)
+	c.Check(update(s.ctx, s.client, "/root/items/item-2", `{"R": 4}`), gc.IsNil)
 
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 3)
-	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
 
+	// Expect the new slots were given to member-C, though member-A1 also had
+	// scaled capacity, due to the even zone balancing network optimization goal.
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
 		"/root/assign/item-1#zone-a#member-A1#0",
 		"/root/assign/item-1#zone-b#member-B#1",
-		"/root/assign/item-1#zone-c#member-C#2",
-		"/root/assign/item-2#zone-a#member-A2#0",
-		"/root/assign/item-2#zone-b#member-B#1",
-		"/root/assign/item-2#zone-c#member-C#2",
+		"/root/assign/item-1#zone-c#member-C#2", // Added.
+		"/root/assign/item-2#zone-a#member-A1#0",
+		"/root/assign/item-2#zone-a#member-A2#1",
+		"/root/assign/item-2#zone-b#member-B#2",
+		"/root/assign/item-2#zone-c#member-C#3", // Added.
 	})
-
-	// Increase member-C to three, making the zone sufficiently sized. It has no further effect.
-	c.Check(update(s.ctx, s.client, "/root/members/zone-c#member-C", `{"R": 3}`), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
 }
 
 func (s *ScenariosSuite) TestScaleDownZonesThreeToTwo(c *gc.C) {
@@ -612,7 +650,7 @@ func (s *ScenariosSuite) TestScaleDownZonesThreeToTwo(c *gc.C) {
 		"/root/assign/item-1#zone-a#member-A1#0",
 		"/root/assign/item-1#zone-a#member-A2#1",
 		"/root/assign/item-1#zone-b#member-B#2",
-		"/root/assign/item-2#zone-a#member-A1#2",
+		"/root/assign/item-2#zone-a#member-A2#2",
 		"/root/assign/item-2#zone-a#member-A3#0",
 		"/root/assign/item-2#zone-b#member-B#1",
 	})
@@ -628,23 +666,20 @@ func (s *ScenariosSuite) TestUnbalancedZoneAndMemberCapacityRotations(c *gc.C) {
 		"/root/members/zone-a#member-A2", `{"R": 3}`,
 		"/root/members/zone-b#member-B1", `{"R": 10}`,
 		"/root/members/zone-b#member-B2", `{"R": 10}`,
+
+		// Begin with a valid assignment fixture, balanced across zones.
+		"/root/assign/item-1#zone-a#member-A1#0", `consistent`,
+		"/root/assign/item-1#zone-b#member-B1#1", `consistent`,
+		"/root/assign/item-1#zone-b#member-B2#2", `consistent`,
+		"/root/assign/item-2#zone-a#member-A2#0", `consistent`,
+		"/root/assign/item-2#zone-b#member-B1#1", `consistent`,
+		"/root/assign/item-2#zone-b#member-B2#2", `consistent`,
+		"/root/assign/item-3#zone-a#member-A2#0", `consistent`,
+		"/root/assign/item-3#zone-b#member-B1#1", `consistent`,
+		"/root/assign/item-3#zone-b#member-B2#2", `consistent`,
 	), gc.IsNil)
-
-	// Expect all Items are allocated, balanced across both zones.
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
-	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-
-	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A2#0",
-		"/root/assign/item-1#zone-b#member-B1#1",
-		"/root/assign/item-1#zone-b#member-B2#2",
-		"/root/assign/item-2#zone-a#member-A2#0",
-		"/root/assign/item-2#zone-b#member-B1#1",
-		"/root/assign/item-2#zone-b#member-B2#2",
-		"/root/assign/item-3#zone-a#member-A1#0",
-		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-b#member-B1#2",
-	})
+	// Expect fixture is stable.
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
 
 	// Swap capacities of zone-A members.
 	c.Check(update(s.ctx, s.client,
@@ -653,20 +688,20 @@ func (s *ScenariosSuite) TestUnbalancedZoneAndMemberCapacityRotations(c *gc.C) {
 	), gc.IsNil)
 
 	// Expect items are rotated to meet A2's reduced capacity.
-	for _, rounds := range []int{1, 3, 1, 1} {
+	for _, rounds := range []int{1, 3} {
 		c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, rounds)
 		c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
 	}
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A1#2",
-		"/root/assign/item-1#zone-b#member-B1#0",
-		"/root/assign/item-1#zone-b#member-B2#1",
+		"/root/assign/item-1#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-b#member-B1#1",
+		"/root/assign/item-1#zone-b#member-B2#2",
 		"/root/assign/item-2#zone-a#member-A1#2", // <- Swapped.
-		"/root/assign/item-2#zone-b#member-B1#1",
-		"/root/assign/item-2#zone-b#member-B2#0",
-		"/root/assign/item-3#zone-a#member-A1#0",
-		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-b#member-B1#2",
+		"/root/assign/item-2#zone-b#member-B1#0", // <- Elevated to primary.
+		"/root/assign/item-2#zone-b#member-B2#1",
+		"/root/assign/item-3#zone-a#member-A2#0",
+		"/root/assign/item-3#zone-b#member-B1#1",
+		"/root/assign/item-3#zone-b#member-B2#2",
 	})
 
 	// Swap capacities of zones A & B.
@@ -678,20 +713,20 @@ func (s *ScenariosSuite) TestUnbalancedZoneAndMemberCapacityRotations(c *gc.C) {
 	), gc.IsNil)
 
 	// Expect items are rotated to meet B1's reduced capacity.
-	for _, rounds := range []int{1, 2} {
+	for _, rounds := range []int{1, 3} {
 		c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, rounds)
 		c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
 	}
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A1#2",
-		"/root/assign/item-1#zone-a#member-A2#0", // <- Swapped.
+		"/root/assign/item-1#zone-a#member-A1#0",
+		"/root/assign/item-1#zone-a#member-A2#2", // <- Swapped.
 		"/root/assign/item-1#zone-b#member-B2#1",
-		"/root/assign/item-2#zone-a#member-A1#2",
-		"/root/assign/item-2#zone-b#member-B1#1",
-		"/root/assign/item-2#zone-b#member-B2#0",
-		"/root/assign/item-3#zone-a#member-A1#0",
-		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-b#member-B2#2",
+		"/root/assign/item-2#zone-a#member-A1#1",
+		"/root/assign/item-2#zone-a#member-A2#2", // <- Swapped.
+		"/root/assign/item-2#zone-b#member-B2#0", // <- Elevated to primary.
+		"/root/assign/item-3#zone-a#member-A1#2", // <- Swapped.
+		"/root/assign/item-3#zone-a#member-A2#0",
+		"/root/assign/item-3#zone-b#member-B1#1",
 	})
 }
 
@@ -763,22 +798,21 @@ func (s *ScenariosSuite) TestSingleZoneRebalanceOnMemberScaleUp(c *gc.C) {
 		"/root/members/zone-a#member-A4", `{"R": 1}`), gc.IsNil)
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 0)
 
-	// Increase its ItemLimit. The additional slots now cause A1 to have an effective
-	// ItemLimit of 2 (rather than 3), which re-balances load to A4.
+	// Increase its ItemLimit, which causes load to be re-balanced to A4.
 	c.Check(update(s.ctx, s.client,
 		"/root/members/zone-a#member-A4", `{"R": 3}`), gc.IsNil)
 
 	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
 	c.Check(markAllConsistent(s.ctx, s.client, s.ks), gc.IsNil)
-	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 1)
+	c.Check(serveUntilIdle(c, s.ctx, s.client, s.ks), gc.Equals, 3)
 
 	c.Check(keys(s.ks.Prefixed(s.ks.Root+AssignmentsPrefix)), gc.DeepEquals, []string{
-		"/root/assign/item-1#zone-a#member-A4#0",
+		"/root/assign/item-1#zone-a#member-A1#0",
 		"/root/assign/item-2#zone-a#member-A1#0",
 		"/root/assign/item-2#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-a#member-A1#0",
-		"/root/assign/item-3#zone-a#member-A2#1",
-		"/root/assign/item-3#zone-a#member-A3#2",
+		"/root/assign/item-3#zone-a#member-A2#0",
+		"/root/assign/item-3#zone-a#member-A3#1",
+		"/root/assign/item-3#zone-a#member-A4#2",
 	})
 }
 

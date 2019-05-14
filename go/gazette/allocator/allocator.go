@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/etcdserver/etcdserverpb"
 	"go.gazette.dev/core/allocator/push_relabel"
+	"go.gazette.dev/core/allocator/sparse_push_relabel"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/metrics"
 )
@@ -71,27 +73,41 @@ func Allocate(args AllocateArgs) error {
 
 			// Do we need to re-solve for a maximum assignment?
 			if state.NetworkHash != lastNetworkHash {
-				log.WithFields(log.Fields{"last_hash": lastNetworkHash, "next_hash": state.NetworkHash}).
-					Info("re-solving allocation")
-
-				lastNetworkHash = state.NetworkHash
+				var startTime = time.Now()
 
 				// Build a prioritized flowNetwork and solve for maximum flow.
-				fn.init(state)
-				push_relabel.FindMaxFlow(&fn.source, &fn.sink)
+				if useSparseSolver {
+					var fs = newSparseFlowNetwork(state)
+					var mf = sparse_push_relabel.FindMaxFlow(fs)
 
-				// Extract desired max-flow Assignments for each Item.
-				desired = desired[:0]
-				for item := range state.Items {
-					desired = extractItemFlow(state, fn, item, desired)
+					desired = fs.extractAssignments(mf, desired[:0])
+				} else {
+					fn.init(state)
+					push_relabel.FindMaxFlow(&fn.source, &fn.sink)
+
+					// Extract desired max-flow Assignments for each Item.
+					desired = desired[:0]
+					for item := range state.Items {
+						desired = extractItemFlow(state, fn, item, desired)
+					}
 				}
+
+				var dur = time.Now().Sub(startTime)
+				metrics.AllocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
+
+				log.WithFields(log.Fields{
+					"hash":     state.NetworkHash,
+					"lastHash": lastNetworkHash,
+					"dur":      dur,
+				}).Info("solved for maximum assignment")
 
 				if len(desired) < state.ItemSlots {
 					// We cannot assign each Item to the desired number of replicas. Most likely,
 					// there are too few Members or they are poorly distributed across zones.
-					log.WithField("unattainable_replicas", state.ItemSlots-len(desired)).
+					log.WithField("unattainableReplicas", state.ItemSlots-len(desired)).
 						Warn("cannot reach desired replication for all items")
 				}
+				lastNetworkHash = state.NetworkHash
 			}
 
 			// Use batched transactions to amortize the network cost of Etcd updates,
@@ -113,9 +129,9 @@ func Allocate(args AllocateArgs) error {
 					Info("converge iteration successful")
 				metrics.AllocatorConvergeTotal.Inc()
 
-				metrics.AllocatorMembers.Set(float64(len(state.Members)))
-				metrics.AllocatorItems.Set(float64(len(state.Items)))
-				metrics.AllocatorDesiredReplicationSlots.Set(float64(state.ItemSlots))
+				metrics.AllocatorNumMembers.Set(float64(len(state.Members)))
+				metrics.AllocatorNumItems.Set(float64(len(state.Items)))
+				metrics.AllocatorNumItemSlots.Set(float64(state.ItemSlots))
 
 				if args.TestHook != nil {
 					args.TestHook(round, txn.noop)
@@ -338,3 +354,8 @@ func debugLogTxn(cmps []clientv3.Cmp, ops []clientv3.Op) {
 // configuration at runtime with --max-txn-ops. We assume the default and will
 // error if a smaller value is used.
 var maxTxnOps = 128
+
+// useSparseSolver is a developer toggle for comparative testing of the sparse
+// vs dense push/relabel solvers & associated flow networks.
+// Deprecated: to removed with the dense flow network implementation.
+const useSparseSolver = true

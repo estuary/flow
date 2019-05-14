@@ -7,16 +7,20 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // Keys for gazette metrics.
 const (
-	CommittedBytesTotalKey              = "gazette_committed_bytes_total"
-	CommitsTotalKey                     = "gazette_commits_total"
-	RecoveryLogRecoveredBytesTotalKey   = "gazette_recoverylog_recovered_bytes_total"
-	StoreRequestsTotalKey               = "gazette_store_requests_total"
-	StorePersistedBytesTotalKey         = "gazette_store_persisted_bytes_total"
+	AllocatorAssignmentAddedTotalKey    = "gazette_allocator_assignment_added_total"
+	AllocatorAssignmentPackedTotalKey   = "gazette_allocator_assignment_packed_total"
+	AllocatorAssignmentRemovedTotalKey  = "gazette_allocator_assignment_removed_total"
 	AllocatorConvergeTotalKey           = "gazette_allocator_converge_total"
-	AllocatorMembersKey                 = "gazette_allocator_members"
-	AllocatorItemsKey                   = "gazette_allocator_items"
-	AllocatorDesiredReplicationSlotsKey = "gazette_allocator_desired_replication_slots"
+	AllocatorMaxFlowRuntimeSecondsKey   = "gazette_allocator_max_flow_runtime_seconds"
+	AllocatorNumItemSlotsKey            = "gazette_allocator_desired_replication_slots"
+	AllocatorNumItemsKey                = "gazette_allocator_items"
+	AllocatorNumMembersKey              = "gazette_allocator_members"
+	CommitsTotalKey                     = "gazette_commits_total"
+	CommittedBytesTotalKey              = "gazette_committed_bytes_total"
 	JournalServerResponseTimeSecondsKey = "gazette_journal_server_response_time_seconds"
+	RecoveryLogRecoveredBytesTotalKey   = "gazette_recoverylog_recovered_bytes_total"
+	StorePersistedBytesTotalKey         = "gazette_store_persisted_bytes_total"
+	StoreRequestsTotalKey               = "gazette_store_requests_total"
 
 	Fail = "fail"
 	Ok   = "ok"
@@ -24,6 +28,38 @@ const (
 
 // Collectors for gazette metrics.
 var (
+	AllocatorAssignmentAddedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: AllocatorAssignmentAddedTotalKey,
+		Help: "Cumulative number of item / member assignments added by the allocator.",
+	})
+	AllocatorAssignmentPackedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: AllocatorAssignmentPackedTotalKey,
+		Help: "Cumulative number of item / member assignments packed by the allocator.",
+	})
+	AllocatorAssignmentRemovedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: AllocatorAssignmentRemovedTotalKey,
+		Help: "Cumulative number of item / member assignments removed by the allocator.",
+	})
+	AllocatorConvergeTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: AllocatorConvergeTotalKey,
+		Help: "Cumulative number of converge iterations.",
+	})
+	AllocatorMaxFlowRuntimeSeconds = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name: AllocatorMaxFlowRuntimeSecondsKey,
+		Help: "Duration required to re-solve for maximum assignment.",
+	})
+	AllocatorNumItemSlots = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: AllocatorNumItemSlotsKey,
+		Help: "Number of desired item replication slots summed across all items.",
+	})
+	AllocatorNumItems = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: AllocatorNumItemsKey,
+		Help: "Number of items known to the allocator.",
+	})
+	AllocatorNumMembers = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: AllocatorNumMembersKey,
+		Help: "Number of members known to the allocator.",
+	})
 	CommittedBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: CommittedBytesTotalKey,
 		Help: "Cumulative number of bytes committed to journals.",
@@ -44,22 +80,6 @@ var (
 		Name: StorePersistedBytesTotalKey,
 		Help: "Cumulative number of bytes persisted to fragment stores.",
 	}, []string{"provider"})
-	AllocatorConvergeTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: AllocatorConvergeTotalKey,
-		Help: "Cumulative number of converge iterations.",
-	})
-	AllocatorMembers = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: AllocatorMembersKey,
-		Help: "Number of members known to the allocator.",
-	})
-	AllocatorItems = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: AllocatorItemsKey,
-		Help: "Number of items known to the allocator.",
-	})
-	AllocatorDesiredReplicationSlots = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: AllocatorDesiredReplicationSlotsKey,
-		Help: "Number of desired replicaiton slots summed across all items.",
-	})
 	JournalServerResponseTimeSeconds = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name: JournalServerResponseTimeSecondsKey,
 		Help: "Response time of JournalServer.Append.",
@@ -69,16 +89,19 @@ var (
 // GazetteBrokerCollectors lists collectors used by the gazette broker.
 func GazetteBrokerCollectors() []prometheus.Collector {
 	return []prometheus.Collector{
-		CommittedBytesTotal,
-		CommitsTotal,
-		RecoveryLogRecoveredBytesTotal,
-		StoreRequestTotal,
-		StorePersistedBytesTotal,
+		AllocatorAssignmentAddedTotal,
+		AllocatorAssignmentPackedTotal,
+		AllocatorAssignmentRemovedTotal,
 		AllocatorConvergeTotal,
-		AllocatorMembers,
-		AllocatorItems,
-		AllocatorDesiredReplicationSlots,
+		AllocatorMaxFlowRuntimeSeconds,
+		AllocatorNumItemSlots,
+		AllocatorNumItems,
+		AllocatorNumMembers,
+		CommitsTotal,
+		CommittedBytesTotal,
 		JournalServerResponseTimeSeconds,
+		StorePersistedBytesTotal,
+		StoreRequestTotal,
 	}
 }
 

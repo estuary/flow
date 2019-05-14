@@ -5,6 +5,7 @@ import (
 
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/metrics"
 )
 
 // itemState is an extracted representation of an Item and a collection of
@@ -195,6 +196,8 @@ func (s *itemState) buildRemoveOps(txn checkpointTxn) {
 		// We allow for !found (and do not panic) to gracefully handle assignments
 		// which somehow linger after their corresponding member is deleted (note
 		// that in practice all keys of an Etcd lease are deleted in a single txn).
+
+		metrics.AllocatorAssignmentRemovedTotal.Inc()
 	}
 }
 
@@ -216,6 +219,8 @@ func (s *itemState) buildPromoteOps(txn checkpointTxn) {
 		// panic). Note that a member without a member key will have an infinite
 		// load ratio, and is therefore promoted only as a last resort.
 		s.buildMoveOps(txn, s.reorder[0], a)
+
+		metrics.AllocatorAssignmentPackedTotal.Inc()
 	}
 }
 
@@ -239,6 +244,8 @@ func (s *itemState) buildAddOps(txn checkpointTxn) {
 			s.global.MemberPrimaryCount[ind] += 1
 		}
 		s.global.MemberTotalCount[ind] += 1
+
+		metrics.AllocatorAssignmentAddedTotal.Inc()
 	}
 }
 
@@ -251,6 +258,7 @@ func (s *itemState) buildPackOps(txn checkpointTxn) {
 		} else if a := assignmentAt(s.reorder, i); a.Slot != i {
 			a.Slot = i
 			s.buildMoveOps(txn, s.reorder[i], a)
+			metrics.AllocatorAssignmentPackedTotal.Inc()
 			break
 		}
 	}

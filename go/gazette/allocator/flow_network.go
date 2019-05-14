@@ -49,6 +49,8 @@ import (
 //
 // TODO(johnny): Update this diagram to reflect the Overflow node (Issue #157).
 //
+// Deprecated: flowNetwork is deprecated, along with the push_relabel package,
+// in favor of sparseFlowNetwork & sparse_push_relabel.
 type flowNetwork struct {
 	source    pr.Node
 	members   []pr.Node
