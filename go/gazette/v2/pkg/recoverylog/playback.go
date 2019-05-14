@@ -358,7 +358,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 			// ErrOffsetJump indicates the next byte of available content is at an
 			// offset larger than the one requested. This can happen if a range of
 			// content was deleted from the log.
-			var jumpTo = reader.rr.Reader.Response.Offset
+			var jumpTo = reader.rr.Offset()
 
 			// Did the offset jump over a hinted portion of the log? We cannot recover from this error.
 			if s := fsm.hintedSegments; len(s) != 0 && s[0].LastOffset != 0 && s[0].LastOffset < jumpTo {

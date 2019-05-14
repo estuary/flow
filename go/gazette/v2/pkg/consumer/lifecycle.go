@@ -110,6 +110,18 @@ func pumpMessages(shard Shard, app Application, journal pb.Journal, offset int64
 		var msg message.Message
 
 		if frame, err = framing.Unpack(br); err != nil {
+			// ErrOffsetJump indicates the next byte of available content is at an
+			// offset larger than the one requested. This can happen if a range of
+			// content was deleted from the journal. Log a warning, but continue
+			// processing at the jumped-to offset.
+			if errors.Cause(err) == client.ErrOffsetJump {
+				log.WithFields(log.Fields{"journal": journal, "from": offset, "to": rr.Offset()}).
+					Warn("source journal offset jump")
+
+				next = rr.Offset()
+				continue
+			}
+
 			return extendErr(err, "unpacking frame (%s:%d)", spec.Name, offset)
 		}
 		next = rr.AdjustedOffset(br)

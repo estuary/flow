@@ -196,6 +196,30 @@ func (s *LifecycleSuite) TestMessagePump(c *gc.C) {
 	c.Check(<-msgCh, gc.DeepEquals, expect)
 }
 
+func (s *LifecycleSuite) TestMessagePumpConsumesOffsetJumpError(c *gc.C) {
+	var r, cleanup = newLifecycleTestFixture(c)
+	defer cleanup()
+
+	// Repeatedly append messages until the test completes.
+	go func() {
+		for r.ctx.Err() == nil {
+			var aa = r.JournalClient().StartAppend(sourceA)
+			_, _ = aa.Writer().WriteString("{\"key\": \"aKey\"}\n")
+			c.Check(aa.Release(), gc.IsNil)
+			<-aa.Done()
+		}
+	}()
+	// Start the pump at offset -1, which reads from the current journal head.
+	// The reader returns an ErrOffsetJump as the read resolves to a concrete
+	// offset. Expect that error is consumed and the pump continues.
+	var msgCh = make(chan message.Envelope)
+	go func() {
+		c.Check(pumpMessages(r, r.app, sourceA, -1, msgCh), gc.Equals, context.Canceled)
+	}()
+
+	c.Check((<-msgCh).Message, gc.DeepEquals, &testMessage{Key: "aKey"})
+}
+
 func (s *LifecycleSuite) TestMessagePumpFailsOnUnknownJournal(c *gc.C) {
 	var r, cleanup = newLifecycleTestFixture(c)
 	defer cleanup()
