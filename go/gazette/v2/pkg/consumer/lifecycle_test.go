@@ -655,6 +655,9 @@ func (s *LifecycleSuite) TestStoreAndFetchHints(c *gc.C) {
 
 	// mkHints builds a valid FSMHints fixture which is unique on |id|.
 	var mkHints = func(id int64) recoverylog.FSMHints {
+		defer r.ks.Mu.RUnlock()
+		r.ks.Mu.RLock() // Hold to access |r.spec|.
+
 		return recoverylog.FSMHints{
 			Log: r.spec.RecoveryLog(),
 			LiveNodes: []recoverylog.FnodeSegments{{
