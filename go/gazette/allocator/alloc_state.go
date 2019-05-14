@@ -28,6 +28,7 @@ type State struct {
 	Zones       []string // Sorted and unique Zones of |Members|.
 	ZoneSlots   []int    // Total number of item slots summed across all |Members| of each Zone.
 	ItemSlots   int      // Total desired replication slots summed across all |Items|.
+	MemberSlots int      // Total available slots for replication summed across all |Members|.
 	NetworkHash uint64   // Content-sum which captures Items & Members, and their constraints.
 
 	// Number of total Assignments, and primary Assignments by Member.
@@ -66,6 +67,7 @@ func (s *State) observe() {
 	s.Zones = s.Zones[:0]
 	s.ZoneSlots = s.ZoneSlots[:0]
 	s.ItemSlots = 0
+	s.MemberSlots = 0
 	s.NetworkHash = 0
 	s.MemberTotalCount = make([]int, len(s.Members))
 	s.MemberPrimaryCount = make([]int, len(s.Members))
@@ -73,6 +75,7 @@ func (s *State) observe() {
 	// Walk Members to:
 	//  * Group the set of ordered |Zones| across all Members.
 	//  * Initialize |ZoneSlots|.
+	//  * Initialize |MemberSlots|.
 	//  * Initialize |NetworkHash|.
 	for i := range s.Members {
 		var m = memberAt(s.Members, i)
@@ -88,6 +91,7 @@ func (s *State) observe() {
 		}
 
 		s.ZoneSlots[zone] += slots
+		s.MemberSlots += slots
 		s.NetworkHash = foldCRC(s.NetworkHash, s.Members[i].Raw.Key, slots)
 	}
 
