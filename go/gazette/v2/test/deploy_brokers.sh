@@ -21,6 +21,10 @@ image:
 persistentVolume:
   enabled: true
   storage: 256Mi
+extraEnv:
+  # Enable auto-compaction of revisions older than 1hr.
+  - name: ETCD_AUTO_COMPACTION_RETENTION
+    value: "1"
 EOF
 
 # Install the "minio" chart, which provides an S3-compatible, local, ephemeral filesystem.
