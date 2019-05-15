@@ -90,7 +90,7 @@ func fetchLastHints(ctx context.Context, id consumer.ShardID) *recoverylog.FSMHi
 		Shard: id,
 	}
 
-	var resp, err = consumer.FetchHints(ctx, consumer.NewShardClient(shardsCfg.Consumer.Dial(ctx)), req)
+	var resp, err = consumer.FetchHints(ctx, shardsCfg.Consumer.MustShardClient(ctx), req)
 	mbp.Must(err, "failed to fetch hints")
 	if resp.Status != consumer.Status_OK {
 		log.Panic("failed to fetch hints ", resp.Status.String())
@@ -110,7 +110,7 @@ func fetchFragments(ctx context.Context, journal pb.Journal) []pb.FragmentsRespo
 	var req = pb.FragmentsRequest{
 		Journal: journal,
 	}
-	var brokerClient = journalsCfg.Broker.RoutedJournalClient(ctx)
+	var brokerClient = journalsCfg.Broker.MustRoutedJournalClient(ctx)
 
 	resp, err := client.ListAllFragments(ctx, brokerClient, req)
 	mbp.Must(err, "failed to fetch fragments")

@@ -38,7 +38,7 @@ func (cmd *cmdPublish) Execute([]string) (err error) {
 		return err
 	}
 	var ctx = protocol.WithDispatchDefault(context.Background())
-	var client = word_count.NewNGramClient(Config.WordCount.Dial(context.Background()))
+	var client = word_count.NewNGramClient(Config.WordCount.MustDial(ctx))
 	_, err = client.Publish(ctx, &word_count.PublishRequest{Text: string(b)})
 
 	return err
@@ -51,7 +51,7 @@ type cmdQuery struct {
 
 func (cmd *cmdQuery) Execute([]string) error {
 	var ctx = protocol.WithDispatchDefault(context.Background())
-	var client = word_count.NewNGramClient(Config.WordCount.Dial(context.Background()))
+	var client = word_count.NewNGramClient(Config.WordCount.MustDial(ctx))
 
 	var resp, err = client.Query(ctx, &word_count.QueryRequest{
 		Prefix: word_count.NGram(cmd.Prefix),

@@ -80,8 +80,8 @@ func (cmd *cmdShardsList) outputTable(resp *consumer.ListResponse) {
 	if cmd.Lag {
 		headers = append(headers, "Lag")
 		var ctx = context.Background()
-		rsc = shardsCfg.Consumer.RoutedShardClient(ctx)
-		rjc = shardsCfg.Broker.RoutedJournalClient(ctx)
+		rsc = shardsCfg.Consumer.MustRoutedShardClient(ctx)
+		rjc = shardsCfg.Broker.MustRoutedJournalClient(ctx)
 	}
 
 	table.SetHeader(headers)
@@ -142,7 +142,7 @@ func listShards(s string) *consumer.ListResponse {
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := consumer.ListShards(ctx, consumer.NewShardClient(shardsCfg.Consumer.Dial(ctx)), req)
+	resp, err := consumer.ListShards(ctx, consumer.NewShardClient(shardsCfg.Consumer.MustDial(ctx)), req)
 	mbp.Must(err, "failed to list shards")
 
 	return resp

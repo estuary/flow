@@ -13,12 +13,10 @@ var Dialer = &net.Dialer{
 	KeepAlive: 30 * time.Second,
 }
 
-// DialerFunc dials |addr| with |timeout|. It's designed to be easily used
+// DialerFunc dials |addr| with |ctx|. It's designed to be easily used
 // as a grpc.DialOption, eg:
-//   option.WithGRPCDialOption(grpc.WithDialer(keepalive.DialerFunc))
-func DialerFunc(addr string, timeout time.Duration) (net.Conn, error) {
-	var ctx, cancel = context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+//   option.WithGRPCDialOption(grpc.WithContextDialer(keepalive.DialerFunc))
+func DialerFunc(ctx context.Context, addr string) (net.Conn, error) {
 	return Dialer.DialContext(ctx, "tcp", addr)
 }
 

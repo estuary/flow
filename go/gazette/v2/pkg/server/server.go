@@ -128,7 +128,7 @@ func (s *Server) GRPCLoopback() (*grpc.ClientConn, error) {
 
 	var cc, err = grpc.DialContext(s.Ctx, addr,
 		grpc.WithInsecure(),
-		grpc.WithDialer(keepalive.DialerFunc),
+		grpc.WithContextDialer(keepalive.DialerFunc),
 		grpc.WithBalancerName(protocol.DispatcherGRPCBalancerName))
 
 	if err != nil {

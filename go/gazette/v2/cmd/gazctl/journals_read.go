@@ -47,7 +47,7 @@ func (cmd *cmdJournalRead) Execute([]string) error {
 
 	var err error
 	var ctx = context.Background()
-	var brokerClient = journalsCfg.Broker.RoutedJournalClient(ctx)
+	var brokerClient = journalsCfg.Broker.MustRoutedJournalClient(ctx)
 
 	// Get the list of journals which match this selector.
 	var listRequest pb.ListRequest

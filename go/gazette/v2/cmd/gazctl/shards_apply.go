@@ -46,7 +46,7 @@ func (cmd *cmdShardsApply) Execute([]string) error {
 	}
 
 	var ctx = context.Background()
-	var resp, err = consumer.ApplyShardsInBatches(ctx, shardsCfg.Consumer.ShardClient(ctx), req, cmd.MaxTxnSize)
+	var resp, err = consumer.ApplyShardsInBatches(ctx, shardsCfg.Consumer.MustShardClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply shards")
 	log.WithField("rev", resp.Header.Etcd.Revision).Info("successfully applied")
 

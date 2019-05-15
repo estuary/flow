@@ -97,7 +97,7 @@ func logJournalsPruneMetrics(metrics journalsPruneMetrics, journal pb.Journal, m
 // configured retention.
 func fetchAgedFragments(spec pb.JournalSpec, now time.Time, metrics *journalsPruneMetrics) []pb.Fragment {
 	var ctx = context.Background()
-	var jc = journalsCfg.Broker.RoutedJournalClient(ctx)
+	var jc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
 	resp, err := client.ListAllFragments(ctx, jc, pb.FragmentsRequest{Journal: spec.Name})
 	mbp.Must(err, "failed to fetch fragments")
 

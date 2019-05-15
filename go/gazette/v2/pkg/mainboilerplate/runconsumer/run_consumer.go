@@ -110,7 +110,7 @@ func (sc serveConsumer) Execute(args []string) error {
 	if bc.Broker.Cache.Size <= 0 {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")
 	}
-	var rjc = bc.Broker.RoutedJournalClient(context.Background())
+	var rjc = bc.Broker.MustRoutedJournalClient(context.Background())
 	var service = consumer.NewService(sc.app, allocState, rjc, srv.MustGRPCLoopback(), etcd)
 
 	var tasks = task.NewGroup(context.Background())

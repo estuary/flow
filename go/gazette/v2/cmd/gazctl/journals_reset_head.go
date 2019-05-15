@@ -55,7 +55,7 @@ func (cmd *cmdJournalResetHead) Execute([]string) error {
 
 	var err error
 	var ctx = context.Background()
-	var rjc = journalsCfg.Broker.RoutedJournalClient(ctx)
+	var rjc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
 
 	// Get the list of journals which match this selector.
 	var listRequest pb.ListRequest
