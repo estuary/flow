@@ -1,8 +1,0 @@
-The `stream-sum` example is now running. The `summer` consumers consume chunks of data streams emitted by `chunker`
-jobs to the `examples/stream-sum/chunks` topic. When a stream completes, the `summer` emits a final computed sum to
-the `examples/stream-sum/sums` journal. The `chunker` jobs inspect this journal and verify expected sums match,
-and exit normally when all streams have been completed and verified.
-
-For extra fun, `summer` pods and `gazette` brokers can be terminated or hard-killed, and the example _must_ still
-complete successfully. The `chunker` jobs and `summer` pods will crash loudly if a detected invariant is violated
-(eg, messages arrive out-of-order or are altogether missing, computed sums are incorrect, etc).

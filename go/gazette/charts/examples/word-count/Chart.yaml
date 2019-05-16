@@ -1,4 +1,0 @@
-apiVersion: v1
-description: Gazette word-count example.
-name: word-count
-version: 0.1.0

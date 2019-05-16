@@ -1,9 +1,0 @@
-defaultBucket:
-  enabled: true
-  ## If enabled, must be a string with length > 0
-  name: examples
-  ## Can be one of none|download|upload|public
-  policy: public
-
-persistence:
-  enabled: false
