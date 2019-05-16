@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"time"
 
@@ -110,6 +111,14 @@ func pumpMessages(shard Shard, app Application, journal pb.Journal, offset int64
 		var msg message.Message
 
 		if frame, err = framing.Unpack(br); err != nil {
+			// Swallow ErrNoProgress from our bufio.Reader. client.Reader returns
+			// an empty read to allow for inspection of the ReadResponse message,
+			// and client.RetryReader also surface these empty reads. A journal
+			// with no active appends can eventually cause our bufio.Reader to
+			// give up, though no error has occurred.
+			if errors.Cause(err) == io.ErrNoProgress {
+				continue
+			}
 			// ErrOffsetJump indicates the next byte of available content is at an
 			// offset larger than the one requested. This can happen if a range of
 			// content was deleted from the journal. Log a warning, but continue
