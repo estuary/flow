@@ -3,10 +3,10 @@ package broker
 import (
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/etcdtest"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/etcdtest"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type ListApplySuite struct{}

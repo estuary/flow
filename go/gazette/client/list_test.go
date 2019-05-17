@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gazette/gazette/v2/broker/teststub"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/broker/teststub"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type ListSuite struct{}

@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/etcdtest"
-	"github.com/gazette/gazette/v2/keyspace"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/keyspace"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type PersisterSuite struct{}

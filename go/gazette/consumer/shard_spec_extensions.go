@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	pb "github.com/gazette/gazette/v2/protocol"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // ShardID uniquely identifies a shard processed by a Gazette consumer.

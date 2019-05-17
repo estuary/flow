@@ -13,11 +13,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gazette/gazette/v2/client"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/client"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // Gateway presents an HTTP gateway to Gazette brokers, by mapping GET, HEAD,

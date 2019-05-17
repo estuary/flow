@@ -6,12 +6,12 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/gazette/gazette/v2/consumer"
-	"github.com/gazette/gazette/v2/examples/word-count"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	"github.com/gazette/gazette/v2/protocol"
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/examples/word-count"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	"go.gazette.dev/core/protocol"
 )
 
 var (

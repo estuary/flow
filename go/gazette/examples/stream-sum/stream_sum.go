@@ -31,16 +31,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/consumer"
-	"github.com/gazette/gazette/v2/labels"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	"github.com/gazette/gazette/v2/mainboilerplate/runconsumer"
-	"github.com/gazette/gazette/v2/message"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/labels"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	"go.gazette.dev/core/mainboilerplate/runconsumer"
+	"go.gazette.dev/core/message"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 // ChunkerConfig is the configuration used by the `chunker` job binary.

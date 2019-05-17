@@ -1,4 +1,4 @@
-module github.com/gazette/gazette/v2
+module go.gazette.dev/core
 
 go 1.12
 

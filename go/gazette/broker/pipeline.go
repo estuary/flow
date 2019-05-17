@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/gazette/gazette/v2/fragment"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/fragment"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // pipeline is an in-flight write replication pipeline of a journal.

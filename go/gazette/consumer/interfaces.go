@@ -6,11 +6,11 @@ package consumer
 import (
 	"context"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/keyspace"
-	"github.com/gazette/gazette/v2/message"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/message"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 // Shard is the processing context of a ShardSpec which is assigned to the

@@ -15,15 +15,15 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/consumer"
-	"github.com/gazette/gazette/v2/labels"
-	"github.com/gazette/gazette/v2/mainboilerplate/runconsumer"
-	"github.com/gazette/gazette/v2/message"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	"github.com/pkg/errors"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/mainboilerplate/runconsumer"
+	"go.gazette.dev/core/message"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 // NGram is a string of N space-delimited tokens, where N is fixed.

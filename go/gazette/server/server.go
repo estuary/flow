@@ -6,12 +6,12 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/gazette/gazette/v2/keepalive"
-	"github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/task"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
+	"go.gazette.dev/core/keepalive"
+	"go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )
 

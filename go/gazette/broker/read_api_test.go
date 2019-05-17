@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gazette/gazette/v2/codecs"
-	"github.com/gazette/gazette/v2/fragment"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/codecs"
+	"go.gazette.dev/core/fragment"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type ReadSuite struct{}

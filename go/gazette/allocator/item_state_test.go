@@ -3,10 +3,10 @@ package allocator
 import (
 	"context"
 
-	"github.com/gazette/gazette/v2/etcdtest"
-	"github.com/gazette/gazette/v2/keyspace"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/keyspace"
 )
 
 type ItemStateSuite struct{}

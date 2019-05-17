@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // AppendService batches, dispatches, and (if needed) retries asynchronous

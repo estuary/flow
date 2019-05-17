@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/LiveRamp/gorocksdb"
-	"github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/protocol"
 )
 
 type RocksDBSuite struct{}

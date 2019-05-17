@@ -1,10 +1,10 @@
 package protocol
 
 import (
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
 )
 
 type RouteSuite struct{}

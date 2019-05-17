@@ -10,7 +10,7 @@ package shardspace
 import (
 	"sort"
 
-	"github.com/gazette/gazette/v2/consumer"
+	"go.gazette.dev/core/consumer"
 )
 
 // Set is a collection of Shards, which may share common configuration.

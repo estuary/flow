@@ -1,8 +1,8 @@
 package broker
 
 import (
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // TODO(johnny): Add additional E2E testing scenarios (Issue #66).

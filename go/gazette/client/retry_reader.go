@@ -7,8 +7,8 @@ import (
 	"io"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // RetryReader wraps Reader with error handling and retry behavior, as well as

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // List dispatches the JournalServer.List API.

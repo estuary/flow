@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	pr "github.com/gazette/gazette/v2/allocator/push_relabel"
-	"github.com/gazette/gazette/v2/keyspace"
 	log "github.com/sirupsen/logrus"
+	pr "go.gazette.dev/core/allocator/push_relabel"
+	"go.gazette.dev/core/keyspace"
 )
 
 // flowNetwork models an allocation state as a flow network, representing Items,

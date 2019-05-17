@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gazette/gazette/v2/fragment"
-	pb "github.com/gazette/gazette/v2/protocol"
+	"go.gazette.dev/core/fragment"
+	pb "go.gazette.dev/core/protocol"
 )
 
 var defaultPageLimit = int32(1000)

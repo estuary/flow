@@ -2,8 +2,8 @@
 package main
 
 import (
-	"github.com/gazette/gazette/v2/examples/stream-sum"
-	"github.com/gazette/gazette/v2/mainboilerplate/runconsumer"
+	"go.gazette.dev/core/examples/stream-sum"
+	"go.gazette.dev/core/mainboilerplate/runconsumer"
 )
 
 func main() { runconsumer.Main(stream_sum.Summer{}) }

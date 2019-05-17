@@ -170,7 +170,7 @@ message FSMHints {
   option (gogoproto.goproto_unrecognized) = false;
 
   // Log is the Journal name holding recorded log content.
-  string log = 1 [(gogoproto.casttype) = "github.com/gazette/gazette/v2/protocol.Journal"];
+  string log = 1 [(gogoproto.casttype) = "go.gazette.dev/core/protocol.Journal"];
 
   // Live Fnodes and their Segments as-of the generation of these FSMHints.
   repeated FnodeSegments live_nodes = 2 [(gogoproto.nullable) = false];

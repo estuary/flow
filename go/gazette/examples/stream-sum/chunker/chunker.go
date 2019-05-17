@@ -4,13 +4,13 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/gazette/gazette/v2/examples/stream-sum"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	"github.com/gazette/gazette/v2/metrics"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/examples/stream-sum"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	"go.gazette.dev/core/metrics"
+	pb "go.gazette.dev/core/protocol"
 )
 
 const iniFilename = "chunker.ini"

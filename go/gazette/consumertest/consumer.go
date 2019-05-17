@@ -8,14 +8,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/consumer"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/server"
-	"github.com/gazette/gazette/v2/task"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/consumer"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/server"
+	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )
 

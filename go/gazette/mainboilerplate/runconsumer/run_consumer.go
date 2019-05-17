@@ -10,16 +10,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/consumer"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	"github.com/gazette/gazette/v2/metrics"
-	"github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/server"
-	"github.com/gazette/gazette/v2/task"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/consumer"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	"go.gazette.dev/core/metrics"
+	"go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/server"
+	"go.gazette.dev/core/task"
 )
 
 // Application interface run by Run.

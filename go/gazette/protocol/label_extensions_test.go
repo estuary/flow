@@ -3,8 +3,8 @@ package protocol
 import (
 	"strings"
 
-	"github.com/gazette/gazette/v2/labels"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/labels"
 )
 
 type LabelSuite struct{}

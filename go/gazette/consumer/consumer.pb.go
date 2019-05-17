@@ -6,13 +6,13 @@ package consumer
 import proto "github.com/gogo/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import protocol "github.com/gazette/gazette/v2/protocol"
-import recoverylog "github.com/gazette/gazette/v2/recoverylog"
+import protocol "go.gazette.dev/core/protocol"
+import recoverylog "go.gazette.dev/core/recoverylog"
 import _ "github.com/gogo/protobuf/gogoproto"
 import _ "github.com/golang/protobuf/ptypes/duration"
 
 import time "time"
-import github_com_LiveRamp_gazette_v2_pkg_protocol "github.com/gazette/gazette/v2/protocol"
+import github_com_LiveRamp_gazette_v2_pkg_protocol "go.gazette.dev/core/protocol"
 
 import (
 	context "golang.org/x/net/context"
@@ -240,7 +240,7 @@ var xxx_messageInfo_ShardSpec proto.InternalMessageInfo
 // queries, obtaining a reliable distributed scatter/gather query engine.
 type ShardSpec_Source struct {
 	// Journal which this Shard is consuming.
-	Journal github_com_LiveRamp_gazette_v2_pkg_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=github.com/gazette/gazette/v2/protocol.Journal" json:"journal,omitempty"`
+	Journal github_com_LiveRamp_gazette_v2_pkg_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=go.gazette.dev/core/protocol.Journal" json:"journal,omitempty"`
 	// Minimum journal byte offset the shard should begin reading from. Typically
 	// this should be zero, as read offsets are persisted to and recovered from
 	// the shard store as the journal is processed. |min_offset| can be useful
@@ -665,7 +665,7 @@ type StatResponse struct {
 	// Header of the response.
 	Header protocol.Header `protobuf:"bytes,2,opt,name=header" json:"header"`
 	// Offsets of journals being read by the shard.
-	Offsets map[github_com_LiveRamp_gazette_v2_pkg_protocol.Journal]int64 `protobuf:"bytes,3,rep,name=offsets,castkey=github.com/gazette/gazette/v2/protocol.Journal" json:"offsets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
+	Offsets map[github_com_LiveRamp_gazette_v2_pkg_protocol.Journal]int64 `protobuf:"bytes,3,rep,name=offsets,castkey=go.gazette.dev/core/protocol.Journal" json:"offsets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
 }
 
 func (m *StatResponse) Reset()         { *m = StatResponse{} }

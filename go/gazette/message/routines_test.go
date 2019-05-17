@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gazette/gazette/v2/brokertest"
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/etcdtest"
-	"github.com/gazette/gazette/v2/labels"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/brokertest"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/labels"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type RoutinesSuite struct{}

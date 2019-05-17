@@ -5,12 +5,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/fragment"
-	"github.com/gazette/gazette/v2/metrics"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/fragment"
+	"go.gazette.dev/core/metrics"
+	pb "go.gazette.dev/core/protocol"
 	"golang.org/x/net/trace"
 )
 

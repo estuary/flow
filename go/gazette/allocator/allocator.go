@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gazette/gazette/v2/allocator/push_relabel"
-	"github.com/gazette/gazette/v2/keyspace"
-	"github.com/gazette/gazette/v2/metrics"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
 	"go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
+	"go.gazette.dev/core/allocator/push_relabel"
+	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/metrics"
 )
 
 type AllocateArgs struct {

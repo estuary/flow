@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package word_count;
 
-import "github.com/gazette/gazette/v2/protocol/protocol.proto";
+import "go.gazette.dev/core/protocol/protocol.proto";
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 
 option (gogoproto.marshaler_all) = true;
@@ -27,7 +27,7 @@ message QueryRequest {
   // NGram prefix to query.
   string prefix = 2 [(gogoproto.casttype) = "NGram"];
   // Shard to query. Optional; if not set, shard is inferred from |prefix|'s current mapping.
-  string shard = 3 [(gogoproto.casttype) = "github.com/gazette/gazette/v2/consumer.ShardID"];
+  string shard = 3 [(gogoproto.casttype) = "go.gazette.dev/core/consumer.ShardID"];
 }
 
 message QueryResponse {

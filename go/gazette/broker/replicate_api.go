@@ -5,9 +5,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/gazette/gazette/v2/fragment"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/fragment"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // Replicate dispatches the JournalServer.Replicate API.

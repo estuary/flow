@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	pb "go.gazette.dev/core/protocol"
 )
 
 const (

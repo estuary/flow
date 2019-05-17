@@ -7,8 +7,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/gazette/gazette/v2/labels"
 	"github.com/pkg/errors"
+	"go.gazette.dev/core/labels"
 )
 
 // FixedFraming is a Framing implementation which encodes messages in a binary

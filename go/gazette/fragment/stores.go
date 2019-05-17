@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gazette/gazette/v2/metrics"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/gorilla/schema"
+	"go.gazette.dev/core/metrics"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type backend interface {

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 // JSONFileStore is a simple Store which materializes itself as a JSON-encoded

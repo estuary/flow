@@ -9,10 +9,10 @@ import (
 	"time"
 
 	rocks "github.com/LiveRamp/gorocksdb"
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
 	"github.com/pkg/errors"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/protocol"
 )
 
 type RecordedRocksDBSuite struct{}

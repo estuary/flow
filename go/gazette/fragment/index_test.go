@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type IndexSuite struct{}

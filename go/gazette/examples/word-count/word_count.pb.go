@@ -6,10 +6,10 @@ package word_count
 import proto "github.com/gogo/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import protocol "github.com/gazette/gazette/v2/protocol"
+import protocol "go.gazette.dev/core/protocol"
 import _ "github.com/gogo/protobuf/gogoproto"
 
-import github_com_LiveRamp_gazette_v2_pkg_consumer "github.com/gazette/gazette/v2/consumer"
+import github_com_LiveRamp_gazette_v2_pkg_consumer "go.gazette.dev/core/consumer"
 
 import (
 	context "golang.org/x/net/context"
@@ -176,7 +176,7 @@ type QueryRequest struct {
 	// NGram prefix to query.
 	Prefix NGram `protobuf:"bytes,2,opt,name=prefix,proto3,casttype=NGram" json:"prefix,omitempty"`
 	// Shard to query. Optional; if not set, shard is inferred from |prefix|'s current mapping.
-	Shard                github_com_LiveRamp_gazette_v2_pkg_consumer.ShardID `protobuf:"bytes,3,opt,name=shard,proto3,casttype=github.com/gazette/gazette/v2/consumer.ShardID" json:"shard,omitempty"`
+	Shard                github_com_LiveRamp_gazette_v2_pkg_consumer.ShardID `protobuf:"bytes,3,opt,name=shard,proto3,casttype=go.gazette.dev/core/consumer.ShardID" json:"shard,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                                            `json:"-"`
 	XXX_unrecognized     []byte                                              `json:"-"`
 	XXX_sizecache        int32                                               `json:"-"`

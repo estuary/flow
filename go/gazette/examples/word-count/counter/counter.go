@@ -2,8 +2,8 @@
 package main
 
 import (
-	"github.com/gazette/gazette/v2/examples/word-count"
-	"github.com/gazette/gazette/v2/mainboilerplate/runconsumer"
+	"go.gazette.dev/core/examples/word-count"
+	"go.gazette.dev/core/mainboilerplate/runconsumer"
 )
 
 func main() { runconsumer.Main(new(word_count.Counter)) }

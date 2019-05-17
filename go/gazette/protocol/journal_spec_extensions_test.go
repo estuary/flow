@@ -3,10 +3,10 @@ package protocol
 import (
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	"github.com/gazette/gazette/v2/labels"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/labels"
 	"gopkg.in/yaml.v2"
 )
 

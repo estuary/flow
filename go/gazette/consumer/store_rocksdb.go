@@ -6,10 +6,10 @@ import (
 	"os"
 
 	rocks "github.com/LiveRamp/gorocksdb"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	"github.com/jgraettinger/cockroach-encoding/encoding"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 // RocksDBStore implements the Store interface.

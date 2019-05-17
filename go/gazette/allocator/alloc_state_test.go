@@ -4,8 +4,8 @@ import (
 	"context"
 	"math"
 
-	"github.com/gazette/gazette/v2/etcdtest"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/etcdtest"
 )
 
 type AllocStateSuite struct{}

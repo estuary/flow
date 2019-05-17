@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/consumer"
-	"github.com/gazette/gazette/v2/keepalive"
-	pb "github.com/gazette/gazette/v2/protocol"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/keepalive"
+	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc"
 )
 

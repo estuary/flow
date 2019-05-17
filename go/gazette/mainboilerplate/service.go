@@ -3,9 +3,9 @@ package mainboilerplate
 import (
 	"fmt"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	"github.com/gazette/gazette/v2/protocol"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/protocol"
 )
 
 // ZoneConfig configures the zone of the application.

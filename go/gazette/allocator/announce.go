@@ -6,11 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/gazette/gazette/v2/task"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
 	"go.etcd.io/etcd/v3/clientv3/concurrency"
+	"go.gazette.dev/core/task"
 )
 
 // Announcement manages a unique key which is "announced" to peers through Etcd,

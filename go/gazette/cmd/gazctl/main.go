@@ -5,9 +5,9 @@ import (
 	"io/ioutil"
 	"os"
 
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	"github.com/gazette/gazette/v2/protocol"
 	"github.com/jessevdk/go-flags"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	"go.gazette.dev/core/protocol"
 	"gopkg.in/yaml.v2"
 )
 

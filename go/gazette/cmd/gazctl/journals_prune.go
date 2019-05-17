@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/fragment"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/fragment"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type cmdJournalsPrune struct {

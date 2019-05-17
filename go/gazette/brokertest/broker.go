@@ -7,15 +7,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/broker"
-	"github.com/gazette/gazette/v2/broker/teststub"
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/fragment"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/task"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker"
+	"go.gazette.dev/core/broker/teststub"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/fragment"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/task"
 )
 
 // Broker is a lightweight, embedded Gazette broker suitable for testing client

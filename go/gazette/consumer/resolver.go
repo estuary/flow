@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gazette/gazette/v2/allocator"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // Resolver maps shards to responsible consumer processes, and manages the set

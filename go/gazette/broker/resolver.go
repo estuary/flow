@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // resolver maps journals to responsible broker instances and, potentially, a local replica.

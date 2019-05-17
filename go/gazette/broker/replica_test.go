@@ -5,11 +5,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/fragment"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/fragment"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type ReplicaSuite struct{}

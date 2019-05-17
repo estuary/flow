@@ -9,15 +9,15 @@ import (
 	"io/ioutil"
 	"time"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/labels"
-	"github.com/gazette/gazette/v2/message"
-	"github.com/gazette/gazette/v2/metrics"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/message"
+	"go.gazette.dev/core/metrics"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 // playLog fetches current shard hints and plays them back into a temporary directory using the Player.

@@ -1,8 +1,8 @@
 package protocol
 
 import (
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
 )
 
 // Initialize Route with the provided allocator Assignments.

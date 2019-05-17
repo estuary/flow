@@ -4,17 +4,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/brokertest"
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/etcdtest"
-	"github.com/gazette/gazette/v2/keyspace"
-	"github.com/gazette/gazette/v2/labels"
-	"github.com/gazette/gazette/v2/message"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/brokertest"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/message"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 var (

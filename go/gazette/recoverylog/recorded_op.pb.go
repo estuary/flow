@@ -8,7 +8,7 @@ import fmt "fmt"
 import math "math"
 import _ "github.com/gogo/protobuf/gogoproto"
 
-import github_com_LiveRamp_gazette_v2_pkg_protocol "github.com/gazette/gazette/v2/protocol"
+import github_com_LiveRamp_gazette_v2_pkg_protocol "go.gazette.dev/core/protocol"
 
 import encoding_binary "encoding/binary"
 
@@ -377,7 +377,7 @@ var xxx_messageInfo_FnodeSegments proto.InternalMessageInfo
 // Next tag: 4.
 type FSMHints struct {
 	// Log is the Journal name holding recorded log content.
-	Log github_com_LiveRamp_gazette_v2_pkg_protocol.Journal `protobuf:"bytes,1,opt,name=log,proto3,casttype=github.com/gazette/gazette/v2/protocol.Journal" json:"log,omitempty"`
+	Log github_com_LiveRamp_gazette_v2_pkg_protocol.Journal `protobuf:"bytes,1,opt,name=log,proto3,casttype=go.gazette.dev/core/protocol.Journal" json:"log,omitempty"`
 	// Live Fnodes and their Segments as-of the generation of these FSMHints.
 	LiveNodes []FnodeSegments `protobuf:"bytes,2,rep,name=live_nodes,json=liveNodes" json:"live_nodes"`
 	// Property files and contents as-of the generation of these FSMHints.

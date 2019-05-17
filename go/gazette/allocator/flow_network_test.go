@@ -3,9 +3,9 @@ package allocator
 import (
 	"context"
 
-	pr "github.com/gazette/gazette/v2/allocator/push_relabel"
-	"github.com/gazette/gazette/v2/etcdtest"
 	gc "github.com/go-check/check"
+	pr "go.gazette.dev/core/allocator/push_relabel"
+	"go.gazette.dev/core/etcdtest"
 )
 
 type FlowNetworkSuite struct{}

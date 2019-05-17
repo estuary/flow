@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/gazette/gazette/v2/labels"
+	"go.gazette.dev/core/labels"
 )
 
 // Validate returns an error if the Label is not well-formed.

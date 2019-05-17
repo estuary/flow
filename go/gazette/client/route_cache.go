@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/hashicorp/golang-lru"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // RouteCache caches observed Routes for JournalSpecs (and consumer

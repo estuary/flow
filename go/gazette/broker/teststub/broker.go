@@ -4,11 +4,11 @@ import (
 	"context"
 	"io"
 
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/server"
-	"github.com/gazette/gazette/v2/task"
 	gc "github.com/go-check/check"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/server"
+	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )
 

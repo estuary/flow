@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/gazette/gazette/v2/protocol"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.gazette.dev/core/protocol"
 )
 
 // EtcdConfig configures the application Etcd session.

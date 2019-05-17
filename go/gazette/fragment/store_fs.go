@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // FileSystemStoreRoot is the filesystem path which roots fragment ContentPaths

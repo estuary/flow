@@ -4,12 +4,12 @@ import (
 	"context"
 	"os"
 
-	"github.com/gazette/gazette/v2/client"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/protocol/journalspace"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/client"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/protocol/journalspace"
 )
 
 type cmdJournalsApply struct {

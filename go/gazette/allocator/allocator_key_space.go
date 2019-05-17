@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gazette/gazette/v2/keyspace"
 	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.gazette.dev/core/keyspace"
 )
 
 const (

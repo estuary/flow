@@ -1,10 +1,10 @@
 package broker
 
 import (
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	pb "github.com/gazette/gazette/v2/protocol"
 	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // NewKeySpace returns a KeySpace suitable for use with an Allocator.

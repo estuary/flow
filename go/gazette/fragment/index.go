@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
+	pb "go.gazette.dev/core/protocol"
 	"golang.org/x/net/trace"
 )
 

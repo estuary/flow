@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/gazette/gazette/v2/client"
-	pb "github.com/gazette/gazette/v2/protocol"
-	"github.com/gazette/gazette/v2/recoverylog"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/client"
+	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/recoverylog"
 )
 
 type APISuite struct{}

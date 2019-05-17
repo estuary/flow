@@ -9,9 +9,9 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/message"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/message"
 )
 
 // propertyFiles is well-known paths which should be treated as properties,

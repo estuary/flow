@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gazette/gazette/v2/allocator"
-	"github.com/gazette/gazette/v2/keyspace"
-	"github.com/gazette/gazette/v2/labels"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/labels"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type SpecSuite struct{}

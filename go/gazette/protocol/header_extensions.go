@@ -1,8 +1,8 @@
 package protocol
 
 import (
-	"github.com/gazette/gazette/v2/allocator"
 	epb "go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
+	"go.gazette.dev/core/allocator"
 )
 
 // Validate returns an error if the Header is not well-formed.

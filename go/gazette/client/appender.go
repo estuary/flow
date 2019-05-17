@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	pb "github.com/gazette/gazette/v2/protocol"
+	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

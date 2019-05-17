@@ -3,7 +3,7 @@ package fragment
 import (
 	"io"
 
-	"github.com/gazette/gazette/v2/protocol"
+	"go.gazette.dev/core/protocol"
 )
 
 // Fragment wraps the protocol.Fragment type with a nil-able backing local File.

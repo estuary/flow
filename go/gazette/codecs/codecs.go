@@ -5,9 +5,9 @@ import (
 	"io"
 	"io/ioutil"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	"github.com/golang/snappy"
 	"github.com/klauspost/compress/gzip"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // Decompressor is a ReadCloser where Close closes and releases Decompressor

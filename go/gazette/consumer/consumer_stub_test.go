@@ -3,9 +3,9 @@ package consumer
 import (
 	"context"
 
-	"github.com/gazette/gazette/v2/server"
-	"github.com/gazette/gazette/v2/task"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/server"
+	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )
 

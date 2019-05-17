@@ -7,9 +7,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/gazette/gazette/v2/metrics"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/metrics"
+	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc"
 )
 

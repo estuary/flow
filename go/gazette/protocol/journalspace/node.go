@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	pb "github.com/gazette/gazette/v2/protocol"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // Node represents a collection of JournalSpecs which are related by

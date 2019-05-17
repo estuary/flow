@@ -5,11 +5,11 @@ import (
 	"context"
 	"io"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/cmd/gazctl/editor"
-	mbp "github.com/gazette/gazette/v2/mainboilerplate"
-	"github.com/gazette/gazette/v2/protocol/journalspace"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/cmd/gazctl/editor"
+	mbp "go.gazette.dev/core/mainboilerplate"
+	"go.gazette.dev/core/protocol/journalspace"
 	"gopkg.in/yaml.v2"
 )
 

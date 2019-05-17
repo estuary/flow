@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 
-	"github.com/gazette/gazette/v2/labels"
+	"go.gazette.dev/core/labels"
 )
 
 // JSONFraming is a Framing implementation which encodes messages as line-

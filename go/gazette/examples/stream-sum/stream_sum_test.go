@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gazette/gazette/v2/brokertest"
-	"github.com/gazette/gazette/v2/consumer"
-	"github.com/gazette/gazette/v2/consumertest"
-	"github.com/gazette/gazette/v2/etcdtest"
-	"github.com/gazette/gazette/v2/labels"
-	"github.com/gazette/gazette/v2/message"
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/brokertest"
+	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/consumertest"
+	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/message"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type StreamSumSuite struct{}

@@ -8,9 +8,9 @@ import (
 	"math/rand"
 	"sync"
 
-	"github.com/gazette/gazette/v2/client"
-	"github.com/gazette/gazette/v2/labels"
-	pb "github.com/gazette/gazette/v2/protocol"
+	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/labels"
+	pb "go.gazette.dev/core/protocol"
 )
 
 // Publish maps the Message to its target journal and begins an Append of the

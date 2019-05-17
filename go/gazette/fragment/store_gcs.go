@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	pb "github.com/gazette/gazette/v2/protocol"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/protocol"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gazette/gazette/v2/keyspace"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/keyspace"
 )
 
 // State is an extracted representation of the allocator KeySpace. Clients may

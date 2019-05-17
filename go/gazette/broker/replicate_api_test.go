@@ -3,8 +3,8 @@ package broker
 import (
 	"io"
 
-	pb "github.com/gazette/gazette/v2/protocol"
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/protocol"
 )
 
 type ReplicateSuite struct{}
