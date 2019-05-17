@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package word_count;
+
+import "github.com/gazette/gazette/v2/protocol/protocol.proto";
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+message NGramCount {
+  string n_gram = 1 [(gogoproto.casttype) = "NGram"];
+  uint64 count = 2;
+}
+
+message PublishRequest {
+  string text = 1;
+}
+
+message PublishResponse {
+}
+
+message QueryRequest {
+  // Header attached by a proxy-ing peer. Not directly set by clients.
+  protocol.Header header = 1;
+  // NGram prefix to query.
+  string prefix = 2 [(gogoproto.casttype) = "NGram"];
+  // Shard to query. Optional; if not set, shard is inferred from |prefix|'s current mapping.
+  string shard = 3 [(gogoproto.casttype) = "github.com/gazette/gazette/v2/consumer.ShardID"];
+}
+
+message QueryResponse {
+  repeated NGramCount grams = 1 [(gogoproto.nullable) = false];
+}
+
+service NGram {
+  // Publish text to the word-count example. The published text is tokenized
+  // into NGrams, indexed, and aggregated into total NGram counts.
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  // Query for a specific NGram, or NGram prefixes.
+  rpc Query(QueryRequest) returns (QueryResponse);
+}
