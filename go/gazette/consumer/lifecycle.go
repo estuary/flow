@@ -12,12 +12,14 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
+	"go.etcd.io/etcd/v3/etcdserver/api/v3rpc/rpctypes"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 	"go.gazette.dev/core/metrics"
 	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/recoverylog"
+	"google.golang.org/grpc/codes"
 )
 
 // playLog fetches current shard hints and plays them back into a temporary directory using the Player.
@@ -289,23 +291,34 @@ func fetchHints(ctx context.Context, spec *ShardSpec, etcd *clientv3.Client) (ou
 }
 
 // storeRecordedHints writes FSMHints into the primary hint key of the spec.
-func storeRecordedHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3.Client) (err error) {
-	var val []byte
-	if val, err = json.Marshal(hints); err != nil {
-		err = extendErr(err, "marshal FSMHints")
-		return
+func storeRecordedHints(shard Shard, hints recoverylog.FSMHints, etcd *clientv3.Client) error {
+	var val, err = json.Marshal(hints)
+	if err != nil {
+		return extendErr(err, "marshal FSMHints")
 	}
 	var asn = shard.Assignment()
 
-	if _, err = etcd.Txn(shard.Context()).
+	_, err = etcd.Txn(shard.Context()).
 		// Verify our Assignment is still in effect (eg, we're still primary), then write |hints| to HintPrimaryKey.
 		// Compare CreateRevision to allow for a raced ReplicaState update.
 		If(clientv3.Compare(clientv3.CreateRevision(string(asn.Raw.Key)), "=", asn.Raw.CreateRevision)).
 		Then(clientv3.OpPut(shard.Spec().HintPrimaryKey(), string(val))).
-		Commit(); err != nil {
-		err = extendErr(err, "storing recorded FSMHints")
+		Commit()
+
+	if etcdErr, ok := err.(rpctypes.EtcdError); ok && etcdErr.Code() == codes.Unavailable {
+		// Recorded hints are advisory and can generally tolerate omitted
+		// updates. It's also annoying for temporary Etcd partitions to abort
+		// an otherwise-fine shard primary. So, log but allow shard processing
+		// to continue; we'll retry on the next hints flush interval.
+		log.WithFields(log.Fields{
+			"key": shard.Spec().HintPrimaryKey(),
+			"err": err,
+		}).Warn("failed to store recorded FSMHints (will retry)")
+
+	} else if err != nil {
+		return extendErr(err, "storing recorded FSMHints")
 	}
-	return
+	return nil
 }
 
 // storeRecoveredHints writes the FSMHints into the first backup hint key of the spec,
