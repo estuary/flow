@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/v3/clientv3"
 	"go.etcd.io/etcd/v3/clientv3/mirror"
+	"go.etcd.io/etcd/v3/etcdserver/api/v3rpc/rpctypes"
 	"go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
 )
 
@@ -121,49 +122,86 @@ func (ks *KeySpace) Load(ctx context.Context, client *clientv3.Client, rev int64
 func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 	var watchCh clientv3.WatchChan
 
-	ks.Mu.RLock()
-	// Begin a new long-lived, auto-retried Watch. Note this is very similar to
-	// mirror.Syncer: A key difference (and the reason that API is not used) is
-	// the additional WithProgressNotify option - without this option, in the
-	// event of a long-lived watch over a prefix which has no key changes, Etcd
-	// may compact away the watch revision and a retried Watch will later fail.
-	// WithProgressNotify ensures the watched revision is kept reasonably recent
-	// even if no WatchResponses otherwise arrive.
-	watchCh = client.Watch(ctx, ks.Root,
-		clientv3.WithPrefix(),
-		clientv3.WithProgressNotify(),
-		clientv3.WithRev(ks.Header.Revision+1),
-	)
-	ks.Mu.RUnlock()
-
 	// WatchResponses can often arrive in quick succession and contain many key
 	// events. We amortize the cost of updating the KeySpace by briefly delaying
 	// the application of a first WatchResponse to await further events, and then
 	// applying all events as a single bulk update.
 	var responses []clientv3.WatchResponse
-	var applyTimer = time.NewTimer(time.Hour) // Not possible to create an idle Timer.
+	var applyTimer = time.NewTimer(0)
+	<-applyTimer.C // Now idle.
 
-	for {
+	// TODO(johnny): this lock guards a current race in scenarios_test.go.
+	ks.Mu.RLock()
+	var nextRevision = ks.Header.Revision + 1
+	ks.Mu.RUnlock()
+
+	for attempt := 0; true; attempt++ {
+
+		// Start (or restart) a new long-lived Watch. Note this is very similar to
+		// mirror.Syncer: A key difference (and the reason that API is not used) is
+		// the additional WithProgressNotify option - without this option, in the
+		// event of a long-lived watch over a prefix which has no key changes, Etcd
+		// may compact away the watch revision and a retried Watch will later fail.
+		// WithProgressNotify ensures the watched revision is kept reasonably recent
+		// even if no WatchResponses otherwise arrive.
+		//
+		// The "require leader" option is also set on the watch context. With this
+		// setting, if our watched Etcd instance is partitioned from its majority
+		// it will abort our watch stream rather than wait for the partition to
+		// resolve (the default). We'll then retry against another endpoint in the
+		// majority. Without this setting, there's a potential deadlock case if our
+		// watch Etcd is partitioned from the majority, but *we* are not and can
+		// keep our lease alive. Specifically this can lead to our being allocator
+		// leader but being unable to observe updates.
+
+		if watchCh == nil {
+			watchCh = client.Watch(clientv3.WithRequireLeader(ctx), ks.Root,
+				clientv3.WithPrefix(),
+				clientv3.WithProgressNotify(),
+				clientv3.WithRev(nextRevision),
+			)
+		}
+
 		// Queue a new WatchResponse or, if |applyTimer| has fired, apply previously
 		// queued responses. Go's uniform psuedo-random selection among select cases
 		// prevents starvation.
 		select {
 		case resp, ok := <-watchCh:
 			if !ok {
-				return ctx.Err()
-			} else if err := resp.Err(); err != nil {
-				return err
-			} else if len(responses) == 0 {
-				applyTimer.Reset(ks.WatchApplyDelay)
+				return ctx.Err() // Watch contract implies the context is cancelled.
+			} else if err := resp.Err(); err == rpctypes.ErrNoLeader {
+				// ErrNoLeader indicates our watched Etcd is in a partitioned
+				// minority. Retry, attempting to find a member in the majority.
+				watchCh = nil
+
+				log.WithFields(log.Fields{"err": err, "attempt": attempt}).
+					Warn("watch failed (will retry)")
+
+				select {
+				case <-time.After(backoff(attempt)): // Pass.
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			} else if err != nil {
+				return err // All other errors are fatal.
+			} else {
+				if len(responses) == 0 {
+					applyTimer.Reset(ks.WatchApplyDelay)
+				}
+				responses = append(responses, resp)
+				nextRevision = resp.Header.Revision + 1
+				attempt = 0 // Restart sequence.
 			}
-			responses = append(responses, resp)
 		case <-applyTimer.C:
+			// Apply all previously buffered WatchResponses. |applyTimer| is now
+			// idle and will remain so until the next response is received.
 			if err := ks.Apply(responses...); err != nil {
 				return err
 			}
 			responses = responses[:0]
 		}
 	}
+	panic("not reached")
 }
 
 // WaitForRevision blocks until the KeySpace Revision is at least |revision|,
@@ -194,15 +232,13 @@ func (ks *KeySpace) WaitForRevision(ctx context.Context, revision int64) error {
 // fixtures; most clients should instead use Watch. Clients must ensure
 // concurrent calls to Apply are not made.
 func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
-	var hdr etcdserverpb.ResponseHeader
+	var hdr = ks.Header
 	var wr clientv3.WatchResponse
-	// |hdr| is initialized to the state of the current ks.Header
-	patchHeader(&hdr, ks.Header, false)
 
 	for _, wr = range responses {
-		// Do not apply progress notify events |hdr| as they may contain
-		// a revision increase without a corresponding modification
-		// to this KeySpace, and we track only modifying revisions.
+		// Do not apply progress notify events to |hdr| as they may contain
+		// a revision increase without a corresponding modification of this
+		// KeySpace, and we track only modifying revisions.
 		if !wr.IsProgressNotify() {
 			if err := patchHeader(&hdr, wr.Header, false); err != nil {
 				return err
@@ -333,4 +369,17 @@ func (h *watchResponseHeap) Pop() interface{} {
 	var x = old[n-1]
 	*h = old[0 : n-1]
 	return x
+}
+
+func backoff(attempt int) time.Duration {
+	switch attempt {
+	case 0, 1:
+		return 0
+	case 2:
+		return time.Millisecond * 5
+	case 3, 4, 5:
+		return time.Second * time.Duration(attempt-1)
+	default:
+		return 5 * time.Second
+	}
 }
