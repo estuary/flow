@@ -196,10 +196,17 @@ func (ks *KeySpace) WaitForRevision(ctx context.Context, revision int64) error {
 func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 	var hdr etcdserverpb.ResponseHeader
 	var wr clientv3.WatchResponse
+	// |hdr| is initialized to the state of the current ks.Header
+	patchHeader(&hdr, ks.Header, false)
 
 	for _, wr = range responses {
-		if err := patchHeader(&hdr, wr.Header, false); err != nil {
-			return err
+		// Do not apply progress notify events |hdr| as they may contain
+		// a revision increase without a corresponding modification
+		// to this KeySpace, and we track only modifying revisions.
+		if !wr.IsProgressNotify() {
+			if err := patchHeader(&hdr, wr.Header, false); err != nil {
+				return err
+			}
 		}
 		// Events are already ordered on ascending ModRevision. Order on key, while
 		// preserving relative ModRevision order of events of the same key.
