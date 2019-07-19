@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"go.etcd.io/etcd/v3/clientv3"
-	"go.etcd.io/etcd/v3/embed"
-	"go.etcd.io/etcd/v3/etcdserver/api/v3client"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/embed"
+	"go.etcd.io/etcd/etcdserver/api/v3client"
 )
 
 // TestClient returns a client of the embeded Etcd test server. It asserts that
