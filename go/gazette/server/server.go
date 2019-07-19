@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
 	"go.gazette.dev/core/keepalive"
-	"go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )
@@ -34,10 +34,8 @@ type Server struct {
 	HTTPMux *http.ServeMux
 	// GRPCServer is the gRPC server mux which is served by Serve().
 	GRPCServer *grpc.Server
-	// Ctx is cancelled when Server.GracefulStop is called.
-	Ctx context.Context
-
-	cancel context.CancelFunc
+	// GRPCLoopback is a dialed connection to this GRPCServer.
+	GRPCLoopback *grpc.ClientConn
 }
 
 // New builds and returns a Server of the given TCP network interface |iface|
@@ -50,14 +48,10 @@ func New(iface string, port uint16) (*Server, error) {
 		return nil, errors.Wrapf(err, "failed to bind service address (%s)", addr)
 	}
 
-	var ctx, cancel = context.WithCancel(context.Background())
-
 	var srv = &Server{
 		HTTPMux:     http.DefaultServeMux,
 		GRPCServer:  grpc.NewServer(),
 		RawListener: raw.(*net.TCPListener),
-		Ctx:         ctx,
-		cancel:      cancel,
 	}
 
 	srv.CMux = cmux.New(keepalive.TCPListener{TCPListener: srv.RawListener})
@@ -76,73 +70,59 @@ func New(iface string, port uint16) (*Server, error) {
 	srv.GRPCListener = srv.CMux.MatchWithWriters(
 		cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
 
+	srv.GRPCLoopback, err = grpc.DialContext(
+		context.Background(),
+		srv.RawListener.Addr().String(),
+		grpc.WithInsecure(),
+		grpc.WithContextDialer(keepalive.DialerFunc),
+		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName))
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to dial gRPC loopback")
+	}
+
 	// Connections sending HTTP/1 verbs (GET, PUT, POST etc) are assumed to be HTTP.
 	srv.HTTPListener = srv.CMux.Match(cmux.HTTP1Fast())
 
 	return srv, nil
 }
 
+// MustLoopback builds and returns a new Server instance bound to a random
+// port on the loopback interface. It panics on error.
+func MustLoopback() *Server {
+	if srv, err := New("127.0.0.1", 0); err != nil {
+		log.WithField("err", err).Panic("failed to build Server")
+		panic("not reached")
+	} else {
+		return srv
+	}
+}
+
 // Endpoint of the Server.
-func (s *Server) Endpoint() protocol.Endpoint {
-	return protocol.Endpoint("http://" + s.RawListener.Addr().String())
+func (s *Server) Endpoint() pb.Endpoint {
+	return pb.Endpoint("http://" + s.RawListener.Addr().String())
 }
 
 // QueueTasks serving the CMux, HTTP, and gRPC component servers onto the task.Group.
 // If additional Listeners are derived from the Server.CMux, attempts to Accept
 // will block until the CMux itself begins serving.
 func (s *Server) QueueTasks(tg *task.Group) {
-	tg.Queue("CMux.Serve", func() error {
-		if err := s.CMux.Serve(); err != nil && s.Ctx.Err() == nil {
+	tg.Queue("server.ServeCMux", func() error {
+		if err := s.CMux.Serve(); err != nil && tg.Context().Err() == nil {
 			return err
 		}
-		return nil // Swallow error after GracefulStop.
+		return nil // Swallow error on cancellation.
 	})
-	tg.Queue("http.Serve", func() error {
-		if err := http.Serve(s.HTTPListener, s.HTTPMux); err != nil && s.Ctx.Err() == nil {
+	tg.Queue("server.ServeHTTP", func() error {
+		if err := http.Serve(s.HTTPListener, s.HTTPMux); err != nil && tg.Context().Err() == nil {
 			return err
 		}
-		return nil // Swallow error after GracefulStop.
+		return nil // Swallow error on cancellation.
 	})
-	tg.Queue("GRPCServer.Serve", func() error {
+	tg.Queue("server.ServeGRPC", func() error {
 		if err := s.GRPCServer.Serve(s.GRPCListener); err != grpc.ErrServerStopped {
 			return err
 		}
-		return nil // GracefulStop was called before GoServe.
-	})
-	tg.Queue("GRPCServer.GracefulStop", func() error {
-		<-tg.Context().Done() // Block until task.Group is cancelled.
-
-		// GRPCServer.GracefulStop will close GRPCListener, which closes RawListener.
-		// Cancel |s.Ctx| so Serve loops and dialed loopback clients recognize this
-		// as a graceful closure.
-		s.cancel()
-
-		s.GRPCServer.GracefulStop()
 		return nil
 	})
-}
-
-// GRPCLoopback dials and returns a connection to the local gRPC server.
-func (s *Server) GRPCLoopback() (*grpc.ClientConn, error) {
-	var addr = s.RawListener.Addr().String()
-
-	var cc, err = grpc.DialContext(s.Ctx, addr,
-		grpc.WithInsecure(),
-		grpc.WithContextDialer(keepalive.DialerFunc),
-		grpc.WithBalancerName(protocol.DispatcherGRPCBalancerName))
-
-	if err != nil {
-		return nil, err
-	}
-	return cc, nil
-}
-
-// MustGRPCLoopback dials and returns a connection to the local gRPC server,
-// and panics on error.
-func (s *Server) MustGRPCLoopback() *grpc.ClientConn {
-	if cc, err := s.GRPCLoopback(); err != nil {
-		panic(err)
-	} else {
-		return cc
-	}
 }
