@@ -4,7 +4,7 @@ import (
 	"context"
 
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
 )

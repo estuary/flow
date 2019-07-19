@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.etcd.io/etcd/mvcc/mvccpb"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -267,7 +267,8 @@ func (j *LeftJoin) Next() (LeftJoinCursor, bool) {
 func assertAboveSep(s string) {
 	for i := range s {
 		if s[i] <= SepByte {
-			panic(fmt.Sprintf("invalid char <= '%c' (ind %d of %+q)", SepByte, i, s))
+			var iHeap, sHeap = i, s // Escapes.
+			panic(fmt.Sprintf("invalid char <= '%c' (ind %d of %+q)", SepByte, iHeap, sHeap))
 		}
 	}
 }

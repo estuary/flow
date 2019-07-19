@@ -8,8 +8,8 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/v3/clientv3"
-	"go.etcd.io/etcd/v3/clientv3/concurrency"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/clientv3/concurrency"
 	"go.gazette.dev/core/task"
 )
 
@@ -102,10 +102,15 @@ func StartSession(args SessionArgs) error {
 		return errors.WithMessage(err, "establishing Etcd lease")
 	}
 
-	// Close |lease| when the task.Group is cancelled.
+	// Close |lease| when the task.Group is cancelled, or cancel the task.Group
+	// if the lease fails to keep-alive within its deadline.
 	args.Tasks.Queue("lease.Close", func() error {
-		<-args.Tasks.Context().Done()
-		return lease.Close()
+		select {
+		case <-args.Tasks.Context().Done():
+			return lease.Close()
+		case <-lease.Done():
+			return errors.New("unable to keep member lease alive")
+		}
 	})
 
 	var ann = Announce(args.Etcd, args.State.LocalKey, args.Spec.MarshalString(), lease.Lease())

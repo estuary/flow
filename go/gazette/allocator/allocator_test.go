@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
-	epb "go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
+	"go.etcd.io/etcd/clientv3"
+	epb "go.etcd.io/etcd/etcdserver/etcdserverpb"
 	"go.gazette.dev/core/etcdtest"
 )
 
