@@ -91,7 +91,6 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	cmr2.Tasks.GoRun()
 
 	// |cmr1|, which is allocation leader, assigns |cmr2| as standby.
-	<-cmr1.AllocateIdleCh()
 	// |cmr2| becomes ready and is promoted to primary, after which |cmr1|
 	// has no more assignments and is able to exit.
 	c.Check(cmr1.Tasks.Wait(), gc.IsNil)
@@ -170,7 +169,7 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	})
 	cmr2.Tasks.GoRun()
 
-	<-cmr1.AllocateIdleCh() // |cmr2| is assigned as standby.
+	// |cmr2| is assigned as standby.
 
 	// Publish test messages and wait for the shard to catch up.
 	var wc = client.NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
@@ -185,7 +184,8 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	cmr1.Tasks.Cancel()
 	c.Check(cmr1.Tasks.Wait(), gc.IsNil)
 
-	<-cmr2.AllocateIdleCh() // |cmr2| takes over the shard.
+	// |cmr2| takes over the shard.
+	c.Check(cmr2.WaitForPrimary(ctx, "a-shard", nil), gc.IsNil)
 
 	// Expect shard is served by |cmr2|, which has expected key/values.
 	var res, err = cmr2.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: "a-shard"})

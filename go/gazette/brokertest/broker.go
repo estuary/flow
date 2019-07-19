@@ -7,111 +7,119 @@ import (
 	"syscall"
 	"time"
 
-	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
+	"github.com/stretchr/testify/assert"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
-	"go.gazette.dev/core/broker/teststub"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/fragment"
+	"go.gazette.dev/core/keyspace"
 	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )
 
 // Broker is a lightweight, embedded Gazette broker suitable for testing client
 // functionality which depends on the availability of the Gazette service.
 type Broker struct {
+	ID    pb.ProcessSpec_ID
 	Tasks *task.Group
 
-	etcd   *clientv3.Client
-	idleCh chan struct{}
-	sigCh  chan os.Signal
-	srv    teststub.LoopbackServer
-	svc    broker.Service
+	etcd  *clientv3.Client
+	sigCh chan os.Signal
+	srv   *server.Server
+	ks    *keyspace.KeySpace
 }
 
 // NewBroker builds and returns an in-process Broker identified by |zone| and |suffix|.
-func NewBroker(c *gc.C, etcd *clientv3.Client, zone, suffix string) *Broker {
-	var bk = &Broker{
-		Tasks:  task.NewGroup(context.Background()),
-		etcd:   etcd,
-		idleCh: make(chan struct{}),
-		sigCh:  make(chan os.Signal, 1),
-	}
+func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *Broker {
+	var (
+		id        = pb.ProcessSpec_ID{Zone: zone, Suffix: suffix}
+		ks        = broker.NewKeySpace("/broker.test")
+		state     = allocator.NewObservedState(ks, allocator.MemberKey(ks, id.Zone, id.Suffix))
+		srv       = server.MustLoopback()
+		svc       = broker.NewService(state, pb.NewJournalClient(srv.GRPCLoopback), etcd)
+		tasks     = task.NewGroup(context.Background())
+		sigCh     = make(chan os.Signal, 1)
+		allocArgs = allocator.SessionArgs{
+			Etcd:     etcd,
+			Tasks:    tasks,
+			LeaseTTL: time.Second * 60,
+			SignalCh: sigCh,
+			Spec: &pb.BrokerSpec{
+				ProcessSpec:  pb.ProcessSpec{Id: id, Endpoint: srv.Endpoint()},
+				JournalLimit: 100,
+			},
+			State: state,
+		}
+	)
 
-	var ks = broker.NewKeySpace("/brokertest")
-	var state = allocator.NewObservedState(ks, allocator.MemberKey(ks, zone, suffix))
+	assert.NoError(t, allocator.StartSession(allocArgs))
+	pb.RegisterJournalServer(srv.GRPCServer, svc)
+	// Set, but don't start a Persister for the test.
+	broker.SetSharedPersister(fragment.NewPersister(ks))
 	ks.WatchApplyDelay = 0 // Speed test execution.
 
-	bk.srv = teststub.NewLoopbackServer(&bk.svc)
-	bk.svc = *broker.NewService(state, pb.NewJournalClient(bk.srv.Conn), etcd)
+	srv.QueueTasks(tasks)
+	svc.QueueTasks(tasks, srv, nil)
+	tasks.GoRun()
 
-	// We signal |idleCh| on the first idle TestHook callback which follows
-	// at least one non-idle TestHook. Intuitively, we signal only if Allocate
-	// did some work (eg, shuffled assignments), and has since become idle.
-	// We do not signal on, eg, an assignment key/value update which does
-	// not result in a re-allocation.
-	var signalOnIdle bool
-
-	var args = allocator.SessionArgs{
-		Etcd:     etcd,
-		Tasks:    bk.Tasks,
-		LeaseTTL: time.Second * 60,
-		SignalCh: bk.sigCh,
-		Spec: &pb.BrokerSpec{
-			ProcessSpec: pb.ProcessSpec{
-				Id:       pb.ProcessSpec_ID{Zone: zone, Suffix: suffix},
-				Endpoint: bk.srv.Endpoint(),
-			},
-			JournalLimit: 100,
-		},
-		State: state,
-		TestHook: func(_ int, isIdle bool) {
-			if !isIdle {
-				signalOnIdle = true
-				return
-			} else if !signalOnIdle {
-				return
-			} else {
-				select {
-				case bk.idleCh <- struct{}{}:
-					// Pass.
-				case <-bk.Tasks.Context().Done():
-					return
-				case <-time.After(5 * time.Second):
-					panic("deadlock in broker TestHook; is your test ignoring a signal to AllocateIdleCh()?")
-				}
-				signalOnIdle = false
-			}
-		},
+	return &Broker{
+		ID:    id,
+		Tasks: tasks,
+		etcd:  etcd,
+		sigCh: sigCh,
+		srv:   srv,
+		ks:    ks,
 	}
-	c.Assert(allocator.StartSession(args), gc.IsNil)
-
-	bk.srv.QueueTasks(bk.Tasks)
-	bk.Tasks.Queue("service.Watch", func() error { return bk.svc.Watch(bk.Tasks.Context()) })
-
-	// TODO(jskelcy): Shared Persister race condition in integration tests (Issue #130)
-	broker.SetSharedPersister(fragment.NewPersister(ks))
-
-	bk.Tasks.GoRun()
-	return bk
 }
 
 // Client of the test Broker.
-func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.Conn) }
+func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.GRPCLoopback) }
 
 // Endpoint of the test Broker.
 func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
 
-// AllocateIdleCh signals when the Broker's Allocate loop took an action, such
-// as updating a journal assignment, and has since become idle. Tests must
-// explicitly receive (and confirm as intended) signals sent on Allocator
-// actions, or Broker will panic.
-func (b *Broker) AllocateIdleCh() <-chan struct{} { return b.idleCh }
-
-// Signal the Broker. The test Broker will eventually exit,
-// assuming other Broker(s) are available to take over the assignments.
+// Signal the Broker to exit. Wait on its |Tasks| to confirm it exited.
+// Note other Broker(s) must be available to take over assignments.
 func (b *Broker) Signal() { b.sigCh <- syscall.SIGTERM }
+
+// WaitForConsistency of the named journal until the Context is cancelled.
+// If |routeOut| is non-nil, it's populated with the current journal Route.
+func (b *Broker) WaitForConsistency(ctx context.Context, journal pb.Journal, routeOut *pb.Route) error {
+	var resp, err = b.etcd.Get(ctx, "a-key-that-doesn't-exist")
+	if err != nil {
+		return err
+	}
+
+	var rev = resp.Header.Revision
+	var ks = b.ks
+
+	ks.Mu.RLock()
+	defer ks.Mu.RUnlock()
+
+	for {
+		if err := ks.WaitForRevision(ctx, rev); err != nil {
+			return err
+		}
+		// Determine if the journal is consistent (ie, fully assigned with
+		// advertised routes that match current assignments).
+		var ind, ok = ks.Search(allocator.ItemKey(ks, journal.String()))
+		if ok {
+			var item = ks.KeyValues[ind].Decoded.(allocator.ItemValue)
+			var asn = ks.KeyValues.Prefixed(allocator.ItemAssignmentsPrefix(ks, journal.String()))
+
+			if len(asn) == item.DesiredReplication() && item.IsConsistent(keyspace.KeyValue{}, asn) {
+				if routeOut != nil {
+					routeOut.Init(asn)
+				}
+				return nil // Success.
+			}
+		}
+		// Block for the next KeySpace update.
+		rev = ks.Header.Revision + 1
+	}
+}
 
 // Journal returns |spec| after applying reasonable test defaults for fields
 // which are not already set.
@@ -129,22 +137,21 @@ func Journal(spec pb.JournalSpec) *pb.JournalSpec {
 }
 
 // CreateJournals using the Broker Apply API, and wait for them to be allocated.
-func CreateJournals(c *gc.C, bk *Broker, specs ...*pb.JournalSpec) {
+func CreateJournals(t assert.TestingT, bk *Broker, specs ...*pb.JournalSpec) {
+	var ctx = pb.WithDispatchDefault(context.Background())
+
 	var req = new(pb.ApplyRequest)
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, pb.ApplyRequest_Change{Upsert: spec})
 	}
-	// Issue the Apply in a goroutine, so that we may concurrently read from
-	// |idleCh|. If Apply were instead called synchronously, there's the
-	// possibility of deadlock on TestHook's send to |idleCh|.
-	var doneCh = make(chan struct{})
-	go func() {
-		var _, err = client.ApplyJournals(pb.WithDispatchDefault(context.Background()), bk.Client(), req)
-		c.Assert(err, gc.IsNil)
-		close(doneCh)
-	}()
 
-	// Wait for journal assignments to update, and the RPC to complete.
-	<-bk.AllocateIdleCh()
-	<-doneCh
+	var resp, err = client.ApplyJournals(ctx, bk.Client(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, pb.Status_OK, resp.Status)
+
+	for _, s := range specs {
+		assert.NoError(t, bk.WaitForConsistency(ctx, s.Name, nil))
+	}
 }
+
+func init() { pb.RegisterGRPCDispatcher("local") }

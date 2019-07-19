@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
+	"github.com/stretchr/testify/assert"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/consumer"
@@ -30,13 +30,12 @@ type Consumer struct {
 	// Tasks of the Consumer.
 	Tasks *task.Group
 
-	sigCh  chan<- os.Signal
-	idleCh <-chan struct{}
+	sigCh chan<- os.Signal
 }
 
 // Args of NewConsumer.
 type Args struct {
-	C        *gc.C
+	C        assert.TestingT
 	Etcd     *clientv3.Client       // Etcd client instance.
 	Journals pb.RoutedJournalClient // Broker client instance.
 	App      consumer.Application   // Application of the consumer.
@@ -48,7 +47,7 @@ type Args struct {
 // NewConsumer builds and returns a Consumer.
 func NewConsumer(args Args) *Consumer {
 	if args.Root == "" {
-		args.Root = "/consumertest"
+		args.Root = "/consumer.test"
 	}
 	if args.Zone == "" {
 		args.Zone = "local"
@@ -57,107 +56,100 @@ func NewConsumer(args Args) *Consumer {
 		args.Suffix = "consumer"
 	}
 
-	var ks = consumer.NewKeySpace(args.Root)
-	ks.WatchApplyDelay = 0 // Speedup test execution.
-	var state = allocator.NewObservedState(ks, allocator.MemberKey(ks, args.Zone, args.Suffix))
-
-	var srv, err = server.New("127.0.0.1", 0)
-	args.C.Assert(err, gc.IsNil)
-	var svc = consumer.NewService(args.App, state, args.Journals, srv.MustGRPCLoopback(), args.Etcd)
-	consumer.RegisterShardServer(srv.GRPCServer, svc)
-
-	var tasks = task.NewGroup(context.Background())
-	var sigCh = make(chan os.Signal, 1)
-	var idleCh = make(chan struct{})
-
-	// We signal |idleCh| on the first idle TestHook callback which follows
-	// at least one non-idle TestHook. Intuitively, we signal only if Allocate
-	// did some work (eg, shuffled assignments), and has since become idle.
-	// We do not signal on, eg, an assignment key/value update which does
-	// not result in a re-allocation.
-	var signalOnIdle bool
-
-	var sessionArgs = allocator.SessionArgs{
-		Etcd:     args.Etcd,
-		LeaseTTL: time.Second * 60,
-		SignalCh: sigCh,
-		Spec: &consumer.ConsumerSpec{
-			ProcessSpec: pb.ProcessSpec{
-				Id:       pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix},
-				Endpoint: srv.Endpoint(),
+	var (
+		id        = pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix}
+		ks        = consumer.NewKeySpace(args.Root)
+		state     = allocator.NewObservedState(ks, allocator.MemberKey(ks, id.Zone, id.Suffix))
+		srv       = server.MustLoopback()
+		svc       = consumer.NewService(args.App, state, args.Journals, srv.GRPCLoopback, args.Etcd)
+		tasks     = task.NewGroup(context.Background())
+		sigCh     = make(chan os.Signal, 1)
+		allocArgs = allocator.SessionArgs{
+			Etcd:     args.Etcd,
+			Tasks:    tasks,
+			LeaseTTL: time.Second * 60,
+			SignalCh: sigCh,
+			Spec: &consumer.ConsumerSpec{
+				ProcessSpec: pb.ProcessSpec{Id: id, Endpoint: srv.Endpoint()},
+				ShardLimit:  100,
 			},
-			ShardLimit: 100,
-		},
-		State: state,
-		Tasks: tasks,
-		TestHook: func(_ int, isIdle bool) {
-			if !isIdle {
-				signalOnIdle = true
-				return
-			} else if !signalOnIdle {
-				return
-			} else {
-				select {
-				case idleCh <- struct{}{}:
-					// Pass.
-				case <-tasks.Context().Done():
-					return
-				case <-time.After(5 * time.Second):
-					panic("deadlock in consumer TestHook; is your test ignoring a signal to AllocateIdleCh()?")
-				}
-				signalOnIdle = false
-			}
-		},
-	}
-	args.C.Assert(allocator.StartSession(sessionArgs), gc.IsNil)
+			State: state,
+		}
+	)
+
+	assert.NoError(args.C, allocator.StartSession(allocArgs))
+	consumer.RegisterShardServer(srv.GRPCServer, svc)
+	ks.WatchApplyDelay = 0 // Speedup test execution.
 
 	srv.QueueTasks(tasks)
-	tasks.Queue("service.Watch", func() error { return svc.Watch(tasks.Context()) })
-	tasks.Queue("loopback.Close", func() error {
-		<-tasks.Context().Done()
-		return svc.Loopback.Close()
-	})
+	svc.QueueTasks(tasks, srv)
 
 	return &Consumer{
 		Service: svc,
 		Server:  srv,
 		Tasks:   tasks,
 		sigCh:   sigCh,
-		idleCh:  idleCh,
 	}
 }
-
-// AllocateIdleCh signals when the Consumer's Allocate loop took an action, such
-// as updating a shard assignment, and has since become idle. Tests must
-// explicitly receive (and confirm as intended) signals sent on Allocator
-// actions, or Consumer will panic.
-func (cmr *Consumer) AllocateIdleCh() <-chan struct{} { return cmr.idleCh }
 
 // Signal the Consumer. The test Consumer will eventually exit,
 // assuming other Consumers(s) are available to take over the assignments.
 func (cmr *Consumer) Signal() { cmr.sigCh <- syscall.SIGTERM }
 
+// WaitForPrimary of the identified shard until the Context is cancelled.
+// If no error occurs, then the shard has a primary *Consumer (which is not
+// necessarily this *Consumer instance). If |routeOut| is non-nil, it's populated
+// with the current shard Route.
+func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard consumer.ShardID, routeOut *pb.Route) error {
+	var resp, err = cmr.Service.Etcd.Get(ctx, "a-key-that-doesn't-exist")
+	if err != nil {
+		return err
+	}
+
+	var rev = resp.Header.Revision
+	var ks = cmr.Service.State.KS
+
+	ks.Mu.RLock()
+	defer ks.Mu.RUnlock()
+
+	for {
+		if err := ks.WaitForRevision(ctx, rev); err != nil {
+			return err
+		}
+		// Walk assignments and determine if the slot-zero one is PRIMARY.
+		var asn = ks.KeyValues.Prefixed(allocator.ItemAssignmentsPrefix(ks, shard.String()))
+		for _, a := range asn {
+			var (
+				decoded = a.Decoded.(allocator.Assignment)
+				status  = decoded.AssignmentValue.(*consumer.ReplicaStatus)
+			)
+			if decoded.Slot == 0 && status.Code == consumer.ReplicaStatus_PRIMARY {
+				if routeOut != nil {
+					routeOut.Init(asn)
+				}
+				return nil // Success.
+			}
+		}
+		// Block for the next KeySpace update.
+		rev = ks.Header.Revision + 1
+	}
+}
+
 // CreateShards using the Consumer Apply API, and wait for them to be allocated.
-func CreateShards(c *gc.C, cmr *Consumer, specs ...*consumer.ShardSpec) {
+func CreateShards(t assert.TestingT, cmr *Consumer, specs ...*consumer.ShardSpec) {
 	var req = new(consumer.ApplyRequest)
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, consumer.ApplyRequest_Change{Upsert: spec})
 	}
-	// Issue the Apply in a goroutine, so that we may concurrently read from
-	// |idleCh|. If Apply were instead called synchronously, there's the
-	// possibility of deadlock on TestHook's send to |idleCh|.
-	var doneCh = make(chan struct{})
-	go func() {
-		var resp, err = consumer.NewShardClient(cmr.Service.Loopback).
-			Apply(pb.WithDispatchDefault(context.Background()), req)
-		c.Assert(err, gc.IsNil)
-		c.Assert(resp.Status, gc.Equals, consumer.Status_OK)
-		close(doneCh)
-	}()
 
-	// Wait for shard assignments to update, and the RPC to complete.
-	<-cmr.AllocateIdleCh()
-	<-doneCh
+	var resp, err = consumer.NewShardClient(cmr.Service.Loopback).
+		Apply(pb.WithDispatchDefault(context.Background()), req)
+	assert.NoError(t, err)
+	assert.Equal(t, consumer.Status_OK, resp.Status)
+
+	for _, s := range specs {
+		assert.NoError(t, cmr.WaitForPrimary(context.Background(), s.Id, nil))
+	}
 }
 
 // WaitForShards queries for shards matching LabelSelector |sel|, determines

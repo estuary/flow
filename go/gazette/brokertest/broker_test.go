@@ -3,25 +3,27 @@ package brokertest
 import (
 	"bufio"
 	"context"
+	"io"
 	"testing"
 
-	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/etcdtest"
 	pb "go.gazette.dev/core/protocol"
+	"google.golang.org/grpc"
 )
 
-type BrokerSuite struct{}
-
-func (s *BrokerSuite) TestSimpleReadAndWrite(c *gc.C) {
+func TestSimpleReadAndWrite(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var bk = NewBroker(c, etcd, "local", "broker")
-	CreateJournals(c, bk, Journal(pb.JournalSpec{Name: "foo/bar"}))
-
 	var ctx = pb.WithDispatchDefault(context.Background())
-	var rjc = pb.NewRoutedJournalClient(bk.Client(), pb.NoopDispatchRouter{})
+	var bk = NewBroker(t, etcd, "local", "broker")
+
+	CreateJournals(t, bk, Journal(pb.JournalSpec{Name: "foo/bar"}))
+
+	var conn, rjc = newDialedClient(t, bk)
+	defer conn.Close()
 
 	// Begin a blocking read of the journal.
 	var r = client.NewReader(ctx, rjc, pb.ReadRequest{
@@ -34,36 +36,35 @@ func (s *BrokerSuite) TestSimpleReadAndWrite(c *gc.C) {
 	var as = client.NewAppendService(context.Background(), rjc)
 	var txn = as.StartAppend("foo/bar")
 	_, _ = txn.Writer().WriteString("hello, gazette\ngoodbye, gazette")
-	c.Check(txn.Release(), gc.IsNil)
+	assert.NoError(t, txn.Release())
 
 	// Expect to read appended content.
 	var str, err = br.ReadString('\n')
-	c.Check(err, gc.IsNil)
-	c.Check(str, gc.Equals, "hello, gazette\n")
+	assert.NoError(t, err)
+	assert.Equal(t, str, "hello, gazette\n")
 
-	bk.Tasks.Cancel()
+	bk.Tasks.Cancel() // Non-graceful exit.
 
-	// Next newline is never observed, but we do receive an EOF or
-	// gRPC "transport is closing" on server-initiated close.
+	// We receive an EOF on server-initiated close.
 	str, err = br.ReadString('\n')
-	c.Check(err, gc.NotNil)
-	c.Check(str, gc.Equals, "goodbye, gazette")
+	assert.Error(t, io.EOF, err)
+	assert.Equal(t, str, "goodbye, gazette")
 
-	c.Check(bk.Tasks.Wait(), gc.IsNil)
+	assert.NoError(t, bk.Tasks.Wait())
 }
 
-func (s *BrokerSuite) TestReplicatedReadAndWrite(c *gc.C) {
+func TestReplicatedReadAndWrite(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var bkA = NewBroker(c, etcd, "A", "broker-one")
-	var bkB = NewBroker(c, etcd, "B", "broker-two")
-	var rjcA = pb.NewRoutedJournalClient(bkA.srv.MustClient(), pb.NoopDispatchRouter{})
-	var rjcB = pb.NewRoutedJournalClient(bkB.srv.MustClient(), pb.NoopDispatchRouter{})
-
-	CreateJournals(c, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 2}))
-
 	var ctx = pb.WithDispatchDefault(context.Background())
+	var bkA = NewBroker(t, etcd, "A", "broker-one")
+	var bkB = NewBroker(t, etcd, "B", "broker-two")
+
+	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 2}))
+
+	var connA, rjcA = newDialedClient(t, bkA)
+	defer connA.Close()
 
 	// Begin a blocking read of the journal from |bkA|.
 	var r = client.NewReader(ctx, rjcA,
@@ -74,32 +75,84 @@ func (s *BrokerSuite) TestReplicatedReadAndWrite(c *gc.C) {
 	var br = bufio.NewReader(r)
 
 	// Asynchronously append some content to |bkB|.
-	var as = client.NewAppendService(context.Background(), rjcB)
+	var as = client.NewAppendService(context.Background(),
+		pb.NewRoutedJournalClient(bkB.Client(), pb.NoopDispatchRouter{}))
 	var txn = as.StartAppend("foo/bar")
 	_, _ = txn.Writer().WriteString("hello, gazette\n")
-	c.Check(txn.Release(), gc.IsNil)
+	assert.NoError(t, txn.Release())
 
 	// Expect to read appended content.
-	var str, err = br.ReadString('\n')
-	c.Check(err, gc.IsNil)
-	c.Check(str, gc.Equals, "hello, gazette\n")
+	str, err := br.ReadString('\n')
+	assert.NoError(t, err)
+	assert.Equal(t, str, "hello, gazette\n")
 
-	// Update |bkB| spec indicating its desire to exit.
-	bkB.Signal()
-	updateReplication(c, ctx, rjcA, "foo/bar", 0)
-	<-bkA.AllocateIdleCh()              // Assignments are removed.
-	c.Check(bkB.Tasks.Wait(), gc.IsNil) // Now |bkB| may exit.
-
+	// Zero required replicas, allowing brokers to exit.
+	updateReplication(t, ctx, rjcA, "foo/bar", 0)
+	// Signal desire for both brokers to exit.
 	bkA.Signal()
-	c.Check(bkA.Tasks.Wait(), gc.IsNil)
+	bkB.Signal()
+
+	// Read stream is closed cleanly.
+	str, err = br.ReadString('\n')
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, str, "")
+
+	assert.NoError(t, bkB.Tasks.Wait())
+	assert.NoError(t, bkA.Tasks.Wait())
 }
 
-func updateReplication(c *gc.C, ctx context.Context, bk pb.RoutedJournalClient, journal pb.Journal, r int32) {
+func TestReassignment(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var ctx = pb.WithDispatchDefault(context.Background())
+	var bkA = NewBroker(t, etcd, "zone", "broker-A")
+	var bkB = NewBroker(t, etcd, "zone", "broker-B")
+
+	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 2}))
+
+	// Precondition: journal is assigned to A & B.
+	var rt pb.Route
+	assert.NoError(t, bkA.WaitForConsistency(ctx, "foo/bar", &rt))
+	assert.Equal(t, rt, pb.Route{
+		Members: []pb.ProcessSpec_ID{
+			{"zone", "broker-A"},
+			{"zone", "broker-B"},
+		},
+		Primary: 0,
+	})
+
+	// Broker C starts, and A signals for exit.
+	var bkC = NewBroker(t, etcd, "zone", "broker-C")
+
+	bkA.Signal()
+	assert.NoError(t, bkA.Tasks.Wait()) // Exits gracefully.
+
+	// Expect journal was re-assigned to C, with B promoted to primary.
+	assert.NoError(t, bkB.WaitForConsistency(ctx, "foo/bar", &rt))
+	assert.Equal(t, rt, pb.Route{
+		Members: []pb.ProcessSpec_ID{
+			{"zone", "broker-B"},
+			{"zone", "broker-C"},
+		},
+		Primary: 0,
+	})
+
+	// Zero required replicas, allowing brokers to exit.
+	updateReplication(t, ctx, bkB.Client(), "foo/bar", 0)
+	bkB.Signal()
+	bkC.Signal()
+
+	assert.NoError(t, bkB.Tasks.Wait())
+	assert.NoError(t, bkC.Tasks.Wait())
+}
+
+func updateReplication(t assert.TestingT, ctx context.Context, bk pb.JournalClient, journal pb.Journal, r int32) {
 	var lResp, err = bk.List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", journal.String())},
 	})
-	c.Assert(err, gc.IsNil)
-	c.Assert(lResp.Journals, gc.HasLen, 1)
+	assert.NoError(t, err)
+	assert.Len(t, lResp.Journals, 1)
 
 	var req = &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{
@@ -119,10 +172,16 @@ func updateReplication(c *gc.C, ctx context.Context, bk pb.RoutedJournalClient, 
 	}
 
 	aResp, err := bk.Apply(ctx, req)
-	c.Assert(err, gc.IsNil)
-	c.Assert(aResp.Status, gc.Equals, pb.Status_OK)
+	assert.NoError(t, err)
+	assert.Equal(t, aResp.Status, pb.Status_OK)
 }
 
-var _ = gc.Suite(&BrokerSuite{})
-
-func Test(t *testing.T) { gc.TestingT(t) }
+// newDialedClient dials & returns a new ClientConn and wrapping RoutedJournalClient.
+// Usually we just use bk.Client(), but tests which race the shutdown of the *Broker
+// may see "transport is closing" errors due to the loopback ClientConn being closed
+// before the final EOF response is read.
+func newDialedClient(t *testing.T, bk *Broker) (*grpc.ClientConn, pb.RoutedJournalClient) {
+	var conn, err = grpc.Dial(bk.Endpoint().URL().Host, grpc.WithInsecure())
+	assert.NoError(t, err)
+	return conn, pb.NewRoutedJournalClient(pb.NewJournalClient(conn), pb.NoopDispatchRouter{})
+}
