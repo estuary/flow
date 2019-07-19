@@ -1,7 +1,6 @@
 package http_gateway
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -121,11 +120,10 @@ func (s *HTTPSuite) TestWriteAppendResponse(c *gc.C) {
 }
 
 func (s *HTTPSuite) TestServingRead(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	var g = NewGateway(rjc)
 
 	go func() {
@@ -150,11 +148,10 @@ func (s *HTTPSuite) TestServingRead(c *gc.C) {
 }
 
 func (s *HTTPSuite) TestServingWrite(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	var g = NewGateway(rjc)
 
 	go func() {
