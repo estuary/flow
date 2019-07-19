@@ -139,7 +139,7 @@ func (s *StreamSumSuite) TestGeneratePumpAndVerify(c *gc.C) {
 	verify(func(chunk Chunk) {
 		allStreams[chunk.ID] = struct{}{}
 		allChunks++
-	}, chunkCh, teeCh, actualCh)
+	}, chunkCh, teeCh, actualCh, time.Minute)
 
 	// Expect we saw |nStreams| streams each with |nChunks| chunks (plus 1 for EOF).
 	c.Check(allStreams, gc.HasLen, nStreams)
@@ -175,6 +175,7 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	cfg.Broker.Address = broker.Endpoint()
 	cfg.Chunker.Streams = 10
 	cfg.Chunker.Chunks = 10
+	cfg.Chunker.Delay = time.Minute
 
 	c.Check(GenerateAndVerifyStreams(ctx, &cfg), gc.IsNil)
 

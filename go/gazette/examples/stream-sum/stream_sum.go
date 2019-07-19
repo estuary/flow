@@ -47,8 +47,9 @@ import (
 type ChunkerConfig struct {
 	Chunker struct {
 		mbp.ZoneConfig
-		Streams int `long:"streams" default:"-1" description:"Total number of streams to create. <0 for infinite"`
-		Chunks  int `long:"chunks" default:"100" description:"Number of chunks per stream"`
+		Streams int           `long:"streams" default:"-1" description:"Total number of streams to create. <0 for infinite"`
+		Chunks  int           `long:"chunks" default:"100" description:"Number of chunks per stream"`
+		Delay   time.Duration `long:"delay" default:"30s" description:"Maximum delay tolerance for an expected chunk"`
 	} `group:"Chunker" namespace:"chunker" env-namespace:"CHUNKER"`
 
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
@@ -56,12 +57,8 @@ type ChunkerConfig struct {
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
-const (
-	// chunksTopicLabel identifies journals which are partitions of chunk messages.
-	chunksTopicLabel = "examples/stream-sum/chunks"
-	// FinalSumsJournal to which final stream sums are written.
-	FinalSumsJournal pb.Journal = "examples/stream-sum/sums"
-)
+// FinalSumsJournal to which final stream sums are written.
+const FinalSumsJournal pb.Journal = "examples/stream-sum/sums"
 
 // StreamID uniquely identifies a stream.
 type StreamID [16]byte
@@ -135,7 +132,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 	verify(func(chunk Chunk) {
 		var _, err2 = message.Publish(as, chunksMapping, &chunk)
 		mbp.Must(err2, "publishing chunk")
-	}, chunkCh, verifyCh, actualCh)
+	}, chunkCh, verifyCh, actualCh, cfg.Chunker.Delay)
 
 	return nil
 }
@@ -261,7 +258,10 @@ func generate(numStreams, chunksPerStream int, doneCh chan<- Sum, outCh chan<- C
 	}
 }
 
-func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Sum) {
+func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Sum, timeout time.Duration) {
+	var timer = time.NewTimer(0)
+	<-timer.C
+
 	for chunkCh != nil || verifyCh != nil {
 		// Emit chunks as they're generated, and verify as they complete. If a
 		// stream is ready for verification, we block and wait for it's computed
@@ -285,12 +285,25 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 				continue
 			}
 
-			for actual := range actualCh {
+			timer.Reset(timeout)
+			for {
+				var actual Sum
+
+				select {
+				case <-timer.C:
+					log.WithField("expect", expect).
+						Fatal("timeout waiting for expected sum")
+				case actual = <-actualCh:
+					// Pass.
+				}
+
 				if actual.ID == expect.ID {
 					if actual != expect {
 						log.WithFields(log.Fields{"actual": actual, "expect": expect}).Fatal("mis-matched sum!")
-					} else {
-						log.WithFields(log.Fields{"id": actual.ID}).Info("verified sum")
+					}
+
+					if !timer.Stop() {
+						<-timer.C
 					}
 					break
 				}
