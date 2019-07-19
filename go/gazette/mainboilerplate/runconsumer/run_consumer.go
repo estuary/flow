@@ -98,6 +98,7 @@ func (sc serveConsumer) Execute(args []string) error {
 	log.WithField("config", sc.cfg).Info("starting consumer")
 	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 	prometheus.MustRegister(metrics.GazetteConsumerCollectors()...)
+	protocol.RegisterGRPCDispatcher(bc.Consumer.Zone)
 
 	var ks = consumer.NewKeySpace(bc.Etcd.Prefix)
 	var allocState = allocator.NewObservedState(ks, bc.Consumer.MemberKey(ks))
@@ -105,16 +106,14 @@ func (sc serveConsumer) Execute(args []string) error {
 	var etcd = bc.Etcd.MustDial()
 	var srv, err = server.New("", bc.Consumer.Port)
 	mbp.Must(err, "building Server instance")
-	protocol.RegisterGRPCDispatcher(bc.Consumer.Zone)
 
 	if bc.Broker.Cache.Size <= 0 {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")
 	}
 	var rjc = bc.Broker.MustRoutedJournalClient(context.Background())
-	var service = consumer.NewService(sc.app, allocState, rjc, srv.MustGRPCLoopback(), etcd)
+	var service = consumer.NewService(sc.app, allocState, rjc, srv.GRPCLoopback, etcd)
 
 	var tasks = task.NewGroup(context.Background())
-	srv.QueueTasks(tasks)
 
 	consumer.RegisterShardServer(srv.GRPCServer, service)
 	mbp.Must(sc.app.InitApplication(InitArgs{
@@ -139,7 +138,8 @@ func (sc serveConsumer) Execute(args []string) error {
 		Tasks: tasks,
 	}), "starting allocator session")
 
-	tasks.Queue("service.Watch", func() error { return service.Watch(tasks.Context()) })
+	srv.QueueTasks(tasks)
+	service.QueueTasks(tasks, srv)
 
 	// Install signal handler, and launch consumer tasks.
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)

@@ -46,6 +46,7 @@ func (serveBroker) Execute(args []string) error {
 
 	log.WithField("config", Config).Info("starting broker")
 	prometheus.MustRegister(metrics.GazetteBrokerCollectors()...)
+	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
 
 	var ks = broker.NewKeySpace(Config.Etcd.Prefix)
 	var allocState = allocator.NewObservedState(ks, Config.Broker.MemberKey(ks))
@@ -53,9 +54,8 @@ func (serveBroker) Execute(args []string) error {
 	var etcd = Config.Etcd.MustDial()
 	var srv, err = server.New("", Config.Broker.Port)
 	mbp.Must(err, "building Server instance")
-	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
 
-	var lo = protocol.NewJournalClient(srv.MustGRPCLoopback())
+	var lo = protocol.NewJournalClient(srv.GRPCLoopback)
 	var service = broker.NewService(allocState, lo, etcd)
 	var rjc = protocol.NewRoutedJournalClient(lo, service)
 
@@ -63,7 +63,19 @@ func (serveBroker) Execute(args []string) error {
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
 
 	var tasks = task.NewGroup(context.Background())
-	srv.QueueTasks(tasks)
+	var signalCh = make(chan os.Signal, 1)
+
+	mbp.Must(allocator.StartSession(allocator.SessionArgs{
+		Etcd:  etcd,
+		Tasks: tasks,
+		Spec: &protocol.BrokerSpec{
+			JournalLimit: Config.Broker.Limit,
+			ProcessSpec:  Config.Broker.ProcessSpec(),
+		},
+		State:    allocState,
+		LeaseTTL: Config.Etcd.LeaseTTL,
+		SignalCh: signalCh,
+	}), "starting allocator session")
 
 	var persister = fragment.NewPersister(ks)
 	broker.SetSharedPersister(persister)
@@ -73,28 +85,8 @@ func (serveBroker) Execute(args []string) error {
 		return nil
 	})
 
-	var signalCh = make(chan os.Signal, 1)
-
-	mbp.Must(allocator.StartSession(allocator.SessionArgs{
-		Etcd:     etcd,
-		LeaseTTL: Config.Etcd.LeaseTTL,
-		SignalCh: signalCh,
-		Spec: &protocol.BrokerSpec{
-			JournalLimit: Config.Broker.Limit,
-			ProcessSpec:  Config.Broker.ProcessSpec(),
-		},
-		State: allocState,
-		Tasks: tasks,
-	}), "starting allocator session")
-
-	tasks.Queue("service.Watch", func() error {
-		var err = service.Watch(tasks.Context())
-		// At Watch return, we're assured that all journal replicas have been
-		// fully shut down. Ask the persister to Finish persisting any
-		// outstanding local spools.
-		persister.Finish()
-		return err
-	})
+	srv.QueueTasks(tasks)
+	service.QueueTasks(tasks, srv, persister.Finish)
 
 	// Install signal handler & start broker tasks.
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)

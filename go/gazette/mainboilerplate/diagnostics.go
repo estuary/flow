@@ -35,12 +35,7 @@ func InitDiagnosticsAndRecover(cfg DiagnosticsConfig) func() {
 
 	return func() {
 		if r := recover(); r != nil {
-			// Make a best effort attempt to write a termination message.
-			// Bug: https://github.com/kubernetes/kubernetes/issues/31839
-			if f, err := os.OpenFile(k8sTerminationLog, os.O_WRONLY, 0777); err == nil {
-				fmt.Fprintf(f, "%+v", r)
-				f.Close()
-			}
+			writeExitMessage(r)
 			panic(r)
 		}
 	}
@@ -56,7 +51,17 @@ func Must(err error, msg string, extra ...interface{}) {
 	for i := 0; i+1 < len(extra); i += 2 {
 		f[extra[i].(string)] = extra[i+1]
 	}
-	log.WithFields(f).Panic(msg)
+	writeExitMessage(err)
+	log.WithFields(f).Fatal(msg)
+}
+
+func writeExitMessage(msg interface{}) {
+	// Make a best effort attempt to write a termination message.
+	// Bug: https://github.com/kubernetes/kubernetes/issues/31839
+	if f, err := os.OpenFile(k8sTerminationLog, os.O_WRONLY, 0777); err == nil {
+		_, _ = fmt.Fprintf(f, "%+v", msg)
+		_ = f.Close()
+	}
 }
 
 const (
