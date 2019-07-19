@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -219,12 +220,15 @@ func (s *Spool) compressThrough(end int64) {
 	}
 	var err error
 
+	var buf = bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+
 	// Garden path: we've already compressed all content of the current Fragment,
 	// and now incrementally compress through |end|.
 	if s.compressor != nil {
 		var offset, delta = s.Fragment.ContentLength(), end - s.Fragment.End
 
-		if _, err = io.Copy(s.compressor, io.NewSectionReader(s.File, offset, delta)); err == nil {
+		if _, err = io.CopyBuffer(s.compressor, io.NewSectionReader(s.File, offset, delta), buf); err == nil {
 			return // Done.
 		}
 		err = fmt.Errorf("while incrementally compressing: %s", err)
@@ -255,7 +259,7 @@ func (s *Spool) compressThrough(end int64) {
 			err = fmt.Errorf("initializing compressor: %s", err)
 			continue
 		}
-		if _, err = io.Copy(s.compressor, io.NewSectionReader(s.File, 0, end-s.Fragment.Begin)); err != nil {
+		if _, err = io.CopyBuffer(s.compressor, io.NewSectionReader(s.File, 0, end-s.Fragment.Begin), buf); err != nil {
 			err = fmt.Errorf("while compressing: %s", err)
 
 			s.compressor.Close()
@@ -322,4 +326,5 @@ func (s *Spool) restoreSumState() {
 var (
 	zeroedSHA1State, _ = sha1.New().(encoding.BinaryMarshaler).MarshalBinary()
 	spoolRetryInterval = time.Second * 5
+	bufferPool         = sync.Pool{New: func() interface{} { return make([]byte, 32*1024) }}
 )

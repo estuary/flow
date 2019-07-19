@@ -89,9 +89,17 @@ func Persist(ctx context.Context, spool Spool) error {
 		spool.finishCompression()
 	}
 
-	err = b.Persist(ctx, ep, spool)
+	// We expect persisting individual spools to be fast, but have seen bugs
+	// in the past where eg a storage backend behavior change caused occasional
+	// multi-part upload failures such that the client wedged retrying
+	// indefinitely. Use a generous timeout to detect and recover from this
+	// class of error.
+	var timeoutCtx, _ = context.WithTimeout(ctx, 5*time.Minute)
+
+	if err = b.Persist(timeoutCtx, ep, spool); err == nil {
+		metrics.StorePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))
+	}
 	instrumentStoreOp(b.Provider(), "persist", err)
-	metrics.StorePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))
 	return err
 }
 
