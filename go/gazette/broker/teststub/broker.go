@@ -3,49 +3,20 @@ package teststub
 import (
 	"context"
 	"io"
+	"time"
 
-	gc "github.com/go-check/check"
-	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
-	"google.golang.org/grpc"
 )
-
-// LoopbackServer serves a JournalServer over a loopback, for use within tests.
-type LoopbackServer struct {
-	*server.Server
-	Conn *grpc.ClientConn
-}
-
-// NewLoopbackServer returns a LoopbackServer of the provided JournalServer.
-func NewLoopbackServer(journalServer pb.JournalServer) LoopbackServer {
-	var srv, err = server.New("127.0.0.1", 0)
-	if err != nil {
-		panic(err)
-	}
-	pb.RegisterJournalServer(srv.GRPCServer, journalServer)
-
-	return LoopbackServer{Server: srv, Conn: srv.MustGRPCLoopback()}
-}
-
-func (s LoopbackServer) QueueTasks(tasks *task.Group) {
-	tasks.Queue("conn.Close", func() error {
-		<-tasks.Context().Done()
-		return s.Conn.Close()
-	})
-	s.Server.QueueTasks(tasks)
-}
-
-// MustClient returns a JournalClient of the test LoopbackServer.
-func (s LoopbackServer) MustClient() pb.JournalClient { return pb.NewJournalClient(s.Conn) }
 
 // Broker stubs the read and write loops of broker RPCs, routing them onto
 // channels which can be synchronously read and written within test bodies.
 type Broker struct {
-	c *gc.C
-	LoopbackServer
-	Tasks *task.Group
+	t     assert.TestingT
+	tasks *task.Group
+	srv   *server.Server
 
 	ReplReqCh  chan *pb.ReplicateRequest
 	ReplRespCh chan *pb.ReplicateResponse
@@ -64,10 +35,11 @@ type Broker struct {
 }
 
 // NewBroker returns a Broker instance served by a local GRPC server.
-func NewBroker(c *gc.C, ctx context.Context) *Broker {
+func NewBroker(t assert.TestingT) *Broker {
 	var p = &Broker{
-		c:            c,
-		Tasks:        task.NewGroup(ctx),
+		t:            t,
+		srv:          server.MustLoopback(),
+		tasks:        task.NewGroup(context.Background()),
 		ReplReqCh:    make(chan *pb.ReplicateRequest),
 		ReplRespCh:   make(chan *pb.ReplicateResponse),
 		ReadReqCh:    make(chan *pb.ReadRequest),
@@ -76,136 +48,154 @@ func NewBroker(c *gc.C, ctx context.Context) *Broker {
 		AppendRespCh: make(chan *pb.AppendResponse),
 		ErrCh:        make(chan error),
 	}
-	p.LoopbackServer = NewLoopbackServer(p)
-	p.LoopbackServer.QueueTasks(p.Tasks)
-	p.Tasks.GoRun()
+	pb.RegisterJournalServer(p.srv.GRPCServer, p)
+	p.srv.QueueTasks(p.tasks)
+	p.tasks.GoRun()
 	return p
+}
+
+// Client returns a JournalClient wrapping the GRPCLoopback.
+func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.GRPCLoopback) }
+
+// Endpoint returns the server Endpoint.
+func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
+
+// Cleanup cancels the Broker tasks.Group and asserts that it exits cleanly.
+func (b *Broker) Cleanup() {
+	b.tasks.Cancel()
+	b.srv.GRPCServer.GracefulStop()
+	assert.NoError(b.t, b.srv.GRPCLoopback.Close())
+	assert.NoError(b.t, b.tasks.Wait())
 }
 
 // Replicate implements the JournalServer interface by proxying requests &
 // responses through channels ReplReqCh & ReplRespCh.
-func (p *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
+func (b *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 	// Start a read loop of requests from |srv|.
 	go func() {
-		log.WithField("id", p.Endpoint()).Info("replicate read loop started")
-		for done := false; !done; {
+		for {
 			var msg, err = srv.Recv()
-
 			if err == io.EOF {
-				msg, err, done = nil, nil, true
-			} else if err != nil {
-				done = true
-
-				p.c.Check(err, gc.ErrorMatches, `rpc error: code = (Canceled|DeadlineExceeded) .*`)
+				// Pass.
+			} else if srv.Context().Err() == nil {
+				// Allow a cancellation due to Replicate returning before reading
+				// EOF, but no other errors are expected.
+				assert.NoError(b.t, err)
 			}
 
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "msg": msg, "err": err, "done": done}).Info("read")
-
 			select {
-			case p.ReplReqCh <- msg:
-				// Pass.
-			case <-p.Ctx.Done():
-				done = true
+			case b.ReplReqCh <- msg:
+			case <-srv.Context().Done(): // RPC is complete.
+			case <-time.After(5 * time.Second):
+				panic("test didn't recv from ReplReqCh")
+			}
+
+			if err != nil {
+				return
 			}
 		}
 	}()
 
 	for {
 		select {
-		case resp := <-p.ReplRespCh:
-			p.c.Check(srv.Send(resp), gc.IsNil)
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "resp": resp}).Info("sent")
-		case err := <-p.ErrCh:
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "err": err}).Info("closing")
+		case resp := <-b.ReplRespCh:
+			assert.NoError(b.t, srv.Send(resp))
+		case err := <-b.ErrCh:
 			return err
-		case <-p.Ctx.Done():
-			log.WithFields(log.Fields{"ep": p.Endpoint()}).Info("cancelled")
-			return p.Ctx.Err()
+		case <-srv.Context().Done():
+			assert.FailNow(b.t, "unexpected client RPC cancellation")
+		case <-time.After(5 * time.Second):
+			panic("test didn't send to ReplRespCh or ErrCh")
 		}
 	}
 }
 
 // Read implements the JournalServer interface by proxying requests & responses
 // through channels ReadReqCh & ReadResponseCh.
-func (p *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
+func (b *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
 	select {
-	case p.ReadReqCh <- req:
-		// Pass.
-	case <-p.Ctx.Done():
-		return p.Ctx.Err()
+	case b.ReadReqCh <- req:
+		// |req| passed to test.
+	case _ = <-srv.Context().Done():
+		return nil // Cancellation is the standard means to terminate a Read RPC.
+	case <-time.After(5 * time.Second):
+		panic("test didn't read from ReadReqCh")
 	}
 
 	for {
 		select {
-		case resp := <-p.ReadRespCh:
-			srv.Send(resp) // This may return cancelled context error.
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "resp": resp}).Info("sent")
-		case err := <-p.ErrCh:
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "err": err}).Info("closing")
+		case resp := <-b.ReadRespCh:
+			// We may be sending into a cancelled context (c.f. TestReaderRetries).
+			if err := srv.Send(resp); err != nil {
+				return err
+			}
+		case err := <-b.ErrCh:
 			return err
-		case <-p.Ctx.Done():
-			log.WithFields(log.Fields{"ep": p.Endpoint()}).Info("cancelled")
-			return p.Ctx.Err()
+		case _ = <-srv.Context().Done():
+			return nil
+		case <-time.After(5 * time.Second):
+			panic("test didn't send to ReadRespCh or ErrCh")
 		}
 	}
 }
 
 // Append implements the JournalServer interface by proxying requests &
 // responses through channels AppendReqCh & AppendRespCh.
-func (p *Broker) Append(srv pb.Journal_AppendServer) error {
+func (b *Broker) Append(srv pb.Journal_AppendServer) error {
 	// Start a read loop of requests from |srv|.
 	go func() {
-		log.WithField("ep", p.Endpoint()).Info("append read loop started")
-		for done := false; !done; {
+		for {
 			var msg, err = srv.Recv()
-
 			if err == io.EOF {
-				msg, err, done = nil, nil, true
-			} else if err != nil {
-				done = true
-
-				p.c.Check(err, gc.ErrorMatches, `rpc error: code = Canceled desc = context canceled`)
+				// Pass.
+			} else if srv.Context().Err() == nil {
+				// Like Replicate, allow a cancellation due to Append returning
+				// before reading EOF, but no other errors are expected.
+				assert.NoError(b.t, err)
 			}
 
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "msg": msg, "err": err, "done": done}).Info("read")
-
 			select {
-			case p.AppendReqCh <- msg:
-				// Pass.
-			case <-p.Ctx.Done():
-				done = true
+			case b.AppendReqCh <- msg:
+			case <-srv.Context().Done(): // RPC is complete.
+			case <-time.After(5 * time.Second):
+				panic("test didn't recv from AppendReqCh")
+			}
+
+			if err != nil {
+				return
 			}
 		}
 	}()
 
 	for {
 		select {
-		case resp := <-p.AppendRespCh:
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "resp": resp}).Info("sending")
-			return srv.SendAndClose(resp)
-		case err := <-p.ErrCh:
-			log.WithFields(log.Fields{"ep": p.Endpoint(), "err": err}).Info("closing")
+		case resp := <-b.AppendRespCh:
+			assert.NoError(b.t, srv.SendAndClose(resp))
+			return nil
+		case err := <-b.ErrCh:
 			return err
-		case <-p.Ctx.Done():
-			log.WithFields(log.Fields{"ep": p.Endpoint()}).Info("cancelled")
-			return p.Ctx.Err()
+		case <-srv.Context().Done():
+			// Cancellation is atypical but not uncommon.
+			return srv.Context().Err()
+		case <-time.After(5 * time.Second):
+			panic("test didn't send to AppendRespCh or ErrCh")
 		}
 	}
 }
 
 // List implements the JournalServer interface by proxying through ListFunc.
-func (p *Broker) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
-	return p.ListFunc(ctx, req)
+func (b *Broker) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+	return b.ListFunc(ctx, req)
 }
 
 // Apply implements the JournalServer interface by proxying through ApplyFunc.
-func (p *Broker) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	return p.ApplyFunc(ctx, req)
+func (b *Broker) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
+	return b.ApplyFunc(ctx, req)
 }
 
 // ListFragments implements the JournalServer interface by proxying through FragmentsFunc.
-func (p *Broker) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-	return p.ListFragmentsFunc(ctx, req)
+func (b *Broker) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
+	return b.ListFragmentsFunc(ctx, req)
 }
 
 func init() { pb.RegisterGRPCDispatcher("local") }
