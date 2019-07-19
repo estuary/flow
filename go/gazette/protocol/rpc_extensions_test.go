@@ -393,7 +393,7 @@ func (s *RPCSuite) TestFragmentsRequestValidationCases(c *gc.C) {
 	req.EndModTime = 0
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid NextPageToken \(-1; must be >= 0\)`)
 	req.NextPageToken = 10
-	c.Check(req.Validate(), gc.ErrorMatches, `invalid PageLimit \(-1; must be >= 0\)`)
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid PageLimit \(-1; must be >= 0 and <= 10000\)`)
 	req.PageLimit = 10
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid SignatureTTL \(0s; must be > 0s\)`)
 	signatureTTL = time.Second

@@ -172,12 +172,18 @@ func (m *JournalSpec) IsConsistent(_ keyspace.KeyValue, assignments keyspace.Key
 	var rt Route
 	rt.Init(assignments)
 
+	return JournalRouteMatchesAssignments(rt, assignments)
+}
+
+// JournalRouteMatchesAssignments returns true iff the Route is equivalent to the
+// Route marshaled with each of the journal's |assignments|.
+func JournalRouteMatchesAssignments(rt Route, assignments keyspace.KeyValues) bool {
 	for _, a := range assignments {
 		if !rt.Equivalent(a.Decoded.(allocator.Assignment).AssignmentValue.(*Route)) {
 			return false
 		}
 	}
-	return true
+	return len(rt.Members) == len(assignments)
 }
 
 // UnionJournalSpecs returns a JournalSpec combining all non-zero-valued fields

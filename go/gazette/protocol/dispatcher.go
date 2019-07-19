@@ -160,6 +160,13 @@ func (d *dispatcher) Pick(ctx context.Context, opts balancer.PickOptions) (balan
 		// gRPC will block until connection becomes ready.
 		return nil, nil, balancer.ErrNoSubConnAvailable
 	case connectivity.TransientFailure:
+		// If we're dispatching to the default service SubConn, then return
+		// ErrNoSubConnAvailable so that gRPC blocks RPCs until a SubConn is
+		// re-established. Otherwise, we immediately fail RPCs which require
+		// specific SubConns that are currently broken.
+		if dispatchID == (ProcessSpec_ID{}) {
+			return nil, nil, balancer.ErrNoSubConnAvailable
+		}
 		if dr.DispatchRouter != nil {
 			dr.DispatchRouter.UpdateRoute(dr.item, nil) // Invalidate.
 		}
@@ -179,7 +186,16 @@ func (d *dispatcher) HandleSubConnStateChange(sc balancer.SubConn, state connect
 	if !ok {
 		panic("unexpected SubConn")
 	}
-	d.connState[sc] = state
+
+	if state == connectivity.Connecting && d.connState[sc] == connectivity.TransientFailure {
+		// gRPC will quickly transition failed connections back into a Connecting
+		// state. In many cases, such as a remote-initiated close from a
+		// shutting-down server, the SubConn may never return. Until we see a
+		// successful re-connect, continue to consider the SubConn as broken
+		// (and trigger invalidations of cached Routes which use it).
+	} else {
+		d.connState[sc] = state
+	}
 
 	if state == connectivity.Shutdown {
 		delete(d.idConn, id)
@@ -211,21 +227,22 @@ func (d *dispatcher) less(lhs, rhs ProcessSpec_ID) bool {
 		return true
 	}
 
-	// Then prefer a non-failed transport over a failed one. Note that state
-	// orders on Idle => Connecting => Ready => TransientFailure, and |lState|
-	// & |rState| will default to Idle if IDs are not actually in |idConn|.
-	var lState = d.connState[d.idConn[lhs].subConn]
-	var rState = d.connState[d.idConn[rhs].subConn]
-	var lOK = lState < connectivity.TransientFailure
-	var rOK = rState < connectivity.TransientFailure
+	// Then prefer a same-zone member over a cross-zone one,
+	// as this can save substantial networking cost.
+	var lOK = lhs.Zone == d.zone
+	var rOK = rhs.Zone == d.zone
 
 	if lOK != rOK {
 		return lOK
 	}
 
-	// Then prefer a same-zone member over a cross-zone one.
-	lOK = lhs.Zone == d.zone
-	rOK = rhs.Zone == d.zone
+	// Then prefer a non-failed transport over a failed one. Note that state
+	// orders on Idle => Connecting => Ready => TransientFailure, and |lState|
+	// & |rState| will default to Idle if IDs are not actually in |idConn|.
+	var lState = d.connState[d.idConn[lhs].subConn]
+	var rState = d.connState[d.idConn[rhs].subConn]
+	lOK = lState < connectivity.TransientFailure
+	rOK = rState < connectivity.TransientFailure
 
 	if lOK != rOK {
 		return lOK
@@ -248,13 +265,14 @@ func (d *dispatcher) idToAddr(rt Route, id ProcessSpec_ID) string {
 	panic("ProcessSpec_ID must be in Route.Members")
 }
 
-// sweep removes any SubConns not having their mark updated in the time between calls.
+// sweep removes any SubConns not having their mark updated in the time between calls,
+// with the exception of the default service SubConn (with ProcessSpec_ID{}).
 func (d *dispatcher) sweep() {
 	var toSweep []balancer.SubConn
 
 	d.mu.Lock()
-	for _, msc := range d.idConn {
-		if msc.mark != d.sweepMark {
+	for id, msc := range d.idConn {
+		if msc.mark != d.sweepMark && id != (ProcessSpec_ID{}) {
 			toSweep = append(toSweep, msc.subConn)
 		}
 	}

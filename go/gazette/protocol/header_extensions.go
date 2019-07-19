@@ -1,7 +1,7 @@
 package protocol
 
 import (
-	epb "go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
+	epb "go.etcd.io/etcd/etcdserver/etcdserverpb"
 	"go.gazette.dev/core/allocator"
 )
 

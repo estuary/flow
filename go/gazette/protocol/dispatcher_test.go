@@ -115,22 +115,19 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	c.Check(done, gc.IsNil)
 	c.Check(sc, gc.Equals, mockSubConn("local.otherAddr"))
 
-	// Case: otherAddr is also failed. Expect remote addr is (reluctantly) used.
+	// Case: otherAddr is also failed. Expect that an error is returned,
+	// rather than dispatch to remote addr. (Eg we prefer to wait for a
+	// local replica to recover or the route to change, vs using a remote
+	// endpoint which incurs more networking cost).
 	disp.HandleSubConnStateChange(mockSubConn("local.otherAddr"), connectivity.TransientFailure)
-
-	sc, done, err = disp.Pick(ctx, balancer.PickOptions{})
-	c.Check(err, gc.IsNil)
-	c.Check(done, gc.IsNil)
-	c.Check(sc, gc.Equals, mockSubConn("remote.addr"))
-
-	// Case: remote.addr is also failed. All connections now failed.
-	disp.HandleSubConnStateChange(mockSubConn("remote.addr"), connectivity.TransientFailure)
 
 	_, _, err = disp.Pick(ctx, balancer.PickOptions{})
 	c.Check(err, gc.Equals, balancer.ErrTransientFailure)
 
-	// Case: local.addr is Ready again. However, primary is required.
+	// Case: local.addr is Ready again. However, primary is required and has failed.
 	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.Ready)
+	disp.HandleSubConnStateChange(mockSubConn("remote.addr"), connectivity.TransientFailure)
+
 	ctx = WithDispatchRoute(context.Background(),
 		buildRouteFixture(), ProcessSpec_ID{Zone: "remote", Suffix: "primary"})
 

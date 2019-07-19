@@ -322,8 +322,8 @@ func (m *FragmentsRequest) Validate() error {
 		return NewValidationError("invalid EndModTime (%v must be after %v)", m.EndModTime, m.BeginModTime)
 	} else if m.NextPageToken < 0 {
 		return NewValidationError("invalid NextPageToken (%v; must be >= 0)", m.NextPageToken)
-	} else if m.PageLimit < 0 {
-		return NewValidationError("invalid PageLimit (%v; must be >= 0)", m.PageLimit)
+	} else if m.PageLimit < 0 || m.PageLimit > 10000 {
+		return NewValidationError("invalid PageLimit (%v; must be >= 0 and <= 10000)", m.PageLimit)
 	} else if m.SignatureTTL != nil && *m.SignatureTTL <= 0 {
 		return NewValidationError("invalid SignatureTTL (%v; must be > 0s)", *m.SignatureTTL)
 	}

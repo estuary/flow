@@ -2,7 +2,7 @@ package protocol
 
 import (
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
+	"go.etcd.io/etcd/etcdserver/etcdserverpb"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/keyspace"
 )
