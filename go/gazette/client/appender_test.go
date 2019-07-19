@@ -15,13 +15,11 @@ import (
 type AppenderSuite struct{}
 
 func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), NewRouteCache(1, time.Hour))
-	var a = NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), NewRouteCache(1, time.Hour))
+	var a = NewAppender(context.Background(), rjc, pb.AppendRequest{Journal: "a/journal"})
 
 	// Expect to read a number of request frames from the Appender, then respond.
 	go func() {
@@ -56,7 +54,7 @@ func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
 	c.Check(a.Response.Commit.Journal, gc.Equals, pb.Journal("a/journal"))
 
 	// Expect Appender advised of the updated Route.
-	c.Check(rjc.Route(ctx, "a/journal"), gc.DeepEquals, pb.Route{
+	c.Check(rjc.Route(context.Background(), "a/journal"), gc.DeepEquals, pb.Route{
 		Members:   []pb.ProcessSpec_ID{{Zone: "a", Suffix: "broker"}},
 		Endpoints: []pb.Endpoint{broker.Endpoint()},
 		Primary:   0,
@@ -64,12 +62,11 @@ func (s *AppenderSuite) TestCommitSuccess(c *gc.C) {
 }
 
 func (s *AppenderSuite) TestBrokerWriteError(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var a = NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var a = NewAppender(context.Background(), rjc, pb.AppendRequest{Journal: "a/journal"})
 
 	go func() {
 		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
@@ -90,10 +87,8 @@ func (s *AppenderSuite) TestBrokerWriteError(c *gc.C) {
 }
 
 func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
-
-	var broker = teststub.NewBroker(c, ctx)
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
 	var cases = []struct {
 		finish      func()
@@ -156,8 +151,8 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 
 	for _, tc := range cases {
 		var rc = NewRouteCache(1, time.Hour)
-		var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
-		var a = NewAppender(ctx, rjc, pb.AppendRequest{Journal: "a/journal"})
+		var rjc = pb.NewRoutedJournalClient(broker.Client(), rc)
+		var a = NewAppender(context.Background(), rjc, pb.AppendRequest{Journal: "a/journal"})
 
 		go func() {
 			c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
@@ -183,10 +178,8 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 }
 
 func (s *AppenderSuite) TestAppendCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
-
-	var broker = teststub.NewBroker(c, ctx)
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
 	// Prime the route cache with an invalid route, which fails with a transport error.
 	var rc = NewRouteCache(1, time.Hour)
@@ -194,7 +187,7 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 		Members:   []pb.ProcessSpec_ID{{Zone: "zone", Suffix: "broker"}},
 		Endpoints: []pb.Endpoint{"http://0.0.0.0:0"},
 	})
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), rc)
 
 	go func() {
 		var cases = []struct {
@@ -241,6 +234,7 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 		broker.ErrCh <- io.ErrUnexpectedEOF
 	}()
 
+	var ctx = context.Background()
 	var con = strings.NewReader("con")
 	var tent = strings.NewReader("tent")
 
@@ -268,22 +262,21 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 }
 
 func (s *AppenderSuite) TestContextErrorCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	var content = strings.NewReader("content")
 
 	// Case 1: context is cancelled.
-	var caseCtx, caseCancel = context.WithCancel(ctx)
+	var caseCtx, caseCancel = context.WithCancel(context.Background())
 	caseCancel()
 
 	var _, err = Append(caseCtx, rjc, pb.AppendRequest{Journal: "a/journal"}, content)
 	c.Check(err, gc.Equals, context.Canceled)
 
 	// Case 2: context reaches deadline.
-	caseCtx, _ = context.WithTimeout(ctx, time.Microsecond)
+	caseCtx, _ = context.WithTimeout(context.Background(), time.Microsecond)
 	<-caseCtx.Done() // Block until deadline.
 
 	_, err = Append(caseCtx, rjc, pb.AppendRequest{Journal: "a/journal"}, content)

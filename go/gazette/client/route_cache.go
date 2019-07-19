@@ -32,9 +32,11 @@ func NewRouteCache(size int, ttl time.Duration) *RouteCache {
 func (rc *RouteCache) UpdateRoute(item string, route *pb.Route) {
 	if route == nil {
 		rc.cache.Remove(item)
+	} else if len(route.Members) == 0 {
+		panic("expected members")
 	} else {
 		var cr = cachedRoute{
-			route: *route,
+			route: route.Copy(),
 			at:    timeNow(),
 		}
 		rc.cache.Add(item, cr)

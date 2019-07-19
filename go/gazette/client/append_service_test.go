@@ -16,15 +16,14 @@ import (
 type AppendServiceSuite struct{}
 
 func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var as = NewAppendService(ctx, rjc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(context.Background(), rjc)
 
 	var aa = as.StartAppend("a/journal")
-	aa.Writer().WriteString("hello, world")
+	_, _ = aa.Writer().WriteString("hello, world")
 	c.Assert(aa.Release(), gc.IsNil)
 
 	readHelloWorldAppendRequest(c, broker) // RPC is dispatched to broker.
@@ -42,9 +41,11 @@ func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
 	c.Check(as.PendingExcept(""), gc.DeepEquals, []*AsyncAppend{aa.next})
 	aa.mu.Unlock()
 
-	// First attempt fails. Expect RPC is retried, and then succeeds.
+	// First & second attempts fail. Expect RPC is retried until success.
 	broker.ErrCh <- errors.New("first attempt fails")
-	readHelloWorldAppendRequest(c, broker)                    // Expect RPC is retried.
+	readHelloWorldAppendRequest(c, broker) // Expect RPC is retried.
+	broker.ErrCh <- errors.New("second attempt fails")
+	readHelloWorldAppendRequest(c, broker)
 	broker.AppendRespCh <- buildAppendResponseFixture(broker) // Success.
 
 	<-aa.Done()
@@ -61,12 +62,11 @@ func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
 }
 
 func (s *AppendServiceSuite) TestAppendPipelineWithAborts(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var as = NewAppendService(ctx, rjc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(context.Background(), rjc)
 
 	var serveCh, cleanup = gateServeAppends()
 	defer cleanup()
@@ -77,25 +77,25 @@ func (s *AppendServiceSuite) TestAppendPipelineWithAborts(c *gc.C) {
 	// to ensure abort rollbacks spill across both the backing file and buffer.
 	aa.fb.buf = bufio.NewWriterSize(aa.fb, 7)
 
-	aa.Writer().WriteString("aborted first write")
+	_, _ = aa.Writer().WriteString("aborted first write")
 	aa.Require(errors.New("whoops"))
 	c.Check(aa.Release(), gc.ErrorMatches, "whoops")
 
 	aa = as.StartAppend("a/journal")
-	aa.Writer().WriteString("write one")
+	_, _ = aa.Writer().WriteString("write one")
 	c.Check(aa.Release(), gc.IsNil)
 
 	aa = as.StartAppend("a/journal")
-	aa.Writer().WriteString("ABT")
+	_, _ = aa.Writer().WriteString("ABT")
 	aa.Require(errors.New("potato"))
 	c.Check(aa.Release(), gc.ErrorMatches, "potato")
 
 	aa = as.StartAppend("a/journal")
-	aa.Writer().WriteString(" write two")
+	_, _ = aa.Writer().WriteString(" write two")
 	c.Assert(aa.Release(), gc.IsNil)
 
 	aa = as.StartAppend("a/journal")
-	aa.Writer().WriteString("ABORT ABORT")
+	_, _ = aa.Writer().WriteString("ABORT ABORT")
 	aa.Require(errors.New("tomato"))
 	c.Check(aa.Release(), gc.ErrorMatches, "tomato")
 
@@ -118,12 +118,11 @@ func (s *AppendServiceSuite) TestAppendSizeCutoff(c *gc.C) {
 	defer func(s int64) { appendBufferCutoff = s }(appendBufferCutoff)
 	appendBufferCutoff = 8
 
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var as = NewAppendService(ctx, rjc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(context.Background(), rjc)
 
 	var serveCh, cleanup = gateServeAppends()
 	defer cleanup()
@@ -132,8 +131,8 @@ func (s *AppendServiceSuite) TestAppendSizeCutoff(c *gc.C) {
 
 	for i := 0; i != 3; i++ {
 		var aa = as.StartAppend("a/journal")
-		aa.Writer().WriteString("hello, ")
-		aa.Writer().WriteString("world")
+		_, _ = aa.Writer().WriteString("hello, ")
+		_, _ = aa.Writer().WriteString("world")
 
 		c.Check(aa.Release(), gc.IsNil)
 		chs = append(chs, aa.Done())
@@ -150,15 +149,14 @@ func (s *AppendServiceSuite) TestAppendSizeCutoff(c *gc.C) {
 }
 
 func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var as = NewAppendService(ctx, rjc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(context.Background(), rjc)
 
 	var aa1 = as.StartAppend("a/journal")
-	aa1.Writer().WriteString("hello, world")
+	_, _ = aa1.Writer().WriteString("hello, world")
 	c.Check(aa1.Release(), gc.IsNil)
 
 	readHelloWorldAppendRequest(c, broker)
@@ -167,20 +165,29 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 	// Install and lock a different mutex on |aa2|.
 	var aa2 = as.appends["a/journal"]
 	c.Check(aa1.next, gc.Equals, aa2)
+
+	// When |aa1|'s RPC completes, serveAppends will re-lock |aa1.mu|, step to
+	// |aa2|, and on realizing it's trivially completed, will mark as a tombstone
+	// and then unlock |aa2.mu| (which ordinarily is the same Mutex as |aa1.mu|).
+	//
+	// We swap out the |aa2| Mutex here so that StartAppend blocks, with the
+	// expectation that it will be unblocked when serveAppends unlocks it
+	// as per the flow above.
 	aa2.mu = new(sync.Mutex)
 	aa2.mu.Lock()
 
 	broker.AppendRespCh <- buildAppendResponseFixture(broker)
 
-	// Begin an Append, which will grab |aa2| from the index and block on |aa2.mu|.
-	// The service loop will unlock |aa2.mu| just before exit. On obtaining the
-	// lock, StartAppend will realize |aa2| is a tombstone and try again.
+	// Begin an Append, which will grab |aa2| from the index and blocks on
+	// our locked |aa2.mu| fixture until serveAppends unlocks. On obtaining
+	// the lock, StartAppend will realize |aa2| is a tombstone and try again.
 	var aa3 = as.StartAppend("a/journal")
 
+	aa2.mu.Lock() // Make race-detector happy.
 	c.Check(aa2.next, gc.Equals, tombstoneAsyncAppend)
 	c.Check(aa3 != aa2, gc.Equals, true)
 
-	aa3.Writer().WriteString("hello, world")
+	_, _ = aa3.Writer().WriteString("hello, world")
 	c.Check(aa3.Release(), gc.IsNil)
 
 	readHelloWorldAppendRequest(c, broker)
@@ -192,12 +199,14 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 func (s *AppendServiceSuite) TestAppendContextCancellation(c *gc.C) {
 	var ctx, cancel = context.WithCancel(context.Background())
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
+
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	var as = NewAppendService(ctx, rjc)
 
 	var aa1 = as.StartAppend("a/journal")
-	aa1.Writer().WriteString("hello, world")
+	_, _ = aa1.Writer().WriteString("hello, world")
 	c.Check(aa1.Release(), gc.IsNil)
 
 	// Read the request, but don't respond.
@@ -205,7 +214,7 @@ func (s *AppendServiceSuite) TestAppendContextCancellation(c *gc.C) {
 
 	// Start a second, dependent append.
 	var aa2 = as.StartAppend("other/journal", aa1)
-	aa2.Writer().WriteString("another write")
+	_, _ = aa2.Writer().WriteString("another write")
 	c.Check(aa2.Release(), gc.IsNil)
 
 	c.Check(aa1.Err(), gc.IsNil)
@@ -222,7 +231,7 @@ func (s *AppendServiceSuite) TestAppendContextCancellation(c *gc.C) {
 
 	// New appends may be started without issue, but abort immediately.
 	var aa3 = as.StartAppend("a/journal")
-	aa3.Writer().WriteString("final write")
+	_, _ = aa3.Writer().WriteString("final write")
 	c.Check(aa3.Release(), gc.IsNil)
 
 	<-aa3.Done()
@@ -236,7 +245,7 @@ func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	fb.buf = bufio.NewWriterSize(fb, 8)
 
 	// Case 1: flush succeeds.
-	fb.buf.Write([]byte("XXX"))
+	_, _ = fb.buf.Write([]byte("XXX"))
 	c.Check(fb.flush(), gc.IsNil)
 	c.Check(mf.Buffer.String(), gc.DeepEquals, "XXX")
 	c.Check(fb.buf.Buffered(), gc.Equals, 0)
@@ -244,7 +253,7 @@ func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	c.Check(fb.offset, gc.Equals, int64(3))
 
 	// Case 2: flush fails after partial write.
-	fb.buf.Write([]byte("YYYhello"))
+	_, _ = fb.buf.Write([]byte("YYYhello"))
 
 	// Precondition: buffer is fully filled.
 	c.Check(fb.buf.Buffered(), gc.Equals, 8)
@@ -271,7 +280,7 @@ func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	// Case 3: buffer is precisely full, and flush fails with no progress.
 	fb.buf = bufio.NewWriterSize(fb, 5)
 
-	fb.buf.Write([]byte("world"))
+	_, _ = fb.buf.Write([]byte("world"))
 	c.Check(fb.buf.Available(), gc.Equals, 0)
 
 	for i := 0; i != 3; i++ {
@@ -320,7 +329,7 @@ func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	fb.offset = 16
 	c.Check(fb.seek(), gc.IsNil)
 
-	fb.buf.Write([]byte("!"))
+	_, _ = fb.buf.Write([]byte("!"))
 	c.Check(fb.flush(), gc.IsNil)
 
 	c.Check(mf.Buffer.String(), gc.DeepEquals, "XXXYYYhelloworld!")
@@ -328,12 +337,11 @@ func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 }
 
 func (s *AppendServiceSuite) TestReleaseChecksForWriteErrorAndRecovers(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var as = NewAppendService(ctx, rjc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(context.Background(), rjc)
 
 	var serveCh, cleanup = gateServeAppends()
 	defer cleanup()
@@ -352,7 +360,7 @@ func (s *AppendServiceSuite) TestReleaseChecksForWriteErrorAndRecovers(c *gc.C) 
 
 	// Try again. This time the write proceeds.
 	aa = as.StartAppend("a/journal")
-	aa.Writer().WriteString("hello, world")
+	_, _ = aa.Writer().WriteString("hello, world")
 	c.Check(aa.Release(), gc.IsNil)
 
 	close(serveCh)
@@ -366,12 +374,11 @@ func (s *AppendServiceSuite) TestReleaseChecksForWriteErrorAndRecovers(c *gc.C) 
 }
 
 func (s *AppendServiceSuite) TestAppendOrderingCycle(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
-	var as = NewAppendService(ctx, rjc)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var as = NewAppendService(context.Background(), rjc)
 
 	var serveCh, cleanup = gateServeAppends()
 	defer cleanup()
@@ -391,14 +398,14 @@ func (s *AppendServiceSuite) TestAppendOrderingCycle(c *gc.C) {
 
 	for _, exp := range expect {
 		var aa = as.StartAppend(exp.journal, as.PendingExcept(exp.journal)...)
-		aa.Writer().WriteString(exp.content)
+		_, _ = aa.Writer().WriteString(exp.content)
 		c.Check(aa.Release(), gc.IsNil)
 
 		// Start a second write which uses the same dependencies, and is batched.
 		var aa2 = as.StartAppend(exp.journal, as.PendingExcept(exp.journal)...)
 		c.Check(aa2, gc.Equals, aa)
 
-		aa2.Writer().WriteString("!")
+		_, _ = aa2.Writer().WriteString("!")
 		c.Check(aa2.Release(), gc.IsNil)
 	}
 
@@ -421,7 +428,7 @@ func (s *AppendServiceSuite) TestBufferPooling(c *gc.C) {
 	var ab = appendBufferPool.Get().(*appendBuffer)
 
 	// Precondition: write some content.
-	ab.buf.WriteString("foobar")
+	_, _ = ab.buf.WriteString("foobar")
 	c.Check(ab.buf.Flush(), gc.IsNil)
 	c.Check(ab.offset, gc.Equals, int64(6))
 

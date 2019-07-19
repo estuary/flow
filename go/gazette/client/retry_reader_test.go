@@ -17,13 +17,12 @@ import (
 type RetrySuite struct{}
 
 func (s *RetrySuite) TestReaderRetries(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
-	var rr = NewRetryReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
+	var rr = NewRetryReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
 	c.Check(rr.Offset(), gc.Equals, int64(100))
 	c.Check(rr.Journal(), gc.Equals, pb.Journal("a/journal"))
 
@@ -63,11 +62,10 @@ func (s *RetrySuite) TestReaderRetries(c *gc.C) {
 }
 
 func (s *RetrySuite) TestMisbehavingReaderCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	// Construct a variety of unusual underlying reader behaviors. Expect
 	// RetryReader retries appropriately and recovers correct content in all cases.
@@ -84,7 +82,7 @@ func (s *RetrySuite) TestMisbehavingReaderCases(c *gc.C) {
 		iotest.OneByteReader(strings.NewReader("foobar")),
 	}
 	for _, tc := range cases {
-		var rr = NewRetryReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
+		var rr = NewRetryReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
 		rr.Reader.direct = ioutil.NopCloser(tc)
 
 		go serveReadFixtures(c, broker,
@@ -103,11 +101,10 @@ func (s *RetrySuite) TestSeeking(c *gc.C) {
 	defer cleanup()
 	defer InstallFileTransport(dir)()
 
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	// Start two read fixtures which both return fragment metadata & URL,
 	// then EOF, causing Reader to directly open the fragment.
@@ -116,7 +113,7 @@ func (s *RetrySuite) TestSeeking(c *gc.C) {
 		readFixture{fragment: &frag, fragmentUrl: url},
 	)
 
-	var rr = NewRetryReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal"})
+	var rr = NewRetryReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal"})
 
 	// Read initial response message.
 	var _, err = rr.Read(nil)
@@ -154,16 +151,15 @@ func (s *RetrySuite) TestSeeking(c *gc.C) {
 }
 
 func (s *RetrySuite) TestBufferedSeekAdjustment(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	go serveReadFixtures(c, broker,
 		readFixture{content: "foo\nbar\nbaz\n", offset: 100},
 	)
-	var rr = NewRetryReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
+	var rr = NewRetryReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
 	var br = bufio.NewReader(rr)
 
 	// Peek consumes the entire read fixture.

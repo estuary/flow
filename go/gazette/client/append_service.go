@@ -104,13 +104,14 @@ func (s *AppendService) StartAppend(name pb.Journal, dependencies ...*AsyncAppen
 		go serveAppends(s, aa)
 	}
 
-	for aa.next != nil {
+	for aa.next != nil && aa.next != tombstoneAsyncAppend {
 		aa = aa.next // Follow the chain to the current AsyncAppend.
 	}
 
-	if aa == tombstoneAsyncAppend {
+	if aa.next == tombstoneAsyncAppend {
 		// While we were waiting for |aa.mu|, the serveAppends service loop for this
 		// AsyncAppend exited (and it was cleared from |s.appends|). Try again.
+		aa.mu.Unlock() // Not strictly required as this Mutex was orphaned.
 		return s.StartAppend(name, dependencies...)
 	}
 
@@ -462,7 +463,7 @@ func retryUntil(fn func() error, journal pb.Journal, msg string) {
 		if err == nil {
 			return
 		}
-		var fields = log.Fields{"err": err}
+		var fields = log.Fields{"err": err, "attempt": attempt}
 		if journal != "" {
 			fields["journal"] = journal
 		}

@@ -58,7 +58,7 @@ func (rr *RetryReader) Offset() int64 {
 //    should inspect the new Offset may continue reading if desired.
 // All other errors are retried.
 func (rr *RetryReader) Read(p []byte) (n int, err error) {
-	for i := 0; true; i++ {
+	for attempt := 0; true; attempt++ {
 
 		if n, err = rr.Reader.Read(p); err == nil {
 			return // Success.
@@ -86,8 +86,12 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 		case io.EOF, ErrNotJournalBroker:
 			// Suppress logging for expected errors.
 		default:
-			log.WithFields(log.Fields{"journal": rr.Journal(), "offset": rr.Offset(), "err": err, "i": i}).
-				Warn("read failure (will retry)")
+			log.WithFields(log.Fields{
+				"journal": rr.Journal(),
+				"offset":  rr.Offset(),
+				"err":     err,
+				"attempt": attempt,
+			}).Warn("read failure (will retry)")
 		}
 
 		if n != 0 {
@@ -99,7 +103,7 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 		select {
 		case <-rr.Reader.ctx.Done():
 			return 0, rr.Reader.ctx.Err()
-		case <-time.After(backoff(i)):
+		case <-time.After(backoff(attempt)):
 		}
 	}
 	panic("not reached")
@@ -176,11 +180,11 @@ func (rr *RetryReader) Restart(req pb.ReadRequest) {
 
 func backoff(attempt int) time.Duration {
 	switch attempt {
-	case 0, 1:
+	case 0:
 		return 0
-	case 2:
-		return time.Millisecond * 5
-	case 3, 4, 5:
+	case 1:
+		return time.Millisecond * 10
+	case 2, 3, 4, 5:
 		return time.Second * time.Duration(attempt-1)
 	default:
 		return 5 * time.Second

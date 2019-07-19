@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
 	"go.gazette.dev/core/broker/teststub"
 	pb "go.gazette.dev/core/protocol"
 )
@@ -14,12 +15,10 @@ import (
 type ListSuite struct{}
 
 func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
 	var selector = pb.LabelSelector{Include: pb.MustLabelSet("foo", "bar")}
-
 	var mk = buildListResponseFixture // Alias.
 
 	// Case: ListAllJournals submits multiple requests and joins their results.
@@ -43,8 +42,8 @@ func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	}
 
 	var rc = NewRouteCache(10, time.Hour)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
-	var resp, err = ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), rc)
+	var resp, err = ListAllJournals(context.Background(), rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
 
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.ListResponse{
@@ -57,7 +56,7 @@ func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	expect = []pb.ListRequest{{Selector: selector}}
 	responses = []pb.ListResponse{{Header: hdr, Journals: mk("only/one")}}
 
-	resp, err = ListAllJournals(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
+	resp, err = ListAllJournals(context.Background(), broker.Client(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.ListResponse{Header: hdr, Journals: mk("only/one")})
 
@@ -65,27 +64,27 @@ func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	expect = []pb.ListRequest{{Selector: selector}}
 	responses = []pb.ListResponse{{Header: hdr, Journals: mk("invalid name")}}
 
-	_, err = ListAllJournals(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
+	_, err = ListAllJournals(context.Background(), broker.Client(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.ErrorMatches, `Journals\[0\].Spec.Name: not a valid token \(invalid name\)`)
 
 	// Case: It fails on non-OK status.
 	expect = []pb.ListRequest{{Selector: selector}}
 	responses = []pb.ListResponse{{Header: hdr, Status: pb.Status_WRONG_ROUTE}}
 
-	_, err = ListAllJournals(context.Background(), broker.MustClient(), pb.ListRequest{Selector: selector})
+	_, err = ListAllJournals(context.Background(), broker.Client(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.ErrorMatches, `WRONG_ROUTE`)
 
 	// Case: It surfaces context.Canceled, rather than a gRPC error.
+	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
 	c.Check(err, gc.Equals, context.Canceled)
 }
 
 func (s *ListSuite) TestPolledList(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
 	var mk = buildListResponseFixture // Alias.
 
 	var fixture = pb.ListResponse{
@@ -104,7 +103,10 @@ func (s *ListSuite) TestPolledList(c *gc.C) {
 	// Expect NewPolledList calls ListAllJournals once, and List is prepared before return.
 	callCh <- struct{}{}
 
-	var pl, err = NewPolledList(ctx, broker.MustClient(), 5*time.Millisecond, pb.ListRequest{})
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var pl, err = NewPolledList(ctx, broker.Client(), 5*time.Millisecond, pb.ListRequest{})
 	c.Check(err, gc.IsNil)
 	c.Check(pl.List(), gc.DeepEquals, &fixture)
 
@@ -119,8 +121,9 @@ func (s *ListSuite) TestPolledList(c *gc.C) {
 }
 
 func (s *ListSuite) TestListAllFragments(c *gc.C) {
-	var ctx = context.Background()
-	var broker = teststub.NewBroker(c, ctx)
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
+
 	var hdr = buildHeaderFixture(broker)
 	var fixture1 = &pb.FragmentsResponse{
 		Header:        *hdr,
@@ -144,10 +147,12 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 		}
 	}
 
-	var client = pb.NewRoutedJournalClient(broker.MustClient(), NewRouteCache(2, time.Hour))
+	var ctx = context.Background()
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	var req = pb.FragmentsRequest{Journal: pb.Journal("a/journal")}
+
 	// Case: properly coalesce fragment pages
-	var resp, err = ListAllFragments(ctx, client, req)
+	var resp, err = ListAllFragments(ctx, rjc, req)
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
 		Header:    *hdr,
@@ -161,7 +166,7 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 			Status: pb.Status_JOURNAL_NOT_FOUND,
 		}, nil
 	}
-	resp, err = ListAllFragments(ctx, client, req)
+	resp, err = ListAllFragments(ctx, rjc, req)
 	c.Check(resp, gc.IsNil)
 	c.Check(err, gc.ErrorMatches, pb.Status_JOURNAL_NOT_FOUND.String())
 
@@ -169,7 +174,7 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 	broker.ListFragmentsFunc = func(_ context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
 		return nil, errors.New("something has gone wrong")
 	}
-	resp, err = ListAllFragments(ctx, client, req)
+	resp, err = ListAllFragments(ctx, rjc, req)
 	c.Check(resp, gc.IsNil)
 	c.Check(err, gc.ErrorMatches, `rpc error: code = Unknown desc = something has gone wrong`)
 
@@ -180,18 +185,17 @@ func (s *ListSuite) TestListAllFragments(c *gc.C) {
 			Status: 1000,
 		}, nil
 	}
-	resp, err = ListAllFragments(ctx, client, req)
+	resp, err = ListAllFragments(ctx, rjc, req)
 	c.Check(resp, gc.IsNil)
 	c.Check(err, gc.ErrorMatches, `Status: invalid status \(1000\)`)
 }
 
 func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-
-	var client = pb.NewRoutedJournalClient(broker.MustClient(), NewRouteCache(2, time.Hour))
+	var ctx = context.Background()
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	var hdr = buildHeaderFixture(broker)
 	// Case: size is 0. All changes are submitted.
@@ -204,12 +208,12 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 		c.Check(req, gc.DeepEquals, fixture)
 		return expected, nil
 	}
-	resp, err := ApplyJournalsInBatches(ctx, client, fixture, 0)
+	resp, err := ApplyJournalsInBatches(ctx, rjc, fixture, 0)
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, expected)
 
 	// Case: size == len(req.Changes). All changes are submitted.
-	resp, err = ApplyJournalsInBatches(ctx, client, fixture, 3)
+	resp, err = ApplyJournalsInBatches(ctx, rjc, fixture, 3)
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, expected)
 
@@ -224,7 +228,7 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 		iter++
 		return expected, nil
 	}
-	resp, err = ApplyJournalsInBatches(ctx, client, fixture, 1)
+	resp, err = ApplyJournalsInBatches(ctx, rjc, fixture, 1)
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, expected)
 
@@ -233,7 +237,7 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 		c.Error("should not be called")
 		return nil, nil
 	}
-	resp, err = ApplyJournalsInBatches(ctx, client, &pb.ApplyRequest{}, 1)
+	resp, err = ApplyJournalsInBatches(ctx, rjc, &pb.ApplyRequest{}, 1)
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.ApplyResponse{})
 
@@ -241,7 +245,7 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 	broker.ApplyFunc = func(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
 		return nil, errors.New("something has gone wrong")
 	}
-	resp, err = ApplyJournalsInBatches(ctx, client, fixture, 1)
+	resp, err = ApplyJournalsInBatches(ctx, rjc, fixture, 1)
 	c.Check(err, gc.ErrorMatches, "rpc error: code = Unknown desc = something has gone wrong")
 
 	// Case: Status !OK mapped as an error.
@@ -251,8 +255,8 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 			Header: *hdr,
 		}, nil
 	}
-	resp, err = ApplyJournalsInBatches(ctx, client, fixture, 1)
-	c.Check(err.Error(), gc.Matches, pb.Status_ETCD_TRANSACTION_FAILED.String())
+	resp, err = ApplyJournalsInBatches(ctx, rjc, fixture, 1)
+	assert.EqualError(c, err, pb.Status_ETCD_TRANSACTION_FAILED.String())
 
 	// Case: Validation error mapped as error.
 	broker.ApplyFunc = func(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
@@ -260,7 +264,7 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 			Status: pb.Status_ETCD_TRANSACTION_FAILED,
 		}, nil
 	}
-	resp, err = ApplyJournalsInBatches(ctx, client, fixture, 1)
+	resp, err = ApplyJournalsInBatches(ctx, rjc, fixture, 1)
 	c.Check(err, gc.ErrorMatches, `Header.Route: invalid Primary \(0; expected -1 <= Primary < 0\)`)
 }
 

@@ -38,8 +38,8 @@ func (s *ReaderSuite) TestOpenFragmentURLCases(c *gc.C) {
 
 	// Case: read a portion of the fragment.
 	rc, err = OpenFragmentURL(ctx, frag, frag.Begin+5, url)
-	c.Check(rc.Offset, gc.Equals, rc.Fragment.Begin+5)
 	c.Check(err, gc.IsNil)
+	c.Check(rc.Offset, gc.Equals, rc.Fragment.Begin+5)
 
 	b, err = ioutil.ReadAll(rc)
 	c.Check(err, gc.IsNil)
@@ -82,11 +82,11 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 	defer cleanup()
 	defer InstallFileTransport(dir)()
 
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), NewRouteCache(2, time.Hour))
+	var ctx = context.Background()
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), NewRouteCache(2, time.Hour))
 
 	go serveReadFixtures(c, broker,
 		// Case 1: fixture returns fragment metadata & URL, then EOF.
@@ -239,14 +239,13 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 }
 
 func (s *ReaderSuite) TestBufferedOffsetAdjustment(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	go readFixture{content: "foobar\nbaz\n", offset: 100}.serve(c, broker)
 
-	var r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
+	var r = NewReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
 	var br = bufio.NewReader(r)
 
 	var b, err = br.ReadBytes('\n')
@@ -264,17 +263,16 @@ func (s *ReaderSuite) TestReaderSeekCases(c *gc.C) {
 	defer cleanup()
 	defer InstallFileTransport(dir)()
 
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	// Start read fixture which returns fragment metadata & URL, then EOF,
 	// causing Reader to directly open the fragment.
 	go readFixture{fragment: &frag, fragmentUrl: url, offset: frag.Begin}.serve(c, broker)
 
-	var r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal"})
+	var r = NewReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal"})
 
 	// First zero-byte read causes Reader to read the response fixture.
 	var n, err = r.Read(nil)
@@ -311,14 +309,13 @@ func (s *ReaderSuite) TestReaderSeekCases(c *gc.C) {
 }
 
 func (s *ReaderSuite) TestContextErrorCases(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
 
-	var broker = teststub.NewBroker(c, ctx)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), pb.NoopDispatchRouter{})
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
 	// Case 1: context is cancelled.
-	var caseCtx, caseCancel = context.WithCancel(ctx)
+	var caseCtx, caseCancel = context.WithCancel(context.Background())
 	caseCancel()
 
 	var r = NewReader(caseCtx, rjc, pb.ReadRequest{Journal: "a/journal"})
@@ -328,7 +325,7 @@ func (s *ReaderSuite) TestContextErrorCases(c *gc.C) {
 	c.Check(n, gc.Equals, 0)
 
 	// Case 2: context reaches deadline.
-	caseCtx, _ = context.WithTimeout(ctx, time.Microsecond)
+	caseCtx, _ = context.WithTimeout(context.Background(), time.Microsecond)
 	<-caseCtx.Done() // Block until deadline.
 
 	r = NewReader(caseCtx, rjc, pb.ReadRequest{Journal: "a/journal"})
