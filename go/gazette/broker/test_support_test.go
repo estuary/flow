@@ -4,129 +4,150 @@ import (
 	"context"
 	"time"
 
-	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
+	"github.com/stretchr/testify/assert"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/teststub"
-	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/keyspace"
 	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )
 
-// newTestFixture returns a testFixture with a prepared Etcd KeySpace context.
-// The returned cleanup function should be deferred.
-func newTestFixture(c *gc.C) (testFixture, func()) {
-	var etcd = etcdtest.TestClient()
-	var ctx, cancel = context.WithCancel(context.Background())
-
-	var ks = NewKeySpace("/broker.test")
-	ks.WatchApplyDelay = 0
-
-	var grantResp, err = etcd.Grant(ctx, 60)
-	c.Check(err, gc.IsNil)
-
-	c.Assert(ks.Load(ctx, etcd, 0), gc.IsNil)
-	go func() { c.Assert(ks.Watch(ctx, etcd), gc.Equals, context.Canceled) }()
-
-	// Set, but don't start a Persister for the test.
-	SetSharedPersister(fragment.NewPersister(ks))
-
-	return testFixture{
-			ctx:   ctx,
-			etcd:  etcd,
-			ks:    ks,
-			lease: grantResp.ID,
-		}, func() {
-			etcd.Revoke(ctx, grantResp.ID)
-			cancel()
-		}
-}
-
-type testFixture struct {
-	ctx   context.Context
-	etcd  *clientv3.Client
-	ks    *keyspace.KeySpace
-	lease clientv3.LeaseID
-}
-
-// newReadyReplica returns a replica which has "performed" an initial remote
-// fragment listing, unblocking read and write operations which rely on that
-// load first completing. In normal operation the broker.Service would spawn a
-// maintenanceLoop() for each replica which drives this action. For tests,
-// we fake it.
-func newReadyReplica(journal pb.Journal, done func()) *replica {
-	var r = newReplica(journal, done)
-	r.index.ReplaceRemote(fragment.CoverSet{}) // Initial "load".
-	return r
-}
-
+// testBroker runs most of a complete broker:
+// * Announcing the broker's member Spec to Etcd.
+// * Loading and watching a KeySpace wired into the service resolver.
+// * Presenting the broker Service over a gRPC loopback server.
+//
+// A few bits are deliberately left out:
+// * It doesn't run an allocator or obtain a lease. It simply reacts to manual
+//   KeySpace changes as they are made.
+// * pulseDeamon() and fragmentRefreshDaemon() loops are not started with
+//   each assigned replica. Unit tests should perform (or test) these functions
+//   as needed.
 type testBroker struct {
-	id pb.ProcessSpec_ID
-	teststub.LoopbackServer
+	t     assert.TestingT
+	id    pb.ProcessSpec_ID
+	tasks *task.Group
+	ks    *keyspace.KeySpace
+	svc   *Service
+	srv   *server.Server
+}
 
-	*teststub.Broker // nil if not built with newMockBroker.
-	*resolver        // nil if not built with newTestBroker.
+// mockBroker pairs a teststub.Broker with that broker's announcement to Etcd.
+type mockBroker struct {
+	id pb.ProcessSpec_ID
+	*teststub.Broker
 }
 
 // newTestBroker returns a local testBroker of |id|. |newReplicaFn| should be
 // either |newReadyReplica| or |newReplica|.
-func newTestBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID,
-	newReplicaFn func(journal pb.Journal, done func()) *replica) testBroker {
+func newTestBroker(t assert.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_ID) *testBroker {
+	var bk = &testBroker{
+		t:     t,
+		id:    id,
+		tasks: task.NewGroup(context.Background()),
+		ks:    NewKeySpace("/broker.test"),
+	}
 
-	var state = allocator.NewObservedState(tf.ks, allocator.MemberKey(tf.ks, id.Zone, id.Suffix))
-	var res = newResolver(state, newReplicaFn)
+	// Initialize server.
+	bk.srv = server.MustLoopback()
 
-	var svc = &Service{resolver: res, etcd: tf.etcd}
-	var srv = teststub.NewLoopbackServer(svc)
-	svc.jc = srv.MustClient()
+	var state = allocator.NewObservedState(bk.ks, allocator.MemberKey(bk.ks, bk.id.Zone, bk.id.Suffix))
+	bk.svc = &Service{
+		jc:               pb.NewJournalClient(bk.srv.GRPCLoopback),
+		etcd:             etcd,
+		resolver:         newResolver(state, newReplica),
+		stopProxyReadsCh: make(chan struct{}),
+	}
+	bk.ks.WatchApplyDelay = 0 // Speed test execution.
 
-	mustKeyValues(c, tf, map[string]string{
+	// Establish broker member key & do initial KeySpace Load.
+	_ = mustKeyValues(t, etcd, map[string]string{
 		state.LocalKey: (&pb.BrokerSpec{
-			ProcessSpec: pb.ProcessSpec{
-				Id:       id,
-				Endpoint: srv.Endpoint(),
-			},
+			ProcessSpec: pb.ProcessSpec{Id: id, Endpoint: bk.srv.Endpoint()},
 		}).MarshalString(),
 	})
+	assert.NoError(t, bk.ks.Load(bk.tasks.Context(), etcd, 0))
 
-	var tasks = task.NewGroup(tf.ctx)
-	srv.QueueTasks(tasks)
-	tasks.GoRun()
+	// Set, but don't start a Persister for the test.
+	SetSharedPersister(fragment.NewPersister(bk.ks))
+	pb.RegisterJournalServer(bk.srv.GRPCServer, bk.svc)
 
-	return testBroker{
-		id:             id,
-		LoopbackServer: srv,
-		resolver:       res,
-	}
+	bk.srv.QueueTasks(bk.tasks)
+	bk.svc.QueueTasks(bk.tasks, bk.srv, nil)
+	bk.tasks.GoRun()
+	return bk
 }
 
-// newMockBroker returns a peer testBroker of |id|.
-func newMockBroker(c *gc.C, tf testFixture, id pb.ProcessSpec_ID) testBroker {
-	var broker = teststub.NewBroker(c, tf.ctx)
-	var key = allocator.MemberKey(tf.ks, id.Zone, id.Suffix)
+// Client returns a JournalClient wrapping the GRPCLoopback.
+func (bk *testBroker) client() pb.JournalClient { return bk.svc.jc }
 
-	mustKeyValues(c, tf, map[string]string{
+// initialFragmentLoad signals all current replicas that a remote fragment
+// refresh has completed, unblocking appends.
+func (bk *testBroker) initialFragmentLoad() {
+	bk.ks.Mu.RLock()
+	for _, r := range bk.svc.resolver.replicas {
+		r.index.ReplaceRemote(fragment.CoverSet{})
+	}
+	bk.ks.Mu.RUnlock()
+}
+
+// Cleanup cancels the Broker tasks.Group and asserts that it exits cleanly.
+func (bk *testBroker) cleanup() {
+	bk.tasks.Cancel()
+	assert.NoError(bk.t, bk.tasks.Wait())
+}
+
+// resolve returns the resolution of |journal| against the testBroker.
+func (bk *testBroker) resolve(journal pb.Journal) *resolution {
+	var res, err = bk.svc.resolver.resolve(resolveArgs{
+		ctx:      context.Background(),
+		journal:  journal,
+		mayProxy: true,
+	})
+	assert.NoError(bk.t, err)
+	return res
+}
+
+// header returns the broker's current protocol.Header of the journal.
+// It's a convenience for populating response expectations.
+func (bk *testBroker) header(journal pb.Journal) *pb.Header { return &bk.resolve(journal).Header }
+
+// replica returns the broker's *replica instance for the |journal|.
+func (bk *testBroker) replica(journal pb.Journal) *replica { return bk.resolve(journal).replica }
+
+// catchUpKeySpace returns only after testBroker's KeySpace has read through all
+// revisions which existed when catchUpKeySpace was called.
+func (bk *testBroker) catchUpKeySpace() {
+	var ctx = context.Background()
+	var resp, err = bk.svc.etcd.Get(ctx, "a-key-we-don't-expect-to-exist")
+	assert.NoError(bk.t, err)
+
+	bk.ks.Mu.RLock()
+	assert.NoError(bk.t, bk.ks.WaitForRevision(ctx, resp.Header.Revision))
+	bk.ks.Mu.RUnlock()
+}
+
+// newMockBroker returns a *teststub.Broker with an established member key.
+func newMockBroker(t assert.TestingT, etcd clientv3.KV, id pb.ProcessSpec_ID) mockBroker {
+	var key = allocator.MemberKey(&keyspace.KeySpace{Root: "/broker.test"}, id.Zone, id.Suffix)
+	var stub = teststub.NewBroker(t)
+
+	_ = mustKeyValues(t, etcd, map[string]string{
 		key: (&pb.BrokerSpec{
-			ProcessSpec: pb.ProcessSpec{
-				Id:       id,
-				Endpoint: broker.Endpoint(),
-			},
+			ProcessSpec: pb.ProcessSpec{Id: id, Endpoint: stub.Endpoint()},
 		}).MarshalString(),
 	})
-	return testBroker{
-		id:             id,
-		LoopbackServer: broker.LoopbackServer,
-		Broker:         broker,
-	}
+	return mockBroker{id: id, Broker: stub}
 }
 
-// newTestJournal creates |journal| with the given |replication| and assigned broker |ids|.
-// A zero-valued ProcessSpec_ID means the allocation slot at that index is left empty.
-func newTestJournal(c *gc.C, tf testFixture, spec pb.JournalSpec, ids ...pb.ProcessSpec_ID) {
-	var kv = make(map[string]string)
-
+// setTestJournal creates or updates |spec| with the given assigned broker |ids|
+// via a single Etcd transaction. A zero-valued ProcessSpec_ID means the
+// allocation slot at that index is left empty. Any other journal assignments
+// are removed.
+func setTestJournal(bk *testBroker, spec pb.JournalSpec, ids ...pb.ProcessSpec_ID) {
 	spec = pb.UnionJournalSpecs(spec, pb.JournalSpec{
 		Replication: 0, // Must be provided by caller.
 		Fragment: pb.JournalSpec_Fragment{
@@ -135,43 +156,66 @@ func newTestJournal(c *gc.C, tf testFixture, spec pb.JournalSpec, ids ...pb.Proc
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
 	})
-	c.Assert(spec.Validate(), gc.IsNil)
+	assert.NoError(bk.t, spec.Validate())
 
-	// Create the JournalSpec.
-	kv[allocator.ItemKey(tf.ks, spec.Name.String())] = spec.MarshalString()
+	// Apply the JournalSpec.
+	var op = []clientv3.Op{clientv3.OpPut(
+		allocator.ItemKey(bk.ks, spec.Name.String()), spec.MarshalString())}
 
-	// Create broker assignments.
+	bk.ks.Mu.RLock()
+	defer bk.ks.Mu.RUnlock()
+
+	// Determine the set of existing journal assignment keys.
+	var prev = make(map[string]struct{})
+	var prefix = allocator.ItemAssignmentsPrefix(bk.ks, spec.Name.String())
+	for _, asn := range bk.ks.Prefixed(prefix) {
+		prev[string(asn.Raw.Key)] = struct{}{}
+	}
+
+	// Set updated broker assignments.
 	for slot, id := range ids {
 		if id == (pb.ProcessSpec_ID{}) {
 			continue
 		}
-		kv[allocator.AssignmentKey(tf.ks, allocator.Assignment{
+		var key = allocator.AssignmentKey(bk.ks, allocator.Assignment{
 			ItemID:       spec.Name.String(),
 			MemberZone:   id.Zone,
 			MemberSuffix: id.Suffix,
 			Slot:         slot,
-		})] = ""
+		})
+		// If |key| exists, leave it alone. Otherwise set it with an empty value.
+		if _, ok := prev[key]; ok {
+			delete(prev, key)
+		} else {
+			op = append(op, clientv3.OpPut(key, ""))
+		}
 	}
-	mustKeyValues(c, tf, kv)
+	// Remove any other previous assignments.
+	for key := range prev {
+		op = append(op, clientv3.OpDelete(key))
+	}
+
+	var resp, err = bk.svc.etcd.Txn(context.Background()).Then(op...).Commit()
+	assert.NoError(bk.t, err)
+	assert.True(bk.t, resp.Succeeded)
+
+	assert.NoError(bk.t, bk.ks.WaitForRevision(context.Background(), resp.Header.Revision))
 }
 
-// mustKeyValues creates keys and values under the testFixture lease.
-// The keys must not already exist.
-func mustKeyValues(c *gc.C, tf testFixture, kvs map[string]string) {
+// mustKeyValues creates keys and values. The keys must not already exist.
+func mustKeyValues(t assert.TestingT, etcd clientv3.KV, kvs map[string]string) int64 {
 	var cmps []clientv3.Cmp
 	var ops []clientv3.Op
 
 	for k, v := range kvs {
 		cmps = append(cmps, clientv3.Compare(clientv3.Version(k), "=", 0))
-		ops = append(ops, clientv3.OpPut(k, v, clientv3.WithLease(tf.lease)))
+		ops = append(ops, clientv3.OpPut(k, v))
 	}
-	var resp, err = tf.etcd.Txn(tf.ctx).
+	var resp, err = etcd.Txn(context.Background()).
 		If(cmps...).Then(ops...).Commit()
 
-	c.Assert(err, gc.IsNil)
-	c.Assert(resp.Succeeded, gc.Equals, true)
+	assert.NoError(t, err)
+	assert.Equal(t, resp.Succeeded, true)
 
-	tf.ks.Mu.RLock()
-	c.Assert(tf.ks.WaitForRevision(tf.ctx, resp.Header.Revision), gc.IsNil)
-	tf.ks.Mu.RUnlock()
+	return resp.Header.Revision
 }

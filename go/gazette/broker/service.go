@@ -2,15 +2,15 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/v3/clientv3"
+	"github.com/pkg/errors"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/metrics"
 	pb "go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/server"
+	"go.gazette.dev/core/task"
 	"golang.org/x/net/trace"
 )
 
@@ -21,18 +21,72 @@ type Service struct {
 	jc       pb.JournalClient
 	etcd     *clientv3.Client
 	resolver *resolver
+
+	// stopProxyReadsCh is closed when the Service is beginning shutdown.
+	// All other RPCs are allowed to gracefully complete as per usual, but
+	// because proxy reads can be very long lived, we must inject an EOF
+	// to ensure timely Service shutdown.
+	stopProxyReadsCh chan struct{}
 }
 
 // NewService constructs a new broker Service, driven by allocator.State.
 func NewService(state *allocator.State, jc pb.JournalClient, etcd *clientv3.Client) *Service {
-	var svc = &Service{jc: jc, etcd: etcd}
+	var svc = &Service{
+		jc:               jc,
+		etcd:             etcd,
+		stopProxyReadsCh: make(chan struct{}),
+	}
 
-	svc.resolver = newResolver(state, func(journal pb.Journal, done func()) *replica {
-		var rep = newReplica(journal, done)
-		go svc.maintenanceLoop(rep)
+	svc.resolver = newResolver(state, func(journal pb.Journal) *replica {
+		var rep = newReplica(journal)
+		go fragmentRefreshDaemon(state.KS, rep)
+		go pulseDaemon(svc, rep)
 		return rep
 	})
 	return svc
+}
+
+// QueueTasks of the Service to watch its KeySpace and serve local replicas.
+func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server, finishFn func()) {
+	var watchCtx, watchCancel = context.WithCancel(context.Background())
+
+	// Watch the Service KeySpace and manage local replicas reflecting
+	// the assignments of this broker. Upon task completion, all replicas
+	// have been fully torn down.
+	tasks.Queue("service.Watch", func() error {
+		return svc.resolver.watch(watchCtx, svc.etcd)
+	})
+
+	// server.GracefulStop stops the server on task.Group cancellation,
+	// after which the service.Watch is also cancelled.
+	tasks.Queue("service.GracefulStop", func() error {
+		<-tasks.Context().Done()
+
+		// Signal that proxy reads should stop, so that our gRPC server may
+		// gracefully stop, and then drain all ongoing RPCs.
+		close(svc.stopProxyReadsCh)
+		// Similarly, ensure all local replicas are stopped. Under nominal
+		// shutdown the allocator would already assure this, but if we're in the
+		// process of crashing (eg due to Etcd partition) there may be remaining
+		// local replicas. Stopping them also cancels any related RPCs.
+		svc.resolver.stopServingLocalReplicas()
+
+		server.GRPCServer.GracefulStop()
+
+		// Now that we're assured no current or future RPCs can be waiting
+		// on a future KeySpace revision, instruct Watch to exit and block
+		// until it does so.
+		watchCancel()
+		svc.resolver.wg.Wait()
+
+		// TODO(johnny): hack to support persister stop.
+		if finishFn != nil {
+			finishFn()
+		}
+		// All replicas (and their replication pipelines) have fully torn
+		// down. Now we can tear down the loopback.
+		return server.GRPCLoopback.Close()
+	})
 }
 
 // Route an item using the Service resolver. Route implements the
@@ -59,111 +113,6 @@ func (svc *Service) UpdateRoute(string, *pb.Route) {} // No-op.
 // IsNoopRouter returns false.
 func (svc *Service) IsNoopRouter() bool { return false }
 
-// Watch the Service KeySpace and serve any local assignments
-// reflected therein, until the Context is cancelled or an error occurs.
-// Watch shuts down all local replicas prior to return regardless of
-// error status.
-func (svc *Service) Watch(ctx context.Context) error {
-	return svc.resolver.watch(ctx, svc.etcd)
-}
-
-// maintenanceLoop performs periodic tasks over a replica:
-//  - Refreshing its remote fragment listings from configured stores.
-//  - Pulsing the journal pipeline on demand to re-establish the consistency
-//    of allocator assignment values stored in Etcd.
-//  - Pulsing the pipeline at regular "ping" intervals to ensure any problems
-//    with its health (eg, half-broken connections) are detected proactively.
-func (svc *Service) maintenanceLoop(r *replica) {
-	// Start a timer which triggers refreshes of remote journal fragments. The
-	// duration between each refresh can change based on current configurations,
-	// so each refresh iteration resets the timer with the next interval.
-	var refreshTimer = time.NewTimer(0)
-	defer refreshTimer.Stop()
-	// We ping the journal pipeline periodically, and also on-demand when signalled.
-	var pingTicker = time.NewTicker(healthCheckInterval)
-	defer pingTicker.Stop()
-	// Minimum Etcd revision we must read through on next resolution.
-	var minRevision int64
-
-	for {
-		var args = resolveArgs{
-			ctx:                   r.ctx,
-			journal:               r.journal,
-			mayProxy:              false,
-			requirePrimary:        false,
-			requireFullAssignment: false,
-			minEtcdRevision:       minRevision,
-			proxyHeader:           nil,
-		}
-		var res resolution
-		var err error
-
-		select {
-		case _ = <-r.ctx.Done():
-			refreshTimer.Stop()
-			pingTicker.Stop()
-			return
-
-		case _ = <-refreshTimer.C:
-			goto RefreshFragments
-
-		case _ = <-r.pulsePipelineCh:
-			goto CheckHealth
-
-		case _ = <-pingTicker.C:
-			goto CheckHealth
-		}
-
-	RefreshFragments:
-		if res, err = svc.resolver.resolve(args); err == nil && res.status != pb.Status_OK {
-			err = errors.New(res.status.String())
-		}
-		if err != nil {
-			log.WithFields(log.Fields{"err": err, "journal": r.journal}).
-				Warn("refreshing fragments: failed to resolve")
-			continue
-		}
-
-		// Begin a background refresh of remote replica fragments. When done,
-		// signal to restart |refreshTimer| with the current refresh interval.
-		go func(r *replica, spec *pb.JournalSpec) {
-			if set, err := fragment.WalkAllStores(r.ctx, spec.Name, spec.Fragment.Stores); err == nil {
-				r.index.ReplaceRemote(set)
-			} else {
-				log.WithFields(log.Fields{
-					"name":     spec.Name,
-					"err":      err,
-					"interval": spec.Fragment.RefreshInterval,
-				}).Warn("failed to refresh remote fragments (will retry)")
-			}
-			refreshTimer.Reset(spec.Fragment.RefreshInterval)
-		}(res.replica, res.journalSpec)
-
-		continue
-
-	CheckHealth:
-		args.requirePrimary = true
-		args.requireFullAssignment = true
-
-		if res, err = svc.resolver.resolve(args); err != nil {
-			// Pass.
-		} else if res.status == pb.Status_NOT_JOURNAL_PRIMARY_BROKER {
-			// Only current primary checks pipeline health. Pass.
-		} else if res.status != pb.Status_OK {
-			err = errors.New(res.status.String())
-		} else {
-			minRevision, err = checkHealth(res, svc.jc, svc.etcd)
-		}
-
-		if err != nil {
-			log.WithFields(log.Fields{"err": err, "journal": r.journal}).
-				Warn("pipeline health check failed (will retry)")
-		}
-
-		continue
-	}
-}
-
 func addTrace(ctx context.Context, format string, args ...interface{}) {
 	if tr, ok := trace.FromContext(ctx); ok {
 		tr.LazyPrintf(format, args...)
@@ -177,16 +126,17 @@ func addTrace(ctx context.Context, format string, args ...interface{}) {
 // Example Usage:
 //
 //  defer instrumentJournalServerOp("append", &err, time.Now())
-func instrumentJournalServerOp(op string, err *error, start time.Time) {
+func instrumentJournalServerOp(op string, err *error, res **resolution, start time.Time) {
 	var elapsed = time.Since(start)
-	var status = metrics.Fail
-	if err == nil || *err == nil {
-		status = metrics.Ok
+	var status = metrics.Ok
+
+	if *err != nil {
+		status = errors.Cause(*err).Error()
+	} else if res != nil && *res != nil && (*res).status != pb.Status_OK {
+		status = (*res).status.String()
 	}
 
 	metrics.JournalServerResponseTimeSeconds.
 		WithLabelValues(op, status).
 		Observe(float64(elapsed / time.Second))
 }
-
-var healthCheckInterval = time.Minute

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/fragment"
 	pb "go.gazette.dev/core/protocol"
@@ -20,10 +21,6 @@ type pipeline struct {
 	readBarrierCh chan struct{}                // Coordinates hand-off of receive-side of the pipeline.
 	recvResp      []pb.ReplicateResponse       // Most recent response gathered from each peer.
 	recvErrs      []error                      // First error on receive from each peer.
-
-	// readThroughRev, if set, indicates that a pipeline cannot be established
-	// until we have read through (and our Route reflects) this etcd revision.
-	readThroughRev int64
 }
 
 // newPipeline returns a new pipeline.
@@ -55,53 +52,6 @@ func newPipeline(ctx context.Context, hdr pb.Header, spool fragment.Spool, retur
 	return pln
 }
 
-// synchronize all pipeline peers by scattering proposals and gathering peer
-// responses. On disagreement, synchronize will iteratively update the proposal
-// if it's possible to do so and reach agreement. If peers disagree on Etcd
-// revision, synchronize will close the pipeline and set |readThroughRev|.
-func (pln *pipeline) synchronize() error {
-	var proposal = pln.spool.Fragment.Fragment
-
-	for {
-		pln.scatter(&pb.ReplicateRequest{
-			Header:      &pln.Header,
-			Journal:     pln.spool.Journal,
-			Proposal:    &proposal,
-			Acknowledge: true,
-		})
-		var rollToOffset, readThroughRev = pln.gatherSync(proposal)
-
-		var err = pln.recvErr()
-		if err == nil {
-			err = pln.sendErr()
-		}
-
-		if err != nil {
-			pln.shutdown(true)
-			return err
-		}
-
-		if rollToOffset != 0 {
-			// Update our |proposal| to roll forward to the new offset. Loop to try
-			// again. This time all peers should agree on the new Fragment.
-			proposal.Begin = rollToOffset
-			proposal.End = rollToOffset
-			proposal.Sum = pb.SHA1Sum{}
-			continue
-		}
-
-		if readThroughRev != 0 {
-			// Peer has a non-equivalent Route at a later etcd revision. Close the
-			// pipeline, and set its |readThroughRev| as an indication to other RPCs
-			// of the revision which must first be read through before attempting
-			// another pipeline.
-			pln.shutdown(false)
-			pln.readThroughRev = readThroughRev
-		}
-		return nil
-	}
-}
-
 // scatter asynchronously applies the ReplicateRequest to all replicas.
 func (pln *pipeline) scatter(r *pb.ReplicateRequest) {
 	for i, s := range pln.streams {
@@ -122,7 +72,8 @@ func (pln *pipeline) scatter(r *pb.ReplicateRequest) {
 		// Status !OK is returned only on proposal mismatch, which cannot happen
 		// here as all proposals are derived from the Spool itself.
 		if resp, pln.sendErrs[i] = pln.spool.Apply(r, true); resp.Status != pb.Status_OK {
-			panic(resp.String())
+			var respHeap = resp // Escapes.
+			panic(respHeap.String())
 		}
 	}
 }
@@ -146,7 +97,7 @@ func (pln *pipeline) closeSend() {
 func (pln *pipeline) sendErr() error {
 	for i, err := range pln.sendErrs {
 		if err != nil {
-			return fmt.Errorf("send to %s: %s", &pln.Route.Members[i], err)
+			return errors.WithMessagef(err, "send to %s", &pln.Route.Members[i])
 		}
 	}
 	return nil
@@ -172,6 +123,12 @@ func (pln *pipeline) gather() {
 	for i, s := range pln.streams {
 		if s != nil && pln.recvErrs[i] == nil {
 			pln.recvErrs[i] = s.RecvMsg(&pln.recvResp[i])
+
+			// Map EOF to ErrUnexpectedEOF, as EOFs should only be
+			// read by gatherEOF().
+			if pln.recvErrs[i] == io.EOF {
+				pln.recvErrs[i] = io.ErrUnexpectedEOF
+			}
 		}
 	}
 }
@@ -192,7 +149,7 @@ func (pln *pipeline) gatherOK() {
 // gatherSync calls gather, extracts and returns a peer-advertised future offset
 // or etcd revision to read through relative to |proposal|, and treats any other
 // non-OK response status as an error.
-func (pln *pipeline) gatherSync(proposal pb.Fragment) (rollToOffset, readThroughRev int64) {
+func (pln *pipeline) gatherSync() (rollToOffset, readThroughRev int64) {
 	pln.gather()
 
 	for i, s := range pln.streams {
@@ -215,11 +172,11 @@ func (pln *pipeline) gatherSync(proposal pb.Fragment) (rollToOffset, readThrough
 
 		case pb.Status_FRAGMENT_MISMATCH:
 			// If peer has an extant Spool at a greater offset, we must roll forward to it.
-			if (resp.Fragment.End > proposal.End) ||
+			if (resp.Fragment.End > pln.spool.End) ||
 				// If the peer rolled its Spool to our offset, but does not have and
 				// therefore cannot extend Fragment content from [Begin, End), we
 				// must start a new Spool beginning at proposal.End.
-				(resp.Fragment.End == proposal.End && resp.Fragment.ContentLength() == 0) {
+				(resp.Fragment.End == pln.spool.End && resp.Fragment.ContentLength() == 0) {
 
 				if resp.Fragment.End > rollToOffset {
 					rollToOffset = resp.Fragment.End
@@ -229,7 +186,8 @@ func (pln *pipeline) gatherSync(proposal pb.Fragment) (rollToOffset, readThrough
 			}
 
 		default:
-			pln.recvErrs[i] = fmt.Errorf("unexpected Status: %s", &resp)
+			var respHeap = resp // Escapes.
+			pln.recvErrs[i] = fmt.Errorf("unexpected Status: %s", &respHeap)
 		}
 	}
 	return
@@ -255,7 +213,7 @@ func (pln *pipeline) gatherEOF() {
 func (pln *pipeline) recvErr() error {
 	for i, err := range pln.recvErrs {
 		if err != nil {
-			return fmt.Errorf("recv from %s: %s", &pln.Route.Members[i], err)
+			return errors.WithMessagef(err, "recv from %s", &pln.Route.Members[i])
 		}
 	}
 	return nil
@@ -280,8 +238,6 @@ func (pln *pipeline) shutdown(expectErr bool) {
 func (pln *pipeline) String() string {
 	if pln == nil {
 		return "<nil>"
-	} else if pln.readThroughRev != 0 {
-		return fmt.Sprintf("readThroughRev<%d>", pln.readThroughRev)
 	}
 	return fmt.Sprintf("pipeline<header: %s, spool: %s>", &pln.Header, pln.spool.String())
 }

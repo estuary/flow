@@ -2,22 +2,35 @@ package broker
 
 import (
 	"context"
+	"net"
 	"strings"
 	"time"
 
-	"go.etcd.io/etcd/v3/clientv3"
+	log "github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/protocol"
+	"google.golang.org/grpc/peer"
 )
 
 // List dispatches the JournalServer.List API.
-func (srv *Service) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
-	var err error
-	defer instrumentJournalServerOp("list", &err, time.Now())
+func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.ListResponse, err error) {
+	defer instrumentJournalServerOp("List", &err, nil, time.Now())
 
-	var s = srv.resolver.state
+	defer func() {
+		if err != nil {
+			var addr net.Addr
+			if p, ok := peer.FromContext(ctx); ok {
+				addr = p.Addr
+			}
+			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
+				Warn("served List RPC failed")
+		}
+	}()
 
-	var resp = &pb.ListResponse{
+	var s = svc.resolver.state
+
+	resp = &pb.ListResponse{
 		Status: pb.Status_OK,
 		Header: pb.NewUnroutedHeader(s),
 	}
@@ -61,13 +74,23 @@ func (srv *Service) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResp
 }
 
 // Apply dispatches the JournalServer.Apply API.
-func (srv *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-	var err error
-	defer instrumentJournalServerOp("apply", &err, time.Now())
+func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.ApplyResponse, err error) {
+	defer instrumentJournalServerOp("Apply", &err, nil, time.Now())
 
-	var s = srv.resolver.state
+	defer func() {
+		if err != nil {
+			var addr net.Addr
+			if p, ok := peer.FromContext(ctx); ok {
+				addr = p.Addr
+			}
+			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
+				Warn("served Apply RPC failed")
+		}
+	}()
 
-	var resp = &pb.ApplyResponse{
+	var s = svc.resolver.state
+
+	resp = &pb.ApplyResponse{
 		Status: pb.Status_OK,
 		Header: pb.NewUnroutedHeader(s),
 	}
@@ -92,15 +115,15 @@ func (srv *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyR
 	}
 
 	var txnResp clientv3.OpResponse
-	if txnResp, err = srv.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil)); err != nil {
+	if txnResp, err = svc.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil)); err != nil {
 		return resp, err
 	} else if !txnResp.Txn().Succeeded {
 		resp.Status = pb.Status_ETCD_TRANSACTION_FAILED
 	} else {
 		// Delay responding until we have read our own Etcd write.
 		s.KS.Mu.RLock()
-		s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
+		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
 		s.KS.Mu.RUnlock()
 	}
-	return resp, nil
+	return resp, err
 }

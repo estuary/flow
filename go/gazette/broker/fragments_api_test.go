@@ -2,222 +2,216 @@ package broker
 
 import (
 	"context"
+	"testing"
 	"time"
 
-	gc "github.com/go-check/check"
-	"go.gazette.dev/core/client"
+	"github.com/stretchr/testify/assert"
+	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/fragment"
 	pb "go.gazette.dev/core/protocol"
 )
 
-type FragmentsSuite struct{}
+func TestFragmentsResolutionCases(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-func (s *FragmentsSuite) TestResolutionCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	var fragments = buildFragmentsFixture()
 
-	var rc = client.NewRouteCache(10, time.Hour)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
-	var fixture = buildFragmentsFixture()
-	var ctx = pb.WithDispatchDefault(tf.ctx)
-
-	// Case: Missing journal name.
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "an/missing/journal", mayProxy: true})
-	var resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	// Case: Resolution error.
+	var resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal: "a/missing/journal",
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status: pb.Status_JOURNAL_NOT_FOUND,
-		Header: res.Header,
-	})
+		Header: *broker.header("a/missing/journal"),
+	}, resp)
 
 	// Case: Read from a write only journal.
-	newTestJournal(c, tf, pb.JournalSpec{Name: "write/only/journal", Replication: 1, Flags: pb.JournalSpec_O_WRONLY}, peer.id)
-	res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "write/only/journal", mayProxy: true})
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
-		Journal: "write/only/journal",
+	setTestJournal(broker, pb.JournalSpec{Name: "write/only", Replication: 1, Flags: pb.JournalSpec_O_WRONLY}, broker.id)
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
+		Journal: "write/only",
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status: pb.Status_NOT_ALLOWED,
-		Header: res.Header,
-	})
+		Header: *broker.header("write/only"),
+	}, resp)
 
 	// Case: Proxy request to peer.
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 1}, peer.id)
-	res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal", mayProxy: true})
+	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "proxy/journal", Replication: 1}, peer.id)
+	var proxyHeader = broker.header("proxy/journal")
+
 	peer.ListFragmentsFunc = func(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-		c.Check(req, gc.DeepEquals, &pb.FragmentsRequest{
-			Header:        &res.Header,
-			Journal:       "a/journal",
+		assert.Equal(t, &pb.FragmentsRequest{
+			Header:        proxyHeader,
+			Journal:       "proxy/journal",
 			BeginModTime:  time.Unix(0, 0).Unix(),
 			EndModTime:    time.Unix(0, 0).Unix(),
 			NextPageToken: 0,
+			PageLimit:     defaultPageLimit,
 			DoNotProxy:    false,
-		})
+		}, req)
 		return &pb.FragmentsResponse{
 			Status:        pb.Status_OK,
-			Header:        res.Header,
-			Fragments:     fixture,
-			NextPageToken: fixture[5].Spec.End,
+			Header:        *proxyHeader,
+			Fragments:     fragments,
+			NextPageToken: fragments[5].Spec.End,
 		}, nil
 	}
 
-	resp, err = broker.MustClient().ListFragments(ctx, &pb.FragmentsRequest{
-		Journal: "a/journal",
-	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{Journal: "proxy/journal"})
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
-		Fragments:     fixture,
-		NextPageToken: fixture[5].Spec.End,
-	})
+		Header:        *proxyHeader,
+		Fragments:     fragments,
+		NextPageToken: fragments[5].Spec.End,
+	}, resp)
+
+	broker.cleanup()
 }
 
-func (s *FragmentsSuite) TestListFragments(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestFragmentsListCases(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var rc = client.NewRouteCache(10, time.Hour)
-	var rjc = pb.NewRoutedJournalClient(broker.MustClient(), rc)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
+
+	var fragments = buildFragmentsFixture()
 	var oneSec = time.Second
+	var expectHeader = *broker.header("a/journal")
 
 	// Case: Request validation error.
-	var ctx = pb.WithDispatchDefault(tf.ctx)
-	var resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	var _, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
 		BeginModTime:  50,
 		EndModTime:    40,
 		NextPageToken: 0,
 		DoNotProxy:    false,
 	})
-	c.Check(err, gc.ErrorMatches, `.* invalid EndModTime \(40 must be after 50\)`)
-	c.Check(resp, gc.IsNil)
+	assert.EqualError(t, err, `rpc error: code = Unknown desc = invalid EndModTime (40 must be after 50)`)
 
 	// Case: Fetch fragments with unbounded time range.
-	var fixture = buildFragmentsFixture()
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal", mayProxy: true})
-
 	// Asynchronously seed the fragment index with fixture data.
 	time.AfterFunc(time.Millisecond, func() {
-		res.replica.index.ReplaceRemote(buildFragmentSet(fixture))
+		broker.replica("a/journal").index.ReplaceRemote(buildFragmentSet(fragments))
 	})
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err := broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
 		SignatureTTL: &oneSec,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
-		Fragments:     fixture,
+		Header:        expectHeader,
+		Fragments:     fragments,
 		NextPageToken: 0,
-	})
+	}, resp)
 
 	// Case: Fetch fragments with bounded time range
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
 		BeginModTime: 100,
 		EndModTime:   180,
 		SignatureTTL: &oneSec,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status: pb.Status_OK,
-		Header: res.Header,
+		Header: *broker.header("a/journal"),
 		Fragments: []pb.FragmentsResponse__Fragment{
-			fixture[1],
-			fixture[3],
+			fragments[1],
+			fragments[3],
 		},
 		NextPageToken: 0,
-	})
+	}, resp)
 
 	// Case: Fetch fragments with unbounded EndModTime
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
 		BeginModTime: 100,
 		SignatureTTL: &oneSec,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
-		Fragments:     fixture[1:],
+		Header:        expectHeader,
+		Fragments:     fragments[1:],
 		NextPageToken: 0,
-	})
+	}, resp)
 
 	// Case: Fetch paginated fragments
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
 		PageLimit:    3,
 		SignatureTTL: &oneSec,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
-		Fragments:     fixture[:3],
-		NextPageToken: fixture[3].Spec.Begin,
-	})
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+		Header:        expectHeader,
+		Fragments:     fragments[:3],
+		NextPageToken: fragments[3].Spec.Begin,
+	}, resp)
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
 		PageLimit:     3,
 		SignatureTTL:  &oneSec,
 		NextPageToken: resp.NextPageToken,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
-		Fragments:     fixture[3:],
+		Header:        expectHeader,
+		Fragments:     fragments[3:],
 		NextPageToken: 0,
-	})
+	}, resp)
 
 	// Case: Fetch with a NextPageToken which does not correspond to a
 	// Begin in the fragment set.
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
 		SignatureTTL:  &oneSec,
 		NextPageToken: 120,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
-		Fragments:     fixture[3:],
+		Header:        expectHeader,
+		Fragments:     fragments[3:],
 		NextPageToken: 0,
-	})
+	}, resp)
 
 	// Case: Fetch fragments outside of time range.
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:      "a/journal",
 		BeginModTime: 10000,
 		EndModTime:   20000,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
+		Header:        expectHeader,
 		NextPageToken: 0,
-	})
+	}, resp)
 
 	// Case: Fetch fragments with a NextPageToken larger than max fragment offset.
-	resp, err = rjc.ListFragments(ctx, &pb.FragmentsRequest{
+	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal:       "a/journal",
 		NextPageToken: 1000,
 	})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.FragmentsResponse{
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
-		Header:        res.Header,
+		Header:        expectHeader,
 		NextPageToken: 0,
-	})
+	}, resp)
+
+	broker.cleanup()
 }
 
 // return a fixture which can be modified as needed over the course of a test.
@@ -295,5 +289,3 @@ func buildFragmentSet(fragments []pb.FragmentsResponse__Fragment) fragment.Cover
 	}
 	return set
 }
-
-var _ = gc.Suite(&FragmentsSuite{})

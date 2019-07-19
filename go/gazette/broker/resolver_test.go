@@ -2,145 +2,210 @@ package broker
 
 import (
 	"context"
+	"testing"
 	"time"
 
-	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
+	"go.gazette.dev/core/etcdtest"
 	pb "go.gazette.dev/core/protocol"
 )
 
-type ResolverSuite struct{}
+func TestResolveCases(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
-
-	var mkRoute = func(i int, b ...testBroker) (rt pb.Route) {
+	var mkRoute = func(i int, ids ...pb.ProcessSpec_ID) (rt pb.Route) {
 		rt = pb.Route{Primary: int32(i)}
-		for j := range b {
-			rt.Members = append(rt.Members, b[j].id)
-			rt.Endpoints = append(rt.Endpoints, b[j].Endpoint())
+		for _, id := range ids {
+			var ep pb.Endpoint
+
+			switch id {
+			case broker.id:
+				ep = broker.srv.Endpoint()
+			case peer.id:
+				ep = peer.Endpoint()
+			default:
+				panic("bad id")
+			}
+			rt.Members = append(rt.Members, id)
+			rt.Endpoints = append(rt.Endpoints, ep)
 		}
 		return
 	}
-	newTestJournal(c, tf, pb.JournalSpec{Name: "primary/journal", Replication: 2},
+	setTestJournal(broker, pb.JournalSpec{Name: "primary/journal", Replication: 2},
 		broker.id, peer.id)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "replica/journal", Replication: 2},
+	setTestJournal(broker, pb.JournalSpec{Name: "replica/journal", Replication: 2},
 		peer.id, broker.id)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "no/primary/journal", Replication: 2},
+	setTestJournal(broker, pb.JournalSpec{Name: "no/primary/journal", Replication: 2},
 		pb.ProcessSpec_ID{}, broker.id, peer.id)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "no/brokers/journal", Replication: 2})
-	newTestJournal(c, tf, pb.JournalSpec{Name: "insufficient/brokers/journal", Replication: 3},
-		broker.id, peer.id)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "peer/only/journal", Replication: 1},
+	setTestJournal(broker, pb.JournalSpec{Name: "no/brokers/journal", Replication: 2})
+	setTestJournal(broker, pb.JournalSpec{Name: "peer/only/journal", Replication: 1},
 		peer.id)
 
+	var resolver = broker.svc.resolver // Less typing.
+
 	// Expect a replica was created for each journal |broker| is responsible for.
-	c.Check(broker.resolver.replicas, gc.HasLen, 4)
+	assert.Len(t, resolver.replicas, 3)
 
 	// Case: simple resolution of local replica.
-	var r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "replica/journal"})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
+	var r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "replica/journal"})
+	assert.Equal(t, pb.Status_OK, r.status)
 	// Expect the local replica is attached.
-	c.Check(r.replica, gc.Equals, broker.resolver.replicas["replica/journal"])
+	assert.Equal(t, resolver.replicas["replica/journal"].replica, r.replica)
+	assert.NotNil(t, r.invalidateCh)
 	// As is the JournalSpec
-	c.Check(r.journalSpec.Name, gc.Equals, pb.Journal("replica/journal"))
+	assert.Equal(t, pb.Journal("replica/journal"), r.journalSpec.Name)
 	// And a Header having the correct Route (with Endpoints), Etcd header, and responsible broker ID.
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(1, broker, peer))
-	c.Check(r.Header.Etcd, gc.DeepEquals, pb.FromEtcdResponseHeader(tf.ks.Header))
+	assert.Equal(t, mkRoute(1, broker.id, peer.id), r.Header.Route)
+	assert.Equal(t, pb.FromEtcdResponseHeader(broker.ks.Header), r.Header.Etcd)
+	// The ProcessID was set to this broker, as it resolves to a local replica.
+	assert.Equal(t, broker.id, r.Header.ProcessId)
+	// And the localID was populated.
+	assert.Equal(t, broker.id, r.localID)
 
 	// Case: primary is required, and we are primary.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "primary/journal", requirePrimary: true})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, broker, peer))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "primary/journal", requirePrimary: true})
+	assert.Equal(t, pb.Status_OK, r.status)
+	assert.Equal(t, broker.id, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(0, broker.id, peer.id), r.Header.Route)
 
 	// Case: primary is required, we are not primary, and may not proxy.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "replica/journal", requirePrimary: true})
-	c.Check(r.status, gc.Equals, pb.Status_NOT_JOURNAL_PRIMARY_BROKER)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id) // Still |broker|, since it authored the response.
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(1, broker, peer))
-	c.Check(r.replica, gc.IsNil)
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "replica/journal", requirePrimary: true})
+	assert.Equal(t, pb.Status_NOT_JOURNAL_PRIMARY_BROKER, r.status)
+	// As status != OK and we authored the resolution, ProcessId is still |broker|.
+	assert.Equal(t, broker.id, r.Header.ProcessId)
+	// The current route is attached, allowing the client to resolve the discrepancy.
+	assert.Equal(t, mkRoute(1, broker.id, peer.id), r.Header.Route)
+	// As we have a replica, it's attached.
+	assert.NotNil(t, r.replica)
 
 	// Case: primary is required, and we may proxy.
-	r, _ = broker.resolver.resolve(
-		resolveArgs{ctx: tf.ctx, journal: "replica/journal", requirePrimary: true, mayProxy: true})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
-	c.Check(r.Header.ProcessId, gc.Equals, peer.id) // This time, |peer| is the resolved broker.
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(1, broker, peer))
+	r, _ = resolver.resolve(
+		resolveArgs{ctx: ctx, journal: "replica/journal", requirePrimary: true, mayProxy: true})
+	assert.Equal(t, pb.Status_OK, r.status)
+	// The resolution is specifically to |peer|.
+	assert.Equal(t, peer.id, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(1, broker.id, peer.id), r.Header.Route)
+	// Replica is also attached.
+	assert.NotNil(t, r.replica)
 
 	// Case: primary is required, we may proxy, but there is no primary.
-	r, _ = broker.resolver.resolve(
-		resolveArgs{ctx: tf.ctx, journal: "no/primary/journal", requirePrimary: true, mayProxy: true})
-	c.Check(r.status, gc.Equals, pb.Status_NO_JOURNAL_PRIMARY_BROKER)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(-1, broker, peer))
+	r, _ = resolver.resolve(
+		resolveArgs{ctx: ctx, journal: "no/primary/journal", requirePrimary: true, mayProxy: true})
+	assert.Equal(t, pb.Status_NO_JOURNAL_PRIMARY_BROKER, r.status)
+	assert.Equal(t, broker.id, r.Header.ProcessId) // We authored the error.
+	assert.Equal(t, mkRoute(-1, broker.id, peer.id), r.Header.Route)
+	assert.NotNil(t, r.replica)
 
 	// Case: we may not proxy, and are not a replica.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "peer/only/journal"})
-	c.Check(r.status, gc.Equals, pb.Status_NOT_JOURNAL_BROKER)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, peer))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal"})
+	assert.Equal(t, pb.Status_NOT_JOURNAL_BROKER, r.status)
+	assert.Equal(t, broker.id, r.Header.ProcessId) // We authored the error.
+	assert.Equal(t, mkRoute(0, peer.id), r.Header.Route)
+	assert.Nil(t, r.replica)
 
 	// Case: we may proxy, and are not a replica.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "peer/only/journal", mayProxy: true})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
-	c.Check(r.Header.ProcessId, gc.Equals, pb.ProcessSpec_ID{}) // Primary not required and non-local => no ID.
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, peer))
-
-	// Case: we require the journal be fully assigned, and it is.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "replica/journal", requireFullAssignment: true})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(1, broker, peer))
-
-	// Case: we require the journal be fully assigned, and it isn't.
-	r, _ = broker.resolver.resolve(
-		resolveArgs{ctx: tf.ctx, journal: "insufficient/brokers/journal", requireFullAssignment: true})
-	c.Check(r.status, gc.Equals, pb.Status_INSUFFICIENT_JOURNAL_BROKERS)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, broker, peer))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal", mayProxy: true})
+	assert.Equal(t, pb.Status_OK, r.status)
+	// ProcessId is left empty as we could proxy to any of multiple peers.
+	assert.Equal(t, pb.ProcessSpec_ID{}, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(0, peer.id), r.Header.Route)
+	assert.Nil(t, r.replica)
 
 	// Case: the journal has no brokers.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "no/brokers/journal", mayProxy: true})
-	c.Check(r.status, gc.Equals, pb.Status_INSUFFICIENT_JOURNAL_BROKERS)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(-1))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "no/brokers/journal", mayProxy: true})
+	assert.Equal(t, pb.Status_INSUFFICIENT_JOURNAL_BROKERS, r.status)
+	assert.Equal(t, broker.id, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(-1), r.Header.Route)
 
 	// Case: the journal doesn't exist.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "does/not/exist"})
-	c.Check(r.status, gc.Equals, pb.Status_JOURNAL_NOT_FOUND)
-	c.Check(r.Header.ProcessId, gc.Equals, broker.id)
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(-1))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "does/not/exist"})
+	assert.Equal(t, pb.Status_JOURNAL_NOT_FOUND, r.status)
+	assert.Equal(t, broker.id, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(-1), r.Header.Route)
 
 	// Case: our broker key has been removed.
-	var resp, err = tf.etcd.Delete(tf.ctx, broker.state.LocalKey)
-	c.Check(err, gc.IsNil)
+	var resp, err = etcd.Delete(ctx, resolver.state.LocalKey)
+	assert.NoError(t, err)
 
-	tf.ks.Mu.RLock()
-	c.Check(tf.ks.WaitForRevision(tf.ctx, resp.Header.Revision), gc.IsNil)
-	tf.ks.Mu.RUnlock()
+	broker.ks.Mu.RLock()
+	assert.NoError(t, broker.ks.WaitForRevision(ctx, resp.Header.Revision))
+	broker.ks.Mu.RUnlock()
 
 	// Subcase 1: We can still resolve for peer journals.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "peer/only/journal", mayProxy: true})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
-	c.Check(r.Header.ProcessId, gc.Equals, pb.ProcessSpec_ID{})
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, peer))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal", mayProxy: true})
+	assert.Equal(t, pb.Status_OK, r.status)
+	assert.Equal(t, pb.ProcessSpec_ID{}, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(0, peer.id), r.Header.Route)
+	assert.Nil(t, r.replica)
 
 	// Subcase 2: We use a placeholder ProcessId.
-	r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "peer/only/journal"})
-	c.Check(r.status, gc.Equals, pb.Status_NOT_JOURNAL_BROKER)
-	c.Check(r.Header.ProcessId, gc.Equals, pb.ProcessSpec_ID{Zone: "local-BrokerSpec", Suffix: "missing-from-Etcd"})
-	c.Check(r.Header.Route, gc.DeepEquals, mkRoute(0, peer))
+	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal"})
+	assert.Equal(t, pb.Status_NOT_JOURNAL_BROKER, r.status)
+	assert.Equal(t, pb.ProcessSpec_ID{Zone: "local-BrokerSpec", Suffix: "missing-from-Etcd"}, r.Header.ProcessId)
+	assert.Equal(t, mkRoute(0, peer.id), r.Header.Route)
+
+	broker.cleanup()
 }
 
-func (s *ResolverSuite) TestFutureRevisionCasesWithProxyHeader(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestResolverLocalReplicaStopping(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
+	setTestJournal(broker, pb.JournalSpec{Name: "peer/journal", Replication: 1}, peer.id)
+
+	// Precondition: journal & replica resolve as per expectation.
+	var r, _ = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	assert.Equal(t, pb.Status_OK, r.status)
+	assert.Equal(t, broker.id, r.Header.ProcessId)
+	assert.NotNil(t, r.replica)
+	assert.NoError(t, r.replica.ctx.Err())
+
+	broker.svc.resolver.stopServingLocalReplicas()
+
+	// Expect a route invalidation occurred immediately, to wake any awaiting RPCs.
+	<-r.invalidateCh
+	// And that the replica is then shut down.
+	<-r.replica.ctx.Done()
+
+	// Attempts to resolve a local journal fail.
+	var _, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	assert.Equal(t, errResolverStopped, err)
+	// However we'll still return proxy resolutions to peers.
+	r, _ = broker.svc.resolver.resolve(
+		resolveArgs{ctx: ctx, journal: "peer/journal", requirePrimary: true, mayProxy: true})
+	assert.Equal(t, pb.Status_OK, r.status)
+	assert.Equal(t, peer.id, r.Header.ProcessId)
+
+	// Assign new local & peer journals.
+	setTestJournal(broker, pb.JournalSpec{Name: "new/local/journal", Replication: 1}, broker.id)
+	setTestJournal(broker, pb.JournalSpec{Name: "new/peer/journal", Replication: 1}, peer.id)
+
+	// An attempt for this new local journal still fails.
+	_, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	assert.Equal(t, errResolverStopped, err)
+	// But we successfully resolve to a peer.
+	r, _ = broker.svc.resolver.resolve(
+		resolveArgs{ctx: ctx, journal: "peer/journal", requirePrimary: true, mayProxy: true})
+	assert.Equal(t, pb.Status_OK, r.status)
+	assert.Equal(t, peer.id, r.Header.ProcessId)
+
+	broker.cleanup()
+	peer.Cleanup()
+}
+
+func TestResolveFutureRevisionCasesWithProxyHeader(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
 	// Case: Request a resolution, passing along a proxyHeader fixture which
 	// references a future Etcd Revision. In the background, arrange for that Etcd
@@ -151,61 +216,63 @@ func (s *ResolverSuite) TestFutureRevisionCasesWithProxyHeader(c *gc.C) {
 		Route: pb.Route{
 			Members:   []pb.ProcessSpec_ID{broker.id},
 			Primary:   0,
-			Endpoints: []pb.Endpoint{broker.Endpoint()},
+			Endpoints: []pb.Endpoint{broker.srv.Endpoint()},
 		},
-		Etcd: pb.FromEtcdResponseHeader(tf.ks.Header),
+		Etcd: pb.FromEtcdResponseHeader(broker.ks.Header),
 	}
 	hdr.Etcd.Revision += 1
 
-	go func() {
-		time.Sleep(time.Millisecond)
-		newTestJournal(c, tf, pb.JournalSpec{Name: "journal/one", Replication: 1}, broker.id)
-	}()
+	time.AfterFunc(time.Millisecond, func() {
+		setTestJournal(broker, pb.JournalSpec{Name: "journal/one", Replication: 1}, broker.id)
+	})
 
 	// Expect the resolution succeeds, despite the journal not yet existing.
-	var r, _ = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "journal/one", proxyHeader: &hdr})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
-	c.Check(r.Header, gc.DeepEquals, hdr)
+	var r, _ = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "journal/one", proxyHeader: &hdr})
+	assert.Equal(t, pb.Status_OK, r.status)
+	assert.Equal(t, hdr, r.Header)
 
 	// Case: this time, specify a future revision via |minEtcdRevision|. Expect that also works.
-	go func() {
-		time.Sleep(time.Millisecond)
-		newTestJournal(c, tf, pb.JournalSpec{Name: "journal/two", Replication: 1}, broker.id)
-	}()
-
-	r, _ = broker.resolver.resolve(
-		resolveArgs{ctx: tf.ctx, journal: "journal/two", minEtcdRevision: tf.ks.Header.Revision + 1})
-	c.Check(r.status, gc.Equals, pb.Status_OK)
+	var futureRevision = broker.ks.Header.Revision + 1
+	// Race an update of the journal with resolve(futureRevision).
+	time.AfterFunc(time.Millisecond, func() {
+		setTestJournal(broker, pb.JournalSpec{Name: "journal/two", Replication: 1}, broker.id)
+	})
+	r, _ = broker.svc.resolver.resolve(
+		resolveArgs{ctx: ctx, journal: "journal/two", minEtcdRevision: futureRevision})
+	assert.Equal(t, pb.Status_OK, r.status)
 
 	// Case: finally, specify a future revision which doesn't come about and cancel the context.
-	go cleanup()
+	ctx, cancel := context.WithCancel(ctx)
+	time.AfterFunc(time.Millisecond, cancel)
 
-	var _, err = broker.resolver.resolve(
-		resolveArgs{ctx: tf.ctx, journal: "journal/three", minEtcdRevision: tf.ks.Header.Revision + 1e10})
-	c.Check(err, gc.Equals, context.Canceled)
+	var _, err = broker.svc.resolver.resolve(
+		resolveArgs{ctx: ctx, journal: "journal/three", minEtcdRevision: futureRevision + 1e10})
+	assert.Equal(t, context.Canceled, err)
+
+	broker.cleanup()
 }
 
-func (s *ResolverSuite) TestProxyHeaderErrorCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestResolveProxyHeaderErrorCases(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
 	var proxy = pb.Header{
 		ProcessId: pb.ProcessSpec_ID{Zone: "other", Suffix: "id"},
 		Route:     pb.Route{Primary: -1},
-		Etcd:      pb.FromEtcdResponseHeader(tf.ks.Header),
+		Etcd:      pb.FromEtcdResponseHeader(broker.ks.Header),
 	}
 
 	// Case: proxy header references a broker other than this one.
-	var _, err = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal", proxyHeader: &proxy})
-	c.Check(err, gc.ErrorMatches, `proxied request ProcessId doesn't match our own \(zone.*`)
+	var _, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal", proxyHeader: &proxy})
+	assert.Regexp(t, `proxied request ProcessId doesn't match our own \(zone.*`, err)
 	proxy.ProcessId = broker.id
 
 	// Case: proxy header references a ClusterId other than our own.
 	proxy.Etcd.ClusterId = 8675309
-	_, err = broker.resolver.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal", proxyHeader: &proxy})
-	c.Check(err, gc.ErrorMatches, `proxied request Etcd ClusterId doesn't match our own \(\d+.*`)
-}
+	_, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal", proxyHeader: &proxy})
+	assert.Regexp(t, `proxied request Etcd ClusterId doesn't match our own \(\d+.*`, err)
 
-var _ = gc.Suite(&ResolverSuite{})
+	broker.cleanup()
+}

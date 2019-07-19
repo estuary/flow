@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"net"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -11,70 +12,110 @@ import (
 	"go.gazette.dev/core/fragment"
 	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
 )
 
 // Read dispatches the JournalServer.Read API.
 func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err error) {
-	defer instrumentJournalServerOp("read", &err, time.Now())
+	var resolved *resolution
+	defer instrumentJournalServerOp("Read", &err, &resolved, time.Now())
+
+	defer func() {
+		if err != nil {
+			var addr net.Addr
+			if p, ok := peer.FromContext(stream.Context()); ok {
+				addr = p.Addr
+			}
+			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
+				Warn("served Read RPC failed")
+		}
+	}()
+
 	if err = req.Validate(); err != nil {
 		return err
 	}
 
-	var res resolution
-	res, err = svc.resolver.resolve(resolveArgs{
-		ctx:                   stream.Context(),
-		journal:               req.Journal,
-		mayProxy:              !req.DoNotProxy,
-		requirePrimary:        false,
-		requireFullAssignment: false,
-		proxyHeader:           req.Header,
+	resolved, err = svc.resolver.resolve(resolveArgs{
+		ctx:            stream.Context(),
+		journal:        req.Journal,
+		mayProxy:       !req.DoNotProxy,
+		requirePrimary: false,
+		proxyHeader:    req.Header,
 	})
 
 	if err != nil {
 		return err
-	} else if res.status != pb.Status_OK {
-		err = stream.Send(&pb.ReadResponse{Status: res.status, Header: &res.Header})
-		return err
-	} else if !res.journalSpec.Flags.MayRead() {
-		err = stream.Send(&pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
-		return err
-	} else if res.replica == nil {
-		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
-		err = proxyRead(stream, req, svc.jc)
-		return err
+	} else if resolved.status != pb.Status_OK {
+		return stream.Send(&pb.ReadResponse{Status: resolved.status, Header: &resolved.Header})
+	} else if !resolved.journalSpec.Flags.MayRead() {
+		return stream.Send(&pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &resolved.Header})
+	} else if resolved.ProcessId != resolved.localID {
+		req.Header = &resolved.Header // Attach resolved Header to |req|, which we'll forward.
+		return proxyRead(stream, req, svc.jc, svc.stopProxyReadsCh)
 	}
 
-	if err = serveRead(stream, req, &res.Header, res.replica.index); err == context.Canceled {
-		err = nil // Gracefully terminate RPC.
-	} else if err != nil {
-		log.WithFields(log.Fields{"err": err, "req": req}).Warn("failed to serve Read")
+	err = serveRead(stream, req, &resolved.Header, resolved.replica.index)
+
+	// Blocking Read RPCs live indefinitely, until cancelled by the caller or
+	// due to journal reassignment. Interpret cancellation as a graceful closure
+	// of the RPC and not an error.
+	if err == context.Canceled {
+		err = nil
 	}
 	return err
 }
 
 // proxyRead forwards a ReadRequest to a resolved peer broker.
-func proxyRead(stream grpc.ServerStream, req *pb.ReadRequest, jc pb.JournalClient) error {
+func proxyRead(stream grpc.ServerStream, req *pb.ReadRequest, jc pb.JournalClient, stopCh <-chan struct{}) error {
 	var ctx = pb.WithDispatchRoute(stream.Context(), req.Header.Route, req.Header.ProcessId)
 
+	// We use the |stream| context for this RPC, which means a cancellation from
+	// our client automatically propagates to the proxy |client| stream.
 	var client, err = jc.Read(ctx, req)
 	if err != nil {
 		return err
 	}
-	// Ignore CloseSend's error. Currently, gRPC will never return one. If the
-	// stream is broken, it *could* return io.EOF but we'd rather read the actual
-	// casual error with RecvMsg.
-	_ = client.CloseSend()
+	var chunkCh = make(chan proxyChunk, 8)
 
-	var resp = new(pb.ReadResponse)
+	// Start a "pump" of |client| reads that we'll select from.
+	go func() {
+		var resp pb.ReadResponse
+		for {
+			var err = client.RecvMsg(&resp)
+
+			select {
+			case chunkCh <- proxyChunk{resp: resp, err: err}:
+				if err != nil {
+					return
+				}
+			case <-ctx.Done():
+				return // RPC complete.
+			}
+		}
+	}()
+
+	// Read and proxy chunks from |client|, or immediately halt with EOF
+	// if |stopCh| is signaled.
+	var chunk proxyChunk
 	for {
-		if err = client.RecvMsg(resp); err == io.EOF {
+		select {
+		case chunk = <-chunkCh:
+			if chunk.err == io.EOF {
+				return nil
+			} else if chunk.err != nil {
+				return chunk.err
+			} else if err = stream.SendMsg(&chunk.resp); err != nil {
+				return err
+			}
+		case <-stopCh:
 			return nil
-		} else if err != nil {
-			return err
-		} else if err = stream.SendMsg(resp); err != nil {
-			return err
 		}
 	}
+}
+
+type proxyChunk struct {
+	resp pb.ReadResponse
+	err  error
 }
 
 // serveRead evaluates a client's Read RPC against the local replica index.

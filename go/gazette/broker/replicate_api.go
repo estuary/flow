@@ -3,58 +3,78 @@ package broker
 import (
 	"fmt"
 	"io"
+	"net"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/fragment"
 	pb "go.gazette.dev/core/protocol"
+	"google.golang.org/grpc/peer"
 )
 
 // Replicate dispatches the JournalServer.Replicate API.
-func (srv *Service) Replicate(stream pb.Journal_ReplicateServer) error {
-	var err error
-	defer instrumentJournalServerOp("replicate", &err, time.Now())
+func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
+	var (
+		req      *pb.ReplicateRequest
+		resolved *resolution
+	)
+	defer instrumentJournalServerOp("Replicate", &err, &resolved, time.Now())
 
-	req, err := stream.Recv()
-	if err != nil {
+	defer func() {
+		if err != nil {
+			var addr net.Addr
+			if p, ok := peer.FromContext(stream.Context()); ok {
+				addr = p.Addr
+			}
+			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
+				Warn("served Replicate RPC failed")
+		}
+	}()
+
+	if req, err = stream.Recv(); err != nil {
 		return err
 	} else if err = req.Validate(); err != nil {
 		return err
 	}
 
-	var res resolution
-	res, err = srv.resolver.resolve(resolveArgs{
-		ctx:                   stream.Context(),
-		journal:               req.Journal,
-		mayProxy:              false,
-		requirePrimary:        false,
-		requireFullAssignment: true,
-		proxyHeader:           req.Header,
-	})
-	if err != nil {
-		return err
-	} else if res.status != pb.Status_OK {
-		return stream.Send(&pb.ReplicateResponse{Status: res.status, Header: &res.Header})
-	} else if !res.Header.Route.Equivalent(&req.Header.Route) {
-		// Require that the request Route is equivalent to the Route we resolved to.
-		return stream.Send(&pb.ReplicateResponse{Status: pb.Status_WRONG_ROUTE, Header: &res.Header})
-	}
-
 	var spool fragment.Spool
-	if spool, err = acquireSpool(stream.Context(), res.replica); err != nil {
-		return err
+	for done := false; !done; {
+		resolved, err = svc.resolver.resolve(resolveArgs{
+			ctx:            stream.Context(),
+			journal:        req.Journal,
+			mayProxy:       false,
+			requirePrimary: false,
+			proxyHeader:    req.Header,
+		})
+		if err != nil {
+			return err
+		} else if resolved.status != pb.Status_OK {
+			return stream.Send(&pb.ReplicateResponse{Status: resolved.status, Header: &resolved.Header})
+		} else if !resolved.Header.Route.Equivalent(&req.Header.Route) {
+			// Require that the request Route is equivalent to the Route we resolved to.
+			return stream.Send(&pb.ReplicateResponse{Status: pb.Status_WRONG_ROUTE, Header: &resolved.Header})
+		}
+
+		// Attempt to obtain exclusive ownership of the replica's Spool.
+		select {
+		case spool = <-resolved.replica.spoolCh:
+			addTrace(stream.Context(), "<-replica.spoolCh => %s", spool)
+			done = true
+		case <-stream.Context().Done(): // Request was cancelled.
+			return stream.Context().Err()
+		case <-resolved.invalidateCh: // Replica assignments changed.
+			addTrace(stream.Context(), " ... resolution was invalidated")
+			// Loop to retry.
+		}
 	}
 
 	// Serve the long-lived replication pipeline. When it completes, roll-back
 	// any uncommitted content and release ownership of Spool.
-	spool, err = serveReplicate(stream, req, spool, &res.Header)
+	spool, err = serveReplicate(stream, req, spool, &resolved.Header)
 
 	spool.MustApply(&pb.ReplicateRequest{Proposal: &spool.Fragment.Fragment})
-	res.replica.spoolCh <- spool
+	resolved.replica.spoolCh <- spool
 
-	if err != nil {
-		log.WithFields(log.Fields{"err": err, "req": req}).Warn("failed to serve Replicate")
-	}
 	return err
 }
 

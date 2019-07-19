@@ -2,74 +2,72 @@ package broker
 
 import (
 	"context"
+	"net"
 	"sort"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/fragment"
 	pb "go.gazette.dev/core/protocol"
+	"google.golang.org/grpc/peer"
 )
 
 var defaultPageLimit = int32(1000)
 
 // ListFragments dispatches the JournalServer.ListFragments API.
-func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-	var err error
-	defer instrumentJournalServerOp("list_fragments", &err, time.Now())
+func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (resp *pb.FragmentsResponse, err error) {
+	var res *resolution
+	defer instrumentJournalServerOp("ListFragments", &err, &res, time.Now())
+
+	defer func() {
+		if err != nil {
+			var addr net.Addr
+			if p, ok := peer.FromContext(ctx); ok {
+				addr = p.Addr
+			}
+			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
+				Warn("served ListFragments RPC failed")
+		}
+	}()
 
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	if req.PageLimit == 0 {
+		req.PageLimit = defaultPageLimit
+	}
 
-	var res resolution
 	res, err = svc.resolver.resolve(resolveArgs{
-		ctx:                   ctx,
-		journal:               req.Journal,
-		mayProxy:              !req.DoNotProxy,
-		requirePrimary:        false,
-		requireFullAssignment: false,
-		proxyHeader:           req.Header,
+		ctx:            ctx,
+		journal:        req.Journal,
+		mayProxy:       !req.DoNotProxy,
+		requirePrimary: false,
+		proxyHeader:    req.Header,
 	})
 
 	if err != nil {
 		return nil, err
 	} else if res.status != pb.Status_OK {
-		return &pb.FragmentsResponse{Status: res.status, Header: res.Header}, err
+		return &pb.FragmentsResponse{Status: res.status, Header: res.Header}, nil
 	} else if !res.journalSpec.Flags.MayRead() {
-		return &pb.FragmentsResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header}, err
+		return &pb.FragmentsResponse{Status: pb.Status_NOT_ALLOWED, Header: res.Header}, nil
 	} else if res.replica == nil {
 		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 		ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
-
-		var resp *pb.FragmentsResponse
-		resp, err = svc.jc.ListFragments(ctx, req)
-		return resp, err
-	}
-
-	if req.PageLimit == 0 {
-		req.PageLimit = int32(defaultPageLimit)
-	}
-
-	if err = res.replica.index.WaitForFirstRemoteRefresh(ctx); err != nil {
-		err = pb.ExtendContext(err, "error waiting for index")
+		return svc.jc.ListFragments(ctx, req)
+	} else if err = res.replica.index.WaitForFirstRemoteRefresh(ctx); err != nil {
 		return nil, err
 	}
 
-	var resp = &pb.FragmentsResponse{
+	resp = &pb.FragmentsResponse{
 		Status: pb.Status_OK,
 		Header: res.Header,
 	}
-	if err = res.replica.index.Inspect(func(fragmentSet fragment.CoverSet) error {
+	err = res.replica.index.Inspect(func(fragmentSet fragment.CoverSet) error {
 		resp.Fragments, resp.NextPageToken, err = listFragments(req, fragmentSet)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return resp, nil
+		return err
+	})
+	return resp, err
 }
 
 // List FragmentsResponse__Fragment matching the query, and return the
@@ -80,8 +78,7 @@ func listFragments(req *pb.FragmentsRequest, set fragment.CoverSet) ([]pb.Fragme
 	var next = sort.Search(len(set), func(i int) bool {
 		return set[i].Begin >= req.NextPageToken
 	})
-
-	// TODO(johnny): Sanity check size before allocating?
+	// Request validation sanity-checked that PageLimit isn't absurdly large.
 	var out = make([]pb.FragmentsResponse__Fragment, 0, req.PageLimit)
 
 	for ; next != len(set) && len(out) != cap(out); next++ {

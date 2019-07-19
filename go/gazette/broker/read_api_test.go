@@ -7,34 +7,33 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 
-	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
 	"go.gazette.dev/core/codecs"
+	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/fragment"
 	pb "go.gazette.dev/core/protocol"
 )
 
-type ReadSuite struct{}
-
-func (s *ReadSuite) TestStreaming(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestReadStreaming(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
 	// Make |chunkSize| small so we can test for chunking effects.
 	defer func(cs int) { chunkSize = cs }(chunkSize)
 	chunkSize = 5
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
-	var spool, err = acquireSpool(tf.ctx, res.replica)
-	c.Check(err, gc.IsNil)
+	// Grab the spool so we can apply fixtures we'll expect to read.
+	var spool = <-broker.replica("a/journal").spoolCh
 
-	var streamCtx, streamCancel = context.WithCancel(pb.WithDispatchDefault(tf.ctx))
+	ctx, cancel := context.WithCancel(ctx)
 
-	stream, err := broker.MustClient().Read(streamCtx,
+	var stream, err = broker.client().Read(ctx,
 		&pb.ReadRequest{
 			Journal:      "a/journal",
 			Offset:       0,
@@ -42,15 +41,14 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 			DoNotProxy:   true,
 			MetadataOnly: false,
 		})
-	c.Assert(err, gc.IsNil)
-	c.Check(stream.CloseSend(), gc.IsNil)
+	assert.NoError(t, err)
 
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("foobarbaz")})
 	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
-		Header:    &res.Header,
+		Header:    broker.header("a/journal"),
 		Offset:    0,
 		WriteHead: 9,
 		Fragment: &pb.Fragment{
@@ -61,12 +59,12 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:  pb.Status_OK,
 		Offset:  0,
 		Content: []byte("fooba"),
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:  pb.Status_OK,
 		Offset:  5,
 		Content: []byte("rbaz"),
@@ -77,7 +75,7 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("bing")})
 	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
 		Offset:    9,
 		WriteHead: 13,
@@ -89,44 +87,44 @@ func (s *ReadSuite) TestStreaming(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:  pb.Status_OK,
 		Offset:  9,
 		Content: []byte("bing"),
 	})
 
-	streamCancel()
+	cancel()
 	_, err = stream.Recv()
-	c.Check(err, gc.ErrorMatches, `rpc error: code = Canceled .*`)
+	assert.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
+
+	broker.replica("a/journal").spoolCh <- spool
+	broker.cleanup()
 }
 
-func (s *ReadSuite) TestMetadataAndNonBlocking(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestReadMetadataAndNonBlocking(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
-	var spool, err = acquireSpool(tf.ctx, res.replica)
-	c.Check(err, gc.IsNil)
+	// Grab the spool so we can apply fixtures we'll expect to read.
+	var spool = <-broker.replica("a/journal").spoolCh
 
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("feedbeef")})
 	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
 
-	var ctx = pb.WithDispatchDefault(tf.ctx)
-	stream, err := broker.MustClient().Read(ctx, &pb.ReadRequest{
+	stream, err := broker.client().Read(ctx, &pb.ReadRequest{
 		Journal:      "a/journal",
 		Offset:       3,
 		Block:        false,
 		MetadataOnly: false,
 	})
-	c.Assert(err, gc.IsNil)
-	c.Check(stream.CloseSend(), gc.IsNil)
+	assert.NoError(t, err)
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
-		Header:    &res.Header,
+		Header:    broker.header("a/journal"),
 		Offset:    3,
 		WriteHead: 8,
 		Fragment: &pb.Fragment{
@@ -137,37 +135,35 @@ func (s *ReadSuite) TestMetadataAndNonBlocking(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:  pb.Status_OK,
 		Offset:  3,
 		Content: []byte("dbeef"),
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OFFSET_NOT_YET_AVAILABLE,
 		Offset:    8,
 		WriteHead: 8,
 	})
-
-	_, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	_, err = stream.Recv() // Broker closes.
+	assert.Equal(t, io.EOF, err)
 
 	// Now, issue a blocking metadata-only request.
-	stream, err = broker.MustClient().Read(ctx, &pb.ReadRequest{
+	stream, err = broker.client().Read(ctx, &pb.ReadRequest{
 		Journal:      "a/journal",
 		Offset:       8,
 		Block:        true,
 		MetadataOnly: true,
 	})
-	c.Assert(err, gc.IsNil)
-	c.Check(stream.CloseSend(), gc.IsNil)
+	assert.NoError(t, err)
 
 	// Commit more content, unblocking our metadata request.
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("bing")})
 	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
-		Header:    &res.Header,
+		Header:    broker.header("a/journal"),
 		Offset:    8,
 		WriteHead: 12,
 		Fragment: &pb.Fragment{
@@ -178,99 +174,110 @@ func (s *ReadSuite) TestMetadataAndNonBlocking(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 	})
-
 	// Expect no data is sent, and the stream is closed.
 	_, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	assert.Equal(t, io.EOF, err)
+
+	broker.replica("a/journal").spoolCh <- spool
+	broker.cleanup()
 }
 
-func (s *ReadSuite) TestProxyCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestReadProxyCases(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 1}, peer.id)
-
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal", mayProxy: true})
-	var ctx = pb.WithDispatchDefault(tf.ctx)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, peer.id)
 
 	// Case: successfully proxies from peer.
 	var req = &pb.ReadRequest{
 		Journal:      "a/journal",
-		Offset:       0,
 		Block:        true,
 		DoNotProxy:   false,
 		MetadataOnly: false,
 	}
-	var stream, _ = broker.MustClient().Read(ctx, req)
+	var stream, _ = broker.client().Read(ctx, req)
 
-	// Expect initial request is proxied to the peer, with attached Header, followed by client EOF.
-	req.Header = &res.Header
-	c.Check(<-peer.ReadReqCh, gc.DeepEquals, req)
+	// Expect initial request is proxied to the peer, with attached Header.
+	req.Header = broker.header("a/journal")
+	assert.Equal(t, req, <-peer.ReadReqCh)
 
+	// Peer responds, and broker proxies.
 	peer.ReadRespCh <- &pb.ReadResponse{Offset: 1234}
 	peer.ReadRespCh <- &pb.ReadResponse{Offset: 5678}
-	peer.ErrCh <- nil
+	peer.ErrCh <- nil // EOF.
 
-	expectReadResponse(c, stream, pb.ReadResponse{Offset: 1234})
-	expectReadResponse(c, stream, pb.ReadResponse{Offset: 5678})
-
-	var _, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	expectReadResponse(t, stream, pb.ReadResponse{Offset: 1234})
+	expectReadResponse(t, stream, pb.ReadResponse{Offset: 5678})
+	var _, err = stream.Recv() // Broker proxies EOF.
+	assert.Equal(t, io.EOF, err)
 
 	// Case: proxy is not allowed.
 	req = &pb.ReadRequest{
 		Journal:    "a/journal",
-		Offset:     0,
 		DoNotProxy: true,
 	}
-	stream, _ = broker.MustClient().Read(ctx, req)
+	stream, _ = broker.client().Read(ctx, req)
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status: pb.Status_NOT_JOURNAL_BROKER,
-		Header: boxHeaderProcessID(res.Header, broker.id),
+		Header: boxHeaderProcessID(*broker.header("a/journal"), broker.id),
 	})
-
-	_, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	_, err = stream.Recv() // Broker closes.
+	assert.Equal(t, io.EOF, err)
 
 	// Case: remote broker returns an error.
 	req = &pb.ReadRequest{
 		Journal: "a/journal",
 		Offset:  0,
 	}
-	stream, _ = broker.MustClient().Read(ctx, req)
+	stream, _ = broker.client().Read(ctx, req)
 
 	// Peer reads request, and returns an error.
-	<-peer.ReadReqCh
+	_ = <-peer.ReadReqCh
 	peer.ErrCh <- errors.New("some kind of error")
+	_, err = stream.Recv() // Broker proxies error.
+	assert.EqualError(t, err, `rpc error: code = Unknown desc = some kind of error`)
 
+	// Case: remote read is blocked, but we're signaled to stop proxying.
+	stream, _ = broker.client().Read(ctx, req)
+
+	// Peer reads request, sends one chunk and then blocks.
+	_ = <-peer.ReadReqCh
+	peer.ReadRespCh <- &pb.ReadResponse{Offset: 1234}
+	expectReadResponse(t, stream, pb.ReadResponse{Offset: 1234})
+
+	// Cancel. Expect we immediately read EOF.
+	close(broker.svc.stopProxyReadsCh)
 	_, err = stream.Recv()
-	c.Check(err, gc.ErrorMatches, `rpc error: code = Unknown desc = some kind of error`)
+	assert.Equal(t, io.EOF, err)
+	broker.svc.stopProxyReadsCh = make(chan struct{}) // Cleanup.
+
+	broker.cleanup()
+	peer.Cleanup()
 }
 
-func (s *ReadSuite) TestRemoteFragmentCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestReadRemoteFragmentCases(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 
 	// Create a remote fragment fixture with journal content.
-	var frag, tmpDir = buildRemoteFragmentFixture(c)
+	var frag, tmpDir = buildRemoteFragmentFixture(t)
 
-	defer func() { c.Check(os.RemoveAll(tmpDir), gc.IsNil) }()
+	defer func() { assert.NoError(t, os.RemoveAll(tmpDir)) }()
 	defer func(s string) { fragment.FileSystemStoreRoot = s }(fragment.FileSystemStoreRoot)
 	fragment.FileSystemStoreRoot = tmpDir
 
 	// Resolve, and update the replica index to reflect the remote fragment fixture.
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
-	res.replica.index.ReplaceRemote(fragment.CoverSet{fragment.Fragment{Fragment: frag}})
+	broker.replica("a/journal").index.ReplaceRemote(fragment.CoverSet{fragment.Fragment{Fragment: frag}})
 
 	// Case: non-blocking read which is permitted to proxy. Expect the remote
 	// fragment is decompressed and seek'd to the desired offset.
-	stream, err := broker.MustClient().Read(pb.WithDispatchDefault(tf.ctx),
+	var stream, err = broker.client().Read(pb.WithDispatchDefault(ctx),
 		&pb.ReadRequest{
 			Journal:      "a/journal",
 			Offset:       100,
@@ -278,32 +285,31 @@ func (s *ReadSuite) TestRemoteFragmentCases(c *gc.C) {
 			DoNotProxy:   false,
 			MetadataOnly: false,
 		})
-	c.Assert(err, gc.IsNil)
-	c.Check(stream.CloseSend(), gc.IsNil)
+	assert.NoError(t, err)
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:      pb.Status_OK,
-		Header:      &res.Header,
+		Header:      broker.header("a/journal"),
 		Offset:      100,
 		WriteHead:   120,
 		Fragment:    &frag,
 		FragmentUrl: "file:///" + frag.ContentPath(),
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:  pb.Status_OK,
 		Offset:  100,
 		Content: []byte("remote fragment data"),
 	})
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OFFSET_NOT_YET_AVAILABLE,
 		Offset:    120,
 		WriteHead: 120,
 	})
-	_, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	_, err = stream.Recv() // Broker closes with remote fragment EOF.
+	assert.Equal(t, io.EOF, err)
 
 	// Case: non-blocking read which is not permitted to proxy. Remote fragment is not read.
-	stream, err = broker.MustClient().Read(pb.WithDispatchDefault(tf.ctx),
+	stream, err = broker.client().Read(pb.WithDispatchDefault(ctx),
 		&pb.ReadRequest{
 			Journal:      "a/journal",
 			Offset:       100,
@@ -311,53 +317,56 @@ func (s *ReadSuite) TestRemoteFragmentCases(c *gc.C) {
 			DoNotProxy:   true,
 			MetadataOnly: false,
 		})
-	c.Assert(err, gc.IsNil)
-	c.Check(stream.CloseSend(), gc.IsNil)
+	assert.NoError(t, err)
 
-	expectReadResponse(c, stream, pb.ReadResponse{
+	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:      pb.Status_OK,
-		Header:      &res.Header,
+		Header:      broker.header("a/journal"),
 		Offset:      100,
 		WriteHead:   120,
 		Fragment:    &frag,
 		FragmentUrl: "file:///" + frag.ContentPath(),
 	})
-	_, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	_, err = stream.Recv() // Broker closes.
+	assert.Equal(t, io.EOF, err)
+
+	broker.cleanup()
 }
 
-func (s *ReadSuite) TestRequestErrorCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestReadRequestErrorCases(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var ctx = pb.WithDispatchDefault(tf.ctx)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
 	// Case: ReadRequest which fails to validate.
-	var stream, err = broker.MustClient().Read(ctx, &pb.ReadRequest{Journal: "/invalid/journal"})
-	c.Assert(err, gc.IsNil)
+	var stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "/invalid/journal"})
+	assert.NoError(t, err)
 
 	_, err = stream.Recv()
-	c.Check(err, gc.ErrorMatches, `rpc error: code = Unknown desc = Journal: cannot begin with '/' .*`)
+	assert.EqualError(t, err, `rpc error: code = Unknown desc = Journal: cannot begin with '/' (/invalid/journal)`)
 
 	// Case: Read of a write-only journal.
-	newTestJournal(c, tf, pb.JournalSpec{Name: "write/only", Replication: 1, Flags: pb.JournalSpec_O_WRONLY}, broker.id)
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "write/only"})
-
-	stream, err = broker.MustClient().Read(ctx, &pb.ReadRequest{Journal: "write/only"})
-	c.Assert(err, gc.IsNil)
+	setTestJournal(broker, pb.JournalSpec{Name: "write/only", Replication: 1, Flags: pb.JournalSpec_O_WRONLY}, broker.id)
+	stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "write/only"})
+	assert.NoError(t, err)
 
 	resp, err := stream.Recv()
-	c.Assert(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.ReadResponse{Status: pb.Status_NOT_ALLOWED, Header: &res.Header})
+	assert.NoError(t, err)
+	assert.Equal(t, &pb.ReadResponse{
+		Status: pb.Status_NOT_ALLOWED,
+		Header: broker.header("write/only"),
+	}, resp)
+
+	broker.cleanup()
 }
 
-func buildRemoteFragmentFixture(c *gc.C) (frag pb.Fragment, dir string) {
+func buildRemoteFragmentFixture(t assert.TestingT) (frag pb.Fragment, dir string) {
 	const data = "XXXXXremote fragment data"
 
 	var err error
 	dir, err = ioutil.TempDir("", "BrokerSuite")
-	c.Assert(err, gc.IsNil)
+	assert.NoError(t, err)
 
 	frag = pb.Fragment{
 		Journal:          "a/journal",
@@ -370,26 +379,24 @@ func buildRemoteFragmentFixture(c *gc.C) (frag pb.Fragment, dir string) {
 	}
 
 	var path = filepath.Join(dir, frag.ContentPath())
-	c.Assert(os.MkdirAll(filepath.Dir(path), 0700), gc.IsNil)
+	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
 
 	file, err := os.Create(path)
-	c.Assert(err, gc.IsNil)
+	assert.NoError(t, err)
 
 	comp, err := codecs.NewCodecWriter(file, pb.CompressionCodec_SNAPPY)
-	c.Assert(err, gc.IsNil)
+	assert.NoError(t, err)
 	_, err = comp.Write([]byte(data))
-	c.Assert(err, gc.IsNil)
-	c.Assert(comp.Close(), gc.IsNil)
-	c.Assert(file.Close(), gc.IsNil)
+	assert.NoError(t, err)
+	assert.NoError(t, comp.Close())
+	assert.NoError(t, file.Close())
 	return
 }
 
 func boxFragment(f pb.Fragment) *pb.Fragment { return &f }
 
-func expectReadResponse(c *gc.C, stream pb.Journal_ReadClient, expect pb.ReadResponse) {
+func expectReadResponse(t assert.TestingT, stream pb.Journal_ReadClient, expect pb.ReadResponse) {
 	var resp, err = stream.Recv()
-	c.Check(err, gc.IsNil)
-	c.Check(*resp, gc.DeepEquals, expect)
+	assert.NoError(t, err)
+	assert.Equal(t, expect, *resp)
 }
-
-var _ = gc.Suite(&ReadSuite{})

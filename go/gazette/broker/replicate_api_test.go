@@ -1,46 +1,47 @@
 package broker
 
 import (
+	"context"
 	"io"
+	"testing"
 
-	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/etcdtest"
 	pb "go.gazette.dev/core/protocol"
 )
 
-type ReplicateSuite struct{}
+func TestReplicateStreamAndCommit(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-func (s *ReplicateSuite) TestStreamAndCommit(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2},
+		pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"}, broker.id)
+	var expectHeader = broker.header("a/journal")
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
-
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, peer.id, broker.id)
-	var res, _ = broker.resolve(resolveArgs{ctx: tf.ctx, journal: "a/journal"})
-	var stream, _ = broker.MustClient().Replicate(pb.WithDispatchDefault(tf.ctx))
-
-	// Initial sync.
-	c.Check(stream.Send(&pb.ReplicateRequest{
+	// Start stream & initial sync.
+	var stream, _ = broker.client().Replicate(ctx)
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Journal: "a/journal",
-		Header:  &res.Header,
+		Header:  expectHeader,
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Acknowledge: true,
-	}), gc.IsNil)
-	expectReplResponse(c, stream, &pb.ReplicateResponse{Status: pb.Status_OK, Header: &res.Header})
+	}))
+	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK, Header: expectHeader})
 
 	// Replicate content.
-	c.Check(stream.Send(&pb.ReplicateRequest{Content: []byte("foobar"), ContentDelta: 0}), gc.IsNil)
-	c.Check(stream.Send(&pb.ReplicateRequest{Content: []byte("bazbing"), ContentDelta: 6}), gc.IsNil)
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("foobar"), ContentDelta: 0}))
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("bazbing"), ContentDelta: 6}))
 
 	// Precondition: content not observable in the Fragment index.
-	c.Check(res.replica.index.EndOffset(), gc.Equals, int64(0))
+	assert.Equal(t, int64(0), broker.replica("a/journal").index.EndOffset())
 
 	// Commit.
-	c.Check(stream.Send(&pb.ReplicateRequest{
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            0,
@@ -49,83 +50,76 @@ func (s *ReplicateSuite) TestStreamAndCommit(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Acknowledge: true,
-	}), gc.IsNil)
-	expectReplResponse(c, stream, &pb.ReplicateResponse{Status: pb.Status_OK})
+	}))
+	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK})
 
 	// Post-condition: content is now observable.
-	c.Check(res.replica.index.EndOffset(), gc.Equals, int64(13))
+	assert.Equal(t, int64(13), broker.replica("a/journal").index.EndOffset())
 
-	// Send EOF and expect one.
-	c.Check(stream.CloseSend(), gc.IsNil)
+	// Send EOF and expect its returned.
+	assert.NoError(t, stream.CloseSend())
 	var _, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	assert.Equal(t, io.EOF, err)
+
+	broker.cleanup()
 }
 
-func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
-	var tf, cleanup = newTestFixture(c)
-	defer cleanup()
+func TestReplicateRequestErrorCases(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
 
-	var broker = newTestBroker(c, tf, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}, newReplica)
-	var peer = newMockBroker(c, tf, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
-
-	var ctx = pb.WithDispatchDefault(tf.ctx)
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
 	// Case: Resolution error (Journal not found).
-	var stream, _ = broker.MustClient().Replicate(ctx)
-	var res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "does/not/exist"})
-
-	c.Check(stream.Send(&pb.ReplicateRequest{
+	var stream, _ = broker.client().Replicate(ctx)
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Journal: "does/not/exist",
-		Header:  &res.Header,
+		Header:  broker.header("does/not/exist"),
 		Proposal: &pb.Fragment{
 			Journal:          "does/not/exist",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Acknowledge: true,
-	}), gc.IsNil)
-
-	expectReplResponse(c, stream, &pb.ReplicateResponse{
+	}))
+	expectReplResponse(t, stream, &pb.ReplicateResponse{
 		Status: pb.Status_JOURNAL_NOT_FOUND,
-		Header: &res.Header,
+		Header: broker.header("does/not/exist"),
 	})
-
 	// Expect broker closes.
 	var _, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	assert.Equal(t, io.EOF, err)
 
 	// Case: request Route doesn't match the broker's own resolution.
-	newTestJournal(c, tf, pb.JournalSpec{Name: "a/journal", Replication: 2}, peer.id, broker.id)
-	stream, _ = broker.MustClient().Replicate(ctx)
-	res, _ = broker.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2},
+		pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"}, broker.id)
+	stream, _ = broker.client().Replicate(ctx)
 
-	var hdr = res.Header
-	hdr.Route = pb.Route{Primary: -1}
+	var wrongHeader = broker.header("a/journal")
+	wrongHeader.Route = pb.Route{Primary: -1}
 
-	c.Check(stream.Send(&pb.ReplicateRequest{
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Journal: "a/journal",
-		Header:  &hdr,
+		Header:  wrongHeader,
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Acknowledge: true,
-	}), gc.IsNil)
-
-	expectReplResponse(c, stream, &pb.ReplicateResponse{
+	}))
+	expectReplResponse(t, stream, &pb.ReplicateResponse{
 		Status: pb.Status_WRONG_ROUTE,
-		Header: &res.Header,
+		Header: broker.header("a/journal"),
 	})
-
 	// Expect broker closes.
 	_, err = stream.Recv()
-	c.Check(err, gc.Equals, io.EOF)
+	assert.Equal(t, io.EOF, err)
 
 	// Case: acknowledged proposal doesn't match.
-	stream, _ = broker.MustClient().Replicate(ctx)
+	stream, _ = broker.client().Replicate(ctx)
 
-	c.Check(stream.Send(&pb.ReplicateRequest{
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Journal: "a/journal",
-		Header:  &res.Header,
+		Header:  broker.header("a/journal"),
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            1234,
@@ -133,11 +127,10 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Acknowledge: true,
-	}), gc.IsNil)
-
-	expectReplResponse(c, stream, &pb.ReplicateResponse{
+	}))
+	expectReplResponse(t, stream, &pb.ReplicateResponse{
 		Status: pb.Status_FRAGMENT_MISMATCH,
-		Header: &res.Header,
+		Header: broker.header("a/journal"),
 		Fragment: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            5678, // Spool is rolled forward.
@@ -145,11 +138,10 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 	})
-
 	// |stream| remains open.
 
 	// Case: proposal is made without Acknowledge set, and fails to apply.
-	c.Check(stream.Send(&pb.ReplicateRequest{
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            1234,
@@ -157,17 +149,62 @@ func (s *ReplicateSuite) TestErrorCases(c *gc.C) {
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Acknowledge: false,
-	}), gc.IsNil)
+	}))
 
 	// Expect broker closes.
 	_, err = stream.Recv()
-	c.Check(err, gc.ErrorMatches, `.* no ack requested but status != OK: status:FRAGMENT_MISMATCH .*`)
+	assert.Regexp(t, `.* no ack requested but status != OK: status:FRAGMENT_MISMATCH .*`, err)
+
+	broker.cleanup()
 }
 
-func expectReplResponse(c *gc.C, stream pb.Journal_ReplicateClient, expect *pb.ReplicateResponse) {
+func TestReplicateBlockingRestart(t *testing.T) {
+	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 3},
+		pb.ProcessSpec_ID{Zone: "A", Suffix: "peer"},
+		pb.ProcessSpec_ID{Zone: "B", Suffix: "peer"},
+		broker.id)
+
+	// Lock the spool, such that API attempts will block indefinitely.
+	var unlock = func(r *replica) func() {
+		var spool = <-r.spoolCh
+		return func() { r.spoolCh <- spool }
+	}(broker.replica("a/journal"))
+
+	// Case: The replica route is invalidated while the broker blocks.
+	var stream, _ = broker.client().Replicate(ctx)
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+		Journal: "a/journal",
+		Header:  broker.header("a/journal"),
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+		Acknowledge: true,
+	}))
+	// Delete one of the peer assignments, invalidating the prior route.
+	_, _ = etcd.Delete(ctx, allocator.AssignmentKey(broker.ks, allocator.Assignment{
+		ItemID:       "a/journal",
+		MemberZone:   "B",
+		MemberSuffix: "peer",
+		Slot:         1,
+	}))
+	// Replicate RPC restarts, re-resolves, and now responds with an error.
+	var resp, _ = stream.Recv()
+	assert.Equal(t, &pb.ReplicateResponse{
+		Status: pb.Status_WRONG_ROUTE,
+		Header: broker.header("a/journal"),
+	}, resp)
+
+	unlock()
+	broker.cleanup()
+}
+
+func expectReplResponse(t assert.TestingT, stream pb.Journal_ReplicateClient, expect *pb.ReplicateResponse) {
 	var resp, err = stream.Recv()
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, expect)
+	assert.NoError(t, err)
+	assert.Equal(t, expect, resp)
 }
-
-var _ = gc.Suite(&ReplicateSuite{})

@@ -2,10 +2,12 @@ package broker
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/pkg/errors"
-	"go.etcd.io/etcd/v3/clientv3"
+	log "github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/keyspace"
@@ -25,28 +27,18 @@ type replica struct {
 	spoolCh chan fragment.Spool
 	// pipelineCh synchronizes access to the single pipeline of the replica.
 	pipelineCh chan *pipeline
-	// pulsePipelineCh is signaled by the resolver when the replica is primary
-	// for the journal, and current assignments in Etcd are inconsistent.
-	// maintenanceLoop() reads the signal and drives a pipeline synchronization,
-	// which brings the journal and its Etcd route advertisements to consistency.
-	pulsePipelineCh chan struct{}
-	// done is called when the replica has completed graceful shutdown.
-	// C.f. sync.WaitGroup.Done.
-	done func()
 }
 
-func newReplica(journal pb.Journal, done func()) *replica {
+func newReplica(journal pb.Journal) *replica {
 	var ctx, cancel = context.WithCancel(context.Background())
 
 	var r = &replica{
-		journal:         journal,
-		ctx:             ctx,
-		cancel:          cancel,
-		index:           fragment.NewIndex(ctx),
-		spoolCh:         make(chan fragment.Spool, 1),
-		pipelineCh:      make(chan *pipeline, 1),
-		pulsePipelineCh: make(chan struct{}, 1),
-		done:            done,
+		journal:    journal,
+		ctx:        ctx,
+		cancel:     cancel,
+		index:      fragment.NewIndex(ctx),
+		spoolCh:    make(chan fragment.Spool, 1),
+		pipelineCh: make(chan *pipeline, 1),
 	}
 
 	r.spoolCh <- fragment.NewSpool(journal, struct {
@@ -59,129 +51,107 @@ func newReplica(journal pb.Journal, done func()) *replica {
 	return r
 }
 
-// acquireSpool performs a blocking acquisition of the replica's single Spool.
-func acquireSpool(ctx context.Context, r *replica) (spool fragment.Spool, err error) {
-	select {
-	case <-ctx.Done():
-		err = ctx.Err() // |ctx| cancelled.
-		return
-	case <-r.ctx.Done():
-		err = r.ctx.Err() // replica cancelled.
-		return
-	case spool = <-r.spoolCh:
-		// Pass.
-	}
+// fragmentRefreshDaemon periodically refreshes the local index of replica
+// fragments from configured remote stores, at configured intervals.
+func fragmentRefreshDaemon(ks *keyspace.KeySpace, r *replica) {
+	var timer = time.NewTimer(0) // Fires immediately.
+	defer timer.Stop()
 
-	addTrace(ctx, "<-replica.spoolCh => %s", spool)
-	return
-}
-
-// acquirePipeline performs a blocking acquisition of the replica's single
-// pipeline, building a new pipeline if a ready instance doesn't already exist.
-func acquirePipeline(ctx context.Context, r *replica, hdr pb.Header, jc pb.JournalClient) (*pipeline, int64, error) {
-	var pln *pipeline
-
-	select {
-	case <-ctx.Done():
-		return nil, 0, ctx.Err() // |ctx| cancelled.
-	case <-r.ctx.Done():
-		return nil, 0, r.ctx.Err() // replica cancelled.
-	case pln = <-r.pipelineCh:
-		// Pass.
-	}
-	addTrace(ctx, "<-replica.pipelineCh => %s", pln)
-
-	// Is |pln| is a placeholder indicating the need to read through a revision, which we've since read through?
-	if pln != nil && pln.readThroughRev != 0 && pln.readThroughRev <= hdr.Etcd.Revision {
-		pln = nil
-	}
-
-	// If |pln| is a valid pipeline but is built on a non-equivalent & older Route,
-	// tear it down asynchronously and immediately begin a new one.
-	if pln != nil && pln.readThroughRev == 0 &&
-		!pln.Route.Equivalent(&hdr.Route) && pln.Etcd.Revision < hdr.Etcd.Revision {
-
-		go pln.shutdown(false)
-		pln = nil
-	}
-
-	var err error
-
-	if pln == nil {
-		addTrace(ctx, " ... must build new pipeline")
-
-		// We must construct a new pipeline.
-		var spool fragment.Spool
-		spool, err = acquireSpool(ctx, r)
-
-		if err == nil {
-			pln = newPipeline(r.ctx, hdr, spool, r.spoolCh, jc)
-			err = pln.synchronize()
+	for {
+		select {
+		case _ = <-r.ctx.Done():
+			return
+		case _ = <-timer.C:
 		}
-		addTrace(ctx, "newPipeline() => %s, err: %v", pln, err)
-	}
 
-	if err != nil {
-		r.pipelineCh <- nil // Release ownership, allow next acquirer to retry.
-		return nil, 0, err
-	} else if pln.readThroughRev != 0 {
-		r.pipelineCh <- pln // Release placeholder for next acquirer to observe.
-		return nil, pln.readThroughRev, nil
-	}
+		var spec *pb.JournalSpec
 
-	return pln, 0, nil
+		ks.Mu.RLock()
+		if item, ok := allocator.LookupItem(ks, r.journal.String()); ok {
+			spec = item.ItemValue.(*pb.JournalSpec)
+		}
+		ks.Mu.RUnlock()
+
+		if spec == nil {
+			log.WithField("name", r.journal).
+				Error("failed to refresh remote fragments (JournalSpec not found)")
+			return
+		}
+
+		if set, err := fragment.WalkAllStores(r.ctx, spec.Name, spec.Fragment.Stores); err == nil {
+			r.index.ReplaceRemote(set)
+		} else {
+			log.WithFields(log.Fields{
+				"name":     spec.Name,
+				"err":      err,
+				"interval": spec.Fragment.RefreshInterval,
+			}).Warn("failed to refresh remote fragments (will retry)")
+		}
+		timer.Reset(spec.Fragment.RefreshInterval)
+	}
 }
 
-// releasePipelineAndGatherResponse from peers. Must be called from a
-// pipeline who's send-side is "owned" by the current goroutine (eg, the pipeline
-// was returned by acquirePipeline), and after all messages have been sent. This
-// routine release the pipeline for other goroutines to acquire, waits for all
-// prior readers of the ordered pipeline to complete, and gathers the single
-// expected response. Any encountered error is returned.
-func releasePipelineAndGatherResponse(ctx context.Context, pln *pipeline, releaseCh chan<- *pipeline) error {
-	// Retain sendErr(), as we cannot safely access it upon sending to |releaseCh|.
-	var sendErr = pln.sendErr()
-	var waitFor, closeAfter = pln.barrier()
+// pulseDaemon performs periodic and on-demand invocations of a zero-byte
+// append FSM sequence. This action drives re-establishment of advertised
+// consistency in Etcd, and these pulses ensure that process happens even in
+// the absence of client-initiated Append RPCs. On-demand pulses are performed
+// on changes to the replica Route. Additional periodic pulses ensure problems
+// with the peer set (eg, half-broken connections) are detected proactively.
+func pulseDaemon(svc *Service, r *replica) {
+	var timer = time.NewTimer(0) // Fires immediately.
+	defer timer.Stop()
 
-	if sendErr == nil {
-		releaseCh <- pln // Release the send-side of |pln|.
-	} else {
-		pln.closeSend()
-		releaseCh <- nil // Allow a new pipeline to be built.
-	}
+	var invalidateCh <-chan struct{}
+	for {
+		select {
+		case _ = <-r.ctx.Done():
+			return
+		case _ = <-timer.C:
+			timer.Reset(healthCheckInterval)
+		case _ = <-invalidateCh:
+			invalidateCh = nil
+		}
 
-	// There may be pipelined operations prior to this one which have not yet
-	// read their responses. Block while they do so, until our response is the
-	// next ordered response to be received. When this select completes, we have
-	// sole ownership of the _receive_ side of |pln|.
-	select {
-	case <-waitFor:
-	default:
-		addTrace(ctx, " ... stalled in <-waitFor read barrier")
-		<-waitFor
-	}
-	// Defer a close to signal which signals to operations pipelined
-	// after this one, that they may in turn read their responses.
-	defer func() { close(closeAfter) }()
+		var ctx, _ = context.WithTimeout(r.ctx, healthCheckInterval)
+		var fsm = appendFSM{
+			svc: svc,
+			ctx: ctx,
+			req: pb.AppendRequest{
+				Journal:    r.journal,
+				DoNotProxy: true,
+			},
+		}
+		if fsm.runTo(stateStreamContent) {
+			fsm.onStreamContent(&pb.AppendRequest{}, nil) // Intend to commit.
+			fsm.onStreamContent(nil, io.EOF)              // Commit.
+			fsm.onReadAcknowledgements()
+		}
+		fsm.returnPipeline()
 
-	// We expect an acknowledgement from each peer. If we encountered a send
-	// error, we also expect an EOF from remaining non-broken peers.
-	if pln.gatherOK(); sendErr != nil {
-		pln.gatherEOF()
-	}
+		if fsm.state == stateFinished {
+			// We're done.
+		} else if fsm.resolved.status == pb.Status_NOT_JOURNAL_PRIMARY_BROKER {
+			// Only the primary pulses the journal. No-op.
+		} else if fsm.resolved.status == pb.Status_JOURNAL_NOT_FOUND {
+			// Journal was deleted while we waited.
+		} else if errors.Cause(fsm.err) != context.Canceled {
+			log.WithFields(log.Fields{
+				"err":     fsm.err,
+				"status":  fsm.resolved.status,
+				"journal": r.journal,
+			}).Warn("journal pulse failed (will retry)")
+		}
 
-	// recvErr()s are generally more informational that sendErr()s:
-	// gRPC SendMsg returns io.EOF on remote stream breaks, while RecvMsg
-	// returns the actual causal error.
-	if err := pln.recvErr(); err != nil {
-		return err
+		if fsm.resolved != nil {
+			invalidateCh = fsm.resolved.invalidateCh
+		}
 	}
-	return sendErr
 }
 
 // shutDownReplica drains replica pipeline & spool channels and cancels its context.
-func shutDownReplica(r *replica) {
-	if pln := <-r.pipelineCh; pln != nil && pln.readThroughRev == 0 {
+// done is called when shutdown is complete.
+func shutDownReplica(r *replica, done func()) {
+	if pln := <-r.pipelineCh; pln != nil {
 		pln.shutdown(false)
 	}
 	var sp = <-r.spoolCh
@@ -195,7 +165,7 @@ func shutDownReplica(r *replica) {
 	// Cancelling the replica Context will immediately fail any current or
 	// future attempts to deque either.
 	r.cancel()
-	r.done()
+	done()
 }
 
 // updateAssignments values to reflect the Route implied by |assignments|,
@@ -223,60 +193,23 @@ func updateAssignments(ctx context.Context, assignments keyspace.KeyValues, etcd
 	if len(ops) == 0 {
 		return 0, nil // Trivial success. No |assignment| values need to be updated.
 	} else if resp, err := etcd.Txn(ctx).If(cmp...).Then(ops...).Commit(); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return 0, err
 	} else {
 		// Note that transactions may not succeed under regular operation.
-		// For example, a primary may race a journal pulse under an updated
-		// route against an allocator's compaction of assignment slots,
-		// and lose. We expect to converge quickly via another pulse attempt.
+		// For example, a call to updateAssignments may race against the
+		// allocator's compaction of those assignment slots, and lose.
+		// We expect to converge quickly via another attempt.
 		return resp.Header.Revision, nil
 	}
-}
-
-// checkHealth of a resolved journal by actively pinging its replication pipeline.
-// The commit sent is either a noop commit, or a flush commit prompting a flush of
-// the current fragment if the fragment contains data older than the current
-// flush interval. If successful, attempt to update advertised Etcd
-// Routes of the resolved journal. Returns an Etcd revision to read through
-// prior to the next checkHealth attempt, or an encountered error.
-func checkHealth(res resolution, jc pb.JournalClient, etcd clientv3.KV) (int64, error) {
-	if res.status != pb.Status_OK {
-		return 0, errors.Wrap(errors.New(res.status.String()), "resolution")
-	}
-	var ctx, _ = context.WithTimeout(res.replica.ctx, healthCheckInterval)
-
-	var pln, minRevision, err = acquirePipeline(ctx, res.replica, res.Header, jc)
-	if err != nil {
-		return 0, errors.Wrap(err, "acquiringPipeline")
-	} else if minRevision != 0 {
-		// Replica told us of a later revision affecting the journal Route.
-		// Silently fail now. We'll retry on reading |minRevision|.
-		return minRevision, nil
-	}
-
-	var proposal = nextProposal(pln.spool, res.journalSpec.Fragment)
-	// Send a proposal which is either:
-	//  1) A no-op, acknowledged Proposal, and read its acknowledgement from peers.
-	//
-	//  2) An empty propsal where the Begin is at the pervious End signifying that replicas should
-	//     synchronusly roll their Spools to a new empty Fragment.
-	//
-	pln.scatter(&pb.ReplicateRequest{
-		Proposal:    &proposal,
-		Acknowledge: true,
-	})
-	if err = releasePipelineAndGatherResponse(ctx, pln, res.replica.pipelineCh); err != nil {
-		return 0, errors.Wrap(err, "releasePipelineAndGatherResponse")
-	} else if minRevision, err = updateAssignments(ctx, res.assignments, etcd); err != nil {
-		return 0, errors.Wrap(err, "updateAssignments")
-	}
-	return minRevision, nil
 }
 
 // nextProposal returns the next Fragment proposal to send to replication Spools,
 // which may be the |cur| Spool Fragment or may be a "rolled", empty Fragment
 // at the prior Spool End.
-func nextProposal(cur fragment.Spool, spec pb.JournalSpec_Fragment) pb.Fragment {
+func nextProposal(cur fragment.Spool, rollToOffset int64, spec pb.JournalSpec_Fragment) pb.Fragment {
 	var flushFragment bool
 
 	if cl := cur.ContentLength(); cl == 0 {
@@ -293,6 +226,8 @@ func nextProposal(cur fragment.Spool, spec pb.JournalSpec_Fragment) pb.Fragment 
 		// recovering brokers cannot distinguish this case from a newly-created
 		// journal, which risks double-writes to journal offsets.
 		flushFragment = true
+	} else if rollToOffset != 0 {
+		flushFragment = true
 	}
 
 	// If the flush interval of the fragment differs from current number of
@@ -308,6 +243,13 @@ func nextProposal(cur fragment.Spool, spec pb.JournalSpec_Fragment) pb.Fragment 
 	// Return a new proposal which will prompt a flush of the current fragment to the backing store.
 	if flushFragment {
 		var next = cur.Fragment.Fragment
+
+		if rollToOffset != 0 {
+			if next.End > rollToOffset {
+				panic("invalid rollToOffset")
+			}
+			next.End = rollToOffset
+		}
 		next.Begin = next.End
 		next.Sum = pb.SHA1Sum{}
 		next.CompressionCodec = spec.CompressionCodec
@@ -323,4 +265,7 @@ var sharedPersister *fragment.Persister
 // SetSharedPersister sets the Persister instance used by the `broker` package.
 func SetSharedPersister(p *fragment.Persister) { sharedPersister = p }
 
-var timeNow = time.Now
+var (
+	timeNow             = time.Now
+	healthCheckInterval = time.Minute
+)
