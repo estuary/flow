@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -67,7 +68,13 @@ func (g *Group) GoRun() {
 
 	for i := range g.tasks {
 		var t = g.tasks[i]
-		g.eg.Go(func() error { return errors.WithMessage(t.fn(), t.desc) })
+		g.eg.Go(func() error {
+			if err := t.fn(); err != nil {
+				log.WithFields(log.Fields{"task": t.desc, "err": err}).Info("task exited with error")
+				return errors.WithMessage(err, t.desc)
+			}
+			return nil
+		})
 	}
 }
 
