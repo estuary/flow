@@ -17,7 +17,6 @@ func (s *ReplicaSuite) TestStandbyToPrimaryTransitions(c *gc.C) {
 	tf.allocateShard(c, makeShard(shardA), remoteID, localID)
 
 	// Expect that status transitions to BACKFILL, then to TAILING.
-	expectStatusCode(c, tf.state, ReplicaStatus_BACKFILL)
 	expectStatusCode(c, tf.state, ReplicaStatus_TAILING)
 
 	// Re-assign as shard primary.

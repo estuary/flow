@@ -102,12 +102,21 @@ func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 	spec.Disable, spec.HotStandbys = false, 0
 	c.Check(spec.DesiredReplication(), gc.Equals, 1)
 
-	var status = new(ReplicaStatus)
-	var asn = keyspace.KeyValue{Decoded: allocator.Assignment{AssignmentValue: status}}
+	var status, primaryStatus = new(ReplicaStatus), &ReplicaStatus{Code: ReplicaStatus_PRIMARY}
+	var asn = keyspace.KeyValue{Decoded: allocator.Assignment{Slot: 1, AssignmentValue: status}}
+	var all = keyspace.KeyValues{asn, {Decoded: allocator.Assignment{Slot: 0, AssignmentValue: primaryStatus}}}
 
-	c.Check(spec.IsConsistent(asn, nil), gc.Equals, false)
+	c.Check(spec.IsConsistent(asn, all), gc.Equals, false)
 	status.Code = ReplicaStatus_TAILING
-	c.Check(spec.IsConsistent(asn, nil), gc.Equals, true)
+	c.Check(spec.IsConsistent(asn, all), gc.Equals, true)
+	status.Code = ReplicaStatus_PRIMARY
+	c.Check(spec.IsConsistent(asn, all), gc.Equals, true)
+
+	// If we're FAILED, we're consistent only if the primary is also.
+	status.Code = ReplicaStatus_FAILED
+	c.Check(spec.IsConsistent(asn, all), gc.Equals, false)
+	primaryStatus.Code = ReplicaStatus_FAILED
+	c.Check(spec.IsConsistent(asn, all), gc.Equals, true)
 
 	c.Check(ExtractShardSpecMetaLabels(&spec, pb.MustLabelSet("label", "buffer")),
 		gc.DeepEquals, pb.MustLabelSet("id", "shard-id"))

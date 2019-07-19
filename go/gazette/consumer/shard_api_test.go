@@ -189,11 +189,12 @@ func (s *APISuite) TestApplyCases(c *gc.C) {
 }
 
 func (s *APISuite) TestApplyShardsInBatches(c *gc.C) {
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	var ctx = context.Background()
 
-	var ss = newShardServerStub(c, ctx)
-	var client = NewRoutedShardClient(ss.MustClient(), client.NewRouteCache(2, time.Hour))
+	var ss = newShardServerStub(c)
+	defer ss.cleanup()
+
+	var client = NewRoutedShardClient(ss.client(), client.NewRouteCache(2, time.Hour))
 
 	var hdr = buildHeaderFixture(ss)
 	// Case: size is 0. All changes are submitted.
@@ -363,12 +364,12 @@ func (s *APISuite) TestHintsCases(c *gc.C) {
 	tf.allocateShard(c, spec) // Cleanup.
 }
 
-func buildHeaderFixture(ep interface{ Endpoint() pb.Endpoint }) *pb.Header {
+func buildHeaderFixture(ep interface{ endpoint() pb.Endpoint }) *pb.Header {
 	return &pb.Header{
 		ProcessId: pb.ProcessSpec_ID{Zone: "a", Suffix: "broker"},
 		Route: pb.Route{
 			Members:   []pb.ProcessSpec_ID{{Zone: "a", Suffix: "broker"}},
-			Endpoints: []pb.Endpoint{ep.Endpoint()},
+			Endpoints: []pb.Endpoint{ep.endpoint()},
 			Primary:   0,
 		},
 		Etcd: pb.Header_Etcd{

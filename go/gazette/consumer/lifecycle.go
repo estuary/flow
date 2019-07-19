@@ -11,8 +11,8 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/v3/clientv3"
-	"go.etcd.io/etcd/v3/etcdserver/api/v3rpc/rpctypes"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
@@ -65,10 +65,11 @@ func completePlayback(shard Shard, app Application, pl *recoverylog.Player,
 	}
 
 	// We've completed log playback, and we're likely the most recent shard
-	// primary to do so. Store our recovered hints.
-	if err = storeRecoveredHints(shard, pl.FSM.BuildHints(), etcd); err != nil {
-		return nil, nil, extendErr(err, "storingRecoveredHints")
-	}
+	// primary to do so. Snapshot our recovered hints. We'll sanity-check that
+	// we can open the recovered store & load offsets, and only then persist
+	// these recovered hints.
+	var recoveredHints = pl.FSM.BuildHints()
+
 	// Initialize the store.
 	var recorder = recoverylog.NewRecorder(pl.FSM, author, pl.Dir, shard.JournalClient())
 	var store Store
@@ -78,6 +79,8 @@ func completePlayback(shard Shard, app Application, pl *recoverylog.Player,
 		return nil, nil, extendErr(err, "initializing store")
 	} else if offsets, err = store.FetchJournalOffsets(); err != nil {
 		return nil, nil, extendErr(err, "fetching journal offsets from store")
+	} else if err = storeRecoveredHints(shard, recoveredHints, etcd); err != nil {
+		return nil, nil, extendErr(err, "storingRecoveredHints")
 	}
 
 	// Lower-bound each source to its ShardSpec.Source.MinOffset.

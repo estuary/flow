@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/v3/clientv3"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/protocol"
 )
@@ -15,10 +15,14 @@ import (
 // Resolver maps shards to responsible consumer processes, and manages the set
 // of local shard Replicas which are assigned to the local ConsumerSpec.
 type Resolver struct {
-	state      *allocator.State
+	state *allocator.State
+	// Set of local replicas known to this Resolver. Nil iff
+	// stopServingLocalReplicas() has been called.
+	replicas map[ShardID]*Replica
+	// newReplica builds a new local replica instance.
 	newReplica func() *Replica
-	replicas   map[ShardID]*Replica
-	wg         sync.WaitGroup
+	// wg synchronizes over all running local replicas.
+	wg sync.WaitGroup
 }
 
 // NewResolver returns a Resolver derived from the allocator.State, which
@@ -145,6 +149,10 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 		// (since we authored the error response).
 		res.Header.ProcessId = localID
 	} else if res.Header.ProcessId == localID {
+		if r.replicas == nil {
+			err = ErrResolverStopped
+			return
+		}
 		// Attach the local replica, blocking on its Store being ready and
 		// incrementing its WaitGroup prior to return.
 		var replica, ok = r.replicas[args.ShardID]
@@ -189,6 +197,9 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 // transitioning, and cancelling Replicas as needed. The KeySpace
 // lock must be held.
 func (r *Resolver) updateResolutions() {
+	if r.replicas == nil {
+		return // We've stopped serving local replicas.
+	}
 	var next = make(map[ShardID]*Replica, len(r.state.LocalItems))
 
 	for _, li := range r.state.LocalItems {
@@ -214,6 +225,17 @@ func (r *Resolver) updateResolutions() {
 	r.cancelReplicas(prev)
 }
 
+// stopServingLocalReplicas begins immediate shutdown of any & all local
+// replicas, and causes future attempts to resolve to local replicas to
+// return an error.
+func (r *Resolver) stopServingLocalReplicas() {
+	r.state.KS.Mu.Lock()
+	defer r.state.KS.Mu.Unlock()
+
+	r.cancelReplicas(r.replicas)
+	r.replicas = nil
+}
+
 func (r *Resolver) cancelReplicas(m map[ShardID]*Replica) {
 	for _, replica := range m {
 		log.WithField("id", replica.spec.Id).Info("stopping local shard replica")
@@ -224,12 +246,20 @@ func (r *Resolver) cancelReplicas(m map[ShardID]*Replica) {
 
 func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 	var err = r.state.KS.Watch(ctx, etcd)
-
 	if errors.Cause(err) == context.Canceled {
 		err = nil
 	}
-	// Tear down any orphaned local replicas, and wait for all async shutdowns to complete.
-	r.cancelReplicas(r.replicas)
-	r.wg.Wait()
+
+	r.stopServingLocalReplicas()
+	r.wg.Wait() // Wait for all replica shutdowns to complete.
 	return err
 }
+
+// ErrResolverStopped is returned by Resolver if a ShardID resolves to a local
+// replica, but the Resolver has already been asked to stop serving local
+// replicas. This happens when the consumer is shutting down abnormally (eg, due
+// to Etcd lease keep-alive failure) but its local KeySpace doesn't reflect a
+// re-assignment of the Shard, and we therefore cannot hope to proxy. Resolve
+// fails in this case to encourage the immediate completion of related RPCs,
+// as we're probably also trying to drain the gRPC server.
+var ErrResolverStopped = errors.New("resolver has stopped serving local replicas")

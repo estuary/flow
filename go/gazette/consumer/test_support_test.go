@@ -5,7 +5,7 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/client"
@@ -263,10 +263,10 @@ func expectStatusCode(c *gc.C, state *allocator.State, code ReplicaStatus_Code) 
 
 		c.Check(status.Code <= code, gc.Equals, true)
 
-		if status.Code == code {
+		if status.Code >= code {
 			return status
 		}
-		state.KS.WaitForRevision(context.Background(), state.KS.Header.Revision+1)
+		c.Check(state.KS.WaitForRevision(context.Background(), state.KS.Header.Revision+1), gc.IsNil)
 	}
 }
 

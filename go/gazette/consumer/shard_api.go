@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"go.etcd.io/etcd/v3/clientv3"
+	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc"

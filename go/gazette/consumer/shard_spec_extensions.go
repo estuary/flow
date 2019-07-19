@@ -104,13 +104,29 @@ func (m *ShardSpec) DesiredReplication() int {
 	return 1 + int(m.HotStandbys)
 }
 
-// IsConsistent is whether the shard assignment is consistent. allocator.ItemValue implementation.
-func (m *ShardSpec) IsConsistent(assignment keyspace.KeyValue, _ keyspace.KeyValues) bool {
-	switch assignment.Decoded.(allocator.Assignment).AssignmentValue.(*ReplicaStatus).Code {
+// IsConsistent returns whether the shard assignment is consistent. allocator.ItemValue implementation.
+func (m *ShardSpec) IsConsistent(assignment keyspace.KeyValue, all keyspace.KeyValues) bool {
+	var code = assignment.Decoded.(allocator.Assignment).AssignmentValue.(*ReplicaStatus).Code
+	switch code {
 	case ReplicaStatus_TAILING, ReplicaStatus_PRIMARY:
-		return true
-	default:
+		return true // Replica is ready to take over.
+	case ReplicaStatus_IDLE, ReplicaStatus_BACKFILL:
+		return false // Replica is starting or reading the recovery log.
+	case ReplicaStatus_FAILED:
+		// Iff the primary has *also* failed, then we're consistent. The intuition
+		// is there's no harm in swapping a failed replica with another failed one,
+		// and this gives the current primary freedom to be re-assigned or exit.
+		for _, a := range all {
+			var asn = a.Decoded.(allocator.Assignment)
+			var status = asn.AssignmentValue.(*ReplicaStatus)
+
+			if asn.Slot == 0 && status.Code == ReplicaStatus_FAILED {
+				return true
+			}
+		}
 		return false
+	default:
+		panic(code) // Unexpected status code.
 	}
 }
 

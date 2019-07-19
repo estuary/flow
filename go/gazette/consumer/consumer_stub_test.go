@@ -3,37 +3,18 @@ package consumer
 import (
 	"context"
 
-	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
+	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
-	"google.golang.org/grpc"
 )
 
-// loopbackServer serves a ShardServer over a loopback, for use within tests.
-type loopbackServer struct {
-	*server.Server
-	Conn *grpc.ClientConn
-}
-
-// newLoopbackServer returns a loopbackServer of the provided ShardServer.
-func newLoopbackServer(ss ShardServer) loopbackServer {
-	var srv, err = server.New("127.0.0.1", 0)
-	if err != nil {
-		panic(err)
-	}
-	RegisterShardServer(srv.GRPCServer, ss)
-
-	return loopbackServer{Server: srv, Conn: srv.MustGRPCLoopback()}
-}
-
-// MustClient returns a ShardClient of the test loopbackServer.
-func (s loopbackServer) MustClient() ShardClient { return NewShardClient(s.Conn) }
-
 // shardServerStub stubs the read and write loops of ShardServer RPCs.
+// C.f. teststub.Broker
 type shardServerStub struct {
-	c     *gc.C
+	t     assert.TestingT
 	tasks *task.Group
-	loopbackServer
+	srv   *server.Server
 
 	StatFunc     func(context.Context, *StatRequest) (*StatResponse, error)
 	ListFunc     func(context.Context, *ListRequest) (*ListResponse, error)
@@ -42,21 +23,30 @@ type shardServerStub struct {
 }
 
 // newShardServerStub returns a shardServerStub instance served by a local GRPC server.
-func newShardServerStub(c *gc.C, ctx context.Context) *shardServerStub {
+func newShardServerStub(t assert.TestingT) *shardServerStub {
 	var s = &shardServerStub{
-		c:     c,
-		tasks: task.NewGroup(ctx),
+		t:     t,
+		tasks: task.NewGroup(context.Background()),
+		srv:   server.MustLoopback(),
 	}
-	s.loopbackServer = newLoopbackServer(s)
-	s.loopbackServer.QueueTasks(s.tasks)
-
-	s.tasks.Queue("Conn.Close", func() error {
-		<-s.tasks.Context().Done()
-		return s.loopbackServer.Conn.Close()
-	})
+	RegisterShardServer(s.srv.GRPCServer, s)
+	s.srv.QueueTasks(s.tasks)
 	s.tasks.GoRun()
-
 	return s
+}
+
+// Client returns a JournalClient wrapping the GRPCLoopback.
+func (s *shardServerStub) client() ShardClient { return NewShardClient(s.srv.GRPCLoopback) }
+
+// Endpoint returns the server Endpoint.
+func (s *shardServerStub) endpoint() pb.Endpoint { return s.srv.Endpoint() }
+
+// cleanup cancels the shardServerStub task.Group and asserts that it exits cleanly.
+func (s *shardServerStub) cleanup() {
+	s.tasks.Cancel()
+	s.srv.GRPCServer.GracefulStop()
+	assert.NoError(s.t, s.srv.GRPCLoopback.Close())
+	assert.NoError(s.t, s.tasks.Wait())
 }
 
 // Stat implements the shardServerStub interface by proxying through StatFunc.

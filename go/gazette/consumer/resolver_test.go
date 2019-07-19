@@ -128,6 +128,20 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 
 	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
 
+	// Interlude: Resolver is asked to stop local serving.
+	tf.resolver.stopServingLocalReplicas()
+
+	// Case: resolving to a remote peer still succeeds.
+	tf.allocateShard(c, makeShard(shardA), remoteID, localID)
+	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA, MayProxy: true}))
+	c.Check(r.Status, gc.Equals, Status_OK)
+	c.Check(r.Header.ProcessId, gc.Equals, remoteID)
+
+	// Case: but an attempt to resolve to a local replica fails.
+	tf.allocateShard(c, makeShard(shardA), localID)
+	var _, err = tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA})
+	c.Check(err, gc.Equals, ErrResolverStopped)
+
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
 }
 
