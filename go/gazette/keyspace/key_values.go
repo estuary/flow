@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"go.etcd.io/etcd/v3/clientv3"
-	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/mvcc/mvccpb"
 )
 
 // KeyValue composes a "raw" Etcd KeyValue with its user-defined,
@@ -33,9 +33,9 @@ type KeyValues []KeyValue
 // or should be inserted to maintain ordering.
 func (kv KeyValues) Search(key string) (ind int, found bool) {
 	ind = sort.Search(len(kv), func(i int) bool {
-		return bytes.Compare([]byte(key), kv[i].Raw.Key) <= 0
+		return key <= string(kv[i].Raw.Key)
 	})
-	found = ind != len(kv) && bytes.Equal([]byte(key), kv[ind].Raw.Key)
+	found = ind != len(kv) && key == string(kv[ind].Raw.Key)
 	return
 }
 
@@ -61,6 +61,22 @@ func (kv KeyValues) Copy() KeyValues {
 		out[i] = kv
 	}
 	return out
+}
+
+// EqualKeyRevisions returns true if keys and revisions of |other| matches
+// this KeyValues.
+func (kv KeyValues) EqualKeyRevisions(other KeyValues) bool {
+	if len(other) != len(kv) {
+		return false
+	}
+	for i := range kv {
+		if kv[i].Raw.ModRevision != other[i].Raw.ModRevision {
+			return false
+		} else if !bytes.Equal(kv[i].Raw.Key, other[i].Raw.Key) {
+			return false
+		}
+	}
+	return true
 }
 
 // appendKeyValue attempts to decode and append the KeyValue to this KeyValues,

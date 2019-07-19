@@ -4,8 +4,8 @@ import (
 	"strconv"
 
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/v3/clientv3"
-	"go.etcd.io/etcd/v3/mvcc/mvccpb"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/mvcc/mvccpb"
 )
 
 type KeyValuesSuite struct{}
@@ -92,6 +92,27 @@ func (s *KeyValuesSuite) TestCopy(c *gc.C) {
 
 	c.Check(kv, gc.DeepEquals, ckv)
 	c.Check(&kv[0], gc.Not(gc.Equals), &ckv[0])
+}
+
+func (s *KeyValuesSuite) TestRevisionEquality(c *gc.C) {
+	var kv1, kv2 = buildKeyValuesFixture(c), buildKeyValuesFixture(c)
+
+	// Unequal lengths.
+	c.Check(kv1.EqualKeyRevisions(kv2[:len(kv2)-1]), gc.Equals, false)
+
+	// Alter ModRevision.
+	kv2[2].Raw.ModRevision++
+	c.Check(kv1.EqualKeyRevisions(kv2), gc.Equals, false)
+	kv2[2].Raw.ModRevision--
+
+	// Alter key.
+	kv2[2].Raw.Key = append([]byte(nil), kv2[2].Raw.Key...)
+	kv2[2].Raw.Key[3]++
+	c.Check(kv1.EqualKeyRevisions(kv2), gc.Equals, false)
+	kv2[2].Raw.Key[3]--
+
+	// Equality.
+	c.Check(kv1.EqualKeyRevisions(kv2), gc.Equals, true)
 }
 
 func (s *KeyValuesSuite) TestUpdateTailCases(c *gc.C) {

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/v3/clientv3"
-	"go.etcd.io/etcd/v3/clientv3/mirror"
-	"go.etcd.io/etcd/v3/etcdserver/api/v3rpc/rpctypes"
-	"go.etcd.io/etcd/v3/etcdserver/etcdserverpb"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/clientv3/mirror"
+	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
+	"go.etcd.io/etcd/etcdserver/etcdserverpb"
 )
 
 // A KeySpace is a local mirror of a decoded portion of the Etcd key/value space,
@@ -209,9 +209,11 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 // held at invocation, and will be re-acquired before WaitForRevision returns.
 func (ks *KeySpace) WaitForRevision(ctx context.Context, revision int64) error {
 	for {
-		if ks.Header.Revision >= revision {
-			return nil
-		} else if err := ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil || ks.Header.Revision >= revision {
+			// Return current context error even if we also saw the revision,
+			// to disambiguate cases where the KeySpace appears inconsistent
+			// due to a cancellation of our context (eg, our allocator member
+			// key is missing because our lease was cancelled).
 			return err
 		}
 
@@ -288,24 +290,14 @@ func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 	}
 	next = append(next, current...) // Append any left-over elements in |current|.
 
-	// Critical section: patch updated header, swap out rebuilt KeyValues, and notify observers.
+	// Critical section: update header, swap out rebuilt KeyValues, and notify observers.
 	ks.Mu.Lock()
-
-	// We require that Revision be strictly increasing, with one exception:
-	// an idle Etcd cluster will send occasional ProgressNotify WatchResponses
-	// even if no Etcd mutations have occurred since the last WatchResponse.
-	var expectSameRevision = len(responses) == 1 &&
-		responses[0].IsProgressNotify() &&
-		ks.Header.Revision == hdr.Revision
-
-	var err = patchHeader(&ks.Header, hdr, expectSameRevision)
-	if err == nil {
-		ks.KeyValues, ks.next = next, ks.KeyValues[:0]
-		ks.onUpdate()
-	}
+	ks.Header = hdr
+	ks.KeyValues, ks.next = next, ks.KeyValues[:0]
+	ks.onUpdate()
 	ks.Mu.Unlock()
 
-	return err
+	return nil
 }
 
 func (ks *KeySpace) onUpdate() {
