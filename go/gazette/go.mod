@@ -20,6 +20,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.1
 	github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4
 	github.com/jgraettinger/cockroach-encoding v1.1.0
+	github.com/jgraettinger/urkel v0.0.0-20190722162447-dce3b486c007
 	github.com/klauspost/compress v1.5.0
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
@@ -30,12 +31,12 @@ require (
 	github.com/sirupsen/logrus v1.0.5
 	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/afero v1.2.2
-	github.com/stretchr/testify v1.2.2
-	go.etcd.io/etcd/v3 v3.3.0-rc.0.0.20190516150652-71881a423fa5
-	golang.org/x/net v0.0.0-20190311183353-d8887717615a
-	golang.org/x/oauth2 v0.0.0-20190226205417-e64efc72b421
-	golang.org/x/sync v0.0.0-20190227155943-e225da77a7e6
+	github.com/stretchr/testify v1.3.0
+	go.etcd.io/etcd v0.0.0-20190711162406-e56e8471ec18
+	golang.org/x/net v0.0.0-20190328230028-74de082e2cca
+	golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a
+	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 	google.golang.org/api v0.5.0
-	google.golang.org/grpc v1.20.1
+	google.golang.org/grpc v1.22.0
 	gopkg.in/yaml.v2 v2.2.2
 )

@@ -24,8 +24,8 @@ spec:
             - "/bin/sh"
             - "-ec"
             - |
-              exec /go/bin/chunker run \
-                --chunker.zone=$(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
+              exec chunker run \
+                --chunker.zone=$(/home/gazette/.config/zonemap/node-zone.sh $NODE_NAME) \
                 --chunker.streams={{ .Values.chunker.numStreams }} \
                 --chunker.chunks={{ .Values.chunker.numJobs }} \
                 --broker.address={{ .Values.summer.gazette.endpoint }} \
@@ -33,7 +33,7 @@ spec:
           volumeMounts:
             - name: zonemap
               readOnly: true
-              mountPath: /root/.config/zonemap
+              mountPath: /home/gazette/.config/zonemap
       volumes:
         - name: zonemap
           configMap:

@@ -8,8 +8,8 @@ counter:
   NGramSize: 2
 
   image:
-    repository: liveramp/gazette-examples
-    binary: /go/bin/counter
+    repository: gazette/examples
+    binary: counter
 
   extraArgs:
     --wordcount.N: "{{ .Values.NGramSize }}"

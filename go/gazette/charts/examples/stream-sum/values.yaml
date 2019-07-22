@@ -5,10 +5,10 @@ summer:
   replicaCount: 3
 
   image:
-    repository: liveramp/gazette-examples
-    binary: /go/bin/summer
+    repository: gazette/examples
+    binary: summer
 
 chunker:
-  numJobs: 10
-  numStreams: 10000
+  numJobs: 3
+  numStreams: 10
   chunksPerStream: 100

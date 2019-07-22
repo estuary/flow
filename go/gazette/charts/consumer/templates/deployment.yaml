@@ -37,10 +37,6 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /debug/ready
-              port: http
           readinessProbe:
             httpGet:
               path: /debug/ready
@@ -58,7 +54,7 @@ spec:
 {{- end }}
                 --broker.address {{ or .Values.global.gazette.endpoint .Values.gazette.endpoint }} \
                 --consumer.port  8080 \
-                --consumer.zone  $(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
+                --consumer.zone  $(/home/gazette/.config/zonemap/node-zone.sh $NODE_NAME) \
                 --etcd.address   {{ or .Values.global.etcd.endpoint .Values.etcd.endpoint }} \
                 --etcd.prefix    {{ .Values.etcd.partialPrefix }}/{{ include "consumer.fullname" . }}
           env:
@@ -83,7 +79,7 @@ spec:
               mountPath: /tmp
             - name: zonemap
               readOnly: true
-              mountPath: /root/.config/zonemap
+              mountPath: /home/gazette/.config/zonemap
 
             {{- if .Values.extraVolumeMounts }}
 {{ toYaml .Values.extraVolumeMounts | indent 12 }}

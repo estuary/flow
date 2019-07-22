@@ -31,10 +31,6 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /debug/ready
-              port: http
           readinessProbe:
             httpGet:
               path: /debug/ready
@@ -46,9 +42,9 @@ spec:
             - "/bin/sh"
             - "-ec"
             - |
-              exec /go/bin/gazette serve \
+              exec gazette serve \
                 --broker.port  8080 \
-                --broker.zone  $(/root/.config/zonemap/node-zone.sh $NODE_NAME) \
+                --broker.zone  $(/home/gazette/.config/zonemap/node-zone.sh $NODE_NAME) \
                 --etcd.address {{ .Values.etcd.endpoint }} \
                 --etcd.prefix  {{ .Values.etcd.prefix }} \
                 --log.format   {{ .Values.log.format }} \
@@ -73,20 +69,20 @@ spec:
             # credentials. This ENV variable isn't required, as this is the default,
             # but is provided for completeness.
             - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /root/.config/gcloud/application_default_credentials.json
+              value: /home/gazette/.config/gcloud/application_default_credentials.json
 
           volumeMounts:
             - name: tmpdir
               mountPath: /tmp
             - name: zonemap
               readOnly: true
-              mountPath: /root/.config/zonemap
+              mountPath: /home/gazette/.config/zonemap
             - name: gce-credentials
               readOnly: true
-              mountPath: /root/.config/gcloud
+              mountPath: /home/gazette/.config/gcloud
             - name: aws-credentials
               readOnly: true
-              mountPath: /root/.aws
+              mountPath: /home/gazette/.aws
 
       volumes:
         # tmpdir is used for all ephemeral and temporary files, such as journal spools.

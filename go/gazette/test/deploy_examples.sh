@@ -7,24 +7,27 @@ readonly NAMESPACE="${2?Kubernetes namespace is required. ${USAGE}}"
 readonly BK_NAMESPACE="${3:-${NAMESPACE}}"
 readonly REPOSITORY="${REPOSITORY:-liveramp}"
 
+# Number of parallel chunker jobs and streams-per-job (-1 is infinite).
+readonly CHUNKER_JOBS="${CHUNKER_JOBS:-3}"
+readonly CHUNKER_STREAMS="${CHUNKER_STREAMS:-10}"
+
 . "${V2DIR}/test/lib.sh"
 configure_environment "${1?Kubernetes context is required. ${USAGE}}"
 
+# DNS Service names for Etcd and brokers.
+readonly   ETCD_ADDR="http://$(helm_release ${BK_NAMESPACE} etcd)-etcd.${BK_NAMESPACE}:2379"
+readonly BROKER_ADDR="http://$(helm_release ${BK_NAMESPACE} gazette)-gazette.${BK_NAMESPACE}:80"
 # GAZCTL runs gazctl in an ephemeral docker container which has direct access to
 # the kubernetes networking space. The alternative is to run gazctl on the host
 # and port-forward broker or consumer pods as required to expose the service (yuck).
-readonly GAZCTL="${DOCKER} run \
-  --rm \
-  --interactive \
-  --env BROKER_ADDRESS \
-  --env CONSUMER_ADDRESS \
-  ${REPOSITORY}/gazette:latest \
-  gazctl"
+readonly      GAZCTL="${KUBECTL} --namespace  ${BK_NAMESPACE} \
+  exec --stdin=true $(pod_name $(helm_release ${BK_NAMESPACE} gazette) gazette) -- gazctl"
 
 # Create all test journals. Use `sed` to replace the MINIO_RELEASE token with the
-# correct Minio service address.
-sed -e "s/MINIO_RELEASE/$(helm_release ${BK_NAMESPACE} minio)-minio.${BK_NAMESPACE}/g" ${V2DIR}/test/examples.journalspace.yaml | \
-  BROKER_ADDRESS=$(release_address $(helm_release ${BK_NAMESPACE} gazette) gazette) ${GAZCTL} journals apply --specs -
+# correct Minio service name.
+sed -e "s/MINIO_RELEASE/$(helm_release ${BK_NAMESPACE} minio)-minio.${BK_NAMESPACE}/g" \
+  ${V2DIR}/test/examples.journalspace.yaml | \
+    ${GAZCTL} journals apply --broker.address  ${BROKER_ADDR} --specs -
 
 # Install a test "gazette-zonemap" ConfigMap in the namespace,
 # if one doesn't already exist.
@@ -32,14 +35,20 @@ install_zonemap ${NAMESPACE}
 
 # Install the "stream-sum" chart, first updating dependencies and blocking until release is complete.
 ${HELM} dependency update ${V2DIR}/charts/examples/stream-sum
-${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/stream-sum --values /dev/stdin << EOF
+${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/stream-sum \
+  --values /dev/stdin << EOF
 summer:
   image:
-    repository: ${REPOSITORY}/gazette-examples
+    repository: ${REPOSITORY}/examples
+    pullPolicy: Always
   etcd:
-    endpoint: http://$(helm_release ${BK_NAMESPACE} etcd)-etcd.${BK_NAMESPACE}:2379
+    endpoint: ${ETCD_ADDR}
   gazette:
-    endpoint: http://$(helm_release ${BK_NAMESPACE} gazette)-gazette.${BK_NAMESPACE}:80
+    endpoint: ${BROKER_ADDR}
+
+chunker:
+  numJobs:    ${CHUNKER_JOBS}
+  numStreams: ${CHUNKER_STREAMS}
 EOF
 
 # Enumerate all stream-sum shards, one for each journal of the topic.
@@ -64,28 +73,21 @@ EOF
 }
 
 # Create shards by piping the enumeration to `gazctl shards apply` with the stream-sum service address.
-stream_sum_shards | \
-  CONSUMER_ADDRESS=$(release_address $(helm_release ${NAMESPACE} stream-sum) summer) ${GAZCTL} shards apply --specs -
-
-# Be a jerk and delete all gazette & stream-sum consumer pods a few times while
-# verification jobs are still running. Expect this breaks nothing, and all
-# jobs run to completion.
-for i in {1..3}; do
-  ${KUBECTL} --namespace ${BK_NAMESPACE} delete pod -l "app.kubernetes.io/name = gazette" & # Run in background.
-  ${KUBECTL} --namespace ${NAMESPACE} delete pod -l "app.kubernetes.io/name = summer"   # Run synchronously.
-  wait $! # Wait for first job to complete.
-done
+stream_sum_shards | ${GAZCTL} shards apply \
+  --consumer.address "http://$(helm_release ${NAMESPACE} stream-sum)-summer.${NAMESPACE}:80" \
+  --specs -
 
 # Update dependencies and install the "word-count" chart.
 ${HELM} dependency update ${V2DIR}/charts/examples/word-count
 ${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/examples/word-count --values /dev/stdin << EOF
 counter:
   image:
-    repository: ${REPOSITORY}/gazette-examples
+    repository: ${REPOSITORY}/examples
+    pullPolicy: Always
   etcd:
-    endpoint: http://$(helm_release ${BK_NAMESPACE} etcd)-etcd.${BK_NAMESPACE}:2379
+    endpoint: ${ETCD_ADDR}
   gazette:
-    endpoint: http://$(helm_release ${BK_NAMESPACE} gazette)-gazette.${BK_NAMESPACE}:80
+    endpoint: ${BROKER_ADDR}
 EOF
 
 # Enumerate all word-count shards.
@@ -110,5 +112,6 @@ EOF
 }
 
 # Create shards by piping the enumeration to `gazctl shards apply` with the word-count service address.
-word_count_shards | \
-  CONSUMER_ADDRESS=$(release_address $(helm_release ${NAMESPACE} word-count) counter) ${GAZCTL} shards apply --specs -
+word_count_shards | ${GAZCTL} shards apply \
+  --consumer.address "http://$(helm_release ${NAMESPACE} word-count)-counter.${NAMESPACE}:80" \
+  --specs -

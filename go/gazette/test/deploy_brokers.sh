@@ -4,7 +4,7 @@ set -Eeux -o pipefail
 readonly V2DIR="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"
 readonly USAGE="Usage: $0 kube-context kube-namespace"
 readonly NAMESPACE="${2?Kubernetes namespace is required. ${USAGE}}"
-readonly REPOSITORY="${REPOSITORY:-liveramp}"
+readonly REPOSITORY="${REPOSITORY:-gazette}"
 
 . "${V2DIR}/test/lib.sh"
 configure_environment "${1?Kubernetes context is required. ${USAGE}}"
@@ -73,7 +73,8 @@ install_zonemap ${NAMESPACE}
 # Install the "gazette" chart, configured to use our Etcd release.
 ${HELM} install --namespace ${NAMESPACE} --wait ${V2DIR}/charts/gazette  --values /dev/stdin << EOF
 image:
-  repository: ${REPOSITORY}/gazette
+  repository: ${REPOSITORY}/broker
+  pullPolicy: Always
 etcd:
   endpoint: http://$(helm_release ${NAMESPACE} etcd)-etcd.${NAMESPACE}:2379
 EOF
