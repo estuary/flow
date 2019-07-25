@@ -64,6 +64,7 @@ func MustParseArgs(parser *flags.Parser) {
 			// This provides a nicer UX to users running the bare binary.
 			os.Stderr.WriteString("\n")
 			parser.WriteHelp(os.Stderr)
+			fmt.Fprintf(os.Stderr, "\nVersion %s, built at %s.\n", Version, BuildDate)
 			fallthrough
 		default:
 			// Other error types indicate a problem of input. Generally, `go-flags`

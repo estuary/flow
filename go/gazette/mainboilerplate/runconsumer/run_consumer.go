@@ -95,7 +95,11 @@ func (sc serveConsumer) Execute(args []string) error {
 	defer mbp.InitDiagnosticsAndRecover(bc.Diagnostics)()
 	mbp.InitLog(bc.Log)
 
-	log.WithField("config", sc.cfg).Info("starting consumer")
+	log.WithFields(log.Fields{
+		"config":    sc.cfg,
+		"version":   mbp.Version,
+		"buildDate": mbp.BuildDate,
+	}).Info("starting consumer")
 	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 	prometheus.MustRegister(metrics.GazetteConsumerCollectors()...)
 	protocol.RegisterGRPCDispatcher(bc.Consumer.Zone)

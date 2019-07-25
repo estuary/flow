@@ -71,3 +71,9 @@ const (
 	// Link: https://kubernetes.io/docs/tasks/debug-application-cluster/determine-reason-pod-failure/#setting-the-termination-log-file
 	k8sTerminationLog = "/dev/termination-log"
 )
+
+// Version is populated at build with $(git describe --dirty).
+var Version = "development"
+
+// BuildDate is populated at build with $(date +%F-%T-%Z).
+var BuildDate = "unknown"

@@ -44,7 +44,11 @@ func (serveBroker) Execute(args []string) error {
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
 	mbp.InitLog(Config.Log)
 
-	log.WithField("config", Config).Info("starting broker")
+	log.WithFields(log.Fields{
+		"config":    Config,
+		"version":   mbp.Version,
+		"buildDate": mbp.BuildDate,
+	}).Info("starting broker")
 	prometheus.MustRegister(metrics.GazetteBrokerCollectors()...)
 	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
 

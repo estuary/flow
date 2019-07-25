@@ -1,86 +1,69 @@
-version: 2.1
-commands:
-  prepare_build_env:
-    description: Prepare build environment
+version: 2
+jobs:
+
+  build:
+    docker:
+      - image: gazette/ci-builder:20190725
+    environment:
+      # Instruct the go tool to place the module cache under the working
+      # directory (~/project)
+      GOPATH: /root/project/.build/go-path
+      # RocksDB version to build. Keep in sync with mk/config.mk
+      # Also be sure to update the save_cache step below.
+      ROCKSDB_VERSION: 5.17.2
+      # `nproc` on CircleCI docker runners returns the number of host cores,
+      # not provisioned cores (eg, 36 cores when only 2 are available).
+      NPROC: 2
+      # Same issue with GOMAXPROCS.
+      GOMAXPROCS: 2
     steps:
-      - run:
-          name: Install bash
-          command: apk add --no-cache --no-progress bash
       - checkout
       - setup_remote_docker
-  # The release process uses a custom git clone because the built-in "checkout"
-  # step currently has issues with annotated tags.
-  #
-  # - https://discuss.circleci.com/t/checkout-fails-on-workflow-triggered-by-annotated-git-tag/27272.
-  prepare_release_env:
-    description: Prepare build environment (custom checkout)
-    steps:
+      - restore_cache:
+          # We can't use a variable here :( Must be hard-coded.
+          # https://discuss.circleci.com/t/cannot-use-circle-yml-environment-variables-in-cache-keys/10994
+          key: rocksdb-v1-v5.17.2
       - run:
-          name: Install CLI tools
-          command: |
-            apk update
-            apk add --no-cache --no-progress bash git openssh
+          name: Build RocksDB
+          command: make $(pwd)/.build/rocksdb-v${ROCKSDB_VERSION}/librocksdb.so
+      - save_cache:
+          name: Cache RocksDB
+          key: rocksdb-v1-v5.17.2
+          paths:
+            # We *also* can't use a variable here (seriously?!).
+            # https://discuss.circleci.com/t/can-i-use-variables-in-cache-paths/11393
+            - .build/rocksdb-v5.17.2/
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+            - go-mod-v1-
       - run:
-          name: Check out release tag
-          command: |
-            set -x
-            mkdir -p -m 700 ~/.ssh
-            echo "${KNOWN_HOST_GITHUB}" >> ~/.ssh/known_hosts
-            git clone --branch "${CIRCLE_TAG}" --depth 1 "${CIRCLE_REPOSITORY_URL}" .
-          environment:
-            KNOWN_HOST_GITHUB: github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
-      - setup_remote_docker
-jobs:
-  build_v1:
+          name: Go Install
+          command: make go-install
+      - run:
+          name: Go Test
+          command: make go-test-ci
+      - save_cache:
+          name: Cache Go Modules
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - .build/go-path/pkg
+  release:
     docker:
-      - image: docker:stable
+      - image: gazette/ci-builder:20190725
     steps:
-      - prepare_build_env
       - run:
-          name: Install bash
-          command: apk add --no-cache bash
+          name: Publish Gazette
+          command: echo "release tag  ${CIRCLE_TAG}"
 
-      - run:
-          name: Build and test V1 Gazette
-          command: docker build . --file build/Dockerfile.gazette-build --tag gazette-build
-      - run:
-          name: Build the V1 binary image
-          command: docker build . --file build/cmd/Dockerfile.gazette
-      - run:
-          name: Build V1 stream-sum example
-          command: docker build . --file build/examples/Dockerfile.stream-sum
-
-  build_v2:
-    docker:
-      - image: docker:stable
-    steps:
-      - prepare_build_env
-      - run:
-          name: Build and test V2 Gazette
-          command: ./v2/build/all .
-  publish_images:
-    docker:
-      - image: docker:stable
-    steps:
-      - prepare_release_env
-      - run:
-          name: Build and publish V2 Gazette
-          command: ./v2/build/release . "${CIRCLE_TAG}"
 workflows:
   version: 2
-  build_all:
+  build:
     jobs:
-      - build_v1:
-          filters:
-            branches:
-              ignore: /^draft[-\/].*/
-      - build_v2:
-          filters:
-            branches:
-              ignore: /^draft[-\/].*/
+      - build
   release:
     jobs:
-      - publish_images:
+      - release:
           filters:
             tags:
               only: /^v.*/

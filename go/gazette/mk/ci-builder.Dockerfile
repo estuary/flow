@@ -12,13 +12,15 @@ RUN apt-get update -y \
       libbz2-dev \
       libjemalloc-dev \
       liblz4-dev \
+      libprotobuf-dev \
       libsnappy-dev \
       libzstd-dev \
+      protobuf-compiler \
       zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
-ARG GOLANG_VERSION=1.12.5
-ARG GOLANG_SHA256=aea86e3c73495f205929cfebba0d63f1382c8ac59be081b6351681415f4063cf
+ARG GOLANG_VERSION=1.12.7
+ARG GOLANG_SHA256=66d83bfb5a9ede000e33c6579a91a29e6b101829ad41fffb5c5bb6c900e109d9
 
 ARG DOCKER_VERSION=18.09.6
 ARG DOCKER_SHA256=1f3f6774117765279fce64ee7f76abbb5f260264548cf80631d68fb2d795bb09

@@ -1,5 +1,12 @@
-# Version of Rocks to build against. This is tightly coupled with
-# the github.com/tecbot/gorocksdb dependency.
+# Git version & date which are injected into built binaries.
+VERSION = $(shell git describe --dirty)
+DATE    = $(shell date +%F-%T-%Z)
+# Number of available processors for parallel builds.
+NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
+
+# Version of Rocks to build against.
+# - This is tightly coupled github.com/tecbot/gorocksdb (update them together).
+# - Also update .circleci/config.yml
 ROCKSDB_VERSION = 5.17.2
 
 # Gazette repository root.
