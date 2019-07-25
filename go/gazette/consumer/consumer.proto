@@ -5,7 +5,6 @@ package consumer;
 import "protocol/protocol.proto";
 import "recoverylog/recorded_op.proto";
 import "ptypes/duration/duration.proto";
-import "google/api/annotations.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "go.gazette.dev/core/consumer";
