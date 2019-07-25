@@ -1,6 +1,4 @@
 // Package consumer is a library for distributed, stateful consumption of Gazette journals.
-
-//go:generate protoc -I . -I ../../../vendor -I ../../../../../.. --gogo_out=plugins=grpc:. consumer.proto
 package consumer
 
 import (

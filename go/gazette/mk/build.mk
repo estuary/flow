@@ -32,11 +32,11 @@ as-ci: ci-builder-image
 		gazette-ci-builder make ${target}
 
 # Go build & test targets.
-go-install:   ${ROCKSDIR}/librocksdb.so
+go-install:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	go install -v -tags rocksdb ./...
-go-test-fast: ${ROCKSDIR}/librocksdb.so
+go-test-fast: ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	go test       -tags rocksdb ./...
-go-test-ci:   ${ROCKSDIR}/librocksdb.so
+go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	go test -race -count=15 -tags rocksdb ./...
 
 # The ci-release-% implicit rule builds a Docker image named by the rule
@@ -68,6 +68,15 @@ ${WORKDIR}/rocksdb-v%/librocksdb.so:
 	USE_SSE=1 DEBUG_LEVEL=0 USE_RTTI=1 \
 		$(MAKE) -C $(dir $@) shared_lib tools -j$(shell nproc)
 	strip --strip-all $@
+
+# Run the protobuf compiler to generate message and gRPC service implementations.
+# Invoke protoc with local and third-party include paths set. The `go list` tool
+# is used to map submodules to corresponding go.mod versions and paths.
+%.pb.go: %.proto
+	protoc -I . \
+	-I $(shell go list -f '{{ .Dir }}' -m github.com/golang/protobuf) \
+	-I $(shell go list -f '{{ .Dir }}' -m github.com/gogo/protobuf) \
+	--gogo_out=paths=source_relative,plugins=grpc:. $*.proto
 
 # Push images to docker.io for distribution. The "release_tag" argument is required,
 # as is an authenticated account to docker hub.

@@ -24,6 +24,15 @@ ci-release-examples-targets = \
 	${WORKDIR}/go-path/bin/summer \
 	${WORKDIR}/go-path/bin/wordcountctl
 
+# Targets of protobufs which must be compiled.
+protobuf-targets = \
+	./protocol/protocol.pb.go \
+	./recoverylog/recorded_op.pb.go \
+	./consumer/consumer.pb.go
+
+# consumer.proto depends on protocol.proto & recorded_op.proto.
+consumer/consumer.pb.go: protocol/protocol.proto recoverylog/recorded_op.proto
+
 # Export appropriate CGO and run-time linker flags to build, link,
 # and run against against our copy of Rocks.
 export CGO_CFLAGS      = -I${ROCKSDIR}/include

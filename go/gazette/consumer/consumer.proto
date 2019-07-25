@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package consumer;
 
-import "go.gazette.dev/core/protocol/protocol.proto";
-import "go.gazette.dev/core/recoverylog/recorded_op.proto";
-import "github.com/gogo/protobuf/gogoproto/gogo.proto";
-import "google/protobuf/duration.proto";
+import "protocol/protocol.proto";
+import "recoverylog/recorded_op.proto";
+import "ptypes/duration/duration.proto";
+import "google/api/annotations.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "go.gazette.dev/core/consumer";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
@@ -269,7 +272,7 @@ message GetHintsResponse {
   protocol.Header header = 2 [(gogoproto.nullable) = false];
 
   message ResponseHints {
-    // If the hints value does not exist Hints will be nill.
+    // If the hints value does not exist Hints will be nil.
     recoverylog.FSMHints hints = 1;
   }
   // Primary hints for the shard. 
@@ -289,6 +292,6 @@ service Shard {
   rpc List(ListRequest) returns (ListResponse);
   // Apply changes to the collection of Shards managed by the consumer.
   rpc Apply(ApplyRequest) returns (ApplyResponse);
-  // GetHints fetchs hints for a shard.
+  // GetHints fetches hints for a shard.
   rpc GetHints(GetHintsRequest) returns (GetHintsResponse);
 }

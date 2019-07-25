@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package recoverylog;
 
-import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "go.gazette.dev/core/recoverylog";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;

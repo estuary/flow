@@ -3,7 +3,7 @@ module go.gazette.dev/core
 go 1.12
 
 require (
-	cloud.google.com/go v0.34.0
+	cloud.google.com/go v0.43.0
 	github.com/DataDog/zstd v1.4.0
 	github.com/LiveRamp/gorocksdb v1.2.0
 	github.com/aws/aws-sdk-go v1.19.32
@@ -12,10 +12,8 @@ require (
 	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
 	github.com/go-check/check v0.0.0-20180628173108-788fd7840127
 	github.com/gogo/protobuf v1.2.1
-	github.com/golang/protobuf v1.2.0
+	github.com/golang/protobuf v1.3.2
 	github.com/golang/snappy v0.0.1
-	github.com/google/martian v2.1.0+incompatible // indirect
-	github.com/googleapis/gax-go v2.0.2+incompatible // indirect
 	github.com/gorilla/schema v1.1.0
 	github.com/hashicorp/golang-lru v0.5.1
 	github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4
@@ -33,10 +31,13 @@ require (
 	github.com/spf13/afero v1.2.2
 	github.com/stretchr/testify v1.3.0
 	go.etcd.io/etcd v0.0.0-20190711162406-e56e8471ec18
-	golang.org/x/net v0.0.0-20190328230028-74de082e2cca
-	golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a
+	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 // indirect
+	golang.org/x/net v0.0.0-20190724013045-ca1201d0de80
+	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
-	google.golang.org/api v0.5.0
+	golang.org/x/sys v0.0.0-20190712062909-fae7ac547cb7 // indirect
+	google.golang.org/api v0.7.0
+	google.golang.org/genproto v0.0.0-20190716160619-c506a9f90610
 	google.golang.org/grpc v1.22.0
 	gopkg.in/yaml.v2 v2.2.2
 )
