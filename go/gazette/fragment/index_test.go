@@ -211,8 +211,8 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	set, err = WalkAllStores(ctx, "a/journal", []pb.FragmentStore{
 		pb.FragmentStore("file:///path/does/not/exist/"),
 	})
-	c.Check(err, gc.NotNil)
-	c.Check(set, gc.DeepEquals, CoverSet{})
+	c.Check(err, gc.IsNil)
+	c.Check(set, gc.DeepEquals, CoverSet(nil))
 
 	// Gather fixture Fragments from "/root/one/" store.
 	set, err = WalkAllStores(ctx, "a/journal", []pb.FragmentStore{

@@ -113,8 +113,13 @@ func (s fsBackend) List(_ context.Context, store pb.FragmentStore, ep *url.URL, 
 	}
 
 	var root = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path))
+	var walkFrom = filepath.Join(FileSystemStoreRoot,
+		filepath.FromSlash(cfg.rewritePath(ep.Path, name.String()+"/")))
 
-	return filepath.Walk(filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, name.String()+"/"))),
+	if _, err := os.Stat(walkFrom); os.IsNotExist(err) {
+		return nil
+	}
+	return filepath.Walk(walkFrom,
 		func(path string, info os.FileInfo, err error) error {
 
 			var name string
