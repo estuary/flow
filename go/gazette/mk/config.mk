@@ -44,5 +44,5 @@ consumer/consumer.pb.go: protocol/protocol.proto recoverylog/recorded_op.proto
 # and run against against our copy of Rocks.
 export CGO_CFLAGS      = -I${ROCKSDIR}/include
 export CGO_CPPFLAGS    = -I${ROCKSDIR}/include
-export CGO_LDFLAGS     = -L${ROCKSDIR}
+export CGO_LDFLAGS     = -L${ROCKSDIR} -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd
 export LD_LIBRARY_PATH =   ${ROCKSDIR}

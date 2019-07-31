@@ -1,5 +1,3 @@
-// +build rocksdb
-
 // Package stream_sum is an example application consisting of three stages:
 //
 // 1) A `chunker` job randomly generates a number of unique "streams", with
@@ -35,6 +33,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
@@ -149,7 +148,7 @@ func (Summer) InitApplication(args runconsumer.InitArgs) error { return nil }
 
 // NewStore builds a RocksDB store for the Shard. consumer.Application implementation.
 func (Summer) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var rdb = consumer.NewRocksDBStore(rec, dir)
+	var rdb = store_rocksdb.NewStore(rec, dir)
 	rdb.Cache = make(map[StreamID]Sum)
 	return rdb, rdb.Open()
 }
@@ -161,7 +160,7 @@ func (Summer) NewMessage(*pb.JournalSpec) (message.Message, error) { return new(
 // If the Chunk represents a stream EOF, it emits a final sum.
 // consumer.Application implementation.
 func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope) error {
-	var rdb = store.(*consumer.RocksDBStore)
+	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[StreamID]Sum)
 	var chunk = env.Message.(*Chunk)
 
@@ -196,7 +195,7 @@ func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env mes
 // FinalizeTxn marshals partial stream sums to the |store| to ensure persistence
 // across consumer transactions. consumer.Application implementation.
 func (Summer) FinalizeTxn(shard consumer.Shard, store consumer.Store) error {
-	var rdb = store.(*consumer.RocksDBStore)
+	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[StreamID]Sum)
 
 	for id, sum := range cache {

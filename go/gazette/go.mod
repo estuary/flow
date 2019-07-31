@@ -5,7 +5,6 @@ go 1.12
 require (
 	cloud.google.com/go v0.43.0
 	github.com/DataDog/zstd v1.4.0
-	github.com/LiveRamp/gorocksdb v1.2.0
 	github.com/aws/aws-sdk-go v1.19.32
 	github.com/facebookgo/ensure v0.0.0-20160127193407-b4ab57deab51 // indirect
 	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect

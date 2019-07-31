@@ -1,5 +1,4 @@
 // go:generate protoc -I . -I ../../../vendor -I ../../../../../.. --gogo_out=plugins=grpc:. word_count.proto
-// +build rocksdb
 
 // Package word_count is an example application which provides a gRPC API for
 // publishing texts and querying running counts of NGrams extracted from
@@ -19,6 +18,7 @@ import (
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
@@ -87,7 +87,7 @@ func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 // NewStore builds a RocksDB store for the Shard.
 // Implements consumer.Application.
 func (Counter) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var rdb = consumer.NewRocksDBStore(rec, dir)
+	var rdb = store_rocksdb.NewStore(rec, dir)
 	rdb.Cache = make(map[NGram]uint64)
 	return rdb, rdb.Open()
 }
@@ -99,7 +99,7 @@ func (Counter) NewMessage(*pb.JournalSpec) (message.Message, error) { return new
 // ConsumeMessage folds an NGramCount into its respective running NGram count.
 // Implements consumer.Application.
 func (Counter) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope) error {
-	var rdb = store.(*consumer.RocksDBStore)
+	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[NGram]uint64)
 
 	var m = env.Message.(*NGramCount)
@@ -125,7 +125,7 @@ func (Counter) ConsumeMessage(shard consumer.Shard, store consumer.Store, env me
 // across consumer transactions.
 // Implements consumer.Application.
 func (Counter) FinalizeTxn(shard consumer.Shard, store consumer.Store) error {
-	var rdb = store.(*consumer.RocksDBStore)
+	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[NGram]uint64)
 	var b []byte
 
@@ -227,8 +227,8 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 	}
 	defer res.Done()
 
-	var rdb = res.Store.(*consumer.RocksDBStore)
-	var it = rdb.DB.NewIterator(rdb.ReadOptions)
+	var rdb = res.Store.(*store_rocksdb.Store)
+	var it = store_rocksdb.AsArenaIterator(rdb.DB.NewIterator(rdb.ReadOptions), make([]byte, 32*1024))
 	defer it.Close()
 
 	var prefix = []byte(req.Prefix)
@@ -241,13 +241,13 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 		it.Seek([]byte{0x01})
 	}
 	for ; it.ValidForPrefix(prefix); it.Next() {
-		var cnt, i = binary.Uvarint(it.Value().Data())
+		var cnt, i = binary.Uvarint(it.Value())
 		if i <= 0 {
 			err = fmt.Errorf("internal error parsing varint (%d)", i)
 			return
 		}
 		resp.Grams = append(resp.Grams, NGramCount{
-			NGram: NGram(it.Key().Data()),
+			NGram: NGram(it.Key()),
 			Count: cnt,
 		})
 	}
