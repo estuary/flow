@@ -31,6 +31,7 @@ require (
 	github.com/soheilhy/cmux v0.1.4
 	github.com/spf13/afero v1.2.2
 	github.com/stretchr/testify v1.3.0
+	github.com/tecbot/gorocksdb v0.0.0-20190705090504-162552197222
 	go.etcd.io/etcd v0.0.0-20190711162406-e56e8471ec18
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 // indirect
 	golang.org/x/net v0.0.0-20190724013045-ca1201d0de80
