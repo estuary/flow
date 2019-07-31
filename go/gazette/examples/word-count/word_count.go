@@ -1,5 +1,3 @@
-// go:generate protoc -I . -I ../../../vendor -I ../../../../../.. --gogo_out=plugins=grpc:. word_count.proto
-
 // Package word_count is an example application which provides a gRPC API for
 // publishing texts and querying running counts of NGrams extracted from
 // previously published texts.

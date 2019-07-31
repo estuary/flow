@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package word_count;
 
-import "go.gazette.dev/core/protocol/protocol.proto";
-import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "protocol/protocol.proto";
+import "gogoproto/gogo.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
