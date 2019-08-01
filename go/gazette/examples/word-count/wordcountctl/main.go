@@ -8,8 +8,8 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
+	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/examples/word-count"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
@@ -37,7 +37,7 @@ func (cmd *cmdPublish) Execute([]string) (err error) {
 	if b, err = ioutil.ReadAll(fin); err != nil {
 		return err
 	}
-	var ctx = protocol.WithDispatchDefault(context.Background())
+	var ctx = pb.WithDispatchDefault(context.Background())
 	var client = word_count.NewNGramClient(Config.WordCount.MustDial(ctx))
 	_, err = client.Publish(ctx, &word_count.PublishRequest{Text: string(b)})
 
@@ -50,12 +50,12 @@ type cmdQuery struct {
 }
 
 func (cmd *cmdQuery) Execute([]string) error {
-	var ctx = protocol.WithDispatchDefault(context.Background())
+	var ctx = pb.WithDispatchDefault(context.Background())
 	var client = word_count.NewNGramClient(Config.WordCount.MustDial(ctx))
 
 	var resp, err = client.Query(ctx, &word_count.QueryRequest{
 		Prefix: word_count.NGram(cmd.Prefix),
-		Shard:  consumer.ShardID(cmd.ShardID),
+		Shard:  pc.ShardID(cmd.ShardID),
 	})
 	if err != nil {
 		return err
@@ -81,6 +81,6 @@ func main() {
 		"Query an NGram or prefix thereof", &cmdQuery{})
 	mbp.Must(err, "failed to add query command")
 
-	protocol.RegisterGRPCDispatcher("local")
+	pb.RegisterGRPCDispatcher("local")
 	mbp.MustParseArgs(parser)
 }

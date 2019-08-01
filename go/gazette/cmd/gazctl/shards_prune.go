@@ -8,6 +8,7 @@ import (
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
@@ -85,14 +86,14 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	return nil
 }
 
-func fetchLastHints(ctx context.Context, id consumer.ShardID) *recoverylog.FSMHints {
-	var req = &consumer.GetHintsRequest{
+func fetchLastHints(ctx context.Context, id pc.ShardID) *recoverylog.FSMHints {
+	var req = &pc.GetHintsRequest{
 		Shard: id,
 	}
 
 	var resp, err = consumer.FetchHints(ctx, shardsCfg.Consumer.MustShardClient(ctx), req)
 	mbp.Must(err, "failed to fetch hints")
-	if resp.Status != consumer.Status_OK {
+	if resp.Status != pc.Status_OK {
 		log.Panic("failed to fetch hints ", resp.Status.String())
 	}
 

@@ -7,6 +7,7 @@ import (
 
 	gc "github.com/go-check/check"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 type ResolverSuite struct{}
@@ -20,7 +21,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	// Case: Shard does not exist, nor does our local MemberSpec (yet; it's created by allocateShard below).
 	var r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: "other-shard-ID"}))
 	c.Check(r, gc.DeepEquals, Resolution{
-		Status: Status_SHARD_NOT_FOUND,
+		Status: pc.Status_SHARD_NOT_FOUND,
 		Header: pb.Header{
 			ProcessId: pb.ProcessSpec_ID{Zone: "local ConsumerSpec", Suffix: "missing from Etcd"},
 			Route:     pb.Route{Primary: -1},
@@ -33,7 +34,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 
 	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA}))
 	c.Check(r, gc.DeepEquals, Resolution{
-		Status: Status_NO_SHARD_PRIMARY,
+		Status: pc.Status_NO_SHARD_PRIMARY,
 		Header: pb.Header{
 			ProcessId: localID,
 			Route: pb.Route{
@@ -51,7 +52,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 
 	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA}))
 	c.Check(r, gc.DeepEquals, Resolution{
-		Status: Status_NOT_SHARD_PRIMARY,
+		Status: pc.Status_NOT_SHARD_PRIMARY,
 		Header: pb.Header{
 			ProcessId: localID,
 			Route: pb.Route{
@@ -67,7 +68,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	// Case: Shard is local, has a remote primary, and we may proxy.
 	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA, MayProxy: true}))
 	c.Check(r, gc.DeepEquals, Resolution{
-		Status: Status_OK,
+		Status: pc.Status_OK,
 		Header: pb.Header{
 			ProcessId: remoteID,
 			Route: pb.Route{
@@ -82,7 +83,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 
 	// Interlude: wait for our assignment to reach TAILING. This ensures status
 	// update KeySpace changes don't race the next case.
-	expectStatusCode(c, tf.state, ReplicaStatus_TAILING)
+	expectStatusCode(c, tf.state, pc.ReplicaStatus_TAILING)
 
 	// Case: Shard is transitioning to primary. Resolution request includes a
 	// ProxyHeader referencing a Revision we don't know about yet, but which will
@@ -109,7 +110,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	r.Shard, r.Store, r.Done = nil, nil, nil
 
 	c.Check(r, gc.DeepEquals, Resolution{
-		Status: Status_OK,
+		Status: pc.Status_OK,
 		Header: pb.Header{
 			ProcessId: localID,
 			Route: pb.Route{
@@ -126,7 +127,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	c.Check(rStore.(*JSONFileStore).State, gc.DeepEquals, &map[string]string{})
 	rDone()
 
-	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+	expectStatusCode(c, tf.state, pc.ReplicaStatus_PRIMARY)
 
 	// Interlude: Resolver is asked to stop local serving.
 	tf.resolver.stopServingLocalReplicas()
@@ -134,7 +135,7 @@ func (s *ResolverSuite) TestResolutionCases(c *gc.C) {
 	// Case: resolving to a remote peer still succeeds.
 	tf.allocateShard(c, makeShard(shardA), remoteID, localID)
 	r = check(tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA, MayProxy: true}))
-	c.Check(r.Status, gc.Equals, Status_OK)
+	c.Check(r.Status, gc.Equals, pc.Status_OK)
 	c.Check(r.Header.ProcessId, gc.Equals, remoteID)
 
 	// Case: but an attempt to resolve to a local replica fails.

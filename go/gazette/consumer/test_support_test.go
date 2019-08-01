@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"testing"
 	"time"
 
 	gc "github.com/go-check/check"
@@ -10,6 +11,7 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
@@ -167,7 +169,7 @@ func newTestFixture(c *gc.C) (*testFixture, func()) {
 		}
 }
 
-func (f *testFixture) allocateShard(c *gc.C, spec *ShardSpec, assignments ...pb.ProcessSpec_ID) {
+func (f *testFixture) allocateShard(c *gc.C, spec *pc.ShardSpec, assignments ...pb.ProcessSpec_ID) {
 	var ops []clientv3.Op
 
 	// Upsert ConsumerSpec fixtures.
@@ -222,10 +224,10 @@ func (f *testFixture) allocateShard(c *gc.C, spec *ShardSpec, assignments ...pb.
 	f.ks.Mu.RUnlock()
 }
 
-func makeShard(id ShardID) *ShardSpec {
-	return &ShardSpec{
+func makeShard(id pc.ShardID) *pc.ShardSpec {
+	return &pc.ShardSpec{
 		Id: id,
-		Sources: []ShardSpec_Source{
+		Sources: []pc.ShardSpec_Source{
 			{Journal: sourceA, MinOffset: int64(len(sourceAWriteFixture))},
 			{Journal: sourceB},
 		},
@@ -237,8 +239,8 @@ func makeShard(id ShardID) *ShardSpec {
 	}
 }
 
-func makeConsumer(id pb.ProcessSpec_ID) *ConsumerSpec {
-	return &ConsumerSpec{
+func makeConsumer(id pb.ProcessSpec_ID) *pc.ConsumerSpec {
+	return &pc.ConsumerSpec{
 		ProcessSpec: pb.ProcessSpec{
 			Id:       id,
 			Endpoint: pb.Endpoint("http://" + id.Zone + "/endpoint"),
@@ -247,19 +249,19 @@ func makeConsumer(id pb.ProcessSpec_ID) *ConsumerSpec {
 	}
 }
 
-func pluckTheAssignment(c *gc.C, state *allocator.State) (*ShardSpec, keyspace.KeyValue) {
+func pluckTheAssignment(c *gc.C, state *allocator.State) (*pc.ShardSpec, keyspace.KeyValue) {
 	c.Assert(state.LocalItems, gc.HasLen, 1)
-	return state.LocalItems[0].Item.Decoded.(allocator.Item).ItemValue.(*ShardSpec),
+	return state.LocalItems[0].Item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec),
 		state.LocalItems[0].Assignments[state.LocalItems[0].Index]
 }
 
-func expectStatusCode(c *gc.C, state *allocator.State, code ReplicaStatus_Code) *ReplicaStatus {
+func expectStatusCode(c *gc.C, state *allocator.State, code pc.ReplicaStatus_Code) *pc.ReplicaStatus {
 	defer state.KS.Mu.RUnlock()
 	state.KS.Mu.RLock()
 
 	for {
 		var _, kv = pluckTheAssignment(c, state)
-		var status = kv.Decoded.(allocator.Assignment).AssignmentValue.(*ReplicaStatus)
+		var status = kv.Decoded.(allocator.Assignment).AssignmentValue.(*pc.ReplicaStatus)
 
 		c.Check(status.Code <= code, gc.Equals, true)
 
@@ -296,3 +298,5 @@ func runSomeTransactions(c *gc.C, shard Shard) {
 
 	<-store.Recorder().WeakBarrier().Done() // Reduce noisy logging by allowing log writes to complete.
 }
+
+func TestT(t *testing.T) { gc.TestingT(t) }

@@ -13,6 +13,7 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/shardspace"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v2"
@@ -20,7 +21,7 @@ import (
 
 type cmdShardsList struct {
 	ListConfig
-	Lag bool `long:"lag" description:"Show consumer lag. It is recomended that this flag be used along side the --selector flag as fetching lag for all shards may take a long time."`
+	Lag bool `long:"lag" description:"Show the amount of unread data for each shard"`
 }
 
 func init() {
@@ -38,6 +39,9 @@ yaml:  Prints shards in YAML form, compatible with "shards apply"
 json:  Prints ShardSpecs encoded as JSON
 proto: Prints ShardSpecs encoded in protobuf text format
 table: Prints as a table (see other flags for column choices)
+
+It's recommended that --lag be used with a relatively focused --selector,
+as fetching consumption lag for a large number of shards may take a while.
 `, &cmdShardsList{})
 }
 
@@ -59,7 +63,7 @@ func (cmd *cmdShardsList) Execute([]string) error {
 	return nil
 }
 
-func (cmd *cmdShardsList) outputTable(resp *consumer.ListResponse) {
+func (cmd *cmdShardsList) outputTable(resp *pc.ListResponse) {
 	var table = tablewriter.NewWriter(os.Stdout)
 	var headers = []string{"ID", "Status"}
 	if cmd.RF {
@@ -75,7 +79,7 @@ func (cmd *cmdShardsList) outputTable(resp *consumer.ListResponse) {
 		headers = append(headers, l)
 	}
 
-	var rsc consumer.RoutedShardClient
+	var rsc pc.RoutedShardClient
 	var rjc pb.RoutedJournalClient
 	if cmd.Lag {
 		headers = append(headers, "Lag")
@@ -89,7 +93,7 @@ func (cmd *cmdShardsList) outputTable(resp *consumer.ListResponse) {
 	for _, j := range resp.Shards {
 		var primary = "<none>"
 		var replicas []string
-		var status consumer.ReplicaStatus
+		var status pc.ReplicaStatus
 
 		for i, m := range j.Route.Members {
 			var s = fmt.Sprintf("%s:%s", m.Suffix, j.Status[i].Code)
@@ -134,29 +138,29 @@ func (cmd *cmdShardsList) outputTable(resp *consumer.ListResponse) {
 	table.Render()
 }
 
-func listShards(s string) *consumer.ListResponse {
+func listShards(s string) *pc.ListResponse {
 	var err error
-	var req = new(consumer.ListRequest)
+	var req = new(pc.ListRequest)
 	var ctx = context.Background()
 
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := consumer.ListShards(ctx, consumer.NewShardClient(shardsCfg.Consumer.MustDial(ctx)), req)
+	resp, err := consumer.ListShards(ctx, pc.NewShardClient(shardsCfg.Consumer.MustDial(ctx)), req)
 	mbp.Must(err, "failed to list shards")
 
 	return resp
 }
 
-func writeHoistedYAMLShardSpace(w io.Writer, resp *consumer.ListResponse) {
+func writeHoistedYAMLShardSpace(w io.Writer, resp *pc.ListResponse) {
 	var b, err = yaml.Marshal(shardspace.FromListResponse(resp))
 	_, _ = w.Write(b)
 	mbp.Must(err, "failed to encode shardspace Set")
 }
 
-func getLag(spec consumer.ShardSpec, rsc consumer.RoutedShardClient, rjc pb.RoutedJournalClient) string {
+func getLag(spec pc.ShardSpec, rsc pc.RoutedShardClient, rjc pb.RoutedJournalClient) string {
 	var ctx = context.Background()
-	var statReq = consumer.StatRequest{
+	var statReq = pc.StatRequest{
 		Shard: spec.Id,
 	}
 	var statResp, err = consumer.StatShard(ctx, rsc, &statReq)

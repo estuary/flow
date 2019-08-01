@@ -11,6 +11,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
@@ -753,7 +754,7 @@ func newLifecycleTestFixture(c *gc.C) (*Replica, func()) {
 	var tf, cleanup = newTestFixture(c)
 
 	var realTransition = transition
-	transition = func(r *Replica, spec *ShardSpec, assignment keyspace.KeyValue) {
+	transition = func(r *Replica, spec *pc.ShardSpec, assignment keyspace.KeyValue) {
 		r.spec, r.assignment = spec, assignment
 	}
 	tf.allocateShard(c, makeShard(shardA), localID)

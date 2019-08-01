@@ -14,6 +14,7 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
@@ -69,7 +70,7 @@ func NewConsumer(args Args) *Consumer {
 			Tasks:    tasks,
 			LeaseTTL: time.Second * 60,
 			SignalCh: sigCh,
-			Spec: &consumer.ConsumerSpec{
+			Spec: &pc.ConsumerSpec{
 				ProcessSpec: pb.ProcessSpec{Id: id, Endpoint: srv.Endpoint()},
 				ShardLimit:  100,
 			},
@@ -78,7 +79,7 @@ func NewConsumer(args Args) *Consumer {
 	)
 
 	assert.NoError(args.C, allocator.StartSession(allocArgs))
-	consumer.RegisterShardServer(srv.GRPCServer, svc)
+	pc.RegisterShardServer(srv.GRPCServer, svc)
 	ks.WatchApplyDelay = 0 // Speedup test execution.
 
 	srv.QueueTasks(tasks)
@@ -100,7 +101,7 @@ func (cmr *Consumer) Signal() { cmr.sigCh <- syscall.SIGTERM }
 // If no error occurs, then the shard has a primary *Consumer (which is not
 // necessarily this *Consumer instance). If |routeOut| is non-nil, it's populated
 // with the current shard Route.
-func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard consumer.ShardID, routeOut *pb.Route) error {
+func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard pc.ShardID, routeOut *pb.Route) error {
 	var resp, err = cmr.Service.Etcd.Get(ctx, "a-key-that-doesn't-exist")
 	if err != nil {
 		return err
@@ -121,9 +122,9 @@ func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard consumer.ShardID,
 		for _, a := range asn {
 			var (
 				decoded = a.Decoded.(allocator.Assignment)
-				status  = decoded.AssignmentValue.(*consumer.ReplicaStatus)
+				status  = decoded.AssignmentValue.(*pc.ReplicaStatus)
 			)
-			if decoded.Slot == 0 && status.Code == consumer.ReplicaStatus_PRIMARY {
+			if decoded.Slot == 0 && status.Code == pc.ReplicaStatus_PRIMARY {
 				if routeOut != nil {
 					routeOut.Init(asn)
 				}
@@ -136,16 +137,16 @@ func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard consumer.ShardID,
 }
 
 // CreateShards using the Consumer Apply API, and wait for them to be allocated.
-func CreateShards(t assert.TestingT, cmr *Consumer, specs ...*consumer.ShardSpec) {
-	var req = new(consumer.ApplyRequest)
+func CreateShards(t assert.TestingT, cmr *Consumer, specs ...*pc.ShardSpec) {
+	var req = new(pc.ApplyRequest)
 	for _, spec := range specs {
-		req.Changes = append(req.Changes, consumer.ApplyRequest_Change{Upsert: spec})
+		req.Changes = append(req.Changes, pc.ApplyRequest_Change{Upsert: spec})
 	}
 
-	var resp, err = consumer.NewShardClient(cmr.Service.Loopback).
+	var resp, err = pc.NewShardClient(cmr.Service.Loopback).
 		Apply(pb.WithDispatchDefault(context.Background()), req)
 	assert.NoError(t, err)
-	assert.Equal(t, consumer.Status_OK, resp.Status)
+	assert.Equal(t, pc.Status_OK, resp.Status)
 
 	for _, s := range specs {
 		assert.NoError(t, cmr.WaitForPrimary(context.Background(), s.Id, nil))
@@ -157,10 +158,10 @@ func CreateShards(t assert.TestingT, cmr *Consumer, specs ...*consumer.ShardSpec
 // polls shards until each has caught up to the determined write-heads of its
 // consumed journals.
 func WaitForShards(ctx context.Context, rjc pb.RoutedJournalClient, conn *grpc.ClientConn, sel pb.LabelSelector) error {
-	var sc = consumer.NewShardClient(conn)
+	var sc = pc.NewShardClient(conn)
 	ctx = pb.WithDispatchDefault(ctx)
 
-	var shards, err = consumer.ListShards(ctx, sc, &consumer.ListRequest{Selector: sel})
+	var shards, err = consumer.ListShards(ctx, sc, &pc.ListRequest{Selector: sel})
 	if err != nil {
 		return err
 	}
@@ -187,8 +188,8 @@ func WaitForShards(ctx context.Context, rjc pb.RoutedJournalClient, conn *grpc.C
 	for len(shards.Shards) != 0 {
 		var shard = shards.Shards[0]
 
-		var resp *consumer.StatResponse
-		if resp, err = sc.Stat(ctx, &consumer.StatRequest{Shard: shard.Spec.Id}); err != nil {
+		var resp *pc.StatResponse
+		if resp, err = sc.Stat(ctx, &pc.StatRequest{Shard: shard.Spec.Id}); err != nil {
 			return err
 		}
 

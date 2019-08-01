@@ -14,8 +14,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/metrics"
 	"go.gazette.dev/core/server"
@@ -102,7 +103,7 @@ func (sc serveConsumer) Execute(args []string) error {
 	}).Info("starting consumer")
 	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 	prometheus.MustRegister(metrics.GazetteConsumerCollectors()...)
-	protocol.RegisterGRPCDispatcher(bc.Consumer.Zone)
+	pb.RegisterGRPCDispatcher(bc.Consumer.Zone)
 
 	var ks = consumer.NewKeySpace(bc.Etcd.Prefix)
 	var allocState = allocator.NewObservedState(ks, bc.Consumer.MemberKey(ks))
@@ -119,7 +120,7 @@ func (sc serveConsumer) Execute(args []string) error {
 
 	var tasks = task.NewGroup(context.Background())
 
-	consumer.RegisterShardServer(srv.GRPCServer, service)
+	pc.RegisterShardServer(srv.GRPCServer, service)
 	mbp.Must(sc.app.InitApplication(InitArgs{
 		Context: context.Background(),
 		Config:  sc.cfg,
@@ -134,7 +135,7 @@ func (sc serveConsumer) Execute(args []string) error {
 		Etcd:     etcd,
 		LeaseTTL: bc.Etcd.LeaseTTL,
 		SignalCh: signalCh,
-		Spec: &consumer.ConsumerSpec{
+		Spec: &pc.ConsumerSpec{
 			ProcessSpec: bc.Consumer.ProcessSpec(),
 			ShardLimit:  bc.Consumer.Limit,
 		},

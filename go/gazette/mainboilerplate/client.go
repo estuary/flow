@@ -6,7 +6,7 @@ import (
 
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keepalive"
 	"google.golang.org/grpc"
 )
@@ -33,8 +33,8 @@ func (c *AddressConfig) MustJournalClient(ctx context.Context) pb.JournalClient 
 }
 
 // MustShardClient dials and returns a new ShardClient.
-func (c *AddressConfig) MustShardClient(ctx context.Context) consumer.ShardClient {
-	return consumer.NewShardClient(c.MustDial(ctx))
+func (c *AddressConfig) MustShardClient(ctx context.Context) pc.ShardClient {
+	return pc.NewShardClient(c.MustDial(ctx))
 }
 
 // ClientConfig configures the client of a remote Gazette service.
@@ -61,6 +61,6 @@ func (c *ClientConfig) MustRoutedJournalClient(ctx context.Context) pb.RoutedJou
 }
 
 // MustRoutedShardClient composes MustDial and BuildRouter to return a RoutedShardClient.
-func (c *ClientConfig) MustRoutedShardClient(ctx context.Context) consumer.RoutedShardClient {
-	return consumer.NewRoutedShardClient(c.MustShardClient(ctx), c.BuildRouter())
+func (c *ClientConfig) MustRoutedShardClient(ctx context.Context) pc.RoutedShardClient {
+	return pc.NewRoutedShardClient(c.MustShardClient(ctx), c.BuildRouter())
 }

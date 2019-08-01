@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	gc "github.com/go-check/check"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 type ReplicaSuite struct{}
@@ -17,13 +18,13 @@ func (s *ReplicaSuite) TestStandbyToPrimaryTransitions(c *gc.C) {
 	tf.allocateShard(c, makeShard(shardA), remoteID, localID)
 
 	// Expect that status transitions to BACKFILL, then to TAILING.
-	expectStatusCode(c, tf.state, ReplicaStatus_TAILING)
+	expectStatusCode(c, tf.state, pc.ReplicaStatus_TAILING)
 
 	// Re-assign as shard primary.
 	tf.allocateShard(c, makeShard(shardA), localID)
 
 	// Expect that status now transitions to PRIMARY.
-	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+	expectStatusCode(c, tf.state, pc.ReplicaStatus_PRIMARY)
 
 	// Verify message pump and consumer loops were started.
 	var res, err = tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA})
@@ -42,7 +43,7 @@ func (s *ReplicaSuite) TestDirectToPrimaryTransition(c *gc.C) {
 	tf.allocateShard(c, makeShard(shardA), localID)
 
 	// Expect that status transitions to PRIMARY.
-	expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+	expectStatusCode(c, tf.state, pc.ReplicaStatus_PRIMARY)
 
 	// Verify message pump and consumer loops were started.
 	var res, err = tf.resolver.Resolve(ResolveArgs{Context: tf.ctx, ShardID: shardA})
@@ -63,7 +64,7 @@ func (s *ReplicaSuite) TestPlayRecoveryLogError(c *gc.C) {
 	tf.allocateShard(c, shard, remoteID, localID)
 
 	// Expect that status transitions to FAILED, with a descriptive error.
-	c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0],
+	c.Check(expectStatusCode(c, tf.state, pc.ReplicaStatus_FAILED).Errors[0],
 		gc.Matches, `playLog: fetching JournalSpec: named journal does not exist \(does/not/exist/`+shardA+`\)`)
 
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
@@ -76,7 +77,7 @@ func (s *ReplicaSuite) TestCompletePlaybackError(c *gc.C) {
 	tf.app.newStoreErr = errors.New("an error") // Cause NewStore to fail.
 	tf.allocateShard(c, makeShard(shardA), localID)
 
-	c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0],
+	c.Check(expectStatusCode(c, tf.state, pc.ReplicaStatus_FAILED).Errors[0],
 		gc.Matches, `completePlayback: initializing store: an error`)
 
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
@@ -91,7 +92,7 @@ func (s *ReplicaSuite) TestPumpMessagesError(c *gc.C) {
 	tf.allocateShard(c, shard, localID)
 
 	// Expect that status transitions to FAILED, with a descriptive error.
-	c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0],
+	c.Check(expectStatusCode(c, tf.state, pc.ReplicaStatus_FAILED).Errors[0],
 		gc.Matches, `pumpMessages: fetching JournalSpec: named journal does not exist \(xxx/does/not/exist\)`)
 
 	tf.allocateShard(c, makeShard(shardA)) // Cleanup.
@@ -128,7 +129,7 @@ func (s *ReplicaSuite) TestConsumeMessagesErrors(c *gc.C) {
 		tf.app.consumeErr, tf.app.finishErr = nil, nil // Reset fixture.
 
 		tf.allocateShard(c, makeShard(shardA), localID)
-		expectStatusCode(c, tf.state, ReplicaStatus_PRIMARY)
+		expectStatusCode(c, tf.state, pc.ReplicaStatus_PRIMARY)
 
 		var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
 		c.Assert(err, gc.IsNil)
@@ -142,7 +143,7 @@ func (s *ReplicaSuite) TestConsumeMessagesErrors(c *gc.C) {
 		_, _ = aa.Writer().WriteString(`{"key":"foo"}` + "\n")
 		c.Check(aa.Release(), gc.IsNil)
 
-		c.Check(expectStatusCode(c, tf.state, ReplicaStatus_FAILED).Errors[0], gc.Matches, tc.expect)
+		c.Check(expectStatusCode(c, tf.state, pc.ReplicaStatus_FAILED).Errors[0], gc.Matches, tc.expect)
 
 		// Cleanup.
 		res.Done()

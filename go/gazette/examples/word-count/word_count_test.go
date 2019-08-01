@@ -9,7 +9,7 @@ import (
 	gc "github.com/go-check/check"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
@@ -66,7 +66,7 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 
 	var queryCases = []struct {
 		prefix NGram
-		shard  consumer.ShardID
+		shard  pc.ShardID
 		expect []NGramCount
 	}{
 		// Cases: point lookups which are implicitly resolved to appropriate shards.
@@ -107,13 +107,13 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 	c.Check(broker.Tasks.Wait(), gc.IsNil)
 }
 
-func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*consumer.ShardSpec) {
+func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.ShardSpec) {
 	for p := 0; p != parts; p++ {
 		var (
 			part  = fmt.Sprintf("%03d", p)
-			shard = &consumer.ShardSpec{
-				Id:                consumer.ShardID("shard-" + part),
-				Sources:           []consumer.ShardSpec_Source{{Journal: pb.Journal("deltas/part-" + part)}},
+			shard = &pc.ShardSpec{
+				Id:                pc.ShardID("shard-" + part),
+				Sources:           []pc.ShardSpec_Source{{Journal: pb.Journal("deltas/part-" + part)}},
 				RecoveryLogPrefix: "recovery/logs",
 				HintPrefix:        "/hints",
 				MaxTxnDuration:    time.Second,

@@ -7,7 +7,7 @@ import "consumer/recoverylog/recorded_op.proto";
 import "ptypes/duration/duration.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "go.gazette.dev/core/consumer";
+option go_package = "go.gazette.dev/core/consumer/protocol";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;

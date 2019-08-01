@@ -34,12 +34,12 @@ ci-release-examples-targets = \
 # Targets of protobufs which must be compiled.
 protobuf-targets = \
 	./broker/protocol/protocol.pb.go \
-	./consumer/consumer.pb.go \
-	./examples/word-count/word_count.pb.go \
-	./consumer/recoverylog/recorded_op.pb.go
+	./consumer/protocol/protocol.pb.go \
+	./consumer/recoverylog/recorded_op.pb.go \
+	./examples/word-count/word_count.pb.go
 
 # consumer.proto depends on protocol.proto & recorded_op.proto.
-consumer/consumer.pb.go: broker/protocol/protocol.proto consumer/recoverylog/recorded_op.proto
+consumer/protocol/consumer.pb.go: broker/protocol/protocol.proto consumer/recoverylog/recorded_op.proto
 
 # Export appropriate CGO and run-time linker flags to build, link,
 # and run against against our copy of Rocks.

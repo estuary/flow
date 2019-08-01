@@ -17,6 +17,7 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/labels"
@@ -214,7 +215,7 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 		ProxyHeader: req.Header,
 	}); err != nil {
 		return
-	} else if res.Status != consumer.Status_OK {
+	} else if res.Status != pc.Status_OK {
 		err = fmt.Errorf(res.Status.String())
 		return
 	} else if res.Store == nil {
@@ -252,7 +253,7 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 	return
 }
 
-func (counter *Counter) mapPrefixToShard(prefix NGram) (shard consumer.ShardID, err error) {
+func (counter *Counter) mapPrefixToShard(prefix NGram) (shard pc.ShardID, err error) {
 	// Determine the Journal which Prefix maps to, and then the ID of the
 	// ShardSpec which consumes that |journal|.
 	var journal pb.Journal
@@ -265,7 +266,7 @@ func (counter *Counter) mapPrefixToShard(prefix NGram) (shard consumer.ShardID, 
 	defer counter.svc.State.KS.Mu.RUnlock()
 
 	for _, kv := range counter.svc.State.Items {
-		var spec = kv.Decoded.(allocator.Item).ItemValue.(*consumer.ShardSpec)
+		var spec = kv.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
 
 		for _, src := range spec.Sources {
 			if src.Journal == journal {

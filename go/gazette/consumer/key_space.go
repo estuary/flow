@@ -4,6 +4,7 @@ import (
 	"go.etcd.io/etcd/mvcc/mvccpb"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -24,7 +25,7 @@ func NewKeySpace(prefix string) *keyspace.KeySpace {
 type decoder struct{}
 
 func (d decoder) DecodeItem(id string, raw *mvccpb.KeyValue) (allocator.ItemValue, error) {
-	var s = new(ShardSpec)
+	var s = new(pc.ShardSpec)
 
 	if err := s.Unmarshal(raw.Value); err != nil {
 		return nil, err
@@ -37,7 +38,7 @@ func (d decoder) DecodeItem(id string, raw *mvccpb.KeyValue) (allocator.ItemValu
 }
 
 func (d decoder) DecodeMember(zone, suffix string, raw *mvccpb.KeyValue) (allocator.MemberValue, error) {
-	var s = new(ConsumerSpec)
+	var s = new(pc.ConsumerSpec)
 
 	if err := s.Unmarshal(raw.Value); err != nil {
 		return nil, err
@@ -52,7 +53,7 @@ func (d decoder) DecodeMember(zone, suffix string, raw *mvccpb.KeyValue) (alloca
 }
 
 func (d decoder) DecodeAssignment(itemID, memberZone, memberSuffix string, slot int, raw *mvccpb.KeyValue) (allocator.AssignmentValue, error) {
-	var s = new(ReplicaStatus)
+	var s = new(pc.ReplicaStatus)
 
 	if err := s.Unmarshal(raw.Value); err != nil {
 		return nil, err

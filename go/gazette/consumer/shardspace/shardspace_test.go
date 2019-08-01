@@ -8,7 +8,7 @@ import (
 
 	gc "github.com/go-check/check"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"gopkg.in/yaml.v2"
 )
 
@@ -21,7 +21,7 @@ func (s *SetSuite) TestRoundTripHoistAndPushDown(c *gc.C) {
 	// Expect shared field values are hoisted to the common ShardSpec.
 	// Differentiated fields remain with individual Shards.
 	c.Check(set, gc.DeepEquals, Set{
-		Common: consumer.ShardSpec{
+		Common: pc.ShardSpec{
 			RecoveryLogPrefix: "recovery/logs",
 			HintPrefix:        "/hints",
 			HintBackups:       2,
@@ -32,9 +32,9 @@ func (s *SetSuite) TestRoundTripHoistAndPushDown(c *gc.C) {
 		},
 		Shards: []Shard{
 			{
-				Spec: consumer.ShardSpec{
+				Spec: pc.ShardSpec{
 					Id:       "shard-A",
-					Sources:  []consumer.ShardSpec_Source{{Journal: "journal/A"}},
+					Sources:  []pc.ShardSpec_Source{{Journal: "journal/A"}},
 					LabelSet: pb.MustLabelSet("name-2", "val-2"),
 				},
 				Delete:   &boxedTrue,
@@ -42,9 +42,9 @@ func (s *SetSuite) TestRoundTripHoistAndPushDown(c *gc.C) {
 				Comment:  "This is a comment",
 			},
 			{
-				Spec: consumer.ShardSpec{
+				Spec: pc.ShardSpec{
 					Id:       "shard-B",
-					Sources:  []consumer.ShardSpec_Source{{Journal: "journal/B"}},
+					Sources:  []pc.ShardSpec_Source{{Journal: "journal/B"}},
 					LabelSet: pb.MustLabelSet("name-3", "val-3"),
 				},
 				Revision: 456,
@@ -62,13 +62,13 @@ func (s *SetSuite) TestPatchAndMarkForDeletion(c *gc.C) {
 	set.Hoist()
 
 	// Add new shard-C.
-	_ = set.Patch(Shard{Spec: consumer.ShardSpec{
+	_ = set.Patch(Shard{Spec: pc.ShardSpec{
 		Id:                "shard-C",
 		RecoveryLogPrefix: "foo/bar",
 	}})
 	// Un-delete shard-A. Mix patched fields, with a post-patch update.
 	set.Patch(Shard{
-		Spec: consumer.ShardSpec{
+		Spec: pc.ShardSpec{
 			Id:      "shard-A",
 			Disable: true,
 		},
@@ -78,16 +78,16 @@ func (s *SetSuite) TestPatchAndMarkForDeletion(c *gc.C) {
 
 	// Update shard-C with a new journal source.
 	_ = set.Patch(Shard{
-		Spec: consumer.ShardSpec{
+		Spec: pc.ShardSpec{
 			Id:      "shard-C",
-			Sources: []consumer.ShardSpec_Source{{Journal: "journal/C"}},
+			Sources: []pc.ShardSpec_Source{{Journal: "journal/C"}},
 		},
 	})
 
 	// Expect shard-C is present with its combined updates.
 	c.Check(set.Shards, gc.HasLen, 3)
-	c.Check(set.Shards[2].Spec.Id, gc.Equals, consumer.ShardID("shard-C"))
-	c.Check(set.Shards[2].Spec.Sources, gc.DeepEquals, []consumer.ShardSpec_Source{{Journal: "journal/C"}})
+	c.Check(set.Shards[2].Spec.Id, gc.Equals, pc.ShardID("shard-C"))
+	c.Check(set.Shards[2].Spec.Sources, gc.DeepEquals, []pc.ShardSpec_Source{{Journal: "journal/C"}})
 	c.Check(set.Shards[2].Spec.RecoveryLogPrefix, gc.Equals, "foo/bar")
 
 	// Expect shard-A was updated.
@@ -158,9 +158,9 @@ func buildFlatFixture() Set {
 	return Set{
 		Shards: []Shard{
 			{
-				Spec: consumer.ShardSpec{
+				Spec: pc.ShardSpec{
 					Id:                "shard-A",
-					Sources:           []consumer.ShardSpec_Source{{Journal: "journal/A"}},
+					Sources:           []pc.ShardSpec_Source{{Journal: "journal/A"}},
 					RecoveryLogPrefix: "recovery/logs",
 					HintPrefix:        "/hints",
 					HintBackups:       2,
@@ -174,9 +174,9 @@ func buildFlatFixture() Set {
 				Comment:  "This is a comment",
 			},
 			{
-				Spec: consumer.ShardSpec{
+				Spec: pc.ShardSpec{
 					Id:                "shard-B",
-					Sources:           []consumer.ShardSpec_Source{{Journal: "journal/B"}},
+					Sources:           []pc.ShardSpec_Source{{Journal: "journal/B"}},
 					RecoveryLogPrefix: "recovery/logs",
 					HintPrefix:        "/hints",
 					HintBackups:       2,

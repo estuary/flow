@@ -6,6 +6,7 @@ import (
 
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
@@ -18,7 +19,7 @@ type Shard interface {
 	// process is no longer responsible for the shard.
 	Context() context.Context
 	// Spec of the shard.
-	Spec() *ShardSpec
+	Spec() *pc.ShardSpec
 	// Assignment of the shard to this process.
 	Assignment() keyspace.KeyValue
 	// JournalClient for broker operations performed in the course of processing

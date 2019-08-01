@@ -10,7 +10,7 @@ package shardspace
 import (
 	"sort"
 
-	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // Set is a collection of Shards, which may share common configuration.
@@ -18,7 +18,7 @@ type Set struct {
 	// Common ShardSpec configuration of Shards in the Set. When flattened,
 	// Shards having zero-valued fields in their spec derive the value from
 	// this ShardSpec.
-	Common consumer.ShardSpec
+	Common pc.ShardSpec
 	// Shards of the Set, uniquely ordered on ShardSpec.Id.
 	Shards []Shard
 }
@@ -32,7 +32,7 @@ type Shard struct {
 	Delete *bool `yaml:",omitempty"`
 	// ShardSpec of the Shard, which may be partial and incomplete. Zero-valued
 	// fields of the ShardSpec derive their value from the common Set ShardSpec.
-	Spec consumer.ShardSpec `yaml:",omitempty,inline"`
+	Spec pc.ShardSpec `yaml:",omitempty,inline"`
 	// Revision of the Shard within Etcd.
 	Revision int64 `yaml:",omitempty"`
 
@@ -40,7 +40,7 @@ type Shard struct {
 }
 
 // FromListResponse builds a Set from a ListResponse.
-func FromListResponse(resp *consumer.ListResponse) Set {
+func FromListResponse(resp *pc.ListResponse) Set {
 	var set Set
 	for _, s := range resp.Shards {
 		set.Shards = append(set.Shards, Shard{
@@ -62,12 +62,12 @@ func (s *Set) Hoist() {
 			s.Common = c.Spec
 			s.Common.Id = ""
 		} else {
-			s.Common = consumer.IntersectShardSpecs(s.Common, c.Spec)
+			s.Common = pc.IntersectShardSpecs(s.Common, c.Spec)
 		}
 	}
 	// Subtract portions of Shards covered by the common ShardSpec.
 	for i, c := range s.Shards {
-		s.Shards[i].Spec = consumer.SubtractShardSpecs(c.Spec, s.Common)
+		s.Shards[i].Spec = pc.SubtractShardSpecs(c.Spec, s.Common)
 	}
 }
 
@@ -75,9 +75,9 @@ func (s *Set) Hoist() {
 // into constituent ShardSpecs having corresponding zero-valued fields.
 func (s *Set) PushDown() {
 	for i := range s.Shards {
-		s.Shards[i].Spec = consumer.UnionShardSpecs(s.Shards[i].Spec, s.Common)
+		s.Shards[i].Spec = pc.UnionShardSpecs(s.Shards[i].Spec, s.Common)
 	}
-	s.Common = consumer.ShardSpec{}
+	s.Common = pc.ShardSpec{}
 }
 
 // Patch |shard| into the Set, inserting it if required and otherwise updating
@@ -98,7 +98,7 @@ func (s *Set) Patch(shard Shard) *Shard {
 		s.Shards[ind] = shard
 	} else {
 		// Patch in non-zero-valued fields of |shard|.
-		s.Shards[ind].Spec = consumer.UnionShardSpecs(shard.Spec, s.Shards[ind].Spec)
+		s.Shards[ind].Spec = pc.UnionShardSpecs(shard.Spec, s.Shards[ind].Spec)
 
 		if shard.Delete != nil {
 			s.Shards[ind].Delete = shard.Delete

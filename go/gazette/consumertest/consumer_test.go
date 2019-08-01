@@ -11,6 +11,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
@@ -52,9 +53,9 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	})
 	cmr1.Tasks.GoRun()
 
-	CreateShards(c, cmr1, &consumer.ShardSpec{
+	CreateShards(c, cmr1, &pc.ShardSpec{
 		Id:                "a-shard",
-		Sources:           []consumer.ShardSpec_Source{{Journal: "a/journal"}},
+		Sources:           []pc.ShardSpec_Source{{Journal: "a/journal"}},
 		RecoveryLogPrefix: "recovery/logs",
 		HintPrefix:        "/hints",
 		HintBackups:       1,
@@ -150,9 +151,9 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	})
 	cmr1.Tasks.GoRun()
 
-	CreateShards(c, cmr1, &consumer.ShardSpec{
+	CreateShards(c, cmr1, &pc.ShardSpec{
 		Id:                "a-shard",
-		Sources:           []consumer.ShardSpec_Source{{Journal: "a/journal"}},
+		Sources:           []pc.ShardSpec_Source{{Journal: "a/journal"}},
 		RecoveryLogPrefix: "recovery/logs",
 		HintPrefix:        "/hints",
 		HintBackups:       1,

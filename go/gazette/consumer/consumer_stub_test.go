@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )
@@ -16,10 +17,10 @@ type shardServerStub struct {
 	tasks *task.Group
 	srv   *server.Server
 
-	StatFunc     func(context.Context, *StatRequest) (*StatResponse, error)
-	ListFunc     func(context.Context, *ListRequest) (*ListResponse, error)
-	ApplyFunc    func(context.Context, *ApplyRequest) (*ApplyResponse, error)
-	GetHintsFunc func(context.Context, *GetHintsRequest) (*GetHintsResponse, error)
+	StatFunc     func(context.Context, *pc.StatRequest) (*pc.StatResponse, error)
+	ListFunc     func(context.Context, *pc.ListRequest) (*pc.ListResponse, error)
+	ApplyFunc    func(context.Context, *pc.ApplyRequest) (*pc.ApplyResponse, error)
+	GetHintsFunc func(context.Context, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
 }
 
 // newShardServerStub returns a shardServerStub instance served by a local GRPC server.
@@ -29,14 +30,14 @@ func newShardServerStub(t assert.TestingT) *shardServerStub {
 		tasks: task.NewGroup(context.Background()),
 		srv:   server.MustLoopback(),
 	}
-	RegisterShardServer(s.srv.GRPCServer, s)
+	pc.RegisterShardServer(s.srv.GRPCServer, s)
 	s.srv.QueueTasks(s.tasks)
 	s.tasks.GoRun()
 	return s
 }
 
 // Client returns a JournalClient wrapping the GRPCLoopback.
-func (s *shardServerStub) client() ShardClient { return NewShardClient(s.srv.GRPCLoopback) }
+func (s *shardServerStub) client() pc.ShardClient { return pc.NewShardClient(s.srv.GRPCLoopback) }
 
 // Endpoint returns the server Endpoint.
 func (s *shardServerStub) endpoint() pb.Endpoint { return s.srv.Endpoint() }
@@ -50,21 +51,21 @@ func (s *shardServerStub) cleanup() {
 }
 
 // Stat implements the shardServerStub interface by proxying through StatFunc.
-func (s *shardServerStub) Stat(ctx context.Context, req *StatRequest) (*StatResponse, error) {
+func (s *shardServerStub) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResponse, error) {
 	return s.StatFunc(ctx, req)
 }
 
 // List implements the shardServerStub interface by proxying through ListFunc.
-func (s *shardServerStub) List(ctx context.Context, req *ListRequest) (*ListResponse, error) {
+func (s *shardServerStub) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResponse, error) {
 	return s.ListFunc(ctx, req)
 }
 
 // Apply implements the shardServerStub interface by proxying through ApplyFunc.
-func (s *shardServerStub) Apply(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
+func (s *shardServerStub) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
 	return s.ApplyFunc(ctx, req)
 }
 
 // GetHints implements the shardServerStub interface by proxying through GetHintsFunc.
-func (s *shardServerStub) GetHints(ctx context.Context, req *GetHintsRequest) (*GetHintsResponse, error) {
+func (s *shardServerStub) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 	return s.GetHintsFunc(ctx, req)
 }

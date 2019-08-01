@@ -7,6 +7,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/shardspace"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
@@ -54,12 +55,12 @@ func (cmd *cmdShardsApply) Execute([]string) error {
 }
 
 // newShardSpecApplyRequest builds the ApplyRequest.
-func newShardSpecApplyRequest(set shardspace.Set) *consumer.ApplyRequest {
+func newShardSpecApplyRequest(set shardspace.Set) *pc.ApplyRequest {
 	set.PushDown()
 
-	var req = new(consumer.ApplyRequest)
+	var req = new(pc.ApplyRequest)
 	for i := range set.Shards {
-		var change = consumer.ApplyRequest_Change{ExpectModRevision: set.Shards[i].Revision}
+		var change = pc.ApplyRequest_Change{ExpectModRevision: set.Shards[i].Revision}
 
 		if set.Shards[i].Delete != nil && *set.Shards[i].Delete == true {
 			change.Delete = set.Shards[i].Spec.Id
@@ -68,6 +69,5 @@ func newShardSpecApplyRequest(set shardspace.Set) *consumer.ApplyRequest {
 		}
 		req.Changes = append(req.Changes, change)
 	}
-
 	return req
 }

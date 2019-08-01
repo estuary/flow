@@ -15,6 +15,7 @@ import (
 	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
@@ -237,7 +238,7 @@ func fetchJournalSpec(ctx context.Context, name pb.Journal, journals pb.JournalC
 }
 
 type fetchedHints struct {
-	spec    *ShardSpec
+	spec    *pc.ShardSpec
 	txnResp *clientv3.TxnResponse
 	hints   []*recoverylog.FSMHints
 }
@@ -260,7 +261,7 @@ func pickFirstHints(f fetchedHints) recoverylog.FSMHints {
 // Nil values will be returned where hint values have not been written. It also
 // returns a TxnResponse holding each of the hints values, which can be used for
 // transactional updates of hints.
-func fetchHints(ctx context.Context, spec *ShardSpec, etcd *clientv3.Client) (out fetchedHints, err error) {
+func fetchHints(ctx context.Context, spec *pc.ShardSpec, etcd *clientv3.Client) (out fetchedHints, err error) {
 	var ops = []clientv3.Op{clientv3.OpGet(spec.HintPrimaryKey())}
 	for _, hk := range spec.HintBackupKeys() {
 		ops = append(ops, clientv3.OpGet(hk))

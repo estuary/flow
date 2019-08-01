@@ -10,6 +10,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // Resolver maps shards to responsible consumer processes, and manages the set
@@ -18,7 +19,7 @@ type Resolver struct {
 	state *allocator.State
 	// Set of local replicas known to this Resolver. Nil iff
 	// stopServingLocalReplicas() has been called.
-	replicas map[ShardID]*Replica
+	replicas map[pc.ShardID]*Replica
 	// newReplica builds a new local replica instance.
 	newReplica func() *Replica
 	// wg synchronizes over all running local replicas.
@@ -32,7 +33,7 @@ func NewResolver(state *allocator.State, newReplica func() *Replica) *Resolver {
 	var r = &Resolver{
 		state:      state,
 		newReplica: newReplica,
-		replicas:   make(map[ShardID]*Replica),
+		replicas:   make(map[pc.ShardID]*Replica),
 	}
 	state.KS.Mu.Lock()
 	state.KS.Observers = append(state.KS.Observers, r.updateResolutions)
@@ -44,7 +45,7 @@ func NewResolver(state *allocator.State, newReplica func() *Replica) *Resolver {
 type ResolveArgs struct {
 	Context context.Context
 	// ShardID to be resolved.
-	ShardID ShardID
+	ShardID pc.ShardID
 	// Whether we may resolve to another consumer peer.
 	MayProxy bool
 	// Optional Header attached to the request from a proxy-ing peer.
@@ -53,12 +54,12 @@ type ResolveArgs struct {
 
 // Resolution result of a ShardID.
 type Resolution struct {
-	Status Status
+	Status pc.Status
 	// Header captures the resolved consumer ProcessId, effective Etcd Revision,
 	// and Route of the shard resolution.
 	Header pb.Header
 	// Spec of the Shard at the current Etcd revision.
-	Spec *ShardSpec
+	Spec *pc.ShardSpec
 	// Shard processing context, or nil if this process is not primary for the ShardID.
 	Shard Shard
 	// Store of the Shard, or nil if this process is not primary for the ShardID.
@@ -83,7 +84,7 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 
 	if r.state.LocalMemberInd != -1 {
 		localID = r.state.Members[r.state.LocalMemberInd].
-			Decoded.(allocator.Member).MemberValue.(*ConsumerSpec).Id
+			Decoded.(allocator.Member).MemberValue.(*pc.ConsumerSpec).Id
 	} else {
 		// During graceful shutdown, we may still serve requests even after our
 		// local member key has been removed from Etcd. We don't want to outright
@@ -119,7 +120,7 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 
 	// Extract ShardSpec.
 	if item, ok := allocator.LookupItem(ks, args.ShardID.String()); ok {
-		res.Spec = item.ItemValue.(*ShardSpec)
+		res.Spec = item.ItemValue.(*pc.ShardSpec)
 	}
 	// Extract Route.
 	var assignments = ks.KeyValues.Prefixed(
@@ -135,16 +136,16 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 
 	// Select a response Status code.
 	if res.Spec == nil {
-		res.Status = Status_SHARD_NOT_FOUND
+		res.Status = pc.Status_SHARD_NOT_FOUND
 	} else if res.Header.ProcessId == (pb.ProcessSpec_ID{}) {
-		res.Status = Status_NO_SHARD_PRIMARY
+		res.Status = pc.Status_NO_SHARD_PRIMARY
 	} else if !args.MayProxy && res.Header.ProcessId != localID {
-		res.Status = Status_NOT_SHARD_PRIMARY
+		res.Status = pc.Status_NOT_SHARD_PRIMARY
 	} else {
-		res.Status = Status_OK
+		res.Status = pc.Status_OK
 	}
 
-	if res.Status != Status_OK {
+	if res.Status != pc.Status_OK {
 		// If we're returning an error, the effective ProcessId is ourselves
 		// (since we authored the error response).
 		res.Header.ProcessId = localID
@@ -200,12 +201,12 @@ func (r *Resolver) updateResolutions() {
 	if r.replicas == nil {
 		return // We've stopped serving local replicas.
 	}
-	var next = make(map[ShardID]*Replica, len(r.state.LocalItems))
+	var next = make(map[pc.ShardID]*Replica, len(r.state.LocalItems))
 
 	for _, li := range r.state.LocalItems {
 		var item = li.Item.Decoded.(allocator.Item)
 		var assignment = li.Assignments[li.Index]
-		var id = ShardID(item.ID)
+		var id = pc.ShardID(item.ID)
 
 		var replica, ok = r.replicas[id]
 		if !ok {
@@ -215,7 +216,7 @@ func (r *Resolver) updateResolutions() {
 			delete(r.replicas, id) // Move from |r.replicas| to |next|.
 		}
 		next[id] = replica
-		transition(replica, item.ItemValue.(*ShardSpec), assignment)
+		transition(replica, item.ItemValue.(*pc.ShardSpec), assignment)
 	}
 
 	var prev = r.replicas
@@ -236,7 +237,7 @@ func (r *Resolver) stopServingLocalReplicas() {
 	r.replicas = nil
 }
 
-func (r *Resolver) cancelReplicas(m map[ShardID]*Replica) {
+func (r *Resolver) cancelReplicas(m map[pc.ShardID]*Replica) {
 	for _, replica := range m {
 		log.WithField("id", replica.spec.Id).Info("stopping local shard replica")
 		replica.cancel()

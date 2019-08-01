@@ -12,6 +12,7 @@ import (
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
@@ -33,7 +34,7 @@ type Replica struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	// Most recent transitioned ShardSpec and Assignment of the replica.
-	spec       *ShardSpec
+	spec       *pc.ShardSpec
 	assignment keyspace.KeyValue
 	// consumer Application and local processing state.
 	app          Application
@@ -70,7 +71,7 @@ func NewReplica(app Application, ks *keyspace.KeySpace, etcd *clientv3.Client, r
 func (r *Replica) Context() context.Context { return r.ctx }
 
 // Spec of the Replica shard.
-func (r *Replica) Spec() *ShardSpec {
+func (r *Replica) Spec() *pc.ShardSpec {
 	defer r.ks.Mu.RUnlock()
 	r.ks.Mu.RLock()
 
@@ -92,7 +93,7 @@ func (r *Replica) JournalClient() client.AsyncJournalClient { return r.journalCl
 // Assignment of the replica, and transitions the Replica from its initial
 // state to a standby or primary state. |spec| and |assignment| must always be
 // non-zero-valued, and r.Mu.Lock must be held.
-var transition = func(r *Replica, spec *ShardSpec, assignment keyspace.KeyValue) {
+var transition = func(r *Replica, spec *pc.ShardSpec, assignment keyspace.KeyValue) {
 	var isSlot0 = assignment.Decoded.(allocator.Assignment).Slot == 0
 	var wasSlot0 = r.spec != nil && r.assignment.Decoded.(allocator.Assignment).Slot == 0
 
@@ -116,14 +117,14 @@ func (r *Replica) serveStandby() {
 	defer r.wg.Done()
 
 	go func() {
-		tryUpdateStatus(r, r.ks, r.etcd, ReplicaStatus{Code: ReplicaStatus_BACKFILL})
+		tryUpdateStatus(r, r.ks, r.etcd, pc.ReplicaStatus{Code: pc.ReplicaStatus_BACKFILL})
 
 		// When the player completes back-fill, advertise that we're tailing the log.
 		select {
 		case <-r.Context().Done():
 			return
 		case <-r.player.Tailing():
-			tryUpdateStatus(r, r.ks, r.etcd, ReplicaStatus{Code: ReplicaStatus_TAILING})
+			tryUpdateStatus(r, r.ks, r.etcd, pc.ReplicaStatus{Code: pc.ReplicaStatus_TAILING})
 		}
 	}()
 
@@ -147,7 +148,7 @@ func (r *Replica) servePrimary() {
 
 	r.store = store
 	close(r.storeReadyCh)
-	tryUpdateStatus(r, r.ks, r.etcd, ReplicaStatus{Code: ReplicaStatus_PRIMARY})
+	tryUpdateStatus(r, r.ks, r.etcd, pc.ReplicaStatus{Code: pc.ReplicaStatus_PRIMARY})
 
 	// Spawn service loops to read & decode messages.
 	var msgCh = make(chan message.Envelope, messageBufferSize)
@@ -199,9 +200,9 @@ func (r *Replica) logFailure(err error) error {
 
 // updateStatus publishes |status| under the Shard Assignment key in a checked
 // transaction. An existing ReplicaStatus is reduced into |status| prior to update.
-func updateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, status ReplicaStatus) error {
+func updateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, status pc.ReplicaStatus) error {
 	var asn = shard.Assignment()
-	status.Reduce(asn.Decoded.(allocator.Assignment).AssignmentValue.(*ReplicaStatus))
+	status.Reduce(asn.Decoded.(allocator.Assignment).AssignmentValue.(*pc.ReplicaStatus))
 
 	var key = string(asn.Raw.Key)
 	var val = status.MarshalString()
@@ -224,7 +225,7 @@ func updateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, sta
 }
 
 // tryUpdateStatus wraps updateStatus with retry behavior.
-func tryUpdateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, status ReplicaStatus) {
+func tryUpdateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, status pc.ReplicaStatus) {
 	for attempt := 0; true; attempt++ {
 		if shard.Context().Err() != nil {
 			return // Already cancelled.
@@ -246,8 +247,8 @@ func tryUpdateStatus(shard Shard, ks *keyspace.KeySpace, etcd *clientv3.Client, 
 }
 
 // newErrorStatus returns a FAILED ReplicaStatus which encodes the error.
-func newErrorStatus(err error) ReplicaStatus {
-	return ReplicaStatus{Code: ReplicaStatus_FAILED, Errors: []string{fmt.Sprintf("%v", err)}}
+func newErrorStatus(err error) pc.ReplicaStatus {
+	return pc.ReplicaStatus{Code: pc.ReplicaStatus_FAILED, Errors: []string{fmt.Sprintf("%v", err)}}
 }
 
 func backoff(attempt int) time.Duration {
