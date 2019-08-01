@@ -9,9 +9,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/keyspace"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // replica is a runtime instance of a journal which is assigned to this broker.

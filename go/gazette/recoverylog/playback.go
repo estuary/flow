@@ -13,10 +13,10 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/message"
 	"go.gazette.dev/core/metrics"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // Player reads from a log to rebuild encoded file operations onto the local filesystem.

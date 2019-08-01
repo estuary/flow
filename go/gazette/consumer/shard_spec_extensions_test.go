@@ -6,9 +6,9 @@ import (
 
 	gc "github.com/go-check/check"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type SpecSuite struct{}

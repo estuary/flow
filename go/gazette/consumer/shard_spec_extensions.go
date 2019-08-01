@@ -5,8 +5,8 @@ import (
 	"path"
 
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // ShardID uniquely identifies a shard processed by a Gazette consumer.

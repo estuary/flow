@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keepalive"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type s3Cfg struct {

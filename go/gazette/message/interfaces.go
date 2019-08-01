@@ -7,7 +7,7 @@ import (
 	"bufio"
 	"fmt"
 
-	"go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/broker/protocol"
 )
 
 // Message is a user-defined, serializable type.

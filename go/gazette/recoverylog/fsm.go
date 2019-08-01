@@ -5,7 +5,7 @@ import (
 	"hash/crc32"
 	"sort"
 
-	pb "go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 var (

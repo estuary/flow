@@ -10,9 +10,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/codecs"
 	"go.gazette.dev/core/metrics"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // Spool is a Fragment which is in the process of being created, backed by a

@@ -5,10 +5,10 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/fragment"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type cmdJournalsPrune struct {

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru"
-	pb "go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // RouteCache caches observed Routes for JournalSpecs (and consumer

@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/fragment"
-	pb "go.gazette.dev/core/protocol"
 )
 
 func TestFragmentsResolutionCases(t *testing.T) {

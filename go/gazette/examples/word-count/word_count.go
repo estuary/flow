@@ -14,13 +14,13 @@ import (
 
 	"github.com/pkg/errors"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/recoverylog"
 )
 

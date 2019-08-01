@@ -4,10 +4,10 @@ package consumer
 import (
 	"context"
 
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/recoverylog"
 )
 

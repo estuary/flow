@@ -8,10 +8,10 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/examples/word-count"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"go.gazette.dev/core/protocol"
 )
 
 var (

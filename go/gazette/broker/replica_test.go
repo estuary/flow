@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/fragment"
-	pb "go.gazette.dev/core/protocol"
 )
 
 func TestReplicaShutdown(t *testing.T) {

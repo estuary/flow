@@ -3,8 +3,8 @@ package broker
 import (
 	"go.etcd.io/etcd/mvcc/mvccpb"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // NewKeySpace returns a KeySpace suitable for use with an Allocator.

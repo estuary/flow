@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
-	pb "go.gazette.dev/core/protocol"
 )
 
 func TestListCases(t *testing.T) {

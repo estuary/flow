@@ -11,10 +11,10 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/keyspace"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )

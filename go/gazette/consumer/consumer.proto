@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package consumer;
 
-import "protocol/protocol.proto";
+import "broker/protocol/protocol.proto";
 import "recoverylog/recorded_op.proto";
 import "ptypes/duration/duration.proto";
 import "gogoproto/gogo.proto";
@@ -57,7 +57,7 @@ message ShardSpec {
   // queries, obtaining a reliable distributed scatter/gather query engine.
   message Source {
     // Journal which this Shard is consuming.
-    string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/protocol.Journal"];
+    string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
     // Minimum journal byte offset the shard should begin reading from. Typically
     // this should be zero, as read offsets are persisted to and recovered from
     // the shard store as the journal is processed. |min_offset| can be useful
@@ -256,7 +256,7 @@ message StatResponse {
   // Header of the response.
   protocol.Header header = 2 [(gogoproto.nullable) = false];
   // Offsets of journals being read by the shard.
-  map<string, int64> offsets = 3 [(gogoproto.castkey) = "go.gazette.dev/core/protocol.Journal"];
+  map<string, int64> offsets = 3 [(gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal"];
 }
 
 message GetHintsRequest {

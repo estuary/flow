@@ -7,8 +7,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
-	pb "go.gazette.dev/core/protocol"
 )
 
 const (

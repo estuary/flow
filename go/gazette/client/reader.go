@@ -9,8 +9,8 @@ import (
 	"io/ioutil"
 	"net/http"
 
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/codecs"
-	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

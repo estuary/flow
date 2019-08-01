@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	gc "github.com/go-check/check"
-	"go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/broker/protocol"
 )
 
 type CoverSetSuite struct{}

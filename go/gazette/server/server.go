@@ -9,8 +9,8 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keepalive"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )

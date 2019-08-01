@@ -11,11 +11,11 @@ import (
 	"testing"
 
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type RoutinesSuite struct{}

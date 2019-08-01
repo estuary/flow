@@ -10,8 +10,8 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/fragment"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // appendChunkTimeout is the maximum duration a single call to read an

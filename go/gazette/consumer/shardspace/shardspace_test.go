@@ -7,8 +7,8 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
-	pb "go.gazette.dev/core/protocol"
 	"gopkg.in/yaml.v2"
 )
 

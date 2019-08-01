@@ -5,7 +5,7 @@ import (
 
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 	"golang.org/x/net/trace"

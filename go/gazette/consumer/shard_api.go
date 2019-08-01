@@ -7,7 +7,7 @@ import (
 
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
-	pb "go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc"
 )
 

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
-	pb "go.gazette.dev/core/protocol"
 )
 
 func TestResolveCases(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 
 	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/assert"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type ListSuite struct{}

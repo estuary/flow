@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/schema"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/metrics"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type backend interface {

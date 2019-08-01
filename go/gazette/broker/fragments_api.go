@@ -7,8 +7,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/fragment"
-	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc/peer"
 )
 

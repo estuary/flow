@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type cmdJournalRead struct {

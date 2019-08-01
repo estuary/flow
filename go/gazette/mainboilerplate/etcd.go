@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
-	"go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc"
 )
 

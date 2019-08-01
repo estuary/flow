@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type AppendServiceSuite struct{}

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/protocol"
 )
 
 // ZoneConfig configures the zone of the application.

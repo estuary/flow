@@ -7,8 +7,8 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/fragment"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // pipeline is an in-flight write replication pipeline of a journal.

@@ -10,7 +10,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"

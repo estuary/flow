@@ -6,10 +6,10 @@ import (
 	"io"
 
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/protocol/journalspace"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/cmd/gazctl/editor"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"go.gazette.dev/core/protocol/journalspace"
 	"gopkg.in/yaml.v2"
 )
 

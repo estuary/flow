@@ -5,7 +5,7 @@ package protocol;
 import "gogoproto/gogo.proto";
 import "ptypes/duration/duration.proto";
 
-option go_package = "go.gazette.dev/core/protocol";
+option go_package = "go.gazette.dev/core/broker/protocol";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;

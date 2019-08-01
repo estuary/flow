@@ -7,13 +7,13 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type WordCountSuite struct{}

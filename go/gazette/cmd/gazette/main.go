@@ -11,11 +11,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
+	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/http_gateway"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/metrics"
-	"go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )

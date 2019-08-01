@@ -10,10 +10,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	rocks "github.com/tecbot/gorocksdb"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/etcdtest"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/recoverylog"
 )
 

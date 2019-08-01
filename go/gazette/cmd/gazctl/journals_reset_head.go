@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	pb "go.gazette.dev/core/protocol"
 )
 
 type cmdJournalResetHead struct {

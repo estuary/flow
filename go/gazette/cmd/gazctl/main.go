@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/jessevdk/go-flags"
+	"go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"go.gazette.dev/core/protocol"
 	"gopkg.in/yaml.v2"
 )
 

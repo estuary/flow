@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/klauspost/compress/gzip"
-	pb "go.gazette.dev/core/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Decompressor is a ReadCloser where Close closes and releases Decompressor

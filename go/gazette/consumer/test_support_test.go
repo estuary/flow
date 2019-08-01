@@ -7,13 +7,13 @@ import (
 	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/recoverylog"
 )
 

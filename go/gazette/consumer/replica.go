@@ -10,10 +10,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
-	pb "go.gazette.dev/core/protocol"
 	"go.gazette.dev/core/recoverylog"
 )
 

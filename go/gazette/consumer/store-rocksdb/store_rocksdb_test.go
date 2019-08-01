@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tecbot/gorocksdb"
-	"go.gazette.dev/core/protocol"
+	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/recoverylog"
 )
 

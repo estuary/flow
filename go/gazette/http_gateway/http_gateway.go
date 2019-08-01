@@ -16,8 +16,8 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/schema"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/client"
-	pb "go.gazette.dev/core/protocol"
 )
 
 // Gateway presents an HTTP gateway to Gazette brokers, by mapping GET, HEAD,

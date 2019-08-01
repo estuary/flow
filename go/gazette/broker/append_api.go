@@ -8,8 +8,8 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/metrics"
-	pb "go.gazette.dev/core/protocol"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 )
