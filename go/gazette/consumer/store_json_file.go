@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/recoverylog"
+	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 // JSONFileStore is a simple Store which materializes itself as a JSON-encoded

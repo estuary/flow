@@ -8,7 +8,7 @@ import (
 	gc "github.com/go-check/check"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/recoverylog"
+	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 type APISuite struct{}

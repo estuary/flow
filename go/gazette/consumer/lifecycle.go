@@ -15,10 +15,10 @@ import (
 	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 	"go.gazette.dev/core/metrics"
-	"go.gazette.dev/core/recoverylog"
 	"google.golang.org/grpc/codes"
 )
 

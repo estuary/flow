@@ -34,12 +34,12 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
+	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
-	"go.gazette.dev/core/recoverylog"
 )
 
 // ChunkerConfig is the configuration used by the `chunker` job binary.

@@ -11,10 +11,10 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
+	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
-	"go.gazette.dev/core/recoverylog"
 )
 
 type LifecycleSuite struct{}

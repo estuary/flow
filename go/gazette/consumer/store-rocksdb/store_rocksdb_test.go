@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/tecbot/gorocksdb"
 	"go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/recoverylog"
+	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {

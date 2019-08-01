@@ -13,8 +13,8 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
+	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/recoverylog"
 )
 
 func TestSimpleStopAndStart(t *testing.T) {

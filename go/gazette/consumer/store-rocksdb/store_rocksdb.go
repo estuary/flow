@@ -27,7 +27,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/recoverylog"
+	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 // Store implements the consumer.Store interface.

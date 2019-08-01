@@ -3,7 +3,7 @@ syntax = "proto3";
 package consumer;
 
 import "broker/protocol/protocol.proto";
-import "recoverylog/recorded_op.proto";
+import "consumer/recoverylog/recorded_op.proto";
 import "ptypes/duration/duration.proto";
 import "gogoproto/gogo.proto";
 

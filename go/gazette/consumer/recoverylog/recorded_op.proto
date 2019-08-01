@@ -4,7 +4,7 @@ package recoverylog;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "go.gazette.dev/core/recoverylog";
+option go_package = "go.gazette.dev/core/consumer/recoverylog";
 
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;

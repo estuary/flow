@@ -1,7 +1,7 @@
 package store_rocksdb
 
 import (
-	"go.gazette.dev/core/recoverylog"
+	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 // NewRecorder adapts a recoverylog.Recorder to an EnvObserver.
