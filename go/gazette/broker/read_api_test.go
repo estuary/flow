@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.gazette.dev/core/broker/codecs"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/codecs"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/fragment"
 )

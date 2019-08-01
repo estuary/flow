@@ -12,9 +12,9 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/broker/codecs"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
-	"go.gazette.dev/core/codecs"
 )
 
 type ReaderSuite struct{}

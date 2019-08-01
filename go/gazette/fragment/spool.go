@@ -10,8 +10,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/codecs"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/codecs"
 	"go.gazette.dev/core/metrics"
 )
 
