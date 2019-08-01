@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/client"
+	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/message"
 )
 

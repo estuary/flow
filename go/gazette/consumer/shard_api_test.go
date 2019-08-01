@@ -6,8 +6,8 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/recoverylog"
 )
 

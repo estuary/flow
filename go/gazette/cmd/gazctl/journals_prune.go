@@ -5,8 +5,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/fragment"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )

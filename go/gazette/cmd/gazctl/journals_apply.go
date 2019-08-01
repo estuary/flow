@@ -6,9 +6,9 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/journalspace"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/client"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 

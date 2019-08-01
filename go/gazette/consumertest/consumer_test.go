@@ -7,9 +7,9 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"

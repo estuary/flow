@@ -10,8 +10,8 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/olekukonko/tablewriter"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/shardspace"
 	mbp "go.gazette.dev/core/mainboilerplate"

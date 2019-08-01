@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/client"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 

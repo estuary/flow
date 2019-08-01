@@ -8,8 +8,8 @@ import (
 	"math/rand"
 	"sync"
 
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/client"
 	"go.gazette.dev/core/labels"
 )
 
