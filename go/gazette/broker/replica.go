@@ -9,8 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/fragment"
 	"go.gazette.dev/core/keyspace"
 )
 

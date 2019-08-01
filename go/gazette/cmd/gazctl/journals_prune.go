@@ -6,8 +6,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
+	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/fragment"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 

@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
-	"go.gazette.dev/core/fragment"
 )
 
 func TestPipelineBasicLifeCycle(t *testing.T) {
