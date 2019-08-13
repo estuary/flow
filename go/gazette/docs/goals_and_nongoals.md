@@ -1,124 +1,3 @@
-|circleci status|
-
-.. |circleci status| image:: https://circleci.com/gh/gazette/core.svg?style=svg
-   :target: https://circleci.com/gh/gazette/core
-
-Overview
-========
-
-Gazette is infrastructure for building streaming platforms, consisting of a
-*broker service* for durable logging and publish/subscribe, and a *consumer
-framework* for long-lived, scaled, stateful, and highly-available streaming
-applications written in Go.
-
-Gazette has been continuously operated in production since early 2015,
-and powers a number of critical systems and use-cases at LiveRamp.
-
-Cluster QuickStart
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: console
-
-    # Perform a containerized build and test of the project and examples (requires Docker).
-    $ v2/build/all .
-
-    # (If required) bootstrap a Kubernetes cluster with Helm (https://helm.sh).
-    $ v2/test/bootstrap_local_kubernetes.sh my-k8s-context
-
-    # Deploy Gazette brokers to the cluster.
-    $ v2/test/deploy_brokers.sh my-k8s-context my-namespace
-    Using context "my-k8s-context" & namespace "my-namespace"
-    ... trimmed output ...
-    NOTES:
-    The Gazette broker cluster is now running.
-    1. Get the application URL by running these commands:
-      export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=gazette,app.kubernetes.io/instance=virtuous-owl" -o jsonpath="{.items[0].metadata.name}")
-      echo "Visit http://127.0.0.1:8080 to use your application"
-      kubectl port-forward $POD_NAME 8080:80
-
-    # Deploy example applications to the cluster.
-    $ v2/test/deploy_examples.sh my-k8s-context my-namespace
-
-- `build/ <build/>`_ provides an overview of Gazette's build infrastructure.
-
-- `test/ <test/>`_ has details on deployment, example applications,
-  and means of provisioning a local Kubernetes cluster (eg, Minikube) with a
-  complete Gazette environment, including interactive examples.
-
-Broker Service
-==============
-
-Brokers serve "Journals", a byte-oriented resource resembling a file. Journals
-may be read from an arbitrary offset, they may be appended to (only), and they
-may grow to an unbounded length far exceeding disk capacity.
-
-Append operations are atomic: a writer is assured that either its entire write
-is contiguously sequenced into the journal, or that none of it is. No reader
-of a journal will observe a write until it has been fully committed.
-
-The brokers provide global sequencing of client writes to journals, and replicate
-those writes to ensure durability. They also serve streamed journal reads, which may
-begin at any offset and will optionally block upon reaching an offset which has not
-yet been written (the "write head"). In this way, read operations very much resemble
-``tail -c ${my_offset} -f`` operations over files.
-
-Interacting with Brokers
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: console
-
-    # Port-forward to a running Gazette Pod (or, use a service IP).
-    $ kubectl port-forward $A_GAZETTE_POD_NAME 8080
-
-    # Write data to a journal using the HTTP gateway API:
-    $ curl -X PUT --data-binary @- http://localhost:8080/examples/foobar << EOF
-    > Hello, Gazette!
-    > EOF
-
-    $ curl http://localhost:8080/examples/foobar
-    Hello, Gazette!
-
-    # Read beginning at an arbitrary offset:
-    $ curl "http://localhost:8080/examples/foobar?offset=7"
-    Gazette!
-
-    # Perform ongoing, background writes to the journal:
-    $ while true; do curl -X PUT --data-binary @- http://localhost:8080/examples/foobar << EOF
-    > ping
-    > EOF
-    > sleep 1
-    > done
-
-    # Read from an offset, continuing to stream new writes as they arrive:
-    $ curl -N "http://localhost:8080/examples/foobar?offset=7&block=true"
-    Gazette!
-    ping
-    ping
-    ping
-    ... etc
-
-    # Use the gazctl CLI tool to interact with Gazette:
-    $ gazctl journals list --primary
-    +----------------------------------------------------+--------------------------------------+
-    |                        NAME                        |               PRIMARY                |
-    +----------------------------------------------------+--------------------------------------+
-    | examples/foobar                                    | virtuous-owl-gazette-bc5d97fbd-8xw8s |
-    | examples/stream-sum/chunks/part-000                | virtuous-owl-gazette-bc5d97fbd-8xw8s |
-    | examples/stream-sum/chunks/part-001                | virtuous-owl-gazette-bc5d97fbd-8xw8s |
-    | examples/stream-sum/chunks/part-002                | virtuous-owl-gazette-bc5d97fbd-8xw8s |
-    |                   ... etc ...                      |                                      |
-    +----------------------------------------------------+--------------------------------------+
-
-Consumers Framework
-===================
-
-The consumers framework simplifies the development of user applications which
-"consume" messages streamed from journals. Applications are empowered to keep
-substantial amounts of application-defined state in an embedded database
-(typically a RocksDB), and the framework manages concerns such as database
-replication and recovery, distributed routing, failure recovery, and high-
-availability. Applications may be very long lived and scale horizontally.
-
 Design Goals (and Non-Goals)
 ============================
 
@@ -126,7 +5,7 @@ Gazette has influences and shares similarities with a number of other projects.
 Its architecture also reflects several departures from the solutions of those
 influences.
 
- * Journals provide globally record ordering, durable storage, and publish/subscribe.
+ * Journals provide globally record ordering and publish/subscribe.
 
 Much like Kakfa, LogDevice, Apache BookKeeper, and others. These properties are
 the basic building blocks for assembling platforms composed of streaming,
@@ -152,7 +31,8 @@ critical writes of a system as they occur, and serving highly scaled reads of
 historical written data. By decoupling storage, we can separately scale the write
 capacity of the system from its read capacity. A second factor is that storage
 separation enables taking advantage of services like S3 or GCS, which are highly
-elastic and suited for scaled read IOPs, and require no explicit provisioning.
+elastic and suited for scaled read IOPs, and require no explicit provisioning or
+disk resizing.
 
  * Journals, once written, are immutable.
 
@@ -224,18 +104,19 @@ topology, appropriately re-balancing their load.
 
 Brokers are able to immediately serve a newly assigned journal without any
 replication delay. Gazette consumers may optionally have a number of "hot
-standbys" which replicate database file state and can immediately take over.
+standbys" which replicate database file state and can immediately take over
+for a failed peer.
 
  * Non-goals: distributed state & consensus.
 
 Gazette uses Etcd v3 as the single source-of-truth for distributed state (eg
-current members, journals, and current assignments). Etcd v3 leases are used
-to detect process failures, and Gazette employs an "allocator" which solves
-for and applies assignment updates via checked Etcd transactions.
+current membership, journal specifications, and process assignments). Etcd v3
+leases are used to detect process failures and gate distributed topology changes.
+Gazette employs an "allocator", running atop Etcd API primitives, which solves
+for distributed zone-aware assignment and horizontal rebalancing.
 
  * Non-goals: resource management and job scheduling.
 
 Gazette does not manage workloads or services, such as the provisioning or
 scaling of brokers or consumers, and relies on an external orchestration framework
 to perform these tasks. The authors use and enthusiastically recommend Kubernetes.
-
