@@ -329,6 +329,6 @@ const (
 	minJournalNameLen, maxJournalNameLen   = 4, 512
 	maxJournalReplication                  = 5
 	minRefreshInterval, maxRefreshInterval = time.Second, time.Hour * 24
-	minFlushInterval                       = time.Minute * 10
+	minFlushInterval                       = time.Minute
 	minFragmentLen, maxFragmentLen         = 1 << 10, 1 << 34 // 1024 => 17,179,869,184
 )

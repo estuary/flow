@@ -136,8 +136,8 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	c.Check(f.Validate(), gc.ErrorMatches, `invalid RefreshInterval \(25h0m0s; expected 1s <= interval <= 24h0m0s\)`)
 	f.RefreshInterval = time.Hour
 
-	f.FlushInterval = time.Minute
-	c.Check(f.Validate(), gc.ErrorMatches, `invalid FlushInterval \(1m0s; expected >= 10m0s\)`)
+	f.FlushInterval = time.Second
+	c.Check(f.Validate(), gc.ErrorMatches, `invalid FlushInterval \(1s; expected >= 1m0s\)`)
 	f.FlushInterval = time.Hour * 2
 
 	f.Stores = append(f.Stores, "invalid")
