@@ -59,7 +59,7 @@ type ListConfig struct {
 
 // ApplyConfig is common configuration of apply operations.
 type ApplyConfig struct {
-	SpecsPath  string `long:"specs" required:"true" description:"Path to specifications file to apply. Provide a dash (-) to use stdin."`
+	SpecsPath  string `long:"specs" default:"-" description:"Input specifications path to apply. Use '-' for stdin"`
 	DryRun     bool   `long:"dry-run" description:"Perform a dry-run of the apply"`
 	MaxTxnSize int    `long:"max-txn-size" default:"0" description:"maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction"`
 }

@@ -37,7 +37,7 @@ Match JournalSpecs having a name prefix (must end in '/'):
 
 Results can be output in a variety of --format options:
 yaml:  Prints a YAML journal hierarchy, compatible with "journals apply"
-json:  Prints JournalSpecs encoded as JSON
+json:  Prints JournalSpecs encoded as JSON, one per line.
 proto: Prints JournalSpecs encoded in protobuf text format
 table: Prints as a table (see other flags for column choices)
 
