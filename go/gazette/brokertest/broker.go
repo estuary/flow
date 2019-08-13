@@ -22,12 +22,12 @@ import (
 // Broker is a lightweight, embedded Gazette broker suitable for testing client
 // functionality which depends on the availability of the Gazette service.
 type Broker struct {
-	ID    pb.ProcessSpec_ID
-	Tasks *task.Group
+	ID     pb.ProcessSpec_ID
+	Tasks  *task.Group
+	Server *server.Server
 
 	etcd  *clientv3.Client
 	sigCh chan os.Signal
-	srv   *server.Server
 	ks    *keyspace.KeySpace
 }
 
@@ -65,20 +65,20 @@ func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *B
 	tasks.GoRun()
 
 	return &Broker{
-		ID:    id,
-		Tasks: tasks,
-		etcd:  etcd,
-		sigCh: sigCh,
-		srv:   srv,
-		ks:    ks,
+		ID:     id,
+		Tasks:  tasks,
+		Server: srv,
+		etcd:   etcd,
+		sigCh:  sigCh,
+		ks:     ks,
 	}
 }
 
 // Client of the test Broker.
-func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.GRPCLoopback) }
+func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.Server.GRPCLoopback) }
 
 // Endpoint of the test Broker.
-func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
+func (b *Broker) Endpoint() pb.Endpoint { return b.Server.Endpoint() }
 
 // Signal the Broker to exit. Wait on its |Tasks| to confirm it exited.
 // Note other Broker(s) must be available to take over assignments.
