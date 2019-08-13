@@ -109,14 +109,16 @@ func (s *ListSuite) TestPolledList(c *gc.C) {
 	var pl, err = NewPolledList(ctx, broker.Client(), 5*time.Millisecond, pb.ListRequest{})
 	c.Check(err, gc.IsNil)
 	c.Check(pl.List(), gc.DeepEquals, &fixture)
+	<-pl.UpdateCh() // Expect UpdateCh is initially ready to select.
 
 	// Alter the fixture. List will eventually reflect it, after being given a chance to refresh.
 	fixture.Journals = mk("part-one", "part-two", "part-three")
 	c.Check(pl.List(), gc.Not(gc.DeepEquals), &fixture)
 
-	for i := 0; i != 3; i++ {
-		callCh <- struct{}{} // Wait until |fixture| is certain to be applied.
-	}
+	// Expect another poll is done, and the PolledList updates.
+	callCh <- struct{}{}
+	<-pl.UpdateCh()
+
 	c.Check(pl.List(), gc.DeepEquals, &fixture)
 }
 

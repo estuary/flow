@@ -14,10 +14,11 @@ import (
 // PolledList performs periodic polls of a ListRequest. Its most recent
 // polled result may be accessed via List.
 type PolledList struct {
-	ctx    context.Context
-	client pb.JournalClient
-	req    pb.ListRequest
-	resp   atomic.Value
+	ctx      context.Context
+	client   pb.JournalClient
+	req      pb.ListRequest
+	resp     atomic.Value
+	updateCh chan struct{}
 }
 
 // NewPolledList returns a PolledList of the ListRequest which is initialized and
@@ -29,15 +30,26 @@ func NewPolledList(ctx context.Context, client pb.JournalClient, dur time.Durati
 	if err != nil {
 		return nil, err
 	}
-	var pl = &PolledList{ctx: ctx, client: client, req: req}
+	var pl = &PolledList{
+		ctx:      ctx,
+		client:   client,
+		req:      req,
+		updateCh: make(chan struct{}, 1),
+	}
 	pl.resp.Store(resp)
+	pl.updateCh <- struct{}{}
 
 	go pl.periodicRefresh(dur)
 	return pl, nil
 }
 
-// List returns the most recent ListResponse.
+// List returns the most recent polled & merged ListResponse (see ListAllJournals).
 func (pl *PolledList) List() *pb.ListResponse { return pl.resp.Load().(*pb.ListResponse) }
+
+// UpdateCh returns a channel which is signaled with each update of the
+// PolledList. Only one channel is allocated and one signal sent per-update, so
+// if multiple goroutines select from UpdateCh() only one will wake.
+func (pl *PolledList) UpdateCh() <-chan struct{} { return pl.updateCh }
 
 func (pl *PolledList) periodicRefresh(dur time.Duration) {
 	var ticker = time.NewTicker(dur)
@@ -50,6 +62,11 @@ func (pl *PolledList) periodicRefresh(dur time.Duration) {
 					Warn("periodic List refresh failed (will retry)")
 			} else {
 				pl.resp.Store(resp)
+
+				select {
+				case pl.updateCh <- struct{}{}:
+				default: // Don't block if nobody's reading.
+				}
 			}
 		case <-pl.ctx.Done():
 			ticker.Stop()
