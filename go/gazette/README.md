@@ -23,7 +23,7 @@ Gazette provides low-latency, durable, ordered publish/subscribe services, while
 *also* serving as the system-of-record for all historical data which has passed
 through those streams, no matter how old or large in volume.
 
-It features a powerful **labels** and **selectors** mechanisms for tagging and querying
+It features powerful **labels** and **selectors** mechanisms for tagging and querying
 over event streams, similar to those of Kubernetes.
 
 It minimizes operational risk by delegating both storage and high-volume replay

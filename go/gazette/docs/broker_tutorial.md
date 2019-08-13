@@ -160,11 +160,11 @@ gRPC API
 As we've seen, brokers present journals over an HTTP API using familiar GET and PUT
 verbs. One callout is that journals are _natively_ presented over a gRPC service, and
 what we're actually interacting with here is an HTTP gateway that brokers offer, wrapping
-the [gRPC Journal service](../protocol/protocol.proto#L535).
+the [gRPC Journal service](../broker/protocol/protocol.proto#L535).
 
 The HTTP gateway is handy for building simple clients or reading journals from a
 web browser, but at high volumes in production a native gRPC client should be used
-instead (such as the [Gazette Go client](https://godoc.org/github.com/gazette/core/client)).
+instead (such as the [Gazette Go client](https://godoc.org/github.com/gazette/core/broker/client)).
 
 Gazette also offers a fully-featured tool `gazctl` which can often make quick work of
 efficiently integrating legacy or Gazette-unaware applications.
@@ -361,7 +361,7 @@ $ gazctl journals list --primary
 
 As mentioned, Gazette relies on Etcd for consensus over distributed state of the system,
 such as current broker-to-journal assignments and even the set of
-[JournalSpecs](../protocol/protocol.proto#L117).
+[JournalSpecs](../broker/protocol/protocol.proto#L117).
 Specs like JournalSpec define the existence and desired behavior of entities in Gazette. If
 you come from Kubernetes, this will feel familiar and indeed Gazette uses specs in
 analogous ways. We can use gazctl to fetch our single JournalSpec in YAML form.
@@ -420,8 +420,8 @@ EOF
 INFO[0000] successfully applied                          revision=5
 ```
 
-Gazctl also has an `edit` sub-command which is convenient shorthand for this common
-"list, modify, then apply" workflow.
+Gazctl also has an `edit` sub-command which will be familiar to `kubectl` users,
+and is convenient shorthand for this common "list, modify, then apply" workflow.
 ```bash
 $ gazctl journals edit -l name=example/journal
 ```
