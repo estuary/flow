@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go v0.43.0
 	github.com/DataDog/zstd v1.4.0
 	github.com/aws/aws-sdk-go v1.19.32
+	github.com/dustin/go-humanize v0.0.0-20171111073723-bb3d318650d4
 	github.com/facebookgo/ensure v0.0.0-20160127193407-b4ab57deab51 // indirect
 	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect
 	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
@@ -39,5 +40,6 @@ require (
 	golang.org/x/sys v0.0.0-20190712062909-fae7ac547cb7 // indirect
 	google.golang.org/api v0.7.0
 	google.golang.org/grpc v1.22.0
+	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 	gopkg.in/yaml.v2 v2.2.2
 )
