@@ -96,9 +96,13 @@ func Allocate(args AllocateArgs) error {
 				metrics.AllocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
 
 				log.WithFields(log.Fields{
-					"hash":     state.NetworkHash,
-					"lastHash": lastNetworkHash,
-					"dur":      dur,
+					"hash":        state.NetworkHash,
+					"lastHash":    lastNetworkHash,
+					"items":       len(state.Items),
+					"members":     len(state.Members),
+					"assignments": len(state.Assignments),
+					"desired":     len(desired),
+					"dur":         dur,
 				}).Info("solved for maximum assignment")
 
 				if len(desired) < state.ItemSlots {
@@ -125,8 +129,6 @@ func Allocate(args AllocateArgs) error {
 				log.WithFields(log.Fields{"err": err, "round": round, "rev": ks.Header.Revision}).
 					Warn("converge iteration failed (will retry)")
 			} else {
-				log.WithFields(log.Fields{"hash": state.NetworkHash}).
-					Info("converge iteration successful")
 				metrics.AllocatorConvergeTotal.Inc()
 
 				metrics.AllocatorNumMembers.Set(float64(len(state.Members)))
