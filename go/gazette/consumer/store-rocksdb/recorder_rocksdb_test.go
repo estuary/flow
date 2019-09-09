@@ -32,8 +32,8 @@ func TestSimpleStopAndStart(t *testing.T) {
 	var hints, _ = replica1.recorder.BuildHints()
 
 	// |replica1| was initialized from empty hints and began writing at the
-	// recoverylog head (offset -1). However, expect that the produced hints
-	// reference absolute offsets of the log.
+	// recovery log head. However, expect that the produced hints reference
+	// resolved absolute offsets of the log.
 	assert.NotNil(t, hints.LiveNodes)
 	for _, node := range hints.LiveNodes {
 		for _, s := range node.Segments {
@@ -97,27 +97,27 @@ func TestWarmStandbyHandoff(t *testing.T) {
 		"key bar": "bing",
 	})
 
-	// Begin raced writes. We expect that the hand-off mechanism allows |replica3|
-	// to consistently follow |replica2|'s fork of history.
+	// Begin raced writes. We expect that the hand-off mechanism allows
+	// |replica3| to consistently follow |replica2|'s version of history.
 	replica1.put("raced", "and loses")
 	assert.NoError(t, replica1.db.Flush(fo))
 	replica2.put("raced", "and wins")
 	assert.NoError(t, replica2.db.Flush(fo))
 
 	replica3.makeLive()
-	replica2.expectValues(map[string]string{
+	replica3.expectValues(map[string]string{
 		"key foo": "baz",
 		"key bar": "bing",
 		"raced":   "and wins",
 	})
 
-	// Expect |replica2| & |replica3| share identical, non-empty properties.
+	// Expect replicas share identical, non-empty properties.
 	var h1, _ = replica1.recorder.BuildHints()
-	var h2, _ = replica2.recorder.BuildHints()
+	var h3, _ = replica2.recorder.BuildHints()
 
 	assert.NotEmpty(t, h1.Properties)
 	assert.Equal(t, h1.Properties[0].Path, "/IDENTITY")
-	assert.Equal(t, h1.Properties, h2.Properties)
+	assert.Equal(t, h1.Properties, h3.Properties)
 }
 
 func TestResolutionOfConflictingWriters(t *testing.T) {
@@ -239,14 +239,12 @@ func NewTestReplica(t assert.TestingT, client client.AsyncJournalClient) *testRe
 	var r = &testReplica{
 		client: client,
 		player: recoverylog.NewPlayer(),
+		author: recoverylog.NewRandomAuthor(),
 		t:      t,
 	}
 
 	var err error
 	r.tmpdir, err = ioutil.TempDir("", "store-rocksdb-test")
-	assert.NoError(r.t, err)
-
-	r.author, err = recoverylog.NewRandomAuthorID()
 	assert.NoError(r.t, err)
 
 	return r
@@ -275,7 +273,8 @@ func (r *testReplica) makeLive() {
 }
 
 func (r *testReplica) initDB(fsm *recoverylog.FSM) {
-	r.recorder = recoverylog.NewRecorder(fsm, r.author, r.tmpdir, r.client)
+	r.recorder = &recoverylog.Recorder{
+		FSM: fsm, Author: r.author, Dir: r.tmpdir, Client: r.client}
 
 	r.dbO = rocks.NewDefaultOptions()
 	r.dbO.SetCreateIfMissing(true)

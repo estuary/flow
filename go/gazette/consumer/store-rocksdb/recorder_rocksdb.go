@@ -22,6 +22,6 @@ func (r recordedDB) LinkFile(src, target string)   { r.rec.RecordLink(src, targe
 
 func (r recordedFile) Append(data []byte)              { r.rec.RecordWrite(data) }
 func (r recordedFile) Close()                          {} // No-op.
-func (r recordedFile) Sync()                           { <-r.rec.StrongBarrier().Done() }
-func (r recordedFile) Fsync()                          { <-r.rec.StrongBarrier().Done() }
-func (r recordedFile) RangeSync(offset, nbytes uint64) { <-r.rec.StrongBarrier().Done() }
+func (r recordedFile) Sync()                           { <-r.rec.Barrier(nil).Done() }
+func (r recordedFile) Fsync()                          { <-r.rec.Barrier(nil).Done() }
+func (r recordedFile) RangeSync(offset, nbytes uint64) { <-r.rec.Barrier(nil).Done() }

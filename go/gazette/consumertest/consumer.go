@@ -4,7 +4,6 @@ package consumertest
 import (
 	"context"
 	"os"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -114,7 +113,7 @@ func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard pc.ShardID, route
 	defer ks.Mu.RUnlock()
 
 	for {
-		if err := ks.WaitForRevision(ctx, rev); err != nil {
+		if err = ks.WaitForRevision(ctx, rev); err != nil {
 			return err
 		}
 		// Walk assignments and determine if the slot-zero one is PRIMARY.
@@ -142,9 +141,8 @@ func CreateShards(t assert.TestingT, cmr *Consumer, specs ...*pc.ShardSpec) {
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, pc.ApplyRequest_Change{Upsert: spec})
 	}
-
-	var resp, err = pc.NewShardClient(cmr.Service.Loopback).
-		Apply(pb.WithDispatchDefault(context.Background()), req)
+	var resp, err = consumer.ApplyShards(context.Background(),
+		pc.NewShardClient(cmr.Service.Loopback), req)
 	assert.NoError(t, err)
 	assert.Equal(t, pc.Status_OK, resp.Status)
 
@@ -184,26 +182,15 @@ func WaitForShards(ctx context.Context, rjc pb.RoutedJournalClient, conn *grpc.C
 		}
 		expect[journal] = r.Response.WriteHead
 	}
-	// Poll until each shard has read through its respective journal write-heads.
+	// Stat each shard, blocking until it reads through journal write-heads.
 	for len(shards.Shards) != 0 {
-		var shard = shards.Shards[0]
-
-		var resp *pc.StatResponse
-		if resp, err = sc.Stat(ctx, &pc.StatRequest{Shard: shard.Spec.Id}); err != nil {
+		if _, err = sc.Stat(ctx, &pc.StatRequest{
+			Shard:       shards.Shards[0].Spec.Id,
+			ReadThrough: expect,
+		}); err != nil {
 			return err
 		}
-
-		var done bool
-		for _, src := range shard.Spec.Sources {
-			if resp.Offsets[src.Journal] >= expect[src.Journal] {
-				done = true
-			}
-		}
-		if done {
-			shards.Shards = shards.Shards[1:]
-		} else {
-			runtime.Gosched()
-		}
+		shards.Shards = shards.Shards[1:]
 	}
 	return nil
 }

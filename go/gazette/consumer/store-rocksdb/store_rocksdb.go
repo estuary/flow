@@ -26,7 +26,10 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	rocks "github.com/tecbot/gorocksdb"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 )
 
@@ -52,22 +55,20 @@ type Store struct {
 	// by Store.
 	Cache interface{}
 
-	rec *recoverylog.Recorder
-	dir string
+	recorder *recoverylog.Recorder
 }
 
-// NewStore builds a Store which is prepared to open its database,
-// but has not yet done so. The caller may wish to further tweak Options and Env
-// settings, and should then call Open to open the database.
-func NewStore(rec *recoverylog.Recorder, dir string) *Store {
+// NewStore builds a Store which is prepared to open its database, but has not
+// yet done so. The caller may wish to further tweak Options and Env settings,
+// and should then call Open to open the database.
+func NewStore(recorder *recoverylog.Recorder) *Store {
 	return &Store{
-		Env:          NewHookedEnv(NewRecorder(rec)),
+		Env:          NewHookedEnv(NewRecorder(recorder)),
 		Options:      rocks.NewDefaultOptions(),
 		ReadOptions:  rocks.NewDefaultReadOptions(),
 		WriteBatch:   rocks.NewWriteBatch(),
 		WriteOptions: rocks.NewDefaultWriteOptions(),
-		rec:          rec,
-		dir:          dir,
+		recorder:     recorder,
 	}
 }
 
@@ -87,17 +88,30 @@ func (s *Store) Open() (err error) {
 	// to encourage more frequent compactions into new files.
 	s.Options.SetMaxManifestFileSize(1 << 17) // 131072 bytes.
 
-	s.DB, err = rocks.OpenDb(s.Options, s.dir)
+	s.DB, err = rocks.OpenDb(s.Options, s.recorder.Dir)
 	return
 }
 
-// Recorder of the RocksDB.
-func (s *Store) Recorder() *recoverylog.Recorder { return s.rec }
+func (s *Store) RestoreCheckpoint(_ consumer.Shard) (pc.Checkpoint, error) {
+	var cp pc.Checkpoint
 
-// FetchJournalOffsets returns a map of Journals and offsets captured by the DB.
-func (s *Store) FetchJournalOffsets() (offsets map[pb.Journal]int64, err error) {
+	var slice, err = s.DB.Get(s.ReadOptions, checkpointKey)
+	if err != nil {
+		return cp, errors.WithMessagef(err, "fetching checkpoint key")
+	}
+	defer slice.Free()
+
+	if slice.Exists() {
+		if err = cp.Unmarshal(slice.Data()); err != nil {
+			return cp, errors.WithMessagef(err, "unmarshal checkpoint")
+		}
+		return cp, nil
+	}
+
+	// Decode legacy offsets.
+	// TODO(johnny): Remove after migration to consumer checkpoints.
 	var prefix = appendOffsetKeyEncoding(nil, "")
-	offsets = make(map[pb.Journal]int64)
+	cp.Sources = make(map[pb.Journal]pc.Checkpoint_Source)
 
 	var it = s.DB.NewIterator(s.ReadOptions)
 	defer it.Close()
@@ -121,28 +135,35 @@ func (s *Store) FetchJournalOffsets() (offsets map[pb.Journal]int64, err error) 
 		it.Value().Free()
 
 		if err != nil {
-			return
-		} else {
-			offsets[name] = offset
+			return cp, err
 		}
+		cp.Sources[name] = pc.Checkpoint_Source{ReadThrough: offset}
 	}
-	return
+	return cp, nil
 }
 
-// Flush merges |offsets| into the WriteBatch, and atomically writes it to the DB.
-func (s *Store) Flush(offsets map[pb.Journal]int64) error {
-	// Persist updated journal offsets alongside other WriteBatch content.
-	for journal, offset := range offsets {
+func (s *Store) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.OpFutures) client.OpFuture {
+	_ = s.recorder.Barrier(waitFor)
+
+	// Marshal checkpoint alongside other WriteBatch content.
+	if b, err := cp.Marshal(); err == nil {
+		s.WriteBatch.Put(checkpointKey, b)
+	} else {
+		return client.FinishedOperation(err)
+	}
+	// Marshal legacy journal offsets.
+	for journal, src := range cp.Sources {
 		s.WriteBatch.Put(
 			appendOffsetKeyEncoding(nil, journal),
-			appendOffsetValueEncoding(nil, offset))
+			appendOffsetValueEncoding(nil, src.ReadThrough))
 	}
+
 	if err := s.DB.Write(s.WriteOptions, s.WriteBatch); err != nil {
-		return err
+		return client.FinishedOperation(err)
 	}
 	s.WriteBatch.Clear()
 
-	return nil
+	return s.recorder.Barrier(nil)
 }
 
 // Destroy the Store.
@@ -157,13 +178,16 @@ func (s *Store) Destroy() {
 	s.WriteBatch.Destroy()
 	s.WriteOptions.Destroy()
 
-	if err := os.RemoveAll(s.dir); err != nil {
+	if err := os.RemoveAll(s.recorder.Dir); err != nil {
 		log.WithFields(log.Fields{
-			"dir": s.dir,
+			"dir": s.recorder.Dir,
 			"err": err,
 		}).Error("failed to remove RocksDB directory")
 	}
 }
+
+var checkpointKey = encoding.EncodeStringAscending(
+	encoding.EncodeNullAscending(nil), "checkpoint")
 
 // appendOffsetKeyEncoding encodes |name| into a database key representing
 // a consumer journal offset checkpoint. A |name| of "" will generate a

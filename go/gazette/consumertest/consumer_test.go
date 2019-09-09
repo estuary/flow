@@ -204,23 +204,30 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 
 type testApp struct{}
 
-type testMsg struct{ Key, Value string }
+type testMsg struct {
+	UUID       message.UUID
+	Key, Value string
+}
+
+func (m *testMsg) GetUUID() message.UUID                         { return m.UUID }
+func (m *testMsg) SetUUID(uuid message.UUID)                     { m.UUID = uuid }
+func (m *testMsg) NewAcknowledgement(pb.Journal) message.Message { return new(testMsg) }
+
+func (testApp) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
+	var state = make(map[string]string)
+	return consumer.NewJSONFileStore(rec, &state)
+}
 
 func (testApp) NewMessage(spec *pb.JournalSpec) (message.Message, error) { return new(testMsg), nil }
 
-func (testApp) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var state = make(map[string]string)
-	return consumer.NewJSONFileStore(rec, dir, &state)
-}
-
-func (testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope) error {
+func (testApp) ConsumeMessage(_ consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
 	var js = store.(*consumer.JSONFileStore)
 	var msg = env.Message.(*testMsg)
 	(*js.State.(*map[string]string))[msg.Key] = msg.Value
 	return nil
 }
 
-func (testApp) FinalizeTxn(shard consumer.Shard, store consumer.Store) error { return nil }
+func (testApp) FinalizeTxn(consumer.Shard, consumer.Store, *message.Publisher) error { return nil }
 
 var _ = gc.Suite(&ConsumerSuite{})
 

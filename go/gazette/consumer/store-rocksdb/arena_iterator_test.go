@@ -1,14 +1,17 @@
 package store_rocksdb
 
 import (
+	"io/ioutil"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/tecbot/gorocksdb"
+	"go.gazette.dev/core/consumer/recoverylog"
 )
 
 func TestArenaIterator(t *testing.T) {
-	var store = newTestStore(t, nil)
+	var store = newTestStore(t)
 	defer store.Destroy()
 
 	var expect = [][]byte{[]byte("key1"), []byte("key2"), []byte("key3")}
@@ -31,7 +34,7 @@ func TestArenaIterator(t *testing.T) {
 }
 
 func TestArenaIteratorSeeking(t *testing.T) {
-	var store = newTestStore(t, nil)
+	var store = newTestStore(t)
 	defer store.Destroy()
 
 	for i := int64(100); i != 200; i++ {
@@ -110,7 +113,7 @@ func TestLenPrefixParsing(t *testing.T) {
 }
 
 func BenchmarkIterator(b *testing.B) {
-	var store = newTestStore(b, nil)
+	var store = newTestStore(b)
 	defer store.Destroy()
 
 	for i := int64(0); i != 1000; i++ {
@@ -145,4 +148,16 @@ func BenchmarkIterator(b *testing.B) {
 			assert.Equal(b, 5618, sum)
 		}
 	})
+}
+
+func newTestStore(t assert.TestingT) *Store {
+	var dir, err = ioutil.TempDir("", "rocksdb")
+	assert.NoError(t, err)
+
+	var store = NewStore(&recoverylog.Recorder{Dir: dir})
+	// Replace observed Env with regular one.
+	store.Env = gorocksdb.NewDefaultEnv()
+	assert.NoError(t, store.Open())
+
+	return store
 }
