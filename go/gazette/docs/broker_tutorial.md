@@ -29,10 +29,7 @@ which instructs the broker to use an embedded Etcd store and to create an
 to your terminal.
 ```bash
 $ go install go.gazette.dev/core/cmd/gazette && ~/go/bin/gazette demo 
-INFO[0000] starting demo broker                          buildDate=unknown config="&{{{{local} localhost localhost 8080} 1024} {{http://localhost:2379 20s} /gazette/brokers} {info text} {}}" version=development
-{"level":"info","ts":"2019-07-26T10:37:08.443-0400","caller":"raft/raft.go:661","msg":"8e9e05c52164694d became follower at term 0"}
-{"level":"info","ts":"2019-07-26T10:37:08.443-0400","caller":"raft/raft.go:383","msg":"newRaft 8e9e05c52164694d [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]"}
-INFO[0001] converge iteration successful                 hash=6065263827119047092
+INFO[0000] starting demo broker                          buildDate=unknown config="{ ... }" version=development
 
         The broker is now running in stand-alone demonstration mode, and is ready for clients.
         A journal "example/journal" has also been created. Have fun!
@@ -82,7 +79,7 @@ Concurrent Appends
 ------------------
 
 Let's verify the broker properly handles concurrent appends by issuing a bunch of
-raced requests.
+raced requests (`&` tells the shell to start each command in the background).
 ```bash
 $ for i in {1..20}
 do
@@ -110,6 +107,7 @@ $ curl -s ${BROKER_ADDRESS}/example/journal | jq -c '.'
 {"Msg":"Race!","N":8}
 {"Msg":"Race!","N":7}
 {"Msg":"Race!","N":5}
+{... etc ...}
 ```
 
 Of course, this is all running off of a stand-alone broker. How do we ensure this total
