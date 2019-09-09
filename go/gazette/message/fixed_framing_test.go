@@ -5,92 +5,83 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"testing"
 
-	gc "github.com/go-check/check"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
 )
 
-type FixedFramingSuite struct{}
-
-func (s *FixedFramingSuite) TestImplementsFraming(c *gc.C) {
-	// Verified by the compiler.
-	var _ Framing = FixedFraming
-	c.Succeed()
-}
-
-func (s *FixedFramingSuite) TestMarshalWithFixtures(c *gc.C) {
+func TestFixedFramingMarshalWithFixtures(t *testing.T) {
 	var buf bytes.Buffer
 	var bw = bufio.NewWriter(&buf)
 
-	c.Check(FixedFraming.Marshal(frameablestring("test message content"), bw), gc.IsNil)
+	assert.NoError(t, FixedFraming.Marshal(frameablestring("test message content"), bw))
 	_ = bw.Flush()
-	c.Check(buf.Bytes(), gc.DeepEquals, []byte{
-		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
-		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't'})
+	assert.Equal(t, []byte{0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
+		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't'}, buf.Bytes())
 
 	// Append another message.
-	c.Check(FixedFraming.Marshal(frameablestring("foo message"), bw), gc.IsNil)
+	assert.NoError(t, FixedFraming.Marshal(frameablestring("foo message"), bw))
 	_ = bw.Flush()
-	c.Check(buf.Bytes(), gc.DeepEquals, []byte{
-		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
+	assert.Equal(t, []byte{0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't',
 		0x66, 0x33, 0x93, 0x36, 0xb, 0x0, 0x0, 0x0, 'f', 'o', 'o',
-		' ', 'm', 'e', 's', 's', 'a', 'g', 'e'})
+		' ', 'm', 'e', 's', 's', 'a', 'g', 'e'}, buf.Bytes())
 }
 
-func (s *FixedFramingSuite) TestMarshalError(c *gc.C) {
-	c.Check(FixedFraming.Marshal(frameableerror("test message"), nil), gc.ErrorMatches, "error!")
+func TestFixedFramingMarshalError(t *testing.T) {
+	assert.EqualError(t, FixedFraming.Marshal(frameableerror("test message"), nil), "error!")
 }
 
-func (s *FixedFramingSuite) TestEncodeWithFixtures(c *gc.C) {
+func TestFixedFramingEncodeWithFixtures(t *testing.T) {
 	var b, err = FixedFraming.Encode(frameablestring("foo"), nil)
-	c.Check(err, gc.IsNil)
-	c.Check(b, gc.DeepEquals, []byte{0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'f', 'o', 'o'})
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'f', 'o', 'o'}, b)
 
 	// Expect a following message is appended to |b|.
 	b, err = FixedFraming.Encode(frameablestring("bar"), b)
-	c.Check(err, gc.IsNil)
-	c.Check(b, gc.DeepEquals, []byte{0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'f', 'o', 'o',
-		0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'b', 'a', 'r'})
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'f', 'o', 'o',
+		0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'b', 'a', 'r'}, b)
 
 	// New message with a truncated buffer.
 	bb, err := FixedFraming.Encode(frameablestring("baz"), b[:0])
-	c.Check(err, gc.IsNil)
-	c.Check(bb, gc.DeepEquals, []byte{0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'b', 'a', 'z'})
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{0x66, 0x33, 0x93, 0x36, 0x03, 0x0, 0x0, 0x0, 'b', 'a', 'z'}, bb)
 
-	c.Check(&bb[0], gc.Equals, &b[0]) // Expect it didn't re-allocate.
+	assert.Equal(t, &b[0], &bb[0]) // Expect it didn't re-allocate.
 }
 
-func (s *FixedFramingSuite) TestDecodeWithFixture(c *gc.C) {
+func TestFixedFramingDecodeWithFixture(t *testing.T) {
 	var fixture = []byte{
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't',
 		'e', 'x', 't', 'r', 'a'}
 
 	var frame, err = FixedFraming.Unpack(testReader(fixture))
-	c.Check(err, gc.IsNil)
-	c.Check(frame, gc.DeepEquals, fixture[:len(fixture)-len("extra")])
+	assert.NoError(t, err)
+	assert.Equal(t, fixture[:len(fixture)-len("extra")], frame)
 
 	var msg frameablestring
-	c.Check(FixedFraming.Unmarshal(frame, &msg), gc.IsNil)
-	c.Check(string(msg), gc.Equals, "test message content")
+	assert.NoError(t, FixedFraming.Unmarshal(frame, &msg))
+	assert.Equal(t, "test message content", string(msg))
 }
 
-func (s *FixedFramingSuite) TestDecodingError(c *gc.C) {
+func TestFixedFramingDecodingError(t *testing.T) {
 	var fixture = []byte{
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't'}
 
 	var frame, err = FixedFraming.Unpack(testReader(fixture))
-	c.Check(err, gc.IsNil)
-	c.Check(frame, gc.DeepEquals, fixture)
+	assert.NoError(t, err)
+	assert.Equal(t, fixture, frame)
 
 	var msg frameableerror
-	c.Check(FixedFraming.Unmarshal(frame, &msg), gc.ErrorMatches, "error!")
-	c.Check(string(msg), gc.Equals, "test messa")
+	assert.EqualError(t, FixedFraming.Unmarshal(frame, &msg), "error!")
+	assert.Equal(t, "test messa", string(msg))
 }
 
-func (s *FixedFramingSuite) TestDecodeTrailingNewLine(c *gc.C) {
+func TestFixedFramingDecodeTrailingNewLine(t *testing.T) {
 	var fixture = []byte{
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't',
@@ -98,19 +89,19 @@ func (s *FixedFramingSuite) TestDecodeTrailingNewLine(c *gc.C) {
 
 	var bufReader = testReader(fixture)
 	var frame, err = FixedFraming.Unpack(bufReader)
-	c.Check(err, gc.IsNil)
-	c.Check(frame, gc.DeepEquals, fixture[:len(fixture)-1])
+	assert.NoError(t, err)
+	assert.Equal(t, fixture[:len(fixture)-1], frame)
 
 	var msg frameablestring
-	c.Check(FixedFraming.Unmarshal(frame, &msg), gc.IsNil)
-	c.Check(string(msg), gc.Equals, "test message content")
+	assert.NoError(t, FixedFraming.Unmarshal(frame, &msg))
+	assert.Equal(t, "test message content", string(msg))
 
 	// Read offset should now be at the \n, ensure this returns an EOF.
-	var _, eofErr = FixedFraming.Unpack(bufReader)
-	c.Check(errors.Cause(eofErr), gc.Equals, io.EOF)
+	_, err = FixedFraming.Unpack(bufReader)
+	assert.Equal(t, io.EOF, err)
 }
 
-func (s *FixedFramingSuite) TestDesyncHandling(c *gc.C) {
+func TestFixedFramingDesyncHandling(t *testing.T) {
 	var fixture = []byte{'f', 'o', 'o', 'b', 'a', 'r',
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't'}
@@ -119,51 +110,51 @@ func (s *FixedFramingSuite) TestDesyncHandling(c *gc.C) {
 
 	// Expect leading invalid range is returned on first unpack.
 	var frame, err = FixedFraming.Unpack(r)
-	c.Check(err, gc.IsNil)
-	c.Check(frame, gc.DeepEquals, []byte{'f', 'o', 'o', 'b', 'a', 'r'})
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{'f', 'o', 'o', 'b', 'a', 'r'}, frame)
 
 	// Attempting to unmarshal returns an error.
 	var msg frameablestring
-	c.Check(FixedFraming.Unmarshal(frame, &msg), gc.Equals, ErrDesyncDetected)
+	assert.Equal(t, ErrDesyncDetected, FixedFraming.Unmarshal(frame, &msg))
 
 	// However, the next frame may be unpacked and unmarshaled.
 	frame, err = FixedFraming.Unpack(r)
-	c.Check(err, gc.IsNil)
-	c.Check(FixedFraming.Unmarshal(frame, &msg), gc.IsNil)
-	c.Check(string(msg), gc.Equals, "test message content")
+	assert.NoError(t, err)
+	assert.NoError(t, FixedFraming.Unmarshal(frame, &msg))
+	assert.Equal(t, "test message content", string(msg))
 }
 
-func (s *FixedFramingSuite) TestIncompleteBufferHandling(c *gc.C) {
+func TestFixedFramingIncompleteBufferHandling(t *testing.T) {
 	var fixture = []byte{'f', 'o', 'o',
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't'}
 
 	// EOF at first byte.
 	var _, err = FixedFraming.Unpack(testReader(fixture[3:3]))
-	c.Check(errors.Cause(err), gc.Equals, io.EOF)
+	assert.Equal(t, io.EOF, err)
 
 	// EOF partway through header.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:10]))
-	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
+	assert.Equal(t, io.ErrUnexpectedEOF, errors.Cause(err))
 
 	// EOF while scanning for de-sync'd header.
 	_, err = FixedFraming.Unpack(testReader(fixture[0:6]))
-	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
+	assert.Equal(t, io.ErrUnexpectedEOF, errors.Cause(err))
 
 	// EOF just after reading complete header.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:11]))
-	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
+	assert.Equal(t, io.ErrUnexpectedEOF, errors.Cause(err))
 
 	// EOF partway through the message.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:22]))
-	c.Check(errors.Cause(err), gc.Equals, io.ErrUnexpectedEOF)
+	assert.Equal(t, io.ErrUnexpectedEOF, errors.Cause(err))
 
 	// Full message. Success.
 	_, err = FixedFraming.Unpack(testReader(fixture[3:]))
-	c.Check(err, gc.IsNil)
+	assert.NoError(t, err)
 }
 
-func (s *FixedFramingSuite) TestUnderflowReadingDesyncHeader(c *gc.C) {
+func TestFixedFramingUnderflowReadingDesyncHeader(t *testing.T) {
 	var fixture = append(bytes.Repeat([]byte{'x'}, 13+8),
 		0x66, 0x33, 0x93, 0x36, 0x14, 0x0, 0x0, 0x0, 't', 'e', 's', 't',
 		' ', 'm', 'e', 's', 's', 'a', 'g', 'e', ' ', 'c', 'o', 'n', 't', 'e', 'n', 't')
@@ -171,18 +162,18 @@ func (s *FixedFramingSuite) TestUnderflowReadingDesyncHeader(c *gc.C) {
 
 	// Reads and returns 13 bytes of desync'd content, with no magic word.
 	var b, err = FixedFraming.Unpack(r)
-	c.Check(err, gc.IsNil)
-	c.Check(b, gc.DeepEquals, fixture[0:13])
+	assert.NoError(t, err)
+	assert.Equal(t, fixture[0:13], b)
 
 	// Next read returns only 8 bytes, because the following bytes are valid header.
 	b, err = FixedFraming.Unpack(r)
-	c.Check(err, gc.IsNil)
-	c.Check(b, gc.DeepEquals, fixture[13:13+8])
+	assert.NoError(t, err)
+	assert.Equal(t, fixture[13:13+8], b)
 
 	// Final read returns a full frame.
 	b, err = FixedFraming.Unpack(r)
-	c.Check(err, gc.IsNil)
-	c.Check(b, gc.DeepEquals, fixture[13+8:])
+	assert.NoError(t, err)
+	assert.Equal(t, fixture[13+8:], b)
 }
 
 func testReader(t []byte) *bufio.Reader {
@@ -227,8 +218,3 @@ func (f *frameableerror) Unmarshal(buf []byte) error {
 	*f = frameableerror(buf[:len(buf)/2])
 	return errors.New("error!")
 }
-
-var (
-	expectFixedIsFraming Framing = new(fixedFraming)
-	_                            = gc.Suite(&FixedFramingSuite{})
-)

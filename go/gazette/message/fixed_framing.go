@@ -17,6 +17,13 @@ import (
 // interface). Messages are encoded as a 4-byte magic word for de-synchronization
 // detection, followed by a little-endian uint32 length, followed by payload bytes.
 var FixedFraming = new(fixedFraming)
+var _ Framing = FixedFraming // FixedFraming is-a Framing.
+
+// FixedFramable is the Frameable interface required by FixedFraming.
+type FixedFrameable interface {
+	ProtoSize() int
+	MarshalTo([]byte) (int, error)
+}
 
 // FixedFrameHeaderLength is the number of leading header bytes of each frame:
 // A 4-byte magic word followed by a little-endian length.
@@ -28,7 +35,7 @@ type fixedFraming struct{}
 func (f *fixedFraming) ContentType() string { return labels.ContentType_ProtoFixed }
 
 // Marshal implements Framing. It returns an error only if Message.Encode fails.
-func (f *fixedFraming) Marshal(msg Message, bw *bufio.Writer) error {
+func (f *fixedFraming) Marshal(msg Frameable, bw *bufio.Writer) error {
 	var b, err = f.Encode(msg, bufferPool.Get().([]byte))
 	if err == nil {
 		_, _ = bw.Write(b)
@@ -37,12 +44,9 @@ func (f *fixedFraming) Marshal(msg Message, bw *bufio.Writer) error {
 	return err
 }
 
-// Encode a Message by appending into buffer |b|, which will be grown if needed and returned.
-func (*fixedFraming) Encode(msg Message, b []byte) ([]byte, error) {
-	var p, ok = msg.(interface {
-		ProtoSize() int
-		MarshalTo([]byte) (int, error)
-	})
+// Encode a Frameable by appending into buffer |b|, which will be grown if needed and returned.
+func (*fixedFraming) Encode(msg Frameable, b []byte) ([]byte, error) {
+	var p, ok = msg.(FixedFrameable)
 	if !ok {
 		return nil, fmt.Errorf("%+v is not fixed-frameable (must implement ProtoSize and MarshalTo)", msg)
 	}
@@ -69,23 +73,21 @@ func (*fixedFraming) Encode(msg Message, b []byte) ([]byte, error) {
 // Unpack returns the next fixed frame of content from the Reader, including
 // the frame header. If the magic word is not detected (indicating a desync),
 // Unpack attempts to continue reading until the next magic word, returning
-// the interleaved but desynchronized content.
+// the interleaved but de-synchronized content.
 //
 // It implements Framing.
 func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 	var b, err = r.Peek(FixedFrameHeaderLength)
 
 	if err != nil {
-		// If buffer just contains a trailing newline, return EOF.
-		// TODO(johnny): Can we remove this?
-		if err == io.EOF && len(b) == 1 && b[0] == 0x0a {
-			return nil, io.EOF
-		}
-		if err == io.EOF && len(b) != 0 {
-			// If we read at least one byte, then an EOF is unexpected (it should
-			// occur only on whole-message boundaries).
+		// If we read at least one byte, then an EOF is unexpected (it should
+		// occur only on whole-message boundaries). One exception case is
+		// a buffer which contains exactly one newline.
+		// TODO(johnny): Can we remove newline handling? Helped with Hadoop streaming IIRC.
+		if l := len(b); err == io.EOF && l != 0 && (l != 1 || b[0] != 0x0a) {
 			err = io.ErrUnexpectedEOF
-		} else {
+		}
+		if err != io.EOF {
 			err = errors.Wrap(err, "Peek(FixedFrameHeaderLength)")
 		}
 		return nil, err
@@ -129,7 +131,7 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 // is returned.
 //
 // It implements Framing.
-func (*fixedFraming) Unmarshal(b []byte, msg Message) error {
+func (*fixedFraming) Unmarshal(b []byte, msg Frameable) error {
 	var p, ok = msg.(interface {
 		Unmarshal([]byte) error
 	})
@@ -140,8 +142,6 @@ func (*fixedFraming) Unmarshal(b []byte, msg Message) error {
 		return ErrDesyncDetected
 	} else if err := p.Unmarshal(b[FixedFrameHeaderLength:]); err != nil {
 		return err
-	} else if f, ok := msg.(Fixupable); ok {
-		return f.Fixup()
 	}
 	return nil
 }

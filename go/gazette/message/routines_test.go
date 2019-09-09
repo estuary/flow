@@ -3,64 +3,30 @@ package message
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strings"
 	"testing"
 
-	gc "github.com/go-check/check"
-	"go.gazette.dev/core/broker/client"
+	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
 )
 
-type RoutinesSuite struct{}
-
-func (s *RoutinesSuite) TestPublishSuccess(c *gc.C) {
-	var etcd = etcdtest.TestClient()
-	defer etcdtest.Cleanup()
-
-	var bk = brokertest.NewBroker(c, etcd, "local", "broker")
-	brokertest.CreateJournals(c, bk, brokertest.Journal(pb.JournalSpec{Name: "a/journal"}))
-
-	var rjc = pb.NewRoutedJournalClient(bk.Client(), pb.NoopDispatchRouter{})
-	var as = client.NewAppendService(context.Background(), rjc)
-
-	var mapping = func(msg Message) (pb.Journal, Framing, error) {
-		return "a/journal", JSONFraming, nil
-	}
-	var aa, err = Publish(as, mapping, struct{ Data string }{Data: "beer beer beer"})
-	c.Check(err, gc.IsNil)
-	<-aa.Done()
-
-	// Expect a JSON serialization of the message was written to the mapped journal.
-	var r = client.NewReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal"})
-	b, err := ioutil.ReadAll(r)
-	c.Check(string(b), gc.Equals, `{"Data":"beer beer beer"}`+"\n")
-	c.Check(err, gc.Equals, client.ErrOffsetNotYetAvailable)
-
-	bk.Tasks.Cancel()
-	c.Check(bk.Tasks.Wait(), gc.IsNil)
-}
-
-func (s *RoutinesSuite) TestFramingDetermination(c *gc.C) {
+func TestFramingDetermination(t *testing.T) {
 	var f, err = FramingByContentType(labels.ContentType_JSONLines)
-	c.Check(err, gc.IsNil)
-	c.Check(f, gc.Equals, JSONFraming)
+	assert.NoError(t, err)
+	assert.Equal(t, JSONFraming, f)
 
 	f, err = FramingByContentType(labels.ContentType_ProtoFixed)
-	c.Check(err, gc.IsNil)
-	c.Check(f, gc.Equals, FixedFraming)
+	assert.NoError(t, err)
+	assert.Equal(t, FixedFraming, f)
 
 	_, err = FramingByContentType(labels.ContentType_RecoveryLog) // Not a valid message framing.
-	c.Check(err, gc.ErrorMatches, `unrecognized `+labels.ContentType+` \(`+labels.ContentType_RecoveryLog+`\)`)
+	assert.EqualError(t, err, `unrecognized `+labels.ContentType+` (`+labels.ContentType_RecoveryLog+`)`)
 }
 
-func (s *RoutinesSuite) TestLineUnpackingCases(c *gc.C) {
+func TestLineUnpackingCases(t *testing.T) {
 	const bsize = 16
 	var buf = bytes.NewBufferString("a line\n" + strings.Repeat("x", bsize*3/2) + "\nextra")
 	var br = bufio.NewReaderSize(buf, bsize)
@@ -69,24 +35,24 @@ func (s *RoutinesSuite) TestLineUnpackingCases(c *gc.C) {
 
 	// Case 1: line fits in buffer.
 	var line, err = UnpackLine(br)
-	c.Check(err, gc.IsNil)
-	c.Check(&line[0], gc.Equals, &p[0]) // |line| references internal buffer.
+	assert.NoError(t, err)
+	assert.Equal(t, cap(p), cap(line)) // |line| references internal buffer.
 
 	// Case 2: line doesn't fit in buffer.
 	line, err = UnpackLine(br)
-	c.Check(err, gc.IsNil)
-	c.Check(string(line), gc.Equals, strings.Repeat("x", bsize*3/2)+"\n")
-	c.Check(&line[0], gc.Not(gc.Equals), &p[0]) // |line| *does not* reference internal buffer.
+	assert.NoError(t, err)
+	assert.Equal(t, strings.Repeat("x", bsize*3/2)+"\n", string(line))
+	assert.NotEqual(t, cap(p), cap(line)) // |line| *does not* reference internal buffer.
 
 	// Case 3: EOF without newline and read content is mapped to ErrUnexpectedEOF.
 	line, err = UnpackLine(br)
-	c.Check(string(line), gc.Equals, "extra")
-	c.Check(err, gc.Equals, io.ErrUnexpectedEOF)
+	assert.Equal(t, io.ErrUnexpectedEOF, err)
+	assert.Equal(t, "extra", string(line))
 
 	// Case 4: EOF without any read content is passed through.
 	line, err = UnpackLine(br)
-	c.Check(string(line), gc.Equals, "")
-	c.Check(err, gc.Equals, io.EOF)
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, "", string(line))
 }
 
 func buildPartitionsFuncFixture(count int) PartitionsFunc {
@@ -100,9 +66,24 @@ func buildPartitionsFuncFixture(count int) PartitionsFunc {
 	return func() *pb.ListResponse { return parts }
 }
 
-func (s *RoutinesSuite) TestModuloMappingRegressionFixtures(c *gc.C) {
+func TestRandomMapping(t *testing.T) {
+	var parts = buildPartitionsFuncFixture(100)
+	var mapping = RandomMapping(parts)
+	var results = make(map[pb.Journal]struct{})
+
+	for i := 0; i != 101; i++ {
+		var j, f, err = mapping(&testMsg{Str: "foobar"})
+		assert.NoError(t, err)
+		assert.Equal(t, JSONFraming, f)
+		results[j] = struct{}{}
+	}
+	// Probabilistic test; chance of failure is 1e-200.
+	assert.True(t, len(results) > 1)
+}
+
+func TestModuloMappingRegressionFixtures(t *testing.T) {
 	var parts = buildPartitionsFuncFixture(443) // Prime number.
-	var mappingKey = func(msg Message, b []byte) []byte { return append(b, msg.(string)...) }
+	var mappingKey = func(msg Mappable, w io.Writer) { _, _ = w.Write([]byte(msg.(*testMsg).Str)) }
 	var mapping = ModuloMapping(mappingKey, parts)
 
 	// Expect distributed and *stable* routing across partitions.
@@ -120,16 +101,15 @@ func (s *RoutinesSuite) TestModuloMappingRegressionFixtures(c *gc.C) {
 		"lovely and more":         118,
 		"temperate - Shakespeare": 228,
 	} {
-		var j, f, err = mapping(key)
-		c.Check(f, gc.Equals, JSONFraming)
-		c.Check(err, gc.IsNil)
-		c.Check(key+"-"+j.String(), gc.Equals,
-			fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition))
+		var j, f, err = mapping(&testMsg{Str: key})
+		assert.NoError(t, err)
+		assert.Equal(t, JSONFraming, f)
+		assert.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
 	}
 }
 
-func (s *RoutinesSuite) TestRendezvousMappingRegressionFixtures(c *gc.C) {
-	var mappingKey = func(msg Message, b []byte) []byte { return append(b, msg.(string)...) }
+func TestRendezvousMappingRegressionFixtures(t *testing.T) {
+	var mappingKey = func(msg Mappable, w io.Writer) { _, _ = w.Write([]byte(msg.(*testMsg).Str)) }
 
 	var verify = func(mapping MappingFunc) {
 		for key, expectedPartition := range map[string]int{
@@ -146,11 +126,10 @@ func (s *RoutinesSuite) TestRendezvousMappingRegressionFixtures(c *gc.C) {
 			"lovely and more":         344,
 			"temperate - Shakespeare": 75,
 		} {
-			var j, f, err = mapping(key)
-			c.Check(f, gc.Equals, JSONFraming)
-			c.Check(err, gc.IsNil)
-			c.Check(key+"-"+j.String(), gc.Equals,
-				fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition))
+			var j, f, err = mapping(&testMsg{Str: key})
+			assert.NoError(t, err)
+			assert.Equal(t, JSONFraming, f)
+			assert.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
 		}
 	}
 	// Rendezvous hashing minimizes re-assignments which should occur due to
@@ -159,7 +138,3 @@ func (s *RoutinesSuite) TestRendezvousMappingRegressionFixtures(c *gc.C) {
 	verify(RendezvousMapping(mappingKey, buildPartitionsFuncFixture(400)))
 	verify(RendezvousMapping(mappingKey, buildPartitionsFuncFixture(500)))
 }
-
-var _ = gc.Suite(&RoutinesSuite{})
-
-func Test(t *testing.T) { gc.TestingT(t) }

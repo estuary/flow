@@ -4,19 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"testing"
 
-	gc "github.com/go-check/check"
+	"github.com/stretchr/testify/assert"
 )
 
-type JsonFramingSuite struct{}
-
-func (s *JsonFramingSuite) TestImplementsFraming(c *gc.C) {
-	// Verified by the compiler.
-	var _ Framing = JSONFraming
-	c.Succeed()
-}
-
-func (s *JsonFramingSuite) TestMarshalWithFixtures(c *gc.C) {
+func TestJSONFramingMarshalWithFixtures(t *testing.T) {
 	var buf bytes.Buffer
 	var bw = bufio.NewWriter(&buf)
 
@@ -26,56 +19,58 @@ func (s *JsonFramingSuite) TestMarshalWithFixtures(c *gc.C) {
 		ignored int
 	}{42, "the answer", 53}, bw)
 
-	c.Check(err, gc.IsNil)
-	bw.Flush()
-	c.Check(buf.String(), gc.Equals, `{"A":42,"B":"the answer"}`+"\n")
+	assert.NoError(t, err)
+	_ = bw.Flush()
+	assert.Equal(t, `{"A":42,"B":"the answer"}`+"\n", buf.String())
 
 	// Append another message.
 	err = JSONFraming.Marshal(struct{ Bar int }{63}, bw)
 
-	c.Check(err, gc.IsNil)
-	bw.Flush()
-	c.Check(buf.String(), gc.Equals, `{"A":42,"B":"the answer"}`+"\n"+`{"Bar":63}`+"\n")
+	assert.NoError(t, err)
+	_ = bw.Flush()
+	assert.Equal(t, `{"A":42,"B":"the answer"}`+"\n"+`{"Bar":63}`+"\n", buf.String())
 }
 
-func (s *JsonFramingSuite) TestMarshalError(c *gc.C) {
+func TestJSONFramingMarshalError(t *testing.T) {
 	var err = JSONFraming.Marshal(struct {
 		Unencodable chan struct{}
 	}{}, nil)
 
-	c.Check(err, gc.ErrorMatches, "json: unsupported type: chan struct {}")
+	assert.EqualError(t, err, "json: unsupported type: chan struct {}")
 }
-func (s *JsonFramingSuite) TestDecodeWithFixture(c *gc.C) {
-	var fixture = []byte(`{"A":42,"B":"test message content"}` + "\nextra")
 
-	var frame, err = JSONFraming.Unpack(testReader(fixture))
-	c.Check(err, gc.IsNil)
-	c.Check(len(frame), gc.Equals, len(fixture)-len("extra"))
+func TestJSONFramingDecodeWithFixture(t *testing.T) {
+	var fixture = []byte(`{"A":42,"B":"test message content"}` + "\n")
+
+	var r = testReader(fixture)
+	var frame, err = JSONFraming.Unpack(r)
+	assert.NoError(t, err)
+	assert.Len(t, frame, len(fixture))
 
 	var msg struct{ B string }
-	c.Check(JSONFraming.Unmarshal(frame, &msg), gc.IsNil)
-	c.Check(msg.B, gc.Equals, "test message content")
+	assert.NoError(t, JSONFraming.Unmarshal(frame, &msg))
+	assert.Equal(t, "test message content", msg.B)
+
+	// EOF read on message boundary is returned as EOF.
+	frame, err = JSONFraming.Unpack(r)
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, []byte{}, frame)
 }
 
-func (s *JsonFramingSuite) TestUnexpectedEOF(c *gc.C) {
+func TestJSONFramingUnexpectedEOF(t *testing.T) {
 	var fixture = []byte(`{"A":42,"B":"missing trailing newline"}`)
 
 	var _, err = JSONFraming.Unpack(testReader(fixture))
-	c.Check(err, gc.Equals, io.ErrUnexpectedEOF)
+	assert.Equal(t, io.ErrUnexpectedEOF, err)
 }
 
-func (s *JsonFramingSuite) TestMessageDecodeError(c *gc.C) {
+func TestJSONFramingMessageDecodeError(t *testing.T) {
 	var fixture = []byte(`{"A":42,"B":"missing quote but including newline}` + "\nextra")
 
 	var frame, err = JSONFraming.Unpack(testReader(fixture))
-	c.Check(err, gc.IsNil)
-	c.Check(len(frame), gc.Equals, len(fixture)-len("extra"))
+	assert.NoError(t, err)
+	assert.Len(t, frame, len(fixture)-len("extra"))
 
 	var msg struct{ B string }
-	c.Check(JSONFraming.Unmarshal(frame, &msg), gc.ErrorMatches, "invalid character .*")
+	assert.Regexp(t, "invalid character .*", JSONFraming.Unmarshal(frame, &msg))
 }
-
-var (
-	expectJsonIsFraming Framing = new(jsonFraming)
-	_                           = gc.Suite(&JsonFramingSuite{})
-)

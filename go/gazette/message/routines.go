@@ -8,32 +8,9 @@ import (
 	"math/rand"
 	"sync"
 
-	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/labels"
 )
-
-// Publish maps the Message to its target journal and begins an Append of the
-// Message's marshaled content under the mapped journal framing. If Message
-// implements Validate, the message is first validated and any error returned.
-func Publish(broker client.AsyncJournalClient, mapping MappingFunc, msg Message) (*client.AsyncAppend, error) {
-	if v, ok := msg.(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return nil, err
-		}
-	}
-	var journal, framing, err = mapping(msg)
-	if err != nil {
-		return nil, err
-	}
-	var aa = broker.StartAppend(journal)
-	aa.Require(framing.Marshal(msg, aa.Writer()))
-
-	if err = aa.Release(); err != nil {
-		return nil, err
-	}
-	return aa, nil
-}
 
 // FramingByContentType returns the Framing having the corresponding |contentType|,
 // or returns an error if none match.
@@ -74,10 +51,10 @@ func UnpackLine(r *bufio.Reader) ([]byte, error) {
 	return line, err
 }
 
-// RandomMapping returns a MappingFunc which maps a Message to a randomly
+// RandomMapping returns a MappingFunc which maps a Mappable to a randomly
 // selected Journal of the PartitionsFunc.
 func RandomMapping(partitions PartitionsFunc) MappingFunc {
-	return func(msg Message) (journal pb.Journal, framing Framing, err error) {
+	return func(msg Mappable) (journal pb.Journal, framing Framing, err error) {
 		var parts = partitions()
 		if len(parts.Journals) == 0 {
 			err = ErrEmptyListResponse
@@ -93,11 +70,11 @@ func RandomMapping(partitions PartitionsFunc) MappingFunc {
 	}
 }
 
-// ModuloMapping returns a MappingFunc which maps a Message into a stable
+// ModuloMapping returns a MappingFunc which maps a Mappable into a stable
 // Journal of the PartitionsFunc, selected via 32-bit FNV-1a of the
 // MappingKeyFunc and modulo arithmetic.
 func ModuloMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFunc {
-	return func(msg Message) (journal pb.Journal, framing Framing, err error) {
+	return func(msg Mappable) (journal pb.Journal, framing Framing, err error) {
 		var parts = partitions()
 		if len(parts.Journals) == 0 {
 			err = ErrEmptyListResponse
@@ -105,7 +82,7 @@ func ModuloMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFunc {
 		}
 
 		var h = fnv.New32a()
-		_, _ = h.Write(key(msg, make([]byte, 0, 32)))
+		key(msg, h) // Extract and hash mapping key into |h|.
 
 		var ind = int(h.Sum32()) % len(parts.Journals)
 		journal = parts.Journals[ind].Spec.Name
@@ -116,7 +93,7 @@ func ModuloMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFunc {
 	}
 }
 
-// RendezvousMapping returns a MappingFunc which maps a Message into a stable
+// RendezvousMapping returns a MappingFunc which maps a Mappable into a stable
 // Journal of the PartitionsFunc, selected via 32-bit FNV-1a of the
 // MappingKeyFunc and Highest Random Weight (aka "rendezvous") hashing. HRW is
 // more expensive to compute than using modulo arithmetic, but is still efficient
@@ -148,7 +125,7 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 		return
 	}
 
-	return func(msg Message) (journal pb.Journal, framing Framing, err error) {
+	return func(msg Mappable) (journal pb.Journal, framing Framing, err error) {
 		var lr, hashes = partitionsAndHashes()
 
 		if len(lr.Journals) == 0 {
@@ -157,7 +134,7 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 		}
 
 		var h = fnv.New32a()
-		_, _ = h.Write(key(msg, make([]byte, 0, 32)))
+		key(msg, h) // Extract and hash mapping key into |h|.
 		var sum = h.Sum32()
 
 		var hrw uint32
