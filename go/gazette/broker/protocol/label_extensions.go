@@ -60,6 +60,14 @@ func (m LabelSet) Validate() error {
 	return nil
 }
 
+// Assign the labels of the |other| set to this LabelSet. If |other| is nil,
+// this LabelSet is emptied.
+func (m *LabelSet) Assign(other *LabelSet) {
+	if m.Labels = m.Labels[:0]; other != nil {
+		m.Labels = append(m.Labels, other.Labels...)
+	}
+}
+
 // ValuesOf returns the values of Label |name|, or nil if it doesn't exist in the LabelSet.
 func (m LabelSet) ValuesOf(name string) (values []string) {
 	var ind = sort.Search(len(m.Labels), func(i int) bool { return m.Labels[i].Name >= name })
@@ -267,7 +275,7 @@ func (s LabelSelector) String() string {
 		}
 	}
 	f(s.Include.Labels, false)
-	if w.Len() != 0 {
+	if w.Len() != 0 && len(s.Exclude.Labels) != 0 {
 		w.WriteByte(',')
 	}
 	f(s.Exclude.Labels, true)

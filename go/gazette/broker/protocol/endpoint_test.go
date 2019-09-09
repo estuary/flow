@@ -11,7 +11,7 @@ func (s *EndpointSuite) TestValidation(c *gc.C) {
 		ep     Endpoint
 		expect string
 	}{
-		{"http://host:port/path?query", ""}, // Success.
+		{"http://host:1234/path?query", ""}, // Success.
 		{":garbage: :garbage:", "parse .* missing protocol scheme"},
 		{"/baz/bing", "not absolute: .*"},
 		{"http:///baz/bing", "missing host: .*"},
@@ -26,8 +26,8 @@ func (s *EndpointSuite) TestValidation(c *gc.C) {
 }
 
 func (s *EndpointSuite) TestURLConversion(c *gc.C) {
-	var ep Endpoint = "http://host:port/path?query"
-	c.Check(ep.URL().Host, gc.Equals, "host:port")
+	var ep Endpoint = "http://host:1234/path?query"
+	c.Check(ep.URL().Host, gc.Equals, "host:1234")
 
 	ep = "/baz/bing"
 	c.Check(func() { ep.URL() }, gc.PanicMatches, "not absolute: .*")

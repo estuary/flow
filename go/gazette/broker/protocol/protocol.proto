@@ -7,6 +7,7 @@ import "ptypes/duration/duration.proto";
 
 option go_package = "go.gazette.dev/core/broker/protocol";
 
+option (gogoproto.equal_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
 option (gogoproto.goproto_unkeyed_all) = false;
@@ -36,8 +37,8 @@ enum Status {
   OFFSET_NOT_YET_AVAILABLE = 6;
   // The peer disagrees with the Route accompanying a ReplicateRequest.
   WRONG_ROUTE = 7;
-  // The peer disagrees with the Fragment proposal accompanying a ReplicateRequest.
-  FRAGMENT_MISMATCH = 8;
+  // The peer disagrees with the proposal accompanying a ReplicateRequest.
+  PROPOSAL_MISMATCH = 8;
   // The Etcd transaction failed. Returned by Update RPC when an
   // expect_mod_revision of the UpdateRequest differs from the current
   // ModRevision of the JournalSpec within the store.
@@ -53,6 +54,9 @@ enum Status {
   // that journal replication consistency has been lost in the past, due to
   // too many broker or Etcd failures.
   INDEX_HAS_GREATER_OFFSET = 12;
+  // The Append is refused because a registers selector was provided with the
+  // request, but it was not matched by current register values of the journal.
+  REGISTER_MISMATCH = 13;
 }
 
 // CompressionCode defines codecs known to Gazette.
@@ -179,7 +183,7 @@ message JournalSpec {
 
     // Retention duration for historical Fragments of this Journal within the
     // Fragment stores. If less than or equal to zero, Fragments are retained
-    // indefinetely.
+    // indefinitely.
     google.protobuf.Duration retention = 5 [
       (gogoproto.stdduration) = true,
       (gogoproto.nullable) = false,
@@ -263,8 +267,8 @@ message Fragment {
   // Journal of the Fragment.
   string journal = 1 [(gogoproto.casttype) = "Journal"];
   // Begin (inclusive) and end (exclusive) offset of the Fragment within the Journal.
-  int64 begin = 2;
-  int64 end = 3;
+  int64 begin = 2 [(gogoproto.casttype) = "Offset"];
+  int64 end = 3   [(gogoproto.casttype) = "Offset"];
   // SHA1 sum of the Fragment's content.
   SHA1Sum sum = 4 [(gogoproto.nullable) = false];
   // Codec with which the Fragment's content is compressed.
@@ -284,6 +288,7 @@ message SHA1Sum {
   fixed32 part3 = 3;
 }
 
+// ReadRequest is the unary request message of the broker Read RPC.
 message ReadRequest {
   // Header is attached by a proxying broker peer.
   Header header = 1;
@@ -295,7 +300,7 @@ message ReadRequest {
   // not available (eg, because it represents a portion of Journal which has
   // been permanently deleted), the broker will return the next available
   // offset. Callers should therefore always inspect the ReadResponse offset.
-  int64 offset = 3;
+  int64 offset = 3 [(gogoproto.casttype) = "Offset"];
   // Whether the operation should block until content becomes available.
   // OFFSET_NOT_YET_AVAILABLE is returned if a non-blocking read has no ready content.
   bool block = 4;
@@ -305,20 +310,35 @@ message ReadRequest {
   // If metadata_only is true, the broker will respond with Journal and
   // Fragment metadata but not content.
   bool metadata_only = 6;
+  // Offset to read through. If zero, then the read end offset is unconstrained.
+  int64 end_offset = 7 [(gogoproto.casttype) = "Offset"];
 }
 
+// ReadResponse is the streamed response message of the broker Read RPC.
+// Responses messages are of two types:
+//
+// * "Metadata" messages, which conveys the journal Fragment addressed by the
+//    request which is ready to be read.
+// * "Chunk" messages, which carry associated journal Fragment content bytes.
+//
+// A metadata message specifying a Fragment always precedes all "chunks" of the
+// Fragment's content. Response streams may be very long lived, having many
+// metadata and accompanying chunk messages. The reader may also block for long
+// periods of time awaiting the next metadata message (eg, if the next offset
+// hasn't yet committed). However once a metadata message is read, the reader
+// is assured that its associated chunk messages are immediately forthcoming.
 message ReadResponse {
   // Status of the Read RPC.
   Status status = 1;
   // Header of the response. Accompanies the first ReadResponse of the response stream.
   Header header = 2;
   // The effective offset of the read. See ReadRequest offset.
-  int64 offset = 3;
+  int64 offset = 3 [(gogoproto.casttype) = "Offset"];
   // The offset to next be written, by the next append transaction served by
   // broker. In other words, the last offset through which content is
   // available to be read from the Journal. This is a metadata field and will 
   // not be returned with a content response.
-  int64 write_head = 4;
+  int64 write_head = 4 [(gogoproto.casttype) = "Offset"];
   // Fragment to which the offset was mapped. This is a metadata field and will 
   // not be returned with a content response.
   Fragment fragment = 5;
@@ -328,6 +348,38 @@ message ReadResponse {
   bytes content = 7;
 }
 
+// AppendRequest is the streamed request message of the broker Append RPC.
+// Append request streams consist of an initial message having all parameters
+// of the append, such as the journal to append to and preconditions, followed
+// by an unbounded number of messages having only content "chunks".
+//
+// It's not required that the appender know the append size when starting the
+// Append RPC -- rather, the client indicates the stream is complete by sending
+// a final, empty "chunk" message. However be aware that the broker will
+// aggressively time out stalled Append clients, and clients should not start
+// RPCs until all content chunks are available for immediate writing.
+//
+// Append RPCs also expose a concept of journal "registers": LabelSets
+// which participate in the journal's transactional append machinery.
+// Note that registers are sent and verified with every replicated journal
+// transaction, so they're _really_ intended to be very small.
+//
+// Append RPCs may upsert (union) or delete (subtract) labels from the
+// journal's registers. Register consensus is achieved by piggy-backing on the
+// append itself: if peers disagree, the registers of the replica having the
+// largest journal byte offset always win. For this reason, only RPCs appending
+// at least one byte may modify registers.
+//
+// Append RPCs may also require that registers match an arbitrary selector
+// before the RPC may proceed. For example, a write fence can be implemented
+// by requiring that a "author" register is of an expected value. At-most-once
+// semantics can be implemented as a check-and-set over a single register.
+//
+// Also be aware that a register update can still occur even for RPCs which are
+// reported as failed to the client. That's because an append RPC succeeds
+// only after all replicas acknowledge it, but a RPC which applies to some
+// replicas but not all still moves the journal offset forward, and therefore
+// updates journal registers.
 message AppendRequest {
   // Header is attached by a proxying broker peer to the first AppendRequest message.
   Header header = 1;
@@ -340,7 +392,17 @@ message AppendRequest {
   // at zero, which uses the broker's tracked offset. The append offset must be
   // one greater than furthest written offset of the journal, or
   // WRONG_APPEND_OFFSET is returned.
-  int64 offset = 5;
+  int64 offset = 5 [(gogoproto.casttype) = "Offset"];
+  // Selector of journal registers which must be satisfied for the request
+  // to proceed. If not matched, the RPC is failed with REGISTER_MISMATCH.
+  LabelSelector check_registers = 6;
+  // Labels to union with current registers if the RPC succeeds and appended
+  // at least one byte.
+  LabelSet union_registers = 7;
+  // Labels to subtract from current registers if the RPC succeeds and appended
+  // at least one byte.
+  LabelSet subtract_registers = 8;
+
   // Content chunks to be appended. Immediately prior to closing the stream,
   // the client must send an empty chunk (eg, zero-valued AppendRequest) to
   // indicate the Append should be committed. Absence of this empty chunk
@@ -348,6 +410,7 @@ message AppendRequest {
   bytes content = 4;
 }
 
+// AppendResponse is the unary response message of the broker Append RPC.
 message AppendResponse {
   // Status of the Append RPC.
   Status status = 1;
@@ -356,37 +419,54 @@ message AppendResponse {
   // If status is OK, then |commit| is the Fragment which places the
   // committed Append content within the Journal.
   Fragment commit = 3;
+  // Current registers of the journal.
+  LabelSet registers = 4;
 }
 
+// ReplicateRequest is the streamed request message of the broker's internal
+// Replicate RPC. Each message is either a pending content chunk or a
+// "proposal" to commit (or roll back) content chunks previously sent.
 message ReplicateRequest {
   // Header defines the primary broker, Route, and Etcd Revision under which
   // this Replicate stream is being established. Each replication peer
   // independently inspects and verifies the current Journal Route topology.
   Header header = 1;
-  // Journal to be replicated to.
-  string journal = 2 [(gogoproto.casttype) = "Journal"];
-  // Proposed Fragment to commit. Also verified by each replica.
+
+  // Proposed Fragment to commit, which is verified by each replica.
   Fragment proposal = 3;
+  // Registers proposed to apply, which are also verified by each replica.
+  LabelSet registers = 7;
+  // Acknowledge requests that the peer send an acknowledging ReplicateResponse
+  // on successful application of the ReplicateRequest.
+  bool acknowledge = 6;
+  // Journal to be replicated to, which is also captured by |proposal|.
+  // Deprecated.
+  string deprecated_journal = 2 [(gogoproto.casttype) = "Journal"];
+
   // Content to be replicated.
   bytes content = 4;
   // Delta offset of |content| relative to current Fragment |end|.
   int64 content_delta = 5;
-  // Acknowledge requests that the peer send an acknowledging ReplicateResponse
-  // on successful application of the ReplicateRequest.
-  bool acknowledge = 6;
 }
 
+// ReplicateResponse is the streamed response message of the broker's internal
+// Replicate RPC. Each message is a 1:1 response to a previously read "proposal"
+// ReplicateRequest with |acknowledge| set.
 message ReplicateResponse {
   // Status of the Replicate RPC.
   Status status = 1;
   // Header of the response. Accompanies the first ReplicateResponse of the response stream.
   Header header = 2;
-  // If status is FRAGMENT_MISMATCH, then |fragment| is the replica's
-  // Fragment at the current Journal head, which was found to be inconsistent
-  // with the request |proposal| Fragment.
+  // If status is PROPOSAL_MISMATCH, then |fragment| is the replica's current
+  // journal Fragment, and either it or |registers| will differ from the
+  // primary's proposal.
   Fragment fragment = 3;
+  // If status is PROPOSAL_MISMATCH, then |registers| are the replica's current
+  // journal registers.
+  LabelSet registers = 4;
 }
 
+// ListRequest is the unary request message of the broker List RPC.
 message ListRequest {
   // Selector optionally refines the set of journals which will be enumerated.
   // If zero-valued, all journals are returned. Otherwise, only JournalSpecs
@@ -404,6 +484,7 @@ message ListRequest {
   string page_token = 3;
 }
 
+// ListResponse is the unary response message of the broker List RPC.
 message ListResponse {
   // Status of the List RPC.
   Status status = 1;
@@ -423,6 +504,7 @@ message ListResponse {
   string next_page_token = 4;
 }
 
+// ApplyRequest is the unary request message of the broker Apply RPC.
 message ApplyRequest {
   // Change defines an insertion, update, or deletion to be applied to the set
   // of JournalSpecs. Exactly one of |upsert| or |delete| must be set.
@@ -439,6 +521,7 @@ message ApplyRequest {
   repeated Change changes = 1 [(gogoproto.nullable) = false];
 }
 
+// ApplyResponse is the unary response message of the broker Apply RPC.
 message ApplyResponse {
   // Status of the Apply RPC.
   Status status = 1;
@@ -446,6 +529,7 @@ message ApplyResponse {
   Header header = 2 [(gogoproto.nullable) = false];
 }
 
+// FragmentsRequest is the unary request message of the broker ListFragments RPC.
 message FragmentsRequest {
   // Header is attached by a proxying broker peer.
   Header header = 1;
@@ -471,6 +555,7 @@ message FragmentsRequest {
   bool do_not_proxy = 8;
 }
 
+// FragmentsResponse is the unary response message of the broker ListFragments RPC.
 message FragmentsResponse {
   // Status of the Apply RPC.
   Status status = 1;

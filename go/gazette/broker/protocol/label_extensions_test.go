@@ -70,6 +70,32 @@ func (s *LabelSuite) TestSetValidationCases(c *gc.C) {
 	c.Check(set.Validate(), gc.IsNil)
 }
 
+func (s *LabelSuite) TestEqualityCases(c *gc.C) {
+	var lhs = MustLabelSet("one", "1", "three", "3")
+	var rhs = MustLabelSet("one", "1")
+
+	c.Check(lhs.Equal(&rhs), gc.Equals, false)
+	rhs.AddValue("three", "3")
+	c.Check(lhs.Equal(&rhs), gc.Equals, true)
+	rhs.AddValue("four", "4")
+	c.Check(lhs.Equal(&rhs), gc.Equals, false)
+
+	c.Check(lhs.Equal(nil), gc.Equals, false)
+}
+
+func (s *LabelSuite) TestAssign(c *gc.C) {
+	var lhs = MustLabelSet("name", "value")
+
+	lhs.Assign(nil)
+	c.Check(lhs.Labels, gc.HasLen, 0)
+
+	var other = MustLabelSet("one", "", "two", "")
+
+	c.Check(lhs.Equal(&other), gc.Equals, false)
+	lhs.Assign(&other)
+	c.Check(lhs.Equal(&other), gc.Equals, true)
+}
+
 func (s *LabelSuite) TestValuesOfCases(c *gc.C) {
 	var set = LabelSet{
 		Labels: []Label{

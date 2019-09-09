@@ -19,6 +19,12 @@ import (
 // "company-journals/interesting-topic/part-1234"
 type Journal string
 
+// Offset is a byte offset of a Journal.
+type Offset = int64
+
+// Offsets is a map of Journals and Offsets.
+type Offsets map[Journal]Offset
+
 // Validate returns an error if the Journal is not well-formed. It must be of
 // the base64 alphabet, a clean path (as defined by path.Clean), and must not
 // begin with a '/'.
@@ -35,6 +41,29 @@ func (n Journal) Validate() error {
 
 // String returns the Journal as a string.
 func (n Journal) String() string { return string(n) }
+
+// Validate returns an error if the Offsets are not well-formed.
+func (o Offsets) Validate() error {
+	for j, o := range o {
+		var err = j.Validate()
+		if err == nil && o < 0 {
+			err = NewValidationError("invalid offset (%d; expected >= 0)", o)
+		}
+		if err != nil {
+			return ExtendContext(err, "Offsets[%s]", j)
+		}
+	}
+	return nil
+}
+
+// Copy allocates and returns a copy of Offsets.
+func (o Offsets) Copy() Offsets {
+	var out = make(Offsets, len(o))
+	for j, o := range o {
+		out[j] = o
+	}
+	return out
+}
 
 // Validate returns an error if the JournalSpec is not well-formed.
 func (m *JournalSpec) Validate() error {

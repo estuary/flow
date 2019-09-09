@@ -13,9 +13,10 @@ type RPCSuite struct{}
 
 func (s *RPCSuite) TestReadRequestValidation(c *gc.C) {
 	var req = ReadRequest{
-		Header:  badHeaderFixture(),
-		Journal: "/bad",
-		Offset:  -2,
+		Header:    badHeaderFixture(),
+		Journal:   "/bad",
+		Offset:    -2,
+		EndOffset: -1,
 	}
 	c.Check(req.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
 	req.Header.Etcd.ClusterId = 12
@@ -23,7 +24,17 @@ func (s *RPCSuite) TestReadRequestValidation(c *gc.C) {
 	req.Journal = "good"
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid Offset \(-2; expected -1 <= Offset <= MaxInt64\)`)
 	req.Offset = -1
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndOffset \(-1; expected 0 <= EndOffset <= Offset\)`)
+	req.EndOffset = 100
 
+	c.Check(req.Validate(), gc.IsNil)
+
+	req.Offset = 101
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndOffset \(100; expected 0 <= EndOffset <= Offset\)`)
+
+	req.EndOffset = 101
+	c.Check(req.Validate(), gc.IsNil)
+	req.EndOffset = 0
 	c.Check(req.Validate(), gc.IsNil)
 
 	// Block, DoNotProxy, and MetadataOnly have no validation.
@@ -102,12 +113,18 @@ func (s *RPCSuite) TestReadResponseValidationCases(c *gc.C) {
 }
 
 func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
+	var badLabel = LabelSet{Labels: []Label{{Name: "inv alid"}}}
+	var goodLabel = LabelSet{Labels: []Label{{Name: "valid"}}}
+
 	var req = AppendRequest{
-		Header:     badHeaderFixture(),
-		Journal:    "/bad",
-		DoNotProxy: true,
-		Offset:     -1,
-		Content:    []byte("foo"),
+		Header:            badHeaderFixture(),
+		Journal:           "/bad",
+		DoNotProxy:        true,
+		Offset:            -1,
+		Content:           []byte("foo"),
+		CheckRegisters:    &LabelSelector{Include: badLabel},
+		UnionRegisters:    &badLabel,
+		SubtractRegisters: &badLabel,
 	}
 
 	c.Check(req.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
@@ -118,9 +135,16 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 	req.Offset = 100
 	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Content`)
 	req.Content = nil
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckRegisters.Include.Labels\[0\].Name: not a valid token \(inv alid\)`)
+	req.CheckRegisters.Include = goodLabel
+	c.Check(req.Validate(), gc.ErrorMatches, `UnionRegisters.Labels\[0\].Name: not a valid token \(inv alid\)`)
+	req.UnionRegisters = &goodLabel
+	c.Check(req.Validate(), gc.ErrorMatches, `SubtractRegisters.Labels\[0\].Name: not a valid token \(inv alid\)`)
+	req.SubtractRegisters = &goodLabel
 
 	c.Check(req.Validate(), gc.IsNil)
 
+	// Mark as a content-chunk request.
 	req.Journal = ""
 	req.Content = []byte("foo")
 
@@ -130,6 +154,12 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 	req.DoNotProxy = false
 	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Offset`)
 	req.Offset = 0
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected CheckRegisters`)
+	req.CheckRegisters = nil
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected UnionRegisters`)
+	req.UnionRegisters = nil
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected SubtractRegisters`)
+	req.SubtractRegisters = nil
 
 	c.Check(req.Validate(), gc.IsNil)
 
@@ -149,70 +179,61 @@ func (s *RPCSuite) TestAppendResponseValidationCases(c *gc.C) {
 	resp.Header.Etcd.ClusterId = 12
 	c.Check(resp.Validate(), gc.ErrorMatches, `expected Commit`)
 	resp.Commit = &Fragment{Journal: "/bad/name", CompressionCodec: CompressionCodec_NONE}
+	c.Check(resp.Validate(), gc.ErrorMatches, `expected Registers`)
+	resp.Registers = &LabelSet{Labels: []Label{{Name: "in valid"}}}
 	c.Check(resp.Validate(), gc.ErrorMatches, `Commit.Journal: cannot begin with '/' \(/bad/name\)`)
 	resp.Commit.Journal = "good/name"
+	c.Check(resp.Validate(), gc.ErrorMatches, `Registers.Labels\[0\].Name: not a valid token \(in valid\)`)
+	resp.Registers.Labels[0].Name = "valid"
 
 	c.Check(resp.Validate(), gc.IsNil)
 }
 
 func (s *RPCSuite) TestReplicateRequestValidationCases(c *gc.C) {
 	var req = ReplicateRequest{
-		Journal:      "/bad",
-		Proposal:     nil,
-		Content:      []byte("foo"),
-		ContentDelta: 100,
+		DeprecatedJournal: "bad",
+		Proposal:          &Fragment{Journal: "/bad/name", CompressionCodec: CompressionCodec_NONE},
+		Content:           []byte("foo"),
+		ContentDelta:      100,
+		Header:            badHeaderFixture(),
 	}
 
-	c.Check(req.Validate(), gc.ErrorMatches, `Journal: cannot begin with '/' \(/bad\)`)
-	req.Journal = "journal"
-	c.Check(req.Validate(), gc.ErrorMatches, `expected Header with Journal`)
-	req.Header = badHeaderFixture()
 	c.Check(req.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
 	req.Header.Etcd.ClusterId = 12
-	c.Check(req.Validate(), gc.ErrorMatches, `expected Proposal with Journal`)
-	req.Proposal = &Fragment{Journal: "/bad/name", CompressionCodec: CompressionCodec_NONE}
-	c.Check(req.Validate(), gc.ErrorMatches, `Proposal.Journal: cannot begin with '/' \(/bad/name\)`)
-	req.Proposal.Journal = "other/journal"
-	c.Check(req.Validate(), gc.ErrorMatches, `Journal and Proposal.Journal mismatch \(journal vs other/journal\)`)
-	req.Proposal.Journal = "journal"
-	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Content with Journal \(len 3\)`)
-	req.Content = nil
-	c.Check(req.Validate(), gc.ErrorMatches, `unexpected ContentDelta with Journal \(100\)`)
-	req.ContentDelta = 0
-	c.Check(req.Validate(), gc.ErrorMatches, `expected Acknowledge with Journal`)
+	c.Check(req.Validate(), gc.ErrorMatches, `expected Acknowledge with Header`)
 	req.Acknowledge = true
-
-	c.Check(req.Validate(), gc.IsNil) // Success.
-
-	// Clearing Journal makes this a mid-stream Request.
-	req.Journal = ""
-
-	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Header without Journal \(process_id:.*\)`)
-	req.Header = nil
-
-	req.Proposal.Journal = "/other/bad/name"
-	req.Content = []byte("foo")
-	req.ContentDelta = -1
-
-	c.Check(req.Validate(), gc.ErrorMatches, `Proposal.Journal: cannot begin with '/' \(/other/bad/name\)`)
-	req.Proposal.Journal = "good/name"
+	c.Check(req.Validate(), gc.ErrorMatches, `Proposal.Journal: cannot begin with '/' \(/bad/name\)`)
+	req.Proposal.Journal = "journal"
+	c.Check(req.Validate(), gc.ErrorMatches, `expected Registers with Proposal`)
+	req.Registers = &LabelSet{Labels: []Label{{Name: "in valid"}}}
+	c.Check(req.Validate(), gc.ErrorMatches, `Registers.Labels\[0\].Name: not a valid token \(in valid\)`)
+	req.Registers.Labels[0].Name = "valid"
 	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Content with Proposal \(len 3\)`)
 	req.Content = nil
-	c.Check(req.Validate(), gc.ErrorMatches, `unexpected ContentDelta with Proposal \(-1\)`)
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected ContentDelta with Proposal \(100\)`)
 	req.ContentDelta = 0
+	c.Check(req.Validate(), gc.ErrorMatches, `DeprecatedJournal and Proposal.Journal mismatch \(bad vs journal\)`)
+	req.DeprecatedJournal = "journal"
 
 	c.Check(req.Validate(), gc.IsNil) // Success.
 
+	// Clearing Proposal makes this a content chunk request.
 	req.Proposal = nil
-	c.Check(req.Validate(), gc.ErrorMatches, `expected Content or Proposal`)
-
-	req.Content = []byte("foo")
+	req.Content = nil
 	req.ContentDelta = -1
 
-	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Acknowledge with Content`)
-	req.Acknowledge = false
+	c.Check(req.Validate(), gc.ErrorMatches, `expected Content or Proposal`)
+	req.Content = []byte("foo")
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid ContentDelta \(-1; expected >= 0\)`)
 	req.ContentDelta = 100
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Header with Content \(process_id:.*\)`)
+	req.Header = nil
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Registers with Content \(labels:.*\)`)
+	req.Registers = nil
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Acknowledge with Content`)
+	req.Acknowledge = false
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected DeprecatedJournal with Content`)
+	req.DeprecatedJournal = ""
 
 	c.Check(req.Validate(), gc.IsNil) // Success.
 }
@@ -221,9 +242,10 @@ func (s *RPCSuite) TestReplicateResponseValidationCases(c *gc.C) {
 	var frag = &Fragment{Journal: "/bad/name", CompressionCodec: CompressionCodec_NONE}
 
 	var resp = ReplicateResponse{
-		Status:   9101,
-		Header:   badHeaderFixture(),
-		Fragment: frag,
+		Status:    9101,
+		Header:    badHeaderFixture(),
+		Fragment:  frag,
+		Registers: new(LabelSet),
 	}
 
 	c.Check(resp.Validate(), gc.ErrorMatches, `Status: invalid status .*`)
@@ -233,6 +255,8 @@ func (s *RPCSuite) TestReplicateResponseValidationCases(c *gc.C) {
 	resp.Header = nil
 	c.Check(resp.Validate(), gc.ErrorMatches, `unexpected Fragment \(journal:.*\)`)
 	resp.Fragment = nil
+	c.Check(resp.Validate(), gc.ErrorMatches, `unexpected Registers \(\)`)
+	resp.Registers = nil
 	c.Check(resp.Validate(), gc.IsNil) // Success.
 
 	resp.Status = Status_WRONG_ROUTE
@@ -242,12 +266,17 @@ func (s *RPCSuite) TestReplicateResponseValidationCases(c *gc.C) {
 	resp.Header.Etcd.ClusterId = 12
 	c.Check(resp.Validate(), gc.IsNil) // Success.
 
-	resp.Status = Status_FRAGMENT_MISMATCH
+	resp.Status = Status_PROPOSAL_MISMATCH
 	resp.Header = nil
-	resp.Fragment = frag
 
+	c.Check(resp.Validate(), gc.ErrorMatches, `expected Fragment`)
+	resp.Fragment = frag
 	c.Check(resp.Validate(), gc.ErrorMatches, `Fragment.Journal: cannot begin with '/' \(/bad/name\)`)
 	frag.Journal = "journal"
+	c.Check(resp.Validate(), gc.ErrorMatches, `expected Registers`)
+	resp.Registers = &LabelSet{Labels: []Label{{Name: "in valid"}}}
+	c.Check(resp.Validate(), gc.ErrorMatches, `Registers.Labels\[0\].Name: not a valid token \(in valid\)`)
+	resp.Registers.Labels[0].Name = "valid"
 
 	c.Check(resp.Validate(), gc.IsNil) // Success.
 }
