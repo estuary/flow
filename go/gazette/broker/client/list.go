@@ -2,10 +2,10 @@ package client
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc"
@@ -109,6 +109,22 @@ func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRe
 		}
 	}
 	return resp, nil
+}
+
+// GetJournal retrieves the JournalSpec of the named |journal|, or returns an error.
+func GetJournal(ctx context.Context, jc pb.JournalClient, journal pb.Journal) (*pb.JournalSpec, error) {
+	var lr, err = ListAllJournals(ctx, jc, pb.ListRequest{
+		Selector: pb.LabelSelector{
+			Include: pb.LabelSet{Labels: []pb.Label{{Name: "name", Value: journal.String()}}},
+		},
+	})
+	if err == nil && len(lr.Journals) == 0 {
+		err = errors.Errorf("named journal does not exist (%s)", journal)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &lr.Journals[0].Spec, nil
 }
 
 // ApplyJournals invokes the Apply RPC.

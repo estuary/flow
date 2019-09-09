@@ -2,11 +2,11 @@ package client
 
 import (
 	"context"
-	"errors"
 	"io"
 	"math"
 	"time"
 
+	"github.com/pkg/errors"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -75,7 +75,7 @@ func (a *Appender) Close() (err error) {
 	} else if err = a.stream.RecvMsg(&a.Response); err != nil {
 		// Pass.
 	} else if err = a.Response.Validate(); err != nil {
-		// Pass.
+		err = errors.Wrap(err, "validating broker response")
 	} else {
 		a.client.UpdateRoute(a.Request.Journal.String(), &a.Response.Header.Route)
 
@@ -86,6 +86,9 @@ func (a *Appender) Close() (err error) {
 			err = ErrNotJournalPrimaryBroker
 		case pb.Status_WRONG_APPEND_OFFSET:
 			err = ErrWrongAppendOffset
+		case pb.Status_REGISTER_MISMATCH:
+			err = errors.Wrapf(ErrRegisterMismatch, "selector %v doesn't match registers %v",
+				a.Request.CheckRegisters, a.Response.Registers)
 		default:
 			err = errors.New(a.Response.Status.String())
 		}

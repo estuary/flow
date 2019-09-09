@@ -34,7 +34,7 @@ func TestSimpleReadAndWrite(t *testing.T) {
 
 	// Asynchronously append some content over two lines.
 	var as = client.NewAppendService(context.Background(), rjc)
-	var txn = as.StartAppend("foo/bar")
+	var txn = as.StartAppend(pb.AppendRequest{Journal: "foo/bar"}, nil)
 	_, _ = txn.Writer().WriteString("hello, gazette\ngoodbye, gazette")
 	assert.NoError(t, txn.Release())
 
@@ -77,7 +77,7 @@ func TestReplicatedReadAndWrite(t *testing.T) {
 	// Asynchronously append some content to |bkB|.
 	var as = client.NewAppendService(context.Background(),
 		pb.NewRoutedJournalClient(bkB.Client(), pb.NoopDispatchRouter{}))
-	var txn = as.StartAppend("foo/bar")
+	var txn = as.StartAppend(pb.AppendRequest{Journal: "foo/bar"}, nil)
 	_, _ = txn.Writer().WriteString("hello, gazette\n")
 	assert.NoError(t, txn.Release())
 

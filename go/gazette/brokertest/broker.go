@@ -74,8 +74,10 @@ func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *B
 	}
 }
 
-// Client of the test Broker.
-func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.Server.GRPCLoopback) }
+// Client returns a RoutedJournalClient wrapping the GRPCLoopback.
+func (b *Broker) Client() pb.RoutedJournalClient {
+	return pb.NewRoutedJournalClient(pb.NewJournalClient(b.Server.GRPCLoopback), pb.NoopDispatchRouter{})
+}
 
 // Endpoint of the test Broker.
 func (b *Broker) Endpoint() pb.Endpoint { return b.Server.Endpoint() }

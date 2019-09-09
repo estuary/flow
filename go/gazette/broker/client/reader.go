@@ -314,6 +314,7 @@ var (
 	ErrNotJournalPrimaryBroker = errors.New(pb.Status_NOT_JOURNAL_PRIMARY_BROKER.String())
 	ErrOffsetNotYetAvailable   = errors.New(pb.Status_OFFSET_NOT_YET_AVAILABLE.String())
 	ErrWrongAppendOffset       = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
+	ErrRegisterMismatch        = errors.New(pb.Status_REGISTER_MISMATCH.String())
 
 	ErrOffsetJump            = errors.New("offset jump")
 	ErrSeekRequiresNewReader = errors.New("seek offset requires new Reader")

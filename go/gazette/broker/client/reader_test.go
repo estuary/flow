@@ -350,8 +350,8 @@ func (f readFixture) serve(c *gc.C, broker *teststub.Broker) {
 	var req = <-broker.ReadReqCh
 	c.Check(req.Journal, gc.Equals, pb.Journal("a/journal"))
 
-	// Start with a basic response template which may be customized
-	var resp = &pb.ReadResponse{
+	// Start with a basic response template which may be customized.
+	var resp = pb.ReadResponse{
 		Status:    pb.Status_OK,
 		Header:    buildHeaderFixture(broker),
 		Offset:    req.Offset,
@@ -380,14 +380,14 @@ func (f readFixture) serve(c *gc.C, broker *teststub.Broker) {
 	broker.ReadRespCh <- resp
 
 	if l := len(f.content); l != 0 {
-		broker.ReadRespCh <- &pb.ReadResponse{Offset: resp.Offset, Content: []byte(f.content[:l/2])}
-		broker.ReadRespCh <- &pb.ReadResponse{Offset: resp.Offset + int64(l/2), Content: []byte(f.content[l/2:])}
+		broker.ReadRespCh <- pb.ReadResponse{Offset: resp.Offset, Content: []byte(f.content[:l/2])}
+		broker.ReadRespCh <- pb.ReadResponse{Offset: resp.Offset + int64(l/2), Content: []byte(f.content[l/2:])}
 
 		if f.status != pb.Status_OK {
-			broker.ReadRespCh <- &pb.ReadResponse{Status: f.status}
+			broker.ReadRespCh <- pb.ReadResponse{Status: f.status}
 		}
 	}
-	broker.ErrCh <- f.err
+	broker.WriteLoopErrCh <- f.err
 }
 
 func serveReadFixtures(c *gc.C, broker *teststub.Broker, fixtures ...readFixture) {

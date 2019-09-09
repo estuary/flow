@@ -16,24 +16,26 @@ import (
 // is not thread-safe, with one exception: Cancel may be called from one
 // goroutine to abort an ongoing Read or Seek call in another.
 type RetryReader struct {
+	// Context of the RetryReader, which parents the Context provided to
+	// underlying *Reader instances.
+	Context context.Context
+	// Client of the RetryReader.
+	Client pb.RoutedJournalClient
 	// Reader is the current underlying Reader of the RetryReader. This instance
 	// may change many times over the lifetime of a RetryReader, as Read RPCs
 	// finish or are cancelled and then restarted.
 	Reader *Reader
-	// Cancel Read operations of the current Reader. Notably this will cause an
+	// Cancel Read operations of the current *Reader. Notably this will cause an
 	// ongoing blocked Read (as well as any future Reads) to return a "Cancelled"
 	// error. Restart may be called to re-initialize the RetryReader.
 	Cancel context.CancelFunc
-
-	ctx    context.Context
-	client pb.RoutedJournalClient
 }
 
 // NewRetryReader returns a RetryReader initialized with the BrokerClient and ReadRequest.
 func NewRetryReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRequest) *RetryReader {
 	var rr = &RetryReader{
-		ctx:    ctx,
-		client: client,
+		Context: ctx,
+		Client:  client,
 	}
 	rr.Restart(req)
 	return rr
@@ -56,12 +58,16 @@ func (rr *RetryReader) Offset() int64 {
 //    for a non-blocking ReadRequest.
 //  * An offset jump occurred (ErrOffsetJump), in which case the client
 //    should inspect the new Offset may continue reading if desired.
+//  * The broker returns io.EOF after sending through the requested EndOffset.
 // All other errors are retried.
 func (rr *RetryReader) Read(p []byte) (n int, err error) {
 	for attempt := 0; true; attempt++ {
 
 		if n, err = rr.Reader.Read(p); err == nil {
 			return // Success.
+		} else if err == io.EOF && rr.Reader.Request.EndOffset != 0 &&
+			rr.Reader.Request.Offset >= rr.Reader.Request.EndOffset {
+			return // Success (read through requested EndOffset).
 		} else if err == ErrOffsetJump {
 			return // Note |rr.Reader| is not invalidated by this error.
 		}
@@ -172,9 +178,9 @@ func (rr *RetryReader) AdjustedSeek(offset int64, whence int, br *bufio.Reader) 
 
 // Restart the RetryReader with a new ReadRequest.
 func (rr *RetryReader) Restart(req pb.ReadRequest) {
-	var ctx, cancel = context.WithCancel(rr.ctx)
+	var ctx, cancel = context.WithCancel(rr.Context)
 
-	rr.Reader = NewReader(ctx, rr.client, req)
+	rr.Reader = NewReader(ctx, rr.Client, req)
 	rr.Cancel = cancel
 }
 

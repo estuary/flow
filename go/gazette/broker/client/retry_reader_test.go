@@ -22,7 +22,8 @@ func (s *RetrySuite) TestReaderRetries(c *gc.C) {
 
 	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 
-	var rr = NewRetryReader(context.Background(), rjc, pb.ReadRequest{Journal: "a/journal", Offset: 100})
+	var rr = NewRetryReader(context.Background(), rjc,
+		pb.ReadRequest{Journal: "a/journal", Offset: 100})
 	c.Check(rr.Offset(), gc.Equals, int64(100))
 	c.Check(rr.Journal(), gc.Equals, pb.Journal("a/journal"))
 
@@ -55,10 +56,32 @@ func (s *RetrySuite) TestReaderRetries(c *gc.C) {
 	c.Check(err, gc.Equals, ErrOffsetJump)
 	c.Check(rr.Offset(), gc.Equals, int64(512))
 
-	go rr.Cancel()
+	// Asynchronously cancel the reader after remaining fixture
+	// content is consumed.
+	go func() {
+		// Next request starts after consuming fixture.
+		c.Check(<-broker.ReadReqCh, gc.NotNil)
+		go rr.Cancel()
+	}()
 
 	b, err = ioutil.ReadAll(rr)
+	c.Check(string(b), gc.Equals, "xxxxyyyy")
 	c.Check(err, gc.Equals, context.Canceled)
+	broker.WriteLoopErrCh <- nil // Belated EOF.
+
+	// Start reader again, this time with a provided EndOffset.
+	rr.Restart(pb.ReadRequest{Journal: "a/journal", Offset: 100, EndOffset: 110})
+
+	go serveReadFixtures(c, broker,
+		readFixture{content: "foobar", err: errors.New("whoops")},
+		readFixture{content: "ba"}, // Premature io.EOF.
+		readFixture{content: "z."},
+	)
+
+	b, err = ioutil.ReadAll(rr)
+	c.Check(string(b), gc.Equals, "foobarbaz.")
+	c.Check(err, gc.IsNil)
+	c.Check(rr.Offset(), gc.Equals, int64(110))
 }
 
 func (s *RetrySuite) TestMisbehavingReaderCases(c *gc.C) {

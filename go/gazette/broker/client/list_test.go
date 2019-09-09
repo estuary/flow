@@ -81,6 +81,36 @@ func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	c.Check(err, gc.Equals, context.Canceled)
 }
 
+func (s *ListSuite) TestGetJournal(c *gc.C) {
+	var broker = teststub.NewBroker(c)
+	defer broker.Cleanup()
+
+	var hdr = *buildHeaderFixture(broker)
+
+	// Case: Journal exists.
+	broker.ListFunc = func(_ context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+		c.Check(req, gc.DeepEquals, &pb.ListRequest{
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "foo/bar")},
+		})
+		return &pb.ListResponse{Header: hdr, Journals: buildListResponseFixture("foo/bar")}, nil
+	}
+
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var spec, err = GetJournal(context.Background(), rjc, "foo/bar")
+
+	c.Check(err, gc.IsNil)
+	c.Check(spec.Name, gc.Equals, pb.Journal("foo/bar"))
+
+	// Case: Journal doesn't exist.
+	broker.ListFunc = func(_ context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+		return &pb.ListResponse{Header: hdr}, nil
+	}
+	spec, err = GetJournal(context.Background(), rjc, "does/not/exist")
+
+	c.Check(err, gc.ErrorMatches, `named journal does not exist \(does/not/exist\)`)
+	c.Check(spec, gc.IsNil)
+}
+
 func (s *ListSuite) TestPolledList(c *gc.C) {
 	var broker = teststub.NewBroker(c)
 	defer broker.Cleanup()
