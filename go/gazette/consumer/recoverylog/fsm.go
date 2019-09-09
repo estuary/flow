@@ -1,9 +1,13 @@
 package recoverylog
 
 import (
+	"crypto/rand"
 	"fmt"
 	"hash/crc32"
+	"math"
+	"math/big"
 	"sort"
+	"strconv"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -29,7 +33,26 @@ type Fnode int64
 // Author is a random, unique ID which identifies a processes that creates RecordedOps.
 // It's used by FSM to allow for reconciliation of divergent histories in the recovery
 // log, through hints as to which Authors produced which Segments in the final history.
+// Authors are also used for cooperative write-fencing between Player.InjectHandoff
+// and Recorder.
 type Author uint32
+
+// NewRandomAuthor creates and returns a new, randomized Author in the range [1, math.MaxUint32].
+func NewRandomAuthor() Author {
+	if id, err := rand.Int(rand.Reader, big.NewInt(math.MaxUint32-1)); err != nil {
+		panic(err.Error()) // |rand.Reader| must never error.
+	} else {
+		return Author(id.Int64()) + 1
+	}
+}
+
+// Fence returns the journal register which fences journal appends for this Author.
+func (a Author) Fence() *pb.LabelSet {
+	return &pb.LabelSet{Labels: []pb.Label{{
+		Name:  "author",
+		Value: strconv.FormatUint(uint64(a), 32),
+	}}}
+}
 
 // fnodeState is the state of an individual Fnode as tracked by FSM.
 type fnodeState struct {

@@ -332,14 +332,20 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 				return
 
 			case playerStateInjectHandoffAtHead:
-				var txn = ajc.StartAppend(hints.Log)
-
-				err = txn.Require(message.FixedFraming.Marshal(&RecordedOp{
+				// No-op which is sequenced for the log as read so far.
+				var noop = &RecordedOp{
 					SeqNo:    fsm.NextSeqNo,
 					Checksum: fsm.NextChecksum,
 					Author:   handoff,
-				}, txn.Writer())).Release()
+				}
+				// Start an append of |noop| which also places a cooperative fence,
+				// preventing further appends from an older "zombie" recorder.
+				var txn = ajc.StartAppend(pb.AppendRequest{
+					Journal:        hints.Log,
+					UnionRegisters: handoff.Fence(),
+				}, nil)
 
+				err = txn.Require(message.FixedFraming.Marshal(noop, txn.Writer())).Release()
 				if err == nil {
 					_, err = <-txn.Done(), txn.Err()
 				}

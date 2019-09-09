@@ -11,23 +11,29 @@ import (
 	gc "github.com/go-check/check"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/brokertest"
-	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/message"
 )
 
 type RecorderSuite struct{}
 
 func (s *RecorderSuite) TestNewFile(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{
+		FSM:            fsm,
+		Author:         anAuthor,
+		Dir:            "/strip",
+		Client:         ajc,
+		CheckRegisters: &pb.LabelSelector{Exclude: pb.MustLabelSet("exclude", "")},
+	}
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/path/to/file")
-	<-rec.WeakBarrier().Done() // |rec| observes operation commit.
+	var aa = rec.Barrier(nil)
+	c.Check(aa.Request().CheckRegisters, gc.Equals, rec.CheckRegisters) // CheckRegisters passed through.
+	<-aa.Done()                                                         // |rec| observes operation commit.
 	rec.RecordCreate("/strip/other/file")
 
 	var op = s.parseOp(c, br)
@@ -54,11 +60,11 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestDeleteFile(c *gc.C) {
-	var bk, _, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, _, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 
 	rec.RecordCreate("/strip/path/to/file")
 	rec.RecordRemove("/strip/path/to/file")
@@ -77,15 +83,15 @@ func (s *RecorderSuite) TestDeleteFile(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestOverwriteExistingFile(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/path/to/file")
-	<-rec.WeakBarrier().Done()              // |rec| observes operation commit.
+	<-rec.Barrier(nil).Done()               // |rec| observes operation commit.
 	rec.RecordCreate("/strip/path/to/file") // Overwrites existing file.
 
 	_ = s.parseOp(c, br) // Creation of Fnode 1.
@@ -113,15 +119,15 @@ func (s *RecorderSuite) TestOverwriteExistingFile(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestLinkFile(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/path/to/file")
-	<-rec.WeakBarrier().Done() // |rec| observes operation commit.
+	<-rec.Barrier(nil).Done() // |rec| observes operation commit.
 	rec.RecordLink("/strip/path/to/file", "/strip/linked")
 
 	_ = s.parseOp(c, br) // Creation of Fnode 1.
@@ -143,15 +149,15 @@ func (s *RecorderSuite) TestLinkFile(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/target/path")
-	<-rec.WeakBarrier().Done() // |rec| observes operation commit.
+	<-rec.Barrier(nil).Done() // |rec| observes operation commit.
 	rec.RecordCreate("/strip/source/path")
 
 	// Exercise handling for duplicate '//' prefixes.
@@ -190,15 +196,15 @@ func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/source/path")
-	<-rec.WeakBarrier().Done() // |rec| observes operation commit.
+	<-rec.Barrier(nil).Done() // |rec| observes operation commit.
 	rec.RecordRename("/strip/source/path", "/strip//target/path")
 
 	_ = s.parseOp(c, br) // Creation of Fnode 1.
@@ -226,11 +232,11 @@ func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestFileAppends(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
 	var handle = rec.RecordCreate("/strip/source/path")
@@ -272,7 +278,7 @@ func (s *RecorderSuite) TestFileAppends(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestPropertyUpdate(c *gc.C) {
-	var bk, _, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, _, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var dir, err = ioutil.TempDir("", "recorder-property-update")
@@ -280,7 +286,7 @@ func (s *RecorderSuite) TestPropertyUpdate(c *gc.C) {
 	defer os.RemoveAll(dir)
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, dir, bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: dir, Client: ajc}
 
 	// Properties are updated when a file is renamed to a property path.
 	// Recorder extracts content directly from the target path.
@@ -317,16 +323,16 @@ func (s *RecorderSuite) TestPropertyUpdate(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestMixedNewFileWriteAndDelete(c *gc.C) {
-	var bk, r, br, cleanup = newBrokerLogAndReader(c)
+	var ajc, r, br, cleanup = newBrokerLogAndReader(c)
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
 	// The first Fnode is unlinked prior to log end, and is not tracked in hints.
 	rec.RecordCreate("/strip/delete/path")
-	<-rec.WeakBarrier().Done() // |rec| observes operation commit.
+	<-rec.Barrier(nil).Done() // |rec| observes operation commit.
 	rec.RecordCreate("/strip/a/path").RecordWrite([]byte("file-write"))
 	rec.RecordRemove("/strip/delete/path")
 
@@ -347,19 +353,15 @@ func (s *RecorderSuite) TestMixedNewFileWriteAndDelete(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
-	var etcd = etcdtest.TestClient()
-	defer etcdtest.Cleanup()
-
-	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
-	brokertest.CreateJournals(c, broker,
-		brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}))
-
-	var ctx, cancel = context.WithCancel(context.Background())
-	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
-	var ajc = client.NewAppendService(ctx, rjc)
-	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = NewRecorder(fsm, anAuthor, "/strip", ajc)
-
+	var (
+		broker, cleanup = newBrokerAndLog(c)
+		ctx, cancel     = context.WithCancel(context.Background())
+		rjc             = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+		ajc             = client.NewAppendService(ctx, rjc)
+		fsm, _          = NewFSM(FSMHints{Log: aRecoveryLog})
+		rec             = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	)
+	defer cleanup()
 	cancel()
 
 	// Expect operations continue to sequence, but their appends are aborted
@@ -367,7 +369,7 @@ func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
 	// ensure we're also exercising Recorder inspections of |recentTxn|.
 	for _, n := range []string{"/strip/file2", "/strip/file3"} {
 		rec.RecordCreate(n)
-		var barrier = rec.WeakBarrier()
+		var barrier = rec.Barrier(nil)
 		<-barrier.Done()
 		c.Check(barrier.Err(), gc.Equals, context.Canceled)
 	}
@@ -380,9 +382,8 @@ func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
 }
 
 func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {
-	var author, err = NewRandomAuthorID()
-	c.Check(err, gc.IsNil)
-	c.Check(author, gc.Not(gc.Equals), Author(0)) // Zero is never returned.
+	c.Check(NewRandomAuthor(), gc.Not(gc.Equals), NewRandomAuthor()) // No two are alike.
+	c.Check(NewRandomAuthor(), gc.Not(gc.Equals), Author(0))         // Zero is never returned.
 }
 
 func (s *RecorderSuite) parseOp(c *gc.C, br *bufio.Reader) RecordedOp {
@@ -406,30 +407,24 @@ func (s *RecorderSuite) readLen(c *gc.C, length int64, br *bufio.Reader) string 
 }
 
 func newBrokerLogAndReader(c *gc.C) (client.AsyncJournalClient, *client.Reader, *bufio.Reader, func()) {
-	var etcd = etcdtest.TestClient()
-	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
-
-	brokertest.CreateJournals(c, broker,
-		brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}))
-
-	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
-	var as = client.NewAppendService(context.Background(), rjc)
-
-	var r = client.NewReader(context.Background(), rjc, pb.ReadRequest{
-		Journal: aRecoveryLog,
-		Block:   true,
-	})
-	var br = bufio.NewReader(r)
-
-	return as, r, br, func() {
+	var (
+		broker, cleanup = newBrokerAndLog(c)
+		rjc             = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+		ajc             = client.NewAppendService(context.Background(), rjc)
+		r               = client.NewReader(context.Background(), rjc, pb.ReadRequest{
+			Journal: aRecoveryLog,
+			Block:   true,
+		})
+		br = bufio.NewReader(r)
+	)
+	return ajc, r, br, func() {
 		broker.Tasks.Cancel()
 
 		// Expect we read a closing error (all content consumed).
 		var _, err = br.ReadByte()
 		c.Check(err, gc.NotNil)
 
-		c.Check(broker.Tasks.Wait(), gc.IsNil)
-		etcdtest.Cleanup()
+		cleanup()
 	}
 }
 

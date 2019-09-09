@@ -104,7 +104,7 @@ func (r recordedAferoFile) Sync() error {
 	if err := r.File.Sync(); err != nil {
 		return err
 	}
-	var txn = r.Recorder.StrongBarrier()
+	var txn = r.Recorder.Barrier(nil)
 	<-txn.Done()
 	return txn.Err()
 }

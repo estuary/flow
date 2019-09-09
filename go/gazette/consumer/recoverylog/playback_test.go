@@ -24,11 +24,13 @@ import (
 type PlaybackSuite struct{}
 
 func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
-	var bk, cleanup = newBrokerAndLog(c)
+	var broker, cleanup = newBrokerAndLog(c)
 	defer cleanup()
 
 	var ctx = context.Background()
-	var pr = newPlayerReader(ctx, aRecoveryLog, bk)
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var ajc = client.NewAppendService(ctx, rjc)
+	var pr = newPlayerReader(ctx, aRecoveryLog, ajc)
 
 	var fixture = strings.Repeat("x", message.FixedFrameHeaderLength)
 
@@ -36,7 +38,7 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	var peekCh = pr.peek()
 	c.Check(pr.pendingPeek, gc.Equals, true)
 
-	writeToLog(c, ctx, bk, fixture+"!")
+	writeToLog(c, ctx, ajc, fixture+"!")
 	c.Check(<-peekCh, gc.IsNil)
 	pr.pendingPeek = false
 
@@ -46,7 +48,7 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 
 	// Read next bytes. Peek does not consume input, so multiple peeks
 	// without an interleaving Read are trivially satisfied.
-	writeToLog(c, ctx, bk, fixture)
+	writeToLog(c, ctx, ajc, fixture)
 	c.Check(<-pr.peek(), gc.IsNil)
 	pr.pendingPeek = false
 	c.Check(<-pr.peek(), gc.IsNil)
@@ -55,7 +57,7 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	b, err := pr.br.Peek(1)
 	c.Check(b, gc.DeepEquals, []byte{'x'})
 	c.Check(err, gc.IsNil)
-	pr.br.Discard(len(fixture))
+	_, _ = pr.br.Discard(len(fixture))
 
 	select {
 	case err = <-pr.peek():
@@ -71,7 +73,7 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	c.Check(<-pr.peek(), gc.Equals, client.ErrOffsetNotYetAvailable)
 	pr.pendingPeek = false
 
-	writeToLog(c, ctx, bk, fixture+"@")
+	writeToLog(c, ctx, ajc, fixture+"@")
 
 	// As do reads.
 	b, err = ioutil.ReadAll(pr.br)
@@ -162,7 +164,7 @@ func (s *PlaybackSuite) TestUnlinkCloseError(c *gc.C) {
 	c.Check(poh.apply(c, poh.frame(newCreateOp("/a/path"))), gc.IsNil)
 
 	// Sneak in a Close() such that a successive close fails.
-	poh.files[42].Close()
+	_ = poh.files[42].Close()
 
 	c.Check(poh.apply(c, poh.frame(newUnlinkOp(42, "/a/path"))),
 		gc.ErrorMatches, ".*file already closed")
@@ -268,7 +270,7 @@ func (s *PlaybackSuite) TestUnderlyingWriteErrors(c *gc.C) {
 	c.Check(poh.apply(c, b), gc.ErrorMatches, `reenactOperation.*: write .*`)
 
 	// Close so that a future Seek returns an error.
-	poh.files[42].Close()
+	_ = poh.files[42].Close()
 
 	b = poh.frame(newWriteOp(42, 0, 5))
 	b = append(b, []byte("abcde")...)
@@ -374,11 +376,13 @@ func (s *PlaybackSuite) TestMakeLive(c *gc.C) {
 }
 
 func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
-	var bk, cleanup = newBrokerAndLog(c)
+	var broker, cleanup = newBrokerAndLog(c)
 	defer cleanup()
 
 	var ctx = context.Background()
-	writeToLog(c, ctx, bk, "irrelevant preceding content")
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var ajc = client.NewAppendService(ctx, rjc)
+	writeToLog(c, ctx, ajc, "irrelevant preceding content")
 
 	var dir, err = ioutil.TempDir("", "playback-suite")
 	c.Assert(err, gc.IsNil)
@@ -388,7 +392,7 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and produce a set of initial hints.
-	var rec = NewRecorder(recFSM, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var f = rec.RecordCreate("/strip/foo/bar")
 	var hints, _ = rec.BuildHints()
 
@@ -399,14 +403,14 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 
 	// Model a bad, interleaved raw write. We expect this can never actually happen,
 	// but want playback to be resilient should it occur.
-	writeToLog(c, ctx, bk, "... garbage data ...")
+	writeToLog(c, ctx, ajc, "... garbage data ...")
 	f.RecordWrite([]byte("!"))
-	<-f.WeakBarrier().Done() // Flush all recorded ops.
+	<-f.Barrier(nil).Done() // Flush all recorded ops.
 
 	// Start a Player from the initial |hints|.
 	var player = NewPlayer()
 	go func() {
-		c.Check(player.Play(context.Background(), hints, dir, bk), gc.IsNil)
+		c.Check(player.Play(context.Background(), hints, dir, ajc), gc.IsNil)
 	}()
 	// Expect we recover all content.
 	player.FinishAtWriteHead()
@@ -419,11 +423,13 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 }
 
 func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
-	var bk, cleanup = newBrokerAndLog(c)
+	var broker, cleanup = newBrokerAndLog(c)
 	defer cleanup()
 
 	var ctx = context.Background()
-	writeToLog(c, ctx, bk, "irrelevant preceding content")
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var ajc = client.NewAppendService(ctx, rjc)
+	writeToLog(c, ctx, ajc, "irrelevant preceding content")
 
 	dir1, err := ioutil.TempDir("", "playback-suite")
 	c.Assert(err, gc.IsNil)
@@ -437,7 +443,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and two Players from initial Recorder hints.
-	var rec = NewRecorder(recFSM, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var f = rec.RecordCreate("/strip/foo/bar")
 	var hints, _ = rec.BuildHints()
 
@@ -446,19 +452,19 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	// |tailPlayer| will observe both |rec| and |handoffPlayer|.
 	var tailPlayer = NewPlayer()
 
-	go func() { c.Check(handoffPlayer.Play(context.Background(), hints, dir1, bk), gc.IsNil) }()
-	go func() { c.Check(tailPlayer.Play(context.Background(), hints, dir2, bk), gc.IsNil) }()
+	go func() { c.Check(handoffPlayer.Play(context.Background(), hints, dir1, ajc), gc.IsNil) }()
+	go func() { c.Check(tailPlayer.Play(context.Background(), hints, dir2, ajc), gc.IsNil) }()
 
 	// Record more content. Also mix in bad, raw writes. These should never
 	// actually happen, but Playback shouldn't break if they do.
 	f.RecordWrite([]byte("hello"))
-	<-f.WeakBarrier().Done() // Flush.
-	writeToLog(c, ctx, bk, "... bad interleaved raw data ...")
+	<-f.Barrier(nil).Done() // Flush.
+	writeToLog(c, ctx, ajc, "... bad interleaved raw data ...")
 	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
-	<-f.WeakBarrier().Done() // Flush.
+	<-f.Barrier(nil).Done() // Flush.
 
 	// Begin a write which will race |handoffPlayer|'s first attempt to inject a no-op.
-	var txn = bk.StartAppend(aRecoveryLog)
+	var txn = ajc.StartAppend(pb.AppendRequest{Journal: aRecoveryLog}, nil)
 	txn.Writer().WriteString("... more garbage ...")
 	f.frameAppend([]byte(" world"), txn.Writer())
 
@@ -474,7 +480,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	c.Check(handoffPlayer.FSM, gc.NotNil)
 
 	f.RecordWrite([]byte("final write of |rec|, ignored because |handoffPlayer| injected a handoff"))
-	<-f.WeakBarrier().Done() // Flush all recorded ops.
+	<-f.Barrier(nil).Done() // Flush all recorded ops.
 
 	tailPlayer.FinishAtWriteHead()
 	<-tailPlayer.Done()
@@ -491,14 +497,22 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	hints, err = rec.BuildHints()
 	c.Check(hints, gc.Not(gc.DeepEquals), tailPlayer.FSM.BuildHints())
 	c.Check(err, gc.IsNil)
+
+	// Expect that |handoffPlayer| updated the log's registers to place a
+	// cooperative fence for its author.
+	var aa = rec.Barrier(nil)
+	<-aa.Done()
+	c.Check(aa.Response().Registers, gc.DeepEquals, Author(1337).Fence())
 }
 
 func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
-	var bk, cleanup = newBrokerAndLog(c)
+	var broker, cleanup = newBrokerAndLog(c)
 	defer cleanup()
 
 	var ctx = context.Background()
-	writeToLog(c, ctx, bk, "irrelevant preceding content")
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var ajc = client.NewAppendService(ctx, rjc)
+	writeToLog(c, ctx, ajc, "irrelevant preceding content")
 
 	var dir, err = ioutil.TempDir("", "playback-suite")
 	c.Assert(err, gc.IsNil)
@@ -509,14 +523,14 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 
 	// Record some writes of valid files. Build hints, and tweak them by adding
 	// an Fnode at an offset which was not actually recorded.
-	var rec = NewRecorder(recFSM, anAuthor, "/strip", bk)
+	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
 	rec.RecordCreate("/strip/foo").RecordWrite([]byte("bar"))
 	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
 
 	// Tweak hints by adding an Fnode & offset which was not actually recorded.
 	var hints, _ = rec.BuildHints()
 	{
-		var txn = bk.StartAppend(aRecoveryLog) // Determine log head.
+		var txn = ajc.StartAppend(pb.AppendRequest{Journal: aRecoveryLog}, nil) // Determine log head.
 		c.Assert(txn.Release(), gc.IsNil)
 		<-txn.Done()
 
@@ -539,17 +553,17 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 	// Expect Play fails immediately, because the hinted segment lies outside
 	// of the journal offset range.
 	var player = NewPlayer()
-	c.Check(player.Play(context.Background(), hints, dir, bk), gc.ErrorMatches,
+	c.Check(player.Play(context.Background(), hints, dir, ajc), gc.ErrorMatches,
 		`max write-head of examples/.* is \d+, vs hinted segment .*`)
 
 	// Sequence another recorded op. It will be ignored (due to player hints),
 	// but does serve to extend the log head beyond the invalid segment offset.
 	rec.RecordRemove("/strip/foo")
-	<-rec.WeakBarrier().Done() // Flush all recorded ops.
+	<-rec.Barrier(nil).Done() // Flush all recorded ops.
 
 	// This time, Play must read the log but fails upon reaching its head with unused hints.
 	player = NewPlayer()
-	c.Check(player.Play(context.Background(), hints, dir, bk), gc.ErrorMatches,
+	c.Check(player.Play(context.Background(), hints, dir, ajc), gc.ErrorMatches,
 		`offset examples/.*:\d+ >= readThrough \d+, but FSM has unused hints; possible data loss`)
 }
 
@@ -647,17 +661,14 @@ func writeToLog(c *gc.C, ctx context.Context, cl pb.RoutedJournalClient, b strin
 	c.Check(err, gc.IsNil)
 }
 
-func newBrokerAndLog(c *gc.C) (client.AsyncJournalClient, func()) {
+func newBrokerAndLog(c *gc.C) (*brokertest.Broker, func()) {
 	var etcd = etcdtest.TestClient()
 	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
 
 	brokertest.CreateJournals(c, broker,
 		brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}))
 
-	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
-	var as = client.NewAppendService(context.Background(), rjc)
-
-	return as, func() {
+	return broker, func() {
 		broker.Tasks.Cancel()
 		c.Check(broker.Tasks.Wait(), gc.IsNil)
 		etcdtest.Cleanup()
