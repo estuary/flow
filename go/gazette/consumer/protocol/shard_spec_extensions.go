@@ -43,11 +43,11 @@ func (m *ShardSpec) Validate() error {
 		return pb.ExtendContext(err, "Id")
 	} else if len(m.Sources) == 0 {
 		return pb.NewValidationError("Sources cannot be empty")
-	} else if m.RecoveryLogPrefix == "" {
-		return pb.NewValidationError("expected RecoveryLogPrefix")
-	} else if err = m.RecoveryLog().Validate(); err != nil {
-		return pb.ExtendContext(err, "RecoveryLog")
-	} else if !path.IsAbs(m.HintPrefix) || path.Clean(m.HintPrefix) != m.HintPrefix || path.Base(m.HintPrefix) == "" {
+	} else if m.RecoveryLogPrefix != "" && m.RecoveryLog().Validate() != nil {
+		return pb.ExtendContext(m.RecoveryLog().Validate(), "RecoveryLogPrefix")
+	} else if m.RecoveryLogPrefix == "" && m.HintPrefix != "" {
+		return pb.NewValidationError("invalid non-empty HintPrefix with empty RecoveryLogPrefix (%v)", m.HintPrefix)
+	} else if m.RecoveryLogPrefix != "" && !isAbsoluteCleanNonDirPath(m.HintPrefix) {
 		return pb.NewValidationError("HintPrefix is not an absolute, clean, non-directory path (%v)", m.HintPrefix)
 	} else if m.HintBackups < 0 {
 		return pb.NewValidationError("invalid HintBackups (%d; expected >= 0)", m.HintBackups)
@@ -108,7 +108,7 @@ func (m *ShardSpec) DesiredReplication() int {
 func (m *ShardSpec) IsConsistent(assignment keyspace.KeyValue, all keyspace.KeyValues) bool {
 	var code = assignment.Decoded.(allocator.Assignment).AssignmentValue.(*ReplicaStatus).Code
 	switch code {
-	case ReplicaStatus_TAILING, ReplicaStatus_PRIMARY:
+	case ReplicaStatus_STANDBY, ReplicaStatus_PRIMARY:
 		return true // Replica is ready to take over.
 	case ReplicaStatus_IDLE, ReplicaStatus_BACKFILL:
 		return false // Replica is starting or reading the recovery log.
@@ -130,8 +130,12 @@ func (m *ShardSpec) IsConsistent(assignment keyspace.KeyValue, all keyspace.KeyV
 	}
 }
 
-// RecoveryLog returns the Journal to which the Shard's recoverylog is recorded.
+// RecoveryLog returns the Journal to which the Shard's recovery log is recorded.
+// IF the Shard has no recovery log, "" is returned..
 func (m *ShardSpec) RecoveryLog() pb.Journal {
+	if m.RecoveryLogPrefix == "" {
+		return ""
+	}
 	return pb.Journal(m.RecoveryLogPrefix + "/" + m.Id.String())
 }
 
@@ -326,155 +330,6 @@ func (x Status) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the StatRequest is not well-formed.
-func (m *StatRequest) Validate() error {
-	if m.Header != nil {
-		if err := m.Header.Validate(); err != nil {
-			return pb.ExtendContext(err, "Header")
-		}
-	}
-	if err := m.Shard.Validate(); err != nil {
-		return pb.ExtendContext(err, "Shard")
-	}
-	return nil
-}
-
-// Validate returns an error if the StatResponse is not well-formed.
-func (m *StatResponse) Validate() error {
-	if err := m.Status.Validate(); err != nil {
-		return pb.ExtendContext(err, "Status")
-	} else if err = m.Header.Validate(); err != nil {
-		return pb.ExtendContext(err, "Header")
-	}
-	for journal, offset := range m.Offsets {
-		var err = journal.Validate()
-		if err == nil && offset < 0 {
-			err = pb.NewValidationError("invalid offset (%d; expected >= 0)", offset)
-		}
-		if err != nil {
-			return pb.ExtendContext(err, "Offsets[%s]", journal)
-		}
-	}
-	return nil
-}
-
-// Validate returns an error if the ListRequest is not well-formed.
-func (m *ListRequest) Validate() error {
-	if err := m.Selector.Validate(); err != nil {
-		return pb.ExtendContext(err, "Selector")
-	}
-	return nil
-}
-
-// Validate returns an error if the ListResponse is not well-formed.
-func (m *ListResponse) Validate() error {
-	if err := m.Status.Validate(); err != nil {
-		return pb.ExtendContext(err, "Status")
-	} else if err = m.Header.Validate(); err != nil {
-		return pb.ExtendContext(err, "Header")
-	}
-	for i, shard := range m.Shards {
-		if err := shard.Validate(); err != nil {
-			return pb.ExtendContext(err, "Shards[%d]", i)
-		}
-	}
-	return nil
-}
-
-// Validate returns an error if the ListResponse_Shard is not well-formed.
-func (m *ListResponse_Shard) Validate() error {
-	if err := m.Spec.Validate(); err != nil {
-		return pb.ExtendContext(err, "Spec")
-	} else if m.ModRevision <= 0 {
-		return pb.NewValidationError("invalid ModRevision (%d; expected > 0)", m.ModRevision)
-	} else if err = m.Route.Validate(); err != nil {
-		return pb.ExtendContext(err, "Route")
-	} else if l1, l2 := len(m.Route.Members), len(m.Status); l1 != l2 {
-		return pb.NewValidationError("length of Route.Members and Status are not equal (%d vs %d)", l1, l2)
-	}
-	for i, status := range m.Status {
-		if err := status.Validate(); err != nil {
-			return pb.ExtendContext(err, "Status[%d]", i)
-		}
-	}
-	return nil
-}
-
-// Validate returns an error if the ApplyRequest is not well-formed.
-func (m *ApplyRequest) Validate() error {
-	for i, change := range m.Changes {
-		if err := change.Validate(); err != nil {
-			return pb.ExtendContext(err, "Changes[%d]", i)
-		}
-	}
-	return nil
-}
-
-// Validate returns an error if the ApplyRequest_Change is not well-formed.
-func (m *ApplyRequest_Change) Validate() error {
-	if m.Upsert != nil {
-		if m.Delete != "" {
-			return pb.NewValidationError("both Upsert and Delete are set (expected exactly one)")
-		} else if err := m.Upsert.Validate(); err != nil {
-			return pb.ExtendContext(err, "Upsert")
-		} else if m.ExpectModRevision < 0 {
-			return pb.NewValidationError("invalid ExpectModRevision (%d; expected >= 0)", m.ExpectModRevision)
-		}
-	} else if m.Delete != "" {
-		if err := m.Delete.Validate(); err != nil {
-			return pb.ExtendContext(err, "Delete")
-		} else if m.ExpectModRevision <= 0 {
-			return pb.NewValidationError("invalid ExpectModRevision (%d; expected > 0)", m.ExpectModRevision)
-		}
-	} else {
-		return pb.NewValidationError("neither Upsert nor Delete are set (expected exactly one)")
-	}
-	return nil
-}
-
-// Validate returns an error if the ApplyResponse is not well-formed.
-func (m *ApplyResponse) Validate() error {
-	if err := m.Status.Validate(); err != nil {
-		return pb.ExtendContext(err, "Status")
-	} else if err = m.Header.Validate(); err != nil {
-		return pb.ExtendContext(err, "Header")
-	}
-	return nil
-}
-
-// Validate returns an error if the HintsRequest is not well-formed.
-func (m *GetHintsRequest) Validate() error {
-	if err := m.Shard.Validate(); err != nil {
-		return pb.ExtendContext(err, "Shard")
-	}
-	return nil
-}
-
-// Validate returns an error if the HintsResponse is not well-formed.
-func (m *GetHintsResponse) Validate() error {
-	if err := m.Status.Validate(); err != nil {
-		return pb.ExtendContext(err, "Status")
-	}
-
-	if err := m.PrimaryHints.Validate(); err != nil {
-		return pb.ExtendContext(err, "primary hints")
-	}
-	for _, hints := range m.BackupHints {
-		if err := hints.Validate(); err != nil {
-			return pb.ExtendContext(err, "backup hints")
-		}
-	}
-	return nil
-}
-
-// Validate returns an error if the GetHintsResponse_ResponseHints is not well-formed.
-func (m GetHintsResponse_ResponseHints) Validate() error {
-	if m.Hints != nil {
-		return m.Hints.Validate()
-	}
-	return nil
-}
-
 func sourcesEq(a, b []ShardSpec_Source) bool {
 	if len(a) != len(b) {
 		return false
@@ -486,6 +341,10 @@ func sourcesEq(a, b []ShardSpec_Source) bool {
 		}
 	}
 	return true
+}
+
+func isAbsoluteCleanNonDirPath(p string) bool {
+	return path.IsAbs(p) && path.Clean(p) == p && path.Base(p) != ""
 }
 
 const (

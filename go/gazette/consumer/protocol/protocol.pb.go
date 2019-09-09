@@ -5,6 +5,7 @@ package protocol
 
 import (
 	context "context"
+	encoding_binary "encoding/binary"
 	fmt "fmt"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
@@ -13,6 +14,7 @@ import (
 	go_gazette_dev_core_broker_protocol "go.gazette.dev/core/broker/protocol"
 	protocol "go.gazette.dev/core/broker/protocol"
 	recoverylog "go.gazette.dev/core/consumer/recoverylog"
+	go_gazette_dev_core_message "go.gazette.dev/core/message"
 	grpc "google.golang.org/grpc"
 	io "io"
 	math "math"
@@ -79,12 +81,14 @@ type ReplicaStatus_Code int32
 
 const (
 	ReplicaStatus_IDLE ReplicaStatus_Code = 0
-	// The replica is actively playing the historical log.
+	// The replica is actively playing the historical recovery log.
 	ReplicaStatus_BACKFILL ReplicaStatus_Code = 100
-	// The replica has finished playing the historical log, and is tailing the
-	// live log to locally mirror recorded operations as they are produced. It
-	// is a "hot standby" and can take over as primary at any time.
-	ReplicaStatus_TAILING ReplicaStatus_Code = 200
+	// The replica has finished playing the historical recovery log and is
+	// live-tailing it to locally mirror recorded operations as they are
+	// produced. It can take over as primary at any time.
+	//
+	// Shards not having recovery logs immediately transition to STANDBY.
+	ReplicaStatus_STANDBY ReplicaStatus_Code = 200
 	// The replica is actively serving as primary.
 	ReplicaStatus_PRIMARY ReplicaStatus_Code = 300
 	// The replica has encountered an unrecoverable error.
@@ -94,7 +98,7 @@ const (
 var ReplicaStatus_Code_name = map[int32]string{
 	0:   "IDLE",
 	100: "BACKFILL",
-	200: "TAILING",
+	200: "STANDBY",
 	300: "PRIMARY",
 	400: "FAILED",
 }
@@ -102,7 +106,7 @@ var ReplicaStatus_Code_name = map[int32]string{
 var ReplicaStatus_Code_value = map[string]int32{
 	"IDLE":     0,
 	"BACKFILL": 100,
-	"TAILING":  200,
+	"STANDBY":  200,
 	"PRIMARY":  300,
 	"FAILED":   400,
 }
@@ -115,30 +119,37 @@ func (ReplicaStatus_Code) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_6491fb50a1cefedd, []int{2, 0}
 }
 
-// ShardSpec describes a shard and its configuration. Shards represent the
-// combination of a consumer application, a specific journal selected for
-// consumption, and a recoverylog journal which replicates the stateful
-// consumption of that journal by the consumer. ShardSpec serves as a
-// allocator ItemValue.
+// ShardSpec describes a shard and its configuration, and is the long-lived unit
+// of work and scaling for a consumer application. Each shard is allocated to a
+// one "primary" at-a-time selected from the current processes of a consumer
+// application, and is re-assigned on process fault or exit.
+//
+// ShardSpecs describe all configuration of the shard and its processing,
+// including journals to consume, configuration for processing transactions, its
+// recovery log, hot standbys, etc. ShardSpecs may be further extended with
+// domain-specific labels & values to further define application behavior.
+// ShardSpec is-a allocator.ItemValue.
 type ShardSpec struct {
-	// ID of the Shard.
+	// ID of the shard.
 	Id ShardID `protobuf:"bytes,1,opt,name=id,proto3,casttype=ShardID" json:"id,omitempty" yaml:",omitempty"`
 	// Sources of the shard, uniquely ordered on Source journal.
 	Sources []ShardSpec_Source `protobuf:"bytes,2,rep,name=sources,proto3" json:"sources" yaml:",omitempty"`
-	// Prefix of the Journal into which the Shard's `recoverylog` will be recorded.
+	// Prefix of the Journal into which the shard's recovery log will be recorded.
 	// The complete Journal name is built as "{recovery_log_prefix}/{shard_id}".
+	// If empty, the shard does not use a recovery log.
 	RecoveryLogPrefix string `protobuf:"bytes,3,opt,name=recovery_log_prefix,json=recoveryLogPrefix,proto3" json:"recovery_log_prefix,omitempty" yaml:"recovery_log_prefix,omitempty"`
-	// Prefix of Etcd keys into which `recoverylog` FSMHints are written to and
-	// read from. FSMHints allow readers of the `recoverylog` to efficiently
+	// Prefix of Etcd keys into which recovery log FSMHints are written to and
+	// read from. FSMHints allow readers of the recovery log to efficiently
 	// determine the minimum fragments of log which must be read to fully recover
-	// local store state. The complete hint key written by the Shard primary is:
+	// local store state. The complete hint key written by the shard primary is:
 	//
 	//   "{hint_prefix}/{shard_id}.primary"
 	//
 	// The primary will regularly produce updated hints into this key, and
 	// players of the log will similarly utilize hints from this key.
+	// If |recovery_log_prefix| is set, |hint_prefix| must be also.
 	HintPrefix string `protobuf:"bytes,4,opt,name=hint_prefix,json=hintPrefix,proto3" json:"hint_prefix,omitempty" yaml:"hint_prefix,omitempty"`
-	// Backups of verified `recoverylog` FSMHints, retained as a disaster-recovery
+	// Backups of verified recovery log FSMHints, retained as a disaster-recovery
 	// mechanism. On completing playback, a player will write recovered hints to:
 	//
 	//   "{hints_prefix}/{shard_id}.backup.0".
@@ -149,11 +160,11 @@ type ShardSpec struct {
 	// |hint_backups| distinct sets of FSMHints.
 	//
 	// In the case of disaster or data-loss, these copied hints can be an important
-	// fallback for recovering a consistent albeit older version of the Shard
+	// fallback for recovering a consistent albeit older version of the shard's
 	// store, with each relying on only progressively older portions of the
-	// recoverylog.
+	// recovery log.
 	//
-	// When pruning the recoverylog, log fragments which are older than (and no
+	// When pruning the recovery log, log fragments which are older than (and no
 	// longer required by) the *oldest* backup are discarded, ensuring that
 	// all hints remain valid for playback.
 	HintBackups int32 `protobuf:"varint,5,opt,name=hint_backups,json=hintBackups,proto3" json:"hint_backups,omitempty" yaml:"hint_backups,omitempty"`
@@ -169,14 +180,14 @@ type ShardSpec struct {
 	// and commit. It may run for more time if additional messages are available
 	// (eg, decoded journal messages are ready without blocking). Note also that
 	// transactions are pipelined: a current transaction may process messages while
-	// a prior transaction's recoverylog writes flush to Gazette, but it cannot
-	// begin to commit until the prior transaction writes complete. In other words
+	// a prior transaction's recovery log writes flush to Gazette, but it cannot
+	// prepare to commit until the prior transaction writes complete. In other words
 	// even if |min_txn_quantum| is zero, some degree of message batching is
 	// expected due to the network delay inherent in Gazette writes. A typical
 	// value of would be `0s`: applications which perform extensive aggregation
 	// may benefit from larger values.
 	MinTxnDuration time.Duration `protobuf:"bytes,7,opt,name=min_txn_duration,json=minTxnDuration,proto3,stdduration" json:"min_txn_duration" yaml:"min_txn_duration,omitempty"`
-	// Disable processing of the Shard.
+	// Disable processing of the shard.
 	Disable bool `protobuf:"varint,8,opt,name=disable,proto3" json:"disable,omitempty" yaml:",omitempty"`
 	// Hot standbys is the desired number of consumer processes which should be
 	// replicating the primary consumer's recovery log. Standbys are allocated in
@@ -184,12 +195,13 @@ type ShardSpec struct {
 	// to continuously mirror the primary's on-disk DB file structure. Should the
 	// primary experience failure, one of the hot standbys will be assigned to take
 	// over as the new shard primary, which is accomplished by simply opening its
-	// local copy of the RocksDB.
+	// local copy of the recovered store files.
 	//
-	// Note that under regular operation, Shard hand-off is zero downtime even if
+	// Note that under regular operation, shard hand-off is zero downtime even if
 	// standbys are zero, as the current primary will not cede ownership until the
-	// replacement process has completed log playback. However, a process failure
-	// will leave the Shard without an owner until log playback can complete.
+	// replacement process declares itself ready. However, without standbys a
+	// process failure will leave the shard without an active primary while its
+	// replacement starts and completes playback of its recovery log.
 	HotStandbys uint32 `protobuf:"varint,9,opt,name=hot_standbys,json=hotStandbys,proto3" json:"hot_standbys,omitempty" yaml:"hot_standbys,omitempty"`
 	// User-defined Labels of this ShardSpec. The label "id" is reserved and may
 	// not be used with a ShardSpec's labels.
@@ -229,24 +241,30 @@ func (m *ShardSpec) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ShardSpec proto.InternalMessageInfo
 
-// Sources define the set of Journals which this Shard consumes.
-// At least one Source must be specified, and in many use cases only one will
-// be needed. For advanced use cases which can benefit, multiple sources may
-// be specified to represent a "join" over messages of distinct journals. Note
-// the effective mapping of messages to each of the joined journals should
+// Sources define the set of journals which this shard consumes. At least one
+// Source must be specified, and in many use cases only one will be needed.
+// For use cases which can benefit, multiple sources may be specified to
+// represent a "join" over messages of distinct journals.
+//
+// Note the effective mapping of messages to each of the joined journals should
 // align (eg, joining a journal of customer updates with one of orders, where
-// both are mapped on customer ID). Another powerful pattern is to join each
-// partition of a high-volume event stream with a low-volume journal of
-// queries, obtaining a reliable distributed scatter/gather query engine.
+// both are mapped on customer ID). This typically means the partitioning of
+// the two event "topics" must be the same.
+//
+// Another powerful pattern is to shard on partitions of a high-volume event
+// stream, and also have each shard join against all events of a low-volume
+// stream. For example, a shard might ingest and index "viewed product" events,
+// read a comparably low-volume "purchase" event stream, and on each purchase
+// publish the bundle of its corresponding prior product views.
 type ShardSpec_Source struct {
-	// Journal which this Shard is consuming.
+	// Journal which this shard is consuming.
 	Journal go_gazette_dev_core_broker_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=go.gazette.dev/core/broker/protocol.Journal" json:"journal,omitempty"`
 	// Minimum journal byte offset the shard should begin reading from. Typically
-	// this should be zero, as read offsets are persisted to and recovered from
-	// the shard store as the journal is processed. |min_offset| can be useful
-	// for shard initialization, directing it to skip over undesired historical
-	// sections of the journal.
-	MinOffset int64 `protobuf:"varint,3,opt,name=min_offset,json=minOffset,proto3" json:"min_offset,omitempty" yaml:"min_offset,omitempty"`
+	// this should be zero, as read offsets are check-pointed and restored from
+	// the shard's Store as it processes. |min_offset| can be useful for shard
+	// initialization, directing it to skip over historical portions of the
+	// journal not needed for the application's use case.
+	MinOffset go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,3,opt,name=min_offset,json=minOffset,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"min_offset,omitempty" yaml:"min_offset,omitempty"`
 }
 
 func (m *ShardSpec_Source) Reset()         { *m = ShardSpec_Source{} }
@@ -369,6 +387,135 @@ func (m *ReplicaStatus) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ReplicaStatus proto.InternalMessageInfo
 
+// Checkpoint is processing metadata of a consumer shard which allows for its
+// recovery on fault.
+type Checkpoint struct {
+	// Sources is metadata of journals consumed by the shard.
+	Sources map[go_gazette_dev_core_broker_protocol.Journal]Checkpoint_Source `protobuf:"bytes,1,rep,name=sources,proto3,castkey=go.gazette.dev/core/broker/protocol.Journal" json:"sources" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// AckIntents is acknowledgement intents to be written to journals to which
+	// uncommitted messages were published during the transaction which produced
+	// this Checkpoint.
+	AckIntents map[go_gazette_dev_core_broker_protocol.Journal][]byte `protobuf:"bytes,2,rep,name=ack_intents,json=ackIntents,proto3,castkey=go.gazette.dev/core/broker/protocol.Journal" json:"ack_intents,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (m *Checkpoint) Reset()         { *m = Checkpoint{} }
+func (m *Checkpoint) String() string { return proto.CompactTextString(m) }
+func (*Checkpoint) ProtoMessage()    {}
+func (*Checkpoint) Descriptor() ([]byte, []int) {
+	return fileDescriptor_6491fb50a1cefedd, []int{3}
+}
+func (m *Checkpoint) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Checkpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Checkpoint.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Checkpoint) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Checkpoint.Merge(m, src)
+}
+func (m *Checkpoint) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Checkpoint) XXX_DiscardUnknown() {
+	xxx_messageInfo_Checkpoint.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Checkpoint proto.InternalMessageInfo
+
+// Source is metadata of a consumed source journal.
+type Checkpoint_Source struct {
+	// Offset of the journal which has been read-through.
+	ReadThrough go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,1,opt,name=read_through,json=readThrough,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"read_through,omitempty"`
+	// States of journal producers. Producer keys are 6-byte,
+	// RFC 4122 v1 node identifiers (see message.ProducerID).
+	Producers map[string]Checkpoint_ProducerState `protobuf:"bytes,2,rep,name=producers,proto3" json:"producers" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (m *Checkpoint_Source) Reset()         { *m = Checkpoint_Source{} }
+func (m *Checkpoint_Source) String() string { return proto.CompactTextString(m) }
+func (*Checkpoint_Source) ProtoMessage()    {}
+func (*Checkpoint_Source) Descriptor() ([]byte, []int) {
+	return fileDescriptor_6491fb50a1cefedd, []int{3, 0}
+}
+func (m *Checkpoint_Source) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Checkpoint_Source) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Checkpoint_Source.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Checkpoint_Source) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Checkpoint_Source.Merge(m, src)
+}
+func (m *Checkpoint_Source) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Checkpoint_Source) XXX_DiscardUnknown() {
+	xxx_messageInfo_Checkpoint_Source.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Checkpoint_Source proto.InternalMessageInfo
+
+// ProducerState is metadata of a producer as-of a read-through journal offset.
+type Checkpoint_ProducerState struct {
+	// LastAck is the last acknowledged Clock of this producer.
+	LastAck go_gazette_dev_core_message.Clock `protobuf:"fixed64,1,opt,name=last_ack,json=lastAck,proto3,casttype=go.gazette.dev/core/message.Clock" json:"last_ack,omitempty"`
+	// Begin is the offset of the first message byte having CONTINUE_TXN that's
+	// larger than LastAck. Eg, it's the offset which opens the next transaction.
+	// If there is no such message, Begin is -1.
+	Begin go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,2,opt,name=begin,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"begin,omitempty"`
+}
+
+func (m *Checkpoint_ProducerState) Reset()         { *m = Checkpoint_ProducerState{} }
+func (m *Checkpoint_ProducerState) String() string { return proto.CompactTextString(m) }
+func (*Checkpoint_ProducerState) ProtoMessage()    {}
+func (*Checkpoint_ProducerState) Descriptor() ([]byte, []int) {
+	return fileDescriptor_6491fb50a1cefedd, []int{3, 1}
+}
+func (m *Checkpoint_ProducerState) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Checkpoint_ProducerState) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Checkpoint_ProducerState.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Checkpoint_ProducerState) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Checkpoint_ProducerState.Merge(m, src)
+}
+func (m *Checkpoint_ProducerState) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Checkpoint_ProducerState) XXX_DiscardUnknown() {
+	xxx_messageInfo_Checkpoint_ProducerState.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Checkpoint_ProducerState proto.InternalMessageInfo
+
 type ListRequest struct {
 	// Selector optionally refines the set of shards which will be enumerated.
 	// If zero-valued, all shards are returned. Otherwise, only ShardSpecs
@@ -382,7 +529,7 @@ func (m *ListRequest) Reset()         { *m = ListRequest{} }
 func (m *ListRequest) String() string { return proto.CompactTextString(m) }
 func (*ListRequest) ProtoMessage()    {}
 func (*ListRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{3}
+	return fileDescriptor_6491fb50a1cefedd, []int{4}
 }
 func (m *ListRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -423,7 +570,7 @@ func (m *ListResponse) Reset()         { *m = ListResponse{} }
 func (m *ListResponse) String() string { return proto.CompactTextString(m) }
 func (*ListResponse) ProtoMessage()    {}
 func (*ListResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{4}
+	return fileDescriptor_6491fb50a1cefedd, []int{5}
 }
 func (m *ListResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -467,7 +614,7 @@ func (m *ListResponse_Shard) Reset()         { *m = ListResponse_Shard{} }
 func (m *ListResponse_Shard) String() string { return proto.CompactTextString(m) }
 func (*ListResponse_Shard) ProtoMessage()    {}
 func (*ListResponse_Shard) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{4, 0}
+	return fileDescriptor_6491fb50a1cefedd, []int{5, 0}
 }
 func (m *ListResponse_Shard) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -504,7 +651,7 @@ func (m *ApplyRequest) Reset()         { *m = ApplyRequest{} }
 func (m *ApplyRequest) String() string { return proto.CompactTextString(m) }
 func (*ApplyRequest) ProtoMessage()    {}
 func (*ApplyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{5}
+	return fileDescriptor_6491fb50a1cefedd, []int{6}
 }
 func (m *ApplyRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -550,7 +697,7 @@ func (m *ApplyRequest_Change) Reset()         { *m = ApplyRequest_Change{} }
 func (m *ApplyRequest_Change) String() string { return proto.CompactTextString(m) }
 func (*ApplyRequest_Change) ProtoMessage()    {}
 func (*ApplyRequest_Change) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{5, 0}
+	return fileDescriptor_6491fb50a1cefedd, []int{6, 0}
 }
 func (m *ApplyRequest_Change) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -590,7 +737,7 @@ func (m *ApplyResponse) Reset()         { *m = ApplyResponse{} }
 func (m *ApplyResponse) String() string { return proto.CompactTextString(m) }
 func (*ApplyResponse) ProtoMessage()    {}
 func (*ApplyResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{6}
+	return fileDescriptor_6491fb50a1cefedd, []int{7}
 }
 func (m *ApplyResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -624,13 +771,17 @@ type StatRequest struct {
 	Header *protocol.Header `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
 	// Shard to Stat.
 	Shard ShardID `protobuf:"bytes,2,opt,name=shard,proto3,casttype=ShardID" json:"shard,omitempty"`
+	// Journals and offsets which must be reflected in a completed consumer
+	// transaction before Stat returns, blocking if required. Offsets of journals
+	// not read by this shard are ignored.
+	ReadThrough map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset `protobuf:"bytes,3,rep,name=read_through,json=readThrough,proto3,castkey=go.gazette.dev/core/broker/protocol.Journal,castvalue=go.gazette.dev/core/broker/protocol.Offset" json:"read_through,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
 }
 
 func (m *StatRequest) Reset()         { *m = StatRequest{} }
 func (m *StatRequest) String() string { return proto.CompactTextString(m) }
 func (*StatRequest) ProtoMessage()    {}
 func (*StatRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{7}
+	return fileDescriptor_6491fb50a1cefedd, []int{8}
 }
 func (m *StatRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -664,15 +815,28 @@ type StatResponse struct {
 	Status Status `protobuf:"varint,1,opt,name=status,proto3,enum=consumer.Status" json:"status,omitempty"`
 	// Header of the response.
 	Header protocol.Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header"`
-	// Offsets of journals being read by the shard.
-	Offsets map[go_gazette_dev_core_broker_protocol.Journal]int64 `protobuf:"bytes,3,rep,name=offsets,proto3,castkey=go.gazette.dev/core/broker/protocol.Journal" json:"offsets,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
+	// Journals and offsets read through by the most recent completed consumer
+	// transaction.
+	ReadThrough map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset `protobuf:"bytes,3,rep,name=read_through,json=readThrough,proto3,castkey=go.gazette.dev/core/broker/protocol.Journal,castvalue=go.gazette.dev/core/broker/protocol.Offset" json:"read_through,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
+	// Journals and offsets this shard has published through, including
+	// acknowledgements, as-of the most recent completed consumer transaction.
+	//
+	// Formally, if an acknowledged message A results in this shard publishing
+	// messages B, and A falls within |read_through|, then all messages B & their
+	// acknowledgements fall within |publish_at|.
+	//
+	// The composition of |read_through| and |publish_at| allow CQRS applications
+	// to provide read-your-writes consistency, even if written events pass
+	// through multiple intermediate consumers and arbitrary transformations
+	// before arriving at the materialized view which is ultimately queried.
+	PublishAt map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset `protobuf:"bytes,4,rep,name=publish_at,json=publishAt,proto3,castkey=go.gazette.dev/core/broker/protocol.Journal,castvalue=go.gazette.dev/core/broker/protocol.Offset" json:"publish_at,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
 }
 
 func (m *StatResponse) Reset()         { *m = StatResponse{} }
 func (m *StatResponse) String() string { return proto.CompactTextString(m) }
 func (*StatResponse) ProtoMessage()    {}
 func (*StatResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{8}
+	return fileDescriptor_6491fb50a1cefedd, []int{9}
 }
 func (m *StatResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -710,7 +874,7 @@ func (m *GetHintsRequest) Reset()         { *m = GetHintsRequest{} }
 func (m *GetHintsRequest) String() string { return proto.CompactTextString(m) }
 func (*GetHintsRequest) ProtoMessage()    {}
 func (*GetHintsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{9}
+	return fileDescriptor_6491fb50a1cefedd, []int{10}
 }
 func (m *GetHintsRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -756,7 +920,7 @@ func (m *GetHintsResponse) Reset()         { *m = GetHintsResponse{} }
 func (m *GetHintsResponse) String() string { return proto.CompactTextString(m) }
 func (*GetHintsResponse) ProtoMessage()    {}
 func (*GetHintsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{10}
+	return fileDescriptor_6491fb50a1cefedd, []int{11}
 }
 func (m *GetHintsResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -794,7 +958,7 @@ func (m *GetHintsResponse_ResponseHints) Reset()         { *m = GetHintsResponse
 func (m *GetHintsResponse_ResponseHints) String() string { return proto.CompactTextString(m) }
 func (*GetHintsResponse_ResponseHints) ProtoMessage()    {}
 func (*GetHintsResponse_ResponseHints) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6491fb50a1cefedd, []int{10, 0}
+	return fileDescriptor_6491fb50a1cefedd, []int{11, 0}
 }
 func (m *GetHintsResponse_ResponseHints) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -830,6 +994,12 @@ func init() {
 	proto.RegisterType((*ShardSpec_Source)(nil), "consumer.ShardSpec.Source")
 	proto.RegisterType((*ConsumerSpec)(nil), "consumer.ConsumerSpec")
 	proto.RegisterType((*ReplicaStatus)(nil), "consumer.ReplicaStatus")
+	proto.RegisterType((*Checkpoint)(nil), "consumer.Checkpoint")
+	proto.RegisterMapType((map[go_gazette_dev_core_broker_protocol.Journal][]byte)(nil), "consumer.Checkpoint.AckIntentsEntry")
+	proto.RegisterMapType((map[go_gazette_dev_core_broker_protocol.Journal]Checkpoint_Source)(nil), "consumer.Checkpoint.SourcesEntry")
+	proto.RegisterType((*Checkpoint_Source)(nil), "consumer.Checkpoint.Source")
+	proto.RegisterMapType((map[string]Checkpoint_ProducerState)(nil), "consumer.Checkpoint.Source.ProducersEntry")
+	proto.RegisterType((*Checkpoint_ProducerState)(nil), "consumer.Checkpoint.ProducerState")
 	proto.RegisterType((*ListRequest)(nil), "consumer.ListRequest")
 	proto.RegisterType((*ListResponse)(nil), "consumer.ListResponse")
 	proto.RegisterType((*ListResponse_Shard)(nil), "consumer.ListResponse.Shard")
@@ -837,8 +1007,10 @@ func init() {
 	proto.RegisterType((*ApplyRequest_Change)(nil), "consumer.ApplyRequest.Change")
 	proto.RegisterType((*ApplyResponse)(nil), "consumer.ApplyResponse")
 	proto.RegisterType((*StatRequest)(nil), "consumer.StatRequest")
+	proto.RegisterMapType((map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset)(nil), "consumer.StatRequest.ReadThroughEntry")
 	proto.RegisterType((*StatResponse)(nil), "consumer.StatResponse")
-	proto.RegisterMapType((map[go_gazette_dev_core_broker_protocol.Journal]int64)(nil), "consumer.StatResponse.OffsetsEntry")
+	proto.RegisterMapType((map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset)(nil), "consumer.StatResponse.PublishAtEntry")
+	proto.RegisterMapType((map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset)(nil), "consumer.StatResponse.ReadThroughEntry")
 	proto.RegisterType((*GetHintsRequest)(nil), "consumer.GetHintsRequest")
 	proto.RegisterType((*GetHintsResponse)(nil), "consumer.GetHintsResponse")
 	proto.RegisterType((*GetHintsResponse_ResponseHints)(nil), "consumer.GetHintsResponse.ResponseHints")
@@ -847,95 +1019,114 @@ func init() {
 func init() { proto.RegisterFile("consumer/protocol/protocol.proto", fileDescriptor_6491fb50a1cefedd) }
 
 var fileDescriptor_6491fb50a1cefedd = []byte{
-	// 1399 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x57, 0xb1, 0x6f, 0xdb, 0x46,
-	0x17, 0x37, 0x25, 0x59, 0xb2, 0x1f, 0xe5, 0x44, 0x3e, 0xc7, 0xb1, 0xa2, 0x24, 0x92, 0xcc, 0xe4,
-	0xfb, 0x20, 0x7c, 0x49, 0xa8, 0xc0, 0x5f, 0x03, 0xa4, 0x46, 0x5b, 0x40, 0xb4, 0xec, 0x58, 0x8d,
-	0x62, 0xbb, 0x94, 0x0b, 0xb4, 0x59, 0x08, 0x9a, 0x3c, 0xcb, 0x6c, 0x28, 0x1e, 0x4b, 0x52, 0x86,
-	0xd5, 0xb1, 0x40, 0x97, 0x4e, 0x01, 0xda, 0xa1, 0x63, 0xd1, 0xb9, 0x7f, 0x40, 0x97, 0xee, 0x1e,
-	0x83, 0x4e, 0x45, 0x07, 0x05, 0x8d, 0xfb, 0x17, 0x78, 0xcc, 0x54, 0xf0, 0xee, 0x48, 0x51, 0xb2,
-	0x3c, 0x64, 0xc8, 0x76, 0x7c, 0xef, 0xf7, 0x7e, 0xef, 0xde, 0xef, 0xee, 0xbd, 0x93, 0xa0, 0x6a,
-	0x10, 0xc7, 0xef, 0xf7, 0xb0, 0x57, 0x77, 0x3d, 0x12, 0x10, 0x83, 0xd8, 0xf1, 0x42, 0xa6, 0x0b,
-	0x34, 0x17, 0x21, 0x4a, 0xe5, 0x03, 0x8f, 0xbc, 0xb8, 0x1c, 0x59, 0xfa, 0x6f, 0xcc, 0xe5, 0x61,
-	0x83, 0x1c, 0x63, 0x6f, 0x60, 0x93, 0x2e, 0x5d, 0x7b, 0x26, 0x36, 0x35, 0xe2, 0x72, 0x5c, 0xd9,
-	0x0d, 0x06, 0x2e, 0xf6, 0xeb, 0x66, 0xdf, 0xd3, 0x03, 0x8b, 0x38, 0xf1, 0x82, 0xfb, 0xaf, 0x75,
-	0x49, 0x97, 0xd0, 0x65, 0x3d, 0x5c, 0x31, 0xab, 0xf4, 0x5b, 0x0e, 0xe6, 0x3b, 0x47, 0xba, 0x67,
-	0x76, 0x5c, 0x6c, 0xa0, 0x87, 0x90, 0xb2, 0xcc, 0xa2, 0x50, 0x15, 0x6a, 0xf3, 0x4a, 0xf5, 0x7c,
-	0x58, 0x59, 0x1c, 0xe8, 0x3d, 0x7b, 0x5d, 0xba, 0x4f, 0x7a, 0x56, 0x80, 0x7b, 0x6e, 0x30, 0x90,
-	0xde, 0x0e, 0x2b, 0x39, 0x8a, 0x6f, 0x35, 0xd5, 0x94, 0x65, 0xa2, 0x5d, 0xc8, 0xf9, 0xa4, 0xef,
-	0x19, 0xd8, 0x2f, 0xa6, 0xaa, 0xe9, 0x9a, 0xb8, 0x56, 0x92, 0xa3, 0xfd, 0xca, 0x31, 0xaf, 0xdc,
-	0xa1, 0x10, 0xe5, 0xc6, 0xe9, 0xb0, 0x32, 0x33, 0x95, 0x56, 0x8d, 0x58, 0xd0, 0x17, 0xb0, 0x14,
-	0xd5, 0xa9, 0xd9, 0xa4, 0xab, 0xb9, 0x1e, 0x3e, 0xb4, 0x4e, 0x8a, 0x69, 0xba, 0xa7, 0xda, 0xf9,
-	0xb0, 0x72, 0x97, 0x05, 0x4f, 0x01, 0x25, 0xf9, 0x16, 0x23, 0x7f, 0x9b, 0x74, 0xf7, 0xa8, 0x17,
-	0x35, 0x40, 0x3c, 0xb2, 0x9c, 0x20, 0x62, 0xcc, 0xc4, 0x55, 0xde, 0x62, 0x8c, 0x09, 0x67, 0x92,
-	0x09, 0x42, 0x3b, 0xa7, 0x68, 0x42, 0x9e, 0xa2, 0x0e, 0x74, 0xe3, 0x45, 0xdf, 0xf5, 0x8b, 0xb3,
-	0x55, 0xa1, 0x36, 0xab, 0xac, 0x9e, 0x0f, 0x2b, 0xb7, 0x13, 0x1c, 0xdc, 0x9b, 0x24, 0xa1, 0x99,
-	0x15, 0x66, 0x47, 0x1e, 0x14, 0x7a, 0xfa, 0x89, 0x16, 0x9c, 0x38, 0x5a, 0x74, 0x46, 0xc5, 0x6c,
-	0x55, 0xa8, 0x89, 0x6b, 0x37, 0xe4, 0x2e, 0x21, 0x5d, 0x1b, 0xb3, 0xc3, 0x39, 0xe8, 0x1f, 0xca,
-	0x4d, 0x0e, 0x50, 0x1e, 0x70, 0xed, 0x56, 0x59, 0xa2, 0x49, 0x82, 0x44, 0xb2, 0x9f, 0x5e, 0x57,
-	0x04, 0xf5, 0x4a, 0x4f, 0x3f, 0xd9, 0x3f, 0x71, 0xa2, 0x70, 0x9a, 0xd3, 0x72, 0xc6, 0x73, 0xe6,
-	0xde, 0x35, 0xe7, 0x04, 0xc1, 0xc5, 0x9c, 0x96, 0x93, 0xcc, 0x59, 0x87, 0x9c, 0x69, 0xf9, 0xfa,
-	0x81, 0x8d, 0x8b, 0x73, 0x55, 0xa1, 0x36, 0xa7, 0x2c, 0x5f, 0x72, 0xf6, 0x1c, 0x45, 0xe5, 0x25,
-	0x81, 0xe6, 0x07, 0xba, 0x63, 0x1e, 0x0c, 0xfc, 0xe2, 0x7c, 0x55, 0xa8, 0x2d, 0x8c, 0xc9, 0x9b,
-	0xf0, 0x8e, 0xcb, 0x4b, 0x82, 0x0e, 0xb7, 0xa3, 0x3d, 0xc8, 0xda, 0xfa, 0x01, 0xb6, 0xfd, 0x22,
-	0xd0, 0x02, 0x91, 0x1c, 0x77, 0x54, 0x3b, 0xb4, 0x77, 0x70, 0xa0, 0xdc, 0x0d, 0x2b, 0x7b, 0x35,
-	0xac, 0x08, 0xe7, 0xc3, 0x4a, 0x71, 0x72, 0x47, 0xf7, 0x2d, 0xc7, 0xb6, 0x1c, 0x2c, 0xa9, 0x9c,
-	0xa7, 0xf4, 0x83, 0x00, 0x59, 0x76, 0x85, 0x51, 0x0b, 0x72, 0x5f, 0x91, 0xbe, 0xe7, 0xe8, 0x36,
-	0x6f, 0x93, 0xfa, 0xdb, 0x61, 0xe5, 0x5e, 0x97, 0xc8, 0x5d, 0xfd, 0x1b, 0x1c, 0x04, 0x58, 0x36,
-	0xf1, 0x71, 0xdd, 0x20, 0x1e, 0xae, 0x4f, 0xb4, 0xb5, 0xfc, 0x29, 0x0b, 0x53, 0xa3, 0x78, 0xf4,
-	0x09, 0x40, 0xa8, 0x28, 0x39, 0x3c, 0xf4, 0x71, 0x40, 0x2f, 0x78, 0x5a, 0xa9, 0x9c, 0x0f, 0x2b,
-	0x37, 0x47, 0x6a, 0x33, 0x5f, 0xb2, 0xd2, 0xf9, 0x9e, 0xe5, 0xec, 0x52, 0xab, 0xf4, 0x9d, 0x00,
-	0xf9, 0x0d, 0xde, 0x6b, 0xb4, 0x7b, 0xf7, 0x21, 0xef, 0x7a, 0xc4, 0xc0, 0xbe, 0xaf, 0xf9, 0x2e,
-	0x36, 0xe8, 0x06, 0xc5, 0xb5, 0xe5, 0x51, 0xf9, 0x7b, 0xcc, 0x1b, 0x82, 0x95, 0x52, 0x42, 0x81,
-	0x2b, 0x5c, 0x81, 0xa8, 0x6e, 0xd1, 0x1d, 0x01, 0x51, 0x05, 0x44, 0x3f, 0x6c, 0x64, 0xcd, 0xb6,
-	0x7a, 0x56, 0x50, 0x4c, 0x85, 0x67, 0xa2, 0x02, 0x35, 0xb5, 0x43, 0x8b, 0xf4, 0x8b, 0x00, 0x0b,
-	0x2a, 0x76, 0x6d, 0xcb, 0xd0, 0x3b, 0x81, 0x1e, 0xf4, 0x7d, 0xf4, 0x10, 0x32, 0x06, 0x31, 0x31,
-	0xdd, 0xc0, 0x95, 0xb5, 0x5b, 0xa3, 0x89, 0x30, 0x06, 0x93, 0x37, 0x88, 0x89, 0x55, 0x8a, 0x44,
-	0xd7, 0x21, 0x8b, 0x3d, 0x8f, 0x78, 0x6c, 0x8a, 0xcc, 0xab, 0xfc, 0x4b, 0x7a, 0x02, 0x99, 0x10,
-	0x85, 0xe6, 0x20, 0xd3, 0x6a, 0xb6, 0x37, 0x0b, 0x33, 0x28, 0x0f, 0x73, 0x4a, 0x63, 0xe3, 0xe9,
-	0x56, 0xab, 0xdd, 0x2e, 0x98, 0x28, 0x0f, 0xb9, 0xfd, 0x46, 0xab, 0xdd, 0xda, 0x79, 0x52, 0x38,
-	0x15, 0xc2, 0xaf, 0x3d, 0xb5, 0xf5, 0xac, 0xa1, 0x7e, 0x59, 0xf8, 0x35, 0x85, 0x44, 0xc8, 0x6e,
-	0x35, 0x5a, 0xed, 0xcd, 0x66, 0xe1, 0x65, 0x5a, 0xda, 0x06, 0xb1, 0x6d, 0xf9, 0x81, 0x8a, 0xbf,
-	0xee, 0x63, 0x3f, 0x40, 0x1f, 0xc2, 0x9c, 0x8f, 0x6d, 0x6c, 0x04, 0xc4, 0xe3, 0x32, 0xad, 0x5c,
-	0xb8, 0x25, 0xcc, 0xad, 0x64, 0x42, 0xa1, 0xd4, 0x18, 0x2e, 0xfd, 0x93, 0x82, 0x3c, 0xa3, 0xf2,
-	0x5d, 0xe2, 0xf8, 0x18, 0xd5, 0x20, 0xeb, 0xd3, 0x82, 0x78, 0xbd, 0x85, 0xc4, 0x04, 0xa4, 0x76,
-	0x95, 0xfb, 0x91, 0x0c, 0xd9, 0x23, 0xac, 0x9b, 0xd8, 0xa3, 0x2a, 0x8a, 0x6b, 0x85, 0x51, 0xce,
-	0x6d, 0x6a, 0xe7, 0xc9, 0x38, 0x0a, 0xad, 0x43, 0x96, 0xea, 0xec, 0x17, 0xd3, 0x74, 0xb6, 0x26,
-	0x94, 0x4c, 0xee, 0x80, 0x0d, 0xda, 0x28, 0x96, 0x45, 0x94, 0x7e, 0x17, 0x60, 0x96, 0xda, 0xd1,
-	0x03, 0xc8, 0x24, 0xae, 0xc3, 0xd2, 0x94, 0xf9, 0xcc, 0x43, 0x29, 0x0c, 0xad, 0x42, 0xbe, 0x47,
-	0x4c, 0xcd, 0xc3, 0xc7, 0x96, 0x1f, 0x4e, 0x89, 0x70, 0xab, 0x69, 0x55, 0xec, 0x11, 0x53, 0xe5,
-	0x26, 0x74, 0x0f, 0x66, 0x3d, 0xd2, 0x0f, 0x30, 0xbd, 0xb4, 0xe2, 0xda, 0xd5, 0x51, 0x19, 0x6a,
-	0x68, 0xe6, 0x74, 0x0c, 0x83, 0x1e, 0xc5, 0xf2, 0x64, 0x68, 0x11, 0x2b, 0x97, 0x5c, 0x87, 0x78,
-	0xff, 0xf4, 0x4b, 0xfa, 0x4b, 0x80, 0x7c, 0xc3, 0x75, 0xed, 0x41, 0x74, 0x64, 0x1f, 0x43, 0xce,
-	0x38, 0xd2, 0x9d, 0x2e, 0x0e, 0x75, 0x0e, 0x89, 0x6e, 0x8f, 0x88, 0x92, 0x40, 0x79, 0x83, 0xa2,
-	0x38, 0x5d, 0x14, 0x53, 0xfa, 0x5e, 0x80, 0x2c, 0xf3, 0x20, 0x19, 0x96, 0xf0, 0x89, 0x8b, 0x8d,
-	0x40, 0x1b, 0x2b, 0x54, 0xa0, 0x85, 0x2e, 0x32, 0xd7, 0xb3, 0xb1, 0x72, 0xb3, 0x7d, 0xd7, 0xc7,
-	0x5e, 0xc0, 0x8f, 0x6d, 0x9a, 0x84, 0x2a, 0x87, 0xa0, 0x3b, 0x90, 0x35, 0xb1, 0x8d, 0xb9, 0x38,
-	0xf3, 0x8a, 0x98, 0x7c, 0x31, 0xb9, 0x4b, 0xb2, 0x60, 0x81, 0x6f, 0xf9, 0x7d, 0xdf, 0x21, 0xe9,
-	0x39, 0x88, 0x21, 0x43, 0xa4, 0x62, 0x2d, 0x0e, 0x17, 0xa6, 0x87, 0xc7, 0x97, 0x6f, 0x15, 0x66,
-	0xe9, 0x55, 0xa2, 0x79, 0x26, 0xea, 0x60, 0x1e, 0xe9, 0xc7, 0x14, 0xe4, 0x19, 0xf9, 0x7b, 0x6f,
-	0x05, 0x07, 0x72, 0x6c, 0x18, 0x46, 0xbd, 0x70, 0x67, 0x9c, 0x3a, 0xee, 0x05, 0x36, 0x1c, 0xfd,
-	0x4d, 0x27, 0xf0, 0x06, 0x4a, 0xfd, 0xdb, 0xd7, 0xef, 0x38, 0x9c, 0x79, 0x92, 0xd2, 0x3a, 0xe4,
-	0x93, 0x4c, 0xa8, 0x00, 0xe9, 0x17, 0x78, 0xc0, 0x66, 0xbe, 0x1a, 0x2e, 0xd1, 0x35, 0x98, 0x3d,
-	0xd6, 0xed, 0x3e, 0xe6, 0x0d, 0xc2, 0x3e, 0xd6, 0x53, 0x8f, 0x05, 0xe9, 0x03, 0xb8, 0xfa, 0x04,
-	0x07, 0xdb, 0x96, 0x13, 0xf8, 0x91, 0xec, 0xb1, 0x98, 0xc2, 0xa5, 0x62, 0xfe, 0x91, 0x82, 0xc2,
-	0x28, 0xec, 0xbd, 0x0b, 0xda, 0x81, 0x05, 0xd7, 0xb3, 0x7a, 0xba, 0x37, 0xd0, 0xc2, 0xdf, 0x26,
-	0x3e, 0xef, 0xe5, 0xda, 0x28, 0xc1, 0xe4, 0x66, 0xe4, 0x68, 0x41, 0xad, 0x9c, 0x2e, 0xcf, 0x49,
-	0xa8, 0x0d, 0x7d, 0x06, 0x79, 0xf6, 0xe3, 0x87, 0x73, 0xb2, 0x8e, 0x7f, 0x57, 0x4e, 0x91, 0x71,
-	0x50, 0x53, 0xe9, 0xa3, 0xf0, 0x71, 0x49, 0x60, 0xc2, 0xe1, 0xc3, 0xc8, 0xa3, 0xe7, 0x2d, 0xf1,
-	0xb3, 0x58, 0xde, 0xea, 0x3c, 0x63, 0xfc, 0x0c, 0xf3, 0x3f, 0x02, 0x59, 0xfe, 0x26, 0x65, 0x21,
-	0xb5, 0xfb, 0xb4, 0x30, 0x83, 0x96, 0xe0, 0x6a, 0x67, 0xbb, 0xa1, 0x36, 0xb5, 0x9d, 0xdd, 0x7d,
-	0x6d, 0x6b, 0xf7, 0xf3, 0x9d, 0x66, 0x41, 0x40, 0xd7, 0xa0, 0xb0, 0xb3, 0xab, 0x31, 0x7b, 0xf4,
-	0x82, 0xa4, 0xd0, 0x32, 0x2c, 0x86, 0xa0, 0x71, 0x73, 0x1a, 0xdd, 0x84, 0x95, 0xcd, 0xfd, 0x8d,
-	0xa6, 0xb6, 0xaf, 0x36, 0x76, 0x3a, 0x8d, 0x8d, 0xfd, 0xd6, 0xee, 0x8e, 0xc6, 0x1f, 0x9a, 0xcc,
-	0xda, 0x79, 0x3c, 0x76, 0x1f, 0x41, 0x26, 0x4c, 0x8d, 0x96, 0x27, 0x2f, 0x2a, 0xbd, 0x11, 0xa5,
-	0xeb, 0xd3, 0xef, 0x6f, 0x18, 0x16, 0xce, 0xf6, 0x64, 0x58, 0xe2, 0xe1, 0x4a, 0x86, 0x8d, 0x3d,
-	0x42, 0x8f, 0x61, 0x96, 0x4e, 0x14, 0x74, 0x7d, 0xfa, 0x54, 0x2c, 0xad, 0x5c, 0xb0, 0xf3, 0xc8,
-	0x06, 0xcc, 0x45, 0xa7, 0x82, 0x6e, 0x4c, 0x3b, 0x29, 0x16, 0x5f, 0xba, 0xfc, 0x10, 0x95, 0x8d,
-	0xd3, 0xbf, 0xcb, 0x33, 0xa7, 0x6f, 0xca, 0xc2, 0xab, 0x37, 0x65, 0xe1, 0xe5, 0x59, 0x79, 0xe6,
-	0xe7, 0xb3, 0xb2, 0xf0, 0xea, 0xac, 0x3c, 0xf3, 0xe7, 0x59, 0x79, 0xe6, 0xf9, 0x7f, 0xa6, 0x35,
-	0xe0, 0x85, 0x3f, 0x48, 0x07, 0x59, 0xba, 0xfa, 0xff, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0x9d,
-	0x6c, 0xf7, 0x37, 0x3c, 0x0d, 0x00, 0x00,
+	// 1709 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x58, 0x4f, 0x6f, 0x23, 0x49,
+	0x15, 0x4f, 0xdb, 0x4e, 0x3b, 0x79, 0xed, 0x64, 0x3c, 0x35, 0xff, 0x3c, 0x3d, 0xbb, 0x76, 0x62,
+	0x66, 0x16, 0x6b, 0x76, 0xb7, 0xb3, 0x64, 0x59, 0x69, 0x18, 0xed, 0x22, 0xdc, 0xf6, 0xcc, 0x4e,
+	0xd8, 0x4c, 0x12, 0xda, 0x41, 0xb0, 0x48, 0xa8, 0x69, 0x77, 0xd7, 0x38, 0x8d, 0xdb, 0x5d, 0x4d,
+	0x77, 0x39, 0x8a, 0x39, 0x22, 0x71, 0x59, 0x09, 0x69, 0x6f, 0x70, 0x44, 0x70, 0x01, 0x89, 0x0f,
+	0xb0, 0x17, 0x0e, 0x1c, 0x90, 0xe6, 0x38, 0xe2, 0x84, 0x38, 0x78, 0xc4, 0x0e, 0xe2, 0x03, 0xe4,
+	0x38, 0x27, 0xd4, 0x55, 0xd5, 0xed, 0xb6, 0xd3, 0x59, 0x08, 0x68, 0xd8, 0x5b, 0xf9, 0xbd, 0xdf,
+	0xfb, 0xbd, 0x7a, 0xaf, 0xde, 0x7b, 0x55, 0x6d, 0xd8, 0xb0, 0x89, 0x1f, 0x8d, 0x47, 0x38, 0xdc,
+	0x0a, 0x42, 0x42, 0x89, 0x4d, 0xbc, 0x74, 0xa1, 0xb1, 0x05, 0x5a, 0x49, 0x10, 0x6a, 0xbd, 0x1f,
+	0x92, 0xe1, 0xf9, 0x48, 0xf5, 0x8d, 0x94, 0x2b, 0xc4, 0x36, 0x39, 0xc6, 0xe1, 0xc4, 0x23, 0x03,
+	0xb6, 0x0e, 0x1d, 0xec, 0x98, 0x24, 0x10, 0xb8, 0x7a, 0x40, 0x27, 0x01, 0x8e, 0xb6, 0x9c, 0x71,
+	0x68, 0x51, 0x97, 0xf8, 0xe9, 0x42, 0xe8, 0xaf, 0x0e, 0xc8, 0x80, 0xb0, 0xe5, 0x56, 0xbc, 0xe2,
+	0xd2, 0xe6, 0x3f, 0xcb, 0xb0, 0xda, 0x3b, 0xb2, 0x42, 0xa7, 0x17, 0x60, 0x1b, 0xbd, 0x03, 0x05,
+	0xd7, 0xa9, 0x49, 0x1b, 0x52, 0x6b, 0x55, 0xdf, 0x38, 0x9d, 0x36, 0x2e, 0x4f, 0xac, 0x91, 0x77,
+	0xbf, 0xf9, 0x16, 0x19, 0xb9, 0x14, 0x8f, 0x02, 0x3a, 0x69, 0xbe, 0x9c, 0x36, 0xca, 0x0c, 0xbf,
+	0xd3, 0x35, 0x0a, 0xae, 0x83, 0xf6, 0xa1, 0x1c, 0x91, 0x71, 0x68, 0xe3, 0xa8, 0x56, 0xd8, 0x28,
+	0xb6, 0x94, 0x6d, 0x55, 0x4b, 0xf6, 0xab, 0xa5, 0xbc, 0x5a, 0x8f, 0x41, 0xf4, 0x9b, 0x4f, 0xa7,
+	0x8d, 0xa5, 0x5c, 0x5a, 0x23, 0x61, 0x41, 0xdf, 0x87, 0x2b, 0x49, 0x9c, 0xa6, 0x47, 0x06, 0x66,
+	0x10, 0xe2, 0x27, 0xee, 0x49, 0xad, 0xc8, 0xf6, 0xd4, 0x3a, 0x9d, 0x36, 0x6e, 0x73, 0xe3, 0x1c,
+	0x50, 0x96, 0xef, 0x72, 0xa2, 0xdf, 0x25, 0x83, 0x03, 0xa6, 0x45, 0x6d, 0x50, 0x8e, 0x5c, 0x9f,
+	0x26, 0x8c, 0xa5, 0x34, 0xca, 0xd7, 0x38, 0x63, 0x46, 0x99, 0x65, 0x82, 0x58, 0x2e, 0x28, 0xba,
+	0x50, 0x61, 0xa8, 0xbe, 0x65, 0x0f, 0xc7, 0x41, 0x54, 0x5b, 0xde, 0x90, 0x5a, 0xcb, 0xfa, 0xe6,
+	0xe9, 0xb4, 0xf1, 0x7a, 0x86, 0x43, 0x68, 0xb3, 0x24, 0xcc, 0xb3, 0xce, 0xe5, 0x28, 0x84, 0xea,
+	0xc8, 0x3a, 0x31, 0xe9, 0x89, 0x6f, 0x26, 0x67, 0x54, 0x93, 0x37, 0xa4, 0x96, 0xb2, 0x7d, 0x53,
+	0x1b, 0x10, 0x32, 0xf0, 0x30, 0x3f, 0x9c, 0xfe, 0xf8, 0x89, 0xd6, 0x15, 0x00, 0xfd, 0x6d, 0x91,
+	0xbb, 0x4d, 0xee, 0x68, 0x91, 0x20, 0xe3, 0xec, 0x57, 0xcf, 0x1b, 0x92, 0xb1, 0x3e, 0xb2, 0x4e,
+	0x0e, 0x4f, 0xfc, 0xc4, 0x9c, 0xf9, 0x74, 0xfd, 0x79, 0x9f, 0xe5, 0x8b, 0xfa, 0x5c, 0x20, 0x38,
+	0xeb, 0xd3, 0xf5, 0xb3, 0x3e, 0xb7, 0xa0, 0xec, 0xb8, 0x91, 0xd5, 0xf7, 0x70, 0x6d, 0x65, 0x43,
+	0x6a, 0xad, 0xe8, 0xd7, 0xce, 0x39, 0x7b, 0x81, 0x62, 0xe9, 0x25, 0xd4, 0x8c, 0xa8, 0xe5, 0x3b,
+	0xfd, 0x49, 0x54, 0x5b, 0xdd, 0x90, 0x5a, 0x6b, 0x73, 0xe9, 0xcd, 0x68, 0xe7, 0xd3, 0x4b, 0x68,
+	0x4f, 0xc8, 0xd1, 0x01, 0xc8, 0x9e, 0xd5, 0xc7, 0x5e, 0x54, 0x03, 0x16, 0x20, 0xd2, 0xd2, 0x8e,
+	0xda, 0x8d, 0xe5, 0x3d, 0x4c, 0xf5, 0xdb, 0x71, 0x64, 0xcf, 0xa6, 0x0d, 0xe9, 0x74, 0xda, 0xa8,
+	0x2d, 0xee, 0xe8, 0x2d, 0xd7, 0xf7, 0x5c, 0x1f, 0x37, 0x0d, 0xc1, 0xa3, 0xfe, 0x49, 0x02, 0x99,
+	0x97, 0x30, 0xda, 0x81, 0xf2, 0x8f, 0xc9, 0x38, 0xf4, 0x2d, 0x4f, 0xb4, 0xc9, 0xd6, 0xcb, 0x69,
+	0xe3, 0xcd, 0x01, 0xd1, 0x06, 0xd6, 0x4f, 0x31, 0xa5, 0x58, 0x73, 0xf0, 0xf1, 0x96, 0x4d, 0x42,
+	0xbc, 0xb5, 0xd0, 0xd6, 0xda, 0xb7, 0xb9, 0x99, 0x91, 0xd8, 0x23, 0x0f, 0x20, 0xce, 0x28, 0x79,
+	0xf2, 0x24, 0xc2, 0x94, 0x15, 0x78, 0x51, 0x7f, 0x7c, 0x3a, 0x6d, 0xdc, 0x9a, 0x65, 0x9b, 0xeb,
+	0xe6, 0xdb, 0xef, 0xee, 0x7f, 0xe2, 0x6c, 0x9f, 0x19, 0x1a, 0xab, 0x23, 0xd7, 0xe7, 0xcb, 0xe6,
+	0xcf, 0x25, 0xa8, 0x74, 0x44, 0x67, 0xb2, 0x5e, 0x3f, 0x84, 0x4a, 0x10, 0x12, 0x1b, 0x47, 0x91,
+	0x19, 0x05, 0xd8, 0x66, 0xe1, 0x28, 0xdb, 0xd7, 0x66, 0xc9, 0x3a, 0xe0, 0xda, 0x18, 0xac, 0xab,
+	0x99, 0x7c, 0xad, 0x8b, 0x7c, 0x25, 0x59, 0x52, 0x82, 0x19, 0x10, 0x35, 0x40, 0x89, 0xe2, 0xb6,
+	0x37, 0x3d, 0x77, 0xe4, 0xd2, 0x5a, 0x21, 0x3e, 0x41, 0x03, 0x98, 0x68, 0x37, 0x96, 0x34, 0x7f,
+	0x23, 0xc1, 0x9a, 0x81, 0x03, 0xcf, 0xb5, 0xad, 0x1e, 0xb5, 0xe8, 0x38, 0x42, 0xef, 0x40, 0xc9,
+	0x26, 0x0e, 0x66, 0x1b, 0x58, 0xdf, 0x7e, 0x6d, 0x36, 0x3f, 0xe6, 0x60, 0x5a, 0x87, 0x38, 0xd8,
+	0x60, 0x48, 0x74, 0x1d, 0x64, 0x1c, 0x86, 0x24, 0xe4, 0x33, 0x67, 0xd5, 0x10, 0xbf, 0x9a, 0x1f,
+	0x42, 0x29, 0x46, 0xa1, 0x15, 0x28, 0xed, 0x74, 0x77, 0x1f, 0x54, 0x97, 0x50, 0x05, 0x56, 0xf4,
+	0x76, 0xe7, 0xa3, 0x87, 0x3b, 0xbb, 0xbb, 0x55, 0x07, 0x55, 0xa0, 0xdc, 0x3b, 0x6c, 0xef, 0x75,
+	0xf5, 0x8f, 0xab, 0x4f, 0xa5, 0xf8, 0xd7, 0x81, 0xb1, 0xf3, 0xb8, 0x6d, 0x7c, 0x5c, 0xfd, 0x43,
+	0x01, 0x29, 0x20, 0x3f, 0x6c, 0xef, 0xec, 0x3e, 0xe8, 0x56, 0x3f, 0x2d, 0x36, 0x3f, 0x93, 0x01,
+	0x3a, 0x47, 0xd8, 0x1e, 0x06, 0xc4, 0xf5, 0x29, 0x0a, 0x66, 0x43, 0x4e, 0x62, 0x43, 0x6e, 0x73,
+	0xb6, 0xc9, 0x19, 0x4c, 0x4c, 0xb9, 0xe8, 0x81, 0x4f, 0xc3, 0x89, 0xfe, 0x6e, 0x9c, 0xb1, 0x9f,
+	0x3d, 0xbf, 0x60, 0x6d, 0x24, 0x53, 0xf0, 0x18, 0x14, 0xcb, 0x1e, 0x9a, 0xae, 0x4f, 0xb1, 0x4f,
+	0x93, 0xd1, 0x7a, 0x3b, 0xd7, 0x6b, 0xdb, 0x1e, 0xee, 0x70, 0x18, 0x77, 0xbc, 0x75, 0x51, 0xa7,
+	0x60, 0xa5, 0x0c, 0xea, 0x2f, 0x0a, 0x69, 0xa5, 0x7f, 0x07, 0x2a, 0x21, 0xb6, 0x1c, 0x93, 0x1e,
+	0x85, 0x64, 0x3c, 0x38, 0x62, 0xc7, 0x53, 0xd4, 0xb5, 0x0b, 0x56, 0xa0, 0x12, 0x73, 0x1c, 0x72,
+	0x0a, 0xb4, 0x07, 0xab, 0x41, 0x48, 0x9c, 0xb1, 0x8d, 0xc3, 0x24, 0xa6, 0xbb, 0x5f, 0x90, 0xc9,
+	0xb8, 0x02, 0x39, 0x98, 0x47, 0x56, 0x8a, 0x53, 0x6a, 0xcc, 0x28, 0xd4, 0x1f, 0xc1, 0xfa, 0x3c,
+	0x04, 0x55, 0xa1, 0x38, 0xc4, 0x13, 0xde, 0x9a, 0x46, 0xbc, 0x44, 0xf7, 0x60, 0xf9, 0xd8, 0xf2,
+	0xc6, 0x98, 0x95, 0xa2, 0xb2, 0xdd, 0xcc, 0xf5, 0x97, 0xb0, 0xc4, 0xa5, 0x86, 0x0d, 0x6e, 0x70,
+	0xbf, 0x70, 0x4f, 0x52, 0x7f, 0x29, 0xc1, 0xda, 0x9c, 0x12, 0x7d, 0x0b, 0x56, 0x3c, 0x2b, 0xa2,
+	0xa6, 0x65, 0x0f, 0x99, 0x1b, 0x59, 0xbf, 0xf3, 0x72, 0xda, 0xd8, 0xcc, 0x4b, 0xc9, 0x08, 0x47,
+	0x91, 0x35, 0xc0, 0x5a, 0xc7, 0x23, 0xf6, 0xd0, 0x28, 0xc7, 0x66, 0x6d, 0x7b, 0x88, 0xba, 0xb0,
+	0xdc, 0xc7, 0x03, 0xd7, 0x67, 0x3b, 0xba, 0x78, 0x46, 0xb9, 0xb1, 0xfa, 0x3d, 0xa8, 0x64, 0xeb,
+	0x2d, 0x27, 0xf2, 0xaf, 0xcd, 0x47, 0x7e, 0xeb, 0x0b, 0x32, 0x9d, 0x0d, 0xf9, 0x03, 0xb8, 0xb4,
+	0x50, 0x52, 0x39, 0xdc, 0x57, 0xb3, 0xdc, 0x95, 0x8c, 0x79, 0xf3, 0x11, 0x28, 0xbb, 0x6e, 0x44,
+	0x0d, 0xfc, 0x93, 0x31, 0x8e, 0x28, 0xfa, 0x06, 0xac, 0x44, 0xd8, 0xc3, 0x36, 0x25, 0xa1, 0x98,
+	0x30, 0x37, 0xce, 0x8c, 0x63, 0xae, 0x16, 0xc7, 0x9b, 0xc2, 0x9b, 0xff, 0x28, 0x40, 0x85, 0x53,
+	0x45, 0x01, 0xf1, 0x23, 0x8c, 0x5a, 0x20, 0x47, 0x6c, 0x16, 0x88, 0x51, 0x51, 0xcd, 0x3c, 0x35,
+	0x98, 0xdc, 0x10, 0x7a, 0xa4, 0x81, 0x7c, 0x84, 0x2d, 0x07, 0x87, 0x22, 0xf6, 0xea, 0xcc, 0xe7,
+	0x23, 0x26, 0x17, 0xce, 0x04, 0x0a, 0xdd, 0x07, 0x99, 0x8d, 0xa8, 0xa8, 0x56, 0x64, 0x55, 0x99,
+	0x19, 0x42, 0xd9, 0x1d, 0xf0, 0x17, 0x4d, 0x62, 0xcb, 0x2d, 0xd4, 0x3f, 0x4a, 0xb0, 0xcc, 0xe4,
+	0xe8, 0x6d, 0x28, 0x65, 0x26, 0xe9, 0x95, 0x9c, 0x87, 0x90, 0x30, 0x65, 0x30, 0xb4, 0x09, 0x95,
+	0x11, 0x71, 0xcc, 0x10, 0x1f, 0xbb, 0x51, 0x7c, 0x1d, 0xb3, 0x72, 0x30, 0x94, 0x11, 0x71, 0x0c,
+	0x21, 0x42, 0x6f, 0xc2, 0x72, 0x48, 0xc6, 0x14, 0xb3, 0xdb, 0x41, 0xd9, 0xbe, 0x34, 0x0b, 0xc3,
+	0x88, 0xc5, 0x82, 0x8e, 0x63, 0xd0, 0x7b, 0x69, 0x7a, 0x4a, 0x2c, 0x88, 0x1b, 0xe7, 0x4c, 0xd2,
+	0x74, 0xff, 0xec, 0x57, 0xf3, 0x6f, 0x12, 0x54, 0xda, 0x41, 0xe0, 0x4d, 0x92, 0x23, 0xfb, 0x00,
+	0xca, 0xf6, 0x91, 0xe5, 0x0f, 0xd2, 0x69, 0xf7, 0xfa, 0x8c, 0x28, 0x0b, 0xd4, 0x3a, 0x0c, 0x25,
+	0xe8, 0x12, 0x1b, 0xf5, 0x13, 0x09, 0x64, 0xae, 0x41, 0x1a, 0x5c, 0xc1, 0x27, 0x01, 0xb6, 0xa9,
+	0x39, 0x17, 0x28, 0x9b, 0x24, 0xc6, 0x65, 0xae, 0x7a, 0x3c, 0x17, 0xae, 0x3c, 0x0e, 0x22, 0x1c,
+	0x52, 0x71, 0x6c, 0x79, 0x29, 0x34, 0x04, 0x04, 0x7d, 0x05, 0x64, 0x07, 0x7b, 0x58, 0x24, 0x67,
+	0x55, 0x57, 0xb2, 0x4f, 0x53, 0xa1, 0x6a, 0xba, 0xb0, 0x26, 0xb6, 0xfc, 0xaa, 0x6b, 0xa8, 0xf9,
+	0xe7, 0x02, 0x28, 0x31, 0x45, 0x92, 0xc6, 0x56, 0x6a, 0x2f, 0xe5, 0xdb, 0xa7, 0xd5, 0xb7, 0x09,
+	0xcb, 0xac, 0x96, 0x98, 0xa3, 0x85, 0x40, 0xb8, 0x06, 0xfd, 0x4e, 0x5a, 0x98, 0xc6, 0xbc, 0x4e,
+	0xdf, 0x98, 0xdf, 0x7d, 0x72, 0x30, 0xc6, 0x6c, 0xe6, 0xf2, 0xc9, 0xf9, 0xc3, 0x0b, 0xde, 0x09,
+	0x9f, 0x3c, 0xff, 0xaf, 0x87, 0xbc, 0xfa, 0x4d, 0xa8, 0x2e, 0xfa, 0xff, 0x77, 0x03, 0xa4, 0x98,
+	0x1d, 0x20, 0x9f, 0x95, 0xa0, 0xc2, 0x83, 0x79, 0xe5, 0x6d, 0xff, 0xfb, 0xfc, 0xac, 0x7e, 0x75,
+	0x31, 0xab, 0xa2, 0xfb, 0xbf, 0xcc, 0xb4, 0xa2, 0xdf, 0x4a, 0x00, 0xc1, 0xb8, 0xef, 0xb9, 0xd1,
+	0x91, 0x69, 0x51, 0xd1, 0xe2, 0x77, 0xce, 0xd9, 0xe9, 0x01, 0x07, 0xb6, 0xe9, 0xff, 0x65, 0x9f,
+	0xab, 0x41, 0xe2, 0xee, 0x7f, 0x3d, 0x7c, 0xf5, 0x7d, 0x58, 0x9f, 0xdf, 0xfb, 0x85, 0x4a, 0xe7,
+	0xeb, 0x70, 0xe9, 0x43, 0x4c, 0x1f, 0xb9, 0x3e, 0x8d, 0x92, 0x2e, 0x4c, 0x7b, 0x4b, 0x3a, 0xaf,
+	0xb7, 0x9a, 0x7f, 0x29, 0x40, 0x75, 0x66, 0xf6, 0xca, 0x8b, 0xae, 0x07, 0x6b, 0x41, 0xe8, 0x8e,
+	0xac, 0x70, 0x62, 0xc6, 0x1f, 0x85, 0x91, 0x98, 0xed, 0xad, 0x99, 0x83, 0xc5, 0xcd, 0x68, 0xc9,
+	0x82, 0x49, 0x05, 0x5d, 0x45, 0x90, 0x30, 0x59, 0xfc, 0x58, 0xe3, 0x5f, 0x9d, 0x82, 0x93, 0x97,
+	0xc7, 0x45, 0x39, 0x15, 0xce, 0xc1, 0x44, 0xea, 0xfb, 0xf1, 0x3b, 0x3d, 0x83, 0x89, 0x2f, 0x23,
+	0x4e, 0x9e, 0x7c, 0x29, 0x64, 0xfe, 0x8f, 0xd0, 0x1e, 0xf6, 0x1e, 0x73, 0x7e, 0x8e, 0xb9, 0x4b,
+	0x40, 0x16, 0xcf, 0x7b, 0x19, 0x0a, 0xfb, 0x1f, 0x55, 0x97, 0xd0, 0x15, 0xb8, 0xd4, 0x7b, 0xd4,
+	0x36, 0xba, 0xe6, 0xde, 0xfe, 0xa1, 0xf9, 0x70, 0xff, 0xbb, 0x7b, 0xdd, 0xaa, 0x84, 0xae, 0x42,
+	0x75, 0x6f, 0xdf, 0xe4, 0xf2, 0xe4, 0x31, 0x5e, 0x40, 0xd7, 0xe0, 0x72, 0x0c, 0x9a, 0x17, 0x17,
+	0xd1, 0x2d, 0xb8, 0xf1, 0xe0, 0xb0, 0xd3, 0x35, 0x0f, 0x8d, 0xf6, 0x5e, 0xaf, 0xdd, 0x39, 0xdc,
+	0xd9, 0xdf, 0x33, 0xc5, 0x9b, 0xbd, 0xb4, 0x7d, 0x9a, 0x5e, 0xc3, 0xef, 0x41, 0x29, 0x76, 0x8d,
+	0xae, 0xe5, 0x0e, 0x47, 0xf5, 0x7a, 0x7e, 0xcf, 0xc4, 0x66, 0xf1, 0x5d, 0x9f, 0x35, 0xcb, 0x3c,
+	0x64, 0xb2, 0x66, 0x73, 0x8f, 0x92, 0x7b, 0xb0, 0xcc, 0x6e, 0x18, 0x74, 0x3d, 0xff, 0x96, 0x54,
+	0x6f, 0x9c, 0x91, 0x0b, 0xcb, 0x36, 0xac, 0x24, 0xa7, 0x82, 0x6e, 0xe6, 0x9d, 0x14, 0xb7, 0x57,
+	0xcf, 0x3f, 0x44, 0xbd, 0xf3, 0xf4, 0xef, 0xf5, 0xa5, 0xa7, 0x9f, 0xd7, 0xa5, 0x67, 0x9f, 0xd7,
+	0xa5, 0x4f, 0x5f, 0xd4, 0x97, 0x7e, 0xfd, 0xa2, 0x2e, 0x3d, 0x7b, 0x51, 0x5f, 0xfa, 0xeb, 0x8b,
+	0xfa, 0xd2, 0x0f, 0xee, 0xe4, 0xf5, 0xf0, 0x99, 0x7f, 0xa6, 0xfa, 0x32, 0x5b, 0xbd, 0xfb, 0xaf,
+	0x00, 0x00, 0x00, 0xff, 0xff, 0x90, 0x08, 0x89, 0x23, 0xb5, 0x12, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1307,6 +1498,151 @@ func (m *ReplicaStatus) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
+func (m *Checkpoint) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Checkpoint) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Sources) > 0 {
+		for k, _ := range m.Sources {
+			dAtA[i] = 0xa
+			i++
+			v := m.Sources[k]
+			msgSize := 0
+			if (&v) != nil {
+				msgSize = (&v).ProtoSize()
+				msgSize += 1 + sovProtocol(uint64(msgSize))
+			}
+			mapSize := 1 + len(k) + sovProtocol(uint64(len(k))) + msgSize
+			i = encodeVarintProtocol(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(len(k)))
+			i += copy(dAtA[i:], k)
+			dAtA[i] = 0x12
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64((&v).ProtoSize()))
+			n5, err := (&v).MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n5
+		}
+	}
+	if len(m.AckIntents) > 0 {
+		for k, _ := range m.AckIntents {
+			dAtA[i] = 0x12
+			i++
+			v := m.AckIntents[k]
+			byteSize := 0
+			if len(v) > 0 {
+				byteSize = 1 + len(v) + sovProtocol(uint64(len(v)))
+			}
+			mapSize := 1 + len(k) + sovProtocol(uint64(len(k))) + byteSize
+			i = encodeVarintProtocol(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(len(k)))
+			i += copy(dAtA[i:], k)
+			if len(v) > 0 {
+				dAtA[i] = 0x12
+				i++
+				i = encodeVarintProtocol(dAtA, i, uint64(len(v)))
+				i += copy(dAtA[i:], v)
+			}
+		}
+	}
+	return i, nil
+}
+
+func (m *Checkpoint_Source) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Checkpoint_Source) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.ReadThrough != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintProtocol(dAtA, i, uint64(m.ReadThrough))
+	}
+	if len(m.Producers) > 0 {
+		for k, _ := range m.Producers {
+			dAtA[i] = 0x12
+			i++
+			v := m.Producers[k]
+			msgSize := 0
+			if (&v) != nil {
+				msgSize = (&v).ProtoSize()
+				msgSize += 1 + sovProtocol(uint64(msgSize))
+			}
+			mapSize := 1 + len(k) + sovProtocol(uint64(len(k))) + msgSize
+			i = encodeVarintProtocol(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(len(k)))
+			i += copy(dAtA[i:], k)
+			dAtA[i] = 0x12
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64((&v).ProtoSize()))
+			n6, err := (&v).MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n6
+		}
+	}
+	return i, nil
+}
+
+func (m *Checkpoint_ProducerState) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Checkpoint_ProducerState) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.LastAck != 0 {
+		dAtA[i] = 0x9
+		i++
+		encoding_binary.LittleEndian.PutUint64(dAtA[i:], uint64(m.LastAck))
+		i += 8
+	}
+	if m.Begin != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintProtocol(dAtA, i, uint64(m.Begin))
+	}
+	return i, nil
+}
+
 func (m *ListRequest) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
@@ -1325,11 +1661,11 @@ func (m *ListRequest) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0xa
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Selector.ProtoSize()))
-	n5, err := m.Selector.MarshalTo(dAtA[i:])
+	n7, err := m.Selector.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n5
+	i += n7
 	return i, nil
 }
 
@@ -1356,11 +1692,11 @@ func (m *ListResponse) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Header.ProtoSize()))
-	n6, err := m.Header.MarshalTo(dAtA[i:])
+	n8, err := m.Header.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n6
+	i += n8
 	if len(m.Shards) > 0 {
 		for _, msg := range m.Shards {
 			dAtA[i] = 0x1a
@@ -1394,11 +1730,11 @@ func (m *ListResponse_Shard) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0xa
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Spec.ProtoSize()))
-	n7, err := m.Spec.MarshalTo(dAtA[i:])
+	n9, err := m.Spec.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n7
+	i += n9
 	if m.ModRevision != 0 {
 		dAtA[i] = 0x10
 		i++
@@ -1407,11 +1743,11 @@ func (m *ListResponse_Shard) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0x1a
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Route.ProtoSize()))
-	n8, err := m.Route.MarshalTo(dAtA[i:])
+	n10, err := m.Route.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n8
+	i += n10
 	if len(m.Status) > 0 {
 		for _, msg := range m.Status {
 			dAtA[i] = 0x22
@@ -1481,11 +1817,11 @@ func (m *ApplyRequest_Change) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintProtocol(dAtA, i, uint64(m.Upsert.ProtoSize()))
-		n9, err := m.Upsert.MarshalTo(dAtA[i:])
+		n11, err := m.Upsert.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n9
+		i += n11
 	}
 	if len(m.Delete) > 0 {
 		dAtA[i] = 0x1a
@@ -1519,11 +1855,11 @@ func (m *ApplyResponse) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Header.ProtoSize()))
-	n10, err := m.Header.MarshalTo(dAtA[i:])
+	n12, err := m.Header.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n10
+	i += n12
 	return i, nil
 }
 
@@ -1546,17 +1882,33 @@ func (m *StatRequest) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintProtocol(dAtA, i, uint64(m.Header.ProtoSize()))
-		n11, err := m.Header.MarshalTo(dAtA[i:])
+		n13, err := m.Header.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n11
+		i += n13
 	}
 	if len(m.Shard) > 0 {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintProtocol(dAtA, i, uint64(len(m.Shard)))
 		i += copy(dAtA[i:], m.Shard)
+	}
+	if len(m.ReadThrough) > 0 {
+		for k, _ := range m.ReadThrough {
+			dAtA[i] = 0x1a
+			i++
+			v := m.ReadThrough[k]
+			mapSize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + sovProtocol(uint64(v))
+			i = encodeVarintProtocol(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(len(k)))
+			i += copy(dAtA[i:], k)
+			dAtA[i] = 0x10
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(v))
+		}
 	}
 	return i, nil
 }
@@ -1584,16 +1936,32 @@ func (m *StatResponse) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Header.ProtoSize()))
-	n12, err := m.Header.MarshalTo(dAtA[i:])
+	n14, err := m.Header.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n12
-	if len(m.Offsets) > 0 {
-		for k, _ := range m.Offsets {
+	i += n14
+	if len(m.ReadThrough) > 0 {
+		for k, _ := range m.ReadThrough {
 			dAtA[i] = 0x1a
 			i++
-			v := m.Offsets[k]
+			v := m.ReadThrough[k]
+			mapSize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + sovProtocol(uint64(v))
+			i = encodeVarintProtocol(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0xa
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(len(k)))
+			i += copy(dAtA[i:], k)
+			dAtA[i] = 0x10
+			i++
+			i = encodeVarintProtocol(dAtA, i, uint64(v))
+		}
+	}
+	if len(m.PublishAt) > 0 {
+		for k, _ := range m.PublishAt {
+			dAtA[i] = 0x22
+			i++
+			v := m.PublishAt[k]
 			mapSize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + sovProtocol(uint64(v))
 			i = encodeVarintProtocol(dAtA, i, uint64(mapSize))
 			dAtA[i] = 0xa
@@ -1655,19 +2023,19 @@ func (m *GetHintsResponse) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.Header.ProtoSize()))
-	n13, err := m.Header.MarshalTo(dAtA[i:])
+	n15, err := m.Header.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n13
+	i += n15
 	dAtA[i] = 0x1a
 	i++
 	i = encodeVarintProtocol(dAtA, i, uint64(m.PrimaryHints.ProtoSize()))
-	n14, err := m.PrimaryHints.MarshalTo(dAtA[i:])
+	n16, err := m.PrimaryHints.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n14
+	i += n16
 	if len(m.BackupHints) > 0 {
 		for _, msg := range m.BackupHints {
 			dAtA[i] = 0x22
@@ -1702,11 +2070,11 @@ func (m *GetHintsResponse_ResponseHints) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintProtocol(dAtA, i, uint64(m.Hints.ProtoSize()))
-		n15, err := m.Hints.MarshalTo(dAtA[i:])
+		n17, err := m.Hints.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n15
+		i += n17
 	}
 	return i, nil
 }
@@ -1806,6 +2174,72 @@ func (m *ReplicaStatus) ProtoSize() (n int) {
 			l = len(s)
 			n += 1 + l + sovProtocol(uint64(l))
 		}
+	}
+	return n
+}
+
+func (m *Checkpoint) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Sources) > 0 {
+		for k, v := range m.Sources {
+			_ = k
+			_ = v
+			l = v.ProtoSize()
+			mapEntrySize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + l + sovProtocol(uint64(l))
+			n += mapEntrySize + 1 + sovProtocol(uint64(mapEntrySize))
+		}
+	}
+	if len(m.AckIntents) > 0 {
+		for k, v := range m.AckIntents {
+			_ = k
+			_ = v
+			l = 0
+			if len(v) > 0 {
+				l = 1 + len(v) + sovProtocol(uint64(len(v)))
+			}
+			mapEntrySize := 1 + len(k) + sovProtocol(uint64(len(k))) + l
+			n += mapEntrySize + 1 + sovProtocol(uint64(mapEntrySize))
+		}
+	}
+	return n
+}
+
+func (m *Checkpoint_Source) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ReadThrough != 0 {
+		n += 1 + sovProtocol(uint64(m.ReadThrough))
+	}
+	if len(m.Producers) > 0 {
+		for k, v := range m.Producers {
+			_ = k
+			_ = v
+			l = v.ProtoSize()
+			mapEntrySize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + l + sovProtocol(uint64(l))
+			n += mapEntrySize + 1 + sovProtocol(uint64(mapEntrySize))
+		}
+	}
+	return n
+}
+
+func (m *Checkpoint_ProducerState) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.LastAck != 0 {
+		n += 9
+	}
+	if m.Begin != 0 {
+		n += 1 + sovProtocol(uint64(m.Begin))
 	}
 	return n
 }
@@ -1926,6 +2360,14 @@ func (m *StatRequest) ProtoSize() (n int) {
 	if l > 0 {
 		n += 1 + l + sovProtocol(uint64(l))
 	}
+	if len(m.ReadThrough) > 0 {
+		for k, v := range m.ReadThrough {
+			_ = k
+			_ = v
+			mapEntrySize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + sovProtocol(uint64(v))
+			n += mapEntrySize + 1 + sovProtocol(uint64(mapEntrySize))
+		}
+	}
 	return n
 }
 
@@ -1940,8 +2382,16 @@ func (m *StatResponse) ProtoSize() (n int) {
 	}
 	l = m.Header.ProtoSize()
 	n += 1 + l + sovProtocol(uint64(l))
-	if len(m.Offsets) > 0 {
-		for k, v := range m.Offsets {
+	if len(m.ReadThrough) > 0 {
+		for k, v := range m.ReadThrough {
+			_ = k
+			_ = v
+			mapEntrySize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + sovProtocol(uint64(v))
+			n += mapEntrySize + 1 + sovProtocol(uint64(mapEntrySize))
+		}
+	}
+	if len(m.PublishAt) > 0 {
+		for k, v := range m.PublishAt {
 			_ = k
 			_ = v
 			mapEntrySize := 1 + len(k) + sovProtocol(uint64(len(k))) + 1 + sovProtocol(uint64(v))
@@ -2427,7 +2877,7 @@ func (m *ShardSpec_Source) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.MinOffset |= int64(b&0x7F) << shift
+				m.MinOffset |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -2641,6 +3091,599 @@ func (m *ReplicaStatus) Unmarshal(dAtA []byte) error {
 			}
 			m.Errors = append(m.Errors, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipProtocol(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Checkpoint) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowProtocol
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Checkpoint: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Checkpoint: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Sources", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Sources == nil {
+				m.Sources = make(map[go_gazette_dev_core_broker_protocol.Journal]Checkpoint_Source)
+			}
+			var mapkey go_gazette_dev_core_broker_protocol.Journal
+			mapvalue := &Checkpoint_Source{}
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowProtocol
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = go_gazette_dev_core_broker_protocol.Journal(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					var mapmsglen int
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapmsglen |= int(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					if mapmsglen < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postmsgIndex := iNdEx + mapmsglen
+					if postmsgIndex < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postmsgIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = &Checkpoint_Source{}
+					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
+						return err
+					}
+					iNdEx = postmsgIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipProtocol(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Sources[go_gazette_dev_core_broker_protocol.Journal(mapkey)] = *mapvalue
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AckIntents", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.AckIntents == nil {
+				m.AckIntents = make(map[go_gazette_dev_core_broker_protocol.Journal][]byte)
+			}
+			var mapkey go_gazette_dev_core_broker_protocol.Journal
+			mapvalue := []byte{}
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowProtocol
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = go_gazette_dev_core_broker_protocol.Journal(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					var mapbyteLen uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapbyteLen |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intMapbyteLen := int(mapbyteLen)
+					if intMapbyteLen < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postbytesIndex := iNdEx + intMapbyteLen
+					if postbytesIndex < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postbytesIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = make([]byte, mapbyteLen)
+					copy(mapvalue, dAtA[iNdEx:postbytesIndex])
+					iNdEx = postbytesIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipProtocol(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.AckIntents[go_gazette_dev_core_broker_protocol.Journal(mapkey)] = mapvalue
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipProtocol(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Checkpoint_Source) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowProtocol
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Source: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Source: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReadThrough", wireType)
+			}
+			m.ReadThrough = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ReadThrough |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Producers", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Producers == nil {
+				m.Producers = make(map[string]Checkpoint_ProducerState)
+			}
+			var mapkey string
+			mapvalue := &Checkpoint_ProducerState{}
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowProtocol
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					var mapmsglen int
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapmsglen |= int(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					if mapmsglen < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postmsgIndex := iNdEx + mapmsglen
+					if postmsgIndex < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postmsgIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = &Checkpoint_ProducerState{}
+					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
+						return err
+					}
+					iNdEx = postmsgIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipProtocol(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Producers[mapkey] = *mapvalue
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipProtocol(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Checkpoint_ProducerState) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowProtocol
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ProducerState: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ProducerState: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 1 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastAck", wireType)
+			}
+			m.LastAck = 0
+			if (iNdEx + 8) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.LastAck = go_gazette_dev_core_message.Clock(encoding_binary.LittleEndian.Uint64(dAtA[iNdEx:]))
+			iNdEx += 8
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Begin", wireType)
+			}
+			m.Begin = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Begin |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipProtocol(dAtA[iNdEx:])
@@ -3491,6 +4534,119 @@ func (m *StatRequest) Unmarshal(dAtA []byte) error {
 			}
 			m.Shard = ShardID(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReadThrough", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ReadThrough == nil {
+				m.ReadThrough = make(map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset)
+			}
+			var mapkey go_gazette_dev_core_broker_protocol.Journal
+			var mapvalue int64
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowProtocol
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = go_gazette_dev_core_broker_protocol.Journal(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapvalue |= int64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipProtocol(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.ReadThrough[go_gazette_dev_core_broker_protocol.Journal(mapkey)] = ((go_gazette_dev_core_broker_protocol.Offset)(mapvalue))
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipProtocol(dAtA[iNdEx:])
@@ -3598,7 +4754,7 @@ func (m *StatResponse) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Offsets", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ReadThrough", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3625,8 +4781,8 @@ func (m *StatResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Offsets == nil {
-				m.Offsets = make(map[go_gazette_dev_core_broker_protocol.Journal]int64)
+			if m.ReadThrough == nil {
+				m.ReadThrough = make(map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset)
 			}
 			var mapkey go_gazette_dev_core_broker_protocol.Journal
 			var mapvalue int64
@@ -3707,7 +4863,120 @@ func (m *StatResponse) Unmarshal(dAtA []byte) error {
 					iNdEx += skippy
 				}
 			}
-			m.Offsets[go_gazette_dev_core_broker_protocol.Journal(mapkey)] = mapvalue
+			m.ReadThrough[go_gazette_dev_core_broker_protocol.Journal(mapkey)] = ((go_gazette_dev_core_broker_protocol.Offset)(mapvalue))
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PublishAt", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowProtocol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthProtocol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.PublishAt == nil {
+				m.PublishAt = make(map[go_gazette_dev_core_broker_protocol.Journal]go_gazette_dev_core_broker_protocol.Offset)
+			}
+			var mapkey go_gazette_dev_core_broker_protocol.Journal
+			var mapvalue int64
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowProtocol
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = go_gazette_dev_core_broker_protocol.Journal(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowProtocol
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapvalue |= int64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipProtocol(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthProtocol
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.PublishAt[go_gazette_dev_core_broker_protocol.Journal(mapkey)] = ((go_gazette_dev_core_broker_protocol.Offset)(mapvalue))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
