@@ -24,6 +24,9 @@ type Spool struct {
 	Fragment
 	// FirstAppendTime is the timestamp of the first append of the current fragment.
 	FirstAppendTime time.Time
+	// Registers of the journal.
+	Registers pb.LabelSet
+
 	// Compressed form of the Fragment, compressed under Fragment.CompressionCodec.
 	compressedFile File
 	// Length of compressed content written to |compressedFile|. Set only after
@@ -96,7 +99,7 @@ func (s *Spool) Next() pb.Fragment {
 
 // String returns a debugging representation of the Spool.
 func (s Spool) String() string {
-	return fmt.Sprintf("Spool<Fragment: %s, delta: %d>", s.Fragment.String(), s.delta)
+	return fmt.Sprintf("Spool<Fragment: %s, Registers: %s, delta: %d>", &s.Fragment, &s.Registers, s.delta)
 }
 
 func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateResponse {
@@ -123,6 +126,10 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 		if s.ContentLength() != 0 {
 			s.observer.SpoolComplete(*s, primary)
 		}
+		// If the proposal is strictly greater than our Fragment, take the proposal registers.
+		if r.Proposal.End > s.Fragment.End {
+			s.Registers.Assign(r.Registers)
+		}
 		*s = Spool{
 			Fragment: Fragment{
 				Fragment: pb.Fragment{
@@ -132,33 +139,36 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 					CompressionCodec: r.Proposal.CompressionCodec,
 				},
 			},
-			summer:   sha1.New(),
-			sumState: zeroedSHA1State,
-			observer: s.observer,
+			Registers: s.Registers,
+			summer:    sha1.New(),
+			sumState:  zeroedSHA1State,
+			observer:  s.observer,
 		}
 	}
 
-	// There are now two commit cases which can succeed:
-	//  1) Exact commit of current fragment.
-	//  2) Exact commit of current fragment, extended by |delta|.
+	// There are now two proposal cases which can succeed:
+	//  1) A proposal of our exact fragment and registers.
+	//  2) A proposal of our fragment extended by |delta| & |summer|, with updated registers.
 
-	// Case 1? "Undo" any partial content, by rolling back |delta| and |summer|.
-	if s.Fragment.Fragment == *r.Proposal {
+	// Case 1? "Undo" any partial content by rolling back |delta| and |summer|.
+	if s.Fragment.Fragment == *r.Proposal && s.Registers.Equal(r.Registers) {
 		s.delta = 0
 		s.restoreSumState()
 		return pb.ReplicateResponse{Status: pb.Status_OK}
 	}
 
-	// Case 2? Apply the |delta| bytes spooled since last commit.
-	if next := s.Next(); next == *r.Proposal {
+	// Case 2? Apply the |delta| bytes spooled since last commit & update registers.
+	if s.delta != 0 && s.Next() == *r.Proposal {
 		if primary && s.CompressionCodec != pb.CompressionCodec_NONE {
-			s.compressThrough(next.End)
+			s.compressThrough(r.Proposal.End)
 		}
-		s.Fragment.Fragment = next
+		s.Fragment.Fragment = *r.Proposal
 		s.observer.SpoolCommit(s.Fragment)
+
 		if s.FirstAppendTime.IsZero() {
 			s.FirstAppendTime = timeNow()
 		}
+		s.Registers.Assign(r.Registers)
 
 		metrics.CommittedBytesTotal.Add(float64(s.delta))
 		s.delta = 0
@@ -170,8 +180,9 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 
 	// This proposal cannot apply to our Spool; return an error to the primary.
 	return pb.ReplicateResponse{
-		Status:   pb.Status_FRAGMENT_MISMATCH,
-		Fragment: &s.Fragment.Fragment,
+		Status:    pb.Status_PROPOSAL_MISMATCH,
+		Fragment:  &s.Fragment.Fragment,
+		Registers: &s.Registers,
 	}
 }
 
@@ -233,7 +244,7 @@ func (s *Spool) compressThrough(end int64) {
 		}
 		err = fmt.Errorf("while incrementally compressing: %s", err)
 
-		s.compressor.Close()
+		_ = s.compressor.Close()
 		s.compressor = nil
 	}
 
@@ -262,7 +273,7 @@ func (s *Spool) compressThrough(end int64) {
 		if _, err = io.CopyBuffer(s.compressor, io.NewSectionReader(s.File, 0, end-s.Fragment.Begin), buf); err != nil {
 			err = fmt.Errorf("while compressing: %s", err)
 
-			s.compressor.Close()
+			_ = s.compressor.Close()
 			s.compressor = nil
 			continue
 		}
