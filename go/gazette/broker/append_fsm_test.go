@@ -2,13 +2,14 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"io"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
@@ -108,45 +109,49 @@ func TestFSMStartAndSync(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
 
 	// Case: Build a new pipeline from scratch, hitting:
-	// - FRAGMENT_MISMATCH error
+	// - PROPOSAL_MISMATCH error
 	// - WRONG_ROUTE error
 	// - An unexpected, terminal error.
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
 	assert.True(t, fsm.runTo(stateRecvPipelineSync))
 
 	// Expect peer reads initial fragment proposal for the journal.
-	assert.Equal(t, &pb.ReplicateRequest{
-		Journal: "a/journal",
-		Header:  boxHeaderProcessID(fsm.resolved.Header, peer.id),
+	assert.Equal(t, pb.ReplicateRequest{
+		DeprecatedJournal: "a/journal",
+		Header:            boxHeaderProcessID(fsm.resolved.Header, peer.id),
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}, <-peer.ReplReqCh)
 
-	// Peer responds with a fixture that disagrees on Fragment End.
-	peer.ReplRespCh <- &pb.ReplicateResponse{
-		Status:   pb.Status_FRAGMENT_MISMATCH,
-		Fragment: &pb.Fragment{Begin: 567, End: 892},
+	// Peer responds with a fixture that disagrees on Fragment End & registers.
+	peer.ReplRespCh <- pb.ReplicateResponse{
+		Status:    pb.Status_PROPOSAL_MISMATCH,
+		Fragment:  &pb.Fragment{Begin: 567, End: 892},
+		Registers: boxLabels("reg", ""),
 	}
 	fsm.onRecvPipelineSync()
 
-	// Expect we will next roll the current pipeline to the proposed offset.
+	// Expect we will next roll the current pipeline to the proposed offset & registers.
 	assert.Equal(t, int64(892), fsm.rollToOffset)
+	assert.Equal(t, *boxLabels("reg", ""), fsm.registers)
 	assert.Equal(t, int64(0), fsm.readThroughRev)
 	assert.Equal(t, stateSendPipelineSync, fsm.state)
 	assert.NoError(t, fsm.err)
 	fsm.onSendPipelineSync()
 
-	assert.Equal(t, &pb.ReplicateRequest{
-		// Journal and Header are omitted.
+	assert.Equal(t, pb.ReplicateRequest{
+		// Header is omitted (not the first message of stream).
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            892,
 			End:              892,
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
+		Registers:   boxLabels("reg", ""),
 		Acknowledge: true,
 	}, <-peer.ReplReqCh)
 
@@ -156,7 +161,7 @@ func TestFSMStartAndSync(t *testing.T) {
 	wrongRouteHeader.Route = wrongRouteHeader.Route.Copy()
 	wrongRouteHeader.Route.Members[1].Suffix = "other"
 
-	peer.ReplRespCh <- &pb.ReplicateResponse{
+	peer.ReplRespCh <- pb.ReplicateResponse{
 		Status: pb.Status_WRONG_ROUTE,
 		Header: &wrongRouteHeader,
 	}
@@ -167,16 +172,17 @@ func TestFSMStartAndSync(t *testing.T) {
 	assert.Equal(t, wrongRouteHeader.Etcd.Revision, fsm.readThroughRev)
 	assert.Equal(t, stateResolve, fsm.state)
 	assert.NoError(t, fsm.err)
-	assert.Nil(t, fsm.pln)          // Expect pipeline was torn down.
-	assert.Nil(t, <-peer.ReplReqCh) // Expect an EOF was sent to peer on prior pipeline.
-	peer.ErrCh <- nil               // Peer closes.
+	assert.Nil(t, fsm.pln)                        // Expect pipeline was torn down.
+	assert.Equal(t, io.EOF, <-peer.ReadLoopErrCh) // Expect EOF was sent to peer on prior pipeline.
+	peer.WriteLoopErrCh <- nil                    // Peer closes.
 
 	// Restart. This time, the peer returns an unexpected error.
 	fsm.readThroughRev = 0
 	assert.True(t, fsm.runTo(stateRecvPipelineSync))
 
 	assert.NotNil(t, <-peer.ReplReqCh)
-	peer.ErrCh <- errors.New("foobar")
+	peer.WriteLoopErrCh <- errors.New("foobar")
+	assert.Equal(t, context.Canceled, <-peer.ReadLoopErrCh) // Peer reads its RPC cancellation.
 
 	fsm.onRecvPipelineSync()
 	assert.Equal(t, stateError, fsm.state)
@@ -189,8 +195,8 @@ func TestFSMStartAndSync(t *testing.T) {
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
 	assert.True(t, fsm.runTo(stateRecvPipelineSync))
 
-	assert.NotNil(t, <-peer.ReplReqCh)
-	peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+	_ = <-peer.ReplReqCh
+	peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	fsm.onRecvPipelineSync()
 	assert.Equal(t, stateUpdateAssignments, fsm.state)
@@ -212,8 +218,8 @@ func TestFSMStartAndSync(t *testing.T) {
 	fsm.onStartPipeline()
 
 	assert.Equal(t, stateSendPipelineSync, fsm.state)
-	assert.Nil(t, <-peer.ReplReqCh) // EOF sent to peer on prior pipeline.
-	peer.ErrCh <- nil               // Peer closes.
+	assert.Equal(t, io.EOF, <-peer.ReadLoopErrCh) // EOF sent to peer on prior pipeline.
+	peer.WriteLoopErrCh <- nil                    // Peer closes.
 
 	// We return a nil pipeline now, and arrange to return the actual one later.
 	// This has the effect of making pipeline acquisition succeed, but spool
@@ -245,7 +251,9 @@ func TestFSMStartAndSync(t *testing.T) {
 	fsm.returnPipeline()
 
 	unlock()
-	peer.ErrCh <- nil // Peer closes.
+	peer.WriteLoopErrCh <- nil                              // Peer closes.
+	assert.Equal(t, context.Canceled, <-peer.ReadLoopErrCh) // Peer reads its own RPC cancellation.
+
 	broker.cleanup()
 	peer.Cleanup()
 }
@@ -258,13 +266,13 @@ func TestFSMUpdateAssignments(t *testing.T) {
 	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
 
-	// Case: context error while updating assignments.
+	// Case: error while updating assignments.
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
 	assert.True(t, fsm.runTo(stateRecvPipelineSync))
 	_ = <-peer.ReplReqCh
-	peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+	peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 	fsm.onRecvPipelineSync()
-	fsm.ctx = newCanceledCtx()
+	fsm.ctx = newCanceledCtx() // Cause updateAssignments to fail.
 	fsm.onUpdateAssignments()
 	assert.Equal(t, stateError, fsm.state)
 	assert.EqualError(t, fsm.err, `updateAssignments: context canceled`)
@@ -284,7 +292,9 @@ func TestFSMUpdateAssignments(t *testing.T) {
 	assert.Equal(t, stateAwaitDesiredReplicas, fsm.state)
 	fsm.returnPipeline()
 
-	peer.ErrCh <- nil // Peer closes.
+	peer.WriteLoopErrCh <- nil                              // Peer closes.
+	assert.Equal(t, context.Canceled, <-peer.ReadLoopErrCh) // Peer reads its own RPC cancellation.
+
 	broker.cleanup()
 	peer.Cleanup()
 }
@@ -303,7 +313,7 @@ func TestFSMDesiredReplicas(t *testing.T) {
 
 	// Case: local primary with correct number of replicas.
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	assert.True(t, fsm.runTo(stateValidateOffset))
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.returnPipeline()
 
 	// Case: remote primary with correct number of replicas.
@@ -330,7 +340,7 @@ func TestFSMDesiredReplicas(t *testing.T) {
 	peer.Cleanup()
 }
 
-func TestFSMValidateOffset(t *testing.T) {
+func TestFSMValidatePreconditions(t *testing.T) {
 	var ctx, etcd = context.Background(), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
@@ -339,9 +349,9 @@ func TestFSMValidateOffset(t *testing.T) {
 
 	// Case: We're canceled while awaiting the first remote fragment refresh.
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	assert.True(t, fsm.runTo(stateValidateOffset))
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.ctx = newCanceledCtx()
-	fsm.onValidateOffset()
+	fsm.onValidatePreconditions()
 	assert.Equal(t, stateError, fsm.state)
 	assert.EqualError(t, fsm.err, "WaitForFirstRemoteRefresh: context canceled")
 	fsm.returnPipeline()
@@ -357,14 +367,33 @@ func TestFSMValidateOffset(t *testing.T) {
 	assert.True(t, fsm.runTo(stateStreamContent))
 	fsm.returnPipeline()
 
+	// Case: Register selector is not matched.
+	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+		Journal:        "a/journal",
+		CheckRegisters: &pb.LabelSelector{Include: pb.MustLabelSet("not", "matched")},
+	}}
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.onValidatePreconditions()
+	assert.Equal(t, stateError, fsm.state)
+	assert.Equal(t, pb.Status_REGISTER_MISMATCH, fsm.resolved.status)
+	fsm.returnPipeline()
+
+	// Case: Register selector _is_ matched.
+	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+		Journal:        "a/journal",
+		CheckRegisters: &pb.LabelSelector{Exclude: pb.MustLabelSet("is", "matched")},
+	}}
+	assert.True(t, fsm.runTo(stateStreamContent))
+	fsm.returnPipeline()
+
 	// Case: remote index contains a greater offset than the pipeline, and request omits offset.
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
 	fsm.onResolve()
 	fsm.resolved.replica.index.ReplaceRemote(fragment.CoverSet{
 		{Fragment: pb.Fragment{End: 456}},
 	})
-	assert.True(t, fsm.runTo(stateValidateOffset))
-	fsm.onValidateOffset()
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.onValidatePreconditions()
 	assert.Equal(t, stateError, fsm.state)
 	assert.Equal(t, pb.Status_INDEX_HAS_GREATER_OFFSET, fsm.resolved.status)
 	fsm.returnPipeline()
@@ -378,16 +407,16 @@ func TestFSMValidateOffset(t *testing.T) {
 
 	// Case: request offset doesn't match the max journal offset.
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal", Offset: 455}}
-	assert.True(t, fsm.runTo(stateValidateOffset))
-	fsm.onValidateOffset()
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.onValidatePreconditions()
 	assert.Equal(t, stateError, fsm.state)
 	assert.Equal(t, pb.Status_WRONG_APPEND_OFFSET, fsm.resolved.status)
 	fsm.returnPipeline()
 
 	// Case: request offset does match the max journal offset.
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal", Offset: 456}}
-	assert.True(t, fsm.runTo(stateValidateOffset))
-	fsm.onValidateOffset()
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.onValidatePreconditions()
 	assert.Equal(t, stateSendPipelineSync, fsm.state)
 	assert.Equal(t, int64(456), fsm.rollToOffset)
 	fsm.returnPipeline()
@@ -403,54 +432,89 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	var peerA = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "A", Suffix: "peer"})
 	var peerB = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "B", Suffix: "peer"})
 
-	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 3}, broker.id, peerA.id, peerB.id)
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 3},
+		broker.id, peerA.id, peerB.id)
 	broker.initialFragmentLoad()
 
 	var peerRecv = func(req pb.ReplicateRequest) {
 		for _, p := range []mockBroker{peerA, peerB} {
-			assert.Equal(t, &req, <-p.ReplReqCh)
+			require.Equal(t, req, <-p.ReplReqCh)
 		}
 	}
 	var peerSend = func(resp pb.ReplicateResponse) {
 		for _, p := range []mockBroker{peerA, peerB} {
-			p.ReplRespCh <- &resp
+			p.ReplRespCh <- resp
 		}
 	}
 
-	// Case: successful append is streamed from the client.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	// Case: successful append is streamed from the client, and verifies & updates
+	// registers which are initially known only to peers (and not this appendFSM).
+	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+		Journal:           "a/journal",
+		CheckRegisters:    &pb.LabelSelector{Include: pb.MustLabelSet("before", "")},
+		UnionRegisters:    boxLabels("after", ""),
+		SubtractRegisters: boxLabels("before", ""),
+	}}
 	fsm.onResolve()
 
-	// Expect pipeline is started and synchronized on its first usage (only).
+	// Asynchronously run the expected peer message flow.
 	go func() {
+		// Peer reads initial pipeline synchronization.
 		for _, p := range []mockBroker{peerA, peerB} {
-			assert.Equal(t, &pb.ReplicateRequest{
-				Journal: "a/journal",
-				Header:  boxHeaderProcessID(fsm.resolved.Header, p.id),
+			assert.Equal(t, pb.ReplicateRequest{
+				DeprecatedJournal: "a/journal",
+				Header:            boxHeaderProcessID(fsm.resolved.Header, p.id),
 				Proposal: &pb.Fragment{
 					Journal:          "a/journal",
 					CompressionCodec: pb.CompressionCodec_SNAPPY,
 				},
+				Registers:   boxLabels(),
 				Acknowledge: true,
 			}, <-p.ReplReqCh)
 		}
+		// Peers respond that they have a larger fragment & populated registers.
+		peerSend(pb.ReplicateResponse{
+			Status: pb.Status_PROPOSAL_MISMATCH,
+			Fragment: &pb.Fragment{
+				Journal:          "a/journal",
+				End:              2048,
+				CompressionCodec: pb.CompressionCodec_SNAPPY,
+			},
+			Registers: boxLabels("before", ""),
+		})
+		// Peers read a second sync which rolls the proposal & registers.
+		peerRecv(pb.ReplicateRequest{
+			Proposal: &pb.Fragment{
+				Journal:          "a/journal",
+				Begin:            2048,
+				End:              2048,
+				CompressionCodec: pb.CompressionCodec_SNAPPY,
+			},
+			Registers:   boxLabels("before", ""),
+			Acknowledge: true,
+		})
+		// Peers acknowledge.
 		peerSend(pb.ReplicateResponse{Status: pb.Status_OK})
 	}()
 	assert.True(t, fsm.runTo(stateStreamContent))
 
-	// Tweak Spool fixture to have a size over the spec target length.
-	fsm.pln.spool.Fragment.End = 2048
-	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("foo")}, nil) // Chunk one.
+	// Reach into our FragmentSpec and change the compression, in order to coerce
+	// appendFSM.onStreamContent() to roll the fragment prior to sending the
+	// first content chunk.
+	fsm.resolved.journalSpec.Fragment.CompressionCodec = pb.CompressionCodec_GZIP
+	// Then send the first stream content chunk.
+	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("foo")}, nil)
 
 	// Expect an updating proposal is scattered which rolls the fragment prior
-	// to the chunk, then the chunk itself.
+	// to the chunk being sent. Then expect the chunk itself.
 	peerRecv(pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Begin:            2048,
 			End:              2048,
 			Journal:          "a/journal",
-			CompressionCodec: pb.CompressionCodec_SNAPPY,
+			CompressionCodec: pb.CompressionCodec_GZIP,
 		},
+		Registers:   boxLabels("before", ""),
 		Acknowledge: false,
 	})
 	peerRecv(pb.ReplicateRequest{Content: []byte("foo"), ContentDelta: 0})
@@ -463,14 +527,18 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	// Client EOF. Expect a commit proposal is scattered to peers.
 	fsm.onStreamContent(nil, io.EOF)
 
-	var expect = &pb.Fragment{
-		Journal:          "a/journal",
-		Begin:            2048,
-		End:              2054,
-		Sum:              pb.SHA1SumOf("foobar"),
-		CompressionCodec: pb.CompressionCodec_SNAPPY,
+	var expect = pb.ReplicateRequest{
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            2048,
+			End:              2054,
+			Sum:              pb.SHA1SumOf("foobar"),
+			CompressionCodec: pb.CompressionCodec_GZIP,
+		},
+		Registers:   boxLabels("after", ""), // Union/subtract applied.
+		Acknowledge: true,
 	}
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true})
+	peerRecv(expect)
 
 	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})
 	fsm.onReadAcknowledgements()
@@ -479,9 +547,27 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	// this is the only write of the current spool).
 	assert.Equal(t, stateFinished, fsm.state)
 	assert.NoError(t, fsm.err)
-	assert.Equal(t, expect, fsm.clientFragment)
-	assert.Equal(t, *expect, fsm.pln.spool.Fragment.Fragment)
+	assert.Equal(t, expect.Proposal, fsm.clientFragment)
+	assert.Equal(t, *expect.Proposal, fsm.pln.spool.Fragment.Fragment)
+	assert.Equal(t, *boxLabels("after", ""), fsm.registers)
 	assert.Nil(t, fsm.plnReturnCh)
+
+	// Case: A request with register modifications which writes no bytes is an error.
+	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+		Journal:        "a/journal",
+		UnionRegisters: boxLabels("foo", ""),
+	}}
+	fsm.runTo(stateStreamContent)
+
+	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Intent to commit.
+	fsm.onStreamContent(nil, io.EOF)              // Client EOF.
+
+	peerRecv(expect)                                     // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK}) // Send & read ACK.
+	fsm.onReadAcknowledgements()
+
+	assert.Equal(t, stateError, fsm.state)
+	assert.Equal(t, errors.Cause(fsm.err), errRegisterUpdateWithEmptyAppend)
 
 	// Case: Expect a non-validating AppendRequest is treated as a client error,
 	// and triggers rollback. Note that an updating proposal is not required and
@@ -492,9 +578,9 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil) // Valid 1st chunk.
 	fsm.onStreamContent(&pb.AppendRequest{Journal: "/invalid"}, nil)    // Invalid.
 
-	peerRecv(pb.ReplicateRequest{Content: []byte("baz")})              // 1st chunk.
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Rollback.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(pb.ReplicateRequest{Content: []byte("baz")}) // 1st chunk.
+	peerRecv(expect)                                      // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})  // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateError, fsm.state)
@@ -507,9 +593,9 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil)   // Valid 1st chunk.
 	fsm.onStreamContent(&pb.AppendRequest{Journal: "other/journal"}, nil) // Unexpected.
 
-	peerRecv(pb.ReplicateRequest{Content: []byte("baz")})              // 1st chunk.
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Rollback.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(pb.ReplicateRequest{Content: []byte("baz")}) // 1st chunk.
+	peerRecv(expect)                                      // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})  // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateError, fsm.state)
@@ -528,9 +614,9 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	assert.Equal(t, false, fsm.clientCommit)
 	fsm.onStreamContent(nil, io.EOF) // Unexpected EOF.
 
-	peerRecv(pb.ReplicateRequest{Content: []byte("baz")})              // 1st chunk.
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Rollback.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(pb.ReplicateRequest{Content: []byte("baz")}) // 1st chunk.
+	peerRecv(expect)                                      // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})  // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateError, fsm.state)
@@ -543,9 +629,9 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil) // 1st chunk.
 	fsm.onStreamContent(nil, errors.New("some error"))
 
-	peerRecv(pb.ReplicateRequest{Content: []byte("baz")})              // 1st chunk.
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Rollback.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(pb.ReplicateRequest{Content: []byte("baz")}) // 1st chunk.
+	peerRecv(expect)                                      // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})  // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateError, fsm.state)
@@ -560,9 +646,9 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	assert.Equal(t, true, fsm.clientCommit)
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("bing")}, nil) // Invalid.
 
-	peerRecv(pb.ReplicateRequest{Content: []byte("baz")})              // 1st chunk.
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Rollback.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(pb.ReplicateRequest{Content: []byte("baz")}) // 1st chunk.
+	peerRecv(expect)                                      // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})  // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateError, fsm.state)
@@ -576,8 +662,8 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil) // Disallowed.
 
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Rollback.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(expect)                                     // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK}) // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateError, fsm.state)
@@ -591,8 +677,8 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Intent to commit.
 	fsm.onStreamContent(nil, io.EOF)              // Commit.
 
-	peerRecv(pb.ReplicateRequest{Proposal: expect, Acknowledge: true}) // Zero-byte commit.
-	peerSend(pb.ReplicateResponse{Status: pb.Status_OK})               // Send & read ACK.
+	peerRecv(expect)                                     // Rollback.
+	peerSend(pb.ReplicateResponse{Status: pb.Status_OK}) // Send & read ACK.
 	fsm.onReadAcknowledgements()
 
 	assert.Equal(t, stateFinished, fsm.state)
@@ -605,8 +691,9 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 
 	fsm.resolved.journalSpec.Flags = pb.JournalSpec_O_RDWR // Reset.
 	_ = fsm.pln.streams[1].CloseSend()                     // Break |peerB|.
-	peerB.ErrCh <- nil                                     // Peer closes RPC.
-	_, _ = fsm.pln.streams[1].Recv()                       // Read EOF.
+	assert.Equal(t, io.EOF, <-peerB.ReadLoopErrCh)         // Peer reads EOF.
+	peerB.WriteLoopErrCh <- nil                            // Peer closes RPC.
+	_, _ = fsm.pln.streams[1].Recv()                       // We read EOF.
 
 	// Further sends of this stream will err with "SendMsg called after CloseSend"
 	// Further recvs will return EOF.
@@ -615,14 +702,14 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	// expect a rollback is sent to |peerA| and |fsm| transitions to stateReadAcknowledgements.
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil)
 
-	assert.Equal(t, &pb.ReplicateRequest{Content: []byte("baz")}, <-peerA.ReplReqCh)
-	assert.Equal(t, &pb.ReplicateRequest{Proposal: expect, Acknowledge: true}, <-peerA.ReplReqCh)
-	peerA.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+	assert.Equal(t, pb.ReplicateRequest{Content: []byte("baz")}, <-peerA.ReplReqCh)
+	assert.Equal(t, expect, <-peerA.ReplReqCh)
+	peerA.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	// Expect onReadAcknowledgements() tears down to |peerA|.
 	go func() {
-		assert.Nil(t, <-peerA.ReplReqCh) // Read EOF.
-		peerA.ErrCh <- nil               // Send EOF.
+		assert.Equal(t, io.EOF, <-peerA.ReadLoopErrCh)
+		peerA.WriteLoopErrCh <- nil
 	}()
 	fsm.onReadAcknowledgements()
 
@@ -751,20 +838,21 @@ func TestFSMPipelineRace(t *testing.T) {
 
 	go func() {
 		// Initial pipeline sync.
-		assert.Equal(t, &pb.ReplicateRequest{
-			Journal: "a/journal",
-			Header:  boxHeaderProcessID(fsm1.resolved.Header, peer.id),
+		assert.Equal(t, pb.ReplicateRequest{
+			DeprecatedJournal: "a/journal",
+			Header:            boxHeaderProcessID(fsm1.resolved.Header, peer.id),
 			Proposal: &pb.Fragment{
 				Journal:          "a/journal",
 				CompressionCodec: pb.CompressionCodec_SNAPPY,
 			},
+			Registers:   boxLabels(),
 			Acknowledge: true,
 		}, <-peer.ReplReqCh)
-		peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+		peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 		// First append.
-		assert.Equal(t, &pb.ReplicateRequest{Content: []byte("first")}, <-peer.ReplReqCh)
-		assert.Equal(t, &pb.ReplicateRequest{
+		assert.Equal(t, pb.ReplicateRequest{Content: []byte("first")}, <-peer.ReplReqCh)
+		assert.Equal(t, pb.ReplicateRequest{
 			Proposal: &pb.Fragment{
 				Journal:          "a/journal",
 				Begin:            0,
@@ -772,23 +860,25 @@ func TestFSMPipelineRace(t *testing.T) {
 				Sum:              pb.SHA1SumOf("first"),
 				CompressionCodec: pb.CompressionCodec_SNAPPY,
 			},
+			Registers:   boxLabels(),
 			Acknowledge: true,
 		}, <-peer.ReplReqCh)
 
 		// Second append. Expect the Spool is rolled due to a first write at
 		// Begin: 0, but it is not acknowledged.
-		assert.Equal(t, &pb.ReplicateRequest{
+		assert.Equal(t, pb.ReplicateRequest{
 			Proposal: &pb.Fragment{
 				Journal:          "a/journal",
 				Begin:            5,
 				End:              5,
 				CompressionCodec: pb.CompressionCodec_SNAPPY,
 			},
+			Registers:   boxLabels(),
 			Acknowledge: false,
 		}, <-peer.ReplReqCh)
 
-		assert.Equal(t, &pb.ReplicateRequest{Content: []byte("second")}, <-peer.ReplReqCh)
-		assert.Equal(t, &pb.ReplicateRequest{
+		assert.Equal(t, pb.ReplicateRequest{Content: []byte("second")}, <-peer.ReplReqCh)
+		assert.Equal(t, pb.ReplicateRequest{
 			Proposal: &pb.Fragment{
 				Journal:          "a/journal",
 				Begin:            5,
@@ -796,11 +886,12 @@ func TestFSMPipelineRace(t *testing.T) {
 				Sum:              pb.SHA1SumOf("second"),
 				CompressionCodec: pb.CompressionCodec_SNAPPY,
 			},
+			Registers:   boxLabels(),
 			Acknowledge: true,
 		}, <-peer.ReplReqCh)
 
-		peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK} // Ack first append.
-		peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK} // Ack second.
+		peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK} // Ack first append.
+		peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK} // Ack second.
 
 		wg.Done()
 	}()
@@ -812,7 +903,9 @@ func TestFSMPipelineRace(t *testing.T) {
 	assert.Equal(t, stateFinished, fsm2.state)
 	assert.Equal(t, fsm1.clientFragment.End, fsm2.clientFragment.Begin)
 
-	peer.ErrCh <- nil // Peer closes.
+	peer.WriteLoopErrCh <- nil                              // Peer closes.
+	assert.Equal(t, context.Canceled, <-peer.ReadLoopErrCh) // Peer reads its own RPC cancellation.
+
 	broker.cleanup()
 	peer.Cleanup()
 }
@@ -833,16 +926,17 @@ func TestFSMOffsetResetFlow(t *testing.T) {
 
 	// Expect pipeline is started and synchronized exactly once.
 	go func() {
-		assert.Equal(t, &pb.ReplicateRequest{
-			Journal: "a/journal",
-			Header:  boxHeaderProcessID(res.Header, peer.id),
+		assert.Equal(t, pb.ReplicateRequest{
+			DeprecatedJournal: "a/journal",
+			Header:            boxHeaderProcessID(res.Header, peer.id),
 			Proposal: &pb.Fragment{
 				Journal:          "a/journal",
 				CompressionCodec: pb.CompressionCodec_SNAPPY,
 			},
+			Registers:   boxLabels(),
 			Acknowledge: true,
 		}, <-peer.ReplReqCh)
-		peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+		peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 	}()
 
 	// Part 1: Offset is not provided, and remote index has a fragment with larger offset.
@@ -853,21 +947,22 @@ func TestFSMOffsetResetFlow(t *testing.T) {
 
 	// Part 2: We now submit a request offset which matches the remote fragment offset.
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal", Offset: 1024}}
-	assert.True(t, fsm.runTo(stateValidateOffset))
-	fsm.onValidateOffset()
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.onValidatePreconditions()
 	fsm.onSendPipelineSync()
 
 	// Expect a proposal was sent to peer which rolls the pipeline forward,
-	assert.Equal(t, &pb.ReplicateRequest{
+	assert.Equal(t, pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            1024,
 			End:              1024,
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}, <-peer.ReplReqCh)
-	peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+	peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	// FSM proceeds as per usual from here.
 	assert.True(t, fsm.runTo(stateStreamContent))
@@ -875,8 +970,8 @@ func TestFSMOffsetResetFlow(t *testing.T) {
 	fsm.onStreamContent(&pb.AppendRequest{}, nil)
 	fsm.onStreamContent(nil, io.EOF)
 
-	assert.Equal(t, &pb.ReplicateRequest{Content: []byte("foo")}, <-peer.ReplReqCh)
-	assert.Equal(t, &pb.ReplicateRequest{
+	assert.Equal(t, pb.ReplicateRequest{Content: []byte("foo")}, <-peer.ReplReqCh)
+	assert.Equal(t, pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            1024,
@@ -884,14 +979,17 @@ func TestFSMOffsetResetFlow(t *testing.T) {
 			Sum:              pb.SHA1SumOf("foo"),
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}, <-peer.ReplReqCh)
-	peer.ReplRespCh <- &pb.ReplicateResponse{Status: pb.Status_OK}
+	peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	fsm.onReadAcknowledgements()
 	assert.Equal(t, stateFinished, fsm.state)
 
-	peer.ErrCh <- nil // Peer closes.
+	peer.WriteLoopErrCh <- nil                              // Peer closes.
+	assert.Equal(t, context.Canceled, <-peer.ReadLoopErrCh) // Peer reads its own RPC cancellation.
+
 	broker.cleanup()
 	peer.Cleanup()
 }

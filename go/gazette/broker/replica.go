@@ -134,7 +134,11 @@ func pulseDaemon(svc *Service, r *replica) {
 			// Only the primary pulses the journal. No-op.
 		} else if fsm.resolved.status == pb.Status_JOURNAL_NOT_FOUND {
 			// Journal was deleted while we waited.
-		} else if errors.Cause(fsm.err) != context.Canceled {
+		} else if errors.Cause(fsm.err) == context.Canceled {
+			// Replica is shutting down.
+		} else if errors.Cause(fsm.err) == errResolverStopped {
+			// We've been asked to stop serving local replicas.
+		} else {
 			log.WithFields(log.Fields{
 				"err":     fsm.err,
 				"status":  fsm.resolved.status,
@@ -157,9 +161,9 @@ func shutDownReplica(r *replica, done func()) {
 	var sp = <-r.spoolCh
 
 	// Roll the Spool forward to finalize & persist its current Fragment.
-	var proposal = sp.Fragment.Fragment
-	proposal.Begin, proposal.Sum = proposal.End, pb.SHA1Sum{}
-	sp.MustApply(&pb.ReplicateRequest{Proposal: &proposal})
+	var fragment = sp.Fragment.Fragment
+	fragment.Begin, fragment.Sum = fragment.End, pb.SHA1Sum{}
+	sp.MustApply(&pb.ReplicateRequest{Proposal: &fragment, Registers: &sp.Registers})
 
 	// We intentionally don't return the pipeline or spool to their channels.
 	// Cancelling the replica Context will immediately fail any current or
@@ -192,6 +196,8 @@ func updateAssignments(ctx context.Context, assignments keyspace.KeyValues, etcd
 
 	if len(ops) == 0 {
 		return 0, nil // Trivial success. No |assignment| values need to be updated.
+	} else if ctx.Err() != nil {
+		return 0, ctx.Err() // Fail-fast: gRPC writes to wire even if |ctx| is Done.
 	} else if resp, err := etcd.Txn(ctx).If(cmp...).Then(ops...).Commit(); err != nil {
 		if ctx.Err() != nil {
 			err = ctx.Err()
@@ -206,10 +212,10 @@ func updateAssignments(ctx context.Context, assignments keyspace.KeyValues, etcd
 	}
 }
 
-// nextProposal returns the next Fragment proposal to send to replication Spools,
-// which may be the |cur| Spool Fragment or may be a "rolled", empty Fragment
-// at the prior Spool End.
-func nextProposal(cur fragment.Spool, rollToOffset int64, spec pb.JournalSpec_Fragment) pb.Fragment {
+// maybeRollFragment returns either the current Fragment, or an empty Fragment
+// which has been "rolled" to an offset at or after the current Spool End,
+// and which reflects the latest |spec|.
+func maybeRollFragment(cur fragment.Spool, rollToOffset int64, spec pb.JournalSpec_Fragment) pb.Fragment {
 	var flushFragment bool
 
 	if cl := cur.ContentLength(); cl == 0 {

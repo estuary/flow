@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/fragment"
@@ -131,7 +132,7 @@ func (bk *testBroker) catchUpKeySpace() {
 }
 
 // newMockBroker returns a *teststub.Broker with an established member key.
-func newMockBroker(t assert.TestingT, etcd clientv3.KV, id pb.ProcessSpec_ID) mockBroker {
+func newMockBroker(t require.TestingT, etcd clientv3.KV, id pb.ProcessSpec_ID) mockBroker {
 	var key = allocator.MemberKey(&keyspace.KeySpace{Root: "/broker.test"}, id.Zone, id.Suffix)
 	var stub = teststub.NewBroker(t)
 

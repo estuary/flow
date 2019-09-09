@@ -42,6 +42,7 @@ type appendFSM struct {
 	plnReturnCh    chan<- *pipeline // If |pln| is owned, channel to which it must be returned. Else nil.
 	readThroughRev int64            // Etcd revision we must read through to proceed.
 	rollToOffset   int64            // Journal write offset we must synchronize on to proceed.
+	registers      pb.LabelSet      // Effective journal registers.
 	clientCommit   bool             // Did we see a commit chunk from the client?
 	clientFragment *pb.Fragment     // Journal Fragment holding the client's content.
 	clientSummer   hash.Hash        // Summer over the client's content.
@@ -49,22 +50,22 @@ type appendFSM struct {
 	err            error            // Error encountered during FSM execution.
 }
 
-type appendState string
+type appendState int8
 
 const (
-	stateResolve              appendState = ""               // 0 // Initial state.
-	stateAcquirePipeline      appendState = "acquire"        // iota
-	stateStartPipeline        appendState = "start"          // iota
-	stateSendPipelineSync     appendState = "sendSync"       // iota
-	stateRecvPipelineSync     appendState = "recvSync"       // iota
-	stateUpdateAssignments    appendState = "updateAsn"      // iota
-	stateAwaitDesiredReplicas appendState = "awaitDesired"   // iota
-	stateValidateOffset       appendState = "validateOffset" // iota
-	stateStreamContent        appendState = "streamContent"  // iota // Semi-terminal state (requires more input).
-	stateReadAcknowledgements appendState = "readAcks"       // iota
-	stateError                appendState = "termError"      // iota // Terminal state.
-	stateProxy                appendState = "mustProxy"      // iota // Terminal state.
-	stateFinished             appendState = "finished"       // iota // Terminal state.
+	stateResolve               appendState = 0 // Initial state.
+	stateAcquirePipeline       appendState = iota
+	stateStartPipeline         appendState = iota
+	stateSendPipelineSync      appendState = iota
+	stateRecvPipelineSync      appendState = iota
+	stateUpdateAssignments     appendState = iota
+	stateAwaitDesiredReplicas  appendState = iota
+	stateValidatePreconditions appendState = iota
+	stateStreamContent         appendState = iota // Semi-terminal state (requires more input).
+	stateReadAcknowledgements  appendState = iota
+	stateError                 appendState = iota // Terminal state.
+	stateProxy                 appendState = iota // Terminal state.
+	stateFinished              appendState = iota // Terminal state.
 )
 
 // run the appendFSM until a terminal state is reached. Upon state
@@ -86,21 +87,17 @@ func (b *appendFSM) run(recv func() (*pb.AppendRequest, error)) {
 	)
 
 	// Pump calls to |recv| in a goroutine, as they may block indefinitely.
-	// Note that |ctx| will be cancelled by its Append RPC returning (eg with
-	// a DeadlineExceeded error), so these don't hang around indefinitely.
-	go func(ctx context.Context) {
+	// Note that in practice |recv| is tied to the same Context as this
+	// appendFSM, so these don't hang around indefinitely.
+	go func() {
 		for {
 			var req, err = recv()
-			select {
-			case chunkCh <- appendChunk{req: req, err: err}:
-				if err != nil {
-					return
-				}
-			case <-ctx.Done():
+			chunkCh <- appendChunk{req: req, err: err}
+			if err != nil {
 				return
 			}
 		}
-	}(b.ctx)
+	}()
 
 	// Consume chunks and timer ticks. Abort if we see two ticks
 	// without an interleaving chunk.
@@ -145,8 +142,8 @@ func (b *appendFSM) runTo(state appendState) bool {
 			b.onUpdateAssignments()
 		case stateAwaitDesiredReplicas:
 			b.onAwaitDesiredReplicas()
-		case stateValidateOffset:
-			b.onValidateOffset()
+		case stateValidatePreconditions:
+			b.onValidatePreconditions()
 		case stateError, stateProxy, stateFinished, stateStreamContent:
 			return false
 		default:
@@ -245,6 +242,7 @@ func (b *appendFSM) onStartPipeline() {
 	// construction we also know that it's been synchronized. Otherwise tear
 	// down an older pipeline and start anew.
 	if b.pln != nil && b.pln.Route.Equivalent(&b.resolved.Route) {
+		b.registers.Assign(&b.pln.spool.Registers) // Init from spool registers.
 		b.state = stateUpdateAssignments
 		return
 	} else if b.pln != nil {
@@ -268,6 +266,7 @@ func (b *appendFSM) onStartPipeline() {
 		b.state = stateResolve
 		return
 	}
+	b.registers.Assign(&spool.Registers)
 
 	// Build a pipeline around |spool|. Note the pipeline Context is bound
 	// to the replica (rather than our |b.args.ctx|).
@@ -279,16 +278,18 @@ func (b *appendFSM) onStartPipeline() {
 func (b *appendFSM) onSendPipelineSync() {
 	b.mustState(stateSendPipelineSync)
 
-	var proposal = nextProposal(b.pln.spool, b.rollToOffset, b.resolved.journalSpec.Fragment)
+	var proposal = maybeRollFragment(b.pln.spool, b.rollToOffset, b.resolved.journalSpec.Fragment)
 	var req = &pb.ReplicateRequest{
 		Proposal:    &proposal,
+		Registers:   &b.registers,
 		Acknowledge: true,
 	}
 	// Iff |rollToOffset| is zero then this is our first sync of this pipeline,
-	// and we must attach a routing Journal and Header.
+	// and we must attach a Header.
+	// TODO: Remove DeprecatedJournal, which is sent for compatibility with last release.
 	if b.rollToOffset == 0 {
 		req.Header = &b.pln.Header
-		req.Journal = b.pln.spool.Journal
+		req.DeprecatedJournal = b.pln.spool.Journal
 	}
 
 	b.pln.scatter(req)
@@ -299,13 +300,14 @@ func (b *appendFSM) onSendPipelineSync() {
 func (b *appendFSM) onRecvPipelineSync() {
 	b.mustState(stateRecvPipelineSync)
 
-	b.rollToOffset, b.readThroughRev = b.pln.gatherSync()
+	var rollToRegisters *pb.LabelSet
+	b.rollToOffset, rollToRegisters, b.readThroughRev = b.pln.gatherSync()
 
 	if b.err = b.pln.recvErr(); b.err == nil {
 		b.err = b.pln.sendErr()
 	}
-	addTrace(b.ctx, "gatherSync() => %d, %d, err: %v",
-		b.rollToOffset, b.readThroughRev, b.err)
+	addTrace(b.ctx, "gatherSync() => %d, %v, %d, err: %v",
+		b.rollToOffset, rollToRegisters, b.readThroughRev, b.err)
 
 	if b.err != nil {
 		go b.pln.shutdown(true)
@@ -320,6 +322,10 @@ func (b *appendFSM) onRecvPipelineSync() {
 		// Fragment. Try again, proposing Spools roll forward to |rollToOffset|.
 		// This time all peers should agree on the new Fragment.
 		b.state = stateSendPipelineSync
+
+		if rollToRegisters != nil {
+			b.registers.Assign(rollToRegisters) // Take peer registers.
+		}
 	} else if b.readThroughRev != 0 {
 		// Peer has a non-equivalent Route at a later Etcd revision.
 		go b.pln.shutdown(false)
@@ -377,11 +383,15 @@ func (b *appendFSM) onAwaitDesiredReplicas() {
 	} else if b.resolved.ProcessId != b.resolved.localID {
 		b.state = stateProxy
 	} else {
-		b.state = stateValidateOffset
+		b.state = stateValidatePreconditions
 	}
 }
 
-// onValidateOffset verifies the next journal offset to be written.
+// onValidatePreconditions validates preconditions of the request. It ensures
+// that current registers match the request's expectation, and if not it will
+// fail the RPC with REGISTER_MISMATCH.
+//
+// It also validates next offset to be written.
 // Appended data must always be written at the furthest known journal extent.
 // Usually this will be the pipeline Spool offset. However if journal
 // consistency is lost (due to too many broker or Etcd failures), a larger
@@ -399,8 +409,8 @@ func (b *appendFSM) onAwaitDesiredReplicas() {
 //
 // Note request offsets may also be used outside of recovery, for example
 // to implement at-most-once writes.
-func (b *appendFSM) onValidateOffset() {
-	b.mustState(stateValidateOffset)
+func (b *appendFSM) onValidatePreconditions() {
+	b.mustState(stateValidatePreconditions)
 
 	// Ensure an initial refresh of the remote store(s) has completed.
 	if b.err = b.resolved.replica.index.WaitForFirstRemoteRefresh(b.ctx); b.err != nil {
@@ -414,7 +424,10 @@ func (b *appendFSM) onValidateOffset() {
 		maxOffset = eo
 	}
 
-	if b.pln.spool.End != maxOffset && b.req.Offset == 0 && b.resolved.journalSpec.Flags.MayWrite() {
+	if b.req.CheckRegisters != nil && !b.req.CheckRegisters.Matches(b.registers) {
+		b.resolved.status = pb.Status_REGISTER_MISMATCH
+		b.state = stateError
+	} else if b.pln.spool.End != maxOffset && b.req.Offset == 0 && b.resolved.journalSpec.Flags.MayWrite() {
 		b.resolved.status = pb.Status_INDEX_HAS_GREATER_OFFSET
 		b.state = stateError
 	} else if b.req.Offset != 0 && b.req.Offset != maxOffset {
@@ -441,11 +454,12 @@ func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 		// Potentially roll the Fragment forward ahead of this append. Our
 		// pipeline is synchronized, so we expect this will always succeed
 		// and don't ask for an acknowledgement.
-		var proposal = nextProposal(b.pln.spool, 0, b.resolved.journalSpec.Fragment)
+		var proposal = maybeRollFragment(b.pln.spool, 0, b.resolved.journalSpec.Fragment)
 
 		if b.pln.spool.Fragment.Fragment != proposal {
 			b.pln.scatter(&pb.ReplicateRequest{
 				Proposal:    &proposal,
+				Registers:   &b.registers,
 				Acknowledge: false,
 			})
 		}
@@ -497,24 +511,40 @@ func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 	// We've errored, or reached end-of-input for this Append stream.
 	b.clientFragment.Sum = pb.SHA1SumFromDigest(b.clientSummer.Sum(nil))
 
-	var proposal = new(pb.Fragment)
+	// Treat a requested register modification without any bytes appended as an error.
+	if err != io.EOF || b.clientFragment.ContentLength() != 0 {
+		// Pass.
+	} else if b.req.UnionRegisters != nil || b.req.SubtractRegisters != nil {
+		err = errRegisterUpdateWithEmptyAppend
+	}
+
+	var proposal pb.Fragment
+
 	if err == io.EOF && b.pln.sendErr() == nil && b.resolved.status == pb.Status_OK {
 		if !b.clientCommit {
 			panic("invariant violated: reqCommit = true")
 		}
-		// Commit the Append, by scattering the next Fragment to be committed
-		// to each peer. They will inspect & validate the Fragment locally,
-		// and commit or return an error.
-		*proposal = b.pln.spool.Next()
+		// Client request is complete. We're ready to ask each replica to commit
+		// a next fragment which includes the client content, along with any
+		// modifications to journal registers.
+		proposal = b.pln.spool.Next()
+
+		if b.req.SubtractRegisters != nil {
+			b.registers = pb.SubtractLabelSet(b.registers, *b.req.SubtractRegisters, pb.LabelSet{})
+		}
+		if b.req.UnionRegisters != nil {
+			b.registers = pb.UnionLabelSets(*b.req.UnionRegisters, b.registers, pb.LabelSet{})
+		}
 	} else {
 		// A client or peer error occurred. The pipeline is still in a good
 		// state, but any partial spooled content must be rolled back.
-		*proposal = b.pln.spool.Fragment.Fragment
+		proposal = b.pln.spool.Fragment.Fragment
 		b.err = errors.Wrap(err, "append stream") // This may be nil.
 	}
 
 	b.pln.scatter(&pb.ReplicateRequest{
-		Proposal:    proposal,
+		Proposal:    &proposal,
+		Registers:   &b.registers,
 		Acknowledge: true,
 	})
 	b.state = stateReadAcknowledgements
@@ -591,6 +621,7 @@ type appendChunk struct {
 }
 
 var (
-	errExpectedEOF          = fmt.Errorf("expected EOF after empty Content chunk")
-	errExpectedContentChunk = fmt.Errorf("expected Content chunk")
+	errExpectedEOF                   = fmt.Errorf("expected EOF after empty Content chunk")
+	errExpectedContentChunk          = fmt.Errorf("expected Content chunk")
+	errRegisterUpdateWithEmptyAppend = fmt.Errorf("register modification requires non-empty Append")
 )

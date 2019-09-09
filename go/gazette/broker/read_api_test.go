@@ -17,7 +17,7 @@ import (
 	"go.gazette.dev/core/etcdtest"
 )
 
-func TestReadStreaming(t *testing.T) {
+func TestReadStreamingCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
@@ -31,9 +31,8 @@ func TestReadStreaming(t *testing.T) {
 	// Grab the spool so we can apply fixtures we'll expect to read.
 	var spool = <-broker.replica("a/journal").spoolCh
 
-	ctx, cancel := context.WithCancel(ctx)
-
-	var stream, err = broker.client().Read(ctx,
+	var cancelCtx, cancel = context.WithCancel(ctx)
+	var stream, err = broker.client().Read(cancelCtx,
 		&pb.ReadRequest{
 			Journal:      "a/journal",
 			Offset:       0,
@@ -96,6 +95,87 @@ func TestReadStreaming(t *testing.T) {
 	cancel()
 	_, err = stream.Recv()
 	assert.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
+
+	// Case: provide an EndOffset. Expect it is honored.
+	stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "a/journal", EndOffset: 7})
+	assert.NoError(t, err)
+
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Status:    pb.Status_OK,
+		Header:    broker.header("a/journal"),
+		Offset:    0,
+		WriteHead: 13,
+		Fragment: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            0,
+			End:              13,
+			Sum:              pb.SHA1SumOf("foobarbazbing"),
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+	})
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Status:  pb.Status_OK,
+		Offset:  0,
+		Content: []byte("fooba"),
+	})
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Status:  pb.Status_OK,
+		Offset:  5,
+		Content: []byte("rb"),
+	})
+	_, err = stream.Recv()
+	assert.Equal(t, io.EOF, err) // Expect server closes.
+
+	// Case: Request EndOffset hasn't committed yet. Expect the request blocks
+	// until it does, then closes.
+	chunkSize = 20
+	stream, err = broker.client().Read(ctx, &pb.ReadRequest{
+		Journal:   "a/journal",
+		EndOffset: 14,
+		Block:     true,
+	})
+	assert.NoError(t, err)
+
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Status:    pb.Status_OK,
+		Header:    broker.header("a/journal"),
+		Offset:    0,
+		WriteHead: 13,
+		Fragment: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            0,
+			End:              13,
+			Sum:              pb.SHA1SumOf("foobarbazbing"),
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+	})
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Offset:  0,
+		Content: []byte("foobarbazbing"),
+	})
+
+	// Commit more content. Expect only the first byte is sent.
+	spool.MustApply(&pb.ReplicateRequest{Content: []byte(".!!!")})
+	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
+
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Status:    pb.Status_OK,
+		Offset:    13,
+		WriteHead: 17,
+		Fragment: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            0,
+			End:              17,
+			Sum:              pb.SHA1SumOf("foobarbazbing.!!!"),
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+	})
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Offset:  13,
+		Content: []byte("."),
+	})
+	_, err = stream.Recv()
+	assert.Equal(t, io.EOF, err) // Expect server closes.
 
 	broker.replica("a/journal").spoolCh <- spool
 	broker.cleanup()
@@ -191,22 +271,22 @@ func TestReadProxyCases(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, peer.id)
 
 	// Case: successfully proxies from peer.
-	var req = &pb.ReadRequest{
+	var req = pb.ReadRequest{
 		Journal:      "a/journal",
 		Block:        true,
 		DoNotProxy:   false,
 		MetadataOnly: false,
 	}
-	var stream, _ = broker.client().Read(ctx, req)
+	var stream, _ = broker.client().Read(ctx, &req)
 
 	// Expect initial request is proxied to the peer, with attached Header.
 	req.Header = broker.header("a/journal")
 	assert.Equal(t, req, <-peer.ReadReqCh)
 
 	// Peer responds, and broker proxies.
-	peer.ReadRespCh <- &pb.ReadResponse{Offset: 1234}
-	peer.ReadRespCh <- &pb.ReadResponse{Offset: 5678}
-	peer.ErrCh <- nil // EOF.
+	peer.ReadRespCh <- pb.ReadResponse{Offset: 1234}
+	peer.ReadRespCh <- pb.ReadResponse{Offset: 5678}
+	peer.WriteLoopErrCh <- nil // EOF.
 
 	expectReadResponse(t, stream, pb.ReadResponse{Offset: 1234})
 	expectReadResponse(t, stream, pb.ReadResponse{Offset: 5678})
@@ -214,11 +294,11 @@ func TestReadProxyCases(t *testing.T) {
 	assert.Equal(t, io.EOF, err)
 
 	// Case: proxy is not allowed.
-	req = &pb.ReadRequest{
+	req = pb.ReadRequest{
 		Journal:    "a/journal",
 		DoNotProxy: true,
 	}
-	stream, _ = broker.client().Read(ctx, req)
+	stream, _ = broker.client().Read(ctx, &req)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status: pb.Status_NOT_JOURNAL_BROKER,
@@ -228,31 +308,33 @@ func TestReadProxyCases(t *testing.T) {
 	assert.Equal(t, io.EOF, err)
 
 	// Case: remote broker returns an error.
-	req = &pb.ReadRequest{
+	req = pb.ReadRequest{
 		Journal: "a/journal",
 		Offset:  0,
 	}
-	stream, _ = broker.client().Read(ctx, req)
+	stream, _ = broker.client().Read(ctx, &req)
 
 	// Peer reads request, and returns an error.
 	_ = <-peer.ReadReqCh
-	peer.ErrCh <- errors.New("some kind of error")
+	peer.WriteLoopErrCh <- errors.New("some kind of error")
 	_, err = stream.Recv() // Broker proxies error.
 	assert.EqualError(t, err, `rpc error: code = Unknown desc = some kind of error`)
 
 	// Case: remote read is blocked, but we're signaled to stop proxying.
-	stream, _ = broker.client().Read(ctx, req)
+	stream, _ = broker.client().Read(ctx, &req)
 
 	// Peer reads request, sends one chunk and then blocks.
 	_ = <-peer.ReadReqCh
-	peer.ReadRespCh <- &pb.ReadResponse{Offset: 1234}
+	peer.ReadRespCh <- pb.ReadResponse{Offset: 1234}
 	expectReadResponse(t, stream, pb.ReadResponse{Offset: 1234})
 
-	// Cancel. Expect we immediately read EOF.
+	// Signal we should stop proxying. Expect we immediately read EOF.
 	close(broker.svc.stopProxyReadsCh)
 	_, err = stream.Recv()
 	assert.Equal(t, io.EOF, err)
+
 	broker.svc.stopProxyReadsCh = make(chan struct{}) // Cleanup.
+	peer.WriteLoopErrCh <- nil                        // Belated EOF.
 
 	broker.cleanup()
 	peer.Cleanup()
@@ -330,6 +412,31 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 	_, err = stream.Recv() // Broker closes.
 	assert.Equal(t, io.EOF, err)
 
+	// Case: blocking request is allowed to proxy, but has an EndOffset less
+	// than the resolved next fragment offset. Expect the server sends metadata
+	// for the next available fragment and then closes.
+	stream, err = broker.client().Read(pb.WithDispatchDefault(ctx),
+		&pb.ReadRequest{
+			Journal:      "a/journal",
+			Offset:       10,
+			EndOffset:    20,
+			Block:        true,
+			DoNotProxy:   false,
+			MetadataOnly: false,
+		})
+	assert.NoError(t, err)
+
+	expectReadResponse(t, stream, pb.ReadResponse{
+		Status:      pb.Status_OK,
+		Header:      broker.header("a/journal"),
+		Offset:      95,
+		WriteHead:   120,
+		Fragment:    &frag,
+		FragmentUrl: "file:///" + frag.ContentPath(),
+	})
+	_, err = stream.Recv()
+	assert.Equal(t, io.EOF, err)
+
 	broker.cleanup()
 }
 
@@ -394,6 +501,10 @@ func buildRemoteFragmentFixture(t assert.TestingT) (frag pb.Fragment, dir string
 }
 
 func boxFragment(f pb.Fragment) *pb.Fragment { return &f }
+func boxLabels(nv ...string) *pb.LabelSet {
+	var l = pb.MustLabelSet(nv...)
+	return &l
+}
 
 func expectReadResponse(t assert.TestingT, stream pb.Journal_ReadClient, expect pb.ReadResponse) {
 	var resp, err = stream.Recv()

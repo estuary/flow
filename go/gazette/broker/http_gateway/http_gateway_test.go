@@ -1,6 +1,7 @@
 package http_gateway
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,12 +128,12 @@ func (s *HTTPSuite) TestServingRead(c *gc.C) {
 	var g = NewGateway(rjc)
 
 	go func() {
-		c.Check(<-broker.ReadReqCh, gc.DeepEquals, &pb.ReadRequest{Journal: "a/journal", Offset: 123})
+		c.Check(<-broker.ReadReqCh, gc.DeepEquals, pb.ReadRequest{Journal: "a/journal", Offset: 123})
 
-		broker.ReadRespCh <- &readResponseFixture
-		broker.ReadRespCh <- &pb.ReadResponse{Content: []byte("hello, "), Offset: 1024}
-		broker.ReadRespCh <- &pb.ReadResponse{Content: []byte("world!"), Offset: 1031}
-		broker.ErrCh <- nil
+		broker.ReadRespCh <- readResponseFixture
+		broker.ReadRespCh <- pb.ReadResponse{Content: []byte("hello, "), Offset: 1024}
+		broker.ReadRespCh <- pb.ReadResponse{Content: []byte("world!"), Offset: 1031}
+		broker.WriteLoopErrCh <- nil
 	}()
 
 	var req, _ = http.NewRequest("GET", "/a/journal?offset=123", nil)
@@ -155,11 +156,12 @@ func (s *HTTPSuite) TestServingWrite(c *gc.C) {
 	var g = NewGateway(rjc)
 
 	go func() {
-		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Journal: "a/journal"})
-		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{Content: []byte("some content")})
-		c.Check(<-broker.AppendReqCh, gc.DeepEquals, &pb.AppendRequest{})
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, pb.AppendRequest{Journal: "a/journal"})
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, pb.AppendRequest{Content: []byte("some content")})
+		c.Check(<-broker.AppendReqCh, gc.DeepEquals, pb.AppendRequest{})
+		c.Check(<-broker.ReadLoopErrCh, gc.Equals, io.EOF)
 
-		broker.AppendRespCh <- &appendResponseFixture
+		broker.AppendRespCh <- appendResponseFixture
 	}()
 
 	var req, _ = http.NewRequest("PUT", "/a/journal", strings.NewReader("some content"))
@@ -217,6 +219,7 @@ var (
 			Sum:              pb.SHA1Sum{Part1: 9876},
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
+		Registers: new(pb.LabelSet),
 	}
 )
 

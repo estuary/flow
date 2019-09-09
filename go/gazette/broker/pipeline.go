@@ -80,9 +80,10 @@ func (pln *pipeline) scatter(r *pb.ReplicateRequest) {
 
 // closeSend closes the send-side of all replica connections.
 func (pln *pipeline) closeSend() {
-	// Apply a Spool commit which rolls back any partial content.
+	// Apply a proposal to our own spool which rolls back any partial content.
 	pln.spool.MustApply(&pb.ReplicateRequest{
-		Proposal: &pln.spool.Fragment.Fragment,
+		Proposal:  &pln.spool.Fragment.Fragment,
+		Registers: &pln.spool.Registers,
 	})
 	pln.returnCh <- pln.spool // Release ownership of Spool.
 
@@ -146,10 +147,13 @@ func (pln *pipeline) gatherOK() {
 	}
 }
 
-// gatherSync calls gather, extracts and returns a peer-advertised future offset
-// or etcd revision to read through relative to |proposal|, and treats any other
-// non-OK response status as an error.
-func (pln *pipeline) gatherSync() (rollToOffset, readThroughRev int64) {
+// gatherSync gathers and returns either:
+// * Zero-valued |rollToOffset|, |rollToRegisters|, & |readThroughRev| if the sync succeeded, or
+// * The largest peer |rollToOffset| which is greater than our own, & accompanying |rollToRegisters|, or
+// * The |rollToOffset| equal to our own which must be rolled to in order for a peer to participate, or
+// * An Etcd revision to read through.
+// It treats any other non-OK response status as an error.
+func (pln *pipeline) gatherSync() (rollToOffset int64, rollToRegisters *pb.LabelSet, readThroughRev int64) {
 	pln.gather()
 
 	for i, s := range pln.streams {
@@ -170,19 +174,24 @@ func (pln *pipeline) gatherSync() (rollToOffset, readThroughRev int64) {
 				pln.recvErrs[i] = fmt.Errorf("unexpected WRONG_ROUTE: %s", resp.Header)
 			}
 
-		case pb.Status_FRAGMENT_MISMATCH:
-			// If peer has an extant Spool at a greater offset, we must roll forward to it.
-			if (resp.Fragment.End > pln.spool.End) ||
-				// If the peer rolled its Spool to our offset, but does not have and
-				// therefore cannot extend Fragment content from [Begin, End), we
-				// must start a new Spool beginning at proposal.End.
-				(resp.Fragment.End == pln.spool.End && resp.Fragment.ContentLength() == 0) {
-
+		case pb.Status_PROPOSAL_MISMATCH:
+			switch {
+			case resp.Fragment.End > pln.spool.End:
+				// If peer has a fragment at a greater offset, we must roll forward to
+				// its End and adopt the peer's registers.
+				if resp.Fragment.End > rollToOffset {
+					rollToOffset, rollToRegisters = resp.Fragment.End, resp.Registers
+				}
+			case resp.Fragment.End == pln.spool.End && resp.Fragment.ContentLength() == 0:
+				// If peer rolled its fragment to our End, but it does not have and
+				// therefore cannot extend fragment content from [Begin, End), we must
+				// roll to an empty fragment at End to allow the peer to participate.
 				if resp.Fragment.End > rollToOffset {
 					rollToOffset = resp.Fragment.End
 				}
-			} else {
-				pln.recvErrs[i] = fmt.Errorf("unexpected FRAGMENT_MISMATCH: %s", resp.Fragment)
+			default:
+				pln.recvErrs[i] = fmt.Errorf("unexpected PROPOSAL_MISMATCH: %v, %v",
+					resp.Fragment, resp.Registers)
 			}
 
 		default:

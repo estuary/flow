@@ -35,13 +35,15 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 		return err
 	} else if err = req.Validate(); err != nil {
 		return err
+	} else if req.Header == nil {
+		return fmt.Errorf("expected first ReplicateRequest to have Header")
 	}
 
 	var spool fragment.Spool
 	for done := false; !done; {
 		resolved, err = svc.resolver.resolve(resolveArgs{
 			ctx:            stream.Context(),
-			journal:        req.Journal,
+			journal:        req.Proposal.Journal,
 			mayProxy:       false,
 			requirePrimary: false,
 			proxyHeader:    req.Header,
@@ -72,7 +74,10 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 	// any uncommitted content and release ownership of Spool.
 	spool, err = serveReplicate(stream, req, spool, &resolved.Header)
 
-	spool.MustApply(&pb.ReplicateRequest{Proposal: &spool.Fragment.Fragment})
+	spool.MustApply(&pb.ReplicateRequest{
+		Proposal:  &spool.Fragment.Fragment,
+		Registers: &spool.Registers,
+	})
 	resolved.replica.spoolCh <- spool
 
 	return err

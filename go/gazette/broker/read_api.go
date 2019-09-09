@@ -137,10 +137,14 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 			return err
 		}
 
-		// Return after sending Metadata if the Fragment query failed,
-		// or we were only asked to send metadata, or the Fragment is
-		// remote and we're instructed to not proxy.
-		if resp.Status != pb.Status_OK || req.MetadataOnly || file == nil && req.DoNotProxy {
+		// Return after sending Metadata if the Fragment query failed, or we
+		// were only asked to send metadata, or the Fragment is remote and we're
+		// instructed to not proxy, or if we resolved to an offset beyond the
+		// requested EndOffset.
+		if resp.Status != pb.Status_OK ||
+			req.MetadataOnly ||
+			file == nil && req.DoNotProxy ||
+			req.EndOffset != 0 && resp.Offset >= req.EndOffset {
 			return nil
 		}
 		// Note Query may have resolved or updated req.Offset. For the remainder of
@@ -166,7 +170,11 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 			if n, readErr = reader.Read(buffer); n == 0 {
 				continue
 			}
-
+			if req.EndOffset != 0 && req.EndOffset-req.Offset <= int64(n) {
+				// Send final chunk to EndOffset, then stop.
+				n = int(req.EndOffset - req.Offset)
+				readErr = io.EOF
+			}
 			if err = stream.SendMsg(&pb.ReadResponse{
 				Offset:  req.Offset,
 				Content: buffer[:n],
@@ -180,6 +188,8 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 			return readErr
 		} else if err = reader.Close(); err != nil {
 			return err
+		} else if req.EndOffset != 0 && req.Offset == req.EndOffset {
+			return nil
 		}
 
 		// Loop to query and read the next Fragment.

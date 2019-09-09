@@ -54,18 +54,23 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		metrics.CommitsTotal.WithLabelValues(metrics.Ok).Inc()
 
 		return stream.SendAndClose(&pb.AppendResponse{
-			Status: pb.Status_OK,
-			Header: fsm.resolved.Header,
-			Commit: fsm.clientFragment,
+			Status:    pb.Status_OK,
+			Header:    fsm.resolved.Header,
+			Commit:    fsm.clientFragment,
+			Registers: &fsm.registers,
 		})
 	case stateError:
 		if fsm.resolved.status != pb.Status_OK {
 			metrics.CommitsTotal.WithLabelValues(fsm.resolved.status.String()).Inc()
 
-			return stream.SendAndClose(&pb.AppendResponse{
+			var resp = &pb.AppendResponse{
 				Status: fsm.resolved.status,
 				Header: fsm.resolved.Header,
-			})
+			}
+			if fsm.resolved.status == pb.Status_REGISTER_MISMATCH {
+				resp.Registers = &fsm.registers
+			}
+			return stream.SendAndClose(resp)
 		}
 
 		var cause = errors.Cause(fsm.err)

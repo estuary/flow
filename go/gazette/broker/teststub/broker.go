@@ -2,10 +2,11 @@ package teststub
 
 import (
 	"context"
-	"io"
+	"sync"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
@@ -14,39 +15,39 @@ import (
 // Broker stubs the read and write loops of broker RPCs, routing them onto
 // channels which can be synchronously read and written within test bodies.
 type Broker struct {
-	t     assert.TestingT
+	t     require.TestingT
 	tasks *task.Group
 	srv   *server.Server
+	wg    sync.WaitGroup
 
-	ReplReqCh  chan *pb.ReplicateRequest
-	ReplRespCh chan *pb.ReplicateResponse
+	ReadLoopErrCh  chan error                // Chan from which tests read final read-loop errors.
+	WriteLoopErrCh chan error                // Chan to which tests write final write-loop error (or nil).
+	ReplReqCh      chan pb.ReplicateRequest  // Chan from which tests read ReplicateRequest.
+	ReplRespCh     chan pb.ReplicateResponse // Chan to which tests write ReplicateResponse.
+	ReadReqCh      chan pb.ReadRequest       // Chan from which tests read ReadRequest.
+	ReadRespCh     chan pb.ReadResponse      // Chan to which tests write ReadResponse.
+	AppendReqCh    chan pb.AppendRequest     // Chan from which tests read AppendRequest.
+	AppendRespCh   chan pb.AppendResponse    // Chan to which tests write AppendResponse.
 
-	ReadReqCh  chan *pb.ReadRequest
-	ReadRespCh chan *pb.ReadResponse
-
-	AppendReqCh  chan *pb.AppendRequest
-	AppendRespCh chan *pb.AppendResponse
-
-	ListFunc          func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)
-	ApplyFunc         func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)
-	ListFragmentsFunc func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error)
-
-	ErrCh chan error
+	ListFunc          func(context.Context, *pb.ListRequest) (*pb.ListResponse, error)           // List implementation.
+	ApplyFunc         func(context.Context, *pb.ApplyRequest) (*pb.ApplyResponse, error)         // Apply implementation.
+	ListFragmentsFunc func(context.Context, *pb.FragmentsRequest) (*pb.FragmentsResponse, error) // ListFragments implementation.
 }
 
-// NewBroker returns a Broker instance served by a local GRPC server.
-func NewBroker(t assert.TestingT) *Broker {
+// NewBroker returns a Broker instance served by a local gRPC server.
+func NewBroker(t require.TestingT) *Broker {
 	var p = &Broker{
-		t:            t,
-		srv:          server.MustLoopback(),
-		tasks:        task.NewGroup(context.Background()),
-		ReplReqCh:    make(chan *pb.ReplicateRequest),
-		ReplRespCh:   make(chan *pb.ReplicateResponse),
-		ReadReqCh:    make(chan *pb.ReadRequest),
-		ReadRespCh:   make(chan *pb.ReadResponse),
-		AppendReqCh:  make(chan *pb.AppendRequest),
-		AppendRespCh: make(chan *pb.AppendResponse),
-		ErrCh:        make(chan error),
+		t:              t,
+		srv:            server.MustLoopback(),
+		tasks:          task.NewGroup(context.Background()),
+		ReplReqCh:      make(chan pb.ReplicateRequest),
+		ReplRespCh:     make(chan pb.ReplicateResponse),
+		ReadReqCh:      make(chan pb.ReadRequest),
+		ReadRespCh:     make(chan pb.ReadResponse),
+		AppendReqCh:    make(chan pb.AppendRequest),
+		AppendRespCh:   make(chan pb.AppendResponse),
+		ReadLoopErrCh:  make(chan error),
+		WriteLoopErrCh: make(chan error),
 	}
 	pb.RegisterJournalServer(p.srv.GRPCServer, p)
 	p.srv.QueueTasks(p.tasks)
@@ -54,8 +55,10 @@ func NewBroker(t assert.TestingT) *Broker {
 	return p
 }
 
-// Client returns a JournalClient wrapping the GRPCLoopback.
-func (b *Broker) Client() pb.JournalClient { return pb.NewJournalClient(b.srv.GRPCLoopback) }
+// Client returns a RoutedJournalClient wrapping the GRPCLoopback.
+func (b *Broker) Client() pb.RoutedJournalClient {
+	return pb.NewRoutedJournalClient(pb.NewJournalClient(b.srv.GRPCLoopback), pb.NoopDispatchRouter{})
+}
 
 // Endpoint returns the server Endpoint.
 func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
@@ -64,6 +67,7 @@ func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
 func (b *Broker) Cleanup() {
 	b.tasks.Cancel()
 	b.srv.GRPCServer.GracefulStop()
+	b.wg.Wait() // Ensure all read loops have exited.
 	assert.NoError(b.t, b.srv.GRPCLoopback.Close())
 	assert.NoError(b.t, b.tasks.Wait())
 }
@@ -72,25 +76,25 @@ func (b *Broker) Cleanup() {
 // responses through channels ReplReqCh & ReplRespCh.
 func (b *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 	// Start a read loop of requests from |srv|.
+	b.wg.Add(1)
 	go func() {
+		defer b.wg.Done()
 		for {
-			var msg, err = srv.Recv()
-			if err == io.EOF {
-				// Pass.
-			} else if srv.Context().Err() == nil {
-				// Allow a cancellation due to Replicate returning before reading
-				// EOF, but no other errors are expected.
-				assert.NoError(b.t, err)
-			}
-
-			select {
-			case b.ReplReqCh <- msg:
-			case <-srv.Context().Done(): // RPC is complete.
-			case <-time.After(5 * time.Second):
-				panic("test didn't recv from ReplReqCh")
-			}
-
-			if err != nil {
+			if msg, err := srv.Recv(); err == nil {
+				select {
+				case b.ReplReqCh <- *msg:
+				case <-time.After(timeout):
+					require.FailNow(b.t, "test didn't recv from ReplReqCh", "msg", msg)
+				}
+			} else {
+				if srv.Context().Err() != nil {
+					err = srv.Context().Err()
+				}
+				select {
+				case b.ReadLoopErrCh <- err:
+				case <-time.After(timeout):
+					require.FailNow(b.t, "test didn't recv from ReadLoopErrCh", "err", err)
+				}
 				return
 			}
 		}
@@ -99,13 +103,11 @@ func (b *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 	for {
 		select {
 		case resp := <-b.ReplRespCh:
-			assert.NoError(b.t, srv.Send(resp))
-		case err := <-b.ErrCh:
+			assert.NoError(b.t, srv.Send(&resp))
+		case err := <-b.WriteLoopErrCh:
 			return err
-		case <-srv.Context().Done():
-			assert.FailNow(b.t, "unexpected client RPC cancellation")
-		case <-time.After(5 * time.Second):
-			panic("test didn't send to ReplRespCh or ErrCh")
+		case <-time.After(timeout):
+			require.FailNow(b.t, "test didn't send to ReplRespCh or WriteLoopErrCh")
 		}
 	}
 }
@@ -114,27 +116,24 @@ func (b *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 // through channels ReadReqCh & ReadResponseCh.
 func (b *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
 	select {
-	case b.ReadReqCh <- req:
+	case b.ReadReqCh <- *req:
 		// |req| passed to test.
-	case _ = <-srv.Context().Done():
-		return nil // Cancellation is the standard means to terminate a Read RPC.
-	case <-time.After(5 * time.Second):
-		panic("test didn't read from ReadReqCh")
+	case <-time.After(timeout):
+		require.FailNow(b.t, "test didn't read from ReadReqCh")
 	}
 
 	for {
 		select {
 		case resp := <-b.ReadRespCh:
 			// We may be sending into a cancelled context (c.f. TestReaderRetries).
-			if err := srv.Send(resp); err != nil {
-				return err
+			// Otherwise, we expect to be able to send without error.
+			if err := srv.Send(&resp); srv.Context().Err() == nil {
+				assert.NoError(b.t, err)
 			}
-		case err := <-b.ErrCh:
+		case err := <-b.WriteLoopErrCh:
 			return err
-		case _ = <-srv.Context().Done():
-			return nil
-		case <-time.After(5 * time.Second):
-			panic("test didn't send to ReadRespCh or ErrCh")
+		case <-time.After(timeout):
+			require.FailNow(b.t, "test didn't send to ReadRespCh or WriteLoopErrCh")
 		}
 	}
 }
@@ -143,25 +142,25 @@ func (b *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
 // responses through channels AppendReqCh & AppendRespCh.
 func (b *Broker) Append(srv pb.Journal_AppendServer) error {
 	// Start a read loop of requests from |srv|.
+	b.wg.Add(1)
 	go func() {
+		defer b.wg.Done()
 		for {
-			var msg, err = srv.Recv()
-			if err == io.EOF {
-				// Pass.
-			} else if srv.Context().Err() == nil {
-				// Like Replicate, allow a cancellation due to Append returning
-				// before reading EOF, but no other errors are expected.
-				assert.NoError(b.t, err)
-			}
-
-			select {
-			case b.AppendReqCh <- msg:
-			case <-srv.Context().Done(): // RPC is complete.
-			case <-time.After(5 * time.Second):
-				panic("test didn't recv from AppendReqCh")
-			}
-
-			if err != nil {
+			if msg, err := srv.Recv(); err == nil {
+				select {
+				case b.AppendReqCh <- *msg:
+				case <-time.After(timeout):
+					require.FailNow(b.t, "test didn't recv from AppendReqCh", "msg", msg)
+				}
+			} else {
+				if srv.Context().Err() != nil {
+					err = srv.Context().Err()
+				}
+				select {
+				case b.ReadLoopErrCh <- err:
+				case <-time.After(timeout):
+					require.FailNow(b.t, "test didn't recv from ReadLoopErrCh", "err", err)
+				}
 				return
 			}
 		}
@@ -170,15 +169,12 @@ func (b *Broker) Append(srv pb.Journal_AppendServer) error {
 	for {
 		select {
 		case resp := <-b.AppendRespCh:
-			assert.NoError(b.t, srv.SendAndClose(resp))
+			assert.NoError(b.t, srv.SendAndClose(&resp))
 			return nil
-		case err := <-b.ErrCh:
+		case err := <-b.WriteLoopErrCh:
 			return err
-		case <-srv.Context().Done():
-			// Cancellation is atypical but not uncommon.
-			return srv.Context().Err()
-		case <-time.After(5 * time.Second):
-			panic("test didn't send to AppendRespCh or ErrCh")
+		case <-time.After(timeout):
+			require.FailNow(b.t, "test didn't send to AppendRespCh or WriteLoopErrCh")
 		}
 	}
 }
@@ -199,3 +195,5 @@ func (b *Broker) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (*
 }
 
 func init() { pb.RegisterGRPCDispatcher("local") }
+
+const timeout = time.Second

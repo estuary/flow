@@ -182,7 +182,7 @@ func TestReplicaNextProposalCases(t *testing.T) {
 			fragment.NewSpool("a/journal", &testSpoolObserver{}),
 			pb.JournalSpec_Fragment{CompressionCodec: 1},
 		)
-		var proposal = nextProposal(spool, 0, spec)
+		var proposal = maybeRollFragment(spool, 0, spec)
 		t.Log(test.description)
 		assert.Equal(t, proposal, test.out)
 	}

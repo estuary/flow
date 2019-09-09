@@ -23,12 +23,13 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 	// Start stream & initial sync.
 	var stream, _ = broker.client().Replicate(ctx)
 	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
-		Journal: "a/journal",
-		Header:  expectHeader,
+		DeprecatedJournal: "a/journal",
+		Header:            expectHeader,
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}))
 	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK, Header: expectHeader})
@@ -49,6 +50,7 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 			Sum:              pb.SHA1SumOf("foobarbazbing"),
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers:   boxLabels("reg", "value"),
 		Acknowledge: true,
 	}))
 	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK})
@@ -73,12 +75,13 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	// Case: Resolution error (Journal not found).
 	var stream, _ = broker.client().Replicate(ctx)
 	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
-		Journal: "does/not/exist",
-		Header:  broker.header("does/not/exist"),
+		DeprecatedJournal: "does/not/exist",
+		Header:            broker.header("does/not/exist"),
 		Proposal: &pb.Fragment{
 			Journal:          "does/not/exist",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}))
 	expectReplResponse(t, stream, &pb.ReplicateResponse{
@@ -98,12 +101,13 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	wrongHeader.Route = pb.Route{Primary: -1}
 
 	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
-		Journal: "a/journal",
-		Header:  wrongHeader,
+		DeprecatedJournal: "a/journal",
+		Header:            wrongHeader,
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}))
 	expectReplResponse(t, stream, &pb.ReplicateResponse{
@@ -118,18 +122,19 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	stream, _ = broker.client().Replicate(ctx)
 
 	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
-		Journal: "a/journal",
-		Header:  broker.header("a/journal"),
+		DeprecatedJournal: "a/journal",
+		Header:            broker.header("a/journal"),
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            1234,
 			End:              5678,
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}))
 	expectReplResponse(t, stream, &pb.ReplicateResponse{
-		Status: pb.Status_FRAGMENT_MISMATCH,
+		Status: pb.Status_PROPOSAL_MISMATCH,
 		Header: broker.header("a/journal"),
 		Fragment: &pb.Fragment{
 			Journal:          "a/journal",
@@ -137,23 +142,38 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 			End:              5678,
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers: boxLabels(),
 	})
 	// |stream| remains open.
 
+	// Case: acknowledged registers don't match.
+	var proposal = pb.Fragment{
+		Journal:          "a/journal",
+		Begin:            5678,
+		End:              5678,
+		CompressionCodec: pb.CompressionCodec_NONE,
+	}
+	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+		Proposal:    &proposal,
+		Registers:   boxLabels("wrong", "register"),
+		Acknowledge: true,
+	}))
+	expectReplResponse(t, stream, &pb.ReplicateResponse{
+		Status:    pb.Status_PROPOSAL_MISMATCH,
+		Fragment:  &proposal,
+		Registers: boxLabels(),
+	})
+
 	// Case: proposal is made without Acknowledge set, and fails to apply.
 	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
-		Proposal: &pb.Fragment{
-			Journal:          "a/journal",
-			Begin:            1234,
-			End:              5678,
-			CompressionCodec: pb.CompressionCodec_NONE,
-		},
+		Proposal:    &proposal,
+		Registers:   boxLabels("still", "wrong"),
 		Acknowledge: false,
 	}))
 
 	// Expect broker closes.
 	_, err = stream.Recv()
-	assert.Regexp(t, `.* no ack requested but status != OK: status:FRAGMENT_MISMATCH .*`, err)
+	assert.Regexp(t, `.* no ack requested but status != OK: status:PROPOSAL_MISMATCH .*`, err)
 
 	broker.cleanup()
 }
@@ -177,12 +197,13 @@ func TestReplicateBlockingRestart(t *testing.T) {
 	// Case: The replica route is invalidated while the broker blocks.
 	var stream, _ = broker.client().Replicate(ctx)
 	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
-		Journal: "a/journal",
-		Header:  broker.header("a/journal"),
+		DeprecatedJournal: "a/journal",
+		Header:            broker.header("a/journal"),
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
+		Registers:   boxLabels(),
 		Acknowledge: true,
 	}))
 	// Delete one of the peer assignments, invalidating the prior route.
