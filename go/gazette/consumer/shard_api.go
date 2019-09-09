@@ -21,6 +21,7 @@ func (srv *Service) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResp
 			ShardID:     req.Shard,
 			MayProxy:    req.Header == nil, // MayProxy if request hasn't already been proxied.
 			ProxyHeader: req.Header,
+			ReadThrough: req.ReadThrough,
 		})
 	)
 	resp.Status, resp.Header = res.Status, res.Header
@@ -35,15 +36,7 @@ func (srv *Service) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResp
 	}
 	defer res.Done()
 
-	// Introspect journal consumption offsets from the store.
-	if resp.Offsets, err = res.Store.FetchJournalOffsets(); err == nil {
-		// Recoverylog & other journal writes reflecting processing through
-		// fetched offsets may still be in progress. Block on a WeakBarrier so
-		// that, when we return to the caller, they're assured that all writes
-		// related to processing through the offsets have also committed.
-		var txn = res.Store.Recorder().WeakBarrier()
-		_, err = <-txn.Done(), txn.Err()
-	}
+	resp.ReadThrough, resp.PublishAt = res.Shard.Progress()
 	return resp, err
 }
 
@@ -182,7 +175,7 @@ func (srv *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.
 
 // ListShards invokes the List RPC, and maps a validation or !OK status to an error.
 func ListShards(ctx context.Context, sc pc.ShardClient, req *pc.ListRequest) (*pc.ListResponse, error) {
-	if r, err := sc.List(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
+	if r, err := sc.List(pb.WithDispatchDefault(ctx), req, grpc.WaitForReady(true)); err != nil {
 		return r, err
 	} else if err = r.Validate(); err != nil {
 		return r, err
@@ -196,7 +189,7 @@ func ListShards(ctx context.Context, sc pc.ShardClient, req *pc.ListRequest) (*p
 // StatShard invokes the Stat RPC, and maps a validation or !OK status to an error.
 func StatShard(ctx context.Context, rc pc.RoutedShardClient, req *pc.StatRequest) (*pc.StatResponse, error) {
 	var routedCtx = pb.WithDispatchItemRoute(ctx, rc, req.Shard.String(), false)
-	if r, err := rc.Stat(routedCtx, req, grpc.FailFast(false)); err != nil {
+	if r, err := rc.Stat(routedCtx, req, grpc.WaitForReady(true)); err != nil {
 		return r, err
 	} else if err = r.Validate(); err != nil {
 		return r, err
@@ -221,25 +214,21 @@ func ApplyShards(ctx context.Context, sc pc.ShardClient, req *pc.ApplyRequest) (
 // ShardClient.Apply call. Response validation or !OK status from Apply RPC are
 // mapped to error.
 func ApplyShardsInBatches(ctx context.Context, sc pc.ShardClient, req *pc.ApplyRequest, size int) (*pc.ApplyResponse, error) {
-	if len(req.Changes) == 0 {
-		return &pc.ApplyResponse{}, nil
-	}
 	if size == 0 {
 		size = len(req.Changes)
 	}
-	var curReq = &pc.ApplyRequest{}
 	var offset = 0
 
 	for {
+		var r *pc.ApplyRequest
 		if len(req.Changes[offset:]) > size {
-			curReq.Changes = req.Changes[offset : offset+size]
+			r = &pc.ApplyRequest{Changes: req.Changes[offset : offset+size]}
 		} else {
-			curReq.Changes = req.Changes[offset:]
+			r = &pc.ApplyRequest{Changes: req.Changes[offset:]}
 		}
 
-		var resp *pc.ApplyResponse
-		var err error
-		if resp, err = sc.Apply(pb.WithDispatchDefault(ctx), curReq, grpc.WaitForReady(true)); err != nil {
+		var resp, err = sc.Apply(pb.WithDispatchDefault(ctx), r, grpc.WaitForReady(true))
+		if err != nil {
 			return resp, err
 		} else if err = resp.Validate(); err != nil {
 			return resp, err
@@ -247,8 +236,7 @@ func ApplyShardsInBatches(ctx context.Context, sc pc.ShardClient, req *pc.ApplyR
 			return resp, errors.New(resp.Status.String())
 		}
 
-		offset = offset + len(curReq.Changes)
-		if offset == len(req.Changes) {
+		if offset += len(r.Changes); offset == len(req.Changes) {
 			return resp, nil
 		}
 	}
@@ -256,7 +244,7 @@ func ApplyShardsInBatches(ctx context.Context, sc pc.ShardClient, req *pc.ApplyR
 
 // FetchHints invokes the Hints RPC, and maps a validation or !OK status to an error.
 func FetchHints(ctx context.Context, sc pc.ShardClient, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
-	if r, err := sc.GetHints(pb.WithDispatchDefault(ctx), req, grpc.FailFast(false)); err != nil {
+	if r, err := sc.GetHints(pb.WithDispatchDefault(ctx), req, grpc.WaitForReady(true)); err != nil {
 		return r, err
 	} else if err = r.Validate(); err != nil {
 		return r, err

@@ -11,29 +11,30 @@ import (
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/keyspace"
 )
 
-// Resolver maps shards to responsible consumer processes, and manages the set
-// of local shard Replicas which are assigned to the local ConsumerSpec.
+// Resolver maps ShardIDs to responsible consumer processes, and manages the set
+// of local shards which are assigned to this process.
 type Resolver struct {
 	state *allocator.State
-	// Set of local replicas known to this Resolver. Nil iff
+	// Set of local shards known to this Resolver. Nil iff
 	// stopServingLocalReplicas() has been called.
-	replicas map[pc.ShardID]*Replica
-	// newReplica builds a new local replica instance.
-	newReplica func() *Replica
-	// wg synchronizes over all running local replicas.
+	shards map[pc.ShardID]*shard
+	// newShard builds a new local shard instance.
+	newShard func(keyspace.KeyValue) *shard
+	// wg synchronizes over all running local shards.
 	wg sync.WaitGroup
 }
 
 // NewResolver returns a Resolver derived from the allocator.State, which
-// will use the |newReplica| closure to instantiate Replicas for Assignments
-// of the local ConsumerSpec.
-func NewResolver(state *allocator.State, newReplica func() *Replica) *Resolver {
+// will use the |newShard| closure to instantiate a *shard for each local
+// Assignment of the local ConsumerSpec.
+func NewResolver(state *allocator.State, newShard func(keyspace.KeyValue) *shard) *Resolver {
 	var r = &Resolver{
-		state:      state,
-		newReplica: newReplica,
-		replicas:   make(map[pc.ShardID]*Replica),
+		state:    state,
+		newShard: newShard,
+		shards:   make(map[pc.ShardID]*shard),
 	}
 	state.KS.Mu.Lock()
 	state.KS.Observers = append(state.KS.Observers, r.updateResolutions)
@@ -50,6 +51,10 @@ type ResolveArgs struct {
 	MayProxy bool
 	// Optional Header attached to the request from a proxy-ing peer.
 	ProxyHeader *pb.Header
+	// ReadThrough is journals and offsets which must be reflected in a
+	// completed transaction before Resolve returns, blocking if required.
+	// Offsets of journals not read by this shard are ignored.
+	ReadThrough pb.Offsets
 }
 
 // Resolution result of a ShardID.
@@ -150,42 +155,72 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 		// (since we authored the error response).
 		res.Header.ProcessId = localID
 	} else if res.Header.ProcessId == localID {
-		if r.replicas == nil {
+		if r.shards == nil {
 			err = ErrResolverStopped
 			return
 		}
-		// Attach the local replica, blocking on its Store being ready and
-		// incrementing its WaitGroup prior to return.
-		var replica, ok = r.replicas[args.ShardID]
+
+		var shard, ok = r.shards[args.ShardID]
 		if !ok {
-			panic("expected replica for shard " + args.ShardID.String())
+			panic("expected local shard for ID " + args.ShardID.String())
 		}
 
-		ks.Mu.RUnlock() // We no longer require |ks|; don't hold the lock while we select.
+		ks.Mu.RUnlock() // We no longer require |ks|; don't hold the lock.
 		ks = nil
 
+		// |shard| is the assigned primary, but it may still be recovering.
+		// Block until |storeReadyCh| is select-able.
 		select {
-		case <-replica.storeReadyCh:
+		case <-shard.storeReadyCh:
 			// Pass.
 		default:
 			addTrace(args.Context, " ... still recovering; must wait for storeReadyCh to resolve")
 			select {
-			case <-replica.storeReadyCh:
+			case <-shard.storeReadyCh:
 				// Pass.
 			case <-args.Context.Done():
 				err = args.Context.Err()
 				return
-			case <-replica.ctx.Done():
-				err = replica.ctx.Err()
+			case <-shard.ctx.Done():
+				err = shard.ctx.Err()
 				return
 			}
-			addTrace(args.Context, "<-replica.storeReadyCh")
+			addTrace(args.Context, "<-shard.storeReadyCh")
 		}
 
-		replica.wg.Add(1)
-		res.Shard = replica
-		res.Store = replica.store
-		res.Done = replica.wg.Done
+		// Ensure args.ReadThrough are satisfied, blocking if required.
+		for {
+			var ch chan struct{}
+
+			shard.progress.Lock()
+			for j, o := range args.ReadThrough {
+				if a, ok := shard.progress.readThrough[j]; ok && a < o {
+					addTrace(args.Context, " ... journal %s at read offset %d, but want at least %d", j, a, o)
+					ch = shard.progress.signalCh
+				}
+			}
+			shard.progress.Unlock()
+
+			if ch == nil {
+				break // All args.ReadThrough are satisfied.
+			}
+
+			select {
+			case <-ch:
+				// Pass.
+			case <-args.Context.Done():
+				err = args.Context.Err()
+				return
+			case <-shard.ctx.Done():
+				err = shard.ctx.Err()
+				return
+			}
+		}
+
+		shard.wg.Add(1)
+		res.Shard = shard
+		res.Store = shard.store
+		res.Done = shard.wg.Done
 	}
 
 	addTrace(args.Context, "resolve(%s) => %s, header: %s, shard: %t",
@@ -194,54 +229,53 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	return
 }
 
-// updateResolutions updates |replicas| to match LocalItems, creating,
+// updateResolutions updates |shards| to match LocalItems, creating,
 // transitioning, and cancelling Replicas as needed. The KeySpace
 // lock must be held.
 func (r *Resolver) updateResolutions() {
-	if r.replicas == nil {
-		return // We've stopped serving local replicas.
+	if r.shards == nil {
+		return // We've stopped serving local shards.
 	}
-	var next = make(map[pc.ShardID]*Replica, len(r.state.LocalItems))
+	var next = make(map[pc.ShardID]*shard, len(r.state.LocalItems))
 
 	for _, li := range r.state.LocalItems {
-		var item = li.Item.Decoded.(allocator.Item)
 		var assignment = li.Assignments[li.Index]
-		var id = pc.ShardID(item.ID)
+		var id = pc.ShardID(li.Item.Decoded.(allocator.Item).ID)
 
-		var replica, ok = r.replicas[id]
+		var shard, ok = r.shards[id]
 		if !ok {
 			r.wg.Add(1)
-			replica = r.newReplica() // Newly assigned shard.
+			shard = r.newShard(li.Item) // Newly assigned shard.
 		} else {
-			delete(r.replicas, id) // Move from |r.replicas| to |next|.
+			delete(r.shards, id) // Move from |r.shards| to |next|.
 		}
-		next[id] = replica
-		transition(replica, item.ItemValue.(*pc.ShardSpec), assignment)
+		next[id] = shard
+		transition(shard, li.Item, assignment)
 	}
 
-	var prev = r.replicas
-	r.replicas = next
+	var prev = r.shards
+	r.shards = next
 
 	// Any remaining Replicas in |prev| were not in LocalItems.
-	r.cancelReplicas(prev)
+	r.cancelShards(prev)
 }
 
 // stopServingLocalReplicas begins immediate shutdown of any & all local
-// replicas, and causes future attempts to resolve to local replicas to
+// shards, and causes future attempts to resolve to local shards to
 // return an error.
-func (r *Resolver) stopServingLocalReplicas() {
+func (r *Resolver) stopServingLocalShards() {
 	r.state.KS.Mu.Lock()
 	defer r.state.KS.Mu.Unlock()
 
-	r.cancelReplicas(r.replicas)
-	r.replicas = nil
+	r.cancelShards(r.shards)
+	r.shards = nil
 }
 
-func (r *Resolver) cancelReplicas(m map[pc.ShardID]*Replica) {
-	for _, replica := range m {
-		log.WithField("id", replica.spec.Id).Info("stopping local shard replica")
-		replica.cancel()
-		go replica.waitAndTearDown(r.wg.Done)
+func (r *Resolver) cancelShards(m map[pc.ShardID]*shard) {
+	for id, shard := range m {
+		log.WithField("id", id).Info("stopping local shard")
+		shard.cancel()
+		go waitAndTearDown(shard, r.wg.Done)
 	}
 }
 
@@ -251,16 +285,16 @@ func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 		err = nil
 	}
 
-	r.stopServingLocalReplicas()
-	r.wg.Wait() // Wait for all replica shutdowns to complete.
+	r.stopServingLocalShards()
+	r.wg.Wait() // Wait for all shards shutdowns to complete.
 	return err
 }
 
 // ErrResolverStopped is returned by Resolver if a ShardID resolves to a local
-// replica, but the Resolver has already been asked to stop serving local
-// replicas. This happens when the consumer is shutting down abnormally (eg, due
+// shard, but the Resolver has already been asked to stop serving local
+// shards. This happens when the consumer is shutting down abnormally (eg, due
 // to Etcd lease keep-alive failure) but its local KeySpace doesn't reflect a
 // re-assignment of the Shard, and we therefore cannot hope to proxy. Resolve
 // fails in this case to encourage the immediate completion of related RPCs,
 // as we're probably also trying to drain the gRPC server.
-var ErrResolverStopped = errors.New("resolver has stopped serving local replicas")
+var ErrResolverStopped = errors.New("resolver has stopped serving local shards")

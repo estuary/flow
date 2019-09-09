@@ -6,6 +6,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 	"golang.org/x/net/trace"
@@ -16,14 +17,16 @@ import (
 // It drives local shard processing in response to allocator.State,
 // powers shard resolution, and is also an implementation of ShardServer.
 type Service struct {
+	// Application served by the Service.
+	App Application
 	// Resolver of Service shards.
 	Resolver *Resolver
 	// Distributed allocator state of the service.
 	State *allocator.State
 	// Loopback connection which defaults to the local server, but is wired with
-	// a protocol.DispatchBalancer. Consumer applications may use Loopback to
-	// proxy application-specific RPCs to peer consumer instances, after
-	// performing shard resolution.
+	// a pb.DispatchBalancer. Consumer applications may use Loopback to proxy
+	// application-specific RPCs to peer consumer instance, after performing
+	// shard resolution.
 	Loopback *grpc.ClientConn
 	// Journal client for use by consumer applications.
 	Journals pb.RoutedJournalClient
@@ -36,25 +39,27 @@ type Service struct {
 
 // NewService constructs a new Service of the Application, driven by allocator.State.
 func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalClient, lo *grpc.ClientConn, etcd *clientv3.Client) *Service {
-	return &Service{
-		Resolver:   NewResolver(state, func() *Replica { return NewReplica(app, state.KS, etcd, rjc) }),
+	var svc = &Service{
+		App:        app,
 		State:      state,
 		Loopback:   lo,
 		Journals:   rjc,
 		Etcd:       etcd,
 		stoppingCh: make(chan struct{}),
 	}
+	svc.Resolver = NewResolver(state, func(item keyspace.KeyValue) *shard { return newShard(svc, item) })
+	return svc
 }
 
 // Watch the Service KeySpace and serve any local assignments
 // reflected therein, until the Context is cancelled or an error occurs.
-// Watch shuts down all local replicas prior to return regardless of
+// Watch shuts down all local shards prior to return regardless of
 // error status.
 func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server) {
 	var watchCtx, watchCancel = context.WithCancel(context.Background())
 
-	// Watch the Service KeySpace and manage local shard replicas reflecting
-	// the assignments of this consumer. Upon task completion, all replicas
+	// Watch the Service KeySpace and manage local shard shards reflecting
+	// the assignments of this consumer. Upon task completion, all shards
 	// have been fully torn down.
 	tasks.Queue("service.Watch", func() error {
 		return svc.Resolver.watch(watchCtx, svc.Etcd)
@@ -68,11 +73,11 @@ func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server) {
 		// Signal the application that long-lived RPCs should stop,
 		// so that our gRPC server may gracefully drain all ongoing RPCs.
 		close(svc.stoppingCh)
-		// Similarly, ensure all local replicas are stopped. Under nominal
+		// Similarly, ensure all local shards are stopped. Under nominal
 		// shutdown the allocator would already assure this, but if we're in the
 		// process of crashing (eg due to Etcd partition) there may be remaining
-		// local replicas. Stopping them also cancels any related RPCs.
-		svc.Resolver.stopServingLocalReplicas()
+		// local shards. Stopping them also cancels any related RPCs.
+		svc.Resolver.stopServingLocalShards()
 
 		server.GRPCServer.GracefulStop()
 
