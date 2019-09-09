@@ -1,10 +1,8 @@
 package stream_sum
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"testing"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
-	"go.gazette.dev/core/message"
 )
 
 type StreamSumSuite struct{}
@@ -36,12 +33,6 @@ func (s *StreamSumSuite) TestUpdateSumCases(c *gc.C) {
 			Sum{SeqNo: 1, Value: 0x2be55fc66a381c84}},
 		{Chunk{SeqNo: 2, Data: []byte(" horse")}, Sum{SeqNo: 1, Value: 0x2be55fc66a381c84},
 			Sum{SeqNo: 2, Value: 0xae763109c1192ed6}},
-
-		// Replays of earlier SeqNo don't update the sum.
-		{Chunk{SeqNo: 1, Data: []byte("battery")}, Sum{SeqNo: 2, Value: 0xae763109c1192ed6},
-			Sum{SeqNo: 2, Value: 0xae763109c1192ed6}},
-		{Chunk{SeqNo: 2, Data: []byte(" horse")}, Sum{SeqNo: 2, Value: 0xae763109c1192ed6},
-			Sum{SeqNo: 2, Value: 0xae763109c1192ed6}},
 	} {
 		tc.Chunk.ID, tc.in.ID, tc.expect.ID = id, id, id
 
@@ -51,7 +42,7 @@ func (s *StreamSumSuite) TestUpdateSumCases(c *gc.C) {
 		c.Check(tc.in, gc.Equals, tc.expect)
 	}
 
-	// Expect a skipped SeqNo produces an error.
+	// Expect a mismatched SeqNo produces an error.
 	var sum = Sum{ID: id, SeqNo: 2, Value: 0xfeedbeef}
 	var done, err = sum.Update(Chunk{ID: id, SeqNo: 4, Data: []byte("foo")})
 	c.Check(err, gc.ErrorMatches, "invalid chunk.SeqNo .*")
@@ -109,29 +100,22 @@ func (s *StreamSumSuite) TestGeneratePumpAndVerify(c *gc.C) {
 	// Wire together each of |generate|, |verify|, and |pumpSums|. Use a tee and
 	// io.Pipe to duplex sums for verification to |teeCh| and the |pumpSums| reader.
 	var chunkCh = make(chan Chunk)
-	var verifyCh = make(chan Sum)
 	var teeCh = make(chan Sum)
+	var verifyCh = make(chan Sum)
 	var actualCh = make(chan Sum)
 
-	var pr, pw = io.Pipe()
-
-	go func(in <-chan Sum, out chan<- Sum, w io.WriteCloser) {
-		defer close(out)
-		defer w.Close()
-
-		var bw = bufio.NewWriter(w)
-
+	go func(in <-chan Sum, outs ...chan<- Sum) {
 		for sum := range in {
-			// Marshal |sum| into the io.Writer.
-			c.Check(message.JSONFraming.Marshal(sum, bw), gc.IsNil)
-			c.Check(bw.Flush(), gc.IsNil)
-			out <- sum
+			for _, out := range outs {
+				out <- sum
+			}
 		}
+		for _, out := range outs {
+			close(out)
+		}
+	}(teeCh, verifyCh, actualCh)
 
-	}(verifyCh, teeCh, pw)
-
-	go pumpSums(bufio.NewReader(pr), actualCh)
-	go generate(nStreams, nChunks, verifyCh, chunkCh)
+	go generate(nStreams, nChunks, teeCh, chunkCh)
 
 	var allStreams = make(map[StreamID]struct{})
 	var allChunks int
@@ -139,7 +123,7 @@ func (s *StreamSumSuite) TestGeneratePumpAndVerify(c *gc.C) {
 	verify(func(chunk Chunk) {
 		allStreams[chunk.ID] = struct{}{}
 		allChunks++
-	}, chunkCh, teeCh, actualCh, time.Minute)
+	}, chunkCh, verifyCh, actualCh, time.Minute)
 
 	// Expect we saw |nStreams| streams each with |nChunks| chunks (plus 1 for EOF).
 	c.Check(allStreams, gc.HasLen, nStreams)
@@ -158,9 +142,6 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	brokertest.CreateJournals(c, broker, testJournals...)
 
 	// Start and serve a consumer, and create shard fixtures.
-	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
-	defer cancel()
-
 	var cmr = consumertest.NewConsumer(consumertest.Args{
 		C:        c,
 		Etcd:     etcd,
@@ -177,9 +158,11 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	cfg.Chunker.Chunks = 10
 	cfg.Chunker.Delay = time.Minute
 
+	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
 	c.Check(GenerateAndVerifyStreams(ctx, &cfg), gc.IsNil)
 
 	// Shutdown.
+	cancel()
 	cmr.Tasks.Cancel()
 	c.Check(cmr.Tasks.Wait(), gc.IsNil)
 	broker.Tasks.Cancel()

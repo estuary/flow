@@ -166,8 +166,8 @@ func getLag(spec pc.ShardSpec, rsc pc.RoutedShardClient, rjc pb.RoutedJournalCli
 	var statResp, err = consumer.StatShard(ctx, rsc, &statReq)
 	mbp.Must(err, "failed to stat shard")
 
-	var out = make([]string, 0, len(statResp.Offsets))
-	for journal, offset := range statResp.Offsets {
+	var out = make([]string, 0, len(statResp.ReadThrough))
+	for journal, offset := range statResp.ReadThrough {
 		var readReq = pb.ReadRequest{
 			Journal: pb.Journal(journal),
 			Offset:  -1,

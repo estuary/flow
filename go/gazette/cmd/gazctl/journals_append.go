@@ -163,7 +163,7 @@ func (cmd *cmdJournalAppend) Execute([]string) error {
 	case "rendezvous":
 		cmd.mapping = message.RendezvousMapping(byteMappingFunc, list.List)
 	case "direct":
-		cmd.mapping = func(msg message.Message) (journal pb.Journal, _ message.Framing, err error) {
+		cmd.mapping = func(msg message.Mappable) (journal pb.Journal, _ message.Framing, err error) {
 			journal = pb.Journal(msg.([]byte))
 
 			var all = list.List().Journals
@@ -179,10 +179,11 @@ func (cmd *cmdJournalAppend) Execute([]string) error {
 	}
 
 	cmd.appendSvc = client.NewAppendService(ctx, rjc)
-	err = cmd.process(input)
-	client.WaitForPendingAppends(cmd.appendSvc.PendingExcept(""))
+	mbp.Must(cmd.process(input), "failed to process record stream")
 
-	mbp.Must(err, "failed to process record stream")
+	for op := range cmd.appendSvc.PendingExcept("") {
+		mbp.Must(op.Err(), "failed to flush remaining appends")
+	}
 	return nil
 }
 
@@ -219,7 +220,7 @@ func (cmd *cmdJournalAppend) process(r *bufio.Reader) error {
 			return errors.WithMessage(err, "unpacking record")
 		}
 
-		var aa = cmd.appendSvc.StartAppend(journal)
+		var aa = cmd.appendSvc.StartAppend(pb.AppendRequest{Journal: journal}, nil)
 		_, _ = aa.Writer().Write(b)
 		if err = aa.Release(); err != nil {
 			return errors.WithMessage(err, "starting append")
@@ -265,4 +266,4 @@ func (b *unmarshalBytes) Unmarshal(o []byte) error {
 
 // byteMappingFunc expects and passes-through []byte messages. The key unpackers
 // uphold this expectation.
-func byteMappingFunc(m message.Message, b []byte) []byte { return append(b, m.([]byte)...) }
+func byteMappingFunc(m message.Mappable, w io.Writer) { _, _ = w.Write(m.([]byte)) }

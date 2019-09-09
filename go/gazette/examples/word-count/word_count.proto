@@ -10,8 +10,9 @@ option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
 message NGramCount {
-  string n_gram = 1 [(gogoproto.casttype) = "NGram"];
-  uint64 count = 2;
+  bytes uuid = 1;
+  string n_gram = 2 [(gogoproto.casttype) = "NGram"];
+  uint64 count = 3;
 }
 
 message PublishRequest {

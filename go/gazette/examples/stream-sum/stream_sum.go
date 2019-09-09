@@ -16,7 +16,6 @@
 package stream_sum
 
 import (
-	"bufio"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -64,28 +63,35 @@ type StreamID [16]byte
 
 // Chunk is an ordered slice of stream content.
 type Chunk struct {
+	UUID  message.UUID
 	ID    StreamID // Unique ID of the stream.
 	SeqNo int      // Monotonic sequence number, starting from 1.
 	Data  []byte   // Raw data included in the Value. If empty, this is the stream's final chunk.
 }
 
+func (c *Chunk) SetUUID(uuid message.UUID)                     { c.UUID = uuid }
+func (c *Chunk) GetUUID() message.UUID                         { return c.UUID }
+func (c *Chunk) NewAcknowledgement(pb.Journal) message.Message { return new(Chunk) }
+
 // Sum represents a partial or final CRC64 sum of a stream.
 type Sum struct {
+	UUID  message.UUID
 	ID    StreamID // Unique ID of the stream.
 	SeqNo int      // SeqNo of last Chunk summed over.
 	Value uint64   // Computed sum through SeqNo.
 }
 
+func (s *Sum) SetUUID(uuid message.UUID)                     { s.UUID = uuid }
+func (s *Sum) GetUUID() message.UUID                         { return s.UUID }
+func (s *Sum) NewAcknowledgement(pb.Journal) message.Message { return new(Sum) }
+
 // Update folds a Chunk into this Sum, returning whether this is the last Chunk of the Stream.
-// Update requires that SeqNo be totally ordered, however replays of previous SeqNo are ignored.
 func (s *Sum) Update(chunk Chunk) (done bool, err error) {
-	if chunk.SeqNo <= s.SeqNo {
-		return false, nil // Replay of older message. Ignore.
-	} else if chunk.SeqNo > s.SeqNo+1 {
+	if chunk.ID != s.ID {
+		return true, fmt.Errorf("invalid chunk.ID (%x; sum.ID %x)", chunk.ID, s.ID)
+	} else if chunk.SeqNo != s.SeqNo+1 {
 		return true, fmt.Errorf("invalid chunk.SeqNo (%d; sum.SeqNo %d; id %x)",
 			chunk.SeqNo, s.SeqNo, chunk.ID)
-	} else if chunk.ID != s.ID {
-		return true, fmt.Errorf("invalid chunk.ID (%x; sum.ID %x)", chunk.ID, s.ID)
 	}
 
 	s.SeqNo = chunk.SeqNo
@@ -106,7 +112,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 
 	// Issue an empty append transaction (a write barrier) to determine the
 	// current write-head of the |FinalSumsJournal|, prior to emitting any chunks.
-	var barrier = as.StartAppend(FinalSumsJournal)
+	var barrier = as.StartAppend(pb.AppendRequest{Journal: FinalSumsJournal}, nil)
 	if err = barrier.Release(); err == nil {
 		_, err = <-barrier.Done(), barrier.Err()
 	}
@@ -125,12 +131,24 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 	var verifyCh = make(chan Sum)
 	var actualCh = make(chan Sum)
 
-	go pumpSums(bufio.NewReader(rr), actualCh)
+	var clock = message.NewClock(time.Now())
+	var pub = message.NewPublisher(as, &clock)
+
+	var ticker = time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	go pumpSums(rr, actualCh)
 	go generate(cfg.Chunker.Streams, cfg.Chunker.Chunks, verifyCh, chunkCh)
 
 	verify(func(chunk Chunk) {
-		var _, err2 = message.Publish(as, chunksMapping, &chunk)
-		mbp.Must(err2, "publishing chunk")
+		select {
+		case t := <-ticker.C:
+			clock.Update(t)
+		default:
+			// Pass.
+		}
+		var _, err = pub.PublishCommitted(chunksMapping, &chunk)
+		mbp.Must(err, "publishing chunk")
 	}, chunkCh, verifyCh, actualCh, cfg.Chunker.Delay)
 
 	return nil
@@ -147,8 +165,8 @@ func (Summer) NewConfig() runconsumer.Config { return new(struct{ runconsumer.Ba
 func (Summer) InitApplication(args runconsumer.InitArgs) error { return nil }
 
 // NewStore builds a RocksDB store for the Shard. consumer.Application implementation.
-func (Summer) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var rdb = store_rocksdb.NewStore(rec, dir)
+func (Summer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
+	var rdb = store_rocksdb.NewStore(rec)
 	rdb.Cache = make(map[StreamID]Sum)
 	return rdb, rdb.Open()
 }
@@ -159,7 +177,7 @@ func (Summer) NewMessage(*pb.JournalSpec) (message.Message, error) { return new(
 // ConsumeMessage folds a Chunk into its respective partial stream sum.
 // If the Chunk represents a stream EOF, it emits a final sum.
 // consumer.Application implementation.
-func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope) error {
+func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, pub *message.Publisher) error {
 	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[StreamID]Sum)
 	var chunk = env.Message.(*Chunk)
@@ -181,7 +199,7 @@ func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env mes
 		log.WithFields(log.Fields{"err": err, "id": chunk.ID}).Fatal("updating record")
 	} else if done {
 		// Publish completed sum.
-		if _, err = message.Publish(shard.JournalClient(), finalSumsMapping, &sum); err != nil {
+		if err = pub.PublishUncommitted(finalSumsMapping, &sum); err != nil {
 			log.WithFields(log.Fields{"err": err, "id": sum.ID}).Fatal("publishing sum")
 		}
 	}
@@ -194,7 +212,7 @@ func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env mes
 
 // FinalizeTxn marshals partial stream sums to the |store| to ensure persistence
 // across consumer transactions. consumer.Application implementation.
-func (Summer) FinalizeTxn(shard consumer.Shard, store consumer.Store) error {
+func (Summer) FinalizeTxn(shard consumer.Shard, store consumer.Store, _ *message.Publisher) error {
 	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[StreamID]Sum)
 
@@ -275,7 +293,6 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 				chunkCh = nil
 				continue
 			}
-
 			emit(chunk)
 
 		case expect, ok := <-verifyCh:
@@ -297,8 +314,9 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 				}
 
 				if actual.ID == expect.ID {
-					if actual != expect {
-						log.WithFields(log.Fields{"actual": actual, "expect": expect}).Fatal("mis-matched sum!")
+					if actual.SeqNo != expect.SeqNo || actual.Value != expect.Value {
+						log.WithFields(log.Fields{"actual": actual, "expect": expect}).
+							Fatal("mis-matched sum!")
 					}
 
 					if !timer.Stop() {
@@ -311,19 +329,19 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 	}
 }
 
-// pumpSums reads Sum messages from the Reader, and dispatches to |ch|.
-func pumpSums(br *bufio.Reader, ch chan<- Sum) {
-	for {
-		var sum Sum
+// pumpSums reads committed Sum messages from the RetryReader, and dispatches to |ch|.
+func pumpSums(rr *client.RetryReader, ch chan<- Sum) {
+	var it = message.NewReadCommittedIter(rr,
+		func(spec *pb.JournalSpec) (i message.Message, e error) { return new(Sum), nil },
+		message.NewSequencer(nil, 16))
 
-		if b, err := message.JSONFraming.Unpack(br); err == context.Canceled || err == io.EOF {
+	for {
+		if env, err := it.Next(); errors.Cause(err) == context.Canceled || err == io.EOF {
 			return
 		} else if err != nil {
-			log.WithField("err", err).Fatal("unpacking frame")
-		} else if err = message.JSONFraming.Unmarshal(b, &sum); err != nil {
-			log.WithField("err", err).Fatal("failed to Unmarshal Sum")
-		} else {
-			ch <- sum
+			log.WithField("err", err).Fatal("reading sum")
+		} else if message.GetFlags(env.GetUUID()) != message.Flag_ACK_TXN {
+			ch <- *env.Message.(*Sum)
 		}
 	}
 }
@@ -336,14 +354,14 @@ func newChunkMapping(ctx context.Context, jc pb.JournalClient) (message.MappingF
 		}}); err != nil {
 		return nil, err
 	} else {
-		return message.ModuloMapping(func(m message.Message, b []byte) []byte {
-			return append(b, m.(*Chunk).ID[:]...)
+		return message.ModuloMapping(func(m message.Mappable, w io.Writer) {
+			_, _ = w.Write(m.(*Chunk).ID[:])
 		}, chunkParts.List), nil
 	}
 }
 
 // finalSumsMapping is a MappingFunc to FinalSumsJournal.
-var finalSumsMapping message.MappingFunc = func(msg message.Message) (pb.Journal, message.Framing, error) {
+var finalSumsMapping message.MappingFunc = func(msg message.Mappable) (pb.Journal, message.Framing, error) {
 	return FinalSumsJournal, message.JSONFraming, nil
 }
 

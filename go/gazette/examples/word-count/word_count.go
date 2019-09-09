@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode"
@@ -28,6 +29,10 @@ import (
 // NGram is a string of N space-delimited tokens, where N is fixed.
 type NGram string
 
+func (c *NGramCount) GetUUID() (uuid message.UUID)                  { copy(uuid[:], c.Uuid); return }
+func (c *NGramCount) SetUUID(uuid message.UUID)                     { c.Uuid = uuid[:] }
+func (c *NGramCount) NewAcknowledgement(pb.Journal) message.Message { return new(NGramCount) }
+
 // Counter consumes NGramCount messages and aggregates total counts of each NGram.
 // It also provides gRPC APIs for publishing text and querying NGram counts. It
 // implements the following interfaces:
@@ -37,7 +42,7 @@ type Counter struct {
 	svc     *consumer.Service
 	n       int
 	mapping message.MappingFunc
-	ajc     client.AsyncJournalClient
+	pub     *message.Publisher
 }
 
 // counterConfig is the configuration used by Counter.
@@ -70,11 +75,9 @@ func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 
 	// Fill out the Counter instance with fields used by the gRPC API.
 	counter.svc = args.Service
-	counter.ajc = client.NewAppendService(args.Context, args.Service.Journals)
+	counter.pub = message.NewPublisher(client.NewAppendService(args.Context, args.Service.Journals), nil)
 	counter.mapping = message.ModuloMapping(
-		func(m message.Message, b []byte) []byte {
-			return append(b, m.(*NGramCount).NGram[:]...)
-		},
+		func(m message.Mappable, w io.Writer) { _, _ = w.Write([]byte(m.(*NGramCount).NGram)) },
 		parts.List,
 	)
 	counter.n = N
@@ -85,8 +88,8 @@ func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 
 // NewStore builds a RocksDB store for the Shard.
 // Implements consumer.Application.
-func (Counter) NewStore(shard consumer.Shard, dir string, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var rdb = store_rocksdb.NewStore(rec, dir)
+func (Counter) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
+	var rdb = store_rocksdb.NewStore(rec)
 	rdb.Cache = make(map[NGram]uint64)
 	return rdb, rdb.Open()
 }
@@ -97,7 +100,7 @@ func (Counter) NewMessage(*pb.JournalSpec) (message.Message, error) { return new
 
 // ConsumeMessage folds an NGramCount into its respective running NGram count.
 // Implements consumer.Application.
-func (Counter) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope) error {
+func (Counter) ConsumeMessage(_ consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
 	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[NGram]uint64)
 
@@ -123,7 +126,7 @@ func (Counter) ConsumeMessage(shard consumer.Shard, store consumer.Store, env me
 // FinalizeTxn marshals in-memory NGram counts to the |store|, ensuring persistence
 // across consumer transactions.
 // Implements consumer.Application.
-func (Counter) FinalizeTxn(shard consumer.Shard, store consumer.Store) error {
+func (Counter) FinalizeTxn(_ consumer.Shard, store consumer.Store, _ *message.Publisher) error {
 	var rdb = store.(*store_rocksdb.Store)
 	var cache = rdb.Cache.(map[NGram]uint64)
 	var b []byte
@@ -148,13 +151,12 @@ func (Counter) FinalizeTxn(shard consumer.Shard, store consumer.Store) error {
 // messages have committed to their respective journals.
 func (counter *Counter) Publish(ctx context.Context, req *PublishRequest) (*PublishResponse, error) {
 	var (
-		resp         = new(PublishResponse)
-		N            = counter.n                // Number of tokens per-NGram.
-		grams        = make([]string, N)        // NGram being extracted.
-		delta        = &NGramCount{Count: 1}    // NGramCount delta to publish.
-		buf          bytes.Buffer               // Buffer for the composed NGram.
-		asyncAppends []*client.AsyncAppend      // AsyncAppends of published NGrams.
-		appendsIndex = make(map[pb.Journal]int) // Indexes |asyncAppends| by journal.
+		resp  = new(PublishResponse)
+		N     = counter.n                            // Number of tokens per-NGram.
+		grams = make([]string, N)                    // NGram being extracted.
+		delta = &NGramCount{Count: 1}                // NGramCount delta to publish.
+		buf   bytes.Buffer                           // Buffer for the composed NGram.
+		ops   = make(map[pb.Journal]client.OpFuture) // AsyncAppends of published NGrams.
 
 		// Use a very simplistic token strategy: lowercase, letter character sequences.
 		words = strings.FieldsFunc(strings.ToLower(req.Text),
@@ -181,17 +183,18 @@ func (counter *Counter) Publish(ctx context.Context, req *PublishRequest) (*Publ
 		}
 
 		delta.NGram = NGram(buf.String())
-		if aa, err := message.Publish(counter.ajc, counter.mapping, delta); err != nil {
+		if aa, err := counter.pub.PublishCommitted(counter.mapping, delta); err != nil {
 			return resp, err
-		} else if ind, ok := appendsIndex[aa.Request().Journal]; ok {
-			asyncAppends[ind] = aa // Keep only the last AsyncAppend of each journal.
 		} else {
-			appendsIndex[aa.Request().Journal] = len(asyncAppends)
-			asyncAppends = append(asyncAppends, aa)
+			ops[aa.Request().Journal] = aa
 		}
 	}
 
-	client.WaitForPendingAppends(asyncAppends)
+	for _, op := range ops {
+		if op.Err() != nil {
+			return resp, op.Err()
+		}
+	}
 	return resp, nil
 }
 
