@@ -18,17 +18,17 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		A, B     = NewProducerID(), NewProducerID()
 		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
 		jpB      = JournalProducer{Journal: "test/journal", Producer: B}
-		e1       = generate(A, 1, Flag_CONTINUE_TXN)
-		e2       = generate(B, 2, Flag_CONTINUE_TXN)
-		e3       = generate(A, 3, Flag_CONTINUE_TXN)
-		e4       = generate(A, 4, Flag_CONTINUE_TXN)
-		e5       = generate(B, 5, Flag_CONTINUE_TXN)
-		e6       = generate(B, 6, Flag_CONTINUE_TXN)
-		e7       = generate(B, 7, Flag_CONTINUE_TXN)
-		e8       = generate(B, 8, Flag_CONTINUE_TXN)
-		e9       = generate(B, 9, Flag_CONTINUE_TXN)
-		e10      = generate(B, 10, Flag_CONTINUE_TXN)
-		e11      = generate(B, 11, Flag_CONTINUE_TXN)
+		e1       = generate(A, 100, Flag_CONTINUE_TXN)
+		e2       = generate(B, 200, Flag_CONTINUE_TXN)
+		e3       = generate(A, 300, Flag_CONTINUE_TXN)
+		e4       = generate(A, 400, Flag_CONTINUE_TXN)
+		e5       = generate(B, 500, Flag_CONTINUE_TXN)
+		e6       = generate(B, 600, Flag_CONTINUE_TXN)
+		e7       = generate(B, 700, Flag_CONTINUE_TXN)
+		e8       = generate(B, 800, Flag_CONTINUE_TXN)
+		e9       = generate(B, 900, Flag_CONTINUE_TXN)
+		e10      = generate(B, 1000, Flag_CONTINUE_TXN)
+		e11      = generate(B, 1100, Flag_CONTINUE_TXN)
 	)
 	// Initial ring is empty.
 	assert.Equal(t, []Envelope{}, seq.ring)
@@ -41,7 +41,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{-1}, seq.next)
 	assert.Equal(t, 1, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0},
+		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e2) // B.
@@ -49,8 +49,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{-1, -1}, seq.next)
 	assert.Equal(t, 2, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1},
+		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e3) // A.
@@ -58,8 +58,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{2, -1, -1}, seq.next) // e1 => e3.
 	assert.Equal(t, 3, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 2},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1},
+		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 2, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e4) // A.
@@ -67,8 +67,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{2, -1, 3, -1}, seq.next) // e3 => e4.
 	assert.Equal(t, 4, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1},
+		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e5) // B.
@@ -76,8 +76,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{2, 4, 3, -1, -1}, seq.next) // e2 => e5.
 	assert.Equal(t, 0, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 4},
+		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 4, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e6) // B.
@@ -85,8 +85,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{-1, 4, 3, -1, 0}, seq.next) // e5 => e6.
 	assert.Equal(t, 1, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 2, ringStop: 3},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0},
+		jpA: {begin: e1.Begin, ringStart: 2, ringStop: 3, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e7) // B.
@@ -95,8 +95,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{1, 2, -1, -1, 0}, seq.next)
 	assert.Equal(t, 3, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 3, ringStop: 3},
-		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 2},
+		jpA: {begin: e1.Begin, ringStart: 3, ringStop: 3, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 2, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e9) // B. Evicts final A entry.
@@ -105,8 +105,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, 4, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
 		// A's begin is still tracked, but it's no longer in the ring.
-		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1},
-		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 3},
+		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99},
+		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 3, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e10) // B.
@@ -114,8 +114,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{1, 2, 3, 4, -1}, seq.next)
 	assert.Equal(t, 0, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1}, // Unchanged.
-		jpB: {begin: e2.Begin, ringStart: 0, ringStop: 4},
+		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99}, // Unchanged.
+		jpB: {begin: e2.Begin, ringStart: 0, ringStop: 4, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e11) // B.
@@ -123,8 +123,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	assert.Equal(t, []int{-1, 2, 3, 4, 0}, seq.next)
 	assert.Equal(t, 1, seq.head)
 	assert.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1}, // Unchanged.
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0},
+		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99}, // Unchanged.
+		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
 	}, seq.partials)
 }
 
@@ -339,7 +339,7 @@ func TestSequencerProducerStatesRoundTrip(t *testing.T) {
 	queue(seq1, a1, a2, b1, b2, c1ACK)
 	expectDeque(t, seq1, c1ACK)
 
-	var states = seq1.ProducerStates()
+	var states = seq1.ProducerStates(0)
 	var expect = []ProducerState{
 		{JournalProducer: jpA, Begin: a1.Begin, LastAck: 0},
 		{JournalProducer: jpB, Begin: b1.Begin, LastAck: 0},
@@ -377,6 +377,57 @@ func TestSequencerProducerStatesRoundTrip(t *testing.T) {
 
 	expectDeque(t, seq1, a1, a2, a3ACK)
 	expectDeque(t, seq2, a1, a2, a3ACK)
+}
+
+func TestSequencerProducerPruning(t *testing.T) {
+	var (
+		generate = newTestMsgGenerator()
+		seq1     = NewSequencer(nil, 12)
+		A, B, C  = NewProducerID(), NewProducerID(), NewProducerID()
+		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
+		jpB      = JournalProducer{Journal: "test/journal", Producer: B}
+		jpC      = JournalProducer{Journal: "test/journal", Producer: C}
+
+		// Clocks units are 100s of nanos, with 4 LSBs of sequence counter.
+		aCont = generate(A, 10<<4, Flag_CONTINUE_TXN)
+		bCont = generate(B, 19<<4, Flag_CONTINUE_TXN)
+		bACK  = generate(B, 20<<4, Flag_ACK_TXN)
+		cCont = generate(C, 30<<4, Flag_CONTINUE_TXN)
+	)
+	queue(seq1, aCont, bCont, bACK)
+	expectDeque(t, seq1, bCont, bACK)
+	queue(seq1, cCont)
+
+	var expect = func(a, b []ProducerState) {
+		sort.Slice(a, func(i, j int) bool {
+			return bytes.Compare(a[i].Producer[:], a[j].Producer[:]) < 0
+		})
+		sort.Slice(b, func(i, j int) bool {
+			return bytes.Compare(b[i].Producer[:], b[j].Producer[:]) < 0
+		})
+		assert.Equal(t, a, b)
+	}
+
+	// Horizon prunes no producers: all states returned.
+	expect([]ProducerState{
+		{JournalProducer: jpA, Begin: aCont.Begin, LastAck: (10 << 4) - 1},
+		{JournalProducer: jpB, Begin: -1, LastAck: 20 << 4},
+		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
+	}, seq1.ProducerStates(20*100))
+	assert.Len(t, seq1.partials, 3)
+
+	// Expect A is pruned.
+	expect([]ProducerState{
+		{JournalProducer: jpB, Begin: -1, LastAck: 20 << 4},
+		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
+	}, seq1.ProducerStates(19*100))
+	assert.Len(t, seq1.partials, 2)
+
+	// Expect B is pruned.
+	expect([]ProducerState{
+		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
+	}, seq1.ProducerStates(1))
+	assert.Len(t, seq1.partials, 1)
 }
 
 func TestSequencerReplayReaderErrors(t *testing.T) {

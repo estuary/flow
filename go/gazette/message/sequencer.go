@@ -88,7 +88,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		partial, ok = w.partials[jp]
 	)
 	if !ok {
-		partial = partialSeq{lastACK: 0, begin: -1, ringStart: -1, ringStop: -1}
+		partial = partialSeq{lastACK: clock - 1, begin: -1, ringStart: -1, ringStop: -1}
 	}
 	if uuid == (UUID{}) {
 		flags = Flag_OUTSIDE_TXN // Emit. Don't track in |w.partials|.
@@ -232,20 +232,43 @@ func (w *Sequencer) HasPending(since pb.Offsets) bool {
 	return false
 }
 
-// ProducerStates returns a snapshot of producers and their states.
-// It panics if called while messages remain to deque.
-func (w *Sequencer) ProducerStates() []ProducerState {
+// ProducerStates returns a snapshot of producers and their states, after
+// pruning any producers having surpassed |pruneHorizon| in age relative to
+// the most recent producer within their journal. If |pruneHorizon| is zero,
+// no pruning is done. ProducerStates panics if messages still remain to deque.
+func (w *Sequencer) ProducerStates(pruneHorizon time.Duration) []ProducerState {
 	if w.emit.ringIndex != -1 {
 		panic("messages remain to deque")
 	}
-	var out = make([]ProducerState, 0, len(w.partials))
 
+	// Collect the largest Clock seen with each journal.
+	var prune = make(map[pb.Journal]Clock)
 	for jp, partial := range w.partials {
-		out = append(out, ProducerState{
-			JournalProducer: jp,
-			LastAck:         partial.lastACK,
-			Begin:           partial.begin,
-		})
+		if partial.lastACK > prune[jp.Journal] {
+			prune[jp.Journal] = partial.lastACK
+		}
+	}
+	// Convert each to a minimum Clock bound before pruning is applied.
+	// Recall Clock units are 100s of nanos, with 4 LSBs of sequence counter.
+	for j, clock := range prune {
+		if pruneHorizon > 0 {
+			prune[j] = clock - Clock((pruneHorizon/100)<<4)
+		} else {
+			prune[j] = 0
+		}
+	}
+	// Apply pruning and collect remaining states.
+	var out = make([]ProducerState, 0, len(w.partials))
+	for jp, partial := range w.partials {
+		if partial.lastACK >= prune[jp.Journal] {
+			out = append(out, ProducerState{
+				JournalProducer: jp,
+				LastAck:         partial.lastACK,
+				Begin:           partial.begin,
+			})
+		} else {
+			delete(w.partials, jp)
+		}
 	}
 	return out
 }

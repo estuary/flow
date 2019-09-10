@@ -269,13 +269,12 @@ func TestAPIHintsCases(t *testing.T) {
 	assert.NoError(t, storeRecoveredHints(shard, mkHints(222)))
 	assert.NoError(t, storeRecoveredHints(shard, mkHints(333)))
 
-	var hdr = pb.NewUnroutedHeader(tf.state)
 	// Case: Correctly fetch hints
 	var resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
 	assert.NoError(t, err)
 	assert.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
-		Header:       hdr,
+		Header:       resp.Header,
 		PrimaryHints: expected[0],
 		BackupHints:  expected[1:],
 	}, resp)
@@ -285,7 +284,7 @@ func TestAPIHintsCases(t *testing.T) {
 	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
 	assert.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
-		Header:       hdr,
+		Header:       resp.Header,
 		PrimaryHints: pc.GetHintsResponse_ResponseHints{},
 		BackupHints:  expected[1:],
 	}, resp)
@@ -297,7 +296,7 @@ func TestAPIHintsCases(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
-		Header:       hdr,
+		Header:       resp.Header,
 		PrimaryHints: expected[0],
 		BackupHints:  append(expected[1:], pc.GetHintsResponse_ResponseHints{}),
 	}, resp)
@@ -308,7 +307,7 @@ func TestAPIHintsCases(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
-		Header:       hdr,
+		Header:       resp.Header,
 		PrimaryHints: expected[0],
 	}, resp)
 

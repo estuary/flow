@@ -308,7 +308,7 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 
 	var bca = pc.BuildCheckpointArgs{
 		ReadThrough:    txn.readThrough,
-		ProducerStates: s.sequencer.ProducerStates(),
+		ProducerStates: s.sequencer.ProducerStates(messageSequencerPruneHorizon),
 	}
 	if bca.AckIntents, err = s.publisher.BuildAckIntents(); err != nil {
 		return pc.Checkpoint{}, errors.WithMessage(err, "publisher.BuildAckIntents")

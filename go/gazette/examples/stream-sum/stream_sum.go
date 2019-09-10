@@ -13,6 +13,11 @@
 // The `chunker` and `summer` tasks may be independently scaled, and are
 // invariant to process failures and restarts.
 //
+// The stream-sum example application is also a sneaky integration test:
+// it actively verifies processing guarantees provided by Gazette, such as
+// exactly-once semantics and bounds on end-to-end latency, and fails if those
+// properties are not met. stream-sum is used in Gazette's continuous
+// integration and chaos-testing suites.
 package stream_sum
 
 import (

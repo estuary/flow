@@ -24,9 +24,11 @@ const (
 	// be rather large, to minimize processing stalls. The current value will
 	// tolerate a data delay of up to 82ms @ 100K messages / sec without stalling.
 	messageBufferSize = 1 << 13 // 8192.
-
-	// TODO(johnny) size this
-	messageRingSize = 1 << 12 // 4096
+	// Size of the ring buffer used by message.Sequencer.
+	messageRingSize = messageBufferSize
+	// Maximum interval between the newest and an older producer within a journal,
+	// before the message sequencer will prune the older producer state.
+	messageSequencerPruneHorizon = time.Hour * 24
 )
 
 type shard struct {
