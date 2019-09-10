@@ -2,6 +2,8 @@
 [![GoDoc](https://godoc.org/github.com/gazette/core?status.svg)](http://godoc.org/github.com/gazette/core)
 [<img src="https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack">](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ)
 
+![Gazette Logo](docs/logo_with_text.svg "Gazette Logo")
+
 Overview
 ========
 
