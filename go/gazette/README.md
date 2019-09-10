@@ -45,7 +45,10 @@ Where to Start
 * [Brokers: A Tutorial Introduction](docs/broker_tutorial.md) is a walk-through of
 key broker features and concepts.
 * [Design Goals (and Non-Goals)](docs/goals_and_nongoals.md)
+* Introduction to the *consumers* library and using it to build applications (coming soon).
 
-Coming soon:
-   - Broker architecture briefs
-   - Introduction to the *consumers* library and using it to build applications.
+Architecture Briefs:
+ - [Exactly-once Semantics in Gazette](docs/exactly_once_semantics.md)
+ - [Operational Considerations](docs/operational_considerations.rst)
+ - (Others forthcoming).
+ 
