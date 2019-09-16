@@ -45,6 +45,19 @@ func NewReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRe
 func (r *Reader) Read(p []byte) (n int, err error) {
 	// If we have an open direct reader of a persisted fragment, delegate to it.
 	if r.direct != nil {
+
+		// Return EOF and close |direct| on reading through EndOffset.
+		if r.Request.EndOffset != 0 {
+			if remain := r.Request.EndOffset - r.Request.Offset; remain == 0 {
+				if err = r.direct.Close(); err == nil {
+					n, err = 0, io.EOF
+				}
+				return
+			} else if int64(len(p)) > remain {
+				p = p[:remain]
+			}
+		}
+
 		if n, err = r.direct.Read(p); err != nil {
 			_ = r.direct.Close()
 		}

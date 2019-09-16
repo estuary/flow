@@ -109,6 +109,8 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 		readFixture{content: "invalid", offset: 100},
 		// Case 10: ReadResponse validation fails (invalid Fragment).
 		readFixture{fragment: &pb.Fragment{End: 1, Begin: 0}},
+		// Case 11: fixture returns fragment metadata & URL, then EOF.
+		readFixture{fragment: &frag, fragmentUrl: url},
 	)
 
 	// Case 1: fragment metadata & URL.
@@ -236,6 +238,13 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 	n, err = r.Read(nil)
 	c.Check(n, gc.Equals, 0)
 	c.Check(err, gc.ErrorMatches, `ReadResponse.Fragment.Journal: invalid length .*`)
+
+	// Case 11: fragment metadata & URL. Reader EOF's early due to EndOffset.
+	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105, EndOffset: 111})
+
+	b, err = ioutil.ReadAll(r)
+	c.Check(string(b), gc.Equals, "hello,")
+	c.Check(err, gc.IsNil)
 }
 
 func (s *ReaderSuite) TestBufferedOffsetAdjustment(c *gc.C) {
