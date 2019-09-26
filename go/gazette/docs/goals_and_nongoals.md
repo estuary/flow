@@ -5,7 +5,7 @@ Gazette has influences and shares similarities with a number of other projects.
 Its architecture also reflects several departures from the solutions of those
 influences.
 
- * Journals provide globally record ordering and publish/subscribe.
+ * Journals provide global record ordering and publish/subscribe.
 
 Much like Kakfa, LogDevice, Apache BookKeeper, and others. These properties are
 the basic building blocks for assembling platforms composed of streaming,
@@ -49,7 +49,7 @@ seem to make implementing a system like Apache Samza or Kafka Streaming on Gazet
 impossible, as both utilize Kafka topics to replicate application key/value
 state, and rely on this mechanism to compact replication logs over time.
 
-Instead, Gazette consumers make use an insight that embedded LSM-Tree DBs such
+Instead, Gazette consumers use an insight that embedded LSM-Tree DBs such
 as RocksDB *already* perform regular compaction, and structure their on-disk
 state as a series of append-only and immutable files. Rather than replicate and
 replay individual key/value operations, Gazette consumers instead observe and
@@ -86,7 +86,7 @@ convention but otherwise impose no file structure and contain only raw journal
 content, optionally compressed. Fragments are also written under predictable
 prefixes to the backing blob storage service, which means existing batch
 processing work-flows can "integrate" with Gazette by directly reading and
-watching for files within the blob store, using a service Amazon SNS to
+watching for files within the blob store, using a service (such as Amazon SNS) to
 receive file notifications, or using a library which implements such polling
 already (such as Spark DStreams).
 
