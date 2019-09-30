@@ -104,9 +104,13 @@ func TestAppendRegisterCheckAndUpdateSequence(t *testing.T) {
 		var stream, err = broker.client().Append(ctx)
 		assert.NoError(t, err)
 		assert.NoError(t, stream.Send(&tc.request))
-		assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("bb")}))
-		assert.NoError(t, stream.Send(&pb.AppendRequest{})) // Intend to commit.
-		assert.NoError(t, stream.CloseSend())               // Commit.
+
+		// Send data, intent to commit, and close to commit. We don't assert
+		// NoError here, because the broker could have already responded and
+		// closed the RPC (in which case we'd error with EOF).
+		_ = stream.Send(&pb.AppendRequest{Content: []byte("bb")})
+		_ = stream.Send(&pb.AppendRequest{})
+		_ = stream.CloseSend()
 
 		resp, err := stream.CloseAndRecv()
 		assert.NoError(t, err)
