@@ -14,7 +14,7 @@ spec:
             - /bin/sh
             - "-ec"
             - |
-              /bin/sh /opt/consumer/generate-shards.sh | \
+              /opt/consumer/generate-shards.sh | \
                 gazctl shards apply
           env:
             - name:  BROKER_ADDRESS
@@ -28,3 +28,7 @@ spec:
         - name: specs
           configMap:
             name: generate-shards
+            items:
+              - key:  generate-shards.sh
+                path: generate-shards.sh
+                mode: 0777

@@ -183,6 +183,8 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.Shar
 			),
 		}),
 	)
+	var stores = []string{"sqlite", "rocksdb"} // Alternate Store of each Shard.
+
 	for p := 0; p != parts; p++ {
 		var (
 			part  = fmt.Sprintf("%03d", p)
@@ -192,6 +194,7 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.Shar
 				RecoveryLogPrefix: "recovery/logs",
 				HintPrefix:        "/hints",
 				MaxTxnDuration:    time.Second,
+				LabelSet:          pb.MustLabelSet("store", stores[p%2]),
 			}
 		)
 		journals = append(journals,

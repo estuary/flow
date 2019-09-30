@@ -25,11 +25,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"hash/crc64"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +42,7 @@ import (
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumer/store-rocksdb"
+	store_sqlite "go.gazette.dev/core/consumer/store-sqlite"
 	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
@@ -106,7 +109,8 @@ func (s *Sum) Update(chunk Chunk) (done bool, err error) {
 // GenerateAndVerifyStreams is the main routine of the `chunker` job. It
 // generates and verifies streams based on the ChunkerConfig.
 func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
-	var rjc = cfg.Broker.MustRoutedJournalClient(ctx)
+	var conn = cfg.Broker.MustDial(ctx)
+	var rjc = pb.NewRoutedJournalClient(pb.NewJournalClient(conn), cfg.Broker.BuildRouter())
 	var as = client.NewAppendService(ctx, rjc)
 
 	var chunksMapping, err = newChunkMapping(ctx, rjc)
@@ -155,7 +159,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 		mbp.Must(err, "publishing chunk")
 	}, chunkCh, verifyCh, actualCh, chunksMapping)
 
-	return nil
+	return conn.Close()
 }
 
 // Summer consumes stream chunks, aggregates chunk data, and emits final sums.
@@ -168,11 +172,37 @@ func (Summer) NewConfig() runconsumer.Config { return new(struct{ runconsumer.Ba
 // InitApplication is a no-op, as Summer provides no client-facing APIs.
 func (Summer) InitApplication(args runconsumer.InitArgs) error { return nil }
 
-// NewStore builds a RocksDB store for the Shard. consumer.Application implementation.
+// NewStore builds a RocksDB or SQLite store for the Shard. consumer.Application implementation.
 func (Summer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var rdb = store_rocksdb.NewStore(rec)
-	rdb.Cache = make(map[StreamID]Sum)
-	return rdb, rdb.Open()
+	switch v := strings.ToLower(shard.Spec().LabelSet.ValueOf("store")); v {
+	case "rocksdb":
+		var store = store_rocksdb.NewStore(rec)
+		store.Cache = make(map[StreamID]Sum)
+		return store, store.Open()
+	case "sqlite":
+		var store, err = store_sqlite.NewStore(rec)
+		if err != nil {
+			return nil, err
+		}
+		store.Cache = make(map[StreamID]Sum)
+
+		return store, store.Open(
+			// Store bootstrap:
+			`CREATE TABLE IF NOT EXISTS sums (
+				id BLOB PRIMARY KEY NOT NULL,
+				seq_no  INTEGER,
+				val     BLOB
+			);`,
+			// Querying for a current partial sum:
+			`SELECT seq_no, val FROM sums WHERE id = ?;`,
+			// Updating a partial sum:
+			`INSERT INTO sums(id, seq_no, val) VALUES(:id, :seqno, :val)
+				ON CONFLICT(id) DO UPDATE SET seq_no=:seqno, val=:val;`,
+		)
+	default:
+		return nil, errors.Errorf("expected ShardSpec label 'store' to be one"+
+			" of 'rocksdb' or 'sqlite' (got %q)", v)
+	}
 }
 
 // NewMessage returns a Chunk message. consumer.Application implementation.
@@ -182,21 +212,17 @@ func (Summer) NewMessage(*pb.JournalSpec) (message.Message, error) { return new(
 // If the Chunk represents a stream EOF, it emits a final sum.
 // consumer.Application implementation.
 func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, pub *message.Publisher) error {
-	var rdb = store.(*store_rocksdb.Store)
-	var cache = rdb.Cache.(map[StreamID]Sum)
 	var chunk = env.Message.(*Chunk)
+	var cache map[StreamID]Sum
+	var sum Sum
 
-	var sum, ok = cache[chunk.ID]
-	if !ok {
-		// Fill from database.
-		if b, err := rdb.DB.GetBytes(rdb.ReadOptions, chunk.ID[:]); err != nil {
-			log.WithFields(log.Fields{"err": err, "id": chunk.ID}).Fatal("reading db")
-		} else if len(b) == 0 {
-			// Miss. Initialize a new stream.
-			sum.ID = chunk.ID
-		} else if err = json.Unmarshal(b, &sum); err != nil {
-			log.WithFields(log.Fields{"err": err, "id": chunk.ID}).Fatal("unmarshalling record")
-		}
+	switch s := store.(type) {
+	case *store_rocksdb.Store:
+		sum, cache = Summer{}.loadSumRocks(s, chunk)
+	case *store_sqlite.Store:
+		sum, cache = Summer{}.loadSumSQLite(s, chunk)
+	default:
+		panic("invalid store")
 	}
 
 	if done, err := sum.Update(*chunk); err != nil {
@@ -210,26 +236,97 @@ func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env mes
 
 	// Retain the partial sum for the next chunk or flush.
 	cache[sum.ID] = sum
-
 	return nil
+}
+
+func (Summer) loadSumRocks(rdb *store_rocksdb.Store, chunk *Chunk) (Sum, map[StreamID]Sum) {
+	var cache = rdb.Cache.(map[StreamID]Sum)
+	var sum, ok = cache[chunk.ID]
+	if !ok {
+		// Fill from database.
+		if b, err := rdb.DB.GetBytes(rdb.ReadOptions, chunk.ID[:]); err != nil {
+			log.WithFields(log.Fields{"err": err, "id": chunk.ID}).Fatal("reading db")
+		} else if len(b) == 0 {
+			// Miss. Initialize a new stream.
+			sum.ID = chunk.ID
+		} else if err = json.Unmarshal(b, &sum); err != nil {
+			log.WithFields(log.Fields{"err": err, "id": chunk.ID}).Fatal("unmarshalling record")
+		}
+	}
+	return sum, cache
+}
+
+func (Summer) loadSumSQLite(sdb *store_sqlite.Store, chunk *Chunk) (Sum, map[StreamID]Sum) {
+	var cache = sdb.Cache.(map[StreamID]Sum)
+	var ctx = context.Background()
+
+	var sum, ok = cache[chunk.ID]
+	if !ok {
+		sum.ID = chunk.ID
+		var value []byte
+
+		if txn, err := sdb.Transaction(ctx, nil); err != nil {
+			log.WithField("err", err).Fatal("opening sqlite txn")
+		} else if err = txn.StmtContext(ctx, sdb.Stmts[0]).
+			QueryRow(chunk.ID[:]).Scan(&sum.SeqNo, &value); err == sql.ErrNoRows {
+			// Pass.
+		} else if err != nil {
+			log.WithFields(log.Fields{"err": err, "id": sum.ID}).
+				Fatal("reading sum from sqlite")
+		} else {
+			sum.Value = binary.LittleEndian.Uint64(value)
+		}
+	}
+	return sum, cache
 }
 
 // FinalizeTxn marshals partial stream sums to the |store| to ensure persistence
 // across consumer transactions. consumer.Application implementation.
 func (Summer) FinalizeTxn(shard consumer.Shard, store consumer.Store, _ *message.Publisher) error {
-	var rdb = store.(*store_rocksdb.Store)
+	switch s := store.(type) {
+	case *store_rocksdb.Store:
+		Summer{}.finalizeRocksTxn(s)
+	case *store_sqlite.Store:
+		Summer{}.finalizeSqlite(s)
+	default:
+		panic("invalid store")
+	}
+	return nil
+}
+
+func (Summer) finalizeRocksTxn(rdb *store_rocksdb.Store) {
 	var cache = rdb.Cache.(map[StreamID]Sum)
 
 	for id, sum := range cache {
-		delete(cache, id) // Clear for next transaction.
-
 		if b, err := json.Marshal(sum); err != nil {
 			log.WithFields(log.Fields{"err": err}).Fatal("marshalling record")
 		} else {
 			rdb.WriteBatch.Put(id[:], b)
 		}
+		delete(cache, id) // Clear for next transaction.
 	}
-	return nil
+}
+
+func (Summer) finalizeSqlite(sdb *store_sqlite.Store) {
+	var cache = sdb.Cache.(map[StreamID]Sum)
+	var ctx = context.Background()
+
+	for id, sum := range cache {
+		var value [8]byte
+		binary.LittleEndian.PutUint64(value[:], sum.Value)
+
+		if txn, err := sdb.Transaction(ctx, nil); err != nil {
+			log.WithField("err", err).Fatal("opening sqlite txn")
+		} else if _, err = txn.StmtContext(ctx, sdb.Stmts[1]).Exec(
+			sql.Named("id", sum.ID[:]),
+			sql.Named("seqno", sum.SeqNo),
+			sql.Named("val", value[:]),
+		); err != nil {
+			log.WithFields(log.Fields{"err": err, "id": sum.ID}).
+				Fatal("writing sum to sqlite")
+		}
+		delete(cache, id) // Clear for next transaction.
+	}
 }
 
 func generate(numStreams, chunksPerStream int, doneCh chan<- Sum, outCh chan<- Chunk) {
