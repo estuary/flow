@@ -393,19 +393,20 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 
 	// Start a Recorder, and produce a set of initial hints.
 	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
-	var f = rec.RecordCreate("/strip/foo/bar")
+	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo/bar")}
 	var hints, _ = rec.BuildHints()
 
 	// Record more content not captured in |hints|.
 	f.RecordWrite([]byte("hello"))
-	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
+	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/baz")}).
+		RecordWrite([]byte("bing"))
 	f.RecordWrite([]byte(" world"))
 
 	// Model a bad, interleaved raw write. We expect this can never actually happen,
 	// but want playback to be resilient should it occur.
 	writeToLog(c, ctx, ajc, "... garbage data ...")
 	f.RecordWrite([]byte("!"))
-	<-f.Barrier(nil).Done() // Flush all recorded ops.
+	<-rec.Barrier(nil).Done() // Flush all recorded ops.
 
 	// Start a Player from the initial |hints|.
 	var player = NewPlayer()
@@ -444,7 +445,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 
 	// Start a Recorder, and two Players from initial Recorder hints.
 	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
-	var f = rec.RecordCreate("/strip/foo/bar")
+	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo/bar")}
 	var hints, _ = rec.BuildHints()
 
 	// |handoffPlayer| will inject a hand-off noop to take ownership of the log.
@@ -458,15 +459,18 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	// Record more content. Also mix in bad, raw writes. These should never
 	// actually happen, but Playback shouldn't break if they do.
 	f.RecordWrite([]byte("hello"))
-	<-f.Barrier(nil).Done() // Flush.
+	<-rec.Barrier(nil).Done() // Flush.
 	writeToLog(c, ctx, ajc, "... bad interleaved raw data ...")
-	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
-	<-f.Barrier(nil).Done() // Flush.
+	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/baz")}).
+		RecordWrite([]byte("bing"))
+	<-rec.Barrier(nil).Done() // Flush.
 
 	// Begin a write which will race |handoffPlayer|'s first attempt to inject a no-op.
 	var txn = ajc.StartAppend(pb.AppendRequest{Journal: aRecoveryLog}, nil)
 	txn.Writer().WriteString("... more garbage ...")
-	f.frameAppend([]byte(" world"), txn.Writer())
+
+	rec.process(newWriteOp(f.Fnode, f.Offset, 6), txn.Writer())
+	_, _ = txn.Writer().Write([]byte(" world"))
 
 	// Delay the release of |txn|. This will typically give |handoffPlayer| time
 	// to read through the current write head and attempt an injection, which will
@@ -480,7 +484,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	c.Check(handoffPlayer.FSM, gc.NotNil)
 
 	f.RecordWrite([]byte("final write of |rec|, ignored because |handoffPlayer| injected a handoff"))
-	<-f.Barrier(nil).Done() // Flush all recorded ops.
+	<-rec.Barrier(nil).Done() // Flush all recorded ops.
 
 	tailPlayer.FinishAtWriteHead()
 	<-tailPlayer.Done()
@@ -524,8 +528,10 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 	// Record some writes of valid files. Build hints, and tweak them by adding
 	// an Fnode at an offset which was not actually recorded.
 	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
-	rec.RecordCreate("/strip/foo").RecordWrite([]byte("bar"))
-	rec.RecordCreate("/strip/baz").RecordWrite([]byte("bing"))
+	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo")}).
+		RecordWrite([]byte("bar"))
+	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/baz")}).
+		RecordWrite([]byte("bing"))
 
 	// Tweak hints by adding an Fnode & offset which was not actually recorded.
 	var hints, _ = rec.BuildHints()

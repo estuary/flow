@@ -634,8 +634,15 @@ func makeLive(dir string, fsm *FSM, files fnodeFileMap) error {
 				return err
 			} else if err = os.Link(stagedPath(dir, fnode), targetPath); err != nil {
 				return err
+			} else if s, err := os.Stat(targetPath); err != nil {
+				return err
+			} else {
+				log.WithFields(log.Fields{
+					"fnode":  fnode,
+					"target": targetPath,
+					"size":   s.Size(),
+				}).Info("linked file")
 			}
-			log.WithFields(log.Fields{"fnode": fnode, "target": targetPath}).Info("linked file")
 		}
 		// Close and removed the staged file.
 		if err := file.Close(); err != nil {

@@ -3,6 +3,7 @@ package recoverylog
 import (
 	"bufio"
 	"io/ioutil"
+	"os"
 	"path"
 	"path/filepath"
 	"sync"
@@ -49,8 +50,8 @@ type Recorder struct {
 	FSM *FSM
 	// Generated unique ID of this Recorder.
 	Author Author
-	// Directory which roots local files. It must be a clean path, and must
-	// prefix all recorded files, or Recorder panics. It's stripped from
+	// Directory which roots local files. It must be an absolute & clean path,
+	// and must prefix all recorded files, or Recorder panics. It's stripped from
 	// recorded file names, making the log invariant to the choice of Dir.
 	Dir string
 	// Client for Recorder's use.
@@ -81,28 +82,54 @@ type Recorder struct {
 	buf []byte
 }
 
-// RecordCreate records the creation of file |path|, and returns a
-// FileRecorder which records file operations.
-func (r *Recorder) RecordCreate(path string) *FileRecorder {
+// RecordCreate records the creation or truncation of file |path|,
+// and returns its FNode.
+func (r *Recorder) RecordCreate(path string) Fnode {
+	return r.RecordOpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC)
+}
+
+// RecordOpenFile records the open of file |path| with flags |flags|,
+// and returns its FNode. Flags values must match os.OpenFile()
+// semantics or RecordOpenFile panics.
+func (r *Recorder) RecordOpenFile(path string, flags int) Fnode {
 	r.init()
 	path = r.normalizePath(path)
 
 	if _, isProperty := propertyFiles[path]; isProperty {
 		log.WithField("path", path).Panic("unexpected open of property path")
+	} else if flags&os.O_RDONLY != 0 {
+		log.WithField("path", path).Panic("unexpected read-only file open")
 	}
 	var txn = r.lockAndBeginTxn(nil)
+	defer r.unlockAndReleaseTxn(txn)
 
-	// Decompose the creation into two operations:
-	//  * Unlinking |prevFnode| linked at |path| if |prevExists|.
-	//  * Creating the new fnode backing |path|.
-	if prevFnode, prevExists := r.FSM.Links[path]; prevExists {
-		r.process(newUnlinkOp(prevFnode, path), txn.Writer())
+	var fnode, exists = r.FSM.Links[path]
+
+	if !exists && flags&os.O_CREATE == 0 {
+		log.WithField("path", path).Panic("open of unknown file without O_CREATE")
+	} else if exists && flags&os.O_EXCL != 0 {
+		log.WithField("path", path).Panic("open of known file with O_EXCL")
 	}
-	r.process(newCreateOp(path), txn.Writer())
-	var fr = &FileRecorder{Recorder: r, fnode: r.FSM.Links[path]}
 
+	if exists && flags&os.O_TRUNC != 0 {
+		// Truncate by unlinking |fnode| previously linked at |path|.
+		r.process(newUnlinkOp(fnode, path), txn.Writer())
+		exists = false
+	}
+	if !exists {
+		// Create a new |fnode| backing |path|.
+		r.process(newCreateOp(path), txn.Writer())
+		fnode = r.FSM.Links[path]
+	}
+	return fnode
+}
+
+// RecordWrite records |data| written at |offset| to the file identified by |fnode|.
+func (r *Recorder) RecordWriteAt(fnode Fnode, data []byte, offset int64) {
+	var txn = r.lockAndBeginTxn(nil)
+	r.process(newWriteOp(fnode, offset, int64(len(data))), txn.Writer())
+	_, _ = txn.Writer().Write(data)
 	r.unlockAndReleaseTxn(txn)
-	return fr
 }
 
 // RecordRemove records the removal of the file at |path|.
@@ -204,9 +231,9 @@ func (r *Recorder) Barrier(waitFor client.OpFutures) *client.AsyncAppend {
 
 func (r *Recorder) init() {
 	r.lazyInit.Do(func() {
-		if r.Dir != path.Clean(r.Dir) {
+		if r.Dir != path.Clean(r.Dir) || !path.IsAbs(r.Dir) {
 			log.WithFields(log.Fields{"dir": r.Dir, "cleaned": path.Clean(r.Dir)}).
-				Panic("recorder.Dir is not a Clean path")
+				Panic("recorder.Dir is not an absolute, clean path")
 		}
 		// Issue a write barrier to determine the current write head, which will
 		// lower-bound the offset for all subsequent recorded operations.
@@ -276,27 +303,25 @@ func (r *Recorder) process(op RecordedOp, bw *bufio.Writer) {
 	}
 }
 
-// FileRecorder records operations applied to a specific file opened with RecordCreate.
+// FileRecorder is a convenience which associates an Fnode
+// with its recorder and written offset.
 type FileRecorder struct {
-	*Recorder
-
-	// File being tracked, and the next write offset within the file.
-	fnode  Fnode
-	offset int64
+	Recorder *Recorder
+	Fnode    Fnode
+	Offset   int64
 }
 
-// RecordWrite records the write of |data| at the current file offset.
+// RecordWrite records the write of |data| at the current FileRecorder
+// Offset, which is then incremented to reflect |data|.
 func (r *FileRecorder) RecordWrite(data []byte) {
-	var txn = r.Recorder.lockAndBeginTxn(nil)
-	r.frameAppend(data, txn.Writer())
-	r.Recorder.unlockAndReleaseTxn(txn)
+	r.Recorder.RecordWriteAt(r.Fnode, data, r.Offset)
+	r.Offset += int64(len(data))
 }
 
-func (r *FileRecorder) frameAppend(b []byte, bw *bufio.Writer) {
-	var l = int64(len(b))
-	r.process(newWriteOp(r.fnode, r.offset, l), bw)
-	_, _ = bw.Write(b)
-	r.offset += l
+// RecordWriteAt records the write of |data| at |offset|.
+// The current FileRecorder offset is unchanged.
+func (r *FileRecorder) RecordWriteAt(data []byte, offset int64) {
+	r.Recorder.RecordWriteAt(r.Fnode, data, offset)
 }
 
 func newCreateOp(path string) RecordedOp {

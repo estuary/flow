@@ -1,7 +1,9 @@
 package store_rocksdb
 
 /*
-#cgo CXXFLAGS: -std=c++11
+#cgo CFLAGS:   -I../../.build/rocksdb-current/include
+#cgo CPPFLAGS: -I../../.build/rocksdb-current/include
+#cgo LDFLAGS:  -L../../.build/rocksdb-current/ -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd
 
 #include <sys/types.h>
 #include "rocksdb/c.h"

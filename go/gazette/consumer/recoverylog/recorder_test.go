@@ -239,10 +239,13 @@ func (s *RecorderSuite) TestFileAppends(c *gc.C) {
 	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
 	var offset = r.AdjustedOffset(br)
 
-	var handle = rec.RecordCreate("/strip/source/path")
-	handle.RecordWrite([]byte("first-write"))
-	handle.RecordWrite([]byte(""))
-	handle.RecordWrite([]byte("second-write"))
+	var f = FileRecorder{
+		Recorder: rec,
+		Fnode:    rec.RecordCreate("/strip/source/path"),
+	}
+	f.RecordWrite([]byte("first-write"))
+	f.RecordWrite([]byte(""))
+	f.RecordWrite([]byte("second-write"))
 
 	_ = s.parseOp(c, br) // Creation of Fnode 1.
 
@@ -333,7 +336,8 @@ func (s *RecorderSuite) TestMixedNewFileWriteAndDelete(c *gc.C) {
 	// The first Fnode is unlinked prior to log end, and is not tracked in hints.
 	rec.RecordCreate("/strip/delete/path")
 	<-rec.Barrier(nil).Done() // |rec| observes operation commit.
-	rec.RecordCreate("/strip/a/path").RecordWrite([]byte("file-write"))
+	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/a/path")}).
+		RecordWrite([]byte("file-write"))
 	rec.RecordRemove("/strip/delete/path")
 
 	var op = s.parseOp(c, br)         // Creation of Fnode 1.
