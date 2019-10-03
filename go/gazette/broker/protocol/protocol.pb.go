@@ -398,23 +398,24 @@ type JournalSpec_Fragment struct {
 	CompressionCodec CompressionCodec `protobuf:"varint,2,opt,name=compression_codec,json=compressionCodec,proto3,enum=protocol.CompressionCodec" json:"compression_codec,omitempty" yaml:"compression_codec,omitempty"`
 	// Storage backend base path for this Journal's Fragments. Must be in URL
 	// form, with the choice of backend defined by the scheme. The full path of
-	// a Journal's Fragment is derived by joining the fragment_store path with
-	// the Fragment's ContentPath. Eg, given a fragment_store of
-	// "s3://My-AWS-bucket/a/prefix" and a JournalSpec of name "my/journal",
+	// a Journal's Fragment is derived by joining the store path with the
+	// Fragment's ContentPath. Eg, given a fragment_store of
+	//   "s3://My-AWS-bucket/a/prefix" and a JournalSpec of name "my/journal",
 	// a complete Fragment path might be:
 	//   "s3://My-AWS-bucket/a/prefix/my/journal/000123-000456-789abcdef.gzip
 	//
-	// Multiple fragment_stores may be specified, in which case the Journal's
-	// Fragments are the union of all Fragments present across all stores, and
-	// new Fragments always persist to the first specified store. This can be
+	// Multiple stores may be specified, in which case the Journal's Fragments
+	// are the union of all Fragments present across all stores, and new
+	// Fragments always persist to the first specified store. This can be
 	// helpful in performing incremental migrations, where new Journal content is
 	// written to the new store, while content in the old store remains available
 	// (and, depending on fragment_retention or recovery log pruning, may
 	// eventually be removed).
 	//
-	// If no fragment_stores are specified, the Journal is still useable but will
+	// If no stores are specified, the Journal is still use-able but will
 	// not persist Fragments to any a backing fragment store. This allows for
-	// real-time streaming use cases where reads of historical data are not needed.
+	// real-time streaming use cases where reads of historical data are not
+	// needed.
 	Stores []FragmentStore `protobuf:"bytes,3,rep,name=stores,proto3,casttype=FragmentStore" json:"stores,omitempty" yaml:",omitempty"`
 	// Interval of time between refreshes of remote Fragment listings from
 	// configured fragment_stores.
@@ -423,8 +424,19 @@ type JournalSpec_Fragment struct {
 	// Fragment stores. If less than or equal to zero, Fragments are retained
 	// indefinitely.
 	Retention time.Duration `protobuf:"bytes,5,opt,name=retention,proto3,stdduration" json:"retention" yaml:",omitempty"`
-	// Flush interval defines a UTC time segment, since epoch time,
-	// after which a spool must be flushed to the FragmentStore.
+	// Flush interval defines a uniform UTC time segment which, when passed,
+	// will prompt brokers to close and persist a fragment presently being
+	// written.
+	//
+	// Flush interval may be helpful in integrating the journal with a regularly
+	// scheduled batch work-flow which processes new files from the fragment
+	// store and has no particular awareness of Gazette. For example, setting
+	// flush_interval to 3600s will cause brokers to persist their present
+	// fragment on the hour, every hour, even if it has not yet reached its
+	// target length. A batch work-flow running at 5 minutes past the hour is
+	// then reasonably assured of seeing all events from the past hour.
+	//
+	// See also "gazctl journals fragments --help" for more discussion.
 	FlushInterval time.Duration `protobuf:"bytes,6,opt,name=flush_interval,json=flushInterval,proto3,stdduration" json:"flush_interval" yaml:"flush_interval,omitempty"`
 }
 
