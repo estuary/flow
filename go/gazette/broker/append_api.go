@@ -49,7 +49,7 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 	switch fsm.state {
 	case stateProxy:
 		req.Header = &fsm.resolved.Header // Attach resolved Header to |req|, which we'll forward.
-		return proxyAppend(stream, req, svc.jc)
+		return proxyAppend(stream, *req, svc.jc)
 	case stateFinished:
 		metrics.CommitsTotal.WithLabelValues(metrics.Ok).Inc()
 
@@ -87,7 +87,8 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 }
 
 // proxyAppend forwards an AppendRequest to a resolved peer broker.
-func proxyAppend(stream grpc.ServerStream, req *pb.AppendRequest, jc pb.JournalClient) error {
+// Pass request by value as we'll later mutate it (via RecvMsg).
+func proxyAppend(stream grpc.ServerStream, req pb.AppendRequest, jc pb.JournalClient) error {
 	var ctx = pb.WithDispatchRoute(stream.Context(), req.Header.Route, req.Header.ProcessId)
 
 	var client, err = jc.Append(ctx)
@@ -95,9 +96,9 @@ func proxyAppend(stream grpc.ServerStream, req *pb.AppendRequest, jc pb.JournalC
 		return err
 	}
 	for {
-		if err = client.SendMsg(req); err != nil {
+		if err = client.SendMsg(&req); err != nil {
 			break // Client stream is broken. CloseAndRecv() will return causal error.
-		} else if err = stream.RecvMsg(req); err == io.EOF {
+		} else if err = stream.RecvMsg(&req); err == io.EOF {
 			break
 		} else if err != nil {
 			_, _ = client.CloseAndRecv() // Drain to free resources.
