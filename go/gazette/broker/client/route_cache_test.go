@@ -30,8 +30,9 @@ func (s *RouteCacheSuite) TestCachingCases(c *gc.C) {
 	// Case: Routes which have fallen out of cache are not.
 	c.Check(rc.Route(ctx, "A"), gc.DeepEquals, pb.Route{Primary: -1}) // Miss.
 
-	// Case: Invalidations remove routes from the cache.
+	// Case: Nil or empty routes invalidate the cache.
 	rc.UpdateRoute("C", nil)
+	rc.UpdateRoute("C", new(pb.Route))
 	c.Check(rc.Route(ctx, "C"), gc.DeepEquals, pb.Route{Primary: -1}) // Miss.
 
 	// Case: TTLs are enforced.

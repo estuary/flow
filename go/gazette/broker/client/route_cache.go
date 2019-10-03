@@ -30,10 +30,8 @@ func NewRouteCache(size int, ttl time.Duration) *RouteCache {
 
 // UpdateRoute caches the provided Route for |item|, or invalidates it if |route| is nil.
 func (rc *RouteCache) UpdateRoute(item string, route *pb.Route) {
-	if route == nil {
+	if route == nil || len(route.Members) == 0 {
 		rc.cache.Remove(item)
-	} else if len(route.Members) == 0 {
-		panic("expected members")
 	} else {
 		var cr = cachedRoute{
 			route: route.Copy(),
