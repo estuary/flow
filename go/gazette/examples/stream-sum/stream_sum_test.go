@@ -13,6 +13,7 @@ import (
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/message"
 )
 
 type StreamSumSuite struct{}
@@ -119,11 +120,14 @@ func (s *StreamSumSuite) TestGeneratePumpAndVerify(c *gc.C) {
 
 	var allStreams = make(map[StreamID]struct{})
 	var allChunks int
+	var noopMapping = func(message.Mappable) (pb.Journal, message.Framing, error) {
+		return "", nil, nil
+	}
 
 	verify(func(chunk Chunk) {
 		allStreams[chunk.ID] = struct{}{}
 		allChunks++
-	}, chunkCh, verifyCh, actualCh, time.Minute)
+	}, chunkCh, verifyCh, actualCh, noopMapping)
 
 	// Expect we saw |nStreams| streams each with |nChunks| chunks (plus 1 for EOF).
 	c.Check(allStreams, gc.HasLen, nStreams)
@@ -156,7 +160,6 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	cfg.Broker.Address = broker.Endpoint()
 	cfg.Chunker.Streams = 10
 	cfg.Chunker.Chunks = 10
-	cfg.Chunker.Delay = time.Minute
 
 	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
 	c.Check(GenerateAndVerifyStreams(ctx, &cfg), gc.IsNil)

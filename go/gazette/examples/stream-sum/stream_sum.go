@@ -50,9 +50,8 @@ import (
 type ChunkerConfig struct {
 	Chunker struct {
 		mbp.ZoneConfig
-		Streams int           `long:"streams" default:"-1" description:"Total number of streams to create. <0 for infinite"`
-		Chunks  int           `long:"chunks" default:"100" description:"Number of chunks per stream"`
-		Delay   time.Duration `long:"delay" default:"30s" description:"Maximum delay tolerance for an expected chunk"`
+		Streams int `long:"streams" default:"-1" description:"Total number of streams to create. <0 for infinite"`
+		Chunks  int `long:"chunks" default:"100" description:"Number of chunks per stream"`
 	} `group:"Chunker" namespace:"chunker" env-namespace:"CHUNKER"`
 
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
@@ -154,7 +153,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 		}
 		var _, err = pub.PublishCommitted(chunksMapping, &chunk)
 		mbp.Must(err, "publishing chunk")
-	}, chunkCh, verifyCh, actualCh, cfg.Chunker.Delay)
+	}, chunkCh, verifyCh, actualCh, chunksMapping)
 
 	return nil
 }
@@ -280,9 +279,29 @@ func generate(numStreams, chunksPerStream int, doneCh chan<- Sum, outCh chan<- C
 	}
 }
 
-func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Sum, timeout time.Duration) {
+func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Sum, mapFn message.MappingFunc) {
 	var timer = time.NewTimer(0)
 	<-timer.C
+
+	// Sequence of deadlines from now, after each of which we print a warning that
+	// the expected sum is delayed. After the final deadline we log.Fatal().
+	var timeoutSeq = []time.Duration{
+		25 * time.Millisecond,
+		50 * time.Millisecond,
+		100 * time.Millisecond,
+		250 * time.Millisecond,
+		500 * time.Millisecond,
+		1 * time.Second,
+		2 * time.Second,
+		4 * time.Second,
+		6 * time.Second,
+		8 * time.Second,
+		10 * time.Second,
+		15 * time.Second,
+		20 * time.Second,
+		25 * time.Second,
+		30 * time.Second,
+	}
 
 	for chunkCh != nil || verifyCh != nil {
 		// Emit chunks as they're generated, and verify as they complete. If a
@@ -306,14 +325,36 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 				continue
 			}
 
-			timer.Reset(timeout)
+			var start = time.Now()
+			var now = start
+			var nextTimeout = timeoutSeq[1:]
+			timer.Reset(timeoutSeq[0])
+
 			for {
 				var actual Sum
 
 				select {
-				case <-timer.C:
-					log.WithField("expect", expect).
-						Fatal("timeout waiting for expected sum")
+				case now = <-timer.C:
+					var journal, _, _ = mapFn(&Chunk{ID: expect.ID})
+
+					if len(nextTimeout) != 0 {
+						log.WithFields(log.Fields{
+							"expect":  fmt.Sprintf("%x", expect.ID),
+							"journal": journal,
+							"delay":   now.Sub(start).Seconds(),
+						}).Warn("delay waiting for expected sum")
+
+						timer.Reset(start.Add(nextTimeout[0]).Sub(now))
+						nextTimeout = nextTimeout[1:]
+					} else {
+						log.WithFields(log.Fields{
+							"expect":  fmt.Sprintf("%x", expect.ID),
+							"journal": journal,
+							"delay":   now.Sub(start).Seconds(),
+						}).Fatal("timeout waiting for expected sum")
+					}
+					continue
+
 				case actual = <-actualCh:
 					// Pass.
 				}
