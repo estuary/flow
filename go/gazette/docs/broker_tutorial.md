@@ -28,7 +28,8 @@ which instructs the broker to use an embedded Etcd store and to create an
 `example/journal` for our use. Copy and paste its `export BROKER_ADDRESS`
 to your terminal.
 ```bash
-$ go install go.gazette.dev/core/cmd/gazette && ~/go/bin/gazette demo 
+$ GO111MODULE=on go install go.gazette.dev/core/cmd/gazette
+$ ~/go/bin/gazette demo
 INFO[0000] starting demo broker                          buildDate=unknown config="{ ... }" version=development
 
         The broker is now running in stand-alone demonstration mode, and is ready for clients.
@@ -180,7 +181,8 @@ you can do with Gazette, you can do from gazctl. It's the go-to tool for:
 Gazctl can be directly `go install`'d. Run it without arguments, or run any sub-command
 with the `--help` flag for detailed documentation on the tool's capabilities and usage.
 ```bash
-$ go install go.gazette.dev/core/cmd/gazctl && ~/go/bin/gazctl
+$ GO111MODULE=on go install go.gazette.dev/core/cmd/gazctl
+$ ~/go/bin/gazctl
 ```
 
 We'll use gazctl going forward for the rest of this tutorial. Gazctl understands the
