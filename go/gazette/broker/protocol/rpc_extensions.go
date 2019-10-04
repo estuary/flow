@@ -172,6 +172,12 @@ func (m *AppendResponse) Validate() error {
 func (m *ReplicateRequest) Validate() error {
 
 	if m.Proposal != nil {
+
+		// TODO(johnny): Migration stub for v0.82 => v0.83. Remove with >= v0.84.
+		if m.Registers == nil {
+			m.Registers = new(LabelSet)
+		}
+
 		// Header is sent with the first message of the RPC (which must be a proposal).
 		if m.Header == nil {
 			// Pass.
