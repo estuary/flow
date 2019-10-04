@@ -10,7 +10,7 @@ import (
 )
 
 func TestCrashOneEtcdMember(t *testing.T) {
-	var pod = urkel.FetchPods(t, "default", etcdPodSelector)[0]
+	var pod = urkel.FetchPods(t, testNamespace, etcdPodSelector)[0]
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -20,7 +20,7 @@ func TestCrashOneEtcdMember(t *testing.T) {
 }
 
 func TestCrashTwoBrokers(t *testing.T) {
-	var pods = urkel.FetchPods(t, "default", brokerPodSelector)[:2]
+	var pods = urkel.FetchPods(t, testNamespace, brokerPodSelector)[:2]
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -30,7 +30,7 @@ func TestCrashTwoBrokers(t *testing.T) {
 }
 
 func TestCrashOneSummer(t *testing.T) {
-	var pod = urkel.FetchPods(t, "default", summerPodSelector)[0]
+	var pod = urkel.FetchPods(t, testNamespace, summerPodSelector)[0]
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -40,7 +40,7 @@ func TestCrashOneSummer(t *testing.T) {
 }
 
 func TestDeleteAllBrokers(t *testing.T) {
-	var pods = urkel.FetchPods(t, "default", brokerPodSelector)
+	var pods = urkel.FetchPods(t, testNamespace, brokerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -50,7 +50,7 @@ func TestDeleteAllBrokers(t *testing.T) {
 }
 
 func TestDeleteAllSummers(t *testing.T) {
-	var pods = urkel.FetchPods(t, "default", brokerPodSelector)
+	var pods = urkel.FetchPods(t, testNamespace, summerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()

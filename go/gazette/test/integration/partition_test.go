@@ -2,22 +2,18 @@
 
 package integration
 
-import (
-	"testing"
-	"time"
-
-	"github.com/jgraettinger/urkel"
-)
-
 var (
-	etcdPodSelector   = "app=etcd"
+	etcdPodSelector   = "app.kubernetes.io/name=etcd"
 	summerPodSelector = "app.kubernetes.io/name=summer"
 	brokerPodSelector = "app.kubernetes.io/name=gazette"
-	minioPodSelector  = "app=minio"
+	minioPodSelector  = "app.kubernetes.io/name=minio"
+	testNamespace     = "soak"
 )
 
+// TODO(johnny): Must be manually enabled for now (see #222).
+/*
 func TestPartitionWithinEtcdCluster(t *testing.T) {
-	var pods = urkel.FetchPods(t, "default", etcdPodSelector)
+	var pods = urkel.FetchPods(t, testNamespace, etcdPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -27,8 +23,8 @@ func TestPartitionWithinEtcdCluster(t *testing.T) {
 }
 
 func TestPartitionOneBrokerFromEtcd(t *testing.T) {
-	var etcds = urkel.FetchPods(t, "default", etcdPodSelector)
-	var brokers = urkel.FetchPods(t, "default", brokerPodSelector)
+	var etcds = urkel.FetchPods(t, testNamespace, etcdPodSelector)
+	var brokers = urkel.FetchPods(t, testNamespace, brokerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -38,8 +34,8 @@ func TestPartitionOneBrokerFromEtcd(t *testing.T) {
 }
 
 func TestPartitionOneSummerFromEtcd(t *testing.T) {
-	var etcds = urkel.FetchPods(t, "default", etcdPodSelector)
-	var summers = urkel.FetchPods(t, "default", summerPodSelector)
+	var etcds = urkel.FetchPods(t, testNamespace, etcdPodSelector)
+	var summers = urkel.FetchPods(t, testNamespace, summerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -49,8 +45,8 @@ func TestPartitionOneSummerFromEtcd(t *testing.T) {
 }
 
 func TestActivePartitionOneSummerFromBrokers(t *testing.T) {
-	var brokers = urkel.FetchPods(t, "default", brokerPodSelector)
-	var summers = urkel.FetchPods(t, "default", summerPodSelector)
+	var brokers = urkel.FetchPods(t, testNamespace, brokerPodSelector)
+	var summers = urkel.FetchPods(t, testNamespace, summerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -60,8 +56,8 @@ func TestActivePartitionOneSummerFromBrokers(t *testing.T) {
 }
 
 func TestActivePartitionOneBrokerFromSummers(t *testing.T) {
-	var brokers = urkel.FetchPods(t, "default", brokerPodSelector)
-	var summers = urkel.FetchPods(t, "default", summerPodSelector)
+	var brokers = urkel.FetchPods(t, testNamespace, brokerPodSelector)
+	var summers = urkel.FetchPods(t, testNamespace, summerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -71,7 +67,7 @@ func TestActivePartitionOneBrokerFromSummers(t *testing.T) {
 }
 
 func TestActivePartitionBrokers(t *testing.T) {
-	var pods = urkel.FetchPods(t, "default", brokerPodSelector)
+	var pods = urkel.FetchPods(t, testNamespace, brokerPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -81,8 +77,8 @@ func TestActivePartitionBrokers(t *testing.T) {
 }
 
 func TestPartitionBrokersFromMinio(t *testing.T) {
-	var brokers = urkel.FetchPods(t, "default", brokerPodSelector)
-	var minio = urkel.FetchPods(t, "default", minioPodSelector)
+	var brokers = urkel.FetchPods(t, testNamespace, brokerPodSelector)
+	var minio = urkel.FetchPods(t, testNamespace, minioPodSelector)
 
 	var fs = urkel.NewFaultSet(t)
 	defer fs.RemoveAll()
@@ -90,3 +86,4 @@ func TestPartitionBrokersFromMinio(t *testing.T) {
 	fs.Partition(brokers, minio, urkel.Drop)
 	time.Sleep(time.Minute)
 }
+*/
