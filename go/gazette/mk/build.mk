@@ -90,14 +90,16 @@ ${WORKDIR}/protoc-gen-gogo:
 	go mod download github.com/golang/protobuf
 	go build -o $@ github.com/gogo/protobuf/protoc-gen-gogo
 
-# Push images to docker.io for distribution. The "release_tag" argument is required,
-# as is an authenticated account to docker hub.
-push-to-docker-hub:
+push-ci-builder-image:
 	docker tag gazette-ci-builder:latest gazette/ci-builder:latest
 	docker push gazette/ci-builder:latest
+
+# Push images to docker.io for distribution. The "release_tag" argument is required,
+# as is an authenticated account to docker hub.
+push-release-images:
 	docker tag gazette/broker:latest gazette/broker:${release_tag}
 	docker tag gazette/examples:latest gazette/examples:${release_tag}
 	docker push gazette/broker:${release_tag}
 	docker push gazette/examples:${release_tag}
 
-.PHONY: ci-builder-image go-install go-test-fast go-test-ci push-to-docker-hub
+.PHONY: ci-builder-image go-install go-test-fast go-test-ci push-ci-builder-image push-release-images
