@@ -138,6 +138,11 @@ func (s *Store) RestoreCheckpoint(_ consumer.Shard) (pc.Checkpoint, error) {
 			return cp, err
 		}
 		cp.Sources[name] = pc.Checkpoint_Source{ReadThrough: offset}
+
+		log.WithFields(log.Fields{
+			"journal": name,
+			"offset":  offset,
+		}).Info("migrating from legacy RocksDB offset")
 	}
 	return cp, nil
 }
