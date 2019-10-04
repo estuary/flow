@@ -337,12 +337,10 @@ func (w *Sequencer) evictAtHead() {
 		Journal:  w.ring[w.head].Journal.Name,
 		Producer: GetProducerID(w.ring[w.head].GetUUID()),
 	}
-	var p = w.partials[jp]
-	defer func() { w.partials[jp] = p }()
 
 	// We must update partial |p| if it still references |w.head|. It often will
 	// not, if the the latter has already been acknowledged or rolled back.
-	if p.ringStart == w.head {
+	if p, ok := w.partials[jp]; ok && p.ringStart == w.head {
 		if p.ringStart == p.ringStop && w.next[p.ringStart] == -1 {
 			p.ringStart, p.ringStop = -1, -1 // No more entries.
 		} else if p.ringStart != p.ringStop && w.next[p.ringStart] != -1 {
@@ -350,6 +348,7 @@ func (w *Sequencer) evictAtHead() {
 		} else {
 			panic("invariant violated: ringStart == ringStop iff next[ringStart] == -1")
 		}
+		w.partials[jp] = p
 	}
 	w.ring[w.head], w.next[w.head] = Envelope{}, -1
 }
