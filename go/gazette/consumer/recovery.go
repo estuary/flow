@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -257,8 +258,24 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 	}
 
 	if s.recovery.log != "" {
-		if err = storeRecoveredHints(s, recoveredHints); err != nil {
-			return cp, errors.WithMessage(err, "storeRecoveredHints")
+		for i := 0; true; i++ {
+			if err = storeRecoveredHints(s, recoveredHints); err == nil {
+				break
+			}
+
+			// Storing recovered hints can sometimes fail, eg due to a
+			// shard assignment race.
+			log.WithFields(log.Fields{
+				"err": err,
+				"log": recoveredHints.Log,
+			}).Warn("failed to store recovered hints (will retry)")
+
+			select {
+			case <-s.ctx.Done():
+				return cp, s.ctx.Err()
+			case <-time.After(backoff(i)):
+				// Pass.
+			}
 		}
 	}
 

@@ -305,6 +305,8 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 			continue
 		}
 
+		// A reader.peek() completed with |err|.
+
 		if err == client.ErrOffsetNotYetAvailable {
 			if offset < readThrough {
 				// This error is returned only by a non-blocking reader, and we should have used
@@ -355,6 +357,7 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 				}
 				// We next must read through the op we just wrote.
 				state, readThrough = playerStateReadHandoffBarrier, txn.Response().Commit.End
+				continue
 
 			default:
 				log.WithField("state", state).Panic("invalid state")
