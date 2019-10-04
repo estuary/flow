@@ -1,0 +1,114 @@
+# Journal YAMLs represent a hierarchy of related journals.
+# Intermediate nodes of the hierarchy are directories (indicated by a trailing
+# '/' in their name), and terminal nodes represent journals (which never
+# have a trailing '/'). For the YAML to validate, all node names in the
+# hierarchy must be prefixed by that of their parent(s).
+#
+# An important concept to understand is that journal hierarchies don't
+# actually exist, from a system perspective: every journal is written to
+# Etcd with its full and complete JournalSpec. The gazctl tool maps a
+# journal YAML to complete JournalSpecs by pushing configuration from parent
+# to child. In other words, where a journal provides no value for a
+# configuration property, it derives the value of the lowest parent in the
+# tree which specifies a non-zero value (labels are additively merged).
+# gazctl derives a YAML from a set of matched JournalSpecs by "hoisting"
+# properties shared by all children to a representative parent node.
+
+# Root directory of this journal YAML.
+name: examples/
+# Replication is the number of brokers required to participate in write
+# transactions of the journal. Eg a value of 3 means an Append RPC will proceed
+# only after data has been replicated to three distinct brokers in at least two
+# failure zones.
+replication: 2
+# Labels are key/value pairs that are attached to journals. They're intended
+# to represent identifying or organizing attributes of journals which are
+# meaningful to users and applications, but have no meaning to the broker itself.
+labels:
+  - name: example-journals
+# Fragment defines how the broker will map accepted writes into fragments.
+fragment:
+  # Desired length of each journal fragment. Note fragments can be
+  # substantially smaller or slightly larger under normal operation, as
+  # journal assignments change or to ensure atomicity of writes.
+  length: 1048576
+  # Stores enumerates the fragment backing stores of the journal. More
+  # than one store may be provided. New fragments are always persisted
+  # to the first store in the list, but all stores are refreshed when
+  # building the fragment index.
+  stores:
+  - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fminio%3A9000
+  # Refresh interval defines the frequency with which stores are re-listed.
+  refresh_interval: 1m0s
+  # Retention is the time interval after which the fragment is eligible
+  # for pruning from the backing store.
+  retention: 720h0m0s
+  # Compression codec used to compress fragments. One of:
+  # NONE, GZIP, GZIP_OFFLOAD_DECOMPRESSION, SNAPPY, ZSTANDARD.
+  compression_codec: SNAPPY
+  # Flush interval defines the minimum frequency at which fragments are flushed.
+  flush_interval: 10m0s
+children:
+  # Test journal for basic testing and curl-based examples.
+  - name: examples/foobar
+  # Journals used by the stream-sum example.
+  - name: examples/stream-sum/
+    fragment:
+      compression_codec: GZIP_OFFLOAD_DECOMPRESSION
+    children:
+    - name: examples/stream-sum/chunks/
+      labels:
+        - name: app.gazette.dev/message-type
+          value: Chunk
+        - name: content-type
+          value: application/x-ndjson
+      children:
+        - name: examples/stream-sum/chunks/part-000
+        - name: examples/stream-sum/chunks/part-001
+        - name: examples/stream-sum/chunks/part-002
+        - name: examples/stream-sum/chunks/part-003
+        - name: examples/stream-sum/chunks/part-004
+        - name: examples/stream-sum/chunks/part-005
+        - name: examples/stream-sum/chunks/part-006
+        - name: examples/stream-sum/chunks/part-007
+    - name: examples/stream-sum/recovery-logs/
+      labels:
+        - name: content-type
+          value: application/x-gazette-recoverylog
+      children:
+        - name: examples/stream-sum/recovery-logs/chunks-part-000
+        - name: examples/stream-sum/recovery-logs/chunks-part-001
+        - name: examples/stream-sum/recovery-logs/chunks-part-002
+        - name: examples/stream-sum/recovery-logs/chunks-part-003
+        - name: examples/stream-sum/recovery-logs/chunks-part-004
+        - name: examples/stream-sum/recovery-logs/chunks-part-005
+        - name: examples/stream-sum/recovery-logs/chunks-part-006
+        - name: examples/stream-sum/recovery-logs/chunks-part-007
+    - name: examples/stream-sum/sums
+      labels:
+        - name: app.gazette.dev/message-type
+          value: Sum
+        - name: content-type
+          value: application/x-ndjson
+  - name: examples/word-count/
+    children:
+    - name: examples/word-count/deltas/
+      labels:
+        - name: app.dev.gazette/message-type
+          value: NGramCount
+        - name: content-type
+          value: application/x-protobuf-fixed
+      children:
+        - name: examples/word-count/deltas/part-000
+        - name: examples/word-count/deltas/part-001
+        - name: examples/word-count/deltas/part-002
+        - name: examples/word-count/deltas/part-003
+    - name: examples/word-count/recovery-logs/
+      labels:
+        - name: content-type
+          value: application/x-gazette-recoverylog
+      children:
+        - name: examples/word-count/recovery-logs/shard-000
+        - name: examples/word-count/recovery-logs/shard-001
+        - name: examples/word-count/recovery-logs/shard-002
+        - name: examples/word-count/recovery-logs/shard-003

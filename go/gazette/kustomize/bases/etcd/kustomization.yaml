@@ -1,0 +1,30 @@
+# Etcd deploys Etcd as a StatefulSet backed by PersistentVolumeClaims for durability.
+#
+# MIN_REPLICAS defines the "seed" size of the cluster, and the StatefulSet
+# expects to always run with at least that many replicas. More replicas may
+# be added by scaling the StatefulSet, and each new replica will dynamically
+# join (or leave) the cluster on scale-up (or down). It's recommended to
+# scale by one member at a time.
+#
+# TODO(johnny): Etcd v3.4.1, used by this manifest, has a known scale-up bug:
+#  https://github.com/etcd-io/etcd/issues/11186
+resources:
+  - statefulset.yaml
+  - service.yaml
+
+vars:
+  - name: ETCD_SERVICE_NAME
+    objref:
+      kind:       StatefulSet
+      name:       etcd
+      apiVersion: apps/v1
+    fieldref:
+      fieldpath: spec.serviceName
+
+configMapGenerator:
+  - name: etcd-scripts
+    files:
+      - etcd-bootstrap.sh
+      - etcd-lib.sh
+      - etcd-shutdown.sh
+

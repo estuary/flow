@@ -1,0 +1,28 @@
+# Minio deploys an ephemeral instance of Minio with an "examples" bucket
+# and configured test credentials.
+resources:
+  - create-bucket.yaml
+  - deployment.yaml
+  - service.yaml
+  - serviceaccount.yaml
+
+commonLabels:
+
+vars:
+  - name: MINIO_ENDPOINT
+    objref:
+      name:       minio
+      kind:       Service
+      apiVersion: v1
+
+secretGenerator:
+  - name: minio-credentials
+    literals:
+      - accesskey=AKIAIOSFODNN7EXAMPLE
+      - secretkey=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+configMapGenerator:
+  - name: minio-create-bucket
+    files:
+      - create-bucket.sh
+

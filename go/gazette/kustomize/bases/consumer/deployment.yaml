@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: consumer
+  labels:
+    app.kubernetes.io/name: patch-with-name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: patch-with-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: patch-with-name
+    spec:
+      containers:
+        - name:            consumer
+          image:           consumer/image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name:          http
+              containerPort: 8080
+              protocol:      TCP
+          readinessProbe:
+            httpGet:
+              path: /debug/ready
+              port: http
+          command:
+            # Run within a shell to allow for interpretation of values.
+            - "/bin/sh"
+            - "-ec"
+            - |
+              exec ${CONSUMER_APP_BINARY} serve \
+                --consumer.port 8080 \
+                --consumer.zone $(/home/gazette/.config/zonemap/node-zone.sh $NODE_NAME) \
+                ${CONSUMER_APP_ARGS}
+          env:
+            # Broker service endpoint to use.
+            # By default, assume a "gazette" service running in our same namespace.
+            - name:  BROKER_ADDRESS
+              value: "http://gazette:8080"
+            # Size of the journal route cache to use. This reduces network hops by
+            # directing RPCs directly to a responsible broker for a given journal.
+            - name:  BROKER_CACHE_SIZE
+              value: "256"
+            # Additional arguments may optionally be patched in.
+            - name:  CONSUMER_APP_ARGS
+              value: ""
+            # Consumer binary, which defaults to the well-known name label.
+            - name: CONSUMER_APP_BINARY
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/name']
+            # Addressable, advertised hostname of this consumer instance.
+            - name: CONSUMER_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Unique ID of this consumer instance.
+            - name: CONSUMER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Etcd service endpoint to use for consumer coordination.
+            # By default, assume an "etcd" service running in our same namespace.
+            - name:  ETCD_ADDRESS
+              value: "http://etcd:2379"
+            # Compose an ETCD_PREFIX by combining the well-known name and instance labels.
+            - name: ETCD_PREFIX_APP_INSTANCE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/instance']
+            - name: ETCD_PREFIX_APP_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/name']
+            - name:  ETCD_PREFIX
+              value: "/gazette/consumers/$(ETCD_PREFIX_APP_NAME)-$(ETCD_PREFIX_APP_INSTANCE)"
+            # Logging configuration.
+            - name:  LOG_FORMAT
+              value: "json"
+            - name:  LOG_LEVEL
+              value: "info"
+            # Node hostname, used to map to a failure zone.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name:      tmpdir
+              mountPath: /tmp
+            - name:      zonemap
+              readOnly:  true
+              mountPath: /home/gazette/.config/zonemap
+
+      volumes:
+        # tmpdir is used for all ephemeral and temporary files, such as shard stores.
+        # Defaults to an emptyDir, but operators may want to supply a fast local disk.
+        - name: tmpdir
+          emptyDir: {}
+
+        # The deployment must be able to determine the failure zone of the Node
+        # of each Pod. Kubernetes makes this difficult to determine, as the
+        # downward API deliberately does not expose Node labels (and specifically,
+        # the "failure-domain.beta.kubernetes.io/zone" label). This chart pushes
+        # this mapping concern into a "gazette-zonemap" ConfigMap, which must
+        # provide a "node-zone.sh" script capable of accepting a Node name and
+        # returning its failure zone. The cluster operator must generate and apply
+        # a suitable ConfigMap. See also:
+        #   https://github.com/kubernetes/kubernetes/issues/40610
+        - name: zonemap
+          configMap:
+            name: gazette-zonemap
+            items:
+              - key:  node-zone.sh
+                path: node-zone.sh
+                mode: 0777
+
+      # Give pods plenty of time to shutdown gracefully after SIGTERM.
+      terminationGracePeriodSeconds: 21600
+      automountServiceAccountToken:  false

@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: integration-runner
+  labels:
+    app.kubernetes.io/name: integration
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: integration
+    spec:
+      restartPolicy:      Never
+      serviceAccountName: integration-runner
+      containers:
+        - name:            runner
+          image:           gazette/examples
+          imagePullPolicy: IfNotPresent
+          command:
+            - integration.test
+            - "-test.v"
+            - "-test.count=10"

@@ -36,6 +36,7 @@ go-install:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	MBP=go.gazette.dev/core/mainboilerplate ;\
 	go install -v \
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" ./...
+	go test -v -c -tags integration ./test/integration -o $(shell go env GOPATH)/bin/integration.test
 go-test-fast: ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	go test ./...
 go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}

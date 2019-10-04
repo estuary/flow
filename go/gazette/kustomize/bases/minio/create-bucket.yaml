@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: minio-create-bucket
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name:            minio-mc
+          image:           "minio/mc:RELEASE.2019-08-07T23-14-43Z"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/opt/minio/scripts/create-bucket.sh"]
+          env:
+            - name:  MINIO_ENDPOINT
+              value: $(MINIO_ENDPOINT)
+            - name:  MINIO_PORT
+              value: "9000"
+          volumeMounts:
+            - name:      create-bucket
+              mountPath: /opt/minio/scripts
+            - name:      credentials
+              mountPath: /opt/minio/credentials
+          resources:
+            requests:
+              cpu:    250m
+              memory: 256Mi
+
+      volumes:
+        - name: create-bucket
+          configMap:
+            name: minio-create-bucket
+        - name: credentials
+          secret:
+            secretName: minio-credentials

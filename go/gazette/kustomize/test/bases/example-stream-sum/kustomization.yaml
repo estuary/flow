@@ -1,0 +1,22 @@
+# example-stream-sum deploys the Gazette stream-sum example, consisting of:
+# * A "summer" Deployment and Service, which sums stream chunks.
+# * A parallel "chunker" Job, which emits chunks and verifies final sums.
+# * A Job to create ShardSpecs for journals of the test environment.
+bases:
+  - ../../../bases/consumer
+patchesStrategicMerge:
+  - set-summer-name-label.yaml
+resources:
+  - chunker.yaml
+  - apply-shard-specs.yaml
+
+nameSuffix: -stream-sum
+
+images:
+  - name:    consumer/image
+    newName: gazette/examples
+
+configMapGenerator:
+  - name: generate-shards
+    files:
+      - generate-shards.sh

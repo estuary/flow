@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: gazette
+spec:
+  template:
+    spec:
+      containers:
+        - name:            gazette
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: consumer
+spec:
+  template:
+    spec:
+      containers:
+        - name:            consumer
+          imagePullPolicy: Always
+---
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: integration-runner
+spec:
+  template:
+    spec:
+      containers:
+        - name:            runner
+          imagePullPolicy: Always

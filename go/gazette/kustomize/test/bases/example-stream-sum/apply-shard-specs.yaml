@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: apply-shard-specs
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name:            apply-specs
+          image:           gazette/broker
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - "-ec"
+            - |
+              /bin/sh /opt/consumer/generate-shards.sh | \
+                gazctl shards apply
+          env:
+            - name:  CONSUMER_ADDRESS
+              value: "http://consumer-stream-sum:8080"
+          volumeMounts:
+            - name:      specs
+              mountPath: /opt/consumer
+      volumes:
+        - name: specs
+          configMap:
+            name: generate-shards

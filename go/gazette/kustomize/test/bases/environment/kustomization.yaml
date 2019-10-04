@@ -1,0 +1,26 @@
+# environment sets up a context for testing Gazette. It consists of:
+# * A gazette-aws-credentials Secret with Minio default credentials.
+# * A gazette-zonemap ConfigMap which randomly selects "zone-A" or "zone-B".
+# * A job which applies examples.journalspace.yaml to brokers.
+resources:
+  - apply-journal-specs.yaml
+
+configMapGenerator:
+  - name: gazette-zonemap
+    files:
+      - node-zone.sh=random_node_zonemap.sh
+  # Configure a collection of journal fixtures used by examples & integration tests.
+  - name: example-journal-specs
+    files:
+      - examples.journalspace.yaml
+
+secretGenerator:
+  # Configure AWS application default credentials  (~/.aws/) using Minio keys.
+  - name: gazette-aws-credentials
+    files:
+      - config=minio_config
+      - credentials=minio_credentials
+
+generatorOptions:
+  # Update ConfigMap and Secret in-place should they ever change.
+  disableNameSuffixHash: true

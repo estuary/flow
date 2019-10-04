@@ -1,5 +1,5 @@
 # Git version & date which are injected into built binaries.
-VERSION = $(shell git describe --dirty)
+VERSION = $(shell git describe --dirty --tags)
 DATE    = $(shell date +%F-%T-%Z)
 # Number of available processors for parallel builds.
 NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
@@ -29,7 +29,8 @@ ci-release-examples-targets = \
 	${WORKDIR}/go-path/bin/counter \
 	${WORKDIR}/go-path/bin/gazctl \
 	${WORKDIR}/go-path/bin/summer \
-	${WORKDIR}/go-path/bin/wordcountctl
+	${WORKDIR}/go-path/bin/wordcountctl \
+	${WORKDIR}/go-path/bin/integration.test
 
 # Targets of protobufs which must be compiled.
 protobuf-targets = \
