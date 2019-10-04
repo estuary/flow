@@ -204,7 +204,8 @@ func (s *RPCSuite) TestReplicateRequestValidationCases(c *gc.C) {
 	req.Acknowledge = true
 	c.Check(req.Validate(), gc.ErrorMatches, `Proposal.Journal: cannot begin with '/' \(/bad/name\)`)
 	req.Proposal.Journal = "journal"
-	c.Check(req.Validate(), gc.ErrorMatches, `expected Registers with Proposal`)
+	// TODO(johnny): Re-enable when Registers are required, post v0.83.
+	// c.Check(req.Validate(), gc.ErrorMatches, `expected Registers with Proposal`)
 	req.Registers = &LabelSet{Labels: []Label{{Name: "in valid"}}}
 	c.Check(req.Validate(), gc.ErrorMatches, `Registers.Labels\[0\].Name: not a valid token \(in valid\)`)
 	req.Registers.Labels[0].Name = "valid"
