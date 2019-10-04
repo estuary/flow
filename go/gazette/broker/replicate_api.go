@@ -72,7 +72,7 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 
 	// Serve the long-lived replication pipeline. When it completes, roll-back
 	// any uncommitted content and release ownership of Spool.
-	spool, err = serveReplicate(stream, req, spool, &resolved.Header)
+	spool, err = serveReplicate(stream, *req, spool, &resolved.Header)
 
 	spool.MustApply(&pb.ReplicateRequest{
 		Proposal:  &spool.Fragment.Fragment,
@@ -84,13 +84,13 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 }
 
 // serveReplicate evaluates a client's Replicate RPC against the local Spool.
-func serveReplicate(stream pb.Journal_ReplicateServer, req *pb.ReplicateRequest, spool fragment.Spool, hdr *pb.Header) (fragment.Spool, error) {
+func serveReplicate(stream pb.Journal_ReplicateServer, req pb.ReplicateRequest, spool fragment.Spool, hdr *pb.Header) (fragment.Spool, error) {
 	var (
 		resp = new(pb.ReplicateResponse)
 		err  error
 	)
 	for {
-		if *resp, err = spool.Apply(req, false); err != nil {
+		if *resp, err = spool.Apply(&req, false); err != nil {
 			return spool, err
 		}
 		if req.Acknowledge {
@@ -103,7 +103,7 @@ func serveReplicate(stream pb.Journal_ReplicateServer, req *pb.ReplicateRequest,
 			return spool, fmt.Errorf("no ack requested but status != OK: %s", resp)
 		}
 
-		if req, err = stream.Recv(); err == io.EOF {
+		if err = stream.RecvMsg(&req); err == io.EOF {
 			return spool, nil
 		} else if err != nil {
 			return spool, err
