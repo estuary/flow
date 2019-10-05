@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/brokertest"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 )
@@ -332,4 +333,45 @@ func TestAPIHintsCases(t *testing.T) {
 	assert.EqualError(t, err, "validating FSMHints: hinted log not provided")
 
 	tf.allocateShard(spec) // Cleanup.
+}
+
+func TestVerifyReferencedJournalsCases(t *testing.T) {
+	var tf, cleanup = newTestFixture(t)
+	var ctx, jc = context.Background(), tf.broker.Client()
+	defer cleanup()
+
+	var req = &pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{
+			{Upsert: makeShard(shardA)},
+			{Delete: "other-shard"},
+			{Upsert: makeShard(shardB)},
+		},
+	}
+	// Case: valid request => no error.
+	assert.NoError(t, VerifyReferencedJournals(ctx, jc, req))
+
+	// Case: recovery log has wrong content type.
+	brokertest.CreateJournals(t, tf.broker, brokertest.Journal(
+		pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/missing-type")}))
+
+	req.Changes[2].Upsert.Id = "missing-type"
+	assert.EqualError(t, VerifyReferencedJournals(ctx, jc, req),
+		"Shard[missing-type]: expected recovery/logs/missing-type to have content-type application/x-gazette-recoverylog but was ''")
+
+	// Case: recovery log doesn't exist.
+	req.Changes[2].Upsert.Id = "missing-log"
+	assert.EqualError(t, VerifyReferencedJournals(ctx, jc, req),
+		"Shard[missing-log]: named journal does not exist (recovery/logs/missing-log)")
+
+	req.Changes[2].Upsert.Id = shardB
+
+	// Case: source journal has wrong type.
+	req.Changes[2].Upsert.Sources[1].Journal = pb.Journal(aRecoveryLogPrefix + "/" + shardC)
+	assert.EqualError(t, VerifyReferencedJournals(ctx, jc, req),
+		"Shard[shard-B].Sources[recovery/logs/shard-C] message framing: unrecognized content-type (application/x-gazette-recoverylog)")
+
+	// Case: source journal doesn't exist.
+	req.Changes[2].Upsert.Sources[1].Journal = "does/not/exist"
+	assert.EqualError(t, VerifyReferencedJournals(ctx, jc, req),
+		"Shard[shard-B]: named journal does not exist (does/not/exist)")
 }

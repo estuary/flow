@@ -18,10 +18,11 @@ const (
 	// is shared across several commands
 	maxTxnSizeWarning = `
 In the event that this command generates more changes than are possible in a
-single etcd transaction given the current server configation (default 128).
-Gazctl supports a  max transaction size flag (--max-txn-size) which will send
-the changes in batches of at most the max transaction size, however this means
-a loss of transactionality and should be used with caution.`
+single Etcd transaction given the current server configuration (default 128),
+gazctl supports a flag which will send changes in batches of at most
+--max-txn-size. However, this means the entire apply is no longer issued as
+a single Etcd transaction and it should therefore be used with caution.
+If possible, prefer to use label selectors to limit the number of changes.`
 )
 
 var (

@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/cmd/gazctl/editor"
 	"go.gazette.dev/core/consumer"
@@ -48,12 +49,16 @@ func (cmd *cmdShardsEdit) applyShardSpecYAML(b []byte) error {
 	if err := yaml.UnmarshalStrict(b, &set); err != nil {
 		return err
 	}
-	var req = newShardSpecApplyRequest(set)
-	if err := req.Validate(); err != nil {
-		return err
-	}
 
 	var ctx = context.Background()
+	var req = newShardSpecApplyRequest(set)
+
+	if err := req.Validate(); err != nil {
+		return err
+	} else if err = consumer.VerifyReferencedJournals(ctx, shardsCfg.Broker.MustJournalClient(ctx), req); err != nil {
+		return errors.WithMessage(err, "verifying referenced journals")
+	}
+
 	var resp, err = consumer.ApplyShardsInBatches(ctx, shardsCfg.Consumer.MustShardClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply shards")
 	log.WithField("rev", resp.Header.Etcd.Revision).Info("successfully applied")

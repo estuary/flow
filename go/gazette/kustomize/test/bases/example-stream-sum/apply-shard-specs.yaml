@@ -17,6 +17,8 @@ spec:
               /bin/sh /opt/consumer/generate-shards.sh | \
                 gazctl shards apply
           env:
+            - name:  BROKER_ADDRESS
+              value: "http://gazette:8080"
             - name:  CONSUMER_ADDRESS
               value: "http://consumer-stream-sum:8080"
           volumeMounts:

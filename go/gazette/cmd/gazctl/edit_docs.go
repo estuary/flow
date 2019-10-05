@@ -16,11 +16,18 @@ func init() {
 	// "shards edit" commands by templating their long descriptions.
 	var editTemplate = template.Must(template.New("template").Parse(`Edit and apply {{ .Type }} specifications.
 
-The edit command allows you to directly edit {{ .Type }} specifications matching the supplied LabelSelector. It will open the editor defined by your GAZ_EDITOR or EDITOR environment variables or fall back to 'vi'. Editing from Windows is currently not supported.
+The edit command allows you to directly edit {{ .Type }} specifications matching
+the supplied LabelSelector. It will open the editor defined by your GAZ_EDITOR or
+EDITOR environment variables or fall back to 'vi'. Editing from Windows is
+currently not supported.
 
-Upon exiting the editor, if the file has been changed, it will be validated and applied. If the file is invalid or fails to apply, the editor is re-opened. Exiting the editor with no changes or saving an empty file are interpreted as the user aborting the edit attempt.
+Upon exiting the editor, if the file has been changed, it will be validated and
+applied. If the file is invalid or fails to apply, the editor is re-opened.
+Exiting the editor with no changes or saving an empty file are interpreted as
+the user aborting the edit attempt.
 
-Use --selector to supply a LabelSelector which constrains the set of returned {{ .Type }} specifications. See "{{ .HelpCommand }}" for details and examples.
+Use --selector to supply a LabelSelector which constrains the set of returned
+{{ .Type }} specifications. See "{{ .HelpCommand }}" for details and examples.
 
 {{ .Examples }}
 `))
@@ -44,17 +51,14 @@ Use an alternative editor
 	}
 
 	// Save the template output to package vars.
-	const warning = maxTxnSizeWarning + ` Instead it is
-recomended that additional label selectors are used to limit the number of
-changes within this operation.`
 	var buf = &bytes.Buffer{}
 	if err := editTemplate.Execute(buf, journalData); err != nil {
 		panic(err)
 	}
-	journalsEditLongDesc = buf.String() + warning
+	journalsEditLongDesc = buf.String() + maxTxnSizeWarning
 	buf.Reset()
 	if err := editTemplate.Execute(buf, shardData); err != nil {
 		panic(err)
 	}
-	shardsEditLongDesc = buf.String() + warning
+	shardsEditLongDesc = buf.String() + maxTxnSizeWarning
 }

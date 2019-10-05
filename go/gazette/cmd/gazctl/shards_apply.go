@@ -21,7 +21,7 @@ func init() {
 Apply a collection of ShardSpec creations, updates, or deletions.
 
 ShardSpecs should be provided as a YAML list, the same format produced by
-"gazctl shards list". Consumers verify that the etcd "revision" field of each
+"gazctl shards list". Consumers verify that the Etcd "revision" field of each
 ShardSpec is correct, and will fail the entire apply operation if any have since
 been updated. A common operational pattern is to list, edit, and re-apply a
 collection of ShardSpecs; this check ensures concurrent modifications are caught.
@@ -38,15 +38,18 @@ func (cmd *cmdShardsApply) Execute([]string) error {
 	var set shardspace.Set
 	mbp.Must(cmd.decode(&set), "failed to decode shardspace from YAML")
 
+	var ctx = context.Background()
 	var req = newShardSpecApplyRequest(set)
+
 	mbp.Must(req.Validate(), "failed to validate ApplyRequest")
+	mbp.Must(consumer.VerifyReferencedJournals(ctx, shardsCfg.Broker.MustJournalClient(ctx), req),
+		"failed to validate journals of the ApplyRequest")
 
 	if cmd.DryRun {
 		_ = proto.MarshalText(os.Stdout, req)
 		return nil
 	}
 
-	var ctx = context.Background()
 	var resp, err = consumer.ApplyShardsInBatches(ctx, shardsCfg.Consumer.MustShardClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply shards")
 	log.WithField("rev", resp.Header.Etcd.Revision).Info("successfully applied")

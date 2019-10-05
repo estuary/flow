@@ -115,7 +115,7 @@ func (it *ReadUncommittedIter) Next() (Envelope, error) {
 func (it *ReadUncommittedIter) init() error {
 	var err error
 	if it.spec, err = client.GetJournal(it.rr.Context, it.rr.Client, it.rr.Journal()); err != nil {
-		return errors.WithMessagef(err, "fetching journal spec")
+		return errors.WithMessage(err,  "fetching journal spec")
 	} else if it.framing, err = FramingByContentType(it.spec.LabelSet.ValueOf(labels.ContentType)); err != nil {
 		return errors.WithMessage(err, "determining framing")
 	}

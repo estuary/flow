@@ -2,13 +2,16 @@ package consumer
 
 import (
 	"context"
-	"errors"
 	"strings"
 
+	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
 )
 
@@ -99,6 +102,8 @@ func (srv *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyR
 		Header: pb.NewUnroutedHeader(s),
 	}
 	if err := req.Validate(); err != nil {
+		return resp, err
+	} else if err = VerifyReferencedJournals(ctx, srv.Journals, req); err != nil {
 		return resp, err
 	}
 
@@ -198,7 +203,47 @@ func StatShard(ctx context.Context, rc pc.RoutedShardClient, req *pc.StatRequest
 	} else {
 		return r, nil
 	}
+}
 
+// VerifyReferencedJournals ensures the referential integrity of journals
+// (sources and recovery logs, and their content types) referenced by Shards
+// of the ApplyRequest. It returns a descriptive error if any invalid
+// references are found.
+func VerifyReferencedJournals(ctx context.Context, jc pb.JournalClient, req *pc.ApplyRequest) error {
+	var cache = make(map[pb.Journal]*pb.JournalSpec)
+
+	var lookup = func(name pb.Journal) (*pb.JournalSpec, error) {
+		if spec, ok := cache[name]; ok {
+			return spec, nil
+		} else if spec, err := client.GetJournal(ctx, jc, name); err != nil {
+			return nil, err
+		} else {
+			cache[name] = spec
+			return spec, nil
+		}
+	}
+
+	for _, change := range req.Changes {
+		if change.Upsert == nil {
+			continue
+		}
+		// Verify shard sources exist with appropriate framed content-types.
+		for _, src := range change.Upsert.Sources {
+			if spec, err := lookup(src.Journal); err != nil {
+				return errors.WithMessagef(err, "Shard[%s]", change.Upsert.Id)
+			} else if _, err = message.FramingByContentType(spec.LabelSet.ValueOf(labels.ContentType)); err != nil {
+				return errors.WithMessagef(err, "Shard[%s].Sources[%s] message framing", change.Upsert.Id, src.Journal)
+			}
+		}
+		// Verify shard recovery log exists with its content-types.
+		if spec, err := lookup(change.Upsert.RecoveryLog()); err != nil {
+			return errors.WithMessagef(err, "Shard[%s]", change.Upsert.Id)
+		} else if ct := spec.LabelSet.ValueOf(labels.ContentType); ct != labels.ContentType_RecoveryLog {
+			return errors.Errorf("Shard[%s]: expected %s to have %s %s but was '%s'",
+				change.Upsert.Id, change.Upsert.RecoveryLog(), labels.ContentType, labels.ContentType_RecoveryLog, ct)
+		}
+	}
+	return nil
 }
 
 // ApplyShards invokes the Apply RPC.
