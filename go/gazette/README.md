@@ -15,6 +15,9 @@ through a common catalog of streamed data. It features a lightweight
 container & cloud-native architecture, high availability, and integrates elegantly with
 existing batch workflows.
 
+It has served production use cases for nearly five years, with deployments
+scaled to millions of streamed messages per second.
+
 Gazette consists of a *broker service* serving **journals**, a byte-oriented and
 append-only resource resembling a file, and a *consumers* library for building rich
 streaming applications in Go.
@@ -26,19 +29,25 @@ Gazette provides low-latency, durable, ordered publish/subscribe services, while
 *also* serving as the system-of-record for all historical data which has passed
 through those streams, no matter how old or large in volume.
 
-It features powerful **labels** and **selectors** mechanisms for tagging and querying
-over event streams, similar to those of Kubernetes.
+It delegates storage and high-volume replay to elastic BLOB stores like S3.
+Brokers themselves are ephemeral and disposable. The cluster scales and recovers
+from faults in seconds. Its architecture obviates the common need for separate
+batch and real-time systems by providing the capabilities and advantages of both.
 
-It minimizes operational risk by delegating both storage and high-volume replay
-to elastic BLOB stores like S3. Brokers themselves are ephemeral and disposable.
-The cluster scales and recovers from faults in seconds.
+It features a rich library for building scaled, available streaming applications
+in Go with exactly-once semantics. Applications may process against a remote
+database, or may use embedded stores such as RocksDB for fast and tunable
+storage of keys & values, or even SQLite for full SQL support. The library manages
+details such as durable replication of embedded stores, allocation of hot
+standbys, and fast fail-over, so that users can focus on their business logic.
+Gazette also offers a "batteries included" command-line tool which makes quick
+work of integrating existing applications.
 
-It seeks to be cost-efficient by best utilizing cloud pricing structures and
-being careful to minimize inter-zone data transfers.
-
-It features a rich library for building fault-tolerant, highly available, highly
-stateful streaming applications in Go, as well as a "batteries included" command-
-line tool which makes quick work of integrating existing applications.
+Brokers and applications are easily operated by container platforms like
+Kubernetes, and offer familiar primitives such as declarative YAML specifications
+and a powerful *labels* & *selectors* mechanism for tagging and querying over
+objects. Gazette seeks to be cost-efficient by best utilizing cloud pricing
+structures and being careful to minimize inter-zone data transfers.
 
 Where to Start
 ==============
