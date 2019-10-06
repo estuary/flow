@@ -148,9 +148,11 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 		return func() { appendChunkTimeout = d }
 	}(appendChunkTimeout)
 
+	// Client sends partial stream and stalls. We don't assert NoError as the
+	// broker may have already timed out the RPC already.
 	stream, _ = broker.client().Append(ctx)
 	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
+	_ = stream.Send(&pb.AppendRequest{Content: []byte("foo")})
 
 	err = stream.RecvMsg(new(pb.AppendResponse)) // Block until server cancels.
 	assert.EqualError(t, err,
