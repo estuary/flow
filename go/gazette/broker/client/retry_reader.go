@@ -57,8 +57,8 @@ func (rr *RetryReader) Offset() int64 {
 //  * The broker returns OFFSET_NOT_YET_AVAILABLE (ErrOffsetNotYetAvailable)
 //    for a non-blocking ReadRequest.
 //  * An offset jump occurred (ErrOffsetJump), in which case the client
-//    should inspect the new Offset may continue reading if desired.
-//  * The broker returns io.EOF after sending through the requested EndOffset.
+//    should inspect the new Offset and may continue reading if desired.
+//  * The broker returns io.EOF upon reaching the requested EndOffset.
 // All other errors are retried.
 func (rr *RetryReader) Read(p []byte) (n int, err error) {
 	for attempt := 0; true; attempt++ {
@@ -116,7 +116,8 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 }
 
 // Seek sets the offset for the next Read. It returns an error if (and only if)
-// |whence| is io.SeekEnd, which is not supported.
+// whence is io.SeekEnd, which is not supported. Where possible Seek will delegate
+// to the current Reader, but in most cases a new Read RPC must be started.
 func (rr *RetryReader) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
@@ -144,12 +145,11 @@ func (rr *RetryReader) Seek(offset int64, whence int) (int64, error) {
 	return rr.Reader.Request.Offset, nil
 }
 
-// AdjustedOffset returns the current journal offset, adjusted for content read
-// by |br| (which wraps this RetryReader) but not yet consumed from |br|'s buffer.
+// AdjustedOffset delegates to the current Reader's AdjustedOffset.
 func (rr *RetryReader) AdjustedOffset(br *bufio.Reader) int64 { return rr.Reader.AdjustedOffset(br) }
 
-// AdjustedSeek sets the offset for the next Read, accounting for buffered data and updating
-// the buffer as needed.
+// AdjustedSeek sets the offset for the next Read, accounting for buffered data and,
+// where possible, accomplishing the AdjustedSeek by discarding from the bufio.Reader.
 func (rr *RetryReader) AdjustedSeek(offset int64, whence int, br *bufio.Reader) (int64, error) {
 	switch whence {
 	case io.SeekStart:
@@ -177,6 +177,7 @@ func (rr *RetryReader) AdjustedSeek(offset int64, whence int, br *bufio.Reader) 
 }
 
 // Restart the RetryReader with a new ReadRequest.
+// Restart without a prior Cancel will leak resources.
 func (rr *RetryReader) Restart(req pb.ReadRequest) {
 	var ctx, cancel = context.WithCancel(rr.Context)
 

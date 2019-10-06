@@ -15,13 +15,26 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Reader adapts a Read RPC to the io.Reader interface. It additionally supports
-// directly reading Fragment URLs advertised but not proxied by the broker (eg,
-// because DoNotProxy of the ReadRequest is true). A Reader is invalidated by its
-// first returned error, with the exception of ErrOffsetJump: this error is
-// returned to notify the client that the next Journal offset to be Read is not
-// the offset that was requested, but the Reader is prepared to continue at the
-// updated offset.
+// Reader adapts a Read RPC to the io.Reader interface. The first byte read from
+// the Reader initiates the RPC, and subsequent reads stream from it.
+//
+// If DoNotProxy is true then the broker may close the RPC after sending a signed
+// Fragment URL, and Reader will directly open the Fragment (decompressing if needed),
+// seek to the requested offset, and read its content.
+//
+// Reader returns EOF if:
+//  * The broker closes the RPC, eg because its assignment has change or it's shutting down.
+//  * The requested EndOffset has been read through.
+//  * A Fragment being read by the Reader reaches EOF.
+//
+// If Block is true, Read may block indefinitely. Otherwise, ErrOffsetNotYetAvailable
+// is returned upon reaching the journal write head.
+//
+// A Reader is invalidated by its first returned error, with the exception of
+// ErrOffsetJump: this error is returned to notify the client that the next Journal
+// offset to be Read is not the offset that was requested (eg, because a portion of
+// the Journal was deleted), but the Reader is prepared to continue at the updated,
+// strictly larger offset.
 type Reader struct {
 	Request  pb.ReadRequest  // ReadRequest of the Reader.
 	Response pb.ReadResponse // Most recent ReadResponse from broker.
@@ -32,7 +45,7 @@ type Reader struct {
 	direct io.ReadCloser          // Directly opened Fragment URL.
 }
 
-// NewReader returns a Reader initialized with the given BrokerClient and ReadRequest.
+// NewReader returns an initialized Reader of the given ReadRequest.
 func NewReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRequest) *Reader {
 	var r = &Reader{
 		Request: req,
@@ -42,6 +55,7 @@ func NewReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRe
 	return r
 }
 
+// Read from the journal. If this is the first Read of the Reader, a Read RPC is started.
 func (r *Reader) Read(p []byte) (n int, err error) {
 	// If we have an open direct reader of a persisted fragment, delegate to it.
 	if r.direct != nil {
@@ -157,17 +171,19 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 	return
 }
 
-// AdjustedOffset returns the current journal offset, adjusted for content read
-// by |br| (which wraps this Reader) but not yet consumed from |br|'s buffer.
+// AdjustedOffset returns the current journal offset adjusted for content read
+// by the bufio.Reader (which must wrap this Reader), which has not yet been
+// consumed from the bufio.Reader's buffer.
 func (r *Reader) AdjustedOffset(br *bufio.Reader) int64 {
 	return r.Request.Offset - int64(br.Buffered())
 }
 
-// Seek provides a limited form of seeking support. Specifically, iff a
-// Fragment URL is being directly read, the Seek offset is ahead of the current
-// Reader offset, and the Fragment also covers the desired Seek offset, then a
-// seek is performed by reading and discarding to the seeked offset. Seek will
-// otherwise return ErrSeekRequiresNewReader.
+// Seek provides a limited form of seeking support. Specifically, if:
+//  * A Fragment URL is being directly read, and
+//  * The Seek offset is ahead of the current Reader offset, and
+//  * The Fragment also covers the desired Seek offset
+// Then a seek is performed by reading and discarding to the seeked offset.
+// Seek will otherwise return ErrSeekRequiresNewReader.
 func (r *Reader) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
@@ -188,8 +204,9 @@ func (r *Reader) Seek(offset int64, whence int) (int64, error) {
 	return r.Request.Offset, err
 }
 
-// OpenFragmentURL directly opens |fragment|, which must be available at URL
-// |url|, and returns a *FragmentReader which has been pre-seeked to |offset|.
+// OpenFragmentURL directly opens the Fragment, which must be available at the
+// given URL, and returns a *FragmentReader which has been pre-seeked to the
+// given offset.
 func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, url string) (*FragmentReader, error) {
 	var req, err = http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -228,8 +245,8 @@ func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, ur
 	return NewFragmentReader(resp.Body, fragment, offset)
 }
 
-// NewFragmentReader wraps |rc|, which is a io.ReadCloser of raw Fragment bytes,
-// with a returned *FragmentReader which has been pre-seeked to |offset|.
+// NewFragmentReader wraps a io.ReadCloser of raw Fragment bytes with a
+// returned *FragmentReader which has been pre-seeked to the given offset.
 func NewFragmentReader(rc io.ReadCloser, fragment pb.Fragment, offset int64) (*FragmentReader, error) {
 	var decomp, err = codecs.NewCodecReader(rc, fragment.CompressionCodec)
 	if err != nil {
@@ -253,7 +270,7 @@ func NewFragmentReader(rc io.ReadCloser, fragment pb.Fragment, offset int64) (*F
 	return fr, nil
 }
 
-// FragmentReader is a io.ReadCloser of a Fragment.
+// FragmentReader directly reads from an opened Fragment file.
 type FragmentReader struct {
 	pb.Fragment       // Fragment being read.
 	Offset      int64 // Next journal offset to be read, in range [Begin, End).
@@ -293,9 +310,21 @@ func (fr *FragmentReader) Close() error {
 	return errB
 }
 
-// InstallFileTransport registers a file:// protocol handler rooted at |root|
-// with the http.Client used by OpenFragmentURL. The returned cleanup function
-// removes the handler and restores the prior http.Client.
+// InstallFileTransport registers a file:// protocol handler at the given root
+// with the http.Client used by OpenFragmentURL. It's used in testing contexts,
+// and is also appropriate when brokers share a common NAS file store to which
+// fragments are persisted, and to which this client also has access. The
+// returned cleanup function removes the handler and restores the prior http.Client.
+//
+//      const root = "/mnt/shared-nas-array/path/to/fragment-root"
+//      defer client.InstallFileTransport(root)()
+//
+//      var rr = NewRetryReader(ctx, client, protocol.ReadRequest{
+//          Journal: "a/journal/with/nas/fragment/store",
+//          DoNotProxy: true,
+//      })
+//      // rr.Read will read Fragments directly from NAS.
+//
 func InstallFileTransport(root string) (remove func()) {
 	var transport = new(http.Transport)
 	*transport = *http.DefaultTransport.(*http.Transport) // Clone.
@@ -326,11 +355,19 @@ var (
 	ErrNotJournalBroker        = errors.New(pb.Status_NOT_JOURNAL_BROKER.String())
 	ErrNotJournalPrimaryBroker = errors.New(pb.Status_NOT_JOURNAL_PRIMARY_BROKER.String())
 	ErrOffsetNotYetAvailable   = errors.New(pb.Status_OFFSET_NOT_YET_AVAILABLE.String())
-	ErrWrongAppendOffset       = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
 	ErrRegisterMismatch        = errors.New(pb.Status_REGISTER_MISMATCH.String())
+	ErrWrongAppendOffset       = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
 
-	ErrOffsetJump            = errors.New("offset jump")
+	// ErrOffsetJump is returned by Reader.Read to indicate that the next byte
+	// available to be read is at a larger offset than that requested (eg,
+	// because a span of the Journal has been deleted). The Reader's ReadResponse
+	// should be inspected by the caller, and Read may be invoked again to continue.
+	ErrOffsetJump = errors.New("offset jump")
+	// ErrSeekRequiresNewReader is returned by Reader.Seek if it is unable to
+	// satisfy the requested Seek. A new Reader should be started instead.
 	ErrSeekRequiresNewReader = errors.New("seek offset requires new Reader")
+	// ErrDidNotReadExpectedEOF is returned by FragmentReader.Read if the
+	// underlying file did not return EOF at the expected Fragment End offset.
 	ErrDidNotReadExpectedEOF = errors.New("did not read EOF at expected Fragment.End")
 
 	// httpClient is the http.Client used by OpenFragmentURL

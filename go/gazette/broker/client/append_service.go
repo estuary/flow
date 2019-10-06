@@ -40,7 +40,7 @@ func NewAppendService(ctx context.Context, client pb.RoutedJournalClient) *Appen
 }
 
 // OpFuture represents an operation which is executing in the background. The
-// operation has completed when Done() selects. Err() may be invoked to determine
+// operation has completed when Done selects. Err may be invoked to determine
 // whether the operation succeeded or failed.
 type OpFuture interface {
 	// Done selects when operation background execution has finished.
@@ -52,7 +52,7 @@ type OpFuture interface {
 // OpFutures is a set of OpFuture instances.
 type OpFutures map[OpFuture]struct{}
 
-// IsSubsetOf is true of this OpFutures is a subset of |other|.
+// IsSubsetOf is true of this OpFutures is a subset of the other.
 func (s OpFutures) IsSubsetOf(other OpFutures) bool {
 	for f := range s {
 		if _, ok := other[f]; !ok {
@@ -62,7 +62,7 @@ func (s OpFutures) IsSubsetOf(other OpFutures) bool {
 	return true
 }
 
-// AsyncOperation is a minimal implementation of OpFuture.
+// AsyncOperation is a simple, minimal implementation of the OpFuture interface.
 type AsyncOperation struct {
 	doneCh chan struct{} // Closed to signal operation has completed.
 	err    error         // Error on operation completion.
@@ -71,10 +71,10 @@ type AsyncOperation struct {
 // NewAsyncOperation returns a new AsyncOperation.
 func NewAsyncOperation() *AsyncOperation { return &AsyncOperation{doneCh: make(chan struct{})} }
 
-// Done implements OpFuture.Done().
+// Done selects when Resolve is called.
 func (o *AsyncOperation) Done() <-chan struct{} { return o.doneCh }
 
-// Err implements OpFuture.Err().
+// Err blocks until Resolve is called, then returns its error.
 func (o *AsyncOperation) Err() error {
 	<-o.Done()
 	return o.err
@@ -231,7 +231,8 @@ func (s *AppendService) chainNewAppend(aa *AsyncAppend, req pb.AppendRequest, de
 	return aa.next
 }
 
-// AsyncAppend is an asynchronous Append RPC.
+// AsyncAppend represents an asynchronous Append RPC started and managed by
+// an AppendService.
 type AsyncAppend struct {
 	op  AsyncOperation
 	app Appender
@@ -254,7 +255,8 @@ func (p *AsyncAppend) Writer() *bufio.Writer { return p.fb.buf }
 // the error is retained and later returned by Release, in which case it will
 // also roll back any writes queued by the caller, aborting the append
 // transaction. Require is valid for use only until Release is called.
-// Require returns itself, allowing uses like `Require(maybeErrors()).Release()`
+// Require returns itself, allowing uses like:
+//      Require(maybeErrors()).Release()
 func (p *AsyncAppend) Require(err error) *AsyncAppend {
 	if err != nil && p.op.err == nil {
 		p.op.err = err
@@ -309,7 +311,7 @@ func (p *AsyncAppend) Response() pb.AppendResponse { return p.app.Response }
 // or has been aborted along with the AppendService's Context.
 func (p *AsyncAppend) Done() <-chan struct{} { return p.op.Done() }
 
-// Err blocks until Done(), and returns the final operation error.
+// Err blocks until Done, and returns the final operation error.
 func (p *AsyncAppend) Err() error { return p.op.Err() }
 
 // serveAppends executes Append RPCs specified by a (potentially growing) chain

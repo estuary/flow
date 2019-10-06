@@ -266,12 +266,11 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 
 	// Case: empty list of changes.
 	broker.ApplyFunc = func(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
-		c.Error("should not be called")
-		return nil, nil
+		return expected, nil
 	}
 	resp, err = ApplyJournalsInBatches(ctx, rjc, &pb.ApplyRequest{}, 1)
 	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.ApplyResponse{})
+	c.Check(resp, gc.DeepEquals, expected)
 
 	// Case: Return Error from backend.
 	broker.ApplyFunc = func(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {

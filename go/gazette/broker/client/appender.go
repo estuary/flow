@@ -12,10 +12,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Appender adapts an Append RPC to the io.WriteCloser interface. Its usages
-// should be limited to cases where the full and complete buffer to append is
-// already available and can be immediately dispatched as, by design, an in-
-// progress RPC prevents the broker from serving other Append RPCs concurrently.
+// Appender adapts an Append RPC to the io.WriteCloser interface. The first byte
+// written to the Appender initiates the RPC. Subsequent bytes are streamed to
+// brokers as they are written. Writes to the Appender may stall as the RPC
+// window fills, while waiting for brokers to sequence this Append into the
+// journal. Once they do, brokers will expect remaining content to append is
+// quickly written to this Appender (and may time-out the RPC if it's not).
+//
+// Content written to this Appender does not commit until Close is called,
+// including cases where the application dies without calling Close. If a
+// call to Close is started and the application dies before Close returns,
+// the append may or may commit.
+//
+// The application can cleanly roll-back a started Appender by Aborting it.
 type Appender struct {
 	Request  pb.AppendRequest  // AppendRequest of the Append.
 	Response pb.AppendResponse // AppendResponse sent by broker.
@@ -25,7 +34,7 @@ type Appender struct {
 	stream pb.Journal_AppendClient // Server stream.
 }
 
-// NewAppender returns an Appender initialized with the BrokerClient and AppendRequest.
+// NewAppender returns an initialized Appender of the given AppendRequest.
 func NewAppender(ctx context.Context, client pb.RoutedJournalClient, req pb.AppendRequest) *Appender {
 	var a = &Appender{
 		Request: req,
@@ -35,10 +44,11 @@ func NewAppender(ctx context.Context, client pb.RoutedJournalClient, req pb.Appe
 	return a
 }
 
-// Reset the Appender to its post-construction state,
-// allowing it to be re-used or re-tried.
+// Reset the Appender to its post-construction state, allowing it to be re-used
+// or re-tried. Reset without a prior Close or Abort will leak resources.
 func (a *Appender) Reset() { a.Response, a.stream = pb.AppendResponse{}, nil }
 
+// Write to the Appender, starting an Append RPC if this is the first Write.
 func (a *Appender) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		return // The broker interprets empty chunks as "commit".
@@ -100,7 +110,7 @@ func (a *Appender) Close() (err error) {
 	return
 }
 
-// Abort the write, causing the broker to discard previously written content.
+// Abort the append, causing the broker to discard previously written content.
 func (a *Appender) Abort() {
 	if a.stream != nil {
 		// Abort is implied by sending EOF without a preceding empty chunk.
@@ -136,10 +146,10 @@ func (a *Appender) sendMsg(r *pb.AppendRequest) (err error) {
 	return
 }
 
-// Append zero or more ReaderAts of |content| to a journal as a single Append
-// transaction. Append retries on transport or routing errors, but fails
-// on all other errors. If no ReaderAts are provided, an Append RPC with no
-// content is issued.
+// Append zero or more ReaderAts to a journal as a single Append transaction.
+// Append retries on transport or routing errors, but fails on all other errors.
+// Each ReaderAt is read from byte zero until EOF, and may be read multiple times.
+// If no ReaderAts are provided, an Append RPC with no content is issued.
 func Append(ctx context.Context, rjc pb.RoutedJournalClient, req pb.AppendRequest,
 	content ...io.ReaderAt) (pb.AppendResponse, error) {
 

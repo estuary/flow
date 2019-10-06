@@ -11,8 +11,16 @@ import (
 	"google.golang.org/grpc"
 )
 
-// PolledList performs periodic polls of a ListRequest. Its most recent
-// polled result may be accessed via List.
+// PolledList periodically polls the List RPC with a given ListRequest, making
+// its most recent result available via List. It's a building block for
+// applications which interact with dynamic journal sets and wish to react
+// to changes in their set membership over time.
+//
+//      var partitions, _ = protocol.ParseLabelSelector("logs=clicks, source=mobile")
+//      var pl, err = NewPolledList(ctx, client, time.Minute, protocol.ListRequest{
+//          Selector: partitions,
+//      })
+//
 type PolledList struct {
 	ctx      context.Context
 	client   pb.JournalClient
@@ -22,7 +30,7 @@ type PolledList struct {
 }
 
 // NewPolledList returns a PolledList of the ListRequest which is initialized and
-// ready for immediate use, and which will regularly refresh with interval |dur|.
+// ready for immediate use, and which will regularly refresh with the given Duration.
 // An error encountered in the first List RPC is returned. Subsequent RPC errors
 // will be logged as warnings and retried as part of regular refreshes.
 func NewPolledList(ctx context.Context, client pb.JournalClient, dur time.Duration, req pb.ListRequest) (*PolledList, error) {
@@ -47,8 +55,8 @@ func NewPolledList(ctx context.Context, client pb.JournalClient, dur time.Durati
 func (pl *PolledList) List() *pb.ListResponse { return pl.resp.Load().(*pb.ListResponse) }
 
 // UpdateCh returns a channel which is signaled with each update of the
-// PolledList. Only one channel is allocated and one signal sent per-update, so
-// if multiple goroutines select from UpdateCh() only one will wake.
+// PolledList. Only one channel is allocated and one signal sent per-update,
+// so if multiple goroutines select from UpdateCh only one will wake.
 func (pl *PolledList) UpdateCh() <-chan struct{} { return pl.updateCh }
 
 func (pl *PolledList) periodicRefresh(dur time.Duration) {
@@ -111,7 +119,7 @@ func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRe
 	return resp, nil
 }
 
-// GetJournal retrieves the JournalSpec of the named |journal|, or returns an error.
+// GetJournal retrieves the JournalSpec of the named Journal, or returns an error.
 func GetJournal(ctx context.Context, jc pb.JournalClient, journal pb.Journal) (*pb.JournalSpec, error) {
 	var lr, err = ListAllJournals(ctx, jc, pb.ListRequest{
 		Selector: pb.LabelSelector{
@@ -127,38 +135,37 @@ func GetJournal(ctx context.Context, jc pb.JournalClient, journal pb.Journal) (*
 	return &lr.Journals[0].Spec, nil
 }
 
-// ApplyJournals invokes the Apply RPC.
+// ApplyJournals applies journal changes detailed in the ApplyRequest via the broker Apply RPC.
+// Changes are applied as a single Etcd transaction. If the change list is larger than an
+// Etcd transaction can accommodate, ApplyJournalsInBatches should be used instead.
+// ApplyResponse statuses other than OK are mapped to an error.
 func ApplyJournals(ctx context.Context, jc pb.JournalClient, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {
 	return ApplyJournalsInBatches(ctx, jc, req, 0)
 }
 
-// ApplyJournalsInBatches applies changes to journals which
-// may be larger than the configured etcd transaction size size. The changes in
-// |req| will be sent serially in batches of size |size|. If
-// |size| is 0 all changes will be attempted as part of a single
-// transaction. This function will return the response of the final
-// ShardClient.Apply call. Response validation or !OK status from Apply RPC are
-// mapped to error.
+// ApplyJournalsInBatches is like ApplyJournals, but chunks the ApplyRequest
+// into batches of the given size, which should be less than Etcd's maximum
+// configured transaction size (usually 128). If size is 0 all changes will
+// be attempted in a single transaction. Be aware that ApplyJournalsInBatches
+// may only partially succeed, with some batches having applied and others not.
+// The final ApplyResponse is returned, unless an error occurs.
+// ApplyResponse statuses other than OK are mapped to an error.
 func ApplyJournalsInBatches(ctx context.Context, jc pb.JournalClient, req *pb.ApplyRequest, size int) (*pb.ApplyResponse, error) {
-	if len(req.Changes) == 0 {
-		return &pb.ApplyResponse{}, nil
-	}
 	if size == 0 {
 		size = len(req.Changes)
 	}
-	var curReq = &pb.ApplyRequest{}
 	var offset = 0
 
 	for {
+		var r *pb.ApplyRequest
 		if len(req.Changes[offset:]) > size {
-			curReq.Changes = req.Changes[offset : offset+size]
+			r = &pb.ApplyRequest{Changes: req.Changes[offset : offset+size]}
 		} else {
-			curReq.Changes = req.Changes[offset:]
+			r = &pb.ApplyRequest{Changes: req.Changes[offset:]}
 		}
 
-		var resp *pb.ApplyResponse
-		var err error
-		if resp, err = jc.Apply(pb.WithDispatchDefault(ctx), curReq, grpc.WaitForReady(true)); err != nil {
+		var resp, err = jc.Apply(pb.WithDispatchDefault(ctx), r, grpc.WaitForReady(true))
+		if err != nil {
 			return resp, err
 		} else if err = resp.Validate(); err != nil {
 			return resp, err
@@ -166,8 +173,7 @@ func ApplyJournalsInBatches(ctx context.Context, jc pb.JournalClient, req *pb.Ap
 			return resp, errors.New(resp.Status.String())
 		}
 
-		offset = offset + len(curReq.Changes)
-		if offset == len(req.Changes) {
+		if offset += len(r.Changes); offset == len(req.Changes) {
 			return resp, nil
 		}
 	}
@@ -200,6 +206,5 @@ func ListAllFragments(ctx context.Context, client pb.RoutedJournalClient, req pb
 			}
 		}
 	}
-
 	return resp, nil
 }
