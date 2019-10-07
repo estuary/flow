@@ -7,8 +7,8 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// JSONFraming is a Framing implementation which encodes messages as line-
-// delimited JSON. Messages must be encode-able by the encoding/json package.
+// JSONFraming is a Framing which encodes messages as line-delimited JSON.
+// Messages must be encode-able by the encoding/json package.
 var JSONFraming = new(jsonFraming)
 var _ Framing = JSONFraming // JSONFraming is-a Framing.
 

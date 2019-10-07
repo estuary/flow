@@ -12,7 +12,7 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// FramingByContentType returns the Framing having the corresponding |contentType|,
+// FramingByContentType returns the message Framing having the corresponding contentType,
 // or returns an error if none match.
 func FramingByContentType(contentType string) (Framing, error) {
 	switch contentType {
@@ -26,7 +26,9 @@ func FramingByContentType(contentType string) (Framing, error) {
 }
 
 // UnpackLine returns bytes through to the first encountered newline "\n". If
-// the complete line is in the Reader buffer, no alloc or copy is needed.
+// the complete line is available in the Reader buffer, it is returned directly
+// without a copy or allocation, and the next call to the Reader's Read will
+// invalidate it.
 func UnpackLine(r *bufio.Reader) ([]byte, error) {
 	// Fast path: a line is fully contained in the buffer.
 	var line, err = r.ReadSlice('\n')

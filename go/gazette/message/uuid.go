@@ -12,7 +12,7 @@ import (
 )
 
 // UUID is a RFC 4122 v1 variant Universally Unique Identifier which uniquely
-// identifies each message. As a v1 UUID, it incorporates a clock timestamp
+// identifies a message. As a v1 UUID, it incorporates a clock timestamp
 // and sequence, as well as a node identifier (which, within the context of
 // Gazette, is also known as a ProducerID).
 //
@@ -21,12 +21,12 @@ import (
 // Instead, Gazette uses clock sequence bits of UUIDs it generates in the
 // following way:
 //
-// * The first 2 bits are reserved to represent the variant, as per RFC 4122.
-// * The next 4 bits extend the 60 bit timestamp with a counter, which allows
-//   for a per-producer UUID generation rate of 160M UUIDs / second before
-//   running ahead of wall-clock time. The timestamp and counter are monotonic,
-//   and together provide a total ordering of UUIDs from each ProducerID.
-// * The remaining 10 bits are flags, eg for representing transaction semantics.
+//  * The first 2 bits are reserved to represent the variant, as per RFC 4122.
+//  * The next 4 bits extend the 60 bit timestamp with a counter, which allows
+//    for a per-producer UUID generation rate of 160M UUIDs / second before
+//    running ahead of wall-clock time. The timestamp and counter are monotonic,
+//    and together provide a total ordering of UUIDs from each ProducerID.
+//  * The remaining 10 bits are flags, eg for representing transaction semantics.
 type UUID = uuid.UUID
 
 // ProducerID is the unique node identifier portion of a v1 UUID.
@@ -69,7 +69,7 @@ func NewClock(t time.Time) Clock {
 	return c
 }
 
-// Update the Clock given a recent time observation. If |t| has a wall time
+// Update the Clock given a recent Time observation. If the Time has a wall time
 // which is less than the current Clock, no update occurs (in order to
 // maintain monotonicity). Update is safe for concurrent use.
 func (c *Clock) Update(t time.Time) {
@@ -98,7 +98,7 @@ func GetClock(uuid UUID) Clock {
 }
 
 // Flags are the 10 least-significant bits of the v1 UUID clock sequence,
-// which are reserved for flags.
+// which Gazette employs for representing message transaction semantics.
 type Flags uint16
 
 // GetFlags returns the 10 least-significant bits of the clock sequence.
@@ -141,8 +141,8 @@ const (
 	// Flag_ACK_TXN, as each such message is confirmed to have committed before
 	// the next is written. Should the clock be less, it indicates that an
 	// upstream store checkpoint was rolled-back to a prior version (eg, due to
-	// disaster or missing WAL). When this happens, the upstream producer will
-	// re-process some number of messages, and may publish Messages under new
+	// N>R faults or misuse of the WAL). When this happens, the upstream producer
+	// will re-process some number of messages, and may publish Messages under new
 	// UUIDs which partially or wholly duplicate messages published before.
 	// In other words, the processing guarantee in this case is weakened from
 	// exactly-once to at-least-once until the upstream producer catches up to

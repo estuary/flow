@@ -11,8 +11,8 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// FixedFraming is a Framing implementation which encodes messages in a binary
-// format with a fixed-length header. Messages must support Size and MarshalTo
+// FixedFraming is a Framing which encodes messages in a binary format with a
+// fixed-length header. Messages must support Size and MarshalTo
 // functions for marshal support (eg, generated Protobuf messages satisfy this
 // interface). Messages are encoded as a 4-byte magic word for de-synchronization
 // detection, followed by a little-endian uint32 length, followed by payload bytes.
@@ -150,9 +150,10 @@ func matchesMagicWord(b []byte) bool {
 	return b[0] == magicWord[0] && b[1] == magicWord[1] && b[2] == magicWord[2] && b[3] == magicWord[3]
 }
 
+// ErrDesyncDetected is returned by Unmarshal upon detection of an invalid frame.
+var ErrDesyncDetected = errors.New("detected de-synchronization")
+
 var (
-	// ErrDesyncDetected is returned by Unmarshal upon detection of an invalid frame.
-	ErrDesyncDetected = errors.New("detected de-synchronization")
 	// magicWord precedes all fixedFraming encodings.
 	magicWord = [4]byte{0x66, 0x33, 0x93, 0x36}
 	// bufferPool pools buffers used for MarshalTo encodings.

@@ -9,19 +9,30 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-// Sequencer sequences ordered, uncommitted and potentially duplicated messages
-// into acknowledged, exactly-once messages. Read uncommitted messages are fed
-// to QueueUncommitted(), after which the client must repeatedly call
-// DequeCommitted() to drain all acknowledged messages until io.EOF is returned.
+// Sequencer observes read-uncommitted messages from journals and sequences them
+// into acknowledged, read-committed messages. Read uncommitted messages are fed
+// to QueueUncommitted, after which the client must repeatedly call
+// DequeCommitted to drain all acknowledged messages until io.EOF is returned.
+//
+// In more detail, messages observed by QueueUncommitted may acknowledge one
+// or more pending messages previously observed by QueueUncommitted. For example,
+// a non-duplicate message with Flag_OUTSIDE_TXN acknowledges itself, and a
+// message with Flag_ACK_TXN also acknowledges messages having a lower clock.
+// DequeCommitted will drain the complete set of now-committed messages,
+// and then return io.EOF.
+//
+// An advantage of the design is that no head-of-line blocking occurs: committed
+// messages are immediately deque'd upon observing their corresponding ACK_TXN,
+// even if they're interleaved with still-pending messages of other producers.
 //
 // Sequencer maintains an internal ring buffer of messages, which is usually
 // sufficient to directly read committed messages. When recovering from a
 // checkpoint, or if a very long sequence or old producer is acknowledged, it
 // may be necessary to start a replay of already-read messages. In this case:
-//  * DequeCommitted() will return ErrMustStartReplay.
-//  * ReplayRange() will return the exact offset range required.
-//  * The client must then supply an appropriate Iterator to StartReplay().
-// Having done this, calls to DequeCommitted() may resume to drain messages.
+//  * DequeCommitted will return ErrMustStartReplay.
+//  * ReplayRange will return the exact offset range required.
+//  * The client must then supply an appropriate Iterator to StartReplay.
+// Having done this, calls to DequeCommitted may resume to drain messages.
 type Sequencer struct {
 	// partials is partial and un-acknowledged sequences of JournalProducers.
 	partials map[JournalProducer]partialSeq
@@ -38,8 +49,8 @@ type Sequencer struct {
 	head   int        // Next |ring| index to be written.
 }
 
-// NewSequencer returns a new Sequencer initialized from the given producer
-// |states|, and with an internal ring buffer of size |buffer|.
+// NewSequencer returns a new Sequencer initialized from the given
+// ProducerStates, and with an internal ring buffer of the given size.
 func NewSequencer(states []ProducerState, buffer int) *Sequencer {
 	if buffer <= 0 {
 		buffer = 1
@@ -69,8 +80,8 @@ type partialSeq struct {
 	ringStart, ringStop int       // Indices (inclusive) of the sequence within |ring|.
 }
 
-// QueueUncommitted adds a read, uncommitted Envelope to the Sequencer.
-// It panics if called while messages remain to deque.
+// QueueUncommitted applies the next read-uncommitted message Envelope to the
+// Sequencer. It panics if called while messages remain to deque.
 func (w *Sequencer) QueueUncommitted(env Envelope) {
 	if w.emit.ringIndex != -1 {
 		panic("committed messages remain to deque")
@@ -180,9 +191,9 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 // DequeCommitted returns the next acknowledged message, or io.EOF if no
 // acknowledged messages remain. It must be called repeatedly after
-// each QueueUncommitted() until it returns io.EOF. If messages are no
+// each QueueUncommitted until it returns io.EOF. If messages are no
 // longer within the Sequencer's buffer, it returns ErrMustStartReplay
-// and the caller must first StartReplay() before trying again.
+// and the caller must first StartReplay before trying again.
 func (w *Sequencer) DequeCommitted() (env Envelope, err error) {
 	for {
 		if env, err = w.dequeNext(); err != nil {
@@ -202,7 +213,7 @@ func (w *Sequencer) DequeCommitted() (env Envelope, err error) {
 }
 
 // ReplayRange returns the [begin, end) exclusive byte offsets to be replayed.
-// Panics if ErrMustStartReplay was not returned by DequeCommitted().
+// Panics if ErrMustStartReplay was not returned by DequeCommitted.
 func (w *Sequencer) ReplayRange() (begin, end pb.Offset) {
 	if w.emit.ringIndex == -1 {
 		panic("no messages to deque")
@@ -210,8 +221,8 @@ func (w *Sequencer) ReplayRange() (begin, end pb.Offset) {
 	return w.emit.offset, w.ring[w.emit.ringIndex].Begin
 }
 
-// StartReplay is called with a read-uncommitted Iterator over ReplayRange().
-// Panics if ErrMustStartReplay was not returned by DequeCommitted().
+// StartReplay is called with a read-uncommitted Iterator over ReplayRange.
+// Panics if ErrMustStartReplay was not returned by DequeCommitted.
 func (w *Sequencer) StartReplay(it Iterator) {
 	if w.emit.ringIndex == -1 {
 		panic("no messages to deque")
@@ -220,7 +231,7 @@ func (w *Sequencer) StartReplay(it Iterator) {
 }
 
 // HasPending returns true if any partial sequence has a first offset larger
-// than those of |since| (eg, the sequence started since |since| was read).
+// than those of the Offsets (eg, the sequence started since |since| was read).
 // Assuming liveness of producers, it hints that further messages are
 // forthcoming.
 func (w *Sequencer) HasPending(since pb.Offsets) bool {
@@ -233,8 +244,8 @@ func (w *Sequencer) HasPending(since pb.Offsets) bool {
 }
 
 // ProducerStates returns a snapshot of producers and their states, after
-// pruning any producers having surpassed |pruneHorizon| in age relative to
-// the most recent producer within their journal. If |pruneHorizon| is zero,
+// pruning any producers having surpassed pruneHorizon in age relative to
+// the most recent producer within their journal. If pruneHorizon is zero,
 // no pruning is done. ProducerStates panics if messages still remain to deque.
 func (w *Sequencer) ProducerStates(pruneHorizon time.Duration) []ProducerState {
 	if w.emit.ringIndex != -1 {
@@ -383,4 +394,6 @@ func (w *Sequencer) logError(env Envelope, partial partialSeq, msg string) {
 	}).Error(msg)
 }
 
+// ErrMustStartReplay is returned by Sequencer to indicate that
+// a journal replay must be started before the dequeue may continue.
 var ErrMustStartReplay = errors.New("must start reader")

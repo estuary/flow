@@ -11,7 +11,8 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// Iterator iterates over message Envelopes.
+// Iterator iterates over message Envelopes. It's implemented by ReadUncommittedIter
+// and ReadCommittedIter.
 type Iterator interface {
 	// Next returns the next message Envelopes in the sequence. It returns EOF
 	// if none remain, or any other encountered error.
@@ -41,14 +42,14 @@ type ReadUncommittedIter struct {
 // Next reads and returns the next Envelope, or an unrecoverable error.
 // Several recoverable errors are handled and logged, but not returned:
 //
-// * A framing Unmarshal() error (as opposed to Unpack). This is an error with
+//  * A framing Unmarshal error (as opposed to Unpack). This is an error with
 //   respect to a specific framed message in the journal, and not an error
 //   of the underlying Journal stream. It can happen if improperly framed
 //   or simply malformed data is written to a journal. Typically we want to
 //   keep reading in this case as the error already happened (when the frame
 //   was written) and we still care about Envelopes occurring afterwards.
 //
-// * ErrOffsetJump indicates the next byte of available content is at an
+//  * ErrOffsetJump indicates the next byte of available content is at an
 //   offset larger than the one requested. This can happen if a range of
 //   content was deleted from the journal. Next will log a warning but continue
 //   reading at the jumped offset, which is reflected in the returned Envelope.
@@ -115,14 +116,19 @@ func (it *ReadUncommittedIter) Next() (Envelope, error) {
 func (it *ReadUncommittedIter) init() error {
 	var err error
 	if it.spec, err = client.GetJournal(it.rr.Context, it.rr.Client, it.rr.Journal()); err != nil {
-		return errors.WithMessage(err,  "fetching journal spec")
+		return errors.WithMessage(err, "fetching journal spec")
 	} else if it.framing, err = FramingByContentType(it.spec.LabelSet.ValueOf(labels.ContentType)); err != nil {
 		return errors.WithMessage(err, "determining framing")
 	}
 	return nil
 }
 
-// ReadCommittedIter is an Iterator over read-committed messages.
+// ReadCommittedIter is an Iterator over read-committed messages. It's little
+// more than the composition of a provided Sequencer with an underlying
+// ReadUncommittedIter.
+//
+// If a dequeue of the Sequencer returns ErrMustStartReplay, then ReadCommittedIter
+// will automatically start the appropriate replay in order to continue its iteration.
 type ReadCommittedIter struct {
 	rui ReadUncommittedIter
 	seq *Sequencer

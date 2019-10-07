@@ -45,9 +45,9 @@ type Publisher struct {
 
 // NewPublisher returns a new Publisher using the given AsyncJournalClient
 // and optional *Clock. If *Clock is nil, then an internal Clock is allocated
-// and is updated with time.Now() on each message published. If a non-nil *Clock
+// and is updated with time.Now on each message published. If a non-nil *Clock
 // is provided, it should be updated by the caller at a convenient time
-// resolution, which can greatly reduce the frequency of time() system calls.
+// resolution, which can greatly reduce the frequency of time system calls.
 func NewPublisher(ajc client.AsyncJournalClient, clock *Clock) *Publisher {
 	var autoUpdate bool
 	if clock == nil {
@@ -141,8 +141,9 @@ func (p *Publisher) BuildAckIntents() ([]AckIntent, error) {
 	return out, nil
 }
 
-// AckIntent is framed Intent and Journal which, when written, will acknowledge
-// a set of pending Messages previously written via PublishUncommitted.
+// AckIntent is framed "intent" message and its journal which, when appended to
+// the journal, will acknowledge a set of pending messages previously written
+// to that journal via PublishUncommitted.
 type AckIntent struct {
 	Journal pb.Journal // Journal to be acknowledged.
 	Intent  []byte     // Framed Message payload.
