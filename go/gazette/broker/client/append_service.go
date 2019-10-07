@@ -100,7 +100,7 @@ type AsyncJournalClient interface {
 
 	// StartAppend begins a new asynchronous Append RPC. The caller holds exclusive access
 	// to the returned AsyncAppend, and must then:
-	//  * Write content to its Writer
+	//  * Write content to its Writer.
 	//  * Optionally Require that one or more errors are nil.
 	//  * Release the AsyncAppend, allowing queued writes to commit or,
 	//    if an error occurred, to roll back.
@@ -118,19 +118,19 @@ type AsyncJournalClient interface {
 	// OpFuture failure).
 	StartAppend(req pb.AppendRequest, dependencies OpFutures) *AsyncAppend
 
-	// PendingExcept returns a snapshot of the AsyncAppends being evaluated for all
-	// Journals _other than_ |except|, ordered on Journal. It can be used to build
-	// "barriers" which ensure that all pending writes commit prior to the
-	// commencement of a write which is about to be issued. Eg, given:
+	// PendingExcept returns an OpFutures set of *AsyncAppend instances being
+	// evaluated for all Journals other than |except|. It can be used to build
+	// "barriers" which ensure that all pending appends have committed prior to the
+	// commencement of an append which is about to be issued. Eg, given:
 	//
-	//   var aa = as.StartAppend(pb.AppendRequest{Journal: "target"}, as.PendingExcept("target"))
-	//   aa.Writer().WriteString("checkpoint")
-	//   aa.Release()
+	//   var op = as.StartAppend(pb.AppendRequest{Journal: "target"}, as.PendingExcept("target"))
+	//   op.Writer().WriteString("checkpoint")
+	//   op.Release()
 	//
 	// All ongoing appends to journals other than "target" are guaranteed to commit
 	// before an Append RPC is begun which writes "checkpoint" to journal "target".
 	// PendingExcept("") returns all pending AsyncAppends.
-	PendingExcept(journal pb.Journal) OpFutures
+	PendingExcept(except pb.Journal) OpFutures
 }
 
 // StartAppend implements the AsyncJournalClient interface.
