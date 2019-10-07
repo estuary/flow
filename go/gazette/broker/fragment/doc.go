@@ -1,8 +1,17 @@
-// Package fragment is concerned with the mapping of journal offsets to
-// protocol.Fragments, to corresponding local or remote journal content. It
-// provides implementation for:
-//  * Interacting with remote fragment stores.
-//  * Indexing local and remote Fragments (see Index).
-//  * The construction of new Fragments from a replication stream (see Spool).
-//  * The persisting of constructed Fragments to remote stores (see Persister).
+// Package fragment is a broker-only package concerned with the mapping of journal offsets to
+// protocol.Fragments, and from there to corresponding local or remote journal content.
+//
+// It implements file-like operations over the FragmentStore schemes supported
+// by Gazette, such as listing, opening, signing, persisting, and removing fragments.
+// See FileStoreConfig, S3StoreConfig, and GSStoreConfig for further configuration
+// of store operations.
+//
+// The package implements a Fragment wrapper type which composes a protocol.Fragment
+// with an open file descriptor, and an Index over local or remote Fragments which maps
+// a journal offset to a best-covering Fragment.
+//
+// Spool is a Fragment which is in the process of being constructed from an ongoing
+// broker Replicate RPC. It is the transactional "memory" of brokers which are
+// participating in the replication of a journal. Once closed, or "rolled", a Spool
+// Fragment is persisted to its configured FragmentStore by a Persister.
 package fragment

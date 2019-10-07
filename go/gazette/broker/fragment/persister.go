@@ -15,6 +15,7 @@ const (
 	persistInterval = time.Minute
 )
 
+// Persister asynchronously persists completed Fragments to their backing pb.FragmentStore.
 type Persister struct {
 	qA, qB, qC []Spool
 	mu         sync.Mutex

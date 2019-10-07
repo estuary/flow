@@ -41,7 +41,8 @@ func (s *RPCSuite) TestReadRequestValidation(c *gc.C) {
 }
 
 func (s *RPCSuite) TestReadResponseValidationCases(c *gc.C) {
-	var frag, _ = ParseContentPath("a/journal/00000000499602d2-000000008bd03835-0102030405060708090a0b0c0d0e0f1011121314.sz")
+	var frag, _ = ParseContentName("a/journal",
+		"00000000499602d2-000000008bd03835-0102030405060708090a0b0c0d0e0f1011121314.sz")
 	frag.Journal = "/bad/name"
 
 	var resp = ReadResponse{

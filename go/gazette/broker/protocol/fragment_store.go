@@ -9,18 +9,18 @@ import (
 // FragmentStores "root" remote storage locations of fragments, their path
 // component must end in a trailing slash.
 //
-// FragmentStore implementations may support additional configuration which
-// can be declared via URL query arguments. The meaning of these query
-// arguments and values are specific to the store in question; consult the
-// store implementation to see properties available for configuration.
-//
-// Currently supported schemes are `gs` for Google Cloud Storage, `s3` for
-// Amazon S3, and `file` for a local file-system / NFS mount. Eg:
+// Currently supported schemes are "gs" for Google Cloud Storage, "s3" for
+// Amazon S3, and "file" for a local file-system / NFS mount. Eg:
 //
 //  * s3://bucket-name/a/sub-path/?profile=a-shared-credentials-profile
 //  * gs://bucket-name/a/sub-path/?
 //  * file:///a/local/volume/mount
 //
+// FragmentStore implementations may support additional configuration which
+// can be declared via URL query arguments. The meaning of these query
+// arguments and values are specific to the store in question; consult
+// FileStoreConfig, S3StoreConfig, and GSStoreConfig of the fragment
+// package for details of available configuration.
 type FragmentStore string
 
 // Validate returns an error if the FragmentStore is not well-formed.

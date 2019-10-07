@@ -35,12 +35,7 @@ func (m *Fragment) Validate() error {
 	return nil
 }
 
-// ParseContentPath parses a ContentPath into a Fragment, or returns an error.
-func ParseContentPath(p string) (Fragment, error) {
-	return ParseContentName(Journal(path.Dir(p)), path.Base(p))
-}
-
-// ParseContentName parses a Journal and ContentName into a Fragment, or returns an error.
+// ParseContentName parses a ContentName into a Fragment of the Journal, or returns an error.
 func ParseContentName(journal Journal, name string) (Fragment, error) {
 	var f Fragment
 

@@ -18,12 +18,13 @@ import (
 	"go.gazette.dev/core/keepalive"
 )
 
-type s3Cfg struct {
+// S3StoreConfig configures a Fragment store of the "s3://" scheme.
+// It is initialized from parsed URL parameters of the pb.FragmentStore.
+type S3StoreConfig struct {
 	bucket string
 	prefix string
 
-	rewriterCfg
-
+	RewriterConfig
 	// AWS Profile to extract credentials from the shared credentials file.
 	// For details, see:
 	//   https://aws.amazon.com/blogs/security/a-new-and-standardized-way-to-manage-credentials-in-the-aws-sdks/
@@ -138,22 +139,21 @@ func (s *s3Backend) Persist(ctx context.Context, ep *url.URL, spool Spool) error
 	_, err = client.PutObjectWithContext(ctx, &putObj)
 	return err
 }
-func (s *s3Backend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
-	cfg, client, err := s.s3Client(ep)
+
+func (s *s3Backend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, journal pb.Journal, callback func(pb.Fragment)) error {
+	var cfg, client, err = s.s3Client(ep)
 	if err != nil {
 		return err
 	}
-
-	var list = s3.ListObjectsV2Input{
+	var q = s3.ListObjectsV2Input{
 		Bucket: aws.String(cfg.bucket),
-		Prefix: aws.String(cfg.rewritePath(cfg.prefix, name.String()) + "/"),
+		Prefix: aws.String(cfg.rewritePath(cfg.prefix, journal.String()) + "/"),
 	}
-	var strip = len(cfg.prefix)
 
-	return client.ListObjectsV2PagesWithContext(ctx, &list, func(objs *s3.ListObjectsV2Output, _ bool) bool {
+	return client.ListObjectsV2PagesWithContext(ctx, &q, func(objs *s3.ListObjectsV2Output, _ bool) bool {
 		for _, obj := range objs.Contents {
 
-			if frag, err := pb.ParseContentPath((*obj.Key)[strip:]); err != nil {
+			if frag, err := pb.ParseContentName(journal, (*obj.Key)[len(*q.Prefix):]); err != nil {
 				log.WithFields(log.Fields{"bucket": cfg.bucket, "key": *obj.Key, "err": err}).Warning("parsing fragment")
 			} else if *obj.Size == 0 && frag.ContentLength() > 0 {
 				log.WithFields(log.Fields{"obj": obj}).Warning("zero-length fragment")
@@ -174,14 +174,14 @@ func (s *s3Backend) Remove(ctx context.Context, fragment pb.Fragment) error {
 	}
 	var deleteObj = s3.DeleteObjectInput{
 		Bucket: aws.String(cfg.bucket),
-		Key:    aws.String(cfg.prefix + fragment.ContentPath()),
+		Key:    aws.String(cfg.rewritePath(cfg.prefix, fragment.ContentPath())),
 	}
 
 	_, err = client.DeleteObjectWithContext(ctx, &deleteObj)
 	return err
 }
 
-func (s *s3Backend) s3Client(ep *url.URL) (cfg s3Cfg, client *s3.S3, err error) {
+func (s *s3Backend) s3Client(ep *url.URL) (cfg S3StoreConfig, client *s3.S3, err error) {
 	if err = parseStoreArgs(ep, &cfg); err != nil {
 		return
 	}

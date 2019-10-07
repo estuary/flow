@@ -16,11 +16,13 @@ import (
 	"google.golang.org/api/option"
 )
 
-type gcsCfg struct {
+// GSStoreConfig configures a Fragment store of the "gs://" scheme.
+// It is initialized from parsed URL parameters of the pb.FragmentStore.
+type GSStoreConfig struct {
 	bucket string
 	prefix string
 
-	rewriterCfg
+	RewriterConfig
 }
 
 type gcsBackend struct {
@@ -90,26 +92,25 @@ func (s *gcsBackend) Persist(ctx context.Context, ep *url.URL, spool Spool) erro
 	return err
 }
 
-func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
-	cfg, client, _, err := s.gcsClient(ep)
+func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.URL, journal pb.Journal, callback func(pb.Fragment)) error {
+	var cfg, client, _, err = s.gcsClient(ep)
 	if err != nil {
 		return err
 	}
 	var (
 		q = storage.Query{
-			Prefix: cfg.rewritePath(cfg.prefix, name.String()) + "/",
+			Prefix: cfg.rewritePath(cfg.prefix, journal.String()) + "/",
 			// Gazette stores all of a journal's fragment files in a flat
 			// structure. Providing a delimiter excludes files in
 			// subdirectories from the query results because they will be
 			// collapsed into a single synthetic "directory entry".
 			Delimiter: "/",
 		}
-		it    = client.Bucket(cfg.bucket).Objects(ctx, &q)
-		strip = len(cfg.prefix)
-		obj   *storage.ObjectAttrs
+		it  = client.Bucket(cfg.bucket).Objects(ctx, &q)
+		obj *storage.ObjectAttrs
 	)
 	for obj, err = it.Next(); err == nil; obj, err = it.Next() {
-		if obj.Name[strip:] == q.Prefix || obj.Prefix != "" {
+		if obj.Prefix != "" {
 			// The parent directory is included in the results because it
 			// matches the prefix. Additionally, if there are subdirectories,
 			// they will be represented by synthetic "directory entries". Both
@@ -119,7 +120,7 @@ func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.U
 			// See:
 			// - https://cloud.google.com/storage/docs/json_api/v1/objects/list
 			// - https://godoc.org/cloud.google.com/go/storage#ObjectAttrs.Prefix
-		} else if frag, err2 := pb.ParseContentPath(obj.Name[strip:]); err2 != nil {
+		} else if frag, err2 := pb.ParseContentName(journal, obj.Name[len(q.Prefix):]); err2 != nil {
 			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name, "err": err2}).Warning("parsing fragment")
 		} else if obj.Size == 0 && frag.ContentLength() > 0 {
 			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name}).Warning("zero-length fragment")
@@ -143,7 +144,7 @@ func (s *gcsBackend) Remove(ctx context.Context, fragment pb.Fragment) error {
 	return client.Bucket(cfg.bucket).Object(cfg.rewritePath(cfg.prefix, fragment.ContentPath())).Delete(ctx)
 }
 
-func (s *gcsBackend) gcsClient(ep *url.URL) (cfg gcsCfg, client *storage.Client, opts storage.SignedURLOptions, err error) {
+func (s *gcsBackend) gcsClient(ep *url.URL) (cfg GSStoreConfig, client *storage.Client, opts storage.SignedURLOptions, err error) {
 	if err = parseStoreArgs(ep, &cfg); err != nil {
 		return
 	}

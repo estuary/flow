@@ -17,8 +17,10 @@ import (
 // of a file:// fragment store. It must be set at program startup prior to use.
 var FileSystemStoreRoot = "/dev/null/invalid/example/path/to/store"
 
-type fsCfg struct {
-	rewriterCfg
+// FileStoreConfig configures a Fragment store of the "file://" scheme.
+// It is initialized from parsed URL parameters of the pb.FragmentStore.
+type FileStoreConfig struct {
+	RewriterConfig
 }
 
 type fsBackend struct{}
@@ -106,39 +108,42 @@ func (s fsBackend) Persist(_ context.Context, ep *url.URL, spool Spool) error {
 	return err
 }
 
-func (s fsBackend) List(_ context.Context, store pb.FragmentStore, ep *url.URL, name pb.Journal, callback func(pb.Fragment)) error {
+func (s fsBackend) List(_ context.Context, store pb.FragmentStore, ep *url.URL, journal pb.Journal, callback func(pb.Fragment)) error {
 	var cfg, err = s.fsCfg(ep)
 	if err != nil {
 		return err
 	}
 
-	var root = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(ep.Path))
-	var walkFrom = filepath.Join(FileSystemStoreRoot,
-		filepath.FromSlash(cfg.rewritePath(ep.Path, name.String()+"/")))
+	var dir = filepath.Join(FileSystemStoreRoot,
+		filepath.FromSlash(cfg.rewritePath(ep.Path, journal.String()+"/")))
 
-	if _, err := os.Stat(walkFrom); os.IsNotExist(err) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil
 	}
-	return filepath.Walk(walkFrom,
-		func(path string, info os.FileInfo, err error) error {
-
-			var name string
-
+	return filepath.Walk(dir,
+		func(name string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			} else if info.IsDir() {
 				return nil // Descend into directory.
-			} else if name, err = filepath.Rel(root, path); err != nil {
+			} else if name, err = filepath.Rel(dir, name); err != nil {
 				return err
 			} else if name == "." || name == ".." {
 				// Never return "." or ".." as they are not real directories.
 				return nil
 			}
 
-			if frag, err := pb.ParseContentPath(filepath.ToSlash(name)); err != nil {
-				log.WithFields(log.Fields{"path": path, "err": err}).Warning("parsing fragment")
+			if frag, err := pb.ParseContentName(journal, name); err != nil {
+				log.WithFields(log.Fields{
+					"journal": journal,
+					"name":    name,
+					"err":     err,
+				}).Warning("parsing fragment")
 			} else if info.Size() == 0 && frag.ContentLength() > 0 {
-				log.WithFields(log.Fields{"path": path}).Warning("zero-length fragment")
+				log.WithFields(log.Fields{
+					"journal": journal,
+					"name":    name,
+				}).Warning("zero-length fragment")
 			} else {
 				frag.ModTime = info.ModTime().Unix()
 				frag.BackingStore = store
@@ -159,7 +164,7 @@ func (s fsBackend) Remove(_ context.Context, fragment pb.Fragment) error {
 	return os.Remove(path)
 }
 
-func (s fsBackend) fsCfg(ep *url.URL) (cfg fsCfg, err error) {
+func (s fsBackend) fsCfg(ep *url.URL) (cfg FileStoreConfig, err error) {
 	err = parseStoreArgs(ep, &cfg)
 	return cfg, err
 }
