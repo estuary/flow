@@ -2,6 +2,13 @@
 
 package integration
 
+import (
+	"testing"
+	"time"
+
+	"github.com/jgraettinger/urkel"
+)
+
 var (
 	etcdPodSelector   = "app.kubernetes.io/name=etcd"
 	summerPodSelector = "app.kubernetes.io/name=summer"
@@ -10,8 +17,6 @@ var (
 	testNamespace     = "soak"
 )
 
-// TODO(johnny): Must be manually enabled for now (see #222).
-/*
 func TestPartitionWithinEtcdCluster(t *testing.T) {
 	var pods = urkel.FetchPods(t, testNamespace, etcdPodSelector)
 
@@ -86,4 +91,3 @@ func TestPartitionBrokersFromMinio(t *testing.T) {
 	fs.Partition(brokers, minio, urkel.Drop)
 	time.Sleep(time.Minute)
 }
-*/

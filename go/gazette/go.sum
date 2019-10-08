@@ -121,6 +121,8 @@ github.com/jgraettinger/cockroach-encoding v1.1.0 h1:TRSWxnWdjgT1hcfn3aFa3dwhzNa
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
 github.com/jgraettinger/urkel v0.0.0-20190722162447-dce3b486c007 h1:vhhr8n9wP6AW1ukE21tZMCyp76Ozn11GgKp7XZvsF7Y=
 github.com/jgraettinger/urkel v0.0.0-20190722162447-dce3b486c007/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
+github.com/jgraettinger/urkel v0.1.2 h1:0mJa16Fst91r0tDECKnZsSBYs53IIxisSsJiiIWbuQ4=
+github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af h1:pmfjZENx5imkbgOkpRUYLnmbU7UEFbjtDA2hxJ1ichM=
 github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af/go.mod h1:Nht3zPeWKUH0NzdCt2Blrr5ys8VGpn0CEB0cQHVjt7k=
 github.com/jonboulle/clockwork v0.1.0 h1:VKV+ZcuP6l3yW9doeqz6ziZGgcynBVQO+obU0+0hcPo=

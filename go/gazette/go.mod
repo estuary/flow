@@ -19,7 +19,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.1
 	github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4
 	github.com/jgraettinger/cockroach-encoding v1.1.0
-	github.com/jgraettinger/urkel v0.0.0-20190722162447-dce3b486c007
+	github.com/jgraettinger/urkel v0.1.2
 	github.com/klauspost/compress v1.5.0
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
