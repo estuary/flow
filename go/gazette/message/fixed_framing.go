@@ -12,7 +12,7 @@ import (
 )
 
 // FixedFraming is a Framing which encodes messages in a binary format with a
-// fixed-length header. Messages must support Size and MarshalTo
+// fixed-length header. Messages must support ProtoSize and MarshalTo
 // functions for marshal support (eg, generated Protobuf messages satisfy this
 // interface). Messages are encoded as a 4-byte magic word for de-synchronization
 // detection, followed by a little-endian uint32 length, followed by payload bytes.
