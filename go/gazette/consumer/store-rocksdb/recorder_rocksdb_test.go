@@ -211,7 +211,7 @@ func TestCancelThenPlay(t *testing.T) {
 	cancelFn()
 
 	assert.EqualError(t, r.player.Play(cancelCtx, recoverylog.FSMHints{Log: aRecoveryLog}, r.tmpdir, bk),
-		`determining log head: context canceled`)
+		`playerReader.peek: context canceled`)
 
 	<-r.player.Done()
 }

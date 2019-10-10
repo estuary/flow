@@ -231,18 +231,18 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 		return
 	}
 
-	// Next |offset| to read, and minimum offset we must |readThrough| during playback.
-	var offset, readThrough int64
-
 	// Issue a write barrier to determine the transactional, current log head.
-	// We issue the barrier as a direct Append (rather than using AppendService)
-	// to fail-fast in the case of an error such as JOURNAL_DOES_NOT_EXIST.
-	var barrier pb.AppendResponse
-	if barrier, err = client.Append(ctx, ajc, pb.AppendRequest{Journal: hints.Log}); err != nil {
+	var barrier = ajc.StartAppend(pb.AppendRequest{Journal: hints.Log}, nil)
+	if err = barrier.Release(); err == nil {
+		err = barrier.Err() // Block until barrier completes.
+	}
+	if err != nil {
 		err = extendErr(err, "determining log head")
 		return
 	}
-	readThrough = barrier.Commit.End
+
+	// Next offset to read, and minimum offset we must readThrough during playback.
+	var offset, readThrough int64 = 0, barrier.Response().Commit.End
 
 	// Sanity-check: all hinted segment offsets should be less than |readThrough|.
 	for _, seg := range fsm.hintedSegments {
