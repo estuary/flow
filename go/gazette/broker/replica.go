@@ -130,7 +130,8 @@ func pulseDaemon(svc *Service, r *replica) {
 
 		if fsm.state == stateFinished {
 			// We're done.
-		} else if fsm.resolved.status == pb.Status_NOT_JOURNAL_PRIMARY_BROKER {
+		} else if fsm.resolved.status == pb.Status_NOT_JOURNAL_PRIMARY_BROKER ||
+			fsm.resolved.status == pb.Status_NO_JOURNAL_PRIMARY_BROKER {
 			// Only the primary pulses the journal. No-op.
 		} else if fsm.resolved.status == pb.Status_JOURNAL_NOT_FOUND {
 			// Journal was deleted while we waited.

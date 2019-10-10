@@ -207,7 +207,6 @@ func (r *resolver) updateResolutions() {
 
 	for _, li := range r.state.LocalItems {
 		var item = li.Item.Decoded.(allocator.Item)
-		// var assignment = li.Assignments[li.Index].Decoded.(allocator.Assignment)
 		var name = pb.Journal(item.ID)
 
 		var replica, ok = r.replicas[name]
@@ -218,6 +217,15 @@ func (r *resolver) updateResolutions() {
 				assignments: li.Assignments.Copy(),
 				signalCh:    make(chan struct{}),
 			}
+
+			var rt pb.Route
+			rt.Init(li.Assignments)
+
+			log.WithFields(log.Fields{
+				"name":  replica.journal,
+				"route": rt,
+			}).Info("starting local journal replica")
+
 		} else {
 			delete(r.replicas, name)
 		}
