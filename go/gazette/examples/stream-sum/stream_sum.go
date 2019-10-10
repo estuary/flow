@@ -284,9 +284,15 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 	<-timer.C
 
 	// Sequence of deadlines from now, after each of which we print a warning that
-	// the expected sum is delayed. After the final deadline we log.Fatal().
+	// the expected sum is delayed. On reaching the final deadline we log.Fatal.
+	// As intuition on the choice of backoffs here:
+	// * We default to 20s Etcd leases. It takes that long before a dead broker
+	//   or consumer is detected.
+	// * Once a replacement is allocated, clients max out at 5s of backoff.
+	//   If an attempt happens _just_ before recovery, this implies nearly 10s
+	//   of total delay before the client detects the failure has cleared.
+	// * Add 10 seconds of extra headroom, as the test is likely hosing the machine.
 	var timeoutSeq = []time.Duration{
-		25 * time.Millisecond,
 		50 * time.Millisecond,
 		100 * time.Millisecond,
 		250 * time.Millisecond,
@@ -301,6 +307,8 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 		20 * time.Second,
 		25 * time.Second,
 		30 * time.Second,
+		35 * time.Second,
+		40 * time.Second,
 	}
 
 	for chunkCh != nil || verifyCh != nil {
@@ -394,16 +402,23 @@ func pumpSums(rr *client.RetryReader, ch chan<- Sum) {
 
 // newChunkMapping returns a MappingFunc over journals identified by |chunkPartitionsLabel|.
 func newChunkMapping(ctx context.Context, jc pb.JournalClient) (message.MappingFunc, error) {
-	if chunkParts, err := client.NewPolledList(ctx, jc, time.Minute, pb.ListRequest{
+	var parts, err = client.NewPolledList(ctx, jc, time.Second*10, pb.ListRequest{
 		Selector: pb.LabelSelector{
 			Include: pb.MustLabelSet(labels.MessageType, "Chunk"),
-		}}); err != nil {
+		}})
+
+	if err != nil {
 		return nil, err
-	} else {
-		return message.ModuloMapping(func(m message.Mappable, w io.Writer) {
-			_, _ = w.Write(m.(*Chunk).ID[:])
-		}, chunkParts.List), nil
 	}
+
+	for len(parts.List().Journals) == 0 {
+		log.Info("waiting for chunk partition journals to be created")
+		<-parts.UpdateCh()
+	}
+
+	return message.ModuloMapping(func(m message.Mappable, w io.Writer) {
+		_, _ = w.Write(m.(*Chunk).ID[:])
+	}, parts.List), nil
 }
 
 // finalSumsMapping is a MappingFunc to FinalSumsJournal.

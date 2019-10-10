@@ -8,7 +8,7 @@ bases:
   - ../environment
   - ../integration
 patchesStrategicMerge:
-  - chunker-runs-forever.yaml
+  - patches.yaml
 resources:
   - namespace.yaml
 

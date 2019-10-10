@@ -44,4 +44,5 @@ require (
 	google.golang.org/grpc v1.22.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 	gopkg.in/yaml.v2 v2.2.2
+	k8s.io/api v0.0.0-20190620073856-dcce3486da33
 )

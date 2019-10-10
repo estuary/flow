@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -74,8 +75,15 @@ func New(iface string, port uint16) (*Server, error) {
 		context.Background(),
 		srv.RawListener.Addr().String(),
 		grpc.WithInsecure(),
-		grpc.WithContextDialer(keepalive.DialerFunc),
-		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName))
+		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName),
+		// This grpc.ClientConn connects to this server's loopback, and also
+		// to peer server addresses via the dispatch balancer. It has particular
+		// knowledge of what addresses *should* be reach-able (from Etcd
+		// advertisements). Use an aggressive back-off for server-to-server
+		// connections, as it's crucial for quick cluster recovery from
+		// partitions, etc.
+		grpc.WithBackoffMaxDelay(time.Millisecond*500),
+	)
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to dial gRPC loopback")

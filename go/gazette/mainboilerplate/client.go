@@ -7,7 +7,6 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keepalive"
 	"google.golang.org/grpc"
 )
 
@@ -20,8 +19,11 @@ type AddressConfig struct {
 func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 	var cc, err = grpc.DialContext(ctx, c.Address.URL().Host,
 		grpc.WithInsecure(),
-		grpc.WithContextDialer(keepalive.DialerFunc),
-		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName))
+		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName),
+		// Use a tighter bound for the maximum back-off delay (default is 120s).
+		// TODO(johnny): Make this configurable?
+		grpc.WithBackoffMaxDelay(time.Second*5),
+	)
 	Must(err, "failed to dial remote service", "endpoint", c.Address)
 
 	return cc

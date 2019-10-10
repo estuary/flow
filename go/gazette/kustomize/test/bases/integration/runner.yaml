@@ -5,6 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/name: integration
 spec:
+  # Fail-fast if the job fails.
+  backoffLimit: 0
   template:
     metadata:
       labels:
@@ -20,3 +22,4 @@ spec:
             - integration.test
             - "-test.v"
             - "-test.count=10"
+            - "-test.failfast"

@@ -20,7 +20,7 @@ name: examples/
 # transactions of the journal. Eg a value of 3 means an Append RPC will proceed
 # only after data has been replicated to three distinct brokers in at least two
 # failure zones.
-replication: 2
+replication: 3
 # Labels are key/value pairs that are attached to journals. They're intended
 # to represent identifying or organizing attributes of journals which are
 # meaningful to users and applications, but have no meaning to the broker itself.
@@ -45,7 +45,7 @@ fragment:
   retention: 720h0m0s
   # Compression codec used to compress fragments. One of:
   # NONE, GZIP, GZIP_OFFLOAD_DECOMPRESSION, SNAPPY, ZSTANDARD.
-  compression_codec: SNAPPY
+  compression_codec: GZIP_OFFLOAD_DECOMPRESSION
   # Flush interval defines the minimum frequency at which fragments are flushed.
   flush_interval: 10m0s
 children:
@@ -54,7 +54,15 @@ children:
   # Journals used by the stream-sum example.
   - name: examples/stream-sum/
     fragment:
-      compression_codec: GZIP_OFFLOAD_DECOMPRESSION
+      compression_codec: SNAPPY
+      # The stream-sum example is also an integration test, and
+      # refresh_interval influences the recovery time of consumers in
+      # corner cases where a broker crashes on a not-quite-caught-up
+      # consumer. That consumer may retry its read to a broker which
+      # must wait for the fragment to appear in cloud storage. Use an
+      # aggressive interval to ensure reads are satisfied within the
+      # chunker's SLA.
+      refresh_interval:  5s
     children:
     - name: examples/stream-sum/chunks/
       labels:
