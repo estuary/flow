@@ -24,7 +24,7 @@
 //          err = a.Close() // Commit the append.
 //      }
 //
-// Gazette appends are atomic and linearizable. An Appender streams content to
+// Gazette appends are linearizable (atomic) per journal. Appender streams content to
 // brokers as its written, but no content of an Appender will be visible to any
 // reader until Close is called and succeeds. An implication of this is that
 // once brokers have begun to sequence an append into a journal, they expect the
