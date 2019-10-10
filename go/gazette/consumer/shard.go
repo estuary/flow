@@ -179,6 +179,11 @@ func serveStandby(s *shard) (err error) {
 		case <-s.Context().Done():
 			return
 		case <-s.recovery.player.Tailing():
+			log.WithFields(log.Fields{
+				"log": s.recovery.log,
+				"id":  s.Spec().Id,
+			}).Info("now tailing live log")
+
 			updateStatusWithRetry(s, pc.ReplicaStatus{Code: pc.ReplicaStatus_STANDBY})
 		}
 	}()
@@ -201,6 +206,11 @@ func servePrimary(s *shard) (err error) {
 		}
 		s.wg.Done()
 	}()
+
+	log.WithFields(log.Fields{
+		"id":  s.Spec().Id,
+		"log": s.recovery.log,
+	}).Info("promoted to primary")
 
 	var msgCh = make(chan readMessage, messageBufferSize)
 

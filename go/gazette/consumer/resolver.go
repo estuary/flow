@@ -246,6 +246,15 @@ func (r *Resolver) updateResolutions() {
 		if !ok {
 			r.wg.Add(1)
 			shard = r.newShard(li.Item) // Newly assigned shard.
+
+			var rt pb.Route
+			rt.Init(li.Assignments)
+
+			log.WithFields(log.Fields{
+				"id":    id,
+				"route": rt,
+			}).Info("starting local shard")
+
 		} else {
 			delete(r.shards, id) // Move from |r.shards| to |next|.
 		}

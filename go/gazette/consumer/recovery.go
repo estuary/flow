@@ -190,17 +190,31 @@ func storeRecoveredHints(s *shard, hints recoverylog.FSMHints) error {
 
 // beginRecovery fetches and recovers shard FSMHints into a temporary directory.
 func beginRecovery(s *shard) error {
-	var spec = s.Spec()
+	var (
+		spec    = s.Spec()
+		dir     string
+		h       fetchedHints
+		logSpec *pb.JournalSpec
+		err     error
+	)
 
-	if dir, err := ioutil.TempDir("", spec.Id.String()+"-"); err != nil {
+	if dir, err = ioutil.TempDir("", spec.Id.String()+"-"); err != nil {
 		return errors.WithMessage(err, "creating shard working directory")
-	} else if h, err := fetchHints(s.ctx, spec, s.svc.Etcd); err != nil {
+	} else if h, err = fetchHints(s.ctx, spec, s.svc.Etcd); err != nil {
 		return errors.WithMessage(err, "fetchHints")
-	} else if logSpec, err := client.GetJournal(s.ctx, s.ajc, pickFirstHints(h).Log); err != nil {
+	} else if logSpec, err = client.GetJournal(s.ctx, s.ajc, pickFirstHints(h).Log); err != nil {
 		return errors.WithMessage(err, "fetching log spec")
 	} else if ct := logSpec.LabelSet.ValueOf(labels.ContentType); ct != labels.ContentType_RecoveryLog {
 		return errors.Errorf("expected label %s value %s (got %v)", labels.ContentType, labels.ContentType_RecoveryLog, ct)
-	} else if err = s.recovery.player.Play(s.ctx, pickFirstHints(h), dir, s.ajc); err != nil {
+	}
+
+	log.WithFields(log.Fields{
+		"dir": dir,
+		"log": logSpec.Name,
+		"id":  spec.Id,
+	}).Info("began recovering shard store from log")
+
+	if err = s.recovery.player.Play(s.ctx, pickFirstHints(h), dir, s.ajc); err != nil {
 		return errors.WithMessagef(err, "playing log %s", pickFirstHints(h).Log)
 	}
 	return nil
