@@ -15,10 +15,9 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 )
 
-// JSONFileStore is a simple Store which materializes itself as a JSON-encoded
-// file. The store is careful to flush to a new temporary file which is then
-// moved to the well-known location: eg, a process failure cannot result in a
-// recovery of a partially written JSON file.
+// JSONFileStore is a simple Store implementation which materializes itself as a
+// JSON-encoded file, which is re-written at the commit of every consumer
+// transaction.
 type JSONFileStore struct {
 	// State is a user-provided instance which is un/marshal-able to JSON.
 	State interface{}
@@ -72,11 +71,18 @@ func NewJSONFileStore(rec *recoverylog.Recorder, state interface{}) (*JSONFileSt
 	return store, nil
 }
 
+// RestoreCheckpoint returns the checkpoint encoded in the recovered JSON state file.
 func (s *JSONFileStore) RestoreCheckpoint(Shard) (pc.Checkpoint, error) { return s.checkpoint, nil }
 
+// StartCommit marshals the in-memory state and Checkpoint into a recorded JSON state file.
 func (s *JSONFileStore) StartCommit(_ Shard, cp pc.Checkpoint, waitFor OpFutures) OpFuture {
 	_ = s.recorder.Barrier(waitFor)
 	s.checkpoint = cp
+
+	// Commit by writing the complete state to a temporary file, and then
+	// atomically moving it to a well-known location. This ensures that we'll
+	// always recover a complete JSON checkpoint, even if a process failure
+	// produced a partially written file.
 
 	// We use O_TRUNC and not O_EXCL as it's possible we recovered a DB which
 	// had written, but not yet renamed its own "next.json". In this case we

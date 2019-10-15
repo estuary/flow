@@ -8,7 +8,8 @@ import (
 	"go.gazette.dev/core/keyspace"
 )
 
-// NewKeySpace returns a KeySpace suitable for use with an Allocator.
+// NewKeySpace returns a consumer KeySpace suitable for use with an Allocator,
+// which groups member processes over the given prefix.
 // It decodes allocator Items as ShardSpec messages, Members as ConsumerSpecs,
 // and Assignments as RecoveryStatus enums.
 func NewKeySpace(prefix string) *keyspace.KeySpace {

@@ -14,8 +14,9 @@ import (
 	"go.gazette.dev/core/keyspace"
 )
 
-// Resolver maps ShardIDs to responsible consumer processes, and manages the set
-// of local shards which are assigned to this process.
+// Resolver applies the current allocator.State to map ShardIDs to responsible
+// consumer processes. It also monitors the allocator.State to manage the
+// lifetime of local shards which are assigned to this process.
 type Resolver struct {
 	state *allocator.State
 	// Set of local shards known to this Resolver. Nil iff
@@ -28,7 +29,7 @@ type Resolver struct {
 }
 
 // NewResolver returns a Resolver derived from the allocator.State, which
-// will use the |newShard| closure to instantiate a *shard for each local
+// will use the newShard closure to instantiate a *shard for each local
 // Assignment of the local ConsumerSpec.
 func NewResolver(state *allocator.State, newShard func(keyspace.KeyValue) *shard) *Resolver {
 	var r = &Resolver{
@@ -42,22 +43,35 @@ func NewResolver(state *allocator.State, newShard func(keyspace.KeyValue) *shard
 	return r
 }
 
-// ResolveArgs which parametrize resolution of ShardIDs.
+// ResolveArgs parametrize a request to resolve a ShardID to a current,
+// responsible consumer process.
 type ResolveArgs struct {
 	Context context.Context
 	// ShardID to be resolved.
 	ShardID pc.ShardID
-	// Whether we may resolve to another consumer peer.
+	// Whether we may resolve to another consumer peer. If false and this
+	// process is not assigned as shard primary, Resolve returns status
+	// NOT_SHARD_PRIMARY.
 	MayProxy bool
-	// Optional Header attached to the request from a proxy-ing peer.
+	// If this request is a proxy from a consumer process peer, Header is
+	// the forwarded Header of that peer's Resolution. ProxyHeader is used
+	// to ensure this resolver first reads through the Etcd revision which
+	// was effective at the peer at time of resolution, and to sanity check
+	// the consistency of those resolutions.
 	ProxyHeader *pb.Header
-	// ReadThrough is journals and offsets which must be reflected in a
-	// completed transaction before Resolve returns, blocking if required.
-	// Offsets of journals not read by this shard are ignored.
+	// ReadThrough is journals and offsets which must have been read through in a
+	// completed consumer transaction before Resolve may return (blocking if
+	// required). Offsets of journals not read by this shard are ignored.
+	//
+	// ReadThrough aides in the implementation of services which "read their
+	// own writes", where those writes propagate through one or more consumer
+	// applications: callers pass offsets of their appends to Resolve, which
+	// will block until those appends have been processed.
+	// See also: Shard.Progress.
 	ReadThrough pb.Offsets
 }
 
-// Resolution result of a ShardID.
+// Resolution is the result of resolving a ShardID to a responsible consumer process.
 type Resolution struct {
 	Status pc.Status
 	// Header captures the resolved consumer ProcessId, effective Etcd Revision,
@@ -74,7 +88,10 @@ type Resolution struct {
 	Done func()
 }
 
-// Resolve a ShardID to its Resolution.
+// Resolve resolves a ShardID to a responsible consumer process. If this
+// process is the assigned primary for a ShardID but its Store is not yet ready
+// (eg, because it's still playing back from its recovery log), then Resolve
+// will block until the Store is ready.
 func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	var ks = r.state.KS
 
@@ -303,7 +320,8 @@ func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 // shard, but the Resolver has already been asked to stop serving local
 // shards. This happens when the consumer is shutting down abnormally (eg, due
 // to Etcd lease keep-alive failure) but its local KeySpace doesn't reflect a
-// re-assignment of the Shard, and we therefore cannot hope to proxy. Resolve
-// fails in this case to encourage the immediate completion of related RPCs,
-// as we're probably also trying to drain the gRPC server.
+// re-assignment of the Shard, and we therefore cannot hope to proxy the request
+// to another server. Resolve fails in this case to encourage the immediate
+// completion of related RPCs, as we're probably also trying to drain the gRPC
+// server.
 var ErrResolverStopped = errors.New("resolver has stopped serving local shards")

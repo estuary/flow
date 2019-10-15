@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Service is the top-level runtime concern of a Gazette Consumer process.
+// Service is the top-level runtime entity of a Gazette Consumer process.
 // It drives local shard processing in response to allocator.State,
 // powers shard resolution, and is also an implementation of ShardServer.
 type Service struct {
@@ -51,10 +51,10 @@ func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalCli
 	return svc
 }
 
-// Watch the Service KeySpace and serve any local assignments
+// QueueTasks to watch the Service KeySpace and serve any local assignments
 // reflected therein, until the Context is cancelled or an error occurs.
-// Watch shuts down all local shards prior to return regardless of
-// error status.
+// All local shards are gracefully stopped prior to return, even when exiting
+// due to an error.
 func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server) {
 	var watchCtx, watchCancel = context.WithCancel(context.Background())
 

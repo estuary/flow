@@ -10,8 +10,8 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
-// SQLStore is a Store which utilizes an external relational database having a
-// database/sql compatible driver. For each consumer transaction, SQLStore
+// SQLStore is a Store implementation which utilizes a remote database having a
+// "database/sql" compatible driver. For each consumer transaction, SQLStore
 // begins a corresponding SQL transaction which may be obtained via Transaction,
 // through which reads and writes to the store should be issued. A table
 // "gazette_checkpoints" is also required, to which consumer checkpoints are
@@ -31,8 +31,8 @@ type SQLStore struct {
 
 	// Cache is a provided for application use in the temporary storage of
 	// in-memory state associated with a SQLStore. Eg, Cache might store records
-	// which have been read and modified this transaction, and which will be
-	// written out during FinalizeTxn.
+	// which have been read this transaction and modified in-memory, and which
+	// will be written out during FinalizeTxn.
 	//
 	// The representation of Cache is up to the application; it is not directly
 	// used by SQLStore.
@@ -53,8 +53,8 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 }
 
 // Transaction returns or (if not already begun) begins a SQL transaction.
-// Optional *TxOptions have an effect only if Transaction begins a new
-// SQL transaction.
+// Optional *TxOptions have an effect only if a transaction has not already
+// been started.
 func (s *SQLStore) Transaction(ctx context.Context, txOpts *sql.TxOptions) (_ *sql.Tx, err error) {
 	if s.txn == nil {
 		s.txn, err = s.DB.BeginTx(ctx, txOpts)
@@ -63,7 +63,7 @@ func (s *SQLStore) Transaction(ctx context.Context, txOpts *sql.TxOptions) (_ *s
 }
 
 // RestoreCheckpoint issues a SQL transaction which SELECTS the most recent
-// Checkpoint of this shard FQN and also increments its fence.
+// Checkpoint of this shard FQN and also increments its "fence" column.
 func (s *SQLStore) RestoreCheckpoint(shard Shard) (cp pc.Checkpoint, _ error) {
 	var b []byte
 	var txn, err = s.Transaction(shard.Context(), nil)
@@ -90,8 +90,8 @@ func (s *SQLStore) RestoreCheckpoint(shard Shard) (cp pc.Checkpoint, _ error) {
 
 // StartCommit starts a background commit of the current transaction. While it
 // runs, a new transaction may be started. The returned OpFuture will fail if
-// the "fence" column has been modified from the result previously read by
-// RestoreCheckpoint.
+// the "fence" column has been further modified from the result previously read
+// and updated by RestoreCheckpoint.
 func (s *SQLStore) StartCommit(shard Shard, cp pc.Checkpoint, waitFor OpFutures) OpFuture {
 	var b, err = cp.Marshal()
 	if err != nil {
@@ -137,7 +137,8 @@ func (s *SQLStore) StartCommit(shard Shard, cp pc.Checkpoint, waitFor OpFutures)
 	return result
 }
 
-// Destroy rolls back an existing transaction.
+// Destroy rolls back an existing transaction, but does not close the *DB
+// instance previously passed to NewSQLStore.
 func (s *SQLStore) Destroy() {
 	if s.txn != nil {
 		_ = s.txn.Rollback()

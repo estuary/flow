@@ -178,7 +178,7 @@ func (srv *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.
 	return resp, nil
 }
 
-// ListShards invokes the List RPC, and maps a validation or !OK status to an error.
+// ListShards is a convenience for invoking the List RPC, which maps a validation or !OK status to an error.
 func ListShards(ctx context.Context, sc pc.ShardClient, req *pc.ListRequest) (*pc.ListResponse, error) {
 	if r, err := sc.List(pb.WithDispatchDefault(ctx), req, grpc.WaitForReady(true)); err != nil {
 		return r, err
@@ -191,7 +191,7 @@ func ListShards(ctx context.Context, sc pc.ShardClient, req *pc.ListRequest) (*p
 	}
 }
 
-// StatShard invokes the Stat RPC, and maps a validation or !OK status to an error.
+// StatShard is a convenience for invoking the Stat RPC, which maps a validation or !OK status to an error.
 func StatShard(ctx context.Context, rc pc.RoutedShardClient, req *pc.StatRequest) (*pc.StatResponse, error) {
 	var routedCtx = pb.WithDispatchItemRoute(ctx, rc, req.Shard.String(), false)
 	if r, err := rc.Stat(routedCtx, req, grpc.WaitForReady(true)); err != nil {
@@ -246,18 +246,21 @@ func VerifyReferencedJournals(ctx context.Context, jc pb.JournalClient, req *pc.
 	return nil
 }
 
-// ApplyShards invokes the Apply RPC.
+// ApplyShards applies shard changes detailed in the ApplyRequest via the consumer Apply RPC.
+// Changes are applied as a single Etcd transaction. If the change list is larger than an
+// Etcd transaction can accommodate, ApplyShardsInBatches should be used instead.
+// ApplyResponse statuses other than OK are mapped to an error.
 func ApplyShards(ctx context.Context, sc pc.ShardClient, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
 	return ApplyShardsInBatches(ctx, sc, req, 0)
 }
 
-// ApplyShardsInBatches applies changes to shards which
-// may be larger than the configured etcd transaction size size. The changes in
-// |req| will be sent serially in batches of size |size|. If
-// |size| is 0 all changes will be attempted as part of a single
-// transaction. This function will return the response of the final
-// ShardClient.Apply call. Response validation or !OK status from Apply RPC are
-// mapped to error.
+// ApplyShardsInBatches is like ApplyShards, but chunks the ApplyRequest
+// into batches of the given size, which should be less than Etcd's maximum
+// configured transaction size (usually 128). If size is 0 all changes will
+// be attempted in a single transaction. Be aware that ApplyShardsInBatches
+// may only partially succeed, with some batches having applied and others not.
+// The final ApplyResponse is returned, unless an error occurs.
+// ApplyResponse statuses other than OK are mapped to an error.
 func ApplyShardsInBatches(ctx context.Context, sc pc.ShardClient, req *pc.ApplyRequest, size int) (*pc.ApplyResponse, error) {
 	if size == 0 {
 		size = len(req.Changes)
@@ -287,7 +290,7 @@ func ApplyShardsInBatches(ctx context.Context, sc pc.ShardClient, req *pc.ApplyR
 	}
 }
 
-// FetchHints invokes the Hints RPC, and maps a validation or !OK status to an error.
+// FetchHints is a convenience for invoking the GetHints RPC, which maps a response validation or !OK status to an error.
 func FetchHints(ctx context.Context, sc pc.ShardClient, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 	if r, err := sc.GetHints(pb.WithDispatchDefault(ctx), req, grpc.WaitForReady(true)); err != nil {
 		return r, err
