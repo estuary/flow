@@ -52,6 +52,7 @@ structures and being careful to minimize inter-zone data transfers.
 Where to Start
 ==============
 
+* [Overview Slides](https://docs.google.com/presentation/d/e/2PACX-1vRq8pwusGbcv1KaoedwfvyKydmO-IBvziXaKQhwFpwCSYt5P7Yn4n5_gWD7XBW2feAlvhZ8-YP4h1uF/pub?start=false&loop=false&delayms=3000)
 * [Brokers: A Tutorial Introduction](docs/broker_tutorial.md) is a walk-through of
 key broker features and concepts.
 * [Design Goals (and Non-Goals)](docs/goals_and_nongoals.md)
