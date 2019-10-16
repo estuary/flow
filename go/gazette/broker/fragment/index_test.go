@@ -144,13 +144,13 @@ func (s *IndexSuite) TestQueryAtMissingMiddle(c *gc.C) {
 		ind.mu.Lock() // Synchronize |timeNow| access with Query.
 		timeNow = func() time.Time { return baseTime.Add(offsetJumpAgeThreshold + time.Second) }
 		ind.mu.Unlock()
-		ind.SpoolCommit(buildSet(c, 400, 420)[0])
+		ind.SpoolCommit(buildSet(c, 0, 1)[0]) // Wake query, if it's blocked.
 	}()
 
 	resp, _, _ = ind.Query(context.Background(), &pb.ReadRequest{Offset: 250, Block: true})
 	c.Check(resp, gc.DeepEquals, &pb.ReadResponse{
 		Offset:    300,
-		WriteHead: 420,
+		WriteHead: 400,
 		Fragment:  &pb.Fragment{Begin: 300, End: 400, ModTime: baseTime.Unix()},
 	})
 
