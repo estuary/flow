@@ -316,9 +316,9 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 	var cp = pc.BuildCheckpoint(bca)
 
 	// Collect pending journal writes before we start to commit. We'll require
-	// that the Store wait on all |pending| operations before it commits, to
+	// that the Store wait on all |waitFor| operations before it commits, to
 	// ensure that writes driven by messages of the transaction have completed
-	// before we can possibly persist their acknowledgments, or updated offsets
+	// before we could possibly persist their acknowledgments, or commit offsets
 	// which step past those messages.
 	var waitFor = s.ajc.PendingExcept(s.recovery.log)
 
@@ -337,7 +337,7 @@ func txnAcknowledge(s *shard, txn *transaction, cp pc.Checkpoint) error {
 	// readers to process messages we published during this transaction. If we
 	// fault after |commitBarrier| resolves and before we send all ACKs, the
 	// next process to recover from our log will re-send those ACKs, so they're
-	// guaranteed to be eventually received.
+	// guaranteed to eventually be received.
 	for journal, ack := range cp.AckIntents {
 		var aa = s.ajc.StartAppend(pb.AppendRequest{Journal: journal}, waitFor)
 		_, _ = aa.Writer().Write(ack)
