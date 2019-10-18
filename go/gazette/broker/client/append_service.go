@@ -130,6 +130,11 @@ type AsyncJournalClient interface {
 	// All ongoing appends to journals other than "target" are guaranteed to commit
 	// before an Append RPC is begun which writes "checkpoint" to journal "target".
 	// PendingExcept("") returns all pending AsyncAppends.
+	//
+	// If a prior journal append failed (eg, because its dependency failed) a
+	// resolved OpFuture with that error will be included in returned OpFutures.
+	// This ensures the error will properly cascade to an operation which may
+	// depend on these OpFutures.
 	PendingExcept(except pb.Journal) OpFutures
 }
 
@@ -202,7 +207,12 @@ func (s *AppendService) PendingExcept(except pb.Journal) OpFutures {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var out = make(OpFutures, len(s.appends))
+	var out = make(OpFutures, len(s.errs)+len(s.appends))
+	for j, err := range s.errs {
+		if j != except {
+			out[FinishedOperation(err)] = struct{}{}
+		}
+	}
 	for _, aa := range s.appends {
 		if aa.Request().Journal != except {
 			out[aa] = struct{}{}
@@ -329,7 +339,9 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 
 			s.mu.Lock()
 			delete(s.appends, aa.Request().Journal)
-			s.errs[aa.Request().Journal] = err
+			if err != nil {
+				s.errs[aa.Request().Journal] = err
+			}
 			s.mu.Unlock()
 
 			aa.next = aa // Mark |aa| as completed.

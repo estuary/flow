@@ -118,8 +118,9 @@ func (s *AppendServiceSuite) TestAppendPipelineWithAborts(c *gc.C) {
 
 	c.Check(aa.Response(), gc.DeepEquals, buildAppendResponseFixture(broker))
 
+	// Expect all appends complete.
 	for op := range as.PendingExcept("") {
-		<-op.Done()
+		c.Check(op.Err(), gc.IsNil)
 	}
 }
 
@@ -155,7 +156,7 @@ func (s *AppendServiceSuite) TestAppendSizeCutoff(c *gc.C) {
 		<-chs[i]
 	}
 	for op := range as.PendingExcept("") {
-		<-op.Done()
+		c.Check(op.Err(), gc.IsNil)
 	}
 }
 
@@ -205,7 +206,7 @@ func (s *AppendServiceSuite) TestAppendRacesServiceLoop(c *gc.C) {
 	broker.AppendRespCh <- buildAppendResponseFixture(broker)
 
 	for op := range as.PendingExcept("") {
-		<-op.Done()
+		c.Check(op.Err(), gc.IsNil)
 	}
 }
 
@@ -382,7 +383,7 @@ func (s *AppendServiceSuite) TestReleaseChecksForWriteErrorAndRecovers(c *gc.C) 
 	c.Check(aa.Response(), gc.DeepEquals, buildAppendResponseFixture(broker))
 
 	for op := range as.PendingExcept("") {
-		<-op.Done()
+		c.Check(op.Err(), gc.IsNil)
 	}
 }
 
@@ -434,7 +435,7 @@ func (s *AppendServiceSuite) TestAppendOrderingCycle(c *gc.C) {
 		broker.AppendRespCh <- buildAppendResponseFixture(broker)
 	}
 	for op := range as.PendingExcept("") {
-		<-op.Done()
+		c.Check(op.Err(), gc.IsNil)
 	}
 }
 
@@ -477,6 +478,13 @@ func (s *AppendServiceSuite) TestDependencyError(c *gc.C) {
 
 	<-aa.Done()
 	c.Check(aa.Err(), gc.ErrorMatches, "dependency failed: an error")
+
+	// Expect the error is also returned by PendingExcept.
+	var futures = as.PendingExcept("")
+	c.Check(futures, gc.HasLen, 1)
+	for op := range futures {
+		c.Check(op.Err(), gc.ErrorMatches, "dependency failed: an error")
+	}
 }
 
 func (s *AppendServiceSuite) TestBufferPooling(c *gc.C) {
