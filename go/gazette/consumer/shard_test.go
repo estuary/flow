@@ -38,7 +38,7 @@ func TestReadMessages(t *testing.T) {
 	assert.Equal(t, "two", (<-ch).Envelope.Message.(*testMessage).Key)
 
 	cleanup()
-	assert.Regexp(t, `framing.Unpack\(offset \d+\): context canceled`, (<-ch).err)
+	assert.Regexp(t, `framing.Unmarshal\(offset \d+\): context canceled`, (<-ch).err)
 }
 
 func TestReadMessagesFailsWithUnknownJournal(t *testing.T) {

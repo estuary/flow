@@ -28,7 +28,7 @@ func TestSQLCheckpointPersistAndRestore(t *testing.T) {
 	// Expect a checkpoint was persisted.
 	var fence int
 	assert.NoError(t, tf.app.db.QueryRow("SELECT fence FROM gazette_checkpoints "+
-		"WHERE shard_fqn = ?", fqn).Scan(&fence))
+		"WHERE shard_fqn=$1", fqn).Scan(&fence))
 	assert.Equal(t, 1, fence)
 
 	// Re-assign as primary.
@@ -37,7 +37,7 @@ func TestSQLCheckpointPersistAndRestore(t *testing.T) {
 
 	// Expect the checkpoint was restored and its fence increased.
 	assert.NoError(t, tf.app.db.QueryRow("SELECT fence FROM gazette_checkpoints "+
-		"WHERE shard_fqn = ?", fqn).Scan(&fence))
+		"WHERE shard_fqn=$1", fqn).Scan(&fence))
 	assert.Equal(t, 2, fence)
 
 	res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
@@ -69,7 +69,7 @@ func TestSQLCheckpointInsertRace(t *testing.T) {
 	// interprets fence=0 as "does not exist", and always starts fences at 1).
 	const fqn = "/consumer.test/items/shard-A"
 	var _, err = tf.app.db.Exec("INSERT INTO gazette_checkpoints (shard_fqn, fence, checkpoint) "+
-		"VALUES (?, ?, '')", fqn, -1)
+		"VALUES ($1, $2, '')", fqn, -1)
 	require.NoError(t, err)
 
 	tf.allocateShard(spec, localID)

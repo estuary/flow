@@ -350,6 +350,12 @@ func TestVerifyReferencedJournalsCases(t *testing.T) {
 	// Case: valid request => no error.
 	assert.NoError(t, VerifyReferencedJournals(ctx, jc, req))
 
+	// Case: shards may omit recovery logs => no error.
+	var tmp = req.Changes[0].Upsert.RecoveryLogPrefix
+	req.Changes[0].Upsert.RecoveryLogPrefix = ""
+	assert.NoError(t, VerifyReferencedJournals(ctx, jc, req))
+	req.Changes[0].Upsert.RecoveryLogPrefix = tmp
+
 	// Case: recovery log has wrong content type.
 	brokertest.CreateJournals(t, tf.broker, brokertest.Journal(
 		pb.JournalSpec{Name: pb.Journal(aRecoveryLogPrefix + "/missing-type")}))
@@ -365,7 +371,7 @@ func TestVerifyReferencedJournalsCases(t *testing.T) {
 
 	req.Changes[2].Upsert.Id = shardB
 
-	// Case: source journal has wrong type.
+	// Case: source journal has wrong content type.
 	req.Changes[2].Upsert.Sources[1].Journal = pb.Journal(aRecoveryLogPrefix + "/" + shardC)
 	assert.EqualError(t, VerifyReferencedJournals(ctx, jc, req),
 		"Shard[shard-B].Sources[recovery/logs/shard-C] message framing: unrecognized content-type (application/x-gazette-recoverylog)")

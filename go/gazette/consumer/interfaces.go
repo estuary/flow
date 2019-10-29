@@ -67,23 +67,34 @@ type Shard interface {
 	Progress() (readThrough, publishAt pb.Offsets)
 }
 
-// Store is a stateful storage backend. Often Stores are implemented as embedded
-// databases which record their file operations into a provided Recorder.
-// Stores which instead utilize an external transactional system (eg, an RDBMS)
-// are also supported. Application implementations control the selection,
-// initialization, and usage of an appropriate Store backend for their use case.
+// Store is a durable and transactional storage backend used to persist arbitrary
+// Application-defined states alongside the consumer Checkpoints which produced
+// those states. The particular means by which the Store represents transactions
+// varies from implementation to implementation, and is not modeled by this
+// interface. However for correct exactly-once processing semantics, it must be
+// the case that Store modifications made by Applications are made in transactions
+// which are committed by StartCommit, and which incorporate the Checkpoint
+// provided to StartCommit.
+//
+// Often Stores are implemented as embedded databases which record their file
+// operations into a provided `recoverylog.Recorder`. Stores which instead utilize
+// an external transactional system (eg, an RDBMS) are also supported.
+//
+// Application implementations control the selection, initialization, and usage
+// of an appropriate Store for their use case.
 type Store interface {
-	// StartCommit starts a background, atomic "commit" to the Store of state
+	// StartCommit starts an asynchronous, atomic "commit" to the Store of state
 	// updates from this transaction along with the Checkpoint. If Store uses an
 	// external transactional system, then StartCommit must fail if another
 	// process has invoked RestoreCheckpoint after *this* Store instance did
 	// so. Put differently, Store cannot commit a Checkpoint that another Store
-	// may never see (because it continues an earlier Checkpoint that it restored).
+	// may never see (because it continues from an earlier Checkpoint that it
+	// restored).
 	//
 	// In general terms, this means StartCommit must verify a "write fence"
 	// previously installed by RestoreCheckpoint as part of its transaction.
 	// Embedded Stores which use recovery logs can rely on the write fence of
-	// the log itself.
+	// the log itself, implemented via journal registers.
 	//
 	// StartCommit may immediately begin a transaction with the external system
 	// (if one hasn't already been started from ConsumeMessage), but cannot
@@ -127,30 +138,45 @@ type OpFutures = client.OpFutures
 //
 //  1) Begin or continue a transaction with its Store.
 //  2) Publish exactly-once Messages to other journals via the provided Publisher.
-//  3) Append raw at-least-once []bytes via the shard's JournalClient.
-//  4) To keep in-memory-only aggregates such as counts.
+//  3) Append raw at-least-once []bytes via the Shard's JournalClient.
+//  4) Keep in-memory-only aggregates such as counts.
 //
 // Messages published via PublishUncommitted will be visible to read-committed
 // readers once the consumer transaction completes. Read-uncommitted readers will see
 // them while the transaction continues to run. Similarly writes issued directly
 // through the shard JournalClient are also readable while the transaction runs.
 //
-// Eventually, either because of a read stall or the maximum duration is reached,
-// the transaction is closed to new messages and FinalizeTxn is called. At this
-// point the Application must publish any remaining messages or begin related
-// journal writes, and must flush any in-memory caches or aggregates into its
-// Store transaction (the Application does _not_ need to wait for journal writes
-// to complete).
+// A transaction *must* continue to run while asynchronous appends of the _prior_
+// transaction are ongoing (including appends to the shard recovery log and
+// appends of post-commit acknowledgements). The transaction will continue to
+// process messages during this time until the ShardSpec's MaxTxnDuration is
+// reached, at which point the transaction will stop reading messages but
+// continue to wait for prior appends to finish.
+//
+// It must also continue to run until the ShardSpec's MinTxnDuration is reached.
+//
+// Assuming both of those conditions are satisfied, the transaction will close
+// upon encountering a stall in a buffered channel of decoded input messages.
+// If a stall isn't forthcoming (as is frequent at high write rates), it will
+// close upon reaching the ShardSpec's MaxTxnDuration.
+//
+// Upon transaction close, FinalizeTxn is called. At this point the Application
+// must publish any pending messages and/or begin related journal appends,
+// and must flush any in-memory caches or aggregates into its Store transaction
+// (simply starting appends is sufficient: the Application does _not_ need to
+// wait for journal appends to complete).
 //
 // StartCommit of the Store is then called with a Checkpoint. For correct
 // exactly-once processing semantics, the Checkpoint must be written in a
 // single transaction alongside all other Store mutations made within the
 // scope of this consumer transaction:
 //
-//  * Eg for RocksDB, this means all mutations and the Checkpoint must be written
-//    within a single "write batch".
-//  * For a SQL store, verification of the write fence, INSERTS, UPDATES, and the
+//  * Eg for `store-rocksdb`, all store mutations and the Checkpoint are
+//    written together within a single RocksDB WriteBatch.
+//  * For `SQLStore`, verification of the write fence, INSERTS, UPDATES, and the
 //    Checkpoint itself are written within a single BEGIN/COMMIT transaction.
+//  * Similarly, `store-sqlite` persists Checkpoints within the scope of the
+//    current SQL transaction.
 //
 // Note that other, non-transactional Store mutations are permitted, but will
 // have a weaker at-least-once processing guarantee with respect to Store state.

@@ -261,3 +261,26 @@ func TestResolverShardTransitions(t *testing.T) {
 
 	tf.allocateShard(makeShard(shardA)) // Cleanup.
 }
+
+func TestResolverJournalIndexing(t *testing.T) {
+	var tf, cleanup = newTestFixture(t)
+	defer cleanup()
+
+	// Progress through a sequence of adding shards & confirming they're index.
+	assert.Nil(t, tf.resolver.ShardsWithSource(sourceA.Name))
+
+	var specA = makeShard(shardA)
+	tf.allocateShard(specA)
+	assert.Equal(t, []*pc.ShardSpec{specA}, tf.resolver.ShardsWithSource(sourceA.Name))
+	assert.Equal(t, []*pc.ShardSpec{specA}, tf.resolver.ShardsWithSource(sourceB.Name))
+
+	var specB = makeShard(shardB)
+	tf.allocateShard(specB)
+	assert.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
+	assert.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceB.Name))
+
+	specA.Sources = specA.Sources[:1] // Drop sourceB.
+	tf.allocateShard(specA)
+	assert.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
+	assert.Equal(t, []*pc.ShardSpec{specB}, tf.resolver.ShardsWithSource(sourceB.Name))
+}

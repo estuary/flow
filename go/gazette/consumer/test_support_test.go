@@ -144,7 +144,7 @@ func (a *testApplication) ConsumeMessage(shard Shard, store Store, env message.E
 		}
 	}
 
-	if err := pub.PublishUncommitted(toEchoOut, msg); err != nil {
+	if _, err := pub.PublishUncommitted(toEchoOut, msg); err != nil {
 		return err
 	}
 	return a.consumeErr
@@ -459,7 +459,8 @@ func verifyStoreAndEchoOut(t require.TestingT, s *shard, expect map[string]strin
 
 func runTransaction(tf *testFixture, s Shard, in map[string]string) {
 	for k, v := range in {
-		assert.NoError(tf.t, tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: k, Value: v}))
+		var _, err = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: k, Value: v})
+		assert.NoError(tf.t, err)
 	}
 	tf.writeTxnPubACKs()
 	<-(<-tf.app.finishedCh).Done() // Block until txn finishes.
@@ -494,12 +495,12 @@ func (t testTimer) signal() { t.ch <- t.timepoint }
 
 func faketime(delta time.Duration) time.Time { return time.Unix(1500000000, 0).Add(delta) }
 
-func toSourceA(message.Mappable) (pb.Journal, message.Framing, error) {
-	return sourceA.Name, message.JSONFraming, nil
+func toSourceA(message.Mappable) (pb.Journal, string, error) {
+	return sourceA.Name, labels.ContentType_JSONLines, nil
 }
-func toSourceB(message.Mappable) (pb.Journal, message.Framing, error) {
-	return sourceB.Name, message.JSONFraming, nil
+func toSourceB(message.Mappable) (pb.Journal, string, error) {
+	return sourceB.Name, labels.ContentType_JSONLines, nil
 }
-func toEchoOut(message.Mappable) (pb.Journal, message.Framing, error) {
-	return echoOut.Name, message.JSONFraming, nil
+func toEchoOut(message.Mappable) (pb.Journal, string, error) {
+	return echoOut.Name, labels.ContentType_JSONLines, nil
 }

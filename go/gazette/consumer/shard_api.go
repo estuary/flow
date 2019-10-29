@@ -235,8 +235,11 @@ func VerifyReferencedJournals(ctx context.Context, jc pb.JournalClient, req *pc.
 				return errors.WithMessagef(err, "Shard[%s].Sources[%s] message framing", change.Upsert.Id, src.Journal)
 			}
 		}
-		// Verify shard recovery log exists with its content-types.
-		if spec, err := lookup(change.Upsert.RecoveryLog()); err != nil {
+
+		// Verify shard recovery log exists with correct content-type.
+		if name := change.Upsert.RecoveryLog(); name == "" {
+			// Shard doesn't use a recovery log.
+		} else if spec, err := lookup(name); err != nil {
 			return errors.WithMessagef(err, "Shard[%s]", change.Upsert.Id)
 		} else if ct := spec.LabelSet.ValueOf(labels.ContentType); ct != labels.ContentType_RecoveryLog {
 			return errors.Errorf("Shard[%s]: expected %s to have %s %s but was '%s'",

@@ -283,7 +283,7 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 
 	// Publish some pending messages.
 	for _, key := range []string{"A", "B", "C"} {
-		_ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: key, Value: "v"})
+		_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: key, Value: "v"})
 		assert.False(t, mustTxnStep(t, shard, &txn, &prior))
 	}
 
@@ -309,7 +309,7 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 	assert.False(t, txnBlocks(shard, &txn, &prior)) // May now commit.
 
 	// Another ready, pending message is read.
-	_ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "D", Value: "v"})
+	_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "D", Value: "v"})
 	msgCh <- <-msgCh // Ensure message is buffered.
 	assert.False(t, mustTxnStep(t, shard, &txn, &prior))
 	assert.True(t, txnBlocks(shard, &txn, &prior)) // Wait for ACK.

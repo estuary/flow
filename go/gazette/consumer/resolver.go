@@ -14,9 +14,9 @@ import (
 	"go.gazette.dev/core/keyspace"
 )
 
-// Resolver applies the current allocator.State to map ShardIDs to responsible
-// consumer processes. It also monitors the allocator.State to manage the
-// lifetime of local shards which are assigned to this process.
+// Resolver applies the current allocator.State to map journals to shards,
+// and shards to responsible consumer processes. It also monitors the State
+// to manage the lifetime of local shards which are assigned to this process.
 type Resolver struct {
 	state *allocator.State
 	// Set of local shards known to this Resolver. Nil iff
@@ -26,6 +26,8 @@ type Resolver struct {
 	newShard func(keyspace.KeyValue) *shard
 	// wg synchronizes over all running local shards.
 	wg sync.WaitGroup
+	// journals indexes ShardSpecs by the journals they read.
+	journals map[pb.Journal][]*pc.ShardSpec
 }
 
 // NewResolver returns a Resolver derived from the allocator.State, which
@@ -38,7 +40,7 @@ func NewResolver(state *allocator.State, newShard func(keyspace.KeyValue) *shard
 		shards:   make(map[pc.ShardID]*shard),
 	}
 	state.KS.Mu.Lock()
-	state.KS.Observers = append(state.KS.Observers, r.updateResolutions)
+	state.KS.Observers = append(state.KS.Observers, r.updateLocalShards, r.updateJournalsIndex)
 	state.KS.Mu.Unlock()
 	return r
 }
@@ -246,10 +248,10 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	return
 }
 
-// updateResolutions updates |shards| to match LocalItems, creating,
+// updateLocalShards updates |shards| to match LocalItems, creating,
 // transitioning, and cancelling Replicas as needed. The KeySpace
 // lock must be held.
-func (r *Resolver) updateResolutions() {
+func (r *Resolver) updateLocalShards() {
 	if r.shards == nil {
 		return // We've stopped serving local shards.
 	}
@@ -284,6 +286,54 @@ func (r *Resolver) updateResolutions() {
 
 	// Any remaining Replicas in |prev| were not in LocalItems.
 	r.cancelShards(prev)
+}
+
+// ShardsWithSource returns specs having the journal as a source, in ShardID order.
+// APIs presented by consumer applications often want to map an app-defined key
+// to an associated journal through a message.MappingFunc, and from there to a
+// responsible shard against which the API request is ultimately dispatched.
+// "Responsible" is up to the application: while it's common to have 1:1 assignment
+// between shards and source journals, other patterns are possible and the
+// application must make an appropriate selection from among the returned
+// ShardSpecs for its use case.
+//
+//      var mapping message.MappingFunc = ...
+//      var mappedID pc.ShardID
+//
+//      if journal, _, err := mapping(key); err != nil {
+//          // Handle error.
+//      } else if specs := resolver.ShardsWithSource(journal); len(specs) == 0 {
+//		    err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
+//          // Handle error.
+//	    } else {
+//          mappedID = specs[0].Id
+//      }
+//
+//	    var resolution, err = svc.Resolver.Resolve(consumer.ResolveArgs{
+//          ShardID:     specs[0].Id,
+//          ...
+//      })
+//
+func (r *Resolver) ShardsWithSource(journal pb.Journal) []*pc.ShardSpec {
+	r.state.KS.Mu.RLock()
+	var specs = r.journals[journal]
+	r.state.KS.Mu.RUnlock()
+	return specs
+}
+
+// updateJournalsIndex updates |journals| to match ShardSpecs and current
+// source assignments. The KeySpace lock must be held.
+func (r *Resolver) updateJournalsIndex() {
+	var next = make(map[pb.Journal][]*pc.ShardSpec, len(r.state.Items))
+
+	for _, kv := range r.state.Items {
+		var spec = kv.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
+
+		for _, src := range spec.Sources {
+			next[src.Journal] = append(next[src.Journal], spec)
+		}
+	}
+	r.journals = next
 }
 
 // stopServingLocalReplicas begins immediate shutdown of any & all local

@@ -70,11 +70,11 @@ func (s *SQLStore) RestoreCheckpoint(shard Shard) (cp pc.Checkpoint, _ error) {
 
 	if err == nil {
 		_, err = txn.Exec(fmt.Sprintf("UPDATE %s SET fence=fence+1 "+
-			"WHERE shard_fqn=?", s.table), shard.FQN())
+			"WHERE shard_fqn=$1;", s.table), shard.FQN())
 	}
 	if err == nil {
 		err = txn.QueryRow(fmt.Sprintf("SELECT fence, checkpoint FROM %s "+
-			"WHERE shard_fqn=?", s.table), shard.FQN()).Scan(&s.fence, &b)
+			"WHERE shard_fqn=$1;", s.table), shard.FQN()).Scan(&s.fence, &b)
 	}
 	if err == sql.ErrNoRows {
 		err = nil // Leave |cp| as zero-valued.
@@ -116,11 +116,11 @@ func (s *SQLStore) StartCommit(shard Shard, cp pc.Checkpoint, waitFor OpFutures)
 
 		if s.fence == 0 {
 			update, err = txn.Exec(fmt.Sprintf(`
-				INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (?, ?, 1);`, s.table), shard.FQN(), b)
+				INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES ($1, $2, 1);`, s.table), shard.FQN(), b)
 			s.fence = 1
 		} else {
 			update, err = txn.Exec(fmt.Sprintf(`
-				UPDATE %s SET checkpoint=? WHERE shard_fqn=? AND fence=?;`, s.table), b, shard.FQN(), s.fence)
+				UPDATE %s SET checkpoint=$1 WHERE shard_fqn=$2 AND fence=$3;`, s.table), b, shard.FQN(), s.fence)
 		}
 		if err == nil {
 			if rowsAffected, err = update.RowsAffected(); err == nil && rowsAffected == 0 {
