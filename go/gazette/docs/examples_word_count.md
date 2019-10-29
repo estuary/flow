@@ -7,7 +7,7 @@ the Gazette
 [consumer](https://godoc.org/go.gazette.dev/core/consumer) framework.
 
 The complete implementation can be found in package
-[go.gazette.dev/core/examples/word-count](https://go.doc.org/go.gazette.dev/core/examples/word-count).
+[go.gazette.dev/core/examples/word-count](https://godoc.org/go.gazette.dev/core/examples/word-count).
 
 Objectives
 ----------

@@ -1,14 +1,14 @@
 // Package stream_sum is an example application consisting of three stages:
 //
 // 1) A `chunker` job randomly generates a number of unique "streams", with
-//   stream content emitted across a number of interleaved data chunks.
+// stream content emitted across a number of interleaved data chunks.
 //
 // 2) A `summer` consumer accumulates stream chunks and computes a running
-//   SHA1-sum of each stream's content. When the stream is completed,
-//   the `summer` consumer emits a final sum to an output journal.
+// SHA1-sum of each stream's content. When the stream is completed,
+// the `summer` consumer emits a final sum to an output journal.
 //
 // 3) Having written a complete stream, the `chunker` job confirms that the
-//   correct sum is written to the output journal.
+// correct sum is written to the output journal.
 //
 // The `chunker` and `summer` tasks may be independently scaled, and are
 // invariant to process failures and restarts.

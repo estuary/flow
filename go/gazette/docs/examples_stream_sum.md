@@ -6,7 +6,7 @@ sums file "chunks" and publishes their final sum. It's implemented using
 the Gazette [consumer](https://godoc.org/go.gazette.dev/core/consumer) framework.
 
 The complete implementation can be found in package
-[go.gazette.dev/core/examples/stream-sum](https://go.doc.org/go.gazette.dev/core/examples/stream-sum).
+[go.gazette.dev/core/examples/stream-sum](https://godoc.org/go.gazette.dev/core/examples/stream-sum).
 
 Objectives
 ----------

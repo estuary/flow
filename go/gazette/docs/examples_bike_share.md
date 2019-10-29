@@ -6,7 +6,7 @@ In this walk through, we'll be building a continuous data pipeline for processin
 [consumer](https://godoc.org/go.gazette.dev/core/consumer) framework.
 
 The implementation can be found in package
-[go.gazette.dev/core/examples/bike-share](https://go.doc.org/go.gazette.dev/core/examples/bike-share).
+[go.gazette.dev/core/examples/bike-share](https://godoc.org/go.gazette.dev/core/examples/bike-share).
 
 Objectives
 ----------
