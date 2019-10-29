@@ -11,14 +11,16 @@ const (
 	// as per RFC 1521. Only one ContentType label is allowed.
 	ContentType = "content-type"
 
+	// ContentType_CSV is the RFC 4180 mime type for CSV.
+	ContentType_CSV = "text/csv"
+	// ContentType_JSONLines is a ContentType for newline-delimited, JSON-encoded
+	// messages. JSONLines is implemented by message.JSONFraming.
+	ContentType_JSONLines = "application/x-ndjson"
 	// ContentType_ProtoFixed is a ContentType for Protobuf messages delimited
 	// by fixed header, consisting of a 4-byte "magic word" (for verifying stream
 	// integrity) followed by a 4-byte little-endian message length, followed by
 	// the packed Protobuf message. ProtoFixed is implemented by message.FixedFraming.
 	ContentType_ProtoFixed = "application/x-protobuf-fixed"
-	// ContentType_JSONLines is a ContentType for newline-delimited, JSON-encoded
-	// messages. JSONLines is implemented by message.JSONFraming.
-	ContentType_JSONLines = "application/x-ndjson"
 	// ContentType_RecoveryLog is a ContentType for Gazette's recovery log encoding.
 	// RecoveryLog is implemented by package `recoverylog`. To serve as a shard
 	// recovery log, a JournalSpec must be labeled with ContentType_RecoveryLog.
@@ -62,12 +64,4 @@ var SingleValueLabels = map[string]struct{}{
 	MessageSubType: {},
 	MessageType:    {},
 	Region:         {},
-}
-
-// FramedContentTypes is the set of ContentType values which are understood by
-// a message.Framing. To serve as a ShardSpec.Source, a JournalSpec must be
-// labeled from among these ContentTypes.
-var FramedContentTypes = map[string]struct{}{
-	ContentType_JSONLines:  {},
-	ContentType_ProtoFixed: {},
 }

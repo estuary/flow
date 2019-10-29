@@ -32,27 +32,14 @@ func NewReadUncommittedIter(rr *client.RetryReader, newMsg NewMessageFunc) *Read
 
 // ReadUncommittedIter is an Iterator over read-uncommitted messages.
 type ReadUncommittedIter struct {
-	rr      *client.RetryReader
-	br      *bufio.Reader
-	newMsg  NewMessageFunc
-	spec    *pb.JournalSpec
-	framing Framing
+	rr        *client.RetryReader
+	br        *bufio.Reader
+	newMsg    NewMessageFunc
+	spec      *pb.JournalSpec
+	unmarshal UnmarshalFunc
 }
 
-// Next reads and returns the next Envelope, or an unrecoverable error.
-// Several recoverable errors are handled and logged, but not returned:
-//
-//  * A framing Unmarshal error (as opposed to Unpack). This is an error with
-//   respect to a specific framed message in the journal, and not an error
-//   of the underlying Journal stream. It can happen if improperly framed
-//   or simply malformed data is written to a journal. Typically we want to
-//   keep reading in this case as the error already happened (when the frame
-//   was written) and we still care about Envelopes occurring afterwards.
-//
-//  * ErrOffsetJump indicates the next byte of available content is at an
-//   offset larger than the one requested. This can happen if a range of
-//   content was deleted from the journal. Next will log a warning but continue
-//   reading at the jumped offset, which is reflected in the returned Envelope.
+// Next reads and returns the next Envelope or error.
 func (it *ReadUncommittedIter) Next() (Envelope, error) {
 	if it.spec != nil {
 	} else if err := it.init(); err != nil {
@@ -61,21 +48,37 @@ func (it *ReadUncommittedIter) Next() (Envelope, error) {
 
 	for {
 		var begin = it.rr.AdjustedOffset(it.br)
-		var frame, err = it.framing.Unpack(it.br)
+		var msg, err = it.newMsg(it.spec)
+		if err != nil {
+			return Envelope{}, errors.WithMessage(err, "newMessage")
+		}
 
-		switch {
-		case err == nil:
-			break
+		switch err = it.unmarshal(msg); errors.Cause(err) {
+		case nil:
+			return Envelope{
+				Journal: it.spec,
+				Begin:   begin,
+				End:     it.rr.AdjustedOffset(it.br),
+				Message: msg,
+			}, nil
 
-		case errors.Cause(err) == io.ErrNoProgress:
+		case io.EOF:
+			return Envelope{}, err // Don't wrap io.EOF.
+
+		case io.ErrNoProgress:
 			// Swallow ErrNoProgress from our bufio.Reader. client.Reader returns
 			// an empty read to allow for inspection of the ReadResponse message,
 			// and client.RetryReader also surface these empty reads. A journal
-			// with no active appends can eventually cause our bufio.Reader to
-			// give up, though no error has occurred.
+			// with many restarted reads but no active appends can eventually
+			// cause our bufio.Reader to give up, though no error has occurred.
 			continue
 
-		case errors.Cause(err) == client.ErrOffsetJump:
+		case client.ErrOffsetJump:
+			// ErrOffsetJump indicates the next byte of available content is at an
+			// offset larger than the one requested. This can happen if a range of
+			// content was deleted from the journal. Log a warning but continue
+			// reading at the jumped offset, which will be reflected in the next
+			// returned Envelope.
 			log.WithFields(log.Fields{
 				"journal": it.spec.Name,
 				"from":    begin,
@@ -83,43 +86,22 @@ func (it *ReadUncommittedIter) Next() (Envelope, error) {
 			}).Warn("source journal offset jump")
 			continue
 
-		case err == io.EOF: // Don't wrap io.EOF.
-			return Envelope{}, err
-
 		default:
-			return Envelope{}, errors.WithMessagef(err, "framing.Unpack(offset %d)", begin)
+			return Envelope{}, errors.WithMessagef(err, "framing.Unmarshal(offset %d)", begin)
 		}
-
-		var msg Message
-		if msg, err = it.newMsg(it.spec); err != nil {
-			return Envelope{}, errors.WithMessage(err, "newMessage")
-		}
-		if err = it.framing.Unmarshal(frame, msg); err != nil {
-			log.WithFields(log.Fields{
-				"journal": it.rr.Journal(),
-				"begin":   begin,
-				"end":     it.rr.AdjustedOffset(it.br),
-				"err":     err,
-			}).Error("failed to unmarshal message")
-			continue
-		}
-
-		return Envelope{
-			Journal: it.spec,
-			Begin:   begin,
-			End:     it.rr.AdjustedOffset(it.br),
-			Message: msg,
-		}, nil
 	}
 }
 
 func (it *ReadUncommittedIter) init() error {
 	var err error
+	var framing Framing
+
 	if it.spec, err = client.GetJournal(it.rr.Context, it.rr.Client, it.rr.Journal()); err != nil {
 		return errors.WithMessage(err, "fetching journal spec")
-	} else if it.framing, err = FramingByContentType(it.spec.LabelSet.ValueOf(labels.ContentType)); err != nil {
+	} else if framing, err = FramingByContentType(it.spec.LabelSet.ValueOf(labels.ContentType)); err != nil {
 		return errors.WithMessage(err, "determining framing")
 	}
+	it.unmarshal = framing.NewUnmarshalFunc(it.br)
 	return nil
 }
 

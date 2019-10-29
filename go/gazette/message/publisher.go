@@ -65,21 +65,27 @@ func NewPublisher(ajc client.AsyncJournalClient, clock *Clock) *Publisher {
 }
 
 // PublishCommitted sequences the Message for immediate consumption, maps it
-// to a Journal, and begins an AsyncAppend of its marshaled content.
-// It is safe for concurrent use.
+// to a Journal, and begins an AsyncAppend of its marshaled content. An error
+// is returned if:
+//  * The Message implements Validate, which errors.
+//  * The MappingFunc returns an error while mapping the Message to a journal.
+//  * The journal's Framing returns an error while marshaling the Message,
+//    or a local io.Writer errors (eg while spooling the frame to a temp file).
+// PublishCommitted is safe for concurrent use.
 func (p *Publisher) PublishCommitted(mapping MappingFunc, msg Message) (*client.AsyncAppend, error) {
 	var _, _, aa, err = p.publish(mapping, msg, Flag_OUTSIDE_TXN)
 	return aa, err
 }
 
-// PublishUncommitted sequences the Message as uncommitted, maps it to a Journal,
-// and begins an AsyncAppend of its marshaled content. The Journal is tracked
-// and included in the results of a future []AckIntents.
+// PublishUncommitted is like PublishCommitted but sequences the Message
+// as part of an open transaction. The Message must later be acknowledged before it
+// will be visible to read-committed readers. The Journal is tracked and included
+// in the results of the next BuildAckIntents.
 // PublishUncommitted is *not* safe for concurrent use.
-func (p *Publisher) PublishUncommitted(mapping MappingFunc, msg Message) error {
-	var journal, framing, _, err = p.publish(mapping, msg, Flag_CONTINUE_TXN)
+func (p *Publisher) PublishUncommitted(mapping MappingFunc, msg Message) (*client.AsyncAppend, error) {
+	var journal, framing, aa, err = p.publish(mapping, msg, Flag_CONTINUE_TXN)
 	if err != nil {
-		return err
+		return aa, err
 	}
 	// Is this the first publish to this journal since our last commit?
 	if _, ok := p.intentIdx[journal]; !ok {
@@ -90,7 +96,7 @@ func (p *Publisher) PublishUncommitted(mapping MappingFunc, msg Message) error {
 			framing: framing,
 		})
 	}
-	return nil
+	return aa, nil
 }
 
 // BuildAckIntents returns the []AckIntents which acknowledge all pending
@@ -163,9 +169,14 @@ func (p *Publisher) publish(mapping MappingFunc, msg Message, flags Flags) (jour
 			return
 		}
 	}
-	if journal, framing, err = mapping(msg); err != nil {
+
+	journal, ct, err := mapping(msg)
+	if err != nil {
+		return
+	} else if framing, err = FramingByContentType(ct); err != nil {
 		return
 	}
+
 	aa = p.ajc.StartAppend(pb.AppendRequest{Journal: journal}, nil)
 	aa.Require(framing.Marshal(msg, aa.Writer()))
 	err = aa.Release()

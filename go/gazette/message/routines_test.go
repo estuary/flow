@@ -14,13 +14,10 @@ import (
 )
 
 func TestFramingDetermination(t *testing.T) {
-	var f, err = FramingByContentType(labels.ContentType_JSONLines)
+	var _, err = FramingByContentType(labels.ContentType_JSONLines)
 	assert.NoError(t, err)
-	assert.Equal(t, JSONFraming, f)
-
-	f, err = FramingByContentType(labels.ContentType_ProtoFixed)
+	_, err = FramingByContentType(labels.ContentType_ProtoFixed)
 	assert.NoError(t, err)
-	assert.Equal(t, FixedFraming, f)
 
 	_, err = FramingByContentType(labels.ContentType_RecoveryLog) // Not a valid message framing.
 	assert.EqualError(t, err, `unrecognized `+labels.ContentType+` (`+labels.ContentType_RecoveryLog+`)`)
@@ -72,9 +69,9 @@ func TestRandomMapping(t *testing.T) {
 	var results = make(map[pb.Journal]struct{})
 
 	for i := 0; i != 101; i++ {
-		var j, f, err = mapping(&testMsg{Str: "foobar"})
+		var j, ct, err = mapping(&testMsg{Str: "foobar"})
 		assert.NoError(t, err)
-		assert.Equal(t, JSONFraming, f)
+		assert.Equal(t, labels.ContentType_JSONLines, ct)
 		results[j] = struct{}{}
 	}
 	// Probabilistic test; chance of failure is 1e-200.
@@ -101,9 +98,9 @@ func TestModuloMappingRegressionFixtures(t *testing.T) {
 		"lovely and more":         118,
 		"temperate - Shakespeare": 228,
 	} {
-		var j, f, err = mapping(&testMsg{Str: key})
+		var j, ct, err = mapping(&testMsg{Str: key})
 		assert.NoError(t, err)
-		assert.Equal(t, JSONFraming, f)
+		assert.Equal(t, labels.ContentType_JSONLines, ct)
 		assert.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
 	}
 }
@@ -126,9 +123,9 @@ func TestRendezvousMappingRegressionFixtures(t *testing.T) {
 			"lovely and more":         344,
 			"temperate - Shakespeare": 75,
 		} {
-			var j, f, err = mapping(&testMsg{Str: key})
+			var j, ct, err = mapping(&testMsg{Str: key})
 			assert.NoError(t, err)
-			assert.Equal(t, JSONFraming, f)
+			assert.Equal(t, labels.ContentType_JSONLines, ct)
 			assert.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
 		}
 	}

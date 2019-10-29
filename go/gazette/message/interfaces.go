@@ -79,6 +79,21 @@
 //          // acknowledged and is not a duplicate.
 //      }
 //
+// Journals must declare their associated message Framing via the "content-type"
+// label. The journal Framing is used to encode and decode Message instances
+// written to the journal. Use RegisterFraming, typically from a package init()
+// function, to register new Framing instances and make them available for use
+// in applications. This package registers a Framing for the following
+// content-types on its import:
+//
+//   * test/csv:                     Uses "encoding/csv". See CSVFrameable.
+//   * application/x-ndjson:         Uses "encoing/json".
+//   * application/x-protobuf-fixed: Encodes ProtoFrameable messages with a preamble
+//      of [4]byte{0x66, 0x33, 0x93, 0x36}, followed by a 4-byte little endian unsigned
+//      length, followed by a marshalled protobuf message.
+//
+// See the "labels" package for definitions of well-known label names and values
+// such as content-types.
 package message
 
 import (
@@ -149,7 +164,7 @@ type ProducerState struct {
 // but the Framing interface doesn't require this.
 type Frameable interface{}
 
-// Framing specifies the serialization used to encode Messages within a journal.
+// Framing specifies the means by which Messages are marshalled to and from a Journal.
 type Framing interface {
 	// ContentType of the Framing.
 	ContentType() string
@@ -157,16 +172,16 @@ type Framing interface {
 	// passed validation, if implemented for the message type. It may ignore
 	// any error returned by the provided Writer.
 	Marshal(Frameable, *bufio.Writer) error
-	// Unpack reads and returns a complete framed message from the Reader,
-	// including any applicable message header or suffix. It returns an error of
-	// the underlying Reader, or of a framing corruption. The returned []byte may
-	// be invalidated by a subsequent use of the Reader or another Unpack call.
-	Unpack(*bufio.Reader) ([]byte, error)
-	// Unmarshal a Frameable message from the supplied frame previously produced
-	// by Unpack. It returns only message-level decoding errors, which do not
-	// invalidate the Framing or the Reader (eg, further frames may be unpacked).
-	Unmarshal([]byte, Frameable) error
+	// NewUnmarshalFunc returns an UnmarshalFunc which will unmarshal Frameable
+	// instances from the provided Reader.
+	NewUnmarshalFunc(*bufio.Reader) UnmarshalFunc
 }
+
+// UnmarshalFunc is returned by a Framing's NewUnmarshalFunc. It unpacks and
+// decodes Frameable instances from the underlying bufio.Reader. It must not
+// read beyond the precise byte boundary of each message frame (eg, by
+// internally buffering reads beyond the frame end).
+type UnmarshalFunc func(Frameable) error
 
 // Mappable is an interface suitable for mapping by a MappingFunc.
 // Typically a MappingKeyFunc will cast and assert Mappable's exact
@@ -192,7 +207,10 @@ type Mappable interface{}
 //  2) Query the broker List RPC to determine current partitions of the topic,
 //     caching and refreshing List results as needed (see client.PolledList).
 //  3) Use a ModuloMapping or RendezvousMapping to select among partitions.
-type MappingFunc func(Mappable) (pb.Journal, Framing, error)
+//
+// The MappingFunc returns the contentType of journal messages,
+// which must have a registered Framing.
+type MappingFunc func(Mappable) (_ pb.Journal, contentType string, _ error)
 
 // MappingKeyFunc extracts an appropriate mapping key from the Mappable
 // by writing its value into the provided io.Writer, whose Write() is

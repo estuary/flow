@@ -28,14 +28,14 @@ func TestPublishCommitted(t *testing.T) {
 	)
 	brokertest.CreateJournals(t, bk, spec)
 
-	// Publish some messages that map to |spec| with JSONFraming.
-	var mapping = func(Mappable) (pb.Journal, Framing, error) {
-		return spec.Name, JSONFraming, nil
+	// Publish some messages that map to |spec|.
+	var mapping = func(Mappable) (pb.Journal, string, error) {
+		return spec.Name, labels.ContentType_JSONLines, nil
 	}
 	for _, s := range []string{"hello", "world", "beer!"} {
 		var aa, err = pub.PublishCommitted(mapping, &testMsg{Str: s})
 		assert.NoError(t, err)
-		<-aa.Done()
+		assert.NoError(t, aa.Err())
 	}
 
 	assert.Equal(t, []testMsg{
@@ -69,9 +69,12 @@ func TestPublishUncommitted(t *testing.T) {
 	brokertest.CreateJournals(t, bk, spec1, spec2, spec3)
 
 	var publish = func(journal pb.Journal, value string) {
-		assert.NoError(t, pub.PublishUncommitted(func(Mappable) (pb.Journal, Framing, error) {
-			return journal, JSONFraming, nil
-		}, &testMsg{Str: value}))
+		var mapping = func(Mappable) (pb.Journal, string, error) {
+			return journal, labels.ContentType_JSONLines, nil
+		}
+		var aa, err = pub.PublishUncommitted(mapping, &testMsg{Str: value})
+		assert.NoError(t, err)
+		assert.NoError(t, aa.Err())
 	}
 
 	// Publish two pending messages.
@@ -163,15 +166,15 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 		}
 	}
 
-	var mapping = func(Mappable) (pb.Journal, Framing, error) {
-		return spec.Name, JSONFraming, nil
+	var mapping = func(Mappable) (pb.Journal, string, error) {
+		return spec.Name, labels.ContentType_JSONLines, nil
 	}
 	var pub = NewPublisher(ajc, &clock)
 	var txnPub = NewPublisher(ajc, &clock)
 
 	// |txnPub| writes first, followed by |pub|, followed by |txnPub| intents.
 	// All messages are served from the Sequencer ring.
-	_ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "one"})
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "one"})
 	_, _ = pub.PublishCommitted(mapping, &testMsg{Str: "two"})
 
 	var intents, _ = txnPub.BuildAckIntents()
@@ -187,11 +190,11 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 	}, seqPump())
 
 	// Write more interleaved messages, enough to overflow the Sequencer ring.
-	_ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "three"})
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "three"})
 	_, _ = pub.PublishCommitted(mapping, &testMsg{Str: "four"})
-	_ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "five"})
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "five"})
 	_, _ = pub.PublishCommitted(mapping, &testMsg{Str: "six"})
-	_ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "seven"})
+	_, _ = txnPub.PublishUncommitted(mapping, &testMsg{Str: "seven"})
 
 	intents, _ = txnPub.BuildAckIntents()
 	writeIntents(t, ajc, intents)

@@ -12,15 +12,19 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// FramingByContentType returns the message Framing having the corresponding contentType,
-// or returns an error if none match.
+// RegisterFraming registers the Framing by its ContentType. A previously
+// registered instance will be replaced. RegisterFraming is not safe for
+// concurrent use, including a concurrent call to FramingByContentType.
+// Typically it should be called from package init functions.
+func RegisterFraming(f Framing) { framingRegistry[f.ContentType()] = f }
+
+// FramingByContentType returns the message Framing having the corresponding
+// content-type, or returns an error if none match. It is safe for concurrent
+// use.
 func FramingByContentType(contentType string) (Framing, error) {
-	switch contentType {
-	case labels.ContentType_ProtoFixed:
-		return FixedFraming, nil
-	case labels.ContentType_JSONLines:
-		return JSONFraming, nil
-	default:
+	if f, ok := framingRegistry[contentType]; ok {
+		return f, nil
+	} else {
 		return nil, fmt.Errorf(`unrecognized %s (%s)`, labels.ContentType, contentType)
 	}
 }
@@ -56,7 +60,7 @@ func UnpackLine(r *bufio.Reader) ([]byte, error) {
 // RandomMapping returns a MappingFunc which maps a Mappable to a randomly
 // selected Journal of the PartitionsFunc.
 func RandomMapping(partitions PartitionsFunc) MappingFunc {
-	return func(msg Mappable) (journal pb.Journal, framing Framing, err error) {
+	return func(msg Mappable) (journal pb.Journal, ct string, err error) {
 		var parts = partitions()
 		if len(parts.Journals) == 0 {
 			err = ErrEmptyListResponse
@@ -65,9 +69,7 @@ func RandomMapping(partitions PartitionsFunc) MappingFunc {
 
 		var ind = rand.Intn(len(parts.Journals))
 		journal = parts.Journals[ind].Spec.Name
-
-		var ct = parts.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
-		framing, err = FramingByContentType(ct)
+		ct = parts.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
 		return
 	}
 }
@@ -76,7 +78,7 @@ func RandomMapping(partitions PartitionsFunc) MappingFunc {
 // Journal of the PartitionsFunc, selected via 32-bit FNV-1a of the
 // MappingKeyFunc and modulo arithmetic.
 func ModuloMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFunc {
-	return func(msg Mappable) (journal pb.Journal, framing Framing, err error) {
+	return func(msg Mappable) (journal pb.Journal, ct string, err error) {
 		var parts = partitions()
 		if len(parts.Journals) == 0 {
 			err = ErrEmptyListResponse
@@ -88,9 +90,7 @@ func ModuloMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFunc {
 
 		var ind = int(h.Sum32()) % len(parts.Journals)
 		journal = parts.Journals[ind].Spec.Name
-
-		var ct = parts.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
-		framing, err = FramingByContentType(ct)
+		ct = parts.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
 		return
 	}
 }
@@ -127,7 +127,7 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 		return
 	}
 
-	return func(msg Mappable) (journal pb.Journal, framing Framing, err error) {
+	return func(msg Mappable) (journal pb.Journal, ct string, err error) {
 		var lr, hashes = partitionsAndHashes()
 
 		if len(lr.Journals) == 0 {
@@ -148,9 +148,10 @@ func RendezvousMapping(key MappingKeyFunc, partitions PartitionsFunc) MappingFun
 			}
 		}
 		journal = lr.Journals[ind].Spec.Name
-
-		var ct = lr.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
-		framing, err = FramingByContentType(ct)
+		ct = lr.Journals[ind].Spec.LabelSet.ValueOf(labels.ContentType)
 		return
 	}
 }
+
+// framingRegistry is a global registry of Framing instances, indexed on content type.
+var framingRegistry = make(map[string]Framing)

@@ -7,11 +7,6 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// JSONFraming is a Framing which encodes messages as line-delimited JSON.
-// Messages must be encode-able by the encoding/json package.
-var JSONFraming = new(jsonFraming)
-var _ Framing = JSONFraming // JSONFraming is-a Framing.
-
 type jsonFraming struct{}
 
 // ContentType returns labels.ContentType_JSONLines.
@@ -22,12 +17,17 @@ func (*jsonFraming) Marshal(msg Frameable, bw *bufio.Writer) error {
 	return json.NewEncoder(bw).Encode(msg)
 }
 
-// Unpack implements Framing.
-func (*jsonFraming) Unpack(r *bufio.Reader) ([]byte, error) {
-	return UnpackLine(r)
+// NewUnmarshalFunc returns an UnmarshalFunc which decodes JSON messages from the Reader.
+func (*jsonFraming) NewUnmarshalFunc(r *bufio.Reader) UnmarshalFunc {
+	// We cannot use json.NewDecoder, as it buffers internally beyond the
+	// precise boundary of a JSON message.
+	return func(f Frameable) error {
+		if l, err := UnpackLine(r); err != nil {
+			return err
+		} else {
+			return json.Unmarshal(l, f)
+		}
+	}
 }
 
-// Unmarshal implements Framing.
-func (*jsonFraming) Unmarshal(line []byte, msg Frameable) error {
-	return json.Unmarshal(line, msg)
-}
+func init() { RegisterFraming(new(jsonFraming)) }

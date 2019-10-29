@@ -2,6 +2,7 @@ package message
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -11,72 +12,24 @@ import (
 	"go.gazette.dev/core/labels"
 )
 
-// FixedFraming is a Framing which encodes messages in a binary format with a
-// fixed-length header. Messages must support ProtoSize and MarshalTo
-// functions for marshal support (eg, generated Protobuf messages satisfy this
-// interface). Messages are encoded as a 4-byte magic word for de-synchronization
-// detection, followed by a little-endian uint32 length, followed by payload bytes.
-var FixedFraming = new(fixedFraming)
-var _ Framing = FixedFraming // FixedFraming is-a Framing.
-
-// FixedFramable is the Frameable interface required by FixedFraming.
-type FixedFrameable interface {
-	ProtoSize() int
-	MarshalTo([]byte) (int, error)
-}
-
-// FixedFrameHeaderLength is the number of leading header bytes of each frame:
-// A 4-byte magic word followed by a little-endian length.
+// FixedFrameHeaderLength is the number of leading header bytes of a fixed
+// frame, consisting of the word [4]byte{0x66, 0x33, 0x93, 0x36} followed
+// by a 4-byte little-endian unsigned length.
 const FixedFrameHeaderLength = 8
 
-type fixedFraming struct{}
+var (
+	// FixedFrameWord is a fixed 4-byte word value which precedes all fixed frame encodings.
+	FixedFrameWord = [4]byte{0x66, 0x33, 0x93, 0x36}
+	// ErrDesyncDetected is returned by UnpackFixedFrame upon detection of an invalid frame header.
+	ErrDesyncDetected = errors.New("detected de-synchronization")
+)
 
-// ContentType returns labels.ContentType_ProtoFixed.
-func (f *fixedFraming) ContentType() string { return labels.ContentType_ProtoFixed }
-
-// Marshal implements Framing. It returns an error only if Message.Encode fails.
-func (f *fixedFraming) Marshal(msg Frameable, bw *bufio.Writer) error {
-	var b, err = f.Encode(msg, bufferPool.Get().([]byte))
-	if err == nil {
-		_, _ = bw.Write(b)
-	}
-	bufferPool.Put(b[:0])
-	return err
-}
-
-// Encode a Frameable by appending into buffer |b|, which will be grown if needed and returned.
-func (*fixedFraming) Encode(msg Frameable, b []byte) ([]byte, error) {
-	var p, ok = msg.(FixedFrameable)
-	if !ok {
-		return nil, fmt.Errorf("%+v is not fixed-frameable (must implement ProtoSize and MarshalTo)", msg)
-	}
-
-	var size = FixedFrameHeaderLength + p.ProtoSize()
-	var offset = len(b)
-
-	if size > (cap(b) - offset) {
-		b = append(b, make([]byte, size)...)
-	} else {
-		b = b[:offset+size]
-	}
-
-	// Header consists of a magic word (for de-sync detection), and a 4-byte length.
-	copy(b[offset:offset+4], magicWord[:])
-	binary.LittleEndian.PutUint32(b[offset+4:offset+8], uint32(size-FixedFrameHeaderLength))
-
-	if _, err := p.MarshalTo(b[offset+FixedFrameHeaderLength:]); err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-// Unpack returns the next fixed frame of content from the Reader, including
-// the frame header. If the magic word is not detected (indicating a desync),
-// Unpack attempts to continue reading until the next magic word, returning
-// the interleaved but de-synchronized content.
-//
-// It implements Framing.
-func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
+// UnpackFixedFrame returns the next fixed frame of content from the Reader,
+// including the frame header. If the magic word is not detected (indicating
+// a de-sync), UnpackFixedFrame attempts to discard through to the next
+// magic word, returning the interleaved but de-synchronized content along
+// with ErrDesyncDetected.
+func UnpackFixedFrame(r *bufio.Reader) ([]byte, error) {
 	var b, err = r.Peek(FixedFrameHeaderLength)
 
 	if err != nil {
@@ -93,20 +46,20 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 		return nil, err
 	}
 
-	if !matchesMagicWord(b) {
+	if !bytes.Equal(b[:4], FixedFrameWord[:]) {
 		// We are not at the expected frame boundary. Scan forward within the buffered
 		// region to the beginning of the next magic word. Return the intermediate
 		// jumbled frame (this will produce an ErrDesyncDetected on a later Unmarshal).
 		b, _ = r.Peek(r.Buffered())
 
-		var i, j = 1, 1 + len(b) - len(magicWord)
+		var i, j = 1, 1 + len(b) - len(FixedFrameWord)
 		for ; i != j; i++ {
-			if matchesMagicWord(b[i:]) {
+			if bytes.Equal(b[i:i+4], FixedFrameWord[:]) {
 				break
 			}
 		}
 		_, _ = r.Discard(i)
-		return b[:i], nil
+		return b[:i], ErrDesyncDetected
 	}
 
 	// Next 4 bytes are encoded size. Combine with header for full frame size.
@@ -114,48 +67,82 @@ func (*fixedFraming) Unpack(r *bufio.Reader) ([]byte, error) {
 
 	// Fast path: check if the full frame is available in buffer. Return the
 	// buffer internal slice without copying. It is invalidated by the next
-	// Unpack (or other Reader operation).
+	// UnpackFixedFrame (or other Reader operation).
 	if b, err = r.Peek(size); err == nil {
 		_, _ = r.Discard(size)
 		return b, nil
 	}
 
-	// Slow path. Allocate and attempt to Read the full frame.
+	// Slow path: allocate and attempt to read the full frame.
 	b = make([]byte, size)
-	_, err = io.ReadFull(r, b)
-	return b, errors.Wrap(err, "io.ReadFull")
-}
-
-// Unmarshal verifies the frame header and unpacks Message content. If the frame
-// header indicates a desync occurred (incorrect magic word), ErrDesyncDetected
-// is returned.
-//
-// It implements Framing.
-func (*fixedFraming) Unmarshal(b []byte, msg Frameable) error {
-	var p, ok = msg.(interface {
-		Unmarshal([]byte) error
-	})
-
-	if !ok {
-		return fmt.Errorf("%+v is not fixed-frameable (must implement Unmarshal)", msg)
-	} else if !matchesMagicWord(b) {
-		return ErrDesyncDetected
-	} else if err := p.Unmarshal(b[FixedFrameHeaderLength:]); err != nil {
-		return err
+	if _, err = io.ReadFull(r, b); err == nil {
+		return b, nil
+	} else if err == io.EOF {
+		err = io.ErrUnexpectedEOF // Always unexpected (having read a header).
 	}
-	return nil
+	return b, errors.Wrapf(err, "reading frame (size %d)", size)
 }
 
-func matchesMagicWord(b []byte) bool {
-	return b[0] == magicWord[0] && b[1] == magicWord[1] && b[2] == magicWord[2] && b[3] == magicWord[3]
+// ProtoFrameable is the Frameable interface required by a Framing of protobuf messages.
+type ProtoFrameable interface {
+	ProtoSize() int
+	MarshalTo([]byte) (int, error)
+	Unmarshal([]byte) error
 }
 
-// ErrDesyncDetected is returned by Unmarshal upon detection of an invalid frame.
-var ErrDesyncDetected = errors.New("detected de-synchronization")
+// Encode a ProtoFrameable by appending a fixed frame into the []byte buffer,
+// which will be grown if needed and returned.
+func EncodeFixedProtoFrame(p ProtoFrameable, b []byte) ([]byte, error) {
+	var size = FixedFrameHeaderLength + p.ProtoSize()
+	var offset = len(b)
 
-var (
-	// magicWord precedes all fixedFraming encodings.
-	magicWord = [4]byte{0x66, 0x33, 0x93, 0x36}
-	// bufferPool pools buffers used for MarshalTo encodings.
-	bufferPool = sync.Pool{New: func() interface{} { return make([]byte, 0, 1024) }}
-)
+	if size > (cap(b) - offset) {
+		b = append(b, make([]byte, size)...)
+	} else {
+		b = b[:offset+size]
+	}
+
+	// Header consists of a magic word (for de-sync detection), and a 4-byte length.
+	copy(b[offset:offset+4], FixedFrameWord[:])
+	binary.LittleEndian.PutUint32(b[offset+4:offset+8], uint32(size-FixedFrameHeaderLength))
+
+	if _, err := p.MarshalTo(b[offset+FixedFrameHeaderLength:]); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+type protoFixedFraming struct{}
+
+func (protoFixedFraming) ContentType() string { return labels.ContentType_ProtoFixed }
+
+func (protoFixedFraming) Marshal(msg Frameable, bw *bufio.Writer) error {
+	var pf, ok = msg.(ProtoFrameable)
+	if !ok {
+		return fmt.Errorf("%#v is not a ProtoFramable", msg)
+	}
+	var b, err = EncodeFixedProtoFrame(pf, bufferPool.Get().([]byte))
+	if err == nil {
+		_, _ = bw.Write(b)
+	}
+	bufferPool.Put(b[:0])
+	return err
+}
+
+func (protoFixedFraming) NewUnmarshalFunc(r *bufio.Reader) UnmarshalFunc {
+	return func(f Frameable) error {
+		var ff, ok = f.(ProtoFrameable)
+		if !ok {
+			return fmt.Errorf("%#v is not a ProtoFramable", f)
+		} else if b, err := UnpackFixedFrame(r); err != nil {
+			return err
+		} else {
+			return ff.Unmarshal(b[FixedFrameHeaderLength:])
+		}
+	}
+}
+
+// bufferPool pools buffers used for MarshalTo encodings.
+var bufferPool = sync.Pool{New: func() interface{} { return make([]byte, 0, 1024) }}
+
+func init() { RegisterFraming(new(protoFixedFraming)) }

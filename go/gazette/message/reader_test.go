@@ -11,6 +11,7 @@ import (
 	"go.gazette.dev/core/broker/teststub"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/labels"
 )
 
 func TestReadIterators(t *testing.T) {
@@ -18,12 +19,13 @@ func TestReadIterators(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	var (
-		clock Clock
-		spec  = newTestMsgSpec("a/journal")
-		bk    = brokertest.NewBroker(t, etcd, "local", "broker")
-		ajc   = client.NewAppendService(context.Background(), bk.Client())
-		seq   = NewSequencer(nil, 0) // Very limited ring look-back.
-		A, B  = NewProducerID(), NewProducerID()
+		clock      Clock
+		framing, _ = FramingByContentType(labels.ContentType_JSONLines)
+		spec       = newTestMsgSpec("a/journal")
+		bk         = brokertest.NewBroker(t, etcd, "local", "broker")
+		ajc        = client.NewAppendService(context.Background(), bk.Client())
+		seq        = NewSequencer(nil, 0) // Very limited ring look-back.
+		A, B       = NewProducerID(), NewProducerID()
 	)
 	brokertest.CreateJournals(t, bk, spec)
 
@@ -39,7 +41,7 @@ func TestReadIterators(t *testing.T) {
 	// Publish fixtures to the journal.
 	var aa = ajc.StartAppend(pb.AppendRequest{Journal: spec.Name}, nil)
 	for _, msg := range allMessages {
-		aa.Require(JSONFraming.Marshal(msg, aa.Writer()))
+		aa.Require(framing.Marshal(msg, aa.Writer()))
 	}
 	assert.NoError(t, aa.Release())
 
@@ -98,13 +100,14 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 
 	var ctx = context.Background()
 	var spec = &pb.JournalSpec{Name: "a/journal"}
+	var framing, _ = FramingByContentType(labels.ContentType_JSONLines)
 
 	// Case: a multi-message sequence with interleaved garbage frames,
 	// and a graceful EOF at requested EndOffset on a message boundary.
 	go func() {
 		_ = <-broker.ReadReqCh // Read request.
 
-		// Send a message (14 bytes) and garbage frame (8 bytes).
+		// Send a message (22 bytes).
 		broker.ReadRespCh <- pb.ReadResponse{
 			Status:    pb.Status_OK,
 			Offset:    1000,
@@ -112,13 +115,13 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 			Fragment: &pb.Fragment{
 				Journal:          "a/journal",
 				Begin:            1000,
-				End:              1000 + 14,
+				End:              1000 + 22,
 				CompressionCodec: pb.CompressionCodec_NONE,
 			},
 		}
 		broker.ReadRespCh <- pb.ReadResponse{
 			Offset:  1000,
-			Content: []byte(`{"Str":"one"}` + "\ngarbage\n"),
+			Content: []byte(`{"Str":"abcdefghijk"}` + "\n"),
 		}
 
 		// Send the next fragment many times, which results in lots of
@@ -126,20 +129,20 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 		// eventual io.ErrNoProgress. Expect it's handled.
 		for i := 0; i != 100; i++ {
 			broker.ReadRespCh <- pb.ReadResponse{
-				Offset:    1000 + 14 + 8,
+				Offset:    1000 + 22,
 				WriteHead: 9999,
 				Fragment: &pb.Fragment{
 					Journal:          "a/journal",
-					Begin:            1000 + 14 + 8,
-					End:              1000 + 14 + 8 + 14 + 8,
+					Begin:            1000 + 22,
+					End:              1000 + 22 + 22,
 					CompressionCodec: pb.CompressionCodec_NONE,
 				},
 			}
 		}
-		// Send another message (14 bytes) and garbage frame (8 bytes).
+		// Send another message (26 bytes).
 		broker.ReadRespCh <- pb.ReadResponse{
-			Offset:  1000 + 14 + 8,
-			Content: []byte(`{"Str":"two"}` + "\ngarbage\n"),
+			Offset:  1000 + 22,
+			Content: []byte(`{"Str":"lmnopqrstuvwxyz"}` + "\n"),
 		}
 		broker.WriteLoopErrCh <- nil // EOF.
 	}()
@@ -147,27 +150,27 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	var rr = client.NewRetryReader(ctx, broker.Client(), pb.ReadRequest{
 		Journal:   "a/journal",
 		Offset:    1,
-		EndOffset: 1000 + 2*14 + 2*8,
+		EndOffset: 1000 + 22 + 26,
 	})
 	var r = NewReadUncommittedIter(rr, newTestMsg)
-	r.spec, r.framing = spec, JSONFraming // Set fixtures without running init().
+	r.spec, r.unmarshal = spec, framing.NewUnmarshalFunc(r.br) // Set fixtures without running init().
 
 	var env, err = r.Next()
 	assert.NoError(t, err)
 	assert.Equal(t, Envelope{
 		Journal: spec,
 		Begin:   1000, // Jumps from offset of 1.
-		End:     1000 + 14,
-		Message: &testMsg{Str: "one"},
+		End:     1000 + 22,
+		Message: &testMsg{Str: "abcdefghijk"},
 	}, env)
 
 	env, err = r.Next()
 	assert.NoError(t, err)
 	assert.Equal(t, Envelope{
 		Journal: spec,
-		Begin:   1000 + 14 + 8,
-		End:     1000 + 14 + 8 + 14,
-		Message: &testMsg{Str: "two"},
+		Begin:   1000 + 22,
+		End:     1000 + 22 + 26,
+		Message: &testMsg{Str: "lmnopqrstuvwxyz"},
 	}, env)
 
 	_, err = r.Next()
@@ -177,7 +180,7 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	go func() {
 		_ = <-broker.ReadReqCh // Read request.
 
-		// Send a message (14 bytes) and garbage frame (8 bytes).
+		// Send a message without a newline.
 		broker.ReadRespCh <- pb.ReadResponse{
 			Status:    pb.Status_OK,
 			Offset:    1000,
@@ -191,7 +194,7 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 		}
 		broker.ReadRespCh <- pb.ReadResponse{
 			Offset:  1000,
-			Content: []byte("no newline"), // 10 bytes.
+			Content: []byte(`{"no":"newline"}`), // 16 bytes.
 		}
 		broker.WriteLoopErrCh <- nil // EOF.
 	}()
@@ -199,11 +202,11 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	rr = client.NewRetryReader(ctx, broker.Client(), pb.ReadRequest{
 		Journal:   "a/journal",
 		Offset:    1000,
-		EndOffset: 1000 + 10,
+		EndOffset: 1000 + 16,
 	})
 
 	r = NewReadUncommittedIter(rr, newTestMsg)
-	r.spec, r.framing = spec, JSONFraming
+	r.spec, r.unmarshal = spec, framing.NewUnmarshalFunc(r.br)
 	_, err = r.Next()
-	assert.EqualError(t, err, "framing.Unpack(offset 1000): unexpected EOF")
+	assert.EqualError(t, err, "framing.Unmarshal(offset 1000): unexpected EOF")
 }
