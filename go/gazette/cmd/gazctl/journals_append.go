@@ -149,7 +149,7 @@ func (cmd *cmdJournalAppend) Execute([]string) error {
 		cmd.unpackRecord = message.UnpackLine
 	case "fixed":
 		cmd.unpackKey = unpackKeyFixed
-		cmd.unpackRecord = message.FixedFraming.Unpack
+		cmd.unpackRecord = message.UnpackFixedFrame
 	default:
 		log.Fatal("invalid framing")
 	}
@@ -163,7 +163,7 @@ func (cmd *cmdJournalAppend) Execute([]string) error {
 	case "rendezvous":
 		cmd.mapping = message.RendezvousMapping(byteMappingFunc, list.List)
 	case "direct":
-		cmd.mapping = func(msg message.Mappable) (journal pb.Journal, _ message.Framing, err error) {
+		cmd.mapping = func(msg message.Mappable) (journal pb.Journal, _ string, err error) {
 			journal = pb.Journal(msg.([]byte))
 
 			var all = list.List().Journals
@@ -247,21 +247,10 @@ func unpackKeyLineBase64(r *bufio.Reader) (b []byte, err error) {
 
 // unpackKeyFixed reads a binary key written with a fixed-framing header from |r|.
 func unpackKeyFixed(r *bufio.Reader) (b []byte, err error) {
-	if b, err = message.FixedFraming.Unpack(r); err != nil {
+	if b, err = message.UnpackFixedFrame(r); err != nil {
 		return
 	}
-	// Unmarshal() in-place to remove the header from |b|, leaving
-	// the payload portion only.
-	return b, message.FixedFraming.Unmarshal(b, (*unmarshalBytes)(&b))
-}
-
-// unmarshalBytes is a []byte slice that Unmarshal()s by copying into itself.
-type unmarshalBytes []byte
-
-func (b *unmarshalBytes) Unmarshal(o []byte) error {
-	var n = copy(*b, o)
-	*b = (*b)[:n]
-	return nil
+	return b[message.FixedFrameHeaderLength:], nil
 }
 
 // byteMappingFunc expects and passes-through []byte messages. The key unpackers

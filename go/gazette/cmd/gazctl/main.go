@@ -108,6 +108,13 @@ func mustAddCmd(cmd *flags.Command, name, short, long string, cfg interface{}) *
 
 func init() {
 	mbp.AddPrintConfigCmd(parser, iniFilename)
+	parser.LongDescription = `gazctl is a tool for interacting with Gazette brokers and consumer applications.
+
+	See --help pages of each sub-command for documentation and usage examples.
+	Optionally configure gazctl with a '` + iniFilename + `' file in the current working directory,
+	or with '~/.config/gazette/` + iniFilename + `'. Use the 'print-config' sub-command to inspect
+	the tool's current configuration.
+	`
 }
 
 func main() {
