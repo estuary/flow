@@ -124,7 +124,7 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.Shar
 				Name:        shard.Sources[0].Journal,
 				Replication: 1,
 				LabelSet: pb.MustLabelSet(
-					labels.MessageType, "NGramCount",
+					labels.MessageType, "word_count.NGramCount",
 					labels.ContentType, labels.ContentType_ProtoFixed,
 				),
 			}),

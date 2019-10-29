@@ -14,7 +14,7 @@ import (
 	"unicode"
 
 	"github.com/pkg/errors"
-	"go.gazette.dev/core/allocator"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -65,12 +65,17 @@ func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	// Build a "deltas" MappingFunc over "app.gazette.dev/message-type=NGramCount" partitions.
-	var parts, err = client.NewPolledList(args.Context, args.Service.Journals, time.Minute,
+	var parts, err = client.NewPolledList(args.Context, args.Service.Journals, time.Second*30,
 		pb.ListRequest{
-			Selector: pb.LabelSelector{Include: pb.MustLabelSet(labels.MessageType, "NGramCount")},
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet(labels.MessageType, "word_count.NGramCount")},
 		})
 	if err != nil {
 		return errors.Wrap(err, "building NGramDeltaMapping")
+	}
+
+	for len(parts.List().Journals) == 0 {
+		log.Info("waiting for delta partitions to be created")
+		<-parts.UpdateCh()
 	}
 
 	// Fill out the Counter instance with fields used by the gRPC API.
@@ -182,6 +187,18 @@ func (counter *Counter) Publish(ctx context.Context, req *PublishRequest) (*Publ
 			}
 		}
 
+		// Publish a DeltaEvent for each NGram with a count of 1. Each message
+		// is published as immediately committed.
+		//
+		// There's a subtle problem with this approach to be aware of: this
+		// process could die partway through publishing a set of DeltaEvents
+		// for a given Publish RPC call. In this example application we don't
+		// worry about this case, but many real-world applications want either
+		// the entire document to be published & counted, or for none of it to
+		// be. For cases like this, a better approach is to log one event
+		// representing the entire document via a PublishCommitted, and then to
+		// have a consumer process the document into constituent NGrams (where
+		// exactly-once semantics are assured by the consumer framework).
 		delta.NGram = NGram(buf.String())
 		if aa, err := counter.pub.PublishCommitted(counter.mapping, delta); err != nil {
 			return resp, err
@@ -205,7 +222,7 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 	resp = new(QueryResponse)
 
 	if req.Shard == "" {
-		if req.Shard, err = counter.mapPrefixToShard(req.Prefix); err != nil {
+		if req.Shard, err = counter.mapNGramToShard(req.Prefix); err != nil {
 			return
 		}
 	}
@@ -256,28 +273,15 @@ func (counter *Counter) Query(ctx context.Context, req *QueryRequest) (resp *Que
 	return
 }
 
-func (counter *Counter) mapPrefixToShard(prefix NGram) (shard pc.ShardID, err error) {
-	// Determine the Journal which Prefix maps to, and then the ID of the
-	// ShardSpec which consumes that |journal|.
-	var journal pb.Journal
-	if journal, _, err = counter.mapping(&NGramCount{NGram: prefix}); err != nil {
-		return
+// mapNGramToShard maps the |ngram| to its associated journal partition,
+// and then maps that journal to the shard which consumes it (we assume
+// there's only one).
+func (counter *Counter) mapNGramToShard(ngram NGram) (shard pc.ShardID, err error) {
+	if journal, _, err := counter.mapping(&NGramCount{NGram: ngram}); err != nil {
+		return "", err
+	} else if specs := counter.svc.Resolver.ShardsWithSource(journal); len(specs) == 0 {
+		return "", fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
+	} else {
+		return specs[0].Id, nil
 	}
-
-	// Walk ShardSpecs to find one which has |journal| as a source.
-	counter.svc.State.KS.Mu.RLock()
-	defer counter.svc.State.KS.Mu.RUnlock()
-
-	for _, kv := range counter.svc.State.Items {
-		var spec = kv.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
-
-		for _, src := range spec.Sources {
-			if src.Journal == journal {
-				shard = spec.Id
-				return
-			}
-		}
-	}
-	err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
-	return
 }

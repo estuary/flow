@@ -120,8 +120,8 @@ func (s *StreamSumSuite) TestGeneratePumpAndVerify(c *gc.C) {
 
 	var allStreams = make(map[StreamID]struct{})
 	var allChunks int
-	var noopMapping = func(message.Mappable) (pb.Journal, message.Framing, error) {
-		return "", nil, nil
+	var noopMapping = func(message.Mappable) (pb.Journal, string, error) {
+		return "", "", nil
 	}
 
 	verify(func(chunk Chunk) {
@@ -178,7 +178,7 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.Shar
 			Name:        FinalSumsJournal,
 			Replication: 1,
 			LabelSet: pb.MustLabelSet(
-				labels.MessageType, "Sum",
+				labels.MessageType, "stream_sum.Sum",
 				labels.ContentType, labels.ContentType_JSONLines,
 			),
 		}),
@@ -202,7 +202,7 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.Shar
 				Name:        shard.Sources[0].Journal,
 				Replication: 1,
 				LabelSet: pb.MustLabelSet(
-					labels.MessageType, "Chunk",
+					labels.MessageType, "stream_sum.Chunk",
 					labels.ContentType, labels.ContentType_JSONLines,
 				),
 			}),

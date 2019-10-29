@@ -12,6 +12,7 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/examples/word-count"
 	mbp "go.gazette.dev/core/mainboilerplate"
+	"google.golang.org/grpc"
 )
 
 var (
@@ -22,7 +23,7 @@ var (
 )
 
 type cmdPublish struct {
-	File string `long:"file" description:"Input file to read. Use - for stdin."`
+	File string `long:"file" description:"Input file to read. Use - for stdin." default:"-"`
 }
 
 func (cmd *cmdPublish) Execute([]string) (err error) {
@@ -39,7 +40,7 @@ func (cmd *cmdPublish) Execute([]string) (err error) {
 	}
 	var ctx = pb.WithDispatchDefault(context.Background())
 	var client = word_count.NewNGramClient(Config.WordCount.MustDial(ctx))
-	_, err = client.Publish(ctx, &word_count.PublishRequest{Text: string(b)})
+	_, err = client.Publish(ctx, &word_count.PublishRequest{Text: string(b)}, grpc.WaitForReady(true))
 
 	return err
 }
@@ -56,7 +57,7 @@ func (cmd *cmdQuery) Execute([]string) error {
 	var resp, err = client.Query(ctx, &word_count.QueryRequest{
 		Prefix: word_count.NGram(cmd.Prefix),
 		Shard:  pc.ShardID(cmd.ShardID),
-	})
+	}, grpc.WaitForReady(true))
 	if err != nil {
 		return err
 	}

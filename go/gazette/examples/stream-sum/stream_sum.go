@@ -229,7 +229,7 @@ func (Summer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env mes
 		log.WithFields(log.Fields{"err": err, "id": chunk.ID}).Fatal("updating record")
 	} else if done {
 		// Publish completed sum.
-		if err = pub.PublishUncommitted(finalSumsMapping, &sum); err != nil {
+		if _, err = pub.PublishUncommitted(finalSumsMapping, &sum); err != nil {
 			log.WithFields(log.Fields{"err": err, "id": sum.ID}).Fatal("publishing sum")
 		}
 	}
@@ -497,11 +497,11 @@ func pumpSums(rr *client.RetryReader, ch chan<- Sum) {
 	}
 }
 
-// newChunkMapping returns a MappingFunc over journals identified by |chunkPartitionsLabel|.
+// newChunkMapping returns a MappingFunc over journals holding chunks.
 func newChunkMapping(ctx context.Context, jc pb.JournalClient) (message.MappingFunc, error) {
-	var parts, err = client.NewPolledList(ctx, jc, time.Second*10, pb.ListRequest{
+	var parts, err = client.NewPolledList(ctx, jc, time.Second*30, pb.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(labels.MessageType, "Chunk"),
+			Include: pb.MustLabelSet(labels.MessageType, "stream_sum.Chunk"),
 		}})
 
 	if err != nil {
@@ -519,8 +519,8 @@ func newChunkMapping(ctx context.Context, jc pb.JournalClient) (message.MappingF
 }
 
 // finalSumsMapping is a MappingFunc to FinalSumsJournal.
-var finalSumsMapping message.MappingFunc = func(msg message.Mappable) (pb.Journal, message.Framing, error) {
-	return FinalSumsJournal, message.JSONFraming, nil
+var finalSumsMapping message.MappingFunc = func(msg message.Mappable) (pb.Journal, string, error) {
+	return FinalSumsJournal, labels.ContentType_JSONLines, nil
 }
 
 // fillPRNG generates fast but high-quality random entropy into the provided byte slice.
