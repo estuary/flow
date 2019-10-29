@@ -7,6 +7,7 @@ require (
 	github.com/DataDog/zstd v1.4.0
 	github.com/aws/aws-sdk-go v1.19.32
 	github.com/dustin/go-humanize v0.0.0-20171111073723-bb3d318650d4
+	github.com/dustinkirkland/golang-petname v0.0.0-20190613200456-11339a705ed2
 	github.com/facebookgo/ensure v0.0.0-20160127193407-b4ab57deab51 // indirect
 	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect
 	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
@@ -23,7 +24,7 @@ require (
 	github.com/klauspost/compress v1.5.0
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
-	github.com/lib/pq v1.1.1 // indirect
+	github.com/lib/pq v1.1.1
 	github.com/mattn/go-sqlite3 v1.11.0
 	github.com/olekukonko/tablewriter v0.0.0-20170122224234-a0225b3f23b5
 	github.com/pkg/errors v0.8.1

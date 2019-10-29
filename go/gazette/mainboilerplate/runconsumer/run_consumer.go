@@ -6,6 +6,7 @@ package runconsumer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -23,7 +25,7 @@ import (
 	"go.gazette.dev/core/task"
 )
 
-// Application interface run by Run.
+// Application is the user-defined consumer Application which is executed by Main.
 type Application interface {
 	consumer.Application
 
@@ -56,7 +58,6 @@ type InitArgs struct {
 // Config is the top-level configuration object of an Application. It must
 // be parse-able by `go-flags`, and must present a BaseConfig.
 type Config interface {
-	// GetBaseConfig of the Config.
 	GetBaseConfig() BaseConfig
 }
 
@@ -64,16 +65,18 @@ type Config interface {
 type BaseConfig struct {
 	Consumer struct {
 		mbp.ServiceConfig
-
 		Limit uint32 `long:"limit" env:"LIMIT" default:"32" description:"Maximum number of Shards this consumer process will allocate"`
 	} `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 
-	Broker mbp.ClientConfig `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
+	Broker struct {
+		mbp.ClientConfig
+		FileRoot string `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment URLs which are being directly read (optional)"`
+	} `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 
 	Etcd struct {
 		mbp.EtcdConfig
 
-		Prefix string `long:"prefix" env:"PREFIX" description:"Etcd prefix for consumer state and coordination (eg, /gazette/consumers/myApplication)"`
+		Prefix string `long:"prefix" env:"PREFIX" default-mask:"/gazette/consumers/app-name-and-release" description:"Etcd prefix for the consumer group"`
 	} `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
 
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
@@ -85,12 +88,12 @@ func (c BaseConfig) GetBaseConfig() BaseConfig { return c }
 
 const iniFilename = "gazette.ini"
 
-type serveConsumer struct {
+type cmdServe struct {
 	cfg Config
 	app Application
 }
 
-func (sc serveConsumer) Execute(args []string) error {
+func (sc cmdServe) Execute(args []string) error {
 	var bc = sc.cfg.GetBaseConfig()
 
 	defer mbp.InitDiagnosticsAndRecover(bc.Diagnostics)()
@@ -100,48 +103,67 @@ func (sc serveConsumer) Execute(args []string) error {
 		"config":    sc.cfg,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
-	}).Info("starting consumer")
+	}).Info("consumer configuration")
 	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 	prometheus.MustRegister(metrics.GazetteConsumerCollectors()...)
 	pb.RegisterGRPCDispatcher(bc.Consumer.Zone)
 
-	var ks = consumer.NewKeySpace(bc.Etcd.Prefix)
-	var allocState = allocator.NewObservedState(ks, bc.Consumer.MemberKey(ks))
-
-	var etcd = bc.Etcd.MustDial()
+	// Bind our server listener, grabbing a random available port if Port is zero.
 	var srv, err = server.New("", bc.Consumer.Port)
 	mbp.Must(err, "building Server instance")
 
 	if bc.Broker.Cache.Size <= 0 {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")
 	}
-	var rjc = bc.Broker.MustRoutedJournalClient(context.Background())
-	var service = consumer.NewService(sc.app, allocState, rjc, srv.GRPCLoopback, etcd)
+	// If a file:// root was provided, ensure it exists and install it as a transport.
+	if bc.Broker.FileRoot != "" {
+		_, err = os.Stat(bc.Broker.FileRoot)
+		mbp.Must(err, "configured local file:// root failed")
+		defer client.InstallFileTransport(bc.Broker.FileRoot)()
+	}
+	// If an Etcd prefix isn't provided, synthesize one using the application type.
+	if bc.Etcd.Prefix == "" {
+		bc.Etcd.Prefix = fmt.Sprintf("/gazette/consumers/%T", sc.app)
+	}
 
-	var tasks = task.NewGroup(context.Background())
-
+	var (
+		etcd = bc.Etcd.MustDial()
+		spec = &pc.ConsumerSpec{
+			ShardLimit:  bc.Consumer.Limit,
+			ProcessSpec: bc.Consumer.BuildProcessSpec(srv),
+		}
+		ks         = consumer.NewKeySpace(bc.Etcd.Prefix)
+		allocState = allocator.NewObservedState(ks, allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix))
+		rjc        = bc.Broker.MustRoutedJournalClient(context.Background())
+		service    = consumer.NewService(sc.app, allocState, rjc, srv.GRPCLoopback, etcd)
+		tasks      = task.NewGroup(context.Background())
+		signalCh   = make(chan os.Signal, 1)
+	)
 	pc.RegisterShardServer(srv.GRPCServer, service)
+
+	log.WithFields(log.Fields{
+		"zone":     spec.Id.Zone,
+		"id":       spec.Id.Suffix,
+		"endpoint": spec.Endpoint,
+		"group":    bc.Etcd.Prefix,
+	}).Info("starting consumer")
+
 	mbp.Must(sc.app.InitApplication(InitArgs{
 		Context: context.Background(),
 		Config:  sc.cfg,
 		Server:  srv,
 		Service: service,
 		Tasks:   tasks,
-	}), "application failed to init")
-
-	var signalCh = make(chan os.Signal, 1)
+	}), "failed to init application")
 
 	mbp.Must(allocator.StartSession(allocator.SessionArgs{
 		Etcd:     etcd,
 		LeaseTTL: bc.Etcd.LeaseTTL,
 		SignalCh: signalCh,
-		Spec: &pc.ConsumerSpec{
-			ProcessSpec: bc.Consumer.ProcessSpec(),
-			ShardLimit:  bc.Consumer.Limit,
-		},
-		State: allocState,
-		Tasks: tasks,
-	}), "starting allocator session")
+		Spec:     spec,
+		State:    allocState,
+		Tasks:    tasks,
+	}), "failed to start allocator session")
 
 	srv.QueueTasks(tasks)
 	service.QueueTasks(tasks, srv)
@@ -165,7 +187,7 @@ func Main(app Application) {
 		serve a Gazette consumer with the provided configuration, until signaled to
 		exit (via SIGTERM). Upon receiving a signal, the consumer will seek to discharge
 		its responsible shards and will exit only when it can safely do so.
-		`, &serveConsumer{cfg: cfg, app: app})
+		`, &cmdServe{cfg: cfg, app: app})
 
 	mbp.AddPrintConfigCmd(parser, iniFilename)
 	mbp.MustParseConfig(parser, iniFilename)

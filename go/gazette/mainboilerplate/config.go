@@ -25,7 +25,6 @@ func MustParseConfig(parser *flags.Parser, configName string) {
 		".",
 		filepath.Join(os.Getenv("HOME"), ".config", "gazette"),
 		filepath.Join(os.Getenv("UserProfile"), ".config", "gazette"),
-		os.Getenv("APPLICATION_CONFIG_ROOT"),
 	}
 	for _, prefix := range prefixes {
 		var path = filepath.Join(prefix, configName)
