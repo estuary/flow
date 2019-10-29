@@ -23,25 +23,63 @@ provide fault-tolerant serving of many journals.
 First Steps
 -----------
 
-For this introduction we'll start a stand-alone broker using its 'demo' mode,
-which instructs the broker to use an embedded Etcd store and to create an
-`example/journal` for our use. Copy and paste its `export BROKER_ADDRESS`
-to your terminal.
+For this introduction we'll start a stand-alone broker. First, we'll need an instance
+of Etcd running:
+
 ```bash
+# Install Etcd and start a single-member Etcd cluster.
+$ GO111MODULE=on go install github.com/etcd-io/etcd
+$ ~/go/bin/etcd
+2019-10-21 11:57:29.465501 I | etcdmain: etcd Version: 3.3.17
+2019-10-21 11:57:29.465533 I | etcdmain: Git SHA: Not provided (use ./build instead of go build)
+2019-10-21 11:57:29.465536 I | etcdmain: Go Version: go1.13
+2019-10-21 11:57:29.465538 I | etcdmain: Go OS/Arch: linux/amd64
+... (leave this running in a tab) ...
+```
+
+Next we'll install `gazette` and the `gazctl` command-line tool, start it,
+and apply a spec (we'll talk more about these moving parts in a little bit):
+```bash
+# Install binaries.
 $ GO111MODULE=on go install go.gazette.dev/core/cmd/gazette
-$ ~/go/bin/gazette demo
-INFO[0000] starting demo broker                          buildDate=unknown config="{ ... }" version=development
+$ GO111MODULE=on go install go.gazette.dev/core/cmd/gazctl
 
-        The broker is now running in stand-alone demonstration mode, and is ready for clients.
-        A journal "example/journal" has also been created. Have fun!
+# Create a local directory for fragments.
+$ mkdir -p demo-fragment-store
 
-        Broker is listening at:
-        export BROKER_ADDRESS=http://127.0.0.1:41789
+# Start a broker.
+$ ~/go/bin/gazette serve --broker.port 8080 --broker.file-root demo-fragment-store/
+INFO[0000] broker configuration                          buildDate=unknown config="&{{{{local}   8080} 1024 demo-fragment-store/} {{http://localhost:2379 20s} /gazette/cluster} {info text} {}}" version=development
+INFO[0000] starting broker                               endpoint="http://roland:8080" id=busy-walrus zone=local
+INFO[0000] solved for maximum assignment                 assignments=0 desired=0 dur="29.044µs" hash=15853963547446721567 items=0 lastHash=0 members=1
+... (leave this running in a tab) ...
+
+# Declare a journal to play with.
+$ ~/go/bin/gazctl journals apply <<EOF
+name: example/journal
+replication: 1
+labels:
+- name: app.gazette.dev/message-type
+  value: TestMessage
+- name: app.gazette.dev/region
+  value: local
+- name: app.gazette.dev/tag
+  value: demo
+- name: content-type
+  value: application/x-ndjson
+fragment:
+  length: 131072
+  compression_codec: SNAPPY
+  stores:
+  - file:///
+  refresh_interval: 1m0s
+EOF
+INFO[0000] successfully applied                          revision=8
 ```
 
 Now let's issue our first append request.
 ```bash
-$ curl -X PUT --data-binary @- ${BROKER_ADDRESS}/example/journal << EOF
+$ curl -X PUT --data-binary @- http://localhost:8080/example/journal << EOF
 {"Msg": "Hello, Gazette!"}
 {"Msg": "See you later alligator"}
 EOF
@@ -49,14 +87,14 @@ EOF
 
 We can read our written content.
 ```bash
-$ curl ${BROKER_ADDRESS}/example/journal
+$ curl http://localhost:8080/example/journal
 {"Msg": "Hello, Gazette!"}
 {"Msg": "See you later alligator"}
 ```
 
 Read requests take an offset (which defaults to 0).
 ```bash
-$ curl "${BROKER_ADDRESS}/example/journal?offset=16"
+$ curl "http://localhost:8080/example/journal?offset=16"
 Gazette!"}
 {"Msg": "See you later alligator"}
 ```
@@ -85,21 +123,21 @@ raced requests (`&` tells the shell to start each command in the background).
 $ for i in {1..20}
 do
   DATA='{"Msg": "Race!", "N": '${i}$'}\n'
-	curl -X PUT --data-binary "$DATA" ${BROKER_ADDRESS}/example/journal &
+	curl -X PUT --data-binary "$DATA" http://localhost:8080/example/journal &
 done && wait
 [1] 9858
 [2] 9859
 [3] 9860
-[1]   Done                    curl -X PUT --data-binary "$DATA" ${BROKER_ADDRESS}/example/journal
-[2]   Done                    curl -X PUT --data-binary "$DATA" ${BROKER_ADDRESS}/example/journal
-[4]   Done                    curl -X PUT --data-binary "$DATA" ${BROKER_ADDRESS}/example/journal
+[1]   Done                    curl -X PUT --data-binary "$DATA" http://localhost:8080/example/journal
+[2]   Done                    curl -X PUT --data-binary "$DATA" http://localhost:8080/example/journal
+[4]   Done                    curl -X PUT --data-binary "$DATA" http://localhost:8080/example/journal
 ```
 
 We expect that our raced messages landed in the journal intact. Let's verify by
 piping to `jq`, which will error if it encounters invalid JSON. We definitely see
 that our appends were sequenced into the journal in arbitrary order.
 ```bash
-$ curl -s ${BROKER_ADDRESS}/example/journal | jq -c '.'
+$ curl -s http://localhost:8080/example/journal | jq -c '.'
 {"Msg":"Hello, Gazette!"}
 {"Msg":"See you later alligator"}
 {"Msg":"Race!","N":2}
@@ -139,7 +177,7 @@ We can also use *blocking* reads to have journal content streamed to us as it co
 Here we use `offset=-1` to tell the broker we want to begin reading from the current
 write head. Note that `curl` and `jq` will run until we Ctrl-C them.
 ```bash
-$ curl -sN "${BROKER_ADDRESS}/example/journal?block=true&offset=-1" | jq -c '.'
+$ curl -sN "http://localhost:8080/example/journal?block=true&offset=-1" | jq -c '.'
 ```
 
 Try appending to the journal. Notice how our `curl` updates with each journal write:
@@ -191,7 +229,7 @@ at `$HOME/.config/gazette/gazctl.ini`.
 ```bash
 $ mkdir -p ~/.config/gazette/ && cat > ~/.config/gazette/gazctl.ini << EOF
 [journals.Broker]
-Address = ${BROKER_ADDRESS}
+Address = http://localhost:8080
 EOF
 ```
 
@@ -355,7 +393,7 @@ $ gazctl journals list --primary
 +-----------------+-------------+
 |      NAME       |   PRIMARY   |
 +-----------------+-------------+
-| example/journal | demo-broker |
+| example/journal | busy-walrus |
 +-----------------+-------------+
 ```
 
@@ -450,18 +488,24 @@ EOF
 INFO[0000] successfully applied                          revision=7
 ```
 
-Our new journals now appear in `list`, assigned to our demo broker.
+Our new journals now appear in `list`, assigned to our broker.
 ```bash
 $ gazctl journals list --primary
 +-----------------+-------------+
 |      NAME       |   PRIMARY   |
 +-----------------+-------------+
-| example/journal | demo-broker |
-| foobar/part-000 | demo-broker |
-| foobar/part-001 | demo-broker |
-| foobar/part-002 | demo-broker |
+| example/journal | busy-walrus |
+| foobar/part-000 | busy-walrus |
+| foobar/part-001 | busy-walrus |
+| foobar/part-002 | busy-walrus |
 +-----------------+-------------+
 ```
+
+Try starting another broker instance (this time, omitting the `--broker.port` flag).
+You'll see that they re-assign journals to balance across available broker processes.
+Use `gazctl journals list` to confirm this. Reads and appends of any journal may be
+directed to any broker. If the request reaches a broker which cannot serve the
+request, it will proxy on our behalf to a broker that can.
 
 Labels and Selectors
 --------------------

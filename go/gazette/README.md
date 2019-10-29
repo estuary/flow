@@ -19,7 +19,7 @@ It has served production use cases for nearly five years, with deployments
 scaled to millions of streamed messages per second.
 
 Gazette consists of a *broker service* serving **journals**, a byte-oriented and
-append-only resource resembling a file, and a *consumers* library for building rich
+append-only resource resembling a file, and a *consumers* framework for building
 streaming applications in Go.
 
 How It's Different
@@ -34,13 +34,18 @@ Brokers themselves are ephemeral and disposable. The cluster scales and recovers
 from faults in seconds. Its architecture obviates the common need for separate
 batch and real-time systems by providing the capabilities and advantages of both.
 
-It features a rich library for building scaled, available streaming applications
+It features a rich framework for building scaled, available streaming applications
 in Go with exactly-once semantics. Applications may process against a remote
 database, or may use embedded stores such as RocksDB for fast and tunable
-storage of keys & values, or even SQLite for full SQL support. The library manages
-details such as durable replication of embedded stores, allocation of hot
-standbys, and fast fail-over, so that users can focus on their business logic.
-Gazette also offers a "batteries included" command-line tool which makes quick
+storage of keys & values, or even SQLite for full SQL support. Details like the
+durable replication of embedded stores, provisioning of hot standbys, request
+routing, and fast fail-over are managed so that users can focus on their
+message-driven application behaviors.
+
+Deploy applications which efficiently crunch through months or even years of
+historical data, then seamlessly transition to real-time tailing reads. Serve
+blazing fast APIs drawing from state stores embedded within applications.
+Apply Gazette's "batteries included" command-line tool to make quick
 work of integrating existing applications.
 
 Brokers and applications are easily operated by container platforms like
@@ -52,14 +57,23 @@ structures and being careful to minimize inter-zone data transfers.
 Where to Start
 ==============
 
-* [Overview Slides](https://docs.google.com/presentation/d/e/2PACX-1vRq8pwusGbcv1KaoedwfvyKydmO-IBvziXaKQhwFpwCSYt5P7Yn4n5_gWD7XBW2feAlvhZ8-YP4h1uF/pub?start=false&loop=false&delayms=3000)
-* [Brokers: A Tutorial Introduction](docs/broker_tutorial.md) is a walk-through of
+Project [Overview Slides](https://docs.google.com/presentation/d/e/2PACX-1vRq8pwusGbcv1KaoedwfvyKydmO-IBvziXaKQhwFpwCSYt5P7Yn4n5_gWD7XBW2feAlvhZ8-YP4h1uF/pub?start=false&loop=false&delayms=3000)
+discuss high-level capabilities and architecture (good for the impatient).
+
+[Brokers: A Tutorial Introduction](docs/broker_tutorial.md) is a walk-through of
 key broker features and concepts.
-* [Design Goals (and Non-Goals)](docs/goals_and_nongoals.md)
-* Introduction to the *consumers* library and using it to build applications (coming soon).
+
+[Design Goals (and Non-Goals)](docs/goals_and_nongoals.md) discusses rationale for the project,
+what Gazette strives to be great at, and what Gazette avoids trying to solve.
+
+The project features several runnable example consumer applications:
+ * [Finding Cycles in Bike-Share Streams](docs/examples_bike_share.md).
+ * [Serving up a Real-Time Language Model](docs/examples_word_count.md).
+ * [SHA-summing over Multiplexed File Chunks](docs/examples_stream_sum.md).
+
+[Build and Test](docs/build_and_test.md) the project.
 
 Architecture Briefs:
- - [Exactly-once Semantics in Gazette](docs/exactly_once_semantics.md)
- - [Operational Considerations](docs/operational_considerations.rst)
- - (Others forthcoming).
- 
+ * [Exactly-once Semantics in Gazette](docs/exactly_once_semantics.md)
+ * [Operational Considerations](docs/operational_considerations.rst)
+ * (Others forthcoming).
