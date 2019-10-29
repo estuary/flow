@@ -288,7 +288,7 @@ func (r *Recorder) process(op RecordedOp, bw *bufio.Writer) {
 	op.Checksum = r.FSM.NextChecksum
 
 	var err error
-	r.buf, err = message.FixedFraming.Encode(&op, r.buf[:0])
+	r.buf, err = message.EncodeFixedProtoFrame(&op, r.buf[:0])
 	if err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("fixed-framing encode failed")
 	}

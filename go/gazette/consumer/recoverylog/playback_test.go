@@ -297,7 +297,7 @@ func (s *PlaybackSuite) TestWriteUntrackedError(c *gc.C) {
 
 func (s *PlaybackSuite) TestOperationDecode(c *gc.C) {
 	var frame = func(op RecordedOp) []byte {
-		var b, _ = message.FixedFraming.Encode(&op, nil)
+		var b, _ = message.EncodeFixedProtoFrame(&op, nil)
 		return b
 	}
 
@@ -624,9 +624,9 @@ func (poh playOperationHelper) frame(op RecordedOp) []byte {
 		op.SeqNo = poh.fsm.NextSeqNo
 		op.Checksum = poh.fsm.NextChecksum
 	}
-	var b, err = message.FixedFraming.Encode(&op, nil)
+	var b, err = message.EncodeFixedProtoFrame(&op, nil)
 	if err != nil {
-		panic(err.Error())
+		panic(err)
 	}
 	return b
 }

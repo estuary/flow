@@ -335,21 +335,25 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 
 			case playerStateInjectHandoffAtHead:
 				// No-op which is sequenced for the log as read so far.
-				var noop = &RecordedOp{
+				var noop []byte
+				if noop, err = message.EncodeFixedProtoFrame(&RecordedOp{
 					SeqNo:    fsm.NextSeqNo,
 					Checksum: fsm.NextChecksum,
 					Author:   handoff,
+				}, nil); err != nil {
+					panic(err) // Cannot fail to encode.
 				}
+
 				// Start an append of |noop| which also places a cooperative fence,
 				// preventing further appends from an older "zombie" recorder.
 				var txn = ajc.StartAppend(pb.AppendRequest{
 					Journal:        hints.Log,
 					UnionRegisters: handoff.Fence(),
 				}, nil)
+				_, _ = txn.Writer().Write(noop)
 
-				err = txn.Require(message.FixedFraming.Marshal(noop, txn.Writer())).Release()
-				if err == nil {
-					_, err = <-txn.Done(), txn.Err()
+				if err = txn.Release(); err == nil {
+					err = txn.Err()
 				}
 				if err != nil {
 					err = extendErr(err, "injecting no-op")
@@ -455,8 +459,8 @@ func cleanupOnAbort(dir string, files fnodeFileMap) {
 
 // decodeOperation unpacks, unmarshals, and sets offsets of a RecordedOp from Reader |br| at |offset|.
 func decodeOperation(br *bufio.Reader, offset int64) (op RecordedOp, frame []byte, err error) {
-	if frame, err = message.FixedFraming.Unpack(br); err == nil {
-		err = message.FixedFraming.Unmarshal(frame, &op)
+	if frame, err = message.UnpackFixedFrame(br); err == nil {
+		err = op.Unmarshal(frame[message.FixedFrameHeaderLength:])
 	}
 	// First and last offsets are meta-fields never populated by Recorder, and known only upon playback.
 	op.FirstOffset, op.LastOffset = offset, offset+int64(len(frame))
@@ -517,8 +521,7 @@ func playOperation(br *bufio.Reader, offset int64, fsm *FSM, dir string,
 	var frame []byte
 	if op, frame, err = decodeOperation(br, offset); err != nil {
 		if err == message.ErrDesyncDetected {
-			// ErrDesyncDetected is returned by FixedFraming.Unmarshal (and not Unpack, meaning the reader
-			// is still in a good state). This frame is garbage, but playback can continue.
+			// ErrDesyncDetected is returned by UnpackFixedFrame. We can attempt further reads.
 			log.WithFields(log.Fields{"offset": offset, "log": fsm.Log}).
 				Warn("detected de-synchronization")
 			err = nil

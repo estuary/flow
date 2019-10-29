@@ -391,11 +391,11 @@ func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {
 }
 
 func (s *RecorderSuite) parseOp(c *gc.C, br *bufio.Reader) RecordedOp {
-	var frame, err = message.FixedFraming.Unpack(br)
+	var frame, err = message.UnpackFixedFrame(br)
 	c.Assert(err, gc.IsNil)
 
 	var op RecordedOp
-	c.Check(message.FixedFraming.Unmarshal(frame, &op), gc.IsNil)
+	c.Check(op.Unmarshal(frame[message.FixedFrameHeaderLength:]), gc.IsNil)
 
 	return op
 }
