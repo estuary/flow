@@ -3,7 +3,7 @@ jobs:
 
   build:
     docker:
-      - image: gazette/ci-builder:latest
+      - image: gazette/ci-builder:20191029
     environment:
       # Instruct the go tool to place the module cache under the working
       # directory (~/project)
@@ -50,7 +50,7 @@ jobs:
             - .build/go-path/pkg
   release:
     docker:
-      - image: gazette/ci-builder:latest
+      - image: gazette/ci-builder:20191029
     steps:
       - run:
           name: Publish Gazette
