@@ -353,7 +353,15 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.ctx = newCanceledCtx()
 	fsm.onValidatePreconditions()
 	assert.Equal(t, stateError, fsm.state)
-	assert.EqualError(t, fsm.err, "WaitForFirstRemoteRefresh: context canceled")
+	assert.EqualError(t, fsm.err, "waiting for index refresh: context canceled")
+	fsm.returnPipeline()
+
+	// Case: Route is invalidated while awaiting first remote fragment refresh.
+	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	assert.True(t, fsm.runTo(stateValidatePreconditions))
+	fsm.resolved.invalidateCh = newClosedCh()
+	fsm.onValidatePreconditions()
+	assert.Equal(t, stateResolve, fsm.state)
 	fsm.returnPipeline()
 
 	// Case: Spool & fragment index agree on non-zero end offset. Success.

@@ -15,7 +15,7 @@ import (
 
 // FileSystemStoreRoot is the filesystem path which roots fragment ContentPaths
 // of a file:// fragment store. It must be set at program startup prior to use.
-var FileSystemStoreRoot = "/dev/null/invalid/example/path/to/store"
+var FileSystemStoreRoot = "/dev/null/must/configure/file/store/root"
 
 // FileStoreConfig configures a Fragment store of the "file://" scheme.
 // It is initialized from parsed URL parameters of the pb.FragmentStore.

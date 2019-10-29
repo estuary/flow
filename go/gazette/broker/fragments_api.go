@@ -55,15 +55,13 @@ func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest)
 		req.Header = &res.Header // Attach resolved Header to |req|, which we'll forward.
 		ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
 		return svc.jc.ListFragments(ctx, req)
-	} else if err = res.replica.index.WaitForFirstRemoteRefresh(ctx); err != nil {
-		return nil, err
 	}
 
 	resp = &pb.FragmentsResponse{
 		Status: pb.Status_OK,
 		Header: res.Header,
 	}
-	err = res.replica.index.Inspect(func(fragmentSet fragment.CoverSet) error {
+	err = res.replica.index.Inspect(ctx, func(fragmentSet fragment.CoverSet) error {
 		resp.Fragments, resp.NextPageToken, err = listFragments(req, fragmentSet)
 		return err
 	})

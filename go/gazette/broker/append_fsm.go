@@ -413,10 +413,24 @@ func (b *appendFSM) onValidatePreconditions() {
 	b.mustState(stateValidatePreconditions)
 
 	// Ensure an initial refresh of the remote store(s) has completed.
-	if b.err = b.resolved.replica.index.WaitForFirstRemoteRefresh(b.ctx); b.err != nil {
-		b.err = errors.WithMessage(b.err, "WaitForFirstRemoteRefresh")
-		b.state = stateError
-		return
+	select {
+	case <-b.resolved.replica.index.FirstRefreshCh():
+	// Pass.
+	default:
+		addTrace(b.ctx, " ... stalled on first fragment index refresh")
+
+		select {
+		case <-b.resolved.replica.index.FirstRefreshCh():
+			// Pass.
+		case <-b.ctx.Done(): // Request was cancelled.
+			b.err = errors.WithMessage(b.ctx.Err(), "waiting for index refresh")
+			b.state = stateError
+			return
+		case <-b.resolved.invalidateCh: // Replica assignments changed.
+			addTrace(b.ctx, " ... resolution was invalidated")
+			b.state = stateResolve
+			return
+		}
 	}
 
 	var maxOffset = b.pln.spool.End

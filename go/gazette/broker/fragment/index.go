@@ -175,30 +175,25 @@ func (fi *Index) wakeBlockedQueries() {
 	fi.condCh = make(chan struct{})
 }
 
-// WaitForFirstRemoteRefresh blocks until ReplaceRemote has been called at least
-// one time, or until the context is cancelled.
-func (fi *Index) WaitForFirstRemoteRefresh(ctx context.Context) error {
+// FirstRefreshCh returns a channel which signals if the Index
+// as been refreshed with a remote store(s) listing at least once.
+func (fi *Index) FirstRefreshCh() <-chan struct{} { return fi.firstRefreshCh }
+
+// Inspect invokes the callback with a snapshot of all fragments in the Index.
+// The callback must not modify the CoverSet, and during callback invocation
+// no changes will be made to it.
+// If an initial refresh of remote fragment store(s) hasn't yet been applied,
+// Inspect will first block until it does (or context cancellation).
+func (fi *Index) Inspect(ctx context.Context, callback func(CoverSet) error) error {
 	select {
 	case <-fi.firstRefreshCh:
-		return nil
-	default:
-	}
-
-	addTrace(ctx, " ... stalled in Index.WaitForFirstRemoteRefresh()")
-
-	select {
-	case <-fi.firstRefreshCh:
-		return nil
+		// Pass.
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-fi.ctx.Done():
 		return fi.ctx.Err()
 	}
-}
 
-// Inspect will call |callback| with a CoverSet represeting a snapshot of all the fragments in the index.
-// While |callback| is executing there will be no changes to the fragment set of the index.
-func (fi *Index) Inspect(callback func(CoverSet) error) error {
 	fi.mu.RLock()
 	defer fi.mu.RUnlock()
 	return callback(fi.set)

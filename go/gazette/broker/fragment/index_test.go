@@ -222,7 +222,7 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	ind.ReplaceRemote(set)
 
 	// Expect first remote load has completed.
-	c.Check(ind.WaitForFirstRemoteRefresh(context.Background()), gc.IsNil)
+	<-ind.FirstRefreshCh()
 
 	c.Check(ind.set, gc.HasLen, 3)
 	c.Check(ind.EndOffset(), gc.Equals, int64(0x255))
@@ -248,6 +248,36 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	c.Check(resp.Status, gc.Equals, pb.Status_OK)
 	c.Check(resp.FragmentUrl, gc.Equals,
 		"file:///root/two/a/journal/0000000000000222-0000000000000333-0000000000000000000000000000000000000444.gz")
+}
+
+func (s *IndexSuite) TestInspectCases(c *gc.C) {
+	// Case: request context is cancelled before refresh.
+	var ind = NewIndex(context.Background())
+	var ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+
+	c.Check(ind.Inspect(ctx, func(CoverSet) error {
+		panic("not called")
+	}), gc.Equals, context.Canceled)
+
+	// Case: index context is cancelled before refresh.
+	ctx, cancel = context.WithCancel(context.Background())
+	ind = NewIndex(ctx)
+	cancel()
+
+	c.Check(ind.Inspect(ctx, func(CoverSet) error {
+		panic("not called")
+	}), gc.Equals, context.Canceled)
+
+	// Case: index refreshes after call starts.
+	var set = buildSet(c, 100, 150, 150, 200, 200, 250)
+	ind = NewIndex(context.Background())
+	go ind.ReplaceRemote(set)
+
+	c.Check(ind.Inspect(context.Background(), func(s CoverSet) error {
+		c.Check(s, gc.DeepEquals, set)
+		return nil
+	}), gc.IsNil)
 }
 
 func buildSet(c *gc.C, offsets ...int64) CoverSet {

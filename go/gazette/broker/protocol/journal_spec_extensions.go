@@ -329,7 +329,7 @@ func ExtractJournalSpecMetaLabels(spec *JournalSpec, out LabelSet) LabelSet {
 // validateJournalLabelConstraints asserts expected invariants of MessageType,
 // MessageSubType, and ContentType labels:
 //  * ContentType must parse as a RFC 1521 MIME / media-type.
-//  * If MessageType is present, ContentType must be present and match a known framing.
+//  * If MessageType is present, so is ContentType.
 //  * If MessageSubType is present, so is MessageType.
 func validateJournalLabelConstraints(ls LabelSet) error {
 	if err := ValidateSingleValueLabels(ls); err != nil {
@@ -344,9 +344,6 @@ func validateJournalLabelConstraints(ls LabelSet) error {
 	if mt := ls.ValuesOf(labels.MessageType); mt != nil {
 		if ct == nil {
 			return NewValidationError("expected %s label alongside %s", labels.ContentType, labels.MessageType)
-		} else if _, ok := labels.FramedContentTypes[ct[0]]; !ok {
-			return NewValidationError("%s label is not a known message framing (%s; expected one of %v)",
-				labels.ContentType, ct[0], labels.FramedContentTypes)
 		}
 	} else if mst := ls.ValuesOf(labels.MessageSubType); mst != nil {
 		return NewValidationError("expected %s label alongside %s", labels.MessageType, labels.MessageSubType)
