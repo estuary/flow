@@ -14,7 +14,7 @@ spec:
             - /bin/sh
             - "-ec"
             - |
-              /opt/consumer/generate-shards.sh | \
+              /config/generate-shards.sh | \
                 gazctl shards apply
           env:
             - name:  BROKER_ADDRESS
@@ -22,10 +22,10 @@ spec:
             - name:  CONSUMER_ADDRESS
               value: "http://consumer-stream-sum:8080"
           volumeMounts:
-            - name:      specs
-              mountPath: /opt/consumer
+            - name:      generate-shards
+              mountPath: /config
       volumes:
-        - name: specs
+        - name: generate-shards
           configMap:
             name: generate-shards
             items:

@@ -1,0 +1,25 @@
+# example-bike-share deploys the Gazette bike-share example, consisting of:
+# * A "bike-share" Deployment and Service, which finds graph cycles and serves bike history.
+# * A Job to create ShardSpecs for journals of the test environment.
+# * A Job to stream & load a portion of the dataset.
+bases:
+  - ../consumer
+patchesStrategicMerge:
+  - patches.yaml
+resources:
+  - apply-shard-specs.yaml
+  - stream-rides.yaml
+
+nameSuffix: -bike-share
+
+images:
+  - name:    consumer/image
+    newName: gazette/examples
+
+configMapGenerator:
+  - name: shard-specs
+    files:
+      - shard_specs.yaml
+  - name: stream-rides
+    files:
+      - stream_rides.sh

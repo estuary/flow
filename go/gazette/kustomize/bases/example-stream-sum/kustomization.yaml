@@ -3,7 +3,7 @@
 # * A parallel "chunker" Job, which emits chunks and verifies final sums.
 # * A Job to create ShardSpecs for journals of the test environment.
 bases:
-  - ../../../bases/consumer
+  - ../consumer
 patchesStrategicMerge:
   - set-summer-name-label.yaml
 resources:

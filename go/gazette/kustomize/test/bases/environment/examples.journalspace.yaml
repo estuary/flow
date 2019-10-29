@@ -15,7 +15,7 @@
 # properties shared by all children to a representative parent node.
 
 # Root directory of this journal YAML.
-name: examples/
+name:        examples/
 # Replication is the number of brokers required to participate in write
 # transactions of the journal. Eg a value of 3 means an Append RPC will proceed
 # only after data has been replicated to three distinct brokers in at least two
@@ -31,30 +31,72 @@ fragment:
   # Desired length of each journal fragment. Note fragments can be
   # substantially smaller or slightly larger under normal operation, as
   # journal assignments change or to ensure atomicity of writes.
-  length: 1048576
+  length:            268435456 # 256MB.
   # Stores enumerates the fragment backing stores of the journal. More
   # than one store may be provided. New fragments are always persisted
   # to the first store in the list, but all stores are refreshed when
   # building the fragment index.
   stores:
-  - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fminio%3A9000
+    - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fminio%3A9000
   # Refresh interval defines the frequency with which stores are re-listed.
-  refresh_interval: 1m0s
+  refresh_interval:  1m0s
   # Retention is the time interval after which the fragment is eligible
   # for pruning from the backing store.
-  retention: 720h0m0s
+  retention:         720h0m0s
   # Compression codec used to compress fragments. One of:
   # NONE, GZIP, GZIP_OFFLOAD_DECOMPRESSION, SNAPPY, ZSTANDARD.
-  compression_codec: GZIP_OFFLOAD_DECOMPRESSION
+  compression_codec: SNAPPY
   # Flush interval defines the minimum frequency at which fragments are flushed.
-  flush_interval: 10m0s
+  flush_interval:    10m0s
 children:
-  # Test journal for basic testing and curl-based examples.
+
+  # Journals used by go.gazette.dev/core/examples/bike-share
+  - name: examples/bike-share/
+    labels:
+      - name:  example-name
+        value: bike-share
+    children:
+      # Partitions to which completed graph cycles are written.
+      - name: examples/bike-share/cycles/
+        labels:
+          - name:  app.gazette.dev/message-type
+            value: bike_share.Cycle
+          - name:  content-type
+            value: application/x-ndjson
+        children:
+          - name: examples/bike-share/cycles/part-000
+          - name: examples/bike-share/cycles/part-001
+      # Recovery logs of the two example ShardSpecs which use SQLite.
+      # (other shards use a remote SQL store, and don't need recovery logs).
+      - name: examples/bike-share/recovery-logs/
+        labels:
+          - name:  content-type
+            value: application/x-gazette-recoverylog
+        children:
+          - name: examples/bike-share/recovery-logs/cycles-part-002
+          - name: examples/bike-share/recovery-logs/cycles-part-003
+      # Partitions to which input CSV records of the dataset are written.
+      - name: examples/bike-share/rides/
+        labels:
+          - name:  app.gazette.dev/message-type
+            value: bike_share.Ride
+          - name:  content-type
+            value: text/csv
+        children:
+          - name: examples/bike-share/rides/part-000
+          - name: examples/bike-share/rides/part-001
+          - name: examples/bike-share/rides/part-002
+          - name: examples/bike-share/rides/part-003
+
+  # Journal for basic "hello world" testing and curl-based examples.
   - name: examples/foobar
-  # Journals used by the stream-sum example.
+
+  # Journals used by go.gazette.dev/core/examples/stream-sum
   - name: examples/stream-sum/
+    labels:
+      - name:  example-name
+        value: stream-sum
     fragment:
-      compression_codec: SNAPPY
       # The stream-sum example is also an integration test, and
       # refresh_interval influences the recovery time of consumers in
       # corner cases where a broker crashes on a not-quite-caught-up
@@ -64,59 +106,69 @@ children:
       # chunker's SLA.
       refresh_interval:  5s
     children:
-    - name: examples/stream-sum/chunks/
-      labels:
-        - name: app.gazette.dev/message-type
-          value: Chunk
-        - name: content-type
-          value: application/x-ndjson
-      children:
-        - name: examples/stream-sum/chunks/part-000
-        - name: examples/stream-sum/chunks/part-001
-        - name: examples/stream-sum/chunks/part-002
-        - name: examples/stream-sum/chunks/part-003
-        - name: examples/stream-sum/chunks/part-004
-        - name: examples/stream-sum/chunks/part-005
-        - name: examples/stream-sum/chunks/part-006
-        - name: examples/stream-sum/chunks/part-007
-    - name: examples/stream-sum/recovery-logs/
-      labels:
-        - name: content-type
-          value: application/x-gazette-recoverylog
-      children:
-        - name: examples/stream-sum/recovery-logs/chunks-part-000
-        - name: examples/stream-sum/recovery-logs/chunks-part-001
-        - name: examples/stream-sum/recovery-logs/chunks-part-002
-        - name: examples/stream-sum/recovery-logs/chunks-part-003
-        - name: examples/stream-sum/recovery-logs/chunks-part-004
-        - name: examples/stream-sum/recovery-logs/chunks-part-005
-        - name: examples/stream-sum/recovery-logs/chunks-part-006
-        - name: examples/stream-sum/recovery-logs/chunks-part-007
-    - name: examples/stream-sum/sums
-      labels:
-        - name: app.gazette.dev/message-type
-          value: Sum
-        - name: content-type
-          value: application/x-ndjson
+      # Partitions to which stream Chunks are written.
+      - name: examples/stream-sum/chunks/
+        labels:
+          - name:  app.gazette.dev/message-type
+            value: stream_sum.Chunk
+          - name:  content-type
+            value: application/x-ndjson
+        children:
+          - name: examples/stream-sum/chunks/part-000
+          - name: examples/stream-sum/chunks/part-001
+          - name: examples/stream-sum/chunks/part-002
+          - name: examples/stream-sum/chunks/part-003
+          - name: examples/stream-sum/chunks/part-004
+          - name: examples/stream-sum/chunks/part-005
+          - name: examples/stream-sum/chunks/part-006
+          - name: examples/stream-sum/chunks/part-007
+      # Recovery logs of stream_sum.Summer ShardSpecs.
+      - name: examples/stream-sum/recovery-logs/
+        labels:
+          - name:  content-type
+            value: application/x-gazette-recoverylog
+        children:
+          - name: examples/stream-sum/recovery-logs/chunks-part-000
+          - name: examples/stream-sum/recovery-logs/chunks-part-001
+          - name: examples/stream-sum/recovery-logs/chunks-part-002
+          - name: examples/stream-sum/recovery-logs/chunks-part-003
+          - name: examples/stream-sum/recovery-logs/chunks-part-004
+          - name: examples/stream-sum/recovery-logs/chunks-part-005
+          - name: examples/stream-sum/recovery-logs/chunks-part-006
+          - name: examples/stream-sum/recovery-logs/chunks-part-007
+      # Journal to which completed stream Sums are written.
+      - name: examples/stream-sum/sums
+        labels:
+          - name:  app.gazette.dev/message-type
+            value: stream_sum.Sum
+          - name:  content-type
+            value: application/x-ndjson
+
+  # Journals used by the word-count example.
   - name: examples/word-count/
+    labels:
+      - name:  example-name
+        value: word-count
     children:
-    - name: examples/word-count/deltas/
-      labels:
-        - name: app.dev.gazette/message-type
-          value: NGramCount
-        - name: content-type
-          value: application/x-protobuf-fixed
-      children:
-        - name: examples/word-count/deltas/part-000
-        - name: examples/word-count/deltas/part-001
-        - name: examples/word-count/deltas/part-002
-        - name: examples/word-count/deltas/part-003
-    - name: examples/word-count/recovery-logs/
-      labels:
-        - name: content-type
-          value: application/x-gazette-recoverylog
-      children:
-        - name: examples/word-count/recovery-logs/shard-000
-        - name: examples/word-count/recovery-logs/shard-001
-        - name: examples/word-count/recovery-logs/shard-002
-        - name: examples/word-count/recovery-logs/shard-003
+      # Partitions to which NGramCounts are written.
+      - name: examples/word-count/deltas/
+        labels:
+          - name:  app.gazette.dev/message-type
+            value: word_count.NGramCount
+          - name:  content-type
+            value: application/x-protobuf-fixed
+        children:
+          - name: examples/word-count/deltas/part-000
+          - name: examples/word-count/deltas/part-001
+          - name: examples/word-count/deltas/part-002
+          - name: examples/word-count/deltas/part-003
+      # Recovery logs of word_count.Counter ShardSpecs.
+      - name: examples/word-count/recovery-logs/
+        labels:
+          - name:  content-type
+            value: application/x-gazette-recoverylog
+        children:
+          - name: examples/word-count/recovery-logs/shard-000
+          - name: examples/word-count/recovery-logs/shard-001
+          - name: examples/word-count/recovery-logs/shard-002
+          - name: examples/word-count/recovery-logs/shard-003

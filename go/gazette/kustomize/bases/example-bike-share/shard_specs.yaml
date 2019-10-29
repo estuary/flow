@@ -1,0 +1,38 @@
+common:
+  max_txn_duration: 1s
+shards:
+  # First two specs use a remote Postgres DB.
+  - id: cycles-part-000
+    labels:
+      - name: store
+        value: postgres
+    sources:
+      - journal: examples/bike-share/rides/part-000
+
+  - id: cycles-part-001
+    labels:
+      - name: store
+        value: postgres
+    sources:
+      - journal: examples/bike-share/rides/part-001
+
+  # Next two specs use an embedded SQLite store. It's weird to do this.
+  # Generally all shards of an application would use the same store type.
+  # This example just demonstrates it's possible to do otherwise.
+  - id: cycles-part-002
+    labels:
+      - name: store
+        value: sqlite
+    sources:
+      - journal: examples/bike-share/rides/part-002
+    hint_prefix: /gazette/hints
+    recovery_log_prefix: examples/bike-share/recovery-logs
+
+  - id: cycles-part-003
+    labels:
+      - name: store
+        value: sqlite
+    sources:
+      - journal: examples/bike-share/rides/part-003
+    hint_prefix: /gazette/hints
+    recovery_log_prefix: examples/bike-share/recovery-logs

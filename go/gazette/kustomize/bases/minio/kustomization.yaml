@@ -6,8 +6,6 @@ resources:
   - service.yaml
   - serviceaccount.yaml
 
-commonLabels:
-
 vars:
   - name: MINIO_ENDPOINT
     objref:

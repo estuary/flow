@@ -1,0 +1,16 @@
+# Deploy-bike-share deploys the bike-share Gazette example and its
+# dependencies to the "bike-share" namespace.
+bases:
+  - ../../bases/broker
+  - ../../bases/etcd
+  - ../../bases/example-bike-share
+  - ../../bases/minio
+  - ../../bases/postgres
+  - ../bases/environment
+resources:
+  - namespace.yaml
+
+namespace: bike-share
+
+commonLabels:
+  app.kubernetes.io/instance: bike-share

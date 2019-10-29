@@ -17,7 +17,7 @@ var (
 	brokerPodSelector  = "app.kubernetes.io/name=gazette"
 	minioPodSelector   = "app.kubernetes.io/name=minio"
 	chunkerPodSelector = "app.kubernetes.io/name=chunker"
-	testNamespace      = "soak"
+	testNamespace      = "stream-sum"
 )
 
 func TestPartitionWithinEtcdCluster(t *testing.T) {

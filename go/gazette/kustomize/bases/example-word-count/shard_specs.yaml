@@ -1,0 +1,22 @@
+# Create one shard for journals of examples.journalspace.yaml
+# Compare to ShardSpec for field definitions.
+common:
+  hint_backups: 2
+  hint_prefix: /gazette/hints
+  hot_standbys: 1
+  max_txn_duration: 1s
+  recovery_log_prefix: examples/word-count/recovery-logs
+shards:
+  - id: shard-000
+    sources:
+      - journal: examples/word-count/deltas/part-000
+  - id: shard-001
+    sources:
+      - journal: examples/word-count/deltas/part-001
+  - id: shard-002
+    sources:
+      - journal: examples/word-count/deltas/part-002
+  - id: shard-003
+    sources:
+      - journal: examples/word-count/deltas/part-003
+

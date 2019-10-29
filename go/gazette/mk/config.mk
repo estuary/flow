@@ -25,12 +25,13 @@ ci-release-broker-targets = \
 
 # Go binaries to package under the `gazette/examples` image.
 ci-release-examples-targets = \
+	${WORKDIR}/go-path/bin/bike-share \
 	${WORKDIR}/go-path/bin/chunker \
 	${WORKDIR}/go-path/bin/counter \
 	${WORKDIR}/go-path/bin/gazctl \
+	${WORKDIR}/go-path/bin/integration.test \
 	${WORKDIR}/go-path/bin/summer \
-	${WORKDIR}/go-path/bin/wordcountctl \
-	${WORKDIR}/go-path/bin/integration.test
+	${WORKDIR}/go-path/bin/wordcountctl
 
 # Targets of protobufs which must be compiled.
 protobuf-targets = \

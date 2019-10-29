@@ -1,0 +1,5 @@
+# Postgres deploys Postgres as a StatefulSet with pod-ephemeral storage.
+# A ConfigMap "postgres-tables" must be defined outside of this manifest.
+resources:
+  - statefulset.yaml
+  - service.yaml

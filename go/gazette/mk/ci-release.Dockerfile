@@ -8,7 +8,7 @@ RUN apt-get update -y \
       libgflags2.2 \
       libjemalloc1 \
       libsnappy1v5 \
-      libzstd1 \ 
+      libzstd1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Copy binaries & librocks.so to the image. Configure Rocks for run-time linking.

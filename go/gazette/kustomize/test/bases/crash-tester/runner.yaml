@@ -1,23 +1,22 @@
 apiVersion: batch/v1
 kind:       Job
 metadata:
-  name: integration-runner
+  name: crash-test-runner
   labels:
-    app.kubernetes.io/name: integration
+    app.kubernetes.io/name: crash-test
 spec:
   # Fail-fast if the job fails.
   backoffLimit: 0
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: integration
+        app.kubernetes.io/name: crash-test
     spec:
       restartPolicy:      Never
-      serviceAccountName: integration-runner
+      serviceAccountName: crash-test-runner
       containers:
         - name:            runner
           image:           gazette/examples
-          imagePullPolicy: IfNotPresent
           command:
             - integration.test
             - "-test.v"

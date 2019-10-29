@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind:       Job
+metadata:
+  name: stream-rides
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: stream-rides
+          image: ubuntu:18.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - "-c"
+            - |
+              set -Eeux -o pipefail
+
+              # Install dependencies for downloading & streaming the dataset.
+              apt-get update -y \
+               && apt-get install --no-install-recommends -y \
+                  pv \
+                  curl \
+                  unzip \
+                  ca-certificates
+
+              # TODO(johnny): Switch to a proper automatic build artifact rather than this one-off binary.
+              curl -o /usr/local/bin/gazctl https://storage.googleapis.com/tribal-sign-234818.appspot.com/gazctl
+              chmod +x /usr/local/bin/gazctl
+
+              source /config/stream_rides.sh
+          env:
+            - name:  BROKER_ADDRESS
+              value: "http://gazette:8080"
+            - name:  BROKER_CACHE_SIZE
+              value: "256"
+            - name:  DATASET
+              value: "201909-citibike-tripdata.csv"
+            - name:  RATE
+              value: "3000"
+          volumeMounts:
+            - name:      stream-rides
+              mountPath: /config
+      volumes:
+        - name: stream-rides
+          configMap:
+            name: stream-rides
+

@@ -1,4 +1,0 @@
-resources:
-  - rbac.yaml
-  - runner.yaml
-  - urkel.yaml

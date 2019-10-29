@@ -1,0 +1,15 @@
+# Deploy-stream-sum deploys the stream-sum Gazette example and its
+# dependencies to the "stream-sum" namespace.
+bases:
+  - ../../bases/broker
+  - ../../bases/etcd
+  - ../../bases/example-stream-sum
+  - ../../bases/minio
+  - ../bases/environment
+resources:
+  - namespace.yaml
+
+namespace: stream-sum
+
+commonLabels:
+  app.kubernetes.io/instance: stream-sum

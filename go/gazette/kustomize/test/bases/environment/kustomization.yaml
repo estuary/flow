@@ -6,6 +6,7 @@ resources:
   - apply-journal-specs.yaml
 
 configMapGenerator:
+  # Configure a zonemap which randomly selects zone-A or zone-B.
   - name: gazette-zonemap
     files:
       - node-zone.sh=random_node_zonemap.sh
@@ -13,6 +14,10 @@ configMapGenerator:
   - name: example-journal-specs
     files:
       - examples.journalspace.yaml
+  # Configure tables to be created should postgres be included in the manifest.
+  - name: postgres-init
+    files:
+      - postgres_tables.sql
 
 secretGenerator:
   # Configure AWS application default credentials  (~/.aws/) using Minio keys.
