@@ -42,13 +42,13 @@ $ make as-ci target=ci-release-examples
 ```
 
 Deploy Gazette's continuous soak test to a Kubernetes cluster (which can be
-Docker for Desktop or Minikube). The `kustomize` directory has a helper
-manifest for running using local, development builds.
+Docker for Desktop or Minikube):
 
 ```bash
 # Run the soak test with official `latest` images.
-$ kubectl kustomize ./kustomize/test/deploy-stream-sum-with-crash-tests/
+$ kubectl apply -k ./kustomize/test/deploy-stream-sum-with-crash-tests/
 ```
 
-
-
+The `kustomize` directory also has a
+[helper manifest](../kustomize/test/run-with-local-registry/kustomization.yaml)
+for using a local registry (eg, for development builds)
