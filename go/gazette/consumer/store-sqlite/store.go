@@ -230,6 +230,21 @@ func (s *Store) Open(bootstrapSQL string, statements ...string) error {
 			s.Stmts = append(s.Stmts, stmt)
 		}
 	}
+
+	// This package's VFS implementation assumes only one connection will be
+	// using it at a time. If this assumption is violated, it can result in
+	// "fnode not tracked" recorder FSM errors, because the FNode associated
+	// with an open transaction log recFS is updated in one connection and not
+	// the other. This /could/ be fixed to be properly concurrent, but SQLite
+	// (and mattn/go-sqlite3) don't handle concurrency particularly well anyway.
+	//
+	// Default to allowing only one database connection, as a sane and safe option
+	// that's probably fast enough for your use case. If desired this can be
+	// increased so long as shared-cache mode is also enabled, such that all open
+	// connections share a common VFS instance. Note this also requires building
+	// go-sqlite3 with the 'sqlite_unlock_notify' build tag.
+	s.SQLiteDB.SetMaxOpenConns(1)
+
 	return nil
 }
 
@@ -257,7 +272,11 @@ func (s *Store) Transaction(ctx context.Context, txOpts *sql.TxOptions) (_ *sql.
 // RestoreCheckpoint SELECTS the most recent Checkpoint of this Store.
 func (s *Store) RestoreCheckpoint(_ consumer.Shard) (cp pc.Checkpoint, _ error) {
 	var b []byte
-	var err = s.SQLiteDB.QueryRow("SELECT checkpoint FROM gazette_checkpoint").Scan(&b)
+	var txn, err = s.Transaction(context.Background(), nil)
+
+	if err == nil {
+		err = txn.QueryRow("SELECT checkpoint FROM gazette_checkpoint").Scan(&b)
+	}
 	if err == nil {
 		err = cp.Unmarshal(b)
 	}
