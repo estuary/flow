@@ -90,7 +90,9 @@ spec:
 
       volumes:
         # tmpdir is used for all ephemeral and temporary files, such as journal spools.
-        # Defaults to an emptyDir, but operators may want to supply a fast local disk.
+        # Defaults to an emptyDir, but operators may want to supply a fast local disk
+        # (and note that images run as non-root user `gazette`, so use an initContainer
+        # or otherwise chmod / chown to allow for access).
         - name: tmpdir
           emptyDir: {}
 
