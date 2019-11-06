@@ -1,4 +1,9 @@
 
+v0.84.2
+=======
+
+Add ca-certificates to release images (Issue #227)
+
 v0.84.1
 =======
 

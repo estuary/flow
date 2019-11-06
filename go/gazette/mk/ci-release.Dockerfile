@@ -5,6 +5,7 @@ FROM ubuntu:18.04
 RUN apt-get update -y \
  && apt-get upgrade -y \
  && apt-get install --no-install-recommends -y \
+      ca-certificates \
       libgflags2.2 \
       libjemalloc1 \
       libsnappy1v5 \
