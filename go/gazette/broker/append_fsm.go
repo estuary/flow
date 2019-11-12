@@ -160,7 +160,10 @@ func (b *appendFSM) returnPipeline() {
 	}
 }
 
-// onResolve performs resolution of the AppendRequest.
+// onResolve performs resolution (or re-resolution) of the AppendRequest. If
+// the request specifies a future Etcd revision, first block until that
+// revision has been applied to the local KeySpace. This state may be
+// re-entered multiple times.
 func (b *appendFSM) onResolve() {
 	b.mustState(stateResolve)
 
@@ -234,7 +237,11 @@ resolutionInvalidated:
 
 }
 
-// onStartPipeline verifies and (if required) starts a new pipeline instance.
+// onStartPipeline builds a pipeline by acquiring the exclusively-owned replica Spool,
+// and then constructing a new pipeline (which starts Replicate RPCs to each Route peer).
+// If the current pipeline is in an initialized state but has an older effective
+// Route, it's torn down and a new one started. If the current pipeline Route is correct,
+// this state is a no-op.
 func (b *appendFSM) onStartPipeline() {
 	b.mustState(stateStartPipeline)
 
@@ -274,7 +281,10 @@ func (b *appendFSM) onStartPipeline() {
 	b.state = stateSendPipelineSync
 }
 
-// onSendPipelineSync sends a synchronization proposal to all replication peers.
+// onSendPipelineSync sends a synchronizing ReplicateRequest proposal to all
+// replication peers, which includes the current Route, effective Etcd
+// revision, and the proposed current Fragment to be extended. Each peer
+// verifies the proposal and headers, and may either agree or indicate a conflict.
 func (b *appendFSM) onSendPipelineSync() {
 	b.mustState(stateSendPipelineSync)
 
@@ -338,7 +348,10 @@ func (b *appendFSM) onRecvPipelineSync() {
 }
 
 // onUpdateAssignments verifies and, if required, updates Etcd assignments to
-// advertise the consistency of the present Route.
+// advertise the consistency of the present Route, which has been now been
+// synchronized. Etcd assignment consistency advertises to the allocator that
+// all replicas are consistent, and allows it to now remove undesired journal
+// assignments.
 func (b *appendFSM) onUpdateAssignments() {
 	b.mustState(stateUpdateAssignments)
 
@@ -391,15 +404,20 @@ func (b *appendFSM) onAwaitDesiredReplicas() {
 // that current registers match the request's expectation, and if not it will
 // fail the RPC with REGISTER_MISMATCH.
 //
-// It also validates next offset to be written.
+// It also validates the next offset to be written.
 // Appended data must always be written at the furthest known journal extent.
-// Usually this will be the pipeline Spool offset. However if journal
-// consistency is lost (due to too many broker or Etcd failures), a larger
+// Usually this will be the offset of the pipeline's Spool. However if journal
+// consistency was lost (due to too many broker or Etcd failures), a larger
 // offset could exist in the fragment index.
 //
-// We don't attempt to automatically recover if consistency is lost. Instead
-// the operator is required to craft an AppendRequest which explicitly
-// captures the new, maximum journal offset to use.
+// We don't attempt to automatically handle this scenario. There may be other
+// brokers that were partitioned from Etcd, but which still have local
+// fragments not yet persisted to the store. If we were to attempt automatic
+// recovery, we risk double-writing an offset already committed by those brokers.
+//
+// Instead the operator is required to craft an AppendRequest which explicitly
+// captures the new, maximum journal offset to use, as a confirmation that all
+// previous brokers have exited or failed (see `gazctl journals reset-head --help`).
 //
 // We do make an exception if the journal is not writable, in which case
 // appendFSM can be used only for issuing zero-byte transaction barriers
@@ -407,8 +425,8 @@ func (b *appendFSM) onAwaitDesiredReplicas() {
 // carve-out allows a journal to be a read-only view of a fragment store
 // being written to by a separate & disconnected gazette cluster.
 //
-// Note request offsets may also be used outside of recovery, for example
-// to implement at-most-once writes.
+// Note that an AppendRequest offset may also be used outside of recovery,
+// for example to implement at-most-once writes.
 func (b *appendFSM) onValidatePreconditions() {
 	b.mustState(stateValidatePreconditions)
 
@@ -458,7 +476,14 @@ func (b *appendFSM) onValidatePreconditions() {
 }
 
 // onStreamContent is called with each received content message or error
-// from the Append RPC client.
+// from the Append RPC client. On its first call, it may "roll" the present
+// Fragment to a new and empty Fragment (for example, if the Fragment is
+// at its target length, or if the compression codec changed). Each non-empty
+// content chunk is forwarded to all peers of the FSM's pipeline. An error
+// of the client causes a roll-back to be sent to all peers. A final empty
+// content chunk followed by an io.EOF causes a commit proposal to be sent
+// to each peer, which (if adopted) extends the current Fragment with the
+// client's appended content.
 func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 	b.mustState(stateStreamContent)
 
@@ -565,8 +590,14 @@ func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 }
 
 // onReadAcknowledgements releases ownership of the pipeline's send-side,
-// enqueues itself for the pipeline's receive-side and, upon its turn,
+// enqueues itself for the pipeline's receive-side, and, upon its turn,
 // reads responses from each replication peer.
+//
+// Recall that pipelines are full-duplex, and there may be other FSMs
+// which completed stateStreamContent before we did, and which have not yet read
+// their acknowledgements from peers. To account for this, a cooperative pipeline
+// "barrier" is installed which is signaled upon our turn to read ordered
+// peer acknowledgements, and which we in turn then signal having done so.
 func (b *appendFSM) onReadAcknowledgements() {
 	b.mustState(stateReadAcknowledgements)
 
@@ -583,10 +614,8 @@ func (b *appendFSM) onReadAcknowledgements() {
 		b.plnReturnCh = nil
 	}
 
-	// There may be pipelined operations prior to this one which have not yet
-	// read their responses. Block while they do so, until our response is the
-	// next ordered response to be received. When this select completes, we have
-	// sole ownership of the _receive_ side of |pln|.
+	// Block until our response is the next ordered response to be received.
+	// When this select completes, we have sole ownership of the _receive_ side of |pln|.
 	select {
 	case <-waitFor:
 	default:

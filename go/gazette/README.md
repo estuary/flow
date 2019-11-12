@@ -75,5 +75,6 @@ The project features several runnable example consumer applications:
 
 Architecture Briefs:
  * [Exactly-once Semantics in Gazette](docs/exactly_once_semantics.md)
+ * [Implementation of Transactional Appends](docs/append_txns.md)
  * [Operational Considerations](docs/operational_considerations.rst)
  * (Others forthcoming).

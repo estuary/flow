@@ -19,8 +19,18 @@ import (
 // pipelined and batched to amortize the cost of broker Append RPCs. It may
 // also simplify implementations for clients who would prefer to simply have
 // writes block until successfully committed, as opposed to handling errors
-// and retries themselves. AppendService implements the AsyncJournalClient
-// interface.
+// and retries themselves.
+//
+// For each journal, AppendService manages an ordered list of AsyncAppends,
+// each having buffered content to be appended. The list is dispatched in
+// FIFO order by a journal-specific goroutine.
+//
+// AsyncAppends are backed by temporary files on the local disk rather
+// than memory buffers. This minimizes the impact of buffering on the heap
+// and garbage collector, and also makes AppendService tolerant to sustained
+// service disruptions (up to the capacity of the disk).
+//
+// AppendService implements the AsyncJournalClient interface.
 type AppendService struct {
 	pb.RoutedJournalClient
 	ctx     context.Context             // Context for all appends of this service.
