@@ -230,10 +230,16 @@ message JournalSpec {
     O_RDWR   = 0x04;
   }
   // Flags of the Journal, as a combination of Flag enum values. The Flag enum
-  // not used directly, as protobuf enums do not allow for or'ed bitfields.
+  // is not used directly, as protobuf enums do not allow for or'ed bitfields.
   uint32 flags = 6 [
     (gogoproto.casttype) = "JournalSpec_Flag",
     (gogoproto.moretags) = "yaml:\",omitempty\""];
+
+  // Maximum rate, in bytes-per-second, at which appends of this journal will
+  // be processed. If zero (the default), no rate limiting is applied. A global
+  // rate limit still may be in effect, in which case the effective rate is the
+  // smaller of the journal vs global rate.
+  int64 max_append_rate = 7 [(gogoproto.moretags) = "yaml:\"max_append_rate,omitempty\""];
 }
 
 // ProcessSpec describes a uniquely identified process and its addressable endpoint.
@@ -433,6 +439,10 @@ message AppendResponse {
   Fragment commit = 3;
   // Current registers of the journal.
   LabelSet registers = 4;
+  // Total number of RPC content chunks processed in this append.
+  int64 total_chunks = 5;
+  // Number of content chunks which were delayed by journal flow control.
+  int64 delayed_chunks = 6;
 }
 
 // ReplicateRequest is the streamed request message of the broker's internal

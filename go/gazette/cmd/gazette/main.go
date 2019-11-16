@@ -26,8 +26,10 @@ const iniFilename = "gazette.ini"
 var Config = new(struct {
 	Broker struct {
 		mbp.ServiceConfig
-		Limit    uint32 `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
-		FileRoot string `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
+		Limit         uint32 `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
+		FileRoot      string `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
+		MaxAppendRate uint32 `long:"max-append-rate" env:"MAX_APPEND_RATE" default:"0" description:"Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate"`
+		MinAppendRate uint32 `long:"min-append-rate" env:"MIN_APPEND_RATE" default:"65536" description:"Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted"`
 	} `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 
 	Etcd struct {
@@ -63,6 +65,9 @@ func (cmdServe) Execute(args []string) error {
 		mbp.Must(err, "configured local file:// root failed")
 		fragment.FileSystemStoreRoot = Config.Broker.FileRoot
 	}
+
+	broker.MinAppendRate = int64(Config.Broker.MinAppendRate)
+	broker.MaxAppendRate = int64(Config.Broker.MaxAppendRate)
 
 	var (
 		lo   = protocol.NewJournalClient(srv.GRPCLoopback)

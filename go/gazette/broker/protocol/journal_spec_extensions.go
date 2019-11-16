@@ -84,6 +84,8 @@ func (m *JournalSpec) Validate() error {
 		return ExtendContext(err, "Fragment")
 	} else if err = m.Flags.Validate(); err != nil {
 		return ExtendContext(err, "Flags")
+	} else if m.MaxAppendRate < 0 {
+		return NewValidationError("invalid MaxAppendRate (%d; expected >= 0)", m.MaxAppendRate)
 	}
 	return nil
 }
@@ -245,6 +247,9 @@ func UnionJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Flags == JournalSpec_NOT_SPECIFIED {
 		a.Flags = b.Flags
 	}
+	if a.MaxAppendRate == 0 {
+		a.MaxAppendRate = b.MaxAppendRate
+	}
 	return a
 }
 
@@ -277,6 +282,9 @@ func IntersectJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Flags != b.Flags {
 		a.Flags = JournalSpec_NOT_SPECIFIED
 	}
+	if a.MaxAppendRate != b.MaxAppendRate {
+		a.MaxAppendRate = 0
+	}
 	return a
 }
 
@@ -308,6 +316,9 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	}
 	if a.Flags == b.Flags {
 		a.Flags = JournalSpec_NOT_SPECIFIED
+	}
+	if a.MaxAppendRate == b.MaxAppendRate {
+		a.MaxAppendRate = 0
 	}
 	return a
 }

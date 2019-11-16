@@ -47,7 +47,8 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 			Retention:        365 * 24 * time.Hour,
 		},
 
-		Flags: JournalSpec_O_RDWR,
+		Flags:         JournalSpec_O_RDWR,
+		MaxAppendRate: 12345,
 	}
 	c.Check(spec.Validate(), gc.IsNil) // Base case: validates successfully.
 
@@ -109,6 +110,10 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 		spec.Flags = f
 		c.Check(spec.Validate(), gc.IsNil)
 	}
+
+	spec.MaxAppendRate = -1
+	c.Check(spec.Validate(), gc.ErrorMatches, `invalid MaxAppendRate \(-1; expected >= 0\)`)
+	spec.MaxAppendRate = 0
 
 	// Additional tests of JournalSpec_Fragment cases.
 	var f = &spec.Fragment
@@ -230,7 +235,8 @@ func (s *JournalSuite) TestSetOperations(c *gc.C) {
 			Retention:        time.Hour,
 			FlushInterval:    time.Hour,
 		},
-		Flags: JournalSpec_O_RDWR,
+		Flags:         JournalSpec_O_RDWR,
+		MaxAppendRate: 1e3,
 	}
 	var other = JournalSpec{
 		Replication: 1,
@@ -249,7 +255,8 @@ func (s *JournalSuite) TestSetOperations(c *gc.C) {
 			Retention:        10 * time.Hour,
 			FlushInterval:    10 * time.Hour,
 		},
-		Flags: JournalSpec_O_RDONLY,
+		Flags:         JournalSpec_O_RDONLY,
+		MaxAppendRate: 1e4,
 	}
 
 	c.Check(UnionJournalSpecs(JournalSpec{}, model), gc.DeepEquals, model)

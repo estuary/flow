@@ -228,7 +228,8 @@ func TestE2EShutdownWithProxyAppend(t *testing.T) {
 			Sum:              pb.SHA1SumOf("world!"),
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
-		Registers: boxLabels(),
+		Registers:   boxLabels(),
+		TotalChunks: 2,
 	}, resp)
 	assert.Equal(t, []pb.ProcessSpec_ID{peer.id}, resp.Header.Route.Members)
 

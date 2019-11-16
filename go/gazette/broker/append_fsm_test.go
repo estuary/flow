@@ -5,7 +5,6 @@ import (
 	"io"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -776,12 +775,11 @@ func TestFSMRunBasicCases(t *testing.T) {
 		Sum:              pb.SHA1SumOf("barbing"),
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
 	}, fsm.clientFragment)
+	assert.Equal(t, int64(3), fsm.clientTotalChunks)
+	assert.Equal(t, int64(0), fsm.clientDelayedChunks)
 
 	// Case: client timeout triggers a context.DeadlineExceeded.
-	var restoreTimeout = func(d time.Duration) func() {
-		appendChunkTimeout = time.Microsecond
-		return func() { appendChunkTimeout = d }
-	}(appendChunkTimeout)
+	var uninstall = installAppendTimeoutFixture()
 
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
 	fsm.run(makeRecv([]appendChunk{
@@ -790,8 +788,8 @@ func TestFSMRunBasicCases(t *testing.T) {
 	}))
 
 	assert.Equal(t, stateError, fsm.state)
-	assert.EqualError(t, fsm.err, `append stream: context deadline exceeded`)
-	restoreTimeout()
+	assert.EqualError(t, fsm.err, "append stream: "+ErrFlowControlUnderflow.Error())
+	uninstall()
 
 	// Case: client read error.
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}

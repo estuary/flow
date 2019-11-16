@@ -27,6 +27,10 @@ type replica struct {
 	spoolCh chan fragment.Spool
 	// pipelineCh synchronizes access to the single pipeline of the replica.
 	pipelineCh chan *pipeline
+	// appendFlowControl manages flow control state of the journal. It's accessed
+	// by an Append RPC which is in appendFSM stateStreamContent (and there can be
+	// at most one such RPC).
+	appendFlowControl appendFlowControl
 }
 
 func newReplica(journal pb.Journal) *replica {

@@ -54,10 +54,12 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		metrics.CommitsTotal.WithLabelValues(metrics.Ok).Inc()
 
 		return stream.SendAndClose(&pb.AppendResponse{
-			Status:    pb.Status_OK,
-			Header:    fsm.resolved.Header,
-			Commit:    fsm.clientFragment,
-			Registers: &fsm.registers,
+			Status:        pb.Status_OK,
+			Header:        fsm.resolved.Header,
+			Commit:        fsm.clientFragment,
+			Registers:     &fsm.registers,
+			TotalChunks:   fsm.clientTotalChunks,
+			DelayedChunks: fsm.clientDelayedChunks,
 		})
 	case stateError:
 		if fsm.resolved.status != pb.Status_OK {

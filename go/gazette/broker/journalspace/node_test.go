@@ -278,6 +278,7 @@ fragment:
   retention: 1h0m0s
   flush_interval: 2m0s
 flags: O_RDWR
+max_append_rate: 11223344
 children:
 - delete: true
   name: foo/bar
@@ -310,30 +311,33 @@ children:
 	c.Check(flatten(tree), gc.DeepEquals, []Node{
 		{
 			Spec: pb.JournalSpec{
-				Name:        "foo/bar",
-				Replication: 3,
-				LabelSet:    pb.MustLabelSet("a-name", "a-val"),
-				Fragment:    fragSpec,
-				Flags:       pb.JournalSpec_O_RDWR,
+				Name:          "foo/bar",
+				Replication:   3,
+				LabelSet:      pb.MustLabelSet("a-name", "a-val"),
+				Fragment:      fragSpec,
+				Flags:         pb.JournalSpec_O_RDWR,
+				MaxAppendRate: 11223344,
 			},
 			Delete: &boxedTrue,
 		},
 		{
 			Spec: pb.JournalSpec{
-				Name:        "foo/baz/1",
-				Replication: 3,
-				LabelSet:    pb.MustLabelSet("a-name", "a-val"),
-				Fragment:    fragSpec,
-				Flags:       pb.JournalSpec_O_RDWR,
+				Name:          "foo/baz/1",
+				Replication:   3,
+				LabelSet:      pb.MustLabelSet("a-name", "a-val"),
+				Fragment:      fragSpec,
+				Flags:         pb.JournalSpec_O_RDWR,
+				MaxAppendRate: 11223344,
 			},
 		},
 		{
 			Spec: pb.JournalSpec{
-				Name:        "foo/baz/2",
-				Replication: 3,
-				LabelSet:    pb.MustLabelSet("a-name", "a-val", "other-name", ""),
-				Fragment:    fragSpec,
-				Flags:       pb.JournalSpec_O_RDWR,
+				Name:          "foo/baz/2",
+				Replication:   3,
+				LabelSet:      pb.MustLabelSet("a-name", "a-val", "other-name", ""),
+				Fragment:      fragSpec,
+				Flags:         pb.JournalSpec_O_RDWR,
+				MaxAppendRate: 11223344,
 			},
 			Revision: 1234,
 		},

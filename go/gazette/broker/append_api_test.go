@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,7 +42,9 @@ func TestAppendSingle(t *testing.T) {
 			Sum:              pb.SHA1SumOf("foobar"),
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
-		Registers: boxLabels(),
+		Registers:     boxLabels(),
+		TotalChunks:   3,
+		DelayedChunks: 0,
 	}, resp)
 
 	broker.cleanup()
@@ -143,10 +144,7 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 		`rpc error: code = Unknown desc = append stream: unexpected EOF`)
 
 	// Case: client takes too long sending data.
-	var restoreTimeout = func(d time.Duration) func() {
-		appendChunkTimeout = time.Microsecond
-		return func() { appendChunkTimeout = d }
-	}(appendChunkTimeout)
+	var uninstall = installAppendTimeoutFixture()
 
 	// Client sends partial stream and stalls. We don't assert NoError as the
 	// broker may have already timed out the RPC already.
@@ -156,8 +154,8 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 
 	err = stream.RecvMsg(new(pb.AppendResponse)) // Block until server cancels.
 	assert.EqualError(t, err,
-		`rpc error: code = Unknown desc = append stream: context deadline exceeded`)
-	restoreTimeout()
+		`rpc error: code = Unknown desc = append stream: `+ErrFlowControlUnderflow.Error())
+	uninstall()
 
 	// Case: client read error occurs.
 	var failCtx, failCtxCancel = context.WithCancel(ctx)

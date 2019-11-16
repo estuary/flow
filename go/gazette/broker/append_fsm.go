@@ -6,26 +6,12 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 )
-
-// appendChunkTimeout is the maximum duration a single call to read an
-// AppendRequest chunk may block for. If the timeout elapses, a
-// context.DeadlineExceeded is injected which aborts the append stream.
-// Intuitively, this timeout is designed to limit the impact of slow append
-// clients over the pipeline, which is an exclusively owned and highly contended
-// resource. 1 second is selected as a reasonable upper bound of round-trip time
-// between broker and client -- within this timeout, the broker is able to open
-// the flow-control window to the client, and the client can start filling that
-// window with new data. Very long lived clients and append streams are still
-// permitted (though not recommended), so long as the client is consistently
-// responsive to requests for more data.
-var appendChunkTimeout = time.Second
 
 // appendFSM is a state machine which models the steps, constraints and
 // transitions involved in the execution of an append to a Gazette journal. The
@@ -37,17 +23,19 @@ type appendFSM struct {
 	ctx context.Context
 	req pb.AppendRequest
 
-	resolved       *resolution      // Current journal resolution.
-	pln            *pipeline        // Current replication pipeline.
-	plnReturnCh    chan<- *pipeline // If |pln| is owned, channel to which it must be returned. Else nil.
-	readThroughRev int64            // Etcd revision we must read through to proceed.
-	rollToOffset   int64            // Journal write offset we must synchronize on to proceed.
-	registers      pb.LabelSet      // Effective journal registers.
-	clientCommit   bool             // Did we see a commit chunk from the client?
-	clientFragment *pb.Fragment     // Journal Fragment holding the client's content.
-	clientSummer   hash.Hash        // Summer over the client's content.
-	state          appendState      // Current FSM state.
-	err            error            // Error encountered during FSM execution.
+	resolved            *resolution      // Current journal resolution.
+	pln                 *pipeline        // Current replication pipeline.
+	plnReturnCh         chan<- *pipeline // If |pln| is owned, channel to which it must be returned. Else nil.
+	readThroughRev      int64            // Etcd revision we must read through to proceed.
+	rollToOffset        int64            // Journal write offset we must synchronize on to proceed.
+	registers           pb.LabelSet      // Effective journal registers.
+	clientCommit        bool             // Did we see a commit chunk from the client?
+	clientFragment      *pb.Fragment     // Journal Fragment holding the client's content.
+	clientSummer        hash.Hash        // Summer over the client's content.
+	clientTotalChunks   int64            // Total number of append chunks.
+	clientDelayedChunks int64            // Number of flow-controlled chunks.
+	state               appendState      // Current FSM state.
+	err                 error            // Error encountered during FSM execution.
 }
 
 type appendState int8
@@ -69,10 +57,8 @@ const (
 )
 
 // run the appendFSM until a terminal state is reached. Upon state
-// stateStreamContent, |recv| is repeatedly invoked to read content from the
-// client. A timer is used to enforce that a call to |recv| not take more
-// than 2 x appendChunkTimeout. If this timeout elapses, a
-// context.DeadlineExceeded read error is injected to abort the stream.
+// stateStreamContent, |recv| is repeatedly invoked to read content
+// from the client.
 func (b *appendFSM) run(recv func() (*pb.AppendRequest, error)) {
 	defer b.returnPipeline()
 
@@ -81,41 +67,16 @@ func (b *appendFSM) run(recv func() (*pb.AppendRequest, error)) {
 		return
 	}
 
-	var (
-		ticker  = time.NewTicker(appendChunkTimeout)
-		chunkCh = make(chan appendChunk, 8)
-	)
+	var fc = &b.resolved.replica.appendFlowControl
+	recv = fc.start(b.resolved, recv)
 
-	// Pump calls to |recv| in a goroutine, as they may block indefinitely.
-	// Note that in practice |recv| is tied to the same Context as this
-	// appendFSM, so these don't hang around indefinitely.
-	go func() {
-		for {
-			var req, err = recv()
-			chunkCh <- appendChunk{req: req, err: err}
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	// Consume chunks and timer ticks. Abort if we see two ticks
-	// without an interleaving chunk.
-	var sawChunk bool
+	// Consume chunks from the client.
 	for b.state == stateStreamContent {
-		select {
-		case chunk := <-chunkCh:
-			b.onStreamContent(chunk.req, chunk.err)
-			sawChunk = true
-
-		case <-ticker.C:
-			if !sawChunk {
-				b.onStreamContent(nil, context.DeadlineExceeded)
-			}
-			sawChunk = false
-		}
+		b.onStreamContent(recv())
 	}
-	ticker.Stop()
+	// Note that we can't access |fc| after calling onReadAcknowledgements.
+	b.clientTotalChunks = fc.totalChunks
+	b.clientDelayedChunks = fc.delayedChunks
 
 	b.onReadAcknowledgements()
 }
@@ -656,11 +617,6 @@ func (b *appendFSM) mustState(s appendState) {
 			"actual": b.state,
 		}).Panic("unexpected appendFSM state")
 	}
-}
-
-type appendChunk struct {
-	req *pb.AppendRequest
-	err error
 }
 
 var (
