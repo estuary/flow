@@ -312,25 +312,25 @@ func (s *CoverSetSuite) TestSetDifference(c *gc.C) {
 func (s *CoverSetSuite) TestParseWithMultipleOverlaps(c *gc.C) {
 	var set CoverSet
 
-	f, _ := protocol.ParseContentName("a/journal",
+	f, _ := protocol.ParseFragmentFromRelativePath("a/journal",
 		"0000000000000000-00000000400a8d41-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
-	f, _ = protocol.ParseContentName("a/journal",
+	f, _ = protocol.ParseFragmentFromRelativePath("a/journal",
 		"00000000400a8d41-00000000595722d7-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
-	f, _ = protocol.ParseContentName("a/journal",
+	f, _ = protocol.ParseFragmentFromRelativePath("a/journal",
 		"00000000400a8d41-000000007a3fb5ee-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
-	f, _ = protocol.ParseContentName("a/journal",
+	f, _ = protocol.ParseFragmentFromRelativePath("a/journal",
 		"00000000400a8d41-000000007af92e59-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
-	f, _ = protocol.ParseContentName("a/journal",
+	f, _ = protocol.ParseFragmentFromRelativePath("a/journal",
 		"00000000595722d7-000000007af92fb4-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
-	f, _ = protocol.ParseContentName("a/journal",
+	f, _ = protocol.ParseFragmentFromRelativePath("a/journal",
 		"000000007a3fb5ee-000000007af92fb4-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
-	f, _ = protocol.ParseContentName("a/journal",
+	f, _ = protocol.ParseFragmentFromRelativePath("a/journal",
 		"000000007af92e59-000000007af92e59-0000000000000000000000000000000000000000.raw")
 	set, _ = set.Add(Fragment{Fragment: f})
 

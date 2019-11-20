@@ -100,28 +100,13 @@ func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.U
 	var (
 		q = storage.Query{
 			Prefix: cfg.rewritePath(cfg.prefix, journal.String()) + "/",
-			// Gazette stores all of a journal's fragment files in a flat
-			// structure. Providing a delimiter excludes files in
-			// subdirectories from the query results because they will be
-			// collapsed into a single synthetic "directory entry".
-			Delimiter: "/",
 		}
 		it  = client.Bucket(cfg.bucket).Objects(ctx, &q)
 		obj *storage.ObjectAttrs
 	)
 	for obj, err = it.Next(); err == nil; obj, err = it.Next() {
-		if obj.Prefix != "" {
-			// The parent directory is included in the results because it
-			// matches the prefix. Additionally, if there are subdirectories,
-			// they will be represented by synthetic "directory entries". Both
-			// of these types of objects should be ignored as they never
-			// represent fragment files.
-			//
-			// See:
-			// - https://cloud.google.com/storage/docs/json_api/v1/objects/list
-			// - https://godoc.org/cloud.google.com/go/storage#ObjectAttrs.Prefix
-		} else if frag, err2 := pb.ParseContentName(journal, obj.Name[len(q.Prefix):]); err2 != nil {
-			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name, "err": err2}).Warning("parsing fragment")
+		if frag, err := pb.ParseFragmentFromRelativePath(journal, obj.Name[len(q.Prefix):]); err != nil {
+			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name, "err": err}).Warning("parsing fragment")
 		} else if obj.Size == 0 && frag.ContentLength() > 0 {
 			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name}).Warning("zero-length fragment")
 		} else {

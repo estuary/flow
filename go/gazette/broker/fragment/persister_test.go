@@ -18,13 +18,12 @@ type PersisterSuite struct{}
 
 func (p *PersisterSuite) TestSpoolCompleteNonPrimary(c *gc.C) {
 	var persister = NewPersister(nil)
-	persister.persistFn = func(ctx context.Context, spool Spool) error {
+	persister.persistFn = func(context.Context, Spool, *pb.JournalSpec) error {
 		c.Error("spool should not be persisted")
 		return nil
 	}
 	var obv testSpoolObserver
 	var spool = NewSpool("journal-1", &obv)
-	spool.BackingStore = "file:///root/"
 
 	// Spools with no content should not be enqueued.
 	persister.SpoolComplete(spool, false)
@@ -33,7 +32,7 @@ func (p *PersisterSuite) TestSpoolCompleteNonPrimary(c *gc.C) {
 	persister.mu.Unlock()
 
 	// Enqueue spools with content on a non-primary node.
-	applyAndCommit(&spool, "file:///root/")
+	applyAndCommit(&spool)
 	persister.SpoolComplete(spool, false)
 	persister.mu.Lock()
 	c.Check(len(persister.qC), gc.Equals, 1)
@@ -60,22 +59,21 @@ func (p *PersisterSuite) TestSpoolCompletePrimary(c *gc.C) {
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	var persister = NewPersister(ks)
-	persister.persistFn = func(ctx context.Context, spool Spool) error {
+	persister.persistFn = func(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
 		c.Check(spool.Fragment.Fragment, gc.DeepEquals, pb.Fragment{
 			Journal:          "journal-1",
 			Begin:            0,
 			End:              12,
 			Sum:              pb.SHA1SumOf("some content"),
 			CompressionCodec: pb.CompressionCodec_NONE,
-			BackingStore:     pb.FragmentStore("file:///root/"),
 		})
+		c.Check(spec, gc.Equals, specFixture)
 		wg.Done()
 		return nil
 	}
 	var obv testSpoolObserver
 	var spool = NewSpool("journal-1", &obv)
-	spool.BackingStore = pb.FragmentStore("file:///root/")
-	applyAndCommit(&spool, "file:///root/")
+	applyAndCommit(&spool)
 
 	wg.Add(1)
 	persister.SpoolComplete(spool, true)
@@ -103,7 +101,7 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	var persister = Persister{
 		doneCh: make(chan struct{}),
 		ks:     ks,
-		persistFn: func(ctx context.Context, spool Spool) error {
+		persistFn: func(context.Context, Spool, *pb.JournalSpec) error {
 			c.Error("spool should not be persisted")
 			return nil
 		},
@@ -117,12 +115,7 @@ func (p *PersisterSuite) TestAttempPersistFragmentDropped(c *gc.C) {
 	c.Check(len(persister.qC), gc.Equals, 0)
 	persister.mu.Unlock()
 
-	applyAndCommit(&spool, "file:///root/")
-	// Journal spec with no fragment stores should not call persistFn or enqueue spool.
-	persister.attemptPersist(spool)
-	persister.mu.Lock()
-	c.Check(len(persister.qC), gc.Equals, 0)
-	persister.mu.Unlock()
+	applyAndCommit(&spool)
 
 	// Journal spec which has been removed should not call persistFn or enqueue spool.
 	spool.Journal = pb.Journal("invalidJournal")
@@ -156,8 +149,8 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 	var persister = Persister{
 		doneCh: make(chan struct{}),
 		ks:     ks,
-		persistFn: func(ctx context.Context, spool Spool) error {
-			if spool.BackingStore == pb.FragmentStore("file:///root/invalid/") {
+		persistFn: func(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
+			if spec.Fragment.Stores[0] == pb.FragmentStore("file:///root/invalid/") {
 				return errors.New("something has gone wrong")
 			}
 			c.Check(spool.Fragment.Fragment, gc.DeepEquals, pb.Fragment{
@@ -166,8 +159,8 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 				End:              12,
 				Sum:              pb.SHA1SumOf("some content"),
 				CompressionCodec: pb.CompressionCodec_NONE,
-				BackingStore:     pb.FragmentStore("file:///root/"),
 			})
+			c.Check(spec, gc.Equals, specFixture)
 			return nil
 		},
 		ticker: ticker,
@@ -175,8 +168,7 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 
 	var obv testSpoolObserver
 	var spool = NewSpool("journal-1", &obv)
-	spool.BackingStore = pb.FragmentStore("file:///root/invalid/")
-	applyAndCommit(&spool, "file:///root/invalid/")
+	applyAndCommit(&spool)
 
 	go persister.Serve()
 	persister.qA = append(persister.qA, spool)
@@ -198,7 +190,7 @@ func (p *PersisterSuite) TestServeUpdateBackingStore(c *gc.C) {
 	persister.mu.Unlock()
 }
 
-func applyAndCommit(spool *Spool, store string) {
+func applyAndCommit(spool *Spool) {
 	spool.applyContent(&pb.ReplicateRequest{
 		Content:      []byte("some content"),
 		ContentDelta: 0,
@@ -210,7 +202,6 @@ func applyAndCommit(spool *Spool, store string) {
 			End:              12,
 			Sum:              pb.SHA1SumOf("some content"),
 			CompressionCodec: pb.CompressionCodec_NONE,
-			BackingStore:     pb.FragmentStore(store),
 		}}, true)
 }
 

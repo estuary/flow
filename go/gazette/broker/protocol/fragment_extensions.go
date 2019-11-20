@@ -17,7 +17,9 @@ func (m *Fragment) ContentName() string {
 }
 
 // ContentPath returns the content-addressed path of this Fragment.
-func (m *Fragment) ContentPath() string { return m.Journal.String() + "/" + m.ContentName() }
+func (m *Fragment) ContentPath() string {
+	return path.Join(m.Journal.String(), m.PathPostfix, m.ContentName())
+}
 
 // ContentLength returns the number of content bytes contained in this Fragment.
 // If compression is used, this will differ from the file size of the Fragment.
@@ -31,13 +33,29 @@ func (m *Fragment) Validate() error {
 		return NewValidationError("expected Begin <= End (have %d, %d)", m.Begin, m.End)
 	} else if err = m.CompressionCodec.Validate(); err != nil {
 		return ExtendContext(err, "CompressionCodec")
+	} else if err = ValidatePathComponent(m.PathPostfix, 0, maxJournalNameLen); err != nil {
+		return ExtendContext(err, "PathPostfix")
 	}
 	return nil
 }
 
-// ParseContentName parses a ContentName into a Fragment of the Journal, or returns an error.
-func ParseContentName(journal Journal, name string) (Fragment, error) {
+// ParseFragmentFromRelativePath parses a Fragment from its relative path name,
+// under the Journal's storage location within a fragment store. Path components
+// contributed by the Journal must have already been stripped from the path
+// string, leaving only a path postfix, content name, and compression extension.
+//
+//      ParseFragmentFromRelativePath("a/journal",
+//          "a=1/b=2/00000000499602d2-7fffffffffffffff-0102030405060708090a0b0c0d0e0f1011121314.gz")
+//
+func ParseFragmentFromRelativePath(journal Journal, name string) (Fragment, error) {
 	var f Fragment
+
+	var postfix = path.Dir(name)
+	if postfix == "." {
+		postfix = ""
+	} else {
+		name = name[len(postfix)+1:]
+	}
 
 	var ext = path.Ext(name)
 	name = name[:len(name)-len(ext)]
@@ -61,6 +79,7 @@ func ParseContentName(journal Journal, name string) (Fragment, error) {
 			End:              end,
 			Sum:              SHA1SumFromDigest(sum),
 			CompressionCodec: cc,
+			PathPostfix:      postfix,
 		}
 	}
 	return f, f.Validate()

@@ -149,11 +149,9 @@ func (s *s3Backend) List(ctx context.Context, store pb.FragmentStore, ep *url.UR
 		Bucket: aws.String(cfg.bucket),
 		Prefix: aws.String(cfg.rewritePath(cfg.prefix, journal.String()) + "/"),
 	}
-
 	return client.ListObjectsV2PagesWithContext(ctx, &q, func(objs *s3.ListObjectsV2Output, _ bool) bool {
 		for _, obj := range objs.Contents {
-
-			if frag, err := pb.ParseContentName(journal, (*obj.Key)[len(*q.Prefix):]); err != nil {
+			if frag, err := pb.ParseFragmentFromRelativePath(journal, (*obj.Key)[len(*q.Prefix):]); err != nil {
 				log.WithFields(log.Fields{"bucket": cfg.bucket, "key": *obj.Key, "err": err}).Warning("parsing fragment")
 			} else if *obj.Size == 0 && frag.ContentLength() > 0 {
 				log.WithFields(log.Fields{"obj": obj}).Warning("zero-length fragment")

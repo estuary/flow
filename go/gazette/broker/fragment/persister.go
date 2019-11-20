@@ -22,7 +22,7 @@ type Persister struct {
 	doneCh     chan struct{}
 	ks         *keyspace.KeySpace
 	ticker     *time.Ticker
-	persistFn  func(ctx context.Context, spool Spool) error
+	persistFn  func(context.Context, Spool, *pb.JournalSpec) error
 }
 
 // NewPersister returns an empty, initialized Persister.
@@ -87,7 +87,7 @@ func (p *Persister) Serve() {
 }
 
 // attemptPersist persist valid spools, dropping spools with no content or no configured
-// backing store. If persistFn fails the spool will be requeued and be attmepted again.
+// backing store. If persistFn fails the spool will be requeued and be attempted again.
 func (p *Persister) attemptPersist(spool Spool) {
 	if spool.ContentLength() == 0 {
 		// Persisting an empty Spool is a no-op.
@@ -98,14 +98,7 @@ func (p *Persister) attemptPersist(spool Spool) {
 	var item, ok = allocator.LookupItem(p.ks, spool.Journal.String())
 	p.ks.Mu.RUnlock()
 
-	if ok {
-		var spec = item.ItemValue.(*pb.JournalSpec)
-		// Journal spec has no configured store, drop this fragment.
-		if len(spec.Fragment.Stores) == 0 {
-			return
-		}
-		spool.BackingStore = spec.Fragment.Stores[0]
-	} else {
+	if !ok {
 		log.WithFields(log.Fields{
 			"journal": spool.Journal,
 			"name":    spool.ContentName(),
@@ -113,7 +106,8 @@ func (p *Persister) attemptPersist(spool Spool) {
 		return
 	}
 
-	if err := p.persistFn(context.Background(), spool); err != nil {
+	var spec = item.ItemValue.(*pb.JournalSpec)
+	if err := p.persistFn(context.Background(), spool, spec); err != nil {
 		log.WithFields(log.Fields{
 			"journal": spool.Journal,
 			"name":    spool.ContentName(),

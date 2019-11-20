@@ -2,9 +2,10 @@ package protocol
 
 import (
 	"fmt"
+	"io/ioutil"
 	"mime"
-	"path"
 	"strings"
+	"text/template"
 	"time"
 
 	"go.gazette.dev/core/allocator"
@@ -29,14 +30,7 @@ type Offsets map[Journal]Offset
 // the base64 alphabet, a clean path (as defined by path.Clean), and must not
 // begin with a '/'.
 func (n Journal) Validate() error {
-	if err := ValidateToken(n.String(), minJournalNameLen, maxJournalNameLen); err != nil {
-		return err
-	} else if path.Clean(n.String()) != n.String() {
-		return NewValidationError("must be a clean path (%s)", n)
-	} else if n[0] == '/' {
-		return NewValidationError("cannot begin with '/' (%s)", n)
-	}
-	return nil
+	return ValidatePathComponent(n.String(), minJournalNameLen, maxJournalNameLen)
 }
 
 // String returns the Journal as a string.
@@ -115,6 +109,21 @@ func (m *JournalSpec_Fragment) Validate() error {
 	if m.FlushInterval != 0 && m.FlushInterval < minFlushInterval {
 		return NewValidationError("invalid FlushInterval (%s; expected >= %s)",
 			m.FlushInterval, minFlushInterval)
+	}
+
+	// Ensure the PathPostfixTemplate parses and evaluates without
+	// error over a zero-valued struct having the proper shape.
+	if tpl, err := template.New("postfix").Parse(m.PathPostfixTemplate); err != nil {
+		return ExtendContext(NewValidationError(err.Error()), "PathPostfixTemplate")
+	} else if err = tpl.Execute(ioutil.Discard, struct {
+		Spool struct {
+			Fragment
+			FirstAppendTime time.Time
+			Registers       LabelSet
+		}
+		JournalSpec
+	}{}); err != nil {
+		return ExtendContext(NewValidationError(err.Error()), "PathPostfixTemplate")
 	}
 
 	// Retention requires no explicit validation (all values permitted).
@@ -244,6 +253,9 @@ func UnionJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Fragment.FlushInterval == 0 {
 		a.Fragment.FlushInterval = b.Fragment.FlushInterval
 	}
+	if a.Fragment.PathPostfixTemplate == "" {
+		a.Fragment.PathPostfixTemplate = b.Fragment.PathPostfixTemplate
+	}
 	if a.Flags == JournalSpec_NOT_SPECIFIED {
 		a.Flags = b.Flags
 	}
@@ -279,6 +291,9 @@ func IntersectJournalSpecs(a, b JournalSpec) JournalSpec {
 	if a.Fragment.FlushInterval != b.Fragment.FlushInterval {
 		a.Fragment.FlushInterval = 0
 	}
+	if a.Fragment.PathPostfixTemplate != b.Fragment.PathPostfixTemplate {
+		a.Fragment.PathPostfixTemplate = ""
+	}
 	if a.Flags != b.Flags {
 		a.Flags = JournalSpec_NOT_SPECIFIED
 	}
@@ -313,6 +328,9 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	}
 	if a.Fragment.FlushInterval == b.Fragment.FlushInterval {
 		a.Fragment.FlushInterval = 0
+	}
+	if a.Fragment.PathPostfixTemplate == b.Fragment.PathPostfixTemplate {
+		a.Fragment.PathPostfixTemplate = ""
 	}
 	if a.Flags == b.Flags {
 		a.Flags = JournalSpec_NOT_SPECIFIED

@@ -40,11 +40,12 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 		Replication: 3,
 		LabelSet:    MustLabelSet("aaa", "bbb"),
 		Fragment: JournalSpec_Fragment{
-			Length:           1 << 18,
-			CompressionCodec: CompressionCodec_GZIP,
-			Stores:           []FragmentStore{"s3://bucket/path/", "gs://other-bucket/path/"},
-			RefreshInterval:  5 * time.Minute,
-			Retention:        365 * 24 * time.Hour,
+			Length:              1 << 18,
+			CompressionCodec:    CompressionCodec_GZIP,
+			Stores:              []FragmentStore{"s3://bucket/path/", "gs://other-bucket/path/"},
+			RefreshInterval:     5 * time.Minute,
+			Retention:           365 * 24 * time.Hour,
+			PathPostfixTemplate: `date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{ .Spool.FirstAppendTime.Format "15" }}`,
 		},
 
 		Flags:         JournalSpec_O_RDWR,
@@ -141,6 +142,11 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	c.Check(f.Validate(), gc.ErrorMatches, `invalid FlushInterval \(1s; expected >= 1m0s\)`)
 	f.FlushInterval = time.Hour * 2
 
+	f.PathPostfixTemplate = "{{ bad template"
+	c.Check(f.Validate(), gc.ErrorMatches, `PathPostfixTemplate: template: postfix:1: .*`)
+	f.PathPostfixTemplate = ""
+	c.Check(spec.Validate(), gc.IsNil) // Template may be empty.
+
 	f.Stores = append(f.Stores, "invalid")
 	c.Check(f.Validate(), gc.ErrorMatches, `Stores\[2\]: not absolute \(invalid\)`)
 }
@@ -228,12 +234,13 @@ func (s *JournalSuite) TestSetOperations(c *gc.C) {
 			},
 		},
 		Fragment: JournalSpec_Fragment{
-			Length:           1024,
-			CompressionCodec: CompressionCodec_SNAPPY,
-			Stores:           []FragmentStore{"s3://bucket/"},
-			RefreshInterval:  time.Minute,
-			Retention:        time.Hour,
-			FlushInterval:    time.Hour,
+			Length:              1024,
+			CompressionCodec:    CompressionCodec_SNAPPY,
+			Stores:              []FragmentStore{"s3://bucket/"},
+			RefreshInterval:     time.Minute,
+			Retention:           time.Hour,
+			FlushInterval:       time.Hour,
+			PathPostfixTemplate: "{{ .Foo }}",
 		},
 		Flags:         JournalSpec_O_RDWR,
 		MaxAppendRate: 1e3,
@@ -248,12 +255,13 @@ func (s *JournalSuite) TestSetOperations(c *gc.C) {
 			},
 		},
 		Fragment: JournalSpec_Fragment{
-			Length:           5678,
-			CompressionCodec: CompressionCodec_NONE,
-			Stores:           []FragmentStore{"gs://other-bucket/"},
-			RefreshInterval:  10 * time.Hour,
-			Retention:        10 * time.Hour,
-			FlushInterval:    10 * time.Hour,
+			Length:              5678,
+			CompressionCodec:    CompressionCodec_NONE,
+			Stores:              []FragmentStore{"gs://other-bucket/"},
+			RefreshInterval:     10 * time.Hour,
+			Retention:           10 * time.Hour,
+			FlushInterval:       10 * time.Hour,
+			PathPostfixTemplate: "{{ .Bar }}",
 		},
 		Flags:         JournalSpec_O_RDONLY,
 		MaxAppendRate: 1e4,

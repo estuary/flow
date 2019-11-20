@@ -451,7 +451,7 @@ func parseSetParts(name, s string) ([]Label, error) {
 }
 
 var (
-	reToken         = ` ?([\` + regexp.QuoteMeta(tokenAlphabet) + `]{2,})`
+	reToken         = ` ?([\pL\pN\` + regexp.QuoteMeta(tokenSymbols) + `]{2,})`
 	reCommaOrEnd    = ` ?(?:,|$)`
 	reParenthetical = ` ?\(([^)]+)\)`
 

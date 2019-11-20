@@ -277,6 +277,7 @@ fragment:
   refresh_interval: 1m0s
   retention: 1h0m0s
   flush_interval: 2m0s
+  path_postfix_template: foo={{ .Spool.Begin }}
 flags: O_RDWR
 max_append_rate: 11223344
 children:
@@ -299,12 +300,13 @@ children:
 	c.Assert(tree.Validate(), gc.IsNil)
 
 	var fragSpec = pb.JournalSpec_Fragment{
-		Length:           1234,
-		CompressionCodec: pb.CompressionCodec_SNAPPY,
-		Stores:           []pb.FragmentStore{"s3://a-bucket/", "gcs://another-bucket/"},
-		RefreshInterval:  time.Minute,
-		Retention:        time.Hour,
-		FlushInterval:    time.Minute * 2,
+		Length:              1234,
+		CompressionCodec:    pb.CompressionCodec_SNAPPY,
+		Stores:              []pb.FragmentStore{"s3://a-bucket/", "gcs://another-bucket/"},
+		RefreshInterval:     time.Minute,
+		Retention:           time.Hour,
+		FlushInterval:       time.Minute * 2,
+		PathPostfixTemplate: "foo={{ .Spool.Begin }}",
 	}
 
 	tree.PushDown()

@@ -50,13 +50,20 @@ func TestStoreInteractions(t *testing.T) {
 	defer func(s string) { FileSystemStoreRoot = s }(FileSystemStoreRoot)
 	FileSystemStoreRoot = dir
 
+	// Use a wacky path template which does little more than ensure
+	// that each fragment ends up under a different path partition.
+	var spec = &pb.JournalSpec{
+		Fragment: pb.JournalSpec_Fragment{
+			Stores:              []pb.FragmentStore{fs},
+			PathPostfixTemplate: `nanos={{ .Spool.FirstAppendTime.Nanosecond }}`,
+		},
+	}
 	// Begin by persisting a number of fragment fixtures.
 	// Persist twice, to exercise handling where the fragment exists.
 	var ctx = context.Background()
-	for _, s := range buildSpoolFixtures(t) {
-		s.BackingStore = fs
-		require.NoError(t, Persist(ctx, s))
-		require.NoError(t, Persist(ctx, s))
+	for _, spool := range buildSpoolFixtures(t) {
+		require.NoError(t, Persist(ctx, spool, spec))
+		require.NoError(t, Persist(ctx, spool, spec))
 	}
 
 	// List fragments of both journals.

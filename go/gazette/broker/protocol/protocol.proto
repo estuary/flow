@@ -207,6 +207,21 @@ message JournalSpec {
       (gogoproto.stdduration) = true,
       (gogoproto.nullable) = false,
       (gogoproto.moretags) = "yaml:\"flush_interval,omitempty\""];
+
+    // Path postfix template is a Go template which evaluates to a partial
+    // path under which fragments are persisted to the store. A complete
+    // fragment path is constructed by appending path components from the
+    // fragment store, then the journal name, and then the postfix template.
+    // Path post-fixes can help in maintaining Hive compatible partitioning
+    // over fragment creation time. The fields ".Spool" and ".JournalSpec"
+    // are available for introspection in the template. For example,
+    // to partition on the UTC date and hour of creation, use:
+    //
+    //    date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{ .Spool.FirstAppendTime.Format "15" }}
+    //
+    // Which will produce a path postfix like "date=2019-11-19/hour=22".
+    string path_postfix_template = 7 [
+      (gogoproto.moretags) = "yaml:\"path_postfix_template,omitempty\""];
   }
   Fragment fragment = 4 [
     (gogoproto.nullable) = false,
@@ -297,6 +312,10 @@ message Fragment {
   // Modification timestamp of the Fragment within the backing store, represented as seconds
   // since the epoch.
   int64 mod_time = 7;
+  // Path postfix under which the fragment is persisted to the store.
+  // The complete Fragment store path is built from any path components of the
+  // backing store, followed by the journal name, followed by the path postfix.
+  string path_postfix = 8;
 }
 
 // SHA1Sum is a 160-bit SHA1 digest.

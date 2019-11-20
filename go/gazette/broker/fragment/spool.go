@@ -22,7 +22,7 @@ import (
 type Spool struct {
 	// Fragment at time of last commit.
 	Fragment
-	// FirstAppendTime is the timestamp of the first append of the current fragment.
+	// FirstAppendTime is the UTC Time of the first commit of the Spool Fragment.
 	FirstAppendTime time.Time
 	// Registers of the journal.
 	Registers pb.LabelSet
@@ -166,7 +166,7 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 		s.observer.SpoolCommit(s.Fragment)
 
 		if s.FirstAppendTime.IsZero() {
-			s.FirstAppendTime = timeNow()
+			s.FirstAppendTime = timeNow().UTC()
 		}
 		s.Registers.Assign(r.Registers)
 

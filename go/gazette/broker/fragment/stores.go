@@ -1,14 +1,17 @@
 package fragment
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/url"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/gorilla/schema"
+	"github.com/pkg/errors"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/metrics"
 )
@@ -69,10 +72,21 @@ func Open(ctx context.Context, fragment pb.Fragment) (io.ReadCloser, error) {
 	return rc, err
 }
 
-// Persist a Spool to its store. If the Spool Fragment is already present,
-// this is a no-op. If the Spool has not been compressed incrementally,
+// Persist a Spool to the JournalSpec's store. If the Spool Fragment is already
+// present, this is a no-op. If the Spool has not been compressed incrementally,
 // it will be compressed before being persisted.
-func Persist(ctx context.Context, spool Spool) error {
+func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
+	if len(spec.Fragment.Stores) == 0 {
+		return nil // No-op.
+	}
+	spool.BackingStore = spec.Fragment.Stores[0]
+
+	if postfix, err := evalPathPostfix(spool, spec); err != nil {
+		return err
+	} else {
+		spool.PathPostfix = postfix
+	}
+
 	var ep = spool.Fragment.BackingStore.URL()
 	var b = getBackend(ep.Scheme)
 
@@ -140,6 +154,23 @@ func instrumentStoreOp(provider, op string, err error) {
 	} else {
 		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Ok).Inc()
 	}
+}
+
+func evalPathPostfix(spool Spool, spec *pb.JournalSpec) (string, error) {
+	var tpl, err = template.New("").Parse(spec.Fragment.PathPostfixTemplate)
+	if err != nil {
+		return "", errors.WithMessage(err, "parsing PathPostfixTemplate")
+	}
+
+	var b bytes.Buffer
+	if err = tpl.Execute(&b, struct {
+		Spool
+		*pb.JournalSpec
+	}{spool, spec}); err != nil {
+		return "", errors.WithMessagef(err,
+			"executing PathPostfixTemplate (%s)", spec.Fragment.PathPostfixTemplate)
+	}
+	return b.String(), nil
 }
 
 // RewriterConfig rewrites the path under which journal fragments are stored

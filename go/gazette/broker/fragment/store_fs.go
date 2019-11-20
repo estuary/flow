@@ -73,7 +73,7 @@ func (s fsBackend) Persist(_ context.Context, ep *url.URL, spool Spool) error {
 
 	var path = filepath.Join(FileSystemStoreRoot, filepath.FromSlash(cfg.rewritePath(ep.Path, spool.ContentPath())))
 
-	// Create the journal's fragment directory, if not already present.
+	// Create the fragment's directory, if not already present.
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err
 	}
@@ -133,7 +133,8 @@ func (s fsBackend) List(_ context.Context, store pb.FragmentStore, ep *url.URL, 
 				return nil
 			}
 
-			if frag, err := pb.ParseContentName(journal, name); err != nil {
+			frag, err := pb.ParseFragmentFromRelativePath(journal, filepath.ToSlash(name))
+			if err != nil {
 				log.WithFields(log.Fields{
 					"journal": journal,
 					"name":    name,
