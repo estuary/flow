@@ -1,5 +1,5 @@
 // Package runconsumer extends consumer.Application with support for
-// configuration and application initialization. It provides a Main() function
+// configuration and application initialization. It provides a Main function
 // which executes the full consumer life-cycle, including config parsing,
 // service bootstrap, and Shard serving.
 package runconsumer
@@ -25,14 +25,25 @@ import (
 	"go.gazette.dev/core/task"
 )
 
-// Application is the user-defined consumer Application which is executed by Main.
+// Application is the user-defined consumer Application which is executed
+// by Main. It extends consumer.Application with callbacks to support
+// custom configuration parsing and initialization.
 type Application interface {
 	consumer.Application
 
 	// NewConfig returns a new, zero-valued Config instance.
+	// Main calls NewConfig to obtain a new instance of the Application's
+	// custom configuration type. It will next use `go-flags` to parse
+	// command-line and environment flags into the provide Config, in order
+	// to provide the Application with a complete configuration.
 	NewConfig() Config
-	// InitApplication initializes the Application, eg by starting related
-	// services and registering implemented service APIs.
+	// InitApplication initializes the Application.
+	// Main calls InitApplication after parsing the Config and binding
+	// HTTP and gRPC servers, but before announcing this process's
+	// MemberSpec.
+	//
+	// InitApplication is a good opportunity to register additional gRPC
+	// services or perform other initialization.
 	InitApplication(InitArgs) error
 }
 

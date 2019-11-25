@@ -1,23 +1,10 @@
-# Journal YAMLs represent a hierarchy of related journals.
-# Intermediate nodes of the hierarchy are directories (indicated by a trailing
-# '/' in their name), and terminal nodes represent journals (which never
-# have a trailing '/'). For the YAML to validate, all node names in the
-# hierarchy must be prefixed by that of their parent(s).
-#
-# An important concept to understand is that journal hierarchies don't
-# actually exist, from a system perspective: every journal is written to
-# Etcd with its full and complete JournalSpec. The gazctl tool maps a
-# journal YAML to complete JournalSpecs by pushing configuration from parent
-# to child. In other words, where a journal provides no value for a
-# configuration property, it derives the value of the lowest parent in the
-# tree which specifies a non-zero value (labels are additively merged).
-# gazctl derives a YAML from a set of matched JournalSpecs by "hoisting"
-# properties shared by all children to a representative parent node.
+# examples.journalspace.yaml declares JournalSpecs and configuration
+# used by example applications of the gazette repository.
 
-# Root directory of this journal YAML.
-name:        examples/
+# Root "directory" of this journal YAML.
+name: examples/
 # Replication is the number of brokers required to participate in write
-# transactions of the journal. Eg a value of 3 means an Append RPC will proceed
+# transactions of the journal. I.e. a value of 3 means an Append RPC will proceed
 # only after data has been replicated to three distinct brokers in at least two
 # failure zones.
 replication: 3
@@ -31,7 +18,7 @@ fragment:
   # Desired length of each journal fragment. Note fragments can be
   # substantially smaller or slightly larger under normal operation, as
   # journal assignments change or to ensure atomicity of writes.
-  length:            268435456 # 256MB.
+  length: 268435456 # 256MB.
   # Stores enumerates the fragment backing stores of the journal. More
   # than one store may be provided. New fragments are always persisted
   # to the first store in the list, but all stores are refreshed when
@@ -39,15 +26,15 @@ fragment:
   stores:
     - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fminio%3A9000
   # Refresh interval defines the frequency with which stores are re-listed.
-  refresh_interval:  1m0s
+  refresh_interval: 1m0s
   # Retention is the time interval after which the fragment is eligible
   # for pruning from the backing store.
-  retention:         720h0m0s
+  retention: 720h0m0s
   # Compression codec used to compress fragments. One of:
   # NONE, GZIP, GZIP_OFFLOAD_DECOMPRESSION, SNAPPY, ZSTANDARD.
   compression_codec: SNAPPY
   # Flush interval defines the minimum frequency at which fragments are flushed.
-  flush_interval:    10m0s
+  flush_interval: 10m0s
 children:
 
   # Journals used by go.gazette.dev/core/examples/bike-share
@@ -97,13 +84,13 @@ children:
       - name:  example-name
         value: stream-sum
     fragment:
-      # The stream-sum example is also an integration test, and
+      # The stream-sum example is used for crash tests, and
       # refresh_interval influences the recovery time of consumers in
       # corner cases where a broker crashes on a not-quite-caught-up
       # consumer. That consumer may retry its read to a broker which
       # must wait for the fragment to appear in cloud storage. Use an
       # aggressive interval to ensure reads are satisfied within the
-      # chunker's SLA.
+      # test's required SLA.
       refresh_interval:  5s
     children:
       # Partitions to which stream Chunks are written.

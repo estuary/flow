@@ -303,13 +303,13 @@ func (r *Resolver) updateLocalShards() {
 //      if journal, _, err := mapping(key); err != nil {
 //          // Handle error.
 //      } else if specs := resolver.ShardsWithSource(journal); len(specs) == 0 {
-//		    err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
+//          err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
 //          // Handle error.
-//	    } else {
+//      } else {
 //          mappedID = specs[0].Id
 //      }
 //
-//	    var resolution, err = svc.Resolver.Resolve(consumer.ResolveArgs{
+//      var resolution, err = svc.Resolver.Resolve(consumer.ResolveArgs{
 //          ShardID:     specs[0].Id,
 //          ...
 //      })

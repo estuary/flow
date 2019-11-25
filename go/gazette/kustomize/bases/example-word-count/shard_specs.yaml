@@ -1,13 +1,31 @@
 # Create one shard for journals of examples.journalspace.yaml
-# Compare to ShardSpec for field definitions.
+# Compare to ShardSpec for full field definitions.
 common:
-  hint_backups: 2
+  # Etcd prefix into which recovery log hints are persisted.
   hint_prefix: /gazette/hints
+  # Backups of verified recovery log hints, retained for disaster recovery.
+  hint_backups: 2
+  # Desired number of members which will live-tail the primary's recovery log.
   hot_standbys: 1
+  # Upper-bound amount of time during which transactions *may* process messages
+  # before beginning to commit. If input messages stall before reaching this
+  # duration, the transaction may close immediately to minimize latency.
   max_txn_duration: 1s
+  # Lower-bound amount of time during which a transaction *must* process messages
+  # before beginning to commit. If input messages stall before reaching this
+  # duration, the transaction will block.
+  min_txn_duration: 0s
+  # Prefix of the journal into which each shard's recovery log is recorded.
   recovery_log_prefix: examples/word-count/recovery-logs
+  # Label common to all shards.
+  labels:
+    - name: common-label
+      value: common-value
 shards:
   - id: shard-000
+    # Label specific to this shard.
+    labels:
+      - name: custom-label
     sources:
       - journal: examples/word-count/deltas/part-000
   - id: shard-001
