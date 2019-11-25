@@ -1,0 +1,17 @@
+Usage:
+  gazctl [OPTIONS] print-config
+
+print-config parses the combined configuration from gazctl.ini, flags,
+and environment variables, and then writes the configuration to stdout in INI format.
+
+
+Application Options:
+      --zone=                        Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                         Show this help message
+

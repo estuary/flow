@@ -1,0 +1,77 @@
+Usage:
+  gazctl [OPTIONS] journals [journals-OPTIONS] fragments [fragments-OPTIONS]
+
+List fragments of selected journals.
+
+A label --selector is required, and determines the set of journals for which
+fragments are listed. See "journals list --help" for details and examples of
+using journal selectors.
+
+Use --from and/or --to to retrieve fragments persisted within the given time
+range. Note that each fragment is evaluated based on its modification
+timestamp as supplied by its backing fragment store. Usually this will be the
+time at which the fragment was uploaded to the store, but may not be if
+another process has modified or touched the fragment (Gazette itself will never
+modify a fragment once written). --from and --to are given in Unix seconds since
+the epoch. Use the 'date' tool to convert humanized timestamps to epoch values.
+
+If --url-ttl, the broker will generate and return a signed GET URL having the
+given TTL, suitable for directly reading the fragment from the backing store.
+
+Results can be output in a variety of --format options:
+json: Prints Fragments encoded as JSON, one per line.
+proto: Prints Fragments and response headers in protobuf text format.
+table: Prints as a humanized table.
+
+Combining --from, --to, and --url-ttl enables this command to generate inputs for
+regularly-run batch processing pipelines. For example, a cron job running at ten
+past the hour would fetch fragments persisted between the beginning and end of
+the last hour with an accompanying signed URL. That fragment list becomes input
+to an hourly batch pipeline run, which can directly read journal data from URLs
+without consulting brokers (or even being aware of them).
+
+See also the 'flush_interval' JournalSpec field, which can be used to bound the
+maximum delay of a record being written to a journal, vs that same record being
+persisted with its fragment to a backing store. Note that a fragment's time is
+an upper-bound on the append time of all contained records, and a fragment
+persisted at 4:01pm may contain records from 3:59pm. A useful pattern is to
+extend the queried range slightly (eg from 3:00-4:05pm), and then filter on
+record timestamps to the precise desired range (of 3:00-4:00pm).
+
+Examples:
+
+# List fragments of a journal in a formatted table:
+gazctl journals fragments -l name=my/journal
+
+# List fragments created in the last hour in prototext format, including a signed URL.
+gazctl journals fragments -l name=my/journal --url-ttl 1m --from $(date -d "1 hour ago" '+%s') --format proto
+
+# List fragments of journals matching my-label which were persisted between 3:00AM
+# and 4:05AM today with accompanying signed URL, output as JSON.
+gazctl journals fragments -l my-label --format json --url-ttl 1h --from $(date -d 3AM '+%s') --to $(date -d 4:05AM '+%s') --format json
+
+
+Application Options:
+      --zone=                         Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]   Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color]  Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                          Show this help message
+
+[journals command options]
+
+    Broker:
+          --broker.address=           Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=        Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=         Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[fragments command options]
+      -l, --selector=                 Label Selector query to filter on
+      -o, --format=[table|json|proto] Output format (default: table)
+          --from=                     Restrict to fragments created at or after this time, in unix seconds since epoch
+          --to=                       Restrict to fragments created before this time, in unix seconds since epoch
+          --url-ttl=                  Provide a signed GET URL with the given TTL
+

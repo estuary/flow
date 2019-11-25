@@ -1,0 +1,86 @@
+Usage:
+  gazctl [OPTIONS] journals [journals-OPTIONS] read [read-OPTIONS]
+
+Read the contents of one or more journals.
+
+A label --selector is required, and determines the set of journals which are read.
+See "journals list --help" for details and examples of using journal selectors.
+
+Matched journals are read concurrently, and their content is multiplexed into
+the output file (or stdout). Content is copied to the output in whole-fragment
+chunks, and so long as journal appends reflect whole message boundaries, this
+command will also respect those boundaries in the merged output.
+
+The --selector is evaluated both at startup and also periodically during
+execution. As new journals are matched by the selector, and old ones stop
+matching, corresponding read operations are started and stopped.
+
+Journals are read until the write-head is reached (OFFSET_NOT_YET_AVAILABLE),
+or gazctl is signaled (Ctrl-C or SIGTERM). If --block is specified, reads will
+block upon reaching the write-head and thereafter stream content as it commits.
+
+By default reads of journals begin at byte offset 0. If --offsets is specified,
+it must exist and be a JSON mapping of journal name to read offset, and is used
+to supply the initial read offsets for selected journals. --offsets-out in turn
+is a path to which final journal offsets are written on exit (either due to
+Ctrl-C or because all available content has been read). If --offsets and
+--offsets-out are the same path, the existing offsets will be retained and
+moved to a ".previous" suffix.
+
+If --tail is specified and a journal is not present in --offsets, then its read
+begins at its current write-head. This option generally only makes sense with
+--block, but can also be used to initialize --offsets-out.
+
+When running in high-volume production settings, be sure to set a non-zero
+--broker.cache.size to significantly reduce broker load. Aside from controlling
+the cache size itself, a non-zero value will:
+* Disable broker-side proxying of requests, such that gazctl directly routes and
+dispatches to applicable brokers, and
+* Turn of broker proxy reads of fragment files in backing stores. Instead,
+gazctl will read directly from stores via signed URLs that brokers provide.
+
+When client-side reads of fragments stored to a 'file://' backing store are
+desired, use the --file-root option to specify the directory of the store (eg,
+this might be the local mount-point of a NAS array also used by brokers).
+
+Examples:
+
+# Read all available journal content:
+gazctl journals read -l name=my/journal
+
+# Streaming read from tail of current (and future) journals matching my-label:
+gazctl journals read -l my-label --block --tail
+
+# Read new content from matched journals since the last invocation. Dispatch to
+# brokers in our same availability zone where available, and directly read
+# persisted fragments from their respective stores:
+echo "{}" > offsets.json # Must already exist.
+gazctl journals read -l my-label -o output --offsets offsets.json --offsets-out offsets.json --broker.cache.size=256 --zone=us-east-1
+
+
+Application Options:
+      --zone=                        Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                         Show this help message
+
+[journals command options]
+
+    Broker:
+          --broker.address=          Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=       Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=        Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[read command options]
+      -l, --selector=                Label selector of journals to read
+      -b, --block                    Do not exit on journal EOF; wait for new data until signaled
+          --tail                     Start reading from the journal write-head (rather than offset 0)
+      -o, --output=                  Output file path. Use '-' for stdout (default: -)
+          --offsets=                 Path from which initial journal offsets are read at startup
+          --offsets-out=             Path to which final journal offsets are written at exit
+          --file-root=               Filesystem path which roots file:// fragment store
+

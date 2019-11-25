@@ -1,0 +1,28 @@
+Usage:
+  gazette [OPTIONS] serve
+
+Serve a Gazette broker with the provided configuration, until signaled to
+exit (via SIGTERM). Upon receiving a signal, the broker will seek to discharge
+its responsible journals and will exit only when it can safely do so.
+
+
+Broker:
+      --broker.zone=                 Availability zone within which this process is running (default: local) [$BROKER_ZONE]
+      --broker.id=                   Unique ID of this process. Auto-generated if not set [$BROKER_ID]
+      --broker.host=                 Addressable, advertised hostname or IP of this process. Hostname is used if not set [$BROKER_HOST]
+      --broker.port=                 Service port for HTTP and gRPC requests. A random port is used if not set [$BROKER_PORT]
+      --broker.limit=                Maximum number of Journals the broker will allocate (default: 1024) [$BROKER_LIMIT]
+      --broker.file-root=            Local path which roots file:// fragment stores (optional) [$BROKER_FILE_ROOT]
+
+Etcd:
+      --etcd.address=                Etcd service address endpoint (default: http://localhost:2379) [$ETCD_ADDRESS]
+      --etcd.lease=                  Time-to-live of Etcd lease (default: 20s) [$ETCD_LEASE_TTL]
+      --etcd.prefix=                 Etcd base prefix for broker state and coordination (default: /gazette/cluster) [$ETCD_PREFIX]
+
+Logging:
+      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                         Show this help message
+

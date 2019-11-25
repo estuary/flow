@@ -1,0 +1,79 @@
+Usage:
+  gazctl [OPTIONS] journals [journals-OPTIONS] append [append-OPTIONS]
+
+Append content to one or more journals.
+
+A label --selector is required, and determines the set of journals which are appended.
+See "journals list --help" for details and examples of using journal selectors.
+
+If --framing 'none', then --mapping must be 'random' and the input is atomically
+appended to a random journal of the selector. Note --selector name=my/journal/name
+can be used to append to a specific journal.
+
+If --framing 'lines' then records are read from the input line-by-line. Each is
+mapped to a journal and appended on an atomic-per-record basis. The relative
+ordering of records in a specific mapped journal is preserved. --framing 'fixed'
+functions like 'lines', except that records are read from input delimited by a
+a leading fixed-framing header. Note that record delimiters (newlines or fixed-
+framing headers) are retained and included when appending into mapped journals.
+
+If --mapping 'random', each record is independently mapped to a random journal.
+If --mapping 'modulo' or 'rendezvous', then each input record is expected to be
+preceded by a partition-key written with the same --framing (eg, if --framing
+'lines' then 'A-Partition-Key\nA-Record\n'). The partition key is used to map
+the record which follows to a target journal under the applicable mapping scheme
+(eg, modulo arithmetic or rendezvous / "cuckoo" hashing). To use binary
+partition keys with --mapping 'lines', encoded each partition key using base64
+and specify --base64.
+
+If --mapping 'direct', then each input record is preceded by a journal name,
+which must be a current journal of the --selector, and to which the record is
+appended.
+
+Use --log.level=debug to inspect individual mapping decisions.
+
+Examples:
+
+# Write the content of ./fizzbuzz to my/journal:
+gazctl journals append -l name=my/journal -i ./fizzbuz
+
+# Write two records to partitions of my-label mapped by Key1 and Key2, respectively:
+gazctl journals append -l my-label --framing 'lines' --mapping 'modulo' --base64 << EOF
+S2V5MQ==
+{"Msg": "record 1"}
+S2V5Mg==
+{"Msg": "record 2"}
+EOF
+
+# Serve all writers to my-fifo as a long-lived daemon. Note that posix FIFOs do
+# not EOF while at least one process holds an open write descriptor. But, do
+# take care to have just one pipe writer at a time:
+mkfifo my-fifo
+cat /dev/stdout > my-fifo &	# Hold my-fifo open so gazctl doesn't read EOF.
+gazctl journals append -l my-label --framing 'lines' --mapping 'rendezvous' --input my-fifo
+
+
+Application Options:
+      --zone=                                         Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]                   Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                                          Show this help message
+
+[journals command options]
+
+    Broker:
+          --broker.address=                           Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=                        Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=                         Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[append command options]
+      -l, --selector=                                 Label selector of journals to append to
+      -i, --input=                                    Input file path. Use '-' for stdin (default: -)
+      -f, --framing=[none|lines|fixed]                Framing of records in input, if any (default: none)
+      -m, --mapping=[random|modulo|rendezvous|direct] Mapping function of records to journals (default: random)
+          --base64                                    Partition keys under 'lines' framing are interpreted as base64
+

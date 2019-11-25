@@ -1,11 +1,11 @@
 Design Goals (and Non-Goals)
-============================
+=============================
 
 Gazette has influences and shares similarities with a number of other projects.
 Its architecture also reflects several departures from the solutions of those
 influences.
 
- * Journals provide global record ordering and publish/subscribe.
+**Journals provide global record ordering and publish/subscribe**
 
 Much like Kakfa, LogDevice, Apache BookKeeper, and others. These properties are
 the basic building blocks for assembling platforms composed of streaming,
@@ -18,7 +18,7 @@ client and not the broker. This simplifies broker implementation and improves
 performance, as the broker can concern itself with additive byte sequences rather
 than granular messages.
 
- * Brokers do not provide long-term storage of journal content.
+**Brokers do not provide long-term storage of journal content**
 
 This responsibility is offloaded to a "blob" object store such as S3, Google Cloud
 Storage, Azure, HDFS, etc. Use of a separate storage backend stands in contrast to
@@ -34,7 +34,7 @@ separation enables taking advantage of services like S3 or GCS, which are highly
 elastic and suited for scaled read IOPs, and require no explicit provisioning or
 disk resizing.
 
- * Journals, once written, are immutable.
+**Journals, once written, are immutable**
 
 Gazette journals are designed to serve as the long-term system of record for data
 within the platform. Journals may be trimmed by removing content from the beginning
@@ -57,7 +57,7 @@ sequence the file operations of the database itself into a "recovery log" journa
 which can be pruned over time, and cheaply "tailed" by hot-standbys which replay
 the file operations to local disk (and do not otherwise incur any compaction cost).
 
- * Brokers and Consumers are ephemeral, disposable, and quick to start up.
+**Brokers and Consumers are ephemeral, disposable, and quick to start up**
 
 While they make good use of available local disk, they have no reliance on
 persistence of mounted data volumes. From a cold-start, brokers are able to serve
@@ -65,7 +65,7 @@ journal read, append, and replication operations without having to first copy
 any prior written data. As a trade-off, reads may block until the broker observes
 that recent written content has been persisted to the backing blob store.
 
- * Non-goal: Topics or higher-level organizing concepts.
+**Non-goal: Topics or higher-level organizing concepts**
 
 A common tactic to achieve horizontal scale-out of high volume message flows
 is to spread a collection of like messages across a number of "partitions",
@@ -79,7 +79,7 @@ declared labels. Topics can informally be implemented as a label and selector
 like ``topic=my_logs`` but selectors allow for additional flexible expressions
 (eg, ``topic=my_logs, region in (apac, us)``, or ``topic in (my_logs, my_new_logs)``).
 
- * Simple file-based integration with existing batch processing work-flows.
+**Simple file-based integration with existing batch processing work-flows**
 
 Spans of journal content (known as "fragments") use a content-addressed naming
 convention but otherwise impose no file structure and contain only raw journal
@@ -90,7 +90,7 @@ watching for files within the blob store, using a service (such as Amazon SNS) t
 receive file notifications, or using a library which implements such polling
 already (such as Spark DStreams).
 
- * Fast, zone/rack aware balancing and fail-over.
+**Fast, zone/rack aware balancing and fail-over**
 
 Gazette brokers and consumers dynamically balance work items (eg, journals)
 across the current cohort of application instances deployed by the operator.
@@ -107,7 +107,7 @@ replication delay. Gazette consumers may optionally have a number of "hot
 standbys" which replicate database file state and can immediately take over
 for a failed peer.
 
- * Non-goals: distributed state & consensus.
+**Non-goals: distributed state & consensus**
 
 Gazette uses Etcd v3 as the single source-of-truth for distributed state (eg
 current membership, journal specifications, and process assignments). Etcd v3
@@ -115,8 +115,9 @@ leases are used to detect process failures and gate distributed topology changes
 Gazette employs an "allocator", running atop Etcd API primitives, which solves
 for distributed zone-aware assignment and horizontal rebalancing.
 
- * Non-goals: resource management and job scheduling.
+**Non-goals: resource management and job scheduling**
 
 Gazette does not manage workloads or services, such as the provisioning or
 scaling of brokers or consumers, and relies on an external orchestration framework
 to perform these tasks. The authors use and enthusiastically recommend Kubernetes.
+

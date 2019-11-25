@@ -1,0 +1,39 @@
+Usage:
+  gazctl [OPTIONS] shards [shards-OPTIONS] prune [prune-OPTIONS]
+
+Recovery logs capture every write which has ever occurred in a Shard DB.
+This includes all prior writes of client keys & values, and also RocksDB
+compactions, which can significantly inflate the total volume of writes
+relative to the data currently represented in a RocksDB.
+
+Prune log examines the provided hints to identify Fragments of the log
+which have no intersection with any live files of the DB, and can thus
+be safely deleted.
+
+
+Application Options:
+      --zone=                        Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                         Show this help message
+
+[shards command options]
+
+    Consumer:
+          --consumer.address=        Service address endpoint (default: http://localhost:8080) [$CONSUMER_ADDRESS]
+          --consumer.cache.size=     Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$CONSUMER_CACHE_SIZE]
+          --consumer.cache.ttl=      Time-to-live of route cache entries. (default: 1m) [$CONSUMER_CACHE_TTL]
+
+    Broker:
+          --broker.address=          Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=       Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=        Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[prune command options]
+      -l, --selector=                Label Selector query to filter on
+          --dry-run                  Perform a dry-run of the apply
+

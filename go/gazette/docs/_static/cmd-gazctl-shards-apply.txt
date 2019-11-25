@@ -1,0 +1,49 @@
+Usage:
+  gazctl [OPTIONS] shards [shards-OPTIONS] apply [apply-OPTIONS]
+
+Apply a collection of ShardSpec creations, updates, or deletions.
+
+ShardSpecs should be provided as a YAML list, the same format produced by
+"gazctl shards list". Consumers verify that the Etcd "revision" field of each
+ShardSpec is correct, and will fail the entire apply operation if any have since
+been updated. A common operational pattern is to list, edit, and re-apply a
+collection of ShardSpecs; this check ensures concurrent modifications are caught.
+
+ShardSpecs may be created by setting "revision" to zero or omitting it altogether.
+
+ShardSpecs may be deleted by setting their field "delete" to true.
+
+In the event that this command generates more changes than are possible in a
+single Etcd transaction given the current server configuration (default 128),
+gazctl supports a flag which will send changes in batches of at most
+--max-txn-size. However, this means the entire apply is no longer issued as
+a single Etcd transaction and it should therefore be used with caution.
+If possible, prefer to use label selectors to limit the number of changes.
+
+Application Options:
+      --zone=                        Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                         Show this help message
+
+[shards command options]
+
+    Consumer:
+          --consumer.address=        Service address endpoint (default: http://localhost:8080) [$CONSUMER_ADDRESS]
+          --consumer.cache.size=     Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$CONSUMER_CACHE_SIZE]
+          --consumer.cache.ttl=      Time-to-live of route cache entries. (default: 1m) [$CONSUMER_CACHE_TTL]
+
+    Broker:
+          --broker.address=          Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=       Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=        Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[apply command options]
+          --specs=                   Input specifications path to apply. Use '-' for stdin (default: -)
+          --dry-run                  Perform a dry-run of the apply
+          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction (default: 0)
+

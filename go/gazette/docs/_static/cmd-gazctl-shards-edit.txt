@@ -1,0 +1,57 @@
+Usage:
+  gazctl [OPTIONS] shards [shards-OPTIONS] edit [edit-OPTIONS]
+
+Edit and apply shard specifications.
+
+The edit command allows you to directly edit shard specifications matching
+the supplied LabelSelector. It will open the editor defined by your GAZ_EDITOR or
+EDITOR environment variables or fall back to 'vi'. Editing from Windows is
+currently not supported.
+
+Upon exiting the editor, if the file has been changed, it will be validated and
+applied. If the file is invalid or fails to apply, the editor is re-opened.
+Exiting the editor with no changes or saving an empty file are interpreted as
+the user aborting the edit attempt.
+
+Use --selector to supply a LabelSelector which constrains the set of returned
+shard specifications. See "shards list --help" for details and examples.
+
+Edit specifications of shards having an exact ID:
+>    gazctl shards edit --selector "id in (foo, bar)"
+
+Use an alternative editor
+>    GAZ_EDITOR=nano gazctl shards edit --selector "id = baz"
+
+In the event that this command generates more changes than are possible in a
+single Etcd transaction given the current server configuration (default 128),
+gazctl supports a flag which will send changes in batches of at most
+--max-txn-size. However, this means the entire apply is no longer issued as
+a single Etcd transaction and it should therefore be used with caution.
+If possible, prefer to use label selectors to limit the number of changes.
+
+Application Options:
+      --zone=                        Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                         Show this help message
+
+[shards command options]
+
+    Consumer:
+          --consumer.address=        Service address endpoint (default: http://localhost:8080) [$CONSUMER_ADDRESS]
+          --consumer.cache.size=     Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$CONSUMER_CACHE_SIZE]
+          --consumer.cache.ttl=      Time-to-live of route cache entries. (default: 1m) [$CONSUMER_CACHE_TTL]
+
+    Broker:
+          --broker.address=          Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=       Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=        Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[edit command options]
+      -l, --selector=                Label Selector query to filter on
+          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction (default: 0)
+

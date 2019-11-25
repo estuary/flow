@@ -1,0 +1,52 @@
+Usage:
+  gazctl [OPTIONS] journals [journals-OPTIONS] list [list-OPTIONS]
+
+List journal specifications and status.
+
+Use --selector to supply a LabelSelector which constrains the set of returned
+journals. Journal selectors support additional meta-labels "name" and "prefix".
+
+Match JournalSpecs having an exact name:
+>    --selector "name in (foo/bar, baz/bing)"
+
+Match JournalSpecs having a name prefix (must end in '/'):
+>    --selector "prefix = my/prefix/"
+
+Results can be output in a variety of --format options:
+yaml:  Prints a YAML journal hierarchy, compatible with "journals apply"
+json:  Prints JournalSpecs encoded as JSON, one per line.
+proto: Prints JournalSpecs encoded in protobuf text format
+table: Prints as a table (see other flags for column choices)
+
+When output as a journal hierarchy, gazctl will "hoist" the returned collection
+of JournalSpecs into a hierarchy of journals having common prefixes and,
+typically, common configuration. This hierarchy is simply sugar for and is
+exactly equivalent to the original JournalSpecs.
+
+
+Application Options:
+      --zone=                              Availability zone within which this process is running (default: local) [$ZONE]
+
+Logging:
+      --log.level=[info|debug|warn]        Logging level (default: info) [$LOG_LEVEL]
+      --log.format=[json|text|color]       Logging output format (default: text) [$LOG_FORMAT]
+
+Help Options:
+  -h, --help                               Show this help message
+
+[journals command options]
+
+    Broker:
+          --broker.address=                Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cache.size=             Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=              Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+
+[list command options]
+      -l, --selector=                      Label Selector query to filter on
+      -o, --format=[table|yaml|json|proto] Output format (default: table)
+      -L, --label-columns=                 Labels to present as columns, eg -L label-one -L label-two
+      -p, --primary                        Show primary column
+      -r, --replicas                       Show replicas column
+          --rf                             Show replication factor column
+          --stores                         Show fragment store column
+
