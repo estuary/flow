@@ -1,7 +1,11 @@
+# common-build.mk defines build rules which are common to both
+# go.gazette.dev/core, and external consumer application projects
+# which re-use the Gazette build infrastructure.
+
 # The ci-builder-image target builds a Docker image suitable for building
 # gazette. It is the primary image used by gazette continuous integration builds.
 ci-builder-image:
-	docker build -t gazette-ci-builder:latest - <  mk/ci-builder.Dockerfile
+	docker build -t gazette-ci-builder:latest - <  ${COREDIR}/mk/ci-builder.Dockerfile
 
 # The as-ci rule recursively calls `make` _within_ a instance of the ci-builder-image,
 # and bind-mounting the gazette repository into the container. This rule allows for
@@ -26,17 +30,17 @@ as-ci: ci-builder-image
 		--tty \
 		--mount src=${WORKDIR}-ci,target=$${WORK_CI},type=bind \
 		--mount src=${ROOTDIR},target=$${ROOT_CI},type=bind \
+		--mount src=/home/johnny/gazette,target=/home/johnny/gazette,type=bind \
 		--env  GOPATH=$${WORK_CI}/go-path \
 		--env GOCACHE=$${WORK_CI}/go-build-cache \
 		--mount src=/var/run/docker.sock,target=/var/run/docker.sock,type=bind \
 		gazette-ci-builder make ${target}
 
 # Go build & test targets.
-go-install:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
+go-install:   $(ROCKSDIR)/librocksdb.so $(protobuf-targets)
 	MBP=go.gazette.dev/core/mainboilerplate ;\
 	go install -v \
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" ./...
-	go test -v -c -tags integration ./test/integration -o $(shell go env GOPATH)/bin/integration.test
 go-test-fast: ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	go test ./...
 go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
@@ -46,15 +50,16 @@ go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 # stem, using binaries enumerated by a `-target` suffix. For example,
 # an invocation with `ci-release-examples` has a stem `examples`, and will
 # package binaries listed in `ci-release-examples-targets` into a docker
-# image named `gazette/examples:latest`.
-ci-release-%: go-install ${ROCKSDIR}/librocksdb.so
+# image named `examples:latest`.
+.SECONDEXPANSION:
+ci-release-%: $(ROCKSDIR)/librocksdb.so $$($$@-targets)
 	rm -rf ${WORKDIR}/ci-release
 	mkdir -p ${WORKDIR}/ci-release
 	ln ${$@-targets} ${ROCKSDIR}/librocksdb.so.${ROCKSDB_VERSION} \
 		${WORKDIR}/ci-release
 	docker build \
-		-f mk/ci-release.Dockerfile \
-		-t gazette/$*:latest \
+		-f ${COREDIR}/mk/ci-release.Dockerfile \
+		-t $*:latest \
 		${WORKDIR}/ci-release/
 
 # The librocksdb.so fetches and builds the version of RocksDB identified by 
@@ -81,25 +86,15 @@ ${WORKDIR}/rocksdb-v%/librocksdb.so:
 # is used to map submodules to corresponding go.mod versions and paths.
 %.pb.go: %.proto ${WORKDIR}/protoc-gen-gogo
 	PATH=${WORKDIR}:$${PATH} ;\
-	protoc -I . \
-	-I $(shell go list -f '{{ .Dir }}' -m github.com/golang/protobuf) \
-	-I $(shell go list -f '{{ .Dir }}' -m github.com/gogo/protobuf) \
+	protoc -I . $(foreach module, $(PROTOC_INC_MODULES), -I$(module_path)) \
 	--gogo_out=paths=source_relative,plugins=grpc:. $*.proto
 
+# Rule to build protoc-gen-gogo.
 ${WORKDIR}/protoc-gen-gogo:
 	go mod download github.com/golang/protobuf
 	go build -o $@ github.com/gogo/protobuf/protoc-gen-gogo
 
-push-ci-builder-image:
-	docker tag gazette-ci-builder:latest gazette/ci-builder:latest
-	docker push gazette/ci-builder:latest
+# Rule for generic go-install-able Go binaries.
+${WORKDIR}/go-path/bin/%: go-install
 
-# Push images to docker.io for distribution. The "release_tag" argument is required,
-# as is an authenticated account to docker hub.
-push-release-images:
-	docker tag gazette/broker:latest gazette/broker:${release_tag}
-	docker tag gazette/examples:latest gazette/examples:${release_tag}
-	docker push gazette/broker:${release_tag}
-	docker push gazette/examples:${release_tag}
-
-.PHONY: ci-builder-image go-install go-test-fast go-test-ci push-ci-builder-image push-release-images
+.PHONY: ci-builder-image as-ci go-install go-test-fast go-test-ci
