@@ -9,7 +9,11 @@ v0.85.1 (unreleased)
 - Added ``PathPostfixTemplate`` JournalSpec field. Path postfixes are evaluated
   and applied to individual Fragments as they're persisted. A primary use case is
   to support Hive-compatible partitioning of Fragments based on their creation time.
+  Journal names and labels may now include the '=' rune, to facilitate the layout of
+  multiple journals as a Hive-partitioned table.
 - Reworked almost all documentation into reStructuredText / Sphinx / ReadTheDocs format.
+- Make-based build system is refactored to make it easier to integrate and reuse
+  in external repositories and consumer application projects.
 
 v0.84.2
 -------
