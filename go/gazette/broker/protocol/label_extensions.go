@@ -10,9 +10,9 @@ import (
 
 // Validate returns an error if the Label is not well-formed.
 func (m Label) Validate() error {
-	if err := ValidateToken(m.Name, minLabelLen, maxLabelLen); err != nil {
+	if err := ValidateToken(m.Name, TokenSymbols, minLabelLen, maxLabelLen); err != nil {
 		return ExtendContext(err, "Name")
-	} else if err = ValidateToken(m.Value, 0, maxLabelValueLen); err != nil {
+	} else if err = ValidateToken(m.Value, pathSymbols, 0, maxLabelValueLen); err != nil {
 		return ExtendContext(err, "Value")
 	}
 	return nil
@@ -440,7 +440,7 @@ func parseSetParts(name, s string) ([]Label, error) {
 	for len(s) != 0 {
 		var m []string
 
-		if m = reSelectorSetExists.FindStringSubmatch(s); m != nil {
+		if m = reSelectorSetValue.FindStringSubmatch(s); m != nil {
 			out = append(out, Label{Name: name, Value: m[1]})
 		} else {
 			return nil, NewValidationError("could not match %q to a label selector set expression", s)
@@ -451,17 +451,19 @@ func parseSetParts(name, s string) ([]Label, error) {
 }
 
 var (
-	reToken         = ` ?([\pL\pN\` + regexp.QuoteMeta(tokenSymbols) + `]{2,})`
+	reToken         = ` ?([\pL\pN\` + regexp.QuoteMeta(TokenSymbols) + `]{2,})`
+	rePath          = ` ?([\pL\pN\` + regexp.QuoteMeta(pathSymbols) + `]{0,})`
 	reCommaOrEnd    = ` ?(?:,|$)`
 	reParenthetical = ` ?\(([^)]+)\)`
 
-	reSelectorEqual    = regexp.MustCompile(`^` + reToken + ` ?=?=` + reToken + reCommaOrEnd)
-	reSelectorNotEqual = regexp.MustCompile(`^` + reToken + ` ?!=` + reToken + reCommaOrEnd)
+	reSelectorEqual    = regexp.MustCompile(`^` + reToken + ` ?=?=` + rePath + reCommaOrEnd)
+	reSelectorNotEqual = regexp.MustCompile(`^` + reToken + ` ?!=` + rePath + reCommaOrEnd)
 
 	reSelectorSetIn        = regexp.MustCompile(`^` + reToken + ` in` + reParenthetical + reCommaOrEnd)
 	reSelectorSetNotIn     = regexp.MustCompile(`^` + reToken + ` not ?in` + reParenthetical + reCommaOrEnd)
 	reSelectorSetExists    = regexp.MustCompile(`^` + reToken + reCommaOrEnd)
 	reSelectorSetNotExists = regexp.MustCompile(`^ ?!` + reToken + reCommaOrEnd)
+	reSelectorSetValue     = regexp.MustCompile(`^` + rePath + reCommaOrEnd)
 )
 
 const (

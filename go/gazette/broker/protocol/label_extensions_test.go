@@ -394,6 +394,21 @@ func (s *LabelSuite) TestSelectorParsingCases(c *gc.C) {
 				Exclude: MustLabelSet("bar", "", "bing", "thing-2", "bing", "thing-one", "foo", ""),
 			},
 		},
+		// Label values may include '='.
+		{
+			s: "foo = ba=ar, baz=bi=ngo,exc!=who=ops",
+			expect: LabelSelector{
+				Include: MustLabelSet("foo", "ba=ar", "baz", "bi=ngo"),
+				Exclude: MustLabelSet("exc", "who=ops"),
+			},
+		},
+		{
+			s: "foo in (bi=ng,ba=ar), exc notin (who=ops,oth=er)",
+			expect: LabelSelector{
+				Include: MustLabelSet("foo", "bi=ng", "foo", "ba=ar"),
+				Exclude: MustLabelSet("exc", "who=ops", "exc", "oth=er"),
+			},
+		},
 	}
 	for _, tc := range cases {
 		var sel, err = ParseLabelSelector(tc.s)
@@ -415,6 +430,11 @@ func (s *LabelSuite) TestSelectorParsingCases(c *gc.C) {
 	_, err = ParseLabelSelector("apple,banana in (bar,err baz)")
 	c.Check(err, gc.ErrorMatches,
 		`parsing "banana in \(bar,err baz\)": could not match "err baz" to a label selector set expression`)
+
+	// Case: '=' is not permitted in the label name.
+	_, err = ParseLabelSelector("ban=ana in (bar)")
+	c.Check(err, gc.ErrorMatches,
+		`could not match "ban=ana in \(bar\)" to a label selector expression`)
 
 	// Case: Expect Validate is called.
 	_, err = ParseLabelSelector("foo, foo in (bar)")

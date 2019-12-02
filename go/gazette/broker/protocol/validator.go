@@ -46,19 +46,30 @@ func NewValidationError(format string, args ...interface{}) error {
 
 // ValidateToken ensures the string is of length [min, max] and consists
 // only of runes drawn from a restricted set: unicode.Letter and unicode.Digit
-// character classes, and the symbols -_+/.
+// character classes, and passed allowed symbols.
 // Tokens are simple strings which represent things like member zones, suffixes,
-// label names, and values.
-func ValidateToken(n string, min, max int) error {
-	return validateAlphabet(n, tokenSymbols, min, max)
+// label names, and values. They generally do not allow spaces.
+func ValidateToken(n, symbols string, min, max int) error {
+	if l := len(n); l < min || l > max {
+		return NewValidationError("invalid length (%d; expected %d <= length <= %d)", l, min, max)
+	}
+	for _, r := range n {
+		// Note that any character with ordinal value less than or equal to '#' (35),
+		// which is the allocator KeySpace separator, cannot be included in this alphabet.
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			continue
+		} else if !strings.ContainsRune(symbols, r) {
+			return NewValidationError("not a valid token (%s)", n)
+		}
+	}
+	return nil
 }
 
 // ValidatePathComponent ensures the string is of length [min, max], that it is
 // a "clean" path (as defined by path.Clean), is non-rooted, and consists only
-// of characters drawn from a restricted Unicode alphabet (which, in practice
-// today, simply extends the "token" alphabet with '=').
+// of characters drawn from pathSymbols.
 func ValidatePathComponent(n string, min, max int) error {
-	if err := validateAlphabet(n, pathSymbols, min, max); err != nil {
+	if err := ValidateToken(n, pathSymbols, min, max); err != nil {
 		return err
 	} else if n != "" && path.Clean(n) != n {
 		return NewValidationError("must be a clean path (%s)", n)
@@ -68,28 +79,13 @@ func ValidatePathComponent(n string, min, max int) error {
 	return nil
 }
 
-func validateAlphabet(n, alpha string, min, max int) error {
-	if l := len(n); l < min || l > max {
-		return NewValidationError("invalid length (%d; expected %d <= length <= %d)", l, min, max)
-	}
-	for _, r := range n {
-		// Note that any character with ordinal value less than or equal to '#' (35),
-		// which is the allocator KeySpace separator, cannot be included in this alphabet.
-		if unicode.IsLetter(r) || unicode.IsNumber(r) {
-			continue
-		} else if !strings.ContainsRune(alpha, r) {
-			return NewValidationError("not a valid token (%s)", n)
-		}
-	}
-	return nil
-}
-
 const (
-	// tokenSymbols is allowed runes of tokens.
+	// TokenSymbols is allowed runes of "tokens",
 	// Note that any character with ordinal value less than or equal to '#' (35),
 	// which is the allocator KeySpace separator, must not be included in this alphabet.
 	// The alphabet leads with '-' to facilitate escaping in |reToken|.
-	tokenSymbols = "-_+/."
-	// pathSymbols is symbols for path components.
-	pathSymbols = tokenSymbols + "="
+	TokenSymbols = "-_+/."
+	// pathSymbols is allowed runes of strings which form path components.
+	// It extends TokenSymbols with the '=' rune.
+	pathSymbols = TokenSymbols + "="
 )

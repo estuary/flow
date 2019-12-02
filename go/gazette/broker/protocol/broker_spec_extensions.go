@@ -2,9 +2,9 @@ package protocol
 
 // Validate returns an error if the ProcessSpec_ID is not well-formed.
 func (m ProcessSpec_ID) Validate() error {
-	if err := ValidateToken(m.Zone, minZoneLen, maxZoneLen); err != nil {
+	if err := ValidateToken(m.Zone, TokenSymbols, minZoneLen, maxZoneLen); err != nil {
 		return ExtendContext(err, "Zone")
-	} else if err := ValidateToken(m.Suffix, minBrokerSuffixLen, maxBrokerSuffixLen); err != nil {
+	} else if err := ValidateToken(m.Suffix, TokenSymbols, minBrokerSuffixLen, maxBrokerSuffixLen); err != nil {
 		return ExtendContext(err, "Suffix")
 	}
 	return nil

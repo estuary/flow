@@ -28,7 +28,7 @@ func NewRoutedShardClient(sc ShardClient, dr pb.DispatchRouter) RoutedShardClien
 
 // Validate returns an error if the Shard is not well-formed.
 func (id ShardID) Validate() error {
-	if err := pb.ValidateToken(id.String(), minShardNameLen, maxShardNameLen); err != nil {
+	if err := pb.ValidateToken(id.String(), pb.TokenSymbols, minShardNameLen, maxShardNameLen); err != nil {
 		return err
 	}
 	return nil
