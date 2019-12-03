@@ -10,11 +10,4 @@ microk8s-reset:
 	sudo microk8s.start || true
 	microk8s.enable dns storage registry
 
-# Push the broker & example image to a local MicroK8s registry.
-microk8s-push-images:
-	docker tag gazette/broker:latest   localhost:32000/broker:latest
-	docker tag gazette/examples:latest localhost:32000/examples:latest
-	docker push localhost:32000/broker:latest
-	docker push localhost:32000/examples:latest
-
-.PHONY: microk8s-reset microk8s-push-images
+.PHONY: microk8s-reset

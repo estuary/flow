@@ -52,7 +52,7 @@ go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 # package binaries listed in `ci-release-examples-targets` into a docker
 # image named `examples:latest`.
 .SECONDEXPANSION:
-ci-release-%: $(ROCKSDIR)/librocksdb.so $$($$@-targets)
+ci-release-%: $(ROCKSDIR)/librocksdb.so go-install $$($$@-targets)
 	rm -rf ${WORKDIR}/ci-release
 	mkdir -p ${WORKDIR}/ci-release
 	ln ${$@-targets} ${ROCKSDIR}/librocksdb.so.${ROCKSDB_VERSION} \
