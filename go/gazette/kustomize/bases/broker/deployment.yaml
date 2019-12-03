@@ -17,7 +17,7 @@ spec:
       containers:
         - name:            gazette
           image:           gazette/broker
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name:          http
               containerPort: 8080
