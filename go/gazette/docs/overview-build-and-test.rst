@@ -44,12 +44,13 @@ builder. Run CI tests in a hermetic build environment:
 
    $ make as-ci target=go-test-ci
 
-Package release Docker images for the Gazette broker and examples:
+Package release Docker images for the Gazette broker and examples,
+as ``gazette-broker:latest`` and ``gazette-examples:latest``.
 
 .. code-block:: console
 
-   $ make as-ci target=ci-release-broker
-   $ make as-ci target=ci-release-examples
+   $ make as-ci target=ci-release-gazette-broker
+   $ make as-ci target=ci-release-gazette-examples
 
 Deploy Gazette's continuous soak test to a Kubernetes cluster (which can be
 Docker for Desktop or Minikube). Soak tests run with ``latest`` images.
@@ -58,7 +59,13 @@ Docker for Desktop or Minikube). Soak tests run with ``latest`` images.
 
    $ kubectl apply -k ./kustomize/test/deploy-stream-sum-with-crash-tests/
 
+Push images to a registry. If ``registry`` is not specified, it defaults to ``localhost:32000`` (which is used by MicroK8s):
+
+.. code-block:: console
+
+   $ make push-to-registry registry=my.registry.com
+
 The ``kustomize`` directory also has a `helper manifest`_ for using a local
-registry (eg, for development builds)
+registry (eg, for development builds).
 
 .. _`helper manifest`: ../kustomize/test/run-with-local-registry/kustomization.yaml
