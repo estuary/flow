@@ -148,6 +148,7 @@ message ShardSpec {
 
   // Disable processing of the shard.
   bool disable = 8 [(gogoproto.moretags) = "yaml:\",omitempty\""];
+
   // Hot standbys is the desired number of consumer processes which should be
   // replicating the primary consumer's recovery log. Standbys are allocated in
   // a separate availability zone of the current primary, and tail the live log
@@ -169,6 +170,22 @@ message ShardSpec {
     (gogoproto.nullable) = false,
     (gogoproto.embed) = true,
     (gogoproto.moretags) = "yaml:\",omitempty,inline\""];
+
+  // Disable waiting for acknowledgements of pending message(s).
+  //
+  // If a consumer transaction reads uncommitted messages, it will by default
+  // remain open (subject to the max duration) awaiting an acknowledgement of
+  // those messages, in the hope that that acknowledgement will be quickly
+  // forthcoming and, by remaining open, we can process all messages in this
+  // transaction. Effectively we're trading a small amount of increased local
+  // latency for a global reduction in end-to-end latency.
+  //
+  // This works well for acyclic message flows, but can introduce unnecessary
+  // stalls if there are message cycles between shards. In the simplest case,
+  // a transaction could block awaiting an ACK of a message that it itself
+  // produced -- an ACK which can't arrive until the transaction closes.
+  bool disable_wait_for_ack = 11 [
+    (gogoproto.moretags) = "yaml:\"disable_wait_for_ack,omitempty\""];
 }
 
 // ConsumerSpec describes a Consumer process instance and its configuration.

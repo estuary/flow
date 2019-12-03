@@ -65,6 +65,7 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan readMessage, hint
 // transaction models a single consumer shard transaction.
 type transaction struct {
 	minDur, maxDur time.Duration      // Min/max processing durations. Set to -1 when elapsed.
+	waitForAck     bool               // Wait for ACKs of pending messages read this txn?
 	barrierCh      <-chan struct{}    // Next barrier of previous transaction to resolve.
 	readCh         <-chan readMessage // Message source. Nil'd upon reaching |maxDur|.
 	readThrough    pb.Offsets         // Offsets read through this transaction.
@@ -92,6 +93,7 @@ func txnInit(s *shard, txn, prev *transaction, readCh <-chan readMessage, timer 
 		timer:       timer,
 		minDur:      spec.MinTxnDuration,
 		maxDur:      spec.MaxTxnDuration,
+		waitForAck:  !spec.DisableWaitForAck,
 		barrierCh:   prev.commitBarrier.Done(),
 	}
 	for j, o := range prev.readThrough {
@@ -124,8 +126,8 @@ func txnBlocks(s *shard, txn, prev *transaction) bool {
 		// Or if the prior transaction hasn't completed.
 		txn.barrierCh != nil ||
 		// Or if the maximum batching duration hasn't elapsed, and a sequence
-		// started this transaction awaits an ACK which will hopefully come.
-		(txn.maxDur != -1 && s.sequencer.HasPending(prev.readThrough))
+		// started this transaction awaits an ACK which we want to wait for.
+		(txn.waitForAck && txn.maxDur != -1 && s.sequencer.HasPending(prev.readThrough))
 }
 
 // txnStep steps the transaction one time, and returns true iff it has started to commit.

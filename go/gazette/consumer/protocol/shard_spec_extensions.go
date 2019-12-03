@@ -72,7 +72,7 @@ func (m *ShardSpec) Validate() error {
 		}
 	}
 
-	// Disable and HotStandbys require no extra validation.
+	// HotStandbys, Disable, and DisableWaitForAck require no extra validation.
 
 	return nil
 }
@@ -181,6 +181,9 @@ func UnionShardSpecs(a, b ShardSpec) ShardSpec {
 	}
 	a.LabelSet = pb.UnionLabelSets(a.LabelSet, b.LabelSet, pb.LabelSet{})
 
+	if a.DisableWaitForAck == false {
+		a.DisableWaitForAck = b.DisableWaitForAck
+	}
 	return a
 }
 
@@ -213,6 +216,9 @@ func IntersectShardSpecs(a, b ShardSpec) ShardSpec {
 	}
 	a.LabelSet = pb.IntersectLabelSets(a.LabelSet, b.LabelSet, pb.LabelSet{})
 
+	if a.DisableWaitForAck != b.DisableWaitForAck {
+		a.DisableWaitForAck = false
+	}
 	return a
 }
 
@@ -245,6 +251,9 @@ func SubtractShardSpecs(a, b ShardSpec) ShardSpec {
 	}
 	a.LabelSet = pb.SubtractLabelSet(a.LabelSet, b.LabelSet, pb.LabelSet{})
 
+	if a.DisableWaitForAck == b.DisableWaitForAck {
+		a.DisableWaitForAck = false
+	}
 	return a
 }
 

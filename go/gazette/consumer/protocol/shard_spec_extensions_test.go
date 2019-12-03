@@ -147,6 +147,7 @@ func (s *SpecSuite) TestSetOperations(c *gc.C) {
 				{Name: "ccc", Value: "val"},
 			},
 		},
+		DisableWaitForAck: true,
 	}
 	var other = ShardSpec{
 		Sources: []ShardSpec_Source{
@@ -166,14 +167,17 @@ func (s *SpecSuite) TestSetOperations(c *gc.C) {
 				{Name: "ccc", Value: "other"},
 			},
 		},
+		DisableWaitForAck: false,
 	}
 
 	c.Check(UnionShardSpecs(ShardSpec{}, model), gc.DeepEquals, model)
 	c.Check(UnionShardSpecs(model, ShardSpec{}), gc.DeepEquals, model)
 
 	other.Disable = true // Disable == true dominates in union operation.
+	other.DisableWaitForAck = true
 	c.Check(UnionShardSpecs(other, model), gc.DeepEquals, other)
 	other.Disable = false
+	other.DisableWaitForAck = false
 	c.Check(UnionShardSpecs(model, other), gc.DeepEquals, model)
 
 	c.Check(IntersectShardSpecs(model, model), gc.DeepEquals, model)

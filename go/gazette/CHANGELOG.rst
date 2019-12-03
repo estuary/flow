@@ -14,6 +14,10 @@ v0.85.1 (unreleased)
 - Reworked almost all documentation into reStructuredText / Sphinx / ReadTheDocs format.
 - Make-based build system is refactored to make it easier to integrate and reuse
   in external repositories and consumer application projects.
+- Add ``DisableWaitForAck`` ShardSpec field, which toggles the consumer transaction
+  behavior of waiting for ACKs of read pending messages. Most applications won't want
+  to set this, but it can be helpful to avoid stalls in applications with cyclic
+  message flows.
 
 v0.84.2
 -------

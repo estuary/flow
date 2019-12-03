@@ -29,6 +29,7 @@ func (s *SetSuite) TestRoundTripHoistAndPushDown(c *gc.C) {
 			MinTxnDuration:    time.Millisecond,
 			HotStandbys:       1,
 			LabelSet:          pb.MustLabelSet("name-1", "val-1"),
+			DisableWaitForAck: true,
 		},
 		Shards: []Shard{
 			{
@@ -45,6 +46,7 @@ func (s *SetSuite) TestRoundTripHoistAndPushDown(c *gc.C) {
 				Spec: pc.ShardSpec{
 					Id:       "shard-B",
 					Sources:  []pc.ShardSpec_Source{{Journal: "journal/B"}},
+					Disable:  true,
 					LabelSet: pb.MustLabelSet("name-3", "val-3"),
 				},
 				Revision: 456,
@@ -116,6 +118,7 @@ common:
   labels:
   - name: name-1
     value: val-1
+  disable_wait_for_ack: true
 shards:
 - comment: This is a comment
   delete: true
@@ -129,6 +132,7 @@ shards:
 - id: shard-B
   sources:
   - journal: journal/B
+  disable: true
   labels:
   - name: name-3
     value: val-3
@@ -168,6 +172,7 @@ func buildFlatFixture() Set {
 					MinTxnDuration:    time.Millisecond,
 					HotStandbys:       1,
 					LabelSet:          pb.MustLabelSet("name-1", "val-1", "name-2", "val-2"),
+					DisableWaitForAck: true,
 				},
 				Revision: 123,
 				Delete:   &boxedTrue,
@@ -182,8 +187,10 @@ func buildFlatFixture() Set {
 					HintBackups:       2,
 					MaxTxnDuration:    time.Second,
 					MinTxnDuration:    time.Millisecond,
+					Disable:           true,
 					HotStandbys:       1,
 					LabelSet:          pb.MustLabelSet("name-1", "val-1", "name-3", "val-3"),
+					DisableWaitForAck: true,
 				},
 				Revision: 456,
 			},
