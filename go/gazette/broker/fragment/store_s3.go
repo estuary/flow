@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keepalive"
 )
 
 // S3StoreConfig configures a Fragment store of the "s3://" scheme.
@@ -207,10 +206,7 @@ func (s *s3Backend) s3Client(ep *url.URL) (cfg S3StoreConfig, client *s3.S3, err
 		// Real S3. Override the default http.Transport's behavior of inserting
 		// "Accept-Encoding: gzip" and transparently decompressing client-side.
 		awsConfig.WithHTTPClient(&http.Client{
-			Transport: &http.Transport{
-				DialContext:        keepalive.Dialer.DialContext,
-				DisableCompression: true,
-			},
+			Transport: &http.Transport{DisableCompression: true},
 		})
 	}
 

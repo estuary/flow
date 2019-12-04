@@ -11,7 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keepalive"
 	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
 )
@@ -54,8 +53,7 @@ func New(iface string, port uint16) (*Server, error) {
 		GRPCServer:  grpc.NewServer(),
 		RawListener: raw.(*net.TCPListener),
 	}
-
-	srv.CMux = cmux.New(keepalive.TCPListener{TCPListener: srv.RawListener})
+	srv.CMux = cmux.New(srv.RawListener)
 
 	srv.CMux.HandleError(func(err error) bool {
 		if _, ok := err.(net.Error); !ok {
