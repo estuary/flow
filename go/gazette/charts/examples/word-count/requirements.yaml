@@ -1,5 +1,0 @@
-dependencies:
-- name: consumer
-  version: 2.0.3
-  repository: file://../../consumer
-  alias: counter
