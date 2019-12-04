@@ -5,6 +5,7 @@ v0.85.2
 - Fix: ``as-ci`` target downloads go modules before invoking inner make,
   to allow external repos to include Makefiles of the gazette/core repo
   which are dynamically determined using the ``go mod`` tool.
+- Update to Go 1.13.4
 
 v0.85.1 
 ---------
