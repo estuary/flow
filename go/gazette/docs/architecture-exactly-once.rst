@@ -143,10 +143,10 @@ it must be the case that after `New` recovers `T1`, it's no longer possible for
 on startup.
 
 A **remote** Store_ may leverage transactional features of a remote store to implement fences.
-For example, StoreSQL_ increments a SQL fence on `RestoreCheckpoint`, causing a future commit
+For example, SQLStore_ increments a SQL fence on `RestoreCheckpoint`, causing a future commit
 of a zombie process to fail.
 
-A **local** Store_ such as StoreJSONFile_ or RocksDB_ -- which make use of
+A **local** Store_ such as JSONFileStore_ or RocksDB_ -- which make use of
 `recovery logs`_ -- use journal "registers" to implement fencing across processes.
 
 Recovery Logs and Register Fencing 
@@ -177,8 +177,8 @@ longer commit a consumer transaction checkpoint.
 .. _Message:             https://godoc.org/go.gazette.dev/core/message#Message
 .. _Application:         https://godoc.org/go.gazette.dev/core/consumer#Application
 .. _Store:               https://godoc.org/go.gazette.dev/core/consumer#Store
-.. _StoreSQL:            https://godoc.org/go.gazette.dev/core/consumer#StoreSQL
-.. _StoreJSONFile:       https://godoc.org/go.gazette.dev/core/consumer#StoreJSONFil
+.. _SQLStore:            https://godoc.org/go.gazette.dev/core/consumer#SQLStore
+.. _JSONFileStore:       https://godoc.org/go.gazette.dev/core/consumer#JSONFileStore
 .. _RocksDB:             https://godoc.org/go.gazette.dev/core/consumer/store-rocksdb
 .. _recovery logs:       https://godoc.org/go.gazette.dev/core/consumer/recoverylog
 .. _Checkpoint:          https://godoc.org/go.gazette.dev/core/consumer/protocol#Checkpoint

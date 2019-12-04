@@ -1,4 +1,9 @@
 
+master (unreleased)
+--------------------
+
+- Various doc improvements.
+
 v0.85.2
 --------
 

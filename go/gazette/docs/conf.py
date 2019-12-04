@@ -24,9 +24,9 @@ copyright = u'2019, The Gazette Authors'
 author = u'The Gazette Authors'
 
 # The short X.Y version
-version = u''
+version = u'v0.85'
 # The full version, including alpha/beta/rc tags
-release = u'v0.84.2'
+release = u'v0.85'
 
 
 # -- General configuration ---------------------------------------------------

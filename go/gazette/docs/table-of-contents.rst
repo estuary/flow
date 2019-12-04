@@ -23,10 +23,7 @@ Gazette Documentation
 
    Concepts   <consumers-concepts>
    ShardSpecs <consumers-shardspecs>
-
-   Example: Cycles in Citi-Bike Data <examples-bike-share>
-   Example: Real-time Language Model <examples-language-model>
-   Example: Summing Multiplexed Chunks <examples-stream-sum>
+   Examples   <examples>
 
 .. toctree::
    :maxdepth: 2
