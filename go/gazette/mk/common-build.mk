@@ -30,11 +30,11 @@ as-ci: ci-builder-image
 		--tty \
 		--mount src=${WORKDIR}-ci,target=$${WORK_CI},type=bind \
 		--mount src=${ROOTDIR},target=$${ROOT_CI},type=bind \
-		--mount src=/home/johnny/gazette,target=/home/johnny/gazette,type=bind \
 		--env  GOPATH=$${WORK_CI}/go-path \
 		--env GOCACHE=$${WORK_CI}/go-build-cache \
 		--mount src=/var/run/docker.sock,target=/var/run/docker.sock,type=bind \
-		gazette-ci-builder make ${target}
+		gazette-ci-builder /bin/sh -ec \
+			"go mod download && make ${target}"
 
 # Go build & test targets.
 go-install:   $(ROCKSDIR)/librocksdb.so $(protobuf-targets)

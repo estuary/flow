@@ -1,6 +1,13 @@
 
-v0.85.1 (unreleased)
---------------------
+v0.85.2
+--------
+
+- Fix: ``as-ci`` target downloads go modules before invoking inner make,
+  to allow external repos to include Makefiles of the gazette/core repo
+  which are dynamically determined using the ``go mod`` tool.
+
+v0.85.1 
+---------
 
 - Added ``MaxAppendRate`` JournalSpec field and global broker flag.
   Append RPCs now use a token-bucket flow control strategy, where RPC chunks
