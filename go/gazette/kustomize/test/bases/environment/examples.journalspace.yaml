@@ -35,6 +35,11 @@ fragment:
   compression_codec: SNAPPY
   # Flush interval defines the minimum frequency at which fragments are flushed.
   flush_interval: 10m0s
+  # A path postfix is a Go template which can be used to further refine the
+  # path of fragments persisted under a journal path within the fragment store.
+  # A primary use case is to maintain a Hive-compatible partitioning of a
+  # journal's fragment files on the fragment's UTC creation date.
+  path_postfix_template: date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}
 children:
 
   # Journals used by go.gazette.dev/core/examples/bike-share
