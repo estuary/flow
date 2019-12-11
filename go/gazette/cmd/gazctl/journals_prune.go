@@ -19,7 +19,7 @@ func init() {
 	_ = mustAddCmd(cmdJournals, "prune", "Deletes fragments older than the configured retention", `
 Deletes fragments across all configured fragment stores of matching journals that are older than the configured retention.
 
-There is a caveat when pruning journals. Only fragments that are part of the "blessed" history are pruned in a given pass. Fragments associated to dead end forks will not be deleted. As a workaround, operators can wait for the fragment listing to refresh and prune the journals again.
+There is a caveat when pruning journals. For a given journal, there could be multiple fragments covering the same offset. These fragments contain identical data at a given offset, but the brokers are tracking only the largest fragment, i.e. the fragment that covers the largest span of offsets. As a result, the prune command will delete only this tracked fragment, leaving the smaller fragments untouched. As a workaround, operators can wait for the fragment listing to refresh and prune the journals again.
 
 Use --selector to supply a LabelSelector to select journals to prune.
 See "journals list --help" for details and examples.
