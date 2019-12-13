@@ -120,7 +120,11 @@ func (srv *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyR
 			key = allocator.ItemKey(s.KS, changes.Delete.String())
 			ops = append(ops, clientv3.OpDelete(key))
 		}
-		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", changes.ExpectModRevision))
+		// Allow caller to explicitly ignore revision comparison
+		// by passing a value of -1 for revision.
+		if changes.ExpectModRevision != -1 {
+			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", changes.ExpectModRevision))
+		}
 	}
 
 	var txnResp, err = srv.Etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil))

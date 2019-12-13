@@ -175,6 +175,20 @@ func TestAPIApplyCases(t *testing.T) {
 		},
 	}).Status)
 
+	// Case: Update with explicit revision of -1 succeeds.
+	assert.Equal(t, pc.Status_OK, apply(&pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{
+			{Upsert: specB, ExpectModRevision: -1},
+		},
+	}).Status)
+
+	// Case: Deletion with explicit revision of -1 succeeds.
+	assert.Equal(t, pc.Status_OK, apply(&pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{
+			{Delete: shardB, ExpectModRevision: -1},
+		},
+	}).Status)
+
 	// Case: Invalid requests fail with an error.
 	var _, err = tf.service.Apply(context.Background(), &pc.ApplyRequest{
 		Changes: []pc.ApplyRequest_Change{{Delete: "invalid shard id"}},

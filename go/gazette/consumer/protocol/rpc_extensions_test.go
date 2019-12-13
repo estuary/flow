@@ -97,7 +97,7 @@ func (s *RPCSuite) TestApplyRequestValidationCases(c *gc.C) {
 	var req = ApplyRequest{
 		Changes: []ApplyRequest_Change{
 			{
-				ExpectModRevision: -1,
+				ExpectModRevision: -2,
 				Upsert: &ShardSpec{
 					Id:                "invalid id",
 					Sources:           []ShardSpec_Source{{Journal: "a/journal"}},
@@ -121,11 +121,11 @@ func (s *RPCSuite) TestApplyRequestValidationCases(c *gc.C) {
 	req.Changes[0].Delete = ""
 	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[0\].Upsert.Id: not a valid token \(invalid id\)`)
 	req.Changes[0].Upsert.Id = "a-valid-id"
-	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[0\]: invalid ExpectModRevision \(-1; expected >= 0\)`)
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[0\]: invalid ExpectModRevision \(-2; expected >= 0 or -1\)`)
 	req.Changes[0].ExpectModRevision = 0
 	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[1\].Delete: not a valid token \(another invalid id\)`)
 	req.Changes[1].Delete = "other-valid-id"
-	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[1\]: invalid ExpectModRevision \(0; expected > 0\)`)
+	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[1\]: invalid ExpectModRevision \(0; expected > 0 or -1\)`)
 	req.Changes[1].ExpectModRevision = 1
 	c.Check(req.Validate(), gc.ErrorMatches, `Changes\[2\]: neither Upsert nor Delete are set \(expected exactly one\)`)
 	req.Changes[2].Delete = "yet-another-valid-id"

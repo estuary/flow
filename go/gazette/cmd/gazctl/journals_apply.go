@@ -32,6 +32,11 @@ and will fail the entire apply operation if any have since been updated. A
 common operational pattern is to list, edit, and re-apply a collection of
 JournalSpecs; this check ensures concurrent modifications are caught.
 
+You may explicitly inform the broker to apply your JournalSpecs regardless of the
+current state of specifications in Etcd by passing in a revision value of -1.
+This commonly done when operators keep JournalSpecs in version control as their
+source of truth.
+
 JournalSpecs may be created by setting "revision" to zero or omitting altogether.
 
 JournalSpecs may be deleted by setting field "delete" to true on individual

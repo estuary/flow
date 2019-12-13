@@ -202,6 +202,22 @@ func TestApplyCases(t *testing.T) {
 			},
 		})).Status)
 
+	// Case: Update with explicit revision of -1 succeeds.
+	assert.Equal(t, pb.Status_OK,
+		must(broker.client().Apply(ctx, &pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{
+				{Upsert: &specB, ExpectModRevision: -1},
+			},
+		})).Status)
+
+	// Case: Deletion with explicit revision of -1 succeeds.
+	assert.Equal(t, pb.Status_OK,
+		must(broker.client().Apply(ctx, &pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{
+				{Delete: "journal/B", ExpectModRevision: -1},
+			},
+		})).Status)
+
 	// Case: Invalid requests fail with an error.
 	var _, err = broker.client().Apply(ctx, &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{{Delete: "invalid journal name"}},
