@@ -273,9 +273,6 @@ func (r *resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 	if errors.Cause(err) == context.Canceled {
 		err = nil
 	}
-
-	r.stopServingLocalReplicas()
-	r.wg.Wait() // Wait for all replica shutdowns to complete.
 	return err
 }
 

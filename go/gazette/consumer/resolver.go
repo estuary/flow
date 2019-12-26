@@ -360,9 +360,6 @@ func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 	if errors.Cause(err) == context.Canceled {
 		err = nil
 	}
-
-	r.stopServingLocalShards()
-	r.wg.Wait() // Wait for all shards shutdowns to complete.
 	return err
 }
 
