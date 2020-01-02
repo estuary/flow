@@ -184,6 +184,17 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 				}
 			} else if err != nil {
 				return err // All other errors are fatal.
+			} else if resp.Header.Revision < nextRevision {
+				// TODO(johnny): Extra logging to better understand root cause(s) of issue #248.
+				log.WithFields(log.Fields{
+					"header":           resp.Header,
+					"isProgressNotify": resp.IsProgressNotify(),
+					"cancelled":        resp.Canceled,
+					"created":          resp.Created,
+					"compactRevision":  resp.CompactRevision,
+					"numEvents":        len(resp.Events),
+					"watchIter":        attempt,
+				}).Warn("received duplicate Etcd watch revision (ignoring)")
 			} else {
 				if len(responses) == 0 {
 					applyTimer.Reset(ks.WatchApplyDelay)
