@@ -48,6 +48,11 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 			mbp.Must(err, "unable to fetch hint segments")
 		}
 
+		if len(segments) == 0 {
+			log.Infof("skipping shard %s, there are no segments for this shard", shard.Spec.Id)
+			continue
+		}
+
 		// Zero the LastOffset of the final hinted Segment. This has the effect of implicitly
 		// intersecting with all fragments having offsets greater than its FirstOffset.
 		// We want this behavior because playback will continue to read offsets & Fragments
