@@ -38,7 +38,7 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 
 	var ctx, _ = context.WithCancel(context.Background())
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "zone-b", "leader"))
+	var state = NewObservedState(ks, MemberKey(ks, "zone-b", "leader"), isConsistent)
 
 	var NItems = b.N
 

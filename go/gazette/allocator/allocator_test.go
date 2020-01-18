@@ -58,7 +58,7 @@ func (s *AllocatorSuite) TestConvergeFixtureCases(c *gc.C) {
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var as = NewObservedState(ks, MemberKey(ks, "us-east", "foo"))
+	var as = NewObservedState(ks, MemberKey(ks, "us-east", "foo"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	// Tweak the fixture to associate a lease with Member us-east/foo

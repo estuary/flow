@@ -206,7 +206,7 @@ func newTestFixture(t assert.TestingT) (*testFixture, func()) {
 	ks.WatchApplyDelay = 0 // Speed test execution.
 
 	var state = allocator.NewObservedState(ks,
-		allocator.MemberKey(ks, localID.Zone, localID.Suffix))
+		allocator.MemberKey(ks, localID.Zone, localID.Suffix), ShardIsConsistent)
 
 	var tmpSqlite, err = ioutil.TempFile("", "consumer-test")
 	assert.NoError(t, err)

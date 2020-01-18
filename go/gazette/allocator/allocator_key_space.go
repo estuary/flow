@@ -40,11 +40,6 @@ type MemberValue interface {
 type ItemValue interface {
 	// DesiredReplication for this Item.
 	DesiredReplication() int
-	// IsConsistent returns true if the |assignment| is consistent. Some
-	// implementations may determine consistency within the context of
-	// the full set of item assignments, so |allAssignments| is also
-	// provided (of which |assignment| is a member).
-	IsConsistent(assignment keyspace.KeyValue, allAssignments keyspace.KeyValues) bool
 }
 
 // AssignmentValue is a user-defined Assignment representation.

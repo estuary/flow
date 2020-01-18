@@ -951,7 +951,7 @@ func serveUntilIdle(c *gc.C, ctx context.Context, client *clientv3.Client, ks *k
 		clientv3.WithSort(clientv3.SortByCreateRevision, clientv3.SortAscend))
 	c.Assert(err, gc.IsNil)
 
-	var state = NewObservedState(ks, string(resp.Kvs[0].Key))
+	var state = NewObservedState(ks, string(resp.Kvs[0].Key), isConsistent)
 
 	var result int
 	ctx, cancel := context.WithCancel(ctx)

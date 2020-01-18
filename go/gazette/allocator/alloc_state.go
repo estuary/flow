@@ -10,12 +10,28 @@ import (
 	"go.gazette.dev/core/keyspace"
 )
 
+// IsConsistentFn is a free function which determines whether the Item is to
+// be considered "consistent" given its current AssignmentValue and the set of
+// all AssignmentValues of the Item.
+//
+// The meaning of "consistent" is up to the application: generally it means that
+// assigned replicas of the Item have synchronized with each other and can
+// tolerate the removal of one of their cohort. If an Item is currently
+// inconsistent, the allocator will not remove a current Assignment of the Item
+// and instead waits for replicas to perform synchronization activities,
+// communicated through Etcd, such that IsConsistentFn once again returns true.
+type IsConsistentFn func(
+	item Item,
+	itemAssignment keyspace.KeyValue,
+	allAssignmentsOfItem keyspace.KeyValues) bool
+
 // State is an extracted representation of the allocator KeySpace. Clients may
 // want to inspect State as part of a KeySpace observer to identify changes to
 // local assignments or the overall allocation topology.
 type State struct {
-	KS       *keyspace.KeySpace
-	LocalKey string // Unique key of this allocator instance.
+	KS           *keyspace.KeySpace
+	LocalKey     string         // Unique key of this allocator instance.
+	IsConsistent IsConsistentFn // Consistency callback for this allocator.
 
 	// Sub-slices of the KeySpace representing allocator entities.
 	Members     keyspace.KeyValues
@@ -39,12 +55,14 @@ type State struct {
 
 // NewObservedState returns a *State instance which extracts and updates itself
 // from the provided KeySpace, pivoted around the Member instance identified by
-// |localKey|. State should be treated as read-only, and a read lock of the
-// parent KeySpace must be obtained before each use.
-func NewObservedState(ks *keyspace.KeySpace, localKey string) *State {
+// |localKey|. Item consistency is determined using the provided IsConsistentFn.
+// State should be treated as read-only, and a read lock of the parent KeySpace
+// must be obtained before each use.
+func NewObservedState(ks *keyspace.KeySpace, localKey string, fn IsConsistentFn) *State {
 	var s = &State{
 		KS:             ks,
 		LocalKey:       localKey,
+		IsConsistent:   fn,
 		LocalMemberInd: -1,
 	}
 	ks.Mu.Lock()

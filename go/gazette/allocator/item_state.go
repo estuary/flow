@@ -88,7 +88,7 @@ func (s *itemState) constrainRemovals() {
 	// Determine the current number of consistent item Assignments.
 	var n int
 	for _, a := range s.current {
-		if item.IsConsistent(a, s.current) {
+		if s.global.IsConsistent(item, a, s.current) {
 			n += 1
 		}
 	}
@@ -97,7 +97,7 @@ func (s *itemState) constrainRemovals() {
 	var limit int
 
 	for r := item.DesiredReplication(); n >= r && limit != len(s.remove); limit++ {
-		if c := item.IsConsistent(s.remove[limit], s.current); c && n == r {
+		if c := s.global.IsConsistent(item, s.remove[limit], s.current); c && n == r {
 			break // We cannot remove this assignment without breaking n >= r.
 		} else if c {
 			n -= 1
@@ -137,7 +137,7 @@ func (s *itemState) constrainReorders() {
 	}{index: -1}
 
 	for i := range s.reorder {
-		var c = item.IsConsistent(s.reorder[i], s.current)
+		var c = s.global.IsConsistent(item, s.reorder[i], s.current)
 		var r = s.global.memberLoadRatio(s.reorder[i], s.global.MemberPrimaryCount)
 
 		if primary.index == -1 ||

@@ -63,3 +63,29 @@ func (d decoder) DecodeAssignment(itemID, memberZone, memberSuffix string, slot 
 	}
 	return s, nil
 }
+
+// ShardIsConsistent returns true if no replicas of the shard are currently back-filling.
+func ShardIsConsistent(shard allocator.Item, assignment keyspace.KeyValue, all keyspace.KeyValues) bool {
+	var code = assignment.Decoded.(allocator.Assignment).AssignmentValue.(*pc.ReplicaStatus).Code
+	switch code {
+	case pc.ReplicaStatus_STANDBY, pc.ReplicaStatus_PRIMARY:
+		return true // Replica is ready to take over.
+	case pc.ReplicaStatus_IDLE, pc.ReplicaStatus_BACKFILL:
+		return false // Replica is starting or reading the recovery log.
+	case pc.ReplicaStatus_FAILED:
+		// Iff the primary has *also* failed, then we're consistent. The intuition
+		// is there's no harm in swapping a failed replica with another failed one,
+		// and this gives the current primary freedom to be re-assigned or exit.
+		for _, a := range all {
+			var asn = a.Decoded.(allocator.Assignment)
+			var status = asn.AssignmentValue.(*pc.ReplicaStatus)
+
+			if asn.Slot == 0 && status.Code == pc.ReplicaStatus_FAILED {
+				return true
+			}
+		}
+		return false
+	default:
+		panic(code) // Unexpected status code.
+	}
+}

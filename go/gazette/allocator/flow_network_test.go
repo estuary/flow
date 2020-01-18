@@ -67,7 +67,7 @@ func (s *FlowNetworkSuite) TestFlowOverSimpleFixture(c *gc.C) {
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"))
+	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	var fn flowNetwork

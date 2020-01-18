@@ -74,7 +74,7 @@ func (s *AnnounceSuite) TestBasicSessionStart(c *gc.C) {
 		ks    = NewAllocatorKeySpace("/root", testAllocDecoder{})
 		sigCh = make(chan os.Signal)
 		spec  = &testMember{R: 10}
-		state = NewObservedState(ks, MemberKey(ks, "a", "member"))
+		state = NewObservedState(ks, MemberKey(ks, "a", "member"), isConsistent)
 
 		args = SessionArgs{
 			Etcd:     etcd,

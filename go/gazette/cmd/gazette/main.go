@@ -77,11 +77,13 @@ func (cmdServe) Execute(args []string) error {
 			ProcessSpec:  Config.Broker.BuildProcessSpec(srv),
 		}
 		ks         = broker.NewKeySpace(Config.Etcd.Prefix)
-		allocState = allocator.NewObservedState(ks, allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix))
-		service    = broker.NewService(allocState, lo, etcd)
-		rjc        = protocol.NewRoutedJournalClient(lo, service)
-		tasks      = task.NewGroup(context.Background())
-		signalCh   = make(chan os.Signal, 1)
+		allocState = allocator.NewObservedState(ks,
+			allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix),
+			broker.JournalIsConsistent)
+		service  = broker.NewService(allocState, lo, etcd)
+		rjc      = protocol.NewRoutedJournalClient(lo, service)
+		tasks    = task.NewGroup(context.Background())
+		signalCh = make(chan os.Signal, 1)
 	)
 	protocol.RegisterJournalServer(srv.GRPCServer, service)
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))

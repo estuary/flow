@@ -8,8 +8,6 @@ import (
 	"text/template"
 	"time"
 
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 )
 
@@ -204,27 +202,6 @@ func (m *JournalSpec) MarshalString() string {
 // DesiredReplication returns the configured Replication of the spec. It
 // implements allocator.ItemValue.
 func (m *JournalSpec) DesiredReplication() int { return int(m.Replication) }
-
-// IsConsistent returns true if the Route stored under each of |assignments|
-// agrees with the Route implied by the |assignments| keys. It implements
-// allocator.ItemValue.
-func (m *JournalSpec) IsConsistent(_ keyspace.KeyValue, assignments keyspace.KeyValues) bool {
-	var rt Route
-	rt.Init(assignments)
-
-	return JournalRouteMatchesAssignments(rt, assignments)
-}
-
-// JournalRouteMatchesAssignments returns true iff the Route is equivalent to the
-// Route marshaled with each of the journal's |assignments|.
-func JournalRouteMatchesAssignments(rt Route, assignments keyspace.KeyValues) bool {
-	for _, a := range assignments {
-		if !rt.Equivalent(a.Decoded.(allocator.Assignment).AssignmentValue.(*Route)) {
-			return false
-		}
-	}
-	return len(rt.Members) == len(assignments)
-}
 
 // UnionJournalSpecs returns a JournalSpec combining all non-zero-valued fields
 // across |a| and |b|. Where both |a| and |b| provide a non-zero value for

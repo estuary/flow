@@ -143,12 +143,12 @@ func (sc cmdServe) Execute(args []string) error {
 			ShardLimit:  bc.Consumer.Limit,
 			ProcessSpec: bc.Consumer.BuildProcessSpec(srv),
 		}
-		ks         = consumer.NewKeySpace(bc.Etcd.Prefix)
-		allocState = allocator.NewObservedState(ks, allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix))
-		rjc        = bc.Broker.MustRoutedJournalClient(context.Background())
-		service    = consumer.NewService(sc.app, allocState, rjc, srv.GRPCLoopback, etcd)
-		tasks      = task.NewGroup(context.Background())
-		signalCh   = make(chan os.Signal, 1)
+		ks       = consumer.NewKeySpace(bc.Etcd.Prefix)
+		state    = allocator.NewObservedState(ks, allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix), consumer.ShardIsConsistent)
+		rjc      = bc.Broker.MustRoutedJournalClient(context.Background())
+		service  = consumer.NewService(sc.app, state, rjc, srv.GRPCLoopback, etcd)
+		tasks    = task.NewGroup(context.Background())
+		signalCh = make(chan os.Signal, 1)
 	)
 	pc.RegisterShardServer(srv.GRPCServer, service)
 
@@ -172,7 +172,7 @@ func (sc cmdServe) Execute(args []string) error {
 		LeaseTTL: bc.Etcd.LeaseTTL,
 		SignalCh: signalCh,
 		Spec:     spec,
-		State:    allocState,
+		State:    state,
 		Tasks:    tasks,
 	}), "failed to start allocator session")
 

@@ -318,7 +318,7 @@ func (b *appendFSM) onUpdateAssignments() {
 
 	// Do the Etcd-advertised values of our resolved journal assignments match
 	// the current journal Route (indicating the journal is consistent)?
-	if pb.JournalRouteMatchesAssignments(b.resolved.Route, b.resolved.assignments) {
+	if JournalRouteMatchesAssignments(b.resolved.Route, b.resolved.assignments) {
 		b.state = stateAwaitDesiredReplicas
 		return
 	}

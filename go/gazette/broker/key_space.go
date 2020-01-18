@@ -63,3 +63,24 @@ func (d decoder) DecodeAssignment(itemID, memberZone, memberSuffix string, slot 
 	}
 	return s, nil
 }
+
+// JournalIsConsistent returns true if all allocator.Assignments of the
+// JournalSpec identified by Item advertise the same Route, denoting that
+// all replicas of the journal have synchronized.
+func JournalIsConsistent(item allocator.Item, _ keyspace.KeyValue, assignments keyspace.KeyValues) bool {
+	var rt pb.Route
+	rt.Init(assignments)
+
+	return JournalRouteMatchesAssignments(rt, assignments)
+}
+
+// JournalRouteMatchesAssignments returns true iff the Route is equivalent to the
+// Route marshaled with each of the journal's |assignments|.
+func JournalRouteMatchesAssignments(rt pb.Route, assignments keyspace.KeyValues) bool {
+	for _, a := range assignments {
+		if !rt.Equivalent(a.Decoded.(allocator.Assignment).AssignmentValue.(*pb.Route)) {
+			return false
+		}
+	}
+	return len(rt.Members) == len(assignments)
+}

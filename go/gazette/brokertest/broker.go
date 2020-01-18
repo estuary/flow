@@ -28,15 +28,17 @@ type Broker struct {
 
 	etcd  *clientv3.Client
 	sigCh chan os.Signal
-	ks    *keyspace.KeySpace
+	state *allocator.State
 }
 
 // NewBroker builds and returns an in-process Broker identified by |zone| and |suffix|.
 func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *Broker {
 	var (
-		id        = pb.ProcessSpec_ID{Zone: zone, Suffix: suffix}
-		ks        = broker.NewKeySpace("/broker.test")
-		state     = allocator.NewObservedState(ks, allocator.MemberKey(ks, id.Zone, id.Suffix))
+		id    = pb.ProcessSpec_ID{Zone: zone, Suffix: suffix}
+		ks    = broker.NewKeySpace("/broker.test")
+		state = allocator.NewObservedState(ks,
+			allocator.MemberKey(ks, id.Zone, id.Suffix),
+			broker.JournalIsConsistent)
 		srv       = server.MustLoopback()
 		svc       = broker.NewService(state, pb.NewJournalClient(srv.GRPCLoopback), etcd)
 		tasks     = task.NewGroup(context.Background())
@@ -70,7 +72,7 @@ func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *B
 		Server: srv,
 		etcd:   etcd,
 		sigCh:  sigCh,
-		ks:     ks,
+		state:  state,
 	}
 }
 
@@ -95,7 +97,7 @@ func (b *Broker) WaitForConsistency(ctx context.Context, journal pb.Journal, rou
 	}
 
 	var rev = resp.Header.Revision
-	var ks = b.ks
+	var ks = b.state.KS
 
 	ks.Mu.RLock()
 	defer ks.Mu.RUnlock()
@@ -108,10 +110,10 @@ func (b *Broker) WaitForConsistency(ctx context.Context, journal pb.Journal, rou
 		// advertised routes that match current assignments).
 		var ind, ok = ks.Search(allocator.ItemKey(ks, journal.String()))
 		if ok {
-			var item = ks.KeyValues[ind].Decoded.(allocator.ItemValue)
+			var item = ks.KeyValues[ind].Decoded.(allocator.Item)
 			var asn = ks.KeyValues.Prefixed(allocator.ItemAssignmentsPrefix(ks, journal.String()))
 
-			if len(asn) == item.DesiredReplication() && item.IsConsistent(keyspace.KeyValue{}, asn) {
+			if len(asn) == item.DesiredReplication() && b.state.IsConsistent(item, keyspace.KeyValue{}, asn) {
 				if routeOut != nil {
 					routeOut.Init(asn)
 				}

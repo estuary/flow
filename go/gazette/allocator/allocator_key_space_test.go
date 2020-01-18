@@ -349,7 +349,8 @@ func (d testAllocDecoder) DecodeAssignment(itemID, zone, suffix string, slot int
 type testItem struct{ R int }
 
 func (i testItem) DesiredReplication() int { return i.R }
-func (i testItem) IsConsistent(assignment keyspace.KeyValue, allAssignments keyspace.KeyValues) bool {
+
+func isConsistent(_ Item, assignment keyspace.KeyValue, allAssignments keyspace.KeyValues) bool {
 	return assignment.Decoded.(Assignment).AssignmentValue.(testAssignment).consistent
 }
 

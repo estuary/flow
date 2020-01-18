@@ -59,7 +59,7 @@ func NewConsumer(args Args) *Consumer {
 	var (
 		id        = pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix}
 		ks        = consumer.NewKeySpace(args.Root)
-		state     = allocator.NewObservedState(ks, allocator.MemberKey(ks, id.Zone, id.Suffix))
+		state     = allocator.NewObservedState(ks, allocator.MemberKey(ks, id.Zone, id.Suffix), consumer.ShardIsConsistent)
 		srv       = server.MustLoopback()
 		svc       = consumer.NewService(args.App, state, args.Journals, srv.GRPCLoopback, args.Etcd)
 		tasks     = task.NewGroup(context.Background())

@@ -413,7 +413,7 @@ func buildItemStateFixture(c *gc.C, fixture map[string]string) (*keyspace.KeySpa
 	}
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var as = NewObservedState(ks, MemberKey(ks, "zone", "member-1"))
+	var as = NewObservedState(ks, MemberKey(ks, "zone", "member-1"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	return ks, &itemState{global: as}

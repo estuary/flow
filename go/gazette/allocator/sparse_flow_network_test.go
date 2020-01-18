@@ -17,7 +17,7 @@ func (s *SparseSuite) TestOverKeySpaceFixture(c *gc.C) {
 	buildAllocKeySpaceFixture(c, ctx, client)
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"))
+	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	const (
@@ -148,7 +148,7 @@ func (s *SparseSuite) TestMemberScalingOverflow(c *gc.C) {
 		c.Assert(err, gc.IsNil)
 	}
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "A", "one"))
+	var state = NewObservedState(ks, MemberKey(ks, "A", "one"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	const (
@@ -234,7 +234,7 @@ func (s *SparseSuite) TestZonePlacementOverflow(c *gc.C) {
 		c.Assert(err, gc.IsNil)
 	}
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "A", "one"))
+	var state = NewObservedState(ks, MemberKey(ks, "A", "one"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	const (
@@ -305,7 +305,7 @@ func (s *SparseSuite) TestZoneBalancing(c *gc.C) {
 		c.Assert(err, gc.IsNil)
 	}
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"))
+	var state = NewObservedState(ks, MemberKey(ks, "us-west", "baz"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	const (

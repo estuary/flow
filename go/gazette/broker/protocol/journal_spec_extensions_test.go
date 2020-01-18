@@ -4,8 +4,6 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 	"gopkg.in/yaml.v2"
 )
@@ -189,38 +187,6 @@ func (s *JournalSuite) TestFlagYAMLRoundTrip(c *gc.C) {
 
 	c.Check(yaml.Unmarshal([]byte(`"notAnEnum"`), &f), gc.ErrorMatches,
 		`"notAnEnum" is not a valid JournalSpec_Flag \(options are .*\)`)
-}
-
-func (s *JournalSuite) TestConsistencyCases(c *gc.C) {
-	var routes [3]Route
-	var assignments keyspace.KeyValues
-
-	for i := range routes {
-		routes[i].Primary = 0
-		routes[i].Members = []ProcessSpec_ID{
-			{Zone: "zone/a", Suffix: "member/1"},
-			{Zone: "zone/a", Suffix: "member/3"},
-			{Zone: "zone/b", Suffix: "member/2"},
-		}
-		assignments = append(assignments, keyspace.KeyValue{
-			Decoded: allocator.Assignment{
-				AssignmentValue: &routes[i],
-				MemberSuffix:    routes[0].Members[i].Suffix,
-				MemberZone:      routes[0].Members[i].Zone,
-				Slot:            i,
-			},
-		})
-	}
-
-	var spec JournalSpec
-	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, true)
-
-	routes[0].Primary = 1
-	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, false)
-	routes[0].Primary = 0
-
-	routes[1].Members = append(routes[1].Members, ProcessSpec_ID{Zone: "zone/b", Suffix: "member/4"})
-	c.Check(spec.IsConsistent(keyspace.KeyValue{}, assignments), gc.Equals, false)
 }
 
 func (s *JournalSuite) TestSetOperations(c *gc.C) {

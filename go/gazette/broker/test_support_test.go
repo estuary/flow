@@ -51,11 +51,11 @@ func newTestBroker(t assert.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_I
 		tasks: task.NewGroup(context.Background()),
 		ks:    NewKeySpace("/broker.test"),
 	}
+	var state = allocator.NewObservedState(bk.ks,
+		allocator.MemberKey(bk.ks, bk.id.Zone, bk.id.Suffix), JournalIsConsistent)
 
 	// Initialize server.
 	bk.srv = server.MustLoopback()
-
-	var state = allocator.NewObservedState(bk.ks, allocator.MemberKey(bk.ks, bk.id.Zone, bk.id.Suffix))
 	bk.svc = &Service{
 		jc:               pb.NewJournalClient(bk.srv.GRPCLoopback),
 		etcd:             etcd,

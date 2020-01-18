@@ -20,10 +20,10 @@ func (s *AllocStateSuite) TestExtractOverFixture(c *gc.C) {
 	// Examine multiple states derived from the KeySpace fixture, each
 	// pivoted around a different Member key.
 	var states = []*State{
-		NewObservedState(ks, MemberKey(ks, "us-west", "baz")),
-		NewObservedState(ks, MemberKey(ks, "us-east", "bar")),
-		NewObservedState(ks, MemberKey(ks, "us-east", "foo")),
-		NewObservedState(ks, MemberKey(ks, "does-not", "exist")),
+		NewObservedState(ks, MemberKey(ks, "us-west", "baz"), isConsistent),
+		NewObservedState(ks, MemberKey(ks, "us-east", "bar"), isConsistent),
+		NewObservedState(ks, MemberKey(ks, "us-east", "foo"), isConsistent),
+		NewObservedState(ks, MemberKey(ks, "does-not", "exist"), isConsistent),
 	}
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
@@ -86,9 +86,9 @@ func (s *AllocStateSuite) TestLeaderSelection(c *gc.C) {
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
 	var states = []*State{
-		NewObservedState(ks, MemberKey(ks, "us-east", "bar")),
-		NewObservedState(ks, MemberKey(ks, "us-east", "foo")),
-		NewObservedState(ks, MemberKey(ks, "us-west", "baz")),
+		NewObservedState(ks, MemberKey(ks, "us-east", "bar"), isConsistent),
+		NewObservedState(ks, MemberKey(ks, "us-east", "foo"), isConsistent),
+		NewObservedState(ks, MemberKey(ks, "us-west", "baz"), isConsistent),
 	}
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
@@ -113,8 +113,8 @@ func (s *AllocStateSuite) TestExitCondition(c *gc.C) {
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
 	var states = []*State{
-		NewObservedState(ks, MemberKey(ks, "us-east", "foo")),
-		NewObservedState(ks, MemberKey(ks, "us-east", "allowed-to-exit")),
+		NewObservedState(ks, MemberKey(ks, "us-east", "foo"), isConsistent),
+		NewObservedState(ks, MemberKey(ks, "us-east", "allowed-to-exit"), isConsistent),
 	}
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
@@ -134,7 +134,7 @@ func (s *AllocStateSuite) TestLoadRatio(c *gc.C) {
 	defer etcdtest.Cleanup()
 
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "us-east", "foo"))
+	var state = NewObservedState(ks, MemberKey(ks, "us-east", "foo"), isConsistent)
 	c.Check(ks.Load(ctx, client, 0), gc.IsNil)
 
 	// Verify expected load ratios, computed using these counts. Note Assignments are:

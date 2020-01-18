@@ -5,9 +5,7 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
-	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 )
 
@@ -101,22 +99,6 @@ func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 	c.Check(spec.DesiredReplication(), gc.Equals, 0)
 	spec.Disable, spec.HotStandbys = false, 0
 	c.Check(spec.DesiredReplication(), gc.Equals, 1)
-
-	var status, primaryStatus = new(ReplicaStatus), &ReplicaStatus{Code: ReplicaStatus_PRIMARY}
-	var asn = keyspace.KeyValue{Decoded: allocator.Assignment{Slot: 1, AssignmentValue: status}}
-	var all = keyspace.KeyValues{asn, {Decoded: allocator.Assignment{Slot: 0, AssignmentValue: primaryStatus}}}
-
-	c.Check(spec.IsConsistent(asn, all), gc.Equals, false)
-	status.Code = ReplicaStatus_STANDBY
-	c.Check(spec.IsConsistent(asn, all), gc.Equals, true)
-	status.Code = ReplicaStatus_PRIMARY
-	c.Check(spec.IsConsistent(asn, all), gc.Equals, true)
-
-	// If we're FAILED, we're consistent only if the primary is also.
-	status.Code = ReplicaStatus_FAILED
-	c.Check(spec.IsConsistent(asn, all), gc.Equals, false)
-	primaryStatus.Code = ReplicaStatus_FAILED
-	c.Check(spec.IsConsistent(asn, all), gc.Equals, true)
 
 	c.Check(ExtractShardSpecMetaLabels(&spec, pb.MustLabelSet("label", "buffer")),
 		gc.DeepEquals, pb.MustLabelSet("id", "shard-id"))
