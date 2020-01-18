@@ -1,10 +1,5 @@
 package protocol
 
-import (
-	epb "go.etcd.io/etcd/etcdserver/etcdserverpb"
-	"go.gazette.dev/core/allocator"
-)
-
 // Validate returns an error if the Header is not well-formed.
 func (m Header) Validate() error {
 	if m.ProcessId != (ProcessSpec_ID{}) {
@@ -32,31 +27,4 @@ func (m Header_Etcd) Validate() error {
 		return NewValidationError("invalid RaftTerm (expected != 0)")
 	}
 	return nil
-}
-
-// FromEtcdResponseHeader converts an etcd ResponseHeader to an equivalent Header_Etcd.
-func FromEtcdResponseHeader(h epb.ResponseHeader) Header_Etcd {
-	return Header_Etcd{
-		ClusterId: h.ClusterId,
-		MemberId:  h.MemberId,
-		Revision:  h.Revision,
-		RaftTerm:  h.RaftTerm,
-	}
-}
-
-// NewUnroutedHeader returns a Header with its ProcessId and Etcd fields derived
-// from the v3_allocator.State, and Route left as zero-valued. It is a helper for
-// APIs which do not utilize item resolution but still return Headers (eg, List
-// and Update).
-func NewUnroutedHeader(s *allocator.State) (hdr Header) {
-	defer s.KS.Mu.RUnlock()
-	s.KS.Mu.RLock()
-
-	if s.LocalMemberInd != -1 {
-		var member = s.Members[s.LocalMemberInd].Decoded.(allocator.Member)
-		hdr.ProcessId = ProcessSpec_ID{Zone: member.Zone, Suffix: member.Suffix}
-	}
-	hdr.Route = Route{Primary: -1}
-	hdr.Etcd = FromEtcdResponseHeader(s.KS.Header)
-	return
 }

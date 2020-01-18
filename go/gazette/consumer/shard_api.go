@@ -9,6 +9,7 @@ import (
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
@@ -49,7 +50,7 @@ func (srv *Service) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResp
 
 	var resp = &pc.ListResponse{
 		Status: pc.Status_OK,
-		Header: pb.NewUnroutedHeader(s),
+		Header: pbx.NewUnroutedHeader(s),
 	}
 	if err := req.Validate(); err != nil {
 		return resp, err
@@ -80,8 +81,8 @@ func (srv *Service) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResp
 			continue
 		}
 		shard.ModRevision = s.Items[cur.Left].Raw.ModRevision
-		shard.Route.Init(s.Assignments[cur.RightBegin:cur.RightEnd])
-		shard.Route.AttachEndpoints(s.KS)
+		pbx.Init(&shard.Route, s.Assignments[cur.RightBegin:cur.RightEnd])
+		pbx.AttachEndpoints(&shard.Route, s.KS)
 
 		for _, asn := range s.Assignments[cur.RightBegin:cur.RightEnd] {
 			shard.Status = append(shard.Status,
@@ -99,7 +100,7 @@ func (srv *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyR
 
 	var resp = &pc.ApplyResponse{
 		Status: pc.Status_OK,
-		Header: pb.NewUnroutedHeader(s),
+		Header: pbx.NewUnroutedHeader(s),
 	}
 	if err := req.Validate(); err != nil {
 		return resp, err
@@ -146,7 +147,7 @@ func (srv *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.
 	var (
 		resp = &pc.GetHintsResponse{
 			Status: pc.Status_OK,
-			Header: pb.NewUnroutedHeader(srv.State),
+			Header: pbx.NewUnroutedHeader(srv.State),
 		}
 		ks   = srv.State.KS
 		spec *pc.ShardSpec

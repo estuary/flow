@@ -10,6 +10,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -127,7 +128,7 @@ func (r *resolver) resolve(args resolveArgs) (res *resolution, err error) {
 		addTrace(args.ctx, "WaitForRevision(%d) => %d",
 			args.minEtcdRevision, ks.Header.Revision)
 	}
-	res.Etcd = pb.FromEtcdResponseHeader(ks.Header)
+	res.Etcd = pbx.FromEtcdResponseHeader(ks.Header)
 
 	// Extract JournalSpec.
 	if item, ok := allocator.LookupItem(ks, args.journal.String()); ok {
@@ -137,8 +138,8 @@ func (r *resolver) resolve(args resolveArgs) (res *resolution, err error) {
 	res.assignments = ks.KeyValues.Prefixed(
 		allocator.ItemAssignmentsPrefix(ks, args.journal.String())).Copy()
 
-	res.Route.Init(res.assignments)
-	res.Route.AttachEndpoints(ks)
+	pbx.Init(&res.Route, res.assignments)
+	pbx.AttachEndpoints(&res.Route, ks)
 
 	// Select a definite ProcessID if we require the primary and there is one,
 	// or if we're a member of the Route (and authoritative).
@@ -219,7 +220,7 @@ func (r *resolver) updateResolutions() {
 			}
 
 			var rt pb.Route
-			rt.Init(li.Assignments)
+			pbx.Init(&rt, li.Assignments)
 
 			log.WithFields(log.Fields{
 				"name":  replica.journal,

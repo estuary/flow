@@ -1,51 +1,11 @@
 package protocol
 
-import (
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/keyspace"
-)
-
-// Initialize Route with the provided allocator Assignments.
-func (m *Route) Init(assignments keyspace.KeyValues) {
-	*m = Route{Primary: -1, Members: m.Members[:0]}
-
-	for _, kv := range assignments {
-		var a = kv.Decoded.(allocator.Assignment)
-		if a.Slot == 0 {
-			m.Primary = int32(len(m.Members))
-		}
-
-		m.Members = append(m.Members, ProcessSpec_ID{
-			Zone:   a.MemberZone,
-			Suffix: a.MemberSuffix,
-		})
-	}
-}
-
 // Copy returns a deep copy of the Route.
 func (m Route) Copy() Route {
 	return Route{
 		Members:   append([]ProcessSpec_ID(nil), m.Members...),
 		Primary:   m.Primary,
 		Endpoints: append([]Endpoint(nil), m.Endpoints...),
-	}
-}
-
-// AttachEndpoints maps Route members through the KeySpace to their respective
-// specs, and attaches the associated Endpoint of each to the Route.
-// KeySpace must already be read-locked.
-func (m *Route) AttachEndpoints(ks *keyspace.KeySpace) {
-	if len(m.Members) != 0 {
-		m.Endpoints = make([]Endpoint, len(m.Members))
-	}
-	for i, b := range m.Members {
-		if member, ok := allocator.LookupMember(ks, b.Zone, b.Suffix); !ok {
-			continue // Assignment with missing Member. Ignore.
-		} else {
-			m.Endpoints[i] = member.MemberValue.(interface {
-				GetEndpoint() Endpoint
-			}).GetEndpoint()
-		}
 	}
 }
 

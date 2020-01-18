@@ -2,9 +2,6 @@ package protocol
 
 import (
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/etcdserver/etcdserverpb"
-	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/keyspace"
 )
 
 type HeaderSuite struct{}
@@ -26,22 +23,6 @@ func (s *HeaderSuite) TestEtcdValidationCases(c *gc.C) {
 	model.RaftTerm = 78
 
 	c.Check(model.Validate(), gc.IsNil)
-}
-
-func (s *HeaderSuite) TestEtcdConversion(c *gc.C) {
-	c.Check(Header_Etcd{
-		ClusterId: 12,
-		MemberId:  34,
-		Revision:  56,
-		RaftTerm:  78,
-	}, gc.Equals, FromEtcdResponseHeader(
-		etcdserverpb.ResponseHeader{
-			ClusterId: 12,
-			MemberId:  34,
-			Revision:  56,
-			RaftTerm:  78,
-		},
-	))
 }
 
 func (s *HeaderSuite) TestHeaderValidationCases(c *gc.C) {
@@ -67,29 +48,6 @@ func (s *HeaderSuite) TestHeaderValidationCases(c *gc.C) {
 	// Empty ProcessId is permitted.
 	model.ProcessId = ProcessSpec_ID{}
 	c.Check(model.Validate(), gc.IsNil)
-}
-
-func (s *HeaderSuite) TestUnroutedHeader(c *gc.C) {
-	var etcd = etcdserverpb.ResponseHeader{
-		ClusterId: 12,
-		MemberId:  34,
-		Revision:  56,
-		RaftTerm:  78,
-	}
-	var fixture = &allocator.State{
-		LocalMemberInd: 0,
-		Members: keyspace.KeyValues{
-			{Decoded: allocator.Member{Zone: "zone", Suffix: "suffix"}},
-		},
-		KS: &keyspace.KeySpace{
-			Header: etcd,
-		},
-	}
-	c.Check(NewUnroutedHeader(fixture), gc.DeepEquals, Header{
-		ProcessId: ProcessSpec_ID{Zone: "zone", Suffix: "suffix"},
-		Route:     Route{Primary: -1},
-		Etcd:      FromEtcdResponseHeader(etcd),
-	})
 }
 
 var _ = gc.Suite(&HeaderSuite{})

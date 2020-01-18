@@ -11,6 +11,7 @@ import (
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -181,7 +182,7 @@ func shutDownReplica(r *replica, done func()) {
 // as an Etcd transaction.
 func updateAssignments(ctx context.Context, assignments keyspace.KeyValues, etcd clientv3.KV) (int64, error) {
 	var rt pb.Route
-	rt.Init(assignments)
+	pbx.Init(&rt, assignments)
 
 	// Construct an Etcd transaction which asserts |assignments| are unchanged
 	// and updates non-equivalent values to the |rt| Route serialization,

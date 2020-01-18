@@ -10,6 +10,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keyspace"
 )
@@ -140,7 +141,7 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 			addTrace(args.Context, "WaitForRevision(%d) => %d", hdr.Etcd.Revision, ks.Header.Revision)
 		}
 	}
-	res.Header.Etcd = pb.FromEtcdResponseHeader(ks.Header)
+	res.Header.Etcd = pbx.FromEtcdResponseHeader(ks.Header)
 
 	// Extract ShardSpec.
 	if item, ok := allocator.LookupItem(ks, args.ShardID.String()); ok {
@@ -150,8 +151,8 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	var assignments = ks.KeyValues.Prefixed(
 		allocator.ItemAssignmentsPrefix(ks, args.ShardID.String()))
 
-	res.Header.Route.Init(assignments)
-	res.Header.Route.AttachEndpoints(ks)
+	pbx.Init(&res.Header.Route, assignments)
+	pbx.AttachEndpoints(&res.Header.Route, ks)
 
 	// Select a responsible ConsumerSpec.
 	if res.Header.Route.Primary != -1 {
@@ -267,7 +268,7 @@ func (r *Resolver) updateLocalShards() {
 			shard = r.newShard(li.Item) // Newly assigned shard.
 
 			var rt pb.Route
-			rt.Init(li.Assignments)
+			pbx.Init(&rt, li.Assignments)
 
 			log.WithFields(log.Fields{
 				"id":    id,

@@ -4,6 +4,7 @@ import (
 	"go.etcd.io/etcd/mvcc/mvccpb"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -53,9 +54,8 @@ func (d decoder) DecodeMember(zone, suffix string, raw *mvccpb.KeyValue) (alloca
 
 func (d decoder) DecodeAssignment(itemID, memberZone, memberSuffix string, slot int, raw *mvccpb.KeyValue) (allocator.AssignmentValue, error) {
 	var s = new(pb.Route)
-
 	if len(raw.Value) == 0 {
-		s.Init(nil)
+		pbx.Init(s, nil)
 	} else if err := s.Unmarshal(raw.Value); err != nil {
 		return nil, err
 	} else if err = s.Validate(); err != nil {
@@ -69,7 +69,7 @@ func (d decoder) DecodeAssignment(itemID, memberZone, memberSuffix string, slot 
 // all replicas of the journal have synchronized.
 func JournalIsConsistent(item allocator.Item, _ keyspace.KeyValue, assignments keyspace.KeyValues) bool {
 	var rt pb.Route
-	rt.Init(assignments)
+	pbx.Init(&rt, assignments)
 
 	return JournalRouteMatchesAssignments(rt, assignments)
 }

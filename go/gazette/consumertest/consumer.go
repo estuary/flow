@@ -12,6 +12,7 @@ import (
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
@@ -125,7 +126,7 @@ func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard pc.ShardID, route
 			)
 			if decoded.Slot == 0 && status.Code == pc.ReplicaStatus_PRIMARY {
 				if routeOut != nil {
-					routeOut.Init(asn)
+					pbx.Init(routeOut, asn)
 				}
 				return nil // Success.
 			}
