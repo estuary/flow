@@ -54,6 +54,7 @@ func (d decoder) DecodeMember(zone, suffix string, raw *mvccpb.KeyValue) (alloca
 
 func (d decoder) DecodeAssignment(itemID, memberZone, memberSuffix string, slot int, raw *mvccpb.KeyValue) (allocator.AssignmentValue, error) {
 	var s = new(pb.Route)
+	br := pbx.Brlist_apply_api.gookerRoute{Route: *s}
 	if len(raw.Value) == 0 {
 		pbx.Init(s, nil)
 	} else if err := s.Unmarshal(raw.Value); err != nil {

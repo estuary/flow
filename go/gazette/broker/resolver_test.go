@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/etcdtest"
 )
 
@@ -60,7 +61,7 @@ func TestResolveCases(t *testing.T) {
 	assert.Equal(t, pb.Journal("replica/journal"), r.journalSpec.Name)
 	// And a Header having the correct Route (with Endpoints), Etcd header, and responsible broker ID.
 	assert.Equal(t, mkRoute(1, broker.id, peer.id), r.Header.Route)
-	assert.Equal(t, pb.FromEtcdResponseHeader(broker.ks.Header), r.Header.Etcd)
+	assert.Equal(t, pbx.FromEtcdResponseHeader(broker.ks.Header), r.Header.Etcd)
 	// The ProcessID was set to this broker, as it resolves to a local replica.
 	assert.Equal(t, broker.id, r.Header.ProcessId)
 	// And the localID was populated.
@@ -218,7 +219,7 @@ func TestResolveFutureRevisionCasesWithProxyHeader(t *testing.T) {
 			Primary:   0,
 			Endpoints: []pb.Endpoint{broker.srv.Endpoint()},
 		},
-		Etcd: pb.FromEtcdResponseHeader(broker.ks.Header),
+		Etcd: pbx.FromEtcdResponseHeader(broker.ks.Header),
 	}
 	hdr.Etcd.Revision += 1
 
@@ -261,7 +262,7 @@ func TestResolveProxyHeaderErrorCases(t *testing.T) {
 	var proxy = pb.Header{
 		ProcessId: pb.ProcessSpec_ID{Zone: "other", Suffix: "id"},
 		Route:     pb.Route{Primary: -1},
-		Etcd:      pb.FromEtcdResponseHeader(broker.ks.Header),
+		Etcd:      pbx.FromEtcdResponseHeader(broker.ks.Header),
 	}
 
 	// Case: proxy header references a broker other than this one.

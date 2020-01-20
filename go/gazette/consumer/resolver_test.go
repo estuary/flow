@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
@@ -29,7 +30,7 @@ func TestResolverCases(t *testing.T) {
 		Header: pb.Header{
 			ProcessId: pb.ProcessSpec_ID{Zone: "local ConsumerSpec", Suffix: "missing from Etcd"},
 			Route:     pb.Route{Primary: -1},
-			Etcd:      pb.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd:      pbx.FromEtcdResponseHeader(tf.ks.Header),
 		},
 	}, resolve(ResolveArgs{ShardID: "other-shard-ID"}))
 
@@ -45,7 +46,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   -1,
 				Endpoints: []pb.Endpoint{"http://remote/endpoint"},
 			},
-			Etcd: pb.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd: pbx.FromEtcdResponseHeader(tf.ks.Header),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA}))
@@ -62,7 +63,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   1,
 				Endpoints: []pb.Endpoint{"http://local/endpoint", "http://remote/endpoint"},
 			},
-			Etcd: pb.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd: pbx.FromEtcdResponseHeader(tf.ks.Header),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA}))
@@ -77,7 +78,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   1,
 				Endpoints: []pb.Endpoint{"http://local/endpoint", "http://remote/endpoint"},
 			},
-			Etcd: pb.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd: pbx.FromEtcdResponseHeader(tf.ks.Header),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA, MayProxy: true}))

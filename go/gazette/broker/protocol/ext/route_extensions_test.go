@@ -11,10 +11,10 @@ import (
 type RouteSuite struct{}
 
 func (s *RouteSuite) TestInitialization(c *gc.C) {
-	var rt BrokerRoute
 
-	rt.Init(nil)
-	c.Check(rt, gc.DeepEquals, BrokerRoute{Route: pb.Route{Primary: -1, Members: nil}})
+	var rt = pb.Route{}
+	Init(&rt, nil)
+	c.Check(rt, gc.DeepEquals, pb.Route{Primary: -1, Members: nil})
 
 	var kv = keyspace.KeyValues{
 		{Decoded: allocator.Assignment{MemberZone: "zone-a", MemberSuffix: "member-1", Slot: 1}},
@@ -22,9 +22,9 @@ func (s *RouteSuite) TestInitialization(c *gc.C) {
 		{Decoded: allocator.Assignment{MemberZone: "zone-b", MemberSuffix: "member-2", Slot: 2}},
 		{Decoded: allocator.Assignment{MemberZone: "zone-c", MemberSuffix: "member-4", Slot: 0}},
 	}
-	rt.Init(kv)
+	Init(&rt, kv)
 
-	c.Check(rt, gc.DeepEquals, BrokerRoute{Route: pb.Route{
+	c.Check(rt, gc.DeepEquals, pb.Route{
 		Primary: 3,
 		Members: []pb.ProcessSpec_ID{
 			{Zone: "zone-a", Suffix: "member-1"},
@@ -32,19 +32,19 @@ func (s *RouteSuite) TestInitialization(c *gc.C) {
 			{Zone: "zone-b", Suffix: "member-2"},
 			{Zone: "zone-c", Suffix: "member-4"},
 		},
-	}})
+	})
 
 	kv = kv[:3] // This time, remove the primary Assignment.
-	rt.Init(kv)
+	Init(&rt, kv)
 
-	c.Check(rt, gc.DeepEquals, BrokerRoute{Route: pb.Route{
+	c.Check(rt, gc.DeepEquals, pb.Route{
 		Primary: -1,
 		Members: []pb.ProcessSpec_ID{
 			{Zone: "zone-a", Suffix: "member-1"},
 			{Zone: "zone-a", Suffix: "member-3"},
 			{Zone: "zone-b", Suffix: "member-2"},
 		},
-	}})
+	})
 }
 
 func (s *RouteSuite) TestEndpointAttachmentAndCopy(c *gc.C) {
@@ -59,22 +59,22 @@ func (s *RouteSuite) TestEndpointAttachmentAndCopy(c *gc.C) {
 					MemberValue: &pb.BrokerSpec{ProcessSpec: pb.ProcessSpec{Endpoint: "http://host-b:port/path"}}}},
 		},
 	}
-	var rt = BrokerRoute{Route: pb.Route{
+	var rt = pb.Route{
 		Members: []pb.ProcessSpec_ID{
 			{Zone: "zone-a", Suffix: "member-1"},
 			{Zone: "zone-a", Suffix: "member-3"},
 			{Zone: "zone-b", Suffix: "member-2"},
 		},
-	}}
+	}
 
-	rt.AttachEndpoints(&ks)
-	c.Check(rt.Route.Endpoints, gc.DeepEquals, []pb.Endpoint{"http://host-a:port/path", "", "http://host-b:port/path"})
+	AttachEndpoints(&rt, &ks)
+	c.Check(rt.Endpoints, gc.DeepEquals, []pb.Endpoint{"http://host-a:port/path", "", "http://host-b:port/path"})
 
-	var other = rt.Route.Copy()
+	var other = rt.Copy()
 
 	// Expect |other| is deeply equal while referencing different slices.
-	c.Check(rt.Route.Members, gc.DeepEquals, other.Members)
-	c.Check(rt.Route.Endpoints, gc.DeepEquals, other.Endpoints)
-	c.Check(&rt.Route.Members[0], gc.Not(gc.Equals), &other.Members[0])
-	c.Check(&rt.Route.Endpoints[0], gc.Not(gc.Equals), &other.Endpoints[0])
+	c.Check(rt.Members, gc.DeepEquals, other.Members)
+	c.Check(rt.Endpoints, gc.DeepEquals, other.Endpoints)
+	c.Check(&rt.Members[0], gc.Not(gc.Equals), &other.Members[0])
+	c.Check(&rt.Endpoints[0], gc.Not(gc.Equals), &other.Endpoints[0])
 }
