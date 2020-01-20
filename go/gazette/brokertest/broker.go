@@ -14,6 +14,7 @@ import (
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
+	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
@@ -115,7 +116,7 @@ func (b *Broker) WaitForConsistency(ctx context.Context, journal pb.Journal, rou
 
 			if len(asn) == item.DesiredReplication() && b.state.IsConsistent(item, keyspace.KeyValue{}, asn) {
 				if routeOut != nil {
-					routeOut.Init(asn)
+					pbx.Init(routeOut, asn)
 				}
 				return nil // Success.
 			}
