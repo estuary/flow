@@ -56,10 +56,8 @@ func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.Lis
 		},
 	}
 	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
-		var journalSpec *pb.JournalSpec = s.Items[cur.Left].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
 		var journal = pb.ListResponse_Journal{
-			Spec: *journalSpec,
-		}
+			Spec: *s.Items[cur.Left].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)}
 		metaLabels = pb.ExtractJournalSpecMetaLabels(&journal.Spec, metaLabels)
 		allLabels = pb.UnionLabelSets(metaLabels, journal.Spec.LabelSet, allLabels)
 
