@@ -67,10 +67,30 @@ func NewPublisher(ajc client.AsyncJournalClient, clock *Clock) *Publisher {
 // PublishCommitted sequences the Message for immediate consumption, maps it
 // to a Journal, and begins an AsyncAppend of its marshaled content. An error
 // is returned if:
+//
 //  * The Message implements Validate, which errors.
-//  * The MappingFunc returns an error while mapping the Message to a journal.
+//  * The MappingFunc returns ErrEmptyListResponse while mapping the Message to a journal
+//    (eg, because no journals currently match the mapping's selector).
 //  * The journal's Framing returns an error while marshaling the Message,
-//    or a local io.Writer errors (eg while spooling the frame to a temp file).
+//    or an os.PathError occurs while spooling the frame to a temporary file
+//    (eg, because local disk is full).
+//
+// The caller may wish to retry at a later time in the case of ErrEmptyListResponse
+// or os.PathError.
+//
+// If desired, the caller may select on Done of the returned *AsyncAppend to be
+// notified as soon as this particular Message has committed to the journal.
+// This might be appropriate when publishing as part of an HTTP request, where
+// status is to reported to the client.
+//
+// Callers are also free to altogether ignore the returned *AsyncAppend, perhaps
+// within a non-blocking "fire and forget" of collected logs or metrics.
+//
+// Another option is to issue a periodic "write barrier", where the caller uses
+// PendingExcept of the underlying AsyncJournalClient and waits over the returned
+// OpFutures. At that time the caller is assured that all prior publishes have
+// committed, without having to track or wait for them individually.
+//
 // PublishCommitted is safe for concurrent use.
 func (p *Publisher) PublishCommitted(mapping MappingFunc, msg Message) (*client.AsyncAppend, error) {
 	var _, _, aa, err = p.publish(mapping, msg, Flag_OUTSIDE_TXN)

@@ -38,3 +38,50 @@ of the repository:
 .. literalinclude:: ../kustomize/test/bases/environment/examples.journalspace.yaml
    :language: yaml
 
+Etcd Revisions
+---------------
+
+JournalSpecs retrieved by the ``gazctl`` tool will include their respective
+Etcd modification revisions as field ``revision`` within the rendered YAML.
+
+When applying YAML specs via ``gazctl journals apply``, any specs which omit
+``revision`` assume a value of zero (implying the journal must not exist).
+The revisions of specs are always compared to the current Etcd store revision,
+and an apply will fail if there's a mismatch. This prevents a ``gazctl journals edit``
+or list => modify => apply sequence from overwriting specification changes which
+may have been made in the meantime.
+
+.. code-block:: yaml
+    :emphasize-lines: 3
+
+    name: examples/foobar
+    replication: 3
+    revision: 6
+    fragment:
+        ... etc ...
+
+A applied revision value ``-1`` can be used to explicitly signal that the Etcd
+store revision should be ignored. This is helpful when the desired source-of-truth
+for a set of JournalSpecs is versioned source control, and where an apply
+of those specs should always overwrite any existing Etcd versions.
+
+Deleting JournalSpecs
+----------------------
+
+One or more JournalSpecs may be deleted by adding a ``delete: true`` stanza to the
+YAML returned by ``gazctl`` and then applying it -- for example, as part of a
+``gazctl journals edit`` workflow. A ``delete`` stanza set on a parent node also
+applies to all children.
+
+.. code-block:: yaml
+    :emphasize-lines: 2
+
+    name: examples/foobar
+    delete: true
+    revision: 6
+    replication: 3
+    fragment:
+        ... etc ...
+
+Once applied, brokers will immediately stop serving the journal. Note that existing
+journal fragments are not impacted and must be manually deleted.

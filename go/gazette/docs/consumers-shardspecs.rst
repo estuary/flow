@@ -26,3 +26,20 @@ Example YAML
 
 .. literalinclude:: ../kustomize/bases/example-word-count/shard_specs.yaml
    :language: yaml
+
+Etcd Revisions
+---------------
+
+Like JournalSpecs, ShardSpecs retrieved by the ``gazctl`` tool will include their
+respective Etcd modification revisions as field ``revision`` within the rendered YAML.
+
+Consult the JournalSpecs documentation for more detail; ShardSpecs work analogously.
+
+Deleting ShardSpecs
+--------------------
+
+Like JournalSpecs, ShardSpecs may be deleted by adding a ``delete: true`` stanza to
+the YAML returned by ``gazctl`` and then applying it.
+
+The field may be applied to an individual spec, or to the hoisted ``common`` map.
+Consult the JournalSpecs documentation for more detail.
