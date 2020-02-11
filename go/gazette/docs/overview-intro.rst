@@ -16,6 +16,9 @@ Overview
 .. image:: https://goreportcard.com/badge/github.com/gazette/core
    :target: https://goreportcard.com/report/github.com/gazette/core
    :alt: Go Report Card
+.. raw:: html
+
+   <iframe style="margin-bottom: 6px" src="https://ghbtns.com/github-btn.html?user=gazette&repo=core&type=star&count=true" frameborder="0" scrolling="0" width="170px" height="20px"></iframe>
 
 Many organizations have adopted a streaming "spine" for event capture and movement,
 but are then challenged by the realization that either they must map all of their
