@@ -358,5 +358,3 @@ func backoff(attempt int) time.Duration {
 		return 5 * time.Second
 	}
 }
-
-var timeNow = time.Now

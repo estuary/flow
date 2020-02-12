@@ -161,18 +161,17 @@ func (a *testApplication) FinishedTxn(_ Shard, _ Store, op OpFuture) {
 }
 
 type testFixture struct {
-	t         assert.TestingT
-	tasks     *task.Group
-	app       *testApplication
-	broker    *brokertest.Broker
-	etcd      *clientv3.Client
-	ks        *keyspace.KeySpace
-	resolver  *Resolver
-	service   *Service
-	state     *allocator.State
-	ajc       *client.AppendService
-	pub       *message.Publisher
-	tmpSqlite string
+	t        assert.TestingT
+	tasks    *task.Group
+	app      *testApplication
+	broker   *brokertest.Broker
+	etcd     *clientv3.Client
+	ks       *keyspace.KeySpace
+	resolver *Resolver
+	service  *Service
+	state    *allocator.State
+	ajc      *client.AppendService
+	pub      *message.Publisher
 }
 
 func newTestFixture(t assert.TestingT) (*testFixture, func()) {
@@ -474,7 +473,7 @@ type testTimer struct {
 	timepoint time.Time
 }
 
-func newTestTimer() (*testTimer, func()) {
+func newTestTimer() *testTimer {
 	var t = &testTimer{
 		ch:        make(chan time.Time, 1),
 		timepoint: faketime(0),
@@ -484,11 +483,9 @@ func newTestTimer() (*testTimer, func()) {
 		C:     t.ch,
 		Reset: func(duration time.Duration) bool { t.reset = duration; return true },
 		Stop:  func() bool { t.stopped = true; return true },
+		Now:   func() time.Time { return t.timepoint },
 	}
-
-	var restore = timeNow
-	timeNow = func() time.Time { return t.timepoint }
-	return t, func() { timeNow = restore }
+	return t
 }
 
 func (t testTimer) signal() { t.ch <- t.timepoint }

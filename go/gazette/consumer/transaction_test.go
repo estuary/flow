@@ -17,9 +17,6 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	var timer, restore = newTestTimer()
-	defer restore()
-
 	var (
 		cp          = playAndComplete(t, shard)
 		msgCh       = make(chan readMessage, 1)
@@ -32,6 +29,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
+		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
@@ -101,9 +99,6 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	var timer, restore = newTestTimer()
-	defer restore()
-
 	var (
 		cp          = playAndComplete(t, shard)
 		msgCh       = make(chan readMessage, 1)
@@ -116,6 +111,7 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
+		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
@@ -183,9 +179,6 @@ func TestTxnMaxDurElapsesThenPriorSyncs(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	var timer, restore = newTestTimer()
-	defer restore()
-
 	var (
 		cp          = playAndComplete(t, shard)
 		msgCh       = make(chan readMessage, 1)
@@ -198,6 +191,7 @@ func TestTxnMaxDurElapsesThenPriorSyncs(t *testing.T) {
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
+		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
@@ -262,9 +256,6 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	var timer, restore = newTestTimer()
-	defer restore()
-
 	var (
 		cp             = playAndComplete(t, shard)
 		msgCh          = make(chan readMessage, 1)
@@ -272,6 +263,7 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
+		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)

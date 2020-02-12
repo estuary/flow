@@ -21,6 +21,7 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan readMessage, hint
 			C:     realTimer.C,
 			Reset: realTimer.Reset,
 			Stop:  realTimer.Stop,
+			Now:   time.Now,
 		}
 		prev = transaction{
 			readThrough:   pc.FlattenReadThrough(cp),
@@ -210,7 +211,7 @@ func txnConsume(s *shard, txn *transaction, env message.Envelope) error {
 				return errors.WithMessage(err, "app.BeginTxn")
 			}
 		}
-		txn.beganAt = timeNow()
+		txn.beganAt = txn.timer.Now()
 		txn.timer.Reset(txn.minDur)
 		s.clock.Update(txn.beganAt)
 	}
@@ -251,7 +252,7 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 	if !prev.ackedAt.IsZero() {
 		panic("unexpected txnBarrierResolved")
 	}
-	var now = timeNow()
+	var now = txn.timer.Now()
 
 	if prev.committedAt.IsZero() {
 		if prev.commitBarrier.Err() != nil {
@@ -299,7 +300,7 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 }
 
 func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
-	if txn.prepareBeganAt = timeNow(); txn.stalledAt.IsZero() {
+	if txn.prepareBeganAt = txn.timer.Now(); txn.stalledAt.IsZero() {
 		txn.stalledAt = txn.prepareBeganAt // We spent no time stalled.
 	}
 
@@ -325,7 +326,7 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 	var waitFor = s.ajc.PendingExcept(s.recovery.log)
 
 	txn.commitBarrier = s.store.StartCommit(s, cp, waitFor)
-	txn.prepareDoneAt = timeNow()
+	txn.prepareDoneAt = txn.timer.Now()
 
 	return cp, nil
 }
@@ -369,4 +370,5 @@ type txnTimer struct {
 	C     <-chan time.Time
 	Reset func(time.Duration) bool
 	Stop  func() bool
+	Now   func() time.Time
 }
