@@ -1,0 +1,32 @@
+collections:
+  - name:     ticks
+    schema:   schemas/L1-tick.yaml
+    examples: fixtures/L1-tick.json
+    partitions:
+      exchange: /exchange
+
+  - name:   daily-stats
+    schema: schemas/daily-stat.yaml
+    groupBy: [/security, /date]
+    partitions:
+      exchange: /exchange
+    deriveFrom:
+      - source: ticks
+        withJQ: lambdas/map-tick-to-daily-stats.jq
+
+materializations:
+  - collection: daily-stats
+    additionalProjections:
+      my_special_column: /bid/high
+      date: /date
+      security: /security
+      price__low: /price/low
+      price__high: /price/high
+      price__avgN: /price/avgN
+      price__avgD: /price/avgD
+      bid__low: /bid/low
+      ...
+
+    postgresql:
+      endpoint: postgres://127.0.0.1:5432/my-db
+      table: daily_stats

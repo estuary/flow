@@ -1,0 +1,61 @@
+description: Daily statistics of a market security.
+
+type: object
+reduce: merge
+required: [exchange, security, date]
+
+properties:
+  # Grouped dimensions of the record.
+  exchange: { $ref: exchange.yaml }
+  security: { $ref: L1-tick.yaml#/$defs/security }
+  date:
+    type: string
+    format: date
+
+  # Metrics of the record.
+  price:
+    description: Low, high, and average transaction price (weighted by shares).
+    $ref: "#/$defs/priceStats"
+  bid:
+    description: Low, high, and average bid price.
+    $ref: "#/$defs/priceStats"
+  ask:
+    description: Low, high, and average ask price.
+    $ref: "#/$defs/priceStats"
+  spread:
+    description: Low, high, and average spread of bid vs ask.
+    $ref: "#/$defs/priceStats"
+  volume:
+    description: Total number of shares transacted.
+    type: integer
+    reduce: sum
+  first:
+    description: First trade of the day.
+    $ref: L1-tick.yaml#/$defs/priceAndSize
+    reduce: firstWriteWins
+  last:
+    description: Last trade of the day.
+    $ref: L1-tick.yaml#/$defs/priceAndSize
+    reduce: lastWriteWins
+
+$defs:
+  priceStats:
+    type: object
+    reduce: merge
+
+    properties:
+      low:
+        type: number
+        reduce: minimize
+      high:
+        type: number
+        reduce: maximize
+      avgN:
+        description: Numerator of average.
+        type: number
+        reduce: sum
+      avgD:
+        description: Denominator of average.
+        type: number
+        reduce: sum
+

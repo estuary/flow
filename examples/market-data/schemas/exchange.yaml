@@ -1,0 +1,5 @@
+description: Enum of market exchange codes.
+enum:
+  - NYSE
+  - NASDAQ
+  - SEHK

@@ -1,0 +1,45 @@
+$schema: https://json-schema.org/draft/2019-09/schema
+description: Level-one market tick of a security.
+
+type: object
+required: [exchange, security, time]
+
+properties:
+  exchange:
+    $ref: exchange.yaml
+  security:
+    $ref: "#/$defs/security"
+  time:
+    format: date-time
+
+  bid:
+    description: Highest current offer to buy security.
+    $ref: "#/$defs/priceAndSize"
+  ask: 
+    description: Lowest current offer to sell security.
+    $ref: "#/$defs/priceAndSize"
+  last:
+    description: Completed transaction which generated this tick.
+    $ref: "#/$defs/priceAndSize"
+
+$defs:
+  security:
+    description: Market security ticker name.
+    type: string
+    minLength: 2
+    maxLength: 10
+
+  priceAndSize:
+    required: [price, size]
+
+    properties:
+      price:
+        description: Dollar price.
+        type: number
+        exclusiveMinimum: 0
+      size:
+        description: Number of shares.
+        type: integer
+        minimum: 1
+
+
