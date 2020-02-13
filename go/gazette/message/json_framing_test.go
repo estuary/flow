@@ -3,8 +3,11 @@ package message
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,4 +80,45 @@ func TestJSONFramingMessageDecodeError(t *testing.T) {
 
 	var extra, _ = ioutil.ReadAll(br) // Expect the precise frame was consumed.
 	assert.Equal(t, "extra", string(extra))
+}
+
+func TestJsonFrameable(t *testing.T) {
+	var f, _ = FramingByContentType(labels.ContentType_JSONLines)
+	m := JsonFrameableStruct{
+		AField:       "hello, world!",
+		AnotherField: 42,
+	}
+	var buf bytes.Buffer
+	var bw = bufio.NewWriter(&buf)
+	err := f.Marshal(&m, bw)
+
+	assert.NoError(t, err)
+	_ = bw.Flush()
+	assert.Equal(t, `{"a": "hello, world!", "b": 42}`+"\n", buf.String())
+
+	unmarshal := f.NewUnmarshalFunc(testReader(buf.Bytes()))
+	out := new(JsonFrameableStruct)
+	unmarshal(out)
+	assert.Equal(t, m, *out)
+
+}
+
+type JsonFrameableStruct struct {
+	AField       string
+	AnotherField int
+}
+
+func (m *JsonFrameableStruct) MarshalJsonTo(w *bufio.Writer) (int, error) {
+	return w.WriteString(fmt.Sprintf(`{"a": "%v", "b": %v}`, m.AField, m.AnotherField) + "\n")
+}
+
+func (m *JsonFrameableStruct) UnmarshalJson(b []byte) error {
+	var x map[string]interface{}
+	if err := json.Unmarshal(b, &x); err != nil {
+		return err
+	}
+	log.Println("Unmarshalled without error")
+	m.AField = x["a"].(string)
+	m.AnotherField = int(x["b"].(float64))
+	return nil
 }
