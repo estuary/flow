@@ -1,8 +1,10 @@
-use crate::schema::*;
+use crate::schema::{
+    intern, keywords, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation,
+};
 use crate::{de, NoopWalker, Number};
 use error_chain::{bail, error_chain};
 use regex;
-use serde_json::Value;
+use serde_json as sj;
 use url;
 
 error_chain! {
@@ -109,20 +111,20 @@ where
 
         Ok(match keyword {
             // Meta keywords.
-            KW_ID => (), // Already handled.
-            KW_RECURSIVE_ANCHOR => match v {
+            keywords::ID => (), // Already handled.
+            keywords::RECURSIVE_ANCHOR => match v {
                 sj::Value::Bool(b) if *b => self.kw.push(Keyword::RecursiveAnchor),
                 sj::Value::Bool(b) if !*b => (), // Ignore.
                 _ => bail!("expected a bool"),
             },
-            KW_ANCHOR => match v {
+            keywords::ANCHOR => match v {
                 sj::Value::String(anchor) => {
                     let anchor = self.curi.join(&format!("#{}", anchor))?;
                     self.kw.push(Keyword::Anchor(anchor))
                 }
                 _ => bail!("expected a string"),
             },
-            KW_DEF | KW_DEFINITIONS => match v {
+            keywords::DEF | keywords::DEFINITIONS => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
                         self.add_application(App::Def { key: prop.clone() }, child)?;
@@ -132,7 +134,7 @@ where
             },
 
             // In-place application keywords.
-            KW_REF => match v {
+            keywords::REF => match v {
                 sj::Value::String(ref_uri) => {
                     let mut ref_uri = self.curi.join(ref_uri)?;
                     if let Some("") = ref_uri.fragment() {
@@ -142,7 +144,7 @@ where
                 }
                 _ => bail!("expected a string"),
             },
-            KW_RECURSIVE_REF => match v {
+            keywords::RECURSIVE_REF => match v {
                 sj::Value::String(ref_uri) => {
                     // Assert |ref_uri| parses correctly when joined with a base URL.
                     url::Url::parse("http://example")?.join(ref_uri)?;
@@ -150,7 +152,7 @@ where
                 }
                 _ => bail!("expected a string"),
             },
-            KW_ANY_OF => match v {
+            keywords::ANY_OF => match v {
                 sj::Value::Array(children) => {
                     for (i, child) in children.iter().enumerate() {
                         self.add_application(App::AnyOf { index: i }, child)?;
@@ -158,7 +160,7 @@ where
                 }
                 _ => bail!("expected an array"),
             },
-            KW_ALL_OF => match v {
+            keywords::ALL_OF => match v {
                 sj::Value::Array(children) => {
                     for (i, child) in children.iter().enumerate() {
                         self.add_application(App::AllOf { index: i }, child)?;
@@ -166,7 +168,7 @@ where
                 }
                 _ => bail!("expected an array"),
             },
-            KW_ONE_OF => match v {
+            keywords::ONE_OF => match v {
                 sj::Value::Array(children) => {
                     for (i, child) in children.iter().enumerate() {
                         self.add_application(App::OneOf { index: i }, child)?;
@@ -174,11 +176,11 @@ where
                 }
                 _ => bail!("expected an array"),
             },
-            KW_NOT => self.add_application(App::Not, v)?,
-            KW_IF => self.add_application(App::If, v)?,
-            KW_THEN => self.add_application(App::Then, v)?,
-            KW_ELSE => self.add_application(App::Else, v)?,
-            KW_DEPENDENT_SCHEMAS => match v {
+            keywords::NOT => self.add_application(App::Not, v)?,
+            keywords::IF => self.add_application(App::If, v)?,
+            keywords::THEN => self.add_application(App::Then, v)?,
+            keywords::ELSE => self.add_application(App::Else, v)?,
+            keywords::DEPENDENT_SCHEMAS => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
                         let app = App::DependentSchema {
@@ -192,8 +194,8 @@ where
             },
 
             // Property application keywords.
-            KW_PROPERTY_NAMES => self.add_application(App::PropertyNames, v)?,
-            KW_PROPERTIES => match v {
+            keywords::PROPERTY_NAMES => self.add_application(App::PropertyNames, v)?,
+            keywords::PROPERTIES => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
                         let app = App::Properties {
@@ -205,7 +207,7 @@ where
                 }
                 _ => bail!("expected an object"),
             },
-            KW_PATTERN_PROPERTIES => match v {
+            keywords::PATTERN_PROPERTIES => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
                         self.add_application(
@@ -218,12 +220,16 @@ where
                 }
                 _ => bail!("expected an object"),
             },
-            KW_ADDITIONAL_PROPERTIES => self.add_application(App::AdditionalProperties, v)?,
-            KW_UNEVALUATED_PROPERTIES => self.add_application(App::UnevaluatedProperties, v)?,
+            keywords::ADDITIONAL_PROPERTIES => {
+                self.add_application(App::AdditionalProperties, v)?
+            }
+            keywords::UNEVALUATED_PROPERTIES => {
+                self.add_application(App::UnevaluatedProperties, v)?
+            }
 
             // Item application keywords.
-            KW_CONTAINS => self.add_application(App::Contains, v)?,
-            KW_ITEMS => match v {
+            keywords::CONTAINS => self.add_application(App::Contains, v)?,
+            keywords::ITEMS => match v {
                 sj::Value::Object(_) | sj::Value::Bool(_) => {
                     self.add_application(App::Items { index: None }, v)?
                 }
@@ -234,50 +240,56 @@ where
                 }
                 _ => bail!("expected a schema or array"),
             },
-            KW_ADDITIONAL_ITEMS => self.add_application(App::AdditionalItems, v)?,
-            KW_UNEVALUATED_ITEMS => self.add_application(App::UnevaluatedItems, v)?,
+            keywords::ADDITIONAL_ITEMS => self.add_application(App::AdditionalItems, v)?,
+            keywords::UNEVALUATED_ITEMS => self.add_application(App::UnevaluatedItems, v)?,
 
             // Common validation keywords.
-            KW_TYPE => self.add_validation(Val::Type(extract_type_mask(v)?)),
-            KW_CONST => self.add_validation(Val::Const {
+            keywords::TYPE => self.add_validation(Val::Type(extract_type_mask(v)?)),
+            keywords::CONST => self.add_validation(Val::Const {
                 hash: extract_hash(v),
             }),
-            KW_ENUM => self.add_validation(Val::Enum {
+            keywords::ENUM => self.add_validation(Val::Enum {
                 hashes: extract_hashes(v)?,
             }),
 
             // String-specific validation keywords.
-            KW_MAX_LENGTH => self.add_validation(Val::MaxLength(extract_usize(v)?)),
-            KW_MIN_LENGTH => self.add_validation(Val::MinLength(extract_usize(v)?)),
-            KW_PATTERN => self.add_validation(Val::Pattern(regex::Regex::new(extract_str(v)?)?)),
+            keywords::MAX_LENGTH => self.add_validation(Val::MaxLength(extract_usize(v)?)),
+            keywords::MIN_LENGTH => self.add_validation(Val::MinLength(extract_usize(v)?)),
+            keywords::PATTERN => {
+                self.add_validation(Val::Pattern(regex::Regex::new(extract_str(v)?)?))
+            }
             // "format" => vals.push(Str(Format(extract_str(v)?))),
 
             // Number-specific validation keywords.
-            KW_MULTIPLE_OF => self.add_validation(Val::MultipleOf(extract_number(v)?)),
-            KW_MAXIMUM => self.add_validation(Val::Maximum(extract_number(v)?)),
-            KW_EXCLUSIVE_MAXIMUM => self.add_validation(Val::ExclusiveMaximum(extract_number(v)?)),
-            KW_MINIMUM => self.add_validation(Val::Minimum(extract_number(v)?)),
-            KW_EXCLUSIVE_MINIMUM => self.add_validation(Val::ExclusiveMinimum(extract_number(v)?)),
+            keywords::MULTIPLE_OF => self.add_validation(Val::MultipleOf(extract_number(v)?)),
+            keywords::MAXIMUM => self.add_validation(Val::Maximum(extract_number(v)?)),
+            keywords::EXCLUSIVE_MAXIMUM => {
+                self.add_validation(Val::ExclusiveMaximum(extract_number(v)?))
+            }
+            keywords::MINIMUM => self.add_validation(Val::Minimum(extract_number(v)?)),
+            keywords::EXCLUSIVE_MINIMUM => {
+                self.add_validation(Val::ExclusiveMinimum(extract_number(v)?))
+            }
 
             // Array-specific validation keywords.
-            KW_MAX_ITEMS => self.add_validation(Val::MaxItems(extract_usize(v)?)),
-            KW_MIN_ITEMS => self.add_validation(Val::MinItems(extract_usize(v)?)),
-            KW_UNIQUE_ITEMS => match v {
+            keywords::MAX_ITEMS => self.add_validation(Val::MaxItems(extract_usize(v)?)),
+            keywords::MIN_ITEMS => self.add_validation(Val::MinItems(extract_usize(v)?)),
+            keywords::UNIQUE_ITEMS => match v {
                 sj::Value::Bool(true) => self.add_validation(Val::UniqueItems),
                 sj::Value::Bool(false) => (),
                 _ => bail!("expected a bool"),
             },
-            KW_MAX_CONTAINS => self.add_validation(Val::MaxContains(extract_usize(v)?)),
-            KW_MIN_CONTAINS => self.add_validation(Val::MinContains(extract_usize(v)?)),
+            keywords::MAX_CONTAINS => self.add_validation(Val::MaxContains(extract_usize(v)?)),
+            keywords::MIN_CONTAINS => self.add_validation(Val::MinContains(extract_usize(v)?)),
 
             // Object-specific validation keywords.
-            KW_MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
-            KW_MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
-            KW_REQUIRED => {
+            keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
+            keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
+            keywords::REQUIRED => {
                 let set = extract_intern_set(&mut self.tbl, v)?;
                 self.add_validation(Val::Required(set))
             }
-            KW_DEPENDENT_REQUIRED => match v {
+            keywords::DEPENDENT_REQUIRED => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
                         let dr = Val::DependentRequired {
@@ -291,8 +303,8 @@ where
                 _ => bail!("expected an object"),
             },
 
-            KW_SCHEMA | KW_VOCABULARY | KW_COMMENT => (), // Ignored.
-            KW_FORMAT => (),                              // Ignored.
+            keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
+            keywords::FORMAT => (),                                            // Ignored.
 
             // This is not a core validation keyword. Does the AnnotationBuilder consume it?
             _ => {
@@ -360,7 +372,7 @@ where
     // This is a schema object. We'll walk its properties and JSON values
     // to extract its applications and validations.
 
-    let curi = build_curi(curi, obj.get(KW_ID))?;
+    let curi = build_curi(curi, obj.get(keywords::ID))?;
     let mut builder = Builder { curi, kw, tbl };
 
     for (k, v) in obj {
@@ -394,21 +406,19 @@ fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url> {
     Ok(curi)
 }
 
-fn extract_type_mask(v: &sj::Value) -> Result<TypeSet> {
-    let mut set = TYPE_INVALID;
+fn extract_type_mask(v: &sj::Value) -> Result<types::Set> {
+    let mut set = types::INVALID;
 
     let mut fold = |vv: &sj::Value| -> Result<()> {
-        use sj::Value::String as S;
-
         set = set
             | match vv {
-                S(s) if s == "array" => TYPE_ARRAY,
-                S(s) if s == "boolean" => TYPE_BOOLEAN,
-                S(s) if s == "integer" => TYPE_INTEGER,
-                S(s) if s == "null" => TYPE_NULL,
-                S(s) if s == "number" => TYPE_NUMBER,
-                S(s) if s == "object" => TYPE_OBJECT,
-                S(s) if s == "string" => TYPE_STRING,
+                sj::Value::String(s) if s == "array" => types::ARRAY,
+                sj::Value::String(s) if s == "boolean" => types::BOOLEAN,
+                sj::Value::String(s) if s == "integer" => types::INTEGER,
+                sj::Value::String(s) if s == "null" => types::NULL,
+                sj::Value::String(s) if s == "number" => types::NUMBER,
+                sj::Value::String(s) if s == "object" => types::OBJECT,
+                sj::Value::String(s) if s == "string" => types::STRING,
                 _ => bail!("expected type string"),
             };
         Ok(())
@@ -487,21 +497,26 @@ fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<intern::
 impl AnnotationBuilder for CoreAnnotation {
     fn uses_keyword(kw: &str) -> bool {
         match kw {
-            KW_TITLE | KW_DESCRIPTION | KW_DEFAULT | KW_DEPRECATED | KW_READ_ONLY
-            | KW_WRITE_ONLY | KW_EXAMPLES => true,
+            keywords::TITLE
+            | keywords::DESCRIPTION
+            | keywords::DEFAULT
+            | keywords::DEPRECATED
+            | keywords::READ_ONLY
+            | keywords::WRITE_ONLY
+            | keywords::EXAMPLES => true,
             _ => false,
         }
     }
 
-    fn from_keyword(kw: &str, v: &Value) -> Result<Self> {
+    fn from_keyword(kw: &str, v: &sj::Value) -> Result<Self> {
         Ok(match kw {
-            KW_TITLE => CoreAnnotation::Title(extract_str(v)?.to_owned()),
-            KW_DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),
-            KW_DEFAULT => CoreAnnotation::Default(v.clone()),
-            KW_DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
-            KW_READ_ONLY => CoreAnnotation::ReadOnly(extract_bool(v)?),
-            KW_WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
-            KW_EXAMPLES => CoreAnnotation::Examples(
+            keywords::TITLE => CoreAnnotation::Title(extract_str(v)?.to_owned()),
+            keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),
+            keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
+            keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
+            keywords::READ_ONLY => CoreAnnotation::ReadOnly(extract_bool(v)?),
+            keywords::WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
+            keywords::EXAMPLES => CoreAnnotation::Examples(
                 match v {
                     sj::Value::Array(v) => v,
                     _ => bail!("expected array"),

@@ -329,7 +329,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & TYPE_OBJECT != TYPE_INVALID,
+                Type(expect) => *expect & types::OBJECT != types::INVALID,
                 Const { hash } => *hash == span.hashed,
                 Enum { hashes } => hashes.contains(&span.hashed),
                 Required(set) => *set & scope.seen_interned == *set,
@@ -354,7 +354,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & TYPE_ARRAY != TYPE_INVALID,
+                Type(expect) => *expect & types::ARRAY != types::INVALID,
                 Const { hash } => *hash == span.hashed,
                 Enum { hashes } => hashes.contains(&span.hashed),
                 MinItems(bound) => *bound <= num_items,
@@ -375,7 +375,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & TYPE_BOOLEAN != TYPE_INVALID,
+                Type(expect) => *expect & types::BOOLEAN != types::INVALID,
                 Const { hash } => *hash == span.hashed,
                 Enum { hashes } => hashes.contains(&span.hashed),
                 _ => true,
@@ -394,10 +394,10 @@ where
                 False => false,
                 Type(expect) => {
                     let actual = match num {
-                        Number::Unsigned(_) | Number::Signed(_) => TYPE_INTEGER | TYPE_NUMBER,
-                        Number::Float(_) => TYPE_NUMBER,
+                        Number::Unsigned(_) | Number::Signed(_) => types::INTEGER | types::NUMBER,
+                        Number::Float(_) => types::NUMBER,
                     };
-                    *expect & actual != TYPE_INVALID
+                    *expect & actual != types::INVALID
                 }
                 Const { hash } => *hash == span.hashed,
                 Enum { hashes } => hashes.contains(&span.hashed),
@@ -426,7 +426,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & TYPE_STRING != TYPE_INVALID,
+                Type(expect) => *expect & types::STRING != types::INVALID,
                 Const { hash } => *hash == span.hashed,
                 Enum { hashes } => hashes.contains(&span.hashed),
                 MinLength(bound) => *bound <= s.chars().count(),
@@ -446,7 +446,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & TYPE_NULL != TYPE_INVALID,
+                Type(expect) => *expect & types::NULL != types::INVALID,
                 Const { hash } => *hash == span.hashed,
                 Enum { hashes } => hashes.contains(&span.hashed),
                 _ => true,
