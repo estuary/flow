@@ -1,0 +1,18 @@
+[package]
+name = "estctl"
+version = "0.1.0"
+authors = ["Johnny Graettinger <johnny531@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+estuary_json = { path = "../../json" }
+clap = "2.33.0"
+failure = "0.1.6"
+exitfailure = "0.5.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.8.11"
+serde_json = "1.0"
+url = "2.1.1"

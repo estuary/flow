@@ -12,7 +12,7 @@ collections:
       exchange: /exchange
     deriveFrom:
       - source: ticks
-        withJQ: lambdas/map-tick-to-daily-stats.jq
+        withJq: lambdas/map-tick-to-daily-stats.jq
 
 materializations:
   - collection: daily-stats
@@ -25,8 +25,8 @@ materializations:
       price__avgN: /price/avgN
       price__avgD: /price/avgD
       bid__low: /bid/low
-      ...
 
-    postgresql:
+    target:
+      type: postgres
       endpoint: postgres://127.0.0.1:5432/my-db
       table: daily_stats

@@ -64,6 +64,8 @@ pub enum CoreAnnotation {
     ReadOnly(bool),
     WriteOnly(bool),
     Examples(Vec<sj::Value>),
+    ContentEncodingBase64,
+    ContentMediaType(String),
 }
 impl Annotation for CoreAnnotation {}
 

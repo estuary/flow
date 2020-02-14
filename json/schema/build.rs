@@ -497,25 +497,31 @@ fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<intern::
 impl AnnotationBuilder for CoreAnnotation {
     fn uses_keyword(kw: &str) -> bool {
         match kw {
-            keywords::TITLE
-            | keywords::DESCRIPTION
+            keywords::CONTENT_ENCODING
+            | keywords::CONTENT_MEDIA_TYPE
             | keywords::DEFAULT
             | keywords::DEPRECATED
+            | keywords::DESCRIPTION
+            | keywords::EXAMPLES
             | keywords::READ_ONLY
-            | keywords::WRITE_ONLY
-            | keywords::EXAMPLES => true,
+            | keywords::TITLE
+            | keywords::WRITE_ONLY => true,
             _ => false,
         }
     }
 
     fn from_keyword(kw: &str, v: &sj::Value) -> Result<Self> {
         Ok(match kw {
-            keywords::TITLE => CoreAnnotation::Title(extract_str(v)?.to_owned()),
-            keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),
+            keywords::CONTENT_ENCODING => match v {
+                sj::Value::String(s) if s == "base64" => CoreAnnotation::ContentEncodingBase64,
+                _ => bail!("invalid contentEncoding (expected 'base64')"),
+            },
+            keywords::CONTENT_MEDIA_TYPE => {
+                CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
+            }
             keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
             keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
-            keywords::READ_ONLY => CoreAnnotation::ReadOnly(extract_bool(v)?),
-            keywords::WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
+            keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),
             keywords::EXAMPLES => CoreAnnotation::Examples(
                 match v {
                     sj::Value::Array(v) => v,
@@ -523,6 +529,9 @@ impl AnnotationBuilder for CoreAnnotation {
                 }
                 .clone(),
             ),
+            keywords::READ_ONLY => CoreAnnotation::ReadOnly(extract_bool(v)?),
+            keywords::TITLE => CoreAnnotation::Title(extract_str(v)?.to_owned()),
+            keywords::WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
             _ => panic!("unexpected keyword: '{}'", kw),
         })
     }

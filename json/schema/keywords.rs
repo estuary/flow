@@ -55,3 +55,6 @@ pub const DEPRECATED: &str = "deprecated";
 pub const READ_ONLY: &str = "readOnly";
 pub const WRITE_ONLY: &str = "writeOnly";
 pub const EXAMPLES: &str = "examples";
+pub const CONTENT_ENCODING: &str = "contentEncoding";
+pub const CONTENT_MEDIA_TYPE: &str = "contentMediaType";
+pub const CONTENT_SCHEMA: &str = "contentSchema";
