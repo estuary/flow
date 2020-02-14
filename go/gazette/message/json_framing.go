@@ -3,16 +3,14 @@ package message
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 
 	"go.gazette.dev/core/labels"
 )
 
 type jsonFraming struct{}
 
-type JsonFrameable interface {
-	MarshalJsonTo(*bufio.Writer) (int, error)
-	UnmarshalJson([]byte) error
+type JSONMarshalerTo interface {
+	MarshalJSONTo(*bufio.Writer) (int, error)
 }
 
 // ContentType returns labels.ContentType_JSONLines.
@@ -20,12 +18,8 @@ func (*jsonFraming) ContentType() string { return labels.ContentType_JSONLines }
 
 // Marshal implements Framing.
 func (*jsonFraming) Marshal(msg Frameable, bw *bufio.Writer) error {
-	var _, ok = msg.(JsonFrameable)
-	if !ok {
-		return fmt.Errorf("%#v is not a JsonFrameable", msg)
-	}
-	if jf, ok := msg.(JsonFrameable); ok {
-		_, err := jf.MarshalJsonTo(bw)
+	if jf, ok := msg.(JSONMarshalerTo); ok {
+		_, err := jf.MarshalJSONTo(bw)
 		return err
 	}
 	return json.NewEncoder(bw).Encode(msg)
@@ -40,8 +34,8 @@ func (*jsonFraming) NewUnmarshalFunc(r *bufio.Reader) UnmarshalFunc {
 		if l, err = UnpackLine(r); err != nil {
 			return
 		}
-		if jf, ok := f.(JsonFrameable); ok {
-			return jf.UnmarshalJson(l)
+		if jf, ok := f.(json.Unmarshaler); ok {
+			return jf.UnmarshalJSON(l)
 		}
 		return json.Unmarshal(l, f)
 
