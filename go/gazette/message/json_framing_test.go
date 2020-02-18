@@ -81,7 +81,7 @@ func TestJSONFramingMessageDecodeError(t *testing.T) {
 	assert.Equal(t, "extra", string(extra))
 }
 
-func TestJsonFrameable(t *testing.T) {
+func TestJSONFrameable(t *testing.T) {
 	var f, _ = FramingByContentType(labels.ContentType_JSONLines)
 	m := TestStruct{
 		AField:       "hello, world!",

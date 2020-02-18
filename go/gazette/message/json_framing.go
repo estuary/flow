@@ -9,6 +9,9 @@ import (
 
 type jsonFraming struct{}
 
+// JSONMarshalerTo should be implemented (along with json.Unmarshaler)
+// by the message being Marshaled if it needs to specify its JSON encoding method.
+// If this interface is not implemented jsonFraming will default to encoding/json
 type JSONMarshalerTo interface {
 	MarshalJSONTo(*bufio.Writer) (int, error)
 }
