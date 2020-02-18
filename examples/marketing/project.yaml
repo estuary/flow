@@ -1,0 +1,108 @@
+collections:
+
+  - name: campaigns
+    schema: schemas.yaml#/$defs/campaign
+    key: [/campaign_id]
+
+  - name: offer-views
+    schema: schemas.yaml#/$defs/view
+    key: [/view_id]
+
+  - name: offer-clicks
+    schema: schemas.yaml#/$defs/click
+    key: [/click_id]
+
+  - name: purchase
+    schema: schemas.yaml#/$defs/purchase
+    key: [/purchase_id]
+
+  - name: views-with-campaign
+    schema: schemas.yaml#/$defs/view-with-campaign
+    key: [/view_id]
+
+    derivation:
+      language: jq
+      innerState:
+        type: durable
+        parallelism: 8
+      transforms:
+        # Index the present value of each campaign.
+        - source: campaigns
+          function: |
+            upsert_key(.campaign_id; .)
+          shuffle:
+            broadcast: 4
+        # Enrich each view by adding a `campaign` property drawn from an indexed campaign.
+        - source: views
+          function: |
+            . + {campaign: load_key(.campaign_id)}
+          shuffle:
+            key: [/campaign_id]
+            choose: 4
+
+  - name: clicks-with-views
+    schema: schemas.yaml#/$defs/click-with-view
+    key: [/click_id]
+    derivation:
+      language: jq
+
+      innerState:
+        type: durable
+        parallelism: 8
+
+      transforms:
+        # Index each view with a 2-day TTL relative to the view's timestamp.
+        - source: views-with-campaign
+          function: |
+            upsert_key_with_expiry(.view_id; (.timestamp | fromdate) + 172800; .)
+        # Enrich clicks by adding its indexed `view`.
+        - source: clicks
+          shuffle:
+            key: [/view_id]
+          function: |
+            . + {view: load_key(.view_id)}
+
+  - name: purchases-with-offers
+    schema: schemas.yaml#/$defs/purchase-with-offers
+    key: [/purchase_id]
+
+    derivation:
+      language: jq
+
+      innerState:
+        type: durable
+        parallelism: 8
+
+      transforms:
+        # Index views with a 30-day look-back. For a given user ID, only the first
+        # view of any UTC day is indexed (meaning each user will have at most 30
+        # views indexed at a given time).
+        - source: views-with-campaign
+          shuffle:
+            key: [/user_id]
+          function: |
+            with $ts as (.timestamp | fromdate) |
+            with $key as "\(.user_id)/views/\($ts - ($ts % 86400))" |
+            with $expiry as 2592000 + (.timestamp | fromdate) |
+              insert_key_with_expiry(key; expiry; . )
+        # Index clicks with a 30-day look-back. Track only the first click of a given
+        # user and hour. Each click has already been enriched with a joined view.
+        - source: clicks-with-views
+          shuffle:
+            key: [/user_id]
+          function: |
+            with $ts as (.timestamp | fromdate) |
+            with $key as "\(.user_id)/clicks/\($ts - ($ts % 3600))";
+            with $expiry as 2592000 + (.timestamp | fromdate) |
+            insert_key_with_expiry(store_key_with_expiry(
+              insert_key_with_expiry(key; expiry; . )
+        # Enrich purchase events by joining with all indexed views and clicks.
+        - source: purchase
+          shuffle:
+            key: [/user_id]
+          function: |
+            . + {
+              views: load_key_prefix("\(.user_id)/views/"),
+              clicks: load_key_prefix("\(.user_id)/clicks/"),
+            }
+

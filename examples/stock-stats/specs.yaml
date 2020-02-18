@@ -1,18 +1,23 @@
 collections:
-  - name:     ticks
-    schema:   schemas/L1-tick.yaml
+  - name: ticks
+    schema: schemas/L1-tick.yaml
+    key: [/id]
+
     examples: fixtures/L1-tick.json
     partitions:
       exchange: /exchange
 
-  - name:   daily-stats
+  - name: daily-stats
     schema: schemas/daily-stat.yaml
-    groupBy: [/security, /date]
+    key: [/security, /date]
+
     partitions:
       exchange: /exchange
-    deriveFrom:
-      - source: ticks
-        withJq: lambdas/map-tick-to-daily-stats.jq
+    derivation:
+      language: jq
+      transforms:
+        - source: ticks
+          functionPath: lambdas/map-tick-to-daily-stats.jq
 
 materializations:
   - collection: daily-stats
