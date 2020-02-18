@@ -12,6 +12,7 @@ type jsonFraming struct{}
 // JSONMarshalerTo should be implemented (along with json.Unmarshaler)
 // by the message being Marshaled if it needs to specify its JSON encoding method.
 // If this interface is not implemented jsonFraming will default to encoding/json
+// returns the number of bytes written and any error that occurs
 type JSONMarshalerTo interface {
 	MarshalJSONTo(*bufio.Writer) (int, error)
 }
