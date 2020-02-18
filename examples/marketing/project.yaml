@@ -21,7 +21,7 @@ collections:
     key: [/view_id]
 
     derivation:
-      language: jq
+      runtime: jq
       innerState:
         type: durable
         parallelism: 8
@@ -44,7 +44,7 @@ collections:
     schema: schemas.yaml#/$defs/click-with-view
     key: [/click_id]
     derivation:
-      language: jq
+      runtime: jq
 
       innerState:
         type: durable
@@ -67,7 +67,7 @@ collections:
     key: [/purchase_id]
 
     derivation:
-      language: jq
+      runtime: jq
 
       innerState:
         type: durable

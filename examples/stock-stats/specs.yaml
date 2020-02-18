@@ -14,7 +14,7 @@ collections:
     partitions:
       exchange: /exchange
     derivation:
-      language: jq
+      runtime: jq
       transforms:
         - source: ticks
           functionPath: lambdas/map-tick-to-daily-stats.jq

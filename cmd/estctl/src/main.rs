@@ -1,13 +1,12 @@
 use clap;
 use estuary_json::schema;
 use exitfailure;
-use failure::{self, err_msg, format_err};
+use failure::{self, format_err};
 use serde_yaml;
 use std::boxed::Box;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
-use std::io::BufReader;
 use std::path;
 use url;
 
@@ -38,8 +37,6 @@ fn main() -> Result<(), exitfailure::ExitFailure> {
         _ => (),
     })
 }
-
-type Schema = schema::Schema<schema::CoreAnnotation>;
 
 fn do_build(args: &clap::ArgMatches) -> Result<(), failure::Error> {
     let path = args.value_of("path").unwrap();
