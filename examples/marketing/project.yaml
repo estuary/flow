@@ -28,13 +28,13 @@ collections:
       transforms:
         # Index the present value of each campaign.
         - source: campaigns
-          function: |
+          body: |
             upsert_key(.campaign_id; .)
           shuffle:
             broadcast: 4
         # Enrich each view by adding a `campaign` property drawn from an indexed campaign.
         - source: views
-          function: |
+          body: |
             . + {campaign: load_key(.campaign_id)}
           shuffle:
             key: [/campaign_id]
@@ -53,7 +53,7 @@ collections:
       transforms:
         # Index each view with a 2-day TTL relative to the view's timestamp.
         - source: views-with-campaign
-          function: |
+          body: |
             with $ts as .timestamp | fromdate |
             with $expiry as $ts + 172800 |
             upsert_key_with_expiry(.view_id; $expiry ; . )
@@ -61,7 +61,7 @@ collections:
         - source: clicks
           shuffle:
             key: [/view_id]
-          function: |
+          body: |
             . + {view: load_key(.view_id)}
 
   - name: purchases-with-offers
@@ -82,7 +82,7 @@ collections:
         - source: views-with-campaign
           shuffle:
             key: [/user_id]
-          function: |
+          body: |
             with $ts as (.timestamp | fromdate) |
             with $ts_day as $ts - ($ts % 86400) |
             with $key as "\(.user_id)/views/\($ts_day)" |
@@ -93,7 +93,7 @@ collections:
         - source: clicks-with-views
           shuffle:
             key: [/user_id]
-          function: |
+          body: |
             with $ts as (.timestamp | fromdate) |
             with $ts_hour as $ts - ($ts % 3600) |
             with $key as "\(.user_id)/clicks/\($ts_hour)";
@@ -104,7 +104,7 @@ collections:
         - source: purchase
           shuffle:
             key: [/user_id]
-          function: |
+          body: |
             . + {
               views: load_key_prefix("\(.user_id)/views/"),
               clicks: load_key_prefix("\(.user_id)/clicks/"),

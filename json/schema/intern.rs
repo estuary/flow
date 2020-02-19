@@ -1,12 +1,14 @@
-use error_chain;
 use fxhash::FxHashMap as HashMap;
-
-error_chain::error_chain! {}
+use thiserror;
 
 /// Set of interned strings.
 pub type Set = u64;
 
-const MAX_TABLE_SIZE: usize = std::mem::size_of::<Set>() * 8;
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("intern table is full")]
+    Overflow,
+}
 
 #[derive(Debug)]
 pub struct Table {
@@ -28,11 +30,12 @@ impl Table {
     /// An Error is returned only if the str overflows Set's capacity to
     /// represent all interned strings (determined by the number of bits
     /// of the Set type).
-    pub fn intern(&mut self, s: &str) -> Result<Set> {
-        let id = match self.m.len() {
-            MAX_TABLE_SIZE => error_chain::bail!("table overflow"),
-            l => (1 as Set) << (l as Set),
-        };
+    pub fn intern(&mut self, s: &str) -> Result<Set, Error> {
+        let l = self.m.len();
+        if l == MAX_TABLE_SIZE {
+            return Err(Error::Overflow);
+        }
+        let id = (1 as Set) << (l as Set);
         Ok(*self.m.entry(s.to_owned()).or_insert(id))
     }
 
@@ -71,3 +74,5 @@ mod test {
         assert_eq!(t.lookup("not found"), 0b0 as Set);
     }
 }
+
+const MAX_TABLE_SIZE: usize = std::mem::size_of::<Set>() * 8;

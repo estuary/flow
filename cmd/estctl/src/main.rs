@@ -1,56 +1,76 @@
 use clap;
 use estuary_json::schema;
-use exitfailure;
-use failure::{self, format_err};
+use serde_json;
 use serde_yaml;
 use std::boxed::Box;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
-use std::path;
 use url;
 
 mod specs;
 
-fn main() -> Result<(), exitfailure::ExitFailure> {
+type Error = Box<dyn std::error::Error>;
+
+fn main() {
     let matches = clap::App::new("Estuary CLI")
         .version("v0.1.0")
         .author("Estuary Technologies, Inc. \u{00A9}2020")
         .about("Command-line interface for working with Estuary projects")
         .subcommand(
             clap::SubCommand::with_name("build")
-                .about("Build an Estuary project into a bundle")
+                .about("Build an Estuary specification tree into a bundle")
                 .arg(
-                    clap::Arg::with_name("path")
-                        .short("p")
-                        .long("path")
+                    clap::Arg::with_name("root")
+                        .short("r")
+                        .long("root")
                         .takes_value(true)
                         .required(true)
-                        .help("Path to project directory"),
+                        .help("Path to specification which roots the hierarchy"),
                 ),
         )
         .get_matches();
 
-    let sub = matches.subcommand();
-    Ok(match sub {
-        ("build", Some(sub_m)) => do_build(sub_m)?,
-        _ => (),
-    })
+    let result: Result<(), Error> = match matches.subcommand() {
+        ("build", Some(sub)) => do_build(sub),
+        _ => Ok(()),
+    };
+
+    match result {
+        Ok(_) => (),
+        Err(e) => println!("Error: {}", e),
+    };
 }
 
-fn do_build(args: &clap::ArgMatches) -> Result<(), failure::Error> {
-    let path = args.value_of("path").unwrap();
-    let path = path::PathBuf::from(path);
-    let path = fs::canonicalize(path)?;
+mod bundle;
 
-    let project_url = url::Url::from_file_path(&path).unwrap();
+fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
+    let root = args.value_of("root").unwrap();
+    let root = fs::canonicalize(root)?;
+    let root = url::Url::from_file_path(&root).unwrap();
 
-    let file = fs::File::open(&path)?;
-    let spec: specs::Project = serde_yaml::from_reader(io::BufReader::new(file))?;
+    println!("root specification is {}", &root);
+
+    let mut loader = bundle::loader::Loader::new(Box::new(DirectFileSystem {}));
+
+    let specs = loader.load_node(root);
+
+    /*
+
+    let project = args.value_of("path").unwrap();
+    let project = fs::canonicalize(project)?;
+
+    let project_url = url::Url::from_file_path(&project).unwrap();
+
+    let project_spec: specs::Root = {
+        let f = fs::File::open(&project)?;
+        let br = io::BufReader::new(f);
+        serde_yaml::from_reader(br)?
+    };
 
     let mut raw_schemas: BTreeMap<url::Url, Box<serde_json::Value>> = BTreeMap::new();
 
-    for c in &spec.collections {
+    for c in &project_spec.collections {
         let schema_url = project_url.join(&c.schema)?;
 
         let mut load_url = schema_url.clone();
@@ -69,36 +89,37 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), failure::Error> {
             } else if load_url.path().ends_with(".json") {
                 serde_json::from_reader(r)?
             } else {
-                Err(format_err!("unsupported schema extension '{}'", load_url))?
+                panic!("unsupported schema extension '{}'", load_url);
             }
         };
         raw_schemas.insert(load_url.clone(), Box::new(raw_schema));
 
-        let compiled_schema: schema::Schema<schema::CoreAnnotation> =
-            schema::build::build_schema(load_url.clone(), &raw_schemas[&load_url])
-                .map_err(failure::SyncFailure::new)?;
+        let compiled_schema: schema::Schema<specs::Annotation> =
+            schema::build::build_schema(load_url.clone(), &raw_schemas[&load_url])?;
 
         println!("loaded {:?}", load_url);
-        println!("");
-        println!("raw {:?}", &raw_schemas[&load_url]);
-        println!("");
-        println!("compiled {:?}", &compiled_schema);
+        //println!("");
+        //println!("raw {:?}", &raw_schemas[&load_url]);
+        //println!("");
+        //println!("compiled {:?}", &compiled_schema);
     }
+    */
 
-    println!("spec: {:?}", spec);
+    println!("specs: {:?}", specs);
+    specs?;
     Ok(())
 }
 
-fn open_schema(url: &url::Url) -> Result<Box<dyn io::Read>, failure::Error> {
-    match url.scheme() {
-        "file" => open_file_schema(&url),
-        _ => Err(format_err!("unknown schema '{}'", url.scheme())),
-    }
-}
+struct DirectFileSystem {}
 
-fn open_file_schema(url: &url::Url) -> Result<Box<dyn io::Read>, failure::Error> {
-    let path = url
-        .to_file_path()
-        .map_err(|_| format_err!("failed to map '{}' to path", url))?;
-    Ok(Box::new(fs::File::open(path)?))
+impl bundle::loader::FileSystem for DirectFileSystem {
+    fn open(&self, url: &url::Url) -> Result<Box<dyn io::Read>, Error> {
+        match url.scheme() {
+            "file" => {
+                let path = url.to_file_path().unwrap();
+                Ok(Box::new(fs::File::open(path)?))
+            }
+            _ => panic!("unknown schema '{}'", url.scheme()),
+        }
+    }
 }

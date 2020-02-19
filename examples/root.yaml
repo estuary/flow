@@ -1,0 +1,3 @@
+include:
+  - marketing/project.yaml
+  - stock-stats/specs.yaml

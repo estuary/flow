@@ -10,6 +10,8 @@ pub mod intern;
 pub mod keywords;
 pub mod types;
 
+pub use build::Error as BuildError;
+
 /*
 #[derive(Debug)]
 pub struct Catalog(Vec<Box<Schema>>);

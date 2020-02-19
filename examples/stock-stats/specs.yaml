@@ -17,7 +17,7 @@ collections:
       runtime: jq
       transforms:
         - source: ticks
-          functionPath: lambdas/map-tick-to-daily-stats.jq
+          path: lambdas/map-tick-to-daily-stats.jq
 
 materializations:
   - collection: daily-stats

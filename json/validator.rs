@@ -1,17 +1,10 @@
 use crate::schema::{
-    index, index::Index, intern, Annotation, Application, Keyword, Schema, Validation, *,
+    index::Index, intern, Annotation, Application, Keyword, Schema, Validation, *,
 };
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
-use error_chain::{bail, error_chain};
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
 use tinyvec::TinyVec;
-
-error_chain! {
-    links {
-        Index(index::Error, index::ErrorKind);
-    }
-}
 
 pub trait Context: Sized + Default + std::fmt::Debug {
     fn with_details<'sm, 'a, A>(
@@ -461,23 +454,22 @@ where
     A: Annotation,
     C: Context,
 {
-    pub fn new(index: &'sm Index<'sm, A>, uri: &url::Url) -> Result<Validator<'sm, A, C>> {
-        let mut val = Validator {
-            index,
-            scopes: Vec::new(),
-            active_offsets: vec![0],
+    pub fn new(index: &'sm Index<'sm, A>, uri: &url::Url) -> Result<Validator<'sm, A, C>, ()> {
+        let schema = match index.fetch(uri) {
+            Some(s) => s,
+            None => return Err(()),
         };
 
-        let sc = match val.index.fetch(uri) {
-            Some(sc) => sc,
-            None => bail!("schema URI '{}' not indexed", uri),
+        let mut val = Validator {
+            index,
+            scopes: vec![Scope::new(None, schema)],
+            active_offsets: vec![0],
         };
         let span = Span {
             begin: 0,
             end: 0,
             hashed: 0,
         };
-        val.scopes.push(Scope::new(None, sc));
         val.expand_scopes(0, &span, &Location::Root);
 
         Ok(val)

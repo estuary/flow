@@ -1,7 +1,8 @@
 description: Daily statistics of a market security.
 
 type: object
-reduce: merge
+reduce:
+  strategy: merge
 required: [exchange, security, date]
 
 properties:
@@ -28,34 +29,34 @@ properties:
   volume:
     description: Total number of shares transacted.
     type: integer
-    reduce: sum
+    reduce: {strategy: sum}
   first:
     description: First trade of the day.
     $ref: L1-tick.yaml#/$defs/priceAndSize
-    reduce: firstWriteWins
+    reduce: {strategy: firstWriteWins}
   last:
     description: Last trade of the day.
     $ref: L1-tick.yaml#/$defs/priceAndSize
-    reduce: lastWriteWins
+    reduce: {strategy: lastWriteWins}
 
 $defs:
   priceStats:
     type: object
-    reduce: merge
+    reduce: {strategy: merge}
 
     properties:
       low:
         type: number
-        reduce: minimize
+        reduce: {strategy: minimize}
       high:
         type: number
-        reduce: maximize
+        reduce: {strategy: maximize}
       avgN:
         description: Numerator of average.
         type: number
-        reduce: sum
+        reduce: {strategy: sum}
       avgD:
         description: Denominator of average.
         type: number
-        reduce: sum
+        reduce: {strategy: sum}
 

@@ -1,9 +1,15 @@
 use crate::schema::{Annotation, Application, Keyword, Schema};
-use error_chain::bail;
 use fxhash::FxHashMap as HashMap;
+use thiserror;
 
-error_chain::error_chain! {
-    errors { NotFound }
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("duplicate canonical URI: '{0}'")]
+    DuplicateCanonicalURI(url::Url),
+    #[error("duplicate anchor URI: '{0}'")]
+    DuplicateAnchorURI(url::Url),
+    #[error("schema $ref '{ruri}', referenced by '{curi}', is not indexed")]
+    InvalidReference { ruri: url::Url, curi: String },
 }
 
 pub struct Index<'s, A>(HashMap<&'s str, &'s Schema<A>>)
@@ -18,10 +24,12 @@ where
         Index(HashMap::default())
     }
 
-    pub fn add(&mut self, schema: &'s Schema<A>) -> Result<()> {
+    pub fn add(&mut self, schema: &'s Schema<A>) -> Result<(), Error> {
+        use Error::*;
+
         // Index this schema's canonical URI.
         if let Some(_) = self.0.insert(schema.curi.as_str(), schema) {
-            bail!("duplicate canonical URI: '{}'", schema.curi);
+            return Err(DuplicateCanonicalURI(schema.curi.clone()));
         }
         //println!("indexed {}", schema.curi.as_str());
 
@@ -32,7 +40,7 @@ where
                 // Index an alternative, anchor-form canonical URI.
                 Keyword::Anchor(auri) => {
                     if let Some(_) = self.0.insert(auri.as_str(), schema) {
-                        bail!("duplicate anchor URI: '{}'", schema.curi);
+                        return Err(DuplicateAnchorURI(schema.curi.clone()));
                     }
                     //println!("indexed anchor {}", schema.curi.as_str());
                 }
@@ -43,16 +51,15 @@ where
         Ok(())
     }
 
-    pub fn verify_references(&self) -> Result<()> {
+    pub fn verify_references(&self) -> Result<(), Error> {
         for (&curi, &schema) in &self.0 {
             for kw in &schema.kw {
                 if let Keyword::Application(Application::Ref(ruri), _) = kw {
                     if !self.0.contains_key(ruri.as_str()) {
-                        bail!(
-                            "schema $ref '{}', referenced by '{}', is not indexed",
-                            ruri,
-                            curi
-                        );
+                        return Err(Error::InvalidReference {
+                            ruri: ruri.clone(),
+                            curi: curi.to_owned(),
+                        });
                     }
                 }
             }

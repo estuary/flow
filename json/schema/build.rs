@@ -2,30 +2,65 @@ use crate::schema::{
     intern, keywords, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation,
 };
 use crate::{de, NoopWalker, Number};
-use error_chain::{bail, error_chain};
 use regex;
 use serde_json as sj;
+use thiserror;
 use url;
 
-error_chain! {
-    links {
-        Intern(intern::Error, intern::ErrorKind);
-    }
-    foreign_links {
-        Regex(::regex::Error);
-        UrlParse(::url::ParseError);
-    }
-    errors {
-        UnknownKeyword(kw: String) {
-            description("unknown keyword")
-            display("unknown keyword '{}'", kw)
-        }
-        At(curi: url::Url, kw: String) {
-            description("at")
-            display("at {}/{}", curi, kw)
-        }
-    }
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("expected a boolean")]
+    ExpectedBool,
+    #[error("expected a string")]
+    ExpectedString,
+    #[error("expected an object")]
+    ExpectedObject,
+    #[error("expected an array")]
+    ExpectedArray,
+    #[error("expected a schema or array of schemas")]
+    ExpectedSchemaOrArrayOfSchemas,
+    #[error("expected a schema")]
+    ExpectedSchema,
+    #[error("unexpected fragment component '{0}' of $id keyword")]
+    UnexpectedFragment(String),
+    #[error("expected a type or array of types")]
+    ExpectedType,
+    #[error("expected an unsigned integer")]
+    ExpectedUnsigned,
+    #[error("expected a number")]
+    ExpectedNumber,
+    #[error("expected an array of strings")]
+    ExpectedStringArray,
+    #[error("invalid contentEncoding (expected 'base64')")]
+    UnexpectedContentEncoding,
+    #[error("expected '{0}' to be a base URI")]
+    ExpectedBaseURI(url::Url),
+    #[error("unexpected keyword '{0}'")]
+    UnknownKeyword(String),
+    #[error("failed to intern property: {0}")]
+    InternErr(#[from] intern::Error),
+    #[error("failed to parse URL: {0}")]
+    URLErr(#[from] url::ParseError),
+    #[error("failed to parse regex: {0}")]
+    RegexErr(#[from] regex::Error),
+    #[error("failed to build annotation: {0}")]
+    AnnotationErr(#[source] Box<dyn std::error::Error>),
+
+    #[error("at schema '{curi}': {detail}")]
+    AtSchema {
+        #[source]
+        detail: Box<Error>,
+        curi: url::Url,
+    },
+    #[error("at keyword '{keyword}' of schema '{curi}': {detail}")]
+    AtKeyword {
+        #[source]
+        detail: Box<Error>,
+        curi: url::Url,
+        keyword: String,
+    },
 }
+use Error::*;
 
 pub trait AnnotationBuilder: Annotation {
     /// uses_keyword returns true if the builder knows how to extract
@@ -33,7 +68,7 @@ pub trait AnnotationBuilder: Annotation {
     fn uses_keyword(keyword: &str) -> bool;
     /// from_keyword builds an Annotation from the given keyword & value,
     /// which MUST be a keyword for which uses_keyword returns true.
-    fn from_keyword(keyword: &str, value: &sj::Value) -> Result<Self>;
+    fn from_keyword(keyword: &str, value: &sj::Value) -> Result<Self, Error>;
 }
 
 struct Builder<A>
@@ -104,25 +139,29 @@ where
         }
     }
 
-    fn process_keyword(&mut self, keyword: &str, v: &sj::Value) -> Result<()> {
-        let true_placeholder = sj::Value::Bool(true);
+    fn process_keyword(&mut self, keyword: &str, v: &sj::Value) -> Result<(), Error> {
         use Application as App;
         use Validation as Val;
 
-        Ok(match keyword {
+        let true_placeholder = sj::Value::Bool(true);
+
+        // TODO: rework so both annotation parsing and this block can use the keyword.
+
+        let mut unknown = false;
+        match keyword {
             // Meta keywords.
             keywords::ID => (), // Already handled.
             keywords::RECURSIVE_ANCHOR => match v {
                 sj::Value::Bool(b) if *b => self.kw.push(Keyword::RecursiveAnchor),
                 sj::Value::Bool(b) if !*b => (), // Ignore.
-                _ => bail!("expected a bool"),
+                _ => return Err(ExpectedBool),
             },
             keywords::ANCHOR => match v {
                 sj::Value::String(anchor) => {
                     let anchor = self.curi.join(&format!("#{}", anchor))?;
                     self.kw.push(Keyword::Anchor(anchor))
                 }
-                _ => bail!("expected a string"),
+                _ => return Err(ExpectedString),
             },
             keywords::DEF | keywords::DEFINITIONS => match v {
                 sj::Value::Object(m) => {
@@ -130,7 +169,7 @@ where
                         self.add_application(App::Def { key: prop.clone() }, child)?;
                     }
                 }
-                _ => bail!("expected an object"),
+                _ => return Err(ExpectedObject),
             },
 
             // In-place application keywords.
@@ -142,7 +181,7 @@ where
                     }
                     self.add_application(App::Ref(ref_uri), &true_placeholder)?;
                 }
-                _ => bail!("expected a string"),
+                _ => return Err(ExpectedString),
             },
             keywords::RECURSIVE_REF => match v {
                 sj::Value::String(ref_uri) => {
@@ -150,7 +189,7 @@ where
                     url::Url::parse("http://example")?.join(ref_uri)?;
                     self.add_application(App::RecursiveRef(ref_uri.clone()), &true_placeholder)?;
                 }
-                _ => bail!("expected a string"),
+                _ => return Err(ExpectedString),
             },
             keywords::ANY_OF => match v {
                 sj::Value::Array(children) => {
@@ -158,7 +197,7 @@ where
                         self.add_application(App::AnyOf { index: i }, child)?;
                     }
                 }
-                _ => bail!("expected an array"),
+                _ => return Err(ExpectedArray),
             },
             keywords::ALL_OF => match v {
                 sj::Value::Array(children) => {
@@ -166,7 +205,7 @@ where
                         self.add_application(App::AllOf { index: i }, child)?;
                     }
                 }
-                _ => bail!("expected an array"),
+                _ => return Err(ExpectedArray),
             },
             keywords::ONE_OF => match v {
                 sj::Value::Array(children) => {
@@ -174,7 +213,7 @@ where
                         self.add_application(App::OneOf { index: i }, child)?;
                     }
                 }
-                _ => bail!("expected an array"),
+                _ => return Err(ExpectedArray),
             },
             keywords::NOT => self.add_application(App::Not, v)?,
             keywords::IF => self.add_application(App::If, v)?,
@@ -190,7 +229,7 @@ where
                         self.add_application(app, child)?;
                     }
                 }
-                _ => bail!("expected an object"),
+                _ => return Err(ExpectedObject),
             },
 
             // Property application keywords.
@@ -205,7 +244,7 @@ where
                         self.add_application(app, child)?;
                     }
                 }
-                _ => bail!("expected an object"),
+                _ => return Err(ExpectedObject),
             },
             keywords::PATTERN_PROPERTIES => match v {
                 sj::Value::Object(m) => {
@@ -218,7 +257,7 @@ where
                         )?;
                     }
                 }
-                _ => bail!("expected an object"),
+                _ => return Err(ExpectedObject),
             },
             keywords::ADDITIONAL_PROPERTIES => {
                 self.add_application(App::AdditionalProperties, v)?
@@ -238,7 +277,7 @@ where
                         self.add_application(App::Items { index: Some(i) }, child)?;
                     }
                 }
-                _ => bail!("expected a schema or array"),
+                _ => return Err(ExpectedSchemaOrArrayOfSchemas),
             },
             keywords::ADDITIONAL_ITEMS => self.add_application(App::AdditionalItems, v)?,
             keywords::UNEVALUATED_ITEMS => self.add_application(App::UnevaluatedItems, v)?,
@@ -277,7 +316,7 @@ where
             keywords::UNIQUE_ITEMS => match v {
                 sj::Value::Bool(true) => self.add_validation(Val::UniqueItems),
                 sj::Value::Bool(false) => (),
-                _ => bail!("expected a bool"),
+                _ => return Err(ExpectedBool),
             },
             keywords::MAX_CONTAINS => self.add_validation(Val::MaxContains(extract_usize(v)?)),
             keywords::MIN_CONTAINS => self.add_validation(Val::MinContains(extract_usize(v)?)),
@@ -300,7 +339,7 @@ where
                         self.add_validation(dr);
                     }
                 }
-                _ => bail!("expected an object"),
+                _ => return Err(ExpectedObject),
             },
 
             keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
@@ -308,25 +347,30 @@ where
 
             // This is not a core validation keyword. Does the AnnotationBuilder consume it?
             _ => {
-                if A::uses_keyword(keyword) {
-                    self.add_annotation(A::from_keyword(keyword, v)?);
-                } else {
-                    return Err(ErrorKind::UnknownKeyword(keyword.to_owned()).into());
-                }
+                unknown = true;
             }
-        })
+        };
+
+        if A::uses_keyword(keyword) {
+            self.kw
+                .push(Keyword::Annotation(A::from_keyword(keyword, v)?));
+            unknown = false;
+        }
+
+        if unknown {
+            Err(UnknownKeyword(keyword.to_owned()).into())
+        } else {
+            Ok(())
+        }
     }
 
-    fn add_annotation(&mut self, annot: A) {
-        self.kw.push(Keyword::Annotation(annot))
-    }
     fn add_validation(&mut self, val: Validation) {
         self.kw.push(Keyword::Validation(val))
     }
 
     // build_app builds a child of the current Builder schema,
     // wrapped in an a Keyword::Application.
-    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<()> {
+    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
         // Init a fragment pointer for the schema of this application.
         let mut ptr = "#".to_string();
         // Extend with path of this *this* schema, the application's parent.
@@ -347,7 +391,7 @@ where
 }
 
 /// `build_schema` builds a Schema instance from a JSON-Schema document.
-pub fn build_schema<A>(curi: url::Url, v: &sj::Value) -> Result<Schema<A>>
+pub fn build_schema<A>(curi: url::Url, v: &sj::Value) -> Result<Schema<A>, Error>
 where
     A: AnnotationBuilder,
 {
@@ -366,7 +410,12 @@ where
             }
             return Ok(Schema { curi, tbl, kw });
         }
-        _ => bail!("expected a schema (object or bool)"),
+        _ => {
+            return Err(AtSchema {
+                detail: Box::new(ExpectedSchema),
+                curi,
+            })
+        }
     };
 
     // This is a schema object. We'll walk its properties and JSON values
@@ -376,40 +425,46 @@ where
     let mut builder = Builder { curi, kw, tbl };
 
     for (k, v) in obj {
-        if let Err(e) = builder.process_keyword(k, v) {
-            match e.kind() {
-                ErrorKind::At(_, _) => return Err(e),
-                _ => return Err(e).chain_err(|| ErrorKind::At(builder.curi.clone(), k.to_owned())),
+        builder.process_keyword(k, v).map_err(|e| match e {
+            // Pass through errors that have already been located.
+            AtSchema { .. } | AtKeyword { .. } => e,
+            // Otherwise, wrap error with its keyword location.
+            _ => {
+                return AtKeyword {
+                    detail: Box::new(e),
+                    curi: builder.curi.clone(),
+                    keyword: k.to_owned(),
+                }
             }
-        }
+        })?;
     }
 
     Ok(builder.build())
 }
 
-fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url> {
+fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url, Error> {
     let curi = match id {
         Some(sj::Value::String(id)) => {
             let curi = curi.join(id)?;
 
             if let Some(f) = curi.fragment() {
-                bail!("unexpected fragment component '{}' of $id", f);
+                return Err(UnexpectedFragment(f.to_owned()));
             }
             curi
         }
         None => curi,
-        Some(_) => bail!("expected a string"),
+        Some(_) => return Err(ExpectedString),
     };
     if curi.cannot_be_a_base() {
-        bail!("expected a base URI");
+        return Err(ExpectedBaseURI(curi));
     }
     Ok(curi)
 }
 
-fn extract_type_mask(v: &sj::Value) -> Result<types::Set> {
+fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
     let mut set = types::INVALID;
 
-    let mut fold = |vv: &sj::Value| -> Result<()> {
+    let mut fold = |vv: &sj::Value| -> Result<(), Error> {
         set = set
             | match vv {
                 sj::Value::String(s) if s == "array" => types::ARRAY,
@@ -419,7 +474,7 @@ fn extract_type_mask(v: &sj::Value) -> Result<types::Set> {
                 sj::Value::String(s) if s == "number" => types::NUMBER,
                 sj::Value::String(s) if s == "object" => types::OBJECT,
                 sj::Value::String(s) if s == "string" => types::STRING,
-                _ => bail!("expected type string"),
+                _ => return Err(ExpectedType),
             };
         Ok(())
     };
@@ -431,7 +486,7 @@ fn extract_type_mask(v: &sj::Value) -> Result<types::Set> {
             }
         }
         sj::Value::String(_) => fold(v)?,
-        _ => bail!("expected type string, or array of type strings"),
+        _ => return Err(ExpectedType),
     }
     Ok(set)
 }
@@ -442,45 +497,45 @@ fn extract_hash(v: &sj::Value) -> u64 {
     span.hashed
 }
 
-fn extract_hashes(v: &sj::Value) -> Result<Vec<u64>> {
+fn extract_hashes(v: &sj::Value) -> Result<Vec<u64>, Error> {
     let arr = match v {
         sj::Value::Array(arr) => arr,
-        _ => bail!("expected array"),
+        _ => return Err(ExpectedArray),
     };
     Ok(arr.iter().map(|v| extract_hash(v)).collect())
 }
 
-fn extract_usize(v: &sj::Value) -> Result<usize> {
+fn extract_usize(v: &sj::Value) -> Result<usize, Error> {
     match v {
         sj::Value::Number(num) if num.is_u64() => Ok(num.as_u64().unwrap() as usize),
-        _ => bail!("expected unsigned integer"),
+        _ => return Err(ExpectedUnsigned),
     }
 }
 
-fn extract_str(v: &sj::Value) -> Result<&str> {
+fn extract_str(v: &sj::Value) -> Result<&str, Error> {
     match v {
         sj::Value::String(s) => Ok(s),
-        _ => bail!("expected string"),
+        _ => return Err(ExpectedString),
     }
 }
 
-fn extract_bool(v: &sj::Value) -> Result<bool> {
+fn extract_bool(v: &sj::Value) -> Result<bool, Error> {
     match v {
         sj::Value::Bool(b) => Ok(*b),
-        _ => bail!("expected bool"),
+        _ => return Err(ExpectedBool),
     }
 }
 
-fn extract_number(v: &sj::Value) -> Result<Number> {
+fn extract_number(v: &sj::Value) -> Result<Number, Error> {
     match v {
         sj::Value::Number(num) if num.is_u64() => Ok(Number::Unsigned(num.as_u64().unwrap())),
         sj::Value::Number(num) if num.is_i64() => Ok(Number::Signed(num.as_i64().unwrap())),
         sj::Value::Number(num) => Ok(Number::Float(num.as_f64().unwrap())),
-        _ => bail!("expected number"),
+        _ => return Err(ExpectedNumber),
     }
 }
 
-fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<intern::Set> {
+fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<intern::Set, Error> {
     match v {
         sj::Value::Array(vec) => {
             let mut out: intern::Set = 0;
@@ -490,7 +545,7 @@ fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<intern::
             }
             Ok(out)
         }
-        _ => bail!("expected array of strings"),
+        _ => return Err(ExpectedStringArray),
     }
 }
 
@@ -510,11 +565,11 @@ impl AnnotationBuilder for CoreAnnotation {
         }
     }
 
-    fn from_keyword(kw: &str, v: &sj::Value) -> Result<Self> {
+    fn from_keyword(kw: &str, v: &sj::Value) -> Result<Self, Error> {
         Ok(match kw {
             keywords::CONTENT_ENCODING => match v {
                 sj::Value::String(s) if s == "base64" => CoreAnnotation::ContentEncodingBase64,
-                _ => bail!("invalid contentEncoding (expected 'base64')"),
+                _ => return Err(UnexpectedContentEncoding),
             },
             keywords::CONTENT_MEDIA_TYPE => {
                 CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
@@ -525,7 +580,7 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::EXAMPLES => CoreAnnotation::Examples(
                 match v {
                     sj::Value::Array(v) => v,
-                    _ => bail!("expected array"),
+                    _ => return Err(ExpectedArray),
                 }
                 .clone(),
             ),
