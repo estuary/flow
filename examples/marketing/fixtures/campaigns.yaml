@@ -1,0 +1,4 @@
+- key: [1]
+  document: {"campaign_id": 1, "details": "of campaign 1"}
+- key: [3]
+  document: {"campaign_id": 3, "details": "of campaign 3"}

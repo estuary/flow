@@ -1,9 +1,9 @@
-use estuary_json::schema;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::BTreeMap;
 use url;
 use url::{ParseError, Url};
+
+use estuary_json::schema;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -11,12 +11,28 @@ pub struct Collection {
     pub name: String,
     pub schema: String,
     pub key: Vec<String>,
-
+    pub fixtures: Vec<String>,
     #[serde(default)]
-    pub examples: String,
-    #[serde(default)]
-    pub partitions: BTreeMap<String, String>,
+    pub projections: Vec<Projection>,
     pub derivation: Option<Derivation>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Fixture {
+    pub document: serde_json::Value,
+    pub key: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub projections: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Projection {
+    pub name: String,
+    pub ptr: String,
+    #[serde(default)]
+    pub partition: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -73,8 +89,6 @@ pub struct Shuffle {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Materialization {
     pub collection: String,
-    #[serde(default)]
-    pub additional_projections: BTreeMap<String, String>,
     pub target: Target,
 }
 
@@ -89,7 +103,7 @@ pub enum Target {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Node {
     #[serde(default)]
-    pub include: Vec<String>,
+    pub import: Vec<String>,
     #[serde(default)]
     pub collections: Vec<Collection>,
     #[serde(default)]

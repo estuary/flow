@@ -9,6 +9,7 @@ use std::io;
 use url;
 
 mod specs;
+mod catalog;
 
 type Error = Box<dyn std::error::Error>;
 
@@ -27,6 +28,14 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("Path to specification which roots the hierarchy"),
+                )
+                .arg(
+                    clap::Arg::with_name("catalog")
+                        .short("b")
+                        .long("catalog")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Path to output catalog"),
                 ),
         )
         .get_matches();
@@ -42,18 +51,30 @@ fn main() {
     };
 }
 
-mod bundle;
-
 fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     let root = args.value_of("root").unwrap();
     let root = fs::canonicalize(root)?;
     let root = url::Url::from_file_path(&root).unwrap();
 
+    let db = args.value_of("catalog").unwrap();
+    let db = rusqlite::Connection::open(db)?;
+    db.execute_batch("BEGIN;")?;
+    catalog::create_schema(&db)?;
+
+    let b = catalog::Builder::new(db);
     println!("root specification is {}", &root);
 
-    let mut loader = bundle::loader::Loader::new(Box::new(DirectFileSystem {}));
+    b.process_specs(root)?;
 
-    let specs = loader.load_node(root);
+    b.done().execute_batch("COMMIT;")?;
+
+
+    //let fs = Box::new(DirectFileSystem {});
+
+
+    //let mut loader = bundle::loader::Loader::new(bundle, fs)?;
+    //let specs = loader.load_node(root)?;
+    //let _bundle = loader.finish()?;
 
     /*
 
@@ -103,23 +124,24 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
         //println!("");
         //println!("compiled {:?}", &compiled_schema);
     }
+    println!("specs: {:?}", specs);
     */
 
-    println!("specs: {:?}", specs);
-    specs?;
     Ok(())
 }
 
+/*
 struct DirectFileSystem {}
 
-impl bundle::loader::FileSystem for DirectFileSystem {
-    fn open(&self, url: &url::Url) -> Result<Box<dyn io::Read>, Error> {
+impl catalog::FileSystem for DirectFileSystem {
+    fn open(&self, url: &url::Url) -> Result<Box<dyn io::Read>, io::Error> {
         match url.scheme() {
             "file" => {
                 let path = url.to_file_path().unwrap();
                 Ok(Box::new(fs::File::open(path)?))
             }
-            _ => panic!("unknown schema '{}'", url.scheme()),
+            _ => panic!("unknown URL scheme '{}'", url.scheme()),
         }
     }
 }
+*/

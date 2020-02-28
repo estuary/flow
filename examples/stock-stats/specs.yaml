@@ -2,17 +2,27 @@ collections:
   - name: ticks
     schema: schemas/L1-tick.yaml
     key: [/id]
+    fixtures: [fixtures/L1-tick.yaml]
 
-    examples: fixtures/L1-tick.json
-    partitions:
-      exchange: /exchange
+    projections:
+      - name: exchange
+        ptr: /exchange
+        partition: true
+      - name: bar
+        ptr: /bar
 
   - name: daily-stats
     schema: schemas/daily-stat.yaml
     key: [/security, /date]
+    fixtures: [fixtures/daily-stats.yaml]
 
-    partitions:
-      exchange: /exchange
+    projections:
+      - name: exchange
+        ptr: /exchange
+        partition: true
+      - name: my_special_column
+        ptr: /bid/high
+
     derivation:
       runtime: jq
       transforms:
@@ -21,15 +31,6 @@ collections:
 
 materializations:
   - collection: daily-stats
-    additionalProjections:
-      my_special_column: /bid/high
-      date: /date
-      security: /security
-      price__low: /price/low
-      price__high: /price/high
-      price__avgN: /price/avgN
-      price__avgD: /price/avgD
-      bid__low: /bid/low
 
     target:
       type: postgres

@@ -1,55 +1,96 @@
-use super::*;
-use crate::specs::canonical;
-use std::collections::HashSet;
+use rusqlite;
 use std::io;
-use thiserror;
+use url;
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
-    #[error("failed to parse URL: {0}")]
-    URLErr(#[from] url::ParseError),
-    #[error("failed to parse YAML: {0}")]
-    YAMLErr(#[from] serde_yaml::Error),
-    #[error("failed to parse JSON: {0}")]
-    JSONErr(#[from] serde_json::Error),
-    #[error("failed to compile JSON-Schema: {0}")]
-    BuildErr(#[from] schema::build::Error),
-    #[error("bundle database error: {0}")]
-    SQLiteErr(#[from] rusqlite::Error),
-    #[error("schema index error: {0}")]
-    IndexErr(#[from] schema::index::Error),
-    #[error("converting from SQL: {0}")]
-    SQLConversionErr(#[from] rusqlite::types::FromSqlError),
-    #[error("{0}")]
-    CanonicalError(#[from] specs::canonical::Error),
-}
-use Error::*;
-use rusqlite::OptionalExtension;
+mod builder;
+mod regexp_sql_fn;
 
-pub trait FileSystem {
-    fn open(&self, url: &url::Url) -> Result<Box<dyn io::Read>, io::Error>;
+pub use builder::Builder;
+
+pub fn create_schema(db: &rusqlite::Connection) -> rusqlite::Result<()> {
+    regexp_sql_fn::create(db)?; // Install support for REGEXP operator.
+    db.execute_batch(include_str!("schema.sql"))?;
+    Ok(())
 }
 
-pub struct Loader {
-    fs: Box<dyn FileSystem>,
-    db: rusqlite::Connection,
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_create_schema() -> rusqlite::Result<()> {
+        let db = rusqlite::Connection::open_in_memory()?;
+        create_schema(&db)
+    }
 }
+
+/*
+pub fn load_spec_node(db: &rusqlite::Connection, node: url::Url) -> Result<(), Error> {
+    let (id, inserted) = intern_resource(db, &node);
+    if !inserted {
+        return Ok(())
+    }
+
+    println!("loading {}", &node);
+
+    let br = io::BufReader::new(self.fs.open(&node)?);
+    let spec: specs::Node = serde_yaml::from_reader(br)?;
+    //let spec = spec.into_canonical(&node)?;
+
+    for inc in &spec.include {
+        let inc = canonical::join(&node, &inc)?;
+        self.load_node(inc)?;
+    }
+
+    for c in &spec.collections {
+        let name = canonical::join(&node, &c.name)?;
+
+        let schema = canonical::join(&node, &c.schema)?;
+        self.load_schema(schema.clone())?;
+
+        let mut s = self.db.prepare_cached(
+            "INSERT INTO collection (url, schema_url, key, partitions)\
+                        VALUES (?, ?, ?, ?);")?;
+
+        s.execute(&[
+            name.as_str(),
+            schema.as_str(),
+            serde_json::to_string(&c.key)?.as_str(),
+            serde_json::to_string(&c.partitions)?.as_str(),
+        ])?;
+    }
+
+    Ok(())
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 type Schema = schema::Schema<specs::Annotation>;
 
-impl Loader {
+impl Catalog {
 
     pub fn define_schema(db: rusqlite::Connection) -> rusqlite::Result<rusqlite::Connection> {
-        db.execute_batch("
-        ")?;
-
-        Ok(db)
     }
 
     pub fn new(db: rusqlite::Connection, fs: Box<dyn FileSystem>) -> Result<Loader, Error> {
-        let db = Loader::define_schema(db)?;
+        let db = Catalog::define_schema(db)?;
 
         db.execute_batch("
             ATTACH ':memory:' as tmp;
@@ -117,41 +158,6 @@ impl Loader {
         Ok(s.execute(&[url.as_str()])? == 0)
     }
 
-    pub fn load_node(&mut self, node: url::Url) -> Result<(), Error> {
-        if self.already_seen(&node)? {
-            return Ok(())
-        }
-        println!("loading {}", &node);
-
-        let br = io::BufReader::new(self.fs.open(&node)?);
-        let spec: specs::Node = serde_yaml::from_reader(br)?;
-        //let spec = spec.into_canonical(&node)?;
-
-        for inc in &spec.include {
-            let inc = canonical::join(&node, &inc)?;
-            self.load_node(inc)?;
-        }
-
-        for c in &spec.collections {
-            let name = canonical::join(&node, &c.name)?;
-
-            let schema = canonical::join(&node, &c.schema)?;
-            self.load_schema(schema.clone())?;
-
-            let mut s = self.db.prepare_cached(
-                "INSERT INTO collection (url, schema_url, key, partitions)\
-                        VALUES (?, ?, ?, ?);")?;
-
-            s.execute(&[
-                name.as_str(),
-                schema.as_str(),
-                serde_json::to_string(&c.key)?.as_str(),
-                serde_json::to_string(&c.partitions)?.as_str(),
-                ])?;
-        }
-
-        Ok(())
-    }
 
     fn load_schema(&mut self, mut url: url::Url) -> Result<(), Error> {
         url.set_fragment(None);
@@ -226,3 +232,4 @@ impl Loader {
 
     */
 }
+*/

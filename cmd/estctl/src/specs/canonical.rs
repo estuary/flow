@@ -1,3 +1,5 @@
+
+/*
 use super::*;
 use thiserror;
 
@@ -19,10 +21,10 @@ where
 
 impl Canonicalized for Node {
     fn into_canonical(mut self, base: &Url) -> Result<Self, Error> {
-        self.include = self
-            .include
+        self.import = self
+            .import
             .into_iter()
-            .map(|s| join(base, &s))
+            .map(|s| join_str(base, &s))
             .collect::<Result<Vec<String>, Error>>()?;
         self.collections = self
             .collections
@@ -54,11 +56,11 @@ impl Canonicalized for Node {
 
 impl Canonicalized for Collection {
     fn into_canonical(mut self, base: &url::Url) -> Result<Self, Error> {
-        self.name = join(base, &self.name)?;
-        self.schema = join(base, &self.schema)?;
+        self.name = join_str(base, &self.name)?;
+        self.schema = join_str(base, &self.schema)?;
 
         if !self.examples.is_empty() {
-            self.examples = join(base, &self.examples)?;
+            self.examples = join_str(base, &self.examples)?;
         }
 
         self.derivation = match self.derivation {
@@ -82,7 +84,7 @@ impl Canonicalized for Collection {
 
 impl Canonicalized for Materialization {
     fn into_canonical(mut self, base: &Url) -> Result<Self, Error> {
-        self.collection = join(base, &self.collection)?;
+        self.collection = join_str(base, &self.collection)?;
         Ok(self)
     }
 
@@ -101,8 +103,8 @@ impl Canonicalized for Derivation {
                     .transforms
                     .into_iter()
                     .map(|mut t| {
-                        t.source = join(base, &t.source)?;
-                        t.path = join(base, &t.path)?;
+                        t.source = join_str(base, &t.source)?;
+                        t.path = join_str(base, &t.path)?;
                         Ok(t)
                     })
                     .collect::<Result<Vec<JQTransform>, Error>>()?;
@@ -129,9 +131,13 @@ impl Canonicalized for Derivation {
     }
 }
 
-fn join(base: &url::Url, s: &str) -> Result<String, Error> {
+fn join_str(base: &url::Url, s: &str) -> Result<String, Error> {
+    join(base, s).map(|u| u.into_string())
+}
+
+pub fn join(base: &url::Url, s: &str) -> Result<url::Url, Error> {
     match base.join(&s) {
-        Ok(url) => Ok(url.into_string()),
+        Ok(url) => Ok(url),
         Err(e) => Err(Error {
             s: s.to_owned(),
             base: base.clone(),
@@ -140,9 +146,11 @@ fn join(base: &url::Url, s: &str) -> Result<String, Error> {
     }
 }
 
+
 fn remove_prefix(mut s: String, prefix: &str) -> String {
     if s.starts_with(prefix) {
         s.drain(0..prefix.len());
     }
     s
 }
+*/

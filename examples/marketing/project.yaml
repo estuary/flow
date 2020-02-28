@@ -1,24 +1,29 @@
 collections:
 
-  - name: campaigns
+  - name: marketing/campaigns
     schema: schemas.yaml#/$defs/campaign
     key: [/campaign_id]
+    fixtures: [fixtures/campaigns.yaml]
 
-  - name: offer-views
+  - name: marketing/offer/views
     schema: schemas.yaml#/$defs/view
     key: [/view_id]
+    fixtures: [fixtures/offer-views.yaml]
 
-  - name: offer-clicks
+  - name: marketing/offer/clicks
     schema: schemas.yaml#/$defs/click
     key: [/click_id]
+    fixtures: [fixtures/offer-clicks.yaml]
 
-  - name: purchase
+  - name: marketing/purchases
     schema: schemas.yaml#/$defs/purchase
     key: [/purchase_id]
+    fixtures: [fixtures/purchases.yaml]
 
-  - name: views-with-campaign
+  - name: marketing/views-with-campaign
     schema: schemas.yaml#/$defs/view-with-campaign
     key: [/view_id]
+    fixtures: [fixtures/views-with-campaign.yaml]
 
     derivation:
       runtime: jq
@@ -27,22 +32,24 @@ collections:
         parallelism: 8
       transforms:
         # Index the present value of each campaign.
-        - source: campaigns
+        - source: marketing/campaigns
           body: |
             upsert_key(.campaign_id; .)
           shuffle:
             broadcast: 4
         # Enrich each view by adding a `campaign` property drawn from an indexed campaign.
-        - source: views
+        - source: marketing/views
           body: |
             . + {campaign: load_key(.campaign_id)}
           shuffle:
             key: [/campaign_id]
             choose: 4
 
-  - name: clicks-with-views
+  - name: marketing/clicks-with-views
     schema: schemas.yaml#/$defs/click-with-view
     key: [/click_id]
+    fixtures: [fixtures/clicks-with-views.yaml]
+
     derivation:
       runtime: jq
 
@@ -52,7 +59,7 @@ collections:
 
       transforms:
         # Index each view with a 2-day TTL relative to the view's timestamp.
-        - source: views-with-campaign
+        - source: marketing/views-with-campaign
           body: |
             with $ts as .timestamp | fromdate |
             with $expiry as $ts + 172800 |
@@ -64,9 +71,10 @@ collections:
           body: |
             . + {view: load_key(.view_id)}
 
-  - name: purchases-with-offers
+  - name: marketing/purchases-with-offers
     schema: schemas.yaml#/$defs/purchase-with-offers
     key: [/purchase_id]
+    fixtures: [fixtures/purchases-with-offers.yaml]
 
     derivation:
       runtime: jq
@@ -79,7 +87,7 @@ collections:
         # Index views with a 30-day look-back. For a given user ID, only the first
         # view of any UTC day is indexed (meaning each user will have at most 30
         # views indexed at a given time).
-        - source: views-with-campaign
+        - source: marketing/views-with-campaign
           shuffle:
             key: [/user_id]
           body: |
@@ -90,7 +98,7 @@ collections:
               insert_key_with_expiry($key; $expiry; . )
         # Index clicks with a 30-day look-back. Track only the first click of a given
         # user and hour. Each click has already been enriched with a joined view.
-        - source: clicks-with-views
+        - source: marketing/clicks-with-views
           shuffle:
             key: [/user_id]
           body: |
@@ -101,7 +109,7 @@ collections:
             insert_key_with_expiry(store_key_with_expiry(
               insert_key_with_expiry($key; $expiry; . )
         # Enrich purchase events by joining with all indexed views and clicks.
-        - source: purchase
+        - source: marketing/purchases
           shuffle:
             key: [/user_id]
           body: |

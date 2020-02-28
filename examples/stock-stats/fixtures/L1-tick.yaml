@@ -1,16 +1,18 @@
-{
+- key: [foo]
+  document: {
     "exchange": "NYSE",
     "security": "APPL",
     "time": "2019-01-16T12:34:56Z",
     "bid":  {"price": 321.09, "size": 100},
     "ask":  {"price": 321.45, "size": 200},
     "last": {"price": 321.12, "size": 50}
-}
-{
+  }
+- key: [bar]
+  document: {
     "exchange": "NYSE",
     "security": "APPL",
     "time": "2019-01-16T12:34:58Z",
     "bid":  {"price": 321.10, "size": 150},
     "ask":  {"price": 321.44, "size": 100},
     "last": {"price": 321.15, "size": 75}
-}
+  }
