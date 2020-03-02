@@ -36,9 +36,11 @@ pub struct Projection {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "runtime", deny_unknown_fields, rename_all = "camelCase")]
-pub enum Derivation {
-    Jq(JQDerivation),
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Derivation {
+    #[serde(default)]
+    pub inner_state: InnerState,
+    pub transform: Vec<Transform>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,33 +58,34 @@ impl Default for InnerState {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct JQDerivation {
-    #[serde(default)]
-    pub inner_state: InnerState,
-    pub transforms: Vec<JQTransform>,
+pub struct Transform {
+    pub source: String,
+    pub source_schema: Option<String>,
+    pub shuffle: Option<Shuffle>,
+    pub lambda: Lambda,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct JQTransform {
-    pub source: String,
-    #[serde(default)]
-    pub shuffle: Shuffle,
-    #[serde(default)]
-    pub body: String,
-    #[serde(default)]
-    pub path: String,
+pub enum Lambda {
+    Jq(String),
+    JqBlock(String),
+    Sqlite{
+        bootstrap: Option<String>,
+        body: String,
+    },
+    SqliteBlock{
+        bootstrap: Option<String>,
+        body: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Shuffle {
-    #[serde(default)]
-    pub key: Vec<String>,
-    #[serde(default)]
-    pub broadcast: u16,
-    #[serde(default)]
-    pub choose: u16,
+    pub key: Option<Vec<String>>,
+    pub broadcast: Option<u16>,
+    pub choose: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

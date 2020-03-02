@@ -24,10 +24,10 @@ collections:
         ptr: /bid/high
 
     derivation:
-      runtime: jq
-      transforms:
+      transform:
         - source: ticks
-          path: lambdas/map-tick-to-daily-stats.jq
+          lambda:
+            jq: lambdas/map-tick-to-daily-stats.jq
 
 materializations:
   - collection: daily-stats

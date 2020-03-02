@@ -132,30 +132,33 @@ CREATE TABLE fixtures
     PRIMARY KEY (collection_id, key)
 );
 
-CREATE TABLE code_blocks
+CREATE TABLE lambdas
 (
-    id          INTEGER PRIMARY KEY NOT NULL,
-    -- Runtime of the lambda.
-    runtime     TEXT                NOT NULL,
-    -- Lambda function body.
-    body        TEXT                NOT NULL,
-    -- Resource which produced this lambda.
-    resource_id INTEGER             NOT NULL REFERENCES resources (id),
+    id                    INTEGER PRIMARY KEY NOT NULL,
+    -- Type of this lambda.
+    type                  TEXT                NOT NULL,
 
-    CHECK (runtime IN ('jq', 'sqlite', 'https'))
+    -- Function body (used by: jq, sqlite).
+    body                  TEXT,
+    -- Resource which produced this body.
+    body_resource_id      INTEGER REFERENCES resources (id),
+    -- Bootstrap / prelude (used by: sqlite).
+    bootstrap             TEXT,
+    -- Resource which produced this bootstrap.
+    bootstrap_resource_id INTEGER REFERENCES resources (id),
+
+    CHECK (type IN ('jq', 'sqlite'))
 );
 
 -- Derivations details collections of the catalog which are derived from other collections.
 CREATE TABLE derivations
 (
-    collection_id INTEGER NOT NULL REFERENCES collections (id),
+    collection_id INTEGER PRIMARY KEY NOT NULL REFERENCES collections (id),
     -- If non-null, the collection is derived via a durable closure
     -- having a fixed number of shards.
     fixed_shards  INTEGER CHECK (fixed_shards > 0),
-    -- Optional bootstrap block of derivation shards.
-    bootstrap_id  INTEGER REFERENCES code_blocks (id),
     -- Resource which produced this derivation.
-    resource_id   INTEGER NOT NULL REFERENCES resources (id)
+    resource_id   INTEGER             NOT NULL REFERENCES resources (id)
 );
 
 CREATE TABLE transforms
@@ -169,13 +172,13 @@ CREATE TABLE transforms
     -- Optional: if null, the key extractor of the source collection is used.
     shuffle_key       TEXT CHECK (JSON_TYPE(shuffle_key) == 'array'),
     -- Number of ranked shards by which each document is read.
-    broadcast         INTEGER CHECK (broadcast > 0),
+    shuffle_broadcast INTEGER CHECK (shuffle_broadcast > 0),
     -- Number of ranked shards from which a shard is randomly selected.
-    choose            INTEGER CHECK (choose > 0),
+    shuffle_choose    INTEGER CHECK (shuffle_choose > 0),
     -- Collection being derived into.
     target_id         TEXT    NOT NULL REFERENCES derivations (collection_id),
     -- Code block which consumes source documents and emits target documents.
-    lambda_id         INTEGER NOT NULL REFERENCES code_blocks (id),
+    lambda_id         INTEGER NOT NULL REFERENCES lambdas (id),
     -- Resource which produced this transform.
     resource_id       INTEGER NOT NULL REFERENCES resources (id),
 

@@ -26,21 +26,41 @@ collections:
     fixtures: [fixtures/views-with-campaign.yaml]
 
     derivation:
-      runtime: jq
       innerState:
         type: durable
         parallelism: 8
-      transforms:
+      transform:
         # Index the present value of each campaign.
         - source: marketing/campaigns
-          body: |
-            upsert_key(.campaign_id; .)
+          lambda:
+            #jqInline: |
+            #  upsert_key(.campaign_id; .)
+
+            #jq: ../path/to/file
+
+            sqliteBlock:
+              bootstrap: |
+                bing zing
+              body: |
+                bar baz
+
+            #sqlite:
+            #  bootstrap: ../path/to/bootstrap
+            #  body: ../path/to/file
+
+            #pythonBlock:
+            #  bootstrap: |
+            #    import blah
+            #  fn: |
+            #    return zing * ting
+
           shuffle:
             broadcast: 4
         # Enrich each view by adding a `campaign` property drawn from an indexed campaign.
-        - source: marketing/views
-          body: |
-            . + {campaign: load_key(.campaign_id)}
+        - source: marketing/offer/views
+          lambda:
+            jqBlock: |
+              . + {campaign: load_key(.campaign_id)}
           shuffle:
             key: [/campaign_id]
             choose: 4
@@ -51,25 +71,25 @@ collections:
     fixtures: [fixtures/clicks-with-views.yaml]
 
     derivation:
-      runtime: jq
-
       innerState:
         type: durable
         parallelism: 8
 
-      transforms:
+      transform:
         # Index each view with a 2-day TTL relative to the view's timestamp.
         - source: marketing/views-with-campaign
-          body: |
-            with $ts as .timestamp | fromdate |
-            with $expiry as $ts + 172800 |
-            upsert_key_with_expiry(.view_id; $expiry ; . )
+          lambda:
+            jqBlock: |
+              with $ts as .timestamp | fromdate |
+              with $expiry as $ts + 172800 |
+              upsert_key_with_expiry(.view_id; $expiry ; . )
         # Enrich clicks by adding its indexed `view`.
-        - source: clicks
+        - source: marketing/offer/clicks
           shuffle:
             key: [/view_id]
-          body: |
-            . + {view: load_key(.view_id)}
+          lambda:
+            jqBlock: |
+              . + {view: load_key(.view_id)}
 
   - name: marketing/purchases-with-offers
     schema: schemas.yaml#/$defs/purchase-with-offers
@@ -77,44 +97,45 @@ collections:
     fixtures: [fixtures/purchases-with-offers.yaml]
 
     derivation:
-      runtime: jq
-
       innerState:
         type: durable
         parallelism: 8
 
-      transforms:
+      transform:
         # Index views with a 30-day look-back. For a given user ID, only the first
         # view of any UTC day is indexed (meaning each user will have at most 30
         # views indexed at a given time).
         - source: marketing/views-with-campaign
           shuffle:
             key: [/user_id]
-          body: |
-            with $ts as (.timestamp | fromdate) |
-            with $ts_day as $ts - ($ts % 86400) |
-            with $key as "\(.user_id)/views/\($ts_day)" |
-            with $expiry as $ts + 2592000  |
-              insert_key_with_expiry($key; $expiry; . )
+          lambda:
+            jqBlock: |
+              with $ts as (.timestamp | fromdate) |
+              with $ts_day as $ts - ($ts % 86400) |
+              with $key as "\(.user_id)/views/\($ts_day)" |
+              with $expiry as $ts + 2592000  |
+                insert_key_with_expiry($key; $expiry; . )
         # Index clicks with a 30-day look-back. Track only the first click of a given
         # user and hour. Each click has already been enriched with a joined view.
         - source: marketing/clicks-with-views
           shuffle:
             key: [/user_id]
-          body: |
-            with $ts as (.timestamp | fromdate) |
-            with $ts_hour as $ts - ($ts % 3600) |
-            with $key as "\(.user_id)/clicks/\($ts_hour)";
-            with $expiry as $ts + 2592000  |
-            insert_key_with_expiry(store_key_with_expiry(
-              insert_key_with_expiry($key; $expiry; . )
+          lambda:
+            jqBlock: |
+              with $ts as (.timestamp | fromdate) |
+              with $ts_hour as $ts - ($ts % 3600) |
+              with $key as "\(.user_id)/clicks/\($ts_hour)";
+              with $expiry as $ts + 2592000  |
+              insert_key_with_expiry(store_key_with_expiry(
+                insert_key_with_expiry($key; $expiry; . )
         # Enrich purchase events by joining with all indexed views and clicks.
         - source: marketing/purchases
           shuffle:
             key: [/user_id]
-          body: |
-            . + {
-              views: load_key_prefix("\(.user_id)/views/"),
-              clicks: load_key_prefix("\(.user_id)/clicks/"),
-            }
+          lambda:
+            jqBlock: |
+              . + {
+                views: load_key_prefix("\(.user_id)/views/"),
+                clicks: load_key_prefix("\(.user_id)/clicks/"),
+              }
 
