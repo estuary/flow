@@ -27,7 +27,10 @@ where
 }
 
 /// Annotation is a parsed JSON-Schema annotation that's associated with a Schema instance.
-pub trait Annotation: Sized + std::fmt::Debug {}
+/// An Annotation may wrap, and is potentially convertible to a CoreAnnotation. 
+pub trait Annotation: Sized + std::fmt::Debug {
+    fn as_core(&self) -> Option<&CoreAnnotation>;
+}
 
 /// CoreAnnotation represents annotations of the JSON-Schema validation specification.
 /// C.f. https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.9
@@ -43,7 +46,10 @@ pub enum CoreAnnotation {
     ContentEncodingBase64,
     ContentMediaType(String),
 }
-impl Annotation for CoreAnnotation {}
+// CoreAnnotation trivially implements Annotation.
+impl Annotation for CoreAnnotation {
+    fn as_core(&self) -> Option<&CoreAnnotation> { Some(self) }
+}
 
 #[derive(Debug)]
 pub enum Keyword<A>

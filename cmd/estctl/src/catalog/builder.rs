@@ -8,7 +8,6 @@ use rusqlite::{self, params};
 
 use Error::*;
 
-use crate::catalog;
 use crate::specs;
 use crate::schema;
 
@@ -41,11 +40,13 @@ pub enum Error {
     #[error("failed to build schema: {0}")]
     SchemaBuildErr(#[from] schema::build::Error),
 
+    /*
     #[error("collection '{collection}' schema URI '{schema_uri}' not found in catalog")]
     SchemaNotFound {
         collection: String,
         schema_uri: url::Url,
     },
+    */
 
     #[error("failed to find collection '{name}': '{detail}'")]
     QueryCollectionErr {
@@ -96,7 +97,7 @@ impl Builder {
         Ok(url::Url::parse(&base)?)
     }
 
-    fn query_collection(&self, name: &str, from_resource_id: i64) -> Result<i64, Error> {
+    fn query_collection(&self, name: &str, _from_resource_id: i64) -> Result<i64, Error> {
         let id = self.db.prepare_cached("
             SELECT id FROM collections WHERE name = ?;")?
             .query_row(&[name], |row| row.get(0))
@@ -152,7 +153,10 @@ impl Builder {
 
             // Fetch the specific schema referenced by the collection, and FOOBAR.
             let scm = idx.must_fetch(&schema_uri)?;
-            schema::inference::extract(&scm, &idx)?;
+
+            for inf in schema::inference::extract(&scm, &idx)? {
+                println!(" inf field {:?}", inf);
+            }
         }
         Ok(())
     }
@@ -491,7 +495,7 @@ mod test {
     #[test]
     fn test_resource_interning() -> Result<(), Error> {
         let db = rusqlite::Connection::open_in_memory()?;
-        catalog::create_schema(&db)?;
+        crate::catalog::create_schema(&db)?;
         let b = Builder::new(db);
 
         assert_eq!(b.intern_resource(url::Url::parse("file:///1")?)?, (1, true));

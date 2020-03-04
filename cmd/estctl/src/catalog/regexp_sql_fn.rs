@@ -1,6 +1,6 @@
 
 use regex::Regex;
-use rusqlite::{Connection, Error, Result, NO_PARAMS};
+use rusqlite::{Connection, Error, Result};
 
 pub fn create(db: &Connection) -> Result<()> {
     db.create_scalar_function("regexp", 2, true, move |ctx| {
@@ -48,7 +48,7 @@ mod test {
 
         let is_match: bool = db.query_row(
             "SELECT 'aaaaeeeiii' REGEXP '^[aeiou]*$';",
-            NO_PARAMS,
+            rusqlite::NO_PARAMS,
             |row| row.get(0),
         )?;
 

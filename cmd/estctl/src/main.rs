@@ -1,11 +1,7 @@
 use clap;
 use estuary_json::schema;
-use serde_json;
-use serde_yaml;
 use std::boxed::Box;
-use std::collections::BTreeMap;
 use std::fs;
-use std::io;
 use url;
 
 mod specs;

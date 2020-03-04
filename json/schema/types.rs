@@ -11,7 +11,7 @@ pub const NULL: Set = Set(0b0001000);
 pub const NUMBER: Set = Set(0b0010000);
 pub const OBJECT: Set = Set(0b0100000);
 pub const STRING: Set = Set(0b1000000);
-pub const ANY: Set = ARRAY | BOOLEAN | INTEGER | NULL | NUMBER | OBJECT | STRING;
+pub const ANY: Set = Set(ARRAY.0 | BOOLEAN.0 | INTEGER.0 | NULL.0 | NUMBER.0 | OBJECT.0 | STRING.0);
 
 impl std::ops::BitOr for Set {
     type Output = Self;

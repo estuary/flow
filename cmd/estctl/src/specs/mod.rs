@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
-use url;
-use url::{ParseError, Url};
 
 use estuary_json::schema;
 
@@ -132,7 +130,14 @@ pub enum Annotation {
     Reduce(Reducer),
 }
 
-impl schema::Annotation for Annotation {}
+impl schema::Annotation for Annotation {
+    fn as_core(&self) -> Option<&schema::CoreAnnotation> {
+        match self {
+            Annotation::Core(annot) => Some(annot),
+            _ => None,
+        }
+    }
+}
 
 impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {

@@ -97,9 +97,9 @@ CREATE TABLE inferences
     -- Collection to which this inference pertains.
     collection_id    INTEGER NOT NULL REFERENCES collections (id),
     -- Inferred collection document location, as a JSON-Pointer.
-    ptr              TEXT,
-    -- Inferred collection document locations, as a regex over JSON-Pointers.
-    ptr_re           TEXT,
+    ptr              TEXT NOT NULL,
+    -- Is this a regex pattern over JSON-Pointers?
+    is_pattern       BOOLEAN,
     -- Possible types for this location.
     -- Subset of ["null", "true", "false", "object", "array", "integer", "numeric", "string"].
     types            TEXT    NOT NULL CHECK (JSON_TYPE(types) == 'array'),
@@ -108,10 +108,7 @@ CREATE TABLE inferences
     -- Encoding of this location's content. If non-null, must be "base64".
     content_encoding TEXT CHECK (content_encoding == 'base64'),
 
-    -- Exactly one of `ptr` or `ptr_re` is set.
-    CHECK ((ptr IS NULL) <> (ptr_re IS NULL)),
-
-    PRIMARY KEY (collection_id, ptr, ptr_re)
+    PRIMARY KEY (collection_id, ptr)
 );
 
 -- Fixtures of catalog collections.

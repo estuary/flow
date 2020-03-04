@@ -1,169 +1,158 @@
-use super::{Annotation, Application, index, Keyword, Schema, types, Validation};
-
-use thiserror;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("index error: {0}")]
-    IndexErr(#[from] index::Error),
-
-    #[error("incompatible '{what}' keywords at {path}: {a} vs {b}")]
-    IncompatibleKeywords{
-        what: String,
-        path: Path,
-        a: Option<String>,
-        b: Option<String>,
-    }
-}
-use Error::*;
-
-#[derive(Debug, PartialEq)]
-pub enum PathElem {
-    Property(String),
-    PropertyPattern(regex::Regex),
-    ItemAt(usize),
-    ItemAfter(usize),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Path(Vec<PathElem>);
+use super::{index, types, Annotation, CoreAnnotation, Keyword, Schema, Validation, Application};
+use itertools::{self, EitherOrBoth};
 
 #[derive(Debug)]
 pub struct Inference {
-    path: Path,
+    ptr: String,
+    is_pattern: bool,
     type_set: types::Set,
-    content_type: Option<String>,
-    content_encoding: Option<String>,
+    is_base64: bool,
+    content_type: Vec<String>,
+    format: Vec<String>,
 }
 
-impl Inference {
-
-    fn fold_disjunction(self, other: &Inference) -> Result<Inference, Error> {
-        Ok(Inference {
-            path: self.path,
-            type_set: self.type_set | other.type_set,
-            content_type: if self.content_type == other.content_type {
-                self.content_type
-            } else {
-                None
-            },
-            content_encoding: if self.content_encoding == other.content_encoding {
-                self.content_encoding
-            } else {
-                None
-            },
-        })
-    }
-
-    fn fold_conjunction(self, other: &Inference) -> Result<Inference, Error> {
-        if self.content_type != other.content_type {
-            return Err(IncompatibleKeywords {
-                what: "contentType".toOwned(),
-                path: self.path,
-                a: self.content_type,
-                b: other.content_type.clone(),
-            })
-        }
-        if self.content_encoding != other.content_encoding {
-            return Err(IncompatibleKeywords {
-                what: "contentEncoding".toOwned(),
-                path: self.path,
-                a: self.content_encoding,
-                b: other.content_encoding.clone(),
-            })
-        }
-        if self.type_set & other.type_set == types::INVALID {
-            return Err(IncompatibleKeywords {
-                what: "type".toOwned(),
-                path: self.path,
-                a: Some(format!("{:?}", self.type_set)),
-                b: Some(format!("{:?}", other.type_set)),
-            })
-        }
-        Ok(Inference {
-            path: self.path,
-            type_set: self.type_set & other.type_set,
-            content_type: self.content_type,
-            content_encoding: self.content_encoding,
-        })
-    }
-
-}
-
-fn reduce_and(v: Vec<Inference>) -> Result<Vec<Inference>> {
-    let mut out = Vec::new();
-
-    for (i, inf) in v.iter().enumerate() {
-
-        v[0..i].iter().fold()
-
-    }
-
-
-    Ok(out)
-}
-
-
-
-pub fn extract<'s, A>(schema: &'s Schema<A>, idx: &index::Index<'s, A>) -> Result<Vec<Inference>, Error>
-    where A: Annotation
+fn fold<I>(v: Vec<Inference>, it: I) -> Vec<Inference>
+where
+    I: Iterator<Item = Inference>,
 {
-    let mut type_set = types::ANY;
-    let mut content_type : Option<String> = None;
-    let mut content_enc : Option<String> = None;
-
-    let mut out = Vec::new();
-    let mut anyOf = Vec::new();
-    let mut oneOf = Vec::new();
-    let mut thenElse = Vec::new();
-
-    for kw in &schema.kw {
-        use Keyword::*;
-        use Application::*;
-        use Validation::*;
-
-        enum andOr {
-            And,
-            Or
-        };
-        use andOr::{And, Or};
-
-        match kw {
-            Application(app, sub) => {
-
-                match app {
-                    Def { .. } => continue,
-                    RecursiveRef(..) => continue, // TODO
-                    Not { .. } => continue,
-
-                    Ref(uri) => (And, idx.must_fetch(uri)?),
-
-                    AnyOf { .. } => (Or, sub),
-                    AllOf { .. } => (And, sub),
-                    OneOf { .. } => (Or, sub),
-
-
-
-
-
-
-
+    itertools::merge_join_by(
+        v.into_iter(),
+        it,
+        |lhs, rhs| lhs.ptr.cmp(&rhs.ptr),
+    ).map(|eob| -> Inference {
+        match eob {
+            EitherOrBoth::Both(mut lhs, rhs) => Inference {
+                ptr: lhs.ptr,
+                is_pattern: lhs.is_pattern,
+                type_set: lhs.type_set & rhs.type_set,
+                is_base64: lhs.is_base64 || rhs.is_base64,
+                content_type: {
+                    lhs.content_type.extend(rhs.content_type.into_iter());
+                    lhs.content_type
+                },
+                format: {
+                    lhs.format.extend(rhs.format.into_iter());
+                    lhs.format
                 }
             },
-            Validation(val) => {
-
-            },
-            Annotation(annot) => {
-
-            },
-            RecursiveAnchor | Anchor{..} => {}, // No-ops.
+            EitherOrBoth::Left(lhs) => lhs,
+            EitherOrBoth::Right(rhs) => rhs,
         }
+    })
+    .collect()
+}
 
+fn prefix<I>(pre: String, is_pattern: bool, it: I) -> impl Iterator<Item = Inference>
+where
+    I: Iterator<Item = Inference>,
+{
+    it.map(move |i| Inference {
+        ptr: pre.chars().chain(i.ptr.chars()).collect(),
+        is_pattern: is_pattern || i.is_pattern,
+        type_set: i.type_set,
+        is_base64: i.is_base64,
+        content_type: i.content_type,
+        format: i.format,
+    })
+}
+
+pub fn extract<'s, A>(
+    schema: &'s Schema<A>,
+    idx: &index::Index<'s, A>,
+) -> Result<impl Iterator<Item = Inference>, index::Error> // TODO: fails using impl IntoIterator.
+where
+    A: Annotation,
+{
+    let mut local = Inference {
+        ptr: String::new(),
+        is_pattern: false,
+        type_set: types::ANY,
+        is_base64: false,
+        content_type: Vec::new(),
+        format: Vec::new(),
+    };
+
+    let mut min_items = 0;
+
+    // Walk validation and annotation keywords which affect the inference result
+    // at the current location.
+    for kw in &schema.kw {
+        match kw {
+            Keyword::Validation(Validation::Type(type_set)) => {
+                local.type_set = *type_set;
+            }
+            Keyword::Validation(Validation::MinItems(m)) => {
+                min_items = *m; // Track for later use.
+            }
+            Keyword::Annotation(annot) => match annot.as_core() {
+                Some(CoreAnnotation::ContentEncodingBase64) => {
+                    local.is_base64 = true;
+                },
+                Some(CoreAnnotation::ContentMediaType(mt)) => {
+                    local.content_type.push(mt.clone());
+                },
+                _ => {}, // Other CoreAnnotation. No-op.
+            }
+            _ => {}, // Not a CoreAnnotation. No-op.
+        }
     }
 
+    let mut out = vec![local];
 
+    // Repeatedly extract and merge inference results from
+    // in-place and child applications.
 
+    for kw in &schema.kw {
+        let (app, sub) = match kw {
+            Keyword::Application(app, sub) => (app, sub),
+            _ => continue, // No-op.
+        };
 
+        match app {
+            Application::Ref(uri) => {
+                out = fold(out, extract(idx.must_fetch(uri)?, idx)?);
+            }
+            Application::AllOf{..} => {
+                out = fold(out, extract(sub, idx)?);
+            }
+            Application::Properties{name, ..} => {
+                out = fold(out, prefix(
+                    format!("/{}", name),
+                    false,
+                    extract(sub, idx)?));
+            }
+            Application::PatternProperties{re} => {
+                let mut pat = re.as_str().to_owned();
+                if pat.starts_with("^") {
+                    pat.drain(0..1);
+                } else {
+                    pat = format!(r"[^/]*");
+                }
 
-    Ok(out)
+                out = fold(out, prefix(
+                    format!("/{}", pat),
+                    true,
+                    extract(sub, idx)?));
+            }
+            Application::Items{index: None} => {
+                let bound = if min_items < 3 { min_items } else { 3 };
+
+                for i in 0..bound {
+                    out = fold(out, prefix(
+                        format!("/{}", i),
+                        false,
+                        extract(sub, idx)?));
+                }
+            }
+            Application::Items{index: Some(index)} if min_items > *index => {
+                out = fold(out, prefix(
+                    format!("/{}", index),
+                    false,
+                    extract(sub, idx)?));
+            }
+            _ => continue,
+        };
+    }
+
+    Ok(out.into_iter())
 }
