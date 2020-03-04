@@ -8,8 +8,10 @@ pub enum Error {
     DuplicateCanonicalURI(url::Url),
     #[error("duplicate anchor URI: '{0}'")]
     DuplicateAnchorURI(url::Url),
-    #[error("schema $ref '{ruri}', referenced by '{curi}', is not indexed")]
+    #[error("schema $ref '{ruri}', referenced by '{curi}', was not found")]
     InvalidReference { ruri: url::Url, curi: String },
+    #[error("schema '{uri}' was not found")]
+    NotFound { uri: url::Url },
 }
 
 pub struct Index<'s, A>(HashMap<&'s str, &'s Schema<A>>)
@@ -69,5 +71,12 @@ where
 
     pub fn fetch(&self, uri: &url::Url) -> Option<&'s Schema<A>> {
         self.0.get(uri.as_str()).map(|s| *s)
+    }
+
+    pub fn must_fetch(&self, uri: &url::Url) -> Result<&'s Schema<A>, Error> {
+        match self.fetch(uri) {
+            None => Err(Error::NotFound { uri: uri.clone() }),
+            Some(scm) => Ok(scm),
+        }
     }
 }

@@ -65,6 +65,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     println!("root specification is {}", &root);
 
     b.process_specs(root)?;
+    b.do_inference()?;
 
     b.done().execute_batch("COMMIT;")?;
 

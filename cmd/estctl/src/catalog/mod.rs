@@ -1,6 +1,7 @@
 use rusqlite;
 use std::io;
 use url;
+use crate::schema;
 
 mod builder;
 mod regexp_sql_fn;

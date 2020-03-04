@@ -9,35 +9,9 @@ pub mod index;
 pub mod intern;
 pub mod keywords;
 pub mod types;
+pub mod inference;
 
 pub use build::Error as BuildError;
-
-/*
-#[derive(Debug)]
-pub struct Catalog(Vec<Box<Schema>>);
-
-impl Catalog {
-    /// `new` returns an empty Catalog.
-    pub fn new() -> Catalog {
-        Catalog(Vec::new())
-    }
-
-    /*
-    pub fn add(&mut self, url: url::Url, v: &sj::Value) -> BuildResult<()> {
-        if let Some(_) = url.fragment() {
-            return Err(BuildError::from_str(
-                "root url cannot have a fragment component",
-            ));
-        }
-        let s = Box::new(build_schema(url, &v)?);
-        println!("schema: {:?}", s);
-
-        self.0.push(s);
-        Ok(())
-    }
-    */
-}
-*/
 
 #[derive(Debug)]
 pub struct Schema<A>

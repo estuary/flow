@@ -33,10 +33,19 @@ pub enum Error {
     #[error("resource '{0}' imports '{1}', but '{1}' also transitively imports '{0}'")]
     CyclicImport(String, String),
 
+    #[error("schema index error: {0}")]
+    IndexErr(#[from] schema::index::Error),
+
     #[error("invalid file URI: {0}")]
     InvalidFileURI(url::Url),
     #[error("failed to build schema: {0}")]
     SchemaBuildErr(#[from] schema::build::Error),
+
+    #[error("collection '{collection}' schema URI '{schema_uri}' not found in catalog")]
+    SchemaNotFound {
+        collection: String,
+        schema_uri: url::Url,
+    },
 
     #[error("failed to find collection '{name}': '{detail}'")]
     QueryCollectionErr {
@@ -97,6 +106,55 @@ impl Builder {
 
 
         Ok(id)
+    }
+
+    fn load_schemas(&self, resource_id: i64) -> Result<Vec<Schema>, Error> {
+        let mut out = Vec::new();
+        let mut stmt = self.db.prepare_cached("
+            SELECT r.uri, sd.document FROM
+                resource_transitive_imports AS rti
+                JOIN schema_documents AS sd ON rti.import_id = sd.resource_id
+                JOIN resources AS r ON rti.import_id = r.id
+                WHERE rti.id = ?
+                GROUP BY sd.resource_id;")?;
+        let mut rows = stmt.query(params![resource_id])?;
+
+        while let Some(row) = rows.next()? {
+            let uri : url::Url = row.get(0)?;
+            let doc : serde_json::Value = row.get(1)?;
+            let doc = schema::build::build_schema(uri, &doc)?;
+            out.push(doc);
+        }
+        Ok(out)
+    }
+
+    pub fn do_inference(&self) -> Result<(), Error> {
+        let mut stmt = self.db.prepare_cached("\
+            SELECT id, name, resource_id, schema_uri FROM collections;")?;
+        let mut rows = stmt.query(rusqlite::NO_PARAMS)?;
+
+        while let Some(row) = rows.next()? {
+            let collection_id : i64 = row.get(0)?;
+            let name : String = row.get(1)?;
+            let resource_id : i64 = row.get(2)?;
+            let schema_uri : url::Url = row.get(3)?;
+            let schema_bundle = self.load_schemas(resource_id)?;
+
+            println!("doing inference for {:?} {:?} {:?} {:?} {:?}",
+                     collection_id, name, resource_id, schema_uri, schema_bundle.len());
+
+            // Index the imported bundle of schemas.
+            let mut idx = schema::index::Index::new();
+            for scm in &schema_bundle {
+                idx.add(scm)?;
+            }
+            idx.verify_references()?;
+
+            // Fetch the specific schema referenced by the collection, and FOOBAR.
+            let scm = idx.must_fetch(&schema_uri)?;
+            schema::inference::extract(&scm, &idx)?;
+        }
+        Ok(())
     }
 
     fn join_resource(&self, base_id: i64, relative: &str) -> Result<url::Url, Error> {
