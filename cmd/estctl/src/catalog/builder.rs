@@ -155,9 +155,6 @@ impl Builder {
             let scm = idx.must_fetch(&schema_uri)?;
 
             for inf in schema::inference::extract(&scm, &idx, true)? {
-                if !inf.type_set.is_scalar() {
-                    continue;
-                }
                 let type_set_str = inf.type_set.as_str(Vec::new());
 
                 self.db.prepare_cached("
@@ -167,14 +164,16 @@ impl Builder {
                         is_pattern,
                         types,
                         is_base64,
+                        is_scalar,
                         content_type
-                    ) VALUES (?, ?, ?, ?, ?, ?);")?
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);")?
                 .execute(params![
                     collection_id,
                     inf.ptr,
                     if inf.is_pattern { Some(true) } else { None },
                     serde_json::to_string(&type_set_str)?,
                     if inf.is_base64 { Some(true) } else { None },
+                    if inf.type_set.is_scalar() { Some(true) } else { None },
                     inf.content_type,
                 ])?;
             }

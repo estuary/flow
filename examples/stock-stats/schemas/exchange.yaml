@@ -3,3 +3,4 @@ enum:
   - NYSE
   - NASDAQ
   - SEHK
+type: string

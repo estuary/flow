@@ -103,6 +103,8 @@ CREATE TABLE inferences
     -- Possible types for this location.
     -- Subset of ["null", "true", "false", "object", "array", "integer", "numeric", "string"].
     types            TEXT    NOT NULL CHECK (JSON_TYPE(types) == 'array'),
+    -- Is this location a scalar (i.e., is never an "object" or "array")?
+    is_scalar        BOOLEAN,
     -- If of type "string", is the value base64-encoded ?
     is_base64        BOOLEAN,
     -- Media MIME type of this location's content.
