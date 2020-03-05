@@ -103,10 +103,10 @@ CREATE TABLE inferences
     -- Possible types for this location.
     -- Subset of ["null", "true", "false", "object", "array", "integer", "numeric", "string"].
     types            TEXT    NOT NULL CHECK (JSON_TYPE(types) == 'array'),
+    -- If of type "string", is the value base64-encoded ?
+    is_base64        BOOLEAN,
     -- Media MIME type of this location's content.
     content_type     TEXT,
-    -- Encoding of this location's content. If non-null, must be "base64".
-    content_encoding TEXT CHECK (content_encoding == 'base64'),
 
     PRIMARY KEY (collection_id, ptr)
 );

@@ -64,9 +64,11 @@ where
     // an additional canonical URI, which is computed as the base URI
     // extended with a URI fragment composed of the Anchor string.
     Anchor(url::Url),
-
+    // Application of an in-place or child Schema, with respect to this Schema.
     Application(Application, Schema<A>),
+    // Validation keyword verified by this Schema.
     Validation(Validation),
+    // Annotation collected by a successful application of this Schema.
     Annotation(A),
 }
 

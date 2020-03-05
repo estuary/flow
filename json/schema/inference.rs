@@ -3,12 +3,12 @@ use itertools::{self, EitherOrBoth};
 
 #[derive(Debug)]
 pub struct Inference {
-    ptr: String,
-    is_pattern: bool,
-    type_set: types::Set,
-    is_base64: bool,
-    content_type: Vec<String>,
-    format: Vec<String>,
+    pub ptr: String,
+    pub is_pattern: bool,
+    pub type_set: types::Set,
+    pub is_base64: bool,
+    pub content_type: Option<String>,
+    pub format: Option<String>,
 }
 
 fn fold<I>(v: Vec<Inference>, it: I) -> Vec<Inference>
@@ -21,19 +21,13 @@ where
         |lhs, rhs| lhs.ptr.cmp(&rhs.ptr),
     ).map(|eob| -> Inference {
         match eob {
-            EitherOrBoth::Both(mut lhs, rhs) => Inference {
+            EitherOrBoth::Both(lhs, rhs) => Inference {
                 ptr: lhs.ptr,
                 is_pattern: lhs.is_pattern,
                 type_set: lhs.type_set & rhs.type_set,
                 is_base64: lhs.is_base64 || rhs.is_base64,
-                content_type: {
-                    lhs.content_type.extend(rhs.content_type.into_iter());
-                    lhs.content_type
-                },
-                format: {
-                    lhs.format.extend(rhs.format.into_iter());
-                    lhs.format
-                }
+                content_type: if lhs.content_type.is_some() { lhs.content_type } else { rhs.content_type },
+                format: if lhs.format.is_some() { lhs.format } else { rhs.format },
             },
             EitherOrBoth::Left(lhs) => lhs,
             EitherOrBoth::Right(rhs) => rhs,
@@ -59,7 +53,8 @@ where
 pub fn extract<'s, A>(
     schema: &'s Schema<A>,
     idx: &index::Index<'s, A>,
-) -> Result<impl Iterator<Item = Inference>, index::Error> // TODO: fails using impl IntoIterator.
+    location_must_exist: bool,
+) -> Result<impl Iterator<Item = Inference>, index::Error>
 where
     A: Annotation,
 {
@@ -68,28 +63,36 @@ where
         is_pattern: false,
         type_set: types::ANY,
         is_base64: false,
-        content_type: Vec::new(),
-        format: Vec::new(),
+        content_type: None,
+        format: None,
     };
 
     let mut min_items = 0;
+    let mut required_props = 0;
 
     // Walk validation and annotation keywords which affect the inference result
     // at the current location.
     for kw in &schema.kw {
         match kw {
             Keyword::Validation(Validation::Type(type_set)) => {
-                local.type_set = *type_set;
+                if location_must_exist {
+                    local.type_set = *type_set;
+                } else {
+                    local.type_set = types::NULL | *type_set;
+                }
             }
             Keyword::Validation(Validation::MinItems(m)) => {
                 min_items = *m; // Track for later use.
+            }
+            Keyword::Validation(Validation::Required(r)) => {
+                required_props = *r; // Track for later use.
             }
             Keyword::Annotation(annot) => match annot.as_core() {
                 Some(CoreAnnotation::ContentEncodingBase64) => {
                     local.is_base64 = true;
                 },
                 Some(CoreAnnotation::ContentMediaType(mt)) => {
-                    local.content_type.push(mt.clone());
+                    local.content_type = Some(mt.clone());
                 },
                 _ => {}, // Other CoreAnnotation. No-op.
             }
@@ -110,18 +113,22 @@ where
 
         match app {
             Application::Ref(uri) => {
-                out = fold(out, extract(idx.must_fetch(uri)?, idx)?);
+                out = fold(out, extract(idx.must_fetch(uri)?, idx, location_must_exist)?);
             }
             Application::AllOf{..} => {
-                out = fold(out, extract(sub, idx)?);
+                out = fold(out, extract(sub, idx, location_must_exist)?);
             }
-            Application::Properties{name, ..} => {
+            Application::Properties{name, name_interned} => {
+                let prop_must_exist = location_must_exist && (required_props & name_interned) != 0;
+
                 out = fold(out, prefix(
                     format!("/{}", name),
                     false,
-                    extract(sub, idx)?));
+                    extract(sub, idx, prop_must_exist)?));
             }
+            /*
             Application::PatternProperties{re} => {
+                // TODO(johnny): This is probably wrong; fix me!
                 let mut pat = re.as_str().to_owned();
                 if pat.starts_with("^") {
                     pat.drain(0..1);
@@ -132,23 +139,22 @@ where
                 out = fold(out, prefix(
                     format!("/{}", pat),
                     true,
-                    extract(sub, idx)?));
+                    extract(sub, idx, false)?));
             }
+            */
             Application::Items{index: None} => {
-                let bound = if min_items < 3 { min_items } else { 3 };
-
-                for i in 0..bound {
-                    out = fold(out, prefix(
-                        format!("/{}", i),
-                        false,
-                        extract(sub, idx)?));
-                }
+                out = fold(out, prefix(
+                    r"/\d+".to_owned(),
+                    true,
+                    extract(sub, idx, false)?));
             }
-            Application::Items{index: Some(index)} if min_items > *index => {
+            Application::Items{index: Some(index)} => {
+                let item_must_exist = location_must_exist && min_items > *index;
+
                 out = fold(out, prefix(
                     format!("/{}", index),
                     false,
-                    extract(sub, idx)?));
+                    extract(sub, idx, item_must_exist)?));
             }
             _ => continue,
         };

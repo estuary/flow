@@ -154,8 +154,29 @@ impl Builder {
             // Fetch the specific schema referenced by the collection, and FOOBAR.
             let scm = idx.must_fetch(&schema_uri)?;
 
-            for inf in schema::inference::extract(&scm, &idx)? {
-                println!(" inf field {:?}", inf);
+            for inf in schema::inference::extract(&scm, &idx, true)? {
+                if !inf.type_set.is_scalar() {
+                    continue;
+                }
+                let type_set_str = inf.type_set.as_str(Vec::new());
+
+                self.db.prepare_cached("
+                    INSERT INTO inferences (
+                        collection_id,
+                        ptr,
+                        is_pattern,
+                        types,
+                        is_base64,
+                        content_type
+                    ) VALUES (?, ?, ?, ?, ?, ?);")?
+                .execute(params![
+                    collection_id,
+                    inf.ptr,
+                    if inf.is_pattern { Some(true) } else { None },
+                    serde_json::to_string(&type_set_str)?,
+                    if inf.is_base64 { Some(true) } else { None },
+                    inf.content_type,
+                ])?;
             }
         }
         Ok(())
