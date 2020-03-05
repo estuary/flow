@@ -80,6 +80,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "estuary_json",
+ "estuary_json_ext",
  "regex",
  "rusqlite",
  "serde",
@@ -102,6 +103,21 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tinyvec",
+ "url",
+]
+
+[[package]]
+name = "estuary_json_ext"
+version = "0.1.0"
+dependencies = [
+ "estuary_json",
+ "itertools",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
  "url",
 ]
 

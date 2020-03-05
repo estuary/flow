@@ -6,10 +6,10 @@ use std::ops::Add;
 
 pub mod build;
 pub mod index;
+pub mod inference;
 pub mod intern;
 pub mod keywords;
 pub mod types;
-pub mod inference;
 
 pub use build::Error as BuildError;
 
@@ -27,7 +27,7 @@ where
 }
 
 /// Annotation is a parsed JSON-Schema annotation that's associated with a Schema instance.
-/// An Annotation may wrap, and is potentially convertible to a CoreAnnotation. 
+/// An Annotation may wrap, and is potentially convertible to a CoreAnnotation.
 pub trait Annotation: Sized + std::fmt::Debug {
     fn as_core(&self) -> Option<&CoreAnnotation>;
 }
@@ -48,7 +48,9 @@ pub enum CoreAnnotation {
 }
 // CoreAnnotation trivially implements Annotation.
 impl Annotation for CoreAnnotation {
-    fn as_core(&self) -> Option<&CoreAnnotation> { Some(self) }
+    fn as_core(&self) -> Option<&CoreAnnotation> {
+        Some(self)
+    }
 }
 
 #[derive(Debug)]

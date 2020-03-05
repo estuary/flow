@@ -1,4 +1,3 @@
-
 use regex::Regex;
 use rusqlite::{Connection, Error, Result};
 

@@ -1,4 +1,4 @@
-use super::{index, types, Annotation, CoreAnnotation, Keyword, Schema, Validation, Application};
+use super::{index, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation};
 use itertools::{self, EitherOrBoth};
 
 #[derive(Debug)]
@@ -15,25 +15,30 @@ fn fold<I>(v: Vec<Inference>, it: I) -> Vec<Inference>
 where
     I: Iterator<Item = Inference>,
 {
-    itertools::merge_join_by(
-        v.into_iter(),
-        it,
-        |lhs, rhs| lhs.ptr.cmp(&rhs.ptr),
-    ).map(|eob| -> Inference {
-        match eob {
-            EitherOrBoth::Both(lhs, rhs) => Inference {
-                ptr: lhs.ptr,
-                is_pattern: lhs.is_pattern,
-                type_set: lhs.type_set & rhs.type_set,
-                is_base64: lhs.is_base64 || rhs.is_base64,
-                content_type: if lhs.content_type.is_some() { lhs.content_type } else { rhs.content_type },
-                format: if lhs.format.is_some() { lhs.format } else { rhs.format },
-            },
-            EitherOrBoth::Left(lhs) => lhs,
-            EitherOrBoth::Right(rhs) => rhs,
-        }
-    })
-    .collect()
+    itertools::merge_join_by(v.into_iter(), it, |lhs, rhs| lhs.ptr.cmp(&rhs.ptr))
+        .map(|eob| -> Inference {
+            match eob {
+                EitherOrBoth::Both(lhs, rhs) => Inference {
+                    ptr: lhs.ptr,
+                    is_pattern: lhs.is_pattern,
+                    type_set: lhs.type_set & rhs.type_set,
+                    is_base64: lhs.is_base64 || rhs.is_base64,
+                    content_type: if lhs.content_type.is_some() {
+                        lhs.content_type
+                    } else {
+                        rhs.content_type
+                    },
+                    format: if lhs.format.is_some() {
+                        lhs.format
+                    } else {
+                        rhs.format
+                    },
+                },
+                EitherOrBoth::Left(lhs) => lhs,
+                EitherOrBoth::Right(rhs) => rhs,
+            }
+        })
+        .collect()
 }
 
 fn prefix<I>(pre: String, is_pattern: bool, it: I) -> impl Iterator<Item = Inference>
@@ -90,13 +95,13 @@ where
             Keyword::Annotation(annot) => match annot.as_core() {
                 Some(CoreAnnotation::ContentEncodingBase64) => {
                     local.is_base64 = true;
-                },
+                }
                 Some(CoreAnnotation::ContentMediaType(mt)) => {
                     local.content_type = Some(mt.clone());
-                },
-                _ => {}, // Other CoreAnnotation. No-op.
-            }
-            _ => {}, // Not a CoreAnnotation. No-op.
+                }
+                _ => {} // Other CoreAnnotation. No-op.
+            },
+            _ => {} // Not a CoreAnnotation. No-op.
         }
     }
 
@@ -113,18 +118,28 @@ where
 
         match app {
             Application::Ref(uri) => {
-                out = fold(out, extract(idx.must_fetch(uri)?, idx, location_must_exist)?);
+                out = fold(
+                    out,
+                    extract(idx.must_fetch(uri)?, idx, location_must_exist)?,
+                );
             }
-            Application::AllOf{..} => {
+            Application::AllOf { .. } => {
                 out = fold(out, extract(sub, idx, location_must_exist)?);
             }
-            Application::Properties{name, name_interned} => {
+            Application::Properties {
+                name,
+                name_interned,
+            } => {
                 let prop_must_exist = location_must_exist && (required_props & name_interned) != 0;
 
-                out = fold(out, prefix(
-                    format!("/{}", name),
-                    false,
-                    extract(sub, idx, prop_must_exist)?));
+                out = fold(
+                    out,
+                    prefix(
+                        format!("/{}", name),
+                        false,
+                        extract(sub, idx, prop_must_exist)?,
+                    ),
+                );
             }
             /*
             Application::PatternProperties{re} => {
@@ -142,19 +157,23 @@ where
                     extract(sub, idx, false)?));
             }
             */
-            Application::Items{index: None} => {
-                out = fold(out, prefix(
-                    r"/\d+".to_owned(),
-                    true,
-                    extract(sub, idx, false)?));
+            Application::Items { index: None } => {
+                out = fold(
+                    out,
+                    prefix(r"/\d+".to_owned(), true, extract(sub, idx, false)?),
+                );
             }
-            Application::Items{index: Some(index)} => {
+            Application::Items { index: Some(index) } => {
                 let item_must_exist = location_must_exist && min_items > *index;
 
-                out = fold(out, prefix(
-                    format!("/{}", index),
-                    false,
-                    extract(sub, idx, item_must_exist)?));
+                out = fold(
+                    out,
+                    prefix(
+                        format!("/{}", index),
+                        false,
+                        extract(sub, idx, item_must_exist)?,
+                    ),
+                );
             }
             _ => continue,
         };

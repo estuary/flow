@@ -1,11 +1,10 @@
 use clap;
-use estuary_json::schema;
 use std::boxed::Box;
 use std::fs;
 use url;
 
-mod specs;
 mod catalog;
+mod specs;
 
 type Error = Box<dyn std::error::Error>;
 
