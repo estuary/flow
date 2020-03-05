@@ -165,5 +165,3 @@ impl schema::build::AnnotationBuilder for Annotation {
         }
     }
 }
-
-pub mod canonical;

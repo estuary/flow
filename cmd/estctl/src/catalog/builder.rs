@@ -40,29 +40,11 @@ pub enum Error {
     #[error("failed to build schema: {0}")]
     SchemaBuildErr(#[from] schema::build::Error),
 
-    /*
-    #[error("collection '{collection}' schema URI '{schema_uri}' not found in catalog")]
-    SchemaNotFound {
-        collection: String,
-        schema_uri: url::Url,
-    },
-    */
-
     #[error("failed to find collection '{name}': '{detail}'")]
     QueryCollectionErr {
         name: String,
         detail: rusqlite::Error,
     },
-    /*
-    //#[error("failed to compile JSON-Schema: {0}")]
-    //BuildErr(#[from] schema::build::Error),
-    #[error("schema index error: {0}")]
-    IndexErr(#[from] schema::index::Error),
-    #[error("converting from SQL: {0}")]
-    SQLConversionErr(#[from] rusqlite::types::FromSqlError),
-    #[error("{0}")]
-    CanonicalError(#[from] specs::canonical::Error),
-    */
 }
 
 type Schema = schema::Schema<specs::Annotation>;
@@ -489,18 +471,6 @@ impl Builder {
                     self.process_transform(rid, cid, t)?;
                 }
             }
-
-            /*
-            let mut s = self.db.prepare_cached(
-                "INSERT INTO collection (url, schema_url, key, partitions)\
-                        VALUES (?, ?, ?, ?);")?;
-            s.execute(&[
-                name.as_str(),
-                schema.as_str(),
-                serde_json::to_string(&c.key)?.as_str(),
-                serde_json::to_string(&c.partitions)?.as_str(),
-            ])?;
-            */
         }
         Ok(rid)
     }
@@ -529,7 +499,7 @@ mod test {
     #[test]
     fn test_resource_include() -> Result<(), Error> {
         let db = rusqlite::Connection::open_in_memory()?;
-        catalog::create_schema(&db)?;
+        crate::catalog::create_schema(&db)?;
         let b = Builder::new(db);
 
         assert_eq!(b.intern_resource(url::Url::parse("file:///a")?)?, (1, true));
