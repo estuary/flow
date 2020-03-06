@@ -1,22 +1,13 @@
 use estuary_json::{self, schema};
-use serde::{Deserialize, Serialize};
 use serde_json;
+use std::convert::TryFrom;
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
-pub enum Reducer {
-    Minimize,
-    Maximize,
-    Sum,
-    Merge,
-    FirstWriteWins,
-    LastWriteWins,
-}
+mod reduce;
 
 #[derive(Debug)]
 pub enum Annotation {
     Core(schema::CoreAnnotation),
-    Reduce(Reducer),
+    Reduce(reduce::Strategy),
 }
 
 impl schema::Annotation for Annotation {
@@ -45,7 +36,7 @@ impl schema::build::AnnotationBuilder for Annotation {
         use schema::CoreAnnotation as Core;
 
         if keyword == "reduce" {
-            match Reducer::deserialize(value) {
+            match reduce::Strategy::try_from(value) {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(r) => Ok(Annotation::Reduce(r)),
             }
@@ -54,5 +45,3 @@ impl schema::build::AnnotationBuilder for Annotation {
         }
     }
 }
-
-pub mod reduce;
