@@ -1,7 +1,7 @@
+use super::Number;
 use itertools::{EitherOrBoth, Itertools};
 use serde_json::Value;
 use std::cmp::Ordering;
-use super::Number;
 
 pub fn json_cmp(lhs: &Value, rhs: &Value) -> Option<Ordering> {
     match (lhs, rhs) {

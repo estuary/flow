@@ -1,4 +1,3 @@
-
 use serde_json;
 use std::cmp::Ordering;
 
@@ -12,13 +11,26 @@ pub enum Number {
 use Number::*;
 
 impl From<&serde_json::Number> for Number {
-    fn from(n: &serde_json::Number) -> Number {
+    fn from(n: &serde_json::Number) -> Self {
         if let Some(n) = n.as_u64() {
             Unsigned(n)
         } else if let Some(n) = n.as_i64() {
             Signed(n)
         } else {
             Float(n.as_f64().unwrap())
+        }
+    }
+}
+
+// convert to value instead, and NULL if not a valid float ?
+impl From<Number> for serde_json::Value {
+    fn from(n: Number) -> Self {
+        match n {
+            Unsigned(n) => serde_json::Value::Number(n.into()),
+            Signed(n) => serde_json::Value::Number(n.into()),
+            Float(n) => serde_json::Number::from_f64(n)
+                .map(|n| serde_json::Value::Number(n))
+                .unwrap_or(serde_json::Value::Null),
         }
     }
 }
@@ -131,6 +143,42 @@ impl Number {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_number_conversion() {
+        fn from(s: &str) -> Number {
+            let n: serde_json::Number = serde_json::from_str(s).unwrap();
+            Number::from(&n)
+        }
+
+        assert_eq!(from("1234"), Unsigned(1234));
+        assert_eq!(from("-1234"), Signed(-1234));
+        assert_eq!(from("12.34"), Float(12.34));
+
+        fn to(n: serde_json::Value) -> serde_json::Value {
+            n
+        }
+
+        // Signed / unsigned integer conversions always succeed.
+        assert_eq!(to(Unsigned(1234).into()), to((1234 as u64).into()));
+        assert_eq!(to(Signed(-1234).into()), to((-1234 as i64).into()));
+
+        assert_eq!(to(Float(-12.34).into()), to((-12.34 as f64).into()));
+        assert_eq!(to(Float(0.0).into()), to((0.0 as f64).into()));
+        assert_eq!(to(Float(std::f64::MIN).into()), to(std::f64::MIN.into()));
+        assert_eq!(to(Float(std::f64::MAX).into()), to(std::f64::MAX.into()));
+
+        // Float converts to NULL if it's not a representable number in JSON.
+        assert_eq!(to(Float(std::f64::NAN).into()), serde_json::Value::Null);
+        assert_eq!(
+            to(Float(std::f64::INFINITY).into()),
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            to(Float(std::f64::NEG_INFINITY).into()),
+            serde_json::Value::Null
+        );
+    }
 
     #[test]
     fn test_multiple_of() {
