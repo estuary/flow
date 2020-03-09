@@ -7,12 +7,12 @@ use std::cmp::Ordering;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Strategy {
-    Minimize(Minimize),
+    FirstWriteWins,
+    LastWriteWins,
     Maximize(Maximize),
-    Sum(Sum),
     Merge(Merge),
-    FirstWriteWins(FirstWriteWins),
-    LastWriteWins(LastWriteWins),
+    Minimize(Minimize),
+    Sum,
 }
 
 impl std::convert::TryFrom<&sj::Value> for Strategy {
@@ -34,190 +34,126 @@ pub struct Maximize {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Sum {}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct Merge {
     key: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FirstWriteWins {}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct LastWriteWins {}
-
-pub trait Reducer {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        created: bool,
-        sub: &R,
-    ) -> usize
-    where
-        R: Reducer;
+pub struct Reducer<'r> {
+    pub at: usize,
+    pub val: sj::Value,
+    pub into: &'r mut sj::Value,
+    pub created: bool,
+    pub idx: &'r [(&'r Strategy, u64)],
 }
 
-impl Reducer for Strategy {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        created: bool,
-        sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        match self {
-            Strategy::Minimize(m) => m.reduce(at, val, into, created, sub),
-            Strategy::Maximize(m) => m.reduce(at, val, into, created, sub),
-            Strategy::Sum(m) => m.reduce(at, val, into, created, sub),
-            Strategy::Merge(m) => m.reduce(at, val, into, created, sub),
-            Strategy::FirstWriteWins(m) => m.reduce(at, val, into, created, sub),
-            Strategy::LastWriteWins(m) => m.reduce(at, val, into, created, sub),
+impl<'r> Reducer<'r> {
+
+    pub fn reduce(self) -> usize {
+        match self.idx.get(self.at) {
+            Some((Strategy::FirstWriteWins, _)) => self.first_write_wins(),
+            Some((Strategy::LastWriteWins, _)) | None => self.last_write_wins(),
+            Some((Strategy::Maximize(s), _)) => self.maximize(s),
+            Some((Strategy::Merge(s), _)) => self.merge(s),
+            Some((Strategy::Minimize(s), _)) => self.minimize(s),
+            Some((Strategy::Sum, _)) => self.sum(),
         }
     }
-}
 
-impl Reducer for FirstWriteWins {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        created: bool,
-        _sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        if created {
-            at + take_val(val, into)
+    fn first_write_wins(self) -> usize {
+        if self.created {
+            self.at + take_val(self.val, self.into)
         } else {
-            at + count_nodes(&val)
+            self.at + count_nodes(&self.val)
         }
     }
-}
 
-impl Reducer for LastWriteWins {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        _created: bool,
-        _sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        at + take_val(val, into)
+    fn last_write_wins(self) -> usize {
+        self.at + take_val(self.val, self.into)
     }
-}
 
-impl Reducer for Minimize {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        created: bool,
-        _sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        if created || json_cmp_at(&self.key, &val, into) == Ordering::Less {
-            at + take_val(val, into)
+    fn maximize(self, strategy: &Maximize) -> usize {
+        let ord = if self.created {
+            Ordering::Greater
+        } else if strategy.key.is_empty() {
+            ej::json_cmp(&self.val, self.into)
         } else {
-            at + count_nodes(&val)
-        }
-    }
-}
+            json_cmp_at(&strategy.key, &self.val, self.into)
+        };
 
-impl Reducer for Maximize {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        created: bool,
-        _sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        if created || json_cmp_at(&self.key, &val, into) == Ordering::Greater {
-            at + take_val(val, into)
+        if ord == Ordering::Greater {
+            self.at + take_val(self.val, self.into)
         } else {
-            at + count_nodes(&val)
+            self.at + count_nodes(&self.val)
         }
     }
-}
 
-impl Reducer for Sum {
-    fn reduce<R>(
-        &self,
-        at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        created: bool,
-        _sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        match (&*into, &val) {
-            (sj::Value::Number(lhs), sj::Value::Number(rhs)) => {
-                *into = (ej::Number::from(lhs) + ej::Number::from(rhs)).into();
-                at + 1
-            }
-            (sj::Value::Null, sj::Value::Number(_)) if !created => {
-                at + 1 // Leave as null.
-            }
-            _ => at + take_val(val, into), // Default to last-write-wins.
+    fn minimize(self, strategy: &Minimize) -> usize {
+        let ord = if self.created {
+            Ordering::Less
+        } else if strategy.key.is_empty() {
+            ej::json_cmp(&self.val, self.into)
+        } else {
+            json_cmp_at(&strategy.key, &self.val, self.into)
+        };
+
+        if ord == Ordering::Less {
+            self.at + take_val(self.val, self.into)
+        } else {
+            self.at + count_nodes(&self.val)
         }
     }
-}
 
-impl Reducer for Merge {
-    fn reduce<R>(
-        &self,
-        mut at: usize,
-        val: sj::Value,
-        into: &mut sj::Value,
-        _created: bool,
-        sub: &R,
-    ) -> usize
-    where
-        R: Reducer,
-    {
-        match (into, val) {
+    fn merge(self, strategy: &Merge) -> usize {
+        let mut at = self.at;
+        let idx = self.idx;
+
+        match (self.into, self.val) {
+
+            // Merge of two arrays. If a merge key is provided, deeply merge
+            // arrays in sorted order over the given key (which could be simply
+            // "/" to order over scalar items). Otherwise, do a deep merge of
+            // each paired index.
             (into @ sj::Value::Array(_), sj::Value::Array(val)) => {
                 // TODO: work-around for "cannot bind by-move and by-ref in the same pattern".
                 // https://github.com/rust-lang/rust/issues/68354
                 let into = into.as_array_mut().unwrap();
-                let prev = std::mem::replace(into, Vec::new());
+                let into_prev = std::mem::replace(into, Vec::new());
 
                 into.extend(
-                    itertools::merge_join_by(prev.into_iter(), val.into_iter(), |lhs, rhs| {
-                        json_cmp_at(&self.key, lhs, rhs)
-                    })
+                    itertools::merge_join_by(
+                        into_prev.into_iter().enumerate(),
+                        val.into_iter().enumerate(),
+                        |(lhs_ind, lhs), (rhs_ind, rhs)| -> Ordering {
+                            if strategy.key.is_empty() {
+                                lhs_ind.cmp(rhs_ind)
+                            } else {
+                                json_cmp_at(&strategy.key, lhs, rhs)
+                            }
+                        }
+                    )
                     .map(|eob| match eob {
-                        EitherOrBoth::Both(mut into, val) => {
-                            at = sub.reduce(at, val, &mut into, false, sub);
+                        EitherOrBoth::Both((_, mut into), (_, val)) => {
+                            at = Reducer{
+                                at: at,
+                                val: val,
+                                into: &mut into,
+                                created: false,
+                                idx: idx,
+                            }.reduce();
                             into
                         }
-                        EitherOrBoth::Right(val) => {
+                        EitherOrBoth::Right((_, val)) => {
                             let mut into = sj::Value::Null;
-                            at = sub.reduce(at, val, &mut into, true, sub);
+                            at = Reducer{
+                                at: at,
+                                val: val,
+                                into: &mut into,
+                                created: true,
+                                idx: idx,
+                            }.reduce();
                             into
                         }
-                        EitherOrBoth::Left(into) => into,
+                        EitherOrBoth::Left((_, into)) => into,
                     }),
                 );
 
@@ -237,12 +173,24 @@ impl Reducer for Merge {
                     })
                     .map(|eob| match eob {
                         EitherOrBoth::Both((prop, mut into), (_, val)) => {
-                            at = sub.reduce(at, val, &mut into, false, sub);
+                            at = Reducer{
+                                at: at,
+                                val: val,
+                                into: &mut into,
+                                created: false,
+                                idx: idx,
+                            }.reduce();
                             (prop, into)
                         }
                         EitherOrBoth::Right((prop, val)) => {
                             let mut into = sj::Value::Null;
-                            at = sub.reduce(at, val, &mut into, true, sub);
+                            at = Reducer{
+                                at: at,
+                                val: val,
+                                into: &mut into,
+                                created: true,
+                                idx: idx,
+                            }.reduce();
                             (prop, into)
                         }
                         EitherOrBoth::Left(into) => into,
@@ -252,6 +200,19 @@ impl Reducer for Merge {
                 at + 1
             }
             (into, val) => at + take_val(val, into), // Default to last-write-wins.
+        }
+    }
+
+    fn sum(self) -> usize {
+        match (&*self.into, &self.val) {
+            (sj::Value::Number(lhs), sj::Value::Number(rhs)) => {
+                *self.into = (ej::Number::from(lhs) + ej::Number::from(rhs)).into();
+                1
+            }
+            (sj::Value::Null, sj::Value::Number(_)) if !self.created => {
+                1 // Leave as null.
+            }
+            _ => take_val(self.val, self.into) // Default to last-write-wins.
         }
     }
 }
@@ -264,20 +225,16 @@ fn json_cmp_at<S>(key_ptrs: &[S], lhs: &sj::Value, rhs: &sj::Value) -> Ordering
 where
     S: AsRef<str>,
 {
-    if key_ptrs.is_empty() {
-        ej::json_cmp(lhs, rhs)
-    } else {
-        key_ptrs
-            .iter()
-            .map(|ptr| {
-                ej::json_cmp(
-                    lhs.pointer(ptr.as_ref()).unwrap_or(&sj::Value::Null),
-                    rhs.pointer(ptr.as_ref()).unwrap_or(&sj::Value::Null),
-                )
-            })
-            .find(|o| *o != Ordering::Equal)
-            .unwrap_or(Ordering::Equal)
-    }
+    key_ptrs
+        .iter()
+        .map(|ptr| {
+            ej::json_cmp(
+                lhs.pointer(ptr.as_ref()).unwrap_or(&sj::Value::Null),
+                rhs.pointer(ptr.as_ref()).unwrap_or(&sj::Value::Null),
+            )
+        })
+        .find(|o| *o != Ordering::Equal)
+        .unwrap_or(Ordering::Equal)
 }
 
 fn count_nodes(v: &sj::Value) -> usize {
@@ -327,8 +284,10 @@ mod test {
         let d1 = &json!({"a": 1, "b": 2, "c": 3});
         let d2 = &json!({"a": 2, "b": 1, "c": 3});
 
-        // No pointers? Deep compare document roots.
-        assert_eq!(json_cmp_at(&[] as &[&str], d1, d2), Ordering::Less);
+        // No pointers => always equal.
+        assert_eq!(json_cmp_at(&[] as &[&str], d1, d2), Ordering::Equal);
+        // Deep compare of document roots.
+        assert_eq!(json_cmp_at(&["".to_owned()], d1, d2), Ordering::Less);
         // Simple key ordering.
         assert_eq!(json_cmp_at(&["/a"], d1, d2), Ordering::Less);
         assert_eq!(json_cmp_at(&["/b"], d1, d2), Ordering::Greater);
@@ -348,8 +307,10 @@ mod test {
         let d1 = &json!([1, 2, 3]);
         let d2 = &json!([2, 1, 3]);
 
-        // Deep compare of document root.
-        assert_eq!(json_cmp_at(&[] as &[&str], d1, d2), Ordering::Less);
+        // No pointers => always equal.
+        assert_eq!(json_cmp_at(&[] as &[&str], d1, d2), Ordering::Equal);
+        // Deep compare of document roots.
+        assert_eq!(json_cmp_at(&["".to_owned()], d1, d2), Ordering::Less);
         // Simple key ordering.
         assert_eq!(json_cmp_at(&["/0"], d1, d2), Ordering::Less);
         assert_eq!(json_cmp_at(&["/1"], d1, d2), Ordering::Greater);
@@ -380,17 +341,26 @@ mod test {
         nodes: usize,
     }
 
-    fn run_reduce_cases<R: Reducer>(r: &R, cases: Vec<Case>) {
+    fn run_reduce_cases(r: &Strategy, cases: Vec<Case>) {
         let mut into = sj::Value::Null;
         let mut created = true;
 
+
         for case in cases {
+            println!("reduce {} => expect {}", &case.val, &case.expect);
+
             // Sanity check that count_nodes(), the test fixture, and the reducer
             // all agree on the number of JSON document nodes.
             assert_eq!(count_nodes(&case.val), case.nodes);
+            let idx = std::iter::repeat((r, 0)).take(case.nodes).collect::<Vec<_>>();
 
-            println!("reduce {} => expect {}", &case.val, &case.expect);
-            assert_eq!(r.reduce(0, case.val, &mut into, created, r), case.nodes);
+            assert_eq!(case.nodes, Reducer{
+                at: 0,
+                val: case.val,
+                into: &mut into,
+                created: created,
+                idx: &idx[..],
+            }.reduce());
 
             assert_eq!(&into, &case.expect);
             created = false;
@@ -399,9 +369,9 @@ mod test {
 
     #[test]
     fn test_minimize() {
-        let m = Minimize {
+        let m = Strategy::Minimize(Minimize {
             key: vec!["/k".to_owned()],
-        };
+        });
         run_reduce_cases(
             &m,
             vec![
@@ -429,9 +399,9 @@ mod test {
 
     #[test]
     fn test_maximize() {
-        let m = Maximize {
+        let m = Strategy::Maximize(Maximize {
             key: vec!["/k".to_owned()],
-        };
+        });
         run_reduce_cases(
             &m,
             vec![
@@ -459,7 +429,7 @@ mod test {
 
     #[test]
     fn test_sum() {
-        let m = Sum {};
+        let m = Strategy::Sum;
 
         run_reduce_cases(
             &m,
@@ -528,8 +498,44 @@ mod test {
     }
 
     #[test]
-    fn test_merge_array() {
-        let m = Merge { key: Vec::new() };
+    fn test_merge_array_in_place() {
+        let m = Strategy::Merge(Merge { key: Vec::new() });
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!([5, 9]),
+                    nodes: 3,
+                    expect: json!([5, 9]),
+                },
+                Case {
+                    val: json!([7]),
+                    nodes: 2,
+                    expect: json!([7, 9]),
+                },
+                Case {
+                    val: json!([{"a": 1}, 4, 5]),
+                    nodes: 5,
+                    expect: json!([{"a": 1}, 4, 5]),
+                },
+                Case {
+                    val: json!([{"b": 2}, 10]),
+                    nodes: 4,
+                    expect: json!([{"a": 1, "b": 2}, 10, 5])
+                },
+                // Default to last-write-wins on incompatible types.
+                Case {
+                    val: json!({"foo": "bar"}),
+                    nodes: 2,
+                    expect: json!({"foo": "bar"}),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_array_of_scalars() {
+        let m = Strategy::Merge(Merge { key: vec!["".to_owned()] } );
         run_reduce_cases(
             &m,
             vec![
@@ -553,7 +559,6 @@ mod test {
                     nodes: 5,
                     expect: json!([1, 2, 4, 5, 7, 9, 10]),
                 },
-                // Default to last-write-wins on incompatible types.
                 Case {
                     val: json!({"foo": "bar"}),
                     nodes: 2,
@@ -565,7 +570,7 @@ mod test {
 
     #[test]
     fn test_merge_object() {
-        let m = Merge { key: Vec::new() };
+        let m = Strategy::Merge(Merge { key: Vec::new() });
         run_reduce_cases(
             &m,
             vec![
@@ -601,9 +606,9 @@ mod test {
 
     #[test]
     fn test_merge_deep() {
-        let m = Merge {
+        let m = Strategy::Merge(Merge {
             key: vec!["/k".to_owned()],
-        };
+        });
         run_reduce_cases(
             &m,
             vec![
@@ -641,7 +646,7 @@ mod test {
 
     #[test]
     fn test_first_write_wins() {
-        let m = FirstWriteWins {};
+        let m = Strategy::FirstWriteWins;
         run_reduce_cases(
             &m,
             vec![
@@ -666,7 +671,7 @@ mod test {
 
     #[test]
     fn test_last_write_wins() {
-        let m = LastWriteWins {};
+        let m = Strategy::LastWriteWins;
         run_reduce_cases(
             &m,
             vec![
