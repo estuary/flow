@@ -553,6 +553,12 @@ mod test {
                     nodes: 5,
                     expect: json!([1, 2, 4, 5, 7, 9, 10]),
                 },
+                // Default to last-write-wins on incompatible types.
+                Case {
+                    val: json!({"foo": "bar"}),
+                    nodes: 2,
+                    expect: json!({"foo": "bar"}),
+                },
             ],
         )
     }
@@ -582,6 +588,12 @@ mod test {
                     val: json!({"1": 1, "2": 22, "7": 77, "10": 10}),
                     nodes: 5,
                     expect: json!({"1": 1, "2": 22, "4": 4, "5": 55, "7": 77, "9": 9, "10": 10}),
+                },
+                // Default to last-write-wins on incompatible types.
+                Case {
+                    val: json!([1, 2]),
+                    nodes: 3,
+                    expect: json!([1, 2]),
                 },
             ],
         )
@@ -625,5 +637,55 @@ mod test {
                 },
             ],
         )
+    }
+
+    #[test]
+    fn test_first_write_wins() {
+        let m = FirstWriteWins {};
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!("abc"),
+                    nodes: 1,
+                    expect: json!("abc"),
+                },
+                Case {
+                    val: json!("def"),
+                    nodes: 1,
+                    expect: json!("abc"),
+                },
+                Case {
+                    val: json!(123),
+                    nodes: 1,
+                    expect: json!("abc"),
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn test_last_write_wins() {
+        let m = LastWriteWins {};
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!("abc"),
+                    nodes: 1,
+                    expect: json!("abc"),
+                },
+                Case {
+                    val: json!("def"),
+                    nodes: 1,
+                    expect: json!("def"),
+                },
+                Case {
+                    val: json!(123),
+                    nodes: 1,
+                    expect: json!(123),
+                },
+            ],
+        );
     }
 }
