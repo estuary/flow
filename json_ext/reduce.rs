@@ -96,8 +96,7 @@ impl Reducer for FirstWriteWins {
         R: Reducer,
     {
         if created {
-            *into = val;
-            at + count_nodes(into)
+            at + take_val(val, into)
         } else {
             at + count_nodes(&val)
         }
@@ -116,8 +115,7 @@ impl Reducer for LastWriteWins {
     where
         R: Reducer,
     {
-        *into = val;
-        at + count_nodes(into)
+        at + take_val(val, into)
     }
 }
 
@@ -134,8 +132,7 @@ impl Reducer for Minimize {
         R: Reducer,
     {
         if created || json_cmp_at(&self.key, &val, into) == Ordering::Less {
-            *into = val;
-            at + count_nodes(into)
+            at + take_val(val, into)
         } else {
             at + count_nodes(&val)
         }
@@ -155,8 +152,7 @@ impl Reducer for Maximize {
         R: Reducer,
     {
         if created || json_cmp_at(&self.key, &val, into) == Ordering::Greater {
-            *into = val;
-            at + count_nodes(into)
+            at + take_val(val, into)
         } else {
             at + count_nodes(&val)
         }
@@ -183,10 +179,7 @@ impl Reducer for Sum {
             (sj::Value::Null, sj::Value::Number(_)) if !created => {
                 at + 1 // Leave as null.
             }
-            _ => {
-                *into = val; // Last write wins.
-                at + count_nodes(into)
-            }
+            _ => at + take_val(val, into), // Default to last-write-wins.
         }
     }
 }
@@ -216,19 +209,19 @@ impl Reducer for Merge {
                     })
                     .map(|eob| match eob {
                         EitherOrBoth::Both(mut into, val) => {
-                            at = sub.reduce(at + 1, val, &mut into, false, sub);
+                            at = sub.reduce(at, val, &mut into, false, sub);
                             into
                         }
                         EitherOrBoth::Right(val) => {
                             let mut into = sj::Value::Null;
-                            at = sub.reduce(at + 1, val, &mut into, true, sub);
+                            at = sub.reduce(at, val, &mut into, true, sub);
                             into
                         }
                         EitherOrBoth::Left(into) => into,
                     }),
                 );
 
-                at
+                at + 1
             }
             (into @ sj::Value::Object(_), sj::Value::Object(val)) => {
                 // TODO: work-around for "cannot bind by-move and by-ref in the same pattern".
@@ -244,24 +237,21 @@ impl Reducer for Merge {
                     })
                     .map(|eob| match eob {
                         EitherOrBoth::Both((prop, mut into), (_, val)) => {
-                            at = sub.reduce(at + 1, val, &mut into, false, sub);
+                            at = sub.reduce(at, val, &mut into, false, sub);
                             (prop, into)
                         }
                         EitherOrBoth::Right((prop, val)) => {
                             let mut into = sj::Value::Null;
-                            at = sub.reduce(at + 1, val, &mut into, true, sub);
+                            at = sub.reduce(at, val, &mut into, true, sub);
                             (prop, into)
                         }
                         EitherOrBoth::Left(into) => into,
                     }),
                 );
 
-                at
+                at + 1
             }
-            (into, val) => {
-                *into = val;
-                at + count_nodes(into)
-            }
+            (into, val) => at + take_val(val, into), // Default to last-write-wins.
         }
     }
 }
@@ -296,6 +286,11 @@ fn count_nodes(v: &sj::Value) -> usize {
         sj::Value::Array(v) => v.iter().fold(1, |c, vv| c + count_nodes(vv)),
         sj::Value::Object(v) => v.iter().fold(1, |c, (_prop, vv)| c + count_nodes(vv)),
     }
+}
+
+fn take_val(val: sj::Value, into: &mut sj::Value) -> usize {
+    *into = val;
+    count_nodes(into)
 }
 
 #[cfg(test)]
@@ -379,22 +374,57 @@ mod test {
         assert_eq!(json_cmp_at(&["/a"], d1, d2), Ordering::Equal);
     }
 
+    struct Case {
+        val: sj::Value,
+        expect: sj::Value,
+        nodes: usize,
+    }
+
+    fn run_reduce_cases<R: Reducer>(r: &R, cases: Vec<Case>) {
+        let mut into = sj::Value::Null;
+        let mut created = true;
+
+        for case in cases {
+            // Sanity check that count_nodes(), the test fixture, and the reducer
+            // all agree on the number of JSON document nodes.
+            assert_eq!(count_nodes(&case.val), case.nodes);
+
+            println!("reduce {} => expect {}", &case.val, &case.expect);
+            assert_eq!(r.reduce(0, case.val, &mut into, created, r), case.nodes);
+
+            assert_eq!(&into, &case.expect);
+            created = false;
+        }
+    }
+
     #[test]
     fn test_minimize() {
         let m = Minimize {
             key: vec!["/k".to_owned()],
         };
-        let mut into = sj::Value::Null;
-
-        // Takes initial value.
-        assert_eq!(m.reduce(0, json!({"k": 3, "d": 1}), &mut into, true, &m), 3);
-        assert_eq!(&into, &json!({"k": 3, "d": 1}));
-        // Ignores larger key.
-        assert_eq!(m.reduce(0, json!({"k": 4}), &mut into, false, &m), 2);
-        assert_eq!(&into, &json!({"k": 3, "d": 1}));
-        // Updates with smaller key.
-        assert_eq!(m.reduce(0, json!({"k": 2, "d": 2}), &mut into, false, &m), 3);
-        assert_eq!(&into, &json!({"k": 2, "d": 2}));
+        run_reduce_cases(
+            &m,
+            vec![
+                // Takes initial value.
+                Case {
+                    val: json!({"k": 3, "d": 1}),
+                    nodes: 3,
+                    expect: json!({"k": 3, "d": 1}),
+                },
+                // Ignores larger key.
+                Case {
+                    val: json!({"k": 4}),
+                    nodes: 2,
+                    expect: json!({"k": 3, "d": 1}),
+                },
+                // Updates with smaller key.
+                Case {
+                    val: json!({"k": 2, "d": 2}),
+                    nodes: 3,
+                    expect: json!({"k": 2, "d": 2}),
+                },
+            ],
+        )
     }
 
     #[test]
@@ -402,40 +432,198 @@ mod test {
         let m = Maximize {
             key: vec!["/k".to_owned()],
         };
-        let mut into = sj::Value::Null;
-
-        // Takes initial value.
-        assert_eq!(m.reduce(0, json!({"k": 3, "d": 1}), &mut into, true, &m), 3);
-        assert_eq!(&into, &json!({"k": 3, "d": 1}));
-        // Ignores smaller key.
-        assert_eq!(m.reduce(0, json!({"k": 2}), &mut into, false, &m), 2);
-        assert_eq!(&into, &json!({"k": 3, "d": 1}));
-        // Updates with laerger key.
-        assert_eq!(m.reduce(0, json!({"k": 4, "d": 2}), &mut into, false, &m), 3);
-        assert_eq!(&into, &json!({"k": 4, "d": 2}));
+        run_reduce_cases(
+            &m,
+            vec![
+                // Takes initial value.
+                Case {
+                    val: json!({"k": 3, "d": 1}),
+                    nodes: 3,
+                    expect: json!({"k": 3, "d": 1}),
+                },
+                // Ignores smaller key.
+                Case {
+                    val: json!({"k": 2}),
+                    nodes: 2,
+                    expect: json!({"k": 3, "d": 1}),
+                },
+                // Updates with larger key.
+                Case {
+                    val: json!({"k": 4, "d": 2}),
+                    nodes: 3,
+                    expect: json!({"k": 4, "d": 2}),
+                },
+            ],
+        )
     }
 
     #[test]
     fn test_sum() {
         let m = Sum {};
-        let mut into = sj::Value::Null;
 
-        assert_eq!(m.reduce(0, json!(123), &mut into, true, &m), 1);
-        assert_eq!(&into, &json!(123));
-        // Add unsigned.
-        assert_eq!(m.reduce(0, json!(45), &mut into, false, &m), 1);
-        assert_eq!(&into, &json!(168));
-        // Add signed.
-        assert_eq!(m.reduce(0, json!(-70), &mut into, false, &m), 1);
-        assert_eq!(&into, &json!(98));
-        // Add float.
-        assert_eq!(m.reduce(0, json!(0.1), &mut into, false, &m), 1);
-        assert_eq!(&into, &json!(98.1));
-        // Number which cannot be represented becomes null.
-        assert_eq!(m.reduce(0, json!(std::f64::INFINITY), &mut into, false, &m), 1);
-        assert_eq!(&into, &sj::Value::Null);
-        // And stays null as further values are added.
-        assert_eq!(m.reduce(0, json!(-1), &mut into, false, &m), 1);
-        assert_eq!(&into, &sj::Value::Null);
+        run_reduce_cases(
+            &m,
+            vec![
+                // Takes initial value.
+                Case {
+                    val: json!(123),
+                    nodes: 1,
+                    expect: json!(123),
+                },
+                // Add unsigned.
+                Case {
+                    val: json!(45),
+                    nodes: 1,
+                    expect: json!(168),
+                },
+                // Add signed.
+                Case {
+                    val: json!(-70),
+                    nodes: 1,
+                    expect: json!(98),
+                },
+                // Add float.
+                Case {
+                    val: json!(0.1),
+                    nodes: 1,
+                    expect: json!(98.1),
+                },
+                // Back to f64 zero.
+                Case {
+                    val: json!(-98.1),
+                    nodes: 1,
+                    expect: json!(0.0),
+                },
+                // Add maximum f64.
+                Case {
+                    val: json!(std::f64::MAX),
+                    nodes: 1,
+                    expect: json!(std::f64::MAX),
+                },
+                // Number which cannot be represented becomes null.
+                Case {
+                    val: json!(std::f64::MAX / 10.0),
+                    nodes: 1,
+                    expect: Value::Null,
+                },
+                // And stays null as further values are added.
+                Case {
+                    val: json!(-1.0),
+                    nodes: 1,
+                    expect: Value::Null,
+                },
+                // Non-numeric types default to last-write-wins.
+                Case {
+                    val: json!("foo"),
+                    nodes: 1,
+                    expect: json!("foo"),
+                },
+                Case {
+                    val: json!(1),
+                    nodes: 1,
+                    expect: json!(1),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_array() {
+        let m = Merge { key: Vec::new() };
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!([5, 9]),
+                    nodes: 3,
+                    expect: json!([5, 9]),
+                },
+                Case {
+                    val: json!([7]),
+                    nodes: 2,
+                    expect: json!([5, 7, 9]),
+                },
+                Case {
+                    val: json!([2, 4, 5]),
+                    nodes: 4,
+                    expect: json!([2, 4, 5, 7, 9]),
+                },
+                Case {
+                    val: json!([1, 2, 7, 10]),
+                    nodes: 5,
+                    expect: json!([1, 2, 4, 5, 7, 9, 10]),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_object() {
+        let m = Merge { key: Vec::new() };
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!({"5": 5, "9": 9}),
+                    nodes: 3,
+                    expect: json!({"5": 5, "9": 9}),
+                },
+                Case {
+                    val: json!({"7": 7}),
+                    nodes: 2,
+                    expect: json!({"5": 5, "7": 7, "9": 9}),
+                },
+                Case {
+                    val: json!({"2": 2, "4": 4, "5": 55}),
+                    nodes: 4,
+                    expect: json!({"2": 2, "4": 4, "5": 55, "7": 7, "9": 9}),
+                },
+                Case {
+                    val: json!({"1": 1, "2": 22, "7": 77, "10": 10}),
+                    nodes: 5,
+                    expect: json!({"1": 1, "2": 22, "4": 4, "5": 55, "7": 77, "9": 9, "10": 10}),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_deep() {
+        let m = Merge {
+            key: vec!["/k".to_owned()],
+        };
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!([{"k": "b", "v": [{"k": 5}]}]),
+                    nodes: 6,
+                    expect: json!([{"k": "b", "v": [{"k": 5}]}]),
+                },
+                Case {
+                    val: json!([
+                        {"k": "a", "v": [{"k": 2}]},
+                        {"k": "b", "v": [{"k": 3}]}
+                    ]),
+                    nodes: 11,
+                    expect: json!([
+                        {"k": "a", "v": [{"k": 2}]},
+                        {"k": "b", "v": [{"k": 3}, {"k": 5}]}
+                    ]),
+                },
+                Case {
+                    val: json!([
+                        {"k": "b", "v": [{"k": 1}, {"k": 5, "d": true}]},
+                        {"k": "c", "v": [{"k": 9}]}
+                    ]),
+                    nodes: 14,
+                    expect: json!([
+                        {"k": "a", "v": [{"k": 2}]},
+                        {"k": "b", "v": [{"k": 1}, {"k": 3}, {"k": 5, "d": true}]},
+                        {"k": "c", "v": [{"k": 9}]},
+                    ]),
+                },
+            ],
+        )
     }
 }
