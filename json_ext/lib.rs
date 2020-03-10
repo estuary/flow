@@ -3,6 +3,7 @@ use serde_json as sj;
 use std::convert::TryFrom;
 
 pub mod reduce;
+pub mod accumulate;
 
 #[derive(Debug)]
 pub enum Annotation {

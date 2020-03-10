@@ -86,7 +86,7 @@ impl<'r> Reducer<'r> {
         } else if strategy.key.is_empty() {
             ej::json_cmp(&self.val, self.into)
         } else {
-            json_cmp_at(&strategy.key, &self.val, self.into)
+            ej::json_cmp_at(&strategy.key, &self.val, self.into)
         };
 
         if ord == Ordering::Greater {
@@ -102,7 +102,7 @@ impl<'r> Reducer<'r> {
         } else if strategy.key.is_empty() {
             ej::json_cmp(&self.val, self.into)
         } else {
-            json_cmp_at(&strategy.key, &self.val, self.into)
+            ej::json_cmp_at(&strategy.key, &self.val, self.into)
         };
 
         if ord == Ordering::Less {
@@ -137,7 +137,7 @@ impl<'r> Reducer<'r> {
                             if strategy.key.is_empty() {
                                 lhs_ind.cmp(rhs_ind)
                             } else {
-                                json_cmp_at(&strategy.key, lhs, rhs)
+                                ej::json_cmp_at(&strategy.key, lhs, rhs)
                             }
                         },
                     )
@@ -233,26 +233,6 @@ impl<'r> Reducer<'r> {
     }
 }
 
-/// json_cmp_at evaluates the deep ordering of |lhs| and |rhs| with respect
-/// to a composite key, specified as a slice of JSON-Pointers relative to the
-/// respective document roots. If the slice of JSON-Pointers is empty, the
-/// deep ordering with respect to the roots themselves is returned.
-fn json_cmp_at<S>(key_ptrs: &[S], lhs: &sj::Value, rhs: &sj::Value) -> Ordering
-where
-    S: AsRef<str>,
-{
-    key_ptrs
-        .iter()
-        .map(|ptr| {
-            ej::json_cmp(
-                lhs.pointer(ptr.as_ref()).unwrap_or(&sj::Value::Null),
-                rhs.pointer(ptr.as_ref()).unwrap_or(&sj::Value::Null),
-            )
-        })
-        .find(|o| *o != Ordering::Equal)
-        .unwrap_or(Ordering::Equal)
-}
-
 fn count_nodes(v: &sj::Value) -> usize {
     match v {
         sj::Value::Bool(_) | sj::Value::Null | sj::Value::String(_) | sj::Value::Number(_) => 1,
@@ -293,62 +273,6 @@ mod test {
             "eleven": true,
         });
         assert_eq!(count_nodes(&doc), 11);
-    }
-
-    #[test]
-    fn test_pointer_compare_objects() {
-        let d1 = &json!({"a": 1, "b": 2, "c": 3});
-        let d2 = &json!({"a": 2, "b": 1, "c": 3});
-
-        // No pointers => always equal.
-        assert_eq!(json_cmp_at(&[] as &[&str], d1, d2), Ordering::Equal);
-        // Deep compare of document roots.
-        assert_eq!(json_cmp_at(&["".to_owned()], d1, d2), Ordering::Less);
-        // Simple key ordering.
-        assert_eq!(json_cmp_at(&["/a"], d1, d2), Ordering::Less);
-        assert_eq!(json_cmp_at(&["/b"], d1, d2), Ordering::Greater);
-        assert_eq!(json_cmp_at(&["/c"], d1, d2), Ordering::Equal);
-        // Composite key ordering.
-        assert_eq!(json_cmp_at(&["/c", "/a"], d1, d2), Ordering::Less);
-        assert_eq!(json_cmp_at(&["/c", "/b"], d1, d2), Ordering::Greater);
-        assert_eq!(json_cmp_at(&["/c", "/c"], d1, d2), Ordering::Equal);
-        assert_eq!(
-            json_cmp_at(&["/c", "/c", "/c", "/a"], d1, d2),
-            Ordering::Less
-        );
-    }
-
-    #[test]
-    fn test_pointer_compare_arrays() {
-        let d1 = &json!([1, 2, 3]);
-        let d2 = &json!([2, 1, 3]);
-
-        // No pointers => always equal.
-        assert_eq!(json_cmp_at(&[] as &[&str], d1, d2), Ordering::Equal);
-        // Deep compare of document roots.
-        assert_eq!(json_cmp_at(&["".to_owned()], d1, d2), Ordering::Less);
-        // Simple key ordering.
-        assert_eq!(json_cmp_at(&["/0"], d1, d2), Ordering::Less);
-        assert_eq!(json_cmp_at(&["/1"], d1, d2), Ordering::Greater);
-        assert_eq!(json_cmp_at(&["/2"], d1, d2), Ordering::Equal);
-        // Composite key ordering.
-        assert_eq!(json_cmp_at(&["/2", "/0"], d1, d2), Ordering::Less);
-        assert_eq!(json_cmp_at(&["/2", "/1"], d1, d2), Ordering::Greater);
-        assert_eq!(json_cmp_at(&["/2", "/2"], d1, d2), Ordering::Equal);
-    }
-
-    #[test]
-    fn test_pointer_compare_missing() {
-        let d1 = &json!({"a": sj::Value::Null, "c": 3});
-        let d2 = &json!({"b": 2});
-
-        assert_eq!(json_cmp_at(&["/does/not/exist"], d1, d2), Ordering::Equal);
-        // Key exists at |d1| but not |d2|. |d2| value is implicitly null.
-        assert_eq!(json_cmp_at(&["/c"], d1, d2), Ordering::Greater);
-        // Key exists at |d2| but not |d1|. |d1| value is implicitly null.
-        assert_eq!(json_cmp_at(&["/b"], d1, d2), Ordering::Less);
-        // Key exists at |d1| but not |d2|. Both are null (implicit and explicit).
-        assert_eq!(json_cmp_at(&["/a"], d1, d2), Ordering::Equal);
     }
 
     struct Case {
