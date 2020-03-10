@@ -1,50 +1,13 @@
-use estuary_json::{self as ej, schema, validator};
+use estuary_json::{schema, validator};
 use serde_json as sj;
 use std::convert::TryFrom;
 
-mod reduce;
+pub mod reduce;
 
 #[derive(Debug)]
 pub enum Annotation {
     Core(schema::CoreAnnotation),
     Reduce(reduce::Strategy),
-}
-
-#[derive(Debug)]
-pub struct SpanContext {
-    pub span: ej::Span,
-}
-
-impl Default for SpanContext {
-    fn default() -> Self {
-        SpanContext {
-            span: ej::Span {
-                begin: 0,
-                end: 0,
-                hashed: 0,
-            },
-        }
-    }
-}
-
-impl validator::Context for SpanContext {
-    fn with_details<'sm, 'a, A>(
-        _loc: &'a ej::Location<'a>,
-        span: &'a ej::Span,
-        _scope: &validator::Scope<'sm, A, Self>,
-        _parents: &[validator::Scope<'sm, A, Self>],
-    ) -> Self
-    where
-        A: schema::Annotation,
-    {
-        SpanContext {
-            span: ej::Span {
-                begin: span.begin,
-                end: span.end,
-                hashed: span.hashed,
-            },
-        }
-    }
 }
 
 impl schema::Annotation for Annotation {
@@ -80,8 +43,31 @@ impl schema::build::AnnotationBuilder for Annotation {
     }
 }
 
+pub fn extract_reduce_annotations<'a, C>(
+    outcomes: &[(validator::Outcome<'a, Annotation>, C)],
+) -> Vec<(&'a reduce::Strategy, u64)>
+where
+    C: validator::Context,
+{
+    let mut idx = Vec::<(&reduce::Strategy, u64)>::new();
+
+    for (outcome, ctx) in outcomes.iter() {
+        let span = ctx.span();
+
+        if span.begin >= idx.len() {
+            idx.extend(std::iter::repeat((DEFAULT_STRATEGY, 0)).take(1 + span.begin - idx.len()));
+        }
+        if let validator::Outcome::Annotation(Annotation::Reduce(strategy)) = outcome {
+            idx[span.begin] = (strategy, span.hashed);
+        }
+    }
+    idx
+}
+
+static DEFAULT_STRATEGY: &reduce::Strategy = &reduce::Strategy::LastWriteWins;
+
 /*
-type Outcomes<'a> = [(validator::Outcome<'a, Annotation>, SpanContext)];
+type Outcomes<'a> = ;
 
 struct FooReducer<'a>(&'a Outcomes<'a>);
 

@@ -25,16 +25,19 @@ impl std::convert::TryFrom<&sj::Value> for Strategy {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Minimize {
+    #[serde(default)]
     key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Maximize {
+    #[serde(default)]
     key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Merge {
+    #[serde(default)]
     key: Vec<String>,
 }
 
@@ -47,8 +50,9 @@ pub struct Reducer<'r> {
 }
 
 impl<'r> Reducer<'r> {
-
     pub fn reduce(self) -> usize {
+        println!("evaluting at {} doc {} strat {:?}", self.at, &self.val, self.idx.get(self.at));
+
         match self.idx.get(self.at) {
             Some((Strategy::FirstWriteWins, _)) => self.first_write_wins(),
             Some((Strategy::LastWriteWins, _)) | None => self.last_write_wins(),
@@ -108,7 +112,6 @@ impl<'r> Reducer<'r> {
         let idx = self.idx;
 
         match (self.into, self.val) {
-
             // Merge of two arrays. If a merge key is provided, deeply merge
             // arrays in sorted order over the given key (which could be simply
             // "/" to order over scalar items). Otherwise, do a deep merge of
@@ -118,6 +121,8 @@ impl<'r> Reducer<'r> {
                 // https://github.com/rust-lang/rust/issues/68354
                 let into = into.as_array_mut().unwrap();
                 let into_prev = std::mem::replace(into, Vec::new());
+
+                at += 1;
 
                 into.extend(
                     itertools::merge_join_by(
@@ -129,35 +134,37 @@ impl<'r> Reducer<'r> {
                             } else {
                                 json_cmp_at(&strategy.key, lhs, rhs)
                             }
-                        }
+                        },
                     )
                     .map(|eob| match eob {
                         EitherOrBoth::Both((_, mut into), (_, val)) => {
-                            at = Reducer{
+                            at = Reducer {
                                 at: at,
                                 val: val,
                                 into: &mut into,
                                 created: false,
                                 idx: idx,
-                            }.reduce();
+                            }
+                            .reduce();
                             into
                         }
                         EitherOrBoth::Right((_, val)) => {
                             let mut into = sj::Value::Null;
-                            at = Reducer{
+                            at = Reducer {
                                 at: at,
                                 val: val,
                                 into: &mut into,
                                 created: true,
                                 idx: idx,
-                            }.reduce();
+                            }
+                            .reduce();
                             into
                         }
                         EitherOrBoth::Left((_, into)) => into,
                     }),
                 );
 
-                at + 1
+                at
             }
             (into @ sj::Value::Object(_), sj::Value::Object(val)) => {
                 // TODO: work-around for "cannot bind by-move and by-ref in the same pattern".
@@ -167,37 +174,41 @@ impl<'r> Reducer<'r> {
                 let into = into.as_object_mut().unwrap();
                 let into_prev = std::mem::replace(into, Map::new());
 
+                at += 1;
+
                 into.extend(
                     itertools::merge_join_by(into_prev.into_iter(), val.into_iter(), |lhs, rhs| {
                         lhs.0.cmp(&rhs.0)
                     })
                     .map(|eob| match eob {
                         EitherOrBoth::Both((prop, mut into), (_, val)) => {
-                            at = Reducer{
+                            at = Reducer {
                                 at: at,
                                 val: val,
                                 into: &mut into,
                                 created: false,
                                 idx: idx,
-                            }.reduce();
+                            }
+                            .reduce();
                             (prop, into)
                         }
                         EitherOrBoth::Right((prop, val)) => {
                             let mut into = sj::Value::Null;
-                            at = Reducer{
+                            at = Reducer {
                                 at: at,
                                 val: val,
                                 into: &mut into,
                                 created: true,
                                 idx: idx,
-                            }.reduce();
+                            }
+                            .reduce();
                             (prop, into)
                         }
                         EitherOrBoth::Left(into) => into,
                     }),
                 );
 
-                at + 1
+                at
             }
             (into, val) => at + take_val(val, into), // Default to last-write-wins.
         }
@@ -207,12 +218,12 @@ impl<'r> Reducer<'r> {
         match (&*self.into, &self.val) {
             (sj::Value::Number(lhs), sj::Value::Number(rhs)) => {
                 *self.into = (ej::Number::from(lhs) + ej::Number::from(rhs)).into();
-                1
+                self.at + 1
             }
             (sj::Value::Null, sj::Value::Number(_)) if !self.created => {
-                1 // Leave as null.
+                self.at + 1 // Leave as null.
             }
-            _ => take_val(self.val, self.into) // Default to last-write-wins.
+            _ => self.at + take_val(self.val, self.into), // Default to last-write-wins.
         }
     }
 }
@@ -345,22 +356,27 @@ mod test {
         let mut into = sj::Value::Null;
         let mut created = true;
 
-
         for case in cases {
             println!("reduce {} => expect {}", &case.val, &case.expect);
 
             // Sanity check that count_nodes(), the test fixture, and the reducer
             // all agree on the number of JSON document nodes.
             assert_eq!(count_nodes(&case.val), case.nodes);
-            let idx = std::iter::repeat((r, 0)).take(case.nodes).collect::<Vec<_>>();
+            let idx = std::iter::repeat((r, 0))
+                .take(case.nodes)
+                .collect::<Vec<_>>();
 
-            assert_eq!(case.nodes, Reducer{
-                at: 0,
-                val: case.val,
-                into: &mut into,
-                created: created,
-                idx: &idx[..],
-            }.reduce());
+            assert_eq!(
+                case.nodes,
+                Reducer {
+                    at: 0,
+                    val: case.val,
+                    into: &mut into,
+                    created: created,
+                    idx: &idx[..],
+                }
+                .reduce()
+            );
 
             assert_eq!(&into, &case.expect);
             created = false;
@@ -521,7 +537,7 @@ mod test {
                 Case {
                     val: json!([{"b": 2}, 10]),
                     nodes: 4,
-                    expect: json!([{"a": 1, "b": 2}, 10, 5])
+                    expect: json!([{"a": 1, "b": 2}, 10, 5]),
                 },
                 // Default to last-write-wins on incompatible types.
                 Case {
@@ -535,7 +551,9 @@ mod test {
 
     #[test]
     fn test_merge_array_of_scalars() {
-        let m = Strategy::Merge(Merge { key: vec!["".to_owned()] } );
+        let m = Strategy::Merge(Merge {
+            key: vec!["".to_owned()],
+        });
         run_reduce_cases(
             &m,
             vec![

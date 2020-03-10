@@ -15,7 +15,7 @@ url = "2.1.1"
 thiserror = "1.0.11"
 rusqlite = { version = "0.21.0", features = ["functions", "bundled", "url", "serde_json"] }
 regex = "1.3.4"
-itertools = "0.8.2"
+itertools = "0.9.0"
 
 [lib]
 path = "lib.rs"

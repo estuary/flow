@@ -15,17 +15,32 @@ pub trait Context: Sized + Default + std::fmt::Debug {
     ) -> Self
     where
         A: Annotation;
+
+    fn span(&self) -> &Span;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FullContext {
     pub instance_ptr: String,
     pub canonical_uri: String,
     pub keyword_location: String,
-    pub span_begin: usize,
-    pub span_end: usize,
+    pub span: Span,
 }
 
+impl Default for FullContext {
+    fn default() -> Self {
+        FullContext {
+            instance_ptr: String::new(),
+            canonical_uri: String::new(),
+            keyword_location: String::new(),
+            span: Span {
+                begin: 0,
+                end: 0,
+                hashed: 0,
+            },
+        }
+    }
+}
 impl Context for FullContext {
     fn with_details<'sm, 'a, A>(
         loc: &'a Location<'a>,
@@ -40,9 +55,16 @@ impl Context for FullContext {
             instance_ptr: loc.to_string(),
             canonical_uri: scope.schema.curi.as_str().to_owned(),
             keyword_location: scope.keyword_location(parents),
-            span_begin: span.begin,
-            span_end: span.end,
+            span: Span {
+                begin: span.begin,
+                end: span.end,
+                hashed: span.hashed,
+            },
         }
+    }
+
+    fn span(&self) -> &Span {
+        &self.span
     }
 }
 
