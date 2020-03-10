@@ -51,7 +51,12 @@ pub struct Reducer<'r> {
 
 impl<'r> Reducer<'r> {
     pub fn reduce(self) -> usize {
-        println!("evaluting at {} doc {} strat {:?}", self.at, &self.val, self.idx.get(self.at));
+        println!(
+            "evaluting at {} doc {} strat {:?}",
+            self.at,
+            &self.val,
+            self.idx.get(self.at)
+        );
 
         match self.idx.get(self.at) {
             Some((Strategy::FirstWriteWins, _)) => self.first_write_wins(),
@@ -710,5 +715,68 @@ mod test {
                 },
             ],
         );
+    }
+
+    #[test]
+    fn test_reduce_at() {
+        // Create a fixture of reduce strategies indexed at given document locations.
+        let idx = vec![
+            Strategy::Merge(Merge { key: Vec::new() }),
+            Strategy::Minimize(Minimize { key: Vec::new() }),
+            Strategy::Maximize(Maximize { key: Vec::new() }),
+            Strategy::Merge(Merge { key: Vec::new() }),
+            Strategy::Sum,
+            Strategy::FirstWriteWins,
+        ];
+        let idx = idx.iter().map(|s| (s, 0)).collect::<Vec<_>>();
+
+        // Run a set of cases having shapes matching our strategy index fixture.
+        // Expect each document location was reduced using the expected strategy.
+        let cases = vec![
+            // Array merge cases.
+            (
+                json!([5, 5.0, [10, "first"]]),
+                json!([5, 5.0, [10, "first"]]),
+            ),
+            (
+                json!([10.0, 10, [15, "second"]]),
+                json!([5, 10, [25, "first"]]),
+            ),
+            (
+                json!([4.1, 4, [-0.5, "third"]]),
+                json!([4.1, 10, [24.5, "first"]]),
+            ),
+            // Object merge cases. The first reduced object document is taken as |into|,
+            // as they're incompatible types and in this case merge defaults to LWW.
+            (
+                json!({"a": 5, "b": 5.0, "c": {"d": 10, "e": "first"}}),
+                json!({"a": 5, "b": 5.0, "c": {"d": 10, "e": "first"}}),
+            ),
+            (
+                json!({"a": 10.0, "b": 10, "c": {"d": 15, "e": "second"}}),
+                json!({"a": 5, "b": 10, "c": {"d": 25, "e": "first"}}),
+            ),
+            (
+                json!({"a": 4.1, "b": 4, "c": {"d": -0.5, "e": "third"}}),
+                json!({"a": 4.1, "b": 10, "c": {"d": 24.5, "e": "first"}}),
+            ),
+        ];
+
+        let mut into = Value::Null;
+        for (i, (doc, expect)) in cases.into_iter().enumerate() {
+            assert_eq!(
+                6,
+                Reducer {
+                    at: 0,
+                    val: doc,
+                    into: &mut into,
+                    created: i == 0,
+                    idx: &idx,
+                }
+                .reduce()
+            );
+
+            assert_eq!(&expect, &into);
+        }
     }
 }
