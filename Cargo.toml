@@ -1,6 +1,8 @@
 [workspace]
 
 members = [
-	"json",
 	"cmd/estctl",
+	"json",
+	"json_ext",
+	"bridge",
 ]

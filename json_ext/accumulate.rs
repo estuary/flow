@@ -1,12 +1,10 @@
-
-use serde_json::Value;
+use super::{extract_reduce_annotations, reduce::Reducer, Annotation};
 use estuary_json::{self as ej, validator};
-use std::collections::hash_map;
-use std::hash::{Hasher, BuildHasher};
-use super::{Annotation, extract_reduce_annotations, reduce::Reducer};
+use serde_json::Value;
 use std::cmp::Ordering;
+use std::collections::hash_map;
+use std::hash::{BuildHasher, Hasher};
 use std::iter;
-
 
 pub struct Ring {
     key: Vec<String>,
@@ -21,10 +19,8 @@ pub struct Ring {
 }
 
 impl Ring {
-
-    pub fn new(key: Vec<String>, size: u32) -> Ring
-    {
-        Ring{
+    pub fn new(key: Vec<String>, size: u32) -> Ring {
+        Ring {
             key: key,
             rs: hash_map::RandomState::new(),
             v: iter::repeat(Value::Null).take(size as usize).collect(),
@@ -34,8 +30,13 @@ impl Ring {
         }
     }
 
-    pub fn accumulate<C>(&mut self, doc: Value, validator: &validator::Validator<Annotation, C>) -> Option<Value>
-        where C: validator::Context
+    pub fn accumulate<C>(
+        &mut self,
+        doc: Value,
+        validator: &validator::Validator<Annotation, C>,
+    ) -> Option<Value>
+    where
+        C: validator::Context,
     {
         let hash = self.doc_hash(&doc);
         let entry = self.idx.entry(hash).or_insert(self.tail as u32);
@@ -44,18 +45,20 @@ impl Ring {
 
         // If an entry exists for this hash but is of a different key,
         // then de-index the existing value in favor of our new one.
-        if !create && ej::json_cmp_at(&self.key, &doc, &self.v[*entry as usize]) != Ordering::Equal {
+        if !create && ej::json_cmp_at(&self.key, &doc, &self.v[*entry as usize]) != Ordering::Equal
+        {
             *entry = self.tail as u32;
             create = true;
         }
 
-        Reducer{
+        Reducer {
             at: 0,
             val: doc,
             into: &mut self.v[*entry as usize],
             created: create,
             idx: &extract_reduce_annotations(validator.outcomes()),
-        }.reduce();
+        }
+        .reduce();
 
         if create {
             self.tail = (self.tail + 1) % self.v.len();
@@ -72,8 +75,7 @@ impl Ring {
         }
     }
 
-    pub fn evict_head(&mut self) -> Option<Value>
-    {
+    pub fn evict_head(&mut self) -> Option<Value> {
         if self.head == self.tail {
             None
         } else {

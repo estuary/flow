@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package shuffle;
+
+import "gogoproto/gogo.proto";
+import "broker/protocol/protocol.proto";
+
+option go_package = "shuffle";
+
+option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.goproto_sizecache_all) = false;
+option (gogoproto.goproto_unkeyed_all) = false;
+option (gogoproto.goproto_unrecognized_all) = false;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+message Config {
+    option (gogoproto.equal) = true;
+
+    message Node {
+        option (gogoproto.equal) = true;
+
+        int64 min_clock_sec = 1;
+        int64 max_clock_sec = 2;
+    }
+    repeated Node nodes = 1 [(gogoproto.nullable) = false];
+
+    // JSON-Pointer to the message UUID.
+    string uuid_json_ptr = 2;
+
+    // Composite key over which shuffling occurs, specified as one or more
+    // JSON-Pointers indicating a message location to extract.
+    repeated string shuffle_key_ptr = 3;
+    int32 broadcast_to = 4;
+    int32 choose_from = 5;
+}
+
+message ReadRequest {
+    option (gogoproto.equal) = true;
+
+    // Configuration under which shuffling is to occur.
+    Config config = 1 [(gogoproto.nullable) = false];
+    // Index of this reader within the shuffle topology.
+    int32 shuffle_index = 2;
+    // Nominal ReadRequest whose response is to be shuffled.
+    protocol.ReadRequest read_request = 3 [
+        (gogoproto.nullable) = false,
+        (gogoproto.embed) = true
+    ];
+}
+
+service Shuffle {
+    // Subscribe a Shard to read a Journal.
+    rpc Read(ReadRequest) returns (stream protocol.ReadResponse);
+}

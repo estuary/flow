@@ -31,8 +31,7 @@ WITH RECURSIVE cte(id, import_id) AS (
     FROM resource_imports AS ri
              JOIN cte ON ri.id = cte.import_id
 )
-SELECT *
-from cte;
+SELECT * FROM cte;
 
 CREATE TRIGGER assert_resource_imports_are_acyclic
     BEFORE INSERT
@@ -69,7 +68,7 @@ CREATE TABLE collections
     -- Canonical URI of the collection's JSON-Schema.
     schema_uri  TEXT                NOT NULL,
     -- Composite key extractors of the collection, as `[JSON-Pointer]`.
-    key         TEXT                NOT NULL CHECK (JSON_TYPE(key) == 'array'),
+    key_json    TEXT                NOT NULL CHECK (JSON_TYPE(key) == 'array'),
     -- Resource which produced this collection.
     resource_id INTEGER             NOT NULL REFERENCES resources (id)
 );
@@ -85,7 +84,7 @@ CREATE TABLE projections
     -- Collection document location, as a JSON-Pointer.
     ptr           TEXT    NOT NULL,
     -- Use this projection to logically partition the collection?
-    partition     BOOLEAN,
+    is_logical_partition  BOOLEAN,
 
     PRIMARY KEY (collection_id, name)
 );
@@ -102,11 +101,15 @@ CREATE TABLE inferences
     is_pattern       BOOLEAN,
     -- Possible types for this location.
     -- Subset of ["null", "true", "false", "object", "array", "integer", "numeric", "string"].
-    types            TEXT    NOT NULL CHECK (JSON_TYPE(types) == 'array'),
+    types_json       TEXT    NOT NULL CHECK (JSON_TYPE(types) == 'array'),
+    -- When the location is a "string" type, the format which the string must take.
+    string_format    TEXT,
     -- Is this location a scalar (i.e., is never an "object" or "array")?
     is_scalar        BOOLEAN,
     -- If of type "string", is the value base64-encoded ?
     is_base64        BOOLEAN,
+    -- Is this location the message UUID?
+    is_message_uuid BOOLEAN,
     -- Media MIME type of this location's content.
     content_type     TEXT,
 
@@ -162,6 +165,7 @@ CREATE TABLE derivations
 
 CREATE TABLE transforms
 (
+    transform_id INTEGER PRIMARY KEY NOT NULL,
     -- Collection being read from.
     source_id         TEXT    NOT NULL REFERENCES collections (id),
     -- Alternative JSON-Schema to apply to the source collection.
@@ -169,7 +173,7 @@ CREATE TABLE transforms
     source_schema_uri TEXT,
     -- Alternative key extractor for shuffling source documents to shards.
     -- Optional: if null, the key extractor of the source collection is used.
-    shuffle_key       TEXT CHECK (JSON_TYPE(shuffle_key) == 'array'),
+    shuffle_key_json  TEXT CHECK (JSON_TYPE(shuffle_key) == 'array'),
     -- Number of ranked shards by which each document is read.
     shuffle_broadcast INTEGER CHECK (shuffle_broadcast > 0),
     -- Number of ranked shards from which a shard is randomly selected.
@@ -181,7 +185,23 @@ CREATE TABLE transforms
     -- Resource which produced this transform.
     resource_id       INTEGER NOT NULL REFERENCES resources (id),
 
-    PRIMARY KEY (target_id, source_id, lambda_id)
+    UNIQUE KEY (target_id, source_id)
+);
+
+CREATE TABLE keys
+(
+    -- Collection to which this shuffle key pertains.
+    collection_id    INTEGER NOT NULL REFERENCES transforms (source_id),
+    -- Location of key component within collection documents, as a JSON-Pointer.
+    ptr              TEXT NOT NULL,
+    -- Index of this field within the composite key.
+    index            INTEGER NOT NULL,
+    -- If transform_id is NULL, then this is the primary key of the collection.
+    -- Otherwise, this is a shuffle key of the collection under the given transform.
+    transform_id     INTEGER REFERENCES transforms (transform_id),
+
+    PRIMARY KEY (transform_id, collection_id, index),
+    FOREIGN KEY (collection_id, ptr) REFERENCES inferences (collection_id, ptr)
 );
 
 CREATE TABLE materializations

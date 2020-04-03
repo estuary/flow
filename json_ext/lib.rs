@@ -2,8 +2,10 @@ use estuary_json::{schema, validator};
 use serde_json as sj;
 use std::convert::TryFrom;
 
-pub mod reduce;
 pub mod accumulate;
+pub mod message;
+pub mod ptr;
+pub mod reduce;
 
 #[derive(Debug)]
 pub enum Annotation {

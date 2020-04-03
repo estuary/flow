@@ -1,0 +1,18 @@
+[package]
+name = "estuary_bridge"
+version = "0.1.0"
+authors = ["Johnny Graettinger <johnny531@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+cbindgen = "0.13.2"
+
+#[dependencies]
+serde = "1.0"
+serde_json = "1.0"
+
+[lib]
+path = "lib.rs"
+crate-type = ["staticlib"]
