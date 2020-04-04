@@ -1,4 +1,3 @@
-
 use estuary_json_ext::{message as msg, ptr};
 
 #[derive(Debug)]
@@ -15,18 +14,16 @@ pub enum status_t {
 }
 
 macro_rules! try_ok {
-    ( $x:expr ) => {
-        {
-            match $x {
-                Ok(x) => x,
-                Err(e) => return e.into()
-            }
+    ( $x:expr ) => {{
+        match $x {
+            Ok(x) => x,
+            Err(e) => return e.into(),
         }
-    };
+    }};
 }
 
 #[no_mangle]
-pub extern fn status_description(status: status_t, out: *mut u8, out_cap: usize) -> usize {
+pub extern "C" fn status_description(status: status_t, out: *mut u8, out_cap: usize) -> usize {
     let mut out = unsafe { Vec::from_raw_parts(out, 0, out_cap) };
     out.extend(format!("{:?}", status).as_bytes().iter().take(out_cap));
 

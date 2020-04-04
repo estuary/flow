@@ -154,6 +154,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror",
+ "tinyvec",
  "url",
  "uuid",
 ]

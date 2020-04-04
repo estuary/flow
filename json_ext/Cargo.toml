@@ -17,6 +17,7 @@ rusqlite = { version = "0.21.0", features = ["functions", "bundled", "url", "ser
 regex = "1.3.4"
 itertools = "0.9.0"
 uuid = "0.8.1"
+tinyvec = {version = "0.3.3", features = ["alloc"]}
 
 [lib]
 path = "lib.rs"

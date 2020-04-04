@@ -6,6 +6,7 @@ pub mod accumulate;
 pub mod message;
 pub mod ptr;
 pub mod reduce;
+mod varint;
 
 #[derive(Debug)]
 pub enum Annotation {

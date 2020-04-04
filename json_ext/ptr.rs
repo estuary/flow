@@ -1,8 +1,8 @@
 use serde_json as sj;
-use std::cmp;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use thiserror;
+use tinyvec::TinyVec;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -10,91 +10,118 @@ pub enum Error {
     NotRooted,
 }
 
+/// Pointer is a parsed JSON pointer.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct Pointer(TinyVec<[u8; 16]>);
+
 /// Token is a parsed token of a JSON pointer.
 #[derive(Debug, Eq, PartialEq)]
-pub enum Token {
+pub enum Token<'t> {
     /// Integer index of a JSON array.
     /// If applied to a JSON object, the index is may also serve as a property name.
-    Index(usize, String),
+    Index(usize),
     /// JSON object property name. Never an integer.
-    Property(String),
+    Property(&'t str),
     /// Next JSON index which is one beyond the current array extent.
     /// If applied to a JSON object, the property literal "-" is used.
     NextIndex,
 }
 
-/// Pointer is a parsed JSON pointer.
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Pointer(Vec<Token>);
+/// Iter is the iterator type over Tokens that's returned by Pointer::iter().
+pub struct Iter<'t>(&'t [u8]);
 
-impl Ord for Token {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        use Token::*;
-        match (self, other) {
-            (Index(lhs, _), Index(rhs, _)) => lhs.cmp(&rhs),
-            (Property(lhs), Property(rhs)) => lhs.cmp(&rhs),
-            (NextIndex, NextIndex) => cmp::Ordering::Equal,
-
-            // Index orders before NextIndex, which orders before Property.
-            (Index(_, _), _) => cmp::Ordering::Less,
-            (_, Index(_, _)) => cmp::Ordering::Greater,
-            (NextIndex, _) => cmp::Ordering::Less,
-            (_, NextIndex) => cmp::Ordering::Greater,
-        }
+impl Pointer {
+    /// Iterate over pointer tokens.
+    pub fn iter<'t>(&'t self) -> Iter<'t> {
+        Iter(&self.0)
     }
-}
 
-impl PartialOrd for Token {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
+    fn push_next_index(&mut self) {
+        self.0.push('-' as u8);
+    }
+
+    fn push_property(&mut self, prop: &str) {
+        // Encode as 'P' control code,
+        // followed by varint *byte* (not char) length,
+        // followed by property UTF-8 bytes.
+        self.0.push('P' as u8);
+        let prop = prop.as_bytes();
+        self.push_varint(prop.len() as u64);
+        self.0.extend(prop.iter().copied());
+    }
+
+    fn push_index(&mut self, ind: u64) {
+        self.0.push('I' as u8);
+        self.push_varint(ind);
+    }
+
+    fn push_varint(&mut self, n: u64) {
+        let mut buf = [0 as u8; 10];
+        let n = super::varint::write_varu64(&mut buf, n);
+        self.0.extend(buf.iter().copied().take(n));
     }
 }
 
 impl TryFrom<&str> for Pointer {
     type Error = Error;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
+    fn try_from(s: &str) -> Result<Self, Error> {
         if s.is_empty() {
-            return Ok(Pointer(Vec::new()));
+            return Ok(Pointer(TinyVec::new()));
         } else if !s.starts_with('/') {
             return Err(Error::NotRooted);
         }
 
-        Ok(Pointer(
-            s.split('/')
-                .skip(1)
-                .map(|t| t.replace("~1", "/").replace("~0", "~"))
-                .map(|t| {
-                    use Token::*;
+        let mut tape = Pointer(TinyVec::new());
 
-                    if t == "-" {
-                        NextIndex
-                    } else if t.starts_with('+') {
-                        Property(t)
-                    } else if t.starts_with('0') && t.len() > 1 {
-                        Property(t)
-                    } else if let Ok(ind) = usize::from_str(&t) {
-                        Index(ind, t)
-                    } else {
-                        Property(t)
-                    }
-                })
-                .collect(),
-        ))
+        for t in s
+            .split('/')
+            .skip(1)
+            .map(|t| t.replace("~1", "/").replace("~0", "~"))
+        {
+            if t == "-" {
+                tape.push_next_index();
+            } else if t.starts_with('+') {
+                tape.push_property(&t);
+            } else if t.starts_with('0') && t.len() > 1 {
+                tape.push_property(&t)
+            } else if let Ok(ind) = u64::from_str(&t) {
+                tape.push_index(ind)
+            } else {
+                tape.push_property(&t)
+            }
+        }
+        Ok(tape)
     }
 }
 
-impl Token {
-    /// Returns the Token's interpretation as an Object property:
-    /// - When a Property, its value is returned directly.
-    /// - When an Index, the string form of the Index is returned.
-    /// - When a NextIndex, returns "-".
-    pub fn as_property(&self) -> &str {
-        match self {
-            Token::Index(_, prop) => &prop,
-            Token::Property(prop) => &prop,
-            Token::NextIndex => "-",
+impl<'t> Iterator for Iter<'t> {
+    type Item = Token<'t>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_empty() {
+            return None;
         }
+        // Match on next control code.
+        Some(match self.0[0] as char {
+            '-' => {
+                self.0 = &self.0[1..]; // Pop control code.
+                Token::NextIndex
+            }
+            'P' => {
+                let (prop_len, prop_len_len) = super::varint::read_varu64(&self.0[1..]);
+                let prop = &self.0[1 + prop_len_len..1 + prop_len_len + prop_len as usize];
+                let prop = unsafe { std::str::from_utf8_unchecked(prop) };
+                self.0 = &self.0[1 + prop_len_len + prop_len as usize..]; // Pop.
+                Token::Property(prop)
+            }
+            'I' => {
+                let (ind, ind_len) = super::varint::read_varu64(&self.0[1..]);
+                self.0 = &self.0[1 + ind_len..]; // Pop.
+                Token::Index(ind as usize)
+            }
+            c @ _ => panic!("unexpected tape control {:?}", c),
+        })
     }
 }
 
@@ -107,16 +134,17 @@ impl Pointer {
 
         let mut v = doc;
 
-        for token in self.0.iter() {
+        for token in self.iter() {
             let next = match v {
-                Object(map) => map.get(token.as_property()),
-                Array(arr) => {
-                    if let Index(ind, _) = token {
-                        arr.get(*ind)
-                    } else {
-                        None
-                    }
-                }
+                Object(map) => match token {
+                    Index(ind) => map.get(&ind.to_string()),
+                    Property(prop) => map.get(prop),
+                    NextIndex => map.get("-"),
+                },
+                Array(arr) => match token {
+                    Index(ind) => arr.get(ind),
+                    Property(_) | NextIndex => None,
+                },
                 _ => None,
             };
 
@@ -143,7 +171,7 @@ impl Pointer {
 
         let mut v = doc;
 
-        for token in self.0.iter() {
+        for token in self.iter() {
             // If the current value is null but more tokens remain in the pointer,
             // instantiate it as an object or array (depending on token type) in
             // which we'll create the next child location.
@@ -152,27 +180,29 @@ impl Pointer {
                     Property(_) => {
                         *v = sjv::Object(sj::map::Map::new());
                     }
-                    Index(_, _) | NextIndex => {
+                    Index(_) | NextIndex => {
                         *v = sjv::Array(Vec::new());
                     }
                 };
             }
 
             v = match v {
-                sjv::Object(map) => {
+                sjv::Object(map) => match token {
                     // Create or modify existing entry.
-                    map.entry(token.as_property()).or_insert(sj::Value::Null)
-                }
+                    Index(ind) => map.entry(ind.to_string()).or_insert(sj::Value::Null),
+                    Property(prop) => map.entry(prop).or_insert(sj::Value::Null),
+                    NextIndex => map.entry("-").or_insert(sj::Value::Null),
+                },
                 sjv::Array(arr) => match token {
-                    Index(ind, _) => {
+                    Index(ind) => {
                         // Create any required indices [0..ind) as Null.
-                        if *ind >= arr.len() {
+                        if ind >= arr.len() {
                             arr.extend(
-                                std::iter::repeat(sj::Value::Null).take(1 + *ind - arr.len()),
+                                std::iter::repeat(sj::Value::Null).take(1 + ind - arr.len()),
                             );
                         }
                         // Create or modify |ind| entry.
-                        arr.get_mut(*ind).unwrap()
+                        arr.get_mut(ind).unwrap()
                     }
                     NextIndex => {
                         // Append and return a Null.
@@ -202,19 +232,13 @@ mod test {
 
         // Basic example.
         let ptr = Pointer::try_from("/p1/2/p3/-")?;
-        assert_eq!(
-            ptr,
-            Pointer(vec![
-                Property("p1".to_owned()),
-                Index(2, "2".to_owned()),
-                Property("p3".to_owned()),
-                NextIndex,
-            ])
-        );
+        assert!(vec![Property("p1"), Index(2), Property("p3"), NextIndex]
+            .into_iter()
+            .eq(ptr.iter()));
 
         // Empty pointer.
         let ptr = Pointer::try_from("")?;
-        assert_eq!(ptr, Pointer(vec![]));
+        assert_eq!(ptr.iter().next(), None);
 
         // Un-rooted pointers are an error.
         match Pointer::try_from("p1/2") {
@@ -224,23 +248,42 @@ mod test {
 
         // Handles escapes.
         let ptr = Pointer::try_from("/p~01/~12")?;
-        assert_eq!(
-            ptr,
-            Pointer(vec![Property("p~1".to_owned()), Property("/2".to_owned()),])
-        );
+        assert!(vec![Property("p~1"), Property("/2")]
+            .into_iter()
+            .eq(ptr.iter()));
 
         // Handles disallowed integer representations.
         let ptr = Pointer::try_from("/01/+2/-3/4/-")?;
-        assert_eq!(
-            ptr,
-            Pointer(vec![
-                Property("01".to_owned()),
-                Property("+2".to_owned()),
-                Property("-3".to_owned()),
-                Index(4, "4".to_owned()),
-                NextIndex,
-            ])
-        );
+        assert!(vec![
+            Property("01"),
+            Property("+2"),
+            Property("-3"),
+            Index(4),
+            NextIndex,
+        ]
+        .into_iter()
+        .eq(ptr.iter()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ptr_size() -> Result<(), Error> {
+        assert_eq!(std::mem::size_of::<Pointer>(), 32);
+
+        let small = Pointer::try_from("/_estuary/uuid")?;
+        assert_eq!(small.0.len(), 16);
+
+        if let TinyVec::Heap(_) = small.0 {
+            panic!("didn't expect fixture to spill to heap");
+        }
+
+        let large = Pointer::try_from("/large key/and child")?;
+        assert_eq!(large.0.len(), 22);
+
+        if let TinyVec::Inline(_) = large.0 {
+            panic!("expected large fixture to spill to heap");
+        }
 
         Ok(())
     }

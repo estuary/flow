@@ -1,4 +1,3 @@
-
 #[macro_use]
 pub mod status;
 pub use status::status_t;
