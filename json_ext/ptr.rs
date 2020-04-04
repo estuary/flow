@@ -289,10 +289,10 @@ mod test {
 
         // Locations which don't exist.
         for case in [
-            "/bar", // Missing property.
-            "/foo/2", // Missing index.
+            "/bar",      // Missing property.
+            "/foo/2",    // Missing index.
             "/foo/prop", // Cannot take property of array.
-            "/e^f/3", // Not an object or array.
+            "/e^f/3",    // Not an object or array.
         ]
         .iter()
         {

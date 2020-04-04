@@ -9,9 +9,13 @@ edition = "2018"
 [build-dependencies]
 cbindgen = "0.13.2"
 
-#[dependencies]
+[dependencies]
+estuary_json = { path = "../json" }
+estuary_json_ext = { path = "../json_ext" }
 serde = "1.0"
 serde_json = "1.0"
+thiserror = "1.0.14"
+uuid = "0.8.1"
 
 [lib]
 path = "lib.rs"

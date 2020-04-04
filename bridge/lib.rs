@@ -1,3 +1,10 @@
+
+#[macro_use]
+pub mod status;
+pub use status::status_t;
+
+pub mod message;
+
 /*
 #[repr(C)]
 pub enum Result {
