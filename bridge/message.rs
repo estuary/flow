@@ -76,6 +76,12 @@ pub extern "C" fn est_msg_new(uuid_ptr: &json_ptr_t) -> *mut msg_t {
 }
 
 #[no_mangle]
+pub extern "C" fn est_msg_new_acknowledgement(m: &msg_t) -> *mut msg_t {
+    let msg = msg::Message::new(m.as_ref().uuid_ptr.clone());
+    Box::into_raw(Box::new(msg)) as *mut msg_t
+}
+
+#[no_mangle]
 pub extern "C" fn est_msg_get_uuid(m: &msg_t) -> uuid_t {
     m.as_ref().get_uuid().into()
 }
@@ -89,6 +95,7 @@ pub extern "C" fn est_msg_set_uuid(m: &mut msg_t, to: uuid_t) {
 pub extern "C" fn est_msg_marshal_json(m: &msg_t, buf: *mut u8, buf_len: usize) -> usize {
     let mut bw = unsafe { super::BufWriter::new(buf, buf_len) };
     sj::to_writer(&mut bw, &m.as_ref().doc).unwrap();
+    bw.write("\n".as_bytes()).unwrap();
     bw.n_written
 }
 
@@ -160,6 +167,26 @@ pub extern "C" fn est_msg_extract_fields<'p>(
         };
     }
     bw.n_written
+}
+
+#[no_mangle]
+pub extern "C" fn est_msg_hash_fields(
+    m: &msg_t,
+    ptrs: *const *const json_ptr_t,
+    ptrs_len: usize,
+) -> u64 {
+    let m: &msg::Message = m.as_ref();
+    let ptrs : &[*const json_ptr_t] = unsafe { std::slice::from_raw_parts(ptrs, ptrs_len) };
+
+    let mut hash = 0;
+
+    for ptr in ptrs.iter().copied() {
+        let ptr : &ptr::Pointer = unsafe { &*ptr }.as_ref();
+        let value = ptr.query(&m.doc).unwrap_or(&sj::Value::Null);
+        let span = ej::de::walk(value, &mut ej::NoopWalker).unwrap();
+        hash ^= span.hashed;
+    }
+    hash
 }
 
 #[no_mangle]

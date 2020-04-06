@@ -58,9 +58,15 @@ uintptr_t est_msg_extract_fields(const est_msg_t *m,
 
 est_uuid_t est_msg_get_uuid(const est_msg_t *m);
 
+uint64_t est_msg_hash_fields(const est_msg_t *m,
+                             const est_json_ptr_t *const *ptrs,
+                             uintptr_t ptrs_len);
+
 uintptr_t est_msg_marshal_json(const est_msg_t *m, uint8_t *buf, uintptr_t buf_len);
 
 est_msg_t *est_msg_new(const est_json_ptr_t *uuid_ptr);
+
+est_msg_t *est_msg_new_acknowledgement(const est_msg_t *m);
 
 void est_msg_set_uuid(est_msg_t *m, est_uuid_t to);
 

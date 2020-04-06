@@ -3,6 +3,7 @@ package bridge
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"sync"
 	"testing"
 
@@ -11,33 +12,41 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-func TestStatus(t *testing.T) {
-	var ptr, err = NewJSONPointer("/_hdr/uuid")
-	assert.Nil(t, err)
+func TestUUIDSetGetAndAckUUID(t *testing.T) {
+	var ptr = MustJSONPointer("/_hdr/uuid")
+	defer ptr.Drop()
 
 	var zero message.UUID
 	var f1 = uuid.MustParse("7367f4f3-7668-4370-b06f-021c828d6ed8")
 	var f2 = uuid.MustParse("18cd0685-c97f-470b-a585-ed951ada17cf")
+	var f3 = uuid.MustParse("053ec4a5-6d61-455c-95ac-1523a7fb5a0b")
 
 	var m = NewMessage(ptr)
-	assert.Equal(t, m.GetUUID(), zero)
+	defer m.Drop()
 
+	assert.Equal(t, m.GetUUID(), zero)
 	m.SetUUID(f1)
 	assert.Equal(t, m.GetUUID(), f1)
 	m.SetUUID(f2)
 	assert.Equal(t, m.GetUUID(), f2)
 
+	var ack = m.NewAcknowledgement("")
+	defer ack.(Message).Drop()
+	ack.SetUUID(f3)
+
 	var buf bytes.Buffer
 	var bw = bufio.NewWriter(&buf)
 
-	_, err = m.MarshalJSONTo(bw)
-	assert.Nil(t, err)
+	for _, m := range []message.Message{m, ack} {
+		var _, err = m.(message.JSONMarshalerTo).MarshalJSONTo(bw)
+		assert.Nil(t, err)
+	}
 	bw.Flush()
 
-	assert.Equal(t, buf.String(), `{"_hdr":{"uuid":"`+f2.String()+`"}}`)
-
-	m.Drop()
-	ptr.Drop()
+	assert.Equal(t,
+		`{"_hdr":{"uuid":"`+f2.String()+`"}}`+"\n"+`{"_hdr":{"uuid":"`+f3.String()+`"}}`+"\n",
+		buf.String(),
+	)
 }
 
 func TestMarshalJSON(t *testing.T) {
@@ -46,7 +55,7 @@ func TestMarshalJSON(t *testing.T) {
 
 	var m = NewMessage(ptr)
 	m.SetUUID(uuid.MustParse("7367f4f3-7668-4370-b06f-021c828d6ed8"))
-	var expect = `{"_meta":{"uuid":"7367f4f3-7668-4370-b06f-021c828d6ed8"}}`
+	var expect = `{"_meta":{"uuid":"7367f4f3-7668-4370-b06f-021c828d6ed8"}}` + "\n"
 
 	// Excercise pessimstic re-allocation case.
 	bufferPool = sync.Pool{New: func() interface{} { return make([]byte, 4) }}
@@ -67,7 +76,7 @@ func TestRoundUp(t *testing.T) {
 	assert.Equal(t, 16, roundUp(15))
 }
 
-func TestUnmarshalAndExtract(t *testing.T) {
+func TestExtractAndHash(t *testing.T) {
 	// Note whitespace of "arr" and "obj". We expect it's compacted in extractions.
 	var fixture = `
 	{
@@ -83,16 +92,16 @@ func TestUnmarshalAndExtract(t *testing.T) {
 	}
 	`
 	var ptrs = []JSONPointer{
-		MustJSONPointer("/uuid"),          // String.
-		MustJSONPointer("/arr/0/true"),    // True.
-		MustJSONPointer("/arr/1"),         // False.
-		MustJSONPointer("/arr/0/missing"), // Missing.
-		MustJSONPointer("/obj/null"),      // Null.
-		MustJSONPointer("/nums/u"),        // Unsigned.
-		MustJSONPointer("/nums/s"),        // Signed.
-		MustJSONPointer("/nums/f"),        // Float.
-		MustJSONPointer("/arr"),           // Array.
-		MustJSONPointer("/obj"),           // Object.
+		MustJSONPointer("/uuid"),          // 0: String.
+		MustJSONPointer("/arr/0/true"),    // 1: True.
+		MustJSONPointer("/arr/1"),         // 2: False.
+		MustJSONPointer("/arr/0/missing"), // 3: Missing.
+		MustJSONPointer("/obj/null"),      // 4: Null.
+		MustJSONPointer("/nums/u"),        // 5: Unsigned.
+		MustJSONPointer("/nums/s"),        // 6: Signed.
+		MustJSONPointer("/nums/f"),        // 7: Float.
+		MustJSONPointer("/arr"),           // 8: Array.
+		MustJSONPointer("/obj"),           // 9: Object.
 	}
 	defer func() {
 		for _, p := range ptrs {
@@ -122,6 +131,12 @@ func TestUnmarshalAndExtract(t *testing.T) {
 		[]byte(`[{"true":true},false]`),
 		[]byte(`{"null":null}`),
 	}, out)
+
+	//
+	assert.Equal(t, uint64(0), m.HashFields())
+	assert.Equal(t, uint64(0x75439701e8cb9058), m.HashFields(ptrs[0]))
+	assert.Equal(t, uint64(0xe2b32cfa2571a73e), m.HashFields(ptrs[0:4]...))
+	assert.Equal(t, uint64(0x3fba0ed9fdce25c1), m.HashFields(ptrs...))
 }
 
 func TestUnmarshalCases(t *testing.T) {
@@ -153,6 +168,18 @@ func TestUnmarshalCases(t *testing.T) {
 		}
 		m.Drop()
 	}
+}
+
+func TestImplementsInterfaces(*testing.T) {
+	var ptr = MustJSONPointer("/uuid")
+	defer ptr.Drop()
+
+	var m = NewMessage(ptr)
+	defer m.Drop()
+
+	var _ message.Message = m
+	var _ json.Unmarshaler = m
+	var _ message.JSONMarshalerTo = m
 }
 
 type debugVisitor []interface{}

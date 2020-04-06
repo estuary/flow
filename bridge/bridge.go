@@ -11,15 +11,9 @@ import (
 	"sync"
 	"unsafe"
 
+	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
-
-// Status is a returned result
-func statusError(s C.est_status_t) error {
-	var buf [64]byte
-	var l = C.est_status_description(s, (*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
-	return errors.New(string(buf[:l]))
-}
 
 // JSONPointer wraps the native est_json_ptr_t.
 type JSONPointer struct {
@@ -76,6 +70,12 @@ func (m Message) SetUUID(uuid message.UUID) {
 	C.est_msg_set_uuid(m.wrapped, uuidC)
 }
 
+// NewAcknowledgement returns a JSON document with an initialized UUID
+// location, but which is otherwise empty.
+func (m Message) NewAcknowledgement(protocol.Journal) message.Message {
+	return Message{wrapped: C.est_msg_new_acknowledgement(m.wrapped)}
+}
+
 // FieldVisitor visits ordered field locations of a Message's JSON document.
 // It's used with the VisitFields method.
 type FieldVisitor interface {
@@ -92,6 +92,10 @@ type FieldVisitor interface {
 
 // VisitFields invokes the FieldVisitor for each ordered JSONPointer.
 func (m Message) VisitFields(fv FieldVisitor, ptrs ...JSONPointer) {
+	if len(ptrs) == 0 {
+		return
+	}
+
 	var fields = make([]C.est_extract_field_t, len(ptrs))
 	for i, ptr := range ptrs {
 		fields[i].ptr = ptr.wrapped
@@ -138,6 +142,17 @@ func (m Message) VisitFields(fv FieldVisitor, ptrs ...JSONPointer) {
 	bufferPool.Put(buf)
 }
 
+// HashFields produces a combined, stable, deep hash of the values at
+// the given document locations.
+func (m Message) HashFields(ptrs ...JSONPointer) uint64 {
+	if len(ptrs) == 0 {
+		return 0
+	}
+	var hash = C.est_msg_hash_fields(m.wrapped,
+		(**C.est_json_ptr_t)((unsafe.Pointer)(&ptrs[0])), (C.uintptr_t)(len(ptrs)))
+	return uint64(hash)
+}
+
 // MarshalJSONTo marshals the JSON message to the Writer.
 func (m Message) MarshalJSONTo(b *bufio.Writer) (int, error) {
 	var buf = bufferPool.Get().([]byte)
@@ -150,7 +165,6 @@ func (m Message) MarshalJSONTo(b *bufio.Writer) (int, error) {
 			bufferPool.Put(buf)
 			return n, err
 		}
-
 		buf = make([]byte, roundUp(int(l)))
 	}
 }
@@ -182,4 +196,10 @@ func roundUp(n int) int {
 
 var bufferPool = sync.Pool{
 	New: func() interface{} { return make([]byte, 1024) },
+}
+
+func statusError(s C.est_status_t) error {
+	var buf [64]byte
+	var l = C.est_status_description(s, (*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
+	return errors.New(string(buf[:l]))
 }
