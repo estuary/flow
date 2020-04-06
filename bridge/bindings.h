@@ -4,43 +4,64 @@
 #include <stdlib.h>
 
 typedef enum {
-  OK,
-  UTF8_PARSE_ERROR,
-  MSG_JSON_PARSE_ERROR,
-  MSG_UUID_BAD_LOCATION,
-  MSG_UUID_NOT_A_STRING,
-  MSG_UUID_PARSE_ERROR,
-  JSON_PTR_NOT_ROOTED,
-} status_t;
+  EST_OK,
+  EST_UTF8_PARSE_ERROR,
+  EST_MSG_JSON_PARSE_ERROR,
+  EST_MSG_UUID_BAD_LOCATION,
+  EST_MSG_UUID_NOT_A_STRING,
+  EST_MSG_UUID_PARSE_ERROR,
+  EST_JSON_PTR_NOT_ROOTED,
+} est_status_t;
 
-typedef struct builder_t builder_t;
+typedef enum {
+  EST_DOES_NOT_EXIST,
+  EST_NULL,
+  EST_TRUE,
+  EST_FALSE,
+  EST_UNSIGNED,
+  EST_SIGNED,
+  EST_FLOAT,
+  EST_STRING,
+  EST_OBJECT,
+  EST_ARRAY,
+} est_type_t;
 
-typedef struct message_t message_t;
+typedef struct est_json_ptr_t est_json_ptr_t;
+
+typedef struct est_msg_t est_msg_t;
 
 typedef struct {
-  uint8_t *ptr;
-  uintptr_t len;
-  uintptr_t cap;
-} buffer_t;
+  const est_json_ptr_t *ptr;
+  est_type_t type_;
+  uint64_t unsigned_;
+  int64_t signed_;
+  double float_;
+  uint32_t begin;
+  uint32_t end;
+} est_extract_field_t;
 
 typedef struct {
   uint8_t bytes[16];
-} uuid_t;
+} est_uuid_t;
 
-void buffer_drop(buffer_t b);
+void est_json_ptr_drop(est_json_ptr_t *p);
 
-message_t *msg_builder_build(const builder_t *b);
+est_status_t est_json_ptr_new(const char *uuid_ptr, est_json_ptr_t **out);
 
-void msg_builder_drop(builder_t *b);
+void est_msg_drop(est_msg_t *m);
 
-status_t msg_builder_new(const char *uuid_ptr, builder_t **out);
+uintptr_t est_msg_extract_fields(const est_msg_t *m,
+                                 est_extract_field_t *fields,
+                                 uintptr_t fields_len,
+                                 uint8_t *buf,
+                                 uintptr_t buf_len);
 
-void msg_drop(message_t *m);
+est_uuid_t est_msg_get_uuid(const est_msg_t *m);
 
-uuid_t msg_get_uuid(const message_t *m);
+uintptr_t est_msg_marshal_json(const est_msg_t *m, uint8_t *buf, uintptr_t buf_len);
 
-buffer_t msg_marshal_json(const message_t *m);
+est_msg_t *est_msg_new(const est_json_ptr_t *uuid_ptr);
 
-void msg_set_uuid(message_t *m, uuid_t to);
+void est_msg_set_uuid(est_msg_t *m, est_uuid_t to);
 
-uintptr_t status_description(status_t status, uint8_t *out, uintptr_t out_cap);
+uintptr_t est_status_description(est_status_t status, uint8_t *out, uintptr_t out_cap);

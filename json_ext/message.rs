@@ -15,44 +15,29 @@ pub enum Error {
     UuidErr(#[from] uuid::Error),
 }
 
-/// Builder builds instances of Message.
-pub struct Builder {
-    uuid_ptr: ptr::Pointer,
-}
-
-/// Message is a JSON document which carries a validated UUID
-/// at a document location specified by the Message Builder.
-pub struct Message<'b> {
-    pub builder: &'b Builder,
+/// Message is a JSON document which carries a Gazette UUID
+/// at a specified document location.
+pub struct Message {
     pub doc: sj::Value,
+    pub uuid_ptr: ptr::Pointer,
 }
 
-impl Builder {
-    /// Builds and returns a Builder which constructs Message instances
-    /// having the given document UUID location.
-    pub fn new(uuid_ptr: ptr::Pointer) -> Builder {
-        Builder { uuid_ptr }
-    }
-
-    /// Returns a Message with a Null document root.
-    pub fn build(&self) -> Message {
-        let mut doc = sj::Value::Null;
-
-        // Initialize UUID location with Null.
-        *self.uuid_ptr.create(&mut doc).unwrap() = sj::Value::Null;
-
+impl Message {
+    /// Builds a new Message with an empty document.
+    pub fn new(uuid_ptr: ptr::Pointer) -> Message {
         Message {
-            builder: self,
-            doc: doc,
+            doc: sj::Value::Null,
+            uuid_ptr,
         }
     }
 
-    /// Returns a Message parsed from the given JSON slice.
-    pub fn from_json_slice(&self, b: &[u8]) -> Result<Message, Error> {
+    /// Builds a new Message parsed from the given JSON slice,
+    /// with a validated UUID.
+    pub fn from_json_slice(uuid_ptr: ptr::Pointer, b: &[u8]) -> Result<Message, Error> {
         let mut doc = sj::from_slice(b)?;
 
         // Verify existing UUID, or initialize with Null.
-        let uuid_loc = self.uuid_ptr.create(&mut doc);
+        let uuid_loc = uuid_ptr.create(&mut doc);
 
         match uuid_loc {
             Some(sj::Value::String(uuid_str)) => {
@@ -65,28 +50,23 @@ impl Builder {
             None => return Err(Error::UuidBadLocation),
         }
 
-        Ok(Message {
-            builder: self,
-            doc: doc,
-        })
+        Ok(Message { uuid_ptr, doc })
     }
-}
 
-impl<'b> Message<'b> {
     /// Returns the UUID of the Message. If a UUID does not exist at the
     /// expected location, a "Nil" zero-valued UUID is returned.
     pub fn get_uuid(&self) -> uuid::Uuid {
-        return match self.builder.uuid_ptr.query(&self.doc) {
+        return match self.uuid_ptr.query(&self.doc) {
             Some(sj::Value::String(uuid_str)) => uuid::Uuid::parse_str(uuid_str).unwrap(),
-            Some(sj::Value::Null) => uuid::Uuid::nil(),
-            Some(_) | None => panic!("Message should only hold validated UUIDs"),
+            None | Some(sj::Value::Null) => uuid::Uuid::nil(),
+            Some(vv @ _) => panic!("UUID value is not a string: {:?}", vv),
         };
     }
 
     /// Sets or replaces the UUID of the Message.
     /// UUIDs are encoded in lower-case, hyphenated form.
     pub fn set_uuid(&mut self, to: uuid::Uuid) {
-        let uuid_loc = self.builder.uuid_ptr.create(&mut self.doc).unwrap();
+        let uuid_loc = self.uuid_ptr.create(&mut self.doc).unwrap();
         *uuid_loc = sj::Value::String(
             to.to_hyphenated()
                 .encode_lower(&mut uuid::Uuid::encode_buffer())
@@ -105,12 +85,12 @@ mod test {
     type Ret = Result<(), Box<dyn std::error::Error>>;
 
     #[test]
-    fn test_build_empty_msg() -> Ret {
-        let b = Builder::new("/_hdr/uuid".try_into()?);
-        let mut msg = b.build();
+    fn test_new_empty_msg() -> Ret {
+        let mut msg = Message::new("/_hdr/uuid".try_into()?);
 
-        // Expect UUID location is initialized with Null.
-        assert_eq!(msg.doc, sj::json!({"_hdr": {"uuid": sjv::Null}}));
+        // Message is initially null.
+        assert_eq!(msg.doc, sjv::Null);
+        assert_eq!(msg.get_uuid(), uuid::Uuid::nil());
 
         // Expect a set UUID is get-able and updates the document.
         msg.set_uuid(uuid::Uuid::parse_str(A_UUID)?);
@@ -121,15 +101,14 @@ mod test {
     }
 
     #[test]
-    fn test_parse_msg_has_uuid() -> Ret {
+    fn test_parsed_msg_has_uuid() -> Ret {
         let raw = r#"
         {
             "_hdr": {"uuid": "936da01f-9abd-4d9d-80c7-02af85c822a8"},
             "name": "John Doe",
             "age": 43
         }"#;
-        let b = Builder::new("/_hdr/uuid".try_into()?);
-        let msg = b.from_json_slice(raw.as_bytes())?;
+        let msg = Message::from_json_slice("/_hdr/uuid".try_into()?, raw.as_bytes())?;
 
         assert_eq!(msg.get_uuid(), uuid::Uuid::parse_str(A_UUID)?);
         assert_eq!(msg.doc.pointer("/name").unwrap(), &sj::json!("John Doe"));
@@ -137,14 +116,13 @@ mod test {
     }
 
     #[test]
-    fn test_parse_no_uuid() -> Ret {
+    fn test_parsed_msg_has_no_uuid() -> Ret {
         let raw = r#"
         {
             "name": "John Doe",
             "age": 43
         }"#;
-        let b = Builder::new("/_hdr/uuid".try_into()?);
-        let msg = b.from_json_slice(raw.as_bytes())?;
+        let msg = Message::from_json_slice("/_hdr/uuid".try_into()?, raw.as_bytes())?;
 
         // UUID is interpreted as zero-valued.
         assert_eq!(msg.get_uuid(), uuid::Uuid::nil());
@@ -157,30 +135,30 @@ mod test {
         assert_eq!(msg.doc.pointer("/name").unwrap(), &sj::json!("John Doe"));
 
         // An explicit Null UUID is also permitted.
-        let msg = b.from_json_slice(r#"{"_hdr": {"uuid": null}}"#.as_bytes())?;
+        let msg = Message::from_json_slice(msg.uuid_ptr, r#"{"_hdr": {"uuid": null}}"#.as_bytes())?;
         assert_eq!(&msg.doc, &sj::json!({"_hdr": {"uuid": sjv::Null}}));
 
         Ok(())
     }
 
     #[test]
-    fn test_parse_bad_uuid_structure() {
-        let b = Builder::new("/_hdr/uuid".try_into().unwrap());
+    fn test_parse_with_bad_uuid_structure() {
+        let u_p: ptr::Pointer = "/_hdr/uuid".try_into().unwrap();
 
-        match b.from_json_slice(r#"{"_hdr": []}"#.as_bytes()) {
+        match Message::from_json_slice(u_p.clone(), r#"{"_hdr": []}"#.as_bytes()) {
             Err(Error::UuidBadLocation) => (),
             _ => panic!("expected bad UUID location"),
         };
-        match b.from_json_slice(r#"{"_hdr": {"uuid": 123}}"#.as_bytes()) {
+        match Message::from_json_slice(u_p, r#"{"_hdr": {"uuid": 123}}"#.as_bytes()) {
             Err(Error::UuidNotAString) => (),
             _ => panic!("expected UUID not a string"),
         };
     }
 
     #[test]
-    fn test_parse_bad_json() {
-        let b = Builder::new("/uuid".try_into().unwrap());
-        match b.from_json_slice("{invalid json".as_bytes()) {
+    fn test_parse_with_bad_json() {
+        let u_p = "/uuid".try_into().unwrap();
+        match Message::from_json_slice(u_p, "{invalid json".as_bytes()) {
             Err(Error::JsonErr(_)) => (),
             _ => panic!("expected JSON error"),
         };
@@ -188,8 +166,8 @@ mod test {
 
     #[test]
     fn test_parse_bad_uuid() {
-        let b = Builder::new("/uuid".try_into().unwrap());
-        match b.from_json_slice(r#"{"uuid": "invalid"}"#.as_bytes()) {
+        let u_p = "/uuid".try_into().unwrap();
+        match Message::from_json_slice(u_p, r#"{"uuid": "invalid"}"#.as_bytes()) {
             Err(Error::UuidErr(_)) => (),
             _ => panic!("expected UUID error"),
         };

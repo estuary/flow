@@ -2,6 +2,39 @@
 pub mod status;
 pub use status::status_t;
 
+pub mod ptr;
+pub use ptr::json_ptr_t;
+
+struct BufWriter<'b> {
+    buf: &'b mut [u8],
+    n_written: usize,
+}
+
+impl<'b> BufWriter<'b> {
+    unsafe fn new(buf: *mut u8, buf_len: usize) -> BufWriter<'b> {
+        let buf = std::slice::from_raw_parts_mut(buf, buf_len);
+        BufWriter { buf, n_written: 0 }
+    }
+}
+
+impl<'b> std::io::Write for BufWriter<'b> {
+    fn write(&mut self, d: &[u8]) -> std::io::Result<usize> {
+        self.buf.write(d).unwrap();
+        self.n_written += d.len();
+        Ok(d.len())
+    }
+
+    fn write_all(&mut self, d: &[u8]) -> std::io::Result<()> {
+        self.buf.write(d).unwrap();
+        self.n_written += d.len();
+        Ok(())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub mod message;
 
 /*

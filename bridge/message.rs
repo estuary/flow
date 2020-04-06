@@ -1,14 +1,26 @@
-use super::status_t;
-use estuary_json_ext::{message as msg, ptr};
-use std::convert::TryFrom;
-use std::ffi::CStr;
-use std::os::raw::c_char;
+use estuary_json as ej;
+use serde_json as sj;
+use estuary_json_ext::message as msg;
+use std::io::Write;
+
+use super::{json_ptr_t, status_t};
 
 #[allow(non_camel_case_types)]
-pub enum builder_t {}
+pub enum msg_t {}
 
-#[allow(non_camel_case_types)]
-pub enum message_t {}
+impl AsRef<msg::Message> for msg_t {
+    fn as_ref(&self) -> &msg::Message {
+        let p: *const msg_t = self;
+        unsafe { &*(p as *const msg::Message) }
+    }
+}
+
+impl AsMut<msg::Message> for msg_t {
+    fn as_mut(&mut self) -> &mut msg::Message {
+        let p: *mut msg_t = self;
+        unsafe { &mut *(p as *mut msg::Message) }
+    }
+}
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -16,88 +28,118 @@ pub struct uuid_t {
     bytes: [u8; 16],
 }
 
+impl From<uuid::Uuid> for uuid_t {
+    fn from(o: uuid::Uuid) -> uuid_t {
+        uuid_t {
+            bytes: *o.as_bytes(),
+        }
+    }
+}
+
+impl From<uuid_t> for uuid::Uuid {
+    fn from(o: uuid_t) -> uuid::Uuid {
+        uuid::Uuid::from_bytes(o.bytes)
+    }
+}
+
 #[allow(non_camel_case_types)]
 #[repr(C)]
-pub struct buffer_t {
-    ptr: *mut u8,
-    len: usize,
-    cap: usize,
+pub enum type_t {
+    EST_DOES_NOT_EXIST,
+    EST_NULL,
+    EST_TRUE,
+    EST_FALSE,
+    EST_UNSIGNED,
+    EST_SIGNED,
+    EST_FLOAT,
+    EST_STRING,
+    EST_OBJECT,
+    EST_ARRAY,
 }
 
-impl From<Vec<u8>> for buffer_t {
-    fn from(mut v: Vec<u8>) -> Self {
-        let b = buffer_t {
-            ptr: v.as_mut_ptr(),
-            len: v.len(),
-            cap: v.capacity(),
+#[allow(non_camel_case_types)]
+#[repr(C)]
+pub struct extract_field_t<'p> {
+    ptr: &'p json_ptr_t,
+    type_: type_t,
+    unsigned: u64,
+    signed: i64,
+    float: f64,
+    begin: u32,
+    end: u32,
+}
+
+#[no_mangle]
+pub extern "C" fn est_msg_new(uuid_ptr: &json_ptr_t) -> *mut msg_t {
+    let msg = msg::Message::new(uuid_ptr.as_ref().clone());
+    Box::into_raw(Box::new(msg)) as *mut msg_t
+}
+
+#[no_mangle]
+pub extern "C" fn est_msg_get_uuid(m: &msg_t) -> uuid_t {
+    m.as_ref().get_uuid().into()
+}
+
+#[no_mangle]
+pub extern "C" fn est_msg_set_uuid(m: &mut msg_t, to: uuid_t) {
+    m.as_mut().set_uuid(to.into());
+}
+
+#[no_mangle]
+pub extern "C" fn est_msg_marshal_json(m: &msg_t, buf: *mut u8, buf_len: usize) -> usize {
+    let mut bw = unsafe { super::BufWriter::new(buf, buf_len) };
+    sj::to_writer(&mut bw, &m.as_ref().doc).unwrap();
+    bw.n_written
+}
+
+#[no_mangle]
+pub extern "C" fn est_msg_extract_fields<'p>(
+    m: &msg_t,
+    fields: *mut extract_field_t<'p>,
+    fields_len: usize,
+    buf: *mut u8,
+    buf_len: usize,
+) -> usize {
+    let m : &msg::Message = m.as_ref();
+    let fields = unsafe { std::slice::from_raw_parts_mut(fields, fields_len) };
+    let mut bw = unsafe { super::BufWriter::new(buf, buf_len) };
+
+    for field in fields.iter_mut() {
+        let value = field.ptr.as_ref().query(&m.doc);
+
+        field.begin = bw.n_written as u32;
+        field.type_ = match value {
+            None => type_t::EST_DOES_NOT_EXIST,
+            Some(sj::Value::Null) => type_t::EST_NULL,
+            Some(sj::Value::Bool(true)) => type_t::EST_TRUE,
+            Some(sj::Value::Bool(false)) => type_t::EST_FALSE,
+            Some(sj::Value::Number(n)) => match n.into() {
+                ej::Number::Unsigned(n) => { field.unsigned = n; type_t::EST_UNSIGNED },
+                ej::Number::Signed(n) => { field.signed = n; type_t::EST_SIGNED },
+                ej::Number::Float(n) => { field.float = n; type_t::EST_FLOAT },
+            },
+            Some(sj::Value::String(s)) => {
+                bw.write(s.as_bytes()).unwrap();
+                field.end = bw.n_written as u32;
+                type_t::EST_STRING
+            }
+            Some(arr @ sj::Value::Array(_)) => {
+                sj::to_writer(&mut bw, arr).unwrap();
+                field.end = bw.n_written as u32;
+                type_t::EST_ARRAY
+            }
+            Some(obj @ sj::Value::Object(_)) => {
+                sj::to_writer(&mut bw, obj).unwrap();
+                field.end = bw.n_written as u32;
+                type_t::EST_OBJECT
+            }
         };
-        std::mem::forget(v);
-        b
     }
-}
-
-impl From<buffer_t> for Vec<u8> {
-    fn from(b: buffer_t) -> Self {
-        unsafe { Vec::from_raw_parts(b.ptr, b.len, b.cap) }
-    }
+    bw.n_written
 }
 
 #[no_mangle]
-pub extern "C" fn buffer_drop(b: buffer_t) {
-    Vec::<u8>::from(b);
-}
-
-#[no_mangle]
-pub extern "C" fn msg_builder_new(uuid_ptr: *const c_char, out: *mut *mut builder_t) -> status_t {
-    assert!(!uuid_ptr.is_null());
-    let uuid_ptr = unsafe { CStr::from_ptr(uuid_ptr) };
-    let uuid_ptr = try_ok!(uuid_ptr.to_str());
-    let uuid_ptr = try_ok!(ptr::Pointer::try_from(uuid_ptr));
-
-    unsafe {
-        *out = Box::into_raw(Box::new(msg::Builder::new(uuid_ptr))) as *mut builder_t;
-    }
-    status_t::OK
-}
-
-#[no_mangle]
-pub extern "C" fn msg_builder_drop(b: *mut builder_t) {
-    assert!(!b.is_null());
-    unsafe {
-        Box::from_raw(b as *mut msg::Builder);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn msg_builder_build(b: *const builder_t) -> *mut message_t {
-    let b = unsafe { &*(b as *const msg::Builder) };
-    let m = b.build();
-
-    Box::into_raw(Box::new(m)) as *mut message_t
-}
-
-#[no_mangle]
-pub extern "C" fn msg_get_uuid(m: *const message_t) -> uuid_t {
-    let m = unsafe { &*(m as *const msg::Message) };
-    uuid_t {
-        bytes: *m.get_uuid().as_bytes(),
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn msg_set_uuid(m: *mut message_t, to: uuid_t) {
-    let m = unsafe { &mut *(m as *mut msg::Message) };
-    m.set_uuid(uuid::Uuid::from_bytes(to.bytes));
-}
-
-#[no_mangle]
-pub extern "C" fn msg_marshal_json(m: *const message_t) -> buffer_t {
-    let m = unsafe { &*(m as *const msg::Message) };
-    serde_json::to_vec(&m.doc).unwrap().into()
-}
-
-#[no_mangle]
-pub extern "C" fn msg_drop(m: *mut message_t) {
+pub extern "C" fn est_msg_drop(m: *mut msg_t) {
     assert!(!m.is_null());
     unsafe {
         Box::from_raw(m as *mut msg::Message);
