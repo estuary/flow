@@ -101,18 +101,19 @@ func (m Message) VisitFields(fv FieldVisitor, ptrs ...JSONPointer) {
 		fields[i].ptr = ptr.wrapped
 	}
 
-	var buf = bufferPool.Get().([]byte)
+	var b = bufferPool.Get().([]byte)
 	for {
-		var l = C.est_msg_extract_fields(m.wrapped,
+		var delta = int(C.est_msg_extract_fields(m.wrapped,
 			&fields[0], (C.uintptr_t)(len(fields)),
-			(*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
+			(*C.uint8_t)(&b[0]), (C.uintptr_t)(cap(b))))
 
-		if int(l) < len(buf) {
-			break
-		} else {
-			buf = make([]byte, roundUp(int(l)))
+		if delta > cap(b) {
+			// Must re-allocate and try again.
+			b = make([]byte, roundUp(int(delta)))
 			continue
 		}
+		b = b[:delta]
+		break
 	}
 
 	for i, field := range fields {
@@ -132,14 +133,14 @@ func (m Message) VisitFields(fv FieldVisitor, ptrs ...JSONPointer) {
 		case C.EST_FLOAT:
 			fv.VisitFloat(i, float64(field.float_))
 		case C.EST_STRING:
-			fv.VisitString(i, buf[field.begin:field.end])
+			fv.VisitString(i, b[field.begin:field.end])
 		case C.EST_OBJECT:
-			fv.VisitObject(i, buf[field.begin:field.end])
+			fv.VisitObject(i, b[field.begin:field.end])
 		case C.EST_ARRAY:
-			fv.VisitArray(i, buf[field.begin:field.end])
+			fv.VisitArray(i, b[field.begin:field.end])
 		}
 	}
-	bufferPool.Put(buf)
+	bufferPool.Put(b)
 }
 
 // HashFields produces a combined, stable, deep hash of the values at
@@ -153,20 +154,38 @@ func (m Message) HashFields(ptrs ...JSONPointer) uint64 {
 	return uint64(hash)
 }
 
-// MarshalJSONTo marshals the JSON message to the Writer.
-func (m Message) MarshalJSONTo(b *bufio.Writer) (int, error) {
-	var buf = bufferPool.Get().([]byte)
+// AppendJSONTo appends the JSON serialization of the message to the buffer.
+// If the buffer is too small, it's re-allocated and copied to the next rounded-up
+// power of two of sufficient size. The resulting appended-to buffer is returned.
+func (m Message) AppendJSONTo(b []byte) []byte {
+	var delta = 1
 	for {
-		var l = C.est_msg_marshal_json(m.wrapped,
-			(*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
-
-		if int(l) < len(buf) {
-			var n, err = b.Write(buf[:l])
-			bufferPool.Put(buf)
-			return n, err
+		var rem = cap(b) - len(b)
+		if rem < delta {
+			var next = make([]byte, len(b), roundUp(len(b)+delta))
+			b = next[:copy(next, b)]
+			continue
 		}
-		buf = make([]byte, roundUp(int(l)))
+
+		// Address of next byte to be written into |b|.
+		var addr = &b[len(b) : len(b)+1][0]
+		// Directly marshal into the remainder of |b|.
+		delta = int(C.est_msg_marshal_json(m.wrapped,
+			(*C.uint8_t)(addr), (C.uintptr_t)(rem)))
+
+		if delta <= rem {
+			return b[:len(b)+delta]
+		}
 	}
+}
+
+// MarshalJSONTo marshals the JSON message to the Writer.
+func (m Message) MarshalJSONTo(bw *bufio.Writer) (int, error) {
+	var b = bufferPool.Get().([]byte)
+	b = m.AppendJSONTo(b[:0])
+	var n, err = bw.Write(b)
+	bufferPool.Put(b[:0])
+	return n, err
 }
 
 // UnmarshalJSON unmarshals the Message from JSON.
@@ -195,7 +214,7 @@ func roundUp(n int) int {
 }
 
 var bufferPool = sync.Pool{
-	New: func() interface{} { return make([]byte, 1024) },
+	New: func() interface{} { return make([]byte, 0, 1024) },
 }
 
 func statusError(s C.est_status_t) error {

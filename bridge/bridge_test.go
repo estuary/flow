@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -49,7 +50,7 @@ func TestUUIDSetGetAndAckUUID(t *testing.T) {
 	)
 }
 
-func TestMarshalJSON(t *testing.T) {
+func TestJSONMarshalling(t *testing.T) {
 	var ptr, err = NewJSONPointer("/_meta/uuid")
 	assert.Nil(t, err)
 
@@ -57,9 +58,20 @@ func TestMarshalJSON(t *testing.T) {
 	m.SetUUID(uuid.MustParse("7367f4f3-7668-4370-b06f-021c828d6ed8"))
 	var expect = `{"_meta":{"uuid":"7367f4f3-7668-4370-b06f-021c828d6ed8"}}` + "\n"
 
-	// Excercise pessimstic re-allocation case.
-	bufferPool = sync.Pool{New: func() interface{} { return make([]byte, 4) }}
+	var b = make([]byte, 0, 4)
+	b = m.AppendJSONTo(b) // Append to empty []byte with re-allocation.
+	assert.Equal(t, expect, string(b))
 
+	b = m.AppendJSONTo(b[:0]) // Append to empty []byte without re-allocation.
+	assert.Equal(t, expect, string(b))
+
+	// Extend |b| with many more encodings. Some require re-allocation.
+	for i := 0; i != 20; i++ {
+		b = m.AppendJSONTo(b)
+	}
+	assert.Equal(t, strings.Repeat(expect, 21), string(b))
+
+	// Expect MarshalJSONTo wrapper works as expected.
 	var bw bytes.Buffer
 	var bbw = bufio.NewWriter(&bw)
 	l, err := m.MarshalJSONTo(bbw)
