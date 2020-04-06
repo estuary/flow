@@ -31,31 +31,40 @@ pub enum Token<'t> {
 pub struct Iter<'t>(&'t [u8]);
 
 impl Pointer {
+    // Builds an empty Pointer which references the document root.
+    pub fn new() -> Pointer {
+        Pointer(TinyVec::new())
+    }
+
+    // Push a new Token onto the Pointer.
+    pub fn push<'t>(&mut self, token: Token<'t>) -> &mut Pointer {
+        match token {
+            Token::Index(ind) => {
+                self.0.push('I' as u8);
+                self.enc_varint(ind as u64);
+            }
+            Token::Property(prop) => {
+                // Encode as 'P' control code,
+                // followed by varint *byte* (not char) length,
+                // followed by property UTF-8 bytes.
+                self.0.push('P' as u8);
+                let prop = prop.as_bytes();
+                self.enc_varint(prop.len() as u64);
+                self.0.extend(prop.iter().copied());
+            }
+            Token::NextIndex => {
+                self.0.push('-' as u8);
+            }
+        }
+        self
+    }
+
     /// Iterate over pointer tokens.
     pub fn iter<'t>(&'t self) -> Iter<'t> {
         Iter(&self.0)
     }
 
-    fn push_next_index(&mut self) {
-        self.0.push('-' as u8);
-    }
-
-    fn push_property(&mut self, prop: &str) {
-        // Encode as 'P' control code,
-        // followed by varint *byte* (not char) length,
-        // followed by property UTF-8 bytes.
-        self.0.push('P' as u8);
-        let prop = prop.as_bytes();
-        self.push_varint(prop.len() as u64);
-        self.0.extend(prop.iter().copied());
-    }
-
-    fn push_index(&mut self, ind: u64) {
-        self.0.push('I' as u8);
-        self.push_varint(ind);
-    }
-
-    fn push_varint(&mut self, n: u64) {
+    fn enc_varint(&mut self, n: u64) {
         let mut buf = [0 as u8; 10];
         let n = super::varint::write_varu64(&mut buf, n);
         self.0.extend(buf.iter().copied().take(n));
@@ -74,23 +83,23 @@ impl TryFrom<&str> for Pointer {
 
         let mut tape = Pointer(TinyVec::new());
 
-        for t in s
-            .split('/')
+        s.split('/')
             .skip(1)
             .map(|t| t.replace("~1", "/").replace("~0", "~"))
-        {
-            if t == "-" {
-                tape.push_next_index();
-            } else if t.starts_with('+') {
-                tape.push_property(&t);
-            } else if t.starts_with('0') && t.len() > 1 {
-                tape.push_property(&t)
-            } else if let Ok(ind) = u64::from_str(&t) {
-                tape.push_index(ind)
-            } else {
-                tape.push_property(&t)
-            }
-        }
+            .for_each(|t| {
+                if t == "-" {
+                    tape.push(Token::NextIndex);
+                } else if t.starts_with('+') {
+                    tape.push(Token::Property(&t));
+                } else if t.starts_with('0') && t.len() > 1 {
+                    tape.push(Token::Property(&t));
+                } else if let Ok(ind) = usize::from_str(&t) {
+                    tape.push(Token::Index(ind));
+                } else {
+                    tape.push(Token::Property(&t));
+                }
+            });
+
         Ok(tape)
     }
 }

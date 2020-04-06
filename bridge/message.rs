@@ -1,6 +1,6 @@
 use estuary_json as ej;
+use estuary_json_ext::{message as msg, ptr};
 use serde_json as sj;
-use estuary_json_ext::message as msg;
 use std::io::Write;
 
 use super::{json_ptr_t, status_t};
@@ -93,6 +93,21 @@ pub extern "C" fn est_msg_marshal_json(m: &msg_t, buf: *mut u8, buf_len: usize) 
 }
 
 #[no_mangle]
+pub extern "C" fn est_msg_unmarshal_json(
+    m: &mut msg_t,
+    buf: *const u8,
+    buf_len: usize,
+) -> status_t {
+    let buf = unsafe { std::slice::from_raw_parts(buf, buf_len) };
+    let m = m.as_mut();
+
+    // Take & re-use existing Pointer.
+    let ptr = std::mem::replace(&mut m.uuid_ptr, ptr::Pointer::new());
+    *m = try_ok!(msg::Message::from_json_slice(ptr, buf));
+    status_t::EST_OK
+}
+
+#[no_mangle]
 pub extern "C" fn est_msg_extract_fields<'p>(
     m: &msg_t,
     fields: *mut extract_field_t<'p>,
@@ -100,7 +115,7 @@ pub extern "C" fn est_msg_extract_fields<'p>(
     buf: *mut u8,
     buf_len: usize,
 ) -> usize {
-    let m : &msg::Message = m.as_ref();
+    let m: &msg::Message = m.as_ref();
     let fields = unsafe { std::slice::from_raw_parts_mut(fields, fields_len) };
     let mut bw = unsafe { super::BufWriter::new(buf, buf_len) };
 
@@ -114,9 +129,18 @@ pub extern "C" fn est_msg_extract_fields<'p>(
             Some(sj::Value::Bool(true)) => type_t::EST_TRUE,
             Some(sj::Value::Bool(false)) => type_t::EST_FALSE,
             Some(sj::Value::Number(n)) => match n.into() {
-                ej::Number::Unsigned(n) => { field.unsigned = n; type_t::EST_UNSIGNED },
-                ej::Number::Signed(n) => { field.signed = n; type_t::EST_SIGNED },
-                ej::Number::Float(n) => { field.float = n; type_t::EST_FLOAT },
+                ej::Number::Unsigned(n) => {
+                    field.unsigned = n;
+                    type_t::EST_UNSIGNED
+                }
+                ej::Number::Signed(n) => {
+                    field.signed = n;
+                    type_t::EST_SIGNED
+                }
+                ej::Number::Float(n) => {
+                    field.float = n;
+                    type_t::EST_FLOAT
+                }
             },
             Some(sj::Value::String(s)) => {
                 bw.write(s.as_bytes()).unwrap();

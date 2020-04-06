@@ -76,11 +76,6 @@ func (m Message) SetUUID(uuid message.UUID) {
 	C.est_msg_set_uuid(m.wrapped, uuidC)
 }
 
-func (m Message) MarshalJSONInPlace(buf []byte) int {
-	var l = C.est_msg_marshal_json(m.wrapped, (*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
-	return int(l)
-}
-
 // FieldVisitor visits ordered field locations of a Message's JSON document.
 // It's used with the VisitFields method.
 type FieldVisitor interface {
@@ -146,19 +141,28 @@ func (m Message) VisitFields(fv FieldVisitor, ptrs ...JSONPointer) {
 // MarshalJSONTo marshals the JSON message to the Writer.
 func (m Message) MarshalJSONTo(b *bufio.Writer) (int, error) {
 	var buf = bufferPool.Get().([]byte)
-	var l = m.MarshalJSONInPlace(buf)
+	for {
+		var l = C.est_msg_marshal_json(m.wrapped,
+			(*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
 
-	if l > len(buf) {
-		buf = make([]byte, roundUp(l))
-		l = m.MarshalJSONInPlace(buf)
+		if int(l) < len(buf) {
+			var n, err = b.Write(buf[:l])
+			bufferPool.Put(buf)
+			return n, err
+		}
+
+		buf = make([]byte, roundUp(int(l)))
 	}
-	var n, err = b.Write(buf[:l])
-	bufferPool.Put(buf)
-	return n, err
 }
 
 // UnmarshalJSON unmarshals the Message from JSON.
-func (m Message) UnmarshalJSON([]byte) error {
+func (m Message) UnmarshalJSON(buf []byte) error {
+	var status = C.est_msg_unmarshal_json(m.wrapped,
+		(*C.uint8_t)(&buf[0]), (C.uintptr_t)(len(buf)))
+
+	if status != C.EST_OK {
+		return statusError(status)
+	}
 	return nil
 }
 

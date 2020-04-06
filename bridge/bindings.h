@@ -64,4 +64,6 @@ est_msg_t *est_msg_new(const est_json_ptr_t *uuid_ptr);
 
 void est_msg_set_uuid(est_msg_t *m, est_uuid_t to);
 
+est_status_t est_msg_unmarshal_json(est_msg_t *m, const uint8_t *buf, uintptr_t buf_len);
+
 uintptr_t est_status_description(est_status_t status, uint8_t *out, uintptr_t out_cap);
