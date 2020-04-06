@@ -1,6 +1,8 @@
 use estuary_json as ej;
 use estuary_json_ext::{message as msg, ptr};
+use fxhash;
 use serde_json as sj;
+use std::hash::Hasher;
 use std::io::Write;
 
 use super::{json_ptr_t, status_t};
@@ -176,17 +178,17 @@ pub extern "C" fn est_msg_hash_fields(
     ptrs_len: usize,
 ) -> u64 {
     let m: &msg::Message = m.as_ref();
-    let ptrs : &[*const json_ptr_t] = unsafe { std::slice::from_raw_parts(ptrs, ptrs_len) };
+    let ptrs: &[*const json_ptr_t] = unsafe { std::slice::from_raw_parts(ptrs, ptrs_len) };
 
-    let mut hash = 0;
+    let mut hasher = fxhash::FxHasher64::default();
 
     for ptr in ptrs.iter().copied() {
-        let ptr : &ptr::Pointer = unsafe { &*ptr }.as_ref();
+        let ptr: &ptr::Pointer = unsafe { &*ptr }.as_ref();
         let value = ptr.query(&m.doc).unwrap_or(&sj::Value::Null);
         let span = ej::de::walk(value, &mut ej::NoopWalker).unwrap();
-        hash ^= span.hashed;
+        hasher.write_u64(span.hashed);
     }
-    hash
+    hasher.finish()
 }
 
 #[no_mangle]

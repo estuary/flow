@@ -120,6 +120,7 @@ dependencies = [
  "cbindgen",
  "estuary_json",
  "estuary_json_ext",
+ "fxhash",
  "serde",
  "serde_json",
  "thiserror",

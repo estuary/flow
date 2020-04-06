@@ -132,11 +132,17 @@ func TestExtractAndHash(t *testing.T) {
 		[]byte(`{"null":null}`),
 	}, out)
 
-	//
+	// Expect ranges of |ptrs| have stable hash values.
 	assert.Equal(t, uint64(0), m.HashFields())
-	assert.Equal(t, uint64(0x75439701e8cb9058), m.HashFields(ptrs[0]))
-	assert.Equal(t, uint64(0xe2b32cfa2571a73e), m.HashFields(ptrs[0:4]...))
-	assert.Equal(t, uint64(0x3fba0ed9fdce25c1), m.HashFields(ptrs...))
+	assert.Equal(t, uint64(0xe0eb6c2305ce7338), m.HashFields(ptrs[0]))
+	assert.Equal(t, uint64(0x76573df423ad9743), m.HashFields(ptrs[0:4]...))
+	assert.Equal(t, uint64(0xf89020c9c6c21465), m.HashFields(ptrs...))
+
+	// Repetition of the same value changes the hash.
+	assert.Equal(t, uint64(0x8975c5e097299294), m.HashFields(ptrs[0], ptrs[0]))
+	// Null and missing values hash identically (missing values are implicitly null).
+	assert.Equal(t, uint64(0x959c40b6e0aee776), m.HashFields(ptrs[3], ptrs[4]))
+	assert.Equal(t, uint64(0x959c40b6e0aee776), m.HashFields(ptrs[4], ptrs[3]))
 }
 
 func TestUnmarshalCases(t *testing.T) {
