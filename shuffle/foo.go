@@ -10,22 +10,39 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+func buildPointers(ptrs []string) (out []bridge.JSONPointer, cleanup func(), err error) {
+	cleanup = func() {
+		for _, ptr := range out {
+			ptr.Drop()
+		}
+	}
+	for _, p := range ptrs {
+		var ptr bridge.JSONPointer
+		if ptr, err = bridge.NewJSONPointer(p); err != nil {
+			err = fmt.Errorf("building JSON pointer %q: %w", p, err)
+			return
+		}
+		out = append(out, ptr)
+	}
+	return
+}
+
 func doTheThing(ctx context.Context, rjc pb.RoutedJournalClient, cfg Config, req pb.ReadRequest) error {
+	var ptrs, cleanup, err = buildPointers(append([]string{cfg.UuidJsonPtr}, cfg.ShuffleKeyPtr...))
+	defer cleanup()
+
+	if err != nil {
+		return err
+	}
 	req.DoNotProxy = !rjc.IsNoopRouter()
 
-	var newMsgFn message.NewMessageFunc
-	if ptr, err := bridge.NewJSONPointer(cfg.UuidJsonPtr); err == nil {
-		newMsgFn = func(*pb.JournalSpec) (message.Message, error) {
-			return bridge.NewMessage(ptr), nil
-		}
-	} else {
-		return fmt.Errorf("building JSON pointer %q: %w", cfg.UuidJsonPtr, err)
+	var newMsgFn message.NewMessageFunc = func(*pb.JournalSpec) (message.Message, error) {
+		return bridge.NewMessage(ptrs[0]), nil
 	}
-
 	var it = message.NewReadUncommittedIter(
 		client.NewRetryReader(ctx, rjc, req), newMsgFn)
 
-	var _, err = it.Next()
+	_, err = it.Next()
 	return err
 
 	/*
