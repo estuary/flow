@@ -102,8 +102,8 @@ type markedSubConn struct {
 }
 
 // Pick implements the Picker interface, used by gRPC to select a ready SubConn.
-func (d *dispatcher) Pick(ctx context.Context, opts balancer.PickOptions) (balancer.SubConn, func(balancer.DoneInfo), error) {
-	var dr, ok = ctx.Value(dispatchRouteCtxKey{}).(dispatchRoute)
+func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
+	var dr, ok = info.Ctx.Value(dispatchRouteCtxKey{}).(dispatchRoute)
 	if !ok {
 		panic("expected dispatchRoute on Context; check for missing WithDispatchRoute ?")
 	}
@@ -132,7 +132,7 @@ func (d *dispatcher) Pick(ctx context.Context, opts balancer.PickOptions) (balan
 			}},
 			balancer.NewSubConnOptions{},
 		); err != nil {
-			return nil, nil, err
+			return balancer.PickResult{}, err
 		}
 
 		msc.mark = d.sweepMark
@@ -151,29 +151,32 @@ func (d *dispatcher) Pick(ctx context.Context, opts balancer.PickOptions) (balan
 
 	var state = d.connState[msc.subConn]
 
-	if tr, ok := trace.FromContext(ctx); ok {
+	if tr, ok := trace.FromContext(info.Ctx); ok {
 		tr.LazyPrintf("Pick(Route: %s, ID: %s) => %s (%s)",
 			&dr.route, &dr.id, &dispatchID, state)
 	}
 	switch state {
 	case connectivity.Idle, connectivity.Connecting:
 		// gRPC will block until connection becomes ready.
-		return nil, nil, balancer.ErrNoSubConnAvailable
+		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	case connectivity.TransientFailure:
 		// If we're dispatching to the default service SubConn, then return
 		// ErrNoSubConnAvailable so that gRPC blocks RPCs until a SubConn is
 		// re-established. Otherwise, we immediately fail RPCs which require
 		// specific SubConns that are currently broken.
 		if dispatchID == (ProcessSpec_ID{}) {
-			return nil, nil, balancer.ErrNoSubConnAvailable
+			return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 		}
 		if dr.DispatchRouter != nil {
 			dr.DispatchRouter.UpdateRoute(dr.item, nil) // Invalidate.
 		}
 		// gRPC will fail-fast RPCs having grpc.FailFast (the default), and block others.
-		return nil, nil, balancer.ErrTransientFailure
+		return balancer.PickResult{}, balancer.ErrTransientFailure
 	case connectivity.Ready:
-		return msc.subConn, makeDoneClosure(dr), nil
+		return balancer.PickResult{
+			SubConn: msc.subConn,
+			Done:    makeDoneClosure(dr),
+		}, nil
 	default:
 		panic(state) // Unexpected connectivity.State.
 	}
@@ -205,7 +208,10 @@ func (d *dispatcher) HandleSubConnStateChange(sc balancer.SubConn, state connect
 	d.mu.Unlock()
 
 	// Notify gRPC that block requests may now be able to proceed.
-	d.cc.UpdateBalancerState(connectivity.Ready, d)
+	d.cc.UpdateState(balancer.State{
+		ConnectivityState: connectivity.Ready,
+		Picker:            d,
+	})
 }
 
 // HandleResolvedAddrs is notified by gRPC of changes in the DNS resolution of
@@ -334,7 +340,10 @@ func (db dispatcherBuilder) Build(cc balancer.ClientConn, opts balancer.BuildOpt
 		sweepTicker: time.NewTicker(dispatchSweepInterval),
 	}
 	go d.servePeriodicSweeps()
-	d.cc.UpdateBalancerState(connectivity.Ready, d) // Signal as ready for RPCs.
+	d.cc.UpdateState(balancer.State{
+		ConnectivityState: connectivity.Ready,
+		Picker:            d,
+	}) // Signal as ready for RPCs.
 	return d
 }
 

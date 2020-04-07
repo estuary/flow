@@ -68,7 +68,7 @@ func (s *RPCSuite) TestReadResponseValidationCases(c *gc.C) {
 	c.Check(resp.Validate(), gc.ErrorMatches, `invalid WriteHead \(5678; expected >= 2345678901\)`)
 	resp.WriteHead = 2345678901
 
-	c.Check(resp.Validate(), gc.ErrorMatches, `FragmentUrl: parse :/bad/url: missing protocol scheme`)
+	c.Check(resp.Validate(), gc.ErrorMatches, `FragmentUrl: parse ":/bad/url": missing protocol scheme`)
 	resp.FragmentUrl = "http://foo"
 
 	c.Check(resp.Validate(), gc.IsNil) // Success.
@@ -450,7 +450,7 @@ func (s *RPCSuite) TestFragmentsResponseValidationCases(c *gc.C) {
 	resp.Header.Etcd.ClusterId = 1234
 	c.Check(resp.Validate(), gc.ErrorMatches, `Fragments\[0\].Spec.Journal: not a valid token \(in valid\)`)
 	resp.Fragments[0].Spec.Journal = "valid/name"
-	c.Check(resp.Validate(), gc.ErrorMatches, `Fragments\[0\].SignedUrl: parse :gar: :bage:: missing protocol scheme`)
+	c.Check(resp.Validate(), gc.ErrorMatches, `Fragments\[0\].SignedUrl: parse ":gar: :bage:": missing protocol scheme`)
 	resp.Fragments[0].SignedUrl = "http://host/path"
 	c.Check(resp.Validate(), gc.IsNil)
 	resp.Fragments[0].SignedUrl = ""

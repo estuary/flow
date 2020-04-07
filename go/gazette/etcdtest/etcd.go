@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -45,15 +44,7 @@ func startEmbededEtcd() {
 	_ = os.RemoveAll(cfg.Dir)
 
 	// Squelch non-error logging from etcdserver, to not pollute test outputs.
-	cfg.LogPkgLevels = strings.Join([]string{
-		"auth=ERROR",
-		"embed=ERROR",
-		"etcdserver/api=ERROR",
-		"etcdserver/membership=ERROR",
-		"etcdserver=ERROR",
-		"raft=ERROR",
-		"wal=ERROR",
-	}, ",")
+	cfg.LogLevel = "error"
 
 	var err error
 	if embedEtcd, err = embed.StartEtcd(cfg); err != nil {
