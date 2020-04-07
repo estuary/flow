@@ -4,46 +4,68 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
-	"hash/fnv"
 
-	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
 )
 
-type shuffleShard struct {
-	spec     *pc.ShardSpec
-	minClock message.Clock
+type rendezvous struct {
+	cfg     Config
+	weights []uint64
+	ranks   []rank
 }
 
-func numEffectiveShards(clock message.Clock, shards []shuffleShard) int {
-	// Determine max shard index to which this message may map.
-	// This relies on shards being ordered on ascending |minClock|.
-	var N = len(shards)
-	for ; N != 0 && shards[N-1].minClock <= clock; N-- {
-	}
-	return N
+type rank struct {
+	ind int
+	hrw uint64
 }
 
-func messageIndex(msg message.Mappable, keyFn message.MappingKeyFunc, N int) int {
-	var hasher = fnv.New32a()
-	keyFn(msg, hasher)
-	var keyHash = hasher.Sum32()
-
-	var hrw uint32
-	var ind int
-
-	if N > len(weights) {
-		N = len(weights)
+func newRendezvous(cfg Config) rendezvous {
+	var r = rendezvous{
+		cfg:     cfg,
+		weights: generateStableWeights(len(cfg.Processors)),
 	}
-	for i := 0; i != N; i++ {
-		if w := keyHash ^ weights[i]; w > hrw {
-			hrw, ind = w, i
+	if cfg.BroadcastTo != 0 {
+		r.ranks = make([]rank, 0, cfg.BroadcastTo)
+	} else {
+		r.ranks = make([]rank, 0, cfg.ChooseFrom)
+	}
+	return r
+}
+
+func (m *rendezvous) pick(hash uint64, clock message.Clock) []rank {
+	// Invariant: processor at index zero may never have a min/max clock.
+	m.ranks = append(m.ranks[:0], rank{hrw: hash ^ m.weights[0], ind: 0})
+
+	for ind, bounds := range m.cfg.Processors {
+		var cur = rank{hrw: hash ^ m.weights[0], ind: ind}
+
+		var r = len(m.ranks)
+		for ; r != 0 && m.ranks[r-1].hrw < cur.hrw; r-- {
+		}
+
+		if r >= cap(m.ranks) {
+			// Index is outside of top N.
+		} else if bounds.MinMsgClock != 0 && bounds.MinMsgClock > clock {
+			// Outside minimum clock bound.
+		} else if bounds.MaxMsgClock != 0 && bounds.MaxMsgClock < clock {
+			// Outside maximum clock bound.
+		} else {
+			if len(m.ranks) != cap(m.ranks) {
+				m.ranks = append(m.ranks, cur)
+			}
+			// Shift, discarding bottom entry.
+			copy(m.ranks[r+1:], m.ranks[r:])
+			m.ranks[r] = cur
 		}
 	}
-	return ind
+	if m.cfg.ChooseFrom != 0 {
+		var ind = int(clock) % len(m.ranks)
+		return m.ranks[ind : ind+1]
+	}
+	return m.ranks
 }
 
-func generateStableWeights() [maxEffectivePartitions]uint32 {
+func generateStableWeights(n int) []uint64 {
 	// Use a fixed AES key and IV to generate a stable sequence.
 	var aesKey = [32]byte{
 		0xb8, 0x3d, 0xb8, 0x33, 0x2f, 0x6c, 0x4c, 0xef,
@@ -61,16 +83,12 @@ func generateStableWeights() [maxEffectivePartitions]uint32 {
 		panic(err) // Should never error (given correct |key| size).
 	}
 
-	var out [maxEffectivePartitions]uint32
-	var b = make([]byte, len(out)*8)
+	var b = make([]byte, n*8)
 	cipher.NewCTR(aesCipher, aesIV[:]).XORKeyStream(b, b)
 
+	var out = make([]uint64, n)
 	for i := range out {
-		out[i] = binary.LittleEndian.Uint32(b[i*8:])
+		out[i] = binary.LittleEndian.Uint64(b[i*8:])
 	}
 	return out
 }
-
-const maxEffectivePartitions = 4096
-
-var weights = generateStableWeights()

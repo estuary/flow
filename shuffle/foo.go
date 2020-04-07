@@ -2,41 +2,49 @@ package shuffle
 
 import (
 	"context"
+	fmt "fmt"
 
+	"github.com/estuary/workspace/bridge"
 	"go.gazette.dev/core/broker/client"
-	grpc "google.golang.org/grpc"
+	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/message"
 )
 
-// Foo is bar.
-type Foo struct {
-	client client.ReaderClient
-}
+func doTheThing(ctx context.Context, rjc pb.RoutedJournalClient, cfg Config, req pb.ReadRequest) error {
+	req.DoNotProxy = !rjc.IsNoopRouter()
 
-type groupRead struct {
-	cfg      Config
-	rr       *client.RetryReader
-	cancelFn context.CancelFunc
-	subs     map[int]chan<- EnvelopeOrError
-}
-
-func newGroupRead(req ReadRequest, client client.ReaderClient) groupRead {
-	var ctx, cancel = context.WithCancel(context.Background())
-	var rr = client.NewRetryReader(ctx, client, req.ReadRequest)
-
-	return groupRead{
-		cfg:    req.Config,
-		rr:     rr,
-		cancel: cancel,
+	var newMsgFn message.NewMessageFunc
+	if ptr, err := bridge.NewJSONPointer(cfg.UuidJsonPtr); err == nil {
+		newMsgFn = func(*pb.JournalSpec) (message.Message, error) {
+			return bridge.NewMessage(ptr), nil
+		}
+	} else {
+		return fmt.Errorf("building JSON pointer %q: %w", cfg.UuidJsonPtr, err)
 	}
-}
 
-func (s *Foo) Read(req *ReadRequest, stream Shuffle_ReadServer) error {
+	var it = message.NewReadUncommittedIter(
+		client.NewRetryReader(ctx, rjc, req), newMsgFn)
 
-}
+	var _, err = it.Next()
+	return err
 
-func (s *Foo) read(req *ReadRequest, stream grpc.ServerStream) error {
-	// Start a read.
+	/*
+		for eoe.Err == nil {
+			eoe.Env, eoe.Err = it.Next()
 
+			// Attempt to place |eoe| even if context is cancelled,
+			// but don't hang if we're cancelled and buffer is full.
+			select {
+			case ch <- eoe:
+			default:
+				select {
+				case ch <- eoe:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	*/
 }
 
 /*
