@@ -1,6 +1,6 @@
 {
-    "yaml.schemas": {
-        "https://json-schema.org/draft/2019-09/schema": "/examples/stock-stats/schemas/*.yaml"
-    },
-    "restructuredtext.confPath": ""
+    "files.watcherExclude": {
+        "**/.build/**": true,
+        "**/.build-ci/**": true
+    }
 }
