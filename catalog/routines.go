@@ -1,0 +1,5 @@
+package catalog
+
+func Foobar() {
+
+}

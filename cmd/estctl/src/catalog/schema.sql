@@ -73,8 +73,8 @@ CREATE TABLE collections
     resource_id INTEGER             NOT NULL REFERENCES resources (id)
 );
 
--- Projections are locations of collection documents which may be projected
--- into a flattened columnar attribute/value space.
+-- Projections are locations within collection documents which may be projected
+-- into a flattened (i.e. columnar) attribute/value space.
 CREATE TABLE projections
 (
     -- Collection to which this projection pertains.
@@ -134,20 +134,16 @@ CREATE TABLE fixtures
     PRIMARY KEY (collection_id, key)
 );
 
+-- Lambdas are `jq` or `sqlite` function definitions.
 CREATE TABLE lambdas
 (
     id                    INTEGER PRIMARY KEY NOT NULL,
     -- Type of this lambda.
     type                  TEXT                NOT NULL,
-
     -- Function body (used by: jq, sqlite).
     body                  TEXT,
     -- Resource which produced this body.
     body_resource_id      INTEGER REFERENCES resources (id),
-    -- Bootstrap / prelude (used by: sqlite).
-    bootstrap             TEXT,
-    -- Resource which produced this bootstrap.
-    bootstrap_resource_id INTEGER REFERENCES resources (id),
 
     CHECK (type IN ('jq', 'sqlite'))
 );
@@ -159,8 +155,10 @@ CREATE TABLE derivations
     -- If non-null, the collection is derived via a durable closure
     -- having a fixed number of shards.
     fixed_shards  INTEGER CHECK (fixed_shards > 0),
+    -- Optional lambda to bootstrap the store.
+    bootstrap_id  INTEGER REFERENCES lambdas (id),
     -- Resource which produced this derivation.
-    resource_id   INTEGER             NOT NULL REFERENCES resources (id)
+    resource_id   INTEGER NOT NULL REFERENCES resources (id)
 );
 
 CREATE TABLE transforms

@@ -4,7 +4,8 @@ import (
 	"context"
 	fmt "fmt"
 
-	"github.com/estuary/workspace/bridge"
+	"github.com/estuary/proj/bridge"
+
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
