@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/estuary/proj/labels"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
@@ -24,7 +25,7 @@ func NewMsgBuilder() *MsgBuilder {
 	return b
 }
 
-// Build a new Message instance, with a UUID pointer drawn from the UUIDLabel
+// Build a new Message instance, with a UUID pointer drawn from the labels.UUID
 // field of the JournalSpec. Build is a message.NewMessageFunc and it is safe
 // to call concurrently with *different* values of |spec| (but not for the
 // same spec).
@@ -37,13 +38,13 @@ func (b *MsgBuilder) Build(spec *pb.JournalSpec) (message.Message, error) {
 	}
 
 	// Slow path: we must allocate a new JSONPointer and update the map.
-	var uuidStr = spec.LabelSet.ValueOf(UUIDLabel)
+	var uuidStr = spec.LabelSet.ValueOf(labels.UUID)
 	if uuidStr == "" {
-		return nil, fmt.Errorf("journal %q: missing required %q label", spec.Name, UUIDLabel)
+		return nil, fmt.Errorf("journal %q: missing required %q label", spec.Name, labels.UUID)
 	}
 	var insert, err = NewJSONPointer(uuidStr)
 	if err != nil {
-		return nil, fmt.Errorf("journal %q: invalid %q label %q: %w", spec.Name, UUIDLabel, uuidStr, err)
+		return nil, fmt.Errorf("journal %q: invalid %q label %q: %w", spec.Name, labels.UUID, uuidStr, err)
 	}
 
 	for {
@@ -82,7 +83,3 @@ func (b *MsgBuilder) PurgeCache() {
 		v.Drop()
 	}
 }
-
-// UUIDLabel is the name of the JournalSpec label whose value is a JSON-Pointer
-// of the message UUID location within the message's document model.
-const UUIDLabel = "estuary.dev/uuid"

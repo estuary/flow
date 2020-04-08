@@ -3,6 +3,7 @@ package bridge
 import (
 	"testing"
 
+	"github.com/estuary/proj/labels"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -12,10 +13,10 @@ func TestBuilder(t *testing.T) {
 	var b = NewMsgBuilder()
 
 	var specA = &pb.JournalSpec{
-		LabelSet: pb.MustLabelSet(UUIDLabel, "/_meta/uuid"),
+		LabelSet: pb.MustLabelSet(labels.UUID, "/_meta/uuid"),
 	}
 	var specB = &pb.JournalSpec{
-		LabelSet: pb.MustLabelSet(UUIDLabel, "/_uuid"),
+		LabelSet: pb.MustLabelSet(labels.UUID, "/_uuid"),
 	}
 	var fixture = "7367f4f3-7668-4370-b06f-021c828d6ed8"
 
