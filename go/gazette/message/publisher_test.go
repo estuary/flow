@@ -247,3 +247,5 @@ func writeIntents(t assert.TestingT, ajc client.AsyncJournalClient, intents []Ac
 		<-aa.Done()
 	}
 }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

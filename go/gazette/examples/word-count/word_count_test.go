@@ -141,3 +141,5 @@ func buildSpecFixtures(parts int) (journals []*pb.JournalSpec, shards []*pc.Shar
 var _ = gc.Suite(&WordCountSuite{})
 
 func TestT(t *testing.T) { gc.TestingT(t) }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

@@ -185,3 +185,5 @@ func newDialedClient(t *testing.T, bk *Broker) (*grpc.ClientConn, pb.RoutedJourn
 	assert.NoError(t, err)
 	return conn, pb.NewRoutedJournalClient(pb.NewJournalClient(conn), pb.NoopDispatchRouter{})
 }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

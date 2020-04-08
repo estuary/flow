@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"testing"
 	"time"
 
 	gc "github.com/go-check/check"
@@ -631,7 +632,9 @@ func (poh playOperationHelper) frame(op RecordedOp) []byte {
 	return b
 }
 
-func (poh playOperationHelper) apply(c *gc.C, b []byte) error { return poh.playOp(c, b, anAuthor, true) }
+func (poh playOperationHelper) apply(c *gc.C, b []byte) error {
+	return poh.playOp(c, b, anAuthor, true)
+}
 func (poh playOperationHelper) skips(c *gc.C, b []byte) error {
 	return poh.playOp(c, b, anAuthor, false)
 }
@@ -682,3 +685,5 @@ func newBrokerAndLog(c *gc.C) (*brokertest.Broker, func()) {
 }
 
 var _ = gc.Suite(&PlaybackSuite{})
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

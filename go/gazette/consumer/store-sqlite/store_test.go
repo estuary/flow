@@ -654,3 +654,5 @@ func newBrokerAndLog(t assert.TestingT) (*brokertest.Broker, func()) {
 }
 
 const aRecoveryLog pb.Journal = "test/store-sqlite/recovery-log"
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

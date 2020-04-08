@@ -345,3 +345,5 @@ func TestAppendProxyCases(t *testing.T) {
 	broker.cleanup()
 	peer.Cleanup()
 }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

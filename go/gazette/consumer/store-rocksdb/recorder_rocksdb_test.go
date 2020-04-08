@@ -336,3 +336,5 @@ func newBrokerAndLog(t assert.TestingT) (client.AsyncJournalClient, func()) {
 }
 
 const aRecoveryLog pb.Journal = "test/store-rocksdb/recovery-log"
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

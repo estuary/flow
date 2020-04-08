@@ -266,3 +266,5 @@ func (s *KeySpaceSuite) TestWaitForRevision(c *gc.C) {
 var _ = gc.Suite(&KeySpaceSuite{})
 
 func Test(t *testing.T) { gc.TestingT(t) }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

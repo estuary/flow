@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"math"
+	"testing"
 
 	gc "github.com/go-check/check"
 	"go.gazette.dev/core/etcdtest"
@@ -153,3 +154,5 @@ func (s *AllocStateSuite) TestLoadRatio(c *gc.C) {
 }
 
 var _ = gc.Suite(&AllocStateSuite{})
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

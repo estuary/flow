@@ -232,3 +232,5 @@ func (testApp) FinalizeTxn(consumer.Shard, consumer.Store, *message.Publisher) e
 var _ = gc.Suite(&ConsumerSuite{})
 
 func TestT(t *testing.T) { gc.TestingT(t) }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

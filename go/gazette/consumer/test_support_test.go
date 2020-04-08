@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"io/ioutil"
 	"os"
+	"testing"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -501,3 +502,5 @@ func toSourceB(message.Mappable) (pb.Journal, string, error) {
 func toEchoOut(message.Mappable) (pb.Journal, string, error) {
 	return echoOut.Name, labels.ContentType_JSONLines, nil
 }
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

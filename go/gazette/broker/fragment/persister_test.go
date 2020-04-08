@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"testing"
 	"time"
 
 	gc "github.com/go-check/check"
@@ -206,3 +207,5 @@ func applyAndCommit(spool *Spool) {
 }
 
 var _ = gc.Suite(&PersisterSuite{})
+
+func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
