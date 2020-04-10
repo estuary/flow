@@ -110,11 +110,11 @@ collections:
             key: [/user_id]
           lambda:
             jqBlock: |
-              with $ts as (.timestamp | fromdate) |
-              with $ts_day as $ts - ($ts % 86400) |
-              with $key as "\(.user_id)/views/\($ts_day)" |
-              with $expiry as $ts + 2592000  |
-                insert_key_with_expiry($key; $expiry; . )
+              let ts = Date.parse(rec.timestamp);
+              let ts_day = ts - (ts % 86400000);
+              let key = `${rec.user_id}/views/${ts_day}`;
+              let expiry = ts + 2592000000;
+              insert_key_with_expiry(key, expiry)
         # Index clicks with a 30-day look-back. Track only the first click of a given
         # user and hour. Each click has already been enriched with a joined view.
         - source: marketing/clicks-with-views
