@@ -3,18 +3,16 @@ import * as net from 'net';
 import * as JSONStreamValues from 'stream-json/streamers/StreamValues'
 import * as stream from 'stream';
 import * as querystring from 'querystring';
-import { URL } from 'url';
+import * as url from 'url';
 
-async function getFive(): Promise<number> {
-    return 5;
-}
-async function getTen(): Promise<number> {
-    return 10;
-}
+async function getFive(): Promise<number> { return 5; }
+async function getTen(): Promise<number> { return 10; }
 
-type Lambda = (doc: any, ctx: DocStore) => any[] | Promise<any[]>;
+type Lambda = (doc: any, ctx: StateStore) => any[] | Promise<any[]>;
 interface LambdaMap { [name: string]: Lambda; }
 
+// TODO: generate this map from javascript blocks in catalog.
+// Also allow for auxillary TS/JS sources which are "compiled" in.
 let lambdas : LambdaMap = {
     "my_lambda": (doc, ctx) => [{...doc, val: 1}, {...doc, val: 2}],
     "my_lambda2": async (doc, ctx) => [
@@ -22,21 +20,22 @@ let lambdas : LambdaMap = {
         {...doc, val: await getTen()},
     ],
     "do_set": async (doc, store) => {
-        await store.setDoc(doc.key, doc);
+        await store.set(doc.key, doc);
         return [];
     },
-    "do_get": async (doc, store) => [ await store.getDoc(doc.key) ],
+    "do_get": async (doc, store) => [ await store.get(doc.key) ],
     "do_prefix": async (doc, store) => await store.getPrefix(doc.key),
 };
 
-class DocStore {
+// StateStore is a store of JSON documents, indexed under an ordered document key.
+class StateStore {
     session: h2.ClientHttp2Session;
 
     constructor(endpoint: string) {
         let opts : h2.ClientSessionOptions = {};
 
         if (endpoint.startsWith("uds:")) {
-            opts.createConnection = function (authority: URL, _): stream.Duplex {
+            opts.createConnection = function (authority: url.URL, _): stream.Duplex {
                 return net.createConnection(authority.pathname)
             }
             opts.protocol = "http:"; // H2C prior-knowledge.
@@ -44,7 +43,8 @@ class DocStore {
         this.session = h2.connect(endpoint, opts)
     }
 
-    setDoc(key: string, doc: any): Promise<void> {
+    // Set the key to the provided JSON document.
+    set(key: string, doc: any): Promise<void> {
         const data = JSON.stringify({
             key: key,
             doc: doc,
@@ -71,6 +71,16 @@ class DocStore {
             req.on('end', resolve);   // Read server EOF.
             req.on('error', reject);
         });
+    }
+
+    // Returns a single document having the given key, or null.
+    get(key: string): Promise<any> {
+        return this._get(key, false);
+    }
+
+    // Returns an array of documents which are prefixed by the given key.
+    getPrefix(key: string): Promise<any[]> {
+        return this._get(key, true);
     }
 
     _get(key: string, prefix: boolean): Promise<any> {
@@ -108,22 +118,18 @@ class DocStore {
         });
     }
 
-    getDoc(key: string): Promise<any> {
-        return this._get(key, false);
-    }
-
-    getPrefix(key: string): Promise<any[]> {
-        return this._get(key, true);
-    }
 }
 
+// LambdaTransform is a stream.Transform which reads parsed JSON documents
+// and applies them to the given Lambda, with the provided StateStore.
 class LambdaTransform extends stream.Transform {
-    lambda: Lambda;  // Lambda function to invoke.
-    store: DocStore; // State context.
-    num_input: number;
-    num_output: number;
+    lambda: Lambda;     // Lambda function to invoke.
+    store: StateStore;    // State context.
+    num_input: number;  // Number of read input documents.
+    num_output: number; // Number of emitted output documents.
 
-    constructor(lambda: Lambda, store: DocStore) {
+    // Builds a LambdaTransform which invokes the Lambda with the provided StateStore.
+    constructor(lambda: Lambda, store: StateStore) {
         super({ writableObjectMode: true });
         this.lambda = lambda;
         this.store = store;
@@ -148,8 +154,8 @@ class LambdaTransform extends stream.Transform {
     // Stringify each of an array of output documents, and emit as
     // content-encoding "application/json-seq".
     _emit(docs: any[]) {
-        let i = 0;
         let parts = new Array<string>(docs.length * 3);
+        let i = 0;
 
         for (const doc of docs) {
             // Encode per RFC 7464.
@@ -165,16 +171,11 @@ class LambdaTransform extends stream.Transform {
     }
 };
 
-const server = h2.createServer();
 
-server.on('error', (err) => {
-    console.error(`server error ${err}`)
-    server.close();
-});
-
-server.listen({ path: "node-test-sock" }); 
-
-server.on('stream', (req: h2.ServerHttp2Stream, hdrs: h2.IncomingHttpHeaders, _flags) => {
+// Consumes a stream of input JSON documents to transform under a named Lambda
+// and StateStore endpoint. Produces a stream of transformed output JSON documents
+// using 'application/json-seq' content encoding.
+function _processTransformStream(req: h2.ServerHttp2Stream, hdrs: h2.IncomingHttpHeaders, _flags): void {
     let malformed = (msg: string) => {
         req.respond({
             ':status': 400,
@@ -185,19 +186,35 @@ server.on('stream', (req: h2.ServerHttp2Stream, hdrs: h2.IncomingHttpHeaders, _f
 
     const lambda_name = hdrs[":path"].slice(1);
     const lambda = lambdas[lambda_name];
-
     if (!lambda) {
         return malformed(`lambda ${lambda_name} is not defined`);
     }
 
-    const store = new DocStore("uds://localhost/home/ubuntu/test-doc-store");
+    const store_endpoint = hdrs["state-store"][0];
+    if (!store_endpoint) {
+        return malformed(`expected 'state-store' header'`);
+    }
+
+    let store: StateStore = null;
+    try {
+        store = new StateStore(store_endpoint);
+    } catch (err) {
+        return malformed(err);
+    }
 
     req.respond({
         ':status': 200,
         'content-type': 'application/json-seq'
     }, {endStream: false, waitForTrailers: true});
 
+    // We'll send trailer headers at the end of the response.
     let trailers = {};
+
+    // Stand up a processing pipeline which:
+    // 1) parses input byte-stream into JSON documents
+    // 2) invokes |lambda| with each document, using |store|.
+    // 3) marshals emitted documents as stringified sequential JSON.
+    // 4) pipes back to the request's response stream.
     let parse = JSONStreamValues.withParser();
     let transform = new LambdaTransform(lambda, store);
     req.pipe(parse).pipe(transform).pipe(req);
@@ -224,4 +241,10 @@ server.on('stream', (req: h2.ServerHttp2Stream, hdrs: h2.IncomingHttpHeaders, _f
     };
     parse.on('error', onErr);
     transform.on('error', onErr);
-});
+}
+
+const server = h2.createServer();
+server.on('stream', _processTransformStream);
+server.on('error', console.error);
+server.listen({ path: process.env.SOCKET_PATH });
+process.stdout.write("READY\n");
