@@ -1,11 +1,9 @@
-[workspace]
+[package]
+name = "estuary"
+version = "0.1.0"
+authors = ["Johnny Graettinger <johnny531@gmail.com>"]
+edition = "2018"
 
-members = [
-	"cmd/estctl",
-	"json",
-	"json_ext",
-	"bridge",
-	"rust/ffi",
-	"rust/flow",
-	"derive",
-]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
