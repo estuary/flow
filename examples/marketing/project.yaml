@@ -134,8 +134,7 @@ collections:
             key: [/user_id]
           lambda:
             jqBlock: |
-              . + {
-                views: load_key_prefix("\(.user_id)/views/"),
-                clicks: load_key_prefix("\(.user_id)/clicks/"),
-              }
-
+              emit({ ..rec,
+                views: load_key_prefix(`{rec.user_id}/views/`),
+                clicks: load_key_prefix(`{rec.user_id}/clicks/`),
+              })

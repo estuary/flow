@@ -21,6 +21,11 @@ uuid = "0.8.1"
 tinyvec = {version = "0.3.3", features = ["alloc"]}
 redis-protocol = "1.0.0"
 bytes = "0.4.0"
+tokio = { version = "^0.2", features = ["full"] }
 
 [lib]
 path = "lib.rs"
+
+[[bin]]
+name = "hello-world"
+path = "main.rs"

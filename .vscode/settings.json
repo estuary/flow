@@ -1,6 +1,8 @@
 {
     "files.watcherExclude": {
         "**/.build/**": true,
-        "**/.build-ci/**": true
-    }
+        "**/.build-ci/**": true,
+        "**/target/**": true
+    },
+    "restructuredtext.confPath": ""
 }
