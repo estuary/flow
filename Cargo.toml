@@ -7,4 +7,5 @@ members = [
 	"bridge",
 	"rust/ffi",
 	"rust/flow",
+	"derive",
 ]
