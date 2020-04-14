@@ -1,7 +1,9 @@
 //! Workaround for https://github.com/serde-rs/json/issues/587 by @cormacrelf
 
-
-use serde::de::{self, Deserialize, Deserializer, Visitor};
+use serde::{
+    de::{self, Deserializer, Visitor},
+    Deserialize,
+};
 use std::borrow::Cow;
 use std::fmt;
 
@@ -64,9 +66,9 @@ impl<'de> Visitor<'de> for CowStrVisitor {
 ///
 /// ```
 /// use std::borrow::Cow;
-/// #[derive(serde_derive::Deserialize)]
+/// #[derive(serde::Deserialize)]
 /// struct MyStruct<'a> {
-///     #[serde(borrow, deserialize_with = "playground::deserialize_cow_str")]
+///     #[serde(borrow, deserialize_with = "estuary::specs::deserialize_cow_str")]
 ///     field: Cow<'a, str>,
 /// }
 ///
@@ -80,8 +82,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use serde_json;
     use super::*;
+    use serde_json;
 
     #[test]
     fn test() {
@@ -97,7 +99,7 @@ mod test {
             #[serde(borrow, deserialize_with = "deserialize_cow_str")]
             escaped: Cow<'a, str>,
         };
-        
+
         let input = r#"{
             "normal": "value",
             "overridden": "value",
