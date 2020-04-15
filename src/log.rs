@@ -1,16 +1,18 @@
-use std::sync::Once;
 use slog::{o, Drain};
 use slog_async;
+use std::sync::Once;
 
-pub fn log() -> &slog::Logger {
-    _INIT.call_once(|| {
-        let decorator = slog_term::PlainDecorator::new(std::io::stdout());
-        let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+pub fn log() -> &'static slog::Logger {
+    _LOG_INIT.call_once(|| {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
         let drain = slog_async::Async::new(drain).build().fuse();
-        _log = Some(slog::Logger::root(drain, o!("version" => "0.5")));
+        unsafe {
+            _LOG = Some(slog::Logger::root(drain, o!("app" => "derive")));
+        }
     });
-    &_log.unwrap()
+    unsafe { _LOG.as_ref().unwrap() }
 }
 
-static _INIT: Once = Once::new();
-static _log: Option<slog::Logger> = None;
+static _LOG_INIT: Once = Once::new();
+static mut _LOG: Option<slog::Logger> = None;

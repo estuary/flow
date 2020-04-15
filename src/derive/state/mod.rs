@@ -17,6 +17,7 @@ mod memory;
 pub use memory::Store as MemoryStore;
 
 mod service;
+pub use service::serve;
 
 #[cfg(test)]
 mod test {

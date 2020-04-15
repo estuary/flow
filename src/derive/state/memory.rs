@@ -1,5 +1,5 @@
-use crate::specs::store::Document;
 use crate::derive::state::DocStore;
+use crate::specs::store::Document;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
 use std::collections::{btree_map, BTreeMap};

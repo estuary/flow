@@ -1,14 +1,14 @@
-
-use std::io::Error as IOError;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use hyper::service::{service_fn, make_service_fn};
-use hyper::{Request, Body, Response, Method, StatusCode, Server, Error as HyperError, };
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Error as HyperError, Method, Request, Response, Server, StatusCode};
 use hyperlocal::UnixServerExt;
+use slog::info;
+use std::io::Error as IOError;
+use std::path::Path;
+use std::sync::Arc;
 use thiserror;
-use slog::{info, trace};
+use tokio::sync::Mutex;
 
-use crate::{log, derive::state::DocStore};
+use crate::{derive::state::DocStore, log};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -18,10 +18,12 @@ pub enum Error {
     IOError(#[from] IOError),
 }
 
-#[derive(Clone)]
-struct AMStore(Arc<Mutex<Box<dyn DocStore>>>);
+async fn dispatch<S: DocStore>(
+    req: Request<Body>,
+    _store: Arc<Mutex<Box<S>>>,
+) -> Result<Response<Body>, Error> {
+    info!(log(), "dispatching request"; "headers" => format!("{:?}", req.headers()));
 
-async fn dispatch(req: Request<Body>, store: AMStore) -> Result<Response<Body>, Error> {
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => Ok(Response::new(Body::from("Index!"))),
 
@@ -34,29 +36,41 @@ async fn dispatch(req: Request<Body>, store: AMStore) -> Result<Response<Body>, 
     }
 }
 
-pub async fn serve(uds_path: &str, store: Box<dyn DocStore>) -> Result<(), Error> {
+pub async fn serve<P, S, I>(uds_path: P, store: Arc<Mutex<Box<S>>>, stop: I) -> Result<(), Error>
+where
+    P: AsRef<Path>,
+    S: DocStore + Send + Sync + 'static,
+    I: std::future::Future<Output = ()>,
+{
+    let service = make_service_fn(move |stream: &tokio::net::UnixStream| {
+        info!(log(), "socket connected";
+            "stream" => format!("{:?}", stream));
 
-    // Wrap with an Arc & Mutex to share across async tasks & threads.
-    let store = AMStore(Arc::new(Mutex::new(store)));
-
-    let service = make_service_fn(
-        move |socket: &tokio::net::UnixStream| {
-            
-            trace!(log(), "socket connected";
-                addr => socket.addr);
-
-            let store = store.clone();
-
-            async move {
-                service_fn(move |req| { dispatch(req, store.clone()) })
-            }
-        },
-    );
-
+        let store = store.clone();
+        async move {
+            Ok::<_, Error>(service_fn(move |_req: Request<Body>| {
+                dispatch(_req, store.clone())
+            }))
+        }
+    });
 
     let server = Server::bind_unix(uds_path)?.serve(service);
+    let graceful = server.with_graceful_shutdown(stop);
 
-    return server.await
+    match graceful.await {
+        Err(err) => info!(log(), "server error"; "err" => err.to_string()),
+        Ok(()) => info!(log(), "server graceful exit"),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod test {
+
+    #[tokio::test]
+    async fn my_test() {
+        assert!(true);
+    }
 }
 
 /*
@@ -67,7 +81,13 @@ pub async fn serve(uds_path: &str, store: Box<dyn DocStore>) -> Result<(), Error
     ///         rx.await.ok();
     ///     });
     ///
-    /// 
+    /// // Await the `server` receiving the signal...
+    /// if let Err(e) = graceful.await {
+    ///     eprintln!("server error: {}", e);
+    /// }
+    ///
+    /// // And later, trigger the signal by calling `tx.send(())`.
+    /// let _ = tx.send(());
 
 use tokio::net::UnixListener;
 use warp::Filter;

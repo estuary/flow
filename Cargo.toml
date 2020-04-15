@@ -7,17 +7,17 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "0.2", features = ["macros", "uds", "sync"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version =  "1.0", features = ["raw_value"] }
+bytes = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+headers = "0.3"
 hyper = "0.13"
 hyperlocal = "0.7"
-bytes = "0.5"
-headers = "0.3"
-futures = "0.3"
 itertools = "0.9"
-thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version =  "1.0", features = ["raw_value"] }
 slog = "2.5"
-slog-term = "2.5"
 slog-async = "2.5"
+slog-term = "2.5"
+thiserror = "1.0"
+tokio = { version = "0.2", features = ["macros", "uds", "sync"] }
