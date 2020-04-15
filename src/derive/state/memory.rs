@@ -1,4 +1,5 @@
 use crate::specs::store::Document;
+use crate::derive::state::DocStore;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
 use std::collections::{btree_map, BTreeMap};
@@ -13,7 +14,7 @@ impl Store {
     }
 }
 
-impl super::DocStore for Store {
+impl DocStore for Store {
     fn put(&mut self, doc: &Document<'_>) {
         self.0
             .insert(doc.key.to_owned().into(), doc.value.to_owned());

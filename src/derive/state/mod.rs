@@ -1,5 +1,6 @@
 use crate::specs::store::Document;
 
+// DocStore is a store of documents.
 pub trait DocStore {
     // Put a Document into the store, replacing an existing entry.
     fn put(&mut self, doc: &Document<'_>);

@@ -1,4 +1,74 @@
+
+use std::io::Error as IOError;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use hyper::service::{service_fn, make_service_fn};
+use hyper::{Request, Body, Response, Method, StatusCode, Server, Error as HyperError, };
+use hyperlocal::UnixServerExt;
+use thiserror;
+use slog::{info, trace};
+
+use crate::{log, derive::state::DocStore};
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("HTTP Error: {0}")]
+    HyperError(#[from] HyperError),
+    #[error("IO Error: {0}")]
+    IOError(#[from] IOError),
+}
+
+#[derive(Clone)]
+struct AMStore(Arc<Mutex<Box<dyn DocStore>>>);
+
+async fn dispatch(req: Request<Body>, store: AMStore) -> Result<Response<Body>, Error> {
+    match (req.method(), req.uri().path()) {
+        (&Method::GET, "/") => Ok(Response::new(Body::from("Index!"))),
+
+        // Not found handler.
+        _ => {
+            let mut not_found = Response::default();
+            *not_found.status_mut() = StatusCode::NOT_FOUND;
+            Ok(not_found)
+        }
+    }
+}
+
+pub async fn serve(uds_path: &str, store: Box<dyn DocStore>) -> Result<(), Error> {
+
+    // Wrap with an Arc & Mutex to share across async tasks & threads.
+    let store = AMStore(Arc::new(Mutex::new(store)));
+
+    let service = make_service_fn(
+        move |socket: &tokio::net::UnixStream| {
+            
+            trace!(log(), "socket connected";
+                addr => socket.addr);
+
+            let store = store.clone();
+
+            async move {
+                service_fn(move |req| { dispatch(req, store.clone()) })
+            }
+        },
+    );
+
+
+    let server = Server::bind_unix(uds_path)?.serve(service);
+
+    return server.await
+}
+
 /*
+    /// // Prepare some signal for when the server should start shutting down...
+    /// let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    /// let graceful = server
+    ///     .with_graceful_shutdown(async {
+    ///         rx.await.ok();
+    ///     });
+    ///
+    /// 
+
 use tokio::net::UnixListener;
 use warp::Filter;
 use serde_json;
