@@ -54,8 +54,11 @@ where
         }
     });
 
-    let server = Server::bind_unix(uds_path)?.serve(service);
+    let server = Server::bind_unix(uds_path.as_ref())?.serve(service);
     let graceful = server.with_graceful_shutdown(stop);
+
+    info!(log(), "bound socket";
+        "uds_path" => uds_path.as_ref().to_str());
 
     match graceful.await {
         Err(err) => info!(log(), "server error"; "err" => err.to_string()),
@@ -66,10 +69,35 @@ where
 
 #[cfg(test)]
 mod test {
+    use hyper::Client;
+    use hyperlocal::{UnixClientExt, Uri};
+    use super::*;
+    use crate::derive::state::MemoryStore;
+
 
     #[tokio::test]
     async fn my_test() {
-        assert!(true);
+        let dir = tempfile::tempdir().unwrap();
+        let uds = dir.path().join("test-sock");
+
+        let store = Arc::new(Mutex::new(Box::new(MemoryStore::new())));
+        let (stop, rx) = tokio::sync::oneshot::channel::<()>();
+        let srv = serve(&uds, store.clone(), async move { rx.await.unwrap(); });
+
+        // Issue some requests.
+        let cli = Client::unix();
+        
+        let mut resp = cli.get(Uri::new(&uds, "/").into()).await.unwrap();
+        
+        info!(log(), "got response";
+            "status" => resp.status().as_str());
+
+        resp.body_mut().data()
+
+
+
+        stop.send(()).unwrap();
+        srv.await.unwrap();
     }
 }
 
