@@ -1,14 +1,167 @@
+use crate::specs::store::Document;
+use crate::{derive::state::DocStore, specs::store::GetRequest};
+use hyper::server::Builder;
+use hyper::service::make_service_fn;
+use hyperlocal::SocketIncoming;
+use log::info;
+use std::convert::Infallible;
+use std::future::Future;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use warp::{Reply, filters::BoxedFilter, Filter};
+
+fn rt_hello() -> BoxedFilter<(impl Reply,)> {
+    warp::get()
+        .and(warp::path::end())
+        .map(|| "state service ready")
+        .boxed()
+}
+
+fn rt_get_doc(store: Arc<Mutex<Box<impl DocStore>>>) -> BoxedFilter<(impl Reply,)> {
+    warp::get()
+        .and(warp::path("docs"))
+        .and(warp::path::tail())
+        .and_then(|key: warp::path::Tail| async move {
+            info!("get request {:?}", key);
+
+            Ok::<_, Infallible>(key.as_str().to_owned())
+        })
+        .boxed()
+}
+
+fn rt_put_docs(store: Arc<Mutex<Box<impl DocStore>>>) -> BoxedFilter<(impl Reply,)> {
+    warp::put()
+        .and(warp::body::bytes())
+        .map(move |put: bytes::Bytes| -> Box<dyn warp::Reply> {
+            let put = serde_json::from_slice::<Document>(put.as_ref());
+            let put = match put {
+                Ok(put) => put,
+                Err(err) => {
+                    info!("PUT decode failed: {}", err);
+
+                    return Box::new(warp::reply::with_status(
+                        err.to_string(),
+                        warp::http::StatusCode::BAD_REQUEST,
+                    ));
+                }
+            };
+            info!("PUT document key {:?} doc {:?}", put.key, put.value);
+
+            Box::new(warp::http::StatusCode::OK)
+        })
+        .boxed()
+}
+
+pub fn serve<S, I>(
+    incoming: Builder<SocketIncoming>,
+    store: Arc<Mutex<Box<S>>>,
+    stop: I,
+) -> impl Future<Output = ()>
+where
+    S: DocStore + 'static,
+    I: std::future::Future<Output = ()>,
+{
+    let svc = warp::service(
+        rt_put_docs(store.clone())
+            .or(rt_hello())
+            .or(rt_get_doc(store.clone())),
+    );
+    let make_svc = make_service_fn(move |stream: &tokio::net::UnixStream| {
+        info!("socket connected {:?}", stream);
+
+        let svc = svc.clone();
+        async move { Ok::<_, Infallible>(svc) }
+    });
+
+    let server = incoming.serve(make_svc);
+    let server = server.with_graceful_shutdown(stop);
+
+    async move {
+        if let Err(err) = server.await {
+            log::error!("error on service stop: {}", err);
+        } else {
+            log::info!("service stop complete");
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::derive::state::MemoryStore;
+    use hyper::{Client, Server};
+    use hyperlocal::{UnixConnector, UnixServerExt, Uri};
+
+    async fn with_service<F, R>(
+        store: Arc<Mutex<Box<impl DocStore + 'static>>>,
+        cb: F,
+    ) where
+        F: Fn(std::path::PathBuf, Client<UnixConnector>) -> R,
+        R: Future<Output=()>,
+    {
+        let _ = pretty_env_logger::init();
+        let dir = tempfile::tempdir().unwrap();
+        let uds = dir.path().join("test-sock");
+        let listener = Server::bind_unix(&uds).unwrap();
+
+        let (tx_stop, rx_stop) = tokio::sync::oneshot::channel::<()>();
+        let rx_stop = async move { rx_stop.await.unwrap(); };
+
+        // Start serving asynchronously.
+        let join_handle = tokio::spawn(serve(listener, store, rx_stop));
+
+        // Issue some requests.
+        let cli = Client::builder()
+            .http2_only(true)
+            .build::<_, hyper::Body>(UnixConnector);
+
+        cb(uds, cli).await;
+
+        // Graceful shutdown.
+        tx_stop.send(()).unwrap();
+        join_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_hello() {
+        let store = Arc::new(Mutex::new(Box::new(MemoryStore::new())));
+
+        with_service(store, |uds, cli| async move {
+            let mut resp = cli.get(Uri::new(&uds, "/").into()).await.unwrap();
+            let body = hyper::body::to_bytes(resp.body_mut()).await.unwrap();
+            assert_eq!(body.as_ref(), "state service ready".as_bytes());
+        }).await;
+    }
+
+    async fn run_sequence(store: Arc<Mutex<Box<impl DocStore + 'static>>>) {
+        with_service(store, |uds, cli| async move {
+
+            // TODO(johnny): Issue some puts.
+
+            let mut resp = cli.get(Uri::new(&uds, "/").into()).await.unwrap();
+            let body = hyper::body::to_bytes(resp.body_mut()).await.unwrap();
+            assert_eq!(body.as_ref(), "state service ready".as_bytes());
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn test_sequence_memory_store() {
+        run_sequence(Arc::new(Mutex::new(Box::new(MemoryStore::new()))));
+    }
+}
+
+/*
+
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Error as HyperError, Method, Request, Response, Server, StatusCode};
-use hyperlocal::UnixServerExt;
-use slog::info;
+use hyper::{Body, Error as HyperError, Method, Request, Response, StatusCode, server::Builder};
+use hyperlocal::SocketIncoming;
+use slog::{info};
+use std::future::Future;
 use std::io::Error as IOError;
-use std::path::Path;
 use std::sync::Arc;
 use thiserror;
 use tokio::sync::Mutex;
-
-use crate::{derive::state::DocStore, log};
+use crate::{derive::state::DocStore, log, specs::store::GetRequest};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -16,16 +169,68 @@ pub enum Error {
     HyperError(#[from] HyperError),
     #[error("IO Error: {0}")]
     IOError(#[from] IOError),
+    #[error("JSON Error: {0}")]
+    JsonError(#[from] serde_json::Error),
 }
 
-async fn dispatch<S: DocStore>(
+
+
+async fn dispatch<S>(
     req: Request<Body>,
-    _store: Arc<Mutex<Box<S>>>,
-) -> Result<Response<Body>, Error> {
+    store: Arc<Mutex<Box<S>>>,
+) -> Result<Response<Body>, Error>
+where
+    S: DocStore + Send + Sync + 'static
+{
     info!(log(), "dispatching request"; "headers" => format!("{:?}", req.headers()));
 
     match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => Ok(Response::new(Body::from("Index!"))),
+        (&Method::GET, "/docs") => {
+
+            let resp = Response::builder();
+            let query = req.uri().query().unwrap_or("");
+            let query = serde_urlencoded::from_str(query);
+
+            // Did we parse the query correctly?
+            let query : GetRequest = match query {
+                Err(err) => {
+                    return Ok(resp
+                        .status(404)
+                        .body(Body::from(err.to_string()))
+                        .unwrap());
+                }
+                Ok(query) => query,
+            };
+
+            // Fetch a single key.
+            if !query.prefix {
+                if let Some(doc) = store.lock().await.get(&query.key) {
+                    let doc = serde_json::to_vec(&doc).unwrap();
+                    return Ok(resp.body(Body::from(doc)).unwrap());
+                }
+                return Ok(resp.status(404).body(Body::empty()).unwrap());
+            }
+
+            // Stream an iteration of the given prefix.
+            let (mut send, body) = Body::channel();
+
+            tokio::task::spawn(async move {
+                send.send_data("[\n".into()).await?;
+
+                for (ind, doc) in store.lock().await.iter_prefix(&query.key).enumerate() {
+                    if ind != 0 {
+                        send.send_data(",\n".into()).await?;
+                    }
+                    let doc = serde_json::to_vec(&doc)?;
+                    send.send_data(doc.into()).await?;
+                }
+
+                send.send_data("\n]\n".into()).await?;
+                Ok::<(), Error>(())
+            });
+
+            Ok(resp.body(body).unwrap())
+        },
 
         // Not found handler.
         _ => {
@@ -36,15 +241,17 @@ async fn dispatch<S: DocStore>(
     }
 }
 
-pub async fn serve<P, S, I>(uds_path: P, store: Arc<Mutex<Box<S>>>, stop: I) -> Result<(), Error>
+pub fn serve<S, I>(
+    incoming: Builder<SocketIncoming>,
+    store: Arc<Mutex<Box<S>>>,
+    stop: I,
+) -> impl Future<Output = Result<(), HyperError>>
 where
-    P: AsRef<Path>,
     S: DocStore + Send + Sync + 'static,
     I: std::future::Future<Output = ()>,
 {
     let service = make_service_fn(move |stream: &tokio::net::UnixStream| {
-        info!(log(), "socket connected";
-            "stream" => format!("{:?}", stream));
+        info!(log(), "socket connected"; "stream" => format!("{:?}", stream));
 
         let store = store.clone();
         async move {
@@ -54,54 +261,10 @@ where
         }
     });
 
-    let server = Server::bind_unix(uds_path.as_ref())?.serve(service);
-    let graceful = server.with_graceful_shutdown(stop);
-
-    info!(log(), "bound socket";
-        "uds_path" => uds_path.as_ref().to_str());
-
-    match graceful.await {
-        Err(err) => info!(log(), "server error"; "err" => err.to_string()),
-        Ok(()) => info!(log(), "server graceful exit"),
-    }
-    Ok(())
+    let server = incoming.serve(service);
+    server.with_graceful_shutdown(stop)
 }
 
-#[cfg(test)]
-mod test {
-    use hyper::Client;
-    use hyperlocal::{UnixClientExt, Uri};
-    use super::*;
-    use crate::derive::state::MemoryStore;
-
-
-    #[tokio::test]
-    async fn my_test() {
-        let dir = tempfile::tempdir().unwrap();
-        let uds = dir.path().join("test-sock");
-
-        let store = Arc::new(Mutex::new(Box::new(MemoryStore::new())));
-        let (stop, rx) = tokio::sync::oneshot::channel::<()>();
-        let srv = serve(&uds, store.clone(), async move { rx.await.unwrap(); });
-
-        // Issue some requests.
-        let cli = Client::unix();
-        
-        let mut resp = cli.get(Uri::new(&uds, "/").into()).await.unwrap();
-        
-        info!(log(), "got response";
-            "status" => resp.status().as_str());
-
-        resp.body_mut().data()
-
-
-
-        stop.send(()).unwrap();
-        srv.await.unwrap();
-    }
-}
-
-/*
     /// // Prepare some signal for when the server should start shutting down...
     /// let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     /// let graceful = server

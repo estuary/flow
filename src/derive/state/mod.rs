@@ -1,7 +1,7 @@
 use crate::specs::store::Document;
 
 // DocStore is a store of documents.
-pub trait DocStore {
+pub trait DocStore: Send + Sync {
     // Put a Document into the store, replacing an existing entry.
     fn put(&mut self, doc: &Document<'_>);
     // Get a Document from the store by its key.
