@@ -17,7 +17,7 @@ mod memory;
 pub use memory::Store as MemoryStore;
 
 mod service;
-pub use service::serve;
+pub use service::build as build_service;
 
 #[cfg(test)]
 mod test {

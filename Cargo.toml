@@ -11,6 +11,7 @@ bytes = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 headers = "0.3"
+http = "0.2"
 hyper = "0.13"
 hyperlocal = "0.7"
 itertools = "0.9"
@@ -22,3 +23,7 @@ tempfile = "3.1"
 thiserror = "1.0"
 tokio = { version = "0.2", features = ["full"] }
 warp = "0.2"
+
+# Not needed yet; using warp test utilities instead.
+#reqwest = "0.10"
+

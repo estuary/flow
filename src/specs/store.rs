@@ -17,12 +17,3 @@ pub struct Document<'d> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expire_at: Option<DateTime<Utc>>,
 }
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct GetRequest {
-    // Key to retreive, or prefix thereof.
-    pub key: String,
-    // Whether to match all documents having |key| as a key prefix.
-    pub prefix: bool,
-}
