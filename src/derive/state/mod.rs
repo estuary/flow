@@ -19,12 +19,54 @@ pub use memory::Store as MemoryStore;
 mod service;
 pub use service::build as build_service;
 
+fn prefix_range_end(prefix: &[u8]) -> Option<Box<[u8]>> {
+    // Find index of last byte that isn't 0xff (the "pivot").
+    let pivot = prefix
+        .iter()
+        .enumerate()
+        .rev()
+        .filter(|(_, &b)| b != 0xff)
+        .next();
+
+    // If found, return a slice through the pivot, which is incremented by one.
+    match pivot {
+        Some((ind, _)) => {
+            let mut e = prefix[..ind + 1].to_owned();
+            *e.last_mut().unwrap() += 1;
+            Some(e.into_boxed_slice())
+        }
+        None => None,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use itertools::assert_equal;
     use serde_json::value::RawValue;
     use std::borrow::Cow;
+
+    #[test]
+    fn test_prefix_range() {
+        // Empty string prefixes all possible keys.
+        assert_eq!(prefix_range_end(&[]), None);
+        // Similarly, a maximum-value string prefixes all other strings
+        // which order after it.
+        assert_eq!(prefix_range_end(&[0xff, 0xff, 0xff]), None);
+        // Otherwise, expect the prefix is incremented and trimmed to the first larger key.
+        assert_eq!(
+            prefix_range_end(&[0xff, 0xff, 0xfe]).unwrap().as_ref(),
+            &[0xff, 0xff, 0xff]
+        );
+        assert_eq!(
+            prefix_range_end(&[0xff, 0xfe, 0xff]).unwrap().as_ref(),
+            &[0xff, 0xff]
+        );
+        assert_eq!(
+            prefix_range_end(&[0xfe, 0xff, 0xff]).unwrap().as_ref(),
+            &[0xff]
+        );
+    }
 
     #[test]
     fn test_memory_store() {
