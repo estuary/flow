@@ -23,10 +23,10 @@ pub struct Config {
 pub struct State {
     // Directory which roots the persistent state of this worker.
     pub dir: PathBuf,
-    // FSM which details the persistent state manifest, including its recovery log.
-    pub fsm: Box<RawValue>,
     // Author under which new operations should be fenced and recorded to the log.
     pub author: u32,
+    // FSM which details the persistent state manifest, including its recovery log.
+    pub fsm: Box<RawValue>,
 }
 
 /// SourceMessage is read from the flow-consumer within derive transaction streams.

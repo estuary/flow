@@ -1,12 +1,12 @@
 use clap;
 use estuary::derive;
 use estuary::specs::derive as specs;
+use futures::{select, FutureExt};
 use log::{error, info};
 use pretty_env_logger;
 use std::sync::{Arc, Mutex};
 use tokio;
 use tokio::signal::unix::{signal, SignalKind};
-use futures::{select, FutureExt};
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -44,8 +44,7 @@ async fn main() {
 
 fn parse_config(args: &clap::ArgMatches) -> Result<specs::Config, Error> {
     let cfg = args.value_of("config").unwrap();
-    let cfg = std::fs::read(cfg)
-        .map_err(|e| format!("parsing config {:?}: {}", cfg, e))?;
+    let cfg = std::fs::read(cfg).map_err(|e| format!("parsing config {:?}: {}", cfg, e))?;
     Ok(serde_json::from_slice::<specs::Config>(&cfg)?)
 }
 
@@ -67,12 +66,8 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
 
     let stop = async move {
         select!(
-            _ = sigterm.recv().fuse() => {
-                info!("caught SIGTERM; stopping");
-            }
-            _ = sigint.recv().fuse() => {
-                info!("caught SIGINT; stopping");
-            }
+            _ = sigterm.recv().fuse() => info!("caught SIGTERM; stopping"),
+            _ = sigint.recv().fuse() => info!("caught SIGINT; stopping"),
         );
     };
 
