@@ -6,24 +6,27 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "derive-worker"
+path = "cmd/derive-worker/main.rs"
+
 [dependencies]
-bytes = "0.5"
+bytes = "^0.5"
 chrono = { version = "0.4", features = ["serde"] }
-futures = "0.3"
-headers = "0.3"
-http = "0.2"
-hyper = "0.13"
-hyperlocal = "0.7"
-itertools = "0.9"
-log = "0.4"
-pretty_env_logger = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version =  "1.0", features = ["raw_value"] }
-tempfile = "3.1"
-thiserror = "1.0"
+clap = "^2.33" # Used only for CLI binaries.
+futures = "^0.3"
+headers = "^0.3"
+http = "^0.2"
+hyper = "^0.13"
+hyperlocal = "^0.7"
+log = "^0.4"
+pretty_env_logger = "^0.4"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = { version =  "^1.0", features = ["raw_value"] }
+thiserror = "^1.0"
 tokio = { version = "0.2", features = ["full"] }
 warp = "0.2"
 
-# Not needed yet; using warp test utilities instead.
-#reqwest = "0.10"
+[dev-dependencies]
+tempfile = "^3.1"
 

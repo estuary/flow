@@ -42,7 +42,6 @@ fn prefix_range_end(prefix: &[u8]) -> Option<Box<[u8]>> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use itertools::assert_equal;
     use serde_json::value::RawValue;
     use std::borrow::Cow;
 
@@ -98,27 +97,25 @@ mod test {
         assert_eq!(store.get("foo/0").unwrap().value.get(), "0");
         assert_eq!(store.get("bar/3").unwrap().value.get(), "true");
 
-        assert_equal(
+        assert_eq!(
             store
                 .iter_prefix("foo")
-                .map(|doc| serde_json::to_string(&doc).unwrap()),
-            [
-                r#"{"key":"foo/0","value":0}"#,
-                r#"{"key":"foo/2","value":2}"#,
-            ]
-            .iter()
-            .copied(),
+                .map(|doc| serde_json::to_string(&doc).unwrap())
+                .collect::<Vec<String>>(),
+            vec![
+                r#"{"key":"foo/0","value":0}"#.to_owned(),
+                r#"{"key":"foo/2","value":2}"#.to_owned(),
+            ],
         );
-        assert_equal(
+        assert_eq!(
             store
                 .iter_prefix("ba")
-                .map(|doc| serde_json::to_string(&doc).unwrap()),
-            [
-                r#"{"key":"bar/3","value":true}"#,
-                r#"{"key":"baz/4","value":null}"#,
-            ]
-            .iter()
-            .copied(),
+                .map(|doc| serde_json::to_string(&doc).unwrap())
+                .collect::<Vec<String>>(),
+            vec![
+                r#"{"key":"bar/3","value":true}"#.to_owned(),
+                r#"{"key":"baz/4","value":null}"#.to_owned(),
+            ],
         );
 
         assert_eq!(store.iter_prefix("").count(), 5);
