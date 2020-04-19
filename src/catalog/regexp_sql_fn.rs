@@ -1,8 +1,9 @@
 use regex::Regex;
-use rusqlite::{Connection, Error, Result};
+use rusqlite::{functions::FunctionFlags, Connection, Error, Result};
 
 pub fn create(db: &Connection) -> Result<()> {
-    db.create_scalar_function("regexp", 2, true, move |ctx| {
+    let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+    db.create_scalar_function("regexp", 2, flags, move |ctx| {
         assert_eq!(ctx.len(), 2, "called with unexpected number of arguments");
 
         let saved_re: Option<&Regex> = ctx.get_aux(0)?;

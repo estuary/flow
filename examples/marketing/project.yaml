@@ -26,44 +26,38 @@ collections:
     fixtures: [fixtures/views-with-campaign.yaml]
 
     derivation:
-      innerState:
-        type: durable
-        parallelism: 8
+      parallelism: 8
+
+      bootstrap:
+        - sqlite: |
+            do some stuff.
+        - typescript: |
+            (ctx) => { console.println('hello!'); }
+
       transform:
-        # Index the present value of each campaign.
+        # Index the campaign on its id. We broadcast out to 4 processors because
+        # there are relatively few of these, and we can spread out the load of any
+        # particularly "hot" campaign IDs.
         - source: marketing/campaigns
-          lambda:
-            #jqInline: |
-            #  upsert_key(.campaign_id; .)
-
-            #jq: ../path/to/file
-
-            sqliteBlock:
-              bootstrap: |
-                bing zing
-              body: |
-                bar baz
-
-            #sqlite:
-            #  bootstrap: ../path/to/bootstrap
-            #  body: ../path/to/file
-
-            #pythonBlock:
-            #  bootstrap: |
-            #    import blah
-            #  fn: |
-            #    return zing * ting
-
           shuffle:
+            # As we don't specify a key, the source key "/campaign_id" is used by default.
             broadcast: 4
-        # Enrich each view by adding a `campaign` property drawn from an indexed campaign.
-        - source: marketing/offer/views
           lambda:
-            jqBlock: |
-              . + {campaign: load_key(.campaign_id)}
+            typescript: (doc, state) => ctx.setKey(doc.campaign_id, doc)
+        # Enrich each view event by joining with its present campaign.
+        - source: marketing/offer/views
           shuffle:
+            # Shuffle to a processor which indexed this view's campaign.
+            # "choose: 4" will randomly select one of the 4 processors to which
+            # this campaign was broadcast.
             key: [/campaign_id]
             choose: 4
+          lambda:
+            # Join the view with a previously indexed campaign.
+            typescript: |
+              (doc, state) => async [
+                {..doc, campaign: await state.getKey(doc.campaign_id)},
+              ]
 
   - name: marketing/clicks-with-views
     schema: schemas.yaml#/$defs/click-with-view
@@ -133,8 +127,8 @@ collections:
           shuffle:
             key: [/user_id]
           lambda:
-            jqBlock: |
-              emit({ ..rec,
-                views: load_key_prefix(`{rec.user_id}/views/`),
-                clicks: load_key_prefix(`{rec.user_id}/clicks/`),
-              })
+            typescript: |
+              (doc, state) => async [{ ..doc,
+                  views: await state.getPrefix(`{doc.user_id}/views/`),
+                  clicks: await state.getPrefix(`{rec.user_id}/clicks/`),
+              }]
