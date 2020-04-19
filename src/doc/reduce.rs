@@ -3,6 +3,7 @@ use itertools::EitherOrBoth;
 use serde::{Deserialize, Serialize};
 use serde_json as sj;
 use std::cmp::Ordering;
+use std::iter::Iterator;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]

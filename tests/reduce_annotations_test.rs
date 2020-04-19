@@ -3,7 +3,7 @@ use estuary_json::{
     schema::{self, index},
     validator,
 };
-use estuary_json_ext::{self as ejx, reduce};
+use estuary::{doc, doc::reduce};
 use serde_json::{json, Value};
 use url::Url;
 
@@ -44,8 +44,7 @@ fn test_validate_then_reduce() {
     });
 
     let uri = Url::parse("https://example/schema").unwrap();
-    let scm: schema::Schema<ejx::Annotation> =
-        schema::build::build_schema(uri.clone(), &scm).unwrap();
+    let scm: doc::Schema = schema::build::build_schema(uri.clone(), &scm).unwrap();
 
     let mut idx = index::Index::new();
     idx.add(&scm).unwrap();
@@ -126,13 +125,13 @@ fn test_validate_then_reduce() {
     let mut into = Value::Null;
     for (i, (doc, expect)) in cases.into_iter().enumerate() {
         let mut val =
-            validator::Validator::<ejx::Annotation, validator::FullContext>::new(&idx, &uri)
+            doc::Validator::<validator::FullContext>::new(&idx, &uri)
                 .unwrap();
 
         let _out = de::walk(&doc, &mut val).unwrap();
         assert_eq!(val.invalid(), false);
 
-        let strats = ejx::extract_reduce_annotations(val.outcomes());
+        let strats = doc::extract_reduce_annotations(val.outcomes());
         println!("strategies: {:?}", strats);
 
         reduce::Reducer {

@@ -123,6 +123,13 @@ impl Resource {
     }
 }
 
+fn add_schema_document(db: &DB, r: Resource) -> Result<()> {
+    let doc = r.fetch_to_string(db)?;
+    let doc = serde_yaml::from_str::<serde_json::Value>(&doc)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
