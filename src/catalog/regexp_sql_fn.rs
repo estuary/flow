@@ -1,7 +1,7 @@
 use regex::Regex;
 use rusqlite::{functions::FunctionFlags, Connection, Error, Result};
 
-pub fn create(db: &Connection) -> Result<()> {
+pub fn install(db: &Connection) -> Result<()> {
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
     db.create_scalar_function("regexp", 2, flags, move |ctx| {
         assert_eq!(ctx.len(), 2, "called with unexpected number of arguments");
@@ -44,7 +44,7 @@ mod test {
     #[test]
     fn test_function() -> Result<()> {
         let db = Connection::open_in_memory()?;
-        create(&db)?;
+        install(&db)?;
 
         let is_match: bool = db.query_row(
             "SELECT 'aaaaeeeiii' REGEXP '^[aeiou]*$';",
@@ -53,6 +53,15 @@ mod test {
         )?;
 
         assert!(is_match);
+        Ok(())
+    }
+
+    #[test]
+    fn test_install_twice() -> Result<()> {
+        // Can be installed multiple times without issue.
+        let db = Connection::open_in_memory()?;
+        install(&db)?;
+        install(&db)?;
         Ok(())
     }
 }
