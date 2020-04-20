@@ -79,8 +79,8 @@ impl Resource {
         }
     }
 
-    /// Adds an import of Resource |import| by |source|.
-    fn add_import(db: &DB, source: Resource, import: Resource) -> Result<()> {
+    /// Registers an import of Resource |import| by |source|.
+    fn register_import(db: &DB, source: Resource, import: Resource) -> Result<()> {
         if source.id == import.id {
             return Ok(()); // A source implicitly imports itself.
         }
@@ -169,7 +169,7 @@ impl SchemaDoc {
             match kw {
                 Keyword::Application(Application::Ref(ref_uri), _) => {
                     let import = Self::register(db, ref_uri.clone())?;
-                    Resource::add_import(&db, source.0, import.0)?;
+                    Resource::register_import(&db, source.0, import.0)?;
                 }
                 Keyword::Application(_, child) => {
                     Self::add_references(&db, source, child)?;
@@ -231,7 +231,6 @@ static SQLITE: &str = "sqlite";
 static REMOTE: &str = "remote";
 
 impl Lambda {
-
     fn register(db: &DB, source: Resource, spec: &specs::Lambda) -> Result<Lambda> {
         use specs::Lambda::*;
         let (embed, runtime, body) = match spec {
@@ -256,7 +255,7 @@ impl Lambda {
 
         let import = source.join(db, body)?;
         let import = Resource::register(db, import)?;
-        Resource::add_import(db, source, import)?;
+        Resource::register_import(db, source, import)?;
 
         // Attempt to find an existing row for this lambda.
         // We don't use import.added because *technically* the lambda could be
@@ -269,9 +268,9 @@ impl Lambda {
             .query_row(sql_params![runtime, import.id], |row| row.get(0));
 
         match row {
-            Ok(id) => return Ok(Lambda(id)),     // Found.
-            Err(DBError::QueryReturnedNoRows) => (),  // Not found. Fall through to insert.
-            Err(err) => return Err(err.into()), // Other DBError.
+            Ok(id) => return Ok(Lambda(id)),         // Found.
+            Err(DBError::QueryReturnedNoRows) => (), // Not found. Fall through to insert.
+            Err(err) => return Err(err.into()),      // Other DBError.
         }
 
         db.prepare_cached("INSERT INTO lambdas (runtime, body, resource_id) VALUES (?, ?, ?)")?
@@ -391,28 +390,28 @@ mod test {
         );
 
         // Marking a self-import is a no-op (and doesn't break CTE evaluation).
-        Resource::add_import(&db, a, a)?;
+        Resource::register_import(&db, a, a)?;
 
         // A => B => D.
-        Resource::add_import(&db, a, b)?;
-        Resource::add_import(&db, b, d)?;
+        Resource::register_import(&db, a, b)?;
+        Resource::register_import(&db, b, d)?;
         Resource::verify_import(&db, a, d)?;
 
         // It's not okay for D => A (since A => B => D).
         assert_eq!(
             "'http://d/' imports 'file:///a', but 'file:///a' already transitively imports 'http://d/'",
-            format!("{}", Resource::add_import(&db, d, a).unwrap_err()));
+            format!("{}", Resource::register_import(&db, d, a).unwrap_err()));
         // Or for D => B (since B => D).
-        Resource::add_import(&db, d, b).unwrap_err();
+        Resource::register_import(&db, d, b).unwrap_err();
 
         // Imports may form a DAG. Create some valid alternate paths.
         // A => C => D.
-        Resource::add_import(&db, c, d)?;
-        Resource::add_import(&db, a, c)?;
+        Resource::register_import(&db, c, d)?;
+        Resource::register_import(&db, a, c)?;
         // A => B => C => D.
-        Resource::add_import(&db, b, c)?;
+        Resource::register_import(&db, b, c)?;
         // A => D.
-        Resource::add_import(&db, a, d)?;
+        Resource::register_import(&db, a, d)?;
 
         Resource::verify_import(&db, a, b)?;
         Resource::verify_import(&db, a, c)?;
