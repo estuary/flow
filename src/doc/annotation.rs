@@ -1,7 +1,7 @@
+use super::reduce;
 use estuary_json::{schema, validator};
 use serde_json;
 use std::convert::TryFrom;
-use super::reduce;
 
 /// Enumeration of JSON-Schema associated annotations understood by Estuary.
 #[derive(Debug)]
@@ -30,7 +30,10 @@ impl schema::build::AnnotationBuilder for Annotation {
         }
     }
 
-    fn from_keyword(keyword: &str, value: &serde_json::Value) -> Result<Self, schema::build::Error> {
+    fn from_keyword(
+        keyword: &str,
+        value: &serde_json::Value,
+    ) -> Result<Self, schema::build::Error> {
         use schema::BuildError::AnnotationErr;
         use schema::CoreAnnotation as Core;
 
@@ -49,8 +52,8 @@ impl schema::build::AnnotationBuilder for Annotation {
 pub fn extract_reduce_annotations<'a, C>(
     outcomes: &[(validator::Outcome<'a, Annotation>, C)],
 ) -> Vec<(&'a reduce::Strategy, u64)>
-    where
-        C: validator::Context,
+where
+    C: validator::Context,
 {
     let mut idx = Vec::<(&reduce::Strategy, u64)>::new();
 
@@ -68,4 +71,3 @@ pub fn extract_reduce_annotations<'a, C>(
 }
 
 static DEFAULT_STRATEGY: &reduce::Strategy = &reduce::Strategy::LastWriteWins;
-

@@ -24,8 +24,8 @@ CREATE TABLE resource_imports
 -- View which derives all transitive resource imports
 CREATE VIEW resource_transitive_imports AS
 WITH RECURSIVE cte(source_id, import_id) AS (
-    SELECT source_id, import_id
-    FROM resource_imports
+    SELECT id, id
+    FROM resources
     UNION ALL
     SELECT cte.source_id, ri.import_id
     FROM resource_imports AS ri

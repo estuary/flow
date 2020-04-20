@@ -1,9 +1,9 @@
+use estuary::{doc, doc::reduce};
 use estuary_json::{
     de,
     schema::{self, index},
     validator,
 };
-use estuary::{doc, doc::reduce};
 use serde_json::{json, Value};
 use url::Url;
 
@@ -124,9 +124,7 @@ fn test_validate_then_reduce() {
 
     let mut into = Value::Null;
     for (i, (doc, expect)) in cases.into_iter().enumerate() {
-        let mut val =
-            doc::Validator::<validator::FullContext>::new(&idx, &uri)
-                .unwrap();
+        let mut val = doc::Validator::<validator::FullContext>::new(&idx, &uri).unwrap();
 
         let _out = de::walk(&doc, &mut val).unwrap();
         assert_eq!(val.invalid(), false);

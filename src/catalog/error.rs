@@ -1,3 +1,4 @@
+use estuary_json::schema;
 use rusqlite;
 use serde_json;
 use serde_yaml;
@@ -36,11 +37,11 @@ pub enum Error {
         source_uri: String,
         import_uri: String,
     },
+    #[error("failed to build schema: {0}")]
+    SchemaBuildErr(#[from] schema::build::Error),
     /*
     #[error("schema index error: {0}")]
     IndexErr(#[from] schema::index::Error),
-    #[error("failed to build schema: {0}")]
-    SchemaBuildErr(#[from] schema::build::Error),
 
     #[error("failed to find collection '{name}': '{detail}'")]
     QueryCollectionErr {
