@@ -1,7 +1,7 @@
 use crate::{doc::Schema, specs::build as specs};
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use log::info;
-use rusqlite::{params as sql_params, Connection as DB, Error as DBError, Result as DBResult};
+use rusqlite::{params as sql_params, Connection as DB, Error as DBError};
 use url::Url;
 
 use super::{error::Error, regexp_sql_fn};
@@ -88,7 +88,7 @@ impl Resource {
         // this import is invalid as it would introduce an import cycle.
         let mut s = db.prepare_cached(
             "SELECT 1 FROM resource_transitive_imports
-            WHERE import_id = ? AND source_id = ?;",
+                    WHERE import_id = ? AND source_id = ?;",
         )?;
 
         match s.query_row(&[source.id, import.id], |_| Ok(())) {
@@ -120,7 +120,7 @@ impl Resource {
     fn verify_import(db: &DB, source: Resource, import: Resource) -> Result<()> {
         let mut s = db.prepare_cached(
             "SELECT 1 FROM resource_transitive_imports
-            WHERE source_id = ? AND import_id = ?;",
+                    WHERE source_id = ? AND import_id = ?;",
         )?;
 
         match s.query_row(&[source.id, import.id], |_| Ok(())) {
@@ -293,6 +293,7 @@ impl Collection {
 #[cfg(test)]
 mod test {
     use super::*;
+    use rusqlite::Result as DBResult;
     use serde_json::json;
     use std::io::Write;
     use tempfile;
@@ -515,23 +516,23 @@ mod test {
             Lambda::register(&db, root, fixture)?;
         }
 
-        let mut s = db.prepare("SELECT id, runtime, body, resource_id FROM lambdas")?;
-        let rows = s.query_map(sql_params![], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?;
-        let rows: DBResult<Vec<(i64, String, String, i64)>> = rows.collect();
+        let mut s = db.prepare("SELECT JSON_ARRAY(id, runtime, body, resource_id) FROM lambdas")?;
+        let rows = s.query_map(sql_params![], |row| Ok(row.get(0)?))?;
+        let rows: DBResult<Vec<serde_json::Value>> = rows.collect();
 
         assert_eq!(
-            rows?,
-            vec![
-                (1, "sqlite".to_owned(), "block 1".to_owned(), root.id),
-                (2, "sqlite".to_owned(), "block 2".to_owned(), root.id),
-                (3, "typescript".to_owned(), "block 3".to_owned(), root.id),
-                (4, "remote".to_owned(), "http://host".to_owned(), root.id),
-                (5, "sqlite".to_owned(), "file one".to_owned(), file_1.id),
-                (6, "typescript".to_owned(), "file two".to_owned(), file_2.id),
-                (7, "typescript".to_owned(), "file one".to_owned(), file_1.id),
-            ],
+            &rows?,
+            json!([
+                (1, "sqlite", "block 1", root.id),
+                (2, "sqlite", "block 2", root.id),
+                (3, "typescript", "block 3", root.id),
+                (4, "remote", "http://host", root.id),
+                (5, "sqlite", "file one", file_1.id),
+                (6, "typescript", "file two", file_2.id),
+                (7, "typescript", "file one", file_1.id),
+            ])
+            .as_array()
+            .unwrap(),
         );
 
         Ok(())
