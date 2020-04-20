@@ -60,6 +60,20 @@ CREATE TABLE schema_documents
     resource_id   INTEGER PRIMARY KEY NOT NULL REFERENCES resources (id)
 );
 
+-- Lambdas are function definitions.
+CREATE TABLE lambdas
+(
+    id          INTEGER PRIMARY KEY NOT NULL,
+    -- Runtime of this lambda.
+    runtime     TEXT                NOT NULL,
+    -- Function body (used by: jq, sqlite).
+    body        TEXT,
+    -- Resource which produced this lambda.
+    resource_id INTEGER REFERENCES resources (id),
+
+    CHECK (runtime IN ('typescript', 'sqlite', 'remote'))
+);
+
 -- Collections of the catalog.
 CREATE TABLE collections
 (
@@ -88,20 +102,6 @@ CREATE TABLE projections
     is_logical_partition BOOLEAN,
 
     PRIMARY KEY (collection_id, field)
-);
-
--- Lambdas are function definitions.
-CREATE TABLE lambdas
-(
-    id          INTEGER PRIMARY KEY NOT NULL,
-    -- Runtime of this lambda.
-    runtime     TEXT                NOT NULL,
-    -- Function body (used by: jq, sqlite).
-    body        TEXT,
-    -- Resource which produced this lambda.
-    resource_id INTEGER REFERENCES resources (id),
-
-    CHECK (runtime IN ('typescript', 'sqlite'))
 );
 
 -- Derivations details collections of the catalog which are derived from other collections.

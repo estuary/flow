@@ -1,7 +1,7 @@
-use crate::doc::Schema;
+use crate::{doc::Schema, specs::build as specs};
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use log::info;
-use rusqlite::{params as sql_params, Connection as DB, Error as DBError};
+use rusqlite::{params as sql_params, Connection as DB, Error as DBError, Result as DBResult};
 use url::Url;
 
 use super::{error::Error, regexp_sql_fn};
@@ -142,7 +142,7 @@ impl SchemaDoc {
     /// Register a JSON-Schema document at the URI. If already registered, this
     /// is a no-op and its existing handle is returned. Otherwise the document
     /// and all of its recursive references are added to the catalog.
-    fn add(db: &DB, uri: url::Url) -> Result<SchemaDoc> {
+    fn register(db: &DB, uri: url::Url) -> Result<SchemaDoc> {
         let sd = SchemaDoc(Resource::register(db, uri)?);
         if !sd.0.added {
             return Ok(sd);
@@ -168,7 +168,7 @@ impl SchemaDoc {
         for kw in &schema.kw {
             match kw {
                 Keyword::Application(Application::Ref(ref_uri), _) => {
-                    let import = Self::add(db, ref_uri.clone())?;
+                    let import = Self::register(db, ref_uri.clone())?;
                     Resource::add_import(&db, source.0, import.0)?;
                 }
                 Keyword::Application(_, child) => {
@@ -220,6 +220,75 @@ impl SchemaDoc {
         let compiled: Schema = build_schema(self.0.uri(db)?, &dom)?;
         Ok(compiled)
     }
+}
+
+/// Lambda represents a catalog Lambda function.
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+struct Lambda(i64);
+
+static TYPESCRIPT: &str = "typescript";
+static SQLITE: &str = "sqlite";
+static REMOTE: &str = "remote";
+
+impl Lambda {
+
+    fn register(db: &DB, source: Resource, spec: &specs::Lambda) -> Result<Lambda> {
+        use specs::Lambda::*;
+        let (embed, runtime, body) = match spec {
+            Remote(endpoint) => {
+                Url::parse(endpoint)?; // Must be a base URI.
+                (true, REMOTE, endpoint)
+            }
+            Sqlite(body) => (true, SQLITE, body),
+            SqliteFile(uri) => (false, SQLITE, uri),
+            Typescript(body) => (true, TYPESCRIPT, body),
+            TypescriptFile(uri) => (false, TYPESCRIPT, uri),
+        };
+
+        if embed {
+            // Embedded lambdas always insert a new row.
+            db.prepare_cached("INSERT INTO lambdas (runtime, body, resource_id) VALUES (?, ?, ?)")?
+                .execute(sql_params![runtime, body, source.id])?;
+            return Ok(Lambda(db.last_insert_rowid()));
+        }
+
+        // This lambda specification is an indirect to a file.
+
+        let import = source.join(db, body)?;
+        let import = Resource::register(db, import)?;
+        Resource::add_import(db, source, import)?;
+
+        // Attempt to find an existing row for this lambda.
+        // We don't use import.added because *technically* the lambda could be
+        // represented twice with different runtimes. This is almost certainly
+        // a bug, but here we just represent what the spec says and trust we'll
+        // fail later with a better error (i.e., compilation failed).
+
+        let row = db
+            .prepare_cached("SELECT id FROM lambdas WHERE runtime = ? AND resource_id = ?")?
+            .query_row(sql_params![runtime, import.id], |row| row.get(0));
+
+        match row {
+            Ok(id) => return Ok(Lambda(id)),     // Found.
+            Err(DBError::QueryReturnedNoRows) => (),  // Not found. Fall through to insert.
+            Err(err) => return Err(err.into()), // Other DBError.
+        }
+
+        db.prepare_cached("INSERT INTO lambdas (runtime, body, resource_id) VALUES (?, ?, ?)")?
+            .execute(sql_params![runtime, import.fetch_to_string(db)?, import.id])?;
+        Ok(Lambda(db.last_insert_rowid()))
+    }
+}
+
+/// Collection represents a catalog Collection.
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+struct Collection(i64);
+
+impl Collection {
+    /*
+    fn register(db: &DB, source: Resource, spec: &specs::Collection) -> Result<Collection> {
+    }
+    */
 }
 
 #[cfg(test)]
@@ -394,15 +463,15 @@ mod test {
         create_schema(&db)?;
 
         // Adding a.json also adds b & c.json.
-        let sd_a = SchemaDoc::add(&db, fixtures[0].0.clone())?;
+        let sd_a = SchemaDoc::register(&db, fixtures[0].0.clone())?;
 
         // When 'a.json' is fetched, 'b/c.json' are as well.
         let bundle = SchemaDoc::fetch_bundle(&db, sd_a.resource())?;
         assert_eq!(bundle.len(), 3);
 
         // Expect 'b.json' & 'c.json' were already added by 'a.json'.
-        let sd_b = SchemaDoc::add(&db, fixtures[1].0.clone())?;
-        let sd_c = SchemaDoc::add(&db, fixtures[2].0.clone())?;
+        let sd_b = SchemaDoc::register(&db, fixtures[1].0.clone())?;
+        let sd_c = SchemaDoc::register(&db, fixtures[2].0.clone())?;
         assert!(!sd_b.resource().added);
         assert!(!sd_c.resource().added);
 
@@ -411,6 +480,60 @@ mod test {
         assert_eq!(bundle.len(), 2);
         let bundle = SchemaDoc::fetch_bundle(&db, sd_c.resource())?;
         assert_eq!(bundle.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_and_fetch_lambdas() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Two lambda fixture files.
+        std::fs::write(dir.path().join("lambda.one"), "file one")?;
+        std::fs::write(dir.path().join("lambda.two"), "file two")?;
+
+        let db = DB::open_in_memory()?;
+        create_schema(&db)?;
+
+        let root = Url::from_file_path(dir.path().join("root.spec")).unwrap();
+        let root = Resource::register(&db, root)?;
+        let file_1 = Resource::register(&db, root.join(&db, "lambda.one")?)?;
+        let file_2 = Resource::register(&db, root.join(&db, "lambda.two")?)?;
+
+        use specs::Lambda::*;
+        let fixtures = [
+            Sqlite("block 1".to_owned()),
+            Sqlite("block 2".to_owned()),
+            Typescript("block 3".to_owned()),
+            Remote("http://host".to_owned()),
+            SqliteFile("lambda.one".to_owned()),
+            SqliteFile("lambda.one".to_owned()), // De-duplicated repeat.
+            TypescriptFile("lambda.two".to_owned()),
+            TypescriptFile("lambda.one".to_owned()), // Repeat with different runtime.
+        ];
+
+        for fixture in fixtures.iter() {
+            Lambda::register(&db, root, fixture)?;
+        }
+
+        let mut s = db.prepare("SELECT id, runtime, body, resource_id FROM lambdas")?;
+        let rows = s.query_map(sql_params![], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?;
+        let rows: DBResult<Vec<(i64, String, String, i64)>> = rows.collect();
+
+        assert_eq!(
+            rows?,
+            vec![
+                (1, "sqlite".to_owned(), "block 1".to_owned(), root.id),
+                (2, "sqlite".to_owned(), "block 2".to_owned(), root.id),
+                (3, "typescript".to_owned(), "block 3".to_owned(), root.id),
+                (4, "remote".to_owned(), "http://host".to_owned(), root.id),
+                (5, "sqlite".to_owned(), "file one".to_owned(), file_1.id),
+                (6, "typescript".to_owned(), "file two".to_owned(), file_2.id),
+                (7, "typescript".to_owned(), "file one".to_owned(), file_1.id),
+            ],
+        );
 
         Ok(())
     }
