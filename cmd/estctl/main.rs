@@ -2,11 +2,9 @@ use clap;
 use std::boxed::Box;
 use std::fs;
 use url;
+use estuary::catalog;
 
-mod catalog;
-mod specs;
-
-type Error = Box<dyn std::error::Error>;
+type Error = Box<dyn std::error::Error + 'static>;
 
 fn main() {
     let matches = clap::App::new("Estuary CLI")
@@ -15,18 +13,18 @@ fn main() {
         .about("Command-line interface for working with Estuary projects")
         .subcommand(
             clap::SubCommand::with_name("build")
-                .about("Build an Estuary specification tree into a bundle")
+                .about("Build an Estuary specification into a catalog")
                 .arg(
-                    clap::Arg::with_name("root")
-                        .short("r")
-                        .long("root")
+                    clap::Arg::with_name("path")
+                        .short("p")
+                        .long("path")
                         .takes_value(true)
                         .required(true)
-                        .help("Path to specification which roots the hierarchy"),
+                        .help("Path to input specification file"),
                 )
                 .arg(
                     clap::Arg::with_name("catalog")
-                        .short("b")
+                        .short("c")
                         .long("catalog")
                         .takes_value(true)
                         .required(true)
@@ -47,21 +45,16 @@ fn main() {
 }
 
 fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
-    let root = args.value_of("root").unwrap();
+    let root = args.value_of("path").unwrap();
     let root = fs::canonicalize(root)?;
     let root = url::Url::from_file_path(&root).unwrap();
 
     let db = args.value_of("catalog").unwrap();
     let db = rusqlite::Connection::open(db)?;
     db.execute_batch("BEGIN;")?;
-    catalog::create_schema(&db)?;
 
-    let b = catalog::Builder::new(db);
-    println!("root specification is {}", &root);
+    catalog::build_catalog(&db, root)?;
 
-    b.process_specs(root)?;
-    b.do_inference()?;
-
-    b.done().execute_batch("COMMIT;")?;
+    db.execute_batch("COMMIT;")?;
     Ok(())
 }

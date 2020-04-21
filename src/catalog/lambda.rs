@@ -11,7 +11,7 @@ pub struct Lambda {
 }
 
 // Constants for runtime types.
-static TYPESCRIPT: &str = "typescript";
+static NODEJS: &str = "nodeJS";
 static SQLITE: &str = "sqlite";
 static REMOTE: &str = "remote";
 
@@ -26,8 +26,8 @@ impl Lambda {
             }
             Sqlite(body) => (true, SQLITE, body),
             SqliteFile(uri) => (false, SQLITE, uri),
-            Typescript(body) => (true, TYPESCRIPT, body),
-            TypescriptFile(uri) => (false, TYPESCRIPT, uri),
+            NodeJS(body) => (true, NODEJS, body),
+            NodeJSFile(uri) => (false, NODEJS, uri),
         };
 
         if embed {
@@ -103,12 +103,12 @@ mod test {
         let fixtures = [
             Sqlite("block 1".to_owned()),
             Sqlite("block 2".to_owned()),
-            Typescript("block 3".to_owned()),
+            NodeJS("block 3".to_owned()),
             Remote("http://host".to_owned()),
             SqliteFile("lambda.one".to_owned()),
             SqliteFile("lambda.one".to_owned()), // De-duplicated repeat.
-            TypescriptFile("lambda.two".to_owned()),
-            TypescriptFile("lambda.one".to_owned()), // Repeat with different runtime.
+            NodeJSFile("lambda.two".to_owned()),
+            NodeJSFile("lambda.one".to_owned()), // Repeat with different runtime.
         ];
 
         for fixture in fixtures.iter() {
@@ -122,11 +122,11 @@ mod test {
                 "lambdas": [
                     [1, "sqlite", "block 1", root.id],
                     [2, "sqlite", "block 2", root.id],
-                    [3, "typescript", "block 3", root.id],
+                    [3, "nodeJS", "block 3", root.id],
                     [4, "remote", "http://host", root.id],
                     [5, "sqlite", "file one", file_1.id],
-                    [6, "typescript", "file two", file_2.id],
-                    [7, "typescript", "file one", file_1.id],
+                    [6, "nodeJS", "file two", file_2.id],
+                    [7, "nodeJS", "file one", file_1.id],
                 ],
             }),
         );

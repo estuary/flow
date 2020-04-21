@@ -22,11 +22,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 use rusqlite::Connection as DB;
 use url;
 
-pub fn build_catalog(db: &DB, uris: &[url::Url]) -> Result<()> {
+pub fn build_catalog(db: &DB, uri: url::Url) -> Result<()> {
     db::init(db)?;
-
-    for uri in uris {
-        Source::register(db, uri.clone())?;
-    }
+    Source::register(db, uri)?;
     Ok(())
 }

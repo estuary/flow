@@ -12,7 +12,7 @@ fn test_examples() -> Result<()> {
     path.extend(["examples", "root.yaml"].iter());
 
     let db = Connection::open_in_memory()?;
-    build_catalog(&db, &[Url::from_file_path(path).unwrap()])?;
+    build_catalog(&db, Url::from_file_path(path).unwrap())?;
 
     Ok(())
 }

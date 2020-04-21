@@ -36,7 +36,7 @@ collections:
             # As we don't specify a key, the source key "/campaign_id" is used by default.
             broadcast: 4
           lambda:
-            typescript: (doc, state) => ctx.setKey(doc.campaign_id, doc)
+            nodeJS: (doc, state) => ctx.setKey(doc.campaign_id, doc)
         # Enrich each view event by joining with its present campaign.
         - source: marketing/offer/views
           shuffle:
@@ -47,7 +47,7 @@ collections:
             choose: 4
           lambda:
             # Join the view with a previously indexed campaign.
-            typescript: |
+            nodeJS: |
               (doc, state) => async [
                 {..doc, campaign: await state.getKey(doc.campaign_id)},
               ]
@@ -63,7 +63,7 @@ collections:
         # Index each view with a 2-day TTL relative to the view's timestamp.
         - source: marketing/views-with-campaign
           lambda:
-            typescript: |
+            nodeJS: |
               with $ts as .timestamp | fromdate |
               with $expiry as $ts + 172800 |
               upsert_key_with_expiry(.view_id; $expiry ; . )
@@ -72,7 +72,7 @@ collections:
           shuffle:
             key: [/view_id]
           lambda:
-            typescript: |
+            nodeJS: |
               . + {view: load_key(.view_id)}
 
   - name: marketing/purchases-with-offers
@@ -91,7 +91,7 @@ collections:
           shuffle:
             key: [/user_id]
           lambda:
-            typescript: |
+            nodeJS: |
               let ts = Date.parse(rec.timestamp);
               let ts_day = ts - (ts % 86400000);
               let key = `${rec.user_id}/views/${ts_day}`;
@@ -103,7 +103,7 @@ collections:
           shuffle:
             key: [/user_id]
           lambda:
-            typescript: |
+            nodeJS: |
               with $ts as (.timestamp | fromdate) |
               with $ts_hour as $ts - ($ts % 3600) |
               with $key as "\(.user_id)/clicks/\($ts_hour)";
@@ -115,7 +115,7 @@ collections:
           shuffle:
             key: [/user_id]
           lambda:
-            typescript: |
+            nodeJS: |
               (doc, state) => async [{ ..doc,
                   views: await state.getPrefix(`{doc.user_id}/views/`),
                   clicks: await state.getPrefix(`{rec.user_id}/clicks/`),

@@ -10,6 +10,10 @@ edition = "2018"
 name = "derive-worker"
 path = "cmd/derive-worker/main.rs"
 
+[[bin]]
+name = "estctl"
+path = "cmd/estctl/main.rs"
+
 [dependencies]
 estuary_json = { path = "json" }
 bytes = "^0.5"

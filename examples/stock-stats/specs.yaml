@@ -27,7 +27,7 @@ collections:
       transform:
         - source: ticks
           lambda:
-            typescript: lambdas/map-tick-to-daily-stats.jq
+            nodeJS: lambdas/map-tick-to-daily-stats.jq
 
 #materializations:
 #  - collection: daily-stats

@@ -138,7 +138,7 @@ mod test {
             "derivation": {
                 "parallelism": 8,
                 "bootstrap": [
-                    {"typescript": "typescript bootstrap"},
+                    {"nodeJS": "nodeJS bootstrap"},
                 ],
                 "transform": [
                     {
@@ -148,7 +148,7 @@ mod test {
                             "key": ["/shuffle", "/key"],
                             "choose": 3,
                         },
-                        "lambda": {"typescript": "lambda one"},
+                        "lambda": {"nodeJS": "lambda one"},
                     },
                 ],
             }
@@ -164,7 +164,7 @@ mod test {
                 "transform": [
                     {
                         "source": "src/collection",
-                        "lambda": {"typescript": "lambda two"},
+                        "lambda": {"nodeJS": "lambda two"},
                     },
                 ],
             }
@@ -200,9 +200,9 @@ mod test {
                     [3, null],
                 ],
                 "lambdas":[
-                    [1,"typescript","typescript bootstrap",1],
-                    [2,"typescript","lambda one",1],
-                    [3,"typescript","lambda two",1],
+                    [1,"nodeJS","nodeJS bootstrap",1],
+                    [2,"nodeJS","lambda one",1],
+                    [3,"nodeJS","lambda two",1],
                 ],
                 "schemas":[
                     [true, 2],

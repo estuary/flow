@@ -87,9 +87,9 @@ pub struct Derivation {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum Lambda {
     /// Typescript lambda expression.
-    Typescript(String),
+    NodeJS(String),
     /// Relative URL of a file which contains a Typescript lambda expression.
-    TypescriptFile(String),
+    NodeJSFile(String),
     /// SQLite lambda expression.
     Sqlite(String),
     /// Relative URL of a file which contains a SQLite lambda expression.

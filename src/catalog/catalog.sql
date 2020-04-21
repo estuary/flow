@@ -72,7 +72,7 @@ CREATE TABLE lambdas
     resource_id INTEGER REFERENCES resources (id),
 
     CONSTRAINT "Unknown Lambda runtime" CHECK (
-        runtime IN ('typescript', 'sqlite', 'remote'))
+        runtime IN ('nodeJS', 'sqlite', 'remote'))
 );
 
 -- Collections of the catalog.
