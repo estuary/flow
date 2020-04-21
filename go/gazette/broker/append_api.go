@@ -52,6 +52,7 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		return proxyAppend(stream, *req, svc.jc)
 	case stateFinished:
 		metrics.CommitsTotal.WithLabelValues(metrics.Ok).Inc()
+		metrics.WriteHead.WithLabelValues(fsm.clientFragment.Journal.String()).Set(float64(fsm.clientFragment.End))
 
 		return stream.SendAndClose(&pb.AppendResponse{
 			Status:        pb.Status_OK,

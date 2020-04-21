@@ -173,6 +173,7 @@ func txnRead(s *shard, txn *transaction, env readMessage) error {
 	txn.readThrough[env.Journal.Name] = env.End
 	s.sequencer.QueueUncommitted(env.Envelope)
 	metrics.GazetteConsumerBytesConsumedTotal.Add(float64(env.End - env.Begin))
+	metrics.GazetteConsumerReadHead.WithLabelValues(env.Journal.Name.String()).Set(float64(env.End))
 
 	for {
 		switch env, err := s.sequencer.DequeCommitted(); err {
