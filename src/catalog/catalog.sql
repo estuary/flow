@@ -45,7 +45,7 @@ BEGIN
                       FROM resource_transitive_imports
                       WHERE source_id = NEW.import_id
                         AND import_id = NEW.source_id) NOT NULL)
-                   THEN RAISE(ABORT, 'Attempt to insert a cyclic resource import') END;
+                   THEN RAISE(ABORT, 'Import creates an cycle (imports must be acyclic)') END;
 END;
 
 -- JSON-Schema documents used by collections of the catalog. Note that each document

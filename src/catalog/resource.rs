@@ -72,29 +72,8 @@ impl Resource {
         if source.id == import.id {
             return Ok(()); // A source implicitly imports itself.
         }
-        // Check for a transitive import going the other way. If one is present,
-        // this import is invalid as it would introduce an import cycle.
-        let mut s = db.prepare_cached(
-            "SELECT 1 FROM resource_transitive_imports
-                    WHERE import_id = ? AND source_id = ?;",
-        )?;
-
-        match s.query_row(&[source.id, import.id], |_| Ok(())) {
-            // Success case returns no rows.
-            Err(DBError::QueryReturnedNoRows) => (),
-            // A returned row means an import cycle would be created.
-            Ok(()) => {
-                return Err(Error::CyclicImport {
-                    source_uri: source.uri(db)?.into_string(),
-                    import_uri: import.uri(db)?.into_string(),
-                })
-            }
-            // All other SQLite errors.
-            Err(e) => return Err(Error::SQLiteErr(e)),
-        }
-
-        // Having verified this doesn't create a cycle, now do the insert.
         // Don't fail if this import already exists.
+        // Note that a CHECK constraint ensures a cycle cannot be created.
         let mut s = db.prepare_cached(
             "INSERT INTO resource_imports (source_id, import_id)
                     VALUES (?, ?) ON CONFLICT DO NOTHING;",
@@ -223,7 +202,7 @@ mod test {
 
         // It's not okay for D => A (since A => B => D).
         assert_eq!(
-            "\"http://d/\" imports \"file:///a\", but \"file:///a\" already transitively imports \"http://d/\"",
+            "catalog database error: Import creates an cycle (imports must be acyclic)",
             format!("{}", Resource::register_import(&db, d, a).unwrap_err()));
         // Or for D => B (since B => D).
         Resource::register_import(&db, d, b).unwrap_err();
