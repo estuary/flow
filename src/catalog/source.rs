@@ -1,6 +1,6 @@
-use super::{Resource, Collection, Result};
+use super::{Collection, Error, Resource, Result};
 use crate::specs::build as specs;
-use rusqlite::{Connection as DB};
+use rusqlite::Connection as DB;
 use url::Url;
 
 /// Source represents a top-level catalog build input.
@@ -24,13 +24,18 @@ impl Source {
 
         for uri in &spec.import {
             let uri = source.resource.join(db, uri)?;
-            let import = Self::register(db, uri)?;
+            let import = Self::register(db, uri.clone()).map_err(|err| Error::At {
+                loc: format!("import {}", uri),
+                detail: Box::new(err),
+            })?;
             Resource::register_import(db, source.resource, import.resource)?;
         }
         for spec in &spec.collections {
-            Collection::register(db, source, spec)?;
+            Collection::register(db, source, spec).map_err(|err| Error::At {
+                loc: format!("collection {}", spec.name),
+                detail: Box::new(err),
+            })?;
         }
         Ok(source)
     }
 }
-

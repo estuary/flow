@@ -8,8 +8,8 @@ use url;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("{msg}: {detail}")]
-    At { msg: String, detail: Box<Error> },
+    #[error("{loc}: {detail}")]
+    At { loc: String, detail: Box<Error> },
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

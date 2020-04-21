@@ -1,26 +1,26 @@
-mod regexp_sql_fn;
 pub mod db;
+mod regexp_sql_fn;
 
-mod error;
 mod collection;
 mod derivation;
+mod error;
 mod lambda;
 mod resource;
 mod schema;
 mod source;
 
-use error::Error;
 use collection::Collection;
 use derivation::Derivation;
+pub use error::Error;
 use lambda::Lambda;
 use resource::Resource;
 use schema::Schema;
 use source::Source;
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
-use url;
 use rusqlite::Connection as DB;
+use url;
 
 pub fn build_catalog(db: &DB, uris: &[url::Url]) -> Result<()> {
     db::init(db)?;

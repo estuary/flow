@@ -58,10 +58,13 @@ impl Lambda {
 
         match row {
             Ok(id) => {
-                return Ok(Lambda {id, resource: import})
+                return Ok(Lambda {
+                    id,
+                    resource: import,
+                })
             } // Found.
-            Err(DBError::QueryReturnedNoRows) => (),  // Not found. Fall through to insert.
-            Err(err) => return Err(err.into()), // Other DBError.
+            Err(DBError::QueryReturnedNoRows) => (), // Not found. Fall through to insert.
+            Err(err) => return Err(err.into()),      // Other DBError.
         }
 
         db.prepare_cached("INSERT INTO lambdas (runtime, body, resource_id) VALUES (?, ?, ?)")?

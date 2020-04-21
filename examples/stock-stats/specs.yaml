@@ -5,11 +5,11 @@ collections:
     fixtures: [fixtures/L1-tick.yaml]
 
     projections:
-      - name: exchange
-        ptr: /exchange
+      - field: exchange
+        location: /exchange
         partition: true
-      - name: bar
-        ptr: /bar
+      - field: bar
+        location: /bar
 
   - name: daily-stats
     schema: schemas/daily-stat.yaml
@@ -17,22 +17,22 @@ collections:
     fixtures: [fixtures/daily-stats.yaml]
 
     projections:
-      - name: exchange
-        ptr: /exchange
+      - field: exchange
+        location: /exchange
         partition: true
-      - name: my_special_column
-        ptr: /bid/high
+      - field: my_special_column
+        location: /bid/high
 
     derivation:
       transform:
         - source: ticks
           lambda:
-            jq: lambdas/map-tick-to-daily-stats.jq
+            typescript: lambdas/map-tick-to-daily-stats.jq
 
-materializations:
-  - collection: daily-stats
-
-    target:
-      type: postgres
-      endpoint: postgres://127.0.0.1:5432/my-db
-      table: daily_stats
+#materializations:
+#  - collection: daily-stats
+#
+#    target:
+#      type: postgres
+#      endpoint: postgres://127.0.0.1:5432/my-db
+#      table: daily_stats

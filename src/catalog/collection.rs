@@ -1,6 +1,6 @@
-use super::{Resource, Schema, Result, Source, Derivation, Error};
-use crate::specs::build as specs;
+use super::{Derivation, Error, Resource, Result, Schema, Source};
 use crate::doc::Pointer;
+use crate::specs::build as specs;
 use rusqlite::{params as sql_params, Connection as DB};
 use std::convert::TryFrom;
 
@@ -14,9 +14,12 @@ pub struct Collection {
 impl Collection {
     /// Registers a Collection of the Source with the catalog.
     pub fn register(db: &DB, source: Source, spec: &specs::Collection) -> Result<Collection> {
-        // Canonicalize and register the JSON-Schema URI.
-        let schema = source.resource.join(db, &spec.schema)?;
-        let schema = Schema::register(db, schema)?;
+        // Canonicalize and register the Collection JSON-Schema.
+        let schema_uri = source.resource.join(db, &spec.schema)?;
+        let schema = Schema::register(db, schema_uri.clone()).map_err(|err| Error::At {
+            loc: format!("schema {}", schema_uri),
+            detail: Box::new(err),
+        })?;
         Resource::register_import(db, source.resource, schema.resource)?;
 
         // Marshal key extractor to JSON.
@@ -40,9 +43,9 @@ impl Collection {
             resource: source.resource,
         };
 
-        for spec in &spec.fixtures {
-            col.register_fixture(db, spec).map_err(|err| Error::At {
-                msg: format!("registering fixture {}", spec),
+        for uri in &spec.fixtures {
+            col.register_fixture(db, uri).map_err(|err| Error::At {
+                loc: format!("fixture {}", uri),
                 detail: Box::new(err),
             })?;
         }
@@ -53,12 +56,13 @@ impl Collection {
             Derivation::register(db, col, spec)?;
         }
 
+        log::info!("added collection {}", spec.name);
         Ok(col)
     }
 
     pub fn query(db: &DB, name: &str, from: Resource) -> Result<Collection> {
         let query = db
-            .prepare_cached("SELECT collection_id, resource_id FROM collections WHERE name = ?;")?
+            .prepare_cached("SELECT id, resource_id FROM collections WHERE name = ?;")?
             .query_row(&[name], |row| Ok((row.get(0)?, row.get(1)?)));
 
         let col = match query {
@@ -71,7 +75,7 @@ impl Collection {
             },
             Err(err) => {
                 return Err(Error::At {
-                    msg: format!("querying for collection {}", name),
+                    loc: format!("source collection {}", name),
                     detail: Box::new(err.into()),
                 })
             }
@@ -139,4 +143,3 @@ impl Collection {
         Ok(())
     }
 }
-

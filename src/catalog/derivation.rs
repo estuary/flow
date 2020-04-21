@@ -1,6 +1,6 @@
-use super::{Collection, Resource, Result, Schema, Lambda};
-use crate::specs::build as specs;
+use super::{Collection, Lambda, Resource, Result, Schema};
 use crate::doc::Pointer;
+use crate::specs::build as specs;
 use rusqlite::{params as sql_params, Connection as DB};
 use std::convert::TryFrom;
 
@@ -11,11 +11,15 @@ pub struct Derivation {
 }
 
 impl Derivation {
-    pub fn register(db: &DB, collection: Collection, spec: &specs::Derivation) -> Result<Derivation> {
+    pub fn register(
+        db: &DB,
+        collection: Collection,
+        spec: &specs::Derivation,
+    ) -> Result<Derivation> {
         db.prepare_cached("INSERT INTO derivations (collection_id, parallelism) VALUES (?, ?)")?
             .execute(sql_params![collection.id, spec.parallelism])?;
 
-        let derivation = Derivation{collection};
+        let derivation = Derivation { collection };
 
         for spec in &spec.bootstrap {
             derivation.register_bootstrap(db, spec)?;
@@ -83,4 +87,3 @@ impl Derivation {
         Ok(())
     }
 }
-

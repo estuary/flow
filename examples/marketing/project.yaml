@@ -27,13 +27,6 @@ collections:
 
     derivation:
       parallelism: 8
-
-      bootstrap:
-        - sqlite: |
-            do some stuff.
-        - typescript: |
-            (ctx) => { console.println('hello!'); }
-
       transform:
         # Index the campaign on its id. We broadcast out to 4 processors because
         # there are relatively few of these, and we can spread out the load of any
@@ -65,15 +58,12 @@ collections:
     fixtures: [fixtures/clicks-with-views.yaml]
 
     derivation:
-      innerState:
-        type: durable
-        parallelism: 8
-
+      parallelism: 8
       transform:
         # Index each view with a 2-day TTL relative to the view's timestamp.
         - source: marketing/views-with-campaign
           lambda:
-            jqBlock: |
+            typescript: |
               with $ts as .timestamp | fromdate |
               with $expiry as $ts + 172800 |
               upsert_key_with_expiry(.view_id; $expiry ; . )
@@ -82,7 +72,7 @@ collections:
           shuffle:
             key: [/view_id]
           lambda:
-            jqBlock: |
+            typescript: |
               . + {view: load_key(.view_id)}
 
   - name: marketing/purchases-with-offers
@@ -91,9 +81,7 @@ collections:
     fixtures: [fixtures/purchases-with-offers.yaml]
 
     derivation:
-      innerState:
-        type: durable
-        parallelism: 8
+      parallelism: 8
 
       transform:
         # Index views with a 30-day look-back. For a given user ID, only the first
@@ -103,7 +91,7 @@ collections:
           shuffle:
             key: [/user_id]
           lambda:
-            jqBlock: |
+            typescript: |
               let ts = Date.parse(rec.timestamp);
               let ts_day = ts - (ts % 86400000);
               let key = `${rec.user_id}/views/${ts_day}`;
@@ -115,7 +103,7 @@ collections:
           shuffle:
             key: [/user_id]
           lambda:
-            jqBlock: |
+            typescript: |
               with $ts as (.timestamp | fromdate) |
               with $ts_hour as $ts - ($ts % 3600) |
               with $key as "\(.user_id)/clicks/\($ts_hour)";
