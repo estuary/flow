@@ -209,7 +209,7 @@ mod test {
         // A resource may implicitly reference itself (only).
         Resource::verify_import(&db, a, a)?;
         assert_eq!(
-            "'file:///a' references 'http://d/' without directly or indirectly importing it",
+            "\"file:///a\" references \"http://d/\" without directly or indirectly importing it",
             format!("{}", Resource::verify_import(&db, a, d).unwrap_err())
         );
 
@@ -223,7 +223,7 @@ mod test {
 
         // It's not okay for D => A (since A => B => D).
         assert_eq!(
-            "'http://d/' imports 'file:///a', but 'file:///a' already transitively imports 'http://d/'",
+            "\"http://d/\" imports \"file:///a\", but \"file:///a\" already transitively imports \"http://d/\"",
             format!("{}", Resource::register_import(&db, d, a).unwrap_err()));
         // Or for D => B (since B => D).
         Resource::register_import(&db, d, b).unwrap_err();
@@ -246,7 +246,7 @@ mod test {
 
         // C still does not import B, however.
         assert_eq!(
-            "'file:///c' references 'https://b/' without directly or indirectly importing it",
+            "\"file:///c\" references \"https://b/\" without directly or indirectly importing it",
             format!("{}", Resource::verify_import(&db, c, b).unwrap_err())
         );
 

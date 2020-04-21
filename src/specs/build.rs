@@ -37,6 +37,7 @@ pub struct Collection {
     ///   schema.
     /// - Derived collections process and transform fixture documents of their
     ///   source collections, and then validated them against their own fixtures.
+    #[serde(default)]
     pub fixtures: Vec<String>,
     /// Projections are named locations within a collection document which
     /// may be used for logical partitioning or directly exposed to databases

@@ -71,7 +71,8 @@ CREATE TABLE lambdas
     -- Resource which produced this lambda.
     resource_id INTEGER REFERENCES resources (id),
 
-    CHECK (runtime IN ('typescript', 'sqlite', 'remote'))
+    CONSTRAINT "Unknown Lambda runtime" CHECK (
+        runtime IN ('typescript', 'sqlite', 'remote'))
 );
 
 -- Collections of the catalog.
@@ -79,13 +80,16 @@ CREATE TABLE collections
 (
     id          INTEGER PRIMARY KEY NOT NULL,
     -- Unique name of this collection.
-    name        TEXT UNIQUE         NOT NULL CHECK (name REGEXP '[\pL\pN\-_+/.]{1,}'),
+    name        TEXT UNIQUE         NOT NULL,
     -- Canonical URI of the collection's JSON-Schema.
     schema_uri  TEXT                NOT NULL,
     -- Composite key extractors of the collection, as `[JSON-Pointer]`.
     key_json    TEXT                NOT NULL CHECK (JSON_TYPE(key_json) == 'array'),
     -- Resource which produced this collection.
     resource_id INTEGER             NOT NULL REFERENCES resources (id)
+
+    CONSTRAINT "Invalid collection name format" CHECK (
+        name REGEXP '[\pL\pN\-_+/.]{1,}')
 );
 
 -- Projections are locations within collection documents which may be projected
@@ -135,9 +139,11 @@ CREATE TABLE transforms
     -- Optional JSON-Schema to verify against documents of the source collection.
     source_schema_uri    TEXT,
     -- Composite key extractor for shuffling source documents to shards, as
-    -- `[JSON-Pointer]`. Often this is simply `key_json` of the source collection.
-    shuffle_key_json     TEXT                NOT NULL CHECK (JSON_TYPE(shuffle_key_json) == 'array'),
+    -- `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
+    shuffle_key_json     TEXT                CHECK (JSON_TYPE(shuffle_key_json) == 'array'),
     -- Number of ranked shards by which each document is read.
+    -- If both `shuffle_broadcast` and `shuffle_choose` are NULL,
+    -- then `shuffle_broadcast` is implicitly treated as `1`.
     shuffle_broadcast    INTEGER CHECK (shuffle_broadcast > 0),
     -- Number of ranked shards from which a shard is randomly selected.
     shuffle_choose       INTEGER CHECK (shuffle_choose > 0),
@@ -145,7 +151,8 @@ CREATE TABLE transforms
     lambda_id            INTEGER             NOT NULL REFERENCES lambdas (id)
 
     -- Only one of shuffle_broadcast or shuffle_choose may be set.
-    CHECK ((shuffle_broadcast > 0) <> (shuffle_choose > 0))
+    CONSTRAINT "Cannot set both shuffle 'broadcast' and 'choose'" CHECK (
+        (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL))
 );
 
 -- Fixtures of catalog collections.

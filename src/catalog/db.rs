@@ -26,17 +26,25 @@ pub fn dump_table(db: &DB, name: &str) -> Result<Value> {
         for (ind, c) in row.columns().iter().enumerate() {
             match c.decl_type() {
                 Some("INTEGER") => {
-                    let num: i64 = row.get(ind)?;
-                    v.push(serde_json::from_str(&num.to_string()).unwrap());
+                    let num: Option<i64> = row.get(ind)?;
+                    if let Some(num) = num {
+                        v.push(serde_json::from_str(&num.to_string()).unwrap());
+                    } else {
+                        v.push(Value::Null);
+                    }
                 }
                 Some("BOOLEAN") => {
                     v.push(Value::Bool(row.get(ind)?));
                 }
-                Some("TEXT") | Some("BLOB") if c.name().ends_with("_json") => {
-                    v.push(row.get(ind)?);
-                }
                 Some("TEXT") | Some("BLOB") => {
-                    v.push(Value::String(row.get(ind)?));
+                    let s: Option<String> = row.get(ind)?;
+                    match s {
+                        None => v.push(Value::Null),
+                        Some(s) if c.name().ends_with("_json") => {
+                            v.push(serde_json::from_str(&s).unwrap())
+                        }
+                        Some(s) => v.push(Value::String(s)),
+                    }
                 }
                 other @ _ => panic!("unhandled case: {:?}", other),
             }

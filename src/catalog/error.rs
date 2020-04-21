@@ -32,17 +32,19 @@ pub enum Error {
     #[error("cannot fetch resource URI: {0}")]
     FetchErr(url::Url),
     #[error(
-        "'{source_uri}' references '{import_uri}' without directly or indirectly importing it"
+        "{source_uri:?} references {import_uri:?} without directly or indirectly importing it"
     )]
     MissingImport {
         source_uri: String,
         import_uri: String,
     },
-    #[error("'{source_uri}' imports '{import_uri}', but '{import_uri}' already transitively imports '{source_uri}'")]
+    #[error("{source_uri:?} imports {import_uri:?}, but {import_uri:?} already transitively imports {source_uri:?}")]
     CyclicImport {
         source_uri: String,
         import_uri: String,
     },
+    #[error("shuffle cannot set both 'broadcast' and 'choose'")]
+    InvalidShuffle,
     #[error("failed to build schema: {0}")]
     SchemaBuildErr(#[from] schema::build::Error),
     /*
