@@ -104,6 +104,15 @@ impl TryFrom<&str> for Pointer {
     }
 }
 
+// Cannot use AsRef<str> above due to https://github.com/rust-lang/rust/issues/50133
+impl TryFrom<&String> for Pointer {
+    type Error = Error;
+
+    fn try_from(s: &String) -> Result<Self, Error> {
+        Pointer::try_from(s as &str)
+    }
+}
+
 impl<'t> Iterator for Iter<'t> {
     type Item = Token<'t>;
 

@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 
-/// BuildSource is the top-level specification against which Estuary
-/// catalog input files are parsed.
+/// Source is a YAML specification against which Estuary catalog input files are parsed.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct BuildSource {
-    /// Additional Estuary catalog inputs which should be processed.
+pub struct Source {
+    /// Additional Estuary inputs which should be processed.
     /// Derived collections must import the catalog sources of all source
     /// collections they reference.
     #[serde(default)]
@@ -14,9 +13,9 @@ pub struct BuildSource {
     /// Definitions of captured and derived collections.
     #[serde(default)]
     pub collections: Vec<Collection>,
-    /// Definitions of collection materializations.
-    #[serde(default)]
-    pub materializations: Vec<Materialization>,
+    ///// Definitions of collection materializations.
+    //#[serde(default)]
+    //pub materializations: Vec<Materialization>,
 }
 
 /// Collection specifies an Estuary document Collection.
@@ -71,7 +70,7 @@ pub struct Derivation {
     /// use no state may freely change this value. If state is used, beware that
     /// changing parallelism also alters the correspondence of specific shuffle
     /// keys and the processor to which they are shuffled.
-    pub parallelism: u8,
+    pub parallelism: Option<u8>,
     /// Lambdas to invoke when an instance of a distributed processor is started,
     /// and before any messages are processed. This is an opportunity to initialize
     /// SQL tables or other state. Note that bootstrap lambdas will be invoked for
@@ -140,12 +139,12 @@ pub struct Shuffle {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Fixture {
     pub document: serde_json::Value,
-    /// Expected
     pub key: Vec<serde_json::Value>,
     #[serde(default)]
     pub projections: serde_json::Map<String, serde_json::Value>,
 }
 
+/*
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Materialization {
@@ -159,3 +158,4 @@ pub enum Target {
     Postgres { endpoint: String, table: String },
     Elastic { endpoint: String, index: String },
 }
+*/

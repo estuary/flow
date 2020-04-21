@@ -52,10 +52,10 @@ END;
 -- may root *many* sub-schemas, and each sub-schema may be individually referenced
 -- by a JSON-Pointer URI fragment or even by a completely different base URI (if the
 -- sub-schema uses the "$id" keyword).
-CREATE TABLE schema_documents
+CREATE TABLE schemas
 (
     -- JSON-Schema document, as content-type "application/schema+json".
-    document_json TEXT CHECK (JSON_TYPE(document_json) IN ('object', 'true', 'false')),
+    document_json BLOB CHECK (JSON_TYPE(document_json) IN ('object', 'true', 'false')),
     -- Resource which produced this schema.
     resource_id   INTEGER PRIMARY KEY NOT NULL REFERENCES resources (id)
 );
@@ -67,7 +67,7 @@ CREATE TABLE lambdas
     -- Runtime of this lambda.
     runtime     TEXT                NOT NULL,
     -- Function body (used by: jq, sqlite).
-    body        TEXT,
+    body        BLOB,
     -- Resource which produced this lambda.
     resource_id INTEGER REFERENCES resources (id),
 
@@ -143,6 +143,9 @@ CREATE TABLE transforms
     shuffle_choose       INTEGER CHECK (shuffle_choose > 0),
     -- Code block which consumes source documents and emits target documents.
     lambda_id            INTEGER             NOT NULL REFERENCES lambdas (id)
+
+    -- Only one of shuffle_broadcast or shuffle_choose may be set.
+    CHECK ((shuffle_broadcast > 0) <> (shuffle_choose > 0))
 );
 
 -- Fixtures of catalog collections.

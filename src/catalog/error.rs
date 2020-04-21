@@ -1,3 +1,4 @@
+use crate::doc;
 use estuary_json::schema;
 use rusqlite;
 use serde_json;
@@ -7,6 +8,9 @@ use url;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("{msg}: {detail}")]
+    At { msg: String, detail: Box<Error> },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("joining '{relative}' with base URL '{base}': {detail}")]
@@ -23,6 +27,8 @@ pub enum Error {
     JSONErr(#[from] serde_json::Error),
     #[error("catalog database error: {0}")]
     SQLiteErr(#[from] rusqlite::Error),
+    #[error("invalid JSON-Pointer: {0}")]
+    JSONPtrErr(#[from] doc::ptr::Error),
     #[error("cannot fetch resource URI: {0}")]
     FetchErr(url::Url),
     #[error(
