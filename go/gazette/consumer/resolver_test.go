@@ -23,6 +23,11 @@ func TestResolverCases(t *testing.T) {
 		assert.NoError(t, err)
 		return r
 	}
+	var etcdHeader = func() pb.Header_Etcd {
+		tf.ks.Mu.RLock()
+		defer tf.ks.Mu.RUnlock()
+		return pbx.FromEtcdResponseHeader(tf.ks.Header)
+	}
 
 	// Case: Shard does not exist, nor does our local MemberSpec (yet; it's created by allocateShard below).
 	assert.Equal(t, Resolution{
@@ -30,7 +35,7 @@ func TestResolverCases(t *testing.T) {
 		Header: pb.Header{
 			ProcessId: pb.ProcessSpec_ID{Zone: "local ConsumerSpec", Suffix: "missing from Etcd"},
 			Route:     pb.Route{Primary: -1},
-			Etcd:      pbx.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd:      etcdHeader(),
 		},
 	}, resolve(ResolveArgs{ShardID: "other-shard-ID"}))
 
@@ -46,7 +51,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   -1,
 				Endpoints: []pb.Endpoint{"http://remote/endpoint"},
 			},
-			Etcd: pbx.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd:      etcdHeader(),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA}))
@@ -63,7 +68,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   1,
 				Endpoints: []pb.Endpoint{"http://local/endpoint", "http://remote/endpoint"},
 			},
-			Etcd: pbx.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd:      etcdHeader(),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA}))
@@ -78,7 +83,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   1,
 				Endpoints: []pb.Endpoint{"http://local/endpoint", "http://remote/endpoint"},
 			},
-			Etcd: pbx.FromEtcdResponseHeader(tf.ks.Header),
+			Etcd:      etcdHeader(),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA, MayProxy: true}))
@@ -91,6 +96,9 @@ func TestResolverCases(t *testing.T) {
 	// ProxyHeader referencing a Revision we don't know about yet, but which will
 	// make us primary. Expect Resolve blocks until the Revision is applied, and
 	// until recovery completes and the Store is initialized.
+	var proxyEtcd = etcdHeader()
+	proxyEtcd.Revision += 1
+
 	time.AfterFunc(time.Millisecond, func() {
 		tf.allocateShard(makeShard(shardA), localID, remoteID)
 	})
@@ -98,10 +106,7 @@ func TestResolverCases(t *testing.T) {
 		ShardID: shardA,
 		ProxyHeader: &pb.Header{
 			ProcessId: localID,
-			Etcd: pb.Header_Etcd{
-				ClusterId: tf.ks.Header.ClusterId,
-				Revision:  tf.ks.Header.Revision + 1,
-			},
+			Etcd: proxyEtcd,
 		},
 	})
 	assert.Equal(t, pc.Status_OK, r.Status)
