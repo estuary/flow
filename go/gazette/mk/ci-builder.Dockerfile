@@ -57,6 +57,7 @@ RUN curl -L -o /tmp/etcd.tgz \
       --file /tmp/etcd.tgz \
       --directory /tmp/ \
  && mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl /usr/local/bin \
+ && chown 1000:1000 /usr/local/bin/etcd /usr/local/bin/etcdctl \
  && rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
  && rm /tmp/etcd.tgz \
  && etcd --version
