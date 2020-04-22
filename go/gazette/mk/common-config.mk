@@ -11,7 +11,7 @@ NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
 # Version of Rocks to build against.
 # - This is tightly coupled github.com/tecbot/gorocksdb (update them together).
 # - Also update .circleci/config.yml
-ROCKSDB_VERSION = 5.17.2
+ROCKSDB_VERSION = 6.7.3
 
 # Repository root (the directory of the invoked Makefile).
 ROOTDIR  = $(abspath $(dir $(firstword $(MAKEFILE_LIST))))

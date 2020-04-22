@@ -39,6 +39,10 @@ size_t arena_iter_next(rocksdb_iterator_t* cit, size_t arena_len, char* arena_ou
   Iterator* it = cit->rep;
   size_t arena_off = 0;
 
+  if (!it->Valid()) {
+    return arena_off;
+  }
+
   while(true) {
     it->Next();
 
