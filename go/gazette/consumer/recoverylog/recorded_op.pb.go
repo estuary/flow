@@ -11,6 +11,7 @@ import (
 	go_gazette_dev_core_broker_protocol "go.gazette.dev/core/broker/protocol"
 	io "io"
 	math "math"
+	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -22,7 +23,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // RecordedOp records states changes occuring within a local file-system.
 // Next tag: 11.
@@ -64,7 +65,7 @@ func (m *RecordedOp) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_RecordedOp.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +107,7 @@ func (m *RecordedOp_Create) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return xxx_messageInfo_RecordedOp_Create.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +148,7 @@ func (m *RecordedOp_Link) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return xxx_messageInfo_RecordedOp_Link.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -192,7 +193,7 @@ func (m *RecordedOp_Write) XXX_Marshal(b []byte, deterministic bool) ([]byte, er
 		return xxx_messageInfo_RecordedOp_Write.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -234,7 +235,7 @@ func (m *Property) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Property.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -298,7 +299,7 @@ func (m *Segment) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Segment.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -347,7 +348,7 @@ func (m *FnodeSegments) XXX_Marshal(b []byte, deterministic bool) ([]byte, error
 		return xxx_messageInfo_FnodeSegments.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -397,7 +398,7 @@ func (m *FSMHints) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_FSMHints.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -480,7 +481,7 @@ var fileDescriptor_8d704f4690064e9d = []byte{
 func (m *RecordedOp) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -488,94 +489,109 @@ func (m *RecordedOp) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *RecordedOp) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *RecordedOp) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.SeqNo != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.SeqNo))
-	}
-	if m.Checksum != 0 {
-		dAtA[i] = 0x15
-		i++
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.Checksum))
-		i += 4
-	}
-	if m.Author != 0 {
-		dAtA[i] = 0x1d
-		i++
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.Author))
-		i += 4
-	}
-	if m.Create != nil {
-		dAtA[i] = 0x22
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Create.ProtoSize()))
-		n1, err := m.Create.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n1
-	}
-	if m.Link != nil {
-		dAtA[i] = 0x2a
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Link.ProtoSize()))
-		n2, err := m.Link.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n2
-	}
-	if m.Unlink != nil {
-		dAtA[i] = 0x32
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Unlink.ProtoSize()))
-		n3, err := m.Unlink.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n3
-	}
-	if m.Write != nil {
-		dAtA[i] = 0x3a
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Write.ProtoSize()))
-		n4, err := m.Write.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n4
-	}
-	if m.Property != nil {
-		dAtA[i] = 0x42
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Property.ProtoSize()))
-		n5, err := m.Property.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n5
+	if m.LastOffset != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.LastOffset))
+		i--
+		dAtA[i] = 0x50
 	}
 	if m.FirstOffset != 0 {
-		dAtA[i] = 0x48
-		i++
 		i = encodeVarintRecordedOp(dAtA, i, uint64(m.FirstOffset))
+		i--
+		dAtA[i] = 0x48
 	}
-	if m.LastOffset != 0 {
-		dAtA[i] = 0x50
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.LastOffset))
+	if m.Property != nil {
+		{
+			size, err := m.Property.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x42
 	}
-	return i, nil
+	if m.Write != nil {
+		{
+			size, err := m.Write.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x3a
+	}
+	if m.Unlink != nil {
+		{
+			size, err := m.Unlink.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.Link != nil {
+		{
+			size, err := m.Link.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Create != nil {
+		{
+			size, err := m.Create.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.Author != 0 {
+		i -= 4
+		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.Author))
+		i--
+		dAtA[i] = 0x1d
+	}
+	if m.Checksum != 0 {
+		i -= 4
+		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.Checksum))
+		i--
+		dAtA[i] = 0x15
+	}
+	if m.SeqNo != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.SeqNo))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *RecordedOp_Create) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -583,23 +599,29 @@ func (m *RecordedOp_Create) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *RecordedOp_Create) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *RecordedOp_Create) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
 	if len(m.Path) > 0 {
-		dAtA[i] = 0xa
-		i++
+		i -= len(m.Path)
+		copy(dAtA[i:], m.Path)
 		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Path)))
-		i += copy(dAtA[i:], m.Path)
+		i--
+		dAtA[i] = 0xa
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *RecordedOp_Link) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -607,28 +629,34 @@ func (m *RecordedOp_Link) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *RecordedOp_Link) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *RecordedOp_Link) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Fnode != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Fnode))
-	}
 	if len(m.Path) > 0 {
-		dAtA[i] = 0x12
-		i++
+		i -= len(m.Path)
+		copy(dAtA[i:], m.Path)
 		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Path)))
-		i += copy(dAtA[i:], m.Path)
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.Fnode != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Fnode))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *RecordedOp_Write) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -636,32 +664,37 @@ func (m *RecordedOp_Write) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *RecordedOp_Write) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *RecordedOp_Write) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Fnode != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Fnode))
+	if m.Length != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Length))
+		i--
+		dAtA[i] = 0x18
 	}
 	if m.Offset != 0 {
-		dAtA[i] = 0x10
-		i++
 		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Offset))
+		i--
+		dAtA[i] = 0x10
 	}
-	if m.Length != 0 {
-		dAtA[i] = 0x18
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Length))
+	if m.Fnode != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Fnode))
+		i--
+		dAtA[i] = 0x8
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *Property) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -669,29 +702,36 @@ func (m *Property) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Property) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Property) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.Path) > 0 {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Path)))
-		i += copy(dAtA[i:], m.Path)
-	}
 	if len(m.Content) > 0 {
-		dAtA[i] = 0x12
-		i++
+		i -= len(m.Content)
+		copy(dAtA[i:], m.Content)
 		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Content)))
-		i += copy(dAtA[i:], m.Content)
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if len(m.Path) > 0 {
+		i -= len(m.Path)
+		copy(dAtA[i:], m.Path)
+		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Path)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *Segment) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -699,49 +739,54 @@ func (m *Segment) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Segment) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Segment) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Author != 0 {
-		dAtA[i] = 0xd
-		i++
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.Author))
-		i += 4
-	}
-	if m.FirstSeqNo != 0 {
-		dAtA[i] = 0x10
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.FirstSeqNo))
-	}
-	if m.FirstOffset != 0 {
-		dAtA[i] = 0x18
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.FirstOffset))
-	}
-	if m.FirstChecksum != 0 {
-		dAtA[i] = 0x25
-		i++
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.FirstChecksum))
-		i += 4
+	if m.LastOffset != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.LastOffset))
+		i--
+		dAtA[i] = 0x30
 	}
 	if m.LastSeqNo != 0 {
-		dAtA[i] = 0x28
-		i++
 		i = encodeVarintRecordedOp(dAtA, i, uint64(m.LastSeqNo))
+		i--
+		dAtA[i] = 0x28
 	}
-	if m.LastOffset != 0 {
-		dAtA[i] = 0x30
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.LastOffset))
+	if m.FirstChecksum != 0 {
+		i -= 4
+		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.FirstChecksum))
+		i--
+		dAtA[i] = 0x25
 	}
-	return i, nil
+	if m.FirstOffset != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.FirstOffset))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.FirstSeqNo != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.FirstSeqNo))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.Author != 0 {
+		i -= 4
+		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.Author))
+		i--
+		dAtA[i] = 0xd
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *FnodeSegments) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -749,34 +794,41 @@ func (m *FnodeSegments) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *FnodeSegments) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *FnodeSegments) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Fnode != 0 {
-		dAtA[i] = 0x8
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Fnode))
-	}
 	if len(m.Segments) > 0 {
-		for _, msg := range m.Segments {
-			dAtA[i] = 0x12
-			i++
-			i = encodeVarintRecordedOp(dAtA, i, uint64(msg.ProtoSize()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
-				return 0, err
+		for iNdEx := len(m.Segments) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Segments[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintRecordedOp(dAtA, i, uint64(size))
 			}
-			i += n
+			i--
+			dAtA[i] = 0x12
 		}
 	}
-	return i, nil
+	if m.Fnode != 0 {
+		i = encodeVarintRecordedOp(dAtA, i, uint64(m.Fnode))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *FSMHints) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -784,51 +836,63 @@ func (m *FSMHints) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *FSMHints) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *FSMHints) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.Log) > 0 {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Log)))
-		i += copy(dAtA[i:], m.Log)
+	if len(m.Properties) > 0 {
+		for iNdEx := len(m.Properties) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Properties[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
 	}
 	if len(m.LiveNodes) > 0 {
-		for _, msg := range m.LiveNodes {
+		for iNdEx := len(m.LiveNodes) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.LiveNodes[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintRecordedOp(dAtA, i, uint64(size))
+			}
+			i--
 			dAtA[i] = 0x12
-			i++
-			i = encodeVarintRecordedOp(dAtA, i, uint64(msg.ProtoSize()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
-				return 0, err
-			}
-			i += n
 		}
 	}
-	if len(m.Properties) > 0 {
-		for _, msg := range m.Properties {
-			dAtA[i] = 0x1a
-			i++
-			i = encodeVarintRecordedOp(dAtA, i, uint64(msg.ProtoSize()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
-				return 0, err
-			}
-			i += n
-		}
+	if len(m.Log) > 0 {
+		i -= len(m.Log)
+		copy(dAtA[i:], m.Log)
+		i = encodeVarintRecordedOp(dAtA, i, uint64(len(m.Log)))
+		i--
+		dAtA[i] = 0xa
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func encodeVarintRecordedOp(dAtA []byte, offset int, v uint64) int {
+	offset -= sovRecordedOp(v)
+	base := offset
 	for v >= 1<<7 {
 		dAtA[offset] = uint8(v&0x7f | 0x80)
 		v >>= 7
 		offset++
 	}
 	dAtA[offset] = uint8(v)
-	return offset + 1
+	return base
 }
 func (m *RecordedOp) ProtoSize() (n int) {
 	if m == nil {
@@ -1009,14 +1073,7 @@ func (m *FSMHints) ProtoSize() (n int) {
 }
 
 func sovRecordedOp(x uint64) (n int) {
-	for {
-		n++
-		x >>= 7
-		if x == 0 {
-			break
-		}
-	}
-	return n
+	return (math_bits.Len64(x|1) + 6) / 7
 }
 func sozRecordedOp(x uint64) (n int) {
 	return sovRecordedOp(uint64((x << 1) ^ uint64((int64(x) >> 63))))
@@ -2158,6 +2215,7 @@ func (m *FSMHints) Unmarshal(dAtA []byte) error {
 func skipRecordedOp(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
+	depth := 0
 	for iNdEx < l {
 		var wire uint64
 		for shift := uint(0); ; shift += 7 {
@@ -2189,10 +2247,8 @@ func skipRecordedOp(dAtA []byte) (n int, err error) {
 					break
 				}
 			}
-			return iNdEx, nil
 		case 1:
 			iNdEx += 8
-			return iNdEx, nil
 		case 2:
 			var length int
 			for shift := uint(0); ; shift += 7 {
@@ -2213,55 +2269,30 @@ func skipRecordedOp(dAtA []byte) (n int, err error) {
 				return 0, ErrInvalidLengthRecordedOp
 			}
 			iNdEx += length
-			if iNdEx < 0 {
-				return 0, ErrInvalidLengthRecordedOp
-			}
-			return iNdEx, nil
 		case 3:
-			for {
-				var innerWire uint64
-				var start int = iNdEx
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return 0, ErrIntOverflowRecordedOp
-					}
-					if iNdEx >= l {
-						return 0, io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					innerWire |= (uint64(b) & 0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				innerWireType := int(innerWire & 0x7)
-				if innerWireType == 4 {
-					break
-				}
-				next, err := skipRecordedOp(dAtA[start:])
-				if err != nil {
-					return 0, err
-				}
-				iNdEx = start + next
-				if iNdEx < 0 {
-					return 0, ErrInvalidLengthRecordedOp
-				}
-			}
-			return iNdEx, nil
+			depth++
 		case 4:
-			return iNdEx, nil
+			if depth == 0 {
+				return 0, ErrUnexpectedEndOfGroupRecordedOp
+			}
+			depth--
 		case 5:
 			iNdEx += 4
-			return iNdEx, nil
 		default:
 			return 0, fmt.Errorf("proto: illegal wireType %d", wireType)
 		}
+		if iNdEx < 0 {
+			return 0, ErrInvalidLengthRecordedOp
+		}
+		if depth == 0 {
+			return iNdEx, nil
+		}
 	}
-	panic("unreachable")
+	return 0, io.ErrUnexpectedEOF
 }
 
 var (
-	ErrInvalidLengthRecordedOp = fmt.Errorf("proto: negative length found during unmarshaling")
-	ErrIntOverflowRecordedOp   = fmt.Errorf("proto: integer overflow")
+	ErrInvalidLengthRecordedOp        = fmt.Errorf("proto: negative length found during unmarshaling")
+	ErrIntOverflowRecordedOp          = fmt.Errorf("proto: integer overflow")
+	ErrUnexpectedEndOfGroupRecordedOp = fmt.Errorf("proto: unexpected end of group")
 )
