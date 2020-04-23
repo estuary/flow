@@ -14,8 +14,6 @@ CREATE TABLE resources
                                 'application/vnd.estuary.dev-catalog-spec+yaml',
                                 'application/vnd.estuary.dev-catalog-fixtures+yaml',
                                 'application/schema+yaml',
-                                'text/javascript',
-                                'text/x.typescript',
                                 'application/sql'
             ))
 );
@@ -227,8 +225,9 @@ CREATE TABLE nodejs_dependencies
 (
     -- Name of the NPM package depended on.
     package TEXT PRIMARY KEY NOT NULL,
-    -- Semver string, passed directly to NPM.
-    semver  TEXT             NOT NULL
+    -- Version string, as understood by NPM.
+    -- See https://docs.npmjs.com/files/package.json#dependencies
+    version TEXT             NOT NULL
 );
 
 -- Abort an INSERT of a package that's already registered with a different version.
@@ -238,10 +237,10 @@ CREATE TRIGGER nodejs_dependencies_disagree
     FOR EACH ROW
 BEGIN
     SELECT CASE
-               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND semver != NEW.semver)
+               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND version != NEW.version)
                    THEN RAISE(ABORT,
                               'A dependency on this nodeJS package at a different package version already exists')
-               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND semver = NEW.semver)
+               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND version = NEW.version)
                    THEN RAISE(IGNORE)
                END;
 END;

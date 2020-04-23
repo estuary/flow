@@ -3,8 +3,8 @@ INSERT INTO resources (content_type, content)
 VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),
        ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content'),
        ('application/schema+yaml', 'json-schema content'),
-       ('text/javascript', 'javascript content'),
-       ('text/x.typescript', 'typescript content'),
+       ('application/schema+yaml', 'other schema'),
+       ('application/schema+yaml', 'yet more schema content'),
        ('application/sql', 'bootstrap content'),
        ('application/sql', 'transform content');
 
@@ -301,7 +301,7 @@ FROM transforms
          NATURAL LEFT JOIN resources;
 
 -- Valid packages.
-INSERT INTO nodejs_dependencies (package, semver)
+INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),
        -- Different packages and versions: OK.
        ('other-package', '^4.5.6'),
@@ -310,7 +310,7 @@ VALUES ('a-package', '^1.2.3'),
        ('a-package', '^1.2.3');
 
 -- Invalid indexed package at a different version.
-INSERT INTO nodejs_dependencies (package, semver)
+INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^4.5.6');
 
 -- View of NodeJS bootstrap invocations, by derivation.

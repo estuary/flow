@@ -3,8 +3,8 @@ INSERT INTO resources (content_type, content)
 VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),
        ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content'),
        ('application/schema+yaml', 'json-schema content'),
-       ('text/javascript', 'javascript content'),
-       ('text/x.typescript', 'typescript content'),
+       ('application/schema+yaml', 'other schema'),
+       ('application/schema+yaml', 'yet more schema content'),
        ('application/sql', 'bootstrap content'),
        ('application/sql', 'transform content');
 changes:   7   total_changes: 7
@@ -133,14 +133,14 @@ resource_id|content_type|content|url|is_primary
 1|application/vnd.estuary.dev-catalog-spec+yaml|catalog spec content|file:///path/to/spec.yaml|1
 2|application/vnd.estuary.dev-catalog-fixtures+yaml|catalog fixtures content|file:///path/to/some/fixtures.yaml|1
 3|application/schema+yaml|json-schema content|file:///path/to/a/schema.yaml|1
-4|text/javascript|javascript content|https://host/path/javascript?query=val|1
-5|text/x.typescript|typescript content|file:///path/to/some/typescript.yaml|1
+4|application/schema+yaml|other schema|https://host/path/javascript?query=val|1
+5|application/schema+yaml|yet more schema content|file:///path/to/some/typescript.yaml|1
 6|application/sql|bootstrap content|file:///path/to/some/bootstrap.sql|1
 7|application/sql|transform content|file:///path/to/some/transform.sql|1
 3|application/schema+yaml|json-schema content|https://canonical/schema/uri|
-4|text/javascript|javascript content|https://redirect-1/javascript|
-4|text/javascript|javascript content|https://redirect-2/javascript|
-4|text/javascript|javascript content|https://redirect-3/javascript|
+4|application/schema+yaml|other schema|https://redirect-1/javascript|
+4|application/schema+yaml|other schema|https://redirect-2/javascript|
+4|application/schema+yaml|other schema|https://redirect-3/javascript|
 changes:   0   total_changes: 24
 
 -- Valid lambdas.
@@ -431,7 +431,7 @@ transform_id|derivation_id|source_collection_id|lambda_id|source_schema_uri|shuf
 changes:   0   total_changes: 56
 
 -- Valid packages.
-INSERT INTO nodejs_dependencies (package, semver)
+INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),
        -- Different packages and versions: OK.
        ('other-package', '^4.5.6'),
@@ -442,7 +442,7 @@ changes:   3   total_changes: 59
 
 -- Invalid indexed package at a different version.
 Error: near line (XYZ): A dependency on this nodeJS package at a different package version already exists
-INSERT INTO nodejs_dependencies (package, semver)
+INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^4.5.6');
 
 -- View of NodeJS bootstrap invocations, by derivation.
