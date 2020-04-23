@@ -1,9 +1,3 @@
-.load /usr/lib/sqlite3/pcre.so
-.read "catalog.sql"
-.changes on
-.headers on
-.echo on
-
 -- Valid resources.
 INSERT INTO resources (content_type, content)
 VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),

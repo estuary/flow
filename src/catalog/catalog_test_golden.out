@@ -1,4 +1,3 @@
-
 -- Valid resources.
 INSERT INTO resources (content_type, content)
 VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),
@@ -11,7 +10,7 @@ VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content')
 changes:   7   total_changes: 7
 
 -- Invalid resource (unknown content type).
-Error: near line 18: CHECK constraint failed: Invalid resource content-type
+Error: near line (XYZ): CHECK constraint failed: Invalid resource content-type
 INSERT INTO resources (content_type, content)
 VALUES ('application/unknown', 'unknown content');
 
@@ -47,17 +46,17 @@ resource_id|import_id
 changes:   4   total_changes: 11
 
 -- Invalid import (direct cycle).
-Error: near line 36: Import creates an cycle (imports must be acyclic)
+Error: near line (XYZ): Import creates an cycle (imports must be acyclic)
 INSERT INTO resource_imports (resource_id, import_id)
 VALUES (4, 3);
 
 -- Invalid import (indirect cycle).
-Error: near line 40: Import creates an cycle (imports must be acyclic)
+Error: near line (XYZ): Import creates an cycle (imports must be acyclic)
 INSERT INTO resource_imports (resource_id, import_id)
 VALUES (4, 1);
 
 -- Invalid import (implicit cycle).
-Error: near line 44: Import creates an cycle (imports must be acyclic)
+Error: near line (XYZ): Import creates an cycle (imports must be acyclic)
 INSERT INTO resource_imports (resource_id, import_id)
 VALUES (6, 6);
 
@@ -107,22 +106,22 @@ VALUES (1, 'file:///path/to/spec.yaml', TRUE),
 changes:  11   total_changes: 24
 
 -- Invalid URL (not a base URL).
-Error: near line 75: CHECK constraint failed: URL must be a valid, base (non-relative) URL
+Error: near line (XYZ): CHECK constraint failed: URL must be a valid, base (non-relative) URL
 INSERT INTO resource_urls (resource_id, url)
 VALUES (1, 'relative/url');
 
 -- Invalid URL (cannot have a #fragment).
-Error: near line 79: CHECK constraint failed: URL cannot have a fragment component
+Error: near line (XYZ): CHECK constraint failed: URL cannot have a fragment component
 INSERT INTO resource_urls (resource_id, url)
 VALUES (1, 'https://host/path/with#fragment');
 
 -- Invalid URL (duplicated URL).
-Error: near line 83: UNIQUE constraint failed: resource_urls.url
+Error: near line (XYZ): UNIQUE constraint failed: resource_urls.url
 INSERT INTO resource_urls (resource_id, url)
 VALUES (2, 'file:///path/to/spec.yaml');
 
 -- Invalid URL (resource already has a primary URL).
-Error: near line 87: UNIQUE constraint failed: resource_urls.resource_id, resource_urls.is_primary
+Error: near line (XYZ): UNIQUE constraint failed: resource_urls.resource_id, resource_urls.is_primary
 INSERT INTO resource_urls (resource_id, url, is_primary)
 VALUES (1, 'file:///path/to/dup/primary/spec.yaml', TRUE);
 
@@ -156,32 +155,32 @@ VALUES ('nodeJS', '(state) => { console.log(''hello''); }', NULL),
 changes:   7   total_changes: 31
 
 -- Invalid lambda (unknown runtime).
-Error: near line 106: CHECK constraint failed: Unknown Lambda runtime
+Error: near line (XYZ): CHECK constraint failed: Unknown Lambda runtime
 INSERT INTO lambdas (runtime, inline)
 VALUES ('unknown', 'foobar');
 
 -- Invalid lambda (nodeJS without inline expression).
-Error: near line 110: CHECK constraint failed: NodeJS lambda must provide an inline expression
+Error: near line (XYZ): CHECK constraint failed: NodeJS lambda must provide an inline expression
 INSERT INTO lambdas (runtime, resource_id)
 VALUES ('nodeJS', 4);
 
 -- Invalid lambda (sqlite without inline expression).
-Error: near line 114: CHECK constraint failed: SQLite lambda must provide an inline expression
+Error: near line (XYZ): CHECK constraint failed: SQLite lambda must provide an inline expression
 INSERT INTO lambdas (runtime, resource_id)
 VALUES ('sqlite', 6);
 
 -- Invalid lambda (sqliteFile with inline expression).
-Error: near line 118: CHECK constraint failed: SQLiteFile lambda must provide a file resource
+Error: near line (XYZ): CHECK constraint failed: SQLiteFile lambda must provide a file resource
 INSERT INTO lambdas (runtime, inline)
 VALUES ('sqliteFile', 'SELECT 1;');
 
 -- Invalid lambda (sqliteFile with non-existent resource).
-Error: near line 122: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO lambdas (runtime, resource_id)
 VALUES ('sqliteFile', 42);
 
 -- Invalid lambda (remote without a valid URL).
-Error: near line 126: CHECK constraint failed: Remote lambda must provide an HTTP endpoint URL
+Error: near line (XYZ): CHECK constraint failed: Remote lambda must provide an HTTP endpoint URL
 INSERT INTO lambdas (runtime, inline)
 VALUES ('remote', 'not-a-URL');
 
@@ -207,31 +206,31 @@ VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]'
 changes:   3   total_changes: 34
 
 -- Invalid collection (schema is not a URI).
-Error: near line 141: CHECK constraint failed: Schema must be a valid base (non-relative) URI
+Error: near line (XYZ): CHECK constraint failed: Schema must be a valid base (non-relative) URI
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'not-a-uri', '["/key"]', 1);
 
 -- Invalid collection (collection name doesn't match pattern).
-Error: near line 145: CHECK constraint failed: Collection name format isn't valid
+Error: near line (XYZ): CHECK constraint failed: Collection name format isn't valid
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
-Error: near line 147: CHECK constraint failed: Collection name format isn't valid
+Error: near line (XYZ): CHECK constraint failed: Collection name format isn't valid
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 
 -- Invalid collection (key is not non-empty [JSON-Pointer]).
-Error: near line 151: malformed JSON
+Error: near line (XYZ): malformed JSON
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1);
-Error: near line 153: CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
+Error: near line (XYZ): CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1);
-Error: near line 155: CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
+Error: near line (XYZ): CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1);
 
 -- Invalid collection (resource doesn't exist).
-Error: near line 159: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42);
 
@@ -252,23 +251,23 @@ VALUES (1, 'field_1', '/path/1', false),
 changes:   4   total_changes: 38
 
 -- Invalid projection (bad field name).
-Error: near line 173: CHECK constraint failed: Field name format isn't valid
+Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
 VALUES (1, 'no spaces', '/path/1', false);
-Error: near line 175: CHECK constraint failed: Field name format isn't valid
+Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
 VALUES (1, 'or-hyphens', '/path/1', false);
 
 -- Invalid projection (no such collection).
-Error: near line 179: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
 VALUES (42, 'foo', '/bar', false);
 
 -- Invalid projection (invalid JSON-Pointer).
-Error: near line 183: CHECK constraint failed: Location must be a valid JSON-Pointer
+Error: near line (XYZ): CHECK constraint failed: Location must be a valid JSON-Pointer
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
 VALUES (1, 'foo', 'bar', false);
-Error: near line 185: CHECK constraint failed: Location must be a valid JSON-Pointer
+Error: near line (XYZ): CHECK constraint failed: Location must be a valid JSON-Pointer
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
 VALUES (1, 'foo', '/bar/', false);
 
@@ -280,12 +279,12 @@ VALUES (1, 2),
 changes:   2   total_changes: 40
 
 -- Invalid fixture (no such collection);
-Error: near line 195: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO fixtures (collection_id, resource_id)
 VALUES (42, 2);
 
 -- Invalid fixture (no such resource);
-Error: near line 199: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO fixtures (collection_id, resource_id)
 VALUES (2, 42);
 
@@ -297,7 +296,7 @@ VALUES (2),
 changes:   2   total_changes: 42
 
 -- Invalid derivation (parallelism <= 0)
-Error: near line 209: CHECK constraint failed: derivations
+Error: near line (XYZ): CHECK constraint failed: derivations
 UPDATE derivations
 SET parallelism = 0;
 UPDATE derivations
@@ -306,7 +305,7 @@ changes:   2   total_changes: 44
 -- OK.
 
 -- Invalid derivation (collection must exist).
-Error: near line 216: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO derivations (collection_id)
 VALUES (42);
 
@@ -319,15 +318,15 @@ VALUES (2, 1),
 changes:   3   total_changes: 47
 
 -- Invalid bootstrap (derivation must exist).
-Error: near line 227: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO bootstraps (derivation_id, lambda_id)
 VALUES (42, 1);
 -- Invalid bootstrap (collection_id = 1 is not a derivation).
-Error: near line 230: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO bootstraps (derivation_id, lambda_id)
 VALUES (1, 1);
 -- Invalid bootstrap (lambda must exist).
-Error: near line 233: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO bootstraps (derivation_id, lambda_id)
 VALUES (2, 42);
 
@@ -352,7 +351,7 @@ VALUES (2, 1, 2),
 changes:   5   total_changes: 52
 
 -- Invalid source-schema
-Error: near line 251: CHECK constraint failed: Source schema must be NULL or a valid base (non-relative) URI
+Error: near line (XYZ): CHECK constraint failed: Source schema must be NULL or a valid base (non-relative) URI
 UPDATE transforms
 SET source_schema_uri = 'not-a-url'
 WHERE transform_id = 1;
@@ -363,17 +362,17 @@ WHERE transform_id = 1;
 changes:   1   total_changes: 53
 
 -- Can only set one of 'broadcast' or 'choose'.
-Error: near line 260: CHECK constraint failed: Cannot set both shuffle 'broadcast' and 'choose'
+Error: near line (XYZ): CHECK constraint failed: Cannot set both shuffle 'broadcast' and 'choose'
 UPDATE transforms
 SET shuffle_broadcast = 2,
     shuffle_choose    = 3
 WHERE transform_id = 1;
 -- They must be positive.
-Error: near line 265: CHECK constraint failed: transforms
+Error: near line (XYZ): CHECK constraint failed: transforms
 UPDATE transforms
 SET shuffle_broadcast = 0
 WHERE transform_id = 1;
-Error: near line 268: CHECK constraint failed: transforms
+Error: near line (XYZ): CHECK constraint failed: transforms
 UPDATE transforms
 SET shuffle_choose = 0
 WHERE transform_id = 1;
@@ -388,11 +387,11 @@ WHERE transform_id = 2;
 changes:   1   total_changes: 55
 
 -- Shuffle-key must be array of JSON-pointers.
-Error: near line 280: malformed JSON
+Error: near line (XYZ): malformed JSON
 UPDATE transforms
 SET shuffle_key_json = '["/malformed'
 WHERE transform_id = 1;
-Error: near line 283: CHECK constraint failed: Shuffle key must be NULL or non-empty JSON array of JSON-Pointers
+Error: near line (XYZ): CHECK constraint failed: Shuffle key must be NULL or non-empty JSON array of JSON-Pointers
 UPDATE transforms
 SET shuffle_key_json = '{"not":"array"}'
 WHERE transform_id = 1;
@@ -403,18 +402,18 @@ WHERE transform_id = 1;
 changes:   1   total_changes: 56
 
 -- Derivation must exist (cannot use a collection).
-Error: near line 292: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
 SET derivation_id = 42;
-Error: near line 294: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
 SET derivation_id = 1;
 -- Source collection must exist.
-Error: near line 297: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
 SET source_collection_id = 42;
 -- Lambda must exist.
-Error: near line 300: FOREIGN KEY constraint failed
+Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
 SET lambda_id = 42;
 
@@ -442,7 +441,7 @@ VALUES ('a-package', '^1.2.3'),
 changes:   3   total_changes: 59
 
 -- Invalid indexed package at a different version.
-Error: near line 319: A dependency on this nodeJS package at a different package version already exists
+Error: near line (XYZ): A dependency on this nodeJS package at a different package version already exists
 INSERT INTO nodejs_dependencies (package, semver)
 VALUES ('a-package', '^4.5.6');
 
