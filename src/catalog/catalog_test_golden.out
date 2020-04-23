@@ -1,0 +1,457 @@
+
+-- Valid resources.
+INSERT INTO resources (content_type, content)
+VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),
+       ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content'),
+       ('application/schema+yaml', 'json-schema content'),
+       ('text/javascript', 'javascript content'),
+       ('text/x.typescript', 'typescript content'),
+       ('application/sql', 'bootstrap content'),
+       ('application/sql', 'transform content');
+changes:   7   total_changes: 7
+
+-- Invalid resource (unknown content type).
+Error: near line 18: CHECK constraint failed: Invalid resource content-type
+INSERT INTO resources (content_type, content)
+VALUES ('application/unknown', 'unknown content');
+
+-- Valid imports, which form a directed acyclic graph.
+INSERT INTO resource_imports (resource_id, import_id)
+VALUES
+    -- 1 => 2 => 3 => 4.
+    (1, 2),
+    (3, 4),
+    (2, 3),
+    -- Disconnected 5 => 6.
+    (5, 6);
+changes:   4   total_changes: 11
+
+-- Verify transitive relationships (one row for each path).
+SELECT *
+FROM resource_transitive_imports;
+resource_id|import_id
+1|1
+2|2
+3|3
+4|4
+5|5
+6|6
+7|7
+1|2
+2|3
+3|4
+5|6
+1|3
+2|4
+1|4
+changes:   4   total_changes: 11
+
+-- Invalid import (direct cycle).
+Error: near line 36: Import creates an cycle (imports must be acyclic)
+INSERT INTO resource_imports (resource_id, import_id)
+VALUES (4, 3);
+
+-- Invalid import (indirect cycle).
+Error: near line 40: Import creates an cycle (imports must be acyclic)
+INSERT INTO resource_imports (resource_id, import_id)
+VALUES (4, 1);
+
+-- Invalid import (implicit cycle).
+Error: near line 44: Import creates an cycle (imports must be acyclic)
+INSERT INTO resource_imports (resource_id, import_id)
+VALUES (6, 6);
+
+-- Valid imports which include duplicates and alternate resource paths.
+INSERT INTO resource_imports (resource_id, import_id)
+VALUES (2, 3), -- Repeat.
+       (1, 3), -- Alternate 1 => 3 => 4.
+       (2, 4), -- Alternate 1 => 2 => 4.
+       (5, 6)  -- Repeat.
+ON CONFLICT DO NOTHING;
+changes:   2   total_changes: 13
+
+SELECT DISTINCT *
+FROM resource_transitive_imports;
+resource_id|import_id
+1|1
+2|2
+3|3
+4|4
+5|5
+6|6
+7|7
+1|2
+1|3
+2|3
+2|4
+3|4
+5|6
+1|4
+changes:   2   total_changes: 13
+
+-- Valid resource URLs.
+INSERT INTO resource_urls (resource_id, url, is_primary)
+VALUES (1, 'file:///path/to/spec.yaml', TRUE),
+       (2, 'file:///path/to/some/fixtures.yaml', TRUE),
+       (3, 'file:///path/to/a/schema.yaml', TRUE),
+       (4, 'https://host/path/javascript?query=val', TRUE),
+       (5, 'file:///path/to/some/typescript.yaml', TRUE),
+       (6, 'file:///path/to/some/bootstrap.sql', TRUE),
+       (7, 'file:///path/to/some/transform.sql', TRUE),
+       -- Alternate resource URLs.
+       -- Each resource may have multiple alternate URLs.
+       (3, 'https://canonical/schema/uri', NULL),
+       (4, 'https://redirect-1/javascript', NULL),
+       (4, 'https://redirect-2/javascript', NULL),
+       (4, 'https://redirect-3/javascript', NULL);
+changes:  11   total_changes: 24
+
+-- Invalid URL (not a base URL).
+Error: near line 75: CHECK constraint failed: URL must be a valid, base (non-relative) URL
+INSERT INTO resource_urls (resource_id, url)
+VALUES (1, 'relative/url');
+
+-- Invalid URL (cannot have a #fragment).
+Error: near line 79: CHECK constraint failed: URL cannot have a fragment component
+INSERT INTO resource_urls (resource_id, url)
+VALUES (1, 'https://host/path/with#fragment');
+
+-- Invalid URL (duplicated URL).
+Error: near line 83: UNIQUE constraint failed: resource_urls.url
+INSERT INTO resource_urls (resource_id, url)
+VALUES (2, 'file:///path/to/spec.yaml');
+
+-- Invalid URL (resource already has a primary URL).
+Error: near line 87: UNIQUE constraint failed: resource_urls.resource_id, resource_urls.is_primary
+INSERT INTO resource_urls (resource_id, url, is_primary)
+VALUES (1, 'file:///path/to/dup/primary/spec.yaml', TRUE);
+
+-- Expect we can natural join resources to URLs.
+SELECT *
+FROM resources
+         NATURAL JOIN resource_urls;
+resource_id|content_type|content|url|is_primary
+1|application/vnd.estuary.dev-catalog-spec+yaml|catalog spec content|file:///path/to/spec.yaml|1
+2|application/vnd.estuary.dev-catalog-fixtures+yaml|catalog fixtures content|file:///path/to/some/fixtures.yaml|1
+3|application/schema+yaml|json-schema content|file:///path/to/a/schema.yaml|1
+4|text/javascript|javascript content|https://host/path/javascript?query=val|1
+5|text/x.typescript|typescript content|file:///path/to/some/typescript.yaml|1
+6|application/sql|bootstrap content|file:///path/to/some/bootstrap.sql|1
+7|application/sql|transform content|file:///path/to/some/transform.sql|1
+3|application/schema+yaml|json-schema content|https://canonical/schema/uri|
+4|text/javascript|javascript content|https://redirect-1/javascript|
+4|text/javascript|javascript content|https://redirect-2/javascript|
+4|text/javascript|javascript content|https://redirect-3/javascript|
+changes:   0   total_changes: 24
+
+-- Valid lambdas.
+INSERT INTO lambdas (runtime, inline, resource_id)
+VALUES ('nodeJS', '(state) => { console.log(''hello''); }', NULL),
+       ('nodeJS', '(doc, state) => {...doc, key: 1}', NULL),
+       ('sqlite', 'SELECT 1;', NULL),
+       ('sqliteFile', NULL, 6), -- Bootstrap.
+       ('sqliteFile', NULL, 7), -- Transform.
+       ('remote', 'https://remote/endpoint', NULL),
+       ('nodeJS', '(doc, state) => {...doc, foo: true}', NULL);
+changes:   7   total_changes: 31
+
+-- Invalid lambda (unknown runtime).
+Error: near line 106: CHECK constraint failed: Unknown Lambda runtime
+INSERT INTO lambdas (runtime, inline)
+VALUES ('unknown', 'foobar');
+
+-- Invalid lambda (nodeJS without inline expression).
+Error: near line 110: CHECK constraint failed: NodeJS lambda must provide an inline expression
+INSERT INTO lambdas (runtime, resource_id)
+VALUES ('nodeJS', 4);
+
+-- Invalid lambda (sqlite without inline expression).
+Error: near line 114: CHECK constraint failed: SQLite lambda must provide an inline expression
+INSERT INTO lambdas (runtime, resource_id)
+VALUES ('sqlite', 6);
+
+-- Invalid lambda (sqliteFile with inline expression).
+Error: near line 118: CHECK constraint failed: SQLiteFile lambda must provide a file resource
+INSERT INTO lambdas (runtime, inline)
+VALUES ('sqliteFile', 'SELECT 1;');
+
+-- Invalid lambda (sqliteFile with non-existent resource).
+Error: near line 122: FOREIGN KEY constraint failed
+INSERT INTO lambdas (runtime, resource_id)
+VALUES ('sqliteFile', 42);
+
+-- Invalid lambda (remote without a valid URL).
+Error: near line 126: CHECK constraint failed: Remote lambda must provide an HTTP endpoint URL
+INSERT INTO lambdas (runtime, inline)
+VALUES ('remote', 'not-a-URL');
+
+-- Expect we can natural join lambdas => resources
+SELECT *
+FROM lambdas
+         NATURAL LEFT JOIN resources;
+lambda_id|runtime|inline|resource_id|content_type|content
+1|nodeJS|(state) => { console.log('hello'); }|||
+2|nodeJS|(doc, state) => {...doc, key: 1}|||
+3|sqlite|SELECT 1;|||
+4|sqliteFile||6|application/sql|bootstrap content
+5|sqliteFile||7|application/sql|transform content
+6|remote|https://remote/endpoint|||
+7|nodeJS|(doc, state) => {...doc, foo: true}|||
+changes:   0   total_changes: 31
+
+-- Valid collections.
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 1),
+       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
+       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1);
+changes:   3   total_changes: 34
+
+-- Invalid collection (schema is not a URI).
+Error: near line 141: CHECK constraint failed: Schema must be a valid base (non-relative) URI
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'not-a-uri', '["/key"]', 1);
+
+-- Invalid collection (collection name doesn't match pattern).
+Error: near line 145: CHECK constraint failed: Collection name format isn't valid
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+Error: near line 147: CHECK constraint failed: Collection name format isn't valid
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+
+-- Invalid collection (key is not non-empty [JSON-Pointer]).
+Error: near line 151: malformed JSON
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1);
+Error: near line 153: CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1);
+Error: near line 155: CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1);
+
+-- Invalid collection (resource doesn't exist).
+Error: near line 159: FOREIGN KEY constraint failed
+INSERT INTO collections (name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42);
+
+SELECT *
+FROM collections;
+collection_id|name|schema_uri|key_json|resource_id
+1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|1
+2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|1
+3|col/der.iv-e+d|https://canonical/schema/uri#/$defs/path|["/foo"]|1
+changes:   0   total_changes: 34
+
+-- Valid projections.
+INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
+VALUES (1, 'field_1', '/path/1', false),
+       (1, 'field_2', '/path/2', true),
+       (2, 'field_1', '', false), -- Repeat field name with different collection.
+       (2, 'field_a', '/a', true);
+changes:   4   total_changes: 38
+
+-- Invalid projection (bad field name).
+Error: near line 173: CHECK constraint failed: Field name format isn't valid
+INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
+VALUES (1, 'no spaces', '/path/1', false);
+Error: near line 175: CHECK constraint failed: Field name format isn't valid
+INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
+VALUES (1, 'or-hyphens', '/path/1', false);
+
+-- Invalid projection (no such collection).
+Error: near line 179: FOREIGN KEY constraint failed
+INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
+VALUES (42, 'foo', '/bar', false);
+
+-- Invalid projection (invalid JSON-Pointer).
+Error: near line 183: CHECK constraint failed: Location must be a valid JSON-Pointer
+INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
+VALUES (1, 'foo', 'bar', false);
+Error: near line 185: CHECK constraint failed: Location must be a valid JSON-Pointer
+INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
+VALUES (1, 'foo', '/bar/', false);
+
+
+-- Valid fixtures.
+INSERT INTO fixtures (collection_id, resource_id)
+VALUES (1, 2),
+       (2, 2);
+changes:   2   total_changes: 40
+
+-- Invalid fixture (no such collection);
+Error: near line 195: FOREIGN KEY constraint failed
+INSERT INTO fixtures (collection_id, resource_id)
+VALUES (42, 2);
+
+-- Invalid fixture (no such resource);
+Error: near line 199: FOREIGN KEY constraint failed
+INSERT INTO fixtures (collection_id, resource_id)
+VALUES (2, 42);
+
+
+-- Valid derivation, with NULL parallelism.
+INSERT INTO derivations (collection_id)
+VALUES (2),
+       (3);
+changes:   2   total_changes: 42
+
+-- Invalid derivation (parallelism <= 0)
+Error: near line 209: CHECK constraint failed: derivations
+UPDATE derivations
+SET parallelism = 0;
+UPDATE derivations
+SET parallelism = 16;
+changes:   2   total_changes: 44
+-- OK.
+
+-- Invalid derivation (collection must exist).
+Error: near line 216: FOREIGN KEY constraint failed
+INSERT INTO derivations (collection_id)
+VALUES (42);
+
+
+-- Valid bootstrap.
+INSERT INTO bootstraps (derivation_id, lambda_id)
+VALUES (2, 1),
+       (2, 4),
+       (3, 1);
+changes:   3   total_changes: 47
+
+-- Invalid bootstrap (derivation must exist).
+Error: near line 227: FOREIGN KEY constraint failed
+INSERT INTO bootstraps (derivation_id, lambda_id)
+VALUES (42, 1);
+-- Invalid bootstrap (collection_id = 1 is not a derivation).
+Error: near line 230: FOREIGN KEY constraint failed
+INSERT INTO bootstraps (derivation_id, lambda_id)
+VALUES (1, 1);
+-- Invalid bootstrap (lambda must exist).
+Error: near line 233: FOREIGN KEY constraint failed
+INSERT INTO bootstraps (derivation_id, lambda_id)
+VALUES (2, 42);
+
+-- Expect we can natural join from bootstraps => resources.
+SELECT *
+FROM bootstraps
+         NATURAL LEFT JOIN lambdas
+         NATURAL LEFT JOIN resources;
+bootstrap_id|derivation_id|lambda_id|runtime|inline|resource_id|content_type|content
+1|2|1|nodeJS|(state) => { console.log('hello'); }|||
+2|2|4|sqliteFile||6|application/sql|bootstrap content
+3|3|1|nodeJS|(state) => { console.log('hello'); }|||
+changes:   0   total_changes: 47
+
+-- Valid transforms.
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
+VALUES (2, 1, 2),
+       (2, 1, 3),
+       (2, 1, 5),
+       (2, 1, 6),
+       (3, 1, 7);
+changes:   5   total_changes: 52
+
+-- Invalid source-schema
+Error: near line 251: CHECK constraint failed: Source schema must be NULL or a valid base (non-relative) URI
+UPDATE transforms
+SET source_schema_uri = 'not-a-url'
+WHERE transform_id = 1;
+-- Valid source-schema.
+UPDATE transforms
+SET source_schema_uri = 'https://source/schema#anchor'
+WHERE transform_id = 1;
+changes:   1   total_changes: 53
+
+-- Can only set one of 'broadcast' or 'choose'.
+Error: near line 260: CHECK constraint failed: Cannot set both shuffle 'broadcast' and 'choose'
+UPDATE transforms
+SET shuffle_broadcast = 2,
+    shuffle_choose    = 3
+WHERE transform_id = 1;
+-- They must be positive.
+Error: near line 265: CHECK constraint failed: transforms
+UPDATE transforms
+SET shuffle_broadcast = 0
+WHERE transform_id = 1;
+Error: near line 268: CHECK constraint failed: transforms
+UPDATE transforms
+SET shuffle_choose = 0
+WHERE transform_id = 1;
+-- OK.
+UPDATE transforms
+SET shuffle_broadcast = 3
+WHERE transform_id = 1;
+changes:   1   total_changes: 54
+UPDATE transforms
+SET shuffle_choose = 3
+WHERE transform_id = 2;
+changes:   1   total_changes: 55
+
+-- Shuffle-key must be array of JSON-pointers.
+Error: near line 280: malformed JSON
+UPDATE transforms
+SET shuffle_key_json = '["/malformed'
+WHERE transform_id = 1;
+Error: near line 283: CHECK constraint failed: Shuffle key must be NULL or non-empty JSON array of JSON-Pointers
+UPDATE transforms
+SET shuffle_key_json = '{"not":"array"}'
+WHERE transform_id = 1;
+-- OK.
+UPDATE transforms
+SET shuffle_key_json = '["/key"]'
+WHERE transform_id = 1;
+changes:   1   total_changes: 56
+
+-- Derivation must exist (cannot use a collection).
+Error: near line 292: FOREIGN KEY constraint failed
+UPDATE transforms
+SET derivation_id = 42;
+Error: near line 294: FOREIGN KEY constraint failed
+UPDATE transforms
+SET derivation_id = 1;
+-- Source collection must exist.
+Error: near line 297: FOREIGN KEY constraint failed
+UPDATE transforms
+SET source_collection_id = 42;
+-- Lambda must exist.
+Error: near line 300: FOREIGN KEY constraint failed
+UPDATE transforms
+SET lambda_id = 42;
+
+-- Expect we can natural join from transforms => resources.
+SELECT *
+FROM transforms
+         NATURAL LEFT JOIN lambdas
+         NATURAL LEFT JOIN resources;
+transform_id|derivation_id|source_collection_id|lambda_id|source_schema_uri|shuffle_key_json|shuffle_broadcast|shuffle_choose|runtime|inline|resource_id|content_type|content
+1|2|1|2|https://source/schema#anchor|["/key"]|3||nodeJS|(doc, state) => {...doc, key: 1}|||
+2|2|1|3||||3|sqlite|SELECT 1;|||
+3|2|1|5|||||sqliteFile||7|application/sql|transform content
+4|2|1|6|||||remote|https://remote/endpoint|||
+5|3|1|7|||||nodeJS|(doc, state) => {...doc, foo: true}|||
+changes:   0   total_changes: 56
+
+-- Valid packages.
+INSERT INTO nodejs_dependencies (package, semver)
+VALUES ('a-package', '^1.2.3'),
+       -- Different packages and versions: OK.
+       ('other-package', '^4.5.6'),
+       ('yet-another-package', '=1.2'),
+       -- Repeat of package at same version: silently ignored.
+       ('a-package', '^1.2.3');
+changes:   3   total_changes: 59
+
+-- Invalid indexed package at a different version.
+Error: near line 319: A dependency on this nodeJS package at a different package version already exists
+INSERT INTO nodejs_dependencies (package, semver)
+VALUES ('a-package', '^4.5.6');
+
+-- View of NodeJS bootstrap invocations, by derivation.
+SELECT *
+FROM nodejs_expressions;
+derivation_id|lambda_id|expression|type
+2|1|(state) => { console.log('hello'); }|bootstrap
+3|1|(state) => { console.log('hello'); }|bootstrap
+2|2|(doc, state) => {...doc, key: 1}|transform
+3|7|(doc, state) => {...doc, foo: true}|transform
+changes:   0   total_changes: 59

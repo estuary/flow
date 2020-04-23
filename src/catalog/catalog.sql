@@ -1,95 +1,143 @@
 PRAGMA foreign_keys = ON;
 
--- resources enumerates the unique resources (eg, files) from which this catalog
--- is built. It exists to facilitate the tracking of derived catalog entities back
--- to the authoritative resources which produced them, such as when outputting
--- descriptive error messages from an encountered build error.
+-- Unique resources (eg, files) from which this catalog is built.
 CREATE TABLE resources
 (
-    id  INTEGER PRIMARY KEY NOT NULL,
-    -- Canonical URI of this resource. Eg `file:///local/file/path` or `https://remote.host/path`.
-    uri TEXT UNIQUE         NOT NULL
+    resource_id  INTEGER PRIMARY KEY NOT NULL,
+    -- MIME type of the resource.
+    content_type TEXT                NOT NULL,
+    -- Content of this resource.
+    content      BLOB                NOT NULL,
+
+    CONSTRAINT "Invalid resource content-type"
+        CHECK (content_type IN (
+                                'application/vnd.estuary.dev-catalog-spec+yaml',
+                                'application/vnd.estuary.dev-catalog-fixtures+yaml',
+                                'application/schema+yaml',
+                                'text/javascript',
+                                'text/x.typescript',
+                                'application/sql'
+            ))
 );
 
+-- Import relationships between resources. Every resource which references another
+-- explicitly records the relationship in this table, to facilitate understanding
+-- of the transitive "A uses B" relationships between catalog resources.
 CREATE TABLE resource_imports
 (
     -- ID of resource which imports another resource.
-    source_id INTEGER NOT NULL REFERENCES resources,
+    resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
     -- ID of the imported resource.
-    import_id INTEGER NOT NULL REFERENCES resources,
+    import_id   INTEGER NOT NULL REFERENCES resources (resource_id),
 
-    PRIMARY KEY (source_id, import_id)
+    PRIMARY KEY (resource_id, import_id)
 );
 
 -- View which derives all transitive resource imports
 CREATE VIEW resource_transitive_imports AS
-WITH RECURSIVE cte(source_id, import_id) AS (
-    SELECT id, id
+WITH RECURSIVE cte(resource_id, import_id) AS (
+    SELECT resource_id, resource_id
     FROM resources
     UNION ALL
-    SELECT cte.source_id, ri.import_id
+    SELECT cte.resource_id, ri.import_id
     FROM resource_imports AS ri
-             JOIN cte ON ri.source_id = cte.import_id
+             JOIN cte ON ri.resource_id = cte.import_id
 )
 SELECT *
 FROM cte;
 
+-- Don't allow a resource import which is already transitively imported
+-- in the opposite direction. To do so would allow a cycle in the import graph.
 CREATE TRIGGER assert_resource_imports_are_acyclic
     BEFORE INSERT
     ON resource_imports
+    FOR EACH ROW
+    WHEN (SELECT 1
+          FROM resource_transitive_imports
+          WHERE resource_id = NEW.import_id
+            AND import_id = NEW.resource_id) NOT NULL
 BEGIN
-    -- Don't allow a resource import which is already transitively imported
-    -- in the opposite direction. To do so would allow a cycle in the import graph.
-    SELECT CASE
-               WHEN ((SELECT source_id
-                      FROM resource_transitive_imports
-                      WHERE source_id = NEW.import_id
-                        AND import_id = NEW.source_id) NOT NULL)
-                   THEN RAISE(ABORT, 'Import creates an cycle (imports must be acyclic)') END;
+    SELECT RAISE(ABORT, 'Import creates an cycle (imports must be acyclic)');
 END;
 
--- JSON-Schema documents used by collections of the catalog. Note that each document
--- may root *many* sub-schemas, and each sub-schema may be individually referenced
--- by a JSON-Pointer URI fragment or even by a completely different base URI (if the
--- sub-schema uses the "$id" keyword).
-CREATE TABLE schemas
+-- Universal resource locators of resources. Each resource may have more than one
+-- associated URL by which it can be addressed. A prominent use-case is that
+-- JSON schemas may have '$id' properties at arbitrary locations which change the
+-- canonical base URI of that schema. So long as '$id's are first indexed here,
+-- alternate URLs can then be referenced and correctly resolved to the resource.
+CREATE TABLE resource_urls
 (
-    -- JSON-Schema document, as content-type "application/schema+json".
-    document_json BLOB CHECK (JSON_TYPE(document_json) IN ('object', 'true', 'false')),
-    -- Resource which produced this schema.
-    resource_id   INTEGER PRIMARY KEY NOT NULL REFERENCES resources (id)
+    -- Resource having an associated URL.
+    resource_id INTEGER     NOT NULL REFERENCES resources (resource_id),
+    -- URL of this resource. Eg `file:///local/path` or `https://remote/path?query`.
+    -- Must be a base URL without a fragment component.
+    url         TEXT UNIQUE NOT NULL,
+    -- A resource's primary URL is the URL at which that resource was originally
+    -- fetched, and serves as the base URL when resolving relative sub-resources.
+    -- Every resource has exactly one primary URL.
+    is_primary  BOOLEAN,
+
+    -- Note SQLite doesn't enforce uniqueness where is_primary IS NULL.
+    UNIQUE (resource_id, is_primary),
+
+    CONSTRAINT "URL must be a valid, base (non-relative) URL"
+        CHECK (url LIKE '_%://_%'),
+    CONSTRAINT "URL cannot have a fragment component"
+        CHECK (url NOT LIKE '%#%'),
+    CONSTRAINT "is_primary should be 'true' or NULL"
+        CHECK (is_primary IS TRUE OR is_primary IS NULL)
 );
 
--- Lambdas are function definitions.
+-- Lambdas are invokable expressions within an associated lambda runtime.
 CREATE TABLE lambdas
 (
-    id          INTEGER PRIMARY KEY NOT NULL,
+    lambda_id   INTEGER PRIMARY KEY NOT NULL,
     -- Runtime of this lambda.
     runtime     TEXT                NOT NULL,
-    -- Function body (used by: jq, sqlite).
-    body        BLOB,
-    -- Resource which produced this lambda.
-    resource_id INTEGER REFERENCES resources (id),
+    -- Inline function expression, with semantics that depend on the runtime:
+    -- * If 'nodeJS', this is a Typescript / JavaScript expression (i.e. an arrow
+    --   expression, or a named function to invoke).
+    -- * If 'remote', this is a remote HTTP endpoint URL to invoke.
+    -- * If 'sqlite', this is an inline SQL script.
+    -- * If 'sqliteFile', this is NULL (and resource_id is set instead).
+    inline      BLOB,
+    -- Resource holding the lambda's content.
+    -- Set only iff runtime is 'sqliteFile'.
+    resource_id INTEGER REFERENCES resources (resource_id),
 
     CONSTRAINT "Unknown Lambda runtime" CHECK (
-        runtime IN ('nodeJS', 'sqlite', 'remote'))
+        runtime IN ('nodeJS', 'sqlite', 'sqliteFile', 'remote')),
+
+    CONSTRAINT "NodeJS lambda must provide an inline expression" CHECK (
+        runtime != 'nodeJS' OR (inline NOT NULL AND resource_id IS NULL)),
+    CONSTRAINT "SQLite lambda must provide an inline expression" CHECK (
+        runtime != 'sqlite' OR (inline NOT NULL AND resource_id IS NULL)),
+    CONSTRAINT "SQLiteFile lambda must provide a file resource" CHECK (
+        runtime != 'sqliteFile' OR (inline IS NULL AND resource_id IS NOT NULL)),
+    CONSTRAINT "Remote lambda must provide an HTTP endpoint URL" CHECK (
+        runtime != 'remote' OR (inline LIKE '_%://_%' AND resource_id IS NULL))
 );
 
 -- Collections of the catalog.
 CREATE TABLE collections
 (
-    id          INTEGER PRIMARY KEY NOT NULL,
+    collection_id INTEGER PRIMARY KEY NOT NULL,
     -- Unique name of this collection.
-    name        TEXT UNIQUE         NOT NULL,
-    -- Canonical URI of the collection's JSON-Schema.
-    schema_uri  TEXT                NOT NULL,
+    name          TEXT UNIQUE         NOT NULL,
+    -- Canonical URI of the collection's JSON-Schema. This may include a fragment
+    -- component which references a sub-schema of the document.
+    schema_uri    TEXT                NOT NULL,
     -- Composite key extractors of the collection, as `[JSON-Pointer]`.
-    key_json    TEXT                NOT NULL CHECK (JSON_TYPE(key_json) == 'array'),
-    -- Resource which produced this collection.
-    resource_id INTEGER             NOT NULL REFERENCES resources (id)
+    key_json      TEXT                NOT NULL,
+    -- Catalog source spec which defines this collection.
+    resource_id   INTEGER             NOT NULL REFERENCES resources (resource_id),
 
-    CONSTRAINT "Invalid collection name format" CHECK (
-        name REGEXP '[\pL\pN\-_+/.]{1,}')
+    CONSTRAINT "Collection name format isn't valid" CHECK (
+        name REGEXP '^[\pL\pN\-_+/.]+$'),
+    CONSTRAINT "Schema must be a valid base (non-relative) URI" CHECK (
+        schema_uri LIKE '_%://_%'),
+    CONSTRAINT "Key must be non-empty JSON array of JSON-Pointers" CHECK (
+        JSON_ARRAY_LENGTH(key_json) > 0)
 );
 
 -- Projections are locations within collection documents which may be projected
@@ -97,22 +145,38 @@ CREATE TABLE collections
 CREATE TABLE projections
 (
     -- Collection to which this projection pertains.
-    collection_id        INTEGER NOT NULL REFERENCES collections (id),
+    collection_id        INTEGER NOT NULL REFERENCES collections (collection_id),
     -- Name of this projection.
-    field                TEXT    NOT NULL CHECK (field REGEXP '[\pL\pN_]{1,}'),
-    -- Collection document location, as a JSON-Pointer.
+    field                TEXT    NOT NULL,
+    -- Location of field within collection documents, as a JSON-Pointer.
     location_ptr         TEXT    NOT NULL,
     -- Use this projection to logically partition the collection?
-    is_logical_partition BOOLEAN,
+    is_logical_partition BOOLEAN NOT NULL,
+
+    CONSTRAINT "Field name format isn't valid" CHECK (
+        field REGEXP '^[\pL\pN_]+$'),
+    CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
+        location_ptr REGEXP '^(/[^/]+)*$'),
 
     PRIMARY KEY (collection_id, field)
+);
+
+-- Fixtures of catalog collections.
+CREATE TABLE fixtures
+(
+    -- Collection to which this fixture pertains.
+    collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
+    -- Fixture resource.
+    resource_id   INTEGER NOT NULL REFERENCES resources (resource_id),
+
+    PRIMARY KEY (collection_id, resource_id)
 );
 
 -- Derivations details collections of the catalog which are derived from other collections.
 CREATE TABLE derivations
 (
     -- Collection to which this derivation applies.
-    collection_id INTEGER PRIMARY KEY NOT NULL REFERENCES collections (id),
+    collection_id INTEGER PRIMARY KEY NOT NULL REFERENCES collections (collection_id),
     -- Number of parallel derivation processors.
     parallelism   INTEGER CHECK (parallelism > 0)
 );
@@ -123,8 +187,8 @@ CREATE TABLE bootstraps
     bootstrap_id  INTEGER PRIMARY KEY NOT NULL,
     -- Derivation to which this bootstrap lambda applies.
     derivation_id INTEGER             NOT NULL REFERENCES derivations (collection_id),
-    -- Lambda expression to invoke.
-    lambda_id     INTEGER             NOT NULL REFERENCES lambdas (id)
+    -- Lambda expression to invoke on processor bootstrap.
+    lambda_id     INTEGER             NOT NULL REFERENCES lambdas (lambda_id)
 );
 
 -- Transforms relate a source collection, an applied lambda, and a derived
@@ -135,54 +199,72 @@ CREATE TABLE transforms
     -- Derivation to which this transform applies.
     derivation_id        INTEGER             NOT NULL REFERENCES derivations (collection_id),
     -- Collection being read from.
-    source_collection_id INTEGER             NOT NULL REFERENCES collections (id),
+    source_collection_id INTEGER             NOT NULL REFERENCES collections (collection_id),
+    -- Lambda expression which consumes source documents and emits target documents.
+    lambda_id            INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
     -- Optional JSON-Schema to verify against documents of the source collection.
     source_schema_uri    TEXT,
     -- Composite key extractor for shuffling source documents to shards, as
     -- `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
-    shuffle_key_json     TEXT                CHECK (JSON_TYPE(shuffle_key_json) == 'array'),
+    shuffle_key_json     TEXT,
     -- Number of ranked shards by which each document is read.
     -- If both `shuffle_broadcast` and `shuffle_choose` are NULL,
     -- then `shuffle_broadcast` is implicitly treated as `1`.
     shuffle_broadcast    INTEGER CHECK (shuffle_broadcast > 0),
     -- Number of ranked shards from which a shard is randomly selected.
     shuffle_choose       INTEGER CHECK (shuffle_choose > 0),
-    -- Code block which consumes source documents and emits target documents.
-    lambda_id            INTEGER             NOT NULL REFERENCES lambdas (id)
 
-    -- Only one of shuffle_broadcast or shuffle_choose may be set.
+    CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
+        source_schema_uri LIKE '_%://_%'),
     CONSTRAINT "Cannot set both shuffle 'broadcast' and 'choose'" CHECK (
-        (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL))
-);
-
--- Fixtures of catalog collections.
-CREATE TABLE fixtures
-(
-    -- Collection to which this fixture pertains.
-    collection_id    INTEGER NOT NULL REFERENCES collections (id),
-    -- Fixture document, as `application/json`.
-    document_json    TEXT CHECK (JSON_VALID(document_json)),
-    -- Expected composite key extracted from the collection document.
-    key_json         TEXT    NOT NULL CHECK (JSON_TYPE(key_json) == 'array'),
-    -- Expected projections extracted from the collection document,
-    -- as {name: value}. This may be a subset.
-    projections_json TEXT    NOT NULL CHECK (JSON_TYPE(projections_json) == 'object'),
-    -- Resource which produced this fixture.
-    resource_id      INTEGER NOT NULL REFERENCES resources (id),
-
-    PRIMARY KEY (collection_id, key_json)
+        (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL)),
+    CONSTRAINT "Shuffle key must be NULL or non-empty JSON array of JSON-Pointers" CHECK (
+        JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
 );
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 CREATE TABLE nodejs_dependencies
 (
+    -- Name of the NPM package depended on.
     package TEXT PRIMARY KEY NOT NULL,
-    semver  TEXT NOT NULL,
-
-    CONSTRAINT "Not a semver" CHECK (semver REGEXP '[\pL\pN_]{1,}'),
-
+    -- Semver string, passed directly to NPM.
+    semver  TEXT             NOT NULL
 );
 
+-- Abort an INSERT of a package that's already registered with a different version.
+CREATE TRIGGER nodejs_dependencies_disagree
+    BEFORE INSERT
+    ON nodejs_dependencies
+    FOR EACH ROW
+BEGIN
+    SELECT CASE
+               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND semver != NEW.semver)
+                   THEN RAISE(ABORT,
+                              'A dependency on this nodeJS package at a different package version already exists')
+               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND semver = NEW.semver)
+                   THEN RAISE(IGNORE)
+               END;
+END;
+
+
+-- View of nodeJS lambdas expressions and usage.
+CREATE VIEW nodejs_expressions AS
+SELECT derivation_id,
+       lambda_id,
+       inline      AS expression,
+       'bootstrap' AS type
+FROM lambdas
+         NATURAL JOIN bootstraps
+WHERE runtime = 'nodeJS'
+UNION ALL
+SELECT derivation_id,
+       lambda_id,
+       inline      AS expression,
+       'transform' AS type
+FROM lambdas
+         NATURAL JOIN transforms
+WHERE runtime = 'nodeJS'
+;
 
 
 -- Inferences are locations of collection documents and associated attributes
@@ -190,7 +272,7 @@ CREATE TABLE nodejs_dependencies
 CREATE TABLE inferences
 (
     -- Collection to which this inference pertains.
-    collection_id                     INTEGER NOT NULL REFERENCES collections (id),
+    collection_id                     INTEGER NOT NULL REFERENCES collections (collection_id),
     -- Inferred collection document location, as a JSON-Pointer.
     location_ptr                      TEXT    NOT NULL,
     -- Is |location_ptr| a regex pattern over applicable JSON-Pointers?
@@ -212,26 +294,18 @@ CREATE TABLE inferences
 
 CREATE TABLE materializations
 (
-    id            INTEGER PRIMARY KEY NOT NULL,
+    material_id   INTEGER PRIMARY KEY NOT NULL,
     -- Collection to be materialized.
-    collection_id INTEGER             NOT NULL REFERENCES collections (id),
-    -- Resource which produced this materialization.
-    resource_id   INTEGER             NOT NULL REFERENCES resources (id)
+    collection_id INTEGER             NOT NULL REFERENCES collections (collection_id),
+    -- Catalog source spec which defines this collection.
+    resource_id   INTEGER             NOT NULL REFERENCES resources (resource_id)
 );
 
 CREATE TABLE materializations_postgres
 (
-    id          INTEGER PRIMARY KEY NOT NULL REFERENCES materializations,
+    material_id INTEGER PRIMARY KEY NOT NULL REFERENCES materializations (material_id),
     address     TEXT                NOT NULL,
     schema_name TEXT                NOT NULL,
     table_name  TEXT                NOT NULL
 );
 
--- View of nodeJS Lambdas which are used as transform functions.
-CREATE VIEW nodejs_lambdas AS
-SELECT id,
-       body,
-       id IN (SELECT lambda_id FROM transforms) AS is_transform,
-       id IN (SELECT lambda_id FROM bootstraps) AS is_bootstrap
-FROM lambdas
-WHERE runtime = 'nodeJS';
