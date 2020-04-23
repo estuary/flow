@@ -24,12 +24,14 @@ impl Schema {
 
         let dom = schema.resource.fetch_to_string(db)?;
         let dom = serde_yaml::from_str::<serde_json::Value>(&dom)?;
+        let compiled: CompiledSchema = build_schema(schema.resource.uri(db)?, &dom)?;
+
         db.prepare_cached("INSERT INTO schemas (resource_id, document_json) VALUES(?, ?);")?
-            .execute(sql_params![schema.resource.id, dom.to_string().as_str()])?;
+            .execute(sql_params![schema.resource.id, &dom])?;
 
         // Recursively traverse static references to catalog other schemas on
         // which this schema document depends.
-        schema.add_references(&db, &schema.compile(db)?)?;
+        schema.add_references(&db, &compiled)?;
 
         Ok(schema)
     }
@@ -77,16 +79,6 @@ impl Schema {
             });
         }
         Ok(out)
-    }
-
-    /// Compile the Schema.
-    pub fn compile(&self, db: &DB) -> Result<CompiledSchema> {
-        let dom: String = db
-            .prepare_cached("SELECT document_json FROM schemas WHERE resource_id = ?;")?
-            .query_row(&[self.resource.id], |row| row.get(0))?;
-        let dom = serde_json::from_str::<serde_json::Value>(&dom)?;
-        let compiled: CompiledSchema = build_schema(self.resource.uri(db)?, &dom)?;
-        Ok(compiled)
     }
 }
 

@@ -55,6 +55,8 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
 
     catalog::build_catalog(&db, root)?;
 
+    estuary::derive::runtime::nodejs::compile_bundle(&db)?;
+
     db.execute_batch("COMMIT;")?;
     Ok(())
 }

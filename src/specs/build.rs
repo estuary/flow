@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::BTreeMap;
 
 /// Source is a YAML specification against which Estuary catalog input files are parsed.
 #[derive(Serialize, Deserialize, Debug)]
@@ -10,12 +11,36 @@ pub struct Source {
     /// collections they reference.
     #[serde(default)]
     pub import: Vec<String>,
+    /// Configuration directives for the catalog's NodeJS package.
+    #[serde(default)]
+    pub node_js: NodeJS,
     /// Definitions of captured and derived collections.
     #[serde(default)]
     pub collections: Vec<Collection>,
     ///// Definitions of collection materializations.
     //#[serde(default)]
     //pub materializations: Vec<Materialization>,
+}
+
+pub struct NodeJS {
+    /// NPM dependencies to include when building the catalog's NodeJS package,
+    /// as {"module-name": "semver"}. I.e. {"moment": "^2.24"}.
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, String>,
+    /// Additional source files to include when building the catalog's NodeJS package.
+    /// All included sources are placed in the package's src/ directory, with all
+    /// directory components dropped but with the file base name and extension preserved.
+    #[serde(default)]
+    pub include: Vec<String>,
+}
+
+impl Default for NodeJS {
+    fn default() -> Self {
+        NodeJS {
+            dependencies: BTreeMap::default(),
+            include: Vec::default(),
+        }
+    }
 }
 
 /// Collection specifies an Estuary document Collection.
@@ -87,9 +112,9 @@ pub struct Derivation {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum Lambda {
     /// Typescript lambda expression.
-    NodeJS(String),
+    NodeJs(String),
     /// Relative URL of a file which contains a Typescript lambda expression.
-    NodeJSFile(String),
+    NodeJsFile(String),
     /// SQLite lambda expression.
     Sqlite(String),
     /// Relative URL of a file which contains a SQLite lambda expression.

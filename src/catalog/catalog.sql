@@ -173,6 +173,18 @@ CREATE TABLE fixtures
     PRIMARY KEY (collection_id, key_json)
 );
 
+-- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
+CREATE TABLE nodejs_dependencies
+(
+    package TEXT PRIMARY KEY NOT NULL,
+    semver  TEXT NOT NULL,
+
+    CONSTRAINT "Not a semver" CHECK (semver REGEXP '[\pL\pN_]{1,}'),
+
+);
+
+
+
 -- Inferences are locations of collection documents and associated attributes
 -- which are statically provable solely from the collection's JSON-Schema.
 CREATE TABLE inferences
@@ -214,3 +226,12 @@ CREATE TABLE materializations_postgres
     schema_name TEXT                NOT NULL,
     table_name  TEXT                NOT NULL
 );
+
+-- View of nodeJS Lambdas which are used as transform functions.
+CREATE VIEW nodejs_lambdas AS
+SELECT id,
+       body,
+       id IN (SELECT lambda_id FROM transforms) AS is_transform,
+       id IN (SELECT lambda_id FROM bootstraps) AS is_bootstrap
+FROM lambdas
+WHERE runtime = 'nodeJS';

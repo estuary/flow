@@ -1,0 +1,24 @@
+{
+    "name": "wobbit",
+    "version": "0.1.0",
+    "description": "Wob the fob",
+    "scripts": {
+        "start": "npm run serve",
+        "build": "npm run build-ts && npm run lint",
+        "serve": "node dist/server.js",
+        "build-ts": "tsc",
+        "lint": "tsc --noEmit && eslint \"**/*.{js,ts}\" --quiet --fix"
+    },
+    "dependencies": {
+        "@types/node": "^13.13.2",
+        "@types/stream-json": "^1.0.1",
+        "moment": "^2.24",
+        "stream-json": "^1.3.3"
+    },
+    "devDependencies": {
+        "@typescript-eslint/eslint-plugin": "^2.3.1",
+        "@typescript-eslint/parser": "^2.3.1",
+        "eslint": "^6.4",
+        "typescript": "^3.8"
+    }
+}

@@ -24,10 +24,12 @@ collections:
         location: /bid/high
 
     derivation:
+      bootstrap:
+        - nodeJS: () => { console.log("example of a bootstrap!"); }
       transform:
         - source: ticks
           lambda:
-            nodeJS: lambdas/map-tick-to-daily-stats.jq
+            nodeJSFile: lambdas/map-tick-to-daily-stats.ts
 
 #materializations:
 #  - collection: daily-stats

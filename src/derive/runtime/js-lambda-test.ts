@@ -9,7 +9,7 @@ async function getFive(): Promise<number> { return 5; }
 async function getTen(): Promise<number> { return 10; }
 
 type Lambda = (doc: any, ctx: StateStore) => any[] | Promise<any[]>;
-interface LambdaMap { [name: string]: Lambda; }
+interface LambdaMap { [id: number]: Lambda; }
 
 // TODO: generate this map from javascript blocks in catalog.
 // Also allow for auxillary TS/JS sources which are "compiled" in.
