@@ -7,7 +7,7 @@ VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content')
        ('application/schema+yaml', 'yet more schema content'),
        ('application/sql', 'bootstrap content'),
        ('application/sql', 'transform content');
-changes:   7   total_changes: 7
+changes:   7   total_changes: XYZ
 
 -- Invalid resource (unknown content type).
 Error: near line (XYZ): CHECK constraint failed: Invalid resource content-type
@@ -23,7 +23,7 @@ VALUES
     (2, 3),
     -- Disconnected 5 => 6.
     (5, 6);
-changes:   4   total_changes: 11
+changes:   4   total_changes: XYZ
 
 -- Verify transitive relationships (one row for each path).
 SELECT *
@@ -43,7 +43,7 @@ resource_id|import_id
 1|3
 2|4
 1|4
-changes:   4   total_changes: 11
+changes:   4   total_changes: XYZ
 
 -- Invalid import (direct cycle).
 Error: near line (XYZ): Import creates an cycle (imports must be acyclic)
@@ -67,7 +67,7 @@ VALUES (2, 3), -- Repeat.
        (2, 4), -- Alternate 1 => 2 => 4.
        (5, 6)  -- Repeat.
 ON CONFLICT DO NOTHING;
-changes:   2   total_changes: 13
+changes:   2   total_changes: XYZ
 
 SELECT DISTINCT *
 FROM resource_transitive_imports;
@@ -86,7 +86,7 @@ resource_id|import_id
 3|4
 5|6
 1|4
-changes:   2   total_changes: 13
+changes:   2   total_changes: XYZ
 
 -- Valid resource URLs.
 INSERT INTO resource_urls (resource_id, url, is_primary)
@@ -103,7 +103,7 @@ VALUES (1, 'file:///path/to/spec.yaml', TRUE),
        (4, 'https://redirect-1/javascript', NULL),
        (4, 'https://redirect-2/javascript', NULL),
        (4, 'https://redirect-3/javascript', NULL);
-changes:  11   total_changes: 24
+changes:  11   total_changes: XYZ
 
 -- Invalid URL (not a base URL).
 Error: near line (XYZ): CHECK constraint failed: URL must be a valid, base (non-relative) URL
@@ -141,7 +141,7 @@ resource_id|content_type|content|url|is_primary
 4|application/schema+yaml|other schema|https://redirect-1/javascript|
 4|application/schema+yaml|other schema|https://redirect-2/javascript|
 4|application/schema+yaml|other schema|https://redirect-3/javascript|
-changes:   0   total_changes: 24
+changes:   0   total_changes: XYZ
 
 -- Valid lambdas.
 INSERT INTO lambdas (runtime, inline, resource_id)
@@ -152,7 +152,7 @@ VALUES ('nodeJS', '(state) => { console.log(''hello''); }', NULL),
        ('sqliteFile', NULL, 7), -- Transform.
        ('remote', 'https://remote/endpoint', NULL),
        ('nodeJS', '(doc, state) => {...doc, foo: true}', NULL);
-changes:   7   total_changes: 31
+changes:   7   total_changes: XYZ
 
 -- Invalid lambda (unknown runtime).
 Error: near line (XYZ): CHECK constraint failed: Unknown Lambda runtime
@@ -196,7 +196,7 @@ lambda_id|runtime|inline|resource_id|content_type|content
 5|sqliteFile||7|application/sql|transform content
 6|remote|https://remote/endpoint|||
 7|nodeJS|(doc, state) => {...doc, foo: true}|||
-changes:   0   total_changes: 31
+changes:   0   total_changes: XYZ
 
 -- Valid collections.
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
@@ -204,7 +204,7 @@ VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]'
        ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
        ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
        ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
-changes:   4   total_changes: 35
+changes:   4   total_changes: XYZ
 
 -- Invalid collection (schema is not a URI).
 Error: near line (XYZ): CHECK constraint failed: Schema must be a valid base (non-relative) URI
@@ -242,7 +242,7 @@ collection_id|name|schema_uri|key_json|resource_id
 2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|2
 3|col/der.iv-e+d|https://canonical/schema/uri#/$defs/path|["/foo"]|1
 4|col/other-src|file:///path/to/a/schema.yaml|["/key"]|6
-changes:   0   total_changes: 35
+changes:   0   total_changes: XYZ
 
 -- Valid projections.
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
@@ -250,7 +250,7 @@ VALUES (1, 'field_1', '/path/1', false),
        (1, 'field_2', '/path/2', true),
        (2, 'field_1', '', false), -- Repeat field name with different collection.
        (2, 'field_a', '/a', true);
-changes:   4   total_changes: 39
+changes:   4   total_changes: XYZ
 
 -- Invalid projection (bad field name).
 Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
@@ -278,7 +278,7 @@ VALUES (1, 'foo', '/bar/', false);
 INSERT INTO fixtures (collection_id, resource_id)
 VALUES (1, 2),
        (2, 2);
-changes:   2   total_changes: 41
+changes:   2   total_changes: XYZ
 
 -- Invalid fixture (no such collection);
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -295,7 +295,7 @@ VALUES (2, 42);
 INSERT INTO derivations (collection_id)
 VALUES (2),
        (3);
-changes:   2   total_changes: 43
+changes:   2   total_changes: XYZ
 
 -- Invalid derivation (parallelism <= 0)
 Error: near line (XYZ): CHECK constraint failed: derivations
@@ -303,7 +303,7 @@ UPDATE derivations
 SET parallelism = 0;
 UPDATE derivations
 SET parallelism = 16;
-changes:   2   total_changes: 45
+changes:   2   total_changes: XYZ
 -- OK.
 
 -- Invalid derivation (collection must exist).
@@ -317,7 +317,7 @@ INSERT INTO bootstraps (derivation_id, lambda_id)
 VALUES (2, 1),
        (2, 4),
        (3, 1);
-changes:   3   total_changes: 48
+changes:   3   total_changes: XYZ
 
 -- Invalid bootstrap (derivation must exist).
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -341,7 +341,7 @@ bootstrap_id|derivation_id|lambda_id|runtime|inline|resource_id|content_type|con
 1|2|1|nodeJS|(state) => { console.log('hello'); }|||
 2|2|4|sqliteFile||6|application/sql|bootstrap content
 3|3|1|nodeJS|(state) => { console.log('hello'); }|||
-changes:   0   total_changes: 48
+changes:   0   total_changes: XYZ
 
 -- Valid transforms.
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
@@ -350,7 +350,7 @@ VALUES (2, 1, 2),
        (2, 1, 5),
        (2, 1, 6),
        (3, 1, 7);
-changes:   5   total_changes: 53
+changes:   5   total_changes: XYZ
 
 -- Invalid source-schema
 Error: near line (XYZ): CHECK constraint failed: Source schema must be NULL or a valid base (non-relative) URI
@@ -361,7 +361,7 @@ WHERE transform_id = 1;
 UPDATE transforms
 SET source_schema_uri = 'https://source/schema#anchor'
 WHERE transform_id = 1;
-changes:   1   total_changes: 54
+changes:   1   total_changes: XYZ
 
 -- Can only set one of 'broadcast' or 'choose'.
 Error: near line (XYZ): CHECK constraint failed: Cannot set both shuffle 'broadcast' and 'choose'
@@ -382,11 +382,11 @@ WHERE transform_id = 1;
 UPDATE transforms
 SET shuffle_broadcast = 3
 WHERE transform_id = 1;
-changes:   1   total_changes: 55
+changes:   1   total_changes: XYZ
 UPDATE transforms
 SET shuffle_choose = 3
 WHERE transform_id = 2;
-changes:   1   total_changes: 56
+changes:   1   total_changes: XYZ
 
 -- Shuffle-key must be array of JSON-pointers.
 Error: near line (XYZ): malformed JSON
@@ -401,7 +401,7 @@ WHERE transform_id = 1;
 UPDATE transforms
 SET shuffle_key_json = '["/key"]'
 WHERE transform_id = 1;
-changes:   1   total_changes: 57
+changes:   1   total_changes: XYZ
 
 -- Derivation must exist (cannot use a collection).
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -436,7 +436,7 @@ transform_id|derivation_id|source_collection_id|lambda_id|source_schema_uri|shuf
 3|2|1|5|||||sqliteFile||7|application/sql|transform content
 4|2|1|6|||||remote|https://remote/endpoint|||
 5|3|1|7|||||nodeJS|(doc, state) => {...doc, foo: true}|||
-changes:   0   total_changes: 57
+changes:   0   total_changes: XYZ
 
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
@@ -446,7 +446,7 @@ VALUES ('a-package', '^1.2.3'),
        ('yet-another-package', '=1.2'),
        -- Repeat of package at same version: silently ignored.
        ('a-package', '^1.2.3');
-changes:   3   total_changes: 60
+changes:   3   total_changes: XYZ
 
 -- Invalid indexed package at a different version.
 Error: near line (XYZ): A dependency on this nodeJS package at a different package version already exists
@@ -461,4 +461,4 @@ derivation_id|lambda_id|expression|type
 3|1|(state) => { console.log('hello'); }|bootstrap
 2|2|(doc, state) => {...doc, key: 1}|transform
 3|7|(doc, state) => {...doc, foo: true}|transform
-changes:   0   total_changes: 60
+changes:   0   total_changes: XYZ

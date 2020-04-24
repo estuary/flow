@@ -31,7 +31,8 @@ EOF
 # don't require updating the entire golden file when the change).
 test_input | \
 	sqlite3 ":memory:" 2>&1 | \
-	sed --regexp-extended 's/Error: near line [[:digit:]]+:/Error: near line (XYZ):/' > ${OUT}
+	sed --regexp-extended 's/Error: near line [[:digit:]]+:/Error: near line (XYZ):/' | \
+	sed --regexp-extended 's/total_changes: [[:digit:]]+/total_changes: XYZ/' > ${OUT}
 
 # Compare test output with checked-in "golden" version.
 diff ${OUT} ${DIR}/catalog_test_golden.out \
