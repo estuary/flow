@@ -200,10 +200,11 @@ changes:   0   total_changes: 31
 
 -- Valid collections.
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
-VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 1),
-       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
-       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1);
-changes:   3   total_changes: 34
+VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
+       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
+       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
+       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
+changes:   4   total_changes: 35
 
 -- Invalid collection (schema is not a URI).
 Error: near line (XYZ): CHECK constraint failed: Schema must be a valid base (non-relative) URI
@@ -237,10 +238,11 @@ VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42);
 SELECT *
 FROM collections;
 collection_id|name|schema_uri|key_json|resource_id
-1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|1
-2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|1
+1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|3
+2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|2
 3|col/der.iv-e+d|https://canonical/schema/uri#/$defs/path|["/foo"]|1
-changes:   0   total_changes: 34
+4|col/other-src|file:///path/to/a/schema.yaml|["/key"]|6
+changes:   0   total_changes: 35
 
 -- Valid projections.
 INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
@@ -248,7 +250,7 @@ VALUES (1, 'field_1', '/path/1', false),
        (1, 'field_2', '/path/2', true),
        (2, 'field_1', '', false), -- Repeat field name with different collection.
        (2, 'field_a', '/a', true);
-changes:   4   total_changes: 38
+changes:   4   total_changes: 39
 
 -- Invalid projection (bad field name).
 Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
@@ -276,7 +278,7 @@ VALUES (1, 'foo', '/bar/', false);
 INSERT INTO fixtures (collection_id, resource_id)
 VALUES (1, 2),
        (2, 2);
-changes:   2   total_changes: 40
+changes:   2   total_changes: 41
 
 -- Invalid fixture (no such collection);
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -293,7 +295,7 @@ VALUES (2, 42);
 INSERT INTO derivations (collection_id)
 VALUES (2),
        (3);
-changes:   2   total_changes: 42
+changes:   2   total_changes: 43
 
 -- Invalid derivation (parallelism <= 0)
 Error: near line (XYZ): CHECK constraint failed: derivations
@@ -301,7 +303,7 @@ UPDATE derivations
 SET parallelism = 0;
 UPDATE derivations
 SET parallelism = 16;
-changes:   2   total_changes: 44
+changes:   2   total_changes: 45
 -- OK.
 
 -- Invalid derivation (collection must exist).
@@ -315,7 +317,7 @@ INSERT INTO bootstraps (derivation_id, lambda_id)
 VALUES (2, 1),
        (2, 4),
        (3, 1);
-changes:   3   total_changes: 47
+changes:   3   total_changes: 48
 
 -- Invalid bootstrap (derivation must exist).
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -339,7 +341,7 @@ bootstrap_id|derivation_id|lambda_id|runtime|inline|resource_id|content_type|con
 1|2|1|nodeJS|(state) => { console.log('hello'); }|||
 2|2|4|sqliteFile||6|application/sql|bootstrap content
 3|3|1|nodeJS|(state) => { console.log('hello'); }|||
-changes:   0   total_changes: 47
+changes:   0   total_changes: 48
 
 -- Valid transforms.
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
@@ -348,7 +350,7 @@ VALUES (2, 1, 2),
        (2, 1, 5),
        (2, 1, 6),
        (3, 1, 7);
-changes:   5   total_changes: 52
+changes:   5   total_changes: 53
 
 -- Invalid source-schema
 Error: near line (XYZ): CHECK constraint failed: Source schema must be NULL or a valid base (non-relative) URI
@@ -359,7 +361,7 @@ WHERE transform_id = 1;
 UPDATE transforms
 SET source_schema_uri = 'https://source/schema#anchor'
 WHERE transform_id = 1;
-changes:   1   total_changes: 53
+changes:   1   total_changes: 54
 
 -- Can only set one of 'broadcast' or 'choose'.
 Error: near line (XYZ): CHECK constraint failed: Cannot set both shuffle 'broadcast' and 'choose'
@@ -380,11 +382,11 @@ WHERE transform_id = 1;
 UPDATE transforms
 SET shuffle_broadcast = 3
 WHERE transform_id = 1;
-changes:   1   total_changes: 54
+changes:   1   total_changes: 55
 UPDATE transforms
 SET shuffle_choose = 3
 WHERE transform_id = 2;
-changes:   1   total_changes: 55
+changes:   1   total_changes: 56
 
 -- Shuffle-key must be array of JSON-pointers.
 Error: near line (XYZ): malformed JSON
@@ -399,7 +401,7 @@ WHERE transform_id = 1;
 UPDATE transforms
 SET shuffle_key_json = '["/key"]'
 WHERE transform_id = 1;
-changes:   1   total_changes: 56
+changes:   1   total_changes: 57
 
 -- Derivation must exist (cannot use a collection).
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -417,6 +419,12 @@ Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
 SET lambda_id = 42;
 
+-- The resource of the spec defining this transform must also import the
+-- spec of the referenced source collection.
+Error: near line (XYZ): Transform references a source collection which is not imported by this catalog spec
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
+VALUES (2, 4, 2);
+
 -- Expect we can natural join from transforms => resources.
 SELECT *
 FROM transforms
@@ -428,7 +436,7 @@ transform_id|derivation_id|source_collection_id|lambda_id|source_schema_uri|shuf
 3|2|1|5|||||sqliteFile||7|application/sql|transform content
 4|2|1|6|||||remote|https://remote/endpoint|||
 5|3|1|7|||||nodeJS|(doc, state) => {...doc, foo: true}|||
-changes:   0   total_changes: 56
+changes:   0   total_changes: 57
 
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
@@ -438,7 +446,7 @@ VALUES ('a-package', '^1.2.3'),
        ('yet-another-package', '=1.2'),
        -- Repeat of package at same version: silently ignored.
        ('a-package', '^1.2.3');
-changes:   3   total_changes: 59
+changes:   3   total_changes: 60
 
 -- Invalid indexed package at a different version.
 Error: near line (XYZ): A dependency on this nodeJS package at a different package version already exists
@@ -453,4 +461,4 @@ derivation_id|lambda_id|expression|type
 3|1|(state) => { console.log('hello'); }|bootstrap
 2|2|(doc, state) => {...doc, key: 1}|transform
 3|7|(doc, state) => {...doc, foo: true}|transform
-changes:   0   total_changes: 59
+changes:   0   total_changes: 60

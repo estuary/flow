@@ -220,6 +220,24 @@ CREATE TABLE transforms
         JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
 );
 
+-- Require that the specification resource which defines a collection transform,
+-- also imports the specification which contains the referenced source collection.
+CREATE TRIGGER transforms_import_source_collection
+    BEFORE INSERT
+    ON transforms
+    FOR EACH ROW
+    WHEN (SELECT 1 FROM
+          collections AS src,
+          collections AS tgt,
+          resource_transitive_imports AS rti
+          WHERE tgt.collection_id = NEW.derivation_id AND
+                src.collection_id = NEW.source_collection_id AND
+                tgt.resource_id = rti.resource_id AND
+                src.resource_id = rti.import_id) IS NULL
+BEGIN
+    SELECT RAISE(ABORT, 'Transform references a source collection which is not imported by this catalog spec');
+END;
+
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 CREATE TABLE nodejs_dependencies
 (

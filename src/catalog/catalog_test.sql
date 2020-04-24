@@ -127,9 +127,10 @@ FROM lambdas
 
 -- Valid collections.
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
-VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 1),
-       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
-       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1);
+VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
+       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
+       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
+       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
 
 -- Invalid collection (schema is not a URI).
 INSERT INTO collections (name, schema_uri, key_json, resource_id)
@@ -293,6 +294,11 @@ SET source_collection_id = 42;
 -- Lambda must exist.
 UPDATE transforms
 SET lambda_id = 42;
+
+-- The resource of the spec defining this transform must also import the
+-- spec of the referenced source collection.
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
+VALUES (2, 4, 2);
 
 -- Expect we can natural join from transforms => resources.
 SELECT *
