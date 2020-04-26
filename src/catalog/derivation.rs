@@ -1,4 +1,4 @@
-use super::{Collection, Lambda, Resource, Result, Schema};
+use super::{Collection, Error, Lambda, Resource, Result, Schema};
 use crate::specs::build as specs;
 use rusqlite::{params as sql_params, Connection as DB};
 
@@ -38,17 +38,39 @@ impl Derivation {
     }
 
     fn register_transform(&self, db: &DB, spec: &specs::Transform) -> Result<()> {
-        let source = Collection::query(db, &spec.source, self.collection.resource)?;
+        // Map spec source collection name to its collection ID.
+        let (cid, rid) = db
+            .prepare_cached("SELECT collection_id, resource_id FROM collections WHERE name = ?")?
+            .query_row(&[&spec.source], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| Error::At {
+                loc: format!("querying source collection {:?}", spec.source),
+                detail: Box::new(e.into()),
+            })?;
 
-        // Register optional source schema.
-        let mut schema_uri: Option<String> = None;
+        let source = Collection {
+            id: cid,
+            resource: Resource { id: rid },
+        };
+        // Verify that the catalog spec of the source collection is imported by this collection's.
+        Resource::verify_import(db, self.collection.resource, source.resource)?;
 
-        if let Some(uri) = &spec.source_schema {
-            let uri = self.collection.resource.join(db, uri)?;
-            let schema = Schema::register(db, uri.clone())?;
-            Resource::register_import(db, self.collection.resource, schema.resource)?;
-            schema_uri = Some(uri.into_string())
-        }
+        // Register optional source schema. Like the collection's schema, this
+        // URL may have a fragment component locating a specific sub-schema to
+        // use. Drop the fragment when registering the schema document.
+        let schema_url = match &spec.source_schema {
+            None => None,
+            Some(url) => {
+                let url = self.collection.resource.join(db, url)?;
+
+                let schema = Schema::register(db, &url).map_err(|err| Error::At {
+                    loc: format!("source schema {:?}", &url),
+                    detail: Box::new(err),
+                })?;
+                Resource::register_import(db, self.collection.resource, schema.resource)?;
+
+                Some(url)
+            }
+        };
 
         let lambda = Lambda::register(db, self.collection.resource, &spec.lambda)?;
 
@@ -56,24 +78,24 @@ impl Derivation {
             "INSERT INTO transforms (
                         derivation_id,
                         source_collection_id,
+                        lambda_id,
                         source_schema_uri,
                         shuffle_key_json,
                         shuffle_broadcast,
-                        shuffle_choose,
-                        lambda_id
+                        shuffle_choose
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )?
         .execute(sql_params![
             self.collection.id,
             source.id,
-            schema_uri,
+            lambda.id,
+            schema_url,
             spec.shuffle
                 .key
                 .as_ref()
                 .map(|k| serde_json::to_string(&k).unwrap()),
             spec.shuffle.broadcast,
             spec.shuffle.choose,
-            lambda.id,
         ])?;
 
         Ok(())
@@ -86,46 +108,35 @@ mod test {
         super::{db, Source},
         *,
     };
-    use serde_json::json;
-    use tempfile;
-    use url::Url;
+    use serde_json::{json, Value};
 
     #[test]
     fn test_register() -> Result<()> {
-        let dir = tempfile::tempdir().unwrap();
-        let fixtures = [
-            (
-                Url::from_file_path(dir.path().join("src-schema.json")).unwrap(),
-                json!(true),
-            ),
-            (
-                Url::from_file_path(dir.path().join("alt-schema.json")).unwrap(),
-                json!({ "$defs": {"alt-def": true} }),
-            ),
-            (
-                Url::from_file_path(dir.path().join("derived-schema.json")).unwrap(),
-                json!(true),
-            ),
-        ];
-        for (uri, val) in fixtures.iter() {
-            std::fs::write(uri.to_file_path().unwrap(), val.to_string())?;
-        }
-
         let db = DB::open_in_memory()?;
         db::init(&db)?;
 
-        let source = fixtures[0].0.join("root")?;
-        let source = Source {
-            resource: Resource::register(&db, source)?,
-        };
-
-        // Collection which is derived from.
-        let spec: specs::Collection = serde_json::from_value(json!({
-            "name": "src/collection",
-            "schema": "src-schema.json",
-            "key": ["/key/1", "/key/0"],
-        }))?;
-        Collection::register(&db, source, &spec)?;
+        let a_schema = json!(true);
+        let alt_schema = json!({"$anchor": "foobar"});
+        db.execute(
+            "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                    (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
+                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
+                    (20, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![a_schema, alt_schema],
+        )?;
+        db.execute(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                    (1, 'test://example/spec', TRUE),
+                    (10, 'test://example/a-schema.json', TRUE),
+                    (20, 'test://example/alt-schema.json', TRUE);",
+            sql_params![],
+        )?;
+        db.execute(
+            "INSERT INTO collections (name, schema_uri, key_json, resource_id) VALUES
+                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);",
+            sql_params![],
+        )?;
+        let source = Source { resource: Resource { id: 1 }};
 
         // Derived collection with:
         //  - Explicit parallelism.
@@ -133,7 +144,7 @@ mod test {
         //  - Explicit shuffle key w/ choose.
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "d1/collection",
-            "schema": "derived-schema.json",
+            "schema": "a-schema.json",
             "key": ["/d1-key"],
             "derivation": {
                 "parallelism": 8,
@@ -143,7 +154,7 @@ mod test {
                 "transform": [
                     {
                         "source": "src/collection",
-                        "sourceSchema": "alt-schema.json#/$defs/alt-def",
+                        "sourceSchema": "alt-schema.json#foobar",
                         "shuffle": {
                             "key": ["/shuffle", "/key"],
                             "choose": 3,
@@ -158,7 +169,7 @@ mod test {
         // Derived collection with implicit defaults.
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "d2/collection",
-            "schema": "derived-schema.json",
+            "schema": "a-schema.json",
             "key": ["/d2-key"],
             "derivation": {
                 "transform": [
@@ -171,18 +182,10 @@ mod test {
         }))?;
         Collection::register(&db, source, &spec)?;
 
-        // Expect the tranform records the absolute schema URI, with fragment.
-        let full_alt_schema_uri = source
-            .resource
-            .uri(&db)?
-            .join("alt-schema.json#/$defs/alt-def")?
-            .to_string();
-
         let dump = db::dump_tables(
             &db,
             &[
                 "derivations",
-                "schemas",
                 "transforms",
                 "bootstraps",
                 "lambdas",
@@ -192,26 +195,21 @@ mod test {
         assert_eq!(
             dump,
             json!({
-                "bootstraps":[
-                    [1, 2, 1],
-                ],
                 "derivations": [
                     [2, 8],
                     [3, null],
                 ],
-                "lambdas":[
-                    [1,"nodeJS","nodeJS bootstrap",1],
-                    [2,"nodeJS","lambda one",1],
-                    [3,"nodeJS","lambda two",1],
+                "bootstraps":[
+                    [1, 2, 1],
                 ],
-                "schemas":[
-                    [true, 2],
-                    [true, 3],
-                    [{"$defs":{"alt-def":true}}, 4],
+                "lambdas":[
+                    [1, "nodeJS","nodeJS bootstrap", Value::Null],
+                    [2, "nodeJS","lambda one", Value::Null],
+                    [3, "nodeJS","lambda two", Value::Null],
                 ],
                 "transforms":[
-                    [1,2,1,full_alt_schema_uri, ["/shuffle","/key"],null,3,2],
-                    [2,3,1,null,null,null,null,3],
+                    [1, 2, 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3],
+                    [2, 3, 1, 3, null, null, null, null],
                 ],
             }),
         );

@@ -1,77 +1,46 @@
-use super::{Resource, Result};
+use super::{ContentType, Resource, Result};
 use crate::specs::build as specs;
-use rusqlite::{params as sql_params, Connection as DB, Error as DBError};
+use rusqlite::Connection as DB;
 use url::Url;
 
 /// Lambda represents a Lambda function of the catalog.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub struct Lambda {
     pub id: i64,
-    pub resource: Resource,
 }
-
-// Constants for runtime types.
-static NODEJS: &str = "nodeJS";
-static SQLITE: &str = "sqlite";
-static REMOTE: &str = "remote";
 
 impl Lambda {
     /// Register a Lambda with the catalog.
     pub fn register(db: &DB, res: Resource, spec: &specs::Lambda) -> Result<Lambda> {
-        use specs::Lambda::*;
-        let (embed, runtime, body) = match spec {
-            Remote(endpoint) => {
+        match spec {
+            specs::Lambda::Remote(endpoint) => {
                 Url::parse(endpoint)?; // Must be a base URI.
-                (true, REMOTE, endpoint)
+
+                db.prepare_cached("INSERT INTO lambdas (runtime, inline) VALUES ('remote', ?)")?
+                    .execute(&[endpoint])?;
             }
-            Sqlite(body) => (true, SQLITE, body),
-            SqliteFile(uri) => (false, SQLITE, uri),
-            NodeJS(body) => (true, NODEJS, body),
-            NodeJSFile(uri) => (false, NODEJS, uri),
+            specs::Lambda::Sqlite(body) => {
+                db.prepare_cached("INSERT INTO lambdas (runtime, inline) VALUES ('sqlite', ?)")?
+                    .execute(&[body])?;
+            }
+            specs::Lambda::NodeJS(body) => {
+                db.prepare_cached("INSERT INTO lambdas (runtime, inline) VALUES ('nodeJS', ?)")?
+                    .execute(&[body])?;
+            }
+            specs::Lambda::SqliteFile(url) => {
+                let url = res.join(db, url)?;
+                let import = Resource::register(db, ContentType::Sql, &url)?;
+                Resource::register_import(db, res, import)?;
+
+                db.prepare_cached(
+                    "INSERT INTO lambdas (runtime, resource_id) VALUES ('sqliteFile', ?)",
+                )?
+                .execute(&[import.id])?;
+            }
         };
 
-        if embed {
-            // Embedded lambdas always insert a new row.
-            db.prepare_cached("INSERT INTO lambdas (runtime, body, resource_id) VALUES (?, ?, ?)")?
-                .execute(sql_params![runtime, body, res.id])?;
-            return Ok(Lambda {
-                id: db.last_insert_rowid(),
-                resource: res,
-            });
-        }
-
-        // This lambda specification is an indirect to a file.
-
-        let import = res.join(db, body)?;
-        let import = Resource::register(db, import)?;
-        Resource::register_import(db, res, import)?;
-
-        // Attempt to find an existing row for this lambda.
-        // We don't use import.added because *technically* the lambda could be
-        // represented twice with different runtimes. This is almost certainly
-        // a bug, but here we just represent what the spec says and trust we'll
-        // fail later with a better error (i.e., compilation failed).
-
-        let row = db
-            .prepare_cached("SELECT id FROM lambdas WHERE runtime = ? AND resource_id = ?")?
-            .query_row(sql_params![runtime, import.id], |row| row.get(0));
-
-        match row {
-            Ok(id) => {
-                return Ok(Lambda {
-                    id,
-                    resource: import,
-                })
-            } // Found.
-            Err(DBError::QueryReturnedNoRows) => (), // Not found. Fall through to insert.
-            Err(err) => return Err(err.into()),      // Other DBError.
-        }
-
-        db.prepare_cached("INSERT INTO lambdas (runtime, body, resource_id) VALUES (?, ?, ?)")?
-            .execute(sql_params![runtime, import.fetch_to_string(db)?, import.id])?;
         Ok(Lambda {
             id: db.last_insert_rowid(),
-            resource: import,
         })
     }
 }
@@ -79,36 +48,33 @@ impl Lambda {
 #[cfg(test)]
 mod test {
     use super::{super::db, *};
-    use serde_json::json;
-    use std::fs;
-    use tempfile;
+    use serde_json::{json, Value};
 
     #[test]
     fn test_register() -> Result<()> {
-        let dir = tempfile::tempdir().unwrap();
-
-        // Two lambda fixture files.
-        fs::write(dir.path().join("lambda.one"), "file one")?;
-        fs::write(dir.path().join("lambda.two"), "file two")?;
-
         let db = DB::open_in_memory()?;
         db::init(&db)?;
 
-        let root = Url::from_file_path(dir.path().join("root.spec")).unwrap();
-        let root = Resource::register(&db, root)?;
-        let file_1 = Resource::register(&db, root.join(&db, "lambda.one")?)?;
-        let file_2 = Resource::register(&db, root.join(&db, "lambda.two")?)?;
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                (1, 'application/vnd.estuary.dev-catalog-spec+yaml', 'root spec', true),
+                (2, 'application/sql', 'sql content', false);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (1, 'http://example/path/spec.yaml', TRUE),
+                (2, 'http://example/sibling/some.sql', TRUE);
+        ",
+        )?;
+
+        let root = Url::parse("http://example/path/spec.yaml")?;
+        let root = Resource::register(&db, ContentType::CatalogSpec, &root)?;
 
         use specs::Lambda::*;
         let fixtures = [
             Sqlite("block 1".to_owned()),
-            Sqlite("block 2".to_owned()),
-            NodeJS("block 3".to_owned()),
-            Remote("http://host".to_owned()),
-            SqliteFile("lambda.one".to_owned()),
-            SqliteFile("lambda.one".to_owned()), // De-duplicated repeat.
-            NodeJSFile("lambda.two".to_owned()),
-            NodeJSFile("lambda.one".to_owned()), // Repeat with different runtime.
+            NodeJS("block 2".to_owned()),
+            Remote("http://example/remote?query".to_owned()),
+            SqliteFile("../sibling/some.sql".to_owned()),
         ];
 
         for fixture in fixtures.iter() {
@@ -118,16 +84,13 @@ mod test {
         assert_eq!(
             db::dump_tables(&db, &["resource_imports", "lambdas"])?,
             json!({
-                "resource_imports": [[root.id, file_1.id], [root.id, file_2.id]],
                 "lambdas": [
-                    [1, "sqlite", "block 1", root.id],
-                    [2, "sqlite", "block 2", root.id],
-                    [3, "nodeJS", "block 3", root.id],
-                    [4, "remote", "http://host", root.id],
-                    [5, "sqlite", "file one", file_1.id],
-                    [6, "nodeJS", "file two", file_2.id],
-                    [7, "nodeJS", "file one", file_1.id],
+                    [1, "sqlite", "block 1", Value::Null],
+                    [2, "nodeJS", "block 2", Value::Null],
+                    [3, "remote", "http://example/remote?query", Value::Null],
+                    [4, "sqliteFile", Value::Null, 2],
                 ],
+                "resource_imports": [[1, 2]],
             }),
         );
         Ok(())

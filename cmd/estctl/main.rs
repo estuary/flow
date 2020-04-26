@@ -1,8 +1,8 @@
 use clap;
+use estuary::catalog;
 use std::boxed::Box;
 use std::fs;
 use url;
-use estuary::catalog;
 
 type Error = Box<dyn std::error::Error + 'static>;
 

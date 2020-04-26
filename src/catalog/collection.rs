@@ -1,4 +1,4 @@
-use super::{Derivation, Error, Resource, Result, Schema, Source};
+use super::{ContentType, Derivation, Error, Resource, Result, Schema, Source};
 use crate::doc::Pointer;
 use crate::specs::build as specs;
 use rusqlite::{params as sql_params, Connection as DB};
@@ -14,33 +14,25 @@ pub struct Collection {
 impl Collection {
     /// Registers a Collection of the Source with the catalog.
     pub fn register(db: &DB, source: Source, spec: &specs::Collection) -> Result<Collection> {
-        // Canonicalize and register the Collection JSON-Schema.
-        let schema_uri = source.resource.join(db, &spec.schema)?;
-        let schema = Schema::register(db, schema_uri.clone()).map_err(|err| Error::At {
-            loc: format!("schema {:?}", schema_uri),
+        // Register and import the schema document.
+        let schema_url = source.resource.join(db, &spec.schema)?;
+        let schema = Schema::register(db, &schema_url).map_err(|err| Error::At {
+            loc: format!("schema {:?}", schema_url),
             detail: Box::new(err),
         })?;
         Resource::register_import(db, source.resource, schema.resource)?;
 
-        // Marshal key extractor to JSON.
-        for key in spec.key.iter() {
-            Pointer::try_from(key)?;
-        }
-        let key_json = serde_json::to_string(&spec.key)?;
-
-        // Do the insert.
         db.prepare_cached(
             "INSERT INTO collections (
                     name,
                     schema_uri,
                     key_json,
                     resource_id
-                ) VALUES (?, ?, ?, ?)",
-        )?
+                ) VALUES (?, ?, ?, ?)")?
         .execute(sql_params![
             spec.name,
-            schema_uri,
-            key_json,
+            schema_url,
+            serde_json::to_string(&spec.key)?,
             source.resource.id,
         ])?;
         let collection = Collection {
@@ -48,11 +40,11 @@ impl Collection {
             resource: source.resource,
         };
 
-        for uri in &spec.fixtures {
+        for url in &spec.fixtures {
             collection
-                .register_fixture(db, uri)
+                .register_fixture(db, url)
                 .map_err(|err| Error::At {
-                    loc: format!("fixture {:?}", uri),
+                    loc: format!("fixture {:?}", url),
                     detail: Box::new(err),
                 })?;
         }
@@ -67,67 +59,20 @@ impl Collection {
         Ok(collection)
     }
 
-    /// Query a collection of the given name, verifying there's an accessible import
-    /// path from the Resource |from|.
-    pub fn query(db: &DB, name: &str, from: Resource) -> Result<Collection> {
-        let query = db
-            .prepare_cached("SELECT id, resource_id FROM collections WHERE name = ?;")?
-            .query_row(&[name], |row| Ok((row.get(0)?, row.get(1)?)));
+    fn register_fixture(&self, db: &DB, url: &str) -> Result<()> {
+        let url = self.resource.join(db, url)?;
+        let fixtures = Resource::register(db, ContentType::CatalogFixtures, &url)?;
+        Resource::register_import(db, self.resource, fixtures)?;
 
-        let collection = match query {
-            Ok((id, rid)) => Collection {
-                id,
-                resource: Resource {
-                    id: rid,
-                    added: false,
-                },
-            },
-            Err(err) => {
-                return Err(Error::At {
-                    loc: format!("querying collection {:?}", name),
-                    detail: Box::new(err.into()),
-                })
-            }
-        };
-        Resource::verify_import(db, from, collection.resource)?;
-
-        Ok(collection)
-    }
-
-    /// Fetch the key of this Collection.
-    pub fn _key(&self, db: &DB) -> Result<Vec<String>> {
-        let mut s = db.prepare_cached("SELECT key_json FROM collections WHERE id = ?;")?;
-        let key: String = s.query_row(&[self.id], |row| row.get(0))?;
-        let key: Vec<String> = serde_json::from_str(&key)?;
-        Ok(key)
-    }
-
-    fn register_fixture(&self, db: &DB, uri: &str) -> Result<()> {
-        let import = self.resource.join(db, uri)?;
-        let import = Resource::register(db, import)?;
-        Resource::register_import(db, self.resource, import)?;
-
-        let content = import.fetch_to_string(db)?;
-        let fixtures: Vec<specs::Fixture> = serde_yaml::from_str(&content)?;
-
-        for fx in fixtures.into_iter() {
-            db.prepare_cached(
-                "INSERT INTO fixtures (
-                        collection_id,
-                        document_json,
-                        key_json,
-                        projections_json,
-                        resource_id
-                    ) VALUES (?, ?, ?, ?, ?)",
-            )?
-            .execute(sql_params![
-                self.id,
-                fx.document,
-                serde_json::Value::Array(fx.key),
-                serde_json::Value::Object(fx.projections),
-                import.id,
-            ])?;
+        if !fixtures.is_processed(db)? {
+            // Just verify fixtures parse correctly.
+            serde_yaml::from_slice::<Vec<specs::Fixture>>(&fixtures.content(db)?)?;
+            fixtures.mark_as_processed(db)?;
         }
+        db.prepare_cached(
+            "INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
+            .execute(sql_params![ self.id, fixtures.id ])?;
+
         Ok(())
     }
 
@@ -157,106 +102,77 @@ impl Collection {
 mod test {
     use super::{super::db, *};
     use serde_json::json;
-    use tempfile;
-    use url::Url;
+    use rusqlite::params as sql_params;
 
     #[test]
-    fn test_register_and_query() -> Result<()> {
-        // Install fixtures in a temp directory.
-        let dir = tempfile::tempdir().unwrap();
-        let fixtures = [
-            (
-                Url::from_file_path(dir.path().join("schema.json")).unwrap(),
-                json!({ "$defs": {"a-def": true} }),
-            ),
-            (
-                Url::from_file_path(dir.path().join("fixtures.json")).unwrap(),
-                json!([
-                    {
-                        "document": {"key": ["foo", "bar"], "other": "value"},
-                        "key": ["bar", "foo"],
-                        "projections": {"field-name": "value"}
-                    },
-                ]),
-            ),
-        ];
-        for (uri, val) in fixtures.iter() {
-            std::fs::write(uri.to_file_path().unwrap(), val.to_string())?;
-        }
-
+    fn test_register() -> Result<()> {
         let db = DB::open_in_memory()?;
         db::init(&db)?;
 
-        let source = fixtures[0].0.join("root")?;
-        let source = Source {
-            resource: Resource::register(&db, source)?,
-        };
+        let schema = json!({"$anchor": "foobar"});
+        let fixtures = json!([
+            {
+                "document": {"key": ["foo", "bar"], "other": "value"},
+                "key": ["bar", "foo"],
+                "projections": {"field-name": "value"}
+            },
+        ]);
+        db.execute(
+            "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                    (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
+                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
+                    (20, 'application/vnd.estuary.dev-catalog-fixtures+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![schema, fixtures],
+        )?;
+        db.execute(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                    (1, 'test://example/spec', TRUE),
+                    (10, 'test://example/schema.json', TRUE),
+                    (20, 'test://example/fixtures.json', TRUE);",
+            sql_params![],
+        )?;
 
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "test/collection",
-            "schema": "schema.json#/$defs/a-def",
+            "schema": "schema.json#foobar",
             "key": ["/key/1", "/key/0"],
             "fixtures": ["fixtures.json"],
             "projections": [
-                {"field": "field-name", "location": "/other", "partition": true},
+                {"field": "field_a", "location": "/a/a", "partition": true},
+                {"field": "field_b", "location": "/b/b", "partition": false},
             ],
         }))?;
+
+        let source = Source { resource: Resource {id: 1} };
         Collection::register(&db, source, &spec)?;
 
-        // Expect the collection records the absolute schema URI, with fragment component.
-        let full_schema_uri = source
-            .resource
-            .uri(&db)?
-            .join("schema.json#/$defs/a-def")?
-            .to_string();
+        // Expect that the schema and fixtures were processed.
+        assert!(Resource{ id: 10 }.is_processed(&db)?);
+        assert!(Resource{ id: 20 }.is_processed(&db)?);
 
-        let dump = db::dump_tables(&db, &["collections", "schemas", "projections", "fixtures"])?;
+        // Expect the collection records the absolute schema URI, with fragment component.
+        let dump = db::dump_tables(&db, &[
+            "resource_imports", "collections", "projections", "fixtures"])?;
 
         assert_eq!(
             dump,
             json!({
+                "resource_imports": [[1, 10], [1, 20]],
                 "collections": [
-                    [1, "test/collection", full_schema_uri, ["/key/1","/key/0"], 1],
+                    [
+                        1,
+                        "test/collection",
+                        "test://example/schema.json#foobar",
+                        ["/key/1","/key/0"],
+                        1,
+                    ],
                 ],
-                "fixtures": [
-                    [1, {"key":["foo","bar"], "other":"value"}, ["bar", "foo"], {"field-name":"value"}, 3],
-                ],
+                "fixtures": [[1, 20]],
                 "projections": [
-                    [1, "field-name", "/other", true],
-                ],
-                "schemas":[
-                    [{"$defs": {"a-def": true}}, 2],
+                    [1, "field_a", "/a/a", true],
+                    [1, "field_b", "/b/b", false],
                 ],
             }),
-        );
-
-        // Expect we're able to query the collection in the context of |source|.
-        assert_eq!(
-            1,
-            Collection::query(&db, "test/collection", source.resource)?.id
-        );
-
-        // But not from an unrelated resource.
-        let other = Resource::register(&db, Url::parse("http://other")?)?;
-        assert_eq!(
-            format!(
-                "{:?} references {:?} without directly or indirectly importing it",
-                other.uri(&db)?,
-                source.resource.uri(&db)?
-            ),
-            format!(
-                "{}",
-                Collection::query(&db, "test/collection", other).unwrap_err()
-            ),
-        );
-
-        // Expect a reasonable error if the collection doesn't exist.
-        assert_eq!(
-            "querying collection \"not/found\": catalog database error: Query returned no rows",
-            format!(
-                "{}",
-                Collection::query(&db, "not/found", source.resource).unwrap_err()
-            ),
         );
 
         Ok(())

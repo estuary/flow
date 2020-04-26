@@ -1,3 +1,4 @@
+use super::ContentType;
 use crate::doc;
 use estuary_json::schema;
 use rusqlite;
@@ -30,7 +31,7 @@ pub enum Error {
     #[error("invalid JSON-Pointer: {0}")]
     JSONPtrErr(#[from] doc::ptr::Error),
     #[error("cannot fetch resource URI: {0}")]
-    FetchErr(url::Url),
+    FetchNotSupported(url::Url),
     #[error(
         "{source_uri:?} references {import_uri:?} without directly or indirectly importing it"
     )]
@@ -43,8 +44,11 @@ pub enum Error {
         source_uri: String,
         import_uri: String,
     },
-    #[error("shuffle cannot set both 'broadcast' and 'choose'")]
-    InvalidShuffle,
+    #[error("resource has content-type {next}, but is already registered with type {prev}")]
+    ContentTypeMismatch {
+        next: ContentType,
+        prev: ContentType,
+    },
     #[error("failed to build schema: {0}")]
     SchemaBuildErr(#[from] schema::build::Error),
     /*

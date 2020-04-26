@@ -1,5 +1,5 @@
-use super::{Error, Result};
-use rusqlite::{Connection as DB, Error as DBError};
+use super::{ContentType, Error, Result};
+use rusqlite::{params as sql_params, Connection as DB, Error as DBError};
 use url::Url;
 
 /// Resource within the catalog: a file of some kind
@@ -8,38 +8,107 @@ use url::Url;
 pub struct Resource {
     /// Assigned ID of this resource.
     pub id: i64,
-    /// If interned, whether the resource was just added.
-    pub added: bool,
 }
 
 impl Resource {
-    /// Register a resource URI to the catalog, if not already known.
-    /// Any fragment component of the URI is discarded before indexing.
-    pub fn register(db: &DB, mut uri: Url) -> Result<Resource> {
-        uri.set_fragment(None);
+    /// Register a resource with URL and Content-Type to the catalog, if not already known.
+    pub fn register(db: &DB, ct: ContentType, url: &Url) -> Result<Resource> {
+        // Look for an existing resource row.
+        let mut stmt = db.prepare_cached(
+            "SELECT resource_id, content_type
+                    FROM resources NATURAL JOIN resource_urls WHERE url = ?",
+        )?;
+        let mut row = stmt.query(&[url])?;
 
-        // Intern the URI, if it hasn't been already.
-        let mut s =
-            db.prepare_cached("INSERT INTO resources (uri) VALUES (?) ON CONFLICT DO NOTHING;")?;
-        let added = s.execute(&[&uri])? == 1;
+        // Return an existing row, after asserting content types are the same.
+        if let Some(row) = row.next()? {
+            if ct != row.get(1)? {
+                return Err(Error::ContentTypeMismatch {
+                    next: ct,
+                    prev: row.get(1)?,
+                });
+            }
+            return Ok(Resource { id: row.get(0)? });
+        }
 
-        // Fetch the assigned resource ID.
-        let mut s = db.prepare_cached("SELECT id FROM resources WHERE uri = ?;")?;
-        let id = s.query_row(&[&uri], |row| row.get(0))?;
+        // Fetch content.
+        let content = match url.scheme() {
+            "file" => {
+                let path = url
+                    .to_file_path()
+                    .map_err(|_| Error::FetchNotSupported(url.clone()))?;
+                std::fs::read(path)?
+            }
+            _ => return Err(Error::FetchNotSupported(url.clone())),
+        };
 
-        Ok(Resource { id, added })
+        db.prepare_cached(
+            "INSERT INTO resources (content_type, content, is_processed)
+                    VALUES (?, ?, FALSE)",
+        )?
+        .execute(sql_params![ct, &content])?;
+
+        let id = db.last_insert_rowid();
+        db.prepare_cached(
+            "INSERT INTO resource_urls (resource_id, url, is_primary)
+                    VALUES (?, ?, TRUE)",
+        )?
+        .execute(sql_params![id, url])?;
+
+        Ok(Resource { id })
     }
 
-    /// Fetch the URI of this resource.
-    pub fn uri(&self, db: &DB) -> Result<Url> {
-        let mut s = db.prepare_cached("SELECT uri FROM resources WHERE id = ?;")?;
-        let base: String = s.query_row(&[self.id], |row| row.get(0))?;
-        Ok(url::Url::parse(&base)?)
+    /// Register an alternate URL under which this Resource may be accessed.
+    pub fn register_alternate_url(&self, db: &DB, url: &Url) -> Result<()> {
+        // Silently ignore if this URL is already registered with this resource.
+        // We don't ON CONFLICT IGNORE because we want to raise UNIQUE violations
+        // (eg, if the URL is registered with another Resource).
+        let mut stmt =
+            db.prepare_cached("SELECT 1 FROM resource_urls WHERE resource_id = ? AND url = ?")?;
+        let mut rows = stmt.query(sql_params![self.id, url])?;
+
+        if let Some(_) = rows.next()? {
+            return Ok(());
+        }
+
+        db.prepare_cached("INSERT INTO resource_urls (resource_id, url) VALUES (?, ?)")?
+            .execute(sql_params![self.id, url])?;
+        Ok(())
     }
 
-    /// Join a relative URI using this Resource as its base URI.
+    /// Returns whether the Resource is marked as having been processed.
+    pub fn is_processed(&self, db: &DB) -> Result<bool> {
+        let v = db
+            .prepare_cached("SELECT is_processed FROM resources WHERE resource_id = ?")?
+            .query_row(&[self.id], |r| r.get(0))?;
+        Ok(v)
+    }
+    /// Marks the Resource as having been processed.
+    pub fn mark_as_processed(&self, db: &DB) -> Result<()> {
+        db.prepare_cached("UPDATE resources SET is_processed = TRUE WHERE resource_id = ?")?
+            .execute(&[self.id])?;
+        Ok(())
+    }
+
+    /// Retrieve raw content of this resource.
+    pub fn content(&self, db: &DB) -> Result<Vec<u8>> {
+        let b: Vec<u8> = db
+            .prepare_cached("SELECT content FROM resources WHERE resource_id = ?;")?
+            .query_row(&[self.id], |row| row.get(0))?;
+        Ok(b)
+    }
+
+    /// Retrieve the primary URL of this Resource.
+    pub fn primary_url(&self, db: &DB) -> Result<Url> {
+        let url: Url = db
+            .prepare_cached("SELECT url FROM resource_urls WHERE resource_id = ? AND is_primary;")?
+            .query_row(&[self.id], |row| row.get(0))?;
+        Ok(url)
+    }
+
+    /// Join a relative URL using this primary URL of this Resource as its base.
     pub fn join(&self, db: &DB, relative_uri: &str) -> Result<Url> {
-        let base = self.uri(db)?;
+        let base = self.primary_url(db)?;
         match base.join(relative_uri) {
             Ok(url) => Ok(url),
             Err(detail) => Err(Error::URLJoinErr {
@@ -50,53 +119,33 @@ impl Resource {
         }
     }
 
-    /// Attempt to fetch the contents of this resource into a string.
-    /// This is only expected to work when building the catalog.
-    /// After that, resources may not be reachable and the catalog is
-    /// expected to be fully self-contained.
-    pub fn fetch_to_string(&self, db: &DB) -> Result<String> {
-        let uri = self.uri(db)?;
-        match uri.scheme() {
-            "file" => {
-                let path = uri
-                    .to_file_path()
-                    .map_err(|_| Error::FetchErr(uri.clone()))?;
-                Ok(std::fs::read_to_string(path)?)
-            }
-            _ => Err(Error::FetchErr(uri)),
+    /// Registers an import of Resource |import| by Resource |resource|.
+    pub fn register_import(db: &DB, resource: Resource, import: Resource) -> Result<()> {
+        if resource.id == import.id {
+            return Ok(()); // A resource implicitly imports itself.
         }
-    }
-
-    /// Registers an import of Resource |import| by |source|.
-    pub fn register_import(db: &DB, source: Resource, import: Resource) -> Result<()> {
-        if source.id == import.id {
-            return Ok(()); // A source implicitly imports itself.
-        }
-        // Don't fail if this import already exists.
-        // Note that a CHECK constraint ensures a cycle cannot be created.
         let mut s = db.prepare_cached(
-            "INSERT INTO resource_imports (source_id, import_id)
+            "INSERT INTO resource_imports (resource_id, import_id)
                     VALUES (?, ?) ON CONFLICT DO NOTHING;",
         )?;
-        s.execute(&[source.id, import.id])?;
+        s.execute(&[resource.id, import.id])?;
 
         Ok(())
     }
 
     /// Verify that a transitive import path from |source| to |import| exists.
     pub fn verify_import(db: &DB, source: Resource, import: Resource) -> Result<()> {
-        let mut s = db.prepare_cached(
-            "SELECT 1 FROM resource_transitive_imports
-                    WHERE source_id = ? AND import_id = ?;",
-        )?;
-
-        match s.query_row(&[source.id, import.id], |_| Ok(())) {
+        let result = db
+            .prepare_cached(
+                "SELECT 1 FROM resource_transitive_imports WHERE resource_id = ? AND import_id = ?;")?
+            .query_row(&[source.id, import.id], |_| Ok(()));
+        match result {
             Ok(()) => Ok(()),
             Err(DBError::QueryReturnedNoRows) => Err(Error::MissingImport {
-                source_uri: source.uri(db)?.into_string(),
-                import_uri: import.uri(db)?.into_string(),
+                source_uri: source.primary_url(db)?.into_string(),
+                import_uri: import.primary_url(db)?.into_string(),
             }),
-            Err(e) => Err(Error::SQLiteErr(e)),
+            Err(err) => Err(err.into()),
         }
     }
 }
@@ -104,34 +153,145 @@ impl Resource {
 #[cfg(test)]
 mod test {
     use super::{super::db, *};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::io::Write;
     use tempfile;
 
     #[test]
-    fn test_interning() -> Result<()> {
+    fn test_registration_does_not_exist() -> Result<()> {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.as_file_mut().write(b"file content!").unwrap();
+        let file_url = Url::from_file_path(file.path()).unwrap();
+
         let db = DB::open_in_memory()?;
         db::init(&db)?;
 
-        let u1 = Url::parse("file:///1")?;
-        let u2 = Url::parse("https://host/path?query")?;
-        let u3 = Url::parse("file:///1#ignored")?;
+        let r = Resource::register(&db, ContentType::CatalogSpec, &file_url)?;
+        assert_eq!(r, Resource { id: 1 });
+        assert!(!r.is_processed(&db)?);
 
-        let r = Resource::register(&db, u1.clone())?;
-        assert_eq!(r, Resource { id: 1, added: true });
-        assert_eq!(r.uri(&db)?, u1); // Expect it fetches back to it's URL.
+        // A duplicate registration returns the same Resource.
+        let r = Resource::register(&db, ContentType::CatalogSpec, &file_url)?;
+        assert_eq!(r, Resource { id: 1 });
 
-        let r = Resource::register(&db, u2.clone())?;
-        assert_eq!(r, Resource { id: 2, added: true });
-        assert_eq!(r.uri(&db)?, u2);
-
-        let r = Resource::register(&db, u3.clone())?;
-        assert!(!r.added);
-        assert_eq!(r.uri(&db)?, u1);
+        assert_eq!(r.primary_url(&db)?, file_url);
+        assert_eq!(&r.content(&db)?, b"file content!");
 
         assert_eq!(
             db::dump_table(&db, "resources")?,
-            json!([(1, "file:///1"), (2, "https://host/path?query")])
+            json!([(1, ContentType::CatalogSpec.as_str(), "file content!", false)]),
+        );
+        assert_eq!(
+            db::dump_table(&db, "resource_urls")?,
+            json!([(1, file_url.into_string(), true)]),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_registration_unprocessed() -> Result<()> {
+        let db = DB::open_in_memory()?;
+        db::init(&db)?;
+
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                (42, 'application/schema+yaml', CAST('content!' AS BLOB), FALSE);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (42, 'test://a/path', TRUE);
+        ",
+        )?;
+
+        let u = Url::parse("test://a/path")?;
+        let r = Resource::register(&db, ContentType::Schema, &u)?;
+        assert_eq!(r, Resource { id: 42 });
+        assert!(!r.is_processed(&db)?);
+        assert_eq!(&r.content(&db)?, b"content!");
+
+        r.mark_as_processed(&db)?;
+        assert!(r.is_processed(&db)?);
+
+        // Expect row was updated.
+        assert_eq!(
+            db::dump_table(&db, "resources")?,
+            json!([(42, ContentType::Schema.as_str(), "content!", true)]),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_registration_via_alt_url() -> Result<()> {
+        let db = DB::open_in_memory()?;
+        db::init(&db)?;
+
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                (42, 'application/schema+yaml', X'1234', TRUE);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (42, 'test://primary/path', TRUE),
+                (42, 'test://alt/path/one', NULL),
+                (42, 'test://alt/path/two', NULL);
+        ",
+        )?;
+
+        let u = Url::parse("test://alt/path/two")?;
+        let r = Resource::register(&db, ContentType::Schema, &u)?;
+        assert_eq!(r, Resource { id: 42 });
+        assert!(r.is_processed(&db)?);
+        assert_eq!(r.primary_url(&db)?, Url::parse("test://primary/path")?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_registration_with_different_content_type() -> Result<()> {
+        let db = DB::open_in_memory()?;
+        db::init(&db)?;
+
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                (42, 'application/schema+yaml', X'1234', FALSE);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (42, 'test://a/path', TRUE);
+        ",
+        )?;
+
+        let u = Url::parse("test://a/path")?;
+        let r = Resource::register(&db, ContentType::Sql, &u);
+
+        assert_eq!(format!("{}", r.unwrap_err()),
+                   "resource has content-type application/sql, but is already registered with type application/schema+yaml");
+        Ok(())
+    }
+
+    #[test]
+    fn test_register_alternate_urls() -> Result<()> {
+        let db = DB::open_in_memory()?;
+        db::init(&db)?;
+
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                    (42, 'application/schema+yaml', X'1234', FALSE);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                    (42, 'test://a/path', TRUE);
+        ",
+        )?;
+        let r = Resource { id: 42 };
+
+        r.register_alternate_url(&db, &Url::parse("test://alt/path-1")?)?;
+        r.register_alternate_url(&db, &Url::parse("test://alt/path-2")?)?;
+
+        assert_eq!(
+            db::dump_table(&db, "resource_urls")?,
+            json!([
+                (42, "test://a/path", true),
+                (42, "test://alt/path-1", Value::Null),
+                (42, "test://alt/path-2", Value::Null),
+            ]),
         );
         Ok(())
     }
@@ -140,38 +300,33 @@ mod test {
     fn test_joining() -> Result<()> {
         let db = DB::open_in_memory()?;
         db::init(&db)?;
-        let r = Resource::register(&db, Url::parse("file:///a/dir/base.path")?)?;
+
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                (42, 'application/schema+yaml', X'1234', FALSE);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (42, 'test://a/dir/and/base.path', TRUE),
+                (42, 'test://alt/location', NULL);
+        ",
+        )?;
+        let r = Resource { id: 42 };
 
         // Case: join with a relative file.
         assert_eq!(
             r.join(&db, "other/file.path")?,
-            Url::parse("file:///a/dir/other/file.path")?
+            Url::parse("test://a/dir/and/other/file.path")?
         );
         // Case: join with a relative file in parent directory.
         assert_eq!(
             r.join(&db, "../sibling/file.path")?,
-            Url::parse("file:///a/sibling/file.path")?
+            Url::parse("test://a/dir/sibling/file.path")?
         );
         // Case: join with a URI which is it's own base.
         assert_eq!(
-            r.join(&db, "http://example/file.path")?,
-            Url::parse("http://example/file.path")?
+            r.join(&db, "test://example/file.path")?,
+            Url::parse("test://example/file.path")?
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_fetch_file() -> Result<()> {
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.as_file_mut().write("hello!".as_bytes()).unwrap();
-
-        let uri = Url::from_file_path(file.path()).unwrap();
-
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
-
-        let r = Resource::register(&db, uri)?;
-        assert_eq!(r.fetch_to_string(&db)?, "hello!");
         Ok(())
     }
 
@@ -180,17 +335,24 @@ mod test {
         let db = DB::open_in_memory()?;
         db::init(&db)?;
 
-        let a = Resource::register(&db, Url::parse("file:///a")?)?;
-        let b = Resource::register(&db, Url::parse("https://b")?)?;
-        let c = Resource::register(&db, Url::parse("file:///c")?)?;
-        let d = Resource::register(&db, Url::parse("http://d")?)?;
-
-        // A resource may implicitly reference itself (only).
-        Resource::verify_import(&db, a, a)?;
-        assert_eq!(
-            "\"file:///a\" references \"http://d/\" without directly or indirectly importing it",
-            format!("{}", Resource::verify_import(&db, a, d).unwrap_err())
-        );
+        db.execute_batch(
+            "
+            INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                (1, 'application/sql', X'', FALSE),
+                (2, 'application/sql', X'', FALSE),
+                (3, 'application/sql', X'', FALSE),
+                (4, 'application/sql', X'', FALSE);
+            INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (1, 'test://a', TRUE),
+                (2, 'test://b', TRUE),
+                (3, 'test://c', TRUE),
+                (4, 'test://d', TRUE);
+        ",
+        )?;
+        let a = Resource { id: 1 };
+        let b = Resource { id: 2 };
+        let c = Resource { id: 3 };
+        let d = Resource { id: 4 };
 
         // Marking a self-import is a no-op (and doesn't break CTE evaluation).
         Resource::register_import(&db, a, a)?;
@@ -203,7 +365,8 @@ mod test {
         // It's not okay for D => A (since A => B => D).
         assert_eq!(
             "catalog database error: Import creates an cycle (imports must be acyclic)",
-            format!("{}", Resource::register_import(&db, d, a).unwrap_err()));
+            format!("{}", Resource::register_import(&db, d, a).unwrap_err())
+        );
         // Or for D => B (since B => D).
         Resource::register_import(&db, d, b).unwrap_err();
 
@@ -225,28 +388,20 @@ mod test {
 
         // C still does not import B, however.
         assert_eq!(
-            "\"file:///c\" references \"https://b/\" without directly or indirectly importing it",
-            format!("{}", Resource::verify_import(&db, c, b).unwrap_err())
+            format!("{}", Resource::verify_import(&db, c, b).unwrap_err()),
+            "\"test://c\" references \"test://b\" without directly or indirectly importing it",
         );
 
         assert_eq!(
-            db::dump_tables(&db, &["resources", "resource_imports"])?,
-            json!({
-                "resources": [
-                (1, "file:///a"),
-                (2, "https://b/"),
-                (3, "file:///c"),
-                (4, "http://d/"),
-            ],
-                "resource_imports": [
+            db::dump_table(&db, "resource_imports")?,
+            json!([
                 (1, 2), // A => B.
                 (2, 4), // B => D.
                 (3, 4), // C => D.
                 (1, 3), // A => C.
                 (2, 3), // B => C.
                 (1, 4), // A => D.
-            ],
-            }),
+            ]),
         );
 
         Ok(())

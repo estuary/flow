@@ -5,9 +5,11 @@ CREATE TABLE resources
 (
     resource_id  INTEGER PRIMARY KEY NOT NULL,
     -- MIME type of the resource.
-    content_type TEXT                NOT NULL,
+    content_type TEXT    NOT NULL,
     -- Content of this resource.
-    content      BLOB                NOT NULL,
+    content      BLOB    NOT NULL,
+    -- Has this resource been processed?
+    is_processed BOOLEAN NOT NULL,
 
     CONSTRAINT "Invalid resource content-type"
         CHECK (content_type IN (
@@ -98,7 +100,7 @@ CREATE TABLE lambdas
     -- * If 'remote', this is a remote HTTP endpoint URL to invoke.
     -- * If 'sqlite', this is an inline SQL script.
     -- * If 'sqliteFile', this is NULL (and resource_id is set instead).
-    inline      BLOB,
+    inline      TEXT,
     -- Resource holding the lambda's content.
     -- Set only iff runtime is 'sqliteFile'.
     resource_id INTEGER REFERENCES resources (resource_id),

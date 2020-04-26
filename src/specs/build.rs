@@ -11,36 +11,16 @@ pub struct Source {
     /// collections they reference.
     #[serde(default)]
     pub import: Vec<String>,
-    /// Configuration directives for the catalog's NodeJS package.
+    /// Dependencies to include when building the catalog's build NodeJS
+    /// package, as {"package-name": "version"}. I.e. {"moment": "^2.24"}.
+    ///
+    /// Version strings can take any form understood by NodeJS.
+    /// See https://docs.npmjs.com/files/package.json#dependencies
     #[serde(default)]
-    pub node_js: NodeJS,
+    pub node_dependencies: BTreeMap<String, String>,
     /// Definitions of captured and derived collections.
     #[serde(default)]
     pub collections: Vec<Collection>,
-    ///// Definitions of collection materializations.
-    //#[serde(default)]
-    //pub materializations: Vec<Materialization>,
-}
-
-pub struct NodeJS {
-    /// NPM dependencies to include when building the catalog's NodeJS package,
-    /// as {"module-name": "semver"}. I.e. {"moment": "^2.24"}.
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, String>,
-    /// Additional source files to include when building the catalog's NodeJS package.
-    /// All included sources are placed in the package's src/ directory, with all
-    /// directory components dropped but with the file base name and extension preserved.
-    #[serde(default)]
-    pub include: Vec<String>,
-}
-
-impl Default for NodeJS {
-    fn default() -> Self {
-        NodeJS {
-            dependencies: BTreeMap::default(),
-            include: Vec::default(),
-        }
-    }
 }
 
 /// Collection specifies an Estuary document Collection.
@@ -111,10 +91,8 @@ pub struct Derivation {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum Lambda {
-    /// Typescript lambda expression.
-    NodeJs(String),
-    /// Relative URL of a file which contains a Typescript lambda expression.
-    NodeJsFile(String),
+    /// Typescript / JavaScript expression.
+    NodeJS(String),
     /// SQLite lambda expression.
     Sqlite(String),
     /// Relative URL of a file which contains a SQLite lambda expression.

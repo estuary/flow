@@ -1,4 +1,4 @@
-use super::{Collection, Error, Resource, Result};
+use super::{Collection, ContentType, Error, Resource, Result};
 use crate::specs::build as specs;
 use rusqlite::Connection as DB;
 use url::Url;
@@ -13,14 +13,15 @@ impl Source {
     /// Register an Estuary Source specification with the catalog.
     pub fn register(db: &DB, uri: Url) -> Result<Source> {
         let source = Source {
-            resource: Resource::register(db, uri)?,
+            resource: Resource::register(db, ContentType::CatalogSpec, &uri)?,
         };
-        if !source.resource.added {
+        if source.resource.is_processed(db)? {
             return Ok(source);
         }
+        source.resource.mark_as_processed(db)?;
 
-        let spec = source.resource.fetch_to_string(db)?;
-        let spec: specs::Source = serde_yaml::from_str(&spec)?;
+        let spec = source.resource.content(db)?;
+        let spec: specs::Source = serde_yaml::from_slice(&spec)?;
 
         for uri in &spec.import {
             let uri = source.resource.join(db, uri)?;

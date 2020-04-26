@@ -1,7 +1,7 @@
-use super::{Resource, Result};
+use super::{ContentType, Resource, Result};
 use crate::doc::Schema as CompiledSchema;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
-use rusqlite::{params as sql_params, Connection as DB};
+use rusqlite::Connection as DB;
 use url::Url;
 
 /// Schema represents a catalog JSON-Schema document.
@@ -14,143 +14,193 @@ impl Schema {
     /// Register a JSON-Schema document at the URI. If already registered, this
     /// is a no-op and its existing handle is returned. Otherwise the document
     /// and all of its recursive references are added to the catalog.
-    pub fn register(db: &DB, uri: Url) -> Result<Schema> {
+    pub fn register(db: &DB, url: &Url) -> Result<Schema> {
+        // Schema URLs frequently have fragment components which locate a
+        // specific sub-schema within the schema document. Drop the fragment
+        // for purposes of resolving and registering the document itself.
+        let mut url = url.clone();
+        url.set_fragment(None);
+
         let schema = Schema {
-            resource: Resource::register(db, uri)?,
+            resource: Resource::register(db, ContentType::Schema, &url)?,
         };
-        if !schema.resource.added {
+        if schema.resource.is_processed(db)? {
             return Ok(schema);
         }
+        schema.resource.mark_as_processed(db)?;
 
-        let dom = schema.resource.fetch_to_string(db)?;
-        let dom = serde_yaml::from_str::<serde_json::Value>(&dom)?;
-        let compiled: CompiledSchema = build_schema(schema.resource.uri(db)?, &dom)?;
+        let dom = schema.resource.content(db)?;
+        let dom = serde_yaml::from_slice::<serde_json::Value>(&dom)?;
+        let compiled: CompiledSchema = build_schema(url, &dom)?;
 
-        db.prepare_cached("INSERT INTO schemas (resource_id, document_json) VALUES(?, ?);")?
-            .execute(sql_params![schema.resource.id, &dom])?;
+        // Walk the schema to identify sub-schemas having canonical URIs which differ
+        // from the registered |url|. Each of these canonical URIs is registered as
+        // an alternate URL of this schema resource. By doing this, when we encounter
+        // a direct reference to a sub-schema's canonical URI elsewhere, we will
+        // correctly resolve it back to this resource.
+        schema.register_alternate_urls(db, &compiled)?;
 
-        // Recursively traverse static references to catalog other schemas on
-        // which this schema document depends.
-        schema.add_references(&db, &compiled)?;
+        // Walk the schema again, this time registering schemas which it references.
+        // Since we've already registered alternate URLs, and usage of those URLs
+        // in references will correctly resolve back to this document.
+        schema.register_references(db, &compiled)?;
 
         Ok(schema)
     }
 
-    // Walks recursive references of the compiled Schema.
-    fn add_references(&self, db: &DB, compiled: &CompiledSchema) -> Result<()> {
+    /// Walks compiled schema and registers an alternate URL for each encountered $id.
+    fn register_alternate_urls(&self, db: &DB, compiled: &CompiledSchema) -> Result<()> {
+        // Register Schemas having fragment-less canonical URIs.
+        // Note the JSON-Schema spec requires that $id applications have no fragment.
+        if compiled.curi.fragment().is_none() {
+            self.resource.register_alternate_url(db, &compiled.curi)?;
+        }
         for kw in &compiled.kw {
-            match kw {
-                Keyword::Application(Application::Ref(ref_uri), _) => {
-                    let import = Self::register(db, ref_uri.clone())?;
-                    Resource::register_import(&db, self.resource, import.resource)?;
-                }
-                Keyword::Application(_, child) => {
-                    self.add_references(&db, child)?;
-                }
-                // No-ops.
-                Keyword::Anchor(_)
-                | Keyword::RecursiveAnchor
-                | Keyword::Validation(_)
-                | Keyword::Annotation(_) => (),
+            if let Keyword::Application(_, child) = kw {
+                self.register_alternate_urls(&db, child)?;
             }
         }
         Ok(())
     }
 
-    /// Fetch the bundle of Schemas which are directly or indirectly
-    /// imported and referenced by the named Resource.
-    pub fn _fetch_bundle(db: &DB, source: Resource) -> Result<Vec<Schema>> {
-        let mut out = Vec::new();
-        let mut stmt = db.prepare_cached(
-            "SELECT schemas.resource_id FROM
-                    resource_transitive_imports AS rti
-                    JOIN schemas
-                    ON rti.import_id = schemas.resource_id AND rti.source_id = ?
-                    GROUP BY schemas.resource_id",
-        )?;
-        let mut rows = stmt.query(sql_params![source.id])?;
+    /// Walks compiled schema and registers schemas which it references.
+    fn register_references(&self, db: &DB, compiled: &CompiledSchema) -> Result<()> {
+        for kw in &compiled.kw {
+            if let Keyword::Application(app, child) = kw {
+                // "Ref" applications indirect to a canonical schema URI which may
+                // be in this document or another, and often include a fragment
+                // component bearing a JSON-pointer into the document. We strip the
+                // fragment here, since we're registering with whole-document granularity.
+                if let Application::Ref(uri) = app {
+                    let mut uri = uri.clone();
+                    uri.set_fragment(None);
 
-        while let Some(row) = rows.next()? {
-            out.push(Schema {
-                resource: Resource {
-                    id: row.get(0)?,
-                    added: false,
-                },
-            });
+                    let import = Self::register(db, &uri)?;
+                    Resource::register_import(&db, self.resource, import.resource)?;
+                }
+                // Recurse to sub-schemas.
+                self.register_references(&db, child)?;
+            }
         }
-        Ok(out)
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::{super::db, *};
-    use serde_json::json;
-    use tempfile;
+    use rusqlite::params as sql_params;
+    use serde_json::{json, Value};
 
     #[test]
-    fn test_add_and_fetch() -> Result<()> {
-        let dir = tempfile::tempdir().unwrap();
-
-        let fixtures = [
-            (
-                Url::from_file_path(dir.path().join("a.json")).unwrap(),
-                json!({
-                    "allOf": [{"$ref": "b.json"}],
-                    "oneOf": [true],
-                    "else": {"$ref": "#/oneOf/0"}, // Self-reference.
-                }),
-            ),
-            (
-                Url::from_file_path(dir.path().join("b.json")).unwrap(),
-                json!({
-                   "if": {"$ref": "c.json#/$defs/foo"},
-                }),
-            ),
-            (
-                Url::from_file_path(dir.path().join("c.json")).unwrap(),
-                json!({
-                    "$defs": {"foo": true},
-                }),
-            ),
-        ];
-        for (uri, val) in fixtures.iter() {
-            std::fs::write(uri.to_file_path().unwrap(), val.to_string())?;
-        }
-
+    fn test_register_with_alt_urls_and_self_references() -> Result<()> {
         let db = DB::open_in_memory()?;
         db::init(&db)?;
 
-        // Adding a.json also adds b & c.json.
-        let sd_a = Schema::register(&db, fixtures[0].0.clone())?;
+        let doc = json!({
+            "$id": "test://example/root",
+            "$defs": {
+                "a": {
+                    "$id": "test://example/other/a-doc",
+                    "items": [
+                        true,
+                        {"$ref": "b-doc#/items/1"},
+                    ],
+                },
+                "b": {
+                    "$id": "test://example/other/b-doc",
+                    "items": [
+                        {"$ref": "a-doc#/items/0"},
+                        true,
+                    ],
+                },
+                "c": true,
+            },
+            "allOf": [
+                {"$ref": "other/a-doc#/items/1"},
+                {"$ref": "test://example/other/b-doc#/items/0"},
+                {"$ref": "#/$defs/c"},
+                {"$ref": "root#/$defs/c"},
+                {"$ref": "test://example/root#/$defs/c"},
+            ],
+        });
+        db.execute(
+            "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            &[doc],
+        )?;
+        db.execute(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                    (10, 'test://actual', TRUE);",
+            sql_params![],
+        )?;
 
-        // When 'a.json' is fetched, 'b/c.json' are as well.
-        let bundle = Schema::_fetch_bundle(&db, sd_a.resource)?;
-        assert_eq!(bundle.len(), 3);
-
-        // Expect 'b.json' & 'c.json' were already added by 'a.json'.
-        let sd_b = Schema::register(&db, fixtures[1].0.clone())?;
-        let sd_c = Schema::register(&db, fixtures[2].0.clone())?;
-        assert!(!sd_b.resource.added);
-        assert!(!sd_c.resource.added);
-
-        // If 'b.json' is fetched, so is 'c.json' but not 'a.json'.
-        let bundle = Schema::_fetch_bundle(&db, sd_b.resource)?;
-        assert_eq!(bundle.len(), 2);
-        let bundle = Schema::_fetch_bundle(&db, sd_c.resource)?;
-        assert_eq!(bundle.len(), 1);
+        // Kick off registration using the registered resource path. Expect it works.
+        let s = Schema::register(&db, &Url::parse("test://actual")?)?;
+        assert_eq!(s.resource.id, 10);
+        assert!(s.resource.is_processed(&db)?);
 
         assert_eq!(
-            db::dump_tables(&db, &["resource_imports", "schemas"])?,
+            db::dump_table(&db, "resource_urls")?,
+            json!([
+                (10, "test://actual", true),
+                (10, "test://example/root", Value::Null),
+                (10, "test://example/other/a-doc", Value::Null),
+                (10, "test://example/other/b-doc", Value::Null),
+            ]),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_register_with_external_references() -> Result<()> {
+        let db = DB::open_in_memory()?;
+        db::init(&db)?;
+
+        let doc_a = json!({"$ref": "b#/$defs/c"});
+        let doc_b = json!({"$defs": {"c": {"$ref": "c"}}});
+        let doc_c = json!(true);
+        let doc_d = json!(false);
+
+        db.execute(
+            "INSERT INTO resources
+            (resource_id, content_type, content, is_processed) VALUES
+            (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
+            (20, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
+            (30, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
+            (40, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![&doc_a, &doc_b, &doc_c, &doc_d],
+        )?;
+        db.execute(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                (10, 'file:///dev/null/a', TRUE),
+                (20, 'file:///dev/null/b', TRUE),
+                (30, 'file:///dev/null/c', TRUE),
+                (40, 'file:///dev/null/d', TRUE);
+            ",
+            sql_params![],
+        )?;
+
+        let s = Schema::register(&db, &Url::parse("file:///dev/null/a")?)?;
+        assert_eq!(s.resource.id, 10);
+
+        assert_eq!(
+            db::dump_tables(&db, &["resources", "resource_imports"])?,
             json!({
-                "resource_imports": [(2, 3), (1, 2)], // B => C, & A => B.
-                "schemas": [
-                    (fixtures[0].1.clone(), 1),
-                    (fixtures[1].1.clone(), 2),
-                    (fixtures[2].1.clone(), 3),
+                "resources": [
+                    [10, "application/schema+yaml", doc_a.to_string(), true],
+                    [20, "application/schema+yaml", doc_b.to_string(), true],
+                    [30, "application/schema+yaml", doc_c.to_string(), true],
+                    [40, "application/schema+yaml", doc_d.to_string(), false], // Not reached.
+                ],
+                "resource_imports": [
+                    [20, 30],
+                    [10, 20],
                 ],
             }),
         );
+
         Ok(())
     }
 }

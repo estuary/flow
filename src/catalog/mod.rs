@@ -2,6 +2,7 @@ pub mod db;
 mod regexp_sql_fn;
 
 mod collection;
+mod content_type;
 mod derivation;
 mod error;
 mod lambda;
@@ -10,6 +11,7 @@ mod schema;
 mod source;
 
 use collection::Collection;
+use content_type::ContentType;
 use derivation::Derivation;
 pub use error::Error;
 use lambda::Lambda;
