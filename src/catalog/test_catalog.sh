@@ -39,7 +39,11 @@ diff ${OUT} ${DIR}/catalog_test_golden.out \
 	--report-identical-files \
 	--context=3
 
+let status=$?;
+
 # Remove temp file only if test passed.
-if [ $? -eq 0 ]; then
+if [ $status -eq 0 ]; then
 	rm ${OUT}
 fi
+
+exit $status

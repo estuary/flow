@@ -29,3 +29,22 @@ pub fn build_catalog(db: &DB, uri: url::Url) -> Result<()> {
     Source::register(db, uri)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use std::env;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    #[test]
+    fn run_catalog_test() {
+        let mut path = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
+        path.extend(&["src", "catalog", "test_catalog.sh"]);
+
+        let status = Command::new(path.as_os_str())
+            .spawn().expect("failed to start test_catalog.sh")
+            .wait().expect("failed to wait for command");
+
+        assert!(status.success());
+    }
+}

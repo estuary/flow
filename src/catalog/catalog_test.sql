@@ -1,16 +1,16 @@
 -- Valid resources.
-INSERT INTO resources (content_type, content)
-VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),
-       ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content'),
-       ('application/schema+yaml', 'json-schema content'),
-       ('application/schema+yaml', 'other schema'),
-       ('application/schema+yaml', 'yet more schema content'),
-       ('application/sql', 'bootstrap content'),
-       ('application/sql', 'transform content');
+INSERT INTO resources (content_type, content, is_processed)
+VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content', FALSE),
+       ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content', TRUE),
+       ('application/schema+yaml', 'json-schema content', FALSE),
+       ('application/schema+yaml', 'other schema', TRUE),
+       ('application/schema+yaml', 'yet more schema content', FALSE),
+       ('application/sql', 'bootstrap content', TRUE),
+       ('application/sql', 'transform content', FALSE);
 
 -- Invalid resource (unknown content type).
-INSERT INTO resources (content_type, content)
-VALUES ('application/unknown', 'unknown content');
+INSERT INTO resources (content_type, content, is_processed)
+VALUES ('application/unknown', 'unknown content', FALSE);
 
 -- Valid imports, which form a directed acyclic graph.
 INSERT INTO resource_imports (resource_id, import_id)

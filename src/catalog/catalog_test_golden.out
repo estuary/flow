@@ -1,18 +1,18 @@
 -- Valid resources.
-INSERT INTO resources (content_type, content)
-VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content'),
-       ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content'),
-       ('application/schema+yaml', 'json-schema content'),
-       ('application/schema+yaml', 'other schema'),
-       ('application/schema+yaml', 'yet more schema content'),
-       ('application/sql', 'bootstrap content'),
-       ('application/sql', 'transform content');
+INSERT INTO resources (content_type, content, is_processed)
+VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content', FALSE),
+       ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content', TRUE),
+       ('application/schema+yaml', 'json-schema content', FALSE),
+       ('application/schema+yaml', 'other schema', TRUE),
+       ('application/schema+yaml', 'yet more schema content', FALSE),
+       ('application/sql', 'bootstrap content', TRUE),
+       ('application/sql', 'transform content', FALSE);
 changes:   7   total_changes: XYZ
 
 -- Invalid resource (unknown content type).
 Error: near line (XYZ): CHECK constraint failed: Invalid resource content-type
-INSERT INTO resources (content_type, content)
-VALUES ('application/unknown', 'unknown content');
+INSERT INTO resources (content_type, content, is_processed)
+VALUES ('application/unknown', 'unknown content', FALSE);
 
 -- Valid imports, which form a directed acyclic graph.
 INSERT INTO resource_imports (resource_id, import_id)
@@ -129,18 +129,18 @@ VALUES (1, 'file:///path/to/dup/primary/spec.yaml', TRUE);
 SELECT *
 FROM resources
          NATURAL JOIN resource_urls;
-resource_id|content_type|content|url|is_primary
-1|application/vnd.estuary.dev-catalog-spec+yaml|catalog spec content|file:///path/to/spec.yaml|1
-2|application/vnd.estuary.dev-catalog-fixtures+yaml|catalog fixtures content|file:///path/to/some/fixtures.yaml|1
-3|application/schema+yaml|json-schema content|file:///path/to/a/schema.yaml|1
-4|application/schema+yaml|other schema|https://host/path/javascript?query=val|1
-5|application/schema+yaml|yet more schema content|file:///path/to/some/typescript.yaml|1
-6|application/sql|bootstrap content|file:///path/to/some/bootstrap.sql|1
-7|application/sql|transform content|file:///path/to/some/transform.sql|1
-3|application/schema+yaml|json-schema content|https://canonical/schema/uri|
-4|application/schema+yaml|other schema|https://redirect-1/javascript|
-4|application/schema+yaml|other schema|https://redirect-2/javascript|
-4|application/schema+yaml|other schema|https://redirect-3/javascript|
+resource_id|content_type|content|is_processed|url|is_primary
+1|application/vnd.estuary.dev-catalog-spec+yaml|catalog spec content|0|file:///path/to/spec.yaml|1
+2|application/vnd.estuary.dev-catalog-fixtures+yaml|catalog fixtures content|1|file:///path/to/some/fixtures.yaml|1
+3|application/schema+yaml|json-schema content|0|file:///path/to/a/schema.yaml|1
+4|application/schema+yaml|other schema|1|https://host/path/javascript?query=val|1
+5|application/schema+yaml|yet more schema content|0|file:///path/to/some/typescript.yaml|1
+6|application/sql|bootstrap content|1|file:///path/to/some/bootstrap.sql|1
+7|application/sql|transform content|0|file:///path/to/some/transform.sql|1
+3|application/schema+yaml|json-schema content|0|https://canonical/schema/uri|
+4|application/schema+yaml|other schema|1|https://redirect-1/javascript|
+4|application/schema+yaml|other schema|1|https://redirect-2/javascript|
+4|application/schema+yaml|other schema|1|https://redirect-3/javascript|
 changes:   0   total_changes: XYZ
 
 -- Valid lambdas.
@@ -188,14 +188,14 @@ VALUES ('remote', 'not-a-URL');
 SELECT *
 FROM lambdas
          NATURAL LEFT JOIN resources;
-lambda_id|runtime|inline|resource_id|content_type|content
-1|nodeJS|(state) => { console.log('hello'); }|||
-2|nodeJS|(doc, state) => {...doc, key: 1}|||
-3|sqlite|SELECT 1;|||
-4|sqliteFile||6|application/sql|bootstrap content
-5|sqliteFile||7|application/sql|transform content
-6|remote|https://remote/endpoint|||
-7|nodeJS|(doc, state) => {...doc, foo: true}|||
+lambda_id|runtime|inline|resource_id|content_type|content|is_processed
+1|nodeJS|(state) => { console.log('hello'); }||||
+2|nodeJS|(doc, state) => {...doc, key: 1}||||
+3|sqlite|SELECT 1;||||
+4|sqliteFile||6|application/sql|bootstrap content|1
+5|sqliteFile||7|application/sql|transform content|0
+6|remote|https://remote/endpoint||||
+7|nodeJS|(doc, state) => {...doc, foo: true}||||
 changes:   0   total_changes: XYZ
 
 -- Valid collections.
@@ -337,10 +337,10 @@ SELECT *
 FROM bootstraps
          NATURAL LEFT JOIN lambdas
          NATURAL LEFT JOIN resources;
-bootstrap_id|derivation_id|lambda_id|runtime|inline|resource_id|content_type|content
-1|2|1|nodeJS|(state) => { console.log('hello'); }|||
-2|2|4|sqliteFile||6|application/sql|bootstrap content
-3|3|1|nodeJS|(state) => { console.log('hello'); }|||
+bootstrap_id|derivation_id|lambda_id|runtime|inline|resource_id|content_type|content|is_processed
+1|2|1|nodeJS|(state) => { console.log('hello'); }||||
+2|2|4|sqliteFile||6|application/sql|bootstrap content|1
+3|3|1|nodeJS|(state) => { console.log('hello'); }||||
 changes:   0   total_changes: XYZ
 
 -- Valid transforms.
@@ -430,12 +430,12 @@ SELECT *
 FROM transforms
          NATURAL LEFT JOIN lambdas
          NATURAL LEFT JOIN resources;
-transform_id|derivation_id|source_collection_id|lambda_id|source_schema_uri|shuffle_key_json|shuffle_broadcast|shuffle_choose|runtime|inline|resource_id|content_type|content
-1|2|1|2|https://source/schema#anchor|["/key"]|3||nodeJS|(doc, state) => {...doc, key: 1}|||
-2|2|1|3||||3|sqlite|SELECT 1;|||
-3|2|1|5|||||sqliteFile||7|application/sql|transform content
-4|2|1|6|||||remote|https://remote/endpoint|||
-5|3|1|7|||||nodeJS|(doc, state) => {...doc, foo: true}|||
+transform_id|derivation_id|source_collection_id|lambda_id|source_schema_uri|shuffle_key_json|shuffle_broadcast|shuffle_choose|runtime|inline|resource_id|content_type|content|is_processed
+1|2|1|2|https://source/schema#anchor|["/key"]|3||nodeJS|(doc, state) => {...doc, key: 1}||||
+2|2|1|3||||3|sqlite|SELECT 1;||||
+3|2|1|5|||||sqliteFile||7|application/sql|transform content|0
+4|2|1|6|||||remote|https://remote/endpoint||||
+5|3|1|7|||||nodeJS|(doc, state) => {...doc, foo: true}||||
 changes:   0   total_changes: XYZ
 
 -- Valid packages.
