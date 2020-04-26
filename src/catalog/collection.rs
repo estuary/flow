@@ -28,7 +28,8 @@ impl Collection {
                     schema_uri,
                     key_json,
                     resource_id
-                ) VALUES (?, ?, ?, ?)")?
+                ) VALUES (?, ?, ?, ?)",
+        )?
         .execute(sql_params![
             spec.name,
             schema_url,
@@ -69,9 +70,8 @@ impl Collection {
             serde_yaml::from_slice::<Vec<specs::Fixture>>(&fixtures.content(db)?)?;
             fixtures.mark_as_processed(db)?;
         }
-        db.prepare_cached(
-            "INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
-            .execute(sql_params![ self.id, fixtures.id ])?;
+        db.prepare_cached("INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
+            .execute(sql_params![self.id, fixtures.id])?;
 
         Ok(())
     }
@@ -101,8 +101,8 @@ impl Collection {
 #[cfg(test)]
 mod test {
     use super::{super::db, *};
-    use serde_json::json;
     use rusqlite::params as sql_params;
+    use serde_json::json;
 
     #[test]
     fn test_register() -> Result<()> {
@@ -143,16 +143,20 @@ mod test {
             ],
         }))?;
 
-        let source = Source { resource: Resource {id: 1} };
+        let source = Source {
+            resource: Resource { id: 1 },
+        };
         Collection::register(&db, source, &spec)?;
 
         // Expect that the schema and fixtures were processed.
-        assert!(Resource{ id: 10 }.is_processed(&db)?);
-        assert!(Resource{ id: 20 }.is_processed(&db)?);
+        assert!(Resource { id: 10 }.is_processed(&db)?);
+        assert!(Resource { id: 20 }.is_processed(&db)?);
 
         // Expect the collection records the absolute schema URI, with fragment component.
-        let dump = db::dump_tables(&db, &[
-            "resource_imports", "collections", "projections", "fixtures"])?;
+        let dump = db::dump_tables(
+            &db,
+            &["resource_imports", "collections", "projections", "fixtures"],
+        )?;
 
         assert_eq!(
             dump,

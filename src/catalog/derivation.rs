@@ -136,7 +136,9 @@ mod test {
                     ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);",
             sql_params![],
         )?;
-        let source = Source { resource: Resource { id: 1 }};
+        let source = Source {
+            resource: Resource { id: 1 },
+        };
 
         // Derived collection with:
         //  - Explicit parallelism.
@@ -182,15 +184,7 @@ mod test {
         }))?;
         Collection::register(&db, source, &spec)?;
 
-        let dump = db::dump_tables(
-            &db,
-            &[
-                "derivations",
-                "transforms",
-                "bootstraps",
-                "lambdas",
-            ],
-        )?;
+        let dump = db::dump_tables(&db, &["derivations", "transforms", "bootstraps", "lambdas"])?;
 
         assert_eq!(
             dump,

@@ -1,6 +1,6 @@
 use super::{Collection, ContentType, Error, Resource, Result};
 use crate::specs::build as specs;
-use rusqlite::Connection as DB;
+use rusqlite::{params as sql_params, Connection as DB};
 use url::Url;
 
 /// Source represents a top-level catalog build input.
@@ -31,6 +31,12 @@ impl Source {
             })?;
             Resource::register_import(db, source.resource, import.resource)?;
         }
+
+        for (package, version) in spec.node_dependencies.iter() {
+            db.prepare_cached("INSERT INTO nodejs_dependencies (package, version) VALUES (?, ?);")?
+                .execute(sql_params![package, version])?;
+        }
+
         for spec in &spec.collections {
             Collection::register(db, source, spec).map_err(|err| Error::At {
                 loc: format!("collection {}", spec.name),
@@ -38,5 +44,72 @@ impl Source {
             })?;
         }
         Ok(source)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{
+        super::{db, Source},
+        *,
+    };
+    use rusqlite::params as sql_params;
+    use serde_json::json;
+
+    #[test]
+    fn test_register() -> Result<()> {
+        let db = DB::open_in_memory()?;
+        db::init(&db)?;
+
+        let fixture = json!({
+            "import": [
+                "../other/spec",
+                "test://example/other/spec",
+            ],
+            "nodeDependencies": {
+                "package-one": "v0.1.2",
+                "pkg-2": "~v2",
+            },
+            "collections": [
+                {
+                    "name": "a/collection",
+                    "schema": "test://example/schema",
+                    "key": ["/key"],
+                },
+            ],
+        });
+        db.execute(
+            "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                    (1, 'application/vnd.estuary.dev-catalog-spec+yaml', CAST(? AS BLOB), FALSE),
+                    (2, 'application/vnd.estuary.dev-catalog-spec+yaml', CAST('{}' AS BLOB), FALSE),
+                    (10, 'application/schema+yaml', CAST('true' AS BLOB), FALSE);",
+            sql_params![fixture],
+        )?;
+        db.execute(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                    (1, 'test://example/main/spec', TRUE),
+                    (2, 'test://example/other/spec', TRUE),
+                    (10, 'test://example/schema', TRUE);",
+            sql_params![],
+        )?;
+        Source::register(&db, Url::parse("test://example/main/spec")?)?;
+
+        // Expect other catalog spec & schema were processed.
+        assert!(Resource { id: 2 }.is_processed(&db)?);
+        assert!(Resource { id: 10 }.is_processed(&db)?);
+
+        assert_eq!(
+            db::dump_tables(
+                &db,
+                &["resource_imports", "collections", "nodejs_dependencies"]
+            )?,
+            json!({
+                "resource_imports": [[1, 2], [1, 10]],
+                "collections": [[1, "a/collection", "test://example/schema", ["/key"], 1]],
+                "nodejs_dependencies": [["package-one", "v0.1.2"], ["pkg-2", "~v2"]],
+            }),
+        );
+
+        Ok(())
     }
 }

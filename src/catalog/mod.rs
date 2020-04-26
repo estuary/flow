@@ -42,8 +42,10 @@ mod test {
         path.extend(&["src", "catalog", "test_catalog.sh"]);
 
         let status = Command::new(path.as_os_str())
-            .spawn().expect("failed to start test_catalog.sh")
-            .wait().expect("failed to wait for command");
+            .spawn()
+            .expect("failed to start test_catalog.sh")
+            .wait()
+            .expect("failed to wait for command");
 
         assert!(status.success());
     }
