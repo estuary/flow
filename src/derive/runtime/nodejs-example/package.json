@@ -1,0 +1,22 @@
+{
+    "name": "wobbit",
+    "version": "0.1.0",
+    "description": "Wob the fob",
+    "main": "build/src/index.js",
+    "types": "build/src/index.d.ts",
+    "files": [
+        "build/src"
+    ],
+    "engines": {
+        "node": ">=10.10"
+    },
+    "enginesStrict": true,
+    "scripts": {
+        "compile": "tsc",
+        "start": "node build/src/index.js"
+    },
+    "dependencies": {
+        "moment": "^2.24",
+        "estuary_runtime": "file://../nodejs"
+    }
+}

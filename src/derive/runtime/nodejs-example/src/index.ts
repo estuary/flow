@@ -1,18 +1,23 @@
 
-import moment from 'moment';
+import * as moment from 'moment';
+import * as estuary from 'estuary_runtime';
+import * as collections from "./collections";
 
-import * as estuary from './estuary_runtime';
 
 const bootstrapLambdas: estuary.BootstrapMap = {
 	8: () => { console.log("example of a bootstrap!"); },
 };
 
 const transformLambdas: estuary.TransformMap = {
-	1: (doc, state) => state.set(doc.campaign_id, doc),
-	2: async (doc, state) => [
-  { ...doc, campaign: await state.get(doc.campaign_id) },
-]
-,
+	1: async (doc : collections.NameAAA, state: estuary.StateStore) : Promise<collections.NameBBB[] |void> => {
+        await state.set(doc.campaign_id, doc);
+    },
+    2: async (doc : collections.NameAAA, state : estuary.StateStore) : Promise<collections.NameBBB[] | void> => {
+        return [{}, { ...doc,
+            views: await state.getPrefix(`{doc.user_id}/views/`),
+            clicks: await state.getPrefix(`{rec.user_id}/clicks/`),
+        }];
+    },
 	3: async (doc, state) => {
   const ts = moment.utc(doc.timestamp);
   const expiry = ts.add({days: 2});
@@ -40,7 +45,7 @@ const transformLambdas: estuary.TransformMap = {
   clicks: await state.getPrefix(`{rec.user_id}/clicks/`),
 }]
 ,
-	9: (doc, _) => {
+	9: async (doc, _) => {
     const spread = doc.ask.price - doc.bid.price;
 
     return [{

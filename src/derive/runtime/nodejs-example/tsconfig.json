@@ -1,0 +1,14 @@
+{
+    "include": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+    ],
+    "compilerOptions": {
+        "rootDir": ".",
+        "outDir": "build",
+        "module": "commonjs",
+        "target": "es2018",
+        "strict": true,
+        "sourceMap": true
+    }
+}
