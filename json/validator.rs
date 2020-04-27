@@ -345,8 +345,8 @@ where
             match validation {
                 False => false,
                 Type(expect) => *expect & types::OBJECT != types::INVALID,
-                Const { hash } => *hash == span.hashed,
-                Enum { hashes } => hashes.contains(&span.hashed),
+                Const(literal) => literal.hash == span.hashed,
+                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 Required(set) => *set & scope.seen_interned == *set,
                 MinProperties(bound) => num_properties >= *bound,
                 MaxProperties(bound) => num_properties <= *bound,
@@ -370,8 +370,8 @@ where
             match validation {
                 False => false,
                 Type(expect) => *expect & types::ARRAY != types::INVALID,
-                Const { hash } => *hash == span.hashed,
-                Enum { hashes } => hashes.contains(&span.hashed),
+                Const(literal) => literal.hash == span.hashed,
+                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 MinItems(bound) => *bound <= num_items,
                 MaxItems(bound) => *bound >= num_items,
                 MinContains(bound) => *bound <= scope.valid_contains,
@@ -391,8 +391,8 @@ where
             match validation {
                 False => false,
                 Type(expect) => *expect & types::BOOLEAN != types::INVALID,
-                Const { hash } => *hash == span.hashed,
-                Enum { hashes } => hashes.contains(&span.hashed),
+                Const(literal) => literal.hash == span.hashed,
+                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 _ => true,
             }
         });
@@ -414,8 +414,8 @@ where
                     };
                     *expect & actual != types::INVALID
                 }
-                Const { hash } => *hash == span.hashed,
-                Enum { hashes } => hashes.contains(&span.hashed),
+                Const(literal) => literal.hash == span.hashed,
+                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 Minimum(bound) => num >= *bound,
                 Maximum(bound) => num <= *bound,
                 ExclusiveMinimum(bound) => num > *bound,
@@ -442,8 +442,8 @@ where
             match validation {
                 False => false,
                 Type(expect) => *expect & types::STRING != types::INVALID,
-                Const { hash } => *hash == span.hashed,
-                Enum { hashes } => hashes.contains(&span.hashed),
+                Const(literal) => literal.hash == span.hashed,
+                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 MinLength(bound) => *bound <= s.chars().count(),
                 MaxLength(bound) => *bound >= s.chars().count(),
                 Pattern(re) => re.is_match(s),
@@ -462,8 +462,8 @@ where
             match validation {
                 False => false,
                 Type(expect) => *expect & types::NULL != types::INVALID,
-                Const { hash } => *hash == span.hashed,
-                Enum { hashes } => hashes.contains(&span.hashed),
+                Const(literal) => literal.hash == span.hashed,
+                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 _ => true,
             }
         });

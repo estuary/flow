@@ -10,6 +10,9 @@ mod resource;
 mod schema;
 mod source;
 
+// Experimental.
+pub mod typescript;
+
 use collection::Collection;
 use content_type::ContentType;
 use derivation::Derivation;

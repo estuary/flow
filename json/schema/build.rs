@@ -1,6 +1,4 @@
-use crate::schema::{
-    intern, keywords, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation,
-};
+use crate::schema::{intern, keywords, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation, HashedLiteral};
 use crate::{de, NoopWalker, Number};
 use regex;
 use serde_json as sj;
@@ -284,11 +282,9 @@ where
 
             // Common validation keywords.
             keywords::TYPE => self.add_validation(Val::Type(extract_type_mask(v)?)),
-            keywords::CONST => self.add_validation(Val::Const {
-                hash: extract_hash(v),
-            }),
+            keywords::CONST => self.add_validation(Val::Const(extract_hash(v))),
             keywords::ENUM => self.add_validation(Val::Enum {
-                hashes: extract_hashes(v)?,
+                variants: extract_hashes(v)?,
             }),
 
             // String-specific validation keywords.
@@ -491,13 +487,13 @@ fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
     Ok(set)
 }
 
-fn extract_hash(v: &sj::Value) -> u64 {
+fn extract_hash(v: &sj::Value) -> HashedLiteral {
     let mut walker = NoopWalker;
     let span = de::walk(v, &mut walker).unwrap();
-    span.hashed
+    HashedLiteral { hash: span.hashed, value: v.clone() }
 }
 
-fn extract_hashes(v: &sj::Value) -> Result<Vec<u64>, Error> {
+fn extract_hashes(v: &sj::Value) -> Result<Vec<HashedLiteral>, Error> {
     let arr = match v {
         sj::Value::Array(arr) => arr,
         _ => return Err(ExpectedArray),

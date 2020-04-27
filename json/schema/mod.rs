@@ -207,14 +207,18 @@ impl Application {
 }
 
 #[derive(Debug)]
+pub struct HashedLiteral {
+    pub hash: u64,
+    pub value: sj::Value,
+}
+
+#[derive(Debug)]
 pub enum Validation {
     False,
     Type(types::Set),
-    Const {
-        hash: u64,
-    },
+    Const(HashedLiteral),
     Enum {
-        hashes: Vec<u64>,
+        variants: Vec<HashedLiteral>
     },
 
     // String-specific validations.
