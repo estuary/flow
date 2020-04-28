@@ -11,13 +11,13 @@ export type TransformLambda = (
   ctx: StateStore
 ) => Promise<any[] | void>;
 
-export type BootstrapLambda = (state: StateStore) => void | Promise<void>;
+export type BootstrapLambda = (state: StateStore) => Promise<void>;
 
 export interface TransformMap {
   [id: number]: TransformLambda;
 }
 export interface BootstrapMap {
-  [id: number]: BootstrapLambda;
+  [id: number]: BootstrapLambda[];
 }
 
 // StateStore is a store of JSON documents, indexed under an ordered document key.

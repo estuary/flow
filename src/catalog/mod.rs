@@ -14,7 +14,7 @@ mod source;
 pub mod typescript;
 
 use collection::Collection;
-use content_type::ContentType;
+pub use content_type::ContentType;
 use derivation::Derivation;
 pub use error::Error;
 use lambda::Lambda;

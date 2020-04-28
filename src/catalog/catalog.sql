@@ -222,6 +222,21 @@ CREATE TABLE transforms
         JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
 );
 
+-- View over all schemas which apply to a collection.
+CREATE VIEW collection_schemas AS
+SELECT collection_id,
+       name,
+       schema_uri,
+       FALSE AS is_alternate
+FROM collections
+UNION
+SELECT source_collection_id,
+       source_name,
+       source_schema_uri,
+       TRUE AS is_alternate
+FROM transform_details
+    WHERE is_alt_source_schema;
+
 -- Require that the specification resource which defines a collection transform,
 -- also imports the specification which contains the referenced source collection.
 CREATE TRIGGER transforms_import_source_collection
@@ -239,6 +254,49 @@ CREATE TRIGGER transforms_import_source_collection
 BEGIN
     SELECT RAISE(ABORT, 'Transform references a source collection which is not imported by this catalog spec');
 END;
+
+-- Detail view of transforms joined with collection and lambda details,
+-- and flattening NULL-able fields into their assumed defaults.
+CREATE VIEW transform_details AS
+SELECT transforms.transform_id,
+       -- Source collection details.
+       transforms.source_collection_id,
+       src.name                                                                AS source_name,
+       src.resource_id                                                         AS source_resource_id,
+       COALESCE(transforms.source_schema_uri, src.schema_uri)                  AS source_schema_uri,
+       transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
+       COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
+
+       -- Derived collection details.
+       transforms.derivation_id,
+       der.name                                                                AS derivation_name,
+       der.resource_id                                                         AS derivation_resource_id,
+       der.schema_uri                                                          AS derivation_schema_uri,
+       der.key_json                                                            AS derivation_key_json,
+
+       -- Shuffle details. Convert broadcast/choose NULL's to 0.
+       -- Default to broadcast: 1, choose: 0 if both are NULL.
+       COALESCE(transforms.shuffle_broadcast,
+                CASE WHEN transforms.shuffle_choose IS NULL THEN 1 ELSE 0 END) AS shuffle_broadcast,
+       COALESCE(transforms.shuffle_choose, 0)                                  AS shuffle_choose,
+
+       -- Lambda fields.
+       transforms.lambda_id                                                    AS lambda_id,
+       lambdas.runtime                                                         AS lambda_runtime,
+       lambdas.inline                                                          AS lambda_inline,
+       lambdas.resource_id                                                     AS lambda_resource_id,
+       lambda_resources.content                                                AS lambda_resource_content
+
+FROM transforms
+         JOIN collections AS src
+              ON transforms.source_collection_id = src.collection_id
+         JOIN collections AS der
+              ON transforms.derivation_id = der.collection_id
+         JOIN lambdas
+              ON transforms.lambda_id = lambdas.lambda_id
+         LEFT JOIN resources AS lambda_resources
+                   ON lambdas.resource_id = lambda_resources.resource_id
+;
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 CREATE TABLE nodejs_dependencies
@@ -264,27 +322,6 @@ BEGIN
                    THEN RAISE(IGNORE)
                END;
 END;
-
-
--- View of nodeJS lambdas expressions and usage.
-CREATE VIEW nodejs_expressions AS
-SELECT derivation_id,
-       lambda_id,
-       inline      AS expression,
-       'bootstrap' AS type
-FROM lambdas
-         NATURAL JOIN bootstraps
-WHERE runtime = 'nodeJS'
-UNION ALL
-SELECT derivation_id,
-       lambda_id,
-       inline      AS expression,
-       'transform' AS type
-FROM lambdas
-         NATURAL JOIN transforms
-WHERE runtime = 'nodeJS'
-;
-
 
 -- Inferences are locations of collection documents and associated attributes
 -- which are statically provable solely from the collection's JSON-Schema.

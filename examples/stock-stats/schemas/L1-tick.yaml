@@ -21,7 +21,7 @@ properties:
     description: Completed transaction which generated this tick.
     $ref: "#/$defs/priceAndSize"
 
-required: [id, exchange, security, time]
+required: [id, exchange, security, time, bid, ask, last]
 
 $defs:
   security:
@@ -31,6 +31,7 @@ $defs:
     maxLength: 10
 
   priceAndSize:
+    type: object
     required: [price, size]
 
     properties:

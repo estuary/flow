@@ -248,7 +248,7 @@ SET source_schema_uri = 'not-a-url'
 WHERE transform_id = 1;
 -- Valid source-schema.
 UPDATE transforms
-SET source_schema_uri = 'https://source/schema#anchor'
+SET source_schema_uri = 'https://alt/source/schema#anchor'
 WHERE transform_id = 1;
 
 -- Can only set one of 'broadcast' or 'choose'.
@@ -300,11 +300,13 @@ SET lambda_id = 42;
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
 VALUES (2, 4, 2);
 
--- Expect we can natural join from transforms => resources.
-SELECT *
-FROM transforms
-         NATURAL LEFT JOIN lambdas
-         NATURAL LEFT JOIN resources;
+-- Transform details is a view which joins transforms with related resources
+-- and emits a flattened representation with assumed default values.
+SELECT * FROM transform_details;
+
+-- View of collection schemas which unions collection schemas with
+-- any alternate schemas used by transforms reading the collection.
+SELECT * FROM collection_schemas;
 
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
@@ -318,7 +320,3 @@ VALUES ('a-package', '^1.2.3'),
 -- Invalid indexed package at a different version.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^4.5.6');
-
--- View of NodeJS bootstrap invocations, by derivation.
-SELECT *
-FROM nodejs_expressions;

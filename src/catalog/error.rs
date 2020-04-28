@@ -51,6 +51,8 @@ pub enum Error {
     },
     #[error("failed to build schema: {0}")]
     SchemaBuildErr(#[from] schema::build::Error),
+    #[error("schema index: {0}")]
+    SchemaIndexErr(#[from] schema::index::Error),
     /*
     #[error("schema index error: {0}")]
     IndexErr(#[from] schema::index::Error),

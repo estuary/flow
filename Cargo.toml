@@ -35,6 +35,7 @@ serde_yaml = "^0.8"
 thiserror = "^1.0"
 tinyvec = {version = "^0.3", features = ["alloc"]}
 tokio = { version = "0.2", features = ["full"] }
+fxhash = "^0.2"
 url = "^2.1"
 warp = "0.2"
 

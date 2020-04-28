@@ -1,3 +1,6 @@
+nodeDependencies:
+  moment: "^2.24"
+
 collections:
 
   - name: marketing/campaigns
@@ -36,7 +39,8 @@ collections:
             # As we don't specify a key, the source key "/campaign_id" is used by default.
             broadcast: 4
           lambda:
-            nodeJS: (doc, state) => state.setKey(doc.campaign_id, doc)
+            nodeJS: |
+              await state.set(`{doc.campaign_id}`, doc)
         # Enrich each view event by joining with its present campaign.
         - source: marketing/offer/views
           shuffle:
@@ -48,9 +52,7 @@ collections:
           lambda:
             # Join the view with a previously indexed campaign.
             nodeJS: |
-              async (doc, state) => [
-                { ...doc, campaign: await state.get(doc.campaign_id) },
-              ]
+              return [{ ...doc, campaign: await state.get(`{doc.campaign_id}`) }]
 
   - name: marketing/clicks-with-views
     schema: schemas.yaml#/$defs/click-with-view
@@ -64,18 +66,16 @@ collections:
         - source: marketing/views-with-campaign
           lambda:
             nodeJS: |
-              async (doc, state) => {
-                let ts = moment.utc(doc.timestamp);
-                let expiry = ts.add({days: 2});
-                await state.set(doc.view_id, doc, expiry.toDate());
-              }
+              let ts = moment.utc(doc.timestamp);
+              let expiry = ts.add({days: 2});
+              await state.set(doc.view_id, doc, expiry.toDate());
         # Enrich clicks by adding its indexed `view`.
         - source: marketing/offer/clicks
           shuffle:
             key: [/view_id]
           lambda:
             nodeJS: |
-              async (doc, state) => [{ ...doc, view: await state.get(doc.view_id) }]
+              return [{ ...doc, view: await state.get(doc.view_id) }]
 
   - name: marketing/purchases-with-offers
     schema: schemas.yaml#/$defs/purchase-with-offers
@@ -94,12 +94,10 @@ collections:
             key: [/user_id]
           lambda:
             nodeJS: |
-              async (doc, state) => {
-                  let ts = moment.utc(doc.timestamp);
-                  let key = `${doc.user_id}/views/${ts.format('YYYY-MM-DD')}`;
-                  let expiry = ts.add({days: 30});
-                  await state.set(key, doc, expiry.toDate());
-              }
+              let ts = moment.utc(doc.timestamp);
+              let key = `${doc.user_id}/views/${ts.format('YYYY-MM-DD')}`;
+              let expiry = ts.add({days: 30});
+              await state.set(key, doc, expiry.toDate());
 
         # Index clicks with a 30-day look-back. Track only the first click of a given
         # user and hour. Each click has already been enriched with a joined view.
@@ -108,12 +106,10 @@ collections:
             key: [/user_id]
           lambda:
             nodeJS: |
-              async (doc, state) => {
-                let ts = moment.utc(doc.timestamp);
-                let key = `${doc.user_id}/clicks/${ts.format('yyyy-mm-dd-hh')}`;
-                let expiry = ts.add({days: 30});
-                await state.set(key, doc, expiry.toDate());
-              }
+              let ts = moment.utc(doc.timestamp);
+              let key = `${doc.user_id}/clicks/${ts.format('yyyy-mm-dd-hh')}`;
+              let expiry = ts.add({days: 30});
+              await state.set(key, doc, expiry.toDate());
 
         # Enrich purchase events by joining with all indexed views and clicks.
         - source: marketing/purchases
@@ -121,7 +117,7 @@ collections:
             key: [/user_id]
           lambda:
             nodeJS: |
-              async (doc, state) => [{ ...doc,
-                views: await state.getPrefix(`{doc.user_id}/views/`),
-                clicks: await state.getPrefix(`{rec.user_id}/clicks/`),
+              return [{ ...doc,
+                views: await state.get(`{doc.user_id}/views/`),
+                clicks: await state.get(`{rec.user_id}/clicks/`),
               }]
