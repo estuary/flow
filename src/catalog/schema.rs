@@ -1,7 +1,6 @@
-use super::{ContentType, Resource, Result};
+use super::{ContentType, Resource, Result, DB};
 use crate::doc::Schema as CompiledSchema;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
-use rusqlite::Connection as DB;
 use url::Url;
 
 /// Schema represents a catalog JSON-Schema document.
@@ -88,14 +87,17 @@ impl Schema {
 
 #[cfg(test)]
 mod test {
-    use super::{super::db, *};
+    use super::{
+        super::{dump_table, dump_tables, init_db_schema, open},
+        *,
+    };
     use rusqlite::params as sql_params;
     use serde_json::{json, Value};
 
     #[test]
     fn test_register_with_alt_urls_and_self_references() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         let doc = json!({
             "$id": "test://example/root",
@@ -141,7 +143,7 @@ mod test {
         assert!(s.resource.is_processed(&db)?);
 
         assert_eq!(
-            db::dump_table(&db, "resource_urls")?,
+            dump_table(&db, "resource_urls")?,
             json!([
                 (10, "test://actual", true),
                 (10, "test://example/root", Value::Null),
@@ -155,8 +157,8 @@ mod test {
 
     #[test]
     fn test_register_with_external_references() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         let doc_a = json!({"$ref": "b#/$defs/c"});
         let doc_b = json!({"$defs": {"c": {"$ref": "c"}}});
@@ -186,7 +188,7 @@ mod test {
         assert_eq!(s.resource.id, 10);
 
         assert_eq!(
-            db::dump_tables(&db, &["resources", "resource_imports"])?,
+            dump_tables(&db, &["resources", "resource_imports"])?,
             json!({
                 "resources": [
                     [10, "application/schema+yaml", doc_a.to_string(), true],

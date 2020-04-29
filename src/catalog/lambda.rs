@@ -1,6 +1,5 @@
-use super::{ContentType, Resource, Result};
+use super::{ContentType, Resource, Result, DB};
 use crate::specs::build as specs;
-use rusqlite::Connection as DB;
 use url::Url;
 
 /// Lambda represents a Lambda function of the catalog.
@@ -47,13 +46,16 @@ impl Lambda {
 
 #[cfg(test)]
 mod test {
-    use super::{super::db, *};
+    use super::{
+        super::{dump_tables, init_db_schema, open},
+        *,
+    };
     use serde_json::{json, Value};
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -82,7 +84,7 @@ mod test {
         }
 
         assert_eq!(
-            db::dump_tables(&db, &["resource_imports", "lambdas"])?,
+            dump_tables(&db, &["resource_imports", "lambdas"])?,
             json!({
                 "lambdas": [
                     [1, "sqlite", "block 1", Value::Null],

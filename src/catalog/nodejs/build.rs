@@ -1,6 +1,6 @@
-use crate::catalog::{Resource, ContentType, Error};
-use crate::doc::{Schema, SchemaIndex};
 use super::typescript;
+use crate::catalog::{ContentType, Error, Resource};
+use crate::doc::{Schema, SchemaIndex};
 use estuary_json::schema::build::build_schema;
 use rusqlite::{params as sql_params, Connection as DB};
 use serde::{Deserialize, Serialize};

@@ -1,6 +1,5 @@
-use super::{Collection, Error, Lambda, Resource, Result, Schema};
+use super::{sql_params, Collection, Error, Lambda, Resource, Result, Schema, DB};
 use crate::specs::build as specs;
-use rusqlite::{params as sql_params, Connection as DB};
 
 /// Derivation is a catalog Collection which is derived from other Collections.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -105,15 +104,15 @@ impl Derivation {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{db, Source},
+        super::{dump_tables, init_db_schema, open, Source},
         *,
     };
     use serde_json::{json, Value};
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         let a_schema = json!(true);
         let alt_schema = json!({"$anchor": "foobar"});
@@ -184,7 +183,7 @@ mod test {
         }))?;
         Collection::register(&db, source, &spec)?;
 
-        let dump = db::dump_tables(&db, &["derivations", "transforms", "bootstraps", "lambdas"])?;
+        let dump = dump_tables(&db, &["derivations", "transforms", "bootstraps", "lambdas"])?;
 
         assert_eq!(
             dump,

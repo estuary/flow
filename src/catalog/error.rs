@@ -57,14 +57,5 @@ pub enum Error {
     SubprocessFailed {
         process: std::path::PathBuf,
         status: std::process::ExitStatus,
-    }, /*
-       #[error("schema index error: {0}")]
-       IndexErr(#[from] schema::index::Error),
-
-       #[error("failed to find collection '{name}': '{detail}'")]
-       QueryCollectionErr {
-           name: String,
-           detail: rusqlite::Error,
-       },
-       */
+    },
 }

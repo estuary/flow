@@ -1,7 +1,6 @@
-use super::{ContentType, Derivation, Error, Resource, Result, Schema, Source};
+use super::{sql_params, ContentType, Derivation, Error, Resource, Result, Schema, Source, DB};
 use crate::doc::Pointer;
 use crate::specs::build as specs;
-use rusqlite::{params as sql_params, Connection as DB};
 use std::convert::TryFrom;
 
 /// Collection represents a catalog Collection.
@@ -100,14 +99,17 @@ impl Collection {
 
 #[cfg(test)]
 mod test {
-    use super::{super::db, *};
+    use super::{
+        super::{dump_tables, init_db_schema, open},
+        *,
+    };
     use rusqlite::params as sql_params;
     use serde_json::json;
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         let schema = json!({"$anchor": "foobar"});
         let fixtures = json!([
@@ -153,7 +155,7 @@ mod test {
         assert!(Resource { id: 20 }.is_processed(&db)?);
 
         // Expect the collection records the absolute schema URI, with fragment component.
-        let dump = db::dump_tables(
+        let dump = dump_tables(
             &db,
             &["resource_imports", "collections", "projections", "fixtures"],
         )?;

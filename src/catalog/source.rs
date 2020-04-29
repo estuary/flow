@@ -1,6 +1,5 @@
-use super::{Collection, ContentType, Error, Resource, Result};
+use super::{sql_params, Collection, ContentType, Error, Resource, Result, DB};
 use crate::specs::build as specs;
-use rusqlite::{params as sql_params, Connection as DB};
 use url::Url;
 
 /// Source represents a top-level catalog build input.
@@ -50,7 +49,7 @@ impl Source {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{db, Source},
+        super::{dump_tables, init_db_schema, open, Source},
         *,
     };
     use rusqlite::params as sql_params;
@@ -58,8 +57,8 @@ mod test {
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         let fixture = json!({
             "import": [
@@ -99,7 +98,7 @@ mod test {
         assert!(Resource { id: 10 }.is_processed(&db)?);
 
         assert_eq!(
-            db::dump_tables(
+            dump_tables(
                 &db,
                 &["resource_imports", "collections", "nodejs_dependencies"]
             )?,

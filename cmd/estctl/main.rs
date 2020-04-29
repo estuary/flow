@@ -51,10 +51,11 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     let root = url::Url::from_file_path(&root).unwrap();
 
     let db = args.value_of("catalog").unwrap();
-    let db = rusqlite::Connection::open(db)?;
-    db.execute_batch("BEGIN;")?;
+    let db = catalog::open(db)?;
 
-    catalog::build_catalog(&db, root)?;
+    db.execute_batch("BEGIN;")?;
+    catalog::init_db_schema(&db)?;
+    catalog::Source::register(&db, root)?;
     catalog::build_nodejs_package(&db, Path::new("/home/johnny/test-pkg"))?;
 
     db.execute_batch("COMMIT;")?;

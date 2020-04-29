@@ -1,5 +1,5 @@
-use super::{ContentType, Error, Result};
-use rusqlite::{params as sql_params, Connection as DB, Error as DBError};
+use super::{sql_params, ContentType, Error, Result, DB};
+use rusqlite::Error as DBError;
 use url::Url;
 
 /// Resource within the catalog: a file of some kind
@@ -152,7 +152,10 @@ impl Resource {
 
 #[cfg(test)]
 mod test {
-    use super::{super::db, *};
+    use super::{
+        super::{dump_table, init_db_schema, open},
+        *,
+    };
     use serde_json::{json, Value};
     use std::io::Write;
     use tempfile;
@@ -163,8 +166,8 @@ mod test {
         file.as_file_mut().write(b"file content!").unwrap();
         let file_url = Url::from_file_path(file.path()).unwrap();
 
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         let r = Resource::register(&db, ContentType::CatalogSpec, &file_url)?;
         assert_eq!(r, Resource { id: 1 });
@@ -178,11 +181,11 @@ mod test {
         assert_eq!(&r.content(&db)?, b"file content!");
 
         assert_eq!(
-            db::dump_table(&db, "resources")?,
+            dump_table(&db, "resources")?,
             json!([(1, ContentType::CatalogSpec.as_str(), "file content!", false)]),
         );
         assert_eq!(
-            db::dump_table(&db, "resource_urls")?,
+            dump_table(&db, "resource_urls")?,
             json!([(1, file_url.into_string(), true)]),
         );
         Ok(())
@@ -190,8 +193,8 @@ mod test {
 
     #[test]
     fn test_registration_unprocessed() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -213,7 +216,7 @@ mod test {
 
         // Expect row was updated.
         assert_eq!(
-            db::dump_table(&db, "resources")?,
+            dump_table(&db, "resources")?,
             json!([(42, ContentType::Schema.as_str(), "content!", true)]),
         );
 
@@ -222,8 +225,8 @@ mod test {
 
     #[test]
     fn test_registration_via_alt_url() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -247,8 +250,8 @@ mod test {
 
     #[test]
     fn test_registration_with_different_content_type() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -269,8 +272,8 @@ mod test {
 
     #[test]
     fn test_register_alternate_urls() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -286,7 +289,7 @@ mod test {
         r.register_alternate_url(&db, &Url::parse("test://alt/path-2")?)?;
 
         assert_eq!(
-            db::dump_table(&db, "resource_urls")?,
+            dump_table(&db, "resource_urls")?,
             json!([
                 (42, "test://a/path", true),
                 (42, "test://alt/path-1", Value::Null),
@@ -298,8 +301,8 @@ mod test {
 
     #[test]
     fn test_joining() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -332,8 +335,8 @@ mod test {
 
     #[test]
     fn test_import_tracking() -> Result<()> {
-        let db = DB::open_in_memory()?;
-        db::init(&db)?;
+        let db = open(":memory:")?;
+        init_db_schema(&db)?;
 
         db.execute_batch(
             "
@@ -393,7 +396,7 @@ mod test {
         );
 
         assert_eq!(
-            db::dump_table(&db, "resource_imports")?,
+            dump_table(&db, "resource_imports")?,
             json!([
                 (1, 2), // A => B.
                 (2, 4), // B => D.
