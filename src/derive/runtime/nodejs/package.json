@@ -1,17 +1,19 @@
 {
-  "name": "estuary_runtime",
+  "name": "catalog-js-transformer",
   "version": "0.1.0",
-  "description": "Estuary Lambda runtime components for NodeJS",
-  "main": "build/src/index.js",
-  "types": "build/src/index.d.ts",
+  "description": "NodeJS runtime of Estuary catalog transform lambdas",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "build/src/app.js",
   "files": [
     "build/src"
   ],
-  "engines" : { "node" : ">=10.10" },
+  "engines": {
+    "node": ">=10.10"
+  },
   "enginesStrict": true,
-  "license": "Apache-2.0",
-  "keywords": [],
   "scripts": {
+    "start": "node build/src/app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "check": "gts check",
     "clean": "gts clean",
@@ -24,6 +26,9 @@
   "dependencies": {
     "stream-json": "^1.3"
   },
+  "bundledDependencies": [
+    "stream-json"
+  ],
   "devDependencies": {
     "gts": "^2.0.0",
     "typescript": "~3.8.0",

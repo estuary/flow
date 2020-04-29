@@ -3,7 +3,6 @@ use estuary::catalog;
 use std::boxed::Box;
 use std::fs;
 use url;
-use std::io::{self, Write};
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -56,13 +55,16 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
 
     catalog::build_catalog(&db, root)?;
 
-    let mut w = io::stdout();
-
-    estuary::derive::runtime::nodejs::generate_imports(&db, &mut w)?;
-    estuary::derive::runtime::nodejs::generate_typescript_types(&db, &mut w)?;
-    estuary::derive::runtime::nodejs::generate_bootstraps(&db, &mut w)?;
-    estuary::derive::runtime::nodejs::generate_transforms(&db, &mut w)?;
-    write!(w, "estuary.main(bootstraps, transforms);\n")?;
+    estuary::derive::runtime::nodejs::build_nodejs_package(
+        &db,
+        estuary::derive::runtime::nodejs::Config {
+            tsc_path: "/home/johnny/.npm_global_packages/bin/tsc".into(),
+            npm_path: "/snap/bin/npm".into(),
+            node_path: "/snap/bin/node".into(),
+            prettier_path: "/home/johnny/.npm_global_packages/bin/prettier".into(),
+            pkg_dir: "/home/johnny/test-gen-pkg".into(),
+        },
+    )?;
 
     db.execute_batch("COMMIT;")?;
     Ok(())

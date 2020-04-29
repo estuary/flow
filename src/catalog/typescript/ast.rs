@@ -1,5 +1,5 @@
-use serde_json::Value;
 use estuary_json::schema::types;
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AST {
@@ -41,7 +41,6 @@ pub struct ASTProperty {
 }
 
 impl AST {
-
     pub fn possible_types(&self) -> types::Set {
         match self {
             AST::Any => types::ANY,
@@ -51,29 +50,23 @@ impl AST {
             AST::Object => types::OBJECT,
             AST::String => types::STRING,
             AST::Reference { .. } => types::ANY,
-            AST::Literal { value } => {
-                match value {
-                    Value::String(_) => types::STRING,
-                    Value::Object(_) => types::OBJECT,
-                    Value::Number(_) => types::NUMBER,
-                    Value::Null => types::NULL,
-                    Value::Bool(_) => types::BOOLEAN,
-                    Value::Array(_) => types::ARRAY,
-                }
+            AST::Literal { value } => match value {
+                Value::String(_) => types::STRING,
+                Value::Object(_) => types::OBJECT,
+                Value::Number(_) => types::NUMBER,
+                Value::Null => types::NULL,
+                Value::Bool(_) => types::BOOLEAN,
+                Value::Array(_) => types::ARRAY,
             },
             AST::Array { .. } => types::ARRAY,
             AST::Tuple { .. } => types::ARRAY,
             AST::Interface { .. } => types::OBJECT,
-            AST::Union { variants } => {
-                variants
-                    .iter()
-                    .fold(types::INVALID, |cur, v| { cur | v.possible_types() })
-            }
-            AST::Intersection { variants } => {
-                variants
-                    .iter()
-                    .fold(types::ANY, |cur, v| { cur & v.possible_types() })
-            }
+            AST::Union { variants } => variants
+                .iter()
+                .fold(types::INVALID, |cur, v| cur | v.possible_types()),
+            AST::Intersection { variants } => variants
+                .iter()
+                .fold(types::ANY, |cur, v| cur & v.possible_types()),
         }
     }
 
@@ -84,48 +77,47 @@ impl AST {
 
     fn optimize_(self, possible_types: types::Set) -> AST {
         match self {
-
             // Host inner AST of a Union or Intersection of length 1.
             AST::Intersection { variants } => Self::optimize_set(variants, possible_types, false),
             AST::Union { variants } => Self::optimize_set(variants, possible_types, true),
 
             // Pass-through rules.
-            AST::Array { of } => {
-                AST::Array { of: Box::from(of.optimize()) }
-            }
-            AST::Tuple { items, spread } => {
-                AST::Tuple {
-                    items: items.into_iter().map(|v| v.optimize()).collect(),
-                    spread: spread.map(|v| Box::from(v.optimize())),
-                }
-            }
-            AST::Interface { properties } => {
-                AST::Interface {
-                    properties: properties
-                        .into_iter()
-                        .map(|p| ASTProperty {
-                            field: p.field,
-                            value: p.value.optimize(),
-                            is_required: p.is_required,
-                        })
-                        .collect()
-                }
-            }
+            AST::Array { of } => AST::Array {
+                of: Box::from(of.optimize()),
+            },
+            AST::Tuple { items, spread } => AST::Tuple {
+                items: items.into_iter().map(|v| v.optimize()).collect(),
+                spread: spread.map(|v| Box::from(v.optimize())),
+            },
+            AST::Interface { properties } => AST::Interface {
+                properties: properties
+                    .into_iter()
+                    .map(|p| ASTProperty {
+                        field: p.field,
+                        value: p.value.optimize(),
+                        is_required: p.is_required,
+                    })
+                    .collect(),
+            },
 
             // Pass-through all other (literal) cases.
-            ast @ _=> ast,
+            ast @ _ => ast,
         }
     }
 
     fn optimize_set(mut variants: Vec<AST>, possible_types: types::Set, is_union: bool) -> AST {
-        variants = variants.into_iter().map(|v| v.optimize_(possible_types)).collect();
+        variants = variants
+            .into_iter()
+            .map(|v| v.optimize_(possible_types))
+            .collect();
 
         // Rule: Remove union variants which have an incompatible
         // type with the current document location.
         if is_union {
-            variants = variants.into_iter().filter(|v| {
-                v.possible_types() & possible_types != types::INVALID
-            }).collect();
+            variants = variants
+                .into_iter()
+                .filter(|v| v.possible_types() & possible_types != types::INVALID)
+                .collect();
         }
 
         // Rule: Remove intersections with the "Any" production.

@@ -16,7 +16,8 @@ CREATE TABLE resources
                                 'application/vnd.estuary.dev-catalog-spec+yaml',
                                 'application/vnd.estuary.dev-catalog-fixtures+yaml',
                                 'application/schema+yaml',
-                                'application/sql'
+                                'application/sql',
+                                'application/vnd.estuary.dev-catalog-npm-pack'
             ))
 );
 

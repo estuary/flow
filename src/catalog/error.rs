@@ -53,14 +53,18 @@ pub enum Error {
     SchemaBuildErr(#[from] schema::build::Error),
     #[error("schema index: {0}")]
     SchemaIndexErr(#[from] schema::index::Error),
-    /*
-    #[error("schema index error: {0}")]
-    IndexErr(#[from] schema::index::Error),
+    #[error("subprocess {process:?} failed with status {status}")]
+    SubprocessFailed {
+        process: std::path::PathBuf,
+        status: std::process::ExitStatus,
+    }, /*
+       #[error("schema index error: {0}")]
+       IndexErr(#[from] schema::index::Error),
 
-    #[error("failed to find collection '{name}': '{detail}'")]
-    QueryCollectionErr {
-        name: String,
-        detail: rusqlite::Error,
-    },
-    */
+       #[error("failed to find collection '{name}': '{detail}'")]
+       QueryCollectionErr {
+           name: String,
+           detail: rusqlite::Error,
+       },
+       */
 }

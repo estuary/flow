@@ -13,14 +13,14 @@ mod source;
 // Experimental.
 pub mod typescript;
 
-use collection::Collection;
+pub use collection::Collection;
 pub use content_type::ContentType;
-use derivation::Derivation;
+pub use derivation::Derivation;
 pub use error::Error;
-use lambda::Lambda;
-use resource::Resource;
-use schema::Schema;
-use source::Source;
+pub use lambda::Lambda;
+pub use resource::Resource;
+pub use schema::Schema;
+pub use source::Source;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

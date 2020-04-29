@@ -49,7 +49,7 @@ impl<'a> Mapper<'a> {
                             None => self.map(self.index.fetch(url).unwrap()),
                         };
                         must_be.push(ast)
-                    },
+                    }
                     // Disjunctions.
                     App::AnyOf { .. } => maybe.push(self.map(child)),
                     App::OneOf { .. } => maybe.push(self.map(child)),
@@ -174,14 +174,18 @@ impl<'a> Mapper<'a> {
         });
 
         if let Some(const_) = const_ {
-            must_be.push(AST::Literal { value: const_.value.clone() })
+            must_be.push(AST::Literal {
+                value: const_.value.clone(),
+            })
         }
         if let Some(enum_) = _enum {
             must_be.push(AST::Union {
                 variants: enum_
                     .iter()
-                    .map(|l| AST::Literal { value: l.value.clone() })
-                    .collect()
+                    .map(|l| AST::Literal {
+                        value: l.value.clone(),
+                    })
+                    .collect(),
             })
         }
 

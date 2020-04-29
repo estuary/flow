@@ -109,7 +109,7 @@ collections:
               let ts = moment.utc(doc.timestamp);
               let key = `${doc.user_id}/clicks/${ts.format('yyyy-mm-dd-hh')}`;
               let expiry = ts.add({days: 30});
-              await state.set(key, doc, expiry.toDate());
+              state.set(key, doc, expiry.toDate());
 
         # Enrich purchase events by joining with all indexed views and clicks.
         - source: marketing/purchases

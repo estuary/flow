@@ -11,6 +11,7 @@ pub enum ContentType {
     CatalogFixtures,
     Schema,
     Sql,
+    NpmPack,
 }
 
 /// InvalidContentType is an error
@@ -29,6 +30,7 @@ const CATALOG_SPEC: &str = "application/vnd.estuary.dev-catalog-spec+yaml";
 const CATALOG_FIXTURES: &str = "application/vnd.estuary.dev-catalog-fixtures+yaml";
 const SCHEMA: &str = "application/schema+yaml";
 const SQL: &str = "application/sql";
+const NPM_PACK: &str = "application/vnd.estuary.dev-catalog-npm-pack";
 
 impl ContentType {
     pub fn as_str(&self) -> &'static str {
@@ -37,6 +39,7 @@ impl ContentType {
             ContentType::CatalogFixtures => CATALOG_FIXTURES,
             ContentType::Schema => SCHEMA,
             ContentType::Sql => SQL,
+            ContentType::NpmPack => NPM_PACK,
         }
     }
 }
@@ -56,6 +59,7 @@ impl TryFrom<&str> for ContentType {
             CATALOG_FIXTURES => ContentType::CatalogFixtures,
             SCHEMA => ContentType::Schema,
             SQL => ContentType::Sql,
+            NPM_PACK => ContentType::NpmPack,
             _ => return Err(InvalidContentType(value.to_owned())),
         })
     }
@@ -79,7 +83,7 @@ mod test {
 
     #[test]
     fn test_round_trip_conversions() -> Result<(), InvalidContentType> {
-        for s in &[CATALOG_SPEC, CATALOG_FIXTURES, SCHEMA, SQL] {
+        for s in &[CATALOG_SPEC, CATALOG_FIXTURES, SCHEMA, SQL, NPM_PACK] {
             let ct = ContentType::try_from(*s)?;
             assert_eq!(*s, ct.as_str());
         }
