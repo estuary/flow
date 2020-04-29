@@ -1,4 +1,4 @@
-import {Store} from './store';
+import { Store } from './store';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Document = any;
@@ -8,17 +8,14 @@ export type Document = any;
 export type BootstrapLambda = (state: Store) => Promise<void>;
 
 // TransformLambda is the type shape of a catalog transform.
-export type TransformLambda = (
-  doc: Document,
-  store: Store
-) => Promise<Document[] | void>;
+export type TransformLambda = (doc: Document, store: Store) => Promise<Document[] | void>;
 
 // TransformMap indexes TransformLambdas on their catalog transform_id.
 export interface TransformMap {
-  [transform_id: number]: TransformLambda;
+    [transformId: number]: TransformLambda | undefined;
 }
 
 // BootstrapMap indexes BootstrapLambdas on their catalog derivation_id.
 export interface BootstrapMap {
-  [derivation_id: number]: BootstrapLambda[];
+    [derivationId: number]: BootstrapLambda[] | undefined;
 }

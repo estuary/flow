@@ -3,234 +3,68 @@ use crate::catalog::{ContentType, Error};
 use crate::doc::{Schema, SchemaIndex};
 use estuary_json::schema::build::build_schema;
 use rusqlite::{params as sql_params, Connection as DB};
-use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
+use std::iter::Iterator;
 use std::path;
 use std::process::Command;
 use url::Url;
-use std::iter::Iterator;
 
-pub struct Config {
-    pub tsc_path: path::PathBuf,
-    pub prettier_path: path::PathBuf,
-    pub npm_path: path::PathBuf,
-    pub node_path: path::PathBuf,
-    pub pkg_dir: path::PathBuf,
-}
+pub fn build_nodejs_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
+    // TODO(johnny): If package.json doesn't exist, scaffold out from a skeleton.
+    patch_package_json(db, pkg)?;
+    generate_collections_ts(db, pkg)?;
+    generate_lambdas_ts(db, pkg)?;
 
-fn prettify(path: &path::Path, cfg: &Config) -> Result<(), Error> {
-    let status = Command::new(&cfg.prettier_path)
-        .arg("--write") // Prettify in-place.
-        .arg("--no-config")
-        .arg(path)
-        .spawn()?
-        .wait()?;
+    npm_cmd(pkg, &["install"])?;
+    npm_cmd(pkg, &["run", "compile"])?;
+    npm_cmd(pkg, &["run", "lint"])?;
+    npm_cmd(pkg, &["pack"])?;
 
-    if !status.success() {
-        Err(Error::SubprocessFailed {
-            process: cfg.prettier_path.to_owned(),
-            status,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn npm_install(cfg: &Config) -> Result<(), Error> {
-    let status = Command::new(&cfg.npm_path)
-        .arg("install")
-        .current_dir(&cfg.pkg_dir)
-        .spawn()?
-        .wait()?;
-
-    if !status.success() {
-        Err(Error::SubprocessFailed {
-            process: cfg.npm_path.to_owned(),
-            status,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn tsc_compile(cfg: &Config) -> Result<(), Error> {
-    let status = Command::new(&cfg.tsc_path)
-        .arg("--build")
-        .arg(&cfg.pkg_dir)
-        .spawn()?
-        .wait()?;
-
-    if !status.success() {
-        Err(Error::SubprocessFailed {
-            process: cfg.tsc_path.to_owned(),
-            status,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn npm_pack(db: &DB, cfg: &Config) -> Result<(), Error> {
-    let status = Command::new(&cfg.npm_path)
-        .arg("pack")
-        .current_dir(&cfg.pkg_dir)
-        .spawn()?
-        .wait()?;
-
-    if !status.success() {
-        return Err(Error::SubprocessFailed {
-            process: cfg.npm_path.to_owned(),
-            status,
-        })
-    }
-
-    let pack = cfg.pkg_dir.join("catalog-js-transforms-0.1.0.tgz");
+    let pack = pkg.join("catalog-js-transformer-0.1.0.tgz");
     let pack = Url::from_file_path(pack).unwrap();
-
     crate::catalog::Resource::register(db, ContentType::NpmPack, &pack)?;
-    Ok(())
-}
-
-pub fn build_nodejs_package(db: &DB, cfg: Config) -> Result<(), Error> {
-    let src_dir = cfg.pkg_dir.join("src");
-    std::fs::create_dir_all(&src_dir)?;
-
-    // Write index.ts.
-    let p = src_dir.join("index.ts");
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-    write!(w, "#!/usr/bin/env node\n")?;
-    generate_typescript_types(db, &mut w)?;
-    generate_imports(db, &mut w)?;
-    generate_bootstraps(db, &mut w)?;
-    generate_transforms(db, &mut w)?;
-    write!(w, "estuary.main(bootstraps, transforms);\n")?;
-    drop(w);
-    prettify(&p, &cfg)?;
-
-    // Write package.json.
-    let p = cfg.pkg_dir.join("package.json");
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-    generate_package_json(db, &mut w)?;
-    drop(w);
-
-    // Write tsconfig.json.
-    let p = cfg.pkg_dir.join("tsconfig.json");
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-    generate_tsconfig(&mut w)?;
-    drop(w);
-
-    // Write .eslintrc
-    let p = cfg.pkg_dir.join(".eslintrc");
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-    generate_eslintrc(&mut w)?;
-    drop(w);
-
-    npm_install(&cfg)?;
-    tsc_compile(&cfg)?;
-    npm_pack(db, &cfg)?;
 
     Ok(())
 }
 
-fn generate_eslintrc(w: impl Write) -> Result<(), Error> {
-    serde_json::to_writer_pretty(w, &json!({
-        "parser": "@typescript-eslint/parser", // Specifies the ESLint parser
-        "parserOptions": {
-            "ecmaVersion": 2018, // Allows for the parsing of modern ECMAScript features
-            "sourceType": "module" // Allows for the use of imports
-        },
-        "extends": [
-            "plugin:@typescript-eslint/recommended" // Uses the recommended rules from the @typescript-eslint/eslint-plugin
-        ],
-        "rules": {
-            // Place to specify ESLint rules. Can be used to overwrite rules specified from the extended configs
-            // e.g. "@typescript-eslint/explicit-function-return-type": "off",
-        }
-    }))?;
-    Ok(())
+#[derive(Serialize, Deserialize)]
+struct PackageJson {
+    #[serde(default)]
+    dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "bundledDependencies", alias = "bundleDependencies")]
+    bundled_dependencies: BTreeSet<String>,
+    #[serde(flatten)]
+    pass_through: BTreeMap<String, Value>,
 }
 
-fn generate_package_json(db: &DB, w: impl Write) -> Result<(), Error> {
-    // Build NPM dependencies map of package => version.
-    let mut deps = serde_json::Map::new();
+fn patch_package_json(db: &DB, pkg: &path::Path) -> Result<(), Error> {
+    // Read current package.json.
+    let path = pkg.join("package.json");
+    let mut dom: PackageJson = serde_json::from_slice(&std::fs::read(&path)?)?;
+
     let mut stmt = db.prepare("SELECT package, version FROM nodejs_dependencies")?;
     let mut rows = stmt.query(sql_params![])?;
 
+    // Update with catalog dependencies and versions, if not already present.
+    // Further mark that dependencies should be bundled at run-time.
     while let Some(row) = rows.next()? {
         let (pkg, version): (String, String) = (row.get(0)?, row.get(1)?);
-        deps.insert(pkg, Value::String(version));
-    }
-    deps.insert("estuary_runtime".to_owned(), Value::String(
-        "file:///home/johnny/estuary/src/derive/runtime/nodejs/estuary_runtime-0.1.0.tgz".to_owned()));
 
-    serde_json::to_writer_pretty(w, &json!({
-        "name": "catalog-js-transforms",
-        "version": "0.1.0",
-        "description": "NodeJS runtime of Estuary catalog transform lambdas",
-        "files": [ "build/src" ],
-        "engines": { "node": ">=10.10" },
-        "enginesStrict": true,
-        "bin": "./build/src/index.js",
-        "dependencies": deps,
-        "bundleDependencies": Value::Array(deps.keys().cloned().map(|k| Value::String(k)).collect()),
-    }))?;
-
-    Ok(())
-}
-
-fn generate_tsconfig(w: impl Write) -> Result<(), Error> {
-    serde_json::to_writer_pretty(w, &json!({
-        "include": [ "src/**/*.ts" ],
-        "compilerOptions": {
-            "rootDir": ".",
-            "outDir": "build",
-            "module": "commonjs",
-            "target": "es2018",
-            "strict": true,
+        if !dom.dependencies.contains_key(&pkg) {
+            dom.dependencies.insert(pkg.clone(), version);
         }
-    }))?;
+        dom.bundled_dependencies.insert(pkg);
+    }
 
+    // Write back out again.
+    serde_json::to_writer_pretty(std::fs::File::create(&path)?, &dom)?;
     Ok(())
 }
 
-fn generate_imports(db: &DB, mut w: impl Write) -> Result<(), Error> {
-    let mut stmt = db.prepare("SELECT package FROM nodejs_dependencies")?;
-    let mut rows = stmt.query(sql_params![])?;
-    while let Some(row) = rows.next()? {
-        let pkg: String = row.get(0)?;
-        write!(w, "import * as {} from '{}';\n", pkg, pkg)?;
-    }
-    write!(w, "import * as estuary from 'estuary_runtime';\n")?;
-    write!(w, "\n\n")?;
-    Ok(())
-}
-
-// Convert collection to a camel-case typescript token by dropping non-alphanumeric components.
-// If |is_alternate|, as stable hex-encoded hash of the |schema| Url is appended.
-// Eg, "company/marketing/clicks" becomes "CompanyMarketingClicks", or
-// "CompanyMarketingClicks_5a89cd23" if it's an alternate source schema.
-fn ts_name(collection: &str, schema: &Url, is_alternate: bool) -> String {
-    let mut out = String::new();
-    let mut upper = true;
-
-    for c in collection.chars() {
-        if !c.is_alphanumeric() {
-            upper = true
-        } else if upper {
-            out.extend(c.to_uppercase());
-            upper = false;
-        } else {
-            out.push(c);
-        }
-    }
-    if is_alternate {
-        out = format!("{}_{:x}", out, fxhash::hash32(schema));
-    }
-    out
-}
-
-fn generate_typescript_types(db: &DB, mut w: impl Write) -> Result<(), Error> {
+fn generate_collections_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     // Load and compile all schemas in the catalog.
     let mut stmt = db.prepare(
         "SELECT url, content FROM resources NATURAL JOIN resource_urls
@@ -262,6 +96,9 @@ fn generate_typescript_types(db: &DB, mut w: impl Write) -> Result<(), Error> {
     let mut stmt = db.prepare("SELECT name, schema_uri, is_alternate FROM collection_schemas")?;
     let mut rows = stmt.query(sql_params![])?;
 
+    let p = pkg.join("src/catalog/collections.ts");
+    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
+
     while let Some(r) = rows.next()? {
         let (name, schema_url, is_alt): (String, Url, bool) = (r.get(0)?, r.get(1)?, r.get(2)?);
 
@@ -285,36 +122,49 @@ fn generate_typescript_types(db: &DB, mut w: impl Write) -> Result<(), Error> {
     Ok(())
 }
 
-fn generate_bootstraps(db: &DB, mut w: impl Write) -> Result<(), Error> {
-    // Write out bootstraps.
+fn generate_lambdas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
+    let p = pkg.join("src/catalog/lambdas.ts");
+    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
+
+    let header = r#"
+/*eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^store$" }]*/
+/*eslint @typescript-eslint/require-await: "off"*/
+
+import './collections';
+import {Store} from '../runtime/store';
+import {BootstrapMap, TransformMap} from '../runtime/types';
+    "#;
+    w.write(header.as_bytes())?;
+
+    // Write out dynamic imports, drawn from dependencies configured in the catalog.
+    let mut stmt = db.prepare("SELECT package FROM nodejs_dependencies;")?;
+    let mut rows = stmt.query(sql_params![])?;
+    while let Some(row) = rows.next()? {
+        let pkg: String = row.get(0)?;
+        write!(w, "import * as {} from '{}';\n", pkg, pkg)?;
+    }
+    write!(w, "\n\n")?;
+
+    // Write out bootstraps lambdas.
     let mut stmt = db.prepare(
         "SELECT derivation_id, JSON_GROUP_ARRAY(inline) AS expressions
                 FROM lambdas NATURAL JOIN bootstraps WHERE runtime = 'nodeJS';",
     )?;
     let mut rows = stmt.query(sql_params![])?;
 
-    write!(w, "let bootstraps : estuary.BootstrapMap = {{\n")?;
+    write!(w, "export const bootstraps: BootstrapMap = {{\n")?;
     while let Some(row) = rows.next()? {
         let (id, expressions): (i64, Value) = (row.get(0)?, row.get(1)?);
         let expressions: Vec<String> = serde_json::from_value(expressions)?;
         let expressions = expressions
             .into_iter()
-            .map(|e| {
-                format!(
-                    "async (state: estuary.StateStore) : Promise<void> => {{ {} }}",
-                    e
-                )
-            })
+            .map(|e| format!("async (store: Store) : Promise<void> => {{ {} }}", e))
             .collect::<Vec<String>>()
             .join(", ");
         write!(w, "\t{}: [{}],\n", id, expressions)?;
     }
     write!(w, "}};\n\n")?;
 
-    Ok(())
-}
-
-fn generate_transforms(db: &DB, mut w: impl Write) -> Result<(), Error> {
     // Write out transforms.
     let mut stmt = db.prepare(
         "SELECT
@@ -330,20 +180,67 @@ fn generate_transforms(db: &DB, mut w: impl Write) -> Result<(), Error> {
     )?;
     let mut rows = stmt.query(sql_params![])?;
 
-    write!(w, "let transforms : estuary.TransformMap = {{\n")?;
+    write!(w, "export const transforms : TransformMap = {{\n")?;
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let (src_name, src_uri): (String, Url) = (row.get(1)?, row.get(2)?);
         let (der_name, der_uri): (String, Url) = (row.get(3)?, row.get(4)?);
         let (is_alt, body): (bool, String) = (row.get(5)?, row.get(6)?);
 
-        write!(w, "\t{}: async (doc: {}, state: estuary.StateStore) : Promise<{}[] | void> => {{ {} }},\n",
-               id,
-               ts_name(&src_name, &src_uri, is_alt),
-               ts_name(&der_name, &der_uri, false),
-               body)?;
+        write!(
+            w,
+            "\t{}: async (doc: {}, store: Store) : Promise<{}[] | void> => {{ {} }},\n",
+            id,
+            ts_name(&src_name, &src_uri, is_alt),
+            ts_name(&der_name, &der_uri, false),
+            body
+        )?;
     }
     write!(w, "}};\n\n")?;
 
     Ok(())
+}
+
+// Convert collection to a camel-case typescript token by dropping non-alphanumeric components.
+// If |is_alternate|, as stable hex-encoded hash of the |schema| Url is appended.
+// Eg, "company/marketing/clicks" becomes "CompanyMarketingClicks", or
+// "CompanyMarketingClicks_5a89cd23" if it's an alternate source schema.
+fn ts_name(collection: &str, schema: &Url, is_alternate: bool) -> String {
+    let mut out = String::new();
+    let mut upper = true;
+
+    for c in collection.chars() {
+        if !c.is_alphanumeric() {
+            upper = true
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    if is_alternate {
+        out = format!("{}_{:x}", out, fxhash::hash32(schema));
+    }
+    out
+}
+
+fn npm_cmd(pkg: &path::Path, args: &[&str]) -> Result<(), Error> {
+    let mut cmd = Command::new("npm");
+
+    for &arg in args.iter() {
+        cmd.arg(arg);
+    }
+    cmd.current_dir(pkg);
+
+    let status = cmd.spawn()?.wait()?;
+
+    if !status.success() {
+        Err(Error::SubprocessFailed {
+            process: pkg.to_owned(),
+            status,
+        })
+    } else {
+        Ok(())
+    }
 }

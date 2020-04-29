@@ -2,6 +2,7 @@ use clap;
 use estuary::catalog;
 use std::boxed::Box;
 use std::fs;
+use std::path::Path;
 use url;
 
 type Error = Box<dyn std::error::Error + 'static>;
@@ -57,13 +58,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
 
     estuary::derive::runtime::nodejs::build_nodejs_package(
         &db,
-        estuary::derive::runtime::nodejs::Config {
-            tsc_path: "/home/johnny/.npm_global_packages/bin/tsc".into(),
-            npm_path: "/snap/bin/npm".into(),
-            node_path: "/snap/bin/node".into(),
-            prettier_path: "/home/johnny/.npm_global_packages/bin/prettier".into(),
-            pkg_dir: "/home/johnny/test-gen-pkg".into(),
-        },
+        Path::new("/home/johnny/test-pkg"),
     )?;
 
     db.execute_batch("COMMIT;")?;
