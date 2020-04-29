@@ -55,11 +55,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     db.execute_batch("BEGIN;")?;
 
     catalog::build_catalog(&db, root)?;
-
-    estuary::derive::runtime::nodejs::build_nodejs_package(
-        &db,
-        Path::new("/home/johnny/test-pkg"),
-    )?;
+    catalog::build_nodejs_package(&db, Path::new("/home/johnny/test-pkg"))?;
 
     db.execute_batch("COMMIT;")?;
     Ok(())

@@ -9,9 +9,7 @@ mod lambda;
 mod resource;
 mod schema;
 mod source;
-
-// Experimental.
-pub mod typescript;
+mod nodejs;
 
 pub use collection::Collection;
 pub use content_type::ContentType;
@@ -32,6 +30,8 @@ pub fn build_catalog(db: &DB, uri: url::Url) -> Result<()> {
     Source::register(db, uri)?;
     Ok(())
 }
+
+pub use nodejs::build_package as build_nodejs_package;
 
 #[cfg(test)]
 mod test {

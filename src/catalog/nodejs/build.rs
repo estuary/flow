@@ -1,6 +1,6 @@
-use crate::catalog::typescript;
-use crate::catalog::{ContentType, Error};
+use crate::catalog::{Resource, ContentType, Error};
 use crate::doc::{Schema, SchemaIndex};
+use super::typescript;
 use estuary_json::schema::build::build_schema;
 use rusqlite::{params as sql_params, Connection as DB};
 use serde::{Deserialize, Serialize};
@@ -12,8 +12,8 @@ use std::path;
 use std::process::Command;
 use url::Url;
 
-pub fn build_nodejs_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
-    // TODO(johnny): If package.json doesn't exist, scaffold out from a skeleton.
+pub fn build_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
+    // TODO(johnny): If package.json doesn't exist, scaffold out from "template".
     patch_package_json(db, pkg)?;
     generate_collections_ts(db, pkg)?;
     generate_lambdas_ts(db, pkg)?;
@@ -25,11 +25,13 @@ pub fn build_nodejs_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
 
     let pack = pkg.join("catalog-js-transformer-0.1.0.tgz");
     let pack = Url::from_file_path(pack).unwrap();
-    crate::catalog::Resource::register(db, ContentType::NpmPack, &pack)?;
+    Resource::register(db, ContentType::NpmPack, &pack)?;
 
     Ok(())
 }
 
+// Models the bits of the "package.json" file we care about patching,
+// and passes through everything else.
 #[derive(Serialize, Deserialize)]
 struct PackageJson {
     #[serde(default)]
