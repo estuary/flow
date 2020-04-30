@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::iter::Iterator;
 use std::path;
+use std::fs;
 use std::process::Command;
 use url::Url;
 
@@ -18,14 +19,17 @@ pub fn build_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     generate_collections_ts(db, pkg)?;
     generate_lambdas_ts(db, pkg)?;
 
-    npm_cmd(pkg, &["install"])?;
+    npm_cmd(pkg, &["install", "--no-audit", "--no-fund"])?;
     npm_cmd(pkg, &["run", "compile"])?;
     npm_cmd(pkg, &["run", "lint"])?;
     npm_cmd(pkg, &["pack"])?;
 
     let pack = pkg.join("catalog-js-transformer-0.1.0.tgz");
-    let pack = Url::from_file_path(pack).unwrap();
+    let pack = fs::canonicalize(&pack)?;
+
+    let pack = Url::from_file_path(&pack).unwrap();
     Resource::register(db, ContentType::NpmPack, &pack)?;
+    log::info!("built NodeJS pack {:?}", pack);
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 use crate::catalog;
-use thiserror;
-use hyper;
 use http;
+use hyper;
+use thiserror;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

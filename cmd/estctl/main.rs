@@ -8,6 +8,8 @@ use url;
 type Error = Box<dyn std::error::Error + 'static>;
 
 fn main() {
+    pretty_env_logger::init();
+
     let matches = clap::App::new("Estuary CLI")
         .version("v0.1.0")
         .author("Estuary Technologies, Inc. \u{00A9}2020")
@@ -56,7 +58,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     db.execute_batch("BEGIN;")?;
     catalog::init_db_schema(&db)?;
     catalog::Source::register(&db, root)?;
-    catalog::build_nodejs_package(&db, Path::new("/home/johnny/test-pkg"))?;
+    catalog::build_nodejs_package(&db, Path::new("./catalog-js-transformer-template"))?;
 
     db.execute_batch("COMMIT;")?;
     Ok(())

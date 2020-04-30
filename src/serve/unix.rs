@@ -4,14 +4,14 @@ use log::{debug, error};
 use std::convert::Infallible;
 use std::fs;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::Path;
 use warp::filters::BoxedFilter;
 
 // Asynchronously serve a warp::Filter over the given Unix Domain Socket path,
 // until signaled to gracefully stop.
 pub fn serve(
     filter: BoxedFilter<(impl warp::Reply + 'static,)>,
-    socket_path: PathBuf,
+    socket_path: &Path,
     stop: impl Future<Output = ()>,
 ) -> impl Future<Output = ()> {
     let svc = warp::service(filter);
@@ -26,6 +26,7 @@ pub fn serve(
     let server = incoming.serve(make_svc);
     let server = server.with_graceful_shutdown(stop);
 
+    let socket_path = socket_path.to_owned();
     async move {
         if let Err(err) = server.await {
             error!("error on service stop: {}", err);
@@ -65,7 +66,7 @@ mod test {
             .boxed();
 
         // Expect |serve| synchronously binds a socket listener, and returns a future to serve it.
-        let server = serve(filter, path.clone(), rx_stop);
+        let server = serve(filter, &path, rx_stop);
         let _ = fs::metadata(&path).unwrap(); // Exists.
 
         // Start serving asynchronously.

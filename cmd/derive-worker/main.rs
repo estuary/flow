@@ -1,11 +1,13 @@
+use bytes;
 use clap;
 use estuary::{catalog, derive, specs::derive as specs};
-use futures::{select, FutureExt};
+use futures::{select, FutureExt, TryStreamExt};
 use log::{error, info};
 use pretty_env_logger;
 use std::sync::{Arc, Mutex};
 use tokio;
 use tokio::signal::unix::{signal, SignalKind};
+use url::Url;
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -77,8 +79,36 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     };
 
     // Bind local listener and begin serving.
-    let server = estuary::serve::unix_domain_socket(service, cfg.socket_path, stop);
+    let server = estuary::serve::unix_domain_socket(service, &cfg.socket_path, stop);
     let server_handle = tokio::spawn(server);
+
+    let store_url = Url::from_file_path(&cfg.socket_path).unwrap();
+
+    // Invoke derivation bootstraps.
+    node_svc.bootstrap(9, &store_url).await?;
+
+
+    let (mut tx, mut rx) = node_svc.transform(8, &store_url).await?;
+
+    for _i in 0..10 {
+        tx.send_data(bytes::Bytes::from(
+            r#"
+            {
+                "exchange": "NYSE",
+                "security": "APPL",
+                "time": "2019-01-16T12:34:56Z",
+                "bid":  {"price": 321.09, "size": 100},
+                "ask":  {"price": 321.45, "size": 200},
+                "last": {"price": 321.12, "size": 50}
+            }
+        "#,
+        ))
+        .await?;
+        log::warn!("sent chunk");
+
+        let chunk = rx.try_next().await?;
+        log::warn!("got chunk {:?}", chunk);
+    }
 
     // Signal to host process that we're ready to accept connections.
     println!("READY");
