@@ -13,7 +13,7 @@ use std::process::Command;
 use url::Url;
 
 pub fn build_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
-    // TODO(johnny): If package.json doesn't exist, scaffold out from "template".
+    // TODO(johnny): If package.json doesn't exist, scaffold out from "catalog-js-transformer-template".
     patch_package_json(db, pkg)?;
     generate_collections_ts(db, pkg)?;
     generate_lambdas_ts(db, pkg)?;
