@@ -1,6 +1,5 @@
 use estuary::catalog;
 use pretty_env_logger;
-use rusqlite::Connection;
 use std::{env, path::PathBuf};
 use url::Url;
 

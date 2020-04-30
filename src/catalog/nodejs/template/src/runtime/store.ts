@@ -15,7 +15,7 @@ export class Store {
     constructor(endpoint: string) {
         const opts: h2.ClientSessionOptions = {};
 
-        if (endpoint.startsWith('uds:')) {
+        if (endpoint.startsWith('file:')) {
             opts.createConnection = function (authority: url.URL): stream.Duplex {
                 return net.createConnection(authority.pathname);
             };

@@ -1,6 +1,5 @@
 use clap;
-use estuary::derive;
-use estuary::specs::derive as specs;
+use estuary::{catalog, derive, specs::derive as specs};
 use futures::{select, FutureExt};
 use log::{error, info};
 use pretty_env_logger;
@@ -51,10 +50,16 @@ fn parse_config(args: &clap::ArgMatches) -> Result<specs::Config, Error> {
 async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     let cfg = parse_config(args)?;
 
+    // Open catalog DB.
+    let db = catalog::open(&cfg.catalog)?;
+
     // "Open" recovered state store, instrumented with a Recorder.
     // TODO rocksdb, sqlite, Go CGO bindings to client / Recorder, blah blah.
     let store = Box::new(derive::state::MemoryStore::new());
     let store = Arc::new(Mutex::new(store));
+
+    // Start NodeJS transform worker.
+    let node_svc = derive::lambda::NodeJsService::new(&db)?;
 
     // Build service.
     // TODO include message transaction flow filters in this service.

@@ -208,6 +208,7 @@ dependencies = [
  "fxhash",
  "headers",
  "http",
+ "http-body",
  "hyper",
  "hyperlocal",
  "itertools 0.9.0",
