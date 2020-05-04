@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use tokio;
 use tokio::signal::unix::{signal, SignalKind};
 use url::Url;
+use warp::Filter;
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -61,11 +62,16 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     let store = Arc::new(Mutex::new(store));
 
     // Start NodeJS transform worker.
-    let node_svc = derive::lambda::NodeJsService::new(&db)?;
+    let node_svc = derive::NodeJsHandle::new(&db)?;
+
+    let txn_ctx =
+        derive::executor::TxnCtx::new(Url::from_file_path(&cfg.socket_path).unwrap(), node_svc);
+    let txn_ctx = Arc::new(Box::new(txn_ctx));
 
     // Build service.
-    // TODO include message transaction flow filters in this service.
-    let service = derive::state::build_service(store);
+    let service = derive::state::build_service(store)
+        .or(derive::build_service(txn_ctx))
+        .boxed();
 
     // Register for shutdown signals and wire up a future.
     let mut sigterm = signal(SignalKind::terminate())?;
@@ -85,9 +91,9 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     let store_url = Url::from_file_path(&cfg.socket_path).unwrap();
 
     // Invoke derivation bootstraps.
-    node_svc.bootstrap(9, &store_url).await?;
+    //node_svc.bootstrap(9, &store_url).await?;
 
-
+    /*
     let (mut tx, mut rx) = node_svc.transform(8, &store_url).await?;
 
     for _i in 0..10 {
@@ -109,6 +115,11 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
         let chunk = rx.try_next().await?;
         log::warn!("got chunk {:?}", chunk);
     }
+    drop(tx);
+
+    let chunk = rx.try_next().await?;
+    log::warn!("got chunk {:?}", chunk);
+     */
 
     // Signal to host process that we're ready to accept connections.
     println!("READY");

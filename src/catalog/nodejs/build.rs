@@ -6,10 +6,10 @@ use rusqlite::{params as sql_params, Connection as DB};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::io::Write;
 use std::iter::Iterator;
 use std::path;
-use std::fs;
 use std::process::Command;
 use url::Url;
 

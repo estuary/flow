@@ -42,7 +42,7 @@ pub enum Error {
     #[error("failed to parse regex: {0}")]
     RegexErr(#[from] regex::Error),
     #[error("failed to build annotation: {0}")]
-    AnnotationErr(#[source] Box<dyn std::error::Error>),
+    AnnotationErr(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 
     #[error("at schema '{curi}': {detail}")]
     AtSchema {

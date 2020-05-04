@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 /// Config is the initialization configuration of a derive worker.
@@ -29,25 +30,29 @@ pub struct State {
     pub fsm: Box<RawValue>,
 }
 
-/// SourceMessage is read from the flow-consumer within derive transaction streams.
+/// SourceEnvelope is read from the flow-consumer within derive transaction streams.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct SourceMessage {
-    pub collection: String,
-    // Hash of the composite shuffle key of this message.
-    pub shuffle_hash: u64,
-    pub value: Box<RawValue>, // Borrow this?
+pub struct SourceEnvelope<'d> {
+    #[serde(borrow, deserialize_with = "super::deserialize_cow_str")]
+    pub collection: Cow<'d, str>,
 }
 
-/// DerivedMessage is published to the flow-consumer within derive transaction streams.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RawDocument<'d> {
+    #[serde(borrow, flatten)]
+    pub raw: &'d RawValue,
+}
+
+/// DerivedEnvelope is published to the flow-consumer within derive transaction streams.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DerivedMessage {
+pub struct DerivedEnvelope {
     // Logical partition to which this message will be written.
     // Does *not* include a final physical partition component (eg "part=123").
     // That must be determined by mapping the key hash onto existing physical partitions.
     pub partition: String,
     // Hash of the composite primary key of this message.
     pub key_hash: u64,
-    pub value: Box<RawValue>, // Or serde_json::Value?
 }

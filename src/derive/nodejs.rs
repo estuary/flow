@@ -1,12 +1,15 @@
-use super::Error;
+use super::{parse_record_batches, Error, RecordBatch};
 use crate::catalog::{sql_params, ContentType, DB};
-use bytes;
-use futures::TryStream;
+use bytes::{Bytes, BytesMut};
+use futures::{Stream, StreamExt, TryStream, TryStreamExt};
 use http_body::Body;
 use hyper;
 use hyperlocal::{UnixConnector, Uri as UnixUri};
+use std::convert::Infallible;
 use std::fs;
 use std::io::{Read, Write};
+use std::iter::FromIterator;
+use std::ops::{Deref, DerefMut};
 use std::path;
 use std::process;
 use tempfile;
@@ -25,12 +28,7 @@ impl Service {
         Self::start(db, tempfile::tempdir()?)
     }
 
-    pub async fn bootstrap(
-        &self,
-        derivation_id: i64,
-        store: &url::Url,
-    ) -> Result<(), Error> {
-
+    pub async fn bootstrap(&self, derivation_id: i64, store: &url::Url) -> Result<(), Error> {
         let req = hyper::Request::builder()
             .uri(UnixUri::new(
                 &self.sock,
@@ -39,15 +37,7 @@ impl Service {
             .header("state-store", store.as_str())
             .body(hyper::Body::empty())?;
 
-        let mut resp = self.client.request(req).await?;
-
-        if !resp.status().is_success() {
-            let body = hyper::body::to_bytes(resp.body_mut()).await?;
-            return Err(Error::RemoteHTTPError {
-                status: resp.status(),
-                body: String::from_utf8_lossy(&body).into_owned(),
-            });
-        }
+        Self::check_status(self.client.request(req).await?).await?;
         Ok(())
     }
 
@@ -55,24 +45,43 @@ impl Service {
         &self,
         transform_id: i64,
         store: &url::Url,
-    ) -> Result<
-        (
-            hyper::body::Sender,
-            impl TryStream<Ok = bytes::Bytes, Error = Error> + Unpin,
-        ),
-        Error,
-    > {
-        let (req_body_sink, req_body) = hyper::Body::channel();
+        input: impl Stream<Item = RecordBatch> + Send + Sync + 'static,
+    ) -> Result<impl TryStream<Ok = RecordBatch, Error = Error> + Send + Sync + 'static, Error>
+    {
+        let input = input.map(|b| Result::<RecordBatch, Infallible>::Ok(b));
+
         let req = hyper::Request::builder()
             .uri(UnixUri::new(
                 &self.sock,
                 &format!("/transform/{}", transform_id),
             ))
             .header("state-store", store.as_str())
-            .body(req_body)?;
+            .body(hyper::body::Body::wrap_stream(input))?;
+        let resp = Self::check_status(self.client.request(req).await?).await?;
 
-        let mut resp = self.client.request(req).await?;
+        let out = futures::stream::try_unfold(resp.into_body(), |mut body| async move {
+            if let Some(data) = body.data().await {
+                return Ok(Some((data?, body)));
+            }
+            if let Some(trailers) = body.trailers().await? {
+                // TODO - inspect for errors, and propagate.
+                log::info!("got trailers! {:?}", trailers);
+            } else {
+                log::error!("missing expected trailers!");
+                return Err(Error::NoSuccessTrailerRenameMe);
+            }
+            return Ok(None);
+        });
+        let out = Box::pin(out);
 
+        let out = parse_record_batches(out);
+
+        Ok(out)
+    }
+
+    async fn check_status(
+        mut resp: hyper::Response<hyper::Body>,
+    ) -> Result<hyper::Response<hyper::Body>, Error> {
         if !resp.status().is_success() {
             let body = hyper::body::to_bytes(resp.body_mut()).await?;
             return Err(Error::RemoteHTTPError {
@@ -80,26 +89,7 @@ impl Service {
                 body: String::from_utf8_lossy(&body).into_owned(),
             });
         }
-
-        let foobar = futures::stream::try_unfold(resp.into_body(), |mut body| {
-            // Inner closure is !Unpin, so box it to allow it to be moved while still pinned.
-            // TODO(johnny): Elide allocation by hoisting to a non-async struct implementing Future + Unpin.
-            Box::pin(async move {
-                if let Some(chunk) = body.data().await {
-                    return Ok(Some((chunk?, body)));
-                }
-
-                if let Some(trailers) = body.trailers().await? {
-                    log::info!("got trailers! {:?}", trailers);
-                // TODO - inspect for errors, and propagate.
-                } else {
-                    log::error!("missing expected trailers!");
-                }
-                return Ok(None);
-            })
-        });
-
-        Ok((req_body_sink, foobar))
+        Ok(resp)
     }
 
     fn start(db: &DB, dir: tempfile::TempDir) -> Result<Service, Error> {
