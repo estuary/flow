@@ -1,15 +1,13 @@
 use super::{Error, NodeJsHandle, RecordBatch};
-use crate::specs::derive::{RawDocument, SourceEnvelope};
-use bytes::{Buf, Bytes, BytesMut};
-//use futures::channel::mpsc;
-//use futures::stream::FusedStream;
-use futures::future::BoxFuture;
-use futures::{Sink, StreamExt};
-use serde::Deserialize;
-use serde_json::de::Read;
+use bytes::Bytes;
+use futures::{
+    channel::mpsc,
+    Stream, Sink, SinkExt, StreamExt,
+};
+use pin_utils::pin_mut;
 use std::collections::BTreeMap;
-use std::future::Future;
-use std::iter::FromIterator;
+use std::sync::Arc;
+use tokio;
 use url::Url;
 use uuid::Uuid;
 
@@ -32,9 +30,9 @@ impl TxnCtx {
     }
 }
 
-struct Txn<'t> {
-    ctx: &'t TxnCtx,
-    node_streams: BTreeMap<i64, (hyper::body::Sender, BoxFuture<'t, Result<(), Error>>)>,
+struct Txn {
+    ctx: Arc<Box<TxnCtx>>,
+    node_streams: BTreeMap<i64, (hyper::body::Sender, tokio::task::JoinHandle<()>)>,
     next_uuid: Uuid,
     input_chunk: Bytes,
 }
@@ -61,14 +59,58 @@ struct Txn<'t> {
 //          - combine into accumulator
 //
 
-impl<'t> Txn<'t> {
-    fn new(ctx: &'t TxnCtx, next_uuid: Uuid) -> Txn<'t> {
+impl Txn {
+    fn new(ctx: Arc<Box<TxnCtx>>, next_uuid: Uuid) -> Txn {
         Txn {
             ctx,
             node_streams: BTreeMap::new(),
             next_uuid,
             input_chunk: Bytes::new(),
         }
+    }
+
+    async fn input_batch(
+        &mut self,
+        batch: RecordBatch,
+        derived_tx: &(impl Sink<Result<RecordBatch, Error>> + Send + Clone + 'static),
+    ) -> Result<(), Error> {
+
+        let tx = self.nodejs_stream(8, derived_tx).await?;
+        tx.send_data(batch.bytes().clone()).await?;
+
+        Ok(())
+    }
+
+    async fn nodejs_stream(
+        &mut self,
+        transform_id: i64,
+        out_tx: &(impl Sink<Result<RecordBatch, Error>> + Send + Clone + 'static),
+    ) -> Result<&mut hyper::body::Sender, Error>
+    {
+        let entry = self.node_streams.entry(transform_id);
+
+        use std::collections::btree_map::Entry;
+        if let Entry::Occupied(occ) = entry {
+            return Ok(&mut occ.into_mut().0);
+        }
+        // We must start a new stream.
+
+        let (tx, rx) = self.ctx.node.transform(transform_id, &self.ctx.loopback).await?;
+        let out_tx_clone = out_tx.clone();
+
+        let join_handle = tokio::spawn(async move {
+            pin_utils::pin_mut!(rx);
+            pin_utils::pin_mut!(out_tx_clone);
+
+            while let Some(batch) = rx.next().await {
+                out_tx_clone.send(batch).await;
+            }
+        });
+        Ok(&mut entry.or_insert((tx, join_handle)).0)
+    }
+
+    async fn input_eof(&mut self) -> Result<(), Error> {
+        Ok(())
     }
 
     /*
@@ -80,18 +122,6 @@ impl<'t> Txn<'t> {
         self.input_chunk = chunk;
     }
 
-    fn node_stream<NTX>(&mut self, t_id: i64, node_out_tx: &NTX) -> &mut hyper::body::Sender
-    where
-        NTX: Sink<Result<Bytes, Error>> + Clone,
-    {
-        if let Some((sender, _)) = self.node_streams.get_mut(&t_id) {
-            return sender;
-        }
-        // We must start a new stream.
-        let (sender, handle) = self.ctx.node.transform(t_id, &self.ctx.loopback, node_out_tx.clone());
-        self.node_streams.insert(t_id, (sender, handle));
-        return self.node_stream(t_id, node_out_tx);
-    }
 
     async fn drain_input<O, OF, NTX>(
         &mut self,
@@ -165,56 +195,35 @@ impl<'t> Txn<'t> {
      */
 }
 
-/*
-pub async fn txn_run<I, O, IE, OF>(
+pub async fn txn_run(
+    input: impl Stream<Item = Result<RecordBatch, Error>> + Send + 'static,
     ctx: Arc<Box<TxnCtx>>,
     seq_from: Uuid,
-    mut input: I,
-) -> (impl Stream<Item=Bytes>, impl Future<Output=Result<(),Error>>)
-where
-    I: TryStream<Ok = Bytes, Error = IE> + Send + Unpin + FusedStream,
-    IE: Into<Error>,
-{
-    // Verify we're in an allowed execution state.
+) -> impl Stream<Item = Result<RecordBatch, Error>> {
+    // TODO(johnny) Verify we're in an allowed execution state.
 
-    let mut txn = Txn::new(&ctx, seq_from);
-    let (node_out_tx, node_out_rx) = mpsc::channel::<Result<Bytes, Error>>(8);
-    let mut node_out_rx = node_out_rx.fuse();
+    let mut txn = Txn::new(ctx, seq_from);
+    let (mut derived_tx, mut derived_rx) = mpsc::channel::<Result<RecordBatch, Error>>(8);
 
-    // Multiplex over input and output.
-    loop {
-        futures::select!(
-            recv = input.try_next() => match recv {
-                Err(err) => return Err(err.into()),
-                Ok(Some(data)) => {
-                    txn.queue_input(data);
-                    while txn.drain_input(&mut output, &node_out_tx).await? {}
-                }
-                Ok(None) => {
-                    txn.input_eof().await?;
-                    break;
-                }
-            },
-            recv = node_out_rx.try_next() => match recv? {
-                Some(data) => {
-                    txn.next_node_output(data, &mut output).await?;
-                }
-                None => panic!("node_resp_tx shouldn't be dropped yet"),
-            }
-        );
+    // Consume |input| in an async task.
+    let consume_handle = tokio::spawn(async move {
+        pin_mut!(input);
+
+        while let Some(batch) = input.next().await {
+            let batch = batch?;
+            txn.input_batch(batch, &mut derived_tx).await?;
+        }
+        txn.input_eof().await?;
+        Result::<(), Error>::Ok(())
+    });
+
+    async_stream::stream! {
+        while let Some(batch) = derived_rx.next().await {
+            yield batch;
+        }
+        // Forward a terminal error of |consume_handle|, if any.
+        if let Err(err) = consume_handle.await {
+            yield Result::<RecordBatch, Error>::Err(err.into());
+        }
     }
-
-    // We've consumed all transaction input.
-    drop(input);
-    // We also won't start any further NodeJS transform request streams.
-    // Drop our handle so that |node_out_rx| will end after live requests finish.
-    drop(node_out_tx);
-
-    while let Some(data) = node_out_rx.try_next().await? {
-        txn.next_node_output(data, &mut output).await?;
-    }
-
-    // All done!
-    Ok(())
 }
- */

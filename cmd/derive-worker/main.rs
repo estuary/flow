@@ -1,7 +1,6 @@
-use bytes;
 use clap;
 use estuary::{catalog, derive, specs::derive as specs};
-use futures::{select, FutureExt, TryStreamExt};
+use futures::{select, FutureExt};
 use log::{error, info};
 use pretty_env_logger;
 use std::sync::{Arc, Mutex};
@@ -88,7 +87,7 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     let server = estuary::serve::unix_domain_socket(service, &cfg.socket_path, stop);
     let server_handle = tokio::spawn(server);
 
-    let store_url = Url::from_file_path(&cfg.socket_path).unwrap();
+    let _store_url = Url::from_file_path(&cfg.socket_path).unwrap();
 
     // Invoke derivation bootstraps.
     //node_svc.bootstrap(9, &store_url).await?;

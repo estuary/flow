@@ -1,6 +1,6 @@
-use super::{executor::TxnCtx, parse_record_batches, Error};
-use bytes::{Buf, Bytes};
-use futures::stream::{TryStream, TryStreamExt};
+use super::{executor::TxnCtx, data_into_record_batches};
+use bytes::Buf;
+use futures::stream::{Stream};
 use std::convert::Infallible;
 use std::sync::Arc;
 use warp::{filters::BoxedFilter, Filter, Reply};
@@ -16,17 +16,16 @@ fn rt_post_transform(store: Arc<Box<TxnCtx>>) -> BoxedFilter<(impl Reply,)> {
 
 async fn run_transform(
     _store: Arc<Box<TxnCtx>>,
-    req_body: impl TryStream<Ok = impl Buf, Error = warp::Error> + Send + Sync + 'static,
+    req_body: impl Stream<Item = Result<impl Buf + Send + Sync + 'static, warp::Error>> + Send + Sync + 'static,
 ) -> Result<impl Reply, Infallible> {
-    // Map from impl Buf -> Bytes. As these are already Bytes, it uses a zero-cost specialization.
-    let req_body = req_body.map_ok(|mut b| b.to_bytes());
-    // Decode out RecordBatches of the body stream.
-    let req_batches = parse_record_batches(req_body);
 
-    let out = req_batches.into_stream();
+    let req_batches = data_into_record_batches(req_body);
+
+    // TODO actually run transform
+
     let resp = hyper::Response::builder()
         .status(200)
-        .body(hyper::Body::wrap_stream(out))
+        .body(hyper::Body::wrap_stream(req_batches))
         .unwrap();
 
     Ok(resp)

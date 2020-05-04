@@ -1,15 +1,10 @@
-use super::{parse_record_batches, Error, RecordBatch};
+use super::{data_into_record_batches, Error, RecordBatch};
 use crate::catalog::{sql_params, ContentType, DB};
-use bytes::{Bytes, BytesMut};
-use futures::{Stream, StreamExt, TryStream, TryStreamExt};
-use http_body::Body;
+use futures::Stream;
 use hyper;
 use hyperlocal::{UnixConnector, Uri as UnixUri};
-use std::convert::Infallible;
 use std::fs;
 use std::io::{Read, Write};
-use std::iter::FromIterator;
-use std::ops::{Deref, DerefMut};
 use std::path;
 use std::process;
 use tempfile;
@@ -45,10 +40,12 @@ impl Service {
         &self,
         transform_id: i64,
         store: &url::Url,
-        input: impl Stream<Item = RecordBatch> + Send + Sync + 'static,
-    ) -> Result<impl TryStream<Ok = RecordBatch, Error = Error> + Send + Sync + 'static, Error>
+    ) -> Result<(
+        hyper::body::Sender,
+        impl Stream<Item=Result<RecordBatch, Error>>,
+    ), Error>
     {
-        let input = input.map(|b| Result::<RecordBatch, Infallible>::Ok(b));
+        let (sender, req_body) = hyper::body::Body::channel();
 
         let req = hyper::Request::builder()
             .uri(UnixUri::new(
@@ -56,27 +53,12 @@ impl Service {
                 &format!("/transform/{}", transform_id),
             ))
             .header("state-store", store.as_str())
-            .body(hyper::body::Body::wrap_stream(input))?;
-        let resp = Self::check_status(self.client.request(req).await?).await?;
+            .body(req_body).unwrap();
 
-        let out = futures::stream::try_unfold(resp.into_body(), |mut body| async move {
-            if let Some(data) = body.data().await {
-                return Ok(Some((data?, body)));
-            }
-            if let Some(trailers) = body.trailers().await? {
-                // TODO - inspect for errors, and propagate.
-                log::info!("got trailers! {:?}", trailers);
-            } else {
-                log::error!("missing expected trailers!");
-                return Err(Error::NoSuccessTrailerRenameMe);
-            }
-            return Ok(None);
-        });
-        let out = Box::pin(out);
+        let resp = Self::check_status(
+            self.client.request(req).await?).await?;
 
-        let out = parse_record_batches(out);
-
-        Ok(out)
+        Ok((sender, data_into_record_batches(resp.into_body())))
     }
 
     async fn check_status(

@@ -2,6 +2,7 @@ use crate::catalog;
 use http;
 use hyper;
 use thiserror;
+use tokio::task::JoinError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -17,6 +18,8 @@ pub enum Error {
     NpmInstallFailed,
     #[error("HTTP error: {0}")]
     HyperError(#[from] hyper::Error),
+    #[error("async task failure: {0}")]
+    JoinErr(#[from] JoinError),
     #[error("HTTP error (warp): {0}")]
     WarpError(#[from] warp::Error),
     #[error("HTTP error: {0}")]
