@@ -1,15 +1,13 @@
-use super::{Error, NodeJsHandle, RecordBatch};
+use super::{parse_record_batch, Error, NodeJsHandle, RecordBatch};
 use bytes::Bytes;
-use futures::{
-    channel::mpsc,
-    Stream, Sink, SinkExt, StreamExt,
-};
-use pin_utils::pin_mut;
+use futures::{Sink, SinkExt, StreamExt};
+use http_body::Body;
+use std::collections::btree_map::Entry as BTreeEntry;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio;
+use tokio::task::JoinHandle;
 use url::Url;
-use uuid::Uuid;
 
 pub struct TxnCtx {
     loopback: Url,
@@ -28,13 +26,6 @@ impl TxnCtx {
             src_to_transforms: BTreeMap::new(),
         }
     }
-}
-
-struct Txn {
-    ctx: Arc<Box<TxnCtx>>,
-    node_streams: BTreeMap<i64, (hyper::body::Sender, tokio::task::JoinHandle<()>)>,
-    next_uuid: Uuid,
-    input_chunk: Bytes,
 }
 
 // Big fat event loop:
@@ -59,58 +50,97 @@ struct Txn {
 //          - combine into accumulator
 //
 
-impl Txn {
-    fn new(ctx: Arc<Box<TxnCtx>>, next_uuid: Uuid) -> Txn {
+pub struct Txn<DTX> {
+    ctx: Arc<Box<TxnCtx>>,
+    node_transforms: BTreeMap<i64, (hyper::body::Sender, JoinHandle<Result<(), Error>>)>,
+    derived_tx: DTX,
+}
+
+impl<DTX, E> Txn<DTX>
+where
+    DTX: Sink<RecordBatch, Error = E> + Clone + Send + Sync + 'static,
+    Error: From<E>,
+{
+    pub fn new(ctx: Arc<Box<TxnCtx>>, dtx: DTX) -> Txn<DTX> {
         Txn {
             ctx,
-            node_streams: BTreeMap::new(),
-            next_uuid,
-            input_chunk: Bytes::new(),
+            node_transforms: BTreeMap::new(),
+            derived_tx: dtx,
         }
     }
 
-    async fn input_batch(
-        &mut self,
-        batch: RecordBatch,
-        derived_tx: &(impl Sink<Result<RecordBatch, Error>> + Send + Clone + 'static),
-    ) -> Result<(), Error> {
+    pub async fn push_source_docs(&mut self, batch: RecordBatch) -> Result<(), Error> {
+        let tx = self.nodejs_stream(8).await?;
 
-        let tx = self.nodejs_stream(8, derived_tx).await?;
-        tx.send_data(batch.bytes().clone()).await?;
+        let batch = batch.to_bytes();
+        log::info!("processing source record batch: {:?}", batch);
+        tx.send_data(batch).await?;
 
         Ok(())
     }
 
-    async fn nodejs_stream(
+    pub async fn input_eof(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    pub async fn nodejs_stream(
         &mut self,
         transform_id: i64,
-        out_tx: &(impl Sink<Result<RecordBatch, Error>> + Send + Clone + 'static),
-    ) -> Result<&mut hyper::body::Sender, Error>
-    {
-        let entry = self.node_streams.entry(transform_id);
+    ) -> Result<&mut hyper::body::Sender, Error> {
+        let entry = self.node_transforms.entry(transform_id);
 
-        use std::collections::btree_map::Entry;
-        if let Entry::Occupied(occ) = entry {
-            return Ok(&mut occ.into_mut().0);
+        // Is a transform stream already started?
+        if let BTreeEntry::Occupied(entry) = entry {
+            let entry = entry.into_mut();
+            // TODO Check if JoinHandle as failed.
+            return Ok(&mut entry.0);
         }
-        // We must start a new stream.
 
-        let (tx, rx) = self.ctx.node.transform(transform_id, &self.ctx.loopback).await?;
-        let out_tx_clone = out_tx.clone();
+        // Nope. We must begin one.
+        let (sender, body) = self
+            .ctx
+            .node
+            .start_transform(transform_id, &self.ctx.loopback)
+            .await?;
 
-        let join_handle = tokio::spawn(async move {
-            pin_utils::pin_mut!(rx);
-            pin_utils::pin_mut!(out_tx_clone);
+        let dtx = self.derived_tx.clone();
 
-            while let Some(batch) = rx.next().await {
-                out_tx_clone.send(batch).await;
+        // Spawn a read-loop which pushes derived records to |derived_tx|.
+        let read_loop_handle = tokio::spawn(async move {
+            match Self::nodejs_read_loop(body, dtx).await {
+                Err(err) => {
+                    log::error!("NodeJS read-loop failed: {:?}", err);
+                    Err(err)
+                }
+                Ok(()) => {
+                    log::info!("NodeJS read-loop finished");
+                    Ok(())
+                }
             }
         });
-        Ok(&mut entry.or_insert((tx, join_handle)).0)
+        Ok(&mut entry.or_insert((sender, read_loop_handle)).0)
     }
 
-    async fn input_eof(&mut self) -> Result<(), Error> {
-        Ok(())
+    async fn nodejs_read_loop(body: hyper::Body, dtx: DTX) -> Result<(), Error> {
+        let mut rem = Bytes::new();
+        pin_utils::pin_mut!(body, dtx);
+
+        while let Some(bytes) = body.next().await {
+            if let Some(batch) = parse_record_batch(&mut rem, Some(bytes?))? {
+                dtx.send(batch).await?;
+            }
+        }
+        parse_record_batch(&mut rem, None)?;
+
+        if let Some(trailers) = body.trailers().await? {
+            // TODO - inspect for errors, and propagate.
+            log::info!("got trailers! {:?}", trailers);
+        } else {
+            log::error!("missing expected trailers!");
+            return Err(Error::NoSuccessTrailerRenameMe);
+        }
+
+        Result::<(), Error>::Ok(())
     }
 
     /*
@@ -193,37 +223,4 @@ impl Txn {
         Ok(())
     }
      */
-}
-
-pub async fn txn_run(
-    input: impl Stream<Item = Result<RecordBatch, Error>> + Send + 'static,
-    ctx: Arc<Box<TxnCtx>>,
-    seq_from: Uuid,
-) -> impl Stream<Item = Result<RecordBatch, Error>> {
-    // TODO(johnny) Verify we're in an allowed execution state.
-
-    let mut txn = Txn::new(ctx, seq_from);
-    let (mut derived_tx, mut derived_rx) = mpsc::channel::<Result<RecordBatch, Error>>(8);
-
-    // Consume |input| in an async task.
-    let consume_handle = tokio::spawn(async move {
-        pin_mut!(input);
-
-        while let Some(batch) = input.next().await {
-            let batch = batch?;
-            txn.input_batch(batch, &mut derived_tx).await?;
-        }
-        txn.input_eof().await?;
-        Result::<(), Error>::Ok(())
-    });
-
-    async_stream::stream! {
-        while let Some(batch) = derived_rx.next().await {
-            yield batch;
-        }
-        // Forward a terminal error of |consume_handle|, if any.
-        if let Err(err) = consume_handle.await {
-            yield Result::<RecordBatch, Error>::Err(err.into());
-        }
-    }
 }

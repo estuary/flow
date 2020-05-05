@@ -1,6 +1,5 @@
-use super::{data_into_record_batches, Error, RecordBatch};
+use super::Error;
 use crate::catalog::{sql_params, ContentType, DB};
-use futures::Stream;
 use hyper;
 use hyperlocal::{UnixConnector, Uri as UnixUri};
 use std::fs;
@@ -32,19 +31,17 @@ impl Service {
             .header("state-store", store.as_str())
             .body(hyper::Body::empty())?;
 
-        Self::check_status(self.client.request(req).await?).await?;
+        let resp = self.client.request(req).await?;
+        Self::check_status(resp).await?;
+
         Ok(())
     }
 
-    pub async fn transform(
+    pub async fn start_transform(
         &self,
         transform_id: i64,
         store: &url::Url,
-    ) -> Result<(
-        hyper::body::Sender,
-        impl Stream<Item=Result<RecordBatch, Error>>,
-    ), Error>
-    {
+    ) -> Result<(hyper::body::Sender, hyper::Body), Error> {
         let (sender, req_body) = hyper::body::Body::channel();
 
         let req = hyper::Request::builder()
@@ -53,12 +50,13 @@ impl Service {
                 &format!("/transform/{}", transform_id),
             ))
             .header("state-store", store.as_str())
-            .body(req_body).unwrap();
+            .body(req_body)
+            .unwrap();
 
-        let resp = Self::check_status(
-            self.client.request(req).await?).await?;
+        let resp = self.client.request(req).await?;
+        let resp = Self::check_status(resp).await?;
 
-        Ok((sender, data_into_record_batches(resp.into_body())))
+        Ok((sender, resp.into_body()))
     }
 
     async fn check_status(

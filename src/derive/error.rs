@@ -35,4 +35,6 @@ pub enum Error {
     InvalidJsonSeq,
     #[error("missing success trailer")]
     NoSuccessTrailerRenameMe,
+    #[error("channel send error: {0}")]
+    ChannelSendErr(#[from] futures::channel::mpsc::SendError),
 }

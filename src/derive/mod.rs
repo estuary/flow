@@ -10,6 +10,6 @@ mod service;
 pub use service::build as build_service;
 
 mod framing;
-pub use framing::{data_into_record_batches, RecordBatch};
+pub use framing::{parse_record_batch, RecordBatch};
 
 pub use nodejs::Service as NodeJsHandle;
