@@ -134,8 +134,6 @@ class Server {
             return malformed('expected :path header');
         }
 
-        console.error('processing request ', path, store);
-
         const pathBootstrap = /^\/bootstrap\/(\d+)$/.exec(path);
         if (pathBootstrap) {
             const bootstraps = this.bootstraps[parseInt(pathBootstrap[1], 10)];

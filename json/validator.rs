@@ -1,5 +1,5 @@
 use crate::schema::{
-    index::Index, intern, Annotation, Application, Keyword, Schema, Validation, *,
+    index, intern, Annotation, Application, Keyword, Schema, Validation, *,
 };
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
@@ -69,10 +69,7 @@ impl Context for FullContext {
 }
 
 #[derive(Debug)]
-pub enum Outcome<'sm, A>
-where
-    A: Annotation,
-{
+pub enum Outcome<'sm, A: Annotation> {
     Invalid(&'sm Validation),
     NotIsValid,
     AnyOfNotMatched,
@@ -80,6 +77,20 @@ where
     OneOfMultipleMatched,
     ReferenceNotFound(url::Url),
     Annotation(&'sm A),
+}
+
+impl<'sm, A: Annotation> Outcome<'sm, A> {
+    pub fn is_error(&self) -> bool {
+        match self {
+            Outcome::Invalid(_) |
+            Outcome::NotIsValid |
+            Outcome::AnyOfNotMatched |
+            Outcome::OneOfNotMatched |
+            Outcome::OneOfMultipleMatched |
+            Outcome::ReferenceNotFound(_) => true,
+            Outcome::Annotation(_) => false,
+        }
+    }
 }
 
 // Default is implemented for use in TinyVec.
@@ -170,7 +181,7 @@ where
     }
 
     fn add_outcome(&mut self, o: Outcome<'sm, A>, c: C) {
-        println!("\t\t\t\t  {:?} @ {:?}", o, c);
+        // println!("\t\t\t\t  {:?} @ {:?}", o, c);
         self.outcomes.push((o, c));
     }
 
@@ -203,7 +214,7 @@ where
     A: Annotation,
     C: Context,
 {
-    index: &'sm Index<'sm, A>,
+    index: &'sm index::Index<'sm, A>,
     scopes: Vec<Scope<'sm, A, C>>,
     active_offsets: Vec<usize>,
 }
@@ -214,11 +225,11 @@ where
     C: Context,
 {
     fn push_property<'a>(&mut self, span: &Span, loc: &'a LocatedProperty<'a>) {
-        println!(
-            "\t\t\t\tpush_property {} @ {:?}",
-            Location::Property(*loc),
-            span
-        );
+        //println!(
+        //    "\t\t\t\tpush_property {} @ {:?}",
+        //    Location::Property(*loc),
+        //    span
+        //);
 
         use Application::{
             AdditionalProperties, PatternProperties, Properties, PropertyNames,
@@ -284,7 +295,7 @@ where
     }
 
     fn push_item<'a>(&mut self, span: &Span, loc: &'a LocatedItem<'a>) {
-        println!("\t\t\t\tpush_item {} @ {:?}", Location::Item(*loc), span);
+        //println!("\t\t\t\tpush_item {} @ {:?}", Location::Item(*loc), span);
 
         use Application::{AdditionalItems, Contains, Items, UnevaluatedItems};
         use Keyword::Application as KWApp;
@@ -334,10 +345,10 @@ where
     }
 
     fn pop_object<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num_properties: usize) {
-        println!(
-            "\t\t\t\tpop_object {:?} @ {}:{:?}",
-            num_properties, loc, span
-        );
+        //println!(
+        //    "\t\t\t\tpop_object {:?} @ {}:{:?}",
+        //    num_properties, loc, span
+        //);
 
         self.check_validations(span, loc, |validation, scope| -> bool {
             use Validation::*;
@@ -362,7 +373,7 @@ where
     }
 
     fn pop_array<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num_items: usize) {
-        println!("\t\t\t\tpop_array {:?} @ {}:{:?}", num_items, loc, span);
+        //println!("\t\t\t\tpop_array {:?} @ {}:{:?}", num_items, loc, span);
 
         self.check_validations(span, loc, |validation, scope| -> bool {
             use Validation::*;
@@ -382,8 +393,8 @@ where
         self.pop(span, loc);
     }
 
-    fn pop_bool<'a>(&mut self, span: &Span, loc: &'a Location<'a>, b: bool) {
-        println!("\t\t\t\tpop_bool {:?} @ {}:{:?}", b, loc, span);
+    fn pop_bool<'a>(&mut self, span: &Span, loc: &'a Location<'a>, _b: bool) {
+        //println!("\t\t\t\tpop_bool {:?} @ {}:{:?}", b, loc, span);
 
         self.check_validations(span, loc, |validation, _| -> bool {
             use Validation::*;
@@ -400,7 +411,7 @@ where
     }
 
     fn pop_numeric<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num: Number) {
-        println!("\t\t\t\tpop_numeric {:?} @ {}:{:?}", num, loc, span);
+        //println!("\t\t\t\tpop_numeric {:?} @ {}:{:?}", num, loc, span);
 
         self.check_validations(span, loc, |validation, _| -> bool {
             use Validation::*;
@@ -428,13 +439,13 @@ where
     }
 
     fn pop_str<'a>(&mut self, span: &Span, loc: &'a Location<'a>, s: &'a str) {
-        println!(
-            "\t\t\t\tpop_str {:?} len {:?} @ {}:{:?}",
-            s,
-            s.chars().count(),
-            loc,
-            span
-        );
+        //println!(
+        //    "\t\t\t\tpop_str {:?} len {:?} @ {}:{:?}",
+        //    s,
+        //    s.chars().count(),
+        //    loc,
+        //    span
+        //);
 
         self.check_validations(span, loc, |validation, _| -> bool {
             use Validation::*;
@@ -454,7 +465,7 @@ where
     }
 
     fn pop_null<'a>(&mut self, span: &Span, loc: &'a Location<'a>) {
-        println!("\t\t\t\tpop_null <null> @ {}:{:?}", loc, span);
+        //println!("\t\t\t\tpop_null <null> @ {}:{:?}", loc, span);
 
         self.check_validations(span, loc, |validation, _| -> bool {
             use Validation::*;
@@ -476,11 +487,8 @@ where
     A: Annotation,
     C: Context,
 {
-    pub fn new(index: &'sm Index<'sm, A>, uri: &url::Url) -> Result<Validator<'sm, A, C>, ()> {
-        let schema = match index.fetch(uri) {
-            Some(s) => s,
-            None => return Err(()),
-        };
+    pub fn new(index: &'sm index::Index<'sm, A>, uri: &url::Url) -> Result<Validator<'sm, A, C>, index::Error> {
+        let schema = index.must_fetch(uri)?;
 
         let mut val = Validator {
             index,

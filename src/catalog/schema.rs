@@ -1,4 +1,4 @@
-use super::{ContentType, Resource, Result, DB};
+use super::{sql_params, ContentType, Resource, Result, DB};
 use crate::doc::Schema as CompiledSchema;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
@@ -82,6 +82,25 @@ impl Schema {
             }
         }
         Ok(())
+    }
+
+    /// Fetch and compile all Schemas in the catalog.
+    pub fn compile_all(db: &DB) -> Result<Vec<CompiledSchema>> {
+        let mut stmt = db.prepare(
+            "SELECT url, content FROM resources NATURAL JOIN resource_urls
+                    WHERE content_type = ? AND is_primary;",
+        )?;
+        let mut rows = stmt.query(sql_params![ContentType::Schema])?;
+
+        let mut schemas = Vec::new();
+        while let Some(row) = rows.next()? {
+            let (url, blob): (Url, Vec<u8>) = (row.get(0)?, row.get(1)?);
+            let dom: serde_json::Value = serde_yaml::from_slice(&blob)?;
+            let compiled: CompiledSchema = build_schema(url, &dom)?;
+            schemas.push(compiled);
+        }
+        schemas.shrink_to_fit();
+        Ok(schemas)
     }
 }
 

@@ -9,8 +9,8 @@ use std::path::PathBuf;
 pub struct Config {
     // Path to the catalog.
     pub catalog: PathBuf,
-    // Collection which we're deriving.
-    pub collection: String,
+    // Name of collection which we're deriving.
+    pub derivation: String,
     // Unix domain socket to listen on for message transform
     // streams and key/value state operations.
     pub socket_path: PathBuf,
@@ -36,13 +36,6 @@ pub struct State {
 pub struct SourceEnvelope<'d> {
     #[serde(borrow, deserialize_with = "super::deserialize_cow_str")]
     pub collection: Cow<'d, str>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct RawDocument<'d> {
-    #[serde(borrow, flatten)]
-    pub raw: &'d RawValue,
 }
 
 /// DerivedEnvelope is published to the flow-consumer within derive transaction streams.

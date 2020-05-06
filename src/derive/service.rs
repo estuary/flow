@@ -1,7 +1,8 @@
 use super::{
-    executor::{Txn, TxnCtx},
+    executor::{Invoker, TxnCtx},
     parse_record_batch, Error,
 };
+use crate::derive::executor::process_source_batch;
 use bytes::{Buf, Bytes};
 use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::sync::Arc;
@@ -30,7 +31,7 @@ fn rt_post_transform(store: Arc<Box<TxnCtx>>) -> BoxedFilter<(impl Reply,)> {
 fn run_transform(
     store: Arc<Box<TxnCtx>>,
     rx: impl Stream<Item = Result<impl Buf + Send, warp::Error>> + Send + Sync + 'static,
-    mut tx: hyper::body::Sender,
+    mut sender: hyper::body::Sender,
 ) {
     let (derived_tx, mut derived_rx) = futures::channel::mpsc::channel(3);
 
@@ -38,13 +39,13 @@ fn run_transform(
         let mut rem = Bytes::new();
         pin_utils::pin_mut!(rx);
 
-        let mut transform = Txn::new(store, derived_tx);
+        let mut transforms = Invoker::new(derived_tx);
 
         while let Some(mut buf) = rx.try_next().await? {
             let bytes = buf.to_bytes(); // Zero-cost, as Buf is already Bytes.
 
             if let Some(batch) = parse_record_batch(&mut rem, Some(bytes))? {
-                transform.push_source_docs(batch).await?;
+                process_source_batch(&store, &mut transforms, batch).await?;
             }
         }
         parse_record_batch(&mut rem, None)?;
@@ -66,10 +67,11 @@ fn run_transform(
 
     let write_loop = move || async move {
         while let Some(batch) = derived_rx.next().await {
-            tx.send_data(batch.to_bytes()).await?
+            sender.send_data(batch.to_bytes()).await?
         }
-        if let Err(_) = read_handle.await {
-            tx.abort();
+        if let Err(err) = read_handle.await.unwrap() {
+            log::warn!("aborting write-loop due to read_handle err: {:?}", err);
+            sender.abort();
         }
         Result::<(), Error>::Ok(())
     };

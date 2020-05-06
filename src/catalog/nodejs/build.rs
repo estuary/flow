@@ -1,7 +1,6 @@
 use super::typescript;
-use crate::catalog::{ContentType, Error, Resource};
-use crate::doc::{Schema, SchemaIndex};
-use estuary_json::schema::build::build_schema;
+use crate::catalog::{self, ContentType, Error};
+use crate::doc::SchemaIndex;
 use rusqlite::{params as sql_params, Connection as DB};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,7 +27,7 @@ pub fn build_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     let pack = fs::canonicalize(&pack)?;
 
     let pack = Url::from_file_path(&pack).unwrap();
-    Resource::register(db, ContentType::NpmPack, &pack)?;
+    catalog::Resource::register(db, ContentType::NpmPack, &pack)?;
     log::info!("built NodeJS pack {:?}", pack);
 
     Ok(())
@@ -71,20 +70,7 @@ fn patch_package_json(db: &DB, pkg: &path::Path) -> Result<(), Error> {
 }
 
 fn generate_collections_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
-    // Load and compile all schemas in the catalog.
-    let mut stmt = db.prepare(
-        "SELECT url, content FROM resources NATURAL JOIN resource_urls
-                WHERE content_type = ? AND is_primary;",
-    )?;
-    let mut rows = stmt.query(sql_params![ContentType::Schema])?;
-
-    let mut schemas = Vec::new();
-    while let Some(row) = rows.next()? {
-        let (url, blob): (Url, Vec<u8>) = (row.get(0)?, row.get(1)?);
-        let dom: Value = serde_yaml::from_slice(&blob)?;
-        let compiled: Schema = build_schema(url, &dom)?;
-        schemas.push(compiled);
-    }
+    let schemas = catalog::Schema::compile_all(db)?;
 
     // Index all Schemas.
     let mut index = SchemaIndex::new();

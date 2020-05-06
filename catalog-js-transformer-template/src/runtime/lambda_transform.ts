@@ -22,6 +22,12 @@ export class LambdaTransformer extends stream.Transform {
     _transform(chunk: { value: Document }, _: string, done: stream.TransformCallback): void {
         this.numInput++;
 
+        if (this.numInput % 2 == 1) {
+            // Skip source envelopes.
+            done();
+            return;
+        }
+
         // |lambda| may or may not be async, and may or may not throw.
         // Wrap in an async invocation to ensure async throws, rejections,
         // and non-async throws all become Promise rejections.

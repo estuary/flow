@@ -5,9 +5,13 @@ use std::iter::FromIterator;
 /// RecordBatch is a Bytes which holds a batch of zero or more "application/json-seq"
 /// media-type encodings. Each non-empty RecordBatch has a first byte 0x1E (ASCII
 /// record separator), and a last byte 0x0A ('\n') as per RFC 7464.
+#[derive(Clone, Debug)]
 pub struct RecordBatch(bytes::Bytes);
 
 impl RecordBatch {
+    pub fn new(b: Bytes) -> RecordBatch {
+        RecordBatch(b)
+    }
     pub fn to_bytes(self) -> Bytes {
         self.0
     }

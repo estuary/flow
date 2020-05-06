@@ -1,4 +1,5 @@
 use crate::catalog;
+use estuary_json::schema::index;
 use http;
 use hyper;
 use thiserror;
@@ -10,6 +11,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Catalog error: {0}")]
     CatalogError(#[from] catalog::Error),
+    #[error("Schema index error: {0}")]
+    SchemaIndexErr(#[from] index::Error),
     #[error("catalog database error: {0}")]
     SQLiteErr(#[from] rusqlite::Error),
     #[error("failed to parse JSON: {0}")]
@@ -33,6 +36,8 @@ pub enum Error {
     },
     #[error("invalid 'application/json-seq' encoding")]
     InvalidJsonSeq,
+    #[error("source document validation failed")]
+    SourceValidationFailed,
     #[error("missing success trailer")]
     NoSuccessTrailerRenameMe,
     #[error("channel send error: {0}")]

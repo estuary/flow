@@ -1,5 +1,9 @@
 use clap;
-use estuary::{catalog, derive, specs::derive as specs};
+use estuary::{
+    catalog::{self, sql_params},
+    derive,
+    specs::derive as specs,
+};
 use futures::{select, FutureExt};
 use log::{error, info};
 use pretty_env_logger;
@@ -55,21 +59,41 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     // Open catalog DB.
     let db = catalog::open(&cfg.catalog)?;
 
+    let derivation_id = db
+        .prepare(
+            "SELECT collection_id
+                FROM collections NATURAL JOIN derivations
+                WHERE name = ?",
+        )?
+        .query_row(sql_params![cfg.derivation], |r| r.get(0))
+        .map_err(|err| catalog::Error::At {
+            loc: format!("querying for derived collection {:?}", cfg.derivation),
+            detail: Box::new(err.into()),
+        })?;
+
     // "Open" recovered state store, instrumented with a Recorder.
     // TODO rocksdb, sqlite, Go CGO bindings to client / Recorder, blah blah.
     let store = Box::new(derive::state::MemoryStore::new());
     let store = Arc::new(Mutex::new(store));
 
-    // Start NodeJS transform worker.
-    let node_svc = derive::NodeJsHandle::new(&db)?;
+    // Compile the bundle of catalog schemas. Then, deliberately "leak" the
+    // immutable Schema bundle for the remainder of program in order to achieve
+    // a 'static lifetime, which is required for use in spawned tokio Tasks (and
+    // therefore in TxnCtx).
+    let schemas = catalog::Schema::compile_all(&db)?;
+    let schemas = Box::leak(Box::new(schemas));
+    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
 
-    let txn_ctx =
-        derive::executor::TxnCtx::new(Url::from_file_path(&cfg.socket_path).unwrap(), node_svc);
+    // Start NodeJS transform worker.
+    let loopback = Url::from_file_path(&cfg.socket_path).unwrap();
+    let node = derive::nodejs::Service::new(&db, loopback)?;
+
+    let txn_ctx = derive::executor::TxnCtx::new(&db, derivation_id, node, schemas)?;
     let txn_ctx = Arc::new(Box::new(txn_ctx));
 
     // Build service.
     let service = derive::state::build_service(store)
-        .or(derive::build_service(txn_ctx))
+        .or(derive::build_service(txn_ctx.clone()))
         .boxed();
 
     // Register for shutdown signals and wire up a future.
@@ -87,38 +111,8 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     let server = estuary::serve::unix_domain_socket(service, &cfg.socket_path, stop);
     let server_handle = tokio::spawn(server);
 
-    let _store_url = Url::from_file_path(&cfg.socket_path).unwrap();
-
     // Invoke derivation bootstraps.
-    //node_svc.bootstrap(9, &store_url).await?;
-
-    /*
-    let (mut tx, mut rx) = node_svc.transform(8, &store_url).await?;
-
-    for _i in 0..10 {
-        tx.send_data(bytes::Bytes::from(
-            r#"
-            {
-                "exchange": "NYSE",
-                "security": "APPL",
-                "time": "2019-01-16T12:34:56Z",
-                "bid":  {"price": 321.09, "size": 100},
-                "ask":  {"price": 321.45, "size": 200},
-                "last": {"price": 321.12, "size": 50}
-            }
-        "#,
-        ))
-        .await?;
-        log::warn!("sent chunk");
-
-        let chunk = rx.try_next().await?;
-        log::warn!("got chunk {:?}", chunk);
-    }
-    drop(tx);
-
-    let chunk = rx.try_next().await?;
-    log::warn!("got chunk {:?}", chunk);
-     */
+    txn_ctx.node.bootstrap(derivation_id).await?;
 
     // Signal to host process that we're ready to accept connections.
     println!("READY");

@@ -1,32 +1,331 @@
-use super::{parse_record_batch, Error, NodeJsHandle, RecordBatch};
-use bytes::Bytes;
-use futures::{Sink, SinkExt, StreamExt};
-use http_body::Body;
+use super::{nodejs, Error, RecordBatch};
+use crate::catalog::{self, sql_params};
+use crate::doc::{Schema, SchemaIndex, Validator};
+use crate::specs::derive::SourceEnvelope;
+use estuary_json::de::walk;
+use estuary_json::validator::FullContext;
+use futures::channel::mpsc;
+use std::borrow::Cow;
 use std::collections::btree_map::Entry as BTreeEntry;
 use std::collections::BTreeMap;
-use std::sync::Arc;
-use tokio;
-use tokio::task::JoinHandle;
 use url::Url;
 
 pub struct TxnCtx {
-    loopback: Url,
-    // Index of source collection name => transform_ids to invoke.
-    src_to_transforms: BTreeMap<String, Vec<i64>>,
+    source_idx: BTreeMap<String, (Url, Vec<Lambda>)>,
+    pub node: nodejs::Service,
+    schemas: SchemaIndex<'static>,
+}
 
-    node: NodeJsHandle,
-    // TODO(johnny): SQLite context?
+#[derive(Debug)]
+pub enum Lambda {
+    NodeJS(i64),
+    Sqlite(i64, String /* Prepared statement context? */),
+    Remote(i64, Url),
+}
+
+impl Lambda {
+    fn transform_id(&self) -> i64 {
+        match self {
+            Lambda::NodeJS(id) => *id,
+            Lambda::Sqlite(id, _) => *id,
+            Lambda::Remote(id, _) => *id,
+        }
+    }
+
+    async fn invoke(
+        &self,
+        ctx: &TxnCtx,
+        tx: mpsc::Sender<RecordBatch>,
+    ) -> Result<Invocation, Error> {
+        Ok(match self {
+            Lambda::NodeJS(transform_id) => {
+                Invocation::NodeJS(nodejs::Transform::start(&ctx.node, *transform_id, tx).await?)
+            }
+            _ => panic!("invocations other than NodeJS not implemented"),
+        })
+    }
+}
+
+enum Invocation {
+    NodeJS(nodejs::Transform),
+}
+
+impl Invocation {
+    async fn process(&mut self, batch: RecordBatch) -> Result<(), Error> {
+        match self {
+            Invocation::NodeJS(transform) => {
+                transform
+                    .sender
+                    .as_mut()
+                    .unwrap()
+                    .send_data(batch.to_bytes())
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct Invoker {
+    tx: mpsc::Sender<RecordBatch>,
+    entries: BTreeMap<i64, Invocation>,
+}
+
+impl Invoker {
+    pub fn new(tx: mpsc::Sender<RecordBatch>) -> Invoker {
+        Invoker {
+            tx,
+            entries: BTreeMap::new(),
+        }
+    }
+
+    pub async fn invoke(
+        &mut self,
+        ctx: &TxnCtx,
+        lambdas: &[Lambda],
+        batch: RecordBatch,
+    ) -> Result<(), Error> {
+        for lambda in lambdas {
+            let invocation = self.get_or_start(ctx, lambda).await?;
+            invocation.process(batch.clone()).await?;
+        }
+        Ok(())
+    }
+
+    async fn get_or_start(
+        &mut self,
+        ctx: &TxnCtx,
+        lambda: &Lambda,
+    ) -> Result<&mut Invocation, Error> {
+        let entry = self.entries.entry(lambda.transform_id());
+
+        // Is there an existing invocation?
+        if let BTreeEntry::Occupied(entry) = entry {
+            let invocation = entry.into_mut();
+
+            // TODO(johnny): Fail-fast if entry.handle has failed.
+
+            return Ok(invocation);
+        }
+
+        // Nope. We must start one.
+        let invocation = lambda.invoke(ctx, self.tx.clone()).await?;
+        Ok(entry.or_insert(invocation))
+    }
 }
 
 impl TxnCtx {
-    pub fn new(lo: Url, node: NodeJsHandle) -> TxnCtx {
-        TxnCtx {
-            loopback: lo,
-            node,
-            src_to_transforms: BTreeMap::new(),
+    pub fn new(
+        db: &catalog::DB,
+        derivation: i64,
+        node: nodejs::Service,
+        schemas: &'static Vec<Schema>,
+    ) -> Result<TxnCtx, catalog::Error> {
+        let mut schema_index = SchemaIndex::<'static>::new();
+        for schema in schemas.iter() {
+            schema_index.add(schema)?;
         }
+        schema_index.verify_references()?;
+
+        Ok(TxnCtx {
+            source_idx: index_source_schema_and_transforms(db, derivation)?,
+            node,
+            schemas: schema_index,
+        })
     }
 }
+
+pub async fn process_source_batch(
+    ctx: &TxnCtx,
+    invoker: &mut Invoker,
+    batch: RecordBatch,
+) -> Result<(), Error> {
+    let batch = batch.to_bytes();
+
+    // Split records on newline boundaries.
+    // TODO(johnny): Convince serde-json to expose Deserializer::byte_offset()?
+    // Then it's not necessary to pre-scan for newlines.
+    let splits = batch
+        .iter()
+        .enumerate()
+        .filter(|(_, &b)| b == b'\n')
+        .map(|(ind, _)| ind + 1);
+
+    let mut first_source = Cow::<str>::Borrowed("");
+    let mut first_pivot = 0;
+    let mut last_pivot = 0;
+
+    for next_pivot in splits {
+        let record = &batch[last_pivot..next_pivot];
+
+        let mut de = serde_json::Deserializer::from_slice(record);
+        let env: SourceEnvelope = serde::de::Deserialize::deserialize(&mut de)?;
+
+        if first_source != env.collection {
+            if !first_source.is_empty() {
+                // Flush the contiguous chunk of records having the prior source collection
+                // through their mapped transforms.
+                let (_, lambdas) = ctx.source_idx.get(first_source.as_ref()).unwrap();
+                let sub_batch = RecordBatch::new(batch.slice(first_pivot..last_pivot));
+                invoker.invoke(ctx, lambdas, sub_batch).await?;
+            }
+            first_source = env.collection.clone();
+            first_pivot = last_pivot;
+        }
+
+        let (schema_uri, _) = ctx
+            .source_idx
+            .get(env.collection.as_ref())
+            .ok_or_else(|| Error::UnknownSourceCollection(env.collection.to_string()))?;
+
+        // Validate schema.
+        let mut validator = Validator::<FullContext>::new(&ctx.schemas, schema_uri)?;
+        walk(&mut de, &mut validator)?;
+
+        if validator.invalid() {
+            let errors = validator
+                .outcomes()
+                .iter()
+                .filter(|(o, _)| o.is_error())
+                .collect::<Vec<_>>();
+            log::error!("source doc is invalid for {:?}: {:?}", env, errors);
+            Err(Error::SourceValidationFailed)?;
+        }
+
+        last_pivot = next_pivot;
+    }
+
+    if first_pivot != last_pivot {
+        // Flush the remainder.
+        let (_, lambdas) = ctx.source_idx.get(first_source.as_ref()).unwrap();
+        let sub_batch = RecordBatch::new(batch.slice(first_pivot..last_pivot));
+        invoker.invoke(ctx, lambdas, sub_batch).await?;
+    }
+
+    Ok(())
+}
+
+fn index_source_schema_and_transforms(
+    db: &catalog::DB,
+    derivation: i64,
+) -> Result<BTreeMap<String, (Url, Vec<Lambda>)>, catalog::Error> {
+    let mut out = BTreeMap::new();
+
+    let mut stmt = db.prepare(
+        "SELECT
+            transform_id,            -- 0
+            source_name,             -- 1
+            lambda_runtime,          -- 2
+            lambda_inline,           -- 3 (needed for 'remote')
+            lambda_resource_content, -- 4 (needed for 'sqliteFile')
+            source_schema_uri        -- 5
+        FROM transform_details
+            WHERE derivation_id = ?;
+    ",
+    )?;
+    let mut rows = stmt.query(sql_params![derivation])?;
+
+    while let Some(r) = rows.next()? {
+        let (tid, rt): (i64, String) = (r.get(0)?, r.get(2)?);
+
+        let transform = match rt.as_str() {
+            "nodeJS" => Lambda::NodeJS(tid),
+            "remote" => Lambda::Remote(tid, r.get(3)?),
+            "sqlite" => Lambda::Sqlite(tid, r.get(3)?),
+            "sqliteFile" => Lambda::Sqlite(tid, r.get(4)?),
+            rt @ _ => panic!("transform {} has invalid runtime {:?}", tid, rt),
+        };
+        out.entry(r.get(1)?)
+            .or_insert((r.get(5)?, Vec::new()))
+            .1
+            .push(transform);
+    }
+
+    log::info!("indexed sources: {:?}", out);
+
+    Ok(out)
+}
+
+/*
+fn queue_input(&mut self, mut chunk: Bytes) {
+    // Join |chunk| with any remainder from the last input chunk.
+    if !self.input_chunk.is_empty() {
+        chunk = BytesMut::from_iter(self.input_chunk.iter().chain(chunk.into_iter())).freeze();
+    }
+    self.input_chunk = chunk;
+}
+
+
+async fn drain_input<O, OF, NTX>(
+    &mut self,
+    _output: O,
+    _node_out_tx: &NTX,
+) -> Result<bool, Error>
+where
+    O: FnMut(&[u8]) -> OF, // MAYBE this is another borrowed OutputRecord type or something.
+    OF: Future<Output = ()>,
+    NTX: Sink<Result<Bytes, Error>> + Clone,
+{
+    let mut de = serde_json::Deserializer::from_slice(&self.input_chunk);
+
+    let env = SourceEnvelope::deserialize(&mut de);
+    let env = match env {
+        Err(err) if err.is_eof() => return Ok(false),
+        Err(err) => return Err(err.into()),
+        Ok(v) => v,
+    };
+
+    // A little hack-y, but we need the reader byte offset at the end of parsing
+    // this doc and it's not exposed outside of StreamDeserializer.
+    let mut de = serde_json::Deserializer::from_slice(&self.input_chunk).into_iter::<RawDocument>();
+    let doc = match de.next() {
+        None => return Ok(false),
+        Some(Err(err)) if err.is_eof() => return Ok(false),
+        Some(Err(err)) => return Err(err.into()),
+        Some(Ok(v)) => v,
+    };
+    let offset = de.byte_offset();
+
+
+
+    // CAREFUL, this can deadlock, because we aren't reading node output and could
+    // hit the window limit when sending node input. We need fully separate processing
+    // of the node output path.
+
+    // After dropping env & doc...
+    self.input_chunk.advance(offset);
+
+    /*
+    let de = serde_json::Deserializer::from_slice(&self.chunk).into_iter::<SourceEnvelope>();
+    for env in stream {
+        let env = env?;
+
+        let transforms = self.ctx.src_to_transforms
+            .get(&env.collection)
+            .ok_or_else(|| Error::UnknownSourceCollection(env.collection.into_string()))?;
+
+        for t_id in transforms.iter() {
+            self.node_stream(*t_id).send_data(Bytes::env.value)
+        }
+
+
+    }
+     */
+    Ok(false)
+}
+
+async fn input_eof(&mut self) -> Result<(), Error> {
+    Ok(())
+}
+
+async fn next_node_output<O, OF>(&mut self, _data: Bytes, _output: O) -> Result<(), Error>
+where
+    O: FnMut(&[u8]) -> OF, // MAYBE this is another borrowed OutputRecord type or something.
+    OF: Future<Output = ()>,
+{
+    Ok(())
+}
+ */
 
 // Big fat event loop:
 //  - Creates mpsc from node transforms.
@@ -49,178 +348,3 @@ impl TxnCtx {
 //          - extract partitioned fields.
 //          - combine into accumulator
 //
-
-pub struct Txn<DTX> {
-    ctx: Arc<Box<TxnCtx>>,
-    node_transforms: BTreeMap<i64, (hyper::body::Sender, JoinHandle<Result<(), Error>>)>,
-    derived_tx: DTX,
-}
-
-impl<DTX, E> Txn<DTX>
-where
-    DTX: Sink<RecordBatch, Error = E> + Clone + Send + Sync + 'static,
-    Error: From<E>,
-{
-    pub fn new(ctx: Arc<Box<TxnCtx>>, dtx: DTX) -> Txn<DTX> {
-        Txn {
-            ctx,
-            node_transforms: BTreeMap::new(),
-            derived_tx: dtx,
-        }
-    }
-
-    pub async fn push_source_docs(&mut self, batch: RecordBatch) -> Result<(), Error> {
-        let tx = self.nodejs_stream(8).await?;
-
-        let batch = batch.to_bytes();
-        log::info!("processing source record batch: {:?}", batch);
-        tx.send_data(batch).await?;
-
-        Ok(())
-    }
-
-    pub async fn input_eof(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub async fn nodejs_stream(
-        &mut self,
-        transform_id: i64,
-    ) -> Result<&mut hyper::body::Sender, Error> {
-        let entry = self.node_transforms.entry(transform_id);
-
-        // Is a transform stream already started?
-        if let BTreeEntry::Occupied(entry) = entry {
-            let entry = entry.into_mut();
-            // TODO Check if JoinHandle as failed.
-            return Ok(&mut entry.0);
-        }
-
-        // Nope. We must begin one.
-        let (sender, body) = self
-            .ctx
-            .node
-            .start_transform(transform_id, &self.ctx.loopback)
-            .await?;
-
-        let dtx = self.derived_tx.clone();
-
-        // Spawn a read-loop which pushes derived records to |derived_tx|.
-        let read_loop_handle = tokio::spawn(async move {
-            match Self::nodejs_read_loop(body, dtx).await {
-                Err(err) => {
-                    log::error!("NodeJS read-loop failed: {:?}", err);
-                    Err(err)
-                }
-                Ok(()) => {
-                    log::info!("NodeJS read-loop finished");
-                    Ok(())
-                }
-            }
-        });
-        Ok(&mut entry.or_insert((sender, read_loop_handle)).0)
-    }
-
-    async fn nodejs_read_loop(body: hyper::Body, dtx: DTX) -> Result<(), Error> {
-        let mut rem = Bytes::new();
-        pin_utils::pin_mut!(body, dtx);
-
-        while let Some(bytes) = body.next().await {
-            if let Some(batch) = parse_record_batch(&mut rem, Some(bytes?))? {
-                dtx.send(batch).await?;
-            }
-        }
-        parse_record_batch(&mut rem, None)?;
-
-        if let Some(trailers) = body.trailers().await? {
-            // TODO - inspect for errors, and propagate.
-            log::info!("got trailers! {:?}", trailers);
-        } else {
-            log::error!("missing expected trailers!");
-            return Err(Error::NoSuccessTrailerRenameMe);
-        }
-
-        Result::<(), Error>::Ok(())
-    }
-
-    /*
-    fn queue_input(&mut self, mut chunk: Bytes) {
-        // Join |chunk| with any remainder from the last input chunk.
-        if !self.input_chunk.is_empty() {
-            chunk = BytesMut::from_iter(self.input_chunk.iter().chain(chunk.into_iter())).freeze();
-        }
-        self.input_chunk = chunk;
-    }
-
-
-    async fn drain_input<O, OF, NTX>(
-        &mut self,
-        _output: O,
-        _node_out_tx: &NTX,
-    ) -> Result<bool, Error>
-    where
-        O: FnMut(&[u8]) -> OF, // MAYBE this is another borrowed OutputRecord type or something.
-        OF: Future<Output = ()>,
-        NTX: Sink<Result<Bytes, Error>> + Clone,
-    {
-        let mut de = serde_json::Deserializer::from_slice(&self.input_chunk);
-
-        let env = SourceEnvelope::deserialize(&mut de);
-        let env = match env {
-            Err(err) if err.is_eof() => return Ok(false),
-            Err(err) => return Err(err.into()),
-            Ok(v) => v,
-        };
-
-        // A little hack-y, but we need the reader byte offset at the end of parsing
-        // this doc and it's not exposed outside of StreamDeserializer.
-        let mut de = serde_json::Deserializer::from_slice(&self.input_chunk).into_iter::<RawDocument>();
-        let doc = match de.next() {
-            None => return Ok(false),
-            Some(Err(err)) if err.is_eof() => return Ok(false),
-            Some(Err(err)) => return Err(err.into()),
-            Some(Ok(v)) => v,
-        };
-        let offset = de.byte_offset();
-
-
-
-        // CAREFUL, this can deadlock, because we aren't reading node output and could
-        // hit the window limit when sending node input. We need fully separate processing
-        // of the node output path.
-
-        // After dropping env & doc...
-        self.input_chunk.advance(offset);
-
-        /*
-        let de = serde_json::Deserializer::from_slice(&self.chunk).into_iter::<SourceEnvelope>();
-        for env in stream {
-            let env = env?;
-
-            let transforms = self.ctx.src_to_transforms
-                .get(&env.collection)
-                .ok_or_else(|| Error::UnknownSourceCollection(env.collection.into_string()))?;
-
-            for t_id in transforms.iter() {
-                self.node_stream(*t_id).send_data(Bytes::env.value)
-            }
-
-
-        }
-         */
-        Ok(false)
-    }
-
-    async fn input_eof(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    async fn next_node_output<O, OF>(&mut self, _data: Bytes, _output: O) -> Result<(), Error>
-    where
-        O: FnMut(&[u8]) -> OF, // MAYBE this is another borrowed OutputRecord type or something.
-        OF: Future<Output = ()>,
-    {
-        Ok(())
-    }
-     */
-}
