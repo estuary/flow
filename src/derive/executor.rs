@@ -64,6 +64,16 @@ impl Invocation {
         }
         Ok(())
     }
+
+    async fn drain(self) -> Result<(), Error> {
+        match self {
+            Invocation::NodeJS(mut transform) => {
+                transform.sender = None;
+                transform.handle.await.unwrap()?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct Invoker {
@@ -88,6 +98,21 @@ impl Invoker {
         for lambda in lambdas {
             let invocation = self.get_or_start(ctx, lambda).await?;
             invocation.process(batch.clone()).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn drain(self) -> Result<(), Error> {
+        // Start concurrent completion of each invocation.
+        let futs = self
+            .entries
+            .into_iter()
+            .map(|(_, invocation)| invocation.drain())
+            .collect::<Vec<_>>();
+
+        // Wait on each future.
+        for fut in futs {
+            fut.await?;
         }
         Ok(())
     }

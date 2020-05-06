@@ -49,6 +49,10 @@ fn run_transform(
             }
         }
         parse_record_batch(&mut rem, None)?;
+
+        // Drain ongoing transforms, ensuring each completed without error.
+        transforms.drain().await?;
+        // All done!
         Result::<(), Error>::Ok(())
     };
 
