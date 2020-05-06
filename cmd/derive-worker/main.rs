@@ -1,7 +1,7 @@
 use clap;
 use estuary::{
     catalog::{self, sql_params},
-    derive,
+    derive, doc,
     specs::derive as specs,
 };
 use futures::{select, FutureExt};
@@ -82,13 +82,20 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     // therefore in TxnCtx).
     let schemas = catalog::Schema::compile_all(&db)?;
     let schemas = Box::leak(Box::new(schemas));
+
+    let mut schema_index = doc::SchemaIndex::<'static>::new();
+    for schema in schemas.iter() {
+        schema_index.add(schema)?;
+    }
+    schema_index.verify_references()?;
+
     log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
 
     // Start NodeJS transform worker.
     let loopback = Url::from_file_path(&cfg.socket_path).unwrap();
     let node = derive::nodejs::Service::new(&db, loopback)?;
 
-    let txn_ctx = derive::executor::TxnCtx::new(&db, derivation_id, node, schemas)?;
+    let txn_ctx = derive::transform::Context::new(&db, derivation_id, node, schema_index)?;
     let txn_ctx = Arc::new(Box::new(txn_ctx));
 
     // Build service.

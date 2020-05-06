@@ -38,6 +38,8 @@ pub enum Error {
     InvalidJsonSeq,
     #[error("source document validation failed")]
     SourceValidationFailed,
+    #[error("derived document validation failed")]
+    DerivedValidationFailed,
     #[error("missing success trailer")]
     NoSuccessTrailerRenameMe,
     #[error("channel send error: {0}")]

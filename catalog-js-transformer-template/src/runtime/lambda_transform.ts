@@ -49,8 +49,7 @@ export class LambdaTransformer extends stream.Transform {
         let i = 0;
 
         for (const doc of docs) {
-            // Encode per RFC 7464.
-            parts[i++] = '\x1E'; // Record separater.
+            // Encode as newline-delimited JSON.
             parts[i++] = JSON.stringify(doc);
             parts[i++] = '\x0A'; // Line feed.
             this.numOutput++;

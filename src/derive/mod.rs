@@ -2,9 +2,10 @@ mod error;
 pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub mod executor;
+pub mod combine;
 pub mod nodejs;
 pub mod state;
+pub mod transform;
 
 mod service;
 pub use service::build as build_service;
