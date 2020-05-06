@@ -96,7 +96,13 @@ impl Invoker {
         batch: RecordBatch,
     ) -> Result<(), Error> {
         for lambda in lambdas {
-            let invocation = self.get_or_start(ctx, lambda).await?;
+            let entry = self.entries.entry(lambda.transform_id());
+            let invocation = match entry {
+                BTreeEntry::Occupied(occupied) => occupied.into_mut(),
+                BTreeEntry::Vacant(vacant) => {
+                    vacant.insert(lambda.invoke(ctx, self.tx.clone()).await?)
+                }
+            };
             invocation.process(batch.clone()).await?;
         }
         Ok(())
@@ -115,27 +121,6 @@ impl Invoker {
             fut.await?;
         }
         Ok(())
-    }
-
-    async fn get_or_start(
-        &mut self,
-        ctx: &TxnCtx,
-        lambda: &Lambda,
-    ) -> Result<&mut Invocation, Error> {
-        let entry = self.entries.entry(lambda.transform_id());
-
-        // Is there an existing invocation?
-        if let BTreeEntry::Occupied(entry) = entry {
-            let invocation = entry.into_mut();
-
-            // TODO(johnny): Fail-fast if entry.handle has failed.
-
-            return Ok(invocation);
-        }
-
-        // Nope. We must start one.
-        let invocation = lambda.invoke(ctx, self.tx.clone()).await?;
-        Ok(entry.or_insert(invocation))
     }
 }
 
