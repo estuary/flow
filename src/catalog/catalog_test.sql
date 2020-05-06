@@ -235,20 +235,16 @@ FROM bootstraps
          NATURAL LEFT JOIN resources;
 
 -- Valid transforms.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
-VALUES (2, 1, 2),
-       (2, 1, 3),
-       (2, 1, 5),
-       (2, 1, 6),
-       (3, 1, 7);
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES (2, 1, 2, NULL),
+       (2, 1, 3, NULL),
+       (2, 1, 5, NULL),
+       (2, 1, 6, NULL),
+       (3, 1, 7, 'https://alt/source/schema#anchor');
 
 -- Invalid source-schema
 UPDATE transforms
 SET source_schema_uri = 'not-a-url'
-WHERE transform_id = 1;
--- Valid source-schema.
-UPDATE transforms
-SET source_schema_uri = 'https://alt/source/schema#anchor'
 WHERE transform_id = 1;
 
 -- Can only set one of 'broadcast' or 'choose'.
@@ -299,6 +295,19 @@ SET lambda_id = 42;
 -- spec of the referenced source collection.
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
 VALUES (2, 4, 2);
+
+-- Transforms of a single derivation reading from the same source collection
+-- must all use the same source schema URI.
+
+-- Case: existing transform with same schema (success).
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES (3, 1, 7, 'https://alt/source/schema#anchor');
+-- Case: existing transform with explicit different schema (fails).
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES (3, 1, 7, 'https://alt/source/schema#different-anchor');
+-- Case: existing transform with null source-schema (fails).
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES (2, 1, 2, 'https://alt/source/schema#anchor');
 
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.

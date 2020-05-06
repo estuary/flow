@@ -223,6 +223,20 @@ CREATE TABLE transforms
         JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
 );
 
+-- All transforms of a derivation reading from the same source, must also use the same source schema.
+CREATE TRIGGER transforms_use_consistent_source_schema
+    BEFORE INSERT
+    ON transforms
+    FOR EACH ROW
+    WHEN (SELECT 1
+          FROM transforms
+          WHERE derivation_id = NEW.derivation_id
+            AND source_collection_id = NEW.source_collection_id
+            AND COALESCE(source_schema_uri, '') != COALESCE(NEW.source_schema_uri, '')) NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'Transforms of a derived collection which read from the same source collection must use the same source schema URI');
+END;
+
 -- View over all schemas which apply to a collection.
 CREATE VIEW collection_schemas AS
 SELECT collection_id,
