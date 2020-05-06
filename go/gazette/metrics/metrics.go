@@ -107,6 +107,7 @@ func GazetteBrokerCollectors() []prometheus.Collector {
 		JournalServerResponseTimeSeconds,
 		StorePersistedBytesTotal,
 		StoreRequestTotal,
+		WriteHead,
 	}
 }
 
