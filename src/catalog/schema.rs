@@ -1,4 +1,4 @@
-use super::{sql_params, ContentType, Resource, Result, DB};
+use super::{sql_params, ContentType, Error, Resource, Result, DB};
 use crate::doc::Schema as CompiledSchema;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
@@ -74,7 +74,11 @@ impl Schema {
                     let mut uri = uri.clone();
                     uri.set_fragment(None);
 
-                    let import = Self::register(db, &uri)?;
+                    let import = Self::register(db, &uri).map_err(|e| Error::At {
+                        loc: format!("$ref {:?}", uri),
+                        detail: Box::new(e.into()),
+                    })?;
+
                     Resource::register_import(&db, self.resource, import.resource)?;
                 }
                 // Recurse to sub-schemas.

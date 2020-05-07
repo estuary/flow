@@ -32,6 +32,8 @@ impl Resource {
         }
 
         // Fetch content.
+        log::info!("fetching resource {:?}", url);
+
         let content = match url.scheme() {
             "file" => {
                 let path = url
@@ -39,6 +41,7 @@ impl Resource {
                     .map_err(|_| Error::FetchNotSupported(url.clone()))?;
                 std::fs::read(path)?
             }
+            "http" | "https" => reqwest::blocking::get(url.as_str())?.bytes()?.to_vec(),
             _ => return Err(Error::FetchNotSupported(url.clone())),
         };
 

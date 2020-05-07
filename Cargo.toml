@@ -43,3 +43,4 @@ http-body = "^0.3"
 uuid = "^0.8"
 pin-utils = "^0.1"
 async-stream = "^0.2"
+reqwest = { version = "^0.10", features = ["blocking"] }

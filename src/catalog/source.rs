@@ -25,7 +25,7 @@ impl Source {
         for uri in &spec.import {
             let uri = source.resource.join(db, uri)?;
             let import = Self::register(db, uri.clone()).map_err(|err| Error::At {
-                loc: format!("import {}", uri),
+                loc: format!("import {:?}", uri),
                 detail: Box::new(err),
             })?;
             Resource::register_import(db, source.resource, import.resource)?;
@@ -38,7 +38,7 @@ impl Source {
 
         for spec in &spec.collections {
             Collection::register(db, source, spec).map_err(|err| Error::At {
-                loc: format!("collection {}", spec.name),
+                loc: format!("collection {:?}", spec.name),
                 detail: Box::new(err),
             })?;
         }

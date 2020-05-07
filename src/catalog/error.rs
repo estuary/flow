@@ -22,6 +22,8 @@ pub enum Error {
     },
     #[error("parsing URL: {0}")]
     URLParseErr(#[from] url::ParseError),
+    #[error("HTTP error (reqwest): {0}")]
+    ReqwestErr(#[from] reqwest::Error),
     #[error("failed to parse YAML: {0}")]
     YAMLErr(#[from] serde_yaml::Error),
     #[error("failed to parse JSON: {0}")]
