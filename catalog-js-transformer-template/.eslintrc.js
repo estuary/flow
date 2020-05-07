@@ -24,6 +24,11 @@ module.exports = {
   ],
   // Opt-in to several additional rules.
   rules:  {
+
+    // Disable camel-case linting, as identifier names are often drawn from JSON-Schemas
+    // which are outside of the author's control.
+    "@typescript-eslint/camelcase": "off",
+
     // Require that created promises are used (await'd), and not silently dropped.
     "@typescript-eslint/no-floating-promises": "error",
     // Disallow uses of foo?.bar! (it's not possible to know that bar exists, since foo may not).
