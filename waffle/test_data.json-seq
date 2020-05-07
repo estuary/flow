@@ -1,0 +1,5 @@
+{"collection": "stock/ticks"}	{"exchange": "NYSE", "security": "APPL", "time": "2019-01-16T12:34:56Z", "bid":  {"price": 321.09, "size": 100}, "ask":  {"price": 321.45, "size": 200}, "last": {"price": 321.12, "size": 50}}
+{"collection": "stock/ticks"}	{"exchange": "NYSE", "security": "APPL", "time": "2019-01-16T12:34:56Z", "bid":  {"price": 321.09, "size": 100}, "ask":  {"price": 321.45, "size": 200}, "last": {"price": 321.12, "size": 50}}
+{"collection": "stock/ticks"}	{"exchange": "NYSE", "security": "APPL", "time": "2019-01-16T12:34:56Z", "bid":  {"price": 321.09, "size": 100}, "ask":  {"price": 321.45, "size": 200}, "last": {"price": 321.12, "size": 50}}
+{"collection": "stock/ticks"}	{"exchange": "NYSE", "security": "APPL", "time": "2019-01-16T12:34:56Z", "bid":  {"price": 321.09, "size": 100}, "ask":  {"price": 321.45, "size": 200}, "last": {"price": 321.12, "size": 50}}
+{"collection": "stock/ticks"}	{"exchange": "NYSE", "security": "APPL", "time": "2019-01-16T12:34:56Z", "bid":  {"price": 321.09, "size": 100}, "ask":  {"price": 321.45, "size": 200}, "last": {"price": 321.12, "size": 50}}

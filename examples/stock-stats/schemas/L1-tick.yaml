@@ -21,8 +21,6 @@ properties:
     description: Completed transaction which generated this tick.
     $ref: "#/$defs/priceAndSize"
 
-required: [exchange, security, time, bid, ask, last]
-
 $defs:
   security:
     description: Market security ticker name.
@@ -44,4 +42,7 @@ $defs:
         type: integer
         minimum: 1
 
+  withRequired:
+    $ref: "#"
+    required: [exchange, security, time, bid, ask, last]
 

@@ -162,7 +162,7 @@ impl Application {
                 ptr
             }
             OneOf { index } => {
-                write!(&mut ptr, "{}/{}", keywords::ALL_OF, index).unwrap();
+                write!(&mut ptr, "{}/{}", keywords::ONE_OF, index).unwrap();
                 ptr
             }
             Not => ptr.add(keywords::NOT),
@@ -218,7 +218,7 @@ pub enum Validation {
     Type(types::Set),
     Const(HashedLiteral),
     Enum {
-        variants: Vec<HashedLiteral>
+        variants: Vec<HashedLiteral>,
     },
 
     // String-specific validations.
@@ -244,7 +244,7 @@ pub enum Validation {
     // Object-specific validations.
     MaxProperties(usize),
     MinProperties(usize),
-    Required{
+    Required {
         props: Vec<String>,
         props_interned: intern::Set,
     },

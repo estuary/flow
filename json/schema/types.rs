@@ -55,8 +55,9 @@ impl Set {
         s
     }
 
-    pub fn is_scalar(&self) -> bool {
-        *self != INVALID && *self & (OBJECT | ARRAY) == INVALID
+    #[inline]
+    pub fn overlaps(&self, other: Self) -> bool {
+        *self & other != INVALID
     }
 }
 

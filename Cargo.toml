@@ -6,6 +6,11 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[workspace]
+members = [
+    "json",
+]
+
 [[bin]]
 name = "derive-worker"
 path = "cmd/derive-worker/main.rs"
@@ -43,4 +48,4 @@ http-body = "^0.3"
 uuid = "^0.8"
 pin-utils = "^0.1"
 async-stream = "^0.2"
-reqwest = { version = "^0.10", features = ["blocking"] }
+reqwest = { version = "^0.10", default-features = false, features = ["blocking", "rustls-tls"] }
