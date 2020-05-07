@@ -244,11 +244,15 @@ pub enum Validation {
     // Object-specific validations.
     MaxProperties(usize),
     MinProperties(usize),
-    Required(intern::Set),
+    Required{
+        props: Vec<String>,
+        props_interned: intern::Set,
+    },
     DependentRequired {
         if_: String,
         if_interned: intern::Set,
-        then_: intern::Set,
+        then_: Vec<String>,
+        then_interned: intern::Set,
     },
 }
 

@@ -358,12 +358,12 @@ where
                 Type(expect) => *expect & types::OBJECT != types::INVALID,
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
-                Required(set) => *set & scope.seen_interned == *set,
+                Required{props_interned: set, ..} => *set & scope.seen_interned == *set,
                 MinProperties(bound) => num_properties >= *bound,
                 MaxProperties(bound) => num_properties <= *bound,
                 DependentRequired {
                     if_interned: if_,
-                    then_,
+                    then_interned: then_,
                     ..
                 } => (scope.seen_interned & *if_ == 0) || (scope.seen_interned & *then_ == *then_),
                 _ => true,

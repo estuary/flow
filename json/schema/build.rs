@@ -321,16 +321,22 @@ where
             keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
             keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
             keywords::REQUIRED => {
-                let set = extract_intern_set(&mut self.tbl, v)?;
-                self.add_validation(Val::Required(set))
+                let (set , props) = extract_intern_set(&mut self.tbl, v)?;
+                self.add_validation(Val::Required{
+                    props,
+                    props_interned: set,
+                });
             }
             keywords::DEPENDENT_REQUIRED => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
+                        let (then_set, then_props) = extract_intern_set(&mut self.tbl, child)?;
+
                         let dr = Val::DependentRequired {
                             if_: prop.clone(),
                             if_interned: self.tbl.intern(prop)?,
-                            then_: extract_intern_set(&mut self.tbl, child)?,
+                            then_: then_props,
+                            then_interned: then_set,
                         };
                         self.add_validation(dr);
                     }
@@ -531,15 +537,18 @@ fn extract_number(v: &sj::Value) -> Result<Number, Error> {
     }
 }
 
-fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<intern::Set, Error> {
+fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<(intern::Set, Vec<String>), Error> {
     match v {
         sj::Value::Array(vec) => {
-            let mut out: intern::Set = 0;
+            let mut set: intern::Set = 0;
+            let mut props = Vec::new();
 
             for item in vec {
-                out |= tbl.intern(extract_str(item)?)?;
+                let prop = extract_str(item)?;
+                set |= tbl.intern(extract_str(item)?)?;
+                props.push(prop.to_owned());
             }
-            Ok(out)
+            Ok((set, props))
         }
         _ => return Err(ExpectedStringArray),
     }

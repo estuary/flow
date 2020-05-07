@@ -35,7 +35,7 @@ impl<'a> Mapper<'a> {
                     Val::Const(literal) => const_ = Some(literal),
                     Val::Enum { variants } => _enum = Some(variants),
                     Val::MinItems(n) => min_items = Some(*n),
-                    Val::Required(set) => required_props = *set,
+                    Val::Required{props_interned: set, ..} => required_props = *set,
 
                     _ => {} // No-op.
                 }

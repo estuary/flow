@@ -89,8 +89,8 @@ where
             Keyword::Validation(Validation::MinItems(m)) => {
                 min_items = *m; // Track for later use.
             }
-            Keyword::Validation(Validation::Required(r)) => {
-                required_props = *r; // Track for later use.
+            Keyword::Validation(Validation::Required{props_interned, ..}) => {
+                required_props = *props_interned; // Track for later use.
             }
             Keyword::Annotation(annot) => match annot.as_core() {
                 Some(CoreAnnotation::ContentEncodingBase64) => {
