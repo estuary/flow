@@ -8,7 +8,7 @@ fn test_examples() -> catalog::Result<()> {
     pretty_env_logger::init();
 
     let mut path = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
-    path.extend(["examples", "root.yaml"].iter());
+    path.extend(["examples", "catalog.yaml"].iter());
     let path = Url::from_file_path(&path).unwrap();
 
     let db = catalog::open(":memory:")?;
