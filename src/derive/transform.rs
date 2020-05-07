@@ -9,7 +9,7 @@ use serde_json;
 use std::borrow::Cow;
 use std::collections::btree_map::Entry as BTreeEntry;
 use std::collections::BTreeMap;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use url::Url;
 
 pub struct Context {
@@ -19,6 +19,7 @@ pub struct Context {
 
     pub derived_schema: Url,
     pub derived_key: Vec<Pointer>,
+    pub derived_parts: BTreeMap<String, Pointer>,
 }
 
 #[derive(Debug)]
@@ -139,17 +140,21 @@ impl Context {
             .prepare("SELECT schema_uri, key_json FROM collections WHERE collection_id = ?")?
             .query_row(sql_params![derivation], |r| Ok((r.get(0)?, r.get(1)?)))?;
 
+        // TODO(johnny): Have Pointer implement serde::Deserialize? Could clean this up...
         let derived_key: Vec<String> = serde_json::from_value(derived_key)?;
         let derived_key = derived_key
             .iter()
             .map(|s| s.try_into())
             .collect::<Result<Vec<Pointer>, _>>()?;
 
-        log::info!(
-            "used derived schema {} and key {:?}",
-            derived_schema,
-            derived_key
-        );
+        let mut derived_parts = BTreeMap::<String, Pointer>::new();
+        let mut stmt = db.prepare("SELECT field, location_ptr FROM projections WHERE collection_id = ? AND is_logical_partition")?;
+        let mut rows = stmt.query(sql_params![derivation])?;
+
+        while let Some(r) = rows.next()? {
+            let ptr: String = r.get(1)?;
+            derived_parts.insert(r.get(0)?, Pointer::try_from(&ptr)?);
+        }
 
         Ok(Context {
             sources: index_source_schema_and_transforms(db, derivation)?,
@@ -157,6 +162,7 @@ impl Context {
             schema_index,
             derived_schema,
             derived_key,
+            derived_parts,
         })
     }
 }
