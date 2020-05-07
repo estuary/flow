@@ -33,36 +33,41 @@ collections:
         - source: stock/ticks
           lambda:
             nodeJS: |
-              let spread = doc.ask.price - doc.bid.price;
+              // Alias "source" document to "tick".
+              let tick = source;
+              // Current bid/ask price spread of the tick.
+              let spread = tick.ask.price - tick.bid.price;
+              // Truncate full UTC timestamp to current date.
+              let date = moment.utc(tick.time).format("YYYY-MM-DD");
 
               return [{
-                  exchange: doc.exchange,
-                  security: doc.security,
-                  date: moment.utc(doc.time).format("YYYY-MM-DD"),
+                  exchange: tick.exchange,
+                  security: tick.security,
+                  date:     date,
                   // Price stat uses a by-volume weighted average of trades.
                   price: {
-                      low: doc.last.price,
-                      high: doc.last.price,
-                      avgN: doc.last.price * doc.last.size,
-                      avgD: doc.last.size,
+                      low:  tick.last.price,
+                      high: tick.last.price,
+                      avgN: tick.last.price * tick.last.size,
+                      avgD: tick.last.size,
                   },
                   // Bid, ask, and spread stats use equal weighting of observed prices across ticks.
                   bid: {
-                      low: doc.bid.price,
-                      high: doc.bid.price,
-                      avgN: doc.bid.price,
+                      low:  tick.bid.price,
+                      high: tick.bid.price,
+                      avgN: tick.bid.price,
                       avgD: 1,
                   },
                   ask: {
-                      low: doc.ask.price,
-                      high: doc.ask.price,
-                      avgN: doc.ask.price,
+                      low:  tick.ask.price,
+                      high: tick.ask.price,
+                      avgN: tick.ask.price,
                       avgD: 1,
                   },
                   spread: {low: spread, high: spread, avgN: spread, avgD: 1},
-                  volume: doc.last.size,
-                  first: doc.last,
-                  last: doc.last,
+                  volume: tick.last.size,
+                  first:  tick.last,
+                  last:   tick.last,
               }];
 
 #materializations:

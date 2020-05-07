@@ -181,7 +181,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
 
         write!(
             w,
-            "\t{}: async (doc: {}, store: Store) : Promise<{}[] | void> => {{ {} }},\n",
+            "\t{}: async (source: {}, store: Store) : Promise<{}[] | void> => {{ {} }},\n",
             id,
             ts_name(&src_name, &src_uri, is_alt),
             ts_name(&der_name, &der_uri, false),
