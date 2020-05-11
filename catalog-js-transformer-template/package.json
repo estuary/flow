@@ -26,8 +26,8 @@
   "devDependencies": {
     "@types/node": "^10.0",
     "@types/stream-json": "^1",
-    "@typescript-eslint/eslint-plugin": "^2.30",
-    "@typescript-eslint/parser": "^2.30",
+    "@typescript-eslint/eslint-plugin": "=2.30",
+    "@typescript-eslint/parser": "=2.30",
     "eslint": "^6.8",
     "eslint-config-prettier": "^6.11",
     "eslint-plugin-prettier": "^3.1",
