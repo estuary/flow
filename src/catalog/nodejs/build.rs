@@ -103,7 +103,6 @@ fn generate_collections_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
         write!(w, "type {} = ", ts_name(&name, &schema_url, is_alt))?;
         let scm = index.must_fetch(&schema_url)?;
         let ast = mapper.map(scm);
-        let ast = ast.optimize();
 
         let mut out = Vec::new();
         ast.render(&mut out);
