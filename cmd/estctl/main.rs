@@ -58,6 +58,14 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     db.execute_batch("BEGIN;")?;
     catalog::init_db_schema(&db)?;
     catalog::Source::register(&db, root)?;
+
+    // TODO:
+    // - Verify collection primary key matches inferred schema (table 'collections').
+    // - Verify shuffle keys matches source schema in use ('transform_details')
+    //    (note there could be multliple shuffle keys & alternate source schemas).
+    // - Verify projected field pointers matched inferred schema.
+    // - Deduce additional projections from schema & add to catalog table?
+
     catalog::build_nodejs_package(&db, Path::new("./catalog-js-transformer-template"))?;
 
     db.execute_batch("COMMIT;")?;
