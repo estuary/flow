@@ -459,6 +459,26 @@ collection_id|name|schema_uri|is_alternate
 4|col/other-src|file:///path/to/a/schema.yaml|0
 changes:   0   total_changes: XYZ
 
+-- View of schema URIs and all fields which are extracted from them,
+-- with context as to usage (primary key, shuffle key, or projection).
+SELECT * FROM schema_extracted_fields;
+schema_uri|ptr|is_key|context
+file:///path/to/a/schema.yaml|/key|1|key of collection 'col/other-src'
+file:///path/to/a/schema.yaml#anchor|/key|1|shuffle key of source 'col/src' by derivation 'col/derived'
+file:///path/to/a/schema.yaml#anchor|/key/0|1|key of collection 'col/src'
+file:///path/to/a/schema.yaml#anchor|/key/0|1|shuffle key of source 'col/src' by derivation 'col/derived'
+file:///path/to/a/schema.yaml#anchor|/key/1|1|key of collection 'col/src'
+file:///path/to/a/schema.yaml#anchor|/key/1|1|shuffle key of source 'col/src' by derivation 'col/derived'
+file:///path/to/a/schema.yaml#anchor|/path/1|0|projected field 'field_1' of collection 'col/src'
+file:///path/to/a/schema.yaml#anchor|/path/2|1|projected field 'field_2' of collection 'col/src'
+https://alt/source/schema#anchor|/key/0|1|shuffle key of source 'col/src' by derivation 'col/der.iv-e+d'
+https://alt/source/schema#anchor|/key/1|1|shuffle key of source 'col/src' by derivation 'col/der.iv-e+d'
+https://canonical/schema/uri#/$defs/path||0|projected field 'field_1' of collection 'col/derived'
+https://canonical/schema/uri#/$defs/path|/a|1|projected field 'field_a' of collection 'col/derived'
+https://canonical/schema/uri#/$defs/path|/foo|1|key of collection 'col/der.iv-e+d'
+https://canonical/schema/uri#/$defs/path|/foo|1|key of collection 'col/derived'
+changes:   0   total_changes: XYZ
+
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),

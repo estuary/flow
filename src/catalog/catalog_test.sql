@@ -317,6 +317,10 @@ SELECT * FROM transform_details;
 -- any alternate schemas used by transforms reading the collection.
 SELECT * FROM collection_schemas;
 
+-- View of schema URIs and all fields which are extracted from them,
+-- with context as to usage (primary key, shuffle key, or projection).
+SELECT * FROM schema_extracted_fields;
+
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),

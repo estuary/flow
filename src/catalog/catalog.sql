@@ -313,6 +313,31 @@ FROM transforms
                    ON lambdas.resource_id = lambda_resources.resource_id
 ;
 
+-- View over schema URIs and their extracted fields, with context.
+CREATE VIEW schema_extracted_fields AS
+SELECT
+    c.schema_uri,
+    k.value AS ptr,
+    TRUE AS is_key,
+    PRINTF('key of collection %Q', c.name) AS context
+FROM collections AS c, JSON_EACH(c.key_json) AS k
+UNION
+SELECT
+    t.source_schema_uri,
+    k.value,
+    TRUE AS is_key,
+    PRINTF('shuffle key of source %Q by derivation %Q',
+        t.source_name, t.derivation_name)
+FROM transform_details AS t, JSON_EACH(t.shuffle_key_json) AS k
+UNION
+SELECT
+    c.schema_uri,
+    p.location_ptr,
+    p.is_logical_partition AS is_key,
+    PRINTF('projected field %Q of collection %Q', p.field, c.name)
+FROM collections AS c NATURAL JOIN projections AS p
+;
+
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 CREATE TABLE nodejs_dependencies
 (

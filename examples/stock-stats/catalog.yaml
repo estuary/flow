@@ -11,8 +11,8 @@ collections:
       - field: exchange
         location: /exchange
         partition: true
-      - field: bar
-        location: /bar
+      - field: the_bid_price
+        location: /bid/price
 
   - name: stock/daily-stats
     schema: schemas/daily-stat.yaml
@@ -24,7 +24,7 @@ collections:
         location: /exchange
         partition: true
       - field: my_special_column
-        location: /bid/high
+        location: /bid
 
     derivation:
       bootstrap:
