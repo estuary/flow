@@ -1,4 +1,4 @@
-use super::{Schema, SchemaIndex};
+use super::{ptr::Token, Pointer, Schema, SchemaIndex};
 use estuary_json::schema::{
     types, Annotation as AnnotationTrait, Application, CoreAnnotation, Keyword, Validation,
 };
@@ -809,6 +809,79 @@ fn intersect_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Opt
     }
 }
 
+impl Shape {
+    /// Locate the pointer within this Shape. Returns None if the pointed
+    /// Shape (or a parent thereof) does not exist.
+    pub fn locate(&self, ptr: &Pointer) -> Option<(&Shape, bool)> {
+        let mut shape = self;
+        let mut must_exist = true;
+
+        for token in ptr.iter() {
+            if let Some((next, exists)) = shape.locate_token(token) {
+                shape = next;
+                must_exist &= exists;
+            } else {
+                return None;
+            }
+        }
+        Some((shape, must_exist))
+    }
+
+    fn locate_token(&self, token: Token) -> Option<(&Shape, bool)> {
+        // If this Shape can take a type other than ARRAY or OBJECT,
+        // then even if we match this token there's no guarantee that
+        // the token must exist (since this location could be another
+        // scalar type).
+        let mut _ind_string = String::new();
+
+        // First try to resolve a Token::Index to an array location.
+        let prop = if let Token::Index(ind) = token {
+            if self.type_.overlaps(types::ARRAY) {
+                // A sub-item must exist iff this location can _only_
+                // be an array, and it's within the minItems bound.
+                let must_exist = self.type_ == types::ARRAY && ind < self.array.min.unwrap_or(ind);
+
+                return if ind >= self.array.max.unwrap_or(ind + 1) {
+                    None // If outside of the maxItems bound, we can't exist.
+                } else if self.array.tuple.len() > ind {
+                    Some((&self.array.tuple[ind], must_exist))
+                } else if let Some(addl) = &self.array.additional {
+                    Some((addl.as_ref(), must_exist))
+                } else {
+                    None
+                };
+            } else {
+                // We have a Token::Index, but the present location can never be
+                // an array. Re-interpret as a property having a string-ized
+                // index as property name, and try to resolve that.
+                _ind_string = ind.to_string();
+                &_ind_string
+            }
+        } else if let Token::Property(prop) = token {
+            prop
+        } else {
+            return None;
+        };
+
+        // Next try to resolve |prop| to an object location.
+        if !self.type_.overlaps(types::OBJECT) {
+            return None;
+        }
+
+        if let Some(f) = self.object.properties.iter().find(|p| p.name == prop) {
+            // A property must exist iff this location can _only_ be an object,
+            // and it's marked as a required property.
+            Some((&f.shape, self.type_ == types::OBJECT && f.is_required))
+        } else if let Some(f) = self.object.patterns.iter().find(|p| p.re.is_match(prop)) {
+            Some((&f.shape, false))
+        } else if let Some(addl) = &self.object.additional {
+            Some((addl.as_ref(), false))
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{super::Annotation, *};
@@ -1309,18 +1382,82 @@ mod test {
         )
     }
 
+    #[test]
+    fn test_locate() {
+        let obj = shape_from(
+            r#"
+        type: object
+        properties:
+            prop: {const: prop}
+            parent:
+                type: object
+                properties:
+                    opt-child: {const: opt-child}
+                    req-child: {const: req-child}
+                    42: {const: forty-two}
+                required: [req-child]
+            multi-type:
+                type: [object, array]
+                properties:
+                    child: {const: multi-type-child}
+                required: [child]
+        required: [parent]
+
+        patternProperties:
+            pattern+: {const: pattern}
+        additionalProperties: {const: addl-prop}
+        "#,
+        );
+
+        let arr = shape_from(
+            r#"
+        type: array
+        minItems: 2
+        maxItems: 10
+        items: [{const: zero}, {const: one}, {const: two}]
+        additionalItems: {const: addl-item}
+        "#,
+        );
+
+        let cases = &[
+            (&obj, "/prop", Some(("prop", false))),
+            (&obj, "/missing", Some(("addl-prop", false))),
+            (&obj, "/parent/opt-child", Some(("opt-child", false))),
+            (&obj, "/parent/req-child", Some(("req-child", true))),
+            (&obj, "/parent/missing", None),
+            (&obj, "/parent/42", Some(("forty-two", false))),
+            (&obj, "/pattern", Some(("pattern", false))),
+            (&obj, "/patternnnnnn", Some(("pattern", false))),
+            (&arr, "/0", Some(("zero", true))),
+            (&arr, "/1", Some(("one", true))),
+            (&arr, "/2", Some(("two", false))),
+            (&arr, "/3", Some(("addl-item", false))),
+            (&arr, "/9", Some(("addl-item", false))),
+            (&arr, "/10", None),
+        ];
+
+        for (shape, ptr, expect) in cases {
+            let actual = shape.locate(&Pointer::from(ptr));
+            let actual = actual.map(|(shape, exists)| {
+                (
+                    shape
+                        .enum_
+                        .as_ref()
+                        .unwrap()
+                        .first()
+                        .unwrap()
+                        .as_str()
+                        .unwrap(),
+                    exists,
+                )
+            });
+            assert_eq!(expect, &actual, "case {:?}", ptr);
+        }
+    }
+
     fn infer_test(cases: &[&str], expect: Shape) {
         for case in cases {
-            let url = url::Url::parse("http://example/schema").unwrap();
-            let schema: Value = serde_yaml::from_str(case).unwrap();
-            let schema = schema::build::build_schema::<Annotation>(url.clone(), &schema).unwrap();
-
-            let mut index = SchemaIndex::new();
-            index.add(&schema).unwrap();
-            index.verify_references().unwrap();
-
-            let actual = Shape::infer(index.must_fetch(&url).unwrap(), &index);
-
+            let actual = shape_from(case);
             assert_eq!(actual, expect);
         }
 
@@ -1357,6 +1494,18 @@ mod test {
             expect,
             "fixture && any == fixture"
         );
+    }
+
+    fn shape_from(case: &str) -> Shape {
+        let url = url::Url::parse("http://example/schema").unwrap();
+        let schema: Value = serde_yaml::from_str(case).unwrap();
+        let schema = schema::build::build_schema::<Annotation>(url.clone(), &schema).unwrap();
+
+        let mut index = SchemaIndex::new();
+        index.add(&schema).unwrap();
+        index.verify_references().unwrap();
+
+        Shape::infer(index.must_fetch(&url).unwrap(), &index)
     }
 
     fn enum_fixture(value: Value) -> Shape {
