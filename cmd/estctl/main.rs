@@ -19,7 +19,6 @@ fn main() {
                 .about("Build an Estuary specification into a catalog")
                 .arg(
                     clap::Arg::with_name("path")
-                        .short("p")
                         .long("path")
                         .takes_value(true)
                         .required(true)
@@ -27,11 +26,23 @@ fn main() {
                 )
                 .arg(
                     clap::Arg::with_name("catalog")
-                        .short("c")
                         .long("catalog")
                         .takes_value(true)
-                        .required(true)
-                        .help("Path to output catalog"),
+                        .default_value("catalog.db")
+                        .help("Path to output catalog database"),
+                )
+                .arg(
+                    clap::Arg::with_name("nodejs-package-path")
+                        .long("nodejs")
+                        .takes_value(true)
+                        .default_value("catalog-nodejs")
+                        .help("Path to NodeJS package holding JavaScript lambdas")
+                        .long_help(
+"Path to NodeJS package which will hold JavaScript lambdas. If this directory
+doesn't exist, it will be automatically created from a template. The package
+is used temporarily during the catalog build process -- it's compiled and
+then packed into the output catalog database -- but re-using the same directory
+across invocations will save time otherwise spent fetching npm packages."),
                 ),
         )
         .get_matches();
@@ -55,6 +66,8 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     let db = args.value_of("catalog").unwrap();
     let db = catalog::open(db)?;
 
+    let node = Path::new(args.value_of("nodejs-package-path").unwrap());
+
     db.execute_batch("BEGIN;")?;
     catalog::init_db_schema(&db)?;
     catalog::Source::register(&db, root)?;
@@ -66,7 +79,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     // - Verify projected field pointers matched inferred schema.
     // - Deduce additional projections from schema & add to catalog table?
 
-    catalog::build_nodejs_package(&db, Path::new("./catalog-js-transformer-template"))?;
+    catalog::build_nodejs_package(&db, node)?;
 
     db.execute_batch("COMMIT;")?;
     Ok(())

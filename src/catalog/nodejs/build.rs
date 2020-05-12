@@ -1,6 +1,7 @@
 use super::typescript;
 use crate::catalog::{self, ContentType, Error};
 use crate::doc::SchemaIndex;
+use include_dir::{include_dir, Dir};
 use rusqlite::{params as sql_params, Connection as DB};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,13 +13,32 @@ use std::path;
 use std::process::Command;
 use url::Url;
 
+static TEMPLATE_ROOT: Dir = include_dir!("catalog-js-transformer-template");
+
+pub fn write_package_template(dir: &Dir, into: &path::Path) -> Result<(), Error> {
+    fs::create_dir_all(into.join(dir.path))?;
+
+    for file in dir.files() {
+        let into = into.join(file.path);
+        fs::write(&into, file.contents())?;
+        log::info!("writing NodeJS package template {:?}", into);
+    }
+    for dir in dir.dirs() {
+        write_package_template(dir, into)?;
+    }
+    Ok(())
+}
+
 pub fn build_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
-    // TODO(johnny): If package.json doesn't exist, scaffold out from "catalog-js-transformer-template".
+    // Install or clobber package template files.
+    write_package_template(&TEMPLATE_ROOT, pkg)?;
+
     patch_package_json(db, pkg)?;
     generate_collections_ts(db, pkg)?;
     generate_lambdas_ts(db, pkg)?;
 
     npm_cmd(pkg, &["install", "--no-audit", "--no-fund"])?;
+    npm_cmd(pkg, &["run", "prettify-generated"])?;
     npm_cmd(pkg, &["run", "compile"])?;
     npm_cmd(pkg, &["run", "lint"])?;
     npm_cmd(pkg, &["pack"])?;

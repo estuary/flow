@@ -19,6 +19,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9a60d744a80c30fcb657dfe2c1b22bcb3e814c1a1e3674f32bf5820b570fbff"
+
+[[package]]
 name = "arc-swap"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -273,6 +279,7 @@ dependencies = [
  "http-body",
  "hyper",
  "hyperlocal",
+ "include_dir",
  "itertools",
  "log 0.4.8",
  "pin-utils",
@@ -640,6 +647,29 @@ dependencies = [
  "matches",
  "unicode-bidi",
  "unicode-normalization",
+]
+
+[[package]]
+name = "include_dir"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23d58bdeb22b1c4691106c084b1063781904c35d0f22eda2a283598968eac61a"
+dependencies = [
+ "include_dir_impl",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "include_dir_impl"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "327869970574819d24d1dca25c891856144d29159ab797fa9dc725c5c3f57215"
+dependencies = [
+ "anyhow",
+ "proc-macro-hack",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
