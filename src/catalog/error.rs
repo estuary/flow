@@ -57,7 +57,7 @@ pub enum Error {
         process: std::path::PathBuf,
         status: std::process::ExitStatus,
     },
-    #[error("{context}, location '{ptr}': {msg} (@ schema '{schema_uri}')")]
+    #[error("{context}, location '{ptr}': {msg} @ schema '{schema_uri}'")]
     ExtractedFieldErr {
         schema_uri: String,
         ptr: String,

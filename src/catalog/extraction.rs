@@ -29,8 +29,8 @@ pub fn verify_extracted_fields(db: &DB) -> Result<()> {
         // Verify each field JSON-Pointer resolves to a known schema shape,
         // which is always a scalar.
         for (ptr, is_key, context) in fields.into_iter() {
-            let shape = match shape.locate(&Pointer::from(&ptr)) {
-                Some((shape, _)) => shape,
+            let (shape, must_exist) = match shape.locate(&Pointer::from(&ptr)) {
+                Some((shape, must_exist)) => (shape, must_exist),
                 None => {
                     return Err(Error::ExtractedFieldErr {
                         context,
@@ -41,10 +41,24 @@ pub fn verify_extracted_fields(db: &DB) -> Result<()> {
                 }
             };
 
-            if is_key != 0
-                && shape
-                    .type_
-                    .overlaps(types::ARRAY | types::OBJECT | types::NUMBER)
+            if is_key == 0 {
+                // Un-keyed fields are null-able, and may be of any JSON type.
+                continue;
+            }
+
+            if !must_exist {
+                return Err(Error::ExtractedFieldErr {
+                    context,
+                    schema_uri: uri.into_string(),
+                    ptr,
+                    msg: "the schema does not verify that the field always exists (check 'type', 'required', or 'minItems'?)"
+                        .to_owned(),
+                });
+            }
+
+            if shape
+                .type_
+                .overlaps(types::ARRAY | types::OBJECT | types::NUMBER)
             {
                 return Err(Error::ExtractedFieldErr {
                     context,
