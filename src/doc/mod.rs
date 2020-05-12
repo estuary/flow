@@ -2,6 +2,7 @@ pub mod ptr;
 mod varint;
 pub use ptr::Pointer;
 
+pub mod inference;
 pub mod reduce;
 
 mod annotation;

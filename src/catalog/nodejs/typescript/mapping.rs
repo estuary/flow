@@ -1,6 +1,6 @@
 use super::ast::{ASTProperty, ASTTuple, AST};
-use crate::doc::{Schema, SchemaIndex};
-use estuary_json::schema::{inference, types};
+use crate::doc::{inference, Schema, SchemaIndex};
+use estuary_json::schema::types;
 use std::collections::BTreeMap;
 use url::Url;
 
@@ -11,21 +11,21 @@ pub struct Mapper<'a> {
 
 impl<'a> Mapper<'a> {
     pub fn map(&self, scm: &Schema) -> AST {
-        let loc = inference::Location::infer(scm, self.index);
-        to_ast(&loc)
+        let shape = inference::Shape::infer(scm, self.index);
+        to_ast(&shape)
     }
 }
 
-fn to_ast(loc: &inference::Location) -> AST {
-    let mut ast = to_ast_inner(loc);
+fn to_ast(shape: &inference::Shape) -> AST {
+    let mut ast = to_ast_inner(shape);
 
-    if let Some(desc) = &loc.description {
+    if let Some(desc) = &shape.description {
         ast = AST::Comment {
             body: desc.clone(),
             of: Box::new(ast),
         };
     }
-    if let Some(title) = &loc.title {
+    if let Some(title) = &shape.title {
         ast = AST::Comment {
             body: title.clone(),
             of: Box::new(ast),
@@ -35,19 +35,19 @@ fn to_ast(loc: &inference::Location) -> AST {
     ast
 }
 
-fn to_ast_inner(loc: &inference::Location) -> AST {
+fn to_ast_inner(shape: &inference::Shape) -> AST {
     // Is this a trivial ANY type?
-    if loc.type_ == types::ANY
-        && loc.enum_.is_none()
-        && loc.array.additional.is_none()
-        && loc.array.tuple.is_empty()
-        && loc.object.properties.is_empty()
-        && loc.object.additional.is_none()
+    if shape.type_ == types::ANY
+        && shape.enum_.is_none()
+        && shape.array.additional.is_none()
+        && shape.array.tuple.is_empty()
+        && shape.object.properties.is_empty()
+        && shape.object.additional.is_none()
     {
         return AST::Any;
     }
     // Is this an enum? Just emit the variants.
-    if let Some(enum_) = &loc.enum_ {
+    if let Some(enum_) = &shape.enum_ {
         return AST::Union {
             variants: enum_
                 .iter()
@@ -58,22 +58,22 @@ fn to_ast_inner(loc: &inference::Location) -> AST {
 
     let mut disjunct = Vec::new();
 
-    if loc.type_.overlaps(types::OBJECT) {
-        disjunct.push(object_to_ast(&loc.object));
+    if shape.type_.overlaps(types::OBJECT) {
+        disjunct.push(object_to_ast(&shape.object));
     }
-    if loc.type_.overlaps(types::ARRAY) {
-        disjunct.push(array_to_ast(&loc.array));
+    if shape.type_.overlaps(types::ARRAY) {
+        disjunct.push(array_to_ast(&shape.array));
     }
-    if loc.type_.overlaps(types::BOOLEAN) {
+    if shape.type_.overlaps(types::BOOLEAN) {
         disjunct.push(AST::Boolean);
     }
-    if loc.type_.overlaps(types::INTEGER | types::NUMBER) {
+    if shape.type_.overlaps(types::INTEGER | types::NUMBER) {
         disjunct.push(AST::Number);
     }
-    if loc.type_.overlaps(types::STRING) {
+    if shape.type_.overlaps(types::STRING) {
         disjunct.push(AST::String);
     }
-    if loc.type_.overlaps(types::NULL) {
+    if shape.type_.overlaps(types::NULL) {
         disjunct.push(AST::Null);
     }
 
@@ -86,14 +86,14 @@ fn to_ast_inner(loc: &inference::Location) -> AST {
     }
 }
 
-fn object_to_ast(obj: &inference::ObjLocation) -> AST {
+fn object_to_ast(obj: &inference::ObjShape) -> AST {
     let mut props: Vec<ASTProperty> = Vec::new();
 
     for prop in &obj.properties {
         props.push(ASTProperty {
             field: prop.name.clone(),
             is_required: prop.is_required,
-            value: to_ast(&prop.value),
+            value: to_ast(&prop.shape),
         });
     }
     if let Some(addl) = &obj.additional {
@@ -106,11 +106,11 @@ fn object_to_ast(obj: &inference::ObjLocation) -> AST {
     AST::Object { properties: props }
 }
 
-fn array_to_ast(obj: &inference::ArrayLocation) -> AST {
+fn array_to_ast(obj: &inference::ArrayShape) -> AST {
     if obj.tuple.is_empty() {
         let spread = match &obj.additional {
             None => AST::Any,
-            Some(loc) => to_ast(&loc),
+            Some(shape) => to_ast(&shape),
         };
         return AST::Array {
             of: Box::new(spread),
@@ -121,7 +121,7 @@ fn array_to_ast(obj: &inference::ArrayLocation) -> AST {
 
     let spread = match &obj.additional {
         None => None,
-        Some(loc) => Some(Box::new(to_ast(&loc))),
+        Some(shape) => Some(Box::new(to_ast(&shape))),
     };
 
     AST::Tuple(ASTTuple {

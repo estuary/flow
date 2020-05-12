@@ -5,6 +5,7 @@ mod collection;
 mod content_type;
 mod derivation;
 mod error;
+mod inference;
 mod lambda;
 mod nodejs;
 mod resource;

@@ -6,7 +6,6 @@ use std::ops::Add;
 
 pub mod build;
 pub mod index;
-pub mod inference;
 pub mod intern;
 pub mod keywords;
 pub mod types;

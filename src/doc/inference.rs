@@ -1,66 +1,69 @@
-use super::{index, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation};
+use super::{Schema, SchemaIndex};
+use estuary_json::schema::{
+    types, Annotation as AnnotationTrait, Application, CoreAnnotation, Keyword, Validation,
+};
 use itertools::{self, EitherOrBoth, Itertools};
 use regex::Regex;
 use serde_json::Value;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Location {
+pub struct Shape {
     pub type_: types::Set,
     pub enum_: Option<Vec<Value>>,
     pub title: Option<String>,
     pub description: Option<String>,
 
-    pub string: StringLocation,
-    pub array: ArrayLocation,
-    pub object: ObjLocation,
+    pub string: StringShape,
+    pub array: ArrayShape,
+    pub object: ObjShape,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct StringLocation {
+pub struct StringShape {
     pub is_base64: Option<bool>,
     pub content_type: Option<String>,
     pub format: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ArrayLocation {
+pub struct ArrayShape {
     pub min: Option<usize>,
     pub max: Option<usize>,
-    pub tuple: Vec<Location>,
-    pub additional: Option<Box<Location>>,
+    pub tuple: Vec<Shape>,
+    pub additional: Option<Box<Shape>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ObjLocation {
+pub struct ObjShape {
     pub properties: Vec<ObjProperty>,
     pub patterns: Vec<ObjPattern>,
-    pub additional: Option<Box<Location>>,
+    pub additional: Option<Box<Shape>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObjProperty {
     pub name: String,
     pub is_required: bool,
-    pub value: Location,
+    pub shape: Shape,
 }
 
 #[derive(Clone, Debug)]
 pub struct ObjPattern {
     pub re: Regex,
-    pub value: Location,
+    pub shape: Shape,
 }
 
 impl Eq for ObjPattern {}
 
 impl PartialEq for ObjPattern {
     fn eq(&self, other: &Self) -> bool {
-        self.re.as_str() == other.re.as_str() && self.value == other.value
+        self.re.as_str() == other.re.as_str() && self.shape == other.shape
     }
 }
 
-impl StringLocation {
+impl StringShape {
     fn intersect(lhs: Self, rhs: Self) -> Self {
-        StringLocation {
+        StringShape {
             is_base64: lhs.is_base64.or(rhs.is_base64),
             content_type: lhs.content_type.or(rhs.content_type),
             format: lhs.format.or(rhs.format),
@@ -68,7 +71,7 @@ impl StringLocation {
     }
 
     fn union(lhs: Self, rhs: Self) -> Self {
-        StringLocation {
+        StringShape {
             is_base64: union_option(lhs.is_base64, rhs.is_base64),
             content_type: union_option(lhs.content_type, rhs.content_type),
             format: union_option(lhs.format, rhs.format),
@@ -76,7 +79,7 @@ impl StringLocation {
     }
 }
 
-impl ObjLocation {
+impl ObjShape {
     fn intersect(lhs: Self, rhs: Self) -> Self {
         // Destructure to make borrow-checker happy.
         let (
@@ -95,9 +98,9 @@ impl ObjLocation {
         // Derive the super-set of properties of both sides.
         // For properties on one side but not the other, impute a property for the missing
         // side by examining matching patterns or additional properties.
-        let intersect_imputed = |mut side: ObjProperty, other: Option<Location>| {
+        let intersect_imputed = |mut side: ObjProperty, other: Option<Shape>| {
             if let Some(other) = other {
-                side.value = Location::intersect(side.value, other);
+                side.shape = Shape::intersect(side.shape, other);
             } else {
                 // Interset of |side| && any => |side|.
             }
@@ -112,7 +115,7 @@ impl ObjLocation {
             EitherOrBoth::Both(l, r) => ObjProperty {
                 name: l.name,
                 is_required: l.is_required || r.is_required,
-                value: Location::intersect(l.value, r.value),
+                shape: Shape::intersect(l.shape, r.shape),
             },
             EitherOrBoth::Left(l) => {
                 let r = Self::impute(&l.name, &rhs_patterns, rhs_addl.as_deref());
@@ -134,7 +137,7 @@ impl ObjLocation {
         .map(|eob| match eob {
             EitherOrBoth::Both(l, r) => ObjPattern {
                 re: l.re,
-                value: Location::intersect(l.value, r.value),
+                shape: Shape::intersect(l.shape, r.shape),
             },
             EitherOrBoth::Left(l) => l,
             EitherOrBoth::Right(r) => r,
@@ -168,12 +171,12 @@ impl ObjLocation {
         // Derive the super-set of properties of both sides. As with intersections, for
         // properties on one side but not the other we impute a property for the missing
         // side by examining matching patterns or additional properties.
-        let union_imputed = |side: ObjProperty, other: Option<Location>| {
+        let union_imputed = |side: ObjProperty, other: Option<Shape>| {
             if let Some(other) = other {
                 Some(ObjProperty {
                     name: side.name,
                     is_required: false,
-                    value: Location::union(side.value, other),
+                    shape: Shape::union(side.shape, other),
                 })
             } else {
                 // Union of |side| || any => any.
@@ -189,7 +192,7 @@ impl ObjLocation {
             EitherOrBoth::Both(l, r) => Some(ObjProperty {
                 name: l.name,
                 is_required: l.is_required && r.is_required,
-                value: Location::union(l.value, r.value),
+                shape: Shape::union(l.shape, r.shape),
             }),
             EitherOrBoth::Left(l) => {
                 let r = Self::impute(&l.name, &rhs_patterns, rhs_addl.as_deref());
@@ -211,7 +214,7 @@ impl ObjLocation {
         .filter_map(|eob| match eob {
             EitherOrBoth::Both(l, r) => Some(ObjPattern {
                 re: l.re,
-                value: Location::union(l.value, r.value),
+                shape: Shape::union(l.shape, r.shape),
             }),
             _ => None,
         })
@@ -227,7 +230,7 @@ impl ObjLocation {
     }
 
     fn apply_patterns_to_properties(self: Self) -> Self {
-        let ObjLocation {
+        let ObjShape {
             patterns,
             mut properties,
             additional,
@@ -240,13 +243,13 @@ impl ObjLocation {
                     if !pattern.re.is_match(&prop.name) {
                         continue;
                     }
-                    prop.value = Location::intersect(prop.value, pattern.value.clone());
+                    prop.shape = Shape::intersect(prop.shape, pattern.shape.clone());
                 }
                 prop
             })
             .collect::<Vec<_>>();
 
-        ObjLocation {
+        ObjShape {
             patterns,
             properties,
             additional,
@@ -256,16 +259,16 @@ impl ObjLocation {
     fn impute(
         property: &str,
         patterns: &[ObjPattern],
-        additional: Option<&Location>,
-    ) -> Option<Location> {
+        additional: Option<&Shape>,
+    ) -> Option<Shape> {
         // Compute the intersection of all matching property patterns.
         let pattern = patterns.iter().fold(None, |prior, pattern| {
             if !pattern.re.is_match(property) {
                 prior
             } else if let Some(prior) = prior {
-                Some(Location::intersect(prior, pattern.value.clone()))
+                Some(Shape::intersect(prior, pattern.shape.clone()))
             } else {
-                Some(pattern.value.clone())
+                Some(pattern.shape.clone())
             }
         });
 
@@ -279,7 +282,7 @@ impl ObjLocation {
     }
 }
 
-impl ArrayLocation {
+impl ArrayShape {
     fn union(lhs: Self, rhs: Self) -> Self {
         let (
             Self {
@@ -308,13 +311,13 @@ impl ArrayLocation {
             .into_iter()
             .zip_longest(rhs_tuple.into_iter())
             .filter_map(|eob| match eob {
-                EitherOrBoth::Both(l, r) => Some(Location::union(l, r)),
+                EitherOrBoth::Both(l, r) => Some(Shape::union(l, r)),
                 EitherOrBoth::Left(l) => match &rhs_addl {
-                    Some(r) => Some(Location::union(l, r.as_ref().clone())),
+                    Some(r) => Some(Shape::union(l, r.as_ref().clone())),
                     None => None,
                 },
                 EitherOrBoth::Right(r) => match &lhs_addl {
-                    Some(l) => Some(Location::union(l.as_ref().clone(), r)),
+                    Some(l) => Some(Shape::union(l.as_ref().clone(), r)),
                     None => None,
                 },
             })
@@ -362,13 +365,13 @@ impl ArrayLocation {
             .into_iter()
             .zip_longest(rhs_tuple.into_iter())
             .map(|eob| match eob {
-                EitherOrBoth::Both(l, r) => Location::intersect(l, r),
+                EitherOrBoth::Both(l, r) => Shape::intersect(l, r),
                 EitherOrBoth::Left(l) => match &rhs_addl {
-                    Some(r) => Location::intersect(l, r.as_ref().clone()),
+                    Some(r) => Shape::intersect(l, r.as_ref().clone()),
                     None => l,
                 },
                 EitherOrBoth::Right(r) => match &lhs_addl {
-                    Some(l) => Location::intersect(l.as_ref().clone(), r),
+                    Some(l) => Shape::intersect(l.as_ref().clone(), r),
                     None => r,
                 },
             })
@@ -385,7 +388,7 @@ impl ArrayLocation {
     }
 }
 
-impl Default for ObjLocation {
+impl Default for ObjShape {
     fn default() -> Self {
         Self {
             properties: Vec::new(),
@@ -395,137 +398,134 @@ impl Default for ObjLocation {
     }
 }
 
-impl Default for Location {
+impl Default for Shape {
     fn default() -> Self {
         Self {
             type_: types::ANY,
             enum_: None,
             title: None,
             description: None,
-            string: StringLocation::default(),
-            array: ArrayLocation::default(),
-            object: ObjLocation::default(),
+            string: StringShape::default(),
+            array: ArrayShape::default(),
+            object: ObjShape::default(),
         }
     }
 }
 
-impl Location {
-    pub fn infer<'s, A: Annotation>(
-        schema: &'s Schema<A>,
-        index: &index::Index<'s, A>,
-    ) -> Location {
+impl Shape {
+    pub fn infer<'s>(schema: &Schema, index: &SchemaIndex<'s>) -> Shape {
         // Walk validation and annotation keywords which affect the inference result
         // at the current location.
 
-        let mut loc = Location::default();
-        let mut unevaluated_properties: Option<Location> = None;
-        let mut unevaluated_items: Option<Location> = None;
+        let mut shape = Shape::default();
+        let mut unevaluated_properties: Option<Shape> = None;
+        let mut unevaluated_items: Option<Shape> = None;
 
         // Walk validation keywords and subordinate applications which influence
         // the present Location.
         for kw in &schema.kw {
             match kw {
                 // Type constraints.
-                Keyword::Validation(Validation::False) => loc.type_ = types::INVALID,
-                Keyword::Validation(Validation::Type(type_set)) => loc.type_ = *type_set,
+                Keyword::Validation(Validation::False) => shape.type_ = types::INVALID,
+                Keyword::Validation(Validation::Type(type_set)) => shape.type_ = *type_set,
 
                 // Enum constraints.
                 Keyword::Validation(Validation::Const(literal)) => {
-                    loc.enum_ = Some(vec![literal.value.clone()])
+                    shape.enum_ = Some(vec![literal.value.clone()])
                 }
                 Keyword::Validation(Validation::Enum { variants }) => {
-                    loc.enum_ = Some(
+                    shape.enum_ = Some(
                         variants
                             .iter()
                             .map(|hl| hl.value.clone())
-                            .sorted_by(crate::json_cmp)
+                            .sorted_by(estuary_json::json_cmp)
                             .collect::<Vec<_>>(),
                     );
                 }
 
                 Keyword::Annotation(annot) => match annot.as_core() {
                     Some(CoreAnnotation::Title(t)) => {
-                        loc.title = Some(t.clone());
+                        shape.title = Some(t.clone());
                     }
                     Some(CoreAnnotation::Description(d)) => {
-                        loc.description = Some(d.clone());
+                        shape.description = Some(d.clone());
                     }
 
                     // String constraints.
                     Some(CoreAnnotation::ContentEncodingBase64) => {
-                        loc.string.is_base64 = Some(true);
+                        shape.string.is_base64 = Some(true);
                     }
                     Some(CoreAnnotation::ContentMediaType(mt)) => {
-                        loc.string.content_type = Some(mt.clone());
+                        shape.string.content_type = Some(mt.clone());
                     }
                     _ => {} // Other CoreAnnotation. No-op.
                 },
 
                 // Array constraints.
-                Keyword::Validation(Validation::MinItems(m)) => loc.array.min = Some(*m),
-                Keyword::Validation(Validation::MaxItems(m)) => loc.array.max = Some(*m),
+                Keyword::Validation(Validation::MinItems(m)) => shape.array.min = Some(*m),
+                Keyword::Validation(Validation::MaxItems(m)) => shape.array.max = Some(*m),
                 Keyword::Application(Application::Items { index: None }, schema) => {
-                    loc.array.additional = Some(Box::new(Location::infer(schema, index)));
+                    shape.array.additional = Some(Box::new(Shape::infer(schema, index)));
                 }
                 Keyword::Application(Application::Items { index: Some(i) }, schema) => {
-                    loc.array.tuple.extend(
-                        std::iter::repeat(Location::default()).take(1 + i - loc.array.tuple.len()),
+                    shape.array.tuple.extend(
+                        std::iter::repeat(Shape::default()).take(1 + i - shape.array.tuple.len()),
                     );
-                    loc.array.tuple[*i] = Location::infer(schema, index);
+                    shape.array.tuple[*i] = Shape::infer(schema, index);
                 }
                 Keyword::Application(Application::AdditionalItems, schema) => {
-                    loc.array.additional = Some(Box::new(Location::infer(schema, index)));
+                    shape.array.additional = Some(Box::new(Shape::infer(schema, index)));
                 }
                 Keyword::Application(Application::UnevaluatedItems, schema) => {
-                    unevaluated_items = Some(Location::infer(schema, index));
+                    unevaluated_items = Some(Shape::infer(schema, index));
                 }
 
                 // Object constraints.
                 Keyword::Application(Application::Properties { name, .. }, schema) => {
-                    let obj = ObjLocation {
+                    let obj = ObjShape {
                         properties: vec![ObjProperty {
                             name: name.clone(),
                             is_required: false,
-                            value: Location::infer(schema, index),
+                            shape: Shape::infer(schema, index),
                         }],
                         patterns: Vec::new(),
                         additional: None,
                     };
-                    loc.object = ObjLocation::intersect(loc.object, obj);
+                    shape.object = ObjShape::intersect(shape.object, obj);
                 }
                 Keyword::Validation(Validation::Required { props, .. }) => {
-                    let obj = ObjLocation {
+                    let obj = ObjShape {
                         properties: props
                             .iter()
                             .sorted()
                             .map(|p| ObjProperty {
                                 name: p.clone(),
                                 is_required: true,
-                                value: Location::default(),
+                                shape: Shape::default(),
                             })
                             .collect::<Vec<_>>(),
                         patterns: Vec::new(),
                         additional: None,
                     };
-                    loc.object = ObjLocation::intersect(loc.object, obj);
+                    shape.object = ObjShape::intersect(shape.object, obj);
                 }
 
                 Keyword::Application(Application::PatternProperties { re }, schema) => {
-                    let obj = ObjLocation {
+                    let obj = ObjShape {
                         properties: Vec::new(),
                         patterns: vec![ObjPattern {
                             re: re.clone(),
-                            value: Location::infer(schema, index),
+                            shape: Shape::infer(schema, index),
                         }],
                         additional: None,
                     };
-                    loc.object = ObjLocation::intersect(loc.object, obj);
+                    shape.object = ObjShape::intersect(shape.object, obj);
                 }
                 Keyword::Application(Application::AdditionalProperties, schema) => {
-                    loc.object.additional = Some(Box::new(Location::infer(schema, index)));
+                    shape.object.additional = Some(Box::new(Shape::infer(schema, index)));
                 }
                 Keyword::Application(Application::UnevaluatedProperties, schema) => {
-                    unevaluated_properties = Some(Location::infer(schema, index));
+                    unevaluated_properties = Some(Shape::infer(schema, index));
                 }
 
                 _ => {} // Other Keyword. No-op.
@@ -533,57 +533,57 @@ impl Location {
         }
 
         // Apply pattern properties to applicable named properties.
-        loc.object = loc.object.apply_patterns_to_properties();
+        shape.object = shape.object.apply_patterns_to_properties();
 
         // Restrict enum variants to permitted types of the present schema.
         // We'll keep enforcing this invariant as Locations are intersected,
         // and allowed types are further restricted.
-        loc.enum_ = intersect_enum(loc.type_, loc.enum_.take(), None);
+        shape.enum_ = intersect_enum(shape.type_, shape.enum_.take(), None);
 
         // Presence of an enum term similarly restricts the allowed types that
         // a location may take (since it may only take values of the enum).
         // We also check this again during intersection.
-        if let Some(enum_) = &loc.enum_ {
-            loc.type_ = loc.type_ & enum_types(enum_.iter());
+        if let Some(enum_) = &shape.enum_ {
+            shape.type_ = shape.type_ & enum_types(enum_.iter());
         }
 
         // Now, collect inferences from in-place application keywords.
-        let mut one_of: Option<Location> = None;
-        let mut any_of: Option<Location> = None;
+        let mut one_of: Option<Shape> = None;
+        let mut any_of: Option<Shape> = None;
         let mut if_ = false;
-        let mut then_: Option<Location> = None;
-        let mut else_: Option<Location> = None;
+        let mut then_: Option<Shape> = None;
+        let mut else_: Option<Shape> = None;
 
         for kw in &schema.kw {
             match kw {
                 Keyword::Application(Application::Ref(uri), _) => {
                     if let Some(schema) = index.fetch(uri) {
-                        loc = Location::intersect(loc, Location::infer(schema, index));
+                        shape = Shape::intersect(shape, Shape::infer(schema, index));
                     }
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
-                    loc = Location::intersect(loc, Location::infer(schema, index));
+                    shape = Shape::intersect(shape, Shape::infer(schema, index));
                 }
                 Keyword::Application(Application::OneOf { .. }, schema) => {
-                    let l = Location::infer(schema, index);
+                    let l = Shape::infer(schema, index);
                     one_of = Some(match one_of {
-                        Some(one_of) => Location::union(one_of, l),
+                        Some(one_of) => Shape::union(one_of, l),
                         None => l,
                     })
                 }
                 Keyword::Application(Application::AnyOf { .. }, schema) => {
-                    let l = Location::infer(schema, index);
+                    let l = Shape::infer(schema, index);
                     any_of = Some(match any_of {
-                        Some(any_of) => Location::union(any_of, l),
+                        Some(any_of) => Shape::union(any_of, l),
                         None => l,
                     })
                 }
                 Keyword::Application(Application::If, _) => if_ = true,
                 Keyword::Application(Application::Then, schema) => {
-                    then_ = Some(Location::infer(schema, index));
+                    then_ = Some(Shape::infer(schema, index));
                 }
                 Keyword::Application(Application::Else, schema) => {
-                    else_ = Some(Location::infer(schema, index));
+                    else_ = Some(Shape::infer(schema, index));
                 }
 
                 _ => {} // Other Keyword. No-op.
@@ -591,27 +591,27 @@ impl Location {
         }
 
         if let Some(one_of) = one_of {
-            loc = Location::intersect(loc, one_of);
+            shape = Shape::intersect(shape, one_of);
         }
         if let Some(any_of) = any_of {
-            loc = Location::intersect(loc, any_of);
+            shape = Shape::intersect(shape, any_of);
         }
         if if_ && then_.is_some() && else_.is_some() {
-            let then_else = Location::union(then_.unwrap(), else_.unwrap());
-            loc = Location::intersect(loc, then_else);
+            let then_else = Shape::union(then_.unwrap(), else_.unwrap());
+            shape = Shape::intersect(shape, then_else);
         }
 
         // Now, and *only* if loc.object.additional or loc.array.additional is
         // otherwise unset, then default to unevalutedProperties / unevaluatedItems.
 
-        if loc.object.additional.is_none() && unevaluated_properties.is_some() {
-            loc.object.additional = Some(Box::new(unevaluated_properties.unwrap()));
+        if shape.object.additional.is_none() && unevaluated_properties.is_some() {
+            shape.object.additional = Some(Box::new(unevaluated_properties.unwrap()));
         }
-        if loc.array.additional.is_none() && unevaluated_items.is_some() {
-            loc.array.additional = Some(Box::new(unevaluated_items.unwrap()));
+        if shape.array.additional.is_none() && unevaluated_items.is_some() {
+            shape.array.additional = Some(Box::new(unevaluated_items.unwrap()));
         }
 
-        loc
+        shape
     }
 
     fn union(lhs: Self, rhs: Self) -> Self {
@@ -624,7 +624,7 @@ impl Location {
             lhs.type_.overlaps(types::STRING),
             rhs.type_.overlaps(types::STRING),
         ) {
-            (true, true) => StringLocation::union(lhs.string, rhs.string),
+            (true, true) => StringShape::union(lhs.string, rhs.string),
             (_, false) => lhs.string,
             (false, true) => rhs.string,
         };
@@ -632,7 +632,7 @@ impl Location {
             lhs.type_.overlaps(types::ARRAY),
             rhs.type_.overlaps(types::ARRAY),
         ) {
-            (true, true) => ArrayLocation::union(lhs.array, rhs.array),
+            (true, true) => ArrayShape::union(lhs.array, rhs.array),
             (_, false) => lhs.array,
             (false, true) => rhs.array,
         };
@@ -640,7 +640,7 @@ impl Location {
             lhs.type_.overlaps(types::OBJECT),
             rhs.type_.overlaps(types::OBJECT),
         ) {
-            (true, true) => ObjLocation::union(lhs.object, rhs.object),
+            (true, true) => ObjShape::union(lhs.object, rhs.object),
             (_, false) => lhs.object,
             (false, true) => rhs.object,
         };
@@ -675,22 +675,22 @@ impl Location {
             lhs.type_.overlaps(types::STRING),
             rhs.type_.overlaps(types::STRING),
         ) {
-            (true, true) => StringLocation::intersect(lhs.string, rhs.string),
-            (_, _) => StringLocation::default(),
+            (true, true) => StringShape::intersect(lhs.string, rhs.string),
+            (_, _) => StringShape::default(),
         };
         let array = match (
             lhs.type_.overlaps(types::ARRAY),
             rhs.type_.overlaps(types::ARRAY),
         ) {
-            (true, true) => ArrayLocation::intersect(lhs.array, rhs.array),
-            (_, _) => ArrayLocation::default(),
+            (true, true) => ArrayShape::intersect(lhs.array, rhs.array),
+            (_, _) => ArrayShape::default(),
         };
         let object = match (
             lhs.type_.overlaps(types::OBJECT),
             rhs.type_.overlaps(types::OBJECT),
         ) {
-            (true, true) => ObjLocation::intersect(lhs.object, rhs.object),
-            (_, _) => ObjLocation::default(),
+            (true, true) => ObjShape::intersect(lhs.object, rhs.object),
+            (_, _) => ObjShape::default(),
         };
 
         Self {
@@ -713,10 +713,10 @@ fn filter_enums_to_types<I: Iterator<Item = Value>>(
         Value::Null => type_.overlaps(types::NULL),
         Value::Bool(_) => type_.overlaps(types::BOOLEAN),
         Value::Number(n) => {
-            let n = crate::Number::from(n);
+            let n = estuary_json::Number::from(n);
             match n {
-                crate::Number::Float(_) => type_.overlaps(types::NUMBER),
-                crate::Number::Signed(_) | crate::Number::Unsigned(_) => {
+                estuary_json::Number::Float(_) => type_.overlaps(types::NUMBER),
+                estuary_json::Number::Signed(_) | estuary_json::Number::Unsigned(_) => {
                     type_.overlaps(types::NUMBER | types::INTEGER)
                 }
             }
@@ -752,7 +752,7 @@ fn intersect_enum(
             Some(filter_enums_to_types(type_, l.into_iter()).collect())
         }
         (Some(l), Some(r)) => {
-            let it = itertools::merge_join_by(l.into_iter(), r.into_iter(), crate::json_cmp)
+            let it = itertools::merge_join_by(l.into_iter(), r.into_iter(), estuary_json::json_cmp)
                 .filter_map(|eob| match eob {
                     EitherOrBoth::Both(l, _) => Some(l),
                     _ => None,
@@ -770,7 +770,7 @@ fn union_enum(lhs: Option<Vec<Value>>, rhs: Option<Vec<Value>>) -> Option<Vec<Va
     let (lhs, rhs) = (lhs.unwrap(), rhs.unwrap());
 
     Some(
-        itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), crate::json_cmp)
+        itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), estuary_json::json_cmp)
             .map(|eob| match eob {
                 EitherOrBoth::Both(l, _) => l,
                 EitherOrBoth::Left(l) => l,
@@ -788,12 +788,9 @@ fn union_option<T: Eq>(lhs: Option<T>, rhs: Option<T>) -> Option<T> {
     }
 }
 
-fn union_additional(
-    lhs: Option<Box<Location>>,
-    rhs: Option<Box<Location>>,
-) -> Option<Box<Location>> {
+fn union_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Option<Box<Shape>> {
     match (lhs, rhs) {
-        (Some(lhs), Some(rhs)) => Some(Box::new(Location::union(
+        (Some(lhs), Some(rhs)) => Some(Box::new(Shape::union(
             lhs.as_ref().clone(),
             rhs.as_ref().clone(),
         ))),
@@ -801,12 +798,9 @@ fn union_additional(
     }
 }
 
-fn intersect_additional(
-    lhs: Option<Box<Location>>,
-    rhs: Option<Box<Location>>,
-) -> Option<Box<Location>> {
+fn intersect_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Option<Box<Shape>> {
     match (lhs, rhs) {
-        (Some(lhs), Some(rhs)) => Some(Box::new(Location::intersect(
+        (Some(lhs), Some(rhs)) => Some(Box::new(Shape::intersect(
             lhs.as_ref().clone(),
             rhs.as_ref().clone(),
         ))),
@@ -817,7 +811,8 @@ fn intersect_additional(
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{super::Annotation, *};
+    use estuary_json::schema;
     use serde_json::{json, Value};
     use serde_yaml;
 
@@ -851,16 +846,16 @@ mod test {
                 format: email
                 "#,
             ],
-            Location {
+            Shape {
                 type_: types::STRING | types::ARRAY,
                 title: Some("a-title".to_owned()),
                 description: Some("a-description".to_owned()),
-                string: StringLocation {
+                string: StringShape {
                     is_base64: Some(true),
                     content_type: Some("some/thing".to_owned()),
                     format: None, // Not implemented yet.
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         );
     }
@@ -877,10 +872,10 @@ mod test {
                 "{type: string, allOf: [{enum: [a, b, c, d, 1]}, {enum: [e, b, f, a, 1]}]}",
                 "allOf: [{enum: [a, 1, b, 2]}, {type: string, enum: [e, b, f, a]}]",
             ],
-            Location {
+            Shape {
                 type_: types::STRING,
                 enum_: Some(vec![json!("a"), json!("b")]),
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -932,27 +927,27 @@ mod test {
                 required: [bar]
                 "#,
             ],
-            Location {
-                object: ObjLocation {
+            Shape {
+                object: ObjShape {
                     properties: vec![
                         ObjProperty {
                             name: "bar".to_owned(),
                             is_required: true,
-                            value: enum_fixture(json!(["c"])),
+                            shape: enum_fixture(json!(["c"])),
                         },
                         ObjProperty {
                             name: "foo".to_owned(),
                             is_required: false,
-                            value: enum_fixture(json!(["b"])),
+                            shape: enum_fixture(json!(["b"])),
                         },
                     ],
                     patterns: vec![ObjPattern {
                         re: regex::Regex::new("fo.+").unwrap(),
-                        value: enum_fixture(json!(["b"])),
+                        shape: enum_fixture(json!(["b"])),
                     }],
                     additional: None,
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -985,17 +980,17 @@ mod test {
                 additionalProperties: {enum: [a, b]}
                 "#,
             ],
-            Location {
-                object: ObjLocation {
+            Shape {
+                object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".to_owned(),
                         is_required: false,
-                        value: enum_fixture(json!(["a", "b"])),
+                        shape: enum_fixture(json!(["a", "b"])),
                     }],
                     patterns: Vec::new(),
                     additional: Some(Box::new(enum_fixture(json!(["a", "b"])))),
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -1027,16 +1022,16 @@ mod test {
                   additionalItems: {const: 3}
                 "#,
             ],
-            Location {
-                array: ArrayLocation {
+            Shape {
+                array: ArrayShape {
                     tuple: vec![
                         enum_fixture(json!([1, "a"])),
                         enum_fixture(json!([2, "b"])),
                         enum_fixture(json!([3, "c"])),
                     ],
-                    ..ArrayLocation::default()
+                    ..ArrayShape::default()
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -1065,12 +1060,12 @@ mod test {
                 // If there's no other term, only then is it promoted.
                 "unevaluatedItems: {const: a}",
             ],
-            Location {
-                array: ArrayLocation {
+            Shape {
+                array: ArrayShape {
                     additional: Some(Box::new(enum_fixture(json!(["a"])))),
-                    ..ArrayLocation::default()
+                    ..ArrayShape::default()
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         );
     }
@@ -1094,12 +1089,12 @@ mod test {
                 // If there's no other term, only then is it promoted.
                 "unevaluatedProperties: {const: a}",
             ],
-            Location {
-                object: ObjLocation {
+            Shape {
+                object: ObjShape {
                     additional: Some(Box::new(enum_fixture(json!(["a"])))),
-                    ..ObjLocation::default()
+                    ..ObjShape::default()
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         );
     }
@@ -1154,13 +1149,13 @@ mod test {
                 - {minItems: 5, maxItems: 7}
                 "#,
             ],
-            Location {
-                array: ArrayLocation {
+            Shape {
+                array: ArrayShape {
                     min: Some(5),
                     max: Some(10),
-                    ..ArrayLocation::default()
+                    ..ArrayShape::default()
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -1192,17 +1187,17 @@ mod test {
                   additionalItems: {enum: [3]}
                 "#,
             ],
-            Location {
-                array: ArrayLocation {
+            Shape {
+                array: ArrayShape {
                     tuple: vec![
                         enum_fixture(json!([1, "a"])),
                         enum_fixture(json!([2, "b"])),
                         enum_fixture(json!([3, "c"])),
                     ],
                     additional: Some(Box::new(enum_fixture(json!([3, "c"])))),
-                    ..ArrayLocation::default()
+                    ..ArrayShape::default()
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -1255,20 +1250,20 @@ mod test {
                 additionalProperties: {enum: [1, 2]}
                 "#,
             ],
-            Location {
-                object: ObjLocation {
+            Shape {
+                object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".to_owned(),
                         is_required: false,
-                        value: enum_fixture(json!(["a", "b"])),
+                        shape: enum_fixture(json!(["a", "b"])),
                     }],
                     patterns: vec![ObjPattern {
                         re: regex::Regex::new("bar").unwrap(),
-                        value: enum_fixture(json!(["c", "d"])),
+                        shape: enum_fixture(json!(["c", "d"])),
                     }],
                     additional: Some(Box::new(enum_fixture(json!([1, 2])))),
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
@@ -1297,35 +1292,34 @@ mod test {
                 properties: {foo: {type: string}}
                 "#,
             ],
-            Location {
-                object: ObjLocation {
+            Shape {
+                object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".to_owned(),
                         is_required: true,
-                        value: Location {
+                        shape: Shape {
                             type_: types::STRING,
-                            ..Location::default()
+                            ..Shape::default()
                         },
                     }],
-                    ..ObjLocation::default()
+                    ..ObjShape::default()
                 },
-                ..Location::default()
+                ..Shape::default()
             },
         )
     }
 
-    fn infer_test(cases: &[&str], expect: Location) {
+    fn infer_test(cases: &[&str], expect: Shape) {
         for case in cases {
             let url = url::Url::parse("http://example/schema").unwrap();
             let schema: Value = serde_yaml::from_str(case).unwrap();
-            let schema =
-                crate::schema::build::build_schema::<CoreAnnotation>(url.clone(), &schema).unwrap();
+            let schema = schema::build::build_schema::<Annotation>(url.clone(), &schema).unwrap();
 
-            let mut index = index::Index::new();
+            let mut index = SchemaIndex::new();
             index.add(&schema).unwrap();
             index.verify_references().unwrap();
 
-            let actual = Location::infer(index.must_fetch(&url).unwrap(), &index);
+            let actual = Shape::infer(index.must_fetch(&url).unwrap(), &index);
 
             assert_eq!(actual, expect);
         }
@@ -1334,224 +1328,43 @@ mod test {
         // no matter what the Location shape is.
 
         assert_eq!(
-            Location::union(expect.clone(), expect.clone()),
+            Shape::union(expect.clone(), expect.clone()),
             expect,
             "fixture || fixture == fixture"
         );
         assert_eq!(
-            Location::union(Location::default(), expect.clone()),
-            Location::default(),
+            Shape::union(Shape::default(), expect.clone()),
+            Shape::default(),
             "any || fixture == any"
         );
         assert_eq!(
-            Location::union(expect.clone(), Location::default()),
-            Location::default(),
+            Shape::union(expect.clone(), Shape::default()),
+            Shape::default(),
             "fixture || any == any"
         );
         assert_eq!(
-            Location::intersect(expect.clone(), expect.clone()),
+            Shape::intersect(expect.clone(), expect.clone()),
             expect,
             "fixture && fixture == fixture"
         );
         assert_eq!(
-            Location::intersect(Location::default(), expect.clone()),
+            Shape::intersect(Shape::default(), expect.clone()),
             expect,
             "any && fixture == fixture"
         );
         assert_eq!(
-            Location::intersect(expect.clone(), Location::default()),
+            Shape::intersect(expect.clone(), Shape::default()),
             expect,
             "fixture && any == fixture"
         );
     }
 
-    fn enum_fixture(value: Value) -> Location {
+    fn enum_fixture(value: Value) -> Shape {
         let v = value.as_array().unwrap().clone();
-        Location {
+        Shape {
             type_: enum_types(v.iter()),
             enum_: Some(v.clone()),
-            ..Location::default()
+            ..Shape::default()
         }
     }
-}
-
-#[derive(Debug)]
-pub struct Inference {
-    pub ptr: String,
-    pub is_pattern: bool,
-    pub type_set: types::Set,
-    pub is_base64: bool,
-    pub content_type: Option<String>,
-    pub format: Option<String>,
-}
-
-fn fold<I>(v: Vec<Inference>, it: I) -> Vec<Inference>
-where
-    I: Iterator<Item = Inference>,
-{
-    itertools::merge_join_by(v.into_iter(), it, |lhs, rhs| lhs.ptr.cmp(&rhs.ptr))
-        .map(|eob| -> Inference {
-            match eob {
-                EitherOrBoth::Both(lhs, rhs) => Inference {
-                    ptr: lhs.ptr,
-                    is_pattern: lhs.is_pattern,
-                    type_set: lhs.type_set & rhs.type_set,
-                    is_base64: lhs.is_base64 || rhs.is_base64,
-                    content_type: if lhs.content_type.is_some() {
-                        lhs.content_type
-                    } else {
-                        rhs.content_type
-                    },
-                    format: if lhs.format.is_some() {
-                        lhs.format
-                    } else {
-                        rhs.format
-                    },
-                },
-                EitherOrBoth::Left(lhs) => lhs,
-                EitherOrBoth::Right(rhs) => rhs,
-            }
-        })
-        .collect()
-}
-
-fn prefix<I>(pre: String, is_pattern: bool, it: I) -> impl Iterator<Item = Inference>
-where
-    I: Iterator<Item = Inference>,
-{
-    it.map(move |i| Inference {
-        ptr: pre.chars().chain(i.ptr.chars()).collect(),
-        is_pattern: is_pattern || i.is_pattern,
-        type_set: i.type_set,
-        is_base64: i.is_base64,
-        content_type: i.content_type,
-        format: i.format,
-    })
-}
-
-pub fn extract<'s, A>(
-    schema: &'s Schema<A>,
-    idx: &index::Index<'s, A>,
-    location_must_exist: bool,
-) -> Result<impl Iterator<Item = Inference>, index::Error>
-where
-    A: Annotation,
-{
-    let mut local = Inference {
-        ptr: String::new(),
-        is_pattern: false,
-        type_set: types::ANY,
-        is_base64: false,
-        content_type: None,
-        format: None,
-    };
-
-    let mut min_items = 0;
-    let mut required_props = 0;
-
-    // Walk validation and annotation keywords which affect the inference result
-    // at the current location.
-    for kw in &schema.kw {
-        match kw {
-            Keyword::Validation(Validation::Type(type_set)) => {
-                if location_must_exist {
-                    local.type_set = *type_set;
-                } else {
-                    local.type_set = types::NULL | *type_set;
-                }
-            }
-            Keyword::Validation(Validation::MinItems(m)) => {
-                min_items = *m; // Track for later use.
-            }
-            Keyword::Validation(Validation::Required { props_interned, .. }) => {
-                required_props = *props_interned; // Track for later use.
-            }
-            Keyword::Annotation(annot) => match annot.as_core() {
-                Some(CoreAnnotation::ContentEncodingBase64) => {
-                    local.is_base64 = true;
-                }
-                Some(CoreAnnotation::ContentMediaType(mt)) => {
-                    local.content_type = Some(mt.clone());
-                }
-                _ => {} // Other CoreAnnotation. No-op.
-            },
-            _ => {} // Not a CoreAnnotation. No-op.
-        }
-    }
-
-    let mut out = vec![local];
-
-    // Repeatedly extract and merge inference results from
-    // in-place and child applications.
-
-    for kw in &schema.kw {
-        let (app, sub) = match kw {
-            Keyword::Application(app, sub) => (app, sub),
-            _ => continue, // No-op.
-        };
-
-        match app {
-            Application::Ref(uri) => {
-                out = fold(
-                    out,
-                    extract(idx.must_fetch(uri)?, idx, location_must_exist)?,
-                );
-            }
-            Application::AllOf { .. } => {
-                out = fold(out, extract(sub, idx, location_must_exist)?);
-            }
-            Application::Properties {
-                name,
-                name_interned,
-            } => {
-                let prop_must_exist = location_must_exist && (required_props & name_interned) != 0;
-
-                out = fold(
-                    out,
-                    prefix(
-                        format!("/{}", name),
-                        false,
-                        extract(sub, idx, prop_must_exist)?,
-                    ),
-                );
-            }
-            /*
-            Application::PatternProperties{re} => {
-                // TODO(johnny): This is probably wrong; fix me!
-                let mut pat = re.as_str().to_owned();
-                if pat.starts_with("^") {
-                    pat.drain(0..1);
-                } else {
-                    pat = format!(r"[^/]*");
-                }
-
-                out = fold(out, prefix(
-                    format!("/{}", pat),
-                    true,
-                    extract(sub, idx, false)?));
-            }
-            */
-            Application::Items { index: None } => {
-                out = fold(
-                    out,
-                    prefix(r"/\d+".to_owned(), true, extract(sub, idx, false)?),
-                );
-            }
-            Application::Items { index: Some(index) } => {
-                let item_must_exist = location_must_exist && min_items > *index;
-
-                out = fold(
-                    out,
-                    prefix(
-                        format!("/{}", index),
-                        false,
-                        extract(sub, idx, item_must_exist)?,
-                    ),
-                );
-            }
-            _ => continue,
-        };
-    }
-
-    Ok(out.into_iter())
 }
