@@ -1,6 +1,4 @@
-use crate::schema::{
-    index, intern, Annotation, Application, Keyword, Schema, Validation, *,
-};
+use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Validation, *};
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
@@ -82,12 +80,12 @@ pub enum Outcome<'sm, A: Annotation> {
 impl<'sm, A: Annotation> Outcome<'sm, A> {
     pub fn is_error(&self) -> bool {
         match self {
-            Outcome::Invalid(_) |
-            Outcome::NotIsValid |
-            Outcome::AnyOfNotMatched |
-            Outcome::OneOfNotMatched |
-            Outcome::OneOfMultipleMatched |
-            Outcome::ReferenceNotFound(_) => true,
+            Outcome::Invalid(_)
+            | Outcome::NotIsValid
+            | Outcome::AnyOfNotMatched
+            | Outcome::OneOfNotMatched
+            | Outcome::OneOfMultipleMatched
+            | Outcome::ReferenceNotFound(_) => true,
             Outcome::Annotation(_) => false,
         }
     }
@@ -358,7 +356,10 @@ where
                 Type(expect) => *expect & types::OBJECT != types::INVALID,
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
-                Required{props_interned: set, ..} => *set & scope.seen_interned == *set,
+                Required {
+                    props_interned: set,
+                    ..
+                } => *set & scope.seen_interned == *set,
                 MinProperties(bound) => num_properties >= *bound,
                 MaxProperties(bound) => num_properties <= *bound,
                 DependentRequired {
@@ -487,7 +488,10 @@ where
     A: Annotation,
     C: Context,
 {
-    pub fn new(index: &'sm index::Index<'sm, A>, uri: &url::Url) -> Result<Validator<'sm, A, C>, index::Error> {
+    pub fn new(
+        index: &'sm index::Index<'sm, A>,
+        uri: &url::Url,
+    ) -> Result<Validator<'sm, A, C>, index::Error> {
         let schema = index.must_fetch(uri)?;
 
         let mut val = Validator {

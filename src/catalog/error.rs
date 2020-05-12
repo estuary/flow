@@ -1,5 +1,4 @@
 use super::ContentType;
-use crate::doc;
 use estuary_json::schema;
 use rusqlite;
 use serde_json;
@@ -30,8 +29,6 @@ pub enum Error {
     JSONErr(#[from] serde_json::Error),
     #[error("catalog database error: {0}")]
     SQLiteErr(#[from] rusqlite::Error),
-    #[error("invalid JSON-Pointer: {0}")]
-    JSONPtrErr(#[from] doc::ptr::Error),
     #[error("cannot fetch resource URI: {0}")]
     FetchNotSupported(url::Url),
     #[error(

@@ -1,7 +1,5 @@
 use super::{sql_params, ContentType, Derivation, Error, Resource, Result, Schema, Source, DB};
-use crate::doc::Pointer;
 use crate::specs::build as specs;
-use std::convert::TryFrom;
 
 /// Collection represents a catalog Collection.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -76,8 +74,6 @@ impl Collection {
     }
 
     fn register_projection(&self, db: &DB, spec: &specs::Projection) -> Result<()> {
-        Pointer::try_from(&spec.location)?;
-
         db.prepare_cached(
             "INSERT INTO projections (
                     collection_id,

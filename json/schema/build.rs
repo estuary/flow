@@ -1,4 +1,7 @@
-use crate::schema::{intern, keywords, types, Annotation, Application, CoreAnnotation, Keyword, Schema, Validation, HashedLiteral};
+use crate::schema::{
+    intern, keywords, types, Annotation, Application, CoreAnnotation, HashedLiteral, Keyword,
+    Schema, Validation,
+};
 use crate::{de, NoopWalker, Number};
 use regex;
 use serde_json as sj;
@@ -321,8 +324,8 @@ where
             keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
             keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
             keywords::REQUIRED => {
-                let (set , props) = extract_intern_set(&mut self.tbl, v)?;
-                self.add_validation(Val::Required{
+                let (set, props) = extract_intern_set(&mut self.tbl, v)?;
+                self.add_validation(Val::Required {
                     props,
                     props_interned: set,
                 });
@@ -496,7 +499,10 @@ fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
 fn extract_hash(v: &sj::Value) -> HashedLiteral {
     let mut walker = NoopWalker;
     let span = de::walk(v, &mut walker).unwrap();
-    HashedLiteral { hash: span.hashed, value: v.clone() }
+    HashedLiteral {
+        hash: span.hashed,
+        value: v.clone(),
+    }
 }
 
 fn extract_hashes(v: &sj::Value) -> Result<Vec<HashedLiteral>, Error> {
@@ -537,7 +543,10 @@ fn extract_number(v: &sj::Value) -> Result<Number, Error> {
     }
 }
 
-fn extract_intern_set(tbl: &mut intern::Table, v: &sj::Value) -> Result<(intern::Set, Vec<String>), Error> {
+fn extract_intern_set(
+    tbl: &mut intern::Table,
+    v: &sj::Value,
+) -> Result<(intern::Set, Vec<String>), Error> {
     match v {
         sj::Value::Array(vec) => {
             let mut set: intern::Set = 0;

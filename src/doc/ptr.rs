@@ -1,14 +1,6 @@
 use serde_json as sj;
-use std::convert::TryFrom;
 use std::str::FromStr;
-use thiserror;
 use tinyvec::TinyVec;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("non-empty JSON pointer must have a leading '/'")]
-    NotRooted,
-}
 
 /// Pointer is a parsed JSON pointer.
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -71,20 +63,16 @@ impl Pointer {
     }
 }
 
-impl TryFrom<&str> for Pointer {
-    type Error = Error;
-
-    fn try_from(s: &str) -> Result<Self, Error> {
+impl<S: AsRef<str>> From<S> for Pointer {
+    fn from(s: S) -> Self {
+        let s = s.as_ref();
         if s.is_empty() {
-            return Ok(Pointer(TinyVec::new()));
-        } else if !s.starts_with('/') {
-            return Err(Error::NotRooted);
+            return Pointer(TinyVec::new());
         }
-
         let mut tape = Pointer(TinyVec::new());
 
         s.split('/')
-            .skip(1)
+            .skip(if s.starts_with('/') { 1 } else { 0 })
             .map(|t| t.replace("~1", "/").replace("~0", "~"))
             .for_each(|t| {
                 if t == "-" {
@@ -100,16 +88,7 @@ impl TryFrom<&str> for Pointer {
                 }
             });
 
-        Ok(tape)
-    }
-}
-
-// Cannot use AsRef<str> above due to https://github.com/rust-lang/rust/issues/50133
-impl TryFrom<&String> for Pointer {
-    type Error = Error;
-
-    fn try_from(s: &String) -> Result<Self, Error> {
-        Pointer::try_from(s as &str)
+        tape
     }
 }
 
@@ -245,33 +224,32 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_ptr_parsing() -> Result<(), Error> {
+    fn test_ptr_parsing() {
         use Token::*;
 
         // Basic example.
-        let ptr = Pointer::try_from("/p1/2/p3/-")?;
+        let ptr = Pointer::from("/p1/2/p3/-");
         assert!(vec![Property("p1"), Index(2), Property("p3"), NextIndex]
             .into_iter()
             .eq(ptr.iter()));
 
         // Empty pointer.
-        let ptr = Pointer::try_from("")?;
+        let ptr = Pointer::from("");
         assert_eq!(ptr.iter().next(), None);
 
-        // Un-rooted pointers are an error.
-        match Pointer::try_from("p1/2") {
-            Err(Error::NotRooted) => (),
-            _ => panic!("expected error"),
-        }
+        // Un-rooted pointers are treated as rooted. Note that such pointers
+        // are in technical violation of the spec.
+        let ptr = Pointer::from("p1/2");
+        assert!(vec![Property("p1"), Index(2)].into_iter().eq(ptr.iter()));
 
         // Handles escapes.
-        let ptr = Pointer::try_from("/p~01/~12")?;
+        let ptr = Pointer::from("/p~01/~12");
         assert!(vec![Property("p~1"), Property("/2")]
             .into_iter()
             .eq(ptr.iter()));
 
         // Handles disallowed integer representations.
-        let ptr = Pointer::try_from("/01/+2/-3/4/-")?;
+        let ptr = Pointer::from("/01/+2/-3/4/-");
         assert!(vec![
             Property("01"),
             Property("+2"),
@@ -281,33 +259,29 @@ mod test {
         ]
         .into_iter()
         .eq(ptr.iter()));
-
-        Ok(())
     }
 
     #[test]
-    fn test_ptr_size() -> Result<(), Error> {
+    fn test_ptr_size() {
         assert_eq!(std::mem::size_of::<Pointer>(), 32);
 
-        let small = Pointer::try_from("/_estuary/uuid")?;
+        let small = Pointer::from("/_estuary/uuid");
         assert_eq!(small.0.len(), 16);
 
         if let TinyVec::Heap(_) = small.0 {
             panic!("didn't expect fixture to spill to heap");
         }
 
-        let large = Pointer::try_from("/large key/and child")?;
+        let large = Pointer::from("/large key/and child");
         assert_eq!(large.0.len(), 22);
 
         if let TinyVec::Inline(_) = large.0 {
             panic!("expected large fixture to spill to heap");
         }
-
-        Ok(())
     }
 
     #[test]
-    fn test_ptr_query() -> Result<(), Error> {
+    fn test_ptr_query() {
         // Extended document fixture from RFC-6901.
         let doc = sj::json!({
             "foo": ["bar", "baz"],
@@ -344,7 +318,7 @@ mod test {
         ]
         .iter()
         {
-            let ptr = Pointer::try_from(case.0)?;
+            let ptr = Pointer::from(case.0);
             assert_eq!(ptr.query(&doc).unwrap(), &case.1);
         }
 
@@ -357,15 +331,13 @@ mod test {
         ]
         .iter()
         {
-            let ptr = Pointer::try_from(*case)?;
+            let ptr = Pointer::from(*case);
             assert!(ptr.query(&doc).is_none());
         }
-
-        Ok(())
     }
 
     #[test]
-    fn test_ptr_create() -> Result<(), Error> {
+    fn test_ptr_create() {
         use estuary_json as ej;
         use sj::Value as sjv;
 
@@ -388,7 +360,7 @@ mod test {
         ]
         .iter_mut()
         {
-            let ptr = Pointer::try_from(case.0)?;
+            let ptr = Pointer::from(case.0);
             std::mem::swap(ptr.create(&mut root).unwrap(), &mut case.1);
         }
 
@@ -407,10 +379,8 @@ mod test {
         ]
         .iter()
         {
-            let ptr = Pointer::try_from(*case)?;
+            let ptr = Pointer::from(*case);
             assert!(ptr.create(&mut root).is_none());
         }
-
-        Ok(())
     }
 }

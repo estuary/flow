@@ -9,7 +9,6 @@ use serde_json;
 use std::borrow::Cow;
 use std::collections::btree_map::Entry as BTreeEntry;
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use url::Url;
 
 pub struct Context {
@@ -142,10 +141,7 @@ impl Context {
 
         // TODO(johnny): Have Pointer implement serde::Deserialize? Could clean this up...
         let derived_key: Vec<String> = serde_json::from_value(derived_key)?;
-        let derived_key = derived_key
-            .iter()
-            .map(|s| s.try_into())
-            .collect::<Result<Vec<Pointer>, _>>()?;
+        let derived_key = derived_key.iter().map(|s| s.into()).collect::<Vec<_>>();
 
         let mut derived_parts = BTreeMap::<String, Pointer>::new();
         let mut stmt = db.prepare("SELECT field, location_ptr FROM projections WHERE collection_id = ? AND is_logical_partition")?;
@@ -153,7 +149,7 @@ impl Context {
 
         while let Some(r) = rows.next()? {
             let ptr: String = r.get(1)?;
-            derived_parts.insert(r.get(0)?, Pointer::try_from(&ptr)?);
+            derived_parts.insert(r.get(0)?, Pointer::from(&ptr));
         }
 
         Ok(Context {
