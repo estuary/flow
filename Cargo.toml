@@ -9,6 +9,7 @@ edition = "2018"
 [workspace]
 members = [
     "json",
+    "gazette-rs",
 ]
 
 [[bin]]

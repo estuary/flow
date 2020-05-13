@@ -210,6 +210,7 @@ github.com/klauspost/cpuid v1.2.1 h1:vJi+O/nMdFt0vqm8NZBI6wzALWdA2X+egi0ogNyrC/w
 github.com/klauspost/cpuid v1.2.1/go.mod h1:Pj4uuM528wm8OyEC2QMXAi2YiTZ96dNQPGgoMS4s3ek=
 github.com/klauspost/cpuid v1.2.2 h1:1xAgYebNnsb9LKCdLOvFWtAxGU/33mjJtyOVbmUa0Us=
 github.com/klauspost/cpuid v1.2.2/go.mod h1:Pj4uuM528wm8OyEC2QMXAi2YiTZ96dNQPGgoMS4s3ek=
+github.com/konsorten/go-windows-terminal-sequences v1.0.1 h1:mweAR1A6xJ3oS2pRaGiHgQ4OO8tzTaLawm8vnODuwDk=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515/go.mod h1:+0opPa2QZZtGFBFZlji/RkVcI2GknAs/DXo4wKdlNEc=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
@@ -324,6 +325,8 @@ go.etcd.io/etcd v0.5.0-alpha.5.0.20200407032746-7eae024eade9 h1:pqQyWiBFoj5UN9DC
 go.etcd.io/etcd v0.5.0-alpha.5.0.20200407032746-7eae024eade9/go.mod h1:YoUyTScD3Vcv2RBm3eGVOq7i1ULiz3OuXoQFWOirmAM=
 go.gazette.dev/core v0.85.2 h1:Ig7Dsi21iuUzBwshQjK1q7e5FlANU2G6m47NgfF5UUQ=
 go.gazette.dev/core v0.85.2/go.mod h1:3CYmV3V1Q1aSYIPuHSqPw2x3oVWXD6Cm713fjIxGDao=
+go.gazette.dev/core v0.86.1 h1:xEAJI3QkrfiLOfhzRwhWivI9EAKobyougfT6aT8a6Bc=
+go.gazette.dev/core v0.86.1/go.mod h1:dO1H2DRlWkf4mP+OUXafA825S4L+zacnZ+NTJYe8R1g=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0 h1:C9hSCOW830chIVkdja34wa6Ky+IzWllkUinR+BtRZd4=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
