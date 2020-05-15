@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package flow;
+
+import "broker/protocol/protocol.proto";
+import "consumer/protocol/protocol.proto";
+import "consumer/recoverylog/recorded_op.proto";
+import "ptypes/empty/empty.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "protocol";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+enum DeriveTxnState {
+  // IDLE indicates the transaction has not yet begun.
+  // It transitions to EXTEND.
+  IDLE = 0;
+  // EXTEND extends the derive transaction with additional
+  // source or derived collection documents.
+  //
+  // * The flow consumer sends any number of EXTEND TxnRequests,
+  //   containing source collection documents.
+  // * Concurrently, the derive worker responds with any number of
+  //   EXTEND TxnResponses, each having documents to be added to
+  //   the collection being derived.
+  // * The flow consumer is responsible for publishing each derived
+  //   document to the appropriate collection & partition.
+  // * Note TxnRequest and TxnResponse EXTEND messages are _not_ 1:1.
+  EXTEND = 1;
+  // FLUSH indicates the transacton pipeline is to flush.
+  //
+  // * The flow consumer issues FLUSH when its consumer transaction begins to
+  //   close.
+  // * The derive worker responds with FLUSH to indicate that all source
+  //   documents have been processed and all derived documents emitted.
+  // * The flow consumer awaits the response FLUSH, while continuing to begin
+  //   publish operations for all derived documents seen in the meantime.
+  // * On seeing FLUSH, the flow consumer is assured it's sequenced all messages
+  //   of the transaction, and can build its consumer.Checkpoint.
+  FLUSH = 2;
+  // PREPARE begins a commit of the transaction.
+  //
+  // * The Flow Consumer sends PREPARE with a consumer.Checkpoint.
+  // * On receipt, the derive worker queues an atomic recoverylog.Recorder
+  //   block that's conditioned on an (unresolved) "commit" future. Within
+  //   this block underlying stores commits (SQLite COMMIT / writing RocksDB
+  //   WriteBatch) are issued to persist all state changes of the transaction,
+  //   along with the consumer.Checkpoint.
+  // * The derive worker responds with PREPARE once all local commits have
+  //   completed, and recoverylog writes have been queued (but not started,
+  //   awaiting COMMIT).
+  // * On receipt, the Flow Consumer arranges to invoke COMMIT on the completion
+  //   of all outstanding journal writes -- this the OpFuture passed to the
+  //   Store.StartCommit interface. It returns a future which will resolve only
+  //   after reading COMMIT from this transaction -- the OpFuture returned by
+  //   that interface.
+  //
+  // It's an error if a prior transaction is still running at the onset of
+  // PREPARE. However at the completion of PREPARE, a new & concurrent
+  // Transaction may begin, though it itself cannot PREPARE until this
+  // Transaction fully completes.
+  PREPARE = 3;
+  // COMMIT commits the transaction by resolving the "commit" future created
+  // during PREPARE, allowing the atomic commit block created in PREPARE
+  // to flush to the recovery log. The derive worker responds with COMMIT
+  // when the commit barrier has fully resolved.
+  COMMIT = 4;
+}
+
+// TxnRequest is the streamed message of a Transaction RPC.
+message TxnRequest {
+  DeriveTxnState state = 1;
+
+  // Collection from which source documents are drawn. Set iff state == EXTEND.
+  string extend_source = 2;
+  // Documents of the collection. Set iff state == EXTEND.
+  repeated bytes extend_documents = 3;
+  // Checkpoint to commit. Set iff state == PREPARE.
+  consumer.Checkpoint prepare_checkpoint = 4;
+}
+
+// TxnResponse is the streamed response message of a Transaction RPC.
+message TxnResponse {
+  DeriveTxnState state = 1;
+
+  // Documents derived from request documents. Set iff state == EXTEND.
+  repeated bytes extend_documents = 2;
+  // Logical partition labels of these documents in the derived collection.
+  // Set iff state == EXTEND.
+  protocol.LabelSet extend_labels = 3;
+};
+
+service Derive {
+  // RestoreCheckpoint recovers the most recent Checkpoint previously committed
+  // to the Store. It is called just once, at Shard start-up. If an external
+  // system is used, it should install a transactional "write fence" to ensure
+  // that an older Store instance of another process cannot successfully
+  // StartCommit after this RestoreCheckpoint returns.
+  rpc RestoreCheckpoint(google.protobuf.Empty) returns (consumer.Checkpoint);
+
+  // Transaction begins a pipelined derive-worker transaction, following the
+  // state machine detailed in DeriveTxnState.
+  rpc Transaction(stream TxnRequest) returns (stream TxnResponse);
+
+  // BuildHints returns FSMHints which may be played back to fully reconstruct
+  // the local filesystem state produced by this derive worker. It may block
+  // while pending operations sync to the recovery log.
+  rpc BuildHints(google.protobuf.Empty) returns (recoverylog.FSMHints);
+}
