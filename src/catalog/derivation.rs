@@ -40,7 +40,7 @@ impl Derivation {
         // Map spec source collection name to its collection ID.
         let (cid, rid) = db
             .prepare_cached("SELECT collection_id, resource_id FROM collections WHERE name = ?")?
-            .query_row(&[&spec.source], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(&[&spec.source.collection], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(|e| Error::At {
                 loc: format!("querying source collection {:?}", spec.source),
                 detail: Box::new(e.into()),
@@ -56,7 +56,7 @@ impl Derivation {
         // Register optional source schema. Like the collection's schema, this
         // URL may have a fragment component locating a specific sub-schema to
         // use. Drop the fragment when registering the schema document.
-        let schema_url = match &spec.source_schema {
+        let schema_url = match &spec.source.schema {
             None => None,
             Some(url) => {
                 let url = self.collection.resource.join(db, url)?;

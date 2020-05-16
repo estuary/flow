@@ -196,31 +196,35 @@ CREATE TABLE bootstraps
 -- collection into which transformed documents are produced.
 CREATE TABLE transforms
 (
-    transform_id         INTEGER PRIMARY KEY NOT NULL,
+    transform_id           INTEGER PRIMARY KEY NOT NULL,
     -- Derivation to which this transform applies.
-    derivation_id        INTEGER             NOT NULL REFERENCES derivations (collection_id),
+    derivation_id          INTEGER             NOT NULL REFERENCES derivations (collection_id),
     -- Collection being read from.
-    source_collection_id INTEGER             NOT NULL REFERENCES collections (collection_id),
+    source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
     -- Lambda expression which consumes source documents and emits target documents.
-    lambda_id            INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
+    lambda_id              INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
     -- Optional JSON-Schema to verify against documents of the source collection.
-    source_schema_uri    TEXT,
+    source_schema_uri      TEXT,
+    -- Optional partition fields to read of the source collection.
+    source_partitions_json TEXT,
     -- Composite key extractor for shuffling source documents to shards, as
     -- `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
-    shuffle_key_json     TEXT,
+    shuffle_key_json       TEXT,
     -- Number of ranked shards by which each document is read.
     -- If both `shuffle_broadcast` and `shuffle_choose` are NULL,
     -- then `shuffle_broadcast` is implicitly treated as `1`.
-    shuffle_broadcast    INTEGER CHECK (shuffle_broadcast > 0),
+    shuffle_broadcast      INTEGER CHECK (shuffle_broadcast > 0),
     -- Number of ranked shards from which a shard is randomly selected.
-    shuffle_choose       INTEGER CHECK (shuffle_choose > 0),
+    shuffle_choose         INTEGER CHECK (shuffle_choose > 0),
 
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
         source_schema_uri LIKE '_%://_%'),
     CONSTRAINT "Cannot set both shuffle 'broadcast' and 'choose'" CHECK (
         (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL)),
     CONSTRAINT "Shuffle key must be NULL or non-empty JSON array of JSON-Pointers" CHECK (
-        JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
+        JSON_ARRAY_LENGTH(shuffle_key_json) > 0),
+    CONSTRAINT "Source partitions must be a valid JSON Object" CHECK (
+        JSON_TYPE(source_partitions_json) == 'object')
 );
 
 -- All transforms of a derivation reading from the same source, must also use the same source schema.
@@ -235,6 +239,28 @@ CREATE TRIGGER transforms_use_consistent_source_schema
             AND COALESCE(source_schema_uri, '') != COALESCE(NEW.source_schema_uri, '')) NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'Transforms of a derived collection which read from the same source collection must use the same source schema URI');
+END;
+
+-- All named partitions of a transform source must exist as logically partitioned fields of the source collection.
+CREATE TRIGGER transform_source_partitions_exist
+    BEFORE INSERT
+    ON transforms
+    FOR EACH ROW
+    WHEN (
+        WITH expect AS (
+            SELECT key AS field
+                FROM JSON_EACH(NEW.source_partitions_json, '$.include')
+            UNION
+            SELECT key AS field
+                FROM JSON_EACH(NEW.source_partitions_json, '$.exclude')
+        ), actual AS (
+            SELECT field FROM projections
+                WHERE collection_id = NEW.source_collection_id AND is_logical_partition
+        )
+        SELECT 1 FROM expect WHERE field NOT IN (SELECT * FROM actual)
+    ) NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'Transform source has a partition which is not logical partition field of the source collection');
 END;
 
 -- View over all schemas which apply to a collection.
@@ -279,6 +305,7 @@ SELECT transforms.transform_id,
        src.name                                                                AS source_name,
        src.resource_id                                                         AS source_resource_id,
        COALESCE(transforms.source_schema_uri, src.schema_uri)                  AS source_schema_uri,
+       transforms.source_partitions_json                                       AS source_partitions_json,
        transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
        COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
 

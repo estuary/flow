@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use serde_json;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Source is a YAML specification against which Estuary catalog input files are parsed.
+/// Catalog is a YAML specification against which Estuary catalog input files are parsed.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Source {
+pub struct Catalog {
     /// Additional Estuary inputs which should be processed.
     /// Derived collections must import the catalog sources of all source
     /// collections they reference.
@@ -105,13 +105,7 @@ pub enum Lambda {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Transform {
     /// Source collection read by this transform.
-    pub source: String,
-    /// Optional relative URL of a JSON-Schema to verify against source collection
-    /// documents. This is useful in building "Extract Load Transform" patterns,
-    /// where a collection is captured with minimal schema applied (perhaps
-    /// because it comes from an uncontrolled third party), and is then
-    /// progressively verified as collections are derived.
-    pub source_schema: Option<String>,
+    pub source: Source,
     /// Shuffle applied to source collection messages in their mapping to a
     /// specific parallel processor of the derived collection. By default,
     /// messages are shuffled on the source collection key to a single
@@ -121,6 +115,42 @@ pub struct Transform {
     /// Lambda to invoke to transform a source collection document into a derived
     /// collection document.
     pub lambda: Lambda,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Source {
+    // Name of the source collection.
+    pub collection: String,
+    /// Optional relative URL of a JSON-Schema to verify against source collection
+    /// documents. This is useful in building "Extract Load Transform" patterns,
+    /// where a collection is captured with minimal schema applied (perhaps
+    /// because it comes from an uncontrolled third party), and is then
+    /// progressively verified as collections are derived.
+    /// If None, the principal schema of the collection is used instead.
+    pub schema: Option<String>,
+    /// Partition selector over partitions of the source collection to be read.
+    #[serde(default)]
+    pub partitions: PartitionSelector,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PartitionSelector {
+    /// Partition field names and corresponding values which must be matched
+    /// from the Source collection. Only documents having one of the specified
+    /// values across all specified partition names will be matched. For example,
+    ///   source: [App, Web]
+    ///   region: [APAC]
+    /// would mean only documents of 'App' or 'Web' source and also occurring
+    /// in the 'APAC' region will be processed.
+    #[serde(default)]
+    pub include: BTreeMap<String, Vec<Value>>,
+    /// Partition field names and values which are excluded from the source
+    /// collection. Any documents matching *any one* of the partition values
+    /// will be excluded.
+    #[serde(default)]
+    pub exclude: BTreeMap<String, Vec<Value>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -142,10 +172,10 @@ pub struct Shuffle {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Fixture {
-    pub document: serde_json::Value,
-    pub key: Vec<serde_json::Value>,
+    pub document: Value,
+    pub key: Vec<Value>,
     #[serde(default)]
-    pub projections: serde_json::Map<String, serde_json::Value>,
+    pub projections: BTreeMap<String, Value>,
 }
 
 /*

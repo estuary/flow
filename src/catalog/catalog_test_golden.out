@@ -344,12 +344,18 @@ bootstrap_id|derivation_id|lambda_id|runtime|inline|resource_id|content_type|con
 changes:   0   total_changes: XYZ
 
 -- Valid transforms.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (2, 1, 2, NULL),
-       (2, 1, 3, NULL),
-       (2, 1, 5, NULL),
-       (2, 1, 6, NULL),
-       (3, 1, 7, 'https://alt/source/schema#anchor');
+INSERT INTO transforms (
+    derivation_id,
+    source_collection_id,
+    lambda_id,
+    source_schema_uri,
+    source_partitions_json)
+VALUES (2, 1, 2, NULL, NULL),
+       (2, 1, 3, NULL, '{"include":{"field_2": [123]}}'),
+       (2, 1, 5, NULL, NULL),
+       (2, 1, 6, NULL, '{"exclude":{"field_2": [456]}}'),
+       (3, 1, 7, 'https://alt/source/schema#anchor', NULL)
+;
 changes:   5   total_changes: XYZ
 
 -- Invalid source-schema
@@ -436,16 +442,36 @@ Error: near line (XYZ): Transforms of a derived collection which read from the s
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
 VALUES (2, 1, 2, 'https://alt/source/schema#anchor');
 
+-- Named partitions of a transform must exist as logically partitioned
+-- projection of the source collection.
+
+-- Case: invalid json.
+Error: near line (XYZ): malformed JSON
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"include":');
+-- Case: projection doesn't exist.
+Error: near line (XYZ): Transform source has a partition which is not logical partition field of the source collection
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"include":{"foobar": [123]}}');
+-- Case: projection exists, but is not a logical partition.
+Error: near line (XYZ): Transform source has a partition which is not logical partition field of the source collection
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"exclude":{"field_1": [123]}}');
+-- Case: projection is a logical partition of another collection (not this source).
+Error: near line (XYZ): Transform source has a partition which is not logical partition field of the source collection
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"include":{"field_a": [123]}}');
+
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
 SELECT * FROM transform_details;
-transform_id|source_collection_id|source_name|source_resource_id|source_schema_uri|is_alt_source_schema|shuffle_key_json|derivation_id|derivation_name|derivation_resource_id|derivation_schema_uri|derivation_key_json|shuffle_broadcast|shuffle_choose|lambda_id|lambda_runtime|lambda_inline|lambda_resource_id|lambda_resource_content
-1|1|col/src|3|file:///path/to/a/schema.yaml#anchor|0|["/key"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|3|0|2|nodeJS|(doc, state) => {...doc, key: 1}||
-2|1|col/src|3|file:///path/to/a/schema.yaml#anchor|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|0|3|3|sqlite|SELECT 1;||
-3|1|col/src|3|file:///path/to/a/schema.yaml#anchor|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|5|sqliteFile||7|transform content
-4|1|col/src|3|file:///path/to/a/schema.yaml#anchor|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|6|remote|https://remote/endpoint||
-5|1|col/src|3|https://alt/source/schema#anchor|1|["/key/0","/key/1"]|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
-6|1|col/src|3|https://alt/source/schema#anchor|1|["/key/0","/key/1"]|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
+transform_id|source_collection_id|source_name|source_resource_id|source_schema_uri|source_partitions_json|is_alt_source_schema|shuffle_key_json|derivation_id|derivation_name|derivation_resource_id|derivation_schema_uri|derivation_key_json|shuffle_broadcast|shuffle_choose|lambda_id|lambda_runtime|lambda_inline|lambda_resource_id|lambda_resource_content
+1|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|3|0|2|nodeJS|(doc, state) => {...doc, key: 1}||
+2|1|col/src|3|file:///path/to/a/schema.yaml#anchor|{"include":{"field_2": [123]}}|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|0|3|3|sqlite|SELECT 1;||
+3|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|5|sqliteFile||7|transform content
+4|1|col/src|3|file:///path/to/a/schema.yaml#anchor|{"exclude":{"field_2": [456]}}|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|6|remote|https://remote/endpoint||
+5|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
+6|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
 changes:   0   total_changes: XYZ
 
 -- View of collection schemas which unions collection schemas with

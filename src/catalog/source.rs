@@ -20,7 +20,7 @@ impl Source {
         source.resource.mark_as_processed(db)?;
 
         let spec = source.resource.content(db)?;
-        let spec: specs::Source = serde_yaml::from_slice(&spec)?;
+        let spec: specs::Catalog = serde_yaml::from_slice(&spec)?;
 
         for uri in &spec.import {
             let uri = source.resource.join(db, uri)?;

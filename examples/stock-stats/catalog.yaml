@@ -30,8 +30,13 @@ collections:
       bootstrap:
         - nodeJS: console.error("example of a bootstrap!");
       transform:
-        - source: stock/ticks
-          sourceSchema: "schemas/L1-tick.yaml#/$defs/withRequired"
+        - source:
+            collection:   stock/ticks
+            schema: "schemas/L1-tick.yaml#/$defs/withRequired"
+            partitions:
+              include:
+                exchange: [NYSE, NASDAQ]
+
           lambda:
             nodeJS: |
               // Alias "source" document to "tick".

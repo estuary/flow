@@ -235,12 +235,18 @@ FROM bootstraps
          NATURAL LEFT JOIN resources;
 
 -- Valid transforms.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (2, 1, 2, NULL),
-       (2, 1, 3, NULL),
-       (2, 1, 5, NULL),
-       (2, 1, 6, NULL),
-       (3, 1, 7, 'https://alt/source/schema#anchor');
+INSERT INTO transforms (
+    derivation_id,
+    source_collection_id,
+    lambda_id,
+    source_schema_uri,
+    source_partitions_json)
+VALUES (2, 1, 2, NULL, NULL),
+       (2, 1, 3, NULL, '{"include":{"field_2": [123]}}'),
+       (2, 1, 5, NULL, NULL),
+       (2, 1, 6, NULL, '{"exclude":{"field_2": [456]}}'),
+       (3, 1, 7, 'https://alt/source/schema#anchor', NULL)
+;
 
 -- Invalid source-schema
 UPDATE transforms
@@ -308,6 +314,22 @@ VALUES (3, 1, 7, 'https://alt/source/schema#different-anchor');
 -- Case: existing transform with null source-schema (fails).
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
 VALUES (2, 1, 2, 'https://alt/source/schema#anchor');
+
+-- Named partitions of a transform must exist as logically partitioned
+-- projection of the source collection.
+
+-- Case: invalid json.
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"include":');
+-- Case: projection doesn't exist.
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"include":{"foobar": [123]}}');
+-- Case: projection exists, but is not a logical partition.
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"exclude":{"field_1": [123]}}');
+-- Case: projection is a logical partition of another collection (not this source).
+INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
+VALUES (2, 1, 3, '{"include":{"field_a": [123]}}');
 
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
