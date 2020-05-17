@@ -1,51 +1,57 @@
 PRAGMA foreign_keys = ON;
 
 -- Unique resources (eg, files) from which this catalog is built.
+--
+-- :content_type:
+--      MIME type of the resource.
+-- :content:
+--      Content of this resource.
+-- :is_processed:
+--      Marks the resource as having been processed.
 CREATE TABLE resources
 (
     resource_id  INTEGER PRIMARY KEY NOT NULL,
-    -- MIME type of the resource.
     content_type TEXT    NOT NULL,
-    -- Content of this resource.
     content      BLOB    NOT NULL,
-    -- Has this resource been processed?
     is_processed BOOLEAN NOT NULL,
 
-    CONSTRAINT "Invalid resource content-type"
-        CHECK (content_type IN (
-                                'application/vnd.estuary.dev-catalog-spec+yaml',
-                                'application/vnd.estuary.dev-catalog-fixtures+yaml',
-                                'application/schema+yaml',
-                                'application/sql',
-                                'application/vnd.estuary.dev-catalog-npm-pack'
-            ))
+    CONSTRAINT "Invalid resource content-type" CHECK (content_type IN (
+        'application/vnd.estuary.dev-catalog-spec+yaml',
+        'application/vnd.estuary.dev-catalog-fixtures+yaml',
+        'application/schema+yaml',
+        'application/sql',
+        'application/vnd.estuary.dev-catalog-npm-pack'
+    ))
 );
 
--- Import relationships between resources. Every resource which references another
--- explicitly records the relationship in this table, to facilitate understanding
--- of the transitive "A uses B" relationships between catalog resources.
+-- Import relationships between resources.
+-- Every resource which references another explicitly records the relationship in
+-- this table, to facilitate understanding of the transitive "A uses B"
+-- relationships between catalog resources.
+--
+-- :resource_id:
+--      ID of resource which imports another resource.
+-- :import_id:
+--      ID of the imported resource.
 CREATE TABLE resource_imports
 (
-    -- ID of resource which imports another resource.
     resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
-    -- ID of the imported resource.
     import_id   INTEGER NOT NULL REFERENCES resources (resource_id),
 
     PRIMARY KEY (resource_id, import_id)
 );
 
--- View which derives all transitive resource imports
+--View which derives all transitive resource imports
 CREATE VIEW resource_transitive_imports AS
 WITH RECURSIVE cte(resource_id, import_id) AS (
     SELECT resource_id, resource_id
-    FROM resources
+        FROM resources
     UNION ALL
     SELECT cte.resource_id, ri.import_id
-    FROM resource_imports AS ri
-             JOIN cte ON ri.resource_id = cte.import_id
+        FROM resource_imports AS ri
+        JOIN cte ON ri.resource_id = cte.import_id
 )
-SELECT *
-FROM cte;
+SELECT * FROM cte;
 
 -- Don't allow a resource import which is already transitively imported
 -- in the opposite direction. To do so would allow a cycle in the import graph.
@@ -53,10 +59,10 @@ CREATE TRIGGER assert_resource_imports_are_acyclic
     BEFORE INSERT
     ON resource_imports
     FOR EACH ROW
-    WHEN (SELECT 1
-          FROM resource_transitive_imports
-          WHERE resource_id = NEW.import_id
-            AND import_id = NEW.resource_id) NOT NULL
+    WHEN (
+        SELECT 1 FROM resource_transitive_imports
+            WHERE resource_id = NEW.import_id AND import_id = NEW.resource_id
+    ) NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'Import creates an cycle (imports must be acyclic)');
 END;
@@ -66,19 +72,23 @@ END;
 -- JSON schemas may have '$id' properties at arbitrary locations which change the
 -- canonical base URI of that schema. So long as '$id's are first indexed here,
 -- alternate URLs can then be referenced and correctly resolved to the resource.
+-- 
+-- :resource_id:
+--      Resource having an associated URL.
+-- :url:
+--      URL of this resource. Eg `file:///local/path` or `https://remote/path?query`.
+--      Must be a base URL without a fragment component.
+-- :is_primary: 
+--      A resource's primary URL is the URL at which that resource was originally
+--      fetched, and serves as the base URL when resolving relative sub-resources.
+--      Every resource has exactly one primary URL.
+--      Note SQLite doesn't enforce uniqueness where is_primary IS NULL.
 CREATE TABLE resource_urls
 (
-    -- Resource having an associated URL.
     resource_id INTEGER     NOT NULL REFERENCES resources (resource_id),
-    -- URL of this resource. Eg `file:///local/path` or `https://remote/path?query`.
-    -- Must be a base URL without a fragment component.
     url         TEXT UNIQUE NOT NULL,
-    -- A resource's primary URL is the URL at which that resource was originally
-    -- fetched, and serves as the base URL when resolving relative sub-resources.
-    -- Every resource has exactly one primary URL.
     is_primary  BOOLEAN,
 
-    -- Note SQLite doesn't enforce uniqueness where is_primary IS NULL.
     UNIQUE (resource_id, is_primary),
 
     CONSTRAINT "URL must be a valid, base (non-relative) URL"
@@ -90,25 +100,27 @@ CREATE TABLE resource_urls
 );
 
 -- Lambdas are invokable expressions within an associated lambda runtime.
+--
+-- :runtime:
+--      Lambda runtime (nodeJS, sqlite, or sqliteFile).
+-- :inline: 
+--      Inline function expression, with semantics that depend on the runtime:
+--      * If 'nodeJS', this is a Typescript / JavaScript expression (i.e. an arrow
+--        expression, or a named function to invoke).
+--      * If 'remote', this is a remote HTTP endpoint URL to invoke.
+--      * If 'sqlite', this is an inline SQL script.
+--      * If 'sqliteFile', this is NULL (and resource_id is set instead).
+-- :resource_id:
+--      Resource holding the lambda's content. Set only iff runtime is 'sqliteFile'.
 CREATE TABLE lambdas
 (
     lambda_id   INTEGER PRIMARY KEY NOT NULL,
-    -- Runtime of this lambda.
     runtime     TEXT                NOT NULL,
-    -- Inline function expression, with semantics that depend on the runtime:
-    -- * If 'nodeJS', this is a Typescript / JavaScript expression (i.e. an arrow
-    --   expression, or a named function to invoke).
-    -- * If 'remote', this is a remote HTTP endpoint URL to invoke.
-    -- * If 'sqlite', this is an inline SQL script.
-    -- * If 'sqliteFile', this is NULL (and resource_id is set instead).
     inline      TEXT,
-    -- Resource holding the lambda's content.
-    -- Set only iff runtime is 'sqliteFile'.
     resource_id INTEGER REFERENCES resources (resource_id),
 
     CONSTRAINT "Unknown Lambda runtime" CHECK (
         runtime IN ('nodeJS', 'sqlite', 'sqliteFile', 'remote')),
-
     CONSTRAINT "NodeJS lambda must provide an inline expression" CHECK (
         runtime != 'nodeJS' OR (inline NOT NULL AND resource_id IS NULL)),
     CONSTRAINT "SQLite lambda must provide an inline expression" CHECK (
@@ -120,17 +132,22 @@ CREATE TABLE lambdas
 );
 
 -- Collections of the catalog.
+--
+-- :name:
+--      Unique name of this collection.
+-- :schema_uri: 
+--      Canonical URI of the collection's JSON-Schema. This may include a fragment
+--      component which references a sub-schema of the document.
+-- :key_json:
+--     Composite key extractors of the collection, as `[JSON-Pointer]`.
+-- :resource_id:
+--      Catalog source spec which defines this collection.
 CREATE TABLE collections
 (
     collection_id INTEGER PRIMARY KEY NOT NULL,
-    -- Unique name of this collection.
     name          TEXT UNIQUE         NOT NULL,
-    -- Canonical URI of the collection's JSON-Schema. This may include a fragment
-    -- component which references a sub-schema of the document.
     schema_uri    TEXT                NOT NULL,
-    -- Composite key extractors of the collection, as `[JSON-Pointer]`.
     key_json      TEXT                NOT NULL,
-    -- Catalog source spec which defines this collection.
     resource_id   INTEGER             NOT NULL REFERENCES resources (resource_id),
 
     CONSTRAINT "Collection name format isn't valid" CHECK (
@@ -143,78 +160,101 @@ CREATE TABLE collections
 
 -- Projections are locations within collection documents which may be projected
 -- into a flattened (i.e. columnar) attribute/value space.
+--
+-- :collection_id:
+--      Collection to which this projection pertains.
+-- :field:
+--      Name of this projection.
+-- :location_ptr:
+--      Location of field within collection documents, as a JSON-Pointer.
+-- :is_logical_partition:
+--      Use this projection to logically partition the collection?
 CREATE TABLE projections
 (
-    -- Collection to which this projection pertains.
     collection_id        INTEGER NOT NULL REFERENCES collections (collection_id),
-    -- Name of this projection.
     field                TEXT    NOT NULL,
-    -- Location of field within collection documents, as a JSON-Pointer.
     location_ptr         TEXT    NOT NULL,
-    -- Use this projection to logically partition the collection?
     is_logical_partition BOOLEAN NOT NULL,
+
+    PRIMARY KEY (collection_id, field),
 
     CONSTRAINT "Field name format isn't valid" CHECK (
         field REGEXP '^[\pL\pN_]+$'),
     CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
-        location_ptr REGEXP '^(/[^/]+)*$'),
-
-    PRIMARY KEY (collection_id, field)
+        location_ptr REGEXP '^(/[^/]+)*$')
 );
 
 -- Fixtures of catalog collections.
+--
+-- :collection_id:
+--      Collection to which this fixture pertains.
+-- :resource_id:
+--      Fixture resource.
 CREATE TABLE fixtures
 (
-    -- Collection to which this fixture pertains.
     collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
-    -- Fixture resource.
     resource_id   INTEGER NOT NULL REFERENCES resources (resource_id),
 
     PRIMARY KEY (collection_id, resource_id)
 );
 
 -- Derivations details collections of the catalog which are derived from other collections.
+--
+-- :collection_id:
+--      Collection to which this derivation applies.
+-- :parallelism:
+--      Number of parallel derivation processors.
 CREATE TABLE derivations
 (
-    -- Collection to which this derivation applies.
     collection_id INTEGER PRIMARY KEY NOT NULL REFERENCES collections (collection_id),
-    -- Number of parallel derivation processors.
     parallelism   INTEGER CHECK (parallelism > 0)
 );
 
 -- Bootstraps relate a derivation and lambdas which are invoked to initialize it.
+--
+-- :derivation_id:
+--      Derivation to which this bootstrap lambda applies.
+-- :lambda_id:
+--      Lambda expression to invoke on processor bootstrap.
 CREATE TABLE bootstraps
 (
     bootstrap_id  INTEGER PRIMARY KEY NOT NULL,
-    -- Derivation to which this bootstrap lambda applies.
     derivation_id INTEGER             NOT NULL REFERENCES derivations (collection_id),
-    -- Lambda expression to invoke on processor bootstrap.
     lambda_id     INTEGER             NOT NULL REFERENCES lambdas (lambda_id)
 );
 
 -- Transforms relate a source collection, an applied lambda, and a derived
 -- collection into which transformed documents are produced.
+--
+-- :derivation_id:
+--      Derivation to which this transform applies.
+-- :source_collection_id:
+--      Collection being read from.
+-- :lambda_id:
+--      Lambda expression which consumes source documents and emits target documents.
+-- :source_schema_uri:
+--      Optional JSON-Schema to verify against documents of the source collection.
+-- :source_partitions_json:
+--      Optional partition fields to read of the source collection.
+-- :shuffle_key_json:
+--      Composite key extractor for shuffling source documents to shards, as
+--      `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
+-- :shuffle_broadcast:
+--      Number of ranked shards by which each document is read. If both
+--      `shuffle_broadcast` and `shuffle_choose` are NULL, then `shuffle_broadcast`
+--      is implicitly treated as `1`.
+-- :shuffle_choose:
+--      Number of ranked shards from which a shard is randomly selected.
 CREATE TABLE transforms
 (
     transform_id           INTEGER PRIMARY KEY NOT NULL,
-    -- Derivation to which this transform applies.
     derivation_id          INTEGER             NOT NULL REFERENCES derivations (collection_id),
-    -- Collection being read from.
     source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
-    -- Lambda expression which consumes source documents and emits target documents.
     lambda_id              INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
-    -- Optional JSON-Schema to verify against documents of the source collection.
     source_schema_uri      TEXT,
-    -- Optional partition fields to read of the source collection.
     source_partitions_json TEXT,
-    -- Composite key extractor for shuffling source documents to shards, as
-    -- `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
     shuffle_key_json       TEXT,
-    -- Number of ranked shards by which each document is read.
-    -- If both `shuffle_broadcast` and `shuffle_choose` are NULL,
-    -- then `shuffle_broadcast` is implicitly treated as `1`.
     shuffle_broadcast      INTEGER CHECK (shuffle_broadcast > 0),
-    -- Number of ranked shards from which a shard is randomly selected.
     shuffle_choose         INTEGER CHECK (shuffle_choose > 0),
 
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
@@ -232,11 +272,12 @@ CREATE TRIGGER transforms_use_consistent_source_schema
     BEFORE INSERT
     ON transforms
     FOR EACH ROW
-    WHEN (SELECT 1
-          FROM transforms
-          WHERE derivation_id = NEW.derivation_id
+    WHEN (
+        SELECT 1 FROM transforms
+            WHERE derivation_id = NEW.derivation_id
             AND source_collection_id = NEW.source_collection_id
-            AND COALESCE(source_schema_uri, '') != COALESCE(NEW.source_schema_uri, '')) NOT NULL
+            AND COALESCE(source_schema_uri, '') != COALESCE(NEW.source_schema_uri, '')
+    ) NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'Transforms of a derived collection which read from the same source collection must use the same source schema URI');
 END;
@@ -284,14 +325,16 @@ CREATE TRIGGER transforms_import_source_collection
     BEFORE INSERT
     ON transforms
     FOR EACH ROW
-    WHEN (SELECT 1 FROM
-          collections AS src,
-          collections AS tgt,
-          resource_transitive_imports AS rti
-          WHERE tgt.collection_id = NEW.derivation_id AND
-                src.collection_id = NEW.source_collection_id AND
-                tgt.resource_id = rti.resource_id AND
-                src.resource_id = rti.import_id) IS NULL
+    WHEN (
+        SELECT 1 FROM
+            collections AS src,
+            collections AS tgt,
+            resource_transitive_imports AS rti
+            WHERE tgt.collection_id = NEW.derivation_id
+            AND src.collection_id = NEW.source_collection_id
+            AND tgt.resource_id = rti.resource_id
+            AND src.resource_id = rti.import_id
+    ) IS NULL
 BEGIN
     SELECT RAISE(ABORT, 'Transform references a source collection which is not imported by this catalog spec');
 END;
@@ -366,12 +409,14 @@ FROM collections AS c NATURAL JOIN projections AS p
 ;
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
+-- :package: 
+--      Name of the NPM package depended on.
+-- :version:
+--      Version string, as understood by NPM.
+--      See https://docs.npmjs.com/files/package.json#dependencies
 CREATE TABLE nodejs_dependencies
 (
-    -- Name of the NPM package depended on.
     package TEXT PRIMARY KEY NOT NULL,
-    -- Version string, as understood by NPM.
-    -- See https://docs.npmjs.com/files/package.json#dependencies
     version TEXT             NOT NULL
 );
 
@@ -382,14 +427,20 @@ CREATE TRIGGER nodejs_dependencies_disagree
     FOR EACH ROW
 BEGIN
     SELECT CASE
-               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND version != NEW.version)
-                   THEN RAISE(ABORT,
-                              'A dependency on this nodeJS package at a different package version already exists')
-               WHEN (SELECT 1 FROM nodejs_dependencies WHERE package = NEW.package AND version = NEW.version)
-                   THEN RAISE(IGNORE)
-               END;
+        WHEN (
+            SELECT 1 FROM nodejs_dependencies
+                WHERE package = NEW.package AND version != NEW.version
+        ) THEN
+            RAISE(ABORT, 'A dependency on this nodeJS package at a different package version already exists')
+        WHEN (
+            SELECT 1 FROM nodejs_dependencies
+                WHERE package = NEW.package AND version = NEW.version
+        ) THEN
+            RAISE(IGNORE)
+    END;
 END;
 
+/*
 -- Inferences are locations of collection documents and associated attributes
 -- which are statically provable solely from the collection's JSON-Schema.
 CREATE TABLE inferences
@@ -431,4 +482,4 @@ CREATE TABLE materializations_postgres
     schema_name TEXT                NOT NULL,
     table_name  TEXT                NOT NULL
 );
-
+*/
