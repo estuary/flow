@@ -40,7 +40,7 @@ impl Derivation {
         // Map spec source collection name to its collection ID.
         let (cid, rid) = db
             .prepare_cached("SELECT collection_id, resource_id FROM collections WHERE name = ?")?
-            .query_row(&[&spec.source.collection], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(&[&spec.source.name], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(|e| Error::At {
                 loc: format!("querying source collection {:?}", spec.source),
                 detail: Box::new(e.into()),
@@ -97,6 +97,49 @@ impl Derivation {
             spec.shuffle.choose,
         ])?;
 
+        self.register_transform_source_partitions(
+            db,
+            db.last_insert_rowid(),
+            source.id,
+            &spec.source.partitions,
+        )?;
+
+        Ok(())
+    }
+
+    fn register_transform_source_partitions(
+        &self,
+        db: &DB,
+        transform_id: i64,
+        collection_id: i64,
+        parts: &specs::PartitionSelector,
+    ) -> Result<()> {
+        for (m, is_exclude) in &[(&parts.include, false), (&parts.exclude, true)] {
+            for (field, values) in m.iter() {
+                for value in values.iter() {
+                    db.prepare_cached(
+                        "INSERT INTO transform_source_partitions (
+                                    transform_id,
+                                    collection_id,
+                                    field,
+                                    value_json,
+                                    is_exclude
+                                ) VALUES (?, ?, ?, ?, ?);",
+                    )?
+                    .execute(sql_params![
+                        transform_id,
+                        collection_id,
+                        field,
+                        value,
+                        is_exclude,
+                    ])
+                    .map_err(|e| Error::At {
+                        loc: format!("transform source partition {:?}", field),
+                        detail: Box::new(e.into()),
+                    })?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -104,7 +147,7 @@ impl Derivation {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open, Source},
+        super::{dump_tables, init_db_schema, open, Catalog},
         *,
     };
     use serde_json::{json, Value};
@@ -123,19 +166,21 @@ mod test {
                     (20, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
             sql_params![a_schema, alt_schema],
         )?;
-        db.execute(
+        db.execute_batch(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
                     (10, 'test://example/a-schema.json', TRUE),
-                    (20, 'test://example/alt-schema.json', TRUE);",
-            sql_params![],
+                    (20, 'test://example/alt-schema.json', TRUE);
+                INSERT INTO collections (name, schema_uri, key_json, resource_id) VALUES
+                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);
+                INSERT INTO projections (collection_id, field, location_ptr) VALUES
+                    (1, 'a_field', '/a/field'),
+                    (1, 'other_field', '/other/field');
+                INSERT INTO partitions (collection_id, field) VALUES
+                    (1, 'a_field'),
+                    (1, 'other_field');",
         )?;
-        db.execute(
-            "INSERT INTO collections (name, schema_uri, key_json, resource_id) VALUES
-                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);",
-            sql_params![],
-        )?;
-        let source = Source {
+        let source = Catalog {
             resource: Resource { id: 1 },
         };
 
@@ -154,8 +199,14 @@ mod test {
                 ],
                 "transform": [
                     {
-                        "source": "src/collection",
-                        "sourceSchema": "alt-schema.json#foobar",
+                        "source": {
+                            "name": "src/collection",
+                            "schema": "alt-schema.json#foobar",
+                            "partitions": {
+                                "include": {"a_field": ["foo", 42]},
+                                "exclude": {"other_field": [false]},
+                            },
+                        },
                         "shuffle": {
                             "key": ["/shuffle", "/key"],
                             "choose": 3,
@@ -175,7 +226,7 @@ mod test {
             "derivation": {
                 "transform": [
                     {
-                        "source": "src/collection",
+                        "source": {"name": "src/collection"},
                         "lambda": {"nodeJS": "lambda two"},
                     },
                 ],
@@ -183,7 +234,16 @@ mod test {
         }))?;
         Collection::register(&db, source, &spec)?;
 
-        let dump = dump_tables(&db, &["derivations", "transforms", "bootstraps", "lambdas"])?;
+        let dump = dump_tables(
+            &db,
+            &[
+                "derivations",
+                "transforms",
+                "transform_source_partitions",
+                "bootstraps",
+                "lambdas",
+            ],
+        )?;
 
         assert_eq!(
             dump,
@@ -203,6 +263,11 @@ mod test {
                 "transforms":[
                     [1, 2, 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3],
                     [2, 3, 1, 3, null, null, null, null],
+                ],
+                "transform_source_partitions":[
+                    [1, 1, "a_field", "foo", false],
+                    [1, 1, "a_field", 42, false],
+                    [1, 1, "other_field", false, true],
                 ],
             }),
         );

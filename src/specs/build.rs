@@ -121,7 +121,7 @@ pub struct Transform {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Source {
     // Name of the source collection.
-    pub collection: String,
+    pub name: String,
     /// Optional relative URL of a JSON-Schema to verify against source collection
     /// documents. This is useful in building "Extract Load Transform" patterns,
     /// where a collection is captured with minimal schema applied (perhaps

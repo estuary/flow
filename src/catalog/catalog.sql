@@ -167,14 +167,11 @@ CREATE TABLE collections
 --      Name of this projection.
 -- :location_ptr:
 --      Location of field within collection documents, as a JSON-Pointer.
--- :is_logical_partition:
---      Use this projection to logically partition the collection?
 CREATE TABLE projections
 (
     collection_id        INTEGER NOT NULL REFERENCES collections (collection_id),
     field                TEXT    NOT NULL,
     location_ptr         TEXT    NOT NULL,
-    is_logical_partition BOOLEAN NOT NULL,
 
     PRIMARY KEY (collection_id, field),
 
@@ -182,6 +179,22 @@ CREATE TABLE projections
         field REGEXP '^[\pL\pN_]+$'),
     CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
         location_ptr REGEXP '^(/[^/]+)*$')
+);
+
+-- Partitions are projections which logically partition the collection.
+--
+-- :collection_id:
+--      Collection to which this projection pertains.
+-- :field:
+--      Field of this partition.
+CREATE TABLE partitions
+(
+    collection_id INTEGER NOT NULL,
+    field         TEXT    NOT NULL,
+
+    PRIMARY KEY (collection_id, field),
+    FOREIGN KEY (collection_id, field)
+        REFERENCES projections(collection_id, field)
 );
 
 -- Fixtures of catalog collections.
@@ -228,14 +241,12 @@ CREATE TABLE bootstraps
 --
 -- :derivation_id:
 --      Derivation to which this transform applies.
--- :source_collection_id:
---      Collection being read from.
 -- :lambda_id:
 --      Lambda expression which consumes source documents and emits target documents.
+-- :source_collection_id:
+--      Collection being read from.
 -- :source_schema_uri:
 --      Optional JSON-Schema to verify against documents of the source collection.
--- :source_partitions_json:
---      Optional partition fields to read of the source collection.
 -- :shuffle_key_json:
 --      Composite key extractor for shuffling source documents to shards, as
 --      `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
@@ -252,19 +263,18 @@ CREATE TABLE transforms
     source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
     lambda_id              INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
     source_schema_uri      TEXT,
-    source_partitions_json TEXT,
     shuffle_key_json       TEXT,
     shuffle_broadcast      INTEGER CHECK (shuffle_broadcast > 0),
     shuffle_choose         INTEGER CHECK (shuffle_choose > 0),
+
+    UNIQUE(transform_id, source_collection_id),
 
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
         source_schema_uri LIKE '_%://_%'),
     CONSTRAINT "Cannot set both shuffle 'broadcast' and 'choose'" CHECK (
         (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL)),
     CONSTRAINT "Shuffle key must be NULL or non-empty JSON array of JSON-Pointers" CHECK (
-        JSON_ARRAY_LENGTH(shuffle_key_json) > 0),
-    CONSTRAINT "Source partitions must be a valid JSON Object" CHECK (
-        JSON_TYPE(source_partitions_json) == 'object')
+        JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
 );
 
 -- All transforms of a derivation reading from the same source, must also use the same source schema.
@@ -281,43 +291,6 @@ CREATE TRIGGER transforms_use_consistent_source_schema
 BEGIN
     SELECT RAISE(ABORT, 'Transforms of a derived collection which read from the same source collection must use the same source schema URI');
 END;
-
--- All named partitions of a transform source must exist as logically partitioned fields of the source collection.
-CREATE TRIGGER transform_source_partitions_exist
-    BEFORE INSERT
-    ON transforms
-    FOR EACH ROW
-    WHEN (
-        WITH expect AS (
-            SELECT key AS field
-                FROM JSON_EACH(NEW.source_partitions_json, '$.include')
-            UNION
-            SELECT key AS field
-                FROM JSON_EACH(NEW.source_partitions_json, '$.exclude')
-        ), actual AS (
-            SELECT field FROM projections
-                WHERE collection_id = NEW.source_collection_id AND is_logical_partition
-        )
-        SELECT 1 FROM expect WHERE field NOT IN (SELECT * FROM actual)
-    ) NOT NULL
-BEGIN
-    SELECT RAISE(ABORT, 'Transform source has a partition which is not logical partition field of the source collection');
-END;
-
--- View over all schemas which apply to a collection.
-CREATE VIEW collection_schemas AS
-SELECT collection_id,
-       name,
-       schema_uri,
-       FALSE AS is_alternate
-FROM collections
-UNION
-SELECT source_collection_id,
-       source_name,
-       source_schema_uri,
-       TRUE AS is_alternate
-FROM transform_details
-    WHERE is_alt_source_schema;
 
 -- Require that the specification resource which defines a collection transform,
 -- also imports the specification which contains the referenced source collection.
@@ -339,6 +312,45 @@ BEGIN
     SELECT RAISE(ABORT, 'Transform references a source collection which is not imported by this catalog spec');
 END;
 
+-- Partitions of the transform source which the transform is restricted to.
+--
+-- :transform_id:
+--      Transform to which the partition restriction applies.
+-- :collection_id:
+--      Source collection which is partitioned.
+-- :field:
+--      Partitioned field of the source collection.
+-- :value_json:
+--      JSON-encoded value to be matched.
+-- :is_exclude:
+--      If true, this record is a partition exclusion (as opposed to an inclusion).
+CREATE TABLE transform_source_partitions
+(
+    transform_id  INTEGER NOT NULL,
+    collection_id INTEGER NOT NULL,
+    field         TEXT    NOT NULL,
+    value_json    TEXT    NOT NULL,
+    is_exclude    BOOLEAN NOT NULL,
+
+    FOREIGN KEY(transform_id, collection_id)
+        REFERENCES transforms(transform_id, source_collection_id),
+    FOREIGN KEY(collection_id, field)
+        REFERENCES partitions(collection_id, field),
+
+    CONSTRAINT "Value must be valid JSON" CHECK (JSON_VALID(value_json))
+);
+
+CREATE VIEW transform_source_partitions_json AS
+SELECT
+    transform_id,
+    collection_id,
+    JSON_GROUP_ARRAY(JSON_OBJECT(
+        'field', field,
+        'value', value_json,
+        'exclude', is_exclude
+    )) AS json
+FROM transform_source_partitions GROUP BY transform_id, collection_id;
+
 -- Detail view of transforms joined with collection and lambda details,
 -- and flattening NULL-able fields into their assumed defaults.
 CREATE VIEW transform_details AS
@@ -348,7 +360,7 @@ SELECT transforms.transform_id,
        src.name                                                                AS source_name,
        src.resource_id                                                         AS source_resource_id,
        COALESCE(transforms.source_schema_uri, src.schema_uri)                  AS source_schema_uri,
-       transforms.source_partitions_json                                       AS source_partitions_json,
+       transform_parts.json                                                    AS source_partitions_json,
        transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
        COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
 
@@ -379,9 +391,27 @@ FROM transforms
               ON transforms.derivation_id = der.collection_id
          JOIN lambdas
               ON transforms.lambda_id = lambdas.lambda_id
+         LEFT JOIN transform_source_partitions_json as transform_parts
+              ON transforms.transform_id = transform_parts.transform_id
+              AND transforms.source_collection_id = transform_parts.collection_id
          LEFT JOIN resources AS lambda_resources
                    ON lambdas.resource_id = lambda_resources.resource_id
 ;
+
+-- View over all schemas which apply to a collection.
+CREATE VIEW collection_schemas AS
+SELECT collection_id,
+       name,
+       schema_uri,
+       FALSE AS is_alternate
+FROM collections
+UNION
+SELECT source_collection_id,
+       source_name,
+       source_schema_uri,
+       TRUE AS is_alternate
+FROM transform_details
+    WHERE is_alt_source_schema;
 
 -- View over schema URIs and their extracted fields, with context.
 CREATE VIEW schema_extracted_fields AS
@@ -403,7 +433,14 @@ UNION
 SELECT
     c.schema_uri,
     p.location_ptr,
-    p.is_logical_partition AS is_key,
+    TRUE AS is_key,
+    PRINTF('partitioned field %Q of collection %Q', p.field, c.name)
+FROM collections AS c NATURAL JOIN projections AS p NATURAL JOIN partitions
+UNION
+SELECT
+    c.schema_uri,
+    p.location_ptr,
+    FALSE AS is_key,
     PRINTF('projected field %Q of collection %Q', p.field, c.name)
 FROM collections AS c NATURAL JOIN projections AS p
 ;

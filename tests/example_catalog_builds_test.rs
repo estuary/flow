@@ -9,11 +9,10 @@ fn test_examples() -> catalog::Result<()> {
 
     let mut path = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
     path.extend(["examples", "catalog.yaml"].iter());
-    let path = Url::from_file_path(&path).unwrap();
 
     let db = catalog::open(":memory:")?;
     catalog::init_db_schema(&db)?;
-    catalog::Resource::register(&db, catalog::ContentType::CatalogSpec, &path)?;
+    catalog::Catalog::register(&db, Url::from_file_path(&path).unwrap())?;
 
     Ok(())
 }

@@ -70,7 +70,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
 
     db.execute_batch("BEGIN;")?;
     catalog::init_db_schema(&db)?;
-    catalog::Source::register(&db, root)?;
+    catalog::Catalog::register(&db, root)?;
     catalog::verify_extracted_fields(&db)?;
 
     // TODO:

@@ -158,28 +158,38 @@ SELECT *
 FROM collections;
 
 -- Valid projections.
-INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
-VALUES (1, 'field_1', '/path/1', false),
-       (1, 'field_2', '/path/2', true),
-       (2, 'field_1', '', false), -- Repeat field name with different collection.
-       (2, 'field_a', '/a', true);
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'field_1', '/path/1'),
+       (1, 'field_2', '/path/2'),
+       (2, 'field_1', ''), -- Repeat field name with different collection.
+       (2, 'field_a', '/a');
 
 -- Invalid projection (bad field name).
-INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
-VALUES (1, 'no spaces', '/path/1', false);
-INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
-VALUES (1, 'or-hyphens', '/path/1', false);
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'no spaces', '/path/1');
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'or-hyphens', '/path/1');
 
 -- Invalid projection (no such collection).
-INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
-VALUES (42, 'foo', '/bar', false);
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (42, 'foo', '/bar');
 
 -- Invalid projection (invalid JSON-Pointer).
-INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
-VALUES (1, 'foo', 'bar', false);
-INSERT INTO projections (collection_id, field, location_ptr, is_logical_partition)
-VALUES (1, 'foo', '/bar/', false);
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'foo', 'bar');
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'foo', '/bar/');
 
+-- Valid projections which are partitions.
+INSERT INTO partitions (collection_id, field)
+VALUES (1, 'field_2'),
+       (2, 'field_a');
+-- Invalid partitions (no such collection).
+INSERT INTO partitions (collection_id, field)
+VALUES (42, 'field_2');
+-- Invalid partition (no such projection).
+INSERT INTO partitions (collection_id, field)
+VALUES (1, 'field_zzz');
 
 -- Valid fixtures.
 INSERT INTO fixtures (collection_id, resource_id)
@@ -239,13 +249,12 @@ INSERT INTO transforms (
     derivation_id,
     source_collection_id,
     lambda_id,
-    source_schema_uri,
-    source_partitions_json)
-VALUES (2, 1, 2, NULL, NULL),
-       (2, 1, 3, NULL, '{"include":{"field_2": [123]}}'),
-       (2, 1, 5, NULL, NULL),
-       (2, 1, 6, NULL, '{"exclude":{"field_2": [456]}}'),
-       (3, 1, 7, 'https://alt/source/schema#anchor', NULL)
+    source_schema_uri)
+VALUES (2, 1, 2, NULL),
+       (2, 1, 3, NULL),
+       (2, 1, 5, NULL),
+       (2, 1, 6, NULL),
+       (3, 1, 7, 'https://alt/source/schema#anchor')
 ;
 
 -- Invalid source-schema
@@ -315,21 +324,32 @@ VALUES (3, 1, 7, 'https://alt/source/schema#different-anchor');
 INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
 VALUES (2, 1, 2, 'https://alt/source/schema#anchor');
 
--- Named partitions of a transform must exist as logically partitioned
--- projection of the source collection.
-
+-- Valid transform source partitions.
+INSERT INTO transform_source_partitions (
+    transform_id,
+    collection_id,
+    field,
+    value_json,
+    is_exclude)
+VALUES (2, 1, 'field_2', 'true', FALSE),
+       (4, 1, 'field_2', '"456"', TRUE)
+;
 -- Case: invalid json.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
-VALUES (2, 1, 3, '{"include":');
+INSERT INTO transform_source_partitions (
+    transform_id, collection_id, field, value_json, is_exclude)
+VALUES (1, 1, 'field_2', '{"invalid":', FALSE);
 -- Case: projection doesn't exist.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
-VALUES (2, 1, 3, '{"include":{"foobar": [123]}}');
+INSERT INTO transform_source_partitions (
+    transform_id, collection_id, field, value_json, is_exclude)
+VALUES (1, 1, 'field_zzz', 'true', FALSE);
 -- Case: projection exists, but is not a logical partition.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
-VALUES (2, 1, 3, '{"exclude":{"field_1": [123]}}');
+INSERT INTO transform_source_partitions (
+    transform_id, collection_id, field, value_json, is_exclude)
+VALUES (1, 1, 'field_1', 'true', FALSE);
 -- Case: projection is a logical partition of another collection (not this source).
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_partitions_json)
-VALUES (2, 1, 3, '{"include":{"field_a": [123]}}');
+INSERT INTO transform_source_partitions (
+    transform_id, collection_id, field, value_json, is_exclude)
+VALUES (1, 1, 'field_a', 'true', FALSE);
 
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.

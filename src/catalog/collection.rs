@@ -1,4 +1,4 @@
-use super::{sql_params, ContentType, Derivation, Error, Resource, Result, Schema, Source, DB};
+use super::{sql_params, ContentType, Derivation, Error, Resource, Result, Schema, Catalog, DB};
 use crate::specs::build as specs;
 
 /// Collection represents a catalog Collection.
@@ -10,7 +10,7 @@ pub struct Collection {
 
 impl Collection {
     /// Registers a Collection of the Source with the catalog.
-    pub fn register(db: &DB, source: Source, spec: &specs::Collection) -> Result<Collection> {
+    pub fn register(db: &DB, source: Catalog, spec: &specs::Collection) -> Result<Collection> {
         // Register and import the schema document.
         let schema_url = source.resource.join(db, &spec.schema)?;
         let schema = Schema::register(db, &schema_url).map_err(|err| Error::At {
@@ -75,19 +75,18 @@ impl Collection {
 
     fn register_projection(&self, db: &DB, spec: &specs::Projection) -> Result<()> {
         db.prepare_cached(
-            "INSERT INTO projections (
-                    collection_id,
-                    field,
-                    location_ptr,
-                    is_logical_partition
-                ) VALUES (?, ?, ?, ?)",
+            "INSERT INTO projections (collection_id, field, location_ptr)
+                    VALUES (?, ?, ?)",
         )?
-        .execute(sql_params![
-            self.id,
-            spec.field,
-            spec.location,
-            spec.partition,
-        ])?;
+        .execute(sql_params![self.id, spec.field, spec.location])?;
+
+        if spec.partition {
+            db.prepare_cached(
+                "INSERT INTO partitions (collection_id, field)
+                        VALUES (?, ?)",
+            )?
+            .execute(sql_params![self.id, spec.field])?;
+        }
 
         Ok(())
     }
@@ -141,7 +140,7 @@ mod test {
             ],
         }))?;
 
-        let source = Source {
+        let source = Catalog {
             resource: Resource { id: 1 },
         };
         Collection::register(&db, source, &spec)?;
@@ -153,7 +152,13 @@ mod test {
         // Expect the collection records the absolute schema URI, with fragment component.
         let dump = dump_tables(
             &db,
-            &["resource_imports", "collections", "projections", "fixtures"],
+            &[
+                "resource_imports",
+                "collections",
+                "projections",
+                "partitions",
+                "fixtures",
+            ],
         )?;
 
         assert_eq!(
@@ -171,9 +176,10 @@ mod test {
                 ],
                 "fixtures": [[1, 20]],
                 "projections": [
-                    [1, "field_a", "/a/a", true],
-                    [1, "field_b", "/b/b", false],
+                    [1, "field_a", "/a/a"],
+                    [1, "field_b", "/b/b"],
                 ],
+                "partitions": [[1, "field_a"]],
             }),
         );
 
