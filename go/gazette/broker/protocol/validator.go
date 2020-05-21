@@ -86,6 +86,6 @@ const (
 	// The alphabet leads with '-' to facilitate escaping in |reToken|.
 	TokenSymbols = "-_+/."
 	// pathSymbols is allowed runes of strings which form path components.
-	// It extends TokenSymbols with the '=' rune.
-	pathSymbols = TokenSymbols + "="
+	// It extends TokenSymbols with the '=' and '%' runes.
+	pathSymbols = TokenSymbols + "=%"
 )
