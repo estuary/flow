@@ -7,6 +7,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/metrics"
 )
 
 // Sequencer observes read-uncommitted messages from journals and sequences them
@@ -81,10 +82,10 @@ type partialSeq struct {
 }
 
 // QueueUncommitted applies the next read-uncommitted message Envelope to the
-// Sequencer. It panics if called while messages remain to deque.
+// Sequencer. It panics if called while messages remain to dequeue.
 func (w *Sequencer) QueueUncommitted(env Envelope) {
 	if w.emit.ringIndex != -1 {
-		panic("committed messages remain to deque")
+		panic("committed messages remain to dequeue")
 	}
 	w.evictAtHead()
 
@@ -114,9 +115,14 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 	case Flag_OUTSIDE_TXN:
 
+		// Duplicate of acknowledged message?
 		if clock <= partial.lastACK && clock != 0 {
-			return // Duplicate. Ignore.
-		} else if partial.begin != -1 {
+			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+				env.Journal.String(), "OUTSIDE_TXN", "drop").Inc()
+			return
+		}
+
+		if partial.begin != -1 {
 			w.logError(env, partial, "unexpected OUTSIDE_TXN with a preceding CONTINUE_TXN"+
 				" (mixed use of PublishUncommitted and PublishCommitted to the same journal?)")
 			// Handled as an implicit roll-back of preceding messages.
@@ -129,21 +135,33 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		w.emit.offset = env.Begin
 		w.emit.ringIndex = partial.ringStop
 		partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
+
+		metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			env.Journal.String(), "OUTSIDE_TXN", "emit").Inc()
 		return
 
 	case Flag_CONTINUE_TXN:
-
+		// Duplicate of acknowledged message?
 		if clock < partial.lastACK {
-			// Duplicate of acknowledged message.
-		} else if partial.ringStop != -1 && clock <= GetClock(w.ring[partial.ringStop].GetUUID()) {
-			// Duplicate of message already in the ring.
-		} else {
-			// Does |env| implicitly begin the next span?
-			if partial.begin == -1 {
-				partial.begin = env.Begin
-			}
-			partial = w.addAtHead(env, partial)
+			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+				env.Journal.String(), "CONTINUE_TXN", "drop").Inc()
+			return
 		}
+		// Duplicate of message already in the ring?
+		if partial.ringStop != -1 && clock <= GetClock(w.ring[partial.ringStop].GetUUID()) {
+			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+				env.Journal.String(), "CONTINUE_TXN", "drop-ring").Inc()
+			return
+		}
+
+		// Does |env| implicitly begin the next span?
+		if partial.begin == -1 {
+			partial.begin = env.Begin
+		}
+		partial = w.addAtHead(env, partial)
+
+		metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			env.Journal.String(), "CONTINUE_TXN", "queue").Inc()
 		return
 
 	case Flag_ACK_TXN:
@@ -171,6 +189,9 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		if clock <= partial.lastACK {
 			// Roll-back to this acknowledgement.
 			partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
+
+			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+				env.Journal.String(), "ACK_TXN", "rollback").Inc()
 			return
 		}
 
@@ -184,6 +205,9 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		w.emit.offset = partial.begin
 		w.emit.ringIndex = partial.ringStart
 		partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
+
+		metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			env.Journal.String(), "ACK_TXN", "emit").Inc()
 		return
 	}
 	panic("not reached")
@@ -198,6 +222,8 @@ func (w *Sequencer) DequeCommitted() (env Envelope, err error) {
 	for {
 		if env, err = w.dequeNext(); err != nil {
 			return
+		} else if w.replay != nil {
+			metrics.GazetteSequencerReplayTotal.WithLabelValues(env.Journal.String()).Inc()
 		}
 		var uuid = env.GetUUID()
 

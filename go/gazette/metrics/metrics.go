@@ -152,6 +152,8 @@ func GazretentionCollectors() []prometheus.Collector {
 const (
 	GazetteDiscardBytesTotalKey         = "gazette_discard_bytes_total"
 	GazetteReadBytesTotalKey            = "gazette_read_bytes_total"
+	GazetteSequencerQueued              = "gazette_sequencer_queued"
+	GazetteSequencerReplay              = "gazette_sequencer_replay"
 	GazetteWriteBytesTotalKey           = "gazette_write_bytes_total"
 	GazetteWriteCountTotalKey           = "gazette_write_count_total"
 	GazetteWriteDurationSecondsTotalKey = "gazette_write_duration_seconds_total"
@@ -163,12 +165,20 @@ const (
 var (
 	GazetteDiscardBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: GazetteDiscardBytesTotalKey,
-		Help: "Cumulative number of bytes read but discarded.",
+		Help: "Cumulative number of bytes read and discarded during a fragment seek.",
 	})
 	GazetteReadBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: GazetteReadBytesTotalKey,
 		Help: "Cumulative number of bytes read.",
 	})
+	GazetteSequencerQueuedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: GazetteSequencerQueued,
+		Help: "Cumulative number of read-uncommitted messages which were sequenced.",
+	}, []string{"journal", "flag", "outcome"})
+	GazetteSequencerReplayTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: GazetteSequencerReplay,
+		Help: "Cumulative number of messages re-read from source journal due to insufficient Sequencer ring-buffer size.",
+	}, []string{"journal"})
 	GazetteWriteBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: GazetteWriteBytesTotalKey,
 		Help: "Cumulative number of bytes written.",
@@ -193,6 +203,8 @@ func GazetteClientCollectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		GazetteDiscardBytesTotal,
 		GazetteReadBytesTotal,
+		GazetteSequencerQueuedTotal,
+		GazetteSequencerReplayTotal,
 		GazetteWriteBytesTotal,
 		GazetteWriteCountTotal,
 		GazetteWriteDurationTotal,
