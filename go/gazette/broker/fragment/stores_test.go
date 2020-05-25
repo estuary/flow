@@ -91,8 +91,8 @@ func TestStoreInteractions(t *testing.T) {
 	assert.Equal(t, pb.Journal("tst/rwReplace/foo"), fooFragsPostRW[0].Journal)
 
 	// We can open and read expected fragment content.
-	assert.Equal(t, tstRWFooData[1], readFrag(t, fooFrags[1]))
-	assert.Equal(t, tstBarData[0], readFrag(t, barFrags[0]))
+	assert.Equal(t, tstRWFooData[1], readFrag(t, fooFrags[1]), fooFrags)
+	assert.Equal(t, tstBarData[0], readFrag(t, barFrags[0]), barFrags)
 
 	// We can create a signed URL and GET it.
 	getURL, err := SignGetURL(fooFrags[0], time.Minute)
