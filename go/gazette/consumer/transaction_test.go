@@ -343,9 +343,10 @@ func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {
 		echoOut.Name: []byte(`{"Key": "recovered fixture"}` + "\n"),
 	}
 
-	go func() {
-		assert.Equal(t, context.Canceled, errors.Cause(runTransactions(shard, cp, nil, nil)))
-	}()
+	// Use a read channel fixture which immediately cancels.
+	var readCh = make(chan readMessage, 1)
+	readCh <- readMessage{err: context.Canceled}
+	assert.Equal(t, context.Canceled, errors.Cause(runTransactions(shard, cp, readCh, nil)))
 
 	// Expect the ACK intent fixture is written to |echoOut|.
 	var rr = client.NewRetryReader(context.Background(), tf.ajc, pb.ReadRequest{
