@@ -64,19 +64,25 @@ func NewPublisher(ajc client.AsyncJournalClient, clock *Clock) *Publisher {
 	return p
 }
 
-// PublishCommitted sequences the Message for immediate consumption, maps it
-// to a Journal, and begins an AsyncAppend of its marshaled content. An error
-// is returned if:
+// PublishCommitted maps the Message to a Journal and begins an AsyncAppend of
+// its marshaled content, with a UUID sequenced for immediate consumption.
+// An error is returned if:
 //
-//  * The Message implements Validate, which errors.
-//  * The MappingFunc returns ErrEmptyListResponse while mapping the Message to a journal
-//    (eg, because no journals currently match the mapping's selector).
+//  * The Message implements Validator, and it returns an error.
+//  * The MappingFunc returns an error while mapping the Message to a journal.
 //  * The journal's Framing returns an error while marshaling the Message,
 //    or an os.PathError occurs while spooling the frame to a temporary file
 //    (eg, because local disk is full).
 //
-// The caller may wish to retry at a later time in the case of ErrEmptyListResponse
-// or os.PathError.
+// A particular MappingFunc error to be aware of is ErrEmptyListResponse,
+// returned by mapping routines of this package when there are no journals
+// that currently match the mapping's selector. The caller may wish to retry at
+// a later time in the case of ErrEmptyListResponse or os.PathError.
+//
+// Note that the message UUID will not yet be set when Validator or MappingFunc
+// is invoked. This is because generation of UUIDs must be synchronized
+// over the journal to which the Message is written to preserve ordering, and this
+// cannot be known until mapping has been done.
 //
 // If desired, the caller may select on Done of the returned *AsyncAppend to be
 // notified as soon as this particular Message has committed to the journal.
@@ -182,7 +188,6 @@ func (p *Publisher) publish(mapping MappingFunc, msg Message, flags Flags) (jour
 	if p.autoUpdate {
 		p.clock.Update(time.Now())
 	}
-	msg.SetUUID(BuildUUID(p.producer, p.clock.Tick(), flags))
 
 	if v, ok := msg.(Validator); ok {
 		if err = v.Validate(); err != nil {
@@ -198,6 +203,13 @@ func (p *Publisher) publish(mapping MappingFunc, msg Message, flags Flags) (jour
 	}
 
 	aa = p.ajc.StartAppend(pb.AppendRequest{Journal: journal}, nil)
+	// StartAppend strictly orders all writes to this |journal| done through
+	// this journal client (and Publisher).
+	//
+	// It's important that we build the UUID *after* entering the StartAppend
+	// block, as concurrent PublishCommitted calls could otherwise race such
+	// that a UUID with an earlier Clock is written after one with a later one.
+	msg.SetUUID(BuildUUID(p.producer, p.clock.Tick(), flags))
 	aa.Require(framing.Marshal(msg, aa.Writer()))
 	err = aa.Release()
 	return

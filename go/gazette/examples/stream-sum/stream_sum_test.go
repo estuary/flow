@@ -160,6 +160,7 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	cfg.Broker.Address = broker.Endpoint()
 	cfg.Chunker.Streams = 10
 	cfg.Chunker.Chunks = 10
+	cfg.Chunker.Workers = 4
 
 	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
 	c.Check(GenerateAndVerifyStreams(ctx, &cfg), gc.IsNil)

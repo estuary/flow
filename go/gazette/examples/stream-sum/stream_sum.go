@@ -41,7 +41,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/consumer/store-rocksdb"
+	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
 	store_sqlite "go.gazette.dev/core/consumer/store-sqlite"
 	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -53,8 +53,9 @@ import (
 type ChunkerConfig struct {
 	Chunker struct {
 		mbp.ZoneConfig
-		Streams int `long:"streams" default:"-1" description:"Total number of streams to create. <0 for infinite"`
+		Streams int `long:"streams" default:"-1" description:"Number of streams each worker should create. <0 for infinite"`
 		Chunks  int `long:"chunks" default:"100" description:"Number of chunks per stream"`
+		Workers int `long:"workers" default:"4" description:"Number of parallel workers"`
 	} `group:"Chunker" namespace:"chunker" env-namespace:"CHUNKER"`
 
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
@@ -128,37 +129,47 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 		return errors.Wrap(err, "writing barrier")
 	}
 
-	var rr = client.NewRetryReader(ctx, rjc, pb.ReadRequest{
-		Journal:    barrier.Response().Commit.Journal,
-		Offset:     barrier.Response().Commit.End,
-		Block:      true,
-		DoNotProxy: !rjc.IsNoopRouter(),
-	})
-
-	var chunkCh = make(chan Chunk)
-	var verifyCh = make(chan Sum)
-	var actualCh = make(chan Sum)
-
+	// All workers share a Publisher.
 	var clock = message.NewClock(time.Now())
 	var pub = message.NewPublisher(as, &clock)
+	var doneCh = make(chan struct{})
+
+	for w := 0; w != cfg.Chunker.Workers; w++ {
+		go func() {
+
+			var rr = client.NewRetryReader(ctx, rjc, pb.ReadRequest{
+				Journal:    barrier.Response().Commit.Journal,
+				Offset:     barrier.Response().Commit.End,
+				Block:      true,
+				DoNotProxy: !rjc.IsNoopRouter(),
+			})
+			var chunkCh = make(chan Chunk)
+			var verifyCh = make(chan Sum)
+			var actualCh = make(chan Sum)
+
+			go pumpSums(rr, actualCh)
+			go generate(cfg.Chunker.Streams, cfg.Chunker.Chunks, verifyCh, chunkCh)
+
+			verify(func(chunk Chunk) {
+				var _, err = pub.PublishCommitted(chunksMapping, &chunk)
+				mbp.Must(err, "publishing chunk")
+			}, chunkCh, verifyCh, actualCh, chunksMapping)
+
+			doneCh <- struct{}{}
+		}()
+	}
 
 	var ticker = time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	go pumpSums(rr, actualCh)
-	go generate(cfg.Chunker.Streams, cfg.Chunker.Chunks, verifyCh, chunkCh)
-
-	verify(func(chunk Chunk) {
+	for w := 0; w != cfg.Chunker.Workers; {
 		select {
 		case t := <-ticker.C:
 			clock.Update(t)
-		default:
-			// Pass.
+		case _ = <-doneCh:
+			w++ // Worker finished.
 		}
-		var _, err = pub.PublishCommitted(chunksMapping, &chunk)
-		mbp.Must(err, "publishing chunk")
-	}, chunkCh, verifyCh, actualCh, chunksMapping)
-
+	}
 	return conn.Close()
 }
 
