@@ -22,9 +22,6 @@ func TestStoreAndFetchHints(t *testing.T) {
 
 	// mkHints builds a valid FSMHints fixture which is unique on |id|.
 	var mkHints = func(id int64) recoverylog.FSMHints {
-		defer tf.ks.Mu.RUnlock()
-		tf.ks.Mu.RLock() // Hold to access |r.spec|.
-
 		return recoverylog.FSMHints{
 			Log: shard.Spec().RecoveryLog(),
 			LiveNodes: []recoverylog.FnodeSegments{{
