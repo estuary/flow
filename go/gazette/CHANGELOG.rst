@@ -2,6 +2,16 @@
 master (unreleased)
 --------------------
 
+- BUGFIX: Fix potential UUID sequencing race in concurrent calls to PublishCommitted
+  of the same message.Publisher, and add new regression testing (GH-259_).
+- Instrument message.Sequencer with Prometheus metrics.
+- Add `curl` to release images, making it much simpler for node-zone.sh mappings
+  to directly query cloud metadata APIs.
+- Fix omitted registration of broker WriteHead metric.
+- Various improvements to tests, addressing or instrumenting flakes.
+
+.. _GH-259: https://github.com/gazette/core/issues/259
+
 v0.86.1
 --------
 
