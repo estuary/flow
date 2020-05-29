@@ -25,7 +25,7 @@ type BenchmarkHealthSuite struct{}
 
 // TestBenchmarkHealth runs benchmarks with a small N to ensure they don't bit rot.
 func (s *BenchmarkHealthSuite) TestBenchmarkHealth(c *gc.C) {
-	var fakeB = testing.B{N: 50}
+	var fakeB = testing.B{N: 5}
 
 	benchmarkSimulatedDeploy(&fakeB)
 }
@@ -40,14 +40,13 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
 	var state = NewObservedState(ks, MemberKey(ks, "zone-b", "leader"), isConsistent)
 
-	var NItems = b.N
+	// Each stage of the deployment will cycle |NMembers10| Members.
+	var NMembers10 = b.N
+	var NMembersHalf = b.N * 5
+	var NMembers = b.N * 10
+	var NItems = NMembers * 100
 
-	if NItems < 50 {
-		NItems = 50 // Required for the test to work (otherwise NMembers10 == 0).
-	}
-	var NMembers = NItems / 5
-	var NMembersHalf = NMembers / 2
-	var NMembers10 = NMembers / 10 // Each stage of the deployment will cycle |NMembers10| Members.
+	b.Logf("Benchmarking with %d items, %d members (%d /2, %d /10)", NItems, NMembers, NMembersHalf, NMembers10)
 
 	// fill inserts (if |asInsert|) or modifies keys/values defined by |kvcb| and the range [begin, end).
 	var fill = func(begin, end int, asInsert bool, kvcb func(i int) (string, string)) {
@@ -70,7 +69,7 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 
 	// Announce half of Members...
 	fill(0, NMembersHalf, true, func(i int) (string, string) {
-		return benchMemberKey(ks, i), `{"R": 45}`
+		return benchMemberKey(ks, i), `{"R": 1000}`
 	})
 	// And all Items.
 	fill(0, NItems, true, func(i int) (string, string) {
@@ -83,11 +82,16 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	}{}
 
 	var testHook = func(round int, idle bool) {
+		var begin = NMembers10 * testState.nextBlock
+		var end = NMembers10 * (testState.nextBlock + 1)
+
 		log.WithFields(log.Fields{
 			"round":            round,
 			"idle":             idle,
 			"state.nextBlock":  testState.nextBlock,
 			"state.consistent": testState.consistent,
+			"begin":            begin,
+			"end":              end,
 		}).Info("ScheduleCallback")
 
 		if !idle {
@@ -100,7 +104,6 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 			return
 		}
 
-		var begin, end = NMembers10 * testState.nextBlock, NMembers10 * (testState.nextBlock + 1)
 		if begin == NMembersHalf {
 			// We've cycled all Members. Gracefully exit by setting our ItemLimit to zero,
 			// and waiting for Serve to complete.
@@ -111,7 +114,7 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 
 		// Mark a block of Members as starting up, and shutting down.
 		fill(NMembersHalf+begin, NMembersHalf+end, true, func(i int) (string, string) {
-			return benchMemberKey(ks, i), `{"R": 45}`
+			return benchMemberKey(ks, i), `{"R": 1000}`
 		})
 		fill(begin, end, false, func(i int) (string, string) {
 			return benchMemberKey(ks, i), `{"R": 0}`
