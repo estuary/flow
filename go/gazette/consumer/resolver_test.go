@@ -51,7 +51,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   -1,
 				Endpoints: []pb.Endpoint{"http://remote/endpoint"},
 			},
-			Etcd:      etcdHeader(),
+			Etcd: etcdHeader(),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA}))
@@ -68,7 +68,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   1,
 				Endpoints: []pb.Endpoint{"http://local/endpoint", "http://remote/endpoint"},
 			},
-			Etcd:      etcdHeader(),
+			Etcd: etcdHeader(),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA}))
@@ -83,7 +83,7 @@ func TestResolverCases(t *testing.T) {
 				Primary:   1,
 				Endpoints: []pb.Endpoint{"http://local/endpoint", "http://remote/endpoint"},
 			},
-			Etcd:      etcdHeader(),
+			Etcd: etcdHeader(),
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA, MayProxy: true}))
@@ -106,7 +106,7 @@ func TestResolverCases(t *testing.T) {
 		ShardID: shardA,
 		ProxyHeader: &pb.Header{
 			ProcessId: localID,
-			Etcd: proxyEtcd,
+			Etcd:      proxyEtcd,
 		},
 	})
 	assert.Equal(t, pc.Status_OK, r.Status)
@@ -216,11 +216,19 @@ func TestResolverErrorCases(t *testing.T) {
 	_, err = tf.resolver.Resolve(ResolveArgs{Context: ctx, ShardID: shardA})
 	assert.Equal(t, context.Canceled, err)
 
-	// Case: Replica context cancelled while waiting for store (which never resolves).
-	time.AfterFunc(time.Millisecond, tf.resolver.stopServingLocalShards)
+	// Case: Shard context is cancelled.
+	tf.state.KS.Mu.Lock()
+	tf.resolver.shards[shardA].cancel()
+	tf.state.KS.Mu.Unlock()
 
 	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
 	assert.Equal(t, context.Canceled, err)
+
+	// Case: Resolver is in the process of halting.
+	tf.resolver.stopServingLocalShards()
+
+	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
+	assert.Equal(t, ErrResolverStopped, err)
 
 	tf.allocateShard(makeShard(shardA)) // Cleanup.
 }
