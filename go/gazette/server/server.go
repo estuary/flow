@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/soheilhy/cmux"
@@ -49,8 +50,11 @@ func New(iface string, port uint16) (*Server, error) {
 	}
 
 	var srv = &Server{
-		HTTPMux:     http.DefaultServeMux,
-		GRPCServer:  grpc.NewServer(),
+		HTTPMux: http.DefaultServeMux,
+		GRPCServer: grpc.NewServer(
+			grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
+			grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
+		),
 		RawListener: raw.(*net.TCPListener),
 	}
 	srv.CMux = cmux.New(srv.RawListener)
