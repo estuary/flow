@@ -13,7 +13,6 @@ import (
 	"go.gazette.dev/core/allocator/push_relabel"
 	"go.gazette.dev/core/allocator/sparse_push_relabel"
 	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/metrics"
 )
 
 type AllocateArgs struct {
@@ -93,7 +92,7 @@ func Allocate(args AllocateArgs) error {
 				}
 
 				var dur = time.Now().Sub(startTime)
-				metrics.AllocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
+				allocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
 
 				log.WithFields(log.Fields{
 					"hash":        state.NetworkHash,
@@ -129,11 +128,11 @@ func Allocate(args AllocateArgs) error {
 				log.WithFields(log.Fields{"err": err, "round": round, "rev": ks.Header.Revision}).
 					Warn("converge iteration failed (will retry)")
 			} else {
-				metrics.AllocatorConvergeTotal.Inc()
+				allocatorConvergeTotal.Inc()
 
-				metrics.AllocatorNumMembers.Set(float64(len(state.Members)))
-				metrics.AllocatorNumItems.Set(float64(len(state.Items)))
-				metrics.AllocatorNumItemSlots.Set(float64(state.ItemSlots))
+				allocatorNumMembers.Set(float64(len(state.Members)))
+				allocatorNumItems.Set(float64(len(state.Items)))
+				allocatorNumItemSlots.Set(float64(state.ItemSlots))
 
 				if args.TestHook != nil {
 					args.TestHook(round, txn.noop)

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/metrics"
 )
 
 func BenchmarkAll(b *testing.B) {
@@ -135,9 +134,9 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	}))
 
 	log.WithFields(log.Fields{
-		"adds":    counterVal(metrics.AllocatorAssignmentAddedTotal),
-		"removes": counterVal(metrics.AllocatorAssignmentRemovedTotal),
-		"packs":   counterVal(metrics.AllocatorAssignmentPackedTotal),
+		"adds":    counterVal(allocatorAssignmentAddedTotal),
+		"removes": counterVal(allocatorAssignmentRemovedTotal),
+		"packs":   counterVal(allocatorAssignmentPackedTotal),
 	}).Info("final metrics")
 }
 

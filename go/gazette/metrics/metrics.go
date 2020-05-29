@@ -10,38 +10,6 @@ const (
 
 // Collectors for Gazette broker & consumer metrics.
 var (
-	AllocatorAssignmentAddedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "gazette_allocator_assignment_added_total",
-		Help: "Cumulative number of item / member assignments added by the allocator.",
-	})
-	AllocatorAssignmentPackedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "gazette_allocator_assignment_packed_total",
-		Help: "Cumulative number of item / member assignments packed by the allocator.",
-	})
-	AllocatorAssignmentRemovedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "gazette_allocator_assignment_removed_total",
-		Help: "Cumulative number of item / member assignments removed by the allocator.",
-	})
-	AllocatorConvergeTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "gazette_allocator_converge_total",
-		Help: "Cumulative number of converge iterations.",
-	})
-	AllocatorMaxFlowRuntimeSeconds = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name: "gazette_allocator_max_flow_runtime_seconds",
-		Help: "Duration required to re-solve for maximum assignment.",
-	})
-	AllocatorNumItemSlots = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "gazette_allocator_desired_replication_slots",
-		Help: "Number of desired item replication slots summed across all items.",
-	})
-	AllocatorNumItems = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "gazette_allocator_items",
-		Help: "Number of items known to the allocator.",
-	})
-	AllocatorNumMembers = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "gazette_allocator_members",
-		Help: "Number of members known to the allocator.",
-	})
 	CommittedBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "gazette_committed_bytes_total",
 		Help: "Cumulative number of bytes committed to journals.",
@@ -75,14 +43,6 @@ var (
 // GazetteBrokerCollectors lists collectors used by the gazette broker.
 func GazetteBrokerCollectors() []prometheus.Collector {
 	return []prometheus.Collector{
-		AllocatorAssignmentAddedTotal,
-		AllocatorAssignmentPackedTotal,
-		AllocatorAssignmentRemovedTotal,
-		AllocatorConvergeTotal,
-		AllocatorMaxFlowRuntimeSeconds,
-		AllocatorNumItemSlots,
-		AllocatorNumItems,
-		AllocatorNumMembers,
 		CommitsTotal,
 		CommittedBytesTotal,
 		JournalServerResponseTimeSeconds,
