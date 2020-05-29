@@ -25,7 +25,7 @@ type BenchmarkHealthSuite struct{}
 
 // TestBenchmarkHealth runs benchmarks with a small N to ensure they don't bit rot.
 func (s *BenchmarkHealthSuite) TestBenchmarkHealth(c *gc.C) {
-	var fakeB = testing.B{N: 5}
+	var fakeB = testing.B{N: 1}
 
 	benchmarkSimulatedDeploy(&fakeB)
 }
