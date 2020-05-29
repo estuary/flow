@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/codecs"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/metrics"
 )
 
 // Spool is a Fragment which is in the process of being created, backed by a
@@ -170,11 +169,11 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 		}
 		s.Registers.Assign(r.Registers)
 
-		metrics.CommittedBytesTotal.Add(float64(s.delta))
+		committedBytesTotal.Add(float64(s.delta))
 		s.delta = 0
 		s.saveSumState()
 
-		metrics.CommitsTotal.WithLabelValues(pb.Status_OK.String()).Inc()
+		commitsTotal.WithLabelValues(pb.Status_OK.String()).Inc()
 		return pb.ReplicateResponse{Status: pb.Status_OK}
 	}
 

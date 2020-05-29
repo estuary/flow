@@ -10,14 +10,6 @@ const (
 
 // Collectors for Gazette broker & consumer metrics.
 var (
-	CommittedBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "gazette_committed_bytes_total",
-		Help: "Cumulative number of bytes committed to journals.",
-	})
-	CommitsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "gazette_commits_total",
-		Help: "Cumulative number of commits.",
-	}, []string{"status"})
 	RecoveryLogRecoveredBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "gazette_recoverylog_recovered_bytes_total",
 		Help: "Cumulative number of bytes recovered.",
@@ -43,8 +35,6 @@ var (
 // GazetteBrokerCollectors lists collectors used by the gazette broker.
 func GazetteBrokerCollectors() []prometheus.Collector {
 	return []prometheus.Collector{
-		CommitsTotal,
-		CommittedBytesTotal,
 		JournalServerResponseTimeSeconds,
 		StorePersistedBytesTotal,
 		StoreRequestTotal,

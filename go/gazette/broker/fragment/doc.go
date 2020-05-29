@@ -15,3 +15,19 @@
 // participating in the replication of a journal. Once closed, or "rolled", a Spool
 // Fragment is persisted to its configured FragmentStore by a Persister.
 package fragment
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	committedBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_committed_bytes_total",
+		Help: "Cumulative number of bytes committed to journals fragment spools (across all replicas)",
+	})
+	commitsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_commits_total",
+		Help: "DEPRECATED Cumulative number of commits to journal spools",
+	}, []string{"status"})
+)

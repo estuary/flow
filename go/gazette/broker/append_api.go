@@ -51,7 +51,6 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		req.Header = &fsm.resolved.Header // Attach resolved Header to |req|, which we'll forward.
 		return proxyAppend(stream, *req, svc.jc)
 	case stateFinished:
-		metrics.CommitsTotal.WithLabelValues(metrics.Ok).Inc()
 		metrics.WriteHead.WithLabelValues(fsm.clientFragment.Journal.String()).Set(float64(fsm.clientFragment.End))
 
 		return stream.SendAndClose(&pb.AppendResponse{
@@ -64,8 +63,6 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		})
 	case stateError:
 		if fsm.resolved.status != pb.Status_OK {
-			metrics.CommitsTotal.WithLabelValues(fsm.resolved.status.String()).Inc()
-
 			var resp = &pb.AppendResponse{
 				Status: fsm.resolved.status,
 				Header: fsm.resolved.Header,
@@ -75,12 +72,8 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 			}
 			return stream.SendAndClose(resp)
 		}
-
-		var cause = errors.Cause(fsm.err)
-		metrics.CommitsTotal.WithLabelValues(cause.Error()).Inc()
-
 		// Client-initiated RPC cancellations are expected errors.
-		if cause == context.Canceled {
+		if errors.Cause(fsm.err) == context.Canceled {
 			return nil
 		}
 		return fsm.err
