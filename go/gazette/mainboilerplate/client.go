@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -15,7 +16,7 @@ type AddressConfig struct {
 	Address pb.Endpoint `long:"address" env:"ADDRESS" default:"http://localhost:8080" description:"Service address endpoint"`
 }
 
-// Dial the server address using a protocol.Dispatcher balancer.
+// MustDial dials the server address using a protocol.Dispatcher balancer, and panics on error.
 func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 	var cc, err = grpc.DialContext(ctx, c.Address.URL().Host,
 		grpc.WithInsecure(),
@@ -23,6 +24,9 @@ func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 		// Use a tighter bound for the maximum back-off delay (default is 120s).
 		// TODO(johnny): Make this configurable?
 		grpc.WithBackoffMaxDelay(time.Second*5),
+		// Instrument client for gRPC metric collection.
+		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
+		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
 	)
 	Must(err, "failed to dial remote service", "endpoint", c.Address)
 

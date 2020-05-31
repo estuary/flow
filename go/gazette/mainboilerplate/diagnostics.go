@@ -7,6 +7,7 @@ import (
 	_ "net/http/pprof" // Import for /debug/pprof
 	"os"
 
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -22,6 +23,12 @@ type DiagnosticsConfig struct {
 // deferred, which recover a panic and attempt to log a K8s termination message.
 func InitDiagnosticsAndRecover(cfg DiagnosticsConfig) func() {
 	grpc.EnableTracing = true
+
+	// Turn on histograms for client & server RPCs. These can be very helpful to
+	// have around, but are also expensive to track at scale. You may want to
+	// consider rules which selectively discard some histograms at scrape time.
+	grpc_prometheus.EnableHandlingTimeHistogram()
+	grpc_prometheus.EnableClientHandlingTimeHistogram()
 
 	// Package "net/http/pprof" serves /debug/pprof/.
 	// Package "expvar" serves /debug/vars

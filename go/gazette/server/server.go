@@ -85,6 +85,9 @@ func New(iface string, port uint16) (*Server, error) {
 		// connections, as it's crucial for quick cluster recovery from
 		// partitions, etc.
 		grpc.WithBackoffMaxDelay(time.Millisecond*500),
+		// Instrument client for gRPC metric collection.
+		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
+		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
 	)
 
 	if err != nil {
