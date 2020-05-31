@@ -38,6 +38,14 @@ var (
 		Name: "gazette_spool_rollback_bytes_total",
 		Help: "Total number of bytes rolled-back from journal fragment spools.",
 	})
+	spoolCompletedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_spool_completed_total",
+		Help: "Total number of journal fragment spools which have been completed, and are ready for persisting.",
+	})
+	spoolPersistedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_spool_persisted_total",
+		Help: "Total number of journal fragment spools which were persisted (by this server, or by another and then verified by this server).",
+	})
 
 	// DEPRECATED metrics to be removed:
 	committedBytesTotal = promauto.NewCounter(prometheus.CounterOpts{

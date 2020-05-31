@@ -35,10 +35,16 @@ func NewPersister(ks *keyspace.KeySpace) *Persister {
 }
 
 func (p *Persister) SpoolComplete(spool Spool, primary bool) {
+	// TODO(johnny): Turn this into a panic() assertion, as it's an invariant
+	// of SpoolObserver that's upheld in spool.go.
+	if spool.ContentLength() == 0 {
+		return // No-op.
+	}
+
 	if primary {
 		// Attempt to immediately persist the Spool.
 		go p.attemptPersist(spool)
-	} else if spool.ContentLength() != 0 {
+	} else {
 		p.queue(spool)
 	}
 	return
@@ -89,6 +95,8 @@ func (p *Persister) Serve() {
 // attemptPersist persist valid spools, dropping spools with no content or no configured
 // backing store. If persistFn fails the spool will be requeued and be attempted again.
 func (p *Persister) attemptPersist(spool Spool) {
+	// TODO(johnny): Remove; it's a contract invariant (except for unit tests).
+
 	if spool.ContentLength() == 0 {
 		// Persisting an empty Spool is a no-op.
 		return
@@ -103,6 +111,8 @@ func (p *Persister) attemptPersist(spool Spool) {
 			"journal": spool.Journal,
 			"name":    spool.ContentName(),
 		}).Warn("dropping Spool (JournalSpec was removed)")
+
+		spoolPersistedTotal.Inc()
 		return
 	}
 
@@ -114,5 +124,7 @@ func (p *Persister) attemptPersist(spool Spool) {
 			"err":     err,
 		}).Warn("failed to persist Spool (will retry)")
 		p.queue(spool)
+	} else {
+		spoolPersistedTotal.Inc()
 	}
 }

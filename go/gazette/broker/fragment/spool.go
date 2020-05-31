@@ -123,6 +123,7 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 			s.finishCompression()
 		}
 		if s.ContentLength() != 0 {
+			spoolCompletedTotal.Inc()
 			s.observer.SpoolComplete(*s, primary)
 		}
 		// If the proposal is strictly greater than our Fragment, take the proposal registers.
