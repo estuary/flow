@@ -151,6 +151,10 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 
 	// Case 1? "Undo" any partial content by rolling back |delta| and |summer|.
 	if s.Fragment.Fragment == *r.Proposal && s.Registers.Equal(r.Registers) {
+		if s.delta != 0 {
+			spoolRollbacksTotal.Inc()
+			spoolRollbackBytesTotal.Add(float64(s.delta))
+		}
 		s.delta = 0
 		s.restoreSumState()
 		return pb.ReplicateResponse{Status: pb.Status_OK}
@@ -158,6 +162,9 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 
 	// Case 2? Apply the |delta| bytes spooled since last commit & update registers.
 	if s.delta != 0 && s.Next() == *r.Proposal {
+		spoolCommitsTotal.Inc()
+		spoolCommitBytesTotal.Add(float64(s.delta))
+
 		if primary && s.CompressionCodec != pb.CompressionCodec_NONE {
 			s.compressThrough(r.Proposal.End)
 		}
@@ -169,11 +176,13 @@ func (s *Spool) applyCommit(r *pb.ReplicateRequest, primary bool) pb.ReplicateRe
 		}
 		s.Registers.Assign(r.Registers)
 
+		// DEPRECATED metrics to remove
+		commitsTotal.WithLabelValues(pb.Status_OK.String()).Inc()
 		committedBytesTotal.Add(float64(s.delta))
+		// End DEPRECATED metrics.
+
 		s.delta = 0
 		s.saveSumState()
-
-		commitsTotal.WithLabelValues(pb.Status_OK.String()).Inc()
 		return pb.ReplicateResponse{Status: pb.Status_OK}
 	}
 

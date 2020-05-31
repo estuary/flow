@@ -22,14 +22,34 @@ import (
 )
 
 var (
+	spoolCommitsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_spool_commits_total",
+		Help: "Total number of commits of journal fragment spools.",
+	})
+	spoolCommitBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_spool_commit_bytes_total",
+		Help: "Total number of bytes committed to journal fragment spools.",
+	})
+	spoolRollbacksTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_spool_rollbacks_total",
+		Help: "Total number of rollbacks of journal fragment spools.",
+	})
+	spoolRollbackBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_spool_rollback_bytes_total",
+		Help: "Total number of bytes rolled-back from journal fragment spools.",
+	})
+
+	// DEPRECATED metrics to be removed:
 	committedBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "gazette_committed_bytes_total",
-		Help: "Cumulative number of bytes committed to journals fragment spools (across all replicas)",
+		Help: "DEPRECATED Cumulative number of bytes committed to journals fragment spools (across all replicas)",
 	})
 	commitsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "gazette_commits_total",
 		Help: "DEPRECATED Cumulative number of commits to journal spools",
 	}, []string{"status"})
+	// End DEPRECATED.
+
 	storeRequestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "gazette_store_requests_total",
 		Help: "Cumulative number of fragment store operations.",
