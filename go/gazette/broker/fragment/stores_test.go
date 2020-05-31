@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io/ioutil"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -77,6 +78,11 @@ func TestStoreInteractions(t *testing.T) {
 
 	require.Len(t, fooFrags, 3)
 	require.Len(t, barFrags, 2)
+
+	// The PathPostfixTemplate can return fragments which aren't ordered by offset.
+	for _, frags := range [][]pb.Fragment{fooFrags, barFrags} {
+		sort.Slice(frags, func(i, j int) bool { return frags[i].Begin < frags[j].Begin })
+	}
 
 	// Expect we can also list fragments of tstRWFoo directly, post-rewrite.
 	var fooFragsPostRW []pb.Fragment
