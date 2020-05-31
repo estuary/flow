@@ -222,7 +222,7 @@ func (w *Sequencer) DequeCommitted() (env Envelope, err error) {
 		if env, err = w.dequeNext(); err != nil {
 			return
 		} else if w.replay != nil {
-			sequencerReplayTotal.WithLabelValues(env.Journal.String()).Inc()
+			sequencerReplayTotal.WithLabelValues(env.Journal.Name.String()).Inc()
 		}
 		var uuid = env.GetUUID()
 
