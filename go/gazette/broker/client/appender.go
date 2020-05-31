@@ -102,6 +102,10 @@ func (a *Appender) Close() (err error) {
 		default:
 			err = errors.New(a.Response.Status.String())
 		}
+
+		// Extra RecvMsg to explicitly read EOF, as a work-around for
+		// https://github.com/grpc-ecosystem/go-grpc-prometheus/issues/92
+		_ = a.stream.RecvMsg(new(pb.AppendResponse))
 	}
 
 	if err != nil {
