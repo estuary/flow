@@ -261,6 +261,28 @@ type BeginFinisher interface {
 }
 
 var (
+	shardTxnTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_shard_transactions_total",
+		Help: "Total number of consumer transactions.",
+	}, []string{"shard"})
+	shardReadMsgsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_shard_read_messages_total",
+		Help: "Total number of messages processed by completed consumer transactions.",
+	}, []string{"shard"})
+	shardReadBytesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_shard_read_bytes_total",
+		Help: "Total byte-length of messages processed by completed consumer transactions.",
+	}, []string{"shard"})
+	shardReadHeadGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gazette_shard_read_head",
+		Help: "Current read head of the consumer (i.e., next journal byte offset to be read).",
+	}, []string{"shard", "journal"})
+	shardTxnPhaseSecondsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_shard_phase_seconds_total",
+		Help: "Cumulative number of seconds processing transactions.",
+	}, []string{"shard", "phase", "type"})
+
+	// DEPRECATED metrics to be removed:
 	txCountTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "gazette_consumer_tx_count_total",
 		Help: "Cumulative number of transactions",

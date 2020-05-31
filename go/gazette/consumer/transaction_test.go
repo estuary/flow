@@ -22,19 +22,25 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 		msgCh       = make(chan readMessage, 1)
 		priorCommit = client.NewAsyncOperation()
 		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
 		prior       = transaction{
 			commitBarrier: priorCommit,
 			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
-		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
 
+	assert.False(t, prior.prepareDoneAt.IsZero())
+	assert.Equal(t, txn.prevPrepareDoneAt, prior.prepareDoneAt)
+	assert.True(t, prior.committedAt.IsZero())
+
 	// |prior| commits.
+	timer.timepoint = faketime(500 * time.Millisecond)
 	priorCommit.Resolve(nil)
 	assert.False(t, mustTxnStep(t, shard, &txn, &prior))
 	assert.False(t, prior.committedAt.IsZero())
@@ -87,8 +93,10 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 	assert.NotEmpty(t, store.checkpoint.AckIntents[echoOut.Name])
 	assert.NotZero(t, store.checkpoint.Sources[sourceA.Name].ReadThrough)
 
-	assert.Equal(t, prior.committedAt, faketime(0))
+	assert.Equal(t, prior.prepareDoneAt, faketime(0))
+	assert.Equal(t, prior.committedAt, faketime(500*time.Millisecond))
 	assert.Equal(t, prior.ackedAt, faketime(time.Second))
+	assert.Equal(t, txn.prevPrepareDoneAt, faketime(0))
 	assert.Equal(t, txn.beganAt, faketime(2*time.Second))
 	assert.Equal(t, txn.stalledAt, faketime(2*time.Second+minDur+1))
 	assert.Equal(t, txn.prepareBeganAt, faketime(2*time.Second+minDur+1))
@@ -104,14 +112,15 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 		msgCh       = make(chan readMessage, 1)
 		priorCommit = client.NewAsyncOperation()
 		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
 		prior       = transaction{
 			commitBarrier: priorCommit,
 			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
-		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
@@ -167,8 +176,10 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 	assert.NotEmpty(t, store.checkpoint.AckIntents[echoOut.Name])
 	assert.NotZero(t, store.checkpoint.Sources[sourceA.Name].ReadThrough)
 
+	assert.Equal(t, prior.prepareDoneAt, faketime(0))
 	assert.Equal(t, prior.committedAt, faketime(minDur+1))
 	assert.Equal(t, prior.ackedAt, faketime(minDur+2))
+	assert.Equal(t, txn.prevPrepareDoneAt, faketime(0))
 	assert.Equal(t, txn.beganAt, faketime(0))
 	assert.Equal(t, txn.stalledAt, faketime(minDur+3))
 	assert.Equal(t, txn.prepareBeganAt, faketime(minDur+3))
@@ -184,14 +195,15 @@ func TestTxnMaxDurElapsesThenPriorSyncs(t *testing.T) {
 		msgCh       = make(chan readMessage, 1)
 		priorCommit = client.NewAsyncOperation()
 		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
 		prior       = transaction{
 			commitBarrier: priorCommit,
 			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
-		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
@@ -244,8 +256,10 @@ func TestTxnMaxDurElapsesThenPriorSyncs(t *testing.T) {
 	assert.NotEmpty(t, store.checkpoint.AckIntents[echoOut.Name])
 	assert.NotZero(t, store.checkpoint.Sources[sourceA.Name].ReadThrough)
 
+	assert.Equal(t, prior.prepareDoneAt, faketime(0))
 	assert.Equal(t, prior.committedAt, faketime(maxDur+1))
 	assert.Equal(t, prior.ackedAt, faketime(maxDur+2))
+	assert.Equal(t, txn.prevPrepareDoneAt, faketime(0))
 	assert.Equal(t, txn.beganAt, faketime(0))
 	assert.Equal(t, txn.stalledAt, faketime(maxDur))
 	assert.Equal(t, txn.prepareBeganAt, faketime(maxDur+2))
@@ -257,13 +271,16 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 	defer cleanup()
 
 	var (
-		cp             = playAndComplete(t, shard)
-		msgCh          = make(chan readMessage, 1)
-		prior          = transaction{commitBarrier: client.FinishedOperation(nil)}
+		cp    = playAndComplete(t, shard)
+		msgCh = make(chan readMessage, 1)
+		timer = newTestTimer()
+		prior = transaction{
+			commitBarrier: client.FinishedOperation(nil),
+			prepareDoneAt: timer.timepoint,
+		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
 		txn            = transaction{readThrough: make(pb.Offsets)}
 		store          = shard.store.(*JSONFileStore)
-		timer          = newTestTimer()
 	)
 	startReadingMessages(shard, cp, msgCh)
 	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
@@ -326,8 +343,10 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 	assert.NotZero(t, store.checkpoint.Sources[sourceA.Name].ReadThrough)
 	assert.NotEmpty(t, store.checkpoint.AckIntents[echoOut.Name])
 
+	assert.Equal(t, prior.prepareDoneAt, faketime(0))
 	assert.Equal(t, prior.committedAt, faketime(0))
 	assert.Equal(t, prior.ackedAt, faketime(0))
+	assert.Equal(t, txn.prevPrepareDoneAt, faketime(0))
 	assert.Equal(t, txn.beganAt, faketime(time.Second))
 	assert.Equal(t, txn.stalledAt, faketime(time.Second+minDur+2))
 	assert.Equal(t, txn.prepareBeganAt, faketime(time.Second+minDur+2))

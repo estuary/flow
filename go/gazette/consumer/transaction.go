@@ -26,6 +26,7 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan readMessage, hint
 			readThrough:   pc.FlattenReadThrough(cp),
 			commitBarrier: client.FinishedOperation(nil),
 			acks:          make(OpFutures),
+			prepareDoneAt: txnTimer.Now(),
 		}
 		txn = transaction{
 			readThrough: make(pb.Offsets),
@@ -70,16 +71,18 @@ type transaction struct {
 	readCh         <-chan readMessage // Message source. Nil'd upon reaching |maxDur|.
 	readThrough    pb.Offsets         // Offsets read through this transaction.
 	consumedCount  int                // Number of acknowledged Messages consumed.
+	consumedBytes  int64              // Number of acknowledged Message bytes consumed.
 	commitBarrier  OpFuture           // Barrier at which this transaction commits.
 	acks           OpFutures          // ACKs of published messages, queued on |commitBarrier|.
 
-	timer          txnTimer
-	beganAt        time.Time // Immediately before first consumed message.
-	stalledAt      time.Time // Time at which |maxDur| elapsed without |priorCommittedCh| resolving.
-	prepareBeganAt time.Time // Time at which we began preparing to commit.
-	prepareDoneAt  time.Time // Time at which we finished preparing to commit.
-	committedAt    time.Time // Time at which |commitBarrier| resolved.
-	ackedAt        time.Time // Time at which published |acks| resolved.
+	timer             txnTimer
+	prevPrepareDoneAt time.Time // Time at which previous transaction finished preparing.
+	beganAt           time.Time // Time at which first transaction message was processed.
+	stalledAt         time.Time // Time at which |maxDur| elapsed without |priorCommittedCh| resolving.
+	prepareBeganAt    time.Time // Time at which we began preparing to commit.
+	prepareDoneAt     time.Time // Time at which we finished preparing to commit.
+	committedAt       time.Time // Time at which |commitBarrier| resolved.
+	ackedAt           time.Time // Time at which published |acks| resolved.
 }
 
 // txnInit initializes transaction |txn| in preparation to run.
@@ -87,14 +90,15 @@ func txnInit(s *shard, txn, prev *transaction, readCh <-chan readMessage, timer 
 	var spec = s.Spec()
 
 	*txn = transaction{
-		readCh:      readCh,
-		readThrough: txn.readThrough,
-		acks:        make(OpFutures, len(prev.acks)),
-		timer:       timer,
-		minDur:      spec.MinTxnDuration,
-		maxDur:      spec.MaxTxnDuration,
-		waitForAck:  !spec.DisableWaitForAck,
-		barrierCh:   prev.commitBarrier.Done(),
+		readCh:            readCh,
+		readThrough:       txn.readThrough,
+		acks:              make(OpFutures, len(prev.acks)),
+		timer:             timer,
+		minDur:            spec.MinTxnDuration,
+		maxDur:            spec.MaxTxnDuration,
+		waitForAck:        !spec.DisableWaitForAck,
+		barrierCh:         prev.commitBarrier.Done(),
+		prevPrepareDoneAt: prev.prepareDoneAt,
 	}
 	for j, o := range prev.readThrough {
 		txn.readThrough[j] = o
@@ -171,8 +175,10 @@ func txnRead(s *shard, txn *transaction, env readMessage) error {
 	}
 	txn.readThrough[env.Journal.Name] = env.End
 	s.sequencer.QueueUncommitted(env.Envelope)
+	// DEPRECATED metrics to be removed:
 	bytesConsumedTotal.Add(float64(env.End - env.Begin))
 	readHeadGauge.WithLabelValues(env.Journal.Name.String()).Set(float64(env.End))
+	// End DEPRECATED metrics.
 
 	for {
 		switch env, err := s.sequencer.DequeCommitted(); err {
@@ -216,6 +222,7 @@ func txnConsume(s *shard, txn *transaction, env message.Envelope) error {
 		s.clock.Update(txn.beganAt)
 	}
 	txn.consumedCount++
+	txn.consumedBytes += (env.End - env.Begin)
 
 	if err := s.svc.App.ConsumeMessage(s, s.store, env, s.publisher); err != nil {
 		return errors.WithMessage(err, "app.ConsumeMessage")
@@ -278,7 +285,7 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 	// All barriers have finished. |prev| transaction is complete.
 	txn.barrierCh = nil
 	prev.ackedAt = now
-	recordMetrics(prev)
+	recordMetrics(s, prev)
 
 	// Update shard |progress| with results of |prev| transaction.
 	s.progress.Lock()
@@ -354,7 +361,9 @@ func txnAcknowledge(s *shard, txn *transaction, cp pc.Checkpoint) error {
 }
 
 // recordMetrics of a fully completed transaction.
-func recordMetrics(txn *transaction) {
+func recordMetrics(s *shard, txn *transaction) {
+
+	// DEPRECATED metrics, to be removed:
 	txCountTotal.Inc()
 	txMessagesTotal.Add(float64(txn.consumedCount))
 
@@ -363,6 +372,33 @@ func recordMetrics(txn *transaction) {
 	txStalledSecondsTotal.Add(txn.prepareBeganAt.Sub(txn.stalledAt).Seconds())
 	txFlushSecondsTotal.Add(txn.prepareDoneAt.Sub(txn.prepareBeganAt).Seconds())
 	txSyncSecondsTotal.Add(txn.committedAt.Sub(txn.prepareDoneAt).Seconds())
+	// End DEPRECATED metrics.
+
+	shardTxnTotal.WithLabelValues(s.FQN()).Inc()
+	shardReadMsgsTotal.WithLabelValues(s.FQN()).Add(float64(txn.consumedCount))
+	shardReadBytesTotal.WithLabelValues(s.FQN()).Add(float64(txn.consumedBytes))
+	for journal, offset := range txn.readThrough {
+		shardReadHeadGauge.
+			WithLabelValues(s.FQN(), journal.String()).
+			Set(float64(offset))
+	}
+
+	var (
+		durNotRunning    = txn.beganAt.Sub(txn.prevPrepareDoneAt)
+		durConsuming     = txn.stalledAt.Sub(txn.beganAt)
+		durStalled       = txn.prepareBeganAt.Sub(txn.stalledAt)
+		durPreparing     = txn.prepareDoneAt.Sub(txn.prepareBeganAt)
+		durCommitting    = txn.committedAt.Sub(txn.prepareDoneAt)
+		durAcknowledging = txn.ackedAt.Sub(txn.committedAt)
+	)
+	// Phases which run synchronously within the transaction loop.
+	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "10-not-running", "sync").Add(durNotRunning.Seconds())
+	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "20-consuming", "sync").Add(durConsuming.Seconds())
+	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "30-stalled", "sync").Add(durStalled.Seconds())
+	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "40-preparing", "sync").Add(durPreparing.Seconds())
+	// Phases which run asynchronously, in parallel with later transaction.
+	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "50-committing", "async").Add(durCommitting.Seconds())
+	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "60-acknowledging", "async").Add(durAcknowledging.Seconds())
 }
 
 // txnTimer is a time.Timer which can be mocked within unit tests.
