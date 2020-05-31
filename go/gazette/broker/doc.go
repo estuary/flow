@@ -12,9 +12,13 @@ import (
 )
 
 var (
-	journalServerResponseTimeSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "gazette_journal_server_response_time_seconds",
-		Help: "DEPRECATED Response time of JournalServer operations (use gRPC metrics instead of this)",
+	journalServerStarted = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_journal_server_started_totals",
+		Help: "Total number of started JournalServer RPC invocations, by operation.",
+	}, []string{"operation"})
+	journalServerCompleted = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_journal_server_completed_totals",
+		Help: "Total number of completed JournalServer RPC invocations, by operation & response status",
 	}, []string{"operation", "status"})
 	writeHeadGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "gazette_write_head",

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/fragment"
@@ -18,7 +17,7 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 		req      *pb.ReplicateRequest
 		resolved *resolution
 	)
-	defer instrumentJournalServerOp("Replicate", &err, &resolved, time.Now())
+	defer instrumentJournalServerRPC("Replicate", &err, &resolved)()
 
 	defer func() {
 		if err != nil {

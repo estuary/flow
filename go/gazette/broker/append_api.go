@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -19,7 +18,7 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		fsm appendFSM
 		req *pb.AppendRequest
 	)
-	defer instrumentJournalServerOp("Append", &err, &fsm.resolved, time.Now())
+	defer instrumentJournalServerRPC("Append", &err, &fsm.resolved)()
 
 	defer func() {
 		if err != nil {

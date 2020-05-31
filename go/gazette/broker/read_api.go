@@ -5,7 +5,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -21,7 +20,7 @@ import (
 // Read dispatches the JournalServer.Read API.
 func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err error) {
 	var resolved *resolution
-	defer instrumentJournalServerOp("Read", &err, &resolved, time.Now())
+	defer instrumentJournalServerRPC("Read", &err, &resolved)()
 
 	defer func() {
 		if err != nil {

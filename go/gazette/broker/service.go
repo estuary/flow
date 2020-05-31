@@ -2,9 +2,7 @@ package broker
 
 import (
 	"context"
-	"time"
 
-	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -118,24 +116,16 @@ func addTrace(ctx context.Context, format string, args ...interface{}) {
 	}
 }
 
-// instrumentJournalServerOp measures and reports the response time of
-// |JournalServer| endpoints tagged by operation name and status (success or
-// failure). This is typically used with a defer statement.
-//
-// Example Usage:
-//
-//  defer instrumentJournalServerOp("append", &err, time.Now())
-func instrumentJournalServerOp(op string, err *error, res **resolution, start time.Time) {
-	var elapsed = time.Since(start)
-	var status = "ok"
+func instrumentJournalServerRPC(op string, err *error, res **resolution) func() {
+	journalServerStarted.WithLabelValues(op).Inc()
 
-	if *err != nil {
-		status = errors.Cause(*err).Error()
-	} else if res != nil && *res != nil && (*res).status != pb.Status_OK {
-		status = (*res).status.String()
+	return func() {
+		var status = "ok"
+		if *err != nil {
+			status = "<error>"
+		} else if res != nil && *res != nil && (*res).status != pb.Status_OK {
+			status = (*res).status.String()
+		}
+		journalServerCompleted.WithLabelValues(op, status).Inc()
 	}
-
-	journalServerResponseTimeSeconds.
-		WithLabelValues(op, status).
-		Observe(float64(elapsed / time.Second))
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"sort"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/fragment"
@@ -17,7 +16,7 @@ var defaultPageLimit = int32(1000)
 // ListFragments dispatches the JournalServer.ListFragments API.
 func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (resp *pb.FragmentsResponse, err error) {
 	var res *resolution
-	defer instrumentJournalServerOp("ListFragments", &err, &res, time.Now())
+	defer instrumentJournalServerRPC("ListFragments", &err, &res)()
 
 	defer func() {
 		if err != nil {

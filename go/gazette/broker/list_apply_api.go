@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
@@ -16,7 +15,7 @@ import (
 
 // List dispatches the JournalServer.List API.
 func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.ListResponse, err error) {
-	defer instrumentJournalServerOp("List", &err, nil, time.Now())
+	defer instrumentJournalServerRPC("List", &err, nil)()
 
 	defer func() {
 		if err != nil {
@@ -75,7 +74,7 @@ func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.Lis
 
 // Apply dispatches the JournalServer.Apply API.
 func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.ApplyResponse, err error) {
-	defer instrumentJournalServerOp("Apply", &err, nil, time.Now())
+	defer instrumentJournalServerRPC("Apply", &err, nil)()
 
 	defer func() {
 		if err != nil {
