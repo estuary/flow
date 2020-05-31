@@ -401,7 +401,6 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 	//   of total delay before the client detects the failure has cleared.
 	// * Add 10 seconds of extra headroom, as the test is likely hosing the machine.
 	var timeoutSeq = []time.Duration{
-		50 * time.Millisecond,
 		100 * time.Millisecond,
 		250 * time.Millisecond,
 		500 * time.Millisecond,
