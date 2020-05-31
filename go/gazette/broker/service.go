@@ -136,7 +136,7 @@ func instrumentJournalServerOp(op string, err *error, res **resolution, start ti
 		status = (*res).status.String()
 	}
 
-	metrics.JournalServerResponseTimeSeconds.
+	journalServerResponseTimeSeconds.
 		WithLabelValues(op, status).
 		Observe(float64(elapsed / time.Second))
 }

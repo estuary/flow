@@ -16,7 +16,6 @@ import (
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
-	"go.gazette.dev/core/metrics"
 )
 
 // Player reads from a log to rebuild encoded file operations onto the local filesystem.
@@ -505,7 +504,7 @@ func reenactOperation(op RecordedOp, fsm *FSM, br *bufio.Reader, dir string, fil
 	} else if op.Unlink != nil {
 		return unlink(dir, op.Unlink.Fnode, fsm, files)
 	} else if op.Write != nil {
-		metrics.RecoveryLogRecoveredBytesTotal.Add(float64(op.Write.Length))
+		recoveredBytesTotal.Add(float64(op.Write.Length))
 		return write(op.Write, br, files)
 	}
 	// op.Link and op.Property have no local reenactment, beyond application to the FSM.

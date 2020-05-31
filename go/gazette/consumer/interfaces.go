@@ -17,6 +17,8 @@ package consumer
 import (
 	"context"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -257,3 +259,42 @@ type BeginFinisher interface {
 	// FinishedTxn can await the provided OpFuture for its final status.
 	FinishedTxn(Shard, Store, OpFuture)
 }
+
+var (
+	txCountTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_count_total",
+		Help: "Cumulative number of transactions",
+	})
+	txMessagesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_messages_total",
+		Help: "Cumulative number of messages.",
+	})
+	txSecondsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_seconds_total",
+		Help: "Cumulative number of seconds processing transactions.",
+	})
+	txConsumeSecondsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_consume_seconds_total",
+		Help: "Cumulative number of seconds transactions were processing messages.",
+	})
+	txStalledSecondsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_stalled_seconds_total",
+		Help: "Cumulative number of seconds transactions were stalled waiting for Gazette IO.",
+	})
+	txFlushSecondsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_flush_seconds_total",
+		Help: "Cumulative number of seconds transactions were flushing their commit.",
+	})
+	txSyncSecondsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_tx_sync_seconds_total",
+		Help: "Cumulative number of seconds transactions were waiting for their commit to sync.",
+	})
+	bytesConsumedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gazette_consumer_consumed_bytes_total",
+		Help: "Cumulative number of bytes consumed.",
+	})
+	readHeadGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gazette_consumer_read_head",
+		Help: "Consumer read head",
+	}, []string{"journal"})
+)

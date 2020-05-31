@@ -9,7 +9,6 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 )
@@ -51,7 +50,8 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 		req.Header = &fsm.resolved.Header // Attach resolved Header to |req|, which we'll forward.
 		return proxyAppend(stream, *req, svc.jc)
 	case stateFinished:
-		metrics.WriteHead.WithLabelValues(fsm.clientFragment.Journal.String()).Set(float64(fsm.clientFragment.End))
+		writeHeadGauge.WithLabelValues(fsm.clientFragment.Journal.String()).
+			Set(float64(fsm.clientFragment.End))
 
 		return stream.SendAndClose(&pb.AppendResponse{
 			Status:        pb.Status_OK,

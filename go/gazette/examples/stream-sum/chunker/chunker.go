@@ -5,12 +5,10 @@ import (
 	"net/http"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/examples/stream-sum"
+	stream_sum "go.gazette.dev/core/examples/stream-sum"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"go.gazette.dev/core/metrics"
 )
 
 const iniFilename = "chunker.ini"
@@ -26,7 +24,6 @@ func (cmdRun) Execute(_ []string) error {
 	go func() { mbp.Must(http.ListenAndServe(":8080", nil), "serving diagnostics") }()
 
 	log.WithField("config", cfg).Info("starting chunker")
-	prometheus.MustRegister(metrics.GazetteClientCollectors()...)
 
 	mbp.Must(stream_sum.GenerateAndVerifyStreams(context.Background(), cfg), "chunker failed")
 	return nil

@@ -101,6 +101,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -243,3 +245,14 @@ type NewMessageFunc func(*pb.JournalSpec) (Message, error)
 // ErrEmptyListResponse is returned by a MappingFunc which received an empty
 // ListResponse from a PartitionsFunc.
 var ErrEmptyListResponse = fmt.Errorf("empty ListResponse")
+
+var (
+	sequencerQueuedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_sequencer_queued",
+		Help: "Cumulative number of read-uncommitted messages which were sequenced.",
+	}, []string{"journal", "flag", "outcome"})
+	sequencerReplayTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_sequencer_replay",
+		Help: "Cumulative number of messages re-read from source journal due to insufficient Sequencer ring-buffer size.",
+	}, []string{"journal"})
+)

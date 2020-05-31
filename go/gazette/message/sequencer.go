@@ -7,7 +7,6 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/metrics"
 )
 
 // Sequencer observes read-uncommitted messages from journals and sequences them
@@ -117,7 +116,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 		// Duplicate of acknowledged message?
 		if clock <= partial.lastACK && clock != 0 {
-			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "OUTSIDE_TXN", "drop").Inc()
 			return
 		}
@@ -136,20 +135,20 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		w.emit.ringIndex = partial.ringStop
 		partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
 
-		metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+		sequencerQueuedTotal.WithLabelValues(
 			env.Journal.Name.String(), "OUTSIDE_TXN", "emit").Inc()
 		return
 
 	case Flag_CONTINUE_TXN:
 		// Duplicate of acknowledged message?
 		if clock < partial.lastACK {
-			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "CONTINUE_TXN", "drop").Inc()
 			return
 		}
 		// Duplicate of message already in the ring?
 		if partial.ringStop != -1 && clock <= GetClock(w.ring[partial.ringStop].GetUUID()) {
-			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "CONTINUE_TXN", "drop-ring").Inc()
 			return
 		}
@@ -160,7 +159,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		}
 		partial = w.addAtHead(env, partial)
 
-		metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+		sequencerQueuedTotal.WithLabelValues(
 			env.Journal.Name.String(), "CONTINUE_TXN", "queue").Inc()
 		return
 
@@ -190,7 +189,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 			// Roll-back to this acknowledgement.
 			partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
 
-			metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "ACK_TXN", "rollback").Inc()
 			return
 		}
@@ -206,7 +205,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		w.emit.ringIndex = partial.ringStart
 		partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
 
-		metrics.GazetteSequencerQueuedTotal.WithLabelValues(
+		sequencerQueuedTotal.WithLabelValues(
 			env.Journal.Name.String(), "ACK_TXN", "emit").Inc()
 		return
 	}
@@ -223,7 +222,7 @@ func (w *Sequencer) DequeCommitted() (env Envelope, err error) {
 		if env, err = w.dequeNext(); err != nil {
 			return
 		} else if w.replay != nil {
-			metrics.GazetteSequencerReplayTotal.WithLabelValues(env.Journal.String()).Inc()
+			sequencerReplayTotal.WithLabelValues(env.Journal.String()).Inc()
 		}
 		var uuid = env.GetUUID()
 

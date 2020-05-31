@@ -9,7 +9,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
-	"go.gazette.dev/core/metrics"
 )
 
 // runTransactions runs consumer transactions. It consumes from the provided
@@ -172,8 +171,8 @@ func txnRead(s *shard, txn *transaction, env readMessage) error {
 	}
 	txn.readThrough[env.Journal.Name] = env.End
 	s.sequencer.QueueUncommitted(env.Envelope)
-	metrics.GazetteConsumerBytesConsumedTotal.Add(float64(env.End - env.Begin))
-	metrics.GazetteConsumerReadHead.WithLabelValues(env.Journal.Name.String()).Set(float64(env.End))
+	bytesConsumedTotal.Add(float64(env.End - env.Begin))
+	readHeadGauge.WithLabelValues(env.Journal.Name.String()).Set(float64(env.End))
 
 	for {
 		switch env, err := s.sequencer.DequeCommitted(); err {
@@ -356,14 +355,14 @@ func txnAcknowledge(s *shard, txn *transaction, cp pc.Checkpoint) error {
 
 // recordMetrics of a fully completed transaction.
 func recordMetrics(txn *transaction) {
-	metrics.GazetteConsumerTxCountTotal.Inc()
-	metrics.GazetteConsumerTxMessagesTotal.Add(float64(txn.consumedCount))
+	txCountTotal.Inc()
+	txMessagesTotal.Add(float64(txn.consumedCount))
 
-	metrics.GazetteConsumerTxSecondsTotal.Add(txn.committedAt.Sub(txn.beganAt).Seconds())
-	metrics.GazetteConsumerTxConsumeSecondsTotal.Add(txn.stalledAt.Sub(txn.beganAt).Seconds())
-	metrics.GazetteConsumerTxStalledSecondsTotal.Add(txn.prepareBeganAt.Sub(txn.stalledAt).Seconds())
-	metrics.GazetteConsumerTxFlushSecondsTotal.Add(txn.prepareDoneAt.Sub(txn.prepareBeganAt).Seconds())
-	metrics.GazetteConsumerTxSyncSecondsTotal.Add(txn.committedAt.Sub(txn.prepareDoneAt).Seconds())
+	txSecondsTotal.Add(txn.committedAt.Sub(txn.beganAt).Seconds())
+	txConsumeSecondsTotal.Add(txn.stalledAt.Sub(txn.beganAt).Seconds())
+	txStalledSecondsTotal.Add(txn.prepareBeganAt.Sub(txn.stalledAt).Seconds())
+	txFlushSecondsTotal.Add(txn.prepareDoneAt.Sub(txn.prepareBeganAt).Seconds())
+	txSyncSecondsTotal.Add(txn.committedAt.Sub(txn.prepareDoneAt).Seconds())
 }
 
 // txnTimer is a time.Timer which can be mocked within unit tests.

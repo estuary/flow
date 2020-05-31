@@ -30,4 +30,12 @@ var (
 		Name: "gazette_commits_total",
 		Help: "DEPRECATED Cumulative number of commits to journal spools",
 	}, []string{"status"})
+	storeRequestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_store_requests_total",
+		Help: "Cumulative number of fragment store operations.",
+	}, []string{"provider", "operation", "status"})
+	storePersistedBytesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_store_persisted_bytes_total",
+		Help: "Cumulative number of bytes persisted to fragment stores.",
+	}, []string{"provider"})
 )

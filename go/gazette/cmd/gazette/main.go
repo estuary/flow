@@ -7,7 +7,6 @@ import (
 	"syscall"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
@@ -15,7 +14,6 @@ import (
 	"go.gazette.dev/core/broker/http_gateway"
 	"go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"go.gazette.dev/core/metrics"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )
@@ -52,7 +50,6 @@ func (cmdServe) Execute(args []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("broker configuration")
-	prometheus.MustRegister(metrics.GazetteBrokerCollectors()...)
 	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
 
 	// Bind our server listener, grabbing a random available port if Port is zero.

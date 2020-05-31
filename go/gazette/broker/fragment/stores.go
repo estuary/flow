@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/schema"
 	"github.com/pkg/errors"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/metrics"
 )
 
 type backend interface {
@@ -111,7 +110,7 @@ func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
 	var timeoutCtx, _ = context.WithTimeout(ctx, 5*time.Minute)
 
 	if err = b.Persist(timeoutCtx, ep, spool); err == nil {
-		metrics.StorePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))
+		storePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))
 	}
 	instrumentStoreOp(b.Provider(), "persist", err)
 	return err
@@ -150,9 +149,9 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 
 func instrumentStoreOp(provider, op string, err error) {
 	if err != nil {
-		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Fail).Inc()
+		storeRequestTotal.WithLabelValues(provider, op, errors.Cause(err).Error()).Inc()
 	} else {
-		metrics.StoreRequestTotal.WithLabelValues(provider, op, metrics.Ok).Inc()
+		storeRequestTotal.WithLabelValues(provider, op, "ok").Inc()
 	}
 }
 
