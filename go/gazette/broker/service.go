@@ -8,7 +8,6 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/metrics"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 	"golang.org/x/net/trace"
@@ -128,7 +127,7 @@ func addTrace(ctx context.Context, format string, args ...interface{}) {
 //  defer instrumentJournalServerOp("append", &err, time.Now())
 func instrumentJournalServerOp(op string, err *error, res **resolution, start time.Time) {
 	var elapsed = time.Since(start)
-	var status = metrics.Ok
+	var status = "ok"
 
 	if *err != nil {
 		status = errors.Cause(*err).Error()
