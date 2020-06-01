@@ -2,6 +2,23 @@
 master (unreleased)
 --------------------
 
+- '% is now an allowed character in label values and journal names.
+  This makes their grammar compatible with URL-encoding.
+- Add grpc-prometheus instrumentation to client & server gRPC's.
+- Several new metrics added:
+  - ``gazette_shard_*``: operational metrics of consumer shards
+  - ``gazette_spool_*``: metrics of journal fragment spools
+  - ``gazette_journal_server_*``: metrics of gRPC JournalServer invocations
+- Some metrics are marked as DEPRECATED, and will be removed in the future:
+  - ``gazette_commits_total``
+  - ``gazette_committed_bytes_total``
+  - ``gazette_consumer_*``
+- Some already-broken or unused metrics were removed.
+- Improvements to benchmarks and fixed test flakes.
+
+v0.87.1
+--------
+
 - BUGFIX: Fix potential UUID sequencing race in concurrent calls to PublishCommitted
   of the same message.Publisher, and add new regression testing (GH-259_).
 - Instrument message.Sequencer with Prometheus metrics.
