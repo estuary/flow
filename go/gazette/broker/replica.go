@@ -147,7 +147,7 @@ func pulseDaemon(svc *Service, r *replica) {
 		} else {
 			log.WithFields(log.Fields{
 				"err":     fsm.err,
-				"status":  fsm.resolved.status,
+				"status":  fsm.resolved.status.String(),
 				"journal": r.journal,
 			}).Warn("journal pulse failed (will retry)")
 		}
