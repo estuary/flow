@@ -37,6 +37,8 @@ type Server struct {
 	GRPCServer *grpc.Server
 	// GRPCLoopback is a dialed connection to this GRPCServer.
 	GRPCLoopback *grpc.ClientConn
+
+	httpServer http.Server
 }
 
 // New builds and returns a Server of the given TCP network interface |iface|
@@ -127,7 +129,8 @@ func (s *Server) QueueTasks(tg *task.Group) {
 		return nil // Swallow error on cancellation.
 	})
 	tg.Queue("server.ServeHTTP", func() error {
-		if err := http.Serve(s.HTTPListener, s.HTTPMux); err != nil && tg.Context().Err() == nil {
+		s.httpServer.Handler = s.HTTPMux
+		if err := s.httpServer.Serve(s.HTTPListener); err != nil && tg.Context().Err() == nil {
 			return err
 		}
 		return nil // Swallow error on cancellation.
@@ -139,3 +142,22 @@ func (s *Server) QueueTasks(tg *task.Group) {
 		return nil
 	})
 }
+
+// BoundedGracefulStop attempts to perform a graceful stop of the server,
+// but falls back to a hard stop if the graceful stop doesn't complete
+// reasonably quickly.
+func (s *Server) BoundedGracefulStop() {
+	var ctx, cancel = context.WithCancel(context.Background())
+	var timer = time.AfterFunc(GracefulStopTimeout, func() {
+		log.Error("grpc.GracefulStop took too long, issuing a hard Stop")
+		s.GRPCServer.Stop()
+		cancel()
+	})
+	s.GRPCServer.GracefulStop() // Closes the RawListener.
+	s.httpServer.Shutdown(ctx)  // Causes httpServer.Serve to return immediately.
+	timer.Stop()
+}
+
+// GracefulStopTimeout is the amount of time BoundedGracefulStop will wait
+// before performing a hard server Stop.
+var GracefulStopTimeout = 15 * time.Second

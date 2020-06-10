@@ -79,7 +79,7 @@ func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server) {
 		// local shards. Stopping them also cancels any related RPCs.
 		svc.Resolver.stopServingLocalShards()
 
-		server.GRPCServer.GracefulStop()
+		server.BoundedGracefulStop()
 
 		// Now that we're assured no current or future RPCs can be waiting
 		// on a future KeySpace revision, instruct Watch to exit and block

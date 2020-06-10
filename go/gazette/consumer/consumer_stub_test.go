@@ -45,7 +45,7 @@ func (s *shardServerStub) endpoint() pb.Endpoint { return s.srv.Endpoint() }
 // cleanup cancels the shardServerStub task.Group and asserts that it exits cleanly.
 func (s *shardServerStub) cleanup() {
 	s.tasks.Cancel()
-	s.srv.GRPCServer.GracefulStop()
+	s.srv.BoundedGracefulStop()
 	assert.NoError(s.t, s.srv.GRPCLoopback.Close())
 	assert.NoError(s.t, s.tasks.Wait())
 }

@@ -73,6 +73,7 @@ func (g *Group) GoRun() {
 				log.WithFields(log.Fields{"task": t.desc, "err": err}).Info("task exited with error")
 				return errors.WithMessage(err, t.desc)
 			}
+			log.WithField("task", t.desc).Info("task completed")
 			return nil
 		})
 	}

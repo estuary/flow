@@ -5,11 +5,13 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/server"
 	"google.golang.org/grpc"
 )
 
@@ -145,6 +147,53 @@ func TestReassignment(t *testing.T) {
 
 	assert.NoError(t, bkB.Tasks.Wait())
 	assert.NoError(t, bkC.Tasks.Wait())
+}
+
+func TestGracefulStopTimeout(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	// Shorten the graceful stop timeout during this test.
+	defer func(d time.Duration) {
+		server.GracefulStopTimeout = d
+	}(server.GracefulStopTimeout)
+	server.GracefulStopTimeout = time.Millisecond * 50
+
+	var ctx = pb.WithDispatchDefault(context.Background())
+	var bkA = NewBroker(t, etcd, "A", "broker-one")
+
+	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 1}))
+
+	var conn, rjc = newDialedClient(t, bkA)
+	defer conn.Close()
+
+	// Append a large amount of content, enough to fill a read congestion window.
+	var w = client.NewAppender(ctx, rjc, pb.AppendRequest{Journal: "foo/bar"})
+
+	var twoMB [1 << 21]byte
+	var n, err = w.Write(twoMB[:])
+	assert.NoError(t, err)
+	assert.Equal(t, n, len(twoMB))
+	assert.NoError(t, w.Close())
+
+	// Begin a blocking read, but don't make any progress against it.
+	// The broker will fill the congestion window and then block while
+	// waiting for more stream quota.
+	var r = client.NewReader(ctx, rjc,
+		pb.ReadRequest{Journal: "foo/bar", Block: true})
+
+	_, err = r.Read(nil)
+	assert.NoError(t, err)
+
+	// Another broker starts, to allow for journal handoff.
+	var bkB = NewBroker(t, etcd, "zone", "broker-C")
+	bkA.Signal()
+	assert.NoError(t, bkA.Tasks.Wait()) // Exits after hiting timeout.
+
+	// Allow broker B to exit.
+	updateReplication(t, ctx, bkB.Client(), "foo/bar", 0)
+	bkB.Signal()
+	assert.NoError(t, bkB.Tasks.Wait())
 }
 
 func updateReplication(t assert.TestingT, ctx context.Context, bk pb.JournalClient, journal pb.Journal, r int32) {

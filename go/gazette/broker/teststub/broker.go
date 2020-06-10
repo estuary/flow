@@ -66,7 +66,7 @@ func (b *Broker) Endpoint() pb.Endpoint { return b.srv.Endpoint() }
 // Cleanup cancels the Broker tasks.Group and asserts that it exits cleanly.
 func (b *Broker) Cleanup() {
 	b.tasks.Cancel()
-	b.srv.GRPCServer.GracefulStop()
+	b.srv.BoundedGracefulStop()
 	b.wg.Wait() // Ensure all read loops have exited.
 	assert.NoError(b.t, b.srv.GRPCLoopback.Close())
 	assert.NoError(b.t, b.tasks.Wait())
