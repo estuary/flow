@@ -2,6 +2,14 @@
 master (unreleased)
 --------------------
 
+v0.87.3
+--------
+
+- BUGFIX: Add a catch-all timeout on server GracefulStop, to ensure poorly
+  behaved clients cannot keep a terminating broker around indefinitely (GH-266_).
+
+.. _GH-266: https://github.com/gazette/core/issues/266
+
 v0.87.2
 --------
 
