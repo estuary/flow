@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,7 +106,9 @@ func (s *gcsBackend) List(ctx context.Context, store pb.FragmentStore, ep *url.U
 		obj *storage.ObjectAttrs
 	)
 	for obj, err = it.Next(); err == nil; obj, err = it.Next() {
-		if frag, err := pb.ParseFragmentFromRelativePath(journal, obj.Name[len(q.Prefix):]); err != nil {
+		if strings.HasSuffix(obj.Name, "/") {
+			// Ignore directory-like objects, usually created by mounting buckets with a FUSE driver.
+		} else if frag, err := pb.ParseFragmentFromRelativePath(journal, obj.Name[len(q.Prefix):]); err != nil {
 			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name, "err": err}).Warning("parsing fragment")
 		} else if obj.Size == 0 && frag.ContentLength() > 0 {
 			log.WithFields(log.Fields{"bucket": cfg.bucket, "name": obj.Name}).Warning("zero-length fragment")

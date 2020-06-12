@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -150,7 +151,9 @@ func (s *s3Backend) List(ctx context.Context, store pb.FragmentStore, ep *url.UR
 	}
 	return client.ListObjectsV2PagesWithContext(ctx, &q, func(objs *s3.ListObjectsV2Output, _ bool) bool {
 		for _, obj := range objs.Contents {
-			if frag, err := pb.ParseFragmentFromRelativePath(journal, (*obj.Key)[len(*q.Prefix):]); err != nil {
+			if strings.HasSuffix(*obj.Key, "/") {
+				// Ignore directory-like objects, usually created by mounting buckets with a FUSE driver.
+			} else if frag, err := pb.ParseFragmentFromRelativePath(journal, (*obj.Key)[len(*q.Prefix):]); err != nil {
 				log.WithFields(log.Fields{"bucket": cfg.bucket, "key": *obj.Key, "err": err}).Warning("parsing fragment")
 			} else if *obj.Size == 0 && frag.ContentLength() > 0 {
 				log.WithFields(log.Fields{"obj": obj}).Warning("zero-length fragment")
