@@ -188,7 +188,7 @@ func TestGracefulStopTimeout(t *testing.T) {
 	// Another broker starts, to allow for journal handoff.
 	var bkB = NewBroker(t, etcd, "zone", "broker-C")
 	bkA.Signal()
-	assert.NoError(t, bkA.Tasks.Wait()) // Exits after hiting timeout.
+	assert.NotNil(t, bkA.Tasks.Wait()) // Exits after hitting timeout.
 
 	// Allow broker B to exit.
 	updateReplication(t, ctx, bkB.Client(), "foo/bar", 0)

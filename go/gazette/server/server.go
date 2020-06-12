@@ -67,6 +67,11 @@ func New(iface string, port uint16) (*Server, error) {
 		}
 		return true // Continue serving RawListener.
 	})
+	// CMux ReadTimeout controls how long we'll wait for an opening send from
+	// the client which allows CMux to sniff a matching listening mux. It has
+	// no effect once the connection has been matched to a mux.
+	// See: https://github.com/soheilhy/cmux/issues/76
+	srv.CMux.SetReadTimeout(GracefulStopTimeout / 2)
 
 	// GRPCListener sniffs for HTTP/2 in-the-clear connections which have
 	// "Content-Type: application/grpc". Note this matcher will send an initial
@@ -150,11 +155,21 @@ func (s *Server) BoundedGracefulStop() {
 	var ctx, cancel = context.WithCancel(context.Background())
 	var timer = time.AfterFunc(GracefulStopTimeout, func() {
 		log.Error("grpc.GracefulStop took too long, issuing a hard Stop")
+
+		// Close loopback even though the server isn't stopped, to unblock any
+		// requests which may be wedged sending to an unresponsive peer.
+		_ = s.GRPCLoopback.Close()
+
 		s.GRPCServer.Stop()
 		cancel()
 	})
-	s.GRPCServer.GracefulStop() // Closes the RawListener.
-	s.httpServer.Shutdown(ctx)  // Causes httpServer.Serve to return immediately.
+	// GracefulStop immediately closes the underlying RawListener.
+	s.GRPCServer.GracefulStop()
+
+	// Shutdown causes httpServer.Serve to return immediately.
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		log.WithField("err", err).Error("http.Server Shutdown finished with error")
+	}
 	timer.Stop()
 }
 

@@ -2,6 +2,9 @@
 master (unreleased)
 --------------------
 
+- Additional sanity checks to ensure badly-behaved clients or peers cannot
+  block an exiting broker from draining its server.
+
 v0.87.3
 --------
 
