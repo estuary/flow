@@ -22,7 +22,8 @@ enum Status {
   // The named journal does not exist.
   JOURNAL_NOT_FOUND = 1;
   // There is no current primary broker for the journal. This is a temporary
-  // condition which should quickly resolve, assuming sufficient broker capacity.
+  // condition which should quickly resolve, assuming sufficient broker
+  // capacity.
   NO_JOURNAL_PRIMARY_BROKER = 2;
   // The present broker is not the assigned primary broker for the journal.
   NOT_JOURNAL_PRIMARY_BROKER = 3;
@@ -63,13 +64,16 @@ enum Status {
 enum CompressionCodec {
   // INVALID is the zero-valued CompressionCodec, and is not a valid codec.
   INVALID = 0;
-  // NONE encodes Fragments without any applied compression, with default suffix ".raw".
+  // NONE encodes Fragments without any applied compression, with default suffix
+  // ".raw".
   NONE = 1;
   // GZIP encodes Fragments using the Gzip library, with default suffix ".gz".
   GZIP = 2;
-  // ZSTANDARD encodes Fragments using the ZStandard library, with default suffix ".zst".
+  // ZSTANDARD encodes Fragments using the ZStandard library, with default
+  // suffix ".zst".
   ZSTANDARD = 3;
-  // SNAPPY encodes Fragments using the Snappy library, with default suffix ".sz".
+  // SNAPPY encodes Fragments using the Snappy library, with default suffix
+  // ".sz".
   SNAPPY = 4;
   // GZIP_OFFLOAD_DECOMPRESSION is the GZIP codec with additional behavior
   // around reads and writes to remote Fragment stores, designed to offload
@@ -79,9 +83,10 @@ enum CompressionCodec {
   // This can be helpful in contexts where reader IO bandwidth to the storage
   // API is unconstrained, as the cost of decompression is offloaded to the
   // store and CPU-intensive batch readers may receive a parallelism benefit.
-  // While this codec may provide substantial read-time performance improvements,
-  // it is an advanced configuration and the "Content-Encoding" header handling
-  // can be subtle and sometimes confusing. It uses the default suffix ".gzod".
+  // While this codec may provide substantial read-time performance
+  // improvements, it is an advanced configuration and the "Content-Encoding"
+  // header handling can be subtle and sometimes confusing. It uses the default
+  // suffix ".gzod".
   GZIP_OFFLOAD_DECOMPRESSION = 5;
 }
 
@@ -99,7 +104,8 @@ message LabelSet {
   // Labels of the set. Instances must be unique and sorted over (Name, Value).
   repeated Label labels = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.moretags) = "yaml:\",omitempty\""];
+    (gogoproto.moretags) = "yaml:\",omitempty\""
+  ];
 }
 
 // LabelSelector defines a filter over LabelSets.
@@ -107,11 +113,11 @@ message LabelSelector {
   // Include is Labels which must be matched for a LabelSet to be selected. If
   // empty, all Labels are included. An include Label with empty ("") value is
   // matched by a Label of the same name having any value.
-  LabelSet include = 1 [(gogoproto.nullable) = false];
+  LabelSet include = 1 [ (gogoproto.nullable) = false ];
   // Exclude is Labels which cannot be matched for a LabelSet to be selected. If
   // empty, no Labels are excluded. An exclude Label with empty ("") value
   // excludes a Label of the same name having any value.
-  LabelSet exclude = 2 [(gogoproto.nullable) = false];
+  LabelSet exclude = 2 [ (gogoproto.nullable) = false ];
 
   // LabelSelector implements a custom String function returning the canonical,
   // parseable string representation of the selector.
@@ -123,33 +129,35 @@ message JournalSpec {
   // Name of the Journal.
   string name = 1 [
     (gogoproto.casttype) = "Journal",
-    (gogoproto.moretags) = "yaml:\",omitempty\""];
+    (gogoproto.moretags) = "yaml:\",omitempty\""
+  ];
 
   // Desired replication of this Journal. This defines the Journal's tolerance
   // to broker failures before data loss can occur (eg, a replication factor
   // of three means two failures are tolerated).
-  int32 replication = 2 [(gogoproto.moretags) = "yaml:\",omitempty\""];
+  int32 replication = 2 [ (gogoproto.moretags) = "yaml:\",omitempty\"" ];
 
   // User-defined Labels of this JournalSpec. Two label names are reserved
   // and may not be used within a JournalSpec's Labels: "name" and "prefix".
   LabelSet labels = 3 [
     (gogoproto.nullable) = false,
     (gogoproto.embed) = true,
-    (gogoproto.moretags) = "yaml:\",omitempty,inline\""];
+    (gogoproto.moretags) = "yaml:\",omitempty,inline\""
+  ];
 
   // Fragment is JournalSpec configuration which pertains to the creation,
   // persistence, and indexing of the Journal's Fragments.
   message Fragment {
-    // Target content length of each Fragment. In normal operation after Fragments
-    // reach at least this length, they will be closed and new ones begun. Note
-    // lengths may be smaller at times (eg, due to changes in Journal routing
-    // topology). Content length differs from Fragment file size, in that the
-    // former reflects uncompressed bytes.
-    int64 length = 1 [(gogoproto.moretags) = "yaml:\",omitempty\""];
+    // Target content length of each Fragment. In normal operation after
+    // Fragments reach at least this length, they will be closed and new ones
+    // begun. Note lengths may be smaller at times (eg, due to changes in
+    // Journal routing topology). Content length differs from Fragment file
+    // size, in that the former reflects uncompressed bytes.
+    int64 length = 1 [ (gogoproto.moretags) = "yaml:\",omitempty\"" ];
 
     // Codec used to compress Journal Fragments.
-    CompressionCodec compression_codec = 2 [
-      (gogoproto.moretags) = "yaml:\"compression_codec,omitempty\""];
+    CompressionCodec compression_codec = 2
+        [ (gogoproto.moretags) = "yaml:\"compression_codec,omitempty\"" ];
 
     // Storage backend base path for this Journal's Fragments. Must be in URL
     // form, with the choice of backend defined by the scheme. The full path of
@@ -162,10 +170,10 @@ message JournalSpec {
     // Multiple stores may be specified, in which case the Journal's Fragments
     // are the union of all Fragments present across all stores, and new
     // Fragments always persist to the first specified store. This can be
-    // helpful in performing incremental migrations, where new Journal content is
-    // written to the new store, while content in the old store remains available
-    // (and, depending on fragment_retention or recovery log pruning, may
-    // eventually be removed).
+    // helpful in performing incremental migrations, where new Journal content
+    // is written to the new store, while content in the old store remains
+    // available (and, depending on fragment_retention or recovery log pruning,
+    // may eventually be removed).
     //
     // If no stores are specified, the Journal is still use-able but will
     // not persist Fragments to any a backing fragment store. This allows for
@@ -173,14 +181,16 @@ message JournalSpec {
     // needed.
     repeated string stores = 3 [
       (gogoproto.casttype) = "FragmentStore",
-      (gogoproto.moretags) = "yaml:\",omitempty\""];
+      (gogoproto.moretags) = "yaml:\",omitempty\""
+    ];
 
     // Interval of time between refreshes of remote Fragment listings from
     // configured fragment_stores.
     google.protobuf.Duration refresh_interval = 4 [
       (gogoproto.stdduration) = true,
       (gogoproto.nullable) = false,
-      (gogoproto.moretags) = "yaml:\"refresh_interval,omitempty\""];
+      (gogoproto.moretags) = "yaml:\"refresh_interval,omitempty\""
+    ];
 
     // Retention duration for historical Fragments of this Journal within the
     // Fragment stores. If less than or equal to zero, Fragments are retained
@@ -188,7 +198,8 @@ message JournalSpec {
     google.protobuf.Duration retention = 5 [
       (gogoproto.stdduration) = true,
       (gogoproto.nullable) = false,
-      (gogoproto.moretags) = "yaml:\",omitempty\""];
+      (gogoproto.moretags) = "yaml:\",omitempty\""
+    ];
 
     // Flush interval defines a uniform UTC time segment which, when passed,
     // will prompt brokers to close and persist a fragment presently being
@@ -206,7 +217,8 @@ message JournalSpec {
     google.protobuf.Duration flush_interval = 6 [
       (gogoproto.stdduration) = true,
       (gogoproto.nullable) = false,
-      (gogoproto.moretags) = "yaml:\"flush_interval,omitempty\""];
+      (gogoproto.moretags) = "yaml:\"flush_interval,omitempty\""
+    ];
 
     // Path postfix template is a Go template which evaluates to a partial
     // path under which fragments are persisted to the store. A complete
@@ -217,15 +229,17 @@ message JournalSpec {
     // are available for introspection in the template. For example,
     // to partition on the UTC date and hour of creation, use:
     //
-    //    date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{ .Spool.FirstAppendTime.Format "15" }}
+    //    date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{
+    //    .Spool.FirstAppendTime.Format "15" }}
     //
     // Which will produce a path postfix like "date=2019-11-19/hour=22".
-    string path_postfix_template = 7 [
-      (gogoproto.moretags) = "yaml:\"path_postfix_template,omitempty\""];
+    string path_postfix_template = 7
+        [ (gogoproto.moretags) = "yaml:\"path_postfix_template,omitempty\"" ];
   }
   Fragment fragment = 4 [
     (gogoproto.nullable) = false,
-    (gogoproto.moretags) = "yaml:\",omitempty\""];
+    (gogoproto.moretags) = "yaml:\",omitempty\""
+  ];
 
   // Flags define Journal IO control behaviors. Where possible, flags are named
   // after an equivalent POSIX flag.
@@ -242,30 +256,33 @@ message JournalSpec {
     // The Journal is available for writes (only).
     O_WRONLY = 0x02;
     // The Journal may be used for reads or writes.
-    O_RDWR   = 0x04;
+    O_RDWR = 0x04;
   }
   // Flags of the Journal, as a combination of Flag enum values. The Flag enum
   // is not used directly, as protobuf enums do not allow for or'ed bitfields.
   uint32 flags = 6 [
     (gogoproto.casttype) = "JournalSpec_Flag",
-    (gogoproto.moretags) = "yaml:\",omitempty\""];
+    (gogoproto.moretags) = "yaml:\",omitempty\""
+  ];
 
   // Maximum rate, in bytes-per-second, at which appends of this journal will
   // be processed. If zero (the default), no rate limiting is applied. A global
   // rate limit still may be in effect, in which case the effective rate is the
   // smaller of the journal vs global rate.
-  int64 max_append_rate = 7 [(gogoproto.moretags) = "yaml:\"max_append_rate,omitempty\""];
+  int64 max_append_rate = 7
+      [ (gogoproto.moretags) = "yaml:\"max_append_rate,omitempty\"" ];
 }
 
-// ProcessSpec describes a uniquely identified process and its addressable endpoint.
+// ProcessSpec describes a uniquely identified process and its addressable
+// endpoint.
 message ProcessSpec {
   // ID composes a zone and a suffix to uniquely identify a ProcessSpec.
   message ID {
-    // "Zone" in which the process is running. Zones may be AWS, Azure, or Google
-    // Cloud Platform zone identifiers, or rack locations within a colo, or
-    // given some other custom meaning. Gazette will replicate across multiple
-    // zones, and seeks to minimize traffic which must cross zones (for example,
-    // by proxying reads to a broker in the current zone).
+    // "Zone" in which the process is running. Zones may be AWS, Azure, or
+    // Google Cloud Platform zone identifiers, or rack locations within a colo,
+    // or given some other custom meaning. Gazette will replicate across
+    // multiple zones, and seeks to minimize traffic which must cross zones (for
+    // example, by proxying reads to a broker in the current zone).
     string zone = 1;
     // Unique suffix of the process within |zone|. It is permissible for a
     // suffix value to repeat across zones, but never within zones. In practice,
@@ -273,14 +290,13 @@ message ProcessSpec {
     // and self-describing value as the ID suffix.
     string suffix = 2;
   }
-  ID id = 1 [(gogoproto.nullable) = false];
+  ID id = 1 [ (gogoproto.nullable) = false ];
   // Advertised URL of the process.
-  string endpoint = 2 [(gogoproto.casttype) = "Endpoint"];
+  string endpoint = 2 [ (gogoproto.casttype) = "Endpoint" ];
 
   // Route.AttachEndpoints makes use of the `GetEndpoint() Endpoint` interface.
   option (gogoproto.goproto_getters) = true;
 }
-
 
 // BrokerSpec describes a Gazette broker and its configuration.
 message BrokerSpec {
@@ -288,7 +304,8 @@ message BrokerSpec {
   ProcessSpec process_spec = 1 [
     (gogoproto.nullable) = false,
     (gogoproto.embed) = true,
-    (gogoproto.moretags) = "yaml:\",inline\""];
+    (gogoproto.moretags) = "yaml:\",inline\""
+  ];
   // Maximum number of assigned Journal replicas.
   uint32 journal_limit = 2;
 }
@@ -298,19 +315,20 @@ message BrokerSpec {
 // SHA1 sum of the corresponding Journal content.
 message Fragment {
   // Journal of the Fragment.
-  string journal = 1 [(gogoproto.casttype) = "Journal"];
-  // Begin (inclusive) and end (exclusive) offset of the Fragment within the Journal.
-  int64 begin = 2 [(gogoproto.casttype) = "Offset"];
-  int64 end = 3   [(gogoproto.casttype) = "Offset"];
+  string journal = 1 [ (gogoproto.casttype) = "Journal" ];
+  // Begin (inclusive) and end (exclusive) offset of the Fragment within the
+  // Journal.
+  int64 begin = 2 [ (gogoproto.casttype) = "Offset" ];
+  int64 end = 3 [ (gogoproto.casttype) = "Offset" ];
   // SHA1 sum of the Fragment's content.
-  SHA1Sum sum = 4 [(gogoproto.nullable) = false];
+  SHA1Sum sum = 4 [ (gogoproto.nullable) = false ];
   // Codec with which the Fragment's content is compressed.
   CompressionCodec compression_codec = 5;
   // Fragment store which backs the Fragment. Empty if the Fragment has yet to
   // be persisted and is still local to a Broker.
-  string backing_store = 6 [(gogoproto.casttype) = "FragmentStore"];
-  // Modification timestamp of the Fragment within the backing store, represented as seconds
-  // since the epoch.
+  string backing_store = 6 [ (gogoproto.casttype) = "FragmentStore" ];
+  // Modification timestamp of the Fragment within the backing store,
+  // represented as seconds since the epoch.
   int64 mod_time = 7;
   // Path postfix under which the fragment is persisted to the store.
   // The complete Fragment store path is built from any path components of the
@@ -330,16 +348,17 @@ message ReadRequest {
   // Header is attached by a proxying broker peer.
   Header header = 1;
   // Journal to be read.
-  string journal = 2 [(gogoproto.casttype) = "Journal"];
+  string journal = 2 [ (gogoproto.casttype) = "Journal" ];
   // Desired offset to begin reading from. Value -1 has special handling, where
   // the read is performed from the current write head. All other positive
   // values specify a desired exact byte offset to read from. If the offset is
   // not available (eg, because it represents a portion of Journal which has
   // been permanently deleted), the broker will return the next available
   // offset. Callers should therefore always inspect the ReadResponse offset.
-  int64 offset = 3 [(gogoproto.casttype) = "Offset"];
+  int64 offset = 3 [ (gogoproto.casttype) = "Offset" ];
   // Whether the operation should block until content becomes available.
-  // OFFSET_NOT_YET_AVAILABLE is returned if a non-blocking read has no ready content.
+  // OFFSET_NOT_YET_AVAILABLE is returned if a non-blocking read has no ready
+  // content.
   bool block = 4;
   // If do_not_proxy is true, the broker will not proxy the read to another
   // broker, or open and proxy a remote Fragment on the client's behalf.
@@ -348,7 +367,7 @@ message ReadRequest {
   // Fragment metadata but not content.
   bool metadata_only = 6;
   // Offset to read through. If zero, then the read end offset is unconstrained.
-  int64 end_offset = 7 [(gogoproto.casttype) = "Offset"];
+  int64 end_offset = 7 [ (gogoproto.casttype) = "Offset" ];
 }
 
 // ReadResponse is the streamed response message of the broker Read RPC.
@@ -367,16 +386,17 @@ message ReadRequest {
 message ReadResponse {
   // Status of the Read RPC.
   Status status = 1;
-  // Header of the response. Accompanies the first ReadResponse of the response stream.
+  // Header of the response. Accompanies the first ReadResponse of the response
+  // stream.
   Header header = 2;
   // The effective offset of the read. See ReadRequest offset.
-  int64 offset = 3 [(gogoproto.casttype) = "Offset"];
+  int64 offset = 3 [ (gogoproto.casttype) = "Offset" ];
   // The offset to next be written, by the next append transaction served by
   // broker. In other words, the last offset through which content is
-  // available to be read from the Journal. This is a metadata field and will 
+  // available to be read from the Journal. This is a metadata field and will
   // not be returned with a content response.
-  int64 write_head = 4 [(gogoproto.casttype) = "Offset"];
-  // Fragment to which the offset was mapped. This is a metadata field and will 
+  int64 write_head = 4 [ (gogoproto.casttype) = "Offset" ];
+  // Fragment to which the offset was mapped. This is a metadata field and will
   // not be returned with a content response.
   Fragment fragment = 5;
   // If Fragment is remote, a URL from which it may be directly read.
@@ -418,10 +438,11 @@ message ReadResponse {
 // replicas but not all still moves the journal offset forward, and therefore
 // updates journal registers.
 message AppendRequest {
-  // Header is attached by a proxying broker peer to the first AppendRequest message.
+  // Header is attached by a proxying broker peer to the first AppendRequest
+  // message.
   Header header = 1;
   // Journal to be appended to.
-  string journal = 2 [(gogoproto.casttype) = "Journal"];
+  string journal = 2 [ (gogoproto.casttype) = "Journal" ];
   // If do_not_proxy is true, the broker will not proxy the append if it is
   // not the current primary.
   bool do_not_proxy = 3;
@@ -429,7 +450,7 @@ message AppendRequest {
   // at zero, which uses the broker's tracked offset. The append offset must be
   // one greater than furthest written offset of the journal, or
   // WRONG_APPEND_OFFSET is returned.
-  int64 offset = 5 [(gogoproto.casttype) = "Offset"];
+  int64 offset = 5 [ (gogoproto.casttype) = "Offset" ];
   // Selector of journal registers which must be satisfied for the request
   // to proceed. If not matched, the RPC is failed with REGISTER_MISMATCH.
   LabelSelector check_registers = 6;
@@ -452,7 +473,7 @@ message AppendResponse {
   // Status of the Append RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2 [(gogoproto.nullable) = false];
+  Header header = 2 [ (gogoproto.nullable) = false ];
   // If status is OK, then |commit| is the Fragment which places the
   // committed Append content within the Journal.
   Fragment commit = 3;
@@ -482,7 +503,7 @@ message ReplicateRequest {
   bool acknowledge = 6;
   // Journal to be replicated to, which is also captured by |proposal|.
   // Deprecated.
-  string deprecated_journal = 2 [(gogoproto.casttype) = "Journal"];
+  string deprecated_journal = 2 [ (gogoproto.casttype) = "Journal" ];
 
   // Content to be replicated.
   bytes content = 4;
@@ -496,7 +517,8 @@ message ReplicateRequest {
 message ReplicateResponse {
   // Status of the Replicate RPC.
   Status status = 1;
-  // Header of the response. Accompanies the first ReplicateResponse of the response stream.
+  // Header of the response. Accompanies the first ReplicateResponse of the
+  // response stream.
   Header header = 2;
   // If status is PROPOSAL_MISMATCH, then |fragment| is the replica's current
   // journal Fragment, and either it or |registers| will differ from the
@@ -513,10 +535,11 @@ message ListRequest {
   // If zero-valued, all journals are returned. Otherwise, only JournalSpecs
   // matching the LabelSelector will be returned. Two meta-labels "name" and
   // "prefix" are additionally supported by the selector, where:
-  //   * name=examples/a-name will match a JournalSpec with Name "examples/a-name"
+  //   * name=examples/a-name will match a JournalSpec with Name
+  //   "examples/a-name"
   //   * prefix=examples/ will match any JournalSpec having prefix "examples/".
   //     The prefix Label value must end in '/'.
-  LabelSelector selector = 1 [(gogoproto.nullable) = false];
+  LabelSelector selector = 1 [ (gogoproto.nullable) = false ];
   // Maximum number of journals to return in a ListResponse.
   // This field is optional, and the broker may enforce its own limit.
   uint32 page_limit = 2;
@@ -530,16 +553,16 @@ message ListResponse {
   // Status of the List RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2 [(gogoproto.nullable) = false];
+  Header header = 2 [ (gogoproto.nullable) = false ];
   // Journals of the response.
   message Journal {
-    JournalSpec spec = 1 [(gogoproto.nullable) = false];
+    JournalSpec spec = 1 [ (gogoproto.nullable) = false ];
     // Current ModRevision of the JournalSpec.
     int64 mod_revision = 2;
     // Route of the journal, including endpoints.
-    Route route = 3 [(gogoproto.nullable) = false];
+    Route route = 3 [ (gogoproto.nullable) = false ];
   }
-  repeated Journal journals = 3 [(gogoproto.nullable) = false];
+  repeated Journal journals = 3 [ (gogoproto.nullable) = false ];
   // A pagination token which indicates where the next request should continue
   // from. Empty if and only if this ListResponse completes the listing.
   string next_page_token = 4;
@@ -557,9 +580,9 @@ message ApplyRequest {
     // (if expect_mod_revision == 0).
     JournalSpec upsert = 2;
     // Journal to be deleted. expect_mod_revision must not be zero.
-    string delete = 3 [(gogoproto.casttype) = "Journal"];
+    string delete = 3 [ (gogoproto.casttype) = "Journal" ];
   }
-  repeated Change changes = 1 [(gogoproto.nullable) = false];
+  repeated Change changes = 1 [ (gogoproto.nullable) = false ];
 }
 
 // ApplyResponse is the unary response message of the broker Apply RPC.
@@ -567,15 +590,16 @@ message ApplyResponse {
   // Status of the Apply RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2 [(gogoproto.nullable) = false];
+  Header header = 2 [ (gogoproto.nullable) = false ];
 }
 
-// FragmentsRequest is the unary request message of the broker ListFragments RPC.
+// FragmentsRequest is the unary request message of the broker ListFragments
+// RPC.
 message FragmentsRequest {
   // Header is attached by a proxying broker peer.
   Header header = 1;
   // Journal to be read.
-  string journal = 2 [(gogoproto.casttype) = "Journal"]; 
+  string journal = 2 [ (gogoproto.casttype) = "Journal" ];
   // BeginModTime is an optional field specifying an inclusive lower bound on
   // the modification timestamp for a fragment to be returned. The timestamp is
   // represented as seconds since the epoch.
@@ -584,48 +608,53 @@ message FragmentsRequest {
   // the modification timestamp for a fragment to be returned. The timestamp is
   // represented as seconds since the epoch.
   int64 end_mod_time = 4;
-  // The NextPageToke value returned from a previous, continued FragmentsRequest, if any.
+  // The NextPageToke value returned from a previous, continued
+  // FragmentsRequest, if any.
   int64 next_page_token = 5;
   // PageLimit is an optional field specifying how many fragments to return
   // with the response. The default value for PageLimit is 1000.
   int32 page_limit = 6;
   // SignatureTTL indicates that a temporary signed GET URL should be returned
   // with each response Fragment, valid for |signatureTTL|.
-  google.protobuf.Duration signatureTTL = 7 [(gogoproto.stdduration) = true, (gogoproto.nullable) = true];
-  // If do_not_proxy is true, the broker will not proxy the request to another broker on the client's behalf.
+  google.protobuf.Duration signatureTTL = 7
+      [ (gogoproto.stdduration) = true, (gogoproto.nullable) = true ];
+  // If do_not_proxy is true, the broker will not proxy the request to another
+  // broker on the client's behalf.
   bool do_not_proxy = 8;
 }
 
-// FragmentsResponse is the unary response message of the broker ListFragments RPC.
+// FragmentsResponse is the unary response message of the broker ListFragments
+// RPC.
 message FragmentsResponse {
   // Status of the Apply RPC.
   Status status = 1;
   // Header of the response.
-  Header header = 2 [(gogoproto.nullable) = false];
+  Header header = 2 [ (gogoproto.nullable) = false ];
   // Fragments of the Response.
   message _Fragment {
-    Fragment spec = 1 [(gogoproto.nullable) = false];
+    Fragment spec = 1 [ (gogoproto.nullable) = false ];
     // SignedURL is a temporary URL at which a direct GET of the Fragment may
     // be issued, signed by the broker's credentials. Set only if the request
     // specified a SignatureTTL.
     string signed_url = 2;
   }
-  repeated _Fragment fragments = 3 [(gogoproto.nullable) = false];
-  // The NextPageToke value to be returned on subsequent Fragments requests. If the value is 
-  // zero then there are no more fragments to be returned for this page.
+  repeated _Fragment fragments = 3 [ (gogoproto.nullable) = false ];
+  // The NextPageToke value to be returned on subsequent Fragments requests. If
+  // the value is zero then there are no more fragments to be returned for this
+  // page.
   int64 next_page_token = 4;
 }
 
 // Route captures the current topology of an item and the processes serving it.
 message Route {
   // Members of the Route, ordered on ascending ProcessSpec.ID (zone, suffix).
-  repeated ProcessSpec.ID members = 1 [(gogoproto.nullable) = false];
+  repeated ProcessSpec.ID members = 1 [ (gogoproto.nullable) = false ];
   // Index of the ProcessSpec serving as primary within |members|,
   // or -1 of no member is currently primary.
   int32 primary = 2;
   // Endpoints of each Route member. If not empty, |endpoints| has the same
   // length and order as |members|, and captures the endpoint of each one.
-  repeated string endpoints = 3 [(gogoproto.casttype) = "Endpoint"];
+  repeated string endpoints = 3 [ (gogoproto.casttype) = "Endpoint" ];
 }
 
 // Header captures metadata such as the process responsible for processing
@@ -634,28 +663,30 @@ message Header {
   // ID of the process responsible for request processing. May be empty iff
   // Header is being used within a proxied request, and that request may be
   // dispatched to any member of the Route.
-  ProcessSpec.ID process_id = 1 [(gogoproto.nullable) = false];
+  ProcessSpec.ID process_id = 1 [ (gogoproto.nullable) = false ];
   // Route of processes specifically responsible for this RPC, or an empty Route
   // if any process is capable of serving the RPC.
-  Route route = 2 [(gogoproto.nullable) = false];
+  Route route = 2 [ (gogoproto.nullable) = false ];
   // Etcd represents the effective Etcd MVCC state under which a Gazette broker
   // is operating in its processing of requests and responses. Its inclusion
   // allows brokers to reason about relative "happened before" Revision ordering
   // of apparent routing conflicts in proxied or replicated requests, as well
   // as enabling sanity checks over equality of Etcd ClusterId (and precluding,
   // for example, split-brain scenarios where different brokers are backed by
-  // different Etcd clusters). Etcd is kept in sync with etcdserverpb.ResponseHeader.
+  // different Etcd clusters). Etcd is kept in sync with
+  // etcdserverpb.ResponseHeader.
   message Etcd {
     // cluster_id is the ID of the cluster.
     uint64 cluster_id = 1;
     // member_id is the ID of the member.
     uint64 member_id = 2;
-    // revision is the Etcd key-value store revision when the request was applied.
+    // revision is the Etcd key-value store revision when the request was
+    // applied.
     int64 revision = 3;
     // raft_term is the raft term when the request was applied.
     uint64 raft_term = 4;
   }
-  Etcd etcd = 3 [(gogoproto.nullable) = false];
+  Etcd etcd = 3 [ (gogoproto.nullable) = false ];
 }
 
 // Journal is the Gazette broker service API for interacting with Journals.

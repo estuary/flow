@@ -41,7 +41,8 @@ const (
 	// The named journal does not exist.
 	Status_JOURNAL_NOT_FOUND Status = 1
 	// There is no current primary broker for the journal. This is a temporary
-	// condition which should quickly resolve, assuming sufficient broker capacity.
+	// condition which should quickly resolve, assuming sufficient broker
+	// capacity.
 	Status_NO_JOURNAL_PRIMARY_BROKER Status = 2
 	// The present broker is not the assigned primary broker for the journal.
 	Status_NOT_JOURNAL_PRIMARY_BROKER Status = 3
@@ -126,13 +127,16 @@ type CompressionCodec int32
 const (
 	// INVALID is the zero-valued CompressionCodec, and is not a valid codec.
 	CompressionCodec_INVALID CompressionCodec = 0
-	// NONE encodes Fragments without any applied compression, with default suffix ".raw".
+	// NONE encodes Fragments without any applied compression, with default suffix
+	// ".raw".
 	CompressionCodec_NONE CompressionCodec = 1
 	// GZIP encodes Fragments using the Gzip library, with default suffix ".gz".
 	CompressionCodec_GZIP CompressionCodec = 2
-	// ZSTANDARD encodes Fragments using the ZStandard library, with default suffix ".zst".
+	// ZSTANDARD encodes Fragments using the ZStandard library, with default
+	// suffix ".zst".
 	CompressionCodec_ZSTANDARD CompressionCodec = 3
-	// SNAPPY encodes Fragments using the Snappy library, with default suffix ".sz".
+	// SNAPPY encodes Fragments using the Snappy library, with default suffix
+	// ".sz".
 	CompressionCodec_SNAPPY CompressionCodec = 4
 	// GZIP_OFFLOAD_DECOMPRESSION is the GZIP codec with additional behavior
 	// around reads and writes to remote Fragment stores, designed to offload
@@ -142,9 +146,10 @@ const (
 	// This can be helpful in contexts where reader IO bandwidth to the storage
 	// API is unconstrained, as the cost of decompression is offloaded to the
 	// store and CPU-intensive batch readers may receive a parallelism benefit.
-	// While this codec may provide substantial read-time performance improvements,
-	// it is an advanced configuration and the "Content-Encoding" header handling
-	// can be subtle and sometimes confusing. It uses the default suffix ".gzod".
+	// While this codec may provide substantial read-time performance
+	// improvements, it is an advanced configuration and the "Content-Encoding"
+	// header handling can be subtle and sometimes confusing. It uses the default
+	// suffix ".gzod".
 	CompressionCodec_GZIP_OFFLOAD_DECOMPRESSION CompressionCodec = 5
 )
 
@@ -396,11 +401,11 @@ var xxx_messageInfo_JournalSpec proto.InternalMessageInfo
 // Fragment is JournalSpec configuration which pertains to the creation,
 // persistence, and indexing of the Journal's Fragments.
 type JournalSpec_Fragment struct {
-	// Target content length of each Fragment. In normal operation after Fragments
-	// reach at least this length, they will be closed and new ones begun. Note
-	// lengths may be smaller at times (eg, due to changes in Journal routing
-	// topology). Content length differs from Fragment file size, in that the
-	// former reflects uncompressed bytes.
+	// Target content length of each Fragment. In normal operation after
+	// Fragments reach at least this length, they will be closed and new ones
+	// begun. Note lengths may be smaller at times (eg, due to changes in
+	// Journal routing topology). Content length differs from Fragment file
+	// size, in that the former reflects uncompressed bytes.
 	Length int64 `protobuf:"varint,1,opt,name=length,proto3" json:"length,omitempty" yaml:",omitempty"`
 	// Codec used to compress Journal Fragments.
 	CompressionCodec CompressionCodec `protobuf:"varint,2,opt,name=compression_codec,json=compressionCodec,proto3,enum=protocol.CompressionCodec" json:"compression_codec,omitempty" yaml:"compression_codec,omitempty"`
@@ -415,10 +420,10 @@ type JournalSpec_Fragment struct {
 	// Multiple stores may be specified, in which case the Journal's Fragments
 	// are the union of all Fragments present across all stores, and new
 	// Fragments always persist to the first specified store. This can be
-	// helpful in performing incremental migrations, where new Journal content is
-	// written to the new store, while content in the old store remains available
-	// (and, depending on fragment_retention or recovery log pruning, may
-	// eventually be removed).
+	// helpful in performing incremental migrations, where new Journal content
+	// is written to the new store, while content in the old store remains
+	// available (and, depending on fragment_retention or recovery log pruning,
+	// may eventually be removed).
 	//
 	// If no stores are specified, the Journal is still use-able but will
 	// not persist Fragments to any a backing fragment store. This allows for
@@ -455,7 +460,8 @@ type JournalSpec_Fragment struct {
 	// are available for introspection in the template. For example,
 	// to partition on the UTC date and hour of creation, use:
 	//
-	//    date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{ .Spool.FirstAppendTime.Format "15" }}
+	//    date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{
+	//    .Spool.FirstAppendTime.Format "15" }}
 	//
 	// Which will produce a path postfix like "date=2019-11-19/hour=22".
 	PathPostfixTemplate string `protobuf:"bytes,7,opt,name=path_postfix_template,json=pathPostfixTemplate,proto3" json:"path_postfix_template,omitempty" yaml:"path_postfix_template,omitempty"`
@@ -494,7 +500,8 @@ func (m *JournalSpec_Fragment) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_JournalSpec_Fragment proto.InternalMessageInfo
 
-// ProcessSpec describes a uniquely identified process and its addressable endpoint.
+// ProcessSpec describes a uniquely identified process and its addressable
+// endpoint.
 type ProcessSpec struct {
 	Id ProcessSpec_ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id"`
 	// Advertised URL of the process.
@@ -550,11 +557,11 @@ func (m *ProcessSpec) GetEndpoint() Endpoint {
 
 // ID composes a zone and a suffix to uniquely identify a ProcessSpec.
 type ProcessSpec_ID struct {
-	// "Zone" in which the process is running. Zones may be AWS, Azure, or Google
-	// Cloud Platform zone identifiers, or rack locations within a colo, or
-	// given some other custom meaning. Gazette will replicate across multiple
-	// zones, and seeks to minimize traffic which must cross zones (for example,
-	// by proxying reads to a broker in the current zone).
+	// "Zone" in which the process is running. Zones may be AWS, Azure, or
+	// Google Cloud Platform zone identifiers, or rack locations within a colo,
+	// or given some other custom meaning. Gazette will replicate across
+	// multiple zones, and seeks to minimize traffic which must cross zones (for
+	// example, by proxying reads to a broker in the current zone).
 	Zone string `protobuf:"bytes,1,opt,name=zone,proto3" json:"zone,omitempty"`
 	// Unique suffix of the process within |zone|. It is permissible for a
 	// suffix value to repeat across zones, but never within zones. In practice,
@@ -643,7 +650,8 @@ var xxx_messageInfo_BrokerSpec proto.InternalMessageInfo
 type Fragment struct {
 	// Journal of the Fragment.
 	Journal Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=Journal" json:"journal,omitempty"`
-	// Begin (inclusive) and end (exclusive) offset of the Fragment within the Journal.
+	// Begin (inclusive) and end (exclusive) offset of the Fragment within the
+	// Journal.
 	Begin Offset `protobuf:"varint,2,opt,name=begin,proto3,casttype=Offset" json:"begin,omitempty"`
 	End   Offset `protobuf:"varint,3,opt,name=end,proto3,casttype=Offset" json:"end,omitempty"`
 	// SHA1 sum of the Fragment's content.
@@ -653,8 +661,8 @@ type Fragment struct {
 	// Fragment store which backs the Fragment. Empty if the Fragment has yet to
 	// be persisted and is still local to a Broker.
 	BackingStore FragmentStore `protobuf:"bytes,6,opt,name=backing_store,json=backingStore,proto3,casttype=FragmentStore" json:"backing_store,omitempty"`
-	// Modification timestamp of the Fragment within the backing store, represented as seconds
-	// since the epoch.
+	// Modification timestamp of the Fragment within the backing store,
+	// represented as seconds since the epoch.
 	ModTime int64 `protobuf:"varint,7,opt,name=mod_time,json=modTime,proto3" json:"mod_time,omitempty"`
 	// Path postfix under which the fragment is persisted to the store.
 	// The complete Fragment store path is built from any path components of the
@@ -749,7 +757,8 @@ type ReadRequest struct {
 	// offset. Callers should therefore always inspect the ReadResponse offset.
 	Offset Offset `protobuf:"varint,3,opt,name=offset,proto3,casttype=Offset" json:"offset,omitempty"`
 	// Whether the operation should block until content becomes available.
-	// OFFSET_NOT_YET_AVAILABLE is returned if a non-blocking read has no ready content.
+	// OFFSET_NOT_YET_AVAILABLE is returned if a non-blocking read has no ready
+	// content.
 	Block bool `protobuf:"varint,4,opt,name=block,proto3" json:"block,omitempty"`
 	// If do_not_proxy is true, the broker will not proxy the read to another
 	// broker, or open and proxy a remote Fragment on the client's behalf.
@@ -810,7 +819,8 @@ var xxx_messageInfo_ReadRequest proto.InternalMessageInfo
 type ReadResponse struct {
 	// Status of the Read RPC.
 	Status Status `protobuf:"varint,1,opt,name=status,proto3,enum=protocol.Status" json:"status,omitempty"`
-	// Header of the response. Accompanies the first ReadResponse of the response stream.
+	// Header of the response. Accompanies the first ReadResponse of the response
+	// stream.
 	Header *Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header,omitempty"`
 	// The effective offset of the read. See ReadRequest offset.
 	Offset Offset `protobuf:"varint,3,opt,name=offset,proto3,casttype=Offset" json:"offset,omitempty"`
@@ -894,7 +904,8 @@ var xxx_messageInfo_ReadResponse proto.InternalMessageInfo
 // replicas but not all still moves the journal offset forward, and therefore
 // updates journal registers.
 type AppendRequest struct {
-	// Header is attached by a proxying broker peer to the first AppendRequest message.
+	// Header is attached by a proxying broker peer to the first AppendRequest
+	// message.
 	Header *Header `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
 	// Journal to be appended to.
 	Journal Journal `protobuf:"bytes,2,opt,name=journal,proto3,casttype=Journal" json:"journal,omitempty"`
@@ -1068,7 +1079,8 @@ var xxx_messageInfo_ReplicateRequest proto.InternalMessageInfo
 type ReplicateResponse struct {
 	// Status of the Replicate RPC.
 	Status Status `protobuf:"varint,1,opt,name=status,proto3,enum=protocol.Status" json:"status,omitempty"`
-	// Header of the response. Accompanies the first ReplicateResponse of the response stream.
+	// Header of the response. Accompanies the first ReplicateResponse of the
+	// response stream.
 	Header *Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header,omitempty"`
 	// If status is PROPOSAL_MISMATCH, then |fragment| is the replica's current
 	// journal Fragment, and either it or |registers| will differ from the
@@ -1118,7 +1130,8 @@ type ListRequest struct {
 	// If zero-valued, all journals are returned. Otherwise, only JournalSpecs
 	// matching the LabelSelector will be returned. Two meta-labels "name" and
 	// "prefix" are additionally supported by the selector, where:
-	//   * name=examples/a-name will match a JournalSpec with Name "examples/a-name"
+	//   * name=examples/a-name will match a JournalSpec with Name
+	//   "examples/a-name"
 	//   * prefix=examples/ will match any JournalSpec having prefix "examples/".
 	//     The prefix Label value must end in '/'.
 	Selector LabelSelector `protobuf:"bytes,1,opt,name=selector,proto3" json:"selector"`
@@ -1375,7 +1388,8 @@ func (m *ApplyResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ApplyResponse proto.InternalMessageInfo
 
-// FragmentsRequest is the unary request message of the broker ListFragments RPC.
+// FragmentsRequest is the unary request message of the broker ListFragments
+// RPC.
 type FragmentsRequest struct {
 	// Header is attached by a proxying broker peer.
 	Header *Header `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
@@ -1389,7 +1403,8 @@ type FragmentsRequest struct {
 	// the modification timestamp for a fragment to be returned. The timestamp is
 	// represented as seconds since the epoch.
 	EndModTime int64 `protobuf:"varint,4,opt,name=end_mod_time,json=endModTime,proto3" json:"end_mod_time,omitempty"`
-	// The NextPageToke value returned from a previous, continued FragmentsRequest, if any.
+	// The NextPageToke value returned from a previous, continued
+	// FragmentsRequest, if any.
 	NextPageToken int64 `protobuf:"varint,5,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	// PageLimit is an optional field specifying how many fragments to return
 	// with the response. The default value for PageLimit is 1000.
@@ -1397,7 +1412,8 @@ type FragmentsRequest struct {
 	// SignatureTTL indicates that a temporary signed GET URL should be returned
 	// with each response Fragment, valid for |signatureTTL|.
 	SignatureTTL *time.Duration `protobuf:"bytes,7,opt,name=signatureTTL,proto3,stdduration" json:"signatureTTL,omitempty"`
-	// If do_not_proxy is true, the broker will not proxy the request to another broker on the client's behalf.
+	// If do_not_proxy is true, the broker will not proxy the request to another
+	// broker on the client's behalf.
 	DoNotProxy bool `protobuf:"varint,8,opt,name=do_not_proxy,json=doNotProxy,proto3" json:"do_not_proxy,omitempty"`
 }
 
@@ -1434,15 +1450,17 @@ func (m *FragmentsRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_FragmentsRequest proto.InternalMessageInfo
 
-// FragmentsResponse is the unary response message of the broker ListFragments RPC.
+// FragmentsResponse is the unary response message of the broker ListFragments
+// RPC.
 type FragmentsResponse struct {
 	// Status of the Apply RPC.
 	Status Status `protobuf:"varint,1,opt,name=status,proto3,enum=protocol.Status" json:"status,omitempty"`
 	// Header of the response.
 	Header    Header                        `protobuf:"bytes,2,opt,name=header,proto3" json:"header"`
 	Fragments []FragmentsResponse__Fragment `protobuf:"bytes,3,rep,name=fragments,proto3" json:"fragments"`
-	// The NextPageToke value to be returned on subsequent Fragments requests. If the value is
-	// zero then there are no more fragments to be returned for this page.
+	// The NextPageToke value to be returned on subsequent Fragments requests. If
+	// the value is zero then there are no more fragments to be returned for this
+	// page.
 	NextPageToken int64 `protobuf:"varint,4,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 }
 
@@ -1618,13 +1636,15 @@ var xxx_messageInfo_Header proto.InternalMessageInfo
 // of apparent routing conflicts in proxied or replicated requests, as well
 // as enabling sanity checks over equality of Etcd ClusterId (and precluding,
 // for example, split-brain scenarios where different brokers are backed by
-// different Etcd clusters). Etcd is kept in sync with etcdserverpb.ResponseHeader.
+// different Etcd clusters). Etcd is kept in sync with
+// etcdserverpb.ResponseHeader.
 type Header_Etcd struct {
 	// cluster_id is the ID of the cluster.
 	ClusterId uint64 `protobuf:"varint,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	// member_id is the ID of the member.
 	MemberId uint64 `protobuf:"varint,2,opt,name=member_id,json=memberId,proto3" json:"member_id,omitempty"`
-	// revision is the Etcd key-value store revision when the request was applied.
+	// revision is the Etcd key-value store revision when the request was
+	// applied.
 	Revision int64 `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
 	// raft_term is the raft term when the request was applied.
 	RaftTerm uint64 `protobuf:"varint,4,opt,name=raft_term,json=raftTerm,proto3" json:"raft_term,omitempty"`
