@@ -21,21 +21,8 @@ in the RocksDB build (and it's turned off in the standard Debian package, for ex
 Continuous Integration
 -----------------------
 
-Gazette uses a `Make-based build system`__ which pulls down and stages
-development dependencies into a ``.build`` sub-directory of the repository root:
-
-.. code-block:: console
-
-   $ make go-install
-   $ make go-test-fast
-
-__ ../mk/build.mk
-
-Continuous integration builds of Gazette run tests 15 times, with race detection enabled:
-
-.. code-block:: console
-
-   $ make go-test-ci
+Gazette uses a :githubsource:`Make-based build system<Makefile>` which pulls down and stages
+development dependencies into a ``.build`` sub-directory of the repository root.
 
 The Make build system offers fully hermetic builds using a Docker-in-Docker
 builder. Run CI tests in a hermetic build environment:
@@ -43,6 +30,8 @@ builder. Run CI tests in a hermetic build environment:
 .. code-block:: console
 
    $ make as-ci target=go-test-ci
+
+Continuous integration builds of Gazette run tests 15 times, with race detection enabled.
 
 Package release Docker images for the Gazette broker and examples,
 as ``gazette-broker:latest`` and ``gazette-examples:latest``.
@@ -65,7 +54,76 @@ Push images to a registry. If ``registry`` is not specified, it defaults to ``lo
 
    $ make push-to-registry registry=my.registry.com
 
-The ``kustomize`` directory also has a `helper manifest`_ for using a local
-registry (eg, for development builds).
+The ``kustomize`` directory also has a
+:githubsource:`helper manifest<kustomize/test/run-with-local-registry/kustomization.yaml>` for using
+a local registry (eg, for development builds).
 
-.. _`helper manifest`: ../kustomize/test/run-with-local-registry/kustomization.yaml
+
+Dependencies
+-------------
+
+It's recommended to use the docker-based build targets described above in most situations, since the
+docker image will have all the required dependencies. If you want to execute build targets directly
+instead of using ``as-ci``, then the following dependencies are required:
+
+* Compression library development headers ("-dev" packages):
+
+    * ``libbz2``
+    * ``libsnappy``
+    * ``liblz4``
+    * ``libzstd``
+    * ``libbz2``
+
+* Protobuf compiler:
+
+    * ``libprotobuf`` (development headers)
+    * ``protobuf-compiler``
+
+* Etcd: The deb/rpm packages provided in many repositories are likely too old to work with
+  Gazette. Gazette requires version 3.3 or later. Version 3.4.x is recommended, since that is used 
+  in Gazette CI.
+
+* Sqlite
+
+    * ``libsqlite3`` (development headers)
+    * It's also probably useful to have the sqlite3 CLI for debugging
+
+* RocksDB: On linux systems, this will be downloaded and built automatically. You'll need to have a
+  few things in order for this to work. Most systems will already have this stuff, but it's listed
+  here anyway just for the sake of being thorough
+
+    * A C compiler toolchain (on debian-based distros, the ``build-essential`` package will have you covered)
+    * ``curl``
+    * ``ca-certificates`` (so that curl can validate the certificate of the rocksdb download server)
+    * ``tar``
+
+Other Build Targets
+--------------------
+
+If you execute these targets directly, then you'll need to have all of the above dependencies installed.
+
+.. code-block:: console
+
+    $ make go-install
+    $ make go-test-fast
+
+
+.. code-block:: console
+
+    $ make go-test-ci
+
+Building the Docs
+------------------
+
+To build these docs locally, you'll need a few more dependencies. To start with, you'll need
+``python`` and ``pip``. Note that on some systems, these may be called ``python3`` and ``pip3``.
+Next you'll need to install the following python packages using ``pip install --user <package>``.
+
+* ``sphinx``
+* ``sphinxcontrib-programoutput``
+* ``sphinx_rtd_theme``
+
+Once you have all those installed, you can change directory into ``docs/`` and run ``make html``.
+This will write the output to ``docs/_build``, and then you can open any of the html files in your
+browser.
+

@@ -1,2 +1,5 @@
 .build
 .build-ci
+
+docs/_build
+
