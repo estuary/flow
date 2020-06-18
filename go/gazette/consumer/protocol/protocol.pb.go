@@ -162,33 +162,34 @@ type ShardSpec struct {
 	// "{hints_prefix/{shard_id}.backup.1", and so on, keeping at most
 	// |hint_backups| distinct sets of FSMHints.
 	//
-	// In the case of disaster or data-loss, these copied hints can be an important
-	// fallback for recovering a consistent albeit older version of the shard's
-	// store, with each relying on only progressively older portions of the
-	// recovery log.
+	// In the case of disaster or data-loss, these copied hints can be an
+	// important fallback for recovering a consistent albeit older version of the
+	// shard's store, with each relying on only progressively older portions of
+	// the recovery log.
 	//
 	// When pruning the recovery log, log fragments which are older than (and no
 	// longer required by) the *oldest* backup are discarded, ensuring that
 	// all hints remain valid for playback.
 	HintBackups int32 `protobuf:"varint,5,opt,name=hint_backups,json=hintBackups,proto3" json:"hint_backups,omitempty" yaml:"hint_backups,omitempty"`
 	// Max duration of shard transactions. This duration upper-bounds the amount
-	// of time during which a transaction may process messages before it must flush
-	// and commit. It may run for less time if an input message stall occurs (eg,
-	// no decoded journal message is ready without blocking). A typical value
-	// would be `1s`: applications which perform extensive aggregation over message
-	// streams exhibiting locality of "hot" keys may benefit from larger values.
+	// of time during which a transaction may process messages before it must
+	// flush and commit. It may run for less time if an input message stall occurs
+	// (eg, no decoded journal message is ready without blocking). A typical value
+	// would be `1s`: applications which perform extensive aggregation over
+	// message streams exhibiting locality of "hot" keys may benefit from larger
+	// values.
 	MaxTxnDuration time.Duration `protobuf:"bytes,6,opt,name=max_txn_duration,json=maxTxnDuration,proto3,stdduration" json:"max_txn_duration" yaml:"max_txn_duration,omitempty"`
 	// Min duration of shard transactions. This duration lower-bounds the amount
-	// of time during which a transaction must process messages before it may flush
-	// and commit. It may run for more time if additional messages are available
-	// (eg, decoded journal messages are ready without blocking). Note also that
-	// transactions are pipelined: a current transaction may process messages while
-	// a prior transaction's recovery log writes flush to Gazette, but it cannot
-	// prepare to commit until the prior transaction writes complete. In other words
-	// even if |min_txn_quantum| is zero, some degree of message batching is
-	// expected due to the network delay inherent in Gazette writes. A typical
-	// value of would be `0s`: applications which perform extensive aggregation
-	// may benefit from larger values.
+	// of time during which a transaction must process messages before it may
+	// flush and commit. It may run for more time if additional messages are
+	// available (eg, decoded journal messages are ready without blocking). Note
+	// also that transactions are pipelined: a current transaction may process
+	// messages while a prior transaction's recovery log writes flush to Gazette,
+	// but it cannot prepare to commit until the prior transaction writes
+	// complete. In other words even if |min_txn_quantum| is zero, some degree of
+	// message batching is expected due to the network delay inherent in Gazette
+	// writes. A typical value of would be `0s`: applications which perform
+	// extensive aggregation may benefit from larger values.
 	MinTxnDuration time.Duration `protobuf:"bytes,7,opt,name=min_txn_duration,json=minTxnDuration,proto3,stdduration" json:"min_txn_duration" yaml:"min_txn_duration,omitempty"`
 	// Disable processing of the shard.
 	Disable bool `protobuf:"varint,8,opt,name=disable,proto3" json:"disable,omitempty" yaml:",omitempty"`
@@ -196,9 +197,9 @@ type ShardSpec struct {
 	// replicating the primary consumer's recovery log. Standbys are allocated in
 	// a separate availability zone of the current primary, and tail the live log
 	// to continuously mirror the primary's on-disk DB file structure. Should the
-	// primary experience failure, one of the hot standbys will be assigned to take
-	// over as the new shard primary, which is accomplished by simply opening its
-	// local copy of the recovered store files.
+	// primary experience failure, one of the hot standbys will be assigned to
+	// take over as the new shard primary, which is accomplished by simply opening
+	// its local copy of the recovered store files.
 	//
 	// Note that under regular operation, shard hand-off is zero downtime even if
 	// standbys are zero, as the current primary will not cede ownership until the
@@ -263,24 +264,24 @@ var xxx_messageInfo_ShardSpec proto.InternalMessageInfo
 // For use cases which can benefit, multiple sources may be specified to
 // represent a "join" over messages of distinct journals.
 //
-// Note the effective mapping of messages to each of the joined journals should
-// align (eg, joining a journal of customer updates with one of orders, where
-// both are mapped on customer ID). This typically means the partitioning of
-// the two event "topics" must be the same.
+// Note the effective mapping of messages to each of the joined journals
+// should align (eg, joining a journal of customer updates with one of orders,
+// where both are mapped on customer ID). This typically means the
+// partitioning of the two event "topics" must be the same.
 //
 // Another powerful pattern is to shard on partitions of a high-volume event
 // stream, and also have each shard join against all events of a low-volume
-// stream. For example, a shard might ingest and index "viewed product" events,
-// read a comparably low-volume "purchase" event stream, and on each purchase
-// publish the bundle of its corresponding prior product views.
+// stream. For example, a shard might ingest and index "viewed product"
+// events, read a comparably low-volume "purchase" event stream, and on each
+// purchase publish the bundle of its corresponding prior product views.
 type ShardSpec_Source struct {
 	// Journal which this shard is consuming.
 	Journal go_gazette_dev_core_broker_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=go.gazette.dev/core/broker/protocol.Journal" json:"journal,omitempty"`
-	// Minimum journal byte offset the shard should begin reading from. Typically
-	// this should be zero, as read offsets are check-pointed and restored from
-	// the shard's Store as it processes. |min_offset| can be useful for shard
-	// initialization, directing it to skip over historical portions of the
-	// journal not needed for the application's use case.
+	// Minimum journal byte offset the shard should begin reading from.
+	// Typically this should be zero, as read offsets are check-pointed and
+	// restored from the shard's Store as it processes. |min_offset| can be
+	// useful for shard initialization, directing it to skip over historical
+	// portions of the journal not needed for the application's use case.
 	MinOffset go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,3,opt,name=min_offset,json=minOffset,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"min_offset,omitempty" yaml:"min_offset,omitempty"`
 }
 
@@ -362,7 +363,7 @@ var xxx_messageInfo_ConsumerSpec proto.InternalMessageInfo
 // ReplicaStatus is the status of a ShardSpec assigned to a ConsumerSpec.
 // It serves as an allocator AssignmentValue. ReplicaStatus is reduced by taking
 // the maximum enum value among statuses. Eg, if a primary is PRIMARY, one
-// replica is BACKFILL and the other TAILING, then the status is PRIMARY. If one
+// replica is BACKFILL and the other STANDBY, then the status is PRIMARY. If one
 // of the replicas transitioned to FAILED, than the status is FAILED. This
 // reduction behavior is used to summarize status across all replicas.
 type ReplicaStatus struct {
@@ -490,13 +491,14 @@ func (m *Checkpoint_Source) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Checkpoint_Source proto.InternalMessageInfo
 
-// ProducerState is metadata of a producer as-of a read-through journal offset.
+// ProducerState is metadata of a producer as-of a read-through journal
+// offset.
 type Checkpoint_ProducerState struct {
 	// LastAck is the last acknowledged Clock of this producer.
 	LastAck go_gazette_dev_core_message.Clock `protobuf:"fixed64,1,opt,name=last_ack,json=lastAck,proto3,casttype=go.gazette.dev/core/message.Clock" json:"last_ack,omitempty"`
 	// Begin is the offset of the first message byte having CONTINUE_TXN that's
-	// larger than LastAck. Eg, it's the offset which opens the next transaction.
-	// If there is no such message, Begin is -1.
+	// larger than LastAck. Eg, it's the offset which opens the next
+	// transaction. If there is no such message, Begin is -1.
 	Begin go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,2,opt,name=begin,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"begin,omitempty"`
 }
 
@@ -927,9 +929,9 @@ type GetHintsResponse struct {
 	Header protocol.Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header"`
 	// Primary hints for the shard.
 	PrimaryHints GetHintsResponse_ResponseHints `protobuf:"bytes,3,opt,name=primary_hints,json=primaryHints,proto3" json:"primary_hints"`
-	// List of backup hints for a shard. The most recent recovery log hints will be
-	// first, any subsequent hints are for historical backup. If there is no value
-	// for a hint key the value corresponding hints will be nil.
+	// List of backup hints for a shard. The most recent recovery log hints will
+	// be first, any subsequent hints are for historical backup. If there is no
+	// value for a hint key the value corresponding hints will be nil.
 	BackupHints []GetHintsResponse_ResponseHints `protobuf:"bytes,4,rep,name=backup_hints,json=backupHints,proto3" json:"backup_hints"`
 }
 
