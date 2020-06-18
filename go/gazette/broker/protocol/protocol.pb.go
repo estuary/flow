@@ -919,6 +919,16 @@ type AppendRequest struct {
 	Offset Offset `protobuf:"varint,5,opt,name=offset,proto3,casttype=Offset" json:"offset,omitempty"`
 	// Selector of journal registers which must be satisfied for the request
 	// to proceed. If not matched, the RPC is failed with REGISTER_MISMATCH.
+	//
+	// There's one important exception: if the set of registers associated with
+	// a journal is completely empty, then *any* selector is considered as
+	// matching. While perhaps surprising, this behavior supports the intended
+	// use of registers for cooperative locking, whereby an empty set of
+	// registers can be thought of as an "unlocked" state. More practically, if
+	// Etcd consensus is lost then so are current register values: on recovery
+	// journals will restart with an empty set. This behavior ensures that an
+	// existing process holding a prior lock can continue to write -- at least
+	// until another process updates registers once again.
 	CheckRegisters *LabelSelector `protobuf:"bytes,6,opt,name=check_registers,json=checkRegisters,proto3" json:"check_registers,omitempty"`
 	// Labels to union with current registers if the RPC succeeds and appended
 	// at least one byte.

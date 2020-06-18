@@ -417,7 +417,10 @@ func (b *appendFSM) onValidatePreconditions() {
 		maxOffset = eo
 	}
 
-	if b.req.CheckRegisters != nil && !b.req.CheckRegisters.Matches(b.registers) {
+	if b.req.CheckRegisters != nil &&
+		len(b.registers.Labels) != 0 &&
+		!b.req.CheckRegisters.Matches(b.registers) {
+
 		b.resolved.status = pb.Status_REGISTER_MISMATCH
 		b.state = stateError
 	} else if b.pln.spool.End != maxOffset && b.req.Offset == 0 && b.resolved.journalSpec.Flags.MayWrite() {

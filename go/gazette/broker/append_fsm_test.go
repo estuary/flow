@@ -374,7 +374,18 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	assert.True(t, fsm.runTo(stateStreamContent))
 	fsm.returnPipeline()
 
-	// Case: Register selector is not matched.
+	// Case: Register selector is not matched, but journal has no registers.
+	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+		Journal:        "a/journal",
+		CheckRegisters: &pb.LabelSelector{Include: pb.MustLabelSet("not", "matched")},
+	}}
+	assert.True(t, fsm.runTo(stateStreamContent))
+
+	// Set fixture for next run.
+	fsm.pln.spool.Registers = pb.MustLabelSet("some", "register")
+	fsm.returnPipeline()
+
+	// Case: Register selector doesn't match non-empty journal registers.
 	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
 		Journal:        "a/journal",
 		CheckRegisters: &pb.LabelSelector{Include: pb.MustLabelSet("not", "matched")},
