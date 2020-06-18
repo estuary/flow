@@ -7,7 +7,7 @@ import (
 	"time"
 
 	gc "github.com/go-check/check"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
 )
@@ -287,7 +287,7 @@ func (s *ListSuite) TestApplyJournalsInBatches(c *gc.C) {
 		}, nil
 	}
 	resp, err = ApplyJournalsInBatches(ctx, rjc, fixture, 1)
-	assert.EqualError(c, err, pb.Status_ETCD_TRANSACTION_FAILED.String())
+	require.EqualError(c, err, pb.Status_ETCD_TRANSACTION_FAILED.String())
 
 	// Case: Validation error mapped as error.
 	broker.ApplyFunc = func(ctx context.Context, req *pb.ApplyRequest) (*pb.ApplyResponse, error) {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -22,17 +21,17 @@ func TestAppendSingle(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	var stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("bar")}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{})) // Intend to commit.
-	assert.NoError(t, stream.CloseSend())               // Commit.
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("bar")}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{})) // Intend to commit.
+	require.NoError(t, stream.CloseSend())               // Commit.
 
 	// Expect the client stream receives an AppendResponse.
 	resp, err := stream.CloseAndRecv()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	assert.Equal(t, &pb.AppendResponse{
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_OK,
 		Header: *broker.header("a/journal"),
 		Commit: &pb.Fragment{
@@ -103,8 +102,8 @@ func TestAppendRegisterCheckAndUpdateSequence(t *testing.T) {
 		tc.request.Journal = "a/journal"
 
 		var stream, err = broker.client().Append(ctx)
-		assert.NoError(t, err)
-		assert.NoError(t, stream.Send(&tc.request))
+		require.NoError(t, err)
+		require.NoError(t, stream.Send(&tc.request))
 
 		// Send data, intent to commit, and close to commit. We don't assert
 		// NoError here, because the broker could have already responded and
@@ -114,10 +113,10 @@ func TestAppendRegisterCheckAndUpdateSequence(t *testing.T) {
 		_ = stream.CloseSend()
 
 		resp, err := stream.CloseAndRecv()
-		assert.NoError(t, err)
-		assert.Equal(t, tc.status, resp.Status)
-		assert.Equal(t, *broker.header("a/journal"), resp.Header)
-		assert.Equal(t, tc.expect, resp.Registers)
+		require.NoError(t, err)
+		require.Equal(t, tc.status, resp.Status)
+		require.Equal(t, *broker.header("a/journal"), resp.Header)
+		require.Equal(t, tc.expect, resp.Registers)
 	}
 
 	broker.cleanup()
@@ -134,13 +133,13 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 	// Case: client explicitly rolls back by closing the stream without first
 	// sending an empty chunk.
 	var stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
-	assert.NoError(t, stream.CloseSend()) // EOF without commit intent.
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
+	require.NoError(t, stream.CloseSend()) // EOF without commit intent.
 
 	// Expect the client reads an error.
 	var _, err = stream.CloseAndRecv()
-	assert.EqualError(t, err,
+	require.EqualError(t, err,
 		`rpc error: code = Unknown desc = append stream: unexpected EOF`)
 
 	// Case: client takes too long sending data.
@@ -149,11 +148,11 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 	// Client sends partial stream and stalls. We don't assert NoError as the
 	// broker may have already timed out the RPC already.
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
 	_ = stream.Send(&pb.AppendRequest{Content: []byte("foo")})
 
 	err = stream.RecvMsg(new(pb.AppendResponse)) // Block until server cancels.
-	assert.EqualError(t, err,
+	require.EqualError(t, err,
 		`rpc error: code = Unknown desc = append stream: `+ErrFlowControlUnderflow.Error())
 	uninstall()
 
@@ -161,24 +160,24 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 	var failCtx, failCtxCancel = context.WithCancel(ctx)
 
 	stream, _ = broker.client().Append(failCtx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
 	failCtxCancel() // Cancel the stream.
 
 	_, err = stream.CloseAndRecv()
-	assert.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
+	require.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
 
 	// Case: client attempts register modification but appends no data.
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{
+	require.NoError(t, stream.Send(&pb.AppendRequest{
 		Journal:        "a/journal",
 		UnionRegisters: boxLabels("foo", ""),
 	}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{})) // Intend to commit.
-	assert.NoError(t, stream.CloseSend())               // Commit.
+	require.NoError(t, stream.Send(&pb.AppendRequest{})) // Intend to commit.
+	require.NoError(t, stream.CloseSend())               // Commit.
 
 	_, err = stream.CloseAndRecv()
-	assert.EqualError(t, err, `rpc error: code = Unknown desc = append stream: `+
+	require.EqualError(t, err, `rpc error: code = Unknown desc = append stream: `+
 		`register modification requires non-empty Append`)
 
 	broker.cleanup()
@@ -192,18 +191,18 @@ func TestAppendRequestErrorCases(t *testing.T) {
 
 	// Case: AppendRequest which fails to validate.
 	var stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "/invalid/name"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "/invalid/name"}))
 
 	var _, err = stream.CloseAndRecv()
-	assert.EqualError(t, err, `rpc error: code = Unknown desc = Journal: cannot begin with '/' (/invalid/name)`)
+	require.EqualError(t, err, `rpc error: code = Unknown desc = Journal: cannot begin with '/' (/invalid/name)`)
 
 	// Case: Journal doesn't exist.
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "does/not/exist"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "does/not/exist"}))
 
 	resp, err := stream.CloseAndRecv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.AppendResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_JOURNAL_NOT_FOUND,
 		Header: *broker.header("does/not/exist"),
 	}, resp)
@@ -212,11 +211,11 @@ func TestAppendRequestErrorCases(t *testing.T) {
 	// Arrange Journal assignment fixture such that R=1, but the broker has Slot=1 (and is not primary).
 	setTestJournal(broker, pb.JournalSpec{Name: "no/primary", Replication: 1}, pb.ProcessSpec_ID{}, broker.id)
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "no/primary"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "no/primary"}))
 
 	resp, err = stream.CloseAndRecv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.AppendResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_NO_JOURNAL_PRIMARY_BROKER,
 		Header: *broker.header("no/primary"),
 	}, resp)
@@ -224,11 +223,11 @@ func TestAppendRequestErrorCases(t *testing.T) {
 	// Case: Journal with a primary but not enough replication peers.
 	setTestJournal(broker, pb.JournalSpec{Name: "not/enough/peers", Replication: 2}, broker.id)
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "not/enough/peers"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "not/enough/peers"}))
 
 	resp, err = stream.CloseAndRecv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.AppendResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_INSUFFICIENT_JOURNAL_BROKERS,
 		Header: *broker.header("not/enough/peers"),
 	}, resp)
@@ -237,12 +236,12 @@ func TestAppendRequestErrorCases(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "read/only", Replication: 1, Flags: pb.JournalSpec_O_RDONLY}, broker.id)
 	broker.initialFragmentLoad()
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "read/only"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "read/only"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
 
 	resp, err = stream.CloseAndRecv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.AppendResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_NOT_ALLOWED,
 		Header: *broker.header("read/only"),
 	}, resp)
@@ -254,11 +253,11 @@ func TestAppendRequestErrorCases(t *testing.T) {
 		fragment.Fragment{Fragment: pb.Fragment{End: 1024}},
 	})
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "valid/journal", Offset: 512}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "valid/journal", Offset: 512}))
 
 	resp, err = stream.CloseAndRecv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.AppendResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_WRONG_APPEND_OFFSET,
 		Header: *broker.header("read/only"),
 	}, resp)
@@ -279,52 +278,52 @@ func TestAppendProxyCases(t *testing.T) {
 
 	// Case: initial request is proxied to the peer, with Header attached.
 	var stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
-	assert.Equal(t, pb.AppendRequest{
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.Equal(t, pb.AppendRequest{
 		Journal: "a/journal",
 		Header:  expectHeader,
 	}, <-peer.AppendReqCh)
 
 	// Expect client content and EOF are proxied.
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foobar")}))
-	assert.Equal(t, pb.AppendRequest{Content: []byte("foobar")}, <-peer.AppendReqCh)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{}))
-	assert.Equal(t, pb.AppendRequest{}, <-peer.AppendReqCh)
-	assert.NoError(t, stream.CloseSend())
-	assert.Equal(t, io.EOF, <-peer.ReadLoopErrCh) // Peer reads proxied EOF.
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foobar")}))
+	require.Equal(t, pb.AppendRequest{Content: []byte("foobar")}, <-peer.AppendReqCh)
+	require.NoError(t, stream.Send(&pb.AppendRequest{}))
+	require.Equal(t, pb.AppendRequest{}, <-peer.AppendReqCh)
+	require.NoError(t, stream.CloseSend())
+	require.Equal(t, io.EOF, <-peer.ReadLoopErrCh) // Peer reads proxied EOF.
 
 	// Expect peer's response is proxied back to the client.
 	peer.AppendRespCh <- pb.AppendResponse{Commit: &pb.Fragment{Begin: 1234, End: 5678}}
 
 	var resp, err = stream.CloseAndRecv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.AppendResponse{Commit: &pb.Fragment{Begin: 1234, End: 5678}}, resp)
+	require.NoError(t, err)
+	require.Equal(t, &pb.AppendResponse{Commit: &pb.Fragment{Begin: 1234, End: 5678}}, resp)
 
 	// Case: proxied request fails due to broker failure.
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
 
-	assert.Equal(t, pb.AppendRequest{
+	require.Equal(t, pb.AppendRequest{
 		Journal: "a/journal",
 		Header:  expectHeader,
 	}, <-peer.AppendReqCh)
 
 	// Expect peer error is proxied back to client.
 	go func() {
-		assert.Equal(t, io.EOF, <-peer.ReadLoopErrCh) // Peer reads proxy EOF.
+		require.Equal(t, io.EOF, <-peer.ReadLoopErrCh) // Peer reads proxy EOF.
 		peer.WriteLoopErrCh <- errors.New("some kind of error")
 	}()
 	_, err = stream.CloseAndRecv()
-	assert.EqualError(t, err, `rpc error: code = Unknown desc = some kind of error`)
+	require.EqualError(t, err, `rpc error: code = Unknown desc = some kind of error`)
 
 	// Case: proxy request fails due to client cancellation.
 	var failCtx, failCtxCancel = context.WithCancel(ctx)
 
 	stream, _ = broker.client().Append(failCtx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
 
 	// Peer reads opening request, and then client stream is cancelled.
-	assert.Equal(t, pb.AppendRequest{Journal: "a/journal", Header: expectHeader},
+	require.Equal(t, pb.AppendRequest{Journal: "a/journal", Header: expectHeader},
 		<-peer.AppendReqCh)
 	failCtxCancel()
 
@@ -335,12 +334,12 @@ func TestAppendProxyCases(t *testing.T) {
 		// (does cancellation propagate to the stream first, or does the EOF
 		// sent by proxyAppend upon its reading an error?).
 	default:
-		assert.Fail(t, "unexpected ReadLoop err", "err", err)
+		require.Fail(t, "unexpected ReadLoop err", "err", err)
 	}
 	peer.WriteLoopErrCh <- nil // Peer RPC completes.
 
 	_, err = stream.CloseAndRecv()
-	assert.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
+	require.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
 
 	broker.cleanup()
 	peer.Cleanup()

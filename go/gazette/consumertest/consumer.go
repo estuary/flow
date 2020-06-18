@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
@@ -36,7 +36,7 @@ type Consumer struct {
 
 // Args of NewConsumer.
 type Args struct {
-	C        assert.TestingT
+	C        require.TestingT
 	Etcd     *clientv3.Client       // Etcd client instance.
 	Journals pb.RoutedJournalClient // Broker client instance.
 	App      consumer.Application   // Application of the consumer.
@@ -78,7 +78,7 @@ func NewConsumer(args Args) *Consumer {
 		}
 	)
 
-	assert.NoError(args.C, allocator.StartSession(allocArgs))
+	require.NoError(args.C, allocator.StartSession(allocArgs))
 	pc.RegisterShardServer(srv.GRPCServer, svc)
 	ks.WatchApplyDelay = 0 // Speedup test execution.
 
@@ -137,18 +137,18 @@ func (cmr *Consumer) WaitForPrimary(ctx context.Context, shard pc.ShardID, route
 }
 
 // CreateShards using the Consumer Apply API, and wait for them to be allocated.
-func CreateShards(t assert.TestingT, cmr *Consumer, specs ...*pc.ShardSpec) {
+func CreateShards(t require.TestingT, cmr *Consumer, specs ...*pc.ShardSpec) {
 	var req = new(pc.ApplyRequest)
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, pc.ApplyRequest_Change{Upsert: spec})
 	}
 	var resp, err = consumer.ApplyShards(context.Background(),
 		pc.NewShardClient(cmr.Service.Loopback), req)
-	assert.NoError(t, err)
-	assert.Equal(t, pc.Status_OK, resp.Status)
+	require.NoError(t, err)
+	require.Equal(t, pc.Status_OK, resp.Status)
 
 	for _, s := range specs {
-		assert.NoError(t, cmr.WaitForPrimary(context.Background(), s.Id, nil))
+		require.NoError(t, cmr.WaitForPrimary(context.Background(), s.Id, nil))
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
@@ -18,7 +17,7 @@ func TestSQLCheckpointPersistAndRestore(t *testing.T) {
 
 	// Run one transaction, then de-assign the shard.
 	var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var fqn = res.Shard.FQN()
 	runTransaction(tf, res.Shard, map[string]string{"key": "one"})
@@ -27,31 +26,31 @@ func TestSQLCheckpointPersistAndRestore(t *testing.T) {
 
 	// Expect a checkpoint was persisted.
 	var fence int
-	assert.NoError(t, tf.app.db.QueryRow("SELECT fence FROM gazette_checkpoints "+
+	require.NoError(t, tf.app.db.QueryRow("SELECT fence FROM gazette_checkpoints "+
 		"WHERE shard_fqn=$1", fqn).Scan(&fence))
-	assert.Equal(t, 1, fence)
+	require.Equal(t, 1, fence)
 
 	// Re-assign as primary.
 	tf.allocateShard(spec, localID)
 	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
 
 	// Expect the checkpoint was restored and its fence increased.
-	assert.NoError(t, tf.app.db.QueryRow("SELECT fence FROM gazette_checkpoints "+
+	require.NoError(t, tf.app.db.QueryRow("SELECT fence FROM gazette_checkpoints "+
 		"WHERE shard_fqn=$1", fqn).Scan(&fence))
-	assert.Equal(t, 2, fence)
+	require.Equal(t, 2, fence)
 
 	res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	runTransaction(tf, res.Shard, map[string]string{"key": "two"})
 	verifyStoreAndEchoOut(t, res.Shard.(*shard), map[string]string{"key": "two"})
 
 	// Increase the fence out-of-band (eg, as another raced primary would).
 	_, err = tf.app.db.Exec("UPDATE gazette_checkpoints SET fence = fence + 1")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	runTransaction(tf, res.Shard, map[string]string{"key": "fails"})
-	assert.Equal(t, "runTransactions: store.StartCommit: checkpoint fence was updated (ie, by a new primary)",
+	require.Equal(t, "runTransactions: store.StartCommit: checkpoint fence was updated (ie, by a new primary)",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	// Cleanup.
@@ -73,7 +72,7 @@ func TestSQLCheckpointInsertRace(t *testing.T) {
 	require.NoError(t, err)
 
 	tf.allocateShard(spec, localID)
-	assert.Equal(t, "completeRecovery: store.RestoreCheckpoint: UNIQUE constraint failed: gazette_checkpoints.shard_fqn",
+	require.Equal(t, "completeRecovery: store.RestoreCheckpoint: UNIQUE constraint failed: gazette_checkpoints.shard_fqn",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(spec)

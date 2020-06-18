@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
 )
@@ -57,14 +57,14 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 			kv = append(kv, v)
 		}
 		if asInsert {
-			assert.NoError(b, insert(ctx, client, kv...))
+			require.NoError(b, insert(ctx, client, kv...))
 		} else {
-			assert.NoError(b, update(ctx, client, kv...))
+			require.NoError(b, update(ctx, client, kv...))
 		}
 	}
 
 	// Insert a Member key which will act as the leader, and will not be rolled.
-	assert.NoError(b, insert(ctx, client, state.LocalKey, `{"R": 1}`))
+	require.NoError(b, insert(ctx, client, state.LocalKey, `{"R": 1}`))
 
 	// Announce half of Members...
 	fill(0, NMembersHalf, true, func(i int) (string, string) {
@@ -98,7 +98,7 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 		} else if !testState.consistent {
 			// Mark any new Assignments as "consistent", which will typically
 			// unblock further convergence operations.
-			assert.NoError(b, markAllConsistent(ctx, client, ks))
+			require.NoError(b, markAllConsistent(ctx, client, ks))
 			testState.consistent = true
 			return
 		}
@@ -123,10 +123,10 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 		testState.consistent = false
 	}
 
-	assert.NoError(b, ks.Load(ctx, client, 0))
+	require.NoError(b, ks.Load(ctx, client, 0))
 	go ks.Watch(ctx, client)
 
-	assert.NoError(b, Allocate(AllocateArgs{
+	require.NoError(b, Allocate(AllocateArgs{
 		Context:  ctx,
 		Etcd:     client,
 		State:    state,

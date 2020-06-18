@@ -3,7 +3,7 @@ package broker
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
@@ -31,12 +31,12 @@ func TestJournalConsistencyCases(t *testing.T) {
 	}
 
 	// Case: all assignments match.
-	assert.True(t, JournalIsConsistent(allocator.Item{}, keyspace.KeyValue{}, assignments))
+	require.True(t, JournalIsConsistent(allocator.Item{}, keyspace.KeyValue{}, assignments))
 	// Case: vary indicated primary of Route.
 	routes[0].Primary = 1
-	assert.False(t, JournalIsConsistent(allocator.Item{}, keyspace.KeyValue{}, assignments))
+	require.False(t, JournalIsConsistent(allocator.Item{}, keyspace.KeyValue{}, assignments))
 	routes[0].Primary = 0
 	// Case: vary members.
 	routes[1].Members = append(routes[1].Members, pb.ProcessSpec_ID{Zone: "zone/b", Suffix: "member/4"})
-	assert.False(t, JournalIsConsistent(allocator.Item{}, keyspace.KeyValue{}, assignments))
+	require.False(t, JournalIsConsistent(allocator.Item{}, keyspace.KeyValue{}, assignments))
 }

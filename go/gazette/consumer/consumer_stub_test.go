@@ -3,7 +3,7 @@ package consumer
 import (
 	"context"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
@@ -13,7 +13,7 @@ import (
 // shardServerStub stubs the read and write loops of ShardServer RPCs.
 // C.f. teststub.Broker
 type shardServerStub struct {
-	t     assert.TestingT
+	t     require.TestingT
 	tasks *task.Group
 	srv   *server.Server
 
@@ -24,7 +24,7 @@ type shardServerStub struct {
 }
 
 // newShardServerStub returns a shardServerStub instance served by a local GRPC server.
-func newShardServerStub(t assert.TestingT) *shardServerStub {
+func newShardServerStub(t require.TestingT) *shardServerStub {
 	var s = &shardServerStub{
 		t:     t,
 		tasks: task.NewGroup(context.Background()),
@@ -46,8 +46,8 @@ func (s *shardServerStub) endpoint() pb.Endpoint { return s.srv.Endpoint() }
 func (s *shardServerStub) cleanup() {
 	s.tasks.Cancel()
 	s.srv.BoundedGracefulStop()
-	assert.NoError(s.t, s.srv.GRPCLoopback.Close())
-	assert.NoError(s.t, s.tasks.Wait())
+	require.NoError(s.t, s.srv.GRPCLoopback.Close())
+	require.NoError(s.t, s.tasks.Wait())
 }
 
 // Stat implements the shardServerStub interface by proxying through StatFunc.

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/labels"
 )
 
@@ -18,13 +18,13 @@ func TestCSVFramingMarshalWithFixtures(t *testing.T) {
 	var uuid = uuid.New()
 
 	// Expect encoding/csv gracefully handles quoting.
-	assert.NoError(t, f.Marshal(&CSVRecord{uuid.String(), "123", `qu"ote`}, bw))
+	require.NoError(t, f.Marshal(&CSVRecord{uuid.String(), "123", `qu"ote`}, bw))
 	_ = bw.Flush()
-	assert.Equal(t, uuid.String()+`,123,"qu""ote"`+"\n", buf.String())
+	require.Equal(t, uuid.String()+`,123,"qu""ote"`+"\n", buf.String())
 
-	assert.NoError(t, f.Marshal(&CSVRecord{uuid.String(), "567,891"}, bw))
+	require.NoError(t, f.Marshal(&CSVRecord{uuid.String(), "567,891"}, bw))
 	_ = bw.Flush()
-	assert.Equal(t, uuid.String()+`,123,"qu""ote"`+"\n"+uuid.String()+`,"567,891"`+"\n", buf.String())
+	require.Equal(t, uuid.String()+`,123,"qu""ote"`+"\n"+uuid.String()+`,"567,891"`+"\n", buf.String())
 }
 
 func TestCSVFramingDecodeWithFixture(t *testing.T) {
@@ -36,11 +36,11 @@ func TestCSVFramingDecodeWithFixture(t *testing.T) {
 	var unmarshal = f.NewUnmarshalFunc(testReader(fixture))
 
 	// Read single message.
-	assert.NoError(t, unmarshal(&msg))
-	assert.Equal(t, CSVRecord{uuid.String(), "bar", "baz"}, msg)
+	require.NoError(t, unmarshal(&msg))
+	require.Equal(t, CSVRecord{uuid.String(), "bar", "baz"}, msg)
 
 	// EOF read on message boundary is returned as EOF.
-	assert.Equal(t, io.EOF, unmarshal(&msg))
+	require.Equal(t, io.EOF, unmarshal(&msg))
 }
 
 func TestCSVFramingErrorsIfFieldsChange(t *testing.T) {
@@ -51,10 +51,10 @@ func TestCSVFramingErrorsIfFieldsChange(t *testing.T) {
 	var msg CSVRecord
 	var unmarshal = f.NewUnmarshalFunc(testReader(fixture))
 
-	assert.NoError(t, unmarshal(&msg))
-	assert.Equal(t, CSVRecord{uuid.String(), "foo", "bar"}, msg)
+	require.NoError(t, unmarshal(&msg))
+	require.Equal(t, CSVRecord{uuid.String(), "foo", "bar"}, msg)
 
-	assert.EqualError(t, unmarshal(&msg), "record on line 2: wrong number of fields")
+	require.EqualError(t, unmarshal(&msg), "record on line 2: wrong number of fields")
 }
 
 func TestCSVFramingDecodeError(t *testing.T) {
@@ -64,5 +64,5 @@ func TestCSVFramingDecodeError(t *testing.T) {
 	var msg CSVRecord
 	var unmarshal = f.NewUnmarshalFunc(testReader(fixture))
 
-	assert.EqualError(t, unmarshal(&msg), "invalid UUID length: 10")
+	require.EqualError(t, unmarshal(&msg), "invalid UUID length: 10")
 }

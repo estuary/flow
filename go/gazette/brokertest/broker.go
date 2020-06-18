@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
@@ -33,7 +33,7 @@ type Broker struct {
 }
 
 // NewBroker builds and returns an in-process Broker identified by |zone| and |suffix|.
-func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *Broker {
+func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *Broker {
 	var (
 		id    = pb.ProcessSpec_ID{Zone: zone, Suffix: suffix}
 		ks    = broker.NewKeySpace("/broker.test")
@@ -57,7 +57,7 @@ func NewBroker(t assert.TestingT, etcd *clientv3.Client, zone, suffix string) *B
 		}
 	)
 
-	assert.NoError(t, allocator.StartSession(allocArgs))
+	require.NoError(t, allocator.StartSession(allocArgs))
 	pb.RegisterJournalServer(srv.GRPCServer, svc)
 	// Set, but don't start a Persister for the test.
 	broker.SetSharedPersister(fragment.NewPersister(ks))
@@ -142,7 +142,7 @@ func Journal(spec pb.JournalSpec) *pb.JournalSpec {
 }
 
 // CreateJournals using the Broker Apply API, and wait for them to be allocated.
-func CreateJournals(t assert.TestingT, bk *Broker, specs ...*pb.JournalSpec) {
+func CreateJournals(t require.TestingT, bk *Broker, specs ...*pb.JournalSpec) {
 	var ctx = pb.WithDispatchDefault(context.Background())
 
 	var req = new(pb.ApplyRequest)
@@ -151,11 +151,11 @@ func CreateJournals(t assert.TestingT, bk *Broker, specs ...*pb.JournalSpec) {
 	}
 
 	var resp, err = client.ApplyJournals(ctx, bk.Client(), req)
-	assert.NoError(t, err)
-	assert.Equal(t, pb.Status_OK, resp.Status)
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
 
 	for _, s := range specs {
-		assert.NoError(t, bk.WaitForConsistency(ctx, s.Name, nil))
+		require.NoError(t, bk.WaitForConsistency(ctx, s.Name, nil))
 	}
 }
 

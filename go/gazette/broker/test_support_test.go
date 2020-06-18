@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
@@ -28,7 +27,7 @@ import (
 //   each assigned replica. Unit tests should perform (or test) these functions
 //   as needed.
 type testBroker struct {
-	t     assert.TestingT
+	t     require.TestingT
 	id    pb.ProcessSpec_ID
 	tasks *task.Group
 	ks    *keyspace.KeySpace
@@ -44,7 +43,7 @@ type mockBroker struct {
 
 // newTestBroker returns a local testBroker of |id|. |newReplicaFn| should be
 // either |newReadyReplica| or |newReplica|.
-func newTestBroker(t assert.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_ID) *testBroker {
+func newTestBroker(t require.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_ID) *testBroker {
 	var bk = &testBroker{
 		t:     t,
 		id:    id,
@@ -70,7 +69,7 @@ func newTestBroker(t assert.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_I
 			ProcessSpec: pb.ProcessSpec{Id: id, Endpoint: bk.srv.Endpoint()},
 		}).MarshalString(),
 	})
-	assert.NoError(t, bk.ks.Load(bk.tasks.Context(), etcd, 0))
+	require.NoError(t, bk.ks.Load(bk.tasks.Context(), etcd, 0))
 
 	// Set, but don't start a Persister for the test.
 	SetSharedPersister(fragment.NewPersister(bk.ks))
@@ -98,7 +97,7 @@ func (bk *testBroker) initialFragmentLoad() {
 // Cleanup cancels the Broker tasks.Group and asserts that it exits cleanly.
 func (bk *testBroker) cleanup() {
 	bk.tasks.Cancel()
-	assert.NoError(bk.t, bk.tasks.Wait())
+	require.NoError(bk.t, bk.tasks.Wait())
 }
 
 // resolve returns the resolution of |journal| against the testBroker.
@@ -108,7 +107,7 @@ func (bk *testBroker) resolve(journal pb.Journal) *resolution {
 		journal:  journal,
 		mayProxy: true,
 	})
-	assert.NoError(bk.t, err)
+	require.NoError(bk.t, err)
 	return res
 }
 
@@ -124,10 +123,10 @@ func (bk *testBroker) replica(journal pb.Journal) *replica { return bk.resolve(j
 func (bk *testBroker) catchUpKeySpace() {
 	var ctx = context.Background()
 	var resp, err = bk.svc.etcd.Get(ctx, "a-key-we-don't-expect-to-exist")
-	assert.NoError(bk.t, err)
+	require.NoError(bk.t, err)
 
 	bk.ks.Mu.RLock()
-	assert.NoError(bk.t, bk.ks.WaitForRevision(ctx, resp.Header.Revision))
+	require.NoError(bk.t, bk.ks.WaitForRevision(ctx, resp.Header.Revision))
 	bk.ks.Mu.RUnlock()
 }
 
@@ -157,7 +156,7 @@ func setTestJournal(bk *testBroker, spec pb.JournalSpec, ids ...pb.ProcessSpec_I
 			CompressionCodec: pb.CompressionCodec_SNAPPY,
 		},
 	})
-	assert.NoError(bk.t, spec.Validate())
+	require.NoError(bk.t, spec.Validate())
 
 	// Apply the JournalSpec.
 	var op = []clientv3.Op{clientv3.OpPut(
@@ -197,14 +196,14 @@ func setTestJournal(bk *testBroker, spec pb.JournalSpec, ids ...pb.ProcessSpec_I
 	}
 
 	var resp, err = bk.svc.etcd.Txn(context.Background()).Then(op...).Commit()
-	assert.NoError(bk.t, err)
-	assert.True(bk.t, resp.Succeeded)
+	require.NoError(bk.t, err)
+	require.True(bk.t, resp.Succeeded)
 
-	assert.NoError(bk.t, bk.ks.WaitForRevision(context.Background(), resp.Header.Revision))
+	require.NoError(bk.t, bk.ks.WaitForRevision(context.Background(), resp.Header.Revision))
 }
 
 // mustKeyValues creates keys and values. The keys must not already exist.
-func mustKeyValues(t assert.TestingT, etcd clientv3.KV, kvs map[string]string) int64 {
+func mustKeyValues(t require.TestingT, etcd clientv3.KV, kvs map[string]string) int64 {
 	var cmps []clientv3.Cmp
 	var ops []clientv3.Op
 
@@ -215,8 +214,8 @@ func mustKeyValues(t assert.TestingT, etcd clientv3.KV, kvs map[string]string) i
 	var resp, err = etcd.Txn(context.Background()).
 		If(cmps...).Then(ops...).Commit()
 
-	assert.NoError(t, err)
-	assert.Equal(t, resp.Succeeded, true)
+	require.NoError(t, err)
+	require.Equal(t, resp.Succeeded, true)
 
 	return resp.Header.Revision
 }

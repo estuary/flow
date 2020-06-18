@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimpleFixtureOne(t *testing.T) {
@@ -36,7 +36,7 @@ func TestSimpleFixtureOne(t *testing.T) {
 	}
 	var mf = FindMaxFlow(testNetwork{nodes: 6, arcsFn: arcs.fn})
 
-	assert.Equal(t, toMap(mf), map[Adjacency]Rate{
+	require.Equal(t, toMap(mf), map[Adjacency]Rate{
 		{From: A, To: B}:        10,
 		{From: B, To: C}:        3,
 		{From: B, To: SinkID}:   7,
@@ -75,7 +75,7 @@ func TestSimpleFixtureTwo(t *testing.T) {
 	}
 	var mf = FindMaxFlow(testNetwork{nodes: 6, arcsFn: arcs.fn})
 
-	assert.Equal(t, toMap(mf), map[Adjacency]Rate{
+	require.Equal(t, toMap(mf), map[Adjacency]Rate{
 		{From: O, To: Q}:        3,
 		{From: P, To: R}:        2,
 		{From: Q, To: R}:        1,
@@ -113,7 +113,7 @@ func TestCommonSubstructureFixture(t *testing.T) {
 
 	// Expect that the NodeID-based shift during arc selection results
 	// in flow which is balanced across arcs and Nodes.
-	assert.Equal(t, toMap(mf), map[Adjacency]Rate{
+	require.Equal(t, toMap(mf), map[Adjacency]Rate{
 		{From: SourceID, To: 2}: 2,
 		{From: SourceID, To: 3}: 2,
 		{From: SourceID, To: 4}: 2,
@@ -141,7 +141,7 @@ func TestCommonSubstructureFixture(t *testing.T) {
 
 	mf = FindMaxFlow(testNetwork{nodes: 11, arcsFn: arcsFn2})
 
-	assert.Equal(t, toMap(mf), map[Adjacency]Rate{
+	require.Equal(t, toMap(mf), map[Adjacency]Rate{
 		{From: SourceID, To: 2}: 2,
 		{From: SourceID, To: 3}: 2,
 		{From: SourceID, To: 4}: 2,
@@ -187,7 +187,7 @@ func TestOverflowFixture(t *testing.T) {
 	var mf = FindMaxFlow(testNetwork{nodes: 11, arcsFn: arcsFn})
 
 	// Expect we find one of the valid max-flow solutions.
-	assert.Equal(t, toMap(mf), map[Adjacency]Rate{
+	require.Equal(t, toMap(mf), map[Adjacency]Rate{
 		{From: SourceID, To: 4}: 1,
 		{From: 4, To: 5}:        1,
 		{From: 5, To: SinkID}:   1,
@@ -205,7 +205,7 @@ func TestOverflowFixture(t *testing.T) {
 	mf = FindMaxFlow(testNetwork{nodes: 11, arcsFn: arcsFn2})
 
 	// Expect the new capacity is used.
-	assert.Equal(t, toMap(mf), map[Adjacency]Rate{
+	require.Equal(t, toMap(mf), map[Adjacency]Rate{
 		{From: SourceID, To: 2}: 1,
 		{From: SourceID, To: 4}: 1,
 		{From: 2, To: 5}:        1,
@@ -248,16 +248,16 @@ func TestNodeDischarge(t *testing.T) {
 	mf.discharge(2, s)
 
 	verifyFlows(t, mf, 2, []expectedFlow{{to: SinkID, rate: 1}}) // Flow added.
-	assert.Equal(t, mf.nodes[SinkID].excess, Rate(1))
-	assert.Equal(t, mf.nodes[2].nextHeight, Height(5)) // nodes[4].height + 1.
+	require.Equal(t, mf.nodes[SinkID].excess, Rate(1))
+	require.Equal(t, mf.nodes[2].nextHeight, Height(5)) // nodes[4].height + 1.
 
 	// Expect we can discharge again to the sink (we haven't stepped past the Arc).
 	mf.nodes[2].excess = 1
 	mf.discharge(2, s)
 
 	verifyFlows(t, mf, 2, []expectedFlow{{to: SinkID, rate: 2}}) // Updated.
-	assert.Equal(t, mf.nodes[SinkID].excess, Rate(2))
-	assert.Equal(t, mf.nodes[2].height, Height(2)) // No relabel occurred.
+	require.Equal(t, mf.nodes[SinkID].excess, Rate(2))
+	require.Equal(t, mf.nodes[2].height, Height(2)) // No relabel occurred.
 
 	// Arc to Sink is saturated. We re-label to push to node 3.
 	mf.nodes[2].excess = 2
@@ -267,9 +267,9 @@ func TestNodeDischarge(t *testing.T) {
 		{to: SinkID, rate: 2},
 		{to: 3, rate: 2}, // Added.
 	})
-	assert.Equal(t, mf.nodes[3].excess, Rate(2))
-	assert.Equal(t, mf.nodes[2].height, Height(4))     // A tighter bound was found with node 3.
-	assert.Equal(t, mf.nodes[2].nextHeight, Height(5)) // nodes[4].height + 1.
+	require.Equal(t, mf.nodes[3].excess, Rate(2))
+	require.Equal(t, mf.nodes[2].height, Height(4))     // A tighter bound was found with node 3.
+	require.Equal(t, mf.nodes[2].nextHeight, Height(5)) // nodes[4].height + 1.
 
 	// We're able to push once more to 3, then relabel before pushing to 4.
 	mf.nodes[2].excess = 2
@@ -280,11 +280,11 @@ func TestNodeDischarge(t *testing.T) {
 		{to: SinkID, rate: 2},
 		{to: 3, rate: 3}, // Updated.
 	})
-	assert.Equal(t, mf.nodes[3].excess, Rate(3))
-	assert.Equal(t, mf.nodes[4].excess, Rate(1))
-	assert.Equal(t, mf.nodes[2].height, Height(5))
+	require.Equal(t, mf.nodes[3].excess, Rate(3))
+	require.Equal(t, mf.nodes[4].excess, Rate(1))
+	require.Equal(t, mf.nodes[2].height, Height(5))
 	// Node 3 & the sink are saturated, and we just pushed to 4, so no |nextHeight| yet.
-	assert.Equal(t, mf.nodes[2].nextHeight, maxHeight)
+	require.Equal(t, mf.nodes[2].nextHeight, maxHeight)
 
 	// On next discharge we must relabel. We then push along the residual to 5.
 	// Though it was added first, the residual from Source used PushFront, and
@@ -293,9 +293,9 @@ func TestNodeDischarge(t *testing.T) {
 	mf.discharge(2, s)
 
 	verifyFlows(t, mf, 5, []expectedFlow{{to: 2, rate: 2}}) // Was 5.
-	assert.Equal(t, mf.nodes[2].height, Height(7))
-	assert.Equal(t, mf.nodes[2].nextHeight, maxHeight)
-	assert.Equal(t, mf.nodes[2].dischargePage, PageEOF)
+	require.Equal(t, mf.nodes[2].height, Height(7))
+	require.Equal(t, mf.nodes[2].nextHeight, maxHeight)
+	require.Equal(t, mf.nodes[2].dischargePage, PageEOF)
 
 	// Discharge again. We exhaust the residual to 5, and begin pushing
 	// along the residual to Source.
@@ -319,21 +319,21 @@ func TestFlowTracking(t *testing.T) {
 	mf.freeFlows = []flowID{2, 3, 1}
 
 	var id = mf.addFlow(Adjacency{SourceID, 2}, false)
-	assert.Equal(t, id, flowID(1))
+	require.Equal(t, id, flowID(1))
 	id = mf.addFlow(Adjacency{SourceID, 4}, true)
-	assert.Equal(t, id, flowID(3))
+	require.Equal(t, id, flowID(3))
 	id = mf.addFlow(Adjacency{SourceID, 3}, false)
-	assert.Equal(t, id, flowID(2))
+	require.Equal(t, id, flowID(2))
 	id = mf.addFlow(Adjacency{2, 3}, true)
-	assert.Equal(t, id, flowID(4))
+	require.Equal(t, id, flowID(4))
 	id = mf.addFlow(Adjacency{2, 4}, false)
-	assert.Equal(t, id, flowID(5))
+	require.Equal(t, id, flowID(5))
 	id = mf.addFlow(Adjacency{3, 4}, false)
-	assert.Equal(t, id, flowID(6))
+	require.Equal(t, id, flowID(6))
 
 	// Expect each Flow fixture is tracked and properly linked
 	// into per-node forward and reverse (residual) lists.
-	assert.Equal(t, mf.flows, []Flow{
+	require.Equal(t, mf.flows, []Flow{
 		{}, // Sentinel.
 		{
 			Adjacency: Adjacency{From: SourceID, To: 2},
@@ -362,27 +362,27 @@ func TestFlowTracking(t *testing.T) {
 	})
 
 	// Expect Nodes reflect the correct lists heads and tails.
-	assert.Equal(t, mf.nodes[SourceID].fwdHead, flowID(3))
-	assert.Equal(t, mf.nodes[SourceID].fwdTail, flowID(2))
-	assert.Equal(t, mf.nodes[SourceID].revHead, flowID(0))
-	assert.Equal(t, mf.nodes[SourceID].revTail, flowID(0))
+	require.Equal(t, mf.nodes[SourceID].fwdHead, flowID(3))
+	require.Equal(t, mf.nodes[SourceID].fwdTail, flowID(2))
+	require.Equal(t, mf.nodes[SourceID].revHead, flowID(0))
+	require.Equal(t, mf.nodes[SourceID].revTail, flowID(0))
 
-	assert.Equal(t, mf.nodes[2].fwdHead, flowID(4))
-	assert.Equal(t, mf.nodes[2].fwdTail, flowID(5))
-	assert.Equal(t, mf.nodes[2].revHead, flowID(1))
-	assert.Equal(t, mf.nodes[2].revTail, flowID(1))
+	require.Equal(t, mf.nodes[2].fwdHead, flowID(4))
+	require.Equal(t, mf.nodes[2].fwdTail, flowID(5))
+	require.Equal(t, mf.nodes[2].revHead, flowID(1))
+	require.Equal(t, mf.nodes[2].revTail, flowID(1))
 
-	assert.Equal(t, mf.nodes[4].fwdHead, flowID(0))
-	assert.Equal(t, mf.nodes[4].fwdTail, flowID(0))
-	assert.Equal(t, mf.nodes[4].revHead, flowID(3))
-	assert.Equal(t, mf.nodes[4].revTail, flowID(6))
+	require.Equal(t, mf.nodes[4].fwdHead, flowID(0))
+	require.Equal(t, mf.nodes[4].fwdTail, flowID(0))
+	require.Equal(t, mf.nodes[4].revHead, flowID(3))
+	require.Equal(t, mf.nodes[4].revTail, flowID(6))
 
 	// Begin incrementally removing flows. Expect links of remaining Flows
 	// are updated to reflect removals.
 	mf.removeFlow(6)
 	mf.removeFlow(1)
 
-	assert.Equal(t, mf.flows, []Flow{
+	require.Equal(t, mf.flows, []Flow{
 		{},
 		{},
 		{
@@ -404,16 +404,16 @@ func TestFlowTracking(t *testing.T) {
 		{},
 	})
 
-	assert.Equal(t, mf.nodes[2].revHead, flowID(0)) // Removed (was 1).
-	assert.Equal(t, mf.nodes[2].revTail, flowID(0)) // Removed (was 1).
+	require.Equal(t, mf.nodes[2].revHead, flowID(0)) // Removed (was 1).
+	require.Equal(t, mf.nodes[2].revTail, flowID(0)) // Removed (was 1).
 
-	assert.Equal(t, mf.nodes[4].revHead, flowID(3))
-	assert.Equal(t, mf.nodes[4].revTail, flowID(5)) // Updated (was 6).
+	require.Equal(t, mf.nodes[4].revHead, flowID(3))
+	require.Equal(t, mf.nodes[4].revTail, flowID(5)) // Updated (was 6).
 
 	mf.removeFlow(3)
 	mf.removeFlow(5)
 
-	assert.Equal(t, mf.flows, []Flow{
+	require.Equal(t, mf.flows, []Flow{
 		{},
 		{},
 		{
@@ -429,29 +429,29 @@ func TestFlowTracking(t *testing.T) {
 		{},
 	})
 
-	assert.Equal(t, mf.nodes[SourceID].fwdHead, flowID(2)) // Updated (was 3).
-	assert.Equal(t, mf.nodes[SourceID].fwdTail, flowID(2))
+	require.Equal(t, mf.nodes[SourceID].fwdHead, flowID(2)) // Updated (was 3).
+	require.Equal(t, mf.nodes[SourceID].fwdTail, flowID(2))
 
-	assert.Equal(t, mf.nodes[2].fwdHead, flowID(4))
-	assert.Equal(t, mf.nodes[2].fwdTail, flowID(4)) // Updated (was 5).
+	require.Equal(t, mf.nodes[2].fwdHead, flowID(4))
+	require.Equal(t, mf.nodes[2].fwdTail, flowID(4)) // Updated (was 5).
 
-	assert.Equal(t, mf.nodes[4].revHead, flowID(0)) // Removed (was 3).
-	assert.Equal(t, mf.nodes[4].revTail, flowID(0)) // Removed (was 5).
+	require.Equal(t, mf.nodes[4].revHead, flowID(0)) // Removed (was 3).
+	require.Equal(t, mf.nodes[4].revTail, flowID(0)) // Removed (was 5).
 
 	mf.removeFlow(4)
 	mf.removeFlow(2)
 
-	assert.Equal(t, mf.flows, make([]Flow, 7))
+	require.Equal(t, mf.flows, make([]Flow, 7))
 
 	// Expect after removing all Flows, Nodes are in their initial state.
 	for i := range mf.nodes {
-		assert.Equal(t, mf.nodes[i].fwdHead, flowID(0))
-		assert.Equal(t, mf.nodes[i].fwdTail, flowID(0))
-		assert.Equal(t, mf.nodes[i].revHead, flowID(0))
-		assert.Equal(t, mf.nodes[i].revTail, flowID(0))
+		require.Equal(t, mf.nodes[i].fwdHead, flowID(0))
+		require.Equal(t, mf.nodes[i].fwdTail, flowID(0))
+		require.Equal(t, mf.nodes[i].revHead, flowID(0))
+		require.Equal(t, mf.nodes[i].revTail, flowID(0))
 	}
 	// All prior flowIDs are on the free-list.
-	assert.Equal(t, mf.freeFlows, []flowID{6, 1, 3, 5, 4, 2})
+	require.Equal(t, mf.freeFlows, []flowID{6, 1, 3, 5, 4, 2})
 }
 
 func TestActiveTrackingOnHeight(t *testing.T) {
@@ -460,9 +460,9 @@ func TestActiveTrackingOnHeight(t *testing.T) {
 	mf.nodes[3].height = 3
 	mf.nodes[4].height = 4
 
-	assert.Equal(t, mf.active, []NodeID{SourceID})
+	require.Equal(t, mf.active, []NodeID{SourceID})
 	mf.updateExcess(2, 5)
-	assert.Equal(t, mf.active, []NodeID{SourceID, 2})
+	require.Equal(t, mf.active, []NodeID{SourceID, 2})
 
 	mf.updateExcess(2, -3)
 	mf.updateExcess(4, 2)
@@ -481,12 +481,12 @@ func TestActiveTrackingOnHeight(t *testing.T) {
 		{2, 2},
 	} {
 		var id, ok = mf.popActiveNode()
-		assert.True(t, ok)
-		assert.Equal(t, id, expect.id)
-		assert.Equal(t, mf.nodes[id].excess, expect.excess)
+		require.True(t, ok)
+		require.Equal(t, id, expect.id)
+		require.Equal(t, mf.nodes[id].excess, expect.excess)
 	}
 	var _, ok = mf.popActiveNode()
-	assert.False(t, ok)
+	require.False(t, ok)
 }
 
 func toMap(g *MaxFlow) map[Adjacency]Rate {
@@ -507,11 +507,11 @@ type expectedFlow struct {
 
 func verifyFlows(t *testing.T, mf *MaxFlow, nid NodeID, expect []expectedFlow) {
 	mf.Flows(nid, func(flow Flow) {
-		assert.Equal(t, flow.To, expect[0].to)
-		assert.Equal(t, flow.Rate, expect[0].rate)
+		require.Equal(t, flow.To, expect[0].to)
+		require.Equal(t, flow.Rate, expect[0].rate)
 		expect = expect[1:]
 	})
-	assert.Equal(t, expect, []expectedFlow{})
+	require.Equal(t, expect, []expectedFlow{})
 }
 
 type testNetwork struct {

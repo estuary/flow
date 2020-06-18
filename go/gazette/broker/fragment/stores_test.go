@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/codecs"
@@ -92,13 +91,13 @@ func TestStoreInteractions(t *testing.T) {
 	require.Len(t, fooFragsPostRW, 3)
 
 	// Fragments reflect their correct listed journals.
-	assert.Equal(t, tstRWFoo, fooFrags[0].Journal)
-	assert.Equal(t, tstBar, barFrags[0].Journal)
-	assert.Equal(t, pb.Journal("tst/rwReplace/foo"), fooFragsPostRW[0].Journal)
+	require.Equal(t, tstRWFoo, fooFrags[0].Journal)
+	require.Equal(t, tstBar, barFrags[0].Journal)
+	require.Equal(t, pb.Journal("tst/rwReplace/foo"), fooFragsPostRW[0].Journal)
 
 	// We can open and read expected fragment content.
-	assert.Equal(t, tstRWFooData[1], readFrag(t, fooFrags[1]), fooFrags)
-	assert.Equal(t, tstBarData[0], readFrag(t, barFrags[0]), barFrags)
+	require.Equal(t, tstRWFooData[1], readFrag(t, fooFrags[1]), fooFrags)
+	require.Equal(t, tstBarData[0], readFrag(t, barFrags[0]), barFrags)
 
 	// We can create a signed URL and GET it.
 	getURL, err := SignGetURL(fooFrags[0], time.Minute)
@@ -108,7 +107,7 @@ func TestStoreInteractions(t *testing.T) {
 	b, err := ioutil.ReadAll(fr)
 	require.NoError(t, err)
 	require.NoError(t, fr.Close())
-	assert.Equal(t, tstRWFooData[0], string(b))
+	require.Equal(t, tstRWFooData[0], string(b))
 
 	// We can remove all fragments.
 	for _, f := range fooFrags {

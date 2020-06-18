@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
@@ -43,16 +43,16 @@ func TestReadIterators(t *testing.T) {
 	for _, msg := range allMessages {
 		aa.Require(framing.Marshal(msg, aa.Writer()))
 	}
-	assert.NoError(t, aa.Release())
+	require.NoError(t, aa.Release())
 
 	var verify = func(msgs []testMsg, it Iterator) {
 		for _, msg := range msgs {
 			var env, err = it.Next()
-			assert.NoError(t, err)
-			assert.Equal(t, &msg, env.Message)
+			require.NoError(t, err)
+			require.Equal(t, &msg, env.Message)
 		}
 		var _, err = it.Next()
-		assert.Equal(t, io.EOF, err)
+		require.Equal(t, io.EOF, err)
 	}
 
 	<-aa.Done()
@@ -67,7 +67,7 @@ func TestReadIterators(t *testing.T) {
 		client.NewRetryReader(context.Background(), bk.Client(), req), newTestMsg, seq))
 
 	bk.Tasks.Cancel()
-	assert.NoError(t, bk.Tasks.Wait())
+	require.NoError(t, bk.Tasks.Wait())
 }
 
 func TestReadIteratorInitErrors(t *testing.T) {
@@ -82,16 +82,16 @@ func TestReadIteratorInitErrors(t *testing.T) {
 		client.NewRetryReader(context.Background(), bk.Client(), pb.ReadRequest{
 			Journal: "does/not/exist",
 		}), newTestMsg).Next()
-	assert.EqualError(t, err, "fetching journal spec: named journal does not exist (does/not/exist)")
+	require.EqualError(t, err, "fetching journal spec: named journal does not exist (does/not/exist)")
 
 	_, err = NewReadUncommittedIter(
 		client.NewRetryReader(context.Background(), bk.Client(), pb.ReadRequest{
 			Journal: "missing/content-type",
 		}), newTestMsg).Next()
-	assert.EqualError(t, err, "determining framing: unrecognized content-type ()")
+	require.EqualError(t, err, "determining framing: unrecognized content-type ()")
 
 	bk.Tasks.Cancel()
-	assert.NoError(t, bk.Tasks.Wait())
+	require.NoError(t, bk.Tasks.Wait())
 }
 
 func TestReadUncommittedIterReadErrorCases(t *testing.T) {
@@ -156,8 +156,8 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	r.spec, r.unmarshal = spec, framing.NewUnmarshalFunc(r.br) // Set fixtures without running init().
 
 	var env, err = r.Next()
-	assert.NoError(t, err)
-	assert.Equal(t, Envelope{
+	require.NoError(t, err)
+	require.Equal(t, Envelope{
 		Journal: spec,
 		Begin:   1000, // Jumps from offset of 1.
 		End:     1000 + 22,
@@ -165,8 +165,8 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	}, env)
 
 	env, err = r.Next()
-	assert.NoError(t, err)
-	assert.Equal(t, Envelope{
+	require.NoError(t, err)
+	require.Equal(t, Envelope{
 		Journal: spec,
 		Begin:   1000 + 22,
 		End:     1000 + 22 + 26,
@@ -174,7 +174,7 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	}, env)
 
 	_, err = r.Next()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: EndOffset is met but is not on frame boundary.
 	go func() {
@@ -208,5 +208,5 @@ func TestReadUncommittedIterReadErrorCases(t *testing.T) {
 	r = NewReadUncommittedIter(rr, newTestMsg)
 	r.spec, r.unmarshal = spec, framing.NewUnmarshalFunc(r.br)
 	_, err = r.Next()
-	assert.EqualError(t, err, "framing.Unmarshal(offset 1000): unexpected EOF")
+	require.EqualError(t, err, "framing.Unmarshal(offset 1000): unexpected EOF")
 }

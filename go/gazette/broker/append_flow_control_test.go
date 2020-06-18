@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -17,7 +17,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 	var spec = pb.JournalSpec{MaxAppendRate: 1e4} // 10 bytes per milli.
 
 	var expect = func(a, b int64) {
-		assert.Equal(t, a, b)
+		require.Equal(t, a, b)
 	}
 
 	t.Run("over-then-underflow", func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		expect(20, fc.charge)
 
 		// A tick is applied, but still not enough budget.
-		assert.NoError(t, fc.onTick(fc.lastMillis+1))
+		require.NoError(t, fc.onTick(fc.lastMillis+1))
 		expect(0, fc.balance)
 		expect(1e3, fc.spent)
 		expect(10, fc.charge)
@@ -54,7 +54,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		// budget updates. Specifically, we don't want to underflow in this case
 		// because we didn't have an opportunity to read another chunk (we were
 		// waiting on the delayed ticker to discharge the last one).
-		assert.NoError(t, fc.onTick(fc.lastMillis+100000))
+		require.NoError(t, fc.onTick(fc.lastMillis+100000))
 		expect(1e4-10, fc.balance)
 		expect(10, fc.spent)
 		expect(0, fc.charge)
@@ -66,7 +66,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		expect(0, fc.charge)
 
 		// Another modest tick. This time, we do underflow.
-		assert.Equal(t, ErrFlowControlUnderflow, fc.onTick(fc.lastMillis+51))
+		require.Equal(t, ErrFlowControlUnderflow, fc.onTick(fc.lastMillis+51))
 		expect(1e4, fc.balance)
 		expect(0, fc.spent)
 		expect(0, fc.charge)
@@ -87,7 +87,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 			expect(0, fc.balance)
 			expect(MinAppendRate, fc.spent)
 			expect(MinAppendRate*(10-i), fc.charge)
-			assert.NoError(t, fc.onTick(fc.lastMillis+1000))
+			require.NoError(t, fc.onTick(fc.lastMillis+1000))
 		}
 		expect(0, fc.balance)
 		expect(MinAppendRate, fc.spent)
@@ -108,7 +108,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		expect(1e3, fc.spent)
 		expect(0, fc.charge)
 
-		assert.NoError(t, fc.onTick(fc.lastMillis+100))
+		require.NoError(t, fc.onTick(fc.lastMillis+100))
 		expect(6000, fc.balance)
 		expect(1e3-100, fc.spent)
 
@@ -166,7 +166,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		expect(1e3, fc.spent)
 
 		// Ticks still decrement |spent|.
-		assert.NoError(t, fc.onTick(fc.lastMillis+500))
+		require.NoError(t, fc.onTick(fc.lastMillis+500))
 		expect(0, fc.balance)
 		expect(500, fc.spent)
 
@@ -177,7 +177,7 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		expect(0, fc.charge)
 
 		// We can still underflow.
-		assert.Equal(t, ErrFlowControlUnderflow, fc.onTick(fc.lastMillis+1e3))
+		require.Equal(t, ErrFlowControlUnderflow, fc.onTick(fc.lastMillis+1e3))
 		expect(0, fc.spent)
 	})
 
@@ -216,15 +216,15 @@ func TestAppendFlowRecvCases(t *testing.T) {
 		tickCh <- time.Unix(0, millis*1e6)
 	}
 	var expect = func(a, b int64) {
-		assert.Equal(t, a, b)
+		require.Equal(t, a, b)
 	}
 
 	// Case: chunk proceeds immediately.
 	sendChunk(10)
 
 	var req, err = fc.recv()
-	assert.NoError(t, err)
-	assert.Len(t, req.Content, 10)
+	require.NoError(t, err)
+	require.Len(t, req.Content, 10)
 	expect(1e3-10, fc.balance)
 
 	// Case: chunk must wait for ticks.
@@ -233,26 +233,26 @@ func TestAppendFlowRecvCases(t *testing.T) {
 	sendTick(8)
 
 	req, err = fc.recv()
-	assert.NoError(t, err)
-	assert.Len(t, req.Content, 1e3)
+	require.NoError(t, err)
+	require.Len(t, req.Content, 1e3)
 	expect(0, fc.balance)
 	expect(millis, fc.lastMillis)
 
 	// Case: error is returned immediately.
 	fc.chunkCh <- appendChunk{err: errors.New("foobar")}
 	req, err = fc.recv()
-	assert.EqualError(t, err, "foobar")
+	require.EqualError(t, err, "foobar")
 
 	// Case: underflow.
 	sendTick(1e3)
 	req, err = fc.recv()
-	assert.Equal(t, ErrFlowControlUnderflow, err)
+	require.Equal(t, ErrFlowControlUnderflow, err)
 
 	// Case: large chunk is returned immediately after route invalidation.
 	sendChunk(1e3 + 1)
 	close(invalidateCh)
 	req, err = fc.recv()
-	assert.Len(t, req.Content, 1e3+1)
+	require.Len(t, req.Content, 1e3+1)
 }
 
 func installAppendTimeoutFixture() (uninstall func()) {

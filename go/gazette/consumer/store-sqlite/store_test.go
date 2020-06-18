@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/mattn/go-sqlite3"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tecbot/gorocksdb"
 	"go.gazette.dev/core/broker/client"
@@ -70,22 +69,22 @@ func TestStoreCommitAndRecover(t *testing.T) {
 		Client: ajc,
 	}
 	store, err := NewStore(recorder)
-	assert.NoError(t, err)
-	assert.NoError(t, store.Open(""))
+	require.NoError(t, err)
+	require.NoError(t, store.Open(""))
 
 	// New database => empty checkpoint.
 	checkpoint, err := store.RestoreCheckpoint(nil)
-	assert.NoError(t, err)
-	assert.Equal(t, pc.Checkpoint{}, checkpoint)
+	require.NoError(t, err)
+	require.Equal(t, pc.Checkpoint{}, checkpoint)
 
 	// Start a transaction, and write some data.
 	txn, err := store.Transaction(context.Background(), nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, err = txn.Exec(`
 		CREATE TABLE foo (bar TEXT);
 		INSERT INTO foo(bar) VALUES ("bar!"), ("baz");
     `)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Begin a commit which won't finish until |waitFor| resolves.
 	var waitFor = client.NewAsyncOperation()
@@ -97,15 +96,15 @@ func TestStoreCommitAndRecover(t *testing.T) {
 
 	// Expect our previous change is already visible in a new transaction.
 	txn, err = store.Transaction(context.Background(), nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var cnt int
-	assert.NoError(t, txn.QueryRow(`SELECT COUNT(*) FROM foo;`).Scan(&cnt))
-	assert.Equal(t, 2, cnt)
+	require.NoError(t, txn.QueryRow(`SELECT COUNT(*) FROM foo;`).Scan(&cnt))
+	require.Equal(t, 2, cnt)
 
 	checkpoint, err = store.RestoreCheckpoint(nil)
-	assert.NoError(t, err)
-	assert.Equal(t, pc.Checkpoint{
+	require.NoError(t, err)
+	require.Equal(t, pc.Checkpoint{
 		Sources: map[pb.Journal]pc.Checkpoint_Source{
 			"journal/A": {ReadThrough: 1234},
 		},
@@ -114,21 +113,21 @@ func TestStoreCommitAndRecover(t *testing.T) {
 	// However the commit hasn't yet synced to the recovery log.
 	select {
 	case <-commitOp.Done():
-		assert.FailNow(t, "commitOp should still be running")
+		require.FailNow(t, "commitOp should still be running")
 	default:
 		// Pass.
 	}
 
 	// Resolve |waitFor|, and expect |commitOp| then resolves.
 	waitFor.Resolve(nil)
-	assert.NoError(t, commitOp.Err())
+	require.NoError(t, commitOp.Err())
 
 	for op := range ajc.PendingExcept("") {
 		<-op.Done()
 	}
 	store.Destroy()
 	_, err = os.Stat(tmpdir)
-	assert.True(t, os.IsNotExist(err)) // Removed by Destroy.
+	require.True(t, os.IsNotExist(err)) // Removed by Destroy.
 
 	cleanup()
 }
@@ -137,18 +136,18 @@ func TestParsingOfPageFileHeader(t *testing.T) {
 	var b = makePageFileHeader(1024, 1337133713)
 	var pageSize, pageCount, changeCtr, freeHead, freeCount = testParsePageFileHeader(b)
 
-	assert.Equal(t, pageSize, 1024)
-	assert.Equal(t, pageCount, 1337133713)
-	assert.Equal(t, changeCtr, 1111111111)
-	assert.Equal(t, freeHead, 2222222222)
-	assert.Equal(t, freeCount, 3333333333)
+	require.Equal(t, pageSize, 1024)
+	require.Equal(t, pageCount, 1337133713)
+	require.Equal(t, changeCtr, 1111111111)
+	require.Equal(t, freeHead, 2222222222)
+	require.Equal(t, freeCount, 3333333333)
 
 	// Handling of 65K special-case (encoded by SQLite as '1').
 	b = makePageFileHeader(1, 12)
 	pageSize, pageCount, _, _, _ = testParsePageFileHeader(b)
 
-	assert.Equal(t, pageSize, 1<<16)
-	assert.Equal(t, pageCount, 12)
+	require.Equal(t, pageSize, 1<<16)
+	require.Equal(t, pageCount, 12)
 
 	// Test with a fixture pulled from a SQLite DB.
 	b = []byte("SQLite format 3\x00\x02\x00\x01\x01\x00@  \x00\x00\x00\x07" +
@@ -158,11 +157,11 @@ func TestParsingOfPageFileHeader(t *testing.T) {
 		"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x07\x00.0:")
 	pageSize, pageCount, changeCtr, freeHead, freeCount = testParsePageFileHeader(b)
 
-	assert.Equal(t, pageSize, 512)
-	assert.Equal(t, pageCount, 144)
-	assert.Equal(t, changeCtr, 7)
-	assert.Equal(t, freeHead, 36)
-	assert.Equal(t, freeCount, 34)
+	require.Equal(t, pageSize, 512)
+	require.Equal(t, pageCount, 144)
+	require.Equal(t, changeCtr, 7)
+	require.Equal(t, freeHead, 36)
+	require.Equal(t, freeCount, 34)
 }
 
 func TestFileBindingCases(t *testing.T) {
@@ -179,8 +178,8 @@ func TestFileBindingCases(t *testing.T) {
 		Client: ajc,
 	}
 	store, err := NewStore(recorder)
-	assert.NoError(t, err)
-	assert.NoError(t, store.Open(""))
+	require.NoError(t, err)
+	require.NoError(t, store.Open(""))
 
 	// For this test, buffer up to 3.5x 512-byte pages.
 	var restore = fileBufferSize
@@ -190,40 +189,40 @@ func TestFileBindingCases(t *testing.T) {
 	t.Run("pageReadAndWrite", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "page-rw.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainDB)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		var page = makePageFileHeader(512, 2)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 0))
+		require.Equal(t, 0, testPageFileWrite(f, page, 0))
 
 		// Expect size reflects the header's page count & size.
 		size, rc := testPageFileSize(f)
-		assert.Equal(t, 0, rc)
-		assert.Equal(t, 512*2, size)
+		require.Equal(t, 0, rc)
+		require.Equal(t, 512*2, size)
 
 		page = bytes.Repeat([]byte{1}, 512)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 512))
+		require.Equal(t, 0, testPageFileWrite(f, page, 512))
 		page = bytes.Repeat([]byte{2}, 512)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 1024))
+		require.Equal(t, 0, testPageFileWrite(f, page, 1024))
 
 		// Expect written pages are immediately read-able.
 		page = make([]byte, 512)
-		assert.Equal(t, 0, testPageFileRead(f, page, 0))
-		assert.Equal(t, makePageFileHeader(512, 2), page)
-		assert.Equal(t, 0, testPageFileRead(f, page, 512))
-		assert.Equal(t, bytes.Repeat([]byte{1}, 512), page)
-		assert.Equal(t, 0, testPageFileRead(f, page, 1024))
-		assert.Equal(t, bytes.Repeat([]byte{2}, 512), page)
+		require.Equal(t, 0, testPageFileRead(f, page, 0))
+		require.Equal(t, makePageFileHeader(512, 2), page)
+		require.Equal(t, 0, testPageFileRead(f, page, 512))
+		require.Equal(t, bytes.Repeat([]byte{1}, 512), page)
+		require.Equal(t, 0, testPageFileRead(f, page, 1024))
+		require.Equal(t, bytes.Repeat([]byte{2}, 512), page)
 
 		// Expect page size reflects the third page.
 		size, rc = testPageFileSize(f)
-		assert.Equal(t, 0, rc)
-		assert.Equal(t, 512*3, size)
+		require.Equal(t, 0, rc)
+		require.Equal(t, 512*3, size)
 
 		// Expect no pages have been written yet.
-		assert.Empty(t, enumPages(t, store.pages, store.PageDBColumns["/page-rw.file"]))
+		require.Empty(t, enumPages(t, store.pages, store.PageDBColumns["/page-rw.file"]))
 		// Expect that, after syncing, pages are visible within the DB.
-		assert.Equal(t, 0, testPageFileSync(f))
-		assert.Equal(t, map[uint64][]byte{
+		require.Equal(t, 0, testPageFileSync(f))
+		require.Equal(t, map[uint64][]byte{
 			0:    makePageFileHeader(512, 2),
 			512:  bytes.Repeat([]byte{1}, 512),
 			1024: bytes.Repeat([]byte{2}, 512),
@@ -233,24 +232,24 @@ func TestFileBindingCases(t *testing.T) {
 	t.Run("pageFlushAndRollback", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "page-flush.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainDB)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		// Write header and 3 data pages. The 3rd data page over-runs the
 		// target batch size and flushes to the pages DB.
 		var page = makePageFileHeader(512, 1)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 0*512))
+		require.Equal(t, 0, testPageFileWrite(f, page, 0*512))
 		for i := 1; i != 4; i++ {
 			page = bytes.Repeat([]byte{byte(i)}, 512)
-			assert.Equal(t, 0, testPageFileWrite(f, page, int64(i*512)))
+			require.Equal(t, 0, testPageFileWrite(f, page, int64(i*512)))
 		}
 
 		// Expect file size reflects all pages.
 		size, rc := testPageFileSize(f)
-		assert.Equal(t, 0, rc)
-		assert.Equal(t, 4*512, size)
+		require.Equal(t, 0, rc)
+		require.Equal(t, 4*512, size)
 
 		// And all but the last data page flush to the DB.
-		assert.Equal(t, map[uint64][]byte{
+		require.Equal(t, map[uint64][]byte{
 			0 * 512: makePageFileHeader(512, 1),
 			1 * 512: bytes.Repeat([]byte{1}, 512),
 			2 * 512: bytes.Repeat([]byte{2}, 512),
@@ -258,16 +257,16 @@ func TestFileBindingCases(t *testing.T) {
 
 		// Simulate a rollback, by updating the header with a smaller page-count.
 		page = makePageFileHeader(512, 2)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 0))
+		require.Equal(t, 0, testPageFileWrite(f, page, 0))
 
 		// Trim is immediately reflected in file size.
 		size, rc = testPageFileSize(f)
-		assert.Equal(t, 0, rc)
-		assert.Equal(t, 2*512, size)
+		require.Equal(t, 0, rc)
+		require.Equal(t, 2*512, size)
 
 		// Sync. Expect all but the first two pages were deleted.
-		assert.Equal(t, 0, testPageFileSync(f))
-		assert.Equal(t, map[uint64][]byte{
+		require.Equal(t, 0, testPageFileSync(f))
+		require.Equal(t, map[uint64][]byte{
 			0 * 512: makePageFileHeader(512, 2),
 			1 * 512: bytes.Repeat([]byte{1}, 512),
 		}, enumPages(t, store.pages, store.PageDBColumns["/page-flush.file"]))
@@ -276,23 +275,23 @@ func TestFileBindingCases(t *testing.T) {
 	t.Run("pageBatchAtomicWrites", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "atomic.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainDB)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		// Atomic write of a number of pages (more than we would otherwise buffer).
-		assert.Equal(t, 0, testPageFileControl(f, kSqliteFcntlBeginAtomicWrite))
+		require.Equal(t, 0, testPageFileControl(f, kSqliteFcntlBeginAtomicWrite))
 		var page = makePageFileHeader(512, 5)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 0*512))
+		require.Equal(t, 0, testPageFileWrite(f, page, 0*512))
 
 		for i := 1; i != 5; i++ {
 			page = bytes.Repeat([]byte{byte(i)}, 512)
-			assert.Equal(t, 0, testPageFileWrite(f, page, int64(i*512)))
+			require.Equal(t, 0, testPageFileWrite(f, page, int64(i*512)))
 		}
 		// Expect no pages were written yet.
-		assert.Empty(t, enumPages(t, store.pages, store.PageDBColumns["/atomic.file"]))
+		require.Empty(t, enumPages(t, store.pages, store.PageDBColumns["/atomic.file"]))
 
 		// Commit, and expect all pages are visible.
-		assert.Equal(t, 0, testPageFileControl(f, kSqliteFcntlCommitAtomicWrite))
-		assert.Equal(t, map[uint64][]byte{
+		require.Equal(t, 0, testPageFileControl(f, kSqliteFcntlCommitAtomicWrite))
+		require.Equal(t, map[uint64][]byte{
 			0 * 512: makePageFileHeader(512, 5),
 			1 * 512: bytes.Repeat([]byte{1}, 512),
 			2 * 512: bytes.Repeat([]byte{2}, 512),
@@ -301,20 +300,20 @@ func TestFileBindingCases(t *testing.T) {
 		}, enumPages(t, store.pages, store.PageDBColumns["/atomic.file"]))
 
 		// Start another atomic write, and roll it back.
-		assert.Equal(t, 0, testPageFileControl(f, kSqliteFcntlBeginAtomicWrite))
+		require.Equal(t, 0, testPageFileControl(f, kSqliteFcntlBeginAtomicWrite))
 		for i := 1; i != 3; i++ {
 			page = bytes.Repeat([]byte{byte(10 * i)}, 512)
-			assert.Equal(t, 0, testPageFileWrite(f, page, int64(i*512)))
+			require.Equal(t, 0, testPageFileWrite(f, page, int64(i*512)))
 		}
-		assert.Equal(t, 0, testPageFileControl(f, kSqliteFcntlRollbackAtomicWrite))
+		require.Equal(t, 0, testPageFileControl(f, kSqliteFcntlRollbackAtomicWrite))
 
 		// Issue a regular write, and sync.
 		page = bytes.Repeat([]byte{'a'}, 512)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 3*512))
-		assert.Equal(t, 0, testPageFileSync(f))
+		require.Equal(t, 0, testPageFileWrite(f, page, 3*512))
+		require.Equal(t, 0, testPageFileSync(f))
 
 		// Expect the rollback writes were dropped (and the following regular write wasn't).
-		assert.Equal(t, map[uint64][]byte{
+		require.Equal(t, map[uint64][]byte{
 			0 * 512: makePageFileHeader(512, 5),
 			1 * 512: bytes.Repeat([]byte{1}, 512),
 			2 * 512: bytes.Repeat([]byte{2}, 512),
@@ -326,139 +325,139 @@ func TestFileBindingCases(t *testing.T) {
 	t.Run("pageErrors", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "errors.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainDB)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		// Non-aligned read of empty database header => IOERR_SHORT_READ.
 		var page = make([]byte, 30)
-		assert.Equal(t, int(sqlite3.ErrIoErrShortRead),
+		require.Equal(t, int(sqlite3.ErrIoErrShortRead),
 			testPageFileRead(f, page, 10))
 
 		page = makePageFileHeader(512, 1)
-		assert.Equal(t, 0, testPageFileWrite(f, page, 0))
+		require.Equal(t, 0, testPageFileWrite(f, page, 0))
 
 		// Attempt to read more than a page => SQLITE_CORRUPT.
-		assert.Equal(t, int(sqlite3.ErrCorrupt),
+		require.Equal(t, int(sqlite3.ErrCorrupt),
 			testPageFileRead(f, make([]byte, 1024), 0))
 
 		// Attempt to change page size after it's been set => SQLITE_MISUSE.
 		page = makePageFileHeader(1024, 1)
-		assert.Equal(t, int(sqlite3.ErrIoErrWrite),
+		require.Equal(t, int(sqlite3.ErrIoErrWrite),
 			testPageFileWrite(f, page, 0))
 	})
 
 	t.Run("logReadAndWrite", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "log-rw.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		var fnode = store.recorder.FSM.Links["/log-rw.file"]
 		var seqNo = store.recorder.FSM.LiveNodes[fnode].Segments[0].FirstSeqNo
 
 		// Issue a write. Expect it's delegated: a file was created on-disk with our write.
-		assert.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
+		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 		var b, err = ioutil.ReadFile(filepath.Join(store.recorder.Dir, "/log-rw.file"))
-		assert.NoError(t, err)
-		assert.Equal(t, makeU32(kHotJournalHeader), b)
+		require.NoError(t, err)
+		require.Equal(t, makeU32(kHotJournalHeader), b)
 
 		// However, the write is buffered / not delivered over CGO until the file is synced.
-		assert.Equal(t, seqNo, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
-		assert.Equal(t, 0, testLogFileSync(f))
-		assert.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileSync(f))
+		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 	})
 
 	t.Run("logBufferAndFlush", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "log-flush.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		var fnode = store.recorder.FSM.Links["/log-flush.file"]
 		var seqNo = store.recorder.FSM.LiveNodes[fnode].Segments[0].FirstSeqNo
 
 		// Fill file buffer, but don't yet flush.
-		assert.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
+		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 		var b = bytes.Repeat([]byte("a"), int(fileBufferSize-4))
-		assert.Equal(t, 0, testLogFileWrite(f, b, 4))
-		assert.Equal(t, seqNo, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileWrite(f, b, 4))
+		require.Equal(t, seqNo, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 
 		// Expect next write causes a buffer flush.
-		assert.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), int64(fileBufferSize)))
-		assert.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), int64(fileBufferSize)))
+		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 
 		// A small write at a non-continuous offset also flushes the buffer.
-		assert.Equal(t, 0, testLogFileWrite(f, []byte("hello"), 123))
-		assert.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileWrite(f, []byte("hello"), 123))
+		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
-		assert.Equal(t, 0, testLogFileSync(f))
-		assert.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileSync(f))
+		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 
 		// A very large write results in multiple buffer-size flushes.
 		b = bytes.Repeat([]byte("b"), int(2*fileBufferSize+10))
-		assert.Equal(t, 0, testLogFileWrite(f, b, 456))
-		assert.Equal(t, seqNo+2, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileWrite(f, b, 456))
+		require.Equal(t, seqNo+2, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo += 2
-		assert.Equal(t, 0, testLogFileSync(f))
-		assert.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, 0, testLogFileSync(f))
+		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 	})
 
 	t.Run("logTruncate", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "log-trunc.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		// Write some initial content.
 		var fnode = store.recorder.FSM.Links["/log-trunc.file"]
-		assert.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
+		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 
 		// Not an error to truncate to the implied file length (though we haven't flushed).
-		assert.Equal(t, 0, testLogFileTruncate(f, 4))
+		require.Equal(t, 0, testLogFileTruncate(f, 4))
 		// However, it *is* an error to truncate to anything else without syncing.
-		assert.Equal(t, int(sqlite3.ErrIoErrTruncate), testLogFileTruncate(f, 0))
-		assert.Equal(t, int(sqlite3.ErrIoErrTruncate), testLogFileTruncate(f, 3))
-		assert.Equal(t, 0, testLogFileSync(f))
+		require.Equal(t, int(sqlite3.ErrIoErrTruncate), testLogFileTruncate(f, 0))
+		require.Equal(t, int(sqlite3.ErrIoErrTruncate), testLogFileTruncate(f, 3))
+		require.Equal(t, 0, testLogFileSync(f))
 
 		// Truncate to non-zero offset is a recorder no-op.
-		assert.Equal(t, 0, testLogFileTruncate(f, 3))
-		assert.Equal(t, fnode, store.recorder.FSM.Links["/log-trunc.file"])
+		require.Equal(t, 0, testLogFileTruncate(f, 3))
+		require.Equal(t, fnode, store.recorder.FSM.Links["/log-trunc.file"])
 
 		// Truncating to zero, however, records as a delete-and-create with a new empty FNode.
-		assert.Equal(t, 0, testLogFileTruncate(f, 0))
-		assert.NotEqual(t, fnode, store.recorder.FSM.Links["/log-trunc.file"])
+		require.Equal(t, 0, testLogFileTruncate(f, 0))
+		require.NotEqual(t, fnode, store.recorder.FSM.Links["/log-trunc.file"])
 
 		fnode = store.recorder.FSM.Links["/log-trunc.file"]
 		var segment = store.recorder.FSM.LiveNodes[fnode].Segments[0]
-		assert.Equal(t, segment.FirstSeqNo, segment.LastSeqNo)
+		require.Equal(t, segment.FirstSeqNo, segment.LastSeqNo)
 	})
 
 	t.Run("logRestart", func(t *testing.T) {
 		var f, rc = testRecFSOpen(store.vfs, "log-restart.file",
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
-		assert.Equal(t, 0, rc)
+		require.Equal(t, 0, rc)
 
 		var fnode = store.recorder.FSM.Links["/log-restart.file"]
-		assert.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
-		assert.Equal(t, 0, testLogFileSync(f))
+		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
+		require.Equal(t, 0, testLogFileSync(f))
 
 		// On re-writes of a "hot" journal header, or an unknown header, log is _not_ restarted.
 		for _, hdr := range []uint32{kHotJournalHeader, 12345678} {
-			assert.Equal(t, 0, testLogFileWrite(f, makeU32(hdr), 0))
-			assert.Equal(t, 0, testLogFileSync(f))
-			assert.Equal(t, fnode, store.recorder.FSM.Links["/log-restart.file"])
+			require.Equal(t, 0, testLogFileWrite(f, makeU32(hdr), 0))
+			require.Equal(t, 0, testLogFileSync(f))
+			require.Equal(t, fnode, store.recorder.FSM.Links["/log-restart.file"])
 		}
 		// Re-writes of zero or WAL headers _do_ restart the log.
 		for _, hdr := range []uint32{0, kWALHeaderBigEndian, kWALHeaderLittleEndian} {
-			assert.Equal(t, 0, testLogFileWrite(f, makeU32(hdr), 0))
-			assert.Equal(t, 0, testLogFileSync(f))
+			require.Equal(t, 0, testLogFileWrite(f, makeU32(hdr), 0))
+			require.Equal(t, 0, testLogFileSync(f))
 
 			var next = store.recorder.FSM.Links["/log-restart.file"]
-			assert.NotEqual(t, fnode, next)
+			require.NotEqual(t, fnode, next)
 			fnode = next
 		}
 		// Attempting to restart *without* a prior sync is an error.
-		assert.Equal(t, 0, testLogFileWrite(f, []byte("hello"), 4))
-		assert.Equal(t, int(sqlite3.ErrIoErrWrite),
+		require.Equal(t, 0, testLogFileWrite(f, []byte("hello"), 4))
+		require.Equal(t, int(sqlite3.ErrIoErrWrite),
 			testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 	})
 
@@ -543,11 +542,11 @@ func runSequenceTest(t *testing.T, path string, uriArgs map[string]string) {
 		require.NoError(t, err)
 
 		go func() {
-			assert.NoError(t, player.Play(ctx, hints, tmpdir, ajc))
+			require.NoError(t, player.Play(ctx, hints, tmpdir, ajc))
 		}()
 		player.InjectHandoff(author)
 		<-player.Done()
-		assert.NotNil(t, player.FSM)
+		require.NotNil(t, player.FSM)
 
 		if store != nil {
 			prevCancel()
@@ -640,7 +639,7 @@ func enumPages(t *testing.T, db *gorocksdb.DB, cf *gorocksdb.ColumnFamilyHandle)
 	return m
 }
 
-func newBrokerAndLog(t assert.TestingT) (*brokertest.Broker, func()) {
+func newBrokerAndLog(t require.TestingT) (*brokertest.Broker, func()) {
 	var etcd = etcdtest.TestClient()
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
 
@@ -648,7 +647,7 @@ func newBrokerAndLog(t assert.TestingT) (*brokertest.Broker, func()) {
 
 	return broker, func() {
 		broker.Tasks.Cancel()
-		assert.NoError(t, broker.Tasks.Wait())
+		require.NoError(t, broker.Tasks.Wait())
 		etcdtest.Cleanup()
 	}
 }

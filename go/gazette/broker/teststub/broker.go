@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/server"
@@ -68,8 +67,8 @@ func (b *Broker) Cleanup() {
 	b.tasks.Cancel()
 	b.srv.BoundedGracefulStop()
 	b.wg.Wait() // Ensure all read loops have exited.
-	assert.NoError(b.t, b.srv.GRPCLoopback.Close())
-	assert.NoError(b.t, b.tasks.Wait())
+	require.NoError(b.t, b.srv.GRPCLoopback.Close())
+	require.NoError(b.t, b.tasks.Wait())
 }
 
 // Replicate implements the JournalServer interface by proxying requests &
@@ -103,7 +102,7 @@ func (b *Broker) Replicate(srv pb.Journal_ReplicateServer) error {
 	for {
 		select {
 		case resp := <-b.ReplRespCh:
-			assert.NoError(b.t, srv.Send(&resp))
+			require.NoError(b.t, srv.Send(&resp))
 		case err := <-b.WriteLoopErrCh:
 			return err
 		case <-time.After(timeout):
@@ -128,7 +127,7 @@ func (b *Broker) Read(req *pb.ReadRequest, srv pb.Journal_ReadServer) error {
 			// We may be sending into a cancelled context (c.f. TestReaderRetries).
 			// Otherwise, we expect to be able to send without error.
 			if err := srv.Send(&resp); srv.Context().Err() == nil {
-				assert.NoError(b.t, err)
+				require.NoError(b.t, err)
 			}
 		case err := <-b.WriteLoopErrCh:
 			return err
@@ -169,7 +168,7 @@ func (b *Broker) Append(srv pb.Journal_AppendServer) error {
 	for {
 		select {
 		case resp := <-b.AppendRespCh:
-			assert.NoError(b.t, srv.SendAndClose(&resp))
+			require.NoError(b.t, srv.SendAndClose(&resp))
 			return nil
 		case err := <-b.WriteLoopErrCh:
 			return err

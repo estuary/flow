@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -36,19 +35,19 @@ func TestStoreAndFetchHints(t *testing.T) {
 	// keys in etcd matches |idA|, |idB|, |idC|.
 	var verifyHints = func(firstID int64, ids ...int64) {
 		var hints, err = fetchHints(ctx, shard.Spec(), tf.etcd)
-		assert.NoError(t, err)
-		assert.Equal(t, shard.Spec().RecoveryLog(), hints.log)
-		assert.Len(t, hints.txnResp.Responses, 3)
-		assert.Len(t, hints.hints, 3)
+		require.NoError(t, err)
+		require.Equal(t, shard.Spec().RecoveryLog(), hints.log)
+		require.Len(t, hints.txnResp.Responses, 3)
+		require.Len(t, hints.hints, 3)
 
-		assert.Equal(t, mkHints(firstID), pickFirstHints(hints))
-		assert.Len(t, hints.hints, len(ids))
+		require.Equal(t, mkHints(firstID), pickFirstHints(hints))
+		require.Len(t, hints.hints, len(ids))
 
 		for i, hint := range hints.hints {
 			if ids[i] == 0 {
-				assert.Nil(t, hints.hints[i])
+				require.Nil(t, hints.hints[i])
 			} else {
-				assert.Equal(t, ids[i], hint.LiveNodes[0].Segments[0].FirstSeqNo)
+				require.Equal(t, ids[i], hint.LiveNodes[0].Segments[0].FirstSeqNo)
 			}
 		}
 	}
@@ -57,18 +56,18 @@ func TestStoreAndFetchHints(t *testing.T) {
 	// fixture will on match CreateRevision but not ModRevision. This confirms
 	// that store*Hints expects its CreateRevision and not ModRevision.
 	var _, err = tf.etcd.Put(ctx, string(shard.resolved.assignment.Raw.Key), "")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Alternate stores of recorded vs recovered hints.
-	assert.NoError(t, storeRecoveredHints(shard, mkHints(111)))
+	require.NoError(t, storeRecoveredHints(shard, mkHints(111)))
 	verifyHints(111, 0, 111, 0)
-	assert.NoError(t, storeRecordedHints(shard, mkHints(222)))
+	require.NoError(t, storeRecordedHints(shard, mkHints(222)))
 	verifyHints(222, 222, 111, 0)
-	assert.NoError(t, storeRecoveredHints(shard, mkHints(333)))
+	require.NoError(t, storeRecoveredHints(shard, mkHints(333)))
 	verifyHints(222, 222, 333, 111)
-	assert.NoError(t, storeRecordedHints(shard, mkHints(444)))
+	require.NoError(t, storeRecordedHints(shard, mkHints(444)))
 	verifyHints(444, 444, 333, 111)
-	assert.NoError(t, storeRecoveredHints(shard, mkHints(555)))
+	require.NoError(t, storeRecoveredHints(shard, mkHints(555)))
 	verifyHints(444, 444, 555, 333)
 
 	// Delete hints in key priority order. Expect older hints are used instead.
@@ -80,28 +79,28 @@ func TestStoreAndFetchHints(t *testing.T) {
 
 	// When no hints exist, default hints are returned.
 	h, err := fetchHints(ctx, shard.Spec(), tf.etcd)
-	assert.NoError(t, err)
-	assert.Equal(t, recoverylog.FSMHints{Log: shard.Spec().RecoveryLog()}, pickFirstHints(h))
+	require.NoError(t, err)
+	require.Equal(t, recoverylog.FSMHints{Log: shard.Spec().RecoveryLog()}, pickFirstHints(h))
 }
 
 func TestRecoveryFromEmptyLog(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	go func() { assert.NoError(t, beginRecovery(shard)) }()
+	go func() { require.NoError(t, beginRecovery(shard)) }()
 
 	// Precondition: no existing hints in etcd.
-	assert.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintPrimaryKey()).Kvs, 0)
-	assert.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintBackupKeys()[0]).Kvs, 0)
+	require.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintPrimaryKey()).Kvs, 0)
+	require.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintBackupKeys()[0]).Kvs, 0)
 
 	var cp, err = completeRecovery(shard)
 	require.NoError(t, err)
-	assert.Equal(t, pc.Checkpoint{}, cp)
+	require.Equal(t, pc.Checkpoint{}, cp)
 	<-shard.storeReadyCh // Expect it selects.
 
 	// Post-condition: backup (but not primary) hints were updated.
-	assert.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintPrimaryKey()).Kvs, 0)
-	assert.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintBackupKeys()[0]).Kvs, 1)
+	require.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintPrimaryKey()).Kvs, 0)
+	require.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintBackupKeys()[0]).Kvs, 1)
 }
 
 func TestRecoveryFailsFromInvalidHints(t *testing.T) {
@@ -109,7 +108,7 @@ func TestRecoveryFailsFromInvalidHints(t *testing.T) {
 	defer cleanup()
 
 	_, _ = tf.etcd.Put(context.Background(), shard.Spec().HintPrimaryKey(), "invalid hints")
-	assert.EqualError(t, beginRecovery(shard), "fetchHints: hints.Unmarshal: unexpected EOF")
+	require.EqualError(t, beginRecovery(shard), "fetchHints: hints.Unmarshal: unexpected EOF")
 }
 
 func TestRecoveryFailsFromMissingLog(t *testing.T) {
@@ -117,7 +116,7 @@ func TestRecoveryFailsFromMissingLog(t *testing.T) {
 	defer cleanup()
 
 	shard.resolved.spec.RecoveryLogPrefix = "does/not/exist"
-	assert.EqualError(t, beginRecovery(shard), "fetching log spec: named journal does"+
+	require.EqualError(t, beginRecovery(shard), "fetching log spec: named journal does"+
 		" not exist (does/not/exist/"+shardA+")")
 }
 
@@ -131,15 +130,15 @@ func TestRecoveryFailsFromWrongContentType(t *testing.T) {
 	var lr, err = shard.ajc.List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", shard.Spec().RecoveryLog().String())},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	lr.Journals[0].Spec.LabelSet.SetValue(labels.ContentType, "wrong/type")
 	_, err = shard.ajc.Apply(ctx, &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{{Upsert: &lr.Journals[0].Spec, ExpectModRevision: lr.Journals[0].ModRevision}},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	assert.EqualError(t, beginRecovery(shard), "expected label "+labels.ContentType+
+	require.EqualError(t, beginRecovery(shard), "expected label "+labels.ContentType+
 		" value "+labels.ContentType_RecoveryLog+" (got wrong/type)")
 }
 
@@ -158,9 +157,9 @@ func TestRecoveryFailsFromPlayError(t *testing.T) {
 	_, _ = tf.etcd.Put(context.Background(), shard.Spec().HintPrimaryKey(), string(fixtureBytes))
 
 	// Expect playLog returns an immediate error.
-	assert.Regexp(t, `playing log .*: max write-head of .* is 0, vs .*`, beginRecovery(shard))
+	require.Regexp(t, `playing log .*: max write-head of .* is 0, vs .*`, beginRecovery(shard))
 
 	// Since the error occurred within Player.Play, it also causes completeRecovery to immediately fail.
 	var _, err = completeRecovery(shard)
-	assert.EqualError(t, err, "completeRecovery aborting due to log playback failure")
+	require.EqualError(t, err, "completeRecovery aborting due to log playback failure")
 }

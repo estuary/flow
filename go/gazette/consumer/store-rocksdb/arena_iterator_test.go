@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tecbot/gorocksdb"
 	"go.gazette.dev/core/consumer/recoverylog"
 )
@@ -16,7 +16,7 @@ func TestArenaIterator(t *testing.T) {
 
 	var expect = [][]byte{[]byte("key1"), []byte("key2"), []byte("key3")}
 	for _, k := range expect {
-		assert.NoError(t, store.DB.Put(store.WriteOptions, k, []byte("val")))
+		require.NoError(t, store.DB.Put(store.WriteOptions, k, []byte("val")))
 	}
 
 	for _, size := range []int{0, 2, 20, 200, 32 * 1024} {
@@ -26,8 +26,8 @@ func TestArenaIterator(t *testing.T) {
 		for it.SeekToFirst(); it.Valid(); it.Next() {
 			actual = append(actual, append([]byte(nil), it.Key()...))
 		}
-		assert.NoError(t, it.Err())
-		assert.Equal(t, expect, actual)
+		require.NoError(t, it.Err())
+		require.Equal(t, expect, actual)
 
 		it.Close()
 	}
@@ -39,16 +39,16 @@ func TestArenaIteratorSeeking(t *testing.T) {
 
 	for i := int64(100); i != 200; i++ {
 		var key, val = []byte(strconv.FormatInt(i, 10)), []byte(strconv.FormatInt(i, 16))
-		assert.NoError(t, store.DB.Put(store.WriteOptions, key, val))
+		require.NoError(t, store.DB.Put(store.WriteOptions, key, val))
 	}
 
 	for _, size := range []int{0, 2, 20 /*200, 32 * 1024*/} {
 		var iter = AsArenaIterator(store.DB.NewIterator(store.ReadOptions), make([]byte, size))
 
 		var expect = func(i int64) {
-			assert.True(t, iter.Valid())
-			assert.Equal(t, strconv.FormatInt(i, 10), string(iter.Key()))
-			assert.Equal(t, strconv.FormatInt(i, 16), string(iter.Value()))
+			require.True(t, iter.Valid())
+			require.Equal(t, strconv.FormatInt(i, 10), string(iter.Key()))
+			require.Equal(t, strconv.FormatInt(i, 16), string(iter.Value()))
 		}
 
 		// Next followed by SeekToFirst works as expected.
@@ -87,7 +87,7 @@ func TestArenaIteratorSeeking(t *testing.T) {
 
 		// Step beyond last item.
 		iter.Next()
-		assert.False(t, iter.Valid())
+		require.False(t, iter.Valid())
 
 		iter.SeekToFirst()
 		expect(100)
@@ -98,18 +98,18 @@ func TestArenaIteratorSeeking(t *testing.T) {
 
 		// Step before first element.
 		iter.Prev()
-		assert.False(t, iter.Valid())
+		require.False(t, iter.Valid())
 
 		iter.Close()
 	}
 }
 
 func TestLenPrefixParsing(t *testing.T) {
-	assert.True(t, parseLenPrefix([]byte{0x00, 0x00, 0x00, 0x00}) == 0x00000000)
-	assert.True(t, parseLenPrefix([]byte{0x00, 0x00, 0x02, 0x83}) == 0x00000283)
-	assert.True(t, parseLenPrefix([]byte{0x01, 0x01, 0x01, 0x01}) == 0x01010101)
-	assert.True(t, parseLenPrefix([]byte{0xab, 0xcd, 0xef, 0x12}) == 0xabcdef12)
-	assert.True(t, parseLenPrefix([]byte{0xff, 0xff, 0xff, 0xff}) == 0xffffffff)
+	require.True(t, parseLenPrefix([]byte{0x00, 0x00, 0x00, 0x00}) == 0x00000000)
+	require.True(t, parseLenPrefix([]byte{0x00, 0x00, 0x02, 0x83}) == 0x00000283)
+	require.True(t, parseLenPrefix([]byte{0x01, 0x01, 0x01, 0x01}) == 0x01010101)
+	require.True(t, parseLenPrefix([]byte{0xab, 0xcd, 0xef, 0x12}) == 0xabcdef12)
+	require.True(t, parseLenPrefix([]byte{0xff, 0xff, 0xff, 0xff}) == 0xffffffff)
 }
 
 func BenchmarkIterator(b *testing.B) {
@@ -118,7 +118,7 @@ func BenchmarkIterator(b *testing.B) {
 
 	for i := int64(0); i != 1000; i++ {
 		var key, val = []byte(strconv.FormatInt(i, 10)), []byte(strconv.FormatInt(i, 16))
-		assert.NoError(b, store.DB.Put(store.WriteOptions, key, val))
+		require.NoError(b, store.DB.Put(store.WriteOptions, key, val))
 	}
 	var arena = make([]byte, 32*1024)
 
@@ -132,7 +132,7 @@ func BenchmarkIterator(b *testing.B) {
 				sum += len(it.Value().Data())
 			}
 			it.Close()
-			assert.Equal(b, 5618, sum)
+			require.Equal(b, 5618, sum)
 		}
 	})
 	b.Run("arena-iterator", func(b *testing.B) {
@@ -145,19 +145,19 @@ func BenchmarkIterator(b *testing.B) {
 				sum += len(it.Value())
 			}
 			it.Close()
-			assert.Equal(b, 5618, sum)
+			require.Equal(b, 5618, sum)
 		}
 	})
 }
 
-func newTestStore(t assert.TestingT) *Store {
+func newTestStore(t require.TestingT) *Store {
 	var dir, err = ioutil.TempDir("", "rocksdb")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	var store = NewStore(&recoverylog.Recorder{Dir: dir})
 	// Replace observed Env with regular one.
 	store.Env = gorocksdb.NewDefaultEnv()
-	assert.NoError(t, store.Open())
+	require.NoError(t, store.Open())
 
 	return store
 }

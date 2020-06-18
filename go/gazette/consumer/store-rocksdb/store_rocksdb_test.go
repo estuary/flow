@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -23,31 +23,31 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 		Client: rep.client,
 	}
 	var store = NewStore(recorder)
-	assert.NoError(t, store.Open())
+	require.NoError(t, store.Open())
 
 	store.WriteBatch.Put([]byte("foo"), []byte("bar"))
 	store.WriteBatch.Put([]byte("baz"), []byte("bing"))
 
-	assert.NoError(t, store.StartCommit(nil, pc.Checkpoint{
+	require.NoError(t, store.StartCommit(nil, pc.Checkpoint{
 		Sources: map[pb.Journal]pc.Checkpoint_Source{
 			"journal/A": {ReadThrough: 1234},
 		},
 	}, nil).Err())
 
 	r, err := store.DB.Get(store.ReadOptions, []byte("foo"))
-	assert.NoError(t, err)
-	assert.Equal(t, []byte("bar"), r.Data())
+	require.NoError(t, err)
+	require.Equal(t, []byte("bar"), r.Data())
 	r.Free()
 
-	assert.NoError(t, store.StartCommit(nil, pc.Checkpoint{
+	require.NoError(t, store.StartCommit(nil, pc.Checkpoint{
 		Sources: map[pb.Journal]pc.Checkpoint_Source{
 			"journal/B": {ReadThrough: 5678},
 		},
 	}, nil).Err())
 
 	cp, err := store.RestoreCheckpoint(nil)
-	assert.NoError(t, err)
-	assert.Equal(t, pc.Checkpoint{
+	require.NoError(t, err)
+	require.Equal(t, pc.Checkpoint{
 		Sources: map[pb.Journal]pc.Checkpoint_Source{
 			"journal/B": {ReadThrough: 5678},
 		},
@@ -57,5 +57,5 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 
 	// Assert the store directory was removed.
 	_, err = os.Stat(recorder.Dir)
-	assert.True(t, os.IsNotExist(err))
+	require.True(t, os.IsNotExist(err))
 }

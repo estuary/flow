@@ -6,7 +6,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -21,18 +20,18 @@ func TestPipelineBasicLifeCycle(t *testing.T) {
 	var req = pb.ReplicateRequest{Content: []byte("foobar")}
 	pln.scatter(&req)
 
-	assert.NoError(t, pln.sendErr())
-	assert.Equal(t, req, <-rm.brokerA.ReplReqCh)
-	assert.Equal(t, req, <-rm.brokerC.ReplReqCh)
+	require.NoError(t, pln.sendErr())
+	require.Equal(t, req, <-rm.brokerA.ReplReqCh)
+	require.Equal(t, req, <-rm.brokerC.ReplReqCh)
 
 	// Scatter an acknowledged commit proposal.
 	var proposal = pln.spool.Next()
 	req = pb.ReplicateRequest{Proposal: &proposal, Acknowledge: true}
 	pln.scatter(&req)
 
-	assert.NoError(t, pln.sendErr())
-	assert.Equal(t, req, <-rm.brokerA.ReplReqCh)
-	assert.Equal(t, req, <-rm.brokerC.ReplReqCh)
+	require.NoError(t, pln.sendErr())
+	require.Equal(t, req, <-rm.brokerA.ReplReqCh)
+	require.Equal(t, req, <-rm.brokerC.ReplReqCh)
 
 	// First client installs a barrier, and allows next client to proceed.
 	var waitFor1, closeAfter1 = pln.barrier()
@@ -41,9 +40,9 @@ func TestPipelineBasicLifeCycle(t *testing.T) {
 	pln.scatter(&pb.ReplicateRequest{Content: []byte("bazbing")})
 	_, _ = <-rm.brokerA.ReplReqCh, <-rm.brokerC.ReplReqCh
 	pln.closeSend()
-	assert.NoError(t, pln.sendErr())
-	assert.Equal(t, io.EOF, <-rm.brokerA.ReadLoopErrCh)
-	assert.Equal(t, io.EOF, <-rm.brokerC.ReadLoopErrCh)
+	require.NoError(t, pln.sendErr())
+	require.Equal(t, io.EOF, <-rm.brokerA.ReadLoopErrCh)
+	require.Equal(t, io.EOF, <-rm.brokerC.ReadLoopErrCh)
 
 	var waitFor2, closeAfter2 = pln.barrier()
 
@@ -52,8 +51,8 @@ func TestPipelineBasicLifeCycle(t *testing.T) {
 	rm.brokerC.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	pln.gatherOK()
-	assert.NoError(t, pln.recvErr())
-	assert.Equal(t, []pb.ReplicateResponse{{}, {}, {}}, pln.recvResp)
+	require.NoError(t, pln.recvErr())
+	require.Equal(t, []pb.ReplicateResponse{{}, {}, {}}, pln.recvResp)
 
 	close(closeAfter1) // First client signals it's response is read.
 
@@ -62,7 +61,7 @@ func TestPipelineBasicLifeCycle(t *testing.T) {
 	rm.brokerC.WriteLoopErrCh <- nil // Send EOF.
 
 	pln.gatherEOF()
-	assert.NoError(t, pln.recvErr())
+	require.NoError(t, pln.recvErr())
 
 	close(closeAfter2) // Second client signals it's done.
 	rm.cleanup()
@@ -75,23 +74,23 @@ func TestPipelinePeerErrorCases(t *testing.T) {
 	var req = pb.ReplicateRequest{Content: []byte("foo")}
 	pln.scatter(&req)
 
-	assert.NoError(t, pln.sendErr())
-	assert.Equal(t, req, <-rm.brokerA.ReplReqCh)
-	assert.Equal(t, req, <-rm.brokerC.ReplReqCh)
+	require.NoError(t, pln.sendErr())
+	require.Equal(t, req, <-rm.brokerA.ReplReqCh)
+	require.Equal(t, req, <-rm.brokerC.ReplReqCh)
 
 	// Have peer A return an error. Peer B returns a non-OK response status (where OK is expected).
 	rm.brokerA.WriteLoopErrCh <- errors.New("error!")
-	assert.Equal(t, context.Canceled, <-rm.brokerA.ReadLoopErrCh) // Peer A reads its own cancellation.
+	require.Equal(t, context.Canceled, <-rm.brokerA.ReadLoopErrCh) // Peer A reads its own cancellation.
 	rm.brokerC.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_PROPOSAL_MISMATCH}
 
 	// Expect pipeline retains the first recv error for each peer.
 	pln.gatherOK()
-	assert.EqualError(t, pln.recvErrs[0], `rpc error: code = Unknown desc = error!`)
-	assert.NoError(t, pln.recvErrs[1])
-	assert.EqualError(t, pln.recvErrs[2], `unexpected !OK response: status:PROPOSAL_MISMATCH `)
+	require.EqualError(t, pln.recvErrs[0], `rpc error: code = Unknown desc = error!`)
+	require.NoError(t, pln.recvErrs[1])
+	require.EqualError(t, pln.recvErrs[2], `unexpected !OK response: status:PROPOSAL_MISMATCH `)
 
 	// Expect recvErr decorates the first error with peer metadata.
-	assert.Regexp(t, `recv from zone:"A" suffix:"1" : rpc error: .*`, pln.recvErr())
+	require.Regexp(t, `recv from zone:"A" suffix:"1" : rpc error: .*`, pln.recvErr())
 
 	// Scatter a ReplicateRequest to each peer.
 	req = pb.ReplicateRequest{Content: []byte("bar"), ContentDelta: 99999} // Invalid ContentDelta.
@@ -102,19 +101,19 @@ func TestPipelinePeerErrorCases(t *testing.T) {
 	// (non-standard, but just how gRPC does it). The request is immediately applied to the
 	// local Spool during scatter(), and we expect its error is tracked on |sendErrs|. No
 	// error occurs on send to|rm.brokerC| (though its |recvErr| is still set).
-	assert.Equal(t, io.EOF, pln.sendErrs[0])
-	assert.EqualError(t, pln.sendErrs[1], `invalid ContentDelta (99999; expected 3)`)
-	assert.NoError(t, pln.sendErrs[2])
+	require.Equal(t, io.EOF, pln.sendErrs[0])
+	require.EqualError(t, pln.sendErrs[1], `invalid ContentDelta (99999; expected 3)`)
+	require.NoError(t, pln.sendErrs[2])
 
-	assert.Equal(t, req, <-rm.brokerC.ReplReqCh)
+	require.Equal(t, req, <-rm.brokerC.ReplReqCh)
 
 	// Expect sendErr decorates the first error with peer metadata.
-	assert.EqualError(t, pln.sendErr(), `send to zone:"A" suffix:"1" : EOF`)
+	require.EqualError(t, pln.sendErr(), `send to zone:"A" suffix:"1" : EOF`)
 
 	pln.closeSend()
 
 	// Finish shutdown by having brokerC receive and send EOF.
-	assert.Equal(t, io.EOF, <-rm.brokerC.ReadLoopErrCh)
+	require.Equal(t, io.EOF, <-rm.brokerC.ReadLoopErrCh)
 	rm.brokerC.WriteLoopErrCh <- nil
 	pln.gatherEOF()
 
@@ -123,17 +122,17 @@ func TestPipelinePeerErrorCases(t *testing.T) {
 	pln = rm.newPipeline(ctx, rm.header(0, 100))
 	pln.closeSend()
 
-	assert.Equal(t, io.EOF, <-rm.brokerA.ReadLoopErrCh)
-	assert.Equal(t, io.EOF, <-rm.brokerC.ReadLoopErrCh)
+	require.Equal(t, io.EOF, <-rm.brokerA.ReadLoopErrCh)
+	require.Equal(t, io.EOF, <-rm.brokerC.ReadLoopErrCh)
 
 	rm.brokerA.WriteLoopErrCh <- nil                                             // Send EOF.
 	rm.brokerC.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_WRONG_ROUTE} // Unexpected response.
 	rm.brokerC.WriteLoopErrCh <- nil                                             // Now, send EOF.
 
 	pln.gatherEOF()
-	assert.NoError(t, pln.recvErrs[0])
-	assert.NoError(t, pln.recvErrs[1])
-	assert.EqualError(t, pln.recvErrs[2], `unexpected response: status:WRONG_ROUTE `)
+	require.NoError(t, pln.recvErrs[0])
+	require.NoError(t, pln.recvErrs[1])
+	require.EqualError(t, pln.recvErrs[2], `unexpected response: status:WRONG_ROUTE `)
 
 	rm.cleanup()
 }
@@ -158,9 +157,9 @@ func TestPipelineGatherSyncCases(t *testing.T) {
 
 	// Expect each peer sees |req| with its ID in the Header.
 	req.Header = rm.header(0, 100)
-	assert.Equal(t, req, <-rm.brokerA.ReplReqCh)
+	require.Equal(t, req, <-rm.brokerA.ReplReqCh)
 	req.Header = rm.header(2, 100)
-	assert.Equal(t, req, <-rm.brokerC.ReplReqCh)
+	require.Equal(t, req, <-rm.brokerC.ReplReqCh)
 
 	// Craft a peer response Header at a later revision, with a different Route.
 	var wrongRouteHdr = rm.header(0, 4567)
@@ -178,11 +177,11 @@ func TestPipelineGatherSyncCases(t *testing.T) {
 
 	// Expect the maximum offset & registers, and Etcd revision to read through are returned.
 	var rollToOffset, rollToRegisters, readRev = pln.gatherSync()
-	assert.Equal(t, int64(800), rollToOffset)
-	assert.Equal(t, boxLabels("reg", "value"), rollToRegisters)
-	assert.Equal(t, int64(4567), readRev)
-	assert.NoError(t, pln.recvErr())
-	assert.NoError(t, pln.sendErr())
+	require.Equal(t, int64(800), rollToOffset)
+	require.Equal(t, boxLabels("reg", "value"), rollToRegisters)
+	require.Equal(t, int64(4567), readRev)
+	require.NoError(t, pln.recvErr())
+	require.NoError(t, pln.sendErr())
 
 	// Again. This time one peer returns a zero-length Fragment at proposal End.
 	// (Note that a peer should never send such a response to a zero-length proposal,
@@ -204,11 +203,11 @@ func TestPipelineGatherSyncCases(t *testing.T) {
 	}
 
 	rollToOffset, rollToRegisters, readRev = pln.gatherSync()
-	assert.Equal(t, int64(800), rollToOffset)
-	assert.Nil(t, rollToRegisters)
-	assert.Equal(t, int64(0), readRev)
-	assert.NoError(t, pln.recvErr())
-	assert.NoError(t, pln.sendErr())
+	require.Equal(t, int64(800), rollToOffset)
+	require.Nil(t, rollToRegisters)
+	require.Equal(t, int64(0), readRev)
+	require.NoError(t, pln.recvErr())
+	require.NoError(t, pln.sendErr())
 
 	// Again. This time peers return success.
 	req.Proposal = &pb.Fragment{
@@ -224,11 +223,11 @@ func TestPipelineGatherSyncCases(t *testing.T) {
 	rm.brokerC.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	rollToOffset, rollToRegisters, readRev = pln.gatherSync()
-	assert.Equal(t, int64(0), rollToOffset)
-	assert.Nil(t, rollToRegisters)
-	assert.Equal(t, int64(0), readRev)
-	assert.NoError(t, pln.recvErr())
-	assert.NoError(t, pln.sendErr())
+	require.Equal(t, int64(0), rollToOffset)
+	require.Nil(t, rollToRegisters)
+	require.Equal(t, int64(0), readRev)
+	require.NoError(t, pln.recvErr())
+	require.NoError(t, pln.sendErr())
 
 	// Again. This time, peers return !OK status with invalid responses.
 	pln.scatter(&req)
@@ -249,20 +248,20 @@ func TestPipelineGatherSyncCases(t *testing.T) {
 	rm.brokerC.WriteLoopErrCh <- nil
 
 	rollToOffset, rollToRegisters, readRev = pln.gatherSync()
-	assert.Equal(t, int64(0), rollToOffset)
-	assert.Nil(t, rollToRegisters)
-	assert.Equal(t, int64(0), readRev)
-	assert.NoError(t, pln.sendErr())
-	assert.Error(t, pln.recvErr())
+	require.Equal(t, int64(0), rollToOffset)
+	require.Nil(t, rollToRegisters)
+	require.Equal(t, int64(0), readRev)
+	require.NoError(t, pln.sendErr())
+	require.Error(t, pln.recvErr())
 
-	assert.Regexp(t, `unexpected WRONG_ROUTE: process_id:.*`, pln.recvErrs[0])
-	assert.NoError(t, pln.recvErrs[1])
-	assert.EqualError(t, pln.recvErrs[2], `unexpected PROPOSAL_MISMATCH: begin:567 end:890 sum:<> ,`+
+	require.Regexp(t, `unexpected WRONG_ROUTE: process_id:.*`, pln.recvErrs[0])
+	require.NoError(t, pln.recvErrs[1])
+	require.EqualError(t, pln.recvErrs[2], `unexpected PROPOSAL_MISMATCH: begin:567 end:890 sum:<> ,`+
 		` labels:<name:"in" value:"valid" > `)
 
 	// Peers read their own RPC closures.
-	assert.Equal(t, context.Canceled, <-rm.brokerA.ReadLoopErrCh)
-	assert.Equal(t, context.Canceled, <-rm.brokerC.ReadLoopErrCh)
+	require.Equal(t, context.Canceled, <-rm.brokerA.ReadLoopErrCh)
+	require.Equal(t, context.Canceled, <-rm.brokerC.ReadLoopErrCh)
 
 	rm.cleanup()
 }

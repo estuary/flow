@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
@@ -22,8 +22,8 @@ func TestFragmentsResolutionCases(t *testing.T) {
 	var resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal: "a/missing/journal",
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status: pb.Status_JOURNAL_NOT_FOUND,
 		Header: *broker.header("a/missing/journal"),
 	}, resp)
@@ -33,8 +33,8 @@ func TestFragmentsResolutionCases(t *testing.T) {
 	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{
 		Journal: "write/only",
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status: pb.Status_NOT_ALLOWED,
 		Header: *broker.header("write/only"),
 	}, resp)
@@ -45,7 +45,7 @@ func TestFragmentsResolutionCases(t *testing.T) {
 	var proxyHeader = broker.header("proxy/journal")
 
 	peer.ListFragmentsFunc = func(ctx context.Context, req *pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-		assert.Equal(t, &pb.FragmentsRequest{
+		require.Equal(t, &pb.FragmentsRequest{
 			Header:        proxyHeader,
 			Journal:       "proxy/journal",
 			BeginModTime:  time.Unix(0, 0).Unix(),
@@ -63,8 +63,8 @@ func TestFragmentsResolutionCases(t *testing.T) {
 	}
 
 	resp, err = broker.client().ListFragments(ctx, &pb.FragmentsRequest{Journal: "proxy/journal"})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        *proxyHeader,
 		Fragments:     fragments,
@@ -93,7 +93,7 @@ func TestFragmentsListCases(t *testing.T) {
 		NextPageToken: 0,
 		DoNotProxy:    false,
 	})
-	assert.EqualError(t, err, `rpc error: code = Unknown desc = invalid EndModTime (40 must be after 50)`)
+	require.EqualError(t, err, `rpc error: code = Unknown desc = invalid EndModTime (40 must be after 50)`)
 
 	// Case: Fetch fragments with unbounded time range.
 	// Asynchronously seed the fragment index with fixture data.
@@ -104,8 +104,8 @@ func TestFragmentsListCases(t *testing.T) {
 		Journal:      "a/journal",
 		SignatureTTL: &oneSec,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		Fragments:     fragments,
@@ -119,8 +119,8 @@ func TestFragmentsListCases(t *testing.T) {
 		EndModTime:   180,
 		SignatureTTL: &oneSec,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status: pb.Status_OK,
 		Header: *broker.header("a/journal"),
 		Fragments: []pb.FragmentsResponse__Fragment{
@@ -136,8 +136,8 @@ func TestFragmentsListCases(t *testing.T) {
 		BeginModTime: 100,
 		SignatureTTL: &oneSec,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		Fragments:     fragments[1:],
@@ -150,8 +150,8 @@ func TestFragmentsListCases(t *testing.T) {
 		PageLimit:    3,
 		SignatureTTL: &oneSec,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		Fragments:     fragments[:3],
@@ -163,8 +163,8 @@ func TestFragmentsListCases(t *testing.T) {
 		SignatureTTL:  &oneSec,
 		NextPageToken: resp.NextPageToken,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		Fragments:     fragments[3:],
@@ -178,8 +178,8 @@ func TestFragmentsListCases(t *testing.T) {
 		SignatureTTL:  &oneSec,
 		NextPageToken: 120,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		Fragments:     fragments[3:],
@@ -192,8 +192,8 @@ func TestFragmentsListCases(t *testing.T) {
 		BeginModTime: 10000,
 		EndModTime:   20000,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		NextPageToken: 0,
@@ -204,8 +204,8 @@ func TestFragmentsListCases(t *testing.T) {
 		Journal:       "a/journal",
 		NextPageToken: 1000,
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.FragmentsResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.FragmentsResponse{
 		Status:        pb.Status_OK,
 		Header:        expectHeader,
 		NextPageToken: 0,

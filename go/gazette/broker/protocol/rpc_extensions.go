@@ -330,7 +330,7 @@ func (m *ApplyRequest_Change) Validate() error {
 	} else if m.Delete != "" {
 		if err := m.Delete.Validate(); err != nil {
 			return ExtendContext(err, "Delete")
-		} else if m.ExpectModRevision <= 0 && (m.ExpectModRevision != -1){
+		} else if m.ExpectModRevision <= 0 && (m.ExpectModRevision != -1) {
 			return NewValidationError("invalid ExpectModRevision (%d; expected > 0 or -1)", m.ExpectModRevision)
 		}
 	} else {

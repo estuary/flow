@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/labels"
@@ -33,12 +33,12 @@ func TestReadMessages(t *testing.T) {
 	startReadingMessages(shard, cp, ch)
 
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "one"})
-	assert.Equal(t, "one", (<-ch).Envelope.Message.(*testMessage).Key)
+	require.Equal(t, "one", (<-ch).Envelope.Message.(*testMessage).Key)
 	_, _ = tf.pub.PublishCommitted(toSourceB, &testMessage{Key: "two"})
-	assert.Equal(t, "two", (<-ch).Envelope.Message.(*testMessage).Key)
+	require.Equal(t, "two", (<-ch).Envelope.Message.(*testMessage).Key)
 
 	cleanup()
-	assert.Regexp(t, `framing.Unmarshal\(offset \d+\): context canceled`, (<-ch).err)
+	require.Regexp(t, `framing.Unmarshal\(offset \d+\): context canceled`, (<-ch).err)
 }
 
 func TestReadMessagesFailsWithUnknownJournal(t *testing.T) {
@@ -50,7 +50,7 @@ func TestReadMessagesFailsWithUnknownJournal(t *testing.T) {
 
 	// Error is detected on first attempt at reading a message.
 	startReadingMessages(shard, pc.Checkpoint{}, ch)
-	assert.EqualError(t, (<-ch).err,
+	require.EqualError(t, (<-ch).err,
 		"fetching journal spec: named journal does not exist (yyy/zzz)")
 }
 
@@ -63,7 +63,7 @@ func TestReadMessagesFailsWithBadFraming(t *testing.T) {
 
 	// Error is detected on first attempt at reading a message.
 	startReadingMessages(shard, pc.Checkpoint{}, ch)
-	assert.EqualError(t, (<-ch).err, "determining framing: unrecognized "+labels.ContentType+
+	require.EqualError(t, (<-ch).err, "determining framing: unrecognized "+labels.ContentType+
 		" ("+labels.ContentType_RecoveryLog+")")
 }
 
@@ -79,7 +79,7 @@ func TestShardTransitionsWithRecovery(t *testing.T) {
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
 
 		var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		runTransaction(tf, res.Shard, map[string]string{"foo": "bar", "one": "1"})
 		runTransaction(tf, res.Shard, map[string]string{"foo": "baz", "two": "2"})
@@ -99,7 +99,7 @@ func TestShardTransitionsWithRecovery(t *testing.T) {
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
 
 		res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Expect the shard resumed from the former's store and message sequence.
 		runTransaction(tf, res.Shard, map[string]string{"foo": "zing", "three": "3"})
@@ -121,7 +121,7 @@ func TestShardRecoveryLogDoesntExist(t *testing.T) {
 	spec.RecoveryLogPrefix = "does/not/exist"
 	tf.allocateShard(spec, localID)
 
-	assert.Equal(t, "beginRecovery: fetching log spec: named journal does not exist "+
+	require.Equal(t, "beginRecovery: fetching log spec: named journal does not exist "+
 		"(does/not/exist/"+shardA+")",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
@@ -136,7 +136,7 @@ func TestShardSourceDoesntExist(t *testing.T) {
 	spec.Sources[1].Journal = "xxx/yyy/zzz"
 	tf.allocateShard(spec, localID)
 
-	assert.Equal(t, "runTransactions: readMessage: fetching journal spec: named journal does not exist "+
+	require.Equal(t, "runTransactions: readMessage: fetching journal spec: named journal does not exist "+
 		"(xxx/yyy/zzz)",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
@@ -150,7 +150,7 @@ func TestShardAppNewStoreError(t *testing.T) {
 	tf.app.newStoreErr = errors.New("an error")
 	tf.allocateShard(makeShard(shardA), localID)
 
-	assert.Equal(t, "completeRecovery: app.NewStore: an error",
+	require.Equal(t, "completeRecovery: app.NewStore: an error",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(makeShard(shardA)) // Cleanup.
@@ -166,7 +166,7 @@ func TestShardAppNewMessageFails(t *testing.T) {
 
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{})
 
-	assert.Equal(t, "runTransactions: readMessage: newMessage: an error",
+	require.Equal(t, "runTransactions: readMessage: newMessage: an error",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(spec) // Cleanup.
@@ -180,7 +180,7 @@ func TestShardStoreRestoreCheckpointFails(t *testing.T) {
 	var spec = makeRemoteShard(shardA)
 	tf.allocateShard(spec, localID)
 
-	assert.Equal(t, "completeRecovery: store.RestoreCheckpoint: an error",
+	require.Equal(t, "completeRecovery: store.RestoreCheckpoint: an error",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(spec) // Cleanup.
@@ -195,12 +195,12 @@ func TestShardStoreStartCommitFails(t *testing.T) {
 	tf.allocateShard(spec, localID)
 
 	var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer res.Done()
 
 	runTransaction(tf, res.Shard, map[string]string{"foo": "bar"})
 
-	assert.Equal(t, "runTransactions: store.StartCommit: an error",
+	require.Equal(t, "runTransactions: store.StartCommit: an error",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(spec) // Cleanup.

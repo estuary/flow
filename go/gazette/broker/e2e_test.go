@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
 	"google.golang.org/grpc"
@@ -33,23 +33,23 @@ func TestE2EAppendAndReplicatedRead(t *testing.T) {
 
 	// First Append is served by |broker|, with its Read served by |peer|.
 	var stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "journal/one"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("hello")}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "journal/one"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("hello")}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{}))
 	_, _ = stream.CloseAndRecv()
 
 	// Second Append is served by |peer| (through |broker|), with its Read served by |broker|.
 	stream, _ = broker.client().Append(ctx)
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Journal: "journal/two"}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("world!")}))
-	assert.NoError(t, stream.Send(&pb.AppendRequest{}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "journal/two"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("world!")}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{}))
 	_, _ = stream.CloseAndRecv()
 
 	// Read Fragment metadata, then content from each Read stream.
 	_, err := rOne.Recv()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, err = rTwo.Recv()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, rOne, pb.ReadResponse{Content: []byte("hello")})
 	expectReadResponse(t, rTwo, pb.ReadResponse{Content: []byte("world!")})
@@ -76,7 +76,7 @@ func TestE2EShutdownWithOngoingAppend(t *testing.T) {
 	// shutdown (eg, after updating assignments it must complete re-resolution
 	// and begin streaming content _before_ this test aborts the journal).
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	assert.True(t, fsm.runTo(stateStreamContent))
+	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("woot!")}, nil)
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Commit intent.
 
@@ -89,18 +89,18 @@ func TestE2EShutdownWithOngoingAppend(t *testing.T) {
 	fsm.onStreamContent(nil, io.EOF) // Commit.
 	fsm.onReadAcknowledgements()
 
-	assert.Equal(t, stateFinished, fsm.state)
-	assert.Equal(t, &pb.Fragment{
+	require.Equal(t, stateFinished, fsm.state)
+	require.Equal(t, &pb.Fragment{
 		Journal:          "a/journal",
 		Begin:            0,
 		End:              5,
 		Sum:              pb.SHA1SumOf("woot!"),
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
 	}, fsm.clientFragment)
-	assert.Equal(t, expectHeader, fsm.resolved.Header)
+	require.Equal(t, expectHeader, fsm.resolved.Header)
 
 	// Expect broker exist gracefully.
-	assert.NoError(t, broker.tasks.Wait())
+	require.NoError(t, broker.tasks.Wait())
 }
 
 func TestE2EShutdownWithOngoingAppendWhichLosesRace(t *testing.T) {
@@ -114,17 +114,17 @@ func TestE2EShutdownWithOngoingAppendWhichLosesRace(t *testing.T) {
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
 	fsm.onResolve()
 
-	assert.Equal(t, pb.Status_OK, fsm.resolved.status)
-	assert.NotNil(t, fsm.resolved.replica)
+	require.Equal(t, pb.Status_OK, fsm.resolved.status)
+	require.NotNil(t, fsm.resolved.replica)
 
 	// |fsm| has resolved to a local replica, but failed to acquire the pipeline in time.
 	broker.svc.resolver.stopServingLocalReplicas()
 
 	// It now fails with an error, because we still resolve the journal locally
 	// but have stopped serving local replicas.
-	assert.False(t, fsm.runTo(stateStreamContent))
-	assert.Equal(t, stateError, fsm.state)
-	assert.EqualError(t, fsm.err, `resolve: resolver has stopped serving local replicas`)
+	require.False(t, fsm.runTo(stateStreamContent))
+	require.Equal(t, stateError, fsm.state)
+	require.EqualError(t, fsm.err, `resolve: resolver has stopped serving local replicas`)
 	fsm.returnPipeline()
 
 	broker.cleanup()
@@ -139,7 +139,7 @@ func TestE2EReassignmentWithOngoingAppend(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	assert.True(t, fsm.runTo(stateStreamContent))
+	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("woot!")}, nil)
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Commit intent.
 
@@ -153,15 +153,15 @@ func TestE2EReassignmentWithOngoingAppend(t *testing.T) {
 	fsm.onStreamContent(nil, io.EOF) // Commit.
 	fsm.onReadAcknowledgements()
 
-	assert.Equal(t, stateFinished, fsm.state)
-	assert.Equal(t, &pb.Fragment{
+	require.Equal(t, stateFinished, fsm.state)
+	require.Equal(t, &pb.Fragment{
 		Journal:          "a/journal",
 		Begin:            0,
 		End:              5,
 		Sum:              pb.SHA1SumOf("woot!"),
 		CompressionCodec: pb.CompressionCodec_SNAPPY,
 	}, fsm.clientFragment)
-	assert.Equal(t, expectHeader, fsm.resolved.Header)
+	require.Equal(t, expectHeader, fsm.resolved.Header)
 
 	broker.cleanup()
 }
@@ -178,17 +178,17 @@ func TestE2EShutdownWithProxyAppend(t *testing.T) {
 
 	// Start a long-lived appendFSM, which builds and holds the pipeline.
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	assert.True(t, fsm.runTo(stateStreamContent))
+	require.True(t, fsm.runTo(stateStreamContent))
 
 	var conn, client = newDialedClient(t, broker)
 	defer conn.Close()
 
 	// Start an Append RPC which will queue behind appendFSM.
 	var app, err = client.Append(ctx)
-	assert.NoError(t, err)
-	assert.NoError(t, app.Send(&pb.AppendRequest{Journal: "a/journal"}))
-	assert.NoError(t, app.Send(&pb.AppendRequest{Content: []byte("world!")}))
-	assert.NoError(t, app.Send(&pb.AppendRequest{})) // Intent to commit.
+	require.NoError(t, err)
+	require.NoError(t, app.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, app.Send(&pb.AppendRequest{Content: []byte("world!")}))
+	require.NoError(t, app.Send(&pb.AppendRequest{})) // Intent to commit.
 	ensureStreamsAreStarted(t, client)
 
 	// Change the routing for journal/one such that peer is now solely responsible.
@@ -210,15 +210,15 @@ func TestE2EShutdownWithProxyAppend(t *testing.T) {
 	fsm.onStreamContent(nil, io.EOF)              // Commit.
 	fsm.onReadAcknowledgements()
 
-	assert.Equal(t, stateFinished, fsm.state)
-	assert.Equal(t, int64(6), fsm.clientFragment.ContentLength())
+	require.Equal(t, stateFinished, fsm.state)
+	require.Equal(t, int64(6), fsm.clientFragment.ContentLength())
 
 	// Expect that |app| can now complete, and that it was served by |peer|.
 	peer.initialFragmentLoad()
 	resp, err := app.CloseAndRecv()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	assert.Equal(t, &pb.AppendResponse{
+	require.Equal(t, &pb.AppendResponse{
 		Status: pb.Status_OK,
 		Header: *peer.header("a/journal"),
 		Commit: &pb.Fragment{
@@ -231,9 +231,9 @@ func TestE2EShutdownWithProxyAppend(t *testing.T) {
 		Registers:   boxLabels(),
 		TotalChunks: 2,
 	}, resp)
-	assert.Equal(t, []pb.ProcessSpec_ID{peer.id}, resp.Header.Route.Members)
+	require.Equal(t, []pb.ProcessSpec_ID{peer.id}, resp.Header.Route.Members)
 
-	assert.NoError(t, broker.tasks.Wait())
+	require.NoError(t, broker.tasks.Wait())
 	peer.cleanup()
 }
 
@@ -246,7 +246,7 @@ func TestE2EReplicaReassignedWithOngoingRead(t *testing.T) {
 	applySpoolContentFixture(broker.replica("a/journal"))
 
 	var stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "a/journal", Block: true})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, _ = stream.Recv() // Read header.
 	expectReadResponse(t, stream, pb.ReadResponse{Content: []byte("content!")})
 
@@ -256,8 +256,8 @@ func TestE2EReplicaReassignedWithOngoingRead(t *testing.T) {
 
 	// Expect the Read RPC is gracefully closed.
 	resp, err := stream.Recv()
-	assert.Equal(t, io.EOF, err)
-	assert.Nil(t, resp)
+	require.Equal(t, io.EOF, err)
+	require.Nil(t, resp)
 
 	broker.cleanup()
 }
@@ -274,7 +274,7 @@ func TestE2EShutdownWithOngoingRead(t *testing.T) {
 	defer conn.Close()
 
 	var stream, err = client.Read(ctx, &pb.ReadRequest{Journal: "a/journal", Block: true})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, _ = stream.Recv() // Read header.
 	expectReadResponse(t, stream, pb.ReadResponse{Content: []byte("content!")})
 
@@ -282,11 +282,11 @@ func TestE2EShutdownWithOngoingRead(t *testing.T) {
 
 	// Expect the Read RPC is gracefully closed.
 	resp, err := stream.Recv()
-	assert.Equal(t, io.EOF, err)
-	assert.Nil(t, resp)
+	require.Equal(t, io.EOF, err)
+	require.Nil(t, resp)
 
 	// Expect broker exist gracefully.
-	assert.NoError(t, broker.tasks.Wait())
+	require.NoError(t, broker.tasks.Wait())
 }
 
 func TestE2EShutdownWithProxyRead(t *testing.T) {
@@ -305,20 +305,20 @@ func TestE2EShutdownWithProxyRead(t *testing.T) {
 	defer conn.Close()
 
 	stream, err := client.Read(ctx, &pb.ReadRequest{Journal: "a/journal", Block: true})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	resp, _ := stream.Recv() // Read header from |peer|.
-	assert.Equal(t, resp.Header.ProcessId, peer.id)
+	require.Equal(t, resp.Header.ProcessId, peer.id)
 	expectReadResponse(t, stream, pb.ReadResponse{Content: []byte("content!")})
 
 	broker.tasks.Cancel() // Begin broker shutdown.
 
 	// Expect the Read RPC is gracefully closed.
 	resp, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
-	assert.Nil(t, resp)
+	require.Equal(t, io.EOF, err)
+	require.Nil(t, resp)
 
 	// Expect broker exist gracefully.
-	assert.NoError(t, broker.tasks.Wait())
+	require.NoError(t, broker.tasks.Wait())
 	peer.cleanup()
 }
 
@@ -335,7 +335,7 @@ func applySpoolContentFixture(r *replica) {
 // before a final EOF response is read.
 func newDialedClient(t *testing.T, bk *testBroker) (*grpc.ClientConn, pb.JournalClient) {
 	var conn, err = grpc.Dial(bk.srv.Endpoint().URL().Host, grpc.WithInsecure())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return conn, pb.NewJournalClient(conn)
 }
 
@@ -344,12 +344,12 @@ func newDialedClient(t *testing.T, bk *testBroker) (*grpc.ClientConn, pb.Journal
 // server, and will be honored by a server GracefulStop.
 func ensureStreamsAreStarted(t *testing.T, jc pb.JournalClient) {
 	var s, err = jc.Read(context.Background(), &pb.ReadRequest{Journal: "does/not/exist"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp, err := s.Recv()
-	assert.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status)
-	assert.NoError(t, err)
+	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status)
+	require.NoError(t, err)
 
 	_, err = s.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -20,7 +20,7 @@ func TestResolverCases(t *testing.T) {
 			args.Context = context.Background()
 		}
 		var r, err = tf.resolver.Resolve(args)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		return r
 	}
 	var etcdHeader = func() pb.Header_Etcd {
@@ -30,7 +30,7 @@ func TestResolverCases(t *testing.T) {
 	}
 
 	// Case: Shard does not exist, nor does our local MemberSpec (yet; it's created by allocateShard below).
-	assert.Equal(t, Resolution{
+	require.Equal(t, Resolution{
 		Status: pc.Status_SHARD_NOT_FOUND,
 		Header: pb.Header{
 			ProcessId: pb.ProcessSpec_ID{Zone: "local ConsumerSpec", Suffix: "missing from Etcd"},
@@ -42,7 +42,7 @@ func TestResolverCases(t *testing.T) {
 	// Case: Shard is remote, but has no primary.
 	tf.allocateShard(makeShard(shardA), pb.ProcessSpec_ID{}, remoteID)
 
-	assert.Equal(t, Resolution{
+	require.Equal(t, Resolution{
 		Status: pc.Status_NO_SHARD_PRIMARY,
 		Header: pb.Header{
 			ProcessId: localID,
@@ -59,7 +59,7 @@ func TestResolverCases(t *testing.T) {
 	// Case: Shard is local, but has a remote primary.
 	tf.allocateShard(makeShard(shardA), remoteID, localID)
 
-	assert.Equal(t, Resolution{
+	require.Equal(t, Resolution{
 		Status: pc.Status_NOT_SHARD_PRIMARY,
 		Header: pb.Header{
 			ProcessId: localID,
@@ -74,7 +74,7 @@ func TestResolverCases(t *testing.T) {
 	}, resolve(ResolveArgs{ShardID: shardA}))
 
 	// Case: Shard is local, has a remote primary, and we may proxy.
-	assert.Equal(t, Resolution{
+	require.Equal(t, Resolution{
 		Status: pc.Status_OK,
 		Header: pb.Header{
 			ProcessId: remoteID,
@@ -109,8 +109,8 @@ func TestResolverCases(t *testing.T) {
 			Etcd:      proxyEtcd,
 		},
 	})
-	assert.Equal(t, pc.Status_OK, r.Status)
-	assert.Equal(t, pb.Header{
+	require.Equal(t, pc.Status_OK, r.Status)
+	require.Equal(t, pb.Header{
 		ProcessId: localID,
 		Route: pb.Route{
 			Members:   []pb.ProcessSpec_ID{localID, remoteID},
@@ -119,9 +119,9 @@ func TestResolverCases(t *testing.T) {
 		},
 		Etcd: r.Header.Etcd,
 	}, r.Header)
-	assert.Equal(t, makeShard(shardA), r.Spec)
-	assert.NotNil(t, r.Shard)
-	assert.Equal(t, &map[string]string{}, r.Store.(*JSONFileStore).State)
+	require.Equal(t, makeShard(shardA), r.Spec)
+	require.NotNil(t, r.Shard)
+	require.Equal(t, &map[string]string{}, r.Store.(*JSONFileStore).State)
 	r.Done()
 
 	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
@@ -134,9 +134,9 @@ func TestResolverCases(t *testing.T) {
 		ShardID:     shardA,
 		ReadThrough: pb.Offsets{sourceB.Name: 1},
 	})
-	assert.Equal(t, pc.Status_OK, r.Status)
-	assert.NotNil(t, r.Shard)
-	assert.Equal(t, &map[string]string{"read": "through"}, r.Store.(*JSONFileStore).State)
+	require.Equal(t, pc.Status_OK, r.Status)
+	require.NotNil(t, r.Shard)
+	require.Equal(t, &map[string]string{"read": "through"}, r.Store.(*JSONFileStore).State)
 	r.Done()
 
 	// Interlude: Resolver is asked to stop local serving.
@@ -145,13 +145,13 @@ func TestResolverCases(t *testing.T) {
 	// Case: resolving to a remote peer still succeeds.
 	tf.allocateShard(makeShard(shardA), remoteID, localID)
 	r = resolve(ResolveArgs{ShardID: shardA, MayProxy: true})
-	assert.Equal(t, pc.Status_OK, r.Status)
-	assert.Equal(t, remoteID, r.Header.ProcessId)
+	require.Equal(t, pc.Status_OK, r.Status)
+	require.Equal(t, remoteID, r.Header.ProcessId)
 
 	// Case: but an attempt to resolve to a local replica fails.
 	tf.allocateShard(makeShard(shardA), localID)
 	var _, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	assert.Equal(t, ErrResolverStopped, err)
+	require.Equal(t, ErrResolverStopped, err)
 
 	tf.allocateShard(makeShard(shardA)) // Cleanup.
 	cleanup()
@@ -177,7 +177,7 @@ func TestResolverErrorCases(t *testing.T) {
 			},
 		},
 	})
-	assert.Regexp(t, `proxied request Etcd ClusterId doesn't match our own \(\d+ vs \d+\)`, err)
+	require.Regexp(t, `proxied request Etcd ClusterId doesn't match our own \(\d+ vs \d+\)`, err)
 
 	// Case: ProxyHeader has wrong ProcessID.
 	_, err = tf.resolver.Resolve(ResolveArgs{
@@ -190,7 +190,7 @@ func TestResolverErrorCases(t *testing.T) {
 			},
 		},
 	})
-	assert.Regexp(t, `proxied request ProcessId doesn't match our own \(zone.*\)`, err)
+	require.Regexp(t, `proxied request ProcessId doesn't match our own \(zone.*\)`, err)
 
 	// Case: Context cancelled while waiting for a future revision.
 	var ctx, cancel = context.WithCancel(context.Background())
@@ -207,14 +207,14 @@ func TestResolverErrorCases(t *testing.T) {
 			},
 		},
 	})
-	assert.Equal(t, context.Canceled, err)
+	require.Equal(t, context.Canceled, err)
 
 	// Case: Request context cancelled while waiting for store (which never resolves, because NewStore fails).
 	ctx, cancel = context.WithCancel(context.Background())
 	time.AfterFunc(time.Millisecond, cancel)
 
 	_, err = tf.resolver.Resolve(ResolveArgs{Context: ctx, ShardID: shardA})
-	assert.Equal(t, context.Canceled, err)
+	require.Equal(t, context.Canceled, err)
 
 	// Case: Shard context is cancelled.
 	tf.state.KS.Mu.Lock()
@@ -222,13 +222,13 @@ func TestResolverErrorCases(t *testing.T) {
 	tf.state.KS.Mu.Unlock()
 
 	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	assert.Equal(t, context.Canceled, err)
+	require.Equal(t, context.Canceled, err)
 
 	// Case: Resolver is in the process of halting.
 	tf.resolver.stopServingLocalShards()
 
 	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	assert.Equal(t, ErrResolverStopped, err)
+	require.Equal(t, ErrResolverStopped, err)
 
 	tf.allocateShard(makeShard(shardA)) // Cleanup.
 }
@@ -242,7 +242,7 @@ func TestResolverShardTransitions(t *testing.T) {
 	tf.allocateShard(makeShard(shardC), remoteID, localID)
 
 	tf.ks.Mu.RLock()
-	assert.Len(t, tf.resolver.shards, 2)
+	require.Len(t, tf.resolver.shards, 2)
 	var sB = tf.resolver.shards[shardB]
 	var sC = tf.resolver.shards[shardC]
 	tf.ks.Mu.RUnlock()
@@ -256,7 +256,7 @@ func TestResolverShardTransitions(t *testing.T) {
 	tf.allocateShard(makeShard(shardC))
 
 	tf.ks.Mu.RLock()
-	assert.Len(t, tf.resolver.shards, 1)
+	require.Len(t, tf.resolver.shards, 1)
 	tf.ks.Mu.RUnlock()
 
 	<-sB.recovery.player.Done() // Expect |sB| is transitioned to primary.
@@ -268,7 +268,7 @@ func TestResolverShardTransitions(t *testing.T) {
 	tf.allocateShard(makeShard(shardB))
 
 	tf.ks.Mu.RLock()
-	assert.Len(t, tf.resolver.shards, 0)
+	require.Len(t, tf.resolver.shards, 0)
 	tf.ks.Mu.RUnlock()
 
 	<-sB.Context().Done() // Expect |sB| is cancelled.
@@ -281,20 +281,20 @@ func TestResolverJournalIndexing(t *testing.T) {
 	defer cleanup()
 
 	// Progress through a sequence of adding shards & confirming they're index.
-	assert.Nil(t, tf.resolver.ShardsWithSource(sourceA.Name))
+	require.Nil(t, tf.resolver.ShardsWithSource(sourceA.Name))
 
 	var specA = makeShard(shardA)
 	tf.allocateShard(specA)
-	assert.Equal(t, []*pc.ShardSpec{specA}, tf.resolver.ShardsWithSource(sourceA.Name))
-	assert.Equal(t, []*pc.ShardSpec{specA}, tf.resolver.ShardsWithSource(sourceB.Name))
+	require.Equal(t, []*pc.ShardSpec{specA}, tf.resolver.ShardsWithSource(sourceA.Name))
+	require.Equal(t, []*pc.ShardSpec{specA}, tf.resolver.ShardsWithSource(sourceB.Name))
 
 	var specB = makeShard(shardB)
 	tf.allocateShard(specB)
-	assert.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
-	assert.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceB.Name))
+	require.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
+	require.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceB.Name))
 
 	specA.Sources = specA.Sources[:1] // Drop sourceB.
 	tf.allocateShard(specA)
-	assert.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
-	assert.Equal(t, []*pc.ShardSpec{specB}, tf.resolver.ShardsWithSource(sourceB.Name))
+	require.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
+	require.Equal(t, []*pc.ShardSpec{specB}, tf.resolver.ShardsWithSource(sourceB.Name))
 }

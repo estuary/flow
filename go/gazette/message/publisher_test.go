@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -34,11 +33,11 @@ func TestPublishCommitted(t *testing.T) {
 	}
 	for _, s := range []string{"hello", "world", "beer!"} {
 		var aa, err = pub.PublishCommitted(mapping, &testMsg{Str: s})
-		assert.NoError(t, err)
-		assert.NoError(t, aa.Err())
+		require.NoError(t, err)
+		require.NoError(t, aa.Err())
 	}
 
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 1, Flag_OUTSIDE_TXN), Str: "hello"},
 		{UUID: BuildUUID(pub.producer, 2, Flag_OUTSIDE_TXN), Str: "world"},
 		{UUID: BuildUUID(pub.producer, 3, Flag_OUTSIDE_TXN), Str: "beer!"},
@@ -46,10 +45,10 @@ func TestPublishCommitted(t *testing.T) {
 
 	// Expect validation errors are returned, before the mapping is invoked.
 	var _, err = pub.PublishCommitted(nil, &testMsg{err: errors.New("whoops!")})
-	assert.EqualError(t, err, "whoops!")
+	require.EqualError(t, err, "whoops!")
 
 	bk.Tasks.Cancel()
-	assert.NoError(t, bk.Tasks.Wait())
+	require.NoError(t, bk.Tasks.Wait())
 }
 
 func TestPublishUncommitted(t *testing.T) {
@@ -73,8 +72,8 @@ func TestPublishUncommitted(t *testing.T) {
 			return journal, labels.ContentType_JSONLines, nil
 		}
 		var aa, err = pub.PublishUncommitted(mapping, &testMsg{Str: value})
-		assert.NoError(t, err)
-		assert.NoError(t, aa.Err())
+		require.NoError(t, err)
+		require.NoError(t, aa.Err())
 	}
 
 	// Publish two pending messages.
@@ -83,8 +82,8 @@ func TestPublishUncommitted(t *testing.T) {
 
 	// Build intents. Expect ACK intents for each published journal.
 	var intents, err = pub.BuildAckIntents()
-	assert.NoError(t, err)
-	assert.Len(t, intents, 2)
+	require.NoError(t, err)
+	require.Len(t, intents, 2)
 	writeIntents(t, ajc, intents)
 
 	// Publish again, then build & write intents.
@@ -92,30 +91,30 @@ func TestPublishUncommitted(t *testing.T) {
 	publish(spec1.Name, "value four")
 
 	intents, err = pub.BuildAckIntents()
-	assert.NoError(t, err)
-	assert.Len(t, intents, 2)
+	require.NoError(t, err)
+	require.Len(t, intents, 2)
 	writeIntents(t, ajc, intents)
 
 	// Verify expected messages and ACKs were written to journals.
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 1, Flag_CONTINUE_TXN), Str: "value one"},
 		{UUID: BuildUUID(pub.producer, 3, Flag_ACK_TXN)},
 		{UUID: BuildUUID(pub.producer, 6, Flag_CONTINUE_TXN), Str: "value four"},
 		{UUID: BuildUUID(pub.producer, 8, Flag_ACK_TXN)},
 	}, readAllMsgs(t, bk, spec1))
 
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 2, Flag_CONTINUE_TXN), Str: "value two"},
 		{UUID: BuildUUID(pub.producer, 4, Flag_ACK_TXN)},
 	}, readAllMsgs(t, bk, spec2))
 
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 5, Flag_CONTINUE_TXN), Str: "value three"},
 		{UUID: BuildUUID(pub.producer, 7, Flag_ACK_TXN)},
 	}, readAllMsgs(t, bk, spec3))
 
 	bk.Tasks.Cancel()
-	assert.NoError(t, bk.Tasks.Wait())
+	require.NoError(t, bk.Tasks.Wait())
 }
 
 func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
@@ -143,7 +142,7 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 
 	var seqPump = func() (out []testMsg) {
 		var env, err = r.Next()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		seq.QueueUncommitted(env)
 
 		for {
@@ -180,11 +179,11 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 	var intents, _ = txnPub.BuildAckIntents()
 	writeIntents(t, ajc, intents)
 
-	assert.Equal(t, []testMsg(nil), seqPump())
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 2, Flag_OUTSIDE_TXN), Str: "two"},
 	}, seqPump())
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(txnPub.producer, 1, Flag_CONTINUE_TXN), Str: "one"},
 		{UUID: BuildUUID(txnPub.producer, 3, Flag_ACK_TXN)},
 	}, seqPump())
@@ -199,16 +198,16 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 	intents, _ = txnPub.BuildAckIntents()
 	writeIntents(t, ajc, intents)
 
-	assert.Equal(t, []testMsg(nil), seqPump())
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 5, Flag_OUTSIDE_TXN), Str: "four"},
 	}, seqPump())
-	assert.Equal(t, []testMsg(nil), seqPump())
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(pub.producer, 7, Flag_OUTSIDE_TXN), Str: "six"},
 	}, seqPump())
-	assert.Equal(t, []testMsg(nil), seqPump())
-	assert.Equal(t, []testMsg{
+	require.Equal(t, []testMsg(nil), seqPump())
+	require.Equal(t, []testMsg{
 		{UUID: BuildUUID(txnPub.producer, 4, Flag_CONTINUE_TXN), Str: "three"},
 		{UUID: BuildUUID(txnPub.producer, 6, Flag_CONTINUE_TXN), Str: "five"},
 		{UUID: BuildUUID(txnPub.producer, 8, Flag_CONTINUE_TXN), Str: "seven"},
@@ -216,10 +215,10 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 	}, seqPump())
 
 	bk.Tasks.Cancel()
-	assert.NoError(t, bk.Tasks.Wait())
+	require.NoError(t, bk.Tasks.Wait())
 }
 
-func readAllMsgs(t assert.TestingT, bk *brokertest.Broker, spec *pb.JournalSpec) (out []testMsg) {
+func readAllMsgs(t require.TestingT, bk *brokertest.Broker, spec *pb.JournalSpec) (out []testMsg) {
 	var rr = client.NewRetryReader(context.Background(), bk.Client(), pb.ReadRequest{Journal: spec.Name})
 	var r = NewReadUncommittedIter(rr, newTestMsg)
 	for {
@@ -227,7 +226,7 @@ func readAllMsgs(t assert.TestingT, bk *brokertest.Broker, spec *pb.JournalSpec)
 		if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
 			return out
 		}
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		out = append(out, *env.Message.(*testMsg))
 	}
 }
@@ -239,11 +238,11 @@ func newTestMsgSpec(name pb.Journal) *pb.JournalSpec {
 	})
 }
 
-func writeIntents(t assert.TestingT, ajc client.AsyncJournalClient, intents []AckIntent) {
+func writeIntents(t require.TestingT, ajc client.AsyncJournalClient, intents []AckIntent) {
 	for _, i := range intents {
 		var aa = ajc.StartAppend(pb.AppendRequest{Journal: i.Journal}, nil)
 		_, _ = aa.Writer().Write(i.Intent)
-		assert.NoError(t, aa.Release())
+		require.NoError(t, aa.Release())
 		<-aa.Done()
 	}
 }

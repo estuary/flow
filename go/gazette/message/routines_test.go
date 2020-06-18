@@ -8,19 +8,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/labels"
 )
 
 func TestFramingDetermination(t *testing.T) {
 	var _, err = FramingByContentType(labels.ContentType_JSONLines)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, err = FramingByContentType(labels.ContentType_ProtoFixed)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = FramingByContentType(labels.ContentType_RecoveryLog) // Not a valid message framing.
-	assert.EqualError(t, err, `unrecognized `+labels.ContentType+` (`+labels.ContentType_RecoveryLog+`)`)
+	require.EqualError(t, err, `unrecognized `+labels.ContentType+` (`+labels.ContentType_RecoveryLog+`)`)
 }
 
 func TestLineUnpackingCases(t *testing.T) {
@@ -32,24 +32,24 @@ func TestLineUnpackingCases(t *testing.T) {
 
 	// Case 1: line fits in buffer.
 	var line, err = UnpackLine(br)
-	assert.NoError(t, err)
-	assert.Equal(t, cap(p), cap(line)) // |line| references internal buffer.
+	require.NoError(t, err)
+	require.Equal(t, cap(p), cap(line)) // |line| references internal buffer.
 
 	// Case 2: line doesn't fit in buffer.
 	line, err = UnpackLine(br)
-	assert.NoError(t, err)
-	assert.Equal(t, strings.Repeat("x", bsize*3/2)+"\n", string(line))
-	assert.NotEqual(t, cap(p), cap(line)) // |line| *does not* reference internal buffer.
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("x", bsize*3/2)+"\n", string(line))
+	require.NotEqual(t, cap(p), cap(line)) // |line| *does not* reference internal buffer.
 
 	// Case 3: EOF without newline and read content is mapped to ErrUnexpectedEOF.
 	line, err = UnpackLine(br)
-	assert.Equal(t, io.ErrUnexpectedEOF, err)
-	assert.Equal(t, "extra", string(line))
+	require.Equal(t, io.ErrUnexpectedEOF, err)
+	require.Equal(t, "extra", string(line))
 
 	// Case 4: EOF without any read content is passed through.
 	line, err = UnpackLine(br)
-	assert.Equal(t, io.EOF, err)
-	assert.Equal(t, "", string(line))
+	require.Equal(t, io.EOF, err)
+	require.Equal(t, "", string(line))
 }
 
 func buildPartitionsFuncFixture(count int) PartitionsFunc {
@@ -70,12 +70,12 @@ func TestRandomMapping(t *testing.T) {
 
 	for i := 0; i != 101; i++ {
 		var j, ct, err = mapping(&testMsg{Str: "foobar"})
-		assert.NoError(t, err)
-		assert.Equal(t, labels.ContentType_JSONLines, ct)
+		require.NoError(t, err)
+		require.Equal(t, labels.ContentType_JSONLines, ct)
 		results[j] = struct{}{}
 	}
 	// Probabilistic test; chance of failure is 1e-200.
-	assert.True(t, len(results) > 1)
+	require.True(t, len(results) > 1)
 }
 
 func TestModuloMappingRegressionFixtures(t *testing.T) {
@@ -99,9 +99,9 @@ func TestModuloMappingRegressionFixtures(t *testing.T) {
 		"temperate - Shakespeare": 228,
 	} {
 		var j, ct, err = mapping(&testMsg{Str: key})
-		assert.NoError(t, err)
-		assert.Equal(t, labels.ContentType_JSONLines, ct)
-		assert.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
+		require.NoError(t, err)
+		require.Equal(t, labels.ContentType_JSONLines, ct)
+		require.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
 	}
 }
 
@@ -124,9 +124,9 @@ func TestRendezvousMappingRegressionFixtures(t *testing.T) {
 			"temperate - Shakespeare": 75,
 		} {
 			var j, ct, err = mapping(&testMsg{Str: key})
-			assert.NoError(t, err)
-			assert.Equal(t, labels.ContentType_JSONLines, ct)
-			assert.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
+			require.NoError(t, err)
+			require.Equal(t, labels.ContentType_JSONLines, ct)
+			require.Equal(t, fmt.Sprintf("%s-a/topic/part-%03d", key, expectedPartition), key+"-"+j.String())
 		}
 	}
 	// Rendezvous hashing minimizes re-assignments which should occur due to

@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
@@ -22,7 +22,7 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 
 	// Start stream & initial sync.
 	var stream, _ = broker.client().Replicate(ctx)
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		DeprecatedJournal: "a/journal",
 		Header:            expectHeader,
 		Proposal: &pb.Fragment{
@@ -35,14 +35,14 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK, Header: expectHeader})
 
 	// Replicate content.
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("foobar"), ContentDelta: 0}))
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("bazbing"), ContentDelta: 6}))
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("foobar"), ContentDelta: 0}))
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("bazbing"), ContentDelta: 6}))
 
 	// Precondition: content not observable in the Fragment index.
-	assert.Equal(t, int64(0), broker.replica("a/journal").index.EndOffset())
+	require.Equal(t, int64(0), broker.replica("a/journal").index.EndOffset())
 
 	// Commit.
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Proposal: &pb.Fragment{
 			Journal:          "a/journal",
 			Begin:            0,
@@ -56,12 +56,12 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK})
 
 	// Post-condition: content is now observable.
-	assert.Equal(t, int64(13), broker.replica("a/journal").index.EndOffset())
+	require.Equal(t, int64(13), broker.replica("a/journal").index.EndOffset())
 
 	// Send EOF and expect its returned.
-	assert.NoError(t, stream.CloseSend())
+	require.NoError(t, stream.CloseSend())
 	var _, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	broker.cleanup()
 }
@@ -74,7 +74,7 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 
 	// Case: Resolution error (Journal not found).
 	var stream, _ = broker.client().Replicate(ctx)
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		DeprecatedJournal: "does/not/exist",
 		Header:            broker.header("does/not/exist"),
 		Proposal: &pb.Fragment{
@@ -90,7 +90,7 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	})
 	// Expect broker closes.
 	var _, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: request Route doesn't match the broker's own resolution.
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2},
@@ -100,7 +100,7 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	var wrongHeader = broker.header("a/journal")
 	wrongHeader.Route = pb.Route{Primary: -1}
 
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		DeprecatedJournal: "a/journal",
 		Header:            wrongHeader,
 		Proposal: &pb.Fragment{
@@ -116,12 +116,12 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	})
 	// Expect broker closes.
 	_, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: acknowledged proposal doesn't match.
 	stream, _ = broker.client().Replicate(ctx)
 
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		DeprecatedJournal: "a/journal",
 		Header:            broker.header("a/journal"),
 		Proposal: &pb.Fragment{
@@ -153,7 +153,7 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 		End:              5678,
 		CompressionCodec: pb.CompressionCodec_NONE,
 	}
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Proposal:    &proposal,
 		Registers:   boxLabels("wrong", "register"),
 		Acknowledge: true,
@@ -165,7 +165,7 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	})
 
 	// Case: proposal is made without Acknowledge set, and fails to apply.
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		Proposal:    &proposal,
 		Registers:   boxLabels("still", "wrong"),
 		Acknowledge: false,
@@ -173,7 +173,7 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 
 	// Expect broker closes.
 	_, err = stream.Recv()
-	assert.Regexp(t, `.* no ack requested but status != OK: status:PROPOSAL_MISMATCH .*`, err)
+	require.Regexp(t, `.* no ack requested but status != OK: status:PROPOSAL_MISMATCH .*`, err)
 
 	broker.cleanup()
 }
@@ -196,7 +196,7 @@ func TestReplicateBlockingRestart(t *testing.T) {
 
 	// Case: The replica route is invalidated while the broker blocks.
 	var stream, _ = broker.client().Replicate(ctx)
-	assert.NoError(t, stream.Send(&pb.ReplicateRequest{
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
 		DeprecatedJournal: "a/journal",
 		Header:            broker.header("a/journal"),
 		Proposal: &pb.Fragment{
@@ -215,7 +215,7 @@ func TestReplicateBlockingRestart(t *testing.T) {
 	}))
 	// Replicate RPC restarts, re-resolves, and now responds with an error.
 	var resp, _ = stream.Recv()
-	assert.Equal(t, &pb.ReplicateResponse{
+	require.Equal(t, &pb.ReplicateResponse{
 		Status: pb.Status_WRONG_ROUTE,
 		Header: broker.header("a/journal"),
 	}, resp)
@@ -224,8 +224,8 @@ func TestReplicateBlockingRestart(t *testing.T) {
 	broker.cleanup()
 }
 
-func expectReplResponse(t assert.TestingT, stream pb.Journal_ReplicateClient, expect *pb.ReplicateResponse) {
+func expectReplResponse(t require.TestingT, stream pb.Journal_ReplicateClient, expect *pb.ReplicateResponse) {
 	var resp, err = stream.Recv()
-	assert.NoError(t, err)
-	assert.Equal(t, expect, resp)
+	require.NoError(t, err)
+	require.Equal(t, expect, resp)
 }

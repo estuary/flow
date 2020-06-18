@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -31,98 +31,98 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		e11      = generate(B, 1100, Flag_CONTINUE_TXN)
 	)
 	// Initial ring is empty.
-	assert.Equal(t, []Envelope{}, seq.ring)
-	assert.Equal(t, []int{}, seq.next)
-	assert.Equal(t, 0, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{}, seq.partials)
+	require.Equal(t, []Envelope{}, seq.ring)
+	require.Equal(t, []int{}, seq.next)
+	require.Equal(t, 0, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{}, seq.partials)
 
 	seq.QueueUncommitted(e1) // A.
-	assert.Equal(t, []Envelope{e1}, seq.ring)
-	assert.Equal(t, []int{-1}, seq.next)
-	assert.Equal(t, 1, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e1}, seq.ring)
+	require.Equal(t, []int{-1}, seq.next)
+	require.Equal(t, 1, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e2) // B.
-	assert.Equal(t, []Envelope{e1, e2}, seq.ring)
-	assert.Equal(t, []int{-1, -1}, seq.next)
-	assert.Equal(t, 2, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e1, e2}, seq.ring)
+	require.Equal(t, []int{-1, -1}, seq.next)
+	require.Equal(t, 2, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e3) // A.
-	assert.Equal(t, []Envelope{e1, e2, e3}, seq.ring)
-	assert.Equal(t, []int{2, -1, -1}, seq.next) // e1 => e3.
-	assert.Equal(t, 3, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e1, e2, e3}, seq.ring)
+	require.Equal(t, []int{2, -1, -1}, seq.next) // e1 => e3.
+	require.Equal(t, 3, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 2, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e4) // A.
-	assert.Equal(t, []Envelope{e1, e2, e3, e4}, seq.ring)
-	assert.Equal(t, []int{2, -1, 3, -1}, seq.next) // e3 => e4.
-	assert.Equal(t, 4, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e1, e2, e3, e4}, seq.ring)
+	require.Equal(t, []int{2, -1, 3, -1}, seq.next) // e3 => e4.
+	require.Equal(t, 4, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e5) // B.
-	assert.Equal(t, []Envelope{e1, e2, e3, e4, e5}, seq.ring)
-	assert.Equal(t, []int{2, 4, 3, -1, -1}, seq.next) // e2 => e5.
-	assert.Equal(t, 0, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e1, e2, e3, e4, e5}, seq.ring)
+	require.Equal(t, []int{2, 4, 3, -1, -1}, seq.next) // e2 => e5.
+	require.Equal(t, 0, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 4, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e6) // B.
-	assert.Equal(t, []Envelope{e6, e2, e3, e4, e5}, seq.ring)
-	assert.Equal(t, []int{-1, 4, 3, -1, 0}, seq.next) // e5 => e6.
-	assert.Equal(t, 1, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e6, e2, e3, e4, e5}, seq.ring)
+	require.Equal(t, []int{-1, 4, 3, -1, 0}, seq.next) // e5 => e6.
+	require.Equal(t, 1, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 2, ringStop: 3, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e7) // B.
 	seq.QueueUncommitted(e8) // B.
-	assert.Equal(t, []Envelope{e6, e7, e8, e4, e5}, seq.ring)
-	assert.Equal(t, []int{1, 2, -1, -1, 0}, seq.next)
-	assert.Equal(t, 3, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e6, e7, e8, e4, e5}, seq.ring)
+	require.Equal(t, []int{1, 2, -1, -1, 0}, seq.next)
+	require.Equal(t, 3, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: 3, ringStop: 3, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 2, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e9) // B. Evicts final A entry.
-	assert.Equal(t, []Envelope{e6, e7, e8, e9, e5}, seq.ring)
-	assert.Equal(t, []int{1, 2, 3, -1, 0}, seq.next)
-	assert.Equal(t, 4, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e6, e7, e8, e9, e5}, seq.ring)
+	require.Equal(t, []int{1, 2, 3, -1, 0}, seq.next)
+	require.Equal(t, 4, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		// A's begin is still tracked, but it's no longer in the ring.
 		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99},
 		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 3, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e10) // B.
-	assert.Equal(t, []Envelope{e6, e7, e8, e9, e10}, seq.ring)
-	assert.Equal(t, []int{1, 2, 3, 4, -1}, seq.next)
-	assert.Equal(t, 0, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e6, e7, e8, e9, e10}, seq.ring)
+	require.Equal(t, []int{1, 2, 3, 4, -1}, seq.next)
+	require.Equal(t, 0, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99}, // Unchanged.
 		jpB: {begin: e2.Begin, ringStart: 0, ringStop: 4, lastACK: 199},
 	}, seq.partials)
 
 	seq.QueueUncommitted(e11) // B.
-	assert.Equal(t, []Envelope{e11, e7, e8, e9, e10}, seq.ring)
-	assert.Equal(t, []int{-1, 2, 3, 4, 0}, seq.next)
-	assert.Equal(t, 1, seq.head)
-	assert.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, []Envelope{e11, e7, e8, e9, e10}, seq.ring)
+	require.Equal(t, []int{-1, 2, 3, 4, 0}, seq.next)
+	require.Equal(t, 1, seq.head)
+	require.Equal(t, map[JournalProducer]partialSeq{
 		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99}, // Unchanged.
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
 	}, seq.partials)
@@ -351,7 +351,7 @@ func TestSequencerProducerStatesRoundTrip(t *testing.T) {
 	sort.Slice(expect, func(i, j int) bool {
 		return bytes.Compare(expect[i].Producer[:], expect[j].Producer[:]) < 0
 	})
-	assert.Equal(t, expect, states)
+	require.Equal(t, expect, states)
 
 	// Recover Sequencer from persisted states.
 	var seq2 = NewSequencer(states, 12)
@@ -405,7 +405,7 @@ func TestSequencerProducerPruning(t *testing.T) {
 		sort.Slice(b, func(i, j int) bool {
 			return bytes.Compare(b[i].Producer[:], b[j].Producer[:]) < 0
 		})
-		assert.Equal(t, a, b)
+		require.Equal(t, a, b)
 	}
 
 	// Horizon prunes no producers: all states returned.
@@ -414,20 +414,20 @@ func TestSequencerProducerPruning(t *testing.T) {
 		{JournalProducer: jpB, Begin: -1, LastAck: 20 << 4},
 		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
 	}, seq1.ProducerStates(20*100))
-	assert.Len(t, seq1.partials, 3)
+	require.Len(t, seq1.partials, 3)
 
 	// Expect A is pruned.
 	expect([]ProducerState{
 		{JournalProducer: jpB, Begin: -1, LastAck: 20 << 4},
 		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
 	}, seq1.ProducerStates(19*100))
-	assert.Len(t, seq1.partials, 2)
+	require.Len(t, seq1.partials, 2)
 
 	// Expect B is pruned.
 	expect([]ProducerState{
 		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
 	}, seq1.ProducerStates(1))
-	assert.Len(t, seq1.partials, 1)
+	require.Len(t, seq1.partials, 1)
 }
 
 func TestSequencerReplayReaderErrors(t *testing.T) {
@@ -494,9 +494,9 @@ func TestSequencerReplayReaderErrors(t *testing.T) {
 		var _, err = seq.DequeCommitted()
 
 		if tc.expect == "" {
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		} else {
-			assert.EqualError(t, err, tc.expect)
+			require.EqualError(t, err, tc.expect)
 		}
 	}
 }
@@ -515,21 +515,21 @@ func expectDeque(t *testing.T, seq *Sequencer, expect ...Envelope) {
 	for len(expect) != 0 {
 		var env, err = seq.DequeCommitted()
 
-		assert.NoError(t, err)
-		assert.Equal(t, expect[0], env)
+		require.NoError(t, err)
+		require.Equal(t, expect[0], env)
 		expect = expect[1:]
 	}
 	var _, err = seq.DequeCommitted()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 }
 
 func expectReplay(t *testing.T, seq *Sequencer, expectBegin, expectEnd pb.Offset, envs ...Envelope) {
 	var _, err = seq.DequeCommitted()
-	assert.Equal(t, ErrMustStartReplay, err)
+	require.Equal(t, ErrMustStartReplay, err)
 
 	var begin, end = seq.ReplayRange()
-	assert.Equal(t, expectBegin, begin)
-	assert.Equal(t, expectEnd, end)
+	require.Equal(t, expectBegin, begin)
+	require.Equal(t, expectEnd, end)
 
 	seq.StartReplay(fnIterator(func() (env Envelope, err error) {
 		if envs == nil {

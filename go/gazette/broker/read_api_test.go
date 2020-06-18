@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/codecs"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -40,7 +40,7 @@ func TestReadStreamingCases(t *testing.T) {
 			DoNotProxy:   true,
 			MetadataOnly: false,
 		})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("foobarbaz")})
 	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
@@ -94,11 +94,11 @@ func TestReadStreamingCases(t *testing.T) {
 
 	cancel()
 	_, err = stream.Recv()
-	assert.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
+	require.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
 
 	// Case: provide an EndOffset. Expect it is honored.
 	stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "a/journal", EndOffset: 7})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
@@ -124,7 +124,7 @@ func TestReadStreamingCases(t *testing.T) {
 		Content: []byte("rb"),
 	})
 	_, err = stream.Recv()
-	assert.Equal(t, io.EOF, err) // Expect server closes.
+	require.Equal(t, io.EOF, err) // Expect server closes.
 
 	// Case: Request EndOffset hasn't committed yet. Expect the request blocks
 	// until it does, then closes.
@@ -134,7 +134,7 @@ func TestReadStreamingCases(t *testing.T) {
 		EndOffset: 14,
 		Block:     true,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
@@ -175,7 +175,7 @@ func TestReadStreamingCases(t *testing.T) {
 		Content: []byte("."),
 	})
 	_, err = stream.Recv()
-	assert.Equal(t, io.EOF, err) // Expect server closes.
+	require.Equal(t, io.EOF, err) // Expect server closes.
 
 	broker.replica("a/journal").spoolCh <- spool
 	broker.cleanup()
@@ -200,7 +200,7 @@ func TestReadMetadataAndNonBlocking(t *testing.T) {
 		Block:        false,
 		MetadataOnly: false,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:    pb.Status_OK,
@@ -226,7 +226,7 @@ func TestReadMetadataAndNonBlocking(t *testing.T) {
 		WriteHead: 8,
 	})
 	_, err = stream.Recv() // Broker closes.
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Now, issue a blocking metadata-only request.
 	stream, err = broker.client().Read(ctx, &pb.ReadRequest{
@@ -235,7 +235,7 @@ func TestReadMetadataAndNonBlocking(t *testing.T) {
 		Block:        true,
 		MetadataOnly: true,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Commit more content, unblocking our metadata request.
 	spool.MustApply(&pb.ReplicateRequest{Content: []byte("bing")})
@@ -256,7 +256,7 @@ func TestReadMetadataAndNonBlocking(t *testing.T) {
 	})
 	// Expect no data is sent, and the stream is closed.
 	_, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	broker.replica("a/journal").spoolCh <- spool
 	broker.cleanup()
@@ -281,7 +281,7 @@ func TestReadProxyCases(t *testing.T) {
 
 	// Expect initial request is proxied to the peer, with attached Header.
 	req.Header = broker.header("a/journal")
-	assert.Equal(t, req, <-peer.ReadReqCh)
+	require.Equal(t, req, <-peer.ReadReqCh)
 
 	// Peer responds, and broker proxies.
 	peer.ReadRespCh <- pb.ReadResponse{Offset: 1234}
@@ -291,7 +291,7 @@ func TestReadProxyCases(t *testing.T) {
 	expectReadResponse(t, stream, pb.ReadResponse{Offset: 1234})
 	expectReadResponse(t, stream, pb.ReadResponse{Offset: 5678})
 	var _, err = stream.Recv() // Broker proxies EOF.
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: proxy is not allowed.
 	req = pb.ReadRequest{
@@ -305,7 +305,7 @@ func TestReadProxyCases(t *testing.T) {
 		Header: boxHeaderProcessID(*broker.header("a/journal"), broker.id),
 	})
 	_, err = stream.Recv() // Broker closes.
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: remote broker returns an error.
 	req = pb.ReadRequest{
@@ -318,7 +318,7 @@ func TestReadProxyCases(t *testing.T) {
 	_ = <-peer.ReadReqCh
 	peer.WriteLoopErrCh <- errors.New("some kind of error")
 	_, err = stream.Recv() // Broker proxies error.
-	assert.EqualError(t, err, `rpc error: code = Unknown desc = some kind of error`)
+	require.EqualError(t, err, `rpc error: code = Unknown desc = some kind of error`)
 
 	// Case: remote read is blocked, but we're signaled to stop proxying.
 	stream, _ = broker.client().Read(ctx, &req)
@@ -331,7 +331,7 @@ func TestReadProxyCases(t *testing.T) {
 	// Signal we should stop proxying. Expect we immediately read EOF.
 	close(broker.svc.stopProxyReadsCh)
 	_, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	broker.svc.stopProxyReadsCh = make(chan struct{}) // Cleanup.
 	peer.WriteLoopErrCh <- nil                        // Belated EOF.
@@ -350,7 +350,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 	// Create a remote fragment fixture with journal content.
 	var frag, tmpDir = buildRemoteFragmentFixture(t)
 
-	defer func() { assert.NoError(t, os.RemoveAll(tmpDir)) }()
+	defer func() { require.NoError(t, os.RemoveAll(tmpDir)) }()
 	defer func(s string) { fragment.FileSystemStoreRoot = s }(fragment.FileSystemStoreRoot)
 	fragment.FileSystemStoreRoot = tmpDir
 
@@ -367,7 +367,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 			DoNotProxy:   false,
 			MetadataOnly: false,
 		})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:      pb.Status_OK,
@@ -388,7 +388,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 		WriteHead: 120,
 	})
 	_, err = stream.Recv() // Broker closes with remote fragment EOF.
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: non-blocking read which is not permitted to proxy. Remote fragment is not read.
 	stream, err = broker.client().Read(pb.WithDispatchDefault(ctx),
@@ -399,7 +399,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 			DoNotProxy:   true,
 			MetadataOnly: false,
 		})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:      pb.Status_OK,
@@ -410,7 +410,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 		FragmentUrl: "file:///" + frag.ContentPath(),
 	})
 	_, err = stream.Recv() // Broker closes.
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	// Case: blocking request is allowed to proxy, but has an EndOffset less
 	// than the resolved next fragment offset. Expect the server sends metadata
@@ -424,7 +424,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 			DoNotProxy:   false,
 			MetadataOnly: false,
 		})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectReadResponse(t, stream, pb.ReadResponse{
 		Status:      pb.Status_OK,
@@ -435,7 +435,7 @@ func TestReadRemoteFragmentCases(t *testing.T) {
 		FragmentUrl: "file:///" + frag.ContentPath(),
 	})
 	_, err = stream.Recv()
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 
 	broker.cleanup()
 }
@@ -448,19 +448,19 @@ func TestReadRequestErrorCases(t *testing.T) {
 
 	// Case: ReadRequest which fails to validate.
 	var stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "/invalid/journal"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = stream.Recv()
-	assert.EqualError(t, err, `rpc error: code = Unknown desc = Journal: cannot begin with '/' (/invalid/journal)`)
+	require.EqualError(t, err, `rpc error: code = Unknown desc = Journal: cannot begin with '/' (/invalid/journal)`)
 
 	// Case: Read of a write-only journal.
 	setTestJournal(broker, pb.JournalSpec{Name: "write/only", Replication: 1, Flags: pb.JournalSpec_O_WRONLY}, broker.id)
 	stream, err = broker.client().Read(ctx, &pb.ReadRequest{Journal: "write/only"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	resp, err := stream.Recv()
-	assert.NoError(t, err)
-	assert.Equal(t, &pb.ReadResponse{
+	require.NoError(t, err)
+	require.Equal(t, &pb.ReadResponse{
 		Status: pb.Status_NOT_ALLOWED,
 		Header: broker.header("write/only"),
 	}, resp)
@@ -468,12 +468,12 @@ func TestReadRequestErrorCases(t *testing.T) {
 	broker.cleanup()
 }
 
-func buildRemoteFragmentFixture(t assert.TestingT) (frag pb.Fragment, dir string) {
+func buildRemoteFragmentFixture(t require.TestingT) (frag pb.Fragment, dir string) {
 	const data = "XXXXXremote fragment data"
 
 	var err error
 	dir, err = ioutil.TempDir("", "BrokerSuite")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	frag = pb.Fragment{
 		Journal:          "a/journal",
@@ -486,17 +486,17 @@ func buildRemoteFragmentFixture(t assert.TestingT) (frag pb.Fragment, dir string
 	}
 
 	var path = filepath.Join(dir, frag.ContentPath())
-	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
 
 	file, err := os.Create(path)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	comp, err := codecs.NewCodecWriter(file, pb.CompressionCodec_SNAPPY)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, err = comp.Write([]byte(data))
-	assert.NoError(t, err)
-	assert.NoError(t, comp.Close())
-	assert.NoError(t, file.Close())
+	require.NoError(t, err)
+	require.NoError(t, comp.Close())
+	require.NoError(t, file.Close())
 	return
 }
 
@@ -506,8 +506,8 @@ func boxLabels(nv ...string) *pb.LabelSet {
 	return &l
 }
 
-func expectReadResponse(t assert.TestingT, stream pb.Journal_ReadClient, expect pb.ReadResponse) {
+func expectReadResponse(t require.TestingT, stream pb.Journal_ReadClient, expect pb.ReadResponse) {
 	var resp, err = stream.Recv()
-	assert.NoError(t, err)
-	assert.Equal(t, expect, *resp)
+	require.NoError(t, err)
+	require.Equal(t, expect, *resp)
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/fragment"
@@ -26,7 +26,7 @@ func TestReplicaShutdown(t *testing.T) {
 
 	// Start the journal's replication pipeline.
 	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	assert.True(t, fsm.runTo(stateAwaitDesiredReplicas))
+	require.True(t, fsm.runTo(stateAwaitDesiredReplicas))
 	fsm.returnPipeline()
 
 	// Delete the broker's assignment. shutDownReplica() will be started.
@@ -37,9 +37,9 @@ func TestReplicaShutdown(t *testing.T) {
 	<-fsm.resolved.replica.ctx.Done()
 	select {
 	case <-fsm.resolved.replica.spoolCh:
-		assert.FailNow(t, "selected spool")
+		require.FailNow(t, "selected spool")
 	case <-fsm.resolved.replica.pipelineCh:
-		assert.FailNow(t, "selected pipeline")
+		require.FailNow(t, "selected pipeline")
 	default:
 	}
 
@@ -58,49 +58,49 @@ func TestReplicaAssignmentUpdateCases(t *testing.T) {
 		broker.id, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
 	var res, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Case: assignments have been modified since resolution.
 	_, err = etcd.Put(ctx, string(res.assignments[0].Raw.Key), "", clientv3.WithIgnoreLease())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	rev, err := updateAssignments(ctx, res.assignments, etcd)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Expect that updateAssignments left assignments unmodified.
 	for _, a := range res.assignments {
-		assert.Equal(t, &pb.Route{Primary: -1},
+		require.Equal(t, &pb.Route{Primary: -1},
 			a.Decoded.(allocator.Assignment).AssignmentValue.(*pb.Route))
 	}
 
 	// Case: assignments haven't been modified since resolution.
 	res, err = broker.svc.resolver.resolve(
 		resolveArgs{ctx: ctx, journal: "a/journal", minEtcdRevision: rev})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	rev, err = updateAssignments(ctx, res.assignments, etcd)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Expect that, after resolving at the returned Etcd revision,
 	// Etcd assignment routes match the expectation.
 	res, err = broker.svc.resolver.resolve(
 		resolveArgs{ctx: ctx, journal: "a/journal", minEtcdRevision: rev})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	for _, a := range res.assignments {
-		assert.Equal(t,
+		require.Equal(t,
 			&pb.Route{Members: []pb.ProcessSpec_ID{broker.id, {Zone: "peer", Suffix: "broker"}}},
 			a.Decoded.(allocator.Assignment).AssignmentValue.(*pb.Route))
 	}
 
 	// Case: Perform a second assignment update. Expect assignments are not modified.
 	rev, err = updateAssignments(ctx, res.assignments, etcd)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	res2, err := broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Assignments were not modified, as they were already equivalent.
-	assert.Equal(t, res.assignments, res2.assignments)
+	require.Equal(t, res.assignments, res2.assignments)
 
 	broker.cleanup()
 }
@@ -184,6 +184,6 @@ func TestReplicaNextProposalCases(t *testing.T) {
 		)
 		var proposal = maybeRollFragment(spool, 0, spec)
 		t.Log(test.description)
-		assert.Equal(t, proposal, test.out)
+		require.Equal(t, proposal, test.out)
 	}
 }

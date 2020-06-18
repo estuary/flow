@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	rocks "github.com/tecbot/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -34,10 +34,10 @@ func TestSimpleStopAndStart(t *testing.T) {
 	// |replica1| was initialized from empty hints and began writing at the
 	// recovery log head. However, expect that the produced hints reference
 	// resolved absolute offsets of the log.
-	assert.NotNil(t, hints.LiveNodes)
+	require.NotNil(t, hints.LiveNodes)
 	for _, node := range hints.LiveNodes {
 		for _, s := range node.Segments {
-			assert.True(t, s.FirstOffset >= 0)
+			require.True(t, s.FirstOffset >= 0)
 		}
 	}
 
@@ -58,9 +58,9 @@ func TestSimpleStopAndStart(t *testing.T) {
 	var h1, _ = replica1.recorder.BuildHints()
 	var h2, _ = replica2.recorder.BuildHints()
 
-	assert.NotEmpty(t, h1.Properties)
-	assert.Equal(t, h1.Properties[0].Path, "/IDENTITY")
-	assert.Equal(t, h1.Properties, h2.Properties)
+	require.NotEmpty(t, h1.Properties)
+	require.Equal(t, h1.Properties[0].Path, "/IDENTITY")
+	require.Equal(t, h1.Properties, h2.Properties)
 }
 
 func TestWarmStandbyHandoff(t *testing.T) {
@@ -88,7 +88,7 @@ func TestWarmStandbyHandoff(t *testing.T) {
 	// |replica1| writes content, while |replica2| & |replica3| are reading.
 	replica1.put("key foo", "baz")
 	replica1.put("key bar", "bing")
-	assert.NoError(t, replica1.db.Flush(fo))
+	require.NoError(t, replica1.db.Flush(fo))
 
 	// Make |replica2| live. Expect |replica1|'s content to be present.
 	replica2.makeLive()
@@ -100,9 +100,9 @@ func TestWarmStandbyHandoff(t *testing.T) {
 	// Begin raced writes. We expect that the hand-off mechanism allows
 	// |replica3| to consistently follow |replica2|'s version of history.
 	replica1.put("raced", "and loses")
-	assert.NoError(t, replica1.db.Flush(fo))
+	require.NoError(t, replica1.db.Flush(fo))
 	replica2.put("raced", "and wins")
-	assert.NoError(t, replica2.db.Flush(fo))
+	require.NoError(t, replica2.db.Flush(fo))
 
 	replica3.makeLive()
 	replica3.expectValues(map[string]string{
@@ -115,9 +115,9 @@ func TestWarmStandbyHandoff(t *testing.T) {
 	var h1, _ = replica1.recorder.BuildHints()
 	var h3, _ = replica2.recorder.BuildHints()
 
-	assert.NotEmpty(t, h1.Properties)
-	assert.Equal(t, h1.Properties[0].Path, "/IDENTITY")
-	assert.Equal(t, h1.Properties, h3.Properties)
+	require.NotEmpty(t, h1.Properties)
+	require.Equal(t, h1.Properties[0].Path, "/IDENTITY")
+	require.Equal(t, h1.Properties, h3.Properties)
 }
 
 func TestResolutionOfConflictingWriters(t *testing.T) {
@@ -147,8 +147,8 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 	fo.SetWait(true) // Sync to log before returning.
 	defer fo.Destroy()
 
-	assert.NoError(t, replica1.db.Flush(fo))
-	assert.NoError(t, replica2.db.Flush(fo))
+	require.NoError(t, replica1.db.Flush(fo))
+	require.NoError(t, replica2.db.Flush(fo))
 
 	// New |replica3| is hinted from |replica1|, and |replica4| from |replica2|.
 	var replica3 = NewTestReplica(t, bk)
@@ -189,14 +189,14 @@ func TestPlayThenCancel(t *testing.T) {
 	var deadlineCtx, _ = context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*10))
 	// Blocks until |ctx| is cancelled.
 	var err = r.player.Play(deadlineCtx, recoverylog.FSMHints{Log: aRecoveryLog}, r.tmpdir, bk)
-	assert.Equal(t, context.DeadlineExceeded, errors.Cause(err))
+	require.Equal(t, context.DeadlineExceeded, errors.Cause(err))
 
 	r.player.FinishAtWriteHead() // A raced call to FinishAtWriteHead doesn't block.
 	<-r.player.Done()
 
 	// Expect the local directory was deleted.
 	_, err = os.Stat(r.tmpdir)
-	assert.True(t, os.IsNotExist(err))
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestCancelThenPlay(t *testing.T) {
@@ -210,7 +210,7 @@ func TestCancelThenPlay(t *testing.T) {
 	var cancelCtx, cancelFn = context.WithCancel(context.Background())
 	cancelFn()
 
-	assert.EqualError(t, r.player.Play(cancelCtx, recoverylog.FSMHints{Log: aRecoveryLog}, r.tmpdir, bk),
+	require.EqualError(t, r.player.Play(cancelCtx, recoverylog.FSMHints{Log: aRecoveryLog}, r.tmpdir, bk),
 		`playerReader.peek: context canceled`)
 
 	<-r.player.Done()
@@ -232,10 +232,10 @@ type testReplica struct {
 	author   recoverylog.Author
 	recorder *recoverylog.Recorder
 	player   *recoverylog.Player
-	t        assert.TestingT
+	t        require.TestingT
 }
 
-func NewTestReplica(t assert.TestingT, client client.AsyncJournalClient) *testReplica {
+func NewTestReplica(t require.TestingT, client client.AsyncJournalClient) *testReplica {
 	var r = &testReplica{
 		client: client,
 		player: recoverylog.NewPlayer(),
@@ -245,20 +245,20 @@ func NewTestReplica(t assert.TestingT, client client.AsyncJournalClient) *testRe
 
 	var err error
 	r.tmpdir, err = ioutil.TempDir("", "store-rocksdb-test")
-	assert.NoError(r.t, err)
+	require.NoError(r.t, err)
 
 	return r
 }
 
 func (r *testReplica) startReading(hints recoverylog.FSMHints) {
 	go func() {
-		assert.NoError(r.t, r.player.Play(context.Background(), hints, r.tmpdir, r.client))
+		require.NoError(r.t, r.player.Play(context.Background(), hints, r.tmpdir, r.client))
 	}()
 }
 
 func (r *testReplica) startWriting(log pb.Journal) {
 	var fsm, err = recoverylog.NewFSM(recoverylog.FSMHints{Log: log})
-	assert.NoError(r.t, err)
+	require.NoError(r.t, err)
 	r.initDB(fsm)
 }
 
@@ -267,7 +267,7 @@ func (r *testReplica) makeLive() {
 	r.player.InjectHandoff(r.author)
 	<-r.player.Done()
 
-	assert.NotNil(r.t, r.player.FSM)
+	require.NotNil(r.t, r.player.FSM)
 
 	r.initDB(r.player.FSM)
 }
@@ -287,11 +287,11 @@ func (r *testReplica) initDB(fsm *recoverylog.FSM) {
 
 	var err error
 	r.db, err = rocks.OpenDb(r.dbO, r.tmpdir)
-	assert.NoError(r.t, err)
+	require.NoError(r.t, err)
 }
 
 func (r *testReplica) put(key, value string) {
-	assert.NoError(r.t, r.db.Put(r.dbWO, []byte(key), []byte(value)))
+	require.NoError(r.t, r.db.Put(r.dbWO, []byte(key), []byte(value)))
 }
 
 func (r *testReplica) expectValues(expect map[string]string) {
@@ -302,11 +302,11 @@ func (r *testReplica) expectValues(expect map[string]string) {
 	for ; it.Valid(); it.Next() {
 		key, value := string(it.Key().Data()), string(it.Value().Data())
 
-		assert.Equal(r.t, expect[key], value)
+		require.Equal(r.t, expect[key], value)
 		delete(expect, key)
 	}
-	assert.NoError(r.t, it.Err())
-	assert.Empty(r.t, expect)
+	require.NoError(r.t, it.Err())
+	require.Empty(r.t, expect)
 }
 
 func (r *testReplica) teardown() {
@@ -316,10 +316,10 @@ func (r *testReplica) teardown() {
 		r.dbWO.Destroy()
 		r.dbO.Destroy()
 	}
-	assert.NoError(r.t, os.RemoveAll(r.tmpdir))
+	require.NoError(r.t, os.RemoveAll(r.tmpdir))
 }
 
-func newBrokerAndLog(t assert.TestingT) (client.AsyncJournalClient, func()) {
+func newBrokerAndLog(t require.TestingT) (client.AsyncJournalClient, func()) {
 	var etcd = etcdtest.TestClient()
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
 
@@ -330,7 +330,7 @@ func newBrokerAndLog(t assert.TestingT) (client.AsyncJournalClient, func()) {
 
 	return as, func() {
 		broker.Tasks.Cancel()
-		assert.NoError(t, broker.Tasks.Wait())
+		require.NoError(t, broker.Tasks.Wait())
 		etcdtest.Cleanup()
 	}
 }

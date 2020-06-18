@@ -10,7 +10,6 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
@@ -88,9 +87,9 @@ type testApplication struct {
 	db                   *sql.DB       // "Remote" sqlite database.
 }
 
-func newTestApplication(t assert.TestingT, dbPath string) *testApplication {
+func newTestApplication(t require.TestingT, dbPath string) *testApplication {
 	var db, err = sql.Open("sqlite3", dbPath)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = db.Exec(`
 		CREATE TABLE gazette_checkpoints (
@@ -103,7 +102,7 @@ func newTestApplication(t assert.TestingT, dbPath string) *testApplication {
 			value TEXT NOT NULL
 		);
 		`)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	return &testApplication{finishedCh: make(chan OpFuture, 1), db: db}
 }
@@ -162,7 +161,7 @@ func (a *testApplication) FinishedTxn(_ Shard, _ Store, op OpFuture) {
 }
 
 type testFixture struct {
-	t        assert.TestingT
+	t        require.TestingT
 	tasks    *task.Group
 	app      *testApplication
 	broker   *brokertest.Broker
@@ -175,7 +174,7 @@ type testFixture struct {
 	pub      *message.Publisher
 }
 
-func newTestFixture(t assert.TestingT) (*testFixture, func()) {
+func newTestFixture(t require.TestingT) (*testFixture, func()) {
 	var etcd = etcdtest.TestClient()
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 
@@ -200,7 +199,7 @@ func newTestFixture(t assert.TestingT) (*testFixture, func()) {
 	// Write a fixture of invalid content (we'll use MinOffset to skip over it).
 	var a = client.NewAppender(context.Background(), bk.Client(), pb.AppendRequest{Journal: sourceA.Name})
 	_, _ = a.Write([]byte(sourceAWriteFixture))
-	assert.NoError(t, a.Close())
+	require.NoError(t, a.Close())
 
 	var ks = NewKeySpace("/consumer.test")
 	ks.WatchApplyDelay = 0 // Speed test execution.
@@ -209,13 +208,13 @@ func newTestFixture(t assert.TestingT) (*testFixture, func()) {
 		allocator.MemberKey(ks, localID.Zone, localID.Suffix), ShardIsConsistent)
 
 	var tmpSqlite, err = ioutil.TempFile("", "consumer-test")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	var app = newTestApplication(t, tmpSqlite.Name())
 
 	var svc = NewService(app, state, bk.Client(), nil, etcd)
 
 	var tasks = task.NewGroup(context.Background())
-	assert.NoError(t, ks.Load(tasks.Context(), etcd, 0))
+	require.NoError(t, ks.Load(tasks.Context(), etcd, 0))
 	tasks.Queue("service.Watch", func() error {
 		return svc.Resolver.watch(tasks.Context(), svc.Etcd)
 	})
@@ -240,24 +239,24 @@ func newTestFixture(t assert.TestingT) (*testFixture, func()) {
 			var resp, err = etcd.Get(context.Background(), ks.Root+allocator.AssignmentsPrefix,
 				clientv3.WithPrefix(), clientv3.WithLimit(1))
 
-			assert.NoError(t, err)
-			assert.Len(t, resp.Kvs, 0)
+			require.NoError(t, err)
+			require.Len(t, resp.Kvs, 0)
 
 			tasks.Cancel()
-			assert.NoError(t, tasks.Wait())
+			require.NoError(t, tasks.Wait())
 
 			bk.Tasks.Cancel()
-			assert.NoError(t, bk.Tasks.Wait())
+			require.NoError(t, bk.Tasks.Wait())
 
 			etcdtest.Cleanup()
 
 			var name = tmpSqlite.Name()
-			assert.NoError(t, tmpSqlite.Close())
-			assert.NoError(t, os.Remove(name))
+			require.NoError(t, tmpSqlite.Close())
+			require.NoError(t, os.Remove(name))
 		}
 }
 
-func newTestFixtureWithIdleShard(t assert.TestingT) (*testFixture, *shard, func()) {
+func newTestFixtureWithIdleShard(t require.TestingT) (*testFixture, *shard, func()) {
 	var tf, cleanup = newTestFixture(t)
 
 	var realTransition = transition
@@ -291,7 +290,7 @@ func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.Proces
 	{
 		var resp, err = f.etcd.Get(context.Background(),
 			allocator.ItemAssignmentsPrefix(f.ks, spec.Id.String()), clientv3.WithPrefix())
-		assert.NoError(f.t, err)
+		require.NoError(f.t, err)
 
 		for _, kv := range resp.Kvs {
 			toRemove[string(kv.Key)] = struct{}{}
@@ -321,22 +320,22 @@ func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.Proces
 	}
 
 	var resp, err = f.etcd.Txn(context.Background()).If().Then(ops...).Commit()
-	assert.NoError(f.t, err)
-	assert.Equal(f.t, true, resp.Succeeded)
+	require.NoError(f.t, err)
+	require.Equal(f.t, true, resp.Succeeded)
 
 	f.ks.Mu.RLock()
-	assert.NoError(f.t, f.ks.WaitForRevision(f.tasks.Context(), resp.Header.Revision))
+	require.NoError(f.t, f.ks.WaitForRevision(f.tasks.Context(), resp.Header.Revision))
 	f.ks.Mu.RUnlock()
 }
 
 func (f *testFixture) writeTxnPubACKs() {
 	var intents, err = f.pub.BuildAckIntents()
-	assert.NoError(f.t, err)
+	require.NoError(f.t, err)
 
 	for _, i := range intents {
 		var aa = f.ajc.StartAppend(pb.AppendRequest{Journal: i.Journal}, nil)
 		_, _ = aa.Writer().Write(i.Intent)
-		assert.NoError(f.t, aa.Release())
+		require.NoError(f.t, aa.Release())
 	}
 }
 
@@ -377,19 +376,19 @@ func makeConsumer(id pb.ProcessSpec_ID) *pc.ConsumerSpec {
 	}
 }
 
-func etcdGet(t assert.TestingT, etcd clientv3.KV, key string) *clientv3.GetResponse {
+func etcdGet(t require.TestingT, etcd clientv3.KV, key string) *clientv3.GetResponse {
 	var resp, err = etcd.Get(context.Background(), key)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return resp
 }
 
-func pluckTheAssignment(t assert.TestingT, state *allocator.State) (*pc.ShardSpec, keyspace.KeyValue) {
-	assert.Len(t, state.LocalItems, 1)
+func pluckTheAssignment(t require.TestingT, state *allocator.State) (*pc.ShardSpec, keyspace.KeyValue) {
+	require.Len(t, state.LocalItems, 1)
 	return state.LocalItems[0].Item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec),
 		state.LocalItems[0].Assignments[state.LocalItems[0].Index]
 }
 
-func expectStatusCode(t assert.TestingT, state *allocator.State, code pc.ReplicaStatus_Code) *pc.ReplicaStatus {
+func expectStatusCode(t require.TestingT, state *allocator.State, code pc.ReplicaStatus_Code) *pc.ReplicaStatus {
 	defer state.KS.Mu.RUnlock()
 	state.KS.Mu.RLock()
 
@@ -397,12 +396,12 @@ func expectStatusCode(t assert.TestingT, state *allocator.State, code pc.Replica
 		var _, kv = pluckTheAssignment(t, state)
 		var status = kv.Decoded.(allocator.Assignment).AssignmentValue.(*pc.ReplicaStatus)
 
-		assert.True(t, status.Code <= code)
+		require.True(t, status.Code <= code)
 
 		if status.Code >= code {
 			return status
 		}
-		assert.NoError(t, state.KS.WaitForRevision(context.Background(), state.KS.Header.Revision+1))
+		require.NoError(t, state.KS.WaitForRevision(context.Background(), state.KS.Header.Revision+1))
 	}
 }
 
@@ -416,19 +415,19 @@ func playAndComplete(t require.TestingT, shard *shard) pc.Checkpoint {
 
 func verifyStoreAndEchoOut(t require.TestingT, s *shard, expect map[string]string) {
 	if js, ok := s.store.(*JSONFileStore); ok {
-		assert.Equal(t, &expect, js.State)
+		require.Equal(t, &expect, js.State)
 	} else {
 		var rows, err = s.store.(*SQLStore).DB.Query(`SELECT key, value FROM kvstates;`)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		var m = make(map[string]string)
 		for rows.Next() {
 			var key, value string
-			assert.NoError(t, rows.Scan(&key, &value))
+			require.NoError(t, rows.Scan(&key, &value))
 			m[key] = value
 		}
-		assert.NoError(t, rows.Err())
-		assert.Equal(t, expect, m)
+		require.NoError(t, rows.Err())
+		require.Equal(t, expect, m)
 	}
 
 	// Wait for all writes to complete.
@@ -446,7 +445,7 @@ func verifyStoreAndEchoOut(t require.TestingT, s *shard, expect map[string]strin
 	for {
 		var env, err = it.Next()
 		if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
-			assert.Equal(t, expect, m)
+			require.Equal(t, expect, m)
 			return
 		}
 		require.NoError(t, err)
@@ -460,7 +459,7 @@ func verifyStoreAndEchoOut(t require.TestingT, s *shard, expect map[string]strin
 func runTransaction(tf *testFixture, s Shard, in map[string]string) {
 	for k, v := range in {
 		var _, err = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: k, Value: v})
-		assert.NoError(tf.t, err)
+		require.NoError(tf.t, err)
 	}
 	tf.writeTxnPubACKs()
 	<-(<-tf.app.finishedCh).Done() // Block until txn finishes.
