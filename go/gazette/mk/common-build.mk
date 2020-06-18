@@ -5,7 +5,7 @@
 # The ci-builder-image target builds a Docker image suitable for building
 # gazette. It is the primary image used by gazette continuous integration builds.
 ci-builder-image:
-	docker build -t gazette-ci-builder:latest - <  ${COREDIR}/mk/ci-builder.Dockerfile
+	docker build -t gazette/ci-builder:latest - <  ${COREDIR}/mk/ci-builder.Dockerfile
 
 # The as-ci rule recursively calls `make` _within_ a instance of the ci-builder-image,
 # and bind-mounting the gazette repository into the container. This rule allows for
@@ -33,7 +33,7 @@ as-ci: ci-builder-image
 		--env  GOPATH=$${WORK_CI}/go-path \
 		--env GOCACHE=$${WORK_CI}/go-build-cache \
 		--mount src=/var/run/docker.sock,target=/var/run/docker.sock,type=bind \
-		gazette-ci-builder /bin/sh -ec \
+		gazette/ci-builder /bin/sh -ec \
 			"go mod download && make ${target}"
 
 # Go build & test targets.
@@ -42,7 +42,7 @@ go-install:   $(ROCKSDIR)/librocksdb.so $(protobuf-targets)
 	go install -v \
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" ./...
 go-test-fast: ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
-	go test ./...
+	go test -p ${NPROC} ./...
 go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 	GORACE="halt_on_error=1" go test -p ${NPROC} -race -count=15 ./...
 
@@ -59,7 +59,7 @@ ci-release-%: $(ROCKSDIR)/librocksdb.so go-install $$($$@-targets)
 		${WORKDIR}/ci-release
 	docker build \
 		-f ${COREDIR}/mk/ci-release.Dockerfile \
-		-t $*:latest \
+		-t $(subst -,/,$*):latest \
 		${WORKDIR}/ci-release/
 
 # The librocksdb.so fetches and builds the version of RocksDB identified by 

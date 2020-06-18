@@ -41,21 +41,20 @@ include mk/cmd-reference.mk
 # Override the registry to use by passing a "registry=" flag to make.
 registry=localhost:32000
 push-to-registry:
-	docker tag gazette-broker:latest   $(registry)/broker:latest
-	docker tag gazette-examples:latest $(registry)/examples:latest
+	docker tag gazette/broker:latest   $(registry)/broker:latest
+	docker tag gazette/examples:latest $(registry)/examples:latest
 	docker push $(registry)/broker:latest
 	docker push $(registry)/examples:latest
 
 # Push gazette/ci-builder to docker.io for distribution (used by CircleCI).
 push-ci-builder-image:
-	docker tag gazette-ci-builder:latest gazette/ci-builder:latest
 	docker push gazette/ci-builder:latest
 
 # Push images to docker.io for distribution. "release_tag" is a required make
 # flag, and docker must already be authenticated to docker hub.
 push-release-images:
-	docker tag gazette-broker:latest gazette/broker:${release_tag}
-	docker tag gazette-examples:latest gazette/examples:${release_tag}
+	docker tag gazette/broker:latest gazette/broker:${release_tag}
+	docker tag gazette/examples:latest gazette/examples:${release_tag}
 	docker push gazette/broker:${release_tag}
 	docker push gazette/examples:${release_tag}
 
