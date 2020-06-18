@@ -15,8 +15,8 @@ import (
 	"go.etcd.io/etcd/clientv3"
 )
 
-// TestClient returns a client of the embeded Etcd test server. It asserts that
-// the Etcd keyspace is empty before returing to the client. In other words,
+// TestClient returns a client of the embedded Etcd test server. It asserts that
+// the Etcd keyspace is empty before returning to the client. In other words,
 // it asserts that the prior test cleaned up after itself.
 func TestClient() *clientv3.Client {
 	var resp, err = _etcdClient.Get(context.Background(), "", clientv3.WithPrefix(), clientv3.WithLimit(5))

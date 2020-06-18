@@ -58,6 +58,7 @@ func TestResolverCases(t *testing.T) {
 
 	// Case: Shard is local, but has a remote primary.
 	tf.allocateShard(makeShard(shardA), remoteID, localID)
+	expectStatusCode(t, tf.state, pc.ReplicaStatus_STANDBY)
 
 	require.Equal(t, Resolution{
 		Status: pc.Status_NOT_SHARD_PRIMARY,
@@ -87,10 +88,6 @@ func TestResolverCases(t *testing.T) {
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA, MayProxy: true}))
-
-	// Interlude: wait for our assignment to reach STANDBY, so its status update
-	// doesn't race the following allocateShard() etcd transaction.
-	expectStatusCode(t, tf.state, pc.ReplicaStatus_STANDBY)
 
 	// Case: Shard is transitioning to primary. Resolution request includes a
 	// ProxyHeader referencing a Revision we don't know about yet, but which will

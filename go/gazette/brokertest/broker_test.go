@@ -170,10 +170,12 @@ func TestGracefulStopTimeout(t *testing.T) {
 	// Append a large amount of content, enough to fill a read congestion window.
 	var w = client.NewAppender(ctx, rjc, pb.AppendRequest{Journal: "foo/bar"})
 
-	var twoMB [1 << 21]byte
-	var n, err = w.Write(twoMB[:])
-	require.NoError(t, err)
-	require.Equal(t, n, len(twoMB))
+	for i := 0; i != 64; i++ {
+		var buf [1 << 15]byte // 32K
+		var n, err = w.Write(buf[:])
+		require.NoError(t, err)
+		require.Equal(t, n, len(buf))
+	}
 	require.NoError(t, w.Close())
 
 	// Begin a blocking read, but don't make any progress against it.
@@ -182,7 +184,7 @@ func TestGracefulStopTimeout(t *testing.T) {
 	var r = client.NewReader(ctx, rjc,
 		pb.ReadRequest{Journal: "foo/bar", Block: true})
 
-	_, err = r.Read(nil)
+	var _, err = r.Read(nil)
 	require.NoError(t, err)
 
 	// Another broker starts, to allow for journal handoff.
