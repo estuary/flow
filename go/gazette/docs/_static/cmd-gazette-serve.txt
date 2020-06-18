@@ -14,7 +14,8 @@ Broker:
       --broker.limit=                Maximum number of Journals the broker will allocate (default: 1024) [$BROKER_LIMIT]
       --broker.file-root=            Local path which roots file:// fragment stores (optional) [$BROKER_FILE_ROOT]
       --broker.max-append-rate=      Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate (default: 0) [$BROKER_MAX_APPEND_RATE]
-      --broker.min-append-rate=      Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted (default: 65536) [$BROKER_MIN_APPEND_RATE]
+      --broker.min-append-rate=      Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted (default: 65536)
+                                     [$BROKER_MIN_APPEND_RATE]
 
 Etcd:
       --etcd.address=                Etcd service address endpoint (default: http://localhost:2379) [$ETCD_ADDRESS]

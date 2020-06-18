@@ -55,5 +55,6 @@ Help Options:
 [apply command options]
           --specs=                   Input specifications path to apply. Use '-' for stdin (default: -)
           --dry-run                  Perform a dry-run of the apply
-          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction (default: 0)
+          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction
+                                     (default: 0)
 

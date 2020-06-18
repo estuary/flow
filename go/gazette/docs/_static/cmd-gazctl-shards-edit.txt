@@ -53,5 +53,6 @@ Help Options:
 
 [edit command options]
       -l, --selector=                Label Selector query to filter on
-          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction (default: 0)
+          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction
+                                     (default: 0)
 

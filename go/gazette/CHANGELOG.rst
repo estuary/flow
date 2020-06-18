@@ -2,8 +2,18 @@
 master (unreleased)
 --------------------
 
+- Behavior change: journal *registers* are a small set of labels which are used
+  for cooperative, transactional locking. Where before a set of checked registers
+  must always match current journal registers for an append to proceed, now an
+  exception exists in the case where a journal has a fully empty set
+  of registers (as is the case on recovery if journal consistency is lost).
+- ``gazctl journals reset-head`` now issues concurrent resets to enumerated journals,
+  and no longer fails if an attempt to reset a consistent journal loses an append race.
+- Makefiles now build local Docker images gazette/broker:latest and
+  gazette/examples:latest, instead of gazette-broker:latest and gazette-examples:latest.
 - Additional sanity checks to ensure badly-behaved clients or peers cannot
   block an exiting broker from draining its server.
+- Fix various test flakes.
 
 v0.87.3
 --------
