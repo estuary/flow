@@ -3,6 +3,7 @@ package brokertest
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"syscall"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"go.gazette.dev/core/broker"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
+	"go.gazette.dev/core/broker/http_gateway"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/keyspace"
@@ -41,7 +43,9 @@ func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *
 			allocator.MemberKey(ks, id.Zone, id.Suffix),
 			broker.JournalIsConsistent)
 		srv       = server.MustLoopback()
-		svc       = broker.NewService(state, pb.NewJournalClient(srv.GRPCLoopback), etcd)
+		lo        = pb.NewJournalClient(srv.GRPCLoopback)
+		service   = broker.NewService(state, lo, etcd)
+		rjc       = pb.NewRoutedJournalClient(lo, service)
 		tasks     = task.NewGroup(context.Background())
 		sigCh     = make(chan os.Signal, 1)
 		allocArgs = allocator.SessionArgs{
@@ -58,13 +62,17 @@ func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *
 	)
 
 	require.NoError(t, allocator.StartSession(allocArgs))
-	pb.RegisterJournalServer(srv.GRPCServer, svc)
+	pb.RegisterJournalServer(srv.GRPCServer, service)
+
+	srv.HTTPMux = http.NewServeMux()
+	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
+
 	// Set, but don't start a Persister for the test.
 	broker.SetSharedPersister(fragment.NewPersister(ks))
 	ks.WatchApplyDelay = 0 // Speed test execution.
 
 	srv.QueueTasks(tasks)
-	svc.QueueTasks(tasks, srv, nil)
+	service.QueueTasks(tasks, srv, nil)
 	tasks.GoRun()
 
 	return &Broker{

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"net/http"
 	"testing"
 	"time"
 
@@ -160,17 +161,18 @@ func TestGracefulStopTimeout(t *testing.T) {
 	server.GracefulStopTimeout = time.Millisecond * 50
 
 	var ctx = pb.WithDispatchDefault(context.Background())
-	var bkA = NewBroker(t, etcd, "A", "broker-one")
+	var bkA = NewBroker(t, etcd, "zone", "broker-A")
+	var bkB = NewBroker(t, etcd, "zone", "broker-B")
 
+	// Journal is exclusively owned by |bkA|.
 	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 1}))
 
-	var conn, rjc = newDialedClient(t, bkA)
-	defer conn.Close()
+	var connA, rjcA = newDialedClient(t, bkA)
+	defer connA.Close()
 
 	// Append a large amount of content, enough to fill a read congestion window.
-	var w = client.NewAppender(ctx, rjc, pb.AppendRequest{Journal: "foo/bar"})
-
-	for i := 0; i != 64; i++ {
+	var w = client.NewAppender(ctx, rjcA, pb.AppendRequest{Journal: "foo/bar"})
+	for i := 0; i != 256; i++ {
 		var buf [1 << 15]byte // 32K
 		var n, err = w.Write(buf[:])
 		require.NoError(t, err)
@@ -178,24 +180,35 @@ func TestGracefulStopTimeout(t *testing.T) {
 	}
 	require.NoError(t, w.Close())
 
-	// Begin a blocking read, but don't make any progress against it.
-	// The broker will fill the congestion window and then block while
-	// waiting for more stream quota.
-	var r = client.NewReader(ctx, rjc,
-		pb.ReadRequest{Journal: "foo/bar", Block: true})
+	var connB, rjcB = newDialedClient(t, bkB)
+	defer connB.Close()
 
+	// Begin a blocking read over |bkB|'s gRPC service.
+	// This request is proxied to |bkA|. Then, don't make progress.
+	var r = client.NewReader(ctx, rjcB,
+		pb.ReadRequest{Journal: "foo/bar", Block: true})
 	var _, err = r.Read(nil)
 	require.NoError(t, err)
 
-	// Another broker starts, to allow for journal handoff.
-	var bkB = NewBroker(t, etcd, "zone", "broker-C")
-	bkA.Signal()
-	require.NotNil(t, bkA.Tasks.Wait()) // Exits after hitting timeout.
+	// Begin a blocking read over |bkB|'s HTTP gateway.
+	// This request is also proxied to |bkA|. Also don't make progress.
+	httpResp, err := http.Get("http://" + bkB.Server.Endpoint().URL().Host + "/foo/bar?block=true")
+	require.NoError(t, err)
 
-	// Allow broker B to exit.
-	updateReplication(t, ctx, bkB.Client(), "foo/bar", 0)
+	var oneByte [1]byte
+	n, err := httpResp.Body.Read(oneByte[:])
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+
+	// Signal the broker to exit. It will, despite the hung RPCs,
+	// upon hitting the graceful-stop timeout.
 	bkB.Signal()
-	require.NoError(t, bkB.Tasks.Wait())
+	require.NotNil(t, bkB.Tasks.Wait())
+
+	// Drop replication, allowing broker A to exit gracefully.
+	updateReplication(t, ctx, bkA.Client(), "foo/bar", 0)
+	bkA.Signal()
+	require.NoError(t, bkA.Tasks.Wait())
 }
 
 func updateReplication(t require.TestingT, ctx context.Context, bk pb.JournalClient, journal pb.Journal, r int32) {

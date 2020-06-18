@@ -134,8 +134,13 @@ func (s *Server) QueueTasks(tg *task.Group) {
 		return nil // Swallow error on cancellation.
 	})
 	tg.Queue("server.ServeHTTP", func() error {
+		// Disable Close() of the HTTPListener, because http.Server Shutdown()
+		// is invoked after grpc.Server GracefulStop(), which has already closed
+		// the underlying listener.
+		var ln = noopCloser{s.HTTPListener}
+
 		s.httpServer.Handler = s.HTTPMux
-		if err := s.httpServer.Serve(s.HTTPListener); err != nil && tg.Context().Err() == nil {
+		if err := s.httpServer.Serve(ln); err != nil && tg.Context().Err() == nil {
 			return err
 		}
 		return nil // Swallow error on cancellation.
@@ -172,6 +177,12 @@ func (s *Server) BoundedGracefulStop() {
 	}
 	timer.Stop()
 }
+
+type noopCloser struct {
+	net.Listener
+}
+
+func (noopCloser) Close() error { return nil }
 
 // GracefulStopTimeout is the amount of time BoundedGracefulStop will wait
 // before performing a hard server Stop.
