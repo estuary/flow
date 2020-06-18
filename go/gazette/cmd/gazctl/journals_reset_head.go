@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"sync"
 
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -32,10 +34,11 @@ fragment index not include a fragment offset larger than the append offset known
 to replicating broker peers, and will refuse the append if this constraint is
 violated.
 
-Eg, If N >= R failures occur, then the set of broker peers of a journal will not
-have participated in an append transaction; their append offset will be zero,
-which is less than the maximum offset contained in the fragment store. The
-brokers will refuse all appends to preclude double-writing of an offset.
+I.e. if N >= R prior failures occur, then none of the present broker topology
+for a journal may have participated in an append transaction. Their synchronized
+offset will be zero, which is less than the maximum offset contained in the
+fragment store. The brokers will refuse all appends to preclude double-writing
+of an offset.
 
 This condition must be explicitly cleared by the Gazette operator using the
 reset-head command. The operator should delay running reset-head until absolutely
@@ -45,8 +48,8 @@ because all previous broker processes have exited).
 Then, the effect of reset-head is to jump the append offset forward to the
 maximum indexed offset, allowing new append operations to proceed.
 
-reset-head is safe to run against journals which are in a fully consistent state,
-though it is likely to fail harmlessly if the journal is being actively written.
+reset-head is safe to run against journals which are already consistent and
+and are being actively appended to.
 `, &cmdJournalResetHead{})
 }
 
@@ -66,23 +69,43 @@ func (cmd *cmdJournalResetHead) Execute([]string) error {
 	listResp, err = client.ListAllJournals(ctx, rjc, listRequest)
 	mbp.Must(err, "failed to resolved journals from selector", cmd.Selector)
 
-	// Query the largest indexed fragment offset of each journal, and reset the append offset to that head.
+	var wg sync.WaitGroup
 	for _, journal := range listResp.Journals {
-		var r = client.NewReader(ctx, rjc, pb.ReadRequest{
-			Journal:      journal.Spec.Name,
-			Offset:       -1,
-			Block:        false,
-			MetadataOnly: true,
-		})
-		if _, err = r.Read(nil); err != client.ErrOffsetNotYetAvailable {
-			mbp.Must(err, "failed to read head of journal", "journal", journal.Spec.Name)
-		}
-		// Issue a zero-byte write at the indexed head.
-		var a = client.NewAppender(ctx, rjc, pb.AppendRequest{
-			Journal: journal.Spec.Name,
-			Offset:  r.Response.Offset,
-		})
-		mbp.Must(a.Close(), "failed to reset journal offset", "journal", journal.Spec.Name)
+		wg.Add(1)
+		go resetHead(rjc, journal.Spec.Name, wg.Done)
 	}
+	wg.Wait()
+
 	return nil
+}
+
+// resetHead queries the largest written offset of a journal,
+// and issues an empty append with that explicit offset.
+func resetHead(rjc pb.RoutedJournalClient, journal pb.Journal, done func()) {
+	defer done()
+
+	var ctx = context.Background()
+	var r = client.NewReader(ctx, rjc, pb.ReadRequest{
+		Journal:      journal,
+		Offset:       -1,
+		Block:        false,
+		MetadataOnly: true,
+	})
+	if _, err := r.Read(nil); err != client.ErrOffsetNotYetAvailable {
+		mbp.Must(err, "failed to read head of journal", "journal", journal)
+	}
+	// Issue a zero-byte write at the indexed head.
+	var a = client.NewAppender(ctx, rjc, pb.AppendRequest{
+		Journal: journal,
+		Offset:  r.Response.Offset,
+	})
+	var err = a.Close()
+
+	if err == nil {
+		log.WithField("journal", journal).Info("reset write head")
+	} else if err == client.ErrWrongAppendOffset {
+		log.WithField("journal", journal).Info("did not reset (raced writes)")
+	} else {
+		mbp.Must(err, "failed to reset journal offset", "journal", journal)
+	}
 }
