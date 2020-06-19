@@ -17,7 +17,7 @@ spec:
       containers:
         - name:            consumer
           image:           consumer/image
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name:          http
               containerPort: 8080

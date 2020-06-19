@@ -34,7 +34,7 @@ builder. Run CI tests in a hermetic build environment:
 Continuous integration builds of Gazette run tests 15 times, with race detection enabled.
 
 Package release Docker images for the Gazette broker and examples,
-as ``gazette-broker:latest`` and ``gazette-examples:latest``.
+as ``gazette/broker:latest`` and ``gazette/examples:latest``.
 
 .. code-block:: console
 
