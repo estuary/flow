@@ -92,17 +92,27 @@ func proxyAppend(stream grpc.ServerStream, req pb.AppendRequest, jc pb.JournalCl
 	}
 	for {
 		if err = client.SendMsg(&req); err != nil {
-			break // Client stream is broken. CloseAndRecv() will return causal error.
+			break // Client stream is broken. RecvMsg() will return causal error.
 		} else if err = stream.RecvMsg(&req); err == io.EOF {
+			_ = client.CloseSend()
 			break
 		} else if err != nil {
 			_, _ = client.CloseAndRecv() // Drain to free resources.
 			return err
 		}
 	}
-	if resp, err := client.CloseAndRecv(); err != nil {
+
+	// We don't use CloseAndRecv() here because it returns a confusing
+	// EOF error if the stream was broken by the peer (from it's own CloseSend()
+	// call under the hood), rather than the actually informative RecvMsg error.
+	var resp = new(pb.AppendResponse)
+	if err = client.RecvMsg(resp); err != nil {
 		return err
 	} else {
+		// Extra RecvMsg to explicitly read EOF, as a work-around for
+		// https://github.com/grpc-ecosystem/go-grpc-prometheus/issues/92
+		_ = client.RecvMsg(new(pb.AppendResponse))
+
 		return stream.SendMsg(resp)
 	}
 }
