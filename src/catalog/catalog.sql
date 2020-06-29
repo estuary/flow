@@ -340,6 +340,8 @@ CREATE TABLE transform_source_partitions
     CONSTRAINT "Value must be valid JSON" CHECK (JSON_VALID(value_json))
 );
 
+-- View over transform_source_partitions which groups partitions on
+-- transform_id, and aggregates partition selectors into a flat JSON array.
 CREATE VIEW transform_source_partitions_json AS
 SELECT
     transform_id,
@@ -360,7 +362,7 @@ SELECT transforms.transform_id,
        src.name                                                                AS source_name,
        src.resource_id                                                         AS source_resource_id,
        COALESCE(transforms.source_schema_uri, src.schema_uri)                  AS source_schema_uri,
-       transform_parts.json                                                    AS source_partitions_json,
+       source_partitions.json                                                  AS source_partitions_json,
        transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
        COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
 
@@ -391,9 +393,9 @@ FROM transforms
               ON transforms.derivation_id = der.collection_id
          JOIN lambdas
               ON transforms.lambda_id = lambdas.lambda_id
-         LEFT JOIN transform_source_partitions_json as transform_parts
-              ON transforms.transform_id = transform_parts.transform_id
-              AND transforms.source_collection_id = transform_parts.collection_id
+         LEFT JOIN transform_source_partitions_json as source_partitions
+              ON transforms.transform_id = source_partitions.transform_id
+              AND transforms.source_collection_id = source_partitions.collection_id
          LEFT JOIN resources AS lambda_resources
                    ON lambdas.resource_id = lambda_resources.resource_id
 ;

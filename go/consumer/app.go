@@ -29,34 +29,26 @@ type Flow struct {
 	msgMeta RawJSONMeta
 }
 
-// EnvelopeOrError is an Envelope or an Error.
-type EnvelopeOrError struct {
-	message.Envelope
-	Err error
-}
-
 var _ runconsumer.Application = (*Flow)(nil)
 
 // StartReadingMessages spawns a read-loop to read source collections and partitions thereof.
 func (f *Flow) StartReadingMessages(shard consumer.Shard, checkpoint pc.Checkpoint, ch chan<- EnvelopeOrError) error {
-	var catalogURL = shard.Spec().LabelSet.ValueOf(labels.CatalogURL)
-	if catalogURL == "" {
-		return fmt.Errorf("expected label %q", labels.CatalogURL)
+	catalogURL, err := getLabel(shard.Spec(), labels.CatalogURL)
+	if err == nil {
+		return err
 	}
 	catalogURL += "?immutable=true"
 
-	var db, err = sql.Open("sqlite3", catalogURL)
+	db, err := sql.Open("sqlite3", catalogURL)
 	if err != nil {
 		return fmt.Errorf("opening catalog database %v: %w", catalogURL, err)
 	}
+	defer db.Close()
 
-	// Identify sources & partitions of this derivation.
-	//
-
-	return nil
+	return startReadingMessages(shard, checkpoint, ch)
 }
 
-// NewStore starts and returns a new worker.
+// NewStore starts and returns a new derive worker, which implements the consumer.Store interface.
 func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
 	return newWorker(shard, rec)
 }
@@ -99,3 +91,11 @@ func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 }
 
 func main() { runconsumer.Main(new(Flow)) }
+
+func getLabel(spec *pc.ShardSpec, label string) (string, error) {
+	if values := spec.LabelSet.ValuesOf(label); len(values) != 0 {
+		return "", fmt.Errorf("expected single label %q (got %v)", label, values)
+	} else {
+		return values[0], nil
+	}
+}

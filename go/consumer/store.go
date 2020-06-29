@@ -51,7 +51,7 @@ type worker struct {
 	client     pf.DeriveClient
 	conn       *grpc.ClientConn
 
-	txn       pf.Derive_TransactionClient
+	txn       pf.Derive_DeriveClient
 	txnReadCh chan error
 }
 
@@ -67,37 +67,37 @@ func (s *worker) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) 
 }
 
 func (s *worker) readLoop(pub *message.Publisher) {
-	var resp pf.TxnResponse
+	var resp = new(pf.DeriveResponse)
 	for {
-		if err := s.txn.RecvMsg(&resp); err != nil {
+		if err := s.txn.RecvMsg(resp); err != nil {
 			s.txnReadCh <- fmt.Errorf("reading derive-worker txn response: %w", err)
 			return
 		}
 
 		switch resp.State {
-		case pf.DeriveTxnState_EXTEND:
+		case pf.DeriveState_EXTEND:
 			break
-		case pf.DeriveTxnState_FLUSH:
+		case pf.DeriveState_FLUSH:
 			s.txnReadCh <- nil
 			return
 		default:
-			s.txnReadCh <- fmt.Errorf("read unexpected DeriveTxnState %v", resp.State)
+			s.txnReadCh <- fmt.Errorf("read unexpected DeriveState %v", resp.State)
 			return
 		}
 		// At this point, we know state is EXTEND.
 
 		// TODO(johnny): Actually publish these, instead of just logging them.
-		for doc := range resp.ExtendDocuments {
+		for doc := range resp.Documents {
 			log.WithField("derivation", s.derivation).
-				WithField("parts", resp.ExtendLabels).
+				WithField("parts", resp.Partitions).
 				Info("got document: ", doc)
 		}
 	}
 }
 
 func (s *worker) consumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
-	if s.txn != nil {
-		var txn, err = s.client.Transaction(shard.Context())
+	if s.txn == nil {
+		var txn, err = s.client.Derive(shard.Context())
 		if err != nil {
 			return fmt.Errorf("failed to start a derive-worker transaction: %w", err)
 		}
@@ -111,20 +111,21 @@ func (s *worker) consumeMessage(shard consumer.Shard, env message.Envelope, pub 
 		return nil // Ignore transaction acknowledgement messages.
 	}
 
-	// TODO(johnny): Batch up successive records of this same journal?
+	// TODO(johnny): Batch up successive documents having identical TransformIds.
 
-	return s.txn.Send(&pf.TxnRequest{
-		State:           pf.DeriveTxnState_EXTEND,
-		ExtendDocuments: [][]byte{msg.RawMessage},
-		ExtendSource:    env.Journal.LabelSet.ValueOf(labels.Collection),
+	return s.txn.Send(&pf.DeriveRequest{
+		State:        pf.DeriveState_EXTEND,
+		Documents:    [][]byte{msg.RawMessage},
+		TransformIds: msg.ShuffledTransforms,
 	})
 }
 
 func (s *worker) finalizeTxn() error {
-	if err := s.txn.Send(&pf.TxnRequest{State: pf.DeriveTxnState_FLUSH}); err != nil {
+	if err := s.txn.Send(&pf.DeriveRequest{State: pf.DeriveState_FLUSH}); err != nil {
 		return fmt.Errorf("failed to flush derive-worker transaction: %w", err)
 	}
-	// Wait for readLoop() to finish and signal its exit.
+	// Wait for readLoop() to signal that it's read FLUSH from the worker.
+	// At that point, we know all publishes of derived documents have started.
 	if err := <-s.txnReadCh; err != nil {
 		return fmt.Errorf("derive-worker read loop failed: %w", err)
 	}
@@ -132,16 +133,16 @@ func (s *worker) finalizeTxn() error {
 }
 
 func (s *worker) StartCommit(_ consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	if err := s.txn.Send(&pf.TxnRequest{
-		State:             pf.DeriveTxnState_PREPARE,
-		PrepareCheckpoint: &checkpoint,
+	if err := s.txn.Send(&pf.DeriveRequest{
+		State:      pf.DeriveState_PREPARE,
+		Checkpoint: &checkpoint,
 	}); err != nil {
 		return client.FinishedOperation(
 			fmt.Errorf("failed to send derive-worker transaction PREPARE: %w", err))
 	} else if resp, err := s.txn.Recv(); err != nil {
 		return client.FinishedOperation(
 			fmt.Errorf("failed to read derive-worker transaction PREPARE: %w", err))
-	} else if resp.State != pf.DeriveTxnState_PREPARE {
+	} else if resp.State != pf.DeriveState_PREPARE {
 		return client.FinishedOperation(
 			fmt.Errorf("unexpected derive-worker response (wanted PREPARE): %v", resp))
 	}
@@ -169,11 +170,11 @@ func (s *worker) StartCommit(_ consumer.Shard, checkpoint pc.Checkpoint, waitFor
 			}
 		}
 
-		if err = txn.Send(&pf.TxnRequest{State: pf.DeriveTxnState_COMMIT}); err != nil {
+		if err = txn.Send(&pf.DeriveRequest{State: pf.DeriveState_COMMIT}); err != nil {
 			future.Resolve(fmt.Errorf("failed to send derive-worker COMMIT: %w", err))
 		} else if resp, err := txn.Recv(); err != nil {
 			future.Resolve(fmt.Errorf("failed to read derive-worker COMMIT: %w", err))
-		} else if resp.State != pf.DeriveTxnState_COMMIT {
+		} else if resp.State != pf.DeriveState_COMMIT {
 			future.Resolve(fmt.Errorf("unexpected derive-worker response (wanted COMMIT): %v", resp))
 		} else if resp, err = txn.Recv(); err != io.EOF {
 			future.Resolve(fmt.Errorf("expected derive-worker EOF, not: %v", resp))

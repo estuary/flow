@@ -4,14 +4,18 @@
 package protocol
 
 import (
+	bytes "bytes"
 	context "context"
 	fmt "fmt"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	empty "github.com/golang/protobuf/ptypes/empty"
-	protocol1 "go.gazette.dev/core/broker/protocol"
-	protocol "go.gazette.dev/core/consumer/protocol"
+	go_gazette_dev_core_broker_protocol "go.gazette.dev/core/broker/protocol"
+	protocol "go.gazette.dev/core/broker/protocol"
+	go_gazette_dev_core_consumer_protocol "go.gazette.dev/core/consumer/protocol"
+	protocol1 "go.gazette.dev/core/consumer/protocol"
 	recoverylog "go.gazette.dev/core/consumer/recoverylog"
+	go_gazette_dev_core_message "go.gazette.dev/core/message"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -31,24 +35,26 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-type DeriveTxnState int32
+type DeriveState int32
 
 const (
 	// IDLE indicates the transaction has not yet begun.
-	// It transitions to EXTEND.
-	DeriveTxnState_IDLE DeriveTxnState = 0
+	// IDLE transitions to EXTEND.
+	DeriveState_IDLE DeriveState = 0
 	// EXTEND extends the derive transaction with additional
 	// source or derived collection documents.
 	//
-	// * The flow consumer sends any number of EXTEND TxnRequests,
+	// * The flow consumer sends any number of EXTEND DeriveRequests,
 	//   containing source collection documents.
 	// * Concurrently, the derive worker responds with any number of
-	//   EXTEND TxnResponses, each having documents to be added to
+	//   EXTEND DeriveResponses, each having documents to be added to
 	//   the collection being derived.
 	// * The flow consumer is responsible for publishing each derived
 	//   document to the appropriate collection & partition.
-	// * Note TxnRequest and TxnResponse EXTEND messages are _not_ 1:1.
-	DeriveTxnState_EXTEND DeriveTxnState = 1
+	// * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
+	//
+	// EXTEND transitions to EXTEND or FLUSH.
+	DeriveState_EXTEND DeriveState = 1
 	// FLUSH indicates the transacton pipeline is to flush.
 	//
 	// * The flow consumer issues FLUSH when its consumer transaction begins to
@@ -57,21 +63,24 @@ const (
 	//   documents have been processed and all derived documents emitted.
 	// * The flow consumer awaits the response FLUSH, while continuing to begin
 	//   publish operations for all derived documents seen in the meantime.
-	// * On seeing FLUSH, the flow consumer is assured it's sequenced all messages
-	//   of the transaction, and can build its consumer.Checkpoint.
-	DeriveTxnState_FLUSH DeriveTxnState = 2
+	// * On seeing FLUSH, the flow consumer is assured it's sequenced and started
+	//   publishing all derived documents of the transaction, and can now build
+	//   the consumer.Checkpoint which will be committed to the store.
+	//
+	// FLUSH transitions to PREPARE.
+	DeriveState_FLUSH DeriveState = 2
 	// PREPARE begins a commit of the transaction.
 	//
-	// * The Flow Consumer sends PREPARE with a consumer.Checkpoint.
+	// * The flow consumer sends PREPARE with its consumer.Checkpoint.
 	// * On receipt, the derive worker queues an atomic recoverylog.Recorder
 	//   block that's conditioned on an (unresolved) "commit" future. Within
-	//   this block underlying stores commits (SQLite COMMIT / writing RocksDB
-	//   WriteBatch) are issued to persist all state changes of the transaction,
-	//   along with the consumer.Checkpoint.
+	//   this recording block, underlying store commits (SQLite COMMIT and writing
+	//   a RocksDB WriteBatch) are issued to persist all state changes of the
+	//   transaction, along with the consumer.Checkpoint.
 	// * The derive worker responds with PREPARE once all local commits have
 	//   completed, and recoverylog writes have been queued (but not started,
 	//   awaiting COMMIT).
-	// * On receipt, the Flow Consumer arranges to invoke COMMIT on the completion
+	// * On receipt, the flow consumer arranges to invoke COMMIT on the completion
 	//   of all outstanding journal writes -- this the OpFuture passed to the
 	//   Store.StartCommit interface. It returns a future which will resolve only
 	//   after reading COMMIT from this transaction -- the OpFuture returned by
@@ -81,15 +90,19 @@ const (
 	// PREPARE. However at the completion of PREPARE, a new & concurrent
 	// Transaction may begin, though it itself cannot PREPARE until this
 	// Transaction fully completes.
-	DeriveTxnState_PREPARE DeriveTxnState = 3
+	//
+	// PREPARE transitions to COMMIT.
+	DeriveState_PREPARE DeriveState = 3
 	// COMMIT commits the transaction by resolving the "commit" future created
 	// during PREPARE, allowing the atomic commit block created in PREPARE
 	// to flush to the recovery log. The derive worker responds with COMMIT
 	// when the commit barrier has fully resolved.
-	DeriveTxnState_COMMIT DeriveTxnState = 4
+	//
+	// COMMIT transitions to stream close.
+	DeriveState_COMMIT DeriveState = 4
 )
 
-var DeriveTxnState_name = map[int32]string{
+var DeriveState_name = map[int32]string{
 	0: "IDLE",
 	1: "EXTEND",
 	2: "FLUSH",
@@ -97,7 +110,7 @@ var DeriveTxnState_name = map[int32]string{
 	4: "COMMIT",
 }
 
-var DeriveTxnState_value = map[string]int32{
+var DeriveState_value = map[string]int32{
 	"IDLE":    0,
 	"EXTEND":  1,
 	"FLUSH":   2,
@@ -105,40 +118,42 @@ var DeriveTxnState_value = map[string]int32{
 	"COMMIT":  4,
 }
 
-func (x DeriveTxnState) String() string {
-	return proto.EnumName(DeriveTxnState_name, int32(x))
+func (x DeriveState) String() string {
+	return proto.EnumName(DeriveState_name, int32(x))
 }
 
-func (DeriveTxnState) EnumDescriptor() ([]byte, []int) {
+func (DeriveState) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_9dd0e7f3bbc7f41f, []int{0}
 }
 
-// TxnRequest is the streamed message of a Transaction RPC.
-type TxnRequest struct {
-	State DeriveTxnState `protobuf:"varint,1,opt,name=state,proto3,enum=flow.DeriveTxnState" json:"state,omitempty"`
-	// Collection from which source documents are drawn. Set iff state == EXTEND.
-	ExtendSource string `protobuf:"bytes,2,opt,name=extend_source,json=extendSource,proto3" json:"extend_source,omitempty"`
-	// Documents of the collection. Set iff state == EXTEND.
-	ExtendDocuments [][]byte `protobuf:"bytes,3,rep,name=extend_documents,json=extendDocuments,proto3" json:"extend_documents,omitempty"`
-	// Checkpoint to commit. Set iff state == PREPARE.
-	PrepareCheckpoint    *protocol.Checkpoint `protobuf:"bytes,4,opt,name=prepare_checkpoint,json=prepareCheckpoint,proto3" json:"prepare_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+// Ring is an unpacked representation of an entry in an
+// `estuary.dev/worker-ring` label value. It describes the effective ring
+// configuration within a range of possible Clocks. WorkerRings are ordered
+// on ascending lower Clock bound.
+type Ring struct {
+	// Lower clock bound for this ring configuration.
+	// For a given Clock C, the effective configuration is given
+	// by the last entry having a clock_lower_bound B such that B <= C.
+	ClockLowerBound go_gazette_dev_core_message.Clock `protobuf:"varint,1,opt,name=clock_lower_bound,json=clockLowerBound,proto3,casttype=go.gazette.dev/core/message.Clock" json:"clock_lower_bound,omitempty"`
+	// Size of the reader ring within this Clock range.
+	TotalReaders         uint32   `protobuf:"varint,2,opt,name=total_readers,json=totalReaders,proto3" json:"total_readers,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TxnRequest) Reset()         { *m = TxnRequest{} }
-func (m *TxnRequest) String() string { return proto.CompactTextString(m) }
-func (*TxnRequest) ProtoMessage()    {}
-func (*TxnRequest) Descriptor() ([]byte, []int) {
+func (m *Ring) Reset()         { *m = Ring{} }
+func (m *Ring) String() string { return proto.CompactTextString(m) }
+func (*Ring) ProtoMessage()    {}
+func (*Ring) Descriptor() ([]byte, []int) {
 	return fileDescriptor_9dd0e7f3bbc7f41f, []int{0}
 }
-func (m *TxnRequest) XXX_Unmarshal(b []byte) error {
+func (m *Ring) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TxnRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Ring) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TxnRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Ring.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -148,71 +163,178 @@ func (m *TxnRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
-func (m *TxnRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TxnRequest.Merge(m, src)
+func (m *Ring) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Ring.Merge(m, src)
 }
-func (m *TxnRequest) XXX_Size() int {
+func (m *Ring) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TxnRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_TxnRequest.DiscardUnknown(m)
+func (m *Ring) XXX_DiscardUnknown() {
+	xxx_messageInfo_Ring.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TxnRequest proto.InternalMessageInfo
+var xxx_messageInfo_Ring proto.InternalMessageInfo
 
-func (m *TxnRequest) GetState() DeriveTxnState {
+func (m *Ring) GetClockLowerBound() go_gazette_dev_core_message.Clock {
 	if m != nil {
-		return m.State
+		return m.ClockLowerBound
 	}
-	return DeriveTxnState_IDLE
+	return 0
 }
 
-func (m *TxnRequest) GetExtendSource() string {
+func (m *Ring) GetTotalReaders() uint32 {
 	if m != nil {
-		return m.ExtendSource
+		return m.TotalReaders
+	}
+	return 0
+}
+
+// ShuffleRequest is the request message of a Shuffle RPC.
+type ShuffleRequest struct {
+	// Journal to be read.
+	Journal go_gazette_dev_core_broker_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=go.gazette.dev/core/broker/protocol.Journal" json:"journal,omitempty"`
+	// Content-Type label of the Journal.
+	ContentType string `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	// Offset to begin reading from.
+	Offset go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,3,opt,name=offset,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"offset,omitempty"`
+	// Ring configuration under which this shuffled read is occurring.
+	ReaderIndex int64                    `protobuf:"varint,4,opt,name=reader_index,json=readerIndex,proto3" json:"reader_index,omitempty"`
+	ReaderRing  []Ring                   `protobuf:"bytes,5,rep,name=reader_ring,json=readerRing,proto3" json:"reader_ring"`
+	Shuffles    []ShuffleRequest_Shuffle `protobuf:"bytes,6,rep,name=shuffles,proto3" json:"shuffles"`
+	// Coordinator is the ShardID responsible for shuffled reads of this journal.
+	Coordinator go_gazette_dev_core_consumer_protocol.ShardID `protobuf:"bytes,7,opt,name=coordinator,proto3,casttype=go.gazette.dev/core/consumer/protocol.ShardID" json:"coordinator,omitempty"`
+	// Resolution header of |coordinator|, attached by originating peer.
+	Resolution           *protocol.Header `protobuf:"bytes,8,opt,name=resolution,proto3" json:"resolution,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
+}
+
+func (m *ShuffleRequest) Reset()         { *m = ShuffleRequest{} }
+func (m *ShuffleRequest) String() string { return proto.CompactTextString(m) }
+func (*ShuffleRequest) ProtoMessage()    {}
+func (*ShuffleRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1}
+}
+func (m *ShuffleRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ShuffleRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ShuffleRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ShuffleRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShuffleRequest.Merge(m, src)
+}
+func (m *ShuffleRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ShuffleRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShuffleRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ShuffleRequest proto.InternalMessageInfo
+
+func (m *ShuffleRequest) GetJournal() go_gazette_dev_core_broker_protocol.Journal {
+	if m != nil {
+		return m.Journal
 	}
 	return ""
 }
 
-func (m *TxnRequest) GetExtendDocuments() [][]byte {
+func (m *ShuffleRequest) GetContentType() string {
 	if m != nil {
-		return m.ExtendDocuments
+		return m.ContentType
+	}
+	return ""
+}
+
+func (m *ShuffleRequest) GetOffset() go_gazette_dev_core_broker_protocol.Offset {
+	if m != nil {
+		return m.Offset
+	}
+	return 0
+}
+
+func (m *ShuffleRequest) GetReaderIndex() int64 {
+	if m != nil {
+		return m.ReaderIndex
+	}
+	return 0
+}
+
+func (m *ShuffleRequest) GetReaderRing() []Ring {
+	if m != nil {
+		return m.ReaderRing
 	}
 	return nil
 }
 
-func (m *TxnRequest) GetPrepareCheckpoint() *protocol.Checkpoint {
+func (m *ShuffleRequest) GetShuffles() []ShuffleRequest_Shuffle {
 	if m != nil {
-		return m.PrepareCheckpoint
+		return m.Shuffles
 	}
 	return nil
 }
 
-// TxnResponse is the streamed response message of a Transaction RPC.
-type TxnResponse struct {
-	State DeriveTxnState `protobuf:"varint,1,opt,name=state,proto3,enum=flow.DeriveTxnState" json:"state,omitempty"`
-	// Documents derived from request documents. Set iff state == EXTEND.
-	ExtendDocuments [][]byte `protobuf:"bytes,2,rep,name=extend_documents,json=extendDocuments,proto3" json:"extend_documents,omitempty"`
-	// Logical partition labels of these documents in the derived collection.
-	// Set iff state == EXTEND.
-	ExtendLabels         *protocol1.LabelSet `protobuf:"bytes,3,opt,name=extend_labels,json=extendLabels,proto3" json:"extend_labels,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
-	XXX_unrecognized     []byte              `json:"-"`
-	XXX_sizecache        int32               `json:"-"`
+func (m *ShuffleRequest) GetCoordinator() go_gazette_dev_core_consumer_protocol.ShardID {
+	if m != nil {
+		return m.Coordinator
+	}
+	return ""
 }
 
-func (m *TxnResponse) Reset()         { *m = TxnResponse{} }
-func (m *TxnResponse) String() string { return proto.CompactTextString(m) }
-func (*TxnResponse) ProtoMessage()    {}
-func (*TxnResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1}
+func (m *ShuffleRequest) GetResolution() *protocol.Header {
+	if m != nil {
+		return m.Resolution
+	}
+	return nil
 }
-func (m *TxnResponse) XXX_Unmarshal(b []byte) error {
+
+// Shuffles applied to journal documents, mapping each document to
+// a specific reader index of the ring.
+type ShuffleRequest_Shuffle struct {
+	// ID by which this Shuffle should be identified within ShuffleResponses.
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Composite key over which shuffling occurs, specified as one or more
+	// JSON-Pointers indicating a message location to extract.
+	ShuffleKeyPtr []string `protobuf:"bytes,2,rep,name=shuffle_key_ptr,json=shuffleKeyPtr,proto3" json:"shuffle_key_ptr,omitempty"`
+	// Number of top-ranked processors to broadcast each message to, after
+	// shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
+	BroadcastTo uint32 `protobuf:"varint,3,opt,name=broadcast_to,json=broadcastTo,proto3" json:"broadcast_to,omitempty"`
+	// Number of top-ranked readers from which a single reader index will be
+	// selected, after shuffling. The message Clock value is used to pseudo
+	// randomly pick the final index, making the selection deterministic.
+	// Values larger than one can be used to distribute "hot keys" which might
+	// otherwise overwhelm specific readers.
+	// Usually this is zero and |broadcast_to| is used instead. If non-zero,
+	// |broadcast_to| cannot be set.
+	ChooseFrom           uint32   `protobuf:"varint,4,opt,name=choose_from,json=chooseFrom,proto3" json:"choose_from,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ShuffleRequest_Shuffle) Reset()         { *m = ShuffleRequest_Shuffle{} }
+func (m *ShuffleRequest_Shuffle) String() string { return proto.CompactTextString(m) }
+func (*ShuffleRequest_Shuffle) ProtoMessage()    {}
+func (*ShuffleRequest_Shuffle) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1, 0}
+}
+func (m *ShuffleRequest_Shuffle) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TxnResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *ShuffleRequest_Shuffle) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TxnResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_ShuffleRequest_Shuffle.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -222,80 +344,534 @@ func (m *TxnResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) 
 		return b[:n], nil
 	}
 }
-func (m *TxnResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TxnResponse.Merge(m, src)
+func (m *ShuffleRequest_Shuffle) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShuffleRequest_Shuffle.Merge(m, src)
 }
-func (m *TxnResponse) XXX_Size() int {
+func (m *ShuffleRequest_Shuffle) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TxnResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_TxnResponse.DiscardUnknown(m)
+func (m *ShuffleRequest_Shuffle) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShuffleRequest_Shuffle.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TxnResponse proto.InternalMessageInfo
+var xxx_messageInfo_ShuffleRequest_Shuffle proto.InternalMessageInfo
 
-func (m *TxnResponse) GetState() DeriveTxnState {
+func (m *ShuffleRequest_Shuffle) GetId() int64 {
 	if m != nil {
-		return m.State
+		return m.Id
 	}
-	return DeriveTxnState_IDLE
+	return 0
 }
 
-func (m *TxnResponse) GetExtendDocuments() [][]byte {
+func (m *ShuffleRequest_Shuffle) GetShuffleKeyPtr() []string {
 	if m != nil {
-		return m.ExtendDocuments
+		return m.ShuffleKeyPtr
 	}
 	return nil
 }
 
-func (m *TxnResponse) GetExtendLabels() *protocol1.LabelSet {
+func (m *ShuffleRequest_Shuffle) GetBroadcastTo() uint32 {
 	if m != nil {
-		return m.ExtendLabels
+		return m.BroadcastTo
+	}
+	return 0
+}
+
+func (m *ShuffleRequest_Shuffle) GetChooseFrom() uint32 {
+	if m != nil {
+		return m.ChooseFrom
+	}
+	return 0
+}
+
+// ShuffleResponse is the streamed response message of a Shuffle RPC.
+type ShuffleResponse struct {
+	// Status of the Shuffle RPC.
+	Status protocol1.Status `protobuf:"varint,1,opt,name=status,proto3,enum=consumer.Status" json:"status,omitempty"`
+	// Header of the response.
+	Header *protocol.Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header,omitempty"`
+	// Documents included in this ShuffleResponse.
+	Documents            []ShuffleResponse_Document `protobuf:"bytes,3,rep,name=documents,proto3" json:"documents"`
+	XXX_NoUnkeyedLiteral struct{}                   `json:"-"`
+	XXX_unrecognized     []byte                     `json:"-"`
+	XXX_sizecache        int32                      `json:"-"`
+}
+
+func (m *ShuffleResponse) Reset()         { *m = ShuffleResponse{} }
+func (m *ShuffleResponse) String() string { return proto.CompactTextString(m) }
+func (*ShuffleResponse) ProtoMessage()    {}
+func (*ShuffleResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{2}
+}
+func (m *ShuffleResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ShuffleResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ShuffleResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ShuffleResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShuffleResponse.Merge(m, src)
+}
+func (m *ShuffleResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ShuffleResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShuffleResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ShuffleResponse proto.InternalMessageInfo
+
+func (m *ShuffleResponse) GetStatus() protocol1.Status {
+	if m != nil {
+		return m.Status
+	}
+	return protocol1.Status_OK
+}
+
+func (m *ShuffleResponse) GetHeader() *protocol.Header {
+	if m != nil {
+		return m.Header
+	}
+	return nil
+}
+
+func (m *ShuffleResponse) GetDocuments() []ShuffleResponse_Document {
+	if m != nil {
+		return m.Documents
+	}
+	return nil
+}
+
+// Document matched to this reader and included in this ShuffleResponse.
+type ShuffleResponse_Document struct {
+	// The begin offset of the document within the journal.
+	JournalBeginOffset go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,2,opt,name=journal_begin_offset,json=journalBeginOffset,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"journal_begin_offset,omitempty"`
+	// Bytes of the document, exactly as encoded within the journal,
+	// including framing.
+	JournalBytes []byte `protobuf:"bytes,3,opt,name=journal_bytes,json=journalBytes,proto3" json:"journal_bytes,omitempty"`
+	// One or more request shuffle IDs which matched this document.
+	ShuffleIds           []int64  `protobuf:"varint,4,rep,packed,name=shuffle_ids,json=shuffleIds,proto3" json:"shuffle_ids,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ShuffleResponse_Document) Reset()         { *m = ShuffleResponse_Document{} }
+func (m *ShuffleResponse_Document) String() string { return proto.CompactTextString(m) }
+func (*ShuffleResponse_Document) ProtoMessage()    {}
+func (*ShuffleResponse_Document) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{2, 0}
+}
+func (m *ShuffleResponse_Document) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ShuffleResponse_Document) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ShuffleResponse_Document.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ShuffleResponse_Document) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShuffleResponse_Document.Merge(m, src)
+}
+func (m *ShuffleResponse_Document) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ShuffleResponse_Document) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShuffleResponse_Document.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ShuffleResponse_Document proto.InternalMessageInfo
+
+func (m *ShuffleResponse_Document) GetJournalBeginOffset() go_gazette_dev_core_broker_protocol.Offset {
+	if m != nil {
+		return m.JournalBeginOffset
+	}
+	return 0
+}
+
+func (m *ShuffleResponse_Document) GetJournalBytes() []byte {
+	if m != nil {
+		return m.JournalBytes
+	}
+	return nil
+}
+
+func (m *ShuffleResponse_Document) GetShuffleIds() []int64 {
+	if m != nil {
+		return m.ShuffleIds
+	}
+	return nil
+}
+
+// DeriveRequest is the streamed message of a Derive RPC.
+type DeriveRequest struct {
+	State DeriveState `protobuf:"varint,1,opt,name=state,proto3,enum=flow.DeriveState" json:"state,omitempty"`
+	// Source collection documents to derive from. Set iff state == EXTEND.
+	Documents [][]byte `protobuf:"bytes,2,rep,name=documents,proto3" json:"documents,omitempty"`
+	// One or more transforms to which documents of this DeriveRequest should be
+	// dispatched. Set iff state == EXTEND.
+	TransformIds []int64 `protobuf:"varint,3,rep,packed,name=transform_ids,json=transformIds,proto3" json:"transform_ids,omitempty"`
+	// Checkpoint to commit. Set iff state == PREPARE.
+	Checkpoint           *protocol1.Checkpoint `protobuf:"bytes,4,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
+}
+
+func (m *DeriveRequest) Reset()         { *m = DeriveRequest{} }
+func (m *DeriveRequest) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest) ProtoMessage()    {}
+func (*DeriveRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{3}
+}
+func (m *DeriveRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest.Merge(m, src)
+}
+func (m *DeriveRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest proto.InternalMessageInfo
+
+func (m *DeriveRequest) GetState() DeriveState {
+	if m != nil {
+		return m.State
+	}
+	return DeriveState_IDLE
+}
+
+func (m *DeriveRequest) GetDocuments() [][]byte {
+	if m != nil {
+		return m.Documents
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetTransformIds() []int64 {
+	if m != nil {
+		return m.TransformIds
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetCheckpoint() *protocol1.Checkpoint {
+	if m != nil {
+		return m.Checkpoint
+	}
+	return nil
+}
+
+// DeriveResponse is the streamed response message of a Derive RPC.
+type DeriveResponse struct {
+	State DeriveState `protobuf:"varint,1,opt,name=state,proto3,enum=flow.DeriveState" json:"state,omitempty"`
+	// Documents derived from request documents. Set iff state == EXTEND.
+	Documents [][]byte `protobuf:"bytes,2,rep,name=documents,proto3" json:"documents,omitempty"`
+	// Logical partition fields and JSON values of these documents
+	// in the derived collection. Set iff state == EXTEND.
+	Partitions           map[string]string `protobuf:"bytes,3,rep,name=partitions,proto3" json:"partitions,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
+	XXX_unrecognized     []byte            `json:"-"`
+	XXX_sizecache        int32             `json:"-"`
+}
+
+func (m *DeriveResponse) Reset()         { *m = DeriveResponse{} }
+func (m *DeriveResponse) String() string { return proto.CompactTextString(m) }
+func (*DeriveResponse) ProtoMessage()    {}
+func (*DeriveResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{4}
+}
+func (m *DeriveResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveResponse.Merge(m, src)
+}
+func (m *DeriveResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveResponse proto.InternalMessageInfo
+
+func (m *DeriveResponse) GetState() DeriveState {
+	if m != nil {
+		return m.State
+	}
+	return DeriveState_IDLE
+}
+
+func (m *DeriveResponse) GetDocuments() [][]byte {
+	if m != nil {
+		return m.Documents
+	}
+	return nil
+}
+
+func (m *DeriveResponse) GetPartitions() map[string]string {
+	if m != nil {
+		return m.Partitions
 	}
 	return nil
 }
 
 func init() {
-	proto.RegisterEnum("flow.DeriveTxnState", DeriveTxnState_name, DeriveTxnState_value)
-	proto.RegisterType((*TxnRequest)(nil), "flow.TxnRequest")
-	proto.RegisterType((*TxnResponse)(nil), "flow.TxnResponse")
+	proto.RegisterEnum("flow.DeriveState", DeriveState_name, DeriveState_value)
+	proto.RegisterType((*Ring)(nil), "flow.Ring")
+	proto.RegisterType((*ShuffleRequest)(nil), "flow.ShuffleRequest")
+	proto.RegisterType((*ShuffleRequest_Shuffle)(nil), "flow.ShuffleRequest.Shuffle")
+	proto.RegisterType((*ShuffleResponse)(nil), "flow.ShuffleResponse")
+	proto.RegisterType((*ShuffleResponse_Document)(nil), "flow.ShuffleResponse.Document")
+	proto.RegisterType((*DeriveRequest)(nil), "flow.DeriveRequest")
+	proto.RegisterType((*DeriveResponse)(nil), "flow.DeriveResponse")
+	proto.RegisterMapType((map[string]string)(nil), "flow.DeriveResponse.PartitionsEntry")
 }
 
 func init() { proto.RegisterFile("go/protocol/flow.proto", fileDescriptor_9dd0e7f3bbc7f41f) }
 
 var fileDescriptor_9dd0e7f3bbc7f41f = []byte{
-	// 487 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x92, 0x41, 0x8b, 0xd3, 0x40,
-	0x18, 0x86, 0x9d, 0xb6, 0x5b, 0x77, 0xa7, 0xeb, 0x9a, 0x0e, 0xb5, 0x94, 0x1e, 0x4a, 0x58, 0x41,
-	0xe2, 0x1e, 0x52, 0xa9, 0xa0, 0x07, 0x4f, 0xbb, 0x6d, 0x96, 0x5d, 0x69, 0x75, 0x49, 0x22, 0x88,
-	0x97, 0x92, 0x26, 0xdf, 0xc6, 0xb0, 0x69, 0xbe, 0x38, 0x33, 0x59, 0xdb, 0x1f, 0x23, 0xf8, 0x53,
-	0x3c, 0x7a, 0x11, 0xfc, 0x0d, 0xeb, 0x1f, 0x91, 0x64, 0x9a, 0xb6, 0x42, 0x15, 0xbc, 0x94, 0x77,
-	0xde, 0x79, 0xe8, 0x7c, 0xef, 0x9b, 0x8f, 0xb6, 0x43, 0xec, 0xa7, 0x1c, 0x25, 0xfa, 0x18, 0xf7,
-	0xaf, 0x63, 0xfc, 0x6c, 0x16, 0x27, 0x56, 0xcb, 0x75, 0xb7, 0x37, 0xe3, 0x78, 0x03, 0x7c, 0x43,
-	0x94, 0x42, 0x51, 0x5d, 0xdd, 0xc7, 0x44, 0x64, 0xf3, 0x7f, 0x10, 0x4f, 0xd6, 0x04, 0x07, 0x1f,
-	0x6f, 0x81, 0x2f, 0x63, 0x0c, 0x0b, 0xcd, 0x03, 0x08, 0xa6, 0x98, 0xae, 0xb8, 0x4e, 0x2a, 0x97,
-	0x29, 0x88, 0x3e, 0xcc, 0x53, 0xb9, 0x54, 0xbf, 0xab, 0x9b, 0x56, 0x88, 0x21, 0x16, 0xb2, 0x9f,
-	0x2b, 0xe5, 0x1e, 0xff, 0x20, 0x94, 0xba, 0x8b, 0xc4, 0x86, 0x4f, 0x19, 0x08, 0xc9, 0x4e, 0xe8,
-	0x9e, 0x90, 0x9e, 0x84, 0x0e, 0xd1, 0x89, 0x71, 0x34, 0x68, 0x99, 0x45, 0x94, 0x11, 0xf0, 0xe8,
-	0x16, 0xdc, 0x45, 0xe2, 0xe4, 0x77, 0xb6, 0x42, 0xd8, 0x63, 0xfa, 0x00, 0x16, 0x12, 0x92, 0x60,
-	0x2a, 0x30, 0xe3, 0x3e, 0x74, 0x2a, 0x3a, 0x31, 0x0e, 0xec, 0x43, 0x65, 0x3a, 0x85, 0xc7, 0x9e,
-	0x52, 0x6d, 0x05, 0x05, 0xe8, 0x67, 0x73, 0x48, 0xa4, 0xe8, 0x54, 0xf5, 0xaa, 0x71, 0x68, 0x3f,
-	0x54, 0xfe, 0xa8, 0xb4, 0xd9, 0x90, 0xb2, 0x94, 0x43, 0xea, 0x71, 0x98, 0xfa, 0x1f, 0xc1, 0xbf,
-	0x49, 0x31, 0x4a, 0x64, 0xa7, 0xa6, 0x13, 0xa3, 0x31, 0x68, 0x99, 0x65, 0x7e, 0x73, 0xb8, 0xbe,
-	0xb3, 0x9b, 0x2b, 0x7e, 0x63, 0x1d, 0x7f, 0x21, 0xb4, 0x51, 0xe4, 0x11, 0x29, 0x26, 0x02, 0xfe,
-	0x2b, 0xd0, 0xae, 0x59, 0x2b, 0xbb, 0x67, 0x7d, 0xb9, 0xce, 0x1e, 0x7b, 0x33, 0x88, 0xf3, 0x4c,
-	0xf9, 0x98, 0xcc, 0x5c, 0x7f, 0xb6, 0x71, 0xee, 0x3b, 0x20, 0xcb, 0x3e, 0x8a, 0xb3, 0x38, 0x79,
-	0x4d, 0x8f, 0xfe, 0x7c, 0x9c, 0xed, 0xd3, 0xda, 0xe5, 0x68, 0x6c, 0x69, 0xf7, 0x18, 0xa5, 0x75,
-	0xeb, 0xbd, 0x6b, 0xbd, 0x19, 0x69, 0x84, 0x1d, 0xd0, 0xbd, 0xf3, 0xf1, 0x3b, 0xe7, 0x42, 0xab,
-	0xb0, 0x06, 0xbd, 0x7f, 0x65, 0x5b, 0x57, 0xa7, 0xb6, 0xa5, 0x55, 0x73, 0x66, 0xf8, 0x76, 0x32,
-	0xb9, 0x74, 0xb5, 0xda, 0xe0, 0x1b, 0xa1, 0x75, 0xf5, 0x67, 0xec, 0x94, 0x36, 0x6d, 0x10, 0x12,
-	0xb7, 0xbb, 0x60, 0x6d, 0x33, 0x44, 0x0c, 0x63, 0x50, 0x43, 0xcd, 0xb2, 0x6b, 0xd3, 0xca, 0xf7,
-	0xa1, 0xbb, 0xb3, 0x4c, 0xf6, 0x82, 0x36, 0x5c, 0xee, 0x25, 0xc2, 0xf3, 0x65, 0x84, 0x09, 0xd3,
-	0x54, 0x53, 0x9b, 0xdd, 0xe8, 0x36, 0xb7, 0x1c, 0xd5, 0xae, 0x41, 0x9e, 0x11, 0xf6, 0x8a, 0xd2,
-	0xb3, 0x2c, 0x8a, 0x83, 0x8b, 0x28, 0x2f, 0xe6, 0x6f, 0x6f, 0x3e, 0x32, 0xb7, 0xf6, 0xd6, 0x3c,
-	0x77, 0x26, 0x05, 0x7e, 0xd6, 0xfe, 0x7e, 0xd7, 0x23, 0x3f, 0xef, 0x7a, 0xe4, 0xeb, 0xaf, 0x1e,
-	0xf9, 0xb0, 0x5f, 0xb6, 0x37, 0xab, 0x17, 0xea, 0xf9, 0xef, 0x00, 0x00, 0x00, 0xff, 0xff, 0x3a,
-	0xc8, 0xcb, 0x93, 0x57, 0x03, 0x00, 0x00,
+	// 1021 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x55, 0xcf, 0x6e, 0x1b, 0x45,
+	0x1c, 0xee, 0xda, 0x8e, 0xe3, 0xfc, 0x6c, 0x27, 0xce, 0xe0, 0x46, 0x2b, 0xab, 0x8a, 0xdd, 0x00,
+	0xc5, 0x2a, 0x62, 0x9d, 0x1a, 0x24, 0xaa, 0x22, 0x90, 0xea, 0xd8, 0x21, 0x86, 0x84, 0x86, 0x71,
+	0x90, 0x10, 0x97, 0x65, 0xbd, 0x3b, 0xde, 0x2c, 0x59, 0xef, 0x98, 0x99, 0xd9, 0x14, 0x73, 0xe6,
+	0xc6, 0x4b, 0xf4, 0x15, 0xe0, 0x0d, 0xb8, 0xf5, 0xc8, 0x03, 0x20, 0x1f, 0xca, 0x85, 0x37, 0x40,
+	0xca, 0x09, 0xcd, 0xcc, 0xee, 0xc6, 0x0d, 0x06, 0x21, 0xd4, 0x8b, 0x35, 0xfb, 0xcd, 0xf7, 0xfb,
+	0x33, 0xdf, 0xef, 0x9b, 0x31, 0xec, 0xf8, 0xb4, 0x33, 0x63, 0x54, 0x50, 0x97, 0x86, 0x9d, 0x49,
+	0x48, 0x9f, 0x5a, 0xea, 0x0b, 0x15, 0xe4, 0xba, 0xb1, 0x3b, 0x66, 0xf4, 0x82, 0xb0, 0x6b, 0x46,
+	0xba, 0xd0, 0xac, 0x46, 0xcb, 0xa5, 0x11, 0x8f, 0xa7, 0xff, 0xc2, 0xb8, 0x97, 0x31, 0x18, 0x71,
+	0xe9, 0x25, 0x61, 0xf3, 0x90, 0xfa, 0x6a, 0xcd, 0x3c, 0xe2, 0xd9, 0x74, 0x96, 0xf0, 0xcc, 0x99,
+	0x98, 0xcf, 0x08, 0xef, 0x90, 0xe9, 0x4c, 0xcc, 0xf5, 0x6f, 0xb2, 0x53, 0xf7, 0xa9, 0x4f, 0xd5,
+	0xb2, 0x23, 0x57, 0x1a, 0xdd, 0xfb, 0xc1, 0x80, 0x02, 0x0e, 0x22, 0x1f, 0x7d, 0x0e, 0xdb, 0x6e,
+	0x48, 0xdd, 0x0b, 0x3b, 0xa4, 0x4f, 0x09, 0xb3, 0xc7, 0x34, 0x8e, 0x3c, 0xd3, 0x68, 0x19, 0xed,
+	0x42, 0xef, 0xcd, 0xab, 0x45, 0xf3, 0xae, 0x4f, 0x2d, 0xdf, 0xf9, 0x9e, 0x08, 0x41, 0x2c, 0x8f,
+	0x5c, 0x76, 0x5c, 0xca, 0x48, 0x67, 0x4a, 0x38, 0x77, 0x7c, 0x62, 0x1d, 0xc8, 0x40, 0xbc, 0xa5,
+	0xe2, 0x8f, 0x65, 0x78, 0x4f, 0x46, 0xa3, 0xd7, 0xa1, 0x2a, 0xa8, 0x70, 0x42, 0x9b, 0x11, 0xc7,
+	0x23, 0x8c, 0x9b, 0xb9, 0x96, 0xd1, 0xae, 0xe2, 0x8a, 0x02, 0xb1, 0xc6, 0x1e, 0x15, 0xfe, 0x78,
+	0xd6, 0x34, 0xf6, 0xfe, 0x2c, 0xc0, 0xe6, 0xe8, 0x3c, 0x9e, 0x4c, 0x42, 0x82, 0xc9, 0xb7, 0x31,
+	0xe1, 0x02, 0x0d, 0x61, 0xfd, 0x1b, 0x1a, 0xb3, 0xc8, 0x09, 0x55, 0x1b, 0x1b, 0xbd, 0xce, 0xd5,
+	0xa2, 0xf9, 0xf6, 0xaa, 0x36, 0x6e, 0x88, 0x6b, 0x7d, 0xa2, 0xc3, 0x70, 0x1a, 0x8f, 0xee, 0x42,
+	0xc5, 0xa5, 0x91, 0x20, 0x91, 0xb0, 0xa5, 0x3a, 0xaa, 0x8f, 0x0d, 0x5c, 0x4e, 0xb0, 0xb3, 0xf9,
+	0x8c, 0xa0, 0x43, 0x28, 0xd2, 0xc9, 0x84, 0x13, 0x61, 0xe6, 0x5b, 0x46, 0x3b, 0xdf, 0xb3, 0xae,
+	0x16, 0xcd, 0xfb, 0xff, 0xa5, 0xd8, 0x13, 0x15, 0x85, 0x93, 0x68, 0x59, 0x4a, 0x9f, 0xd6, 0x0e,
+	0x22, 0x8f, 0x7c, 0x67, 0x16, 0x64, 0x36, 0x5c, 0xd6, 0xd8, 0x50, 0x42, 0xe8, 0x01, 0x24, 0x9f,
+	0x36, 0x0b, 0x22, 0xdf, 0x5c, 0x6b, 0xe5, 0xdb, 0xe5, 0x2e, 0x58, 0xca, 0x34, 0x72, 0x14, 0xbd,
+	0xc2, 0xf3, 0x45, 0xf3, 0x16, 0x06, 0x4d, 0x52, 0xc3, 0xf9, 0x08, 0x4a, 0x5c, 0xab, 0xc3, 0xcd,
+	0xa2, 0xe2, 0xdf, 0xd1, 0xfc, 0x97, 0x35, 0x4b, 0x3f, 0x93, 0x0c, 0x59, 0x0c, 0x1a, 0x41, 0xd9,
+	0xa5, 0x94, 0x79, 0x41, 0xe4, 0x08, 0xca, 0xcc, 0x75, 0xa5, 0xe7, 0x83, 0xab, 0x45, 0xf3, 0x9d,
+	0x55, 0x47, 0xfc, 0x9b, 0x19, 0xad, 0xd1, 0xb9, 0xc3, 0xbc, 0x61, 0x1f, 0x2f, 0x67, 0x41, 0xfb,
+	0x00, 0x8c, 0x70, 0x1a, 0xc6, 0x22, 0xa0, 0x91, 0x59, 0x6a, 0x19, 0xed, 0x72, 0xb7, 0x66, 0x65,
+	0x31, 0x47, 0xba, 0xfd, 0x25, 0x4e, 0xe3, 0x47, 0x03, 0xd6, 0x93, 0x16, 0xd1, 0x26, 0xe4, 0x02,
+	0x6d, 0xb0, 0x3c, 0xce, 0x05, 0x1e, 0xba, 0x07, 0x5b, 0x49, 0xbb, 0xf6, 0x05, 0x99, 0xdb, 0x33,
+	0xc1, 0xcc, 0x5c, 0x2b, 0xdf, 0xde, 0xc0, 0xd5, 0x04, 0xfe, 0x94, 0xcc, 0x4f, 0x05, 0x93, 0x02,
+	0x8f, 0x19, 0x75, 0x3c, 0xd7, 0xe1, 0xc2, 0x16, 0x54, 0x8d, 0xab, 0x8a, 0xcb, 0x19, 0x76, 0x46,
+	0x51, 0x13, 0xca, 0xee, 0x39, 0xa5, 0x9c, 0xd8, 0x13, 0x46, 0xa7, 0x6a, 0x04, 0x55, 0x0c, 0x1a,
+	0x3a, 0x64, 0x74, 0xaa, 0x3d, 0x97, 0x38, 0x6f, 0x91, 0x83, 0xad, 0x4c, 0x45, 0x3e, 0xa3, 0x11,
+	0x27, 0xa8, 0x0d, 0x45, 0x2e, 0x1c, 0x11, 0x73, 0xd5, 0xdf, 0x66, 0xb7, 0x66, 0xa5, 0x92, 0x58,
+	0x23, 0x85, 0xe3, 0x64, 0x5f, 0x32, 0xcf, 0xd5, 0x39, 0x95, 0xa7, 0x56, 0x9d, 0x3f, 0xd9, 0x47,
+	0x3d, 0xd8, 0xf0, 0xa8, 0x1b, 0x4f, 0x49, 0x24, 0xb8, 0x99, 0x57, 0x33, 0xdc, 0xbd, 0x31, 0x43,
+	0x5d, 0xdd, 0xea, 0x27, 0xb4, 0x64, 0x8a, 0xd7, 0x61, 0x8d, 0x9f, 0x0d, 0x28, 0xa5, 0xbb, 0xe8,
+	0x6b, 0xa8, 0x27, 0xfe, 0xb6, 0xc7, 0xc4, 0x0f, 0x22, 0x3b, 0xf1, 0x6f, 0xee, 0x7f, 0xf9, 0x17,
+	0x25, 0xb9, 0x7a, 0x32, 0x95, 0xc6, 0xe4, 0xfd, 0xcd, 0x2a, 0xcc, 0x05, 0xe1, 0x4a, 0xeb, 0x0a,
+	0xae, 0xa4, 0x54, 0x89, 0x49, 0xb1, 0xd3, 0xb9, 0x05, 0x1e, 0x37, 0x0b, 0xad, 0x7c, 0x3b, 0x8f,
+	0x21, 0x81, 0x86, 0x1e, 0xdf, 0xfb, 0xc9, 0x80, 0x6a, 0x9f, 0xb0, 0xe0, 0x32, 0xbb, 0xd9, 0x6f,
+	0xc1, 0x9a, 0x94, 0x8f, 0x24, 0xea, 0x6e, 0x6b, 0x19, 0x34, 0x47, 0xea, 0x4b, 0xb0, 0xde, 0x47,
+	0x77, 0x96, 0x35, 0x93, 0x6e, 0xa8, 0x2c, 0xa9, 0xa1, 0x9e, 0x17, 0xe6, 0x44, 0x7c, 0x42, 0xd9,
+	0x54, 0xd5, 0xce, 0xab, 0xda, 0x95, 0x0c, 0x1c, 0x7a, 0x1c, 0xbd, 0x07, 0xe0, 0x9e, 0x13, 0xf7,
+	0x62, 0x46, 0x83, 0x48, 0x28, 0x2b, 0x94, 0xbb, 0xf5, 0xeb, 0x71, 0x1e, 0x64, 0x7b, 0x78, 0x89,
+	0xb7, 0xf7, 0x9b, 0x01, 0x9b, 0x69, 0xcf, 0x89, 0x27, 0x5e, 0x51, 0xd3, 0x7d, 0x80, 0x99, 0xc3,
+	0x44, 0x20, 0xef, 0x43, 0xea, 0x83, 0x37, 0x96, 0x73, 0x65, 0x36, 0x38, 0xcd, 0x68, 0x83, 0x48,
+	0xb0, 0x39, 0x5e, 0x8a, 0x6b, 0x7c, 0x08, 0x5b, 0x37, 0xb6, 0x51, 0x0d, 0xf2, 0x17, 0x64, 0xae,
+	0x9f, 0x4a, 0x2c, 0x97, 0xa8, 0x0e, 0x6b, 0x97, 0x4e, 0x18, 0xa7, 0xcf, 0x9d, 0xfe, 0x78, 0x94,
+	0x7b, 0x68, 0xdc, 0xff, 0x18, 0xca, 0x4b, 0x8d, 0xa3, 0x12, 0x14, 0x86, 0xfd, 0xe3, 0x41, 0xed,
+	0x16, 0x02, 0x28, 0x0e, 0xbe, 0x3c, 0x1b, 0x7c, 0xd6, 0xaf, 0x19, 0x68, 0x03, 0xd6, 0x0e, 0x8f,
+	0xbf, 0x18, 0x1d, 0xd5, 0x72, 0xa8, 0x0c, 0xeb, 0xa7, 0x78, 0x70, 0xfa, 0x18, 0x0f, 0x6a, 0x79,
+	0xc9, 0x39, 0x78, 0x72, 0x72, 0x32, 0x3c, 0xab, 0x15, 0xba, 0x7d, 0x28, 0x25, 0xee, 0x65, 0xe8,
+	0xe1, 0xf5, 0xdd, 0xae, 0xaf, 0x7a, 0x9c, 0x1a, 0xb7, 0x57, 0xda, 0x7d, 0xdf, 0xe8, 0xfe, 0x62,
+	0x40, 0x51, 0xf7, 0x83, 0x1e, 0xc3, 0x36, 0x26, 0x5c, 0x50, 0x46, 0xae, 0x27, 0x83, 0x76, 0x2c,
+	0x9f, 0x52, 0x3f, 0x24, 0xfa, 0x6e, 0x8d, 0xe3, 0x89, 0x35, 0x90, 0xff, 0x6b, 0x8d, 0x95, 0x73,
+	0x44, 0xef, 0x67, 0xc9, 0x5e, 0x7b, 0x59, 0x57, 0xdd, 0x45, 0x7d, 0x95, 0xd8, 0x6d, 0x63, 0xdf,
+	0x40, 0x1f, 0x00, 0xf4, 0xe2, 0x20, 0xf4, 0x8e, 0x02, 0x39, 0xa8, 0x7f, 0x2a, 0x7a, 0xdb, 0x5a,
+	0xfa, 0x03, 0xb6, 0x0e, 0x47, 0x27, 0x8a, 0xde, 0xdb, 0x79, 0xfe, 0x62, 0xd7, 0xf8, 0xf5, 0xc5,
+	0xae, 0xf1, 0xec, 0xf7, 0x5d, 0xe3, 0xab, 0x52, 0x7a, 0xbd, 0xc6, 0x45, 0xb5, 0x7a, 0xf7, 0xaf,
+	0x00, 0x00, 0x00, 0xff, 0xff, 0x4b, 0x8f, 0xd0, 0xde, 0x20, 0x08, 0x00, 0x00,
+}
+
+func (this *Ring) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*Ring)
+	if !ok {
+		that2, ok := that.(Ring)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.ClockLowerBound != that1.ClockLowerBound {
+		return false
+	}
+	if this.TotalReaders != that1.TotalReaders {
+		return false
+	}
+	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
+		return false
+	}
+	return true
+}
+func (this *ShuffleRequest) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*ShuffleRequest)
+	if !ok {
+		that2, ok := that.(ShuffleRequest)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.Journal != that1.Journal {
+		return false
+	}
+	if this.ContentType != that1.ContentType {
+		return false
+	}
+	if this.Offset != that1.Offset {
+		return false
+	}
+	if this.ReaderIndex != that1.ReaderIndex {
+		return false
+	}
+	if len(this.ReaderRing) != len(that1.ReaderRing) {
+		return false
+	}
+	for i := range this.ReaderRing {
+		if !this.ReaderRing[i].Equal(&that1.ReaderRing[i]) {
+			return false
+		}
+	}
+	if len(this.Shuffles) != len(that1.Shuffles) {
+		return false
+	}
+	for i := range this.Shuffles {
+		if !this.Shuffles[i].Equal(&that1.Shuffles[i]) {
+			return false
+		}
+	}
+	if this.Coordinator != that1.Coordinator {
+		return false
+	}
+	if !this.Resolution.Equal(that1.Resolution) {
+		return false
+	}
+	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
+		return false
+	}
+	return true
+}
+func (this *ShuffleRequest_Shuffle) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*ShuffleRequest_Shuffle)
+	if !ok {
+		that2, ok := that.(ShuffleRequest_Shuffle)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.Id != that1.Id {
+		return false
+	}
+	if len(this.ShuffleKeyPtr) != len(that1.ShuffleKeyPtr) {
+		return false
+	}
+	for i := range this.ShuffleKeyPtr {
+		if this.ShuffleKeyPtr[i] != that1.ShuffleKeyPtr[i] {
+			return false
+		}
+	}
+	if this.BroadcastTo != that1.BroadcastTo {
+		return false
+	}
+	if this.ChooseFrom != that1.ChooseFrom {
+		return false
+	}
+	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
+		return false
+	}
+	return true
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -306,6 +882,105 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
+// ShufflerClient is the client API for Shuffler service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type ShufflerClient interface {
+	Shuffle(ctx context.Context, in *ShuffleRequest, opts ...grpc.CallOption) (Shuffler_ShuffleClient, error)
+}
+
+type shufflerClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewShufflerClient(cc *grpc.ClientConn) ShufflerClient {
+	return &shufflerClient{cc}
+}
+
+func (c *shufflerClient) Shuffle(ctx context.Context, in *ShuffleRequest, opts ...grpc.CallOption) (Shuffler_ShuffleClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Shuffler_serviceDesc.Streams[0], "/flow.Shuffler/Shuffle", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &shufflerShuffleClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Shuffler_ShuffleClient interface {
+	Recv() (*ShuffleResponse, error)
+	grpc.ClientStream
+}
+
+type shufflerShuffleClient struct {
+	grpc.ClientStream
+}
+
+func (x *shufflerShuffleClient) Recv() (*ShuffleResponse, error) {
+	m := new(ShuffleResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// ShufflerServer is the server API for Shuffler service.
+type ShufflerServer interface {
+	Shuffle(*ShuffleRequest, Shuffler_ShuffleServer) error
+}
+
+// UnimplementedShufflerServer can be embedded to have forward compatible implementations.
+type UnimplementedShufflerServer struct {
+}
+
+func (*UnimplementedShufflerServer) Shuffle(req *ShuffleRequest, srv Shuffler_ShuffleServer) error {
+	return status.Errorf(codes.Unimplemented, "method Shuffle not implemented")
+}
+
+func RegisterShufflerServer(s *grpc.Server, srv ShufflerServer) {
+	s.RegisterService(&_Shuffler_serviceDesc, srv)
+}
+
+func _Shuffler_Shuffle_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ShuffleRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ShufflerServer).Shuffle(m, &shufflerShuffleServer{stream})
+}
+
+type Shuffler_ShuffleServer interface {
+	Send(*ShuffleResponse) error
+	grpc.ServerStream
+}
+
+type shufflerShuffleServer struct {
+	grpc.ServerStream
+}
+
+func (x *shufflerShuffleServer) Send(m *ShuffleResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+var _Shuffler_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "flow.Shuffler",
+	HandlerType: (*ShufflerServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Shuffle",
+			Handler:       _Shuffler_Shuffle_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "go/protocol/flow.proto",
+}
+
 // DeriveClient is the client API for Derive service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
@@ -315,10 +990,10 @@ type DeriveClient interface {
 	// system is used, it should install a transactional "write fence" to ensure
 	// that an older Store instance of another process cannot successfully
 	// StartCommit after this RestoreCheckpoint returns.
-	RestoreCheckpoint(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*protocol.Checkpoint, error)
-	// Transaction begins a pipelined derive-worker transaction, following the
-	// state machine detailed in DeriveTxnState.
-	Transaction(ctx context.Context, opts ...grpc.CallOption) (Derive_TransactionClient, error)
+	RestoreCheckpoint(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*protocol1.Checkpoint, error)
+	// Derive begins a pipelined derive transaction, following the
+	// state machine detailed in DeriveState.
+	Derive(ctx context.Context, opts ...grpc.CallOption) (Derive_DeriveClient, error)
 	// BuildHints returns FSMHints which may be played back to fully reconstruct
 	// the local filesystem state produced by this derive worker. It may block
 	// while pending operations sync to the recovery log.
@@ -333,8 +1008,8 @@ func NewDeriveClient(cc *grpc.ClientConn) DeriveClient {
 	return &deriveClient{cc}
 }
 
-func (c *deriveClient) RestoreCheckpoint(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*protocol.Checkpoint, error) {
-	out := new(protocol.Checkpoint)
+func (c *deriveClient) RestoreCheckpoint(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*protocol1.Checkpoint, error) {
+	out := new(protocol1.Checkpoint)
 	err := c.cc.Invoke(ctx, "/flow.Derive/RestoreCheckpoint", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -342,31 +1017,31 @@ func (c *deriveClient) RestoreCheckpoint(ctx context.Context, in *empty.Empty, o
 	return out, nil
 }
 
-func (c *deriveClient) Transaction(ctx context.Context, opts ...grpc.CallOption) (Derive_TransactionClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Derive_serviceDesc.Streams[0], "/flow.Derive/Transaction", opts...)
+func (c *deriveClient) Derive(ctx context.Context, opts ...grpc.CallOption) (Derive_DeriveClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Derive_serviceDesc.Streams[0], "/flow.Derive/Derive", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &deriveTransactionClient{stream}
+	x := &deriveDeriveClient{stream}
 	return x, nil
 }
 
-type Derive_TransactionClient interface {
-	Send(*TxnRequest) error
-	Recv() (*TxnResponse, error)
+type Derive_DeriveClient interface {
+	Send(*DeriveRequest) error
+	Recv() (*DeriveResponse, error)
 	grpc.ClientStream
 }
 
-type deriveTransactionClient struct {
+type deriveDeriveClient struct {
 	grpc.ClientStream
 }
 
-func (x *deriveTransactionClient) Send(m *TxnRequest) error {
+func (x *deriveDeriveClient) Send(m *DeriveRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *deriveTransactionClient) Recv() (*TxnResponse, error) {
-	m := new(TxnResponse)
+func (x *deriveDeriveClient) Recv() (*DeriveResponse, error) {
+	m := new(DeriveResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -389,10 +1064,10 @@ type DeriveServer interface {
 	// system is used, it should install a transactional "write fence" to ensure
 	// that an older Store instance of another process cannot successfully
 	// StartCommit after this RestoreCheckpoint returns.
-	RestoreCheckpoint(context.Context, *empty.Empty) (*protocol.Checkpoint, error)
-	// Transaction begins a pipelined derive-worker transaction, following the
-	// state machine detailed in DeriveTxnState.
-	Transaction(Derive_TransactionServer) error
+	RestoreCheckpoint(context.Context, *empty.Empty) (*protocol1.Checkpoint, error)
+	// Derive begins a pipelined derive transaction, following the
+	// state machine detailed in DeriveState.
+	Derive(Derive_DeriveServer) error
 	// BuildHints returns FSMHints which may be played back to fully reconstruct
 	// the local filesystem state produced by this derive worker. It may block
 	// while pending operations sync to the recovery log.
@@ -403,11 +1078,11 @@ type DeriveServer interface {
 type UnimplementedDeriveServer struct {
 }
 
-func (*UnimplementedDeriveServer) RestoreCheckpoint(ctx context.Context, req *empty.Empty) (*protocol.Checkpoint, error) {
+func (*UnimplementedDeriveServer) RestoreCheckpoint(ctx context.Context, req *empty.Empty) (*protocol1.Checkpoint, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RestoreCheckpoint not implemented")
 }
-func (*UnimplementedDeriveServer) Transaction(srv Derive_TransactionServer) error {
-	return status.Errorf(codes.Unimplemented, "method Transaction not implemented")
+func (*UnimplementedDeriveServer) Derive(srv Derive_DeriveServer) error {
+	return status.Errorf(codes.Unimplemented, "method Derive not implemented")
 }
 func (*UnimplementedDeriveServer) BuildHints(ctx context.Context, req *empty.Empty) (*recoverylog.FSMHints, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BuildHints not implemented")
@@ -435,26 +1110,26 @@ func _Derive_RestoreCheckpoint_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Derive_Transaction_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(DeriveServer).Transaction(&deriveTransactionServer{stream})
+func _Derive_Derive_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(DeriveServer).Derive(&deriveDeriveServer{stream})
 }
 
-type Derive_TransactionServer interface {
-	Send(*TxnResponse) error
-	Recv() (*TxnRequest, error)
+type Derive_DeriveServer interface {
+	Send(*DeriveResponse) error
+	Recv() (*DeriveRequest, error)
 	grpc.ServerStream
 }
 
-type deriveTransactionServer struct {
+type deriveDeriveServer struct {
 	grpc.ServerStream
 }
 
-func (x *deriveTransactionServer) Send(m *TxnResponse) error {
+func (x *deriveDeriveServer) Send(m *DeriveResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *deriveTransactionServer) Recv() (*TxnRequest, error) {
-	m := new(TxnRequest)
+func (x *deriveDeriveServer) Recv() (*DeriveRequest, error) {
+	m := new(DeriveRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -494,8 +1169,8 @@ var _Derive_serviceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Transaction",
-			Handler:       _Derive_Transaction_Handler,
+			StreamName:    "Derive",
+			Handler:       _Derive_Derive_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
@@ -503,7 +1178,7 @@ var _Derive_serviceDesc = grpc.ServiceDesc{
 	Metadata: "go/protocol/flow.proto",
 }
 
-func (m *TxnRequest) Marshal() (dAtA []byte, err error) {
+func (m *Ring) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -513,12 +1188,12 @@ func (m *TxnRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TxnRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Ring) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TxnRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Ring) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -527,9 +1202,311 @@ func (m *TxnRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.PrepareCheckpoint != nil {
+	if m.TotalReaders != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.TotalReaders))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.ClockLowerBound != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.ClockLowerBound))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ShuffleRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ShuffleRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ShuffleRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Resolution != nil {
 		{
-			size, err := m.PrepareCheckpoint.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Resolution.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x42
+	}
+	if len(m.Coordinator) > 0 {
+		i -= len(m.Coordinator)
+		copy(dAtA[i:], m.Coordinator)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Coordinator)))
+		i--
+		dAtA[i] = 0x3a
+	}
+	if len(m.Shuffles) > 0 {
+		for iNdEx := len(m.Shuffles) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Shuffles[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if len(m.ReaderRing) > 0 {
+		for iNdEx := len(m.ReaderRing) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ReaderRing[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
+	if m.ReaderIndex != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.ReaderIndex))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.Offset != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Offset))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.ContentType) > 0 {
+		i -= len(m.ContentType)
+		copy(dAtA[i:], m.ContentType)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.ContentType)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Journal) > 0 {
+		i -= len(m.Journal)
+		copy(dAtA[i:], m.Journal)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Journal)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ShuffleRequest_Shuffle) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ShuffleRequest_Shuffle) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ShuffleRequest_Shuffle) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.ChooseFrom != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.ChooseFrom))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.BroadcastTo != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.BroadcastTo))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.ShuffleKeyPtr) > 0 {
+		for iNdEx := len(m.ShuffleKeyPtr) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.ShuffleKeyPtr[iNdEx])
+			copy(dAtA[i:], m.ShuffleKeyPtr[iNdEx])
+			i = encodeVarintFlow(dAtA, i, uint64(len(m.ShuffleKeyPtr[iNdEx])))
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if m.Id != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Id))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ShuffleResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ShuffleResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ShuffleResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Documents) > 0 {
+		for iNdEx := len(m.Documents) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Documents[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Status != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Status))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ShuffleResponse_Document) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ShuffleResponse_Document) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ShuffleResponse_Document) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ShuffleIds) > 0 {
+		dAtA4 := make([]byte, len(m.ShuffleIds)*10)
+		var j3 int
+		for _, num1 := range m.ShuffleIds {
+			num := uint64(num1)
+			for num >= 1<<7 {
+				dAtA4[j3] = uint8(uint64(num)&0x7f | 0x80)
+				num >>= 7
+				j3++
+			}
+			dAtA4[j3] = uint8(num)
+			j3++
+		}
+		i -= j3
+		copy(dAtA[i:], dAtA4[:j3])
+		i = encodeVarintFlow(dAtA, i, uint64(j3))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.JournalBytes) > 0 {
+		i -= len(m.JournalBytes)
+		copy(dAtA[i:], m.JournalBytes)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.JournalBytes)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.JournalBeginOffset != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.JournalBeginOffset))
+		i--
+		dAtA[i] = 0x10
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Checkpoint != nil {
+		{
+			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -539,21 +1516,33 @@ func (m *TxnRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x22
 	}
-	if len(m.ExtendDocuments) > 0 {
-		for iNdEx := len(m.ExtendDocuments) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.ExtendDocuments[iNdEx])
-			copy(dAtA[i:], m.ExtendDocuments[iNdEx])
-			i = encodeVarintFlow(dAtA, i, uint64(len(m.ExtendDocuments[iNdEx])))
-			i--
-			dAtA[i] = 0x1a
+	if len(m.TransformIds) > 0 {
+		dAtA7 := make([]byte, len(m.TransformIds)*10)
+		var j6 int
+		for _, num1 := range m.TransformIds {
+			num := uint64(num1)
+			for num >= 1<<7 {
+				dAtA7[j6] = uint8(uint64(num)&0x7f | 0x80)
+				num >>= 7
+				j6++
+			}
+			dAtA7[j6] = uint8(num)
+			j6++
 		}
-	}
-	if len(m.ExtendSource) > 0 {
-		i -= len(m.ExtendSource)
-		copy(dAtA[i:], m.ExtendSource)
-		i = encodeVarintFlow(dAtA, i, uint64(len(m.ExtendSource)))
+		i -= j6
+		copy(dAtA[i:], dAtA7[:j6])
+		i = encodeVarintFlow(dAtA, i, uint64(j6))
 		i--
-		dAtA[i] = 0x12
+		dAtA[i] = 0x1a
+	}
+	if len(m.Documents) > 0 {
+		for iNdEx := len(m.Documents) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Documents[iNdEx])
+			copy(dAtA[i:], m.Documents[iNdEx])
+			i = encodeVarintFlow(dAtA, i, uint64(len(m.Documents[iNdEx])))
+			i--
+			dAtA[i] = 0x12
+		}
 	}
 	if m.State != 0 {
 		i = encodeVarintFlow(dAtA, i, uint64(m.State))
@@ -563,7 +1552,7 @@ func (m *TxnRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *TxnResponse) Marshal() (dAtA []byte, err error) {
+func (m *DeriveResponse) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -573,12 +1562,12 @@ func (m *TxnResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TxnResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *DeriveResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TxnResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *DeriveResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -587,23 +1576,30 @@ func (m *TxnResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.ExtendLabels != nil {
-		{
-			size, err := m.ExtendLabels.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintFlow(dAtA, i, uint64(size))
+	if len(m.Partitions) > 0 {
+		for k := range m.Partitions {
+			v := m.Partitions[k]
+			baseI := i
+			i -= len(v)
+			copy(dAtA[i:], v)
+			i = encodeVarintFlow(dAtA, i, uint64(len(v)))
+			i--
+			dAtA[i] = 0x12
+			i -= len(k)
+			copy(dAtA[i:], k)
+			i = encodeVarintFlow(dAtA, i, uint64(len(k)))
+			i--
+			dAtA[i] = 0xa
+			i = encodeVarintFlow(dAtA, i, uint64(baseI-i))
+			i--
+			dAtA[i] = 0x1a
 		}
-		i--
-		dAtA[i] = 0x1a
 	}
-	if len(m.ExtendDocuments) > 0 {
-		for iNdEx := len(m.ExtendDocuments) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.ExtendDocuments[iNdEx])
-			copy(dAtA[i:], m.ExtendDocuments[iNdEx])
-			i = encodeVarintFlow(dAtA, i, uint64(len(m.ExtendDocuments[iNdEx])))
+	if len(m.Documents) > 0 {
+		for iNdEx := len(m.Documents) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Documents[iNdEx])
+			copy(dAtA[i:], m.Documents[iNdEx])
+			i = encodeVarintFlow(dAtA, i, uint64(len(m.Documents[iNdEx])))
 			i--
 			dAtA[i] = 0x12
 		}
@@ -627,27 +1623,62 @@ func encodeVarintFlow(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *TxnRequest) ProtoSize() (n int) {
+func (m *Ring) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.State != 0 {
-		n += 1 + sovFlow(uint64(m.State))
+	if m.ClockLowerBound != 0 {
+		n += 1 + sovFlow(uint64(m.ClockLowerBound))
 	}
-	l = len(m.ExtendSource)
+	if m.TotalReaders != 0 {
+		n += 1 + sovFlow(uint64(m.TotalReaders))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ShuffleRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Journal)
 	if l > 0 {
 		n += 1 + l + sovFlow(uint64(l))
 	}
-	if len(m.ExtendDocuments) > 0 {
-		for _, b := range m.ExtendDocuments {
-			l = len(b)
+	l = len(m.ContentType)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Offset != 0 {
+		n += 1 + sovFlow(uint64(m.Offset))
+	}
+	if m.ReaderIndex != 0 {
+		n += 1 + sovFlow(uint64(m.ReaderIndex))
+	}
+	if len(m.ReaderRing) > 0 {
+		for _, e := range m.ReaderRing {
+			l = e.ProtoSize()
 			n += 1 + l + sovFlow(uint64(l))
 		}
 	}
-	if m.PrepareCheckpoint != nil {
-		l = m.PrepareCheckpoint.ProtoSize()
+	if len(m.Shuffles) > 0 {
+		for _, e := range m.Shuffles {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	l = len(m.Coordinator)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Resolution != nil {
+		l = m.Resolution.ProtoSize()
 		n += 1 + l + sovFlow(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -656,7 +1687,85 @@ func (m *TxnRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TxnResponse) ProtoSize() (n int) {
+func (m *ShuffleRequest_Shuffle) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Id != 0 {
+		n += 1 + sovFlow(uint64(m.Id))
+	}
+	if len(m.ShuffleKeyPtr) > 0 {
+		for _, s := range m.ShuffleKeyPtr {
+			l = len(s)
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.BroadcastTo != 0 {
+		n += 1 + sovFlow(uint64(m.BroadcastTo))
+	}
+	if m.ChooseFrom != 0 {
+		n += 1 + sovFlow(uint64(m.ChooseFrom))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ShuffleResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Status != 0 {
+		n += 1 + sovFlow(uint64(m.Status))
+	}
+	if m.Header != nil {
+		l = m.Header.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.Documents) > 0 {
+		for _, e := range m.Documents {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ShuffleResponse_Document) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.JournalBeginOffset != 0 {
+		n += 1 + sovFlow(uint64(m.JournalBeginOffset))
+	}
+	l = len(m.JournalBytes)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.ShuffleIds) > 0 {
+		l = 0
+		for _, e := range m.ShuffleIds {
+			l += sovFlow(uint64(e))
+		}
+		n += 1 + sovFlow(uint64(l)) + l
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -665,15 +1774,51 @@ func (m *TxnResponse) ProtoSize() (n int) {
 	if m.State != 0 {
 		n += 1 + sovFlow(uint64(m.State))
 	}
-	if len(m.ExtendDocuments) > 0 {
-		for _, b := range m.ExtendDocuments {
+	if len(m.Documents) > 0 {
+		for _, b := range m.Documents {
 			l = len(b)
 			n += 1 + l + sovFlow(uint64(l))
 		}
 	}
-	if m.ExtendLabels != nil {
-		l = m.ExtendLabels.ProtoSize()
+	if len(m.TransformIds) > 0 {
+		l = 0
+		for _, e := range m.TransformIds {
+			l += sovFlow(uint64(e))
+		}
+		n += 1 + sovFlow(uint64(l)) + l
+	}
+	if m.Checkpoint != nil {
+		l = m.Checkpoint.ProtoSize()
 		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.State != 0 {
+		n += 1 + sovFlow(uint64(m.State))
+	}
+	if len(m.Documents) > 0 {
+		for _, b := range m.Documents {
+			l = len(b)
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if len(m.Partitions) > 0 {
+		for k, v := range m.Partitions {
+			_ = k
+			_ = v
+			mapEntrySize := 1 + len(k) + sovFlow(uint64(len(k))) + 1 + len(v) + sovFlow(uint64(len(v)))
+			n += mapEntrySize + 1 + sovFlow(uint64(mapEntrySize))
+		}
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -687,7 +1832,7 @@ func sovFlow(x uint64) (n int) {
 func sozFlow(x uint64) (n int) {
 	return sovFlow(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *TxnRequest) Unmarshal(dAtA []byte) error {
+func (m *Ring) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -710,17 +1855,17 @@ func (m *TxnRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TxnRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: Ring: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TxnRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Ring: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ClockLowerBound", wireType)
 			}
-			m.State = 0
+			m.ClockLowerBound = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowFlow
@@ -730,14 +1875,87 @@ func (m *TxnRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.State |= DeriveTxnState(b&0x7F) << shift
+				m.ClockLowerBound |= go_gazette_dev_core_message.Clock(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TotalReaders", wireType)
+			}
+			m.TotalReaders = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TotalReaders |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ShuffleRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ShuffleRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ExtendSource", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Journal", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -765,13 +1983,13 @@ func (m *TxnRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ExtendSource = string(dAtA[iNdEx:postIndex])
+			m.Journal = go_gazette_dev_core_broker_protocol.Journal(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 3:
+		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ExtendDocuments", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ContentType", wireType)
 			}
-			var byteLen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowFlow
@@ -781,27 +1999,65 @@ func (m *TxnRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthFlow
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ExtendDocuments = append(m.ExtendDocuments, make([]byte, postIndex-iNdEx))
-			copy(m.ExtendDocuments[len(m.ExtendDocuments)-1], dAtA[iNdEx:postIndex])
+			m.ContentType = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Offset", wireType)
+			}
+			m.Offset = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Offset |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReaderIndex", wireType)
+			}
+			m.ReaderIndex = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ReaderIndex |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PrepareCheckpoint", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ReaderRing", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -828,10 +2084,110 @@ func (m *TxnRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.PrepareCheckpoint == nil {
-				m.PrepareCheckpoint = &protocol.Checkpoint{}
+			m.ReaderRing = append(m.ReaderRing, Ring{})
+			if err := m.ReaderRing[len(m.ReaderRing)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
 			}
-			if err := m.PrepareCheckpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Shuffles", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Shuffles = append(m.Shuffles, ShuffleRequest_Shuffle{})
+			if err := m.Shuffles[len(m.Shuffles)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Coordinator", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Coordinator = go_gazette_dev_core_consumer_protocol.ShardID(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Resolution", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Resolution == nil {
+				m.Resolution = &protocol.Header{}
+			}
+			if err := m.Resolution.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -860,7 +2216,7 @@ func (m *TxnRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TxnResponse) Unmarshal(dAtA []byte) error {
+func (m *ShuffleRequest_Shuffle) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -883,17 +2239,17 @@ func (m *TxnResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TxnResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: Shuffle: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TxnResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Shuffle: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Id", wireType)
 			}
-			m.State = 0
+			m.Id = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowFlow
@@ -903,16 +2259,16 @@ func (m *TxnResponse) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.State |= DeriveTxnState(b&0x7F) << shift
+				m.Id |= int64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ExtendDocuments", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ShuffleKeyPtr", wireType)
 			}
-			var byteLen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowFlow
@@ -922,27 +2278,138 @@ func (m *TxnResponse) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthFlow
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ExtendDocuments = append(m.ExtendDocuments, make([]byte, postIndex-iNdEx))
-			copy(m.ExtendDocuments[len(m.ExtendDocuments)-1], dAtA[iNdEx:postIndex])
+			m.ShuffleKeyPtr = append(m.ShuffleKeyPtr, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BroadcastTo", wireType)
+			}
+			m.BroadcastTo = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.BroadcastTo |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ChooseFrom", wireType)
+			}
+			m.ChooseFrom = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ChooseFrom |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ShuffleResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ShuffleResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ShuffleResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			m.Status = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Status |= protocol1.Status(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ExtendLabels", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Header", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -969,12 +2436,678 @@ func (m *TxnResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.ExtendLabels == nil {
-				m.ExtendLabels = &protocol1.LabelSet{}
+			if m.Header == nil {
+				m.Header = &protocol.Header{}
 			}
-			if err := m.ExtendLabels.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Documents = append(m.Documents, ShuffleResponse_Document{})
+			if err := m.Documents[len(m.Documents)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ShuffleResponse_Document) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Document: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Document: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field JournalBeginOffset", wireType)
+			}
+			m.JournalBeginOffset = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.JournalBeginOffset |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field JournalBytes", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.JournalBytes = append(m.JournalBytes[:0], dAtA[iNdEx:postIndex]...)
+			if m.JournalBytes == nil {
+				m.JournalBytes = []byte{}
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType == 0 {
+				var v int64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowFlow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					v |= int64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				m.ShuffleIds = append(m.ShuffleIds, v)
+			} else if wireType == 2 {
+				var packedLen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowFlow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					packedLen |= int(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if packedLen < 0 {
+					return ErrInvalidLengthFlow
+				}
+				postIndex := iNdEx + packedLen
+				if postIndex < 0 {
+					return ErrInvalidLengthFlow
+				}
+				if postIndex > l {
+					return io.ErrUnexpectedEOF
+				}
+				var elementCount int
+				var count int
+				for _, integer := range dAtA[iNdEx:postIndex] {
+					if integer < 128 {
+						count++
+					}
+				}
+				elementCount = count
+				if elementCount != 0 && len(m.ShuffleIds) == 0 {
+					m.ShuffleIds = make([]int64, 0, elementCount)
+				}
+				for iNdEx < postIndex {
+					var v int64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowFlow
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						v |= int64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					m.ShuffleIds = append(m.ShuffleIds, v)
+				}
+			} else {
+				return fmt.Errorf("proto: wrong wireType = %d for field ShuffleIds", wireType)
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DeriveRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DeriveRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
+			}
+			m.State = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.State |= DeriveState(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Documents = append(m.Documents, make([]byte, postIndex-iNdEx))
+			copy(m.Documents[len(m.Documents)-1], dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType == 0 {
+				var v int64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowFlow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					v |= int64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				m.TransformIds = append(m.TransformIds, v)
+			} else if wireType == 2 {
+				var packedLen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowFlow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					packedLen |= int(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if packedLen < 0 {
+					return ErrInvalidLengthFlow
+				}
+				postIndex := iNdEx + packedLen
+				if postIndex < 0 {
+					return ErrInvalidLengthFlow
+				}
+				if postIndex > l {
+					return io.ErrUnexpectedEOF
+				}
+				var elementCount int
+				var count int
+				for _, integer := range dAtA[iNdEx:postIndex] {
+					if integer < 128 {
+						count++
+					}
+				}
+				elementCount = count
+				if elementCount != 0 && len(m.TransformIds) == 0 {
+					m.TransformIds = make([]int64, 0, elementCount)
+				}
+				for iNdEx < postIndex {
+					var v int64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowFlow
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						v |= int64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					m.TransformIds = append(m.TransformIds, v)
+				}
+			} else {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransformIds", wireType)
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Checkpoint == nil {
+				m.Checkpoint = &protocol1.Checkpoint{}
+			}
+			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DeriveResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DeriveResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
+			}
+			m.State = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.State |= DeriveState(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Documents = append(m.Documents, make([]byte, postIndex-iNdEx))
+			copy(m.Documents[len(m.Documents)-1], dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Partitions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Partitions == nil {
+				m.Partitions = make(map[string]string)
+			}
+			var mapkey string
+			var mapvalue string
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowFlow
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowFlow
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthFlow
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthFlow
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					var stringLenmapvalue uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowFlow
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapvalue |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapvalue := int(stringLenmapvalue)
+					if intStringLenmapvalue < 0 {
+						return ErrInvalidLengthFlow
+					}
+					postStringIndexmapvalue := iNdEx + intStringLenmapvalue
+					if postStringIndexmapvalue < 0 {
+						return ErrInvalidLengthFlow
+					}
+					if postStringIndexmapvalue > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = string(dAtA[iNdEx:postStringIndexmapvalue])
+					iNdEx = postStringIndexmapvalue
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipFlow(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthFlow
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Partitions[mapkey] = mapvalue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

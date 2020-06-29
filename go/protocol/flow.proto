@@ -14,21 +14,114 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-enum DeriveTxnState {
+// Ring is an unpacked representation of an entry in an
+// `estuary.dev/worker-ring` label value. It describes the effective ring
+// configuration within a range of possible Clocks. WorkerRings are ordered
+// on ascending lower Clock bound.
+message Ring {
+  option (gogoproto.equal) = true;
+
+  // Lower clock bound for this ring configuration.
+  // For a given Clock C, the effective configuration is given
+  // by the last entry having a clock_lower_bound B such that B <= C.
+  uint64 clock_lower_bound = 1
+      [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+  // Size of the reader ring within this Clock range.
+  uint32 total_readers = 2;
+}
+
+// ShuffleRequest is the request message of a Shuffle RPC.
+message ShuffleRequest {
+  option (gogoproto.equal) = true;
+
+  // Journal to be read.
+  string journal = 1
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  // Content-Type label of the Journal.
+  string content_type = 2;
+  // Offset to begin reading from.
+  int64 offset = 3
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+
+  // Ring configuration under which this shuffled read is occurring.
+  int64 reader_index = 4;
+  repeated Ring reader_ring = 5 [ (gogoproto.nullable) = false ];
+
+  // Shuffles applied to journal documents, mapping each document to
+  // a specific reader index of the ring.
+  message Shuffle {
+    option (gogoproto.equal) = true;
+
+    // ID by which this Shuffle should be identified within ShuffleResponses.
+    int64 id = 1;
+    // Composite key over which shuffling occurs, specified as one or more
+    // JSON-Pointers indicating a message location to extract.
+    repeated string shuffle_key_ptr = 2;
+    // Number of top-ranked processors to broadcast each message to, after
+    // shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
+    uint32 broadcast_to = 3;
+    // Number of top-ranked readers from which a single reader index will be
+    // selected, after shuffling. The message Clock value is used to pseudo
+    // randomly pick the final index, making the selection deterministic.
+    // Values larger than one can be used to distribute "hot keys" which might
+    // otherwise overwhelm specific readers.
+    // Usually this is zero and |broadcast_to| is used instead. If non-zero,
+    // |broadcast_to| cannot be set.
+    uint32 choose_from = 4;
+  }
+  repeated Shuffle shuffles = 6 [ (gogoproto.nullable) = false ];
+
+  // Coordinator is the ShardID responsible for shuffled reads of this journal.
+  string coordinator = 7
+      [ (gogoproto.casttype) =
+            "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  // Resolution header of |coordinator|, attached by originating peer.
+  protocol.Header resolution = 8;
+}
+
+// ShuffleResponse is the streamed response message of a Shuffle RPC.
+message ShuffleResponse {
+  // Status of the Shuffle RPC.
+  consumer.Status status = 1;
+  // Header of the response.
+  protocol.Header header = 2;
+
+  // Document matched to this reader and included in this ShuffleResponse.
+  message Document {
+    // The begin offset of the document within the journal.
+    int64 journal_begin_offset = 2
+        [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+    // Bytes of the document, exactly as encoded within the journal,
+    // including framing.
+    bytes journal_bytes = 3;
+    // One or more request shuffle IDs which matched this document.
+    repeated int64 shuffle_ids = 4;
+  }
+  // Documents included in this ShuffleResponse.
+  repeated Document documents = 3 [ (gogoproto.nullable) = false ];
+}
+
+service Shuffler {
+  rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
+}
+
+enum DeriveState {
   // IDLE indicates the transaction has not yet begun.
-  // It transitions to EXTEND.
+  // IDLE transitions to EXTEND.
   IDLE = 0;
   // EXTEND extends the derive transaction with additional
   // source or derived collection documents.
   //
-  // * The flow consumer sends any number of EXTEND TxnRequests,
+  // * The flow consumer sends any number of EXTEND DeriveRequests,
   //   containing source collection documents.
   // * Concurrently, the derive worker responds with any number of
-  //   EXTEND TxnResponses, each having documents to be added to
+  //   EXTEND DeriveResponses, each having documents to be added to
   //   the collection being derived.
   // * The flow consumer is responsible for publishing each derived
   //   document to the appropriate collection & partition.
-  // * Note TxnRequest and TxnResponse EXTEND messages are _not_ 1:1.
+  // * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
+  //
+  // EXTEND transitions to EXTEND or FLUSH.
   EXTEND = 1;
   // FLUSH indicates the transacton pipeline is to flush.
   //
@@ -38,21 +131,24 @@ enum DeriveTxnState {
   //   documents have been processed and all derived documents emitted.
   // * The flow consumer awaits the response FLUSH, while continuing to begin
   //   publish operations for all derived documents seen in the meantime.
-  // * On seeing FLUSH, the flow consumer is assured it's sequenced all messages
-  //   of the transaction, and can build its consumer.Checkpoint.
+  // * On seeing FLUSH, the flow consumer is assured it's sequenced and started
+  //   publishing all derived documents of the transaction, and can now build
+  //   the consumer.Checkpoint which will be committed to the store.
+  //
+  // FLUSH transitions to PREPARE.
   FLUSH = 2;
   // PREPARE begins a commit of the transaction.
   //
-  // * The Flow Consumer sends PREPARE with a consumer.Checkpoint.
+  // * The flow consumer sends PREPARE with its consumer.Checkpoint.
   // * On receipt, the derive worker queues an atomic recoverylog.Recorder
   //   block that's conditioned on an (unresolved) "commit" future. Within
-  //   this block underlying stores commits (SQLite COMMIT / writing RocksDB
-  //   WriteBatch) are issued to persist all state changes of the transaction,
-  //   along with the consumer.Checkpoint.
+  //   this recording block, underlying store commits (SQLite COMMIT and writing
+  //   a RocksDB WriteBatch) are issued to persist all state changes of the
+  //   transaction, along with the consumer.Checkpoint.
   // * The derive worker responds with PREPARE once all local commits have
   //   completed, and recoverylog writes have been queued (but not started,
   //   awaiting COMMIT).
-  // * On receipt, the Flow Consumer arranges to invoke COMMIT on the completion
+  // * On receipt, the flow consumer arranges to invoke COMMIT on the completion
   //   of all outstanding journal writes -- this the OpFuture passed to the
   //   Store.StartCommit interface. It returns a future which will resolve only
   //   after reading COMMIT from this transaction -- the OpFuture returned by
@@ -62,35 +158,40 @@ enum DeriveTxnState {
   // PREPARE. However at the completion of PREPARE, a new & concurrent
   // Transaction may begin, though it itself cannot PREPARE until this
   // Transaction fully completes.
+  //
+  // PREPARE transitions to COMMIT.
   PREPARE = 3;
   // COMMIT commits the transaction by resolving the "commit" future created
   // during PREPARE, allowing the atomic commit block created in PREPARE
   // to flush to the recovery log. The derive worker responds with COMMIT
   // when the commit barrier has fully resolved.
+  //
+  // COMMIT transitions to stream close.
   COMMIT = 4;
 }
 
-// TxnRequest is the streamed message of a Transaction RPC.
-message TxnRequest {
-  DeriveTxnState state = 1;
+// DeriveRequest is the streamed message of a Derive RPC.
+message DeriveRequest {
+  DeriveState state = 1;
 
-  // Collection from which source documents are drawn. Set iff state == EXTEND.
-  string extend_source = 2;
-  // Documents of the collection. Set iff state == EXTEND.
-  repeated bytes extend_documents = 3;
+  // Source collection documents to derive from. Set iff state == EXTEND.
+  repeated bytes documents = 2;
+  // One or more transforms to which documents of this DeriveRequest should be
+  // dispatched. Set iff state == EXTEND.
+  repeated int64 transform_ids = 3;
   // Checkpoint to commit. Set iff state == PREPARE.
-  consumer.Checkpoint prepare_checkpoint = 4;
+  consumer.Checkpoint checkpoint = 4;
 }
 
-// TxnResponse is the streamed response message of a Transaction RPC.
-message TxnResponse {
-  DeriveTxnState state = 1;
+// DeriveResponse is the streamed response message of a Derive RPC.
+message DeriveResponse {
+  DeriveState state = 1;
 
   // Documents derived from request documents. Set iff state == EXTEND.
-  repeated bytes extend_documents = 2;
-  // Logical partition labels of these documents in the derived collection.
-  // Set iff state == EXTEND.
-  protocol.LabelSet extend_labels = 3;
+  repeated bytes documents = 2;
+  // Logical partition fields and JSON values of these documents
+  // in the derived collection. Set iff state == EXTEND.
+  map<string, string> partitions = 3;
 };
 
 service Derive {
@@ -101,9 +202,9 @@ service Derive {
   // StartCommit after this RestoreCheckpoint returns.
   rpc RestoreCheckpoint(google.protobuf.Empty) returns (consumer.Checkpoint);
 
-  // Transaction begins a pipelined derive-worker transaction, following the
-  // state machine detailed in DeriveTxnState.
-  rpc Transaction(stream TxnRequest) returns (stream TxnResponse);
+  // Derive begins a pipelined derive transaction, following the
+  // state machine detailed in DeriveState.
+  rpc Derive(stream DeriveRequest) returns (stream DeriveResponse);
 
   // BuildHints returns FSMHints which may be played back to fully reconstruct
   // the local filesystem state produced by this derive worker. It may block

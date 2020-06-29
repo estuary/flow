@@ -1,4 +1,4 @@
-package consumer
+package flow
 
 import (
 	"bufio"
