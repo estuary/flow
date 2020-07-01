@@ -4,8 +4,16 @@
 
 # The ci-builder-image target builds a Docker image suitable for building
 # gazette. It is the primary image used by gazette continuous integration builds.
-ci-builder-image:
+ci-builder-image: ${WORKDIR}/ci-builder-image.tar
+	docker load -i ${WORKDIR}/ci-builder-image.tar
+
+# Builds the ci-builder docker image and also saves it as a tar file in the build directory
+# This allows us to skip building the image without docker needing to check each individual
+# layer, and also allows the tar file to be cached
+${WORKDIR}/ci-builder-image.tar:
 	docker build -t gazette/ci-builder:latest - <  ${COREDIR}/mk/ci-builder.Dockerfile
+	mkdir -p ${WORKDIR}
+	docker save -o ${WORKDIR}/ci-builder-image.tar gazette/ci-builder:latest
 
 # The as-ci rule recursively calls `make` _within_ a instance of the ci-builder-image,
 # and bind-mounting the gazette repository into the container. This rule allows for
@@ -28,13 +36,14 @@ as-ci: ci-builder-image
 	docker run \
 		--rm \
 		--tty \
+		--user "$(shell id -u):$(shell id -g)" \
 		--mount src=${WORKDIR}-ci,target=$${WORK_CI},type=bind \
 		--mount src=${ROOTDIR},target=$${ROOT_CI},type=bind \
 		--env  GOPATH=$${WORK_CI}/go-path \
 		--env GOCACHE=$${WORK_CI}/go-build-cache \
 		--mount src=/var/run/docker.sock,target=/var/run/docker.sock,type=bind \
 		gazette/ci-builder /bin/sh -ec \
-			"go mod download && make ${target}"
+			"make ${target} VERSION=${VERSION} DATE=${DATE} REGISTRY=${REGISTRY} RELEASE_TAG=${RELEASE_TAG}"
 
 # Go build & test targets.
 go-install:   $(ROCKSDIR)/librocksdb.so $(protobuf-targets)
@@ -48,9 +57,9 @@ go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
 
 # The ci-release-% implicit rule builds a Docker image named by the rule
 # stem, using binaries enumerated by a `-target` suffix. For example,
-# an invocation with `ci-release-examples` has a stem `examples`, and will
-# package binaries listed in `ci-release-examples-targets` into a docker
-# image named `examples:latest`.
+# an invocation with `ci-release-gazette-examples` has a stem `gazette-examples`, and will
+# package binaries listed in `ci-release-gazette-examples-targets` into a docker
+# image named `gazette/examples:latest`.
 .SECONDEXPANSION:
 ci-release-%: $(ROCKSDIR)/librocksdb.so go-install $$($$@-targets)
 	rm -rf ${WORKDIR}/ci-release
@@ -72,8 +81,10 @@ ${WORKDIR}/rocksdb-v%/librocksdb.so:
 	curl -L -o ${WORKDIR}/tmp.tgz https://github.com/facebook/rocksdb/archive/v$*.tar.gz
 	tar xzf ${WORKDIR}/tmp.tgz -C ${WORKDIR}/rocksdb-v$* --strip-components=1
 	rm ${WORKDIR}/tmp.tgz
-
-	USE_SSE=1 DEBUG_LEVEL=0 USE_RTTI=1 \
+	@# PORTABLE=1 prevents rocks from passing `-march=native`. This is important because it will cause gcc
+	@# to automatically use avx512 extensions if they're avaialable, which would cause it to break on CPUs
+	@# that don't support it.
+	PORTABLE=1 USE_SSE=1 DEBUG_LEVEL=0 USE_RTTI=1 \
 		$(MAKE) -C $(dir $@) shared_lib -j${NPROC}
 	strip --strip-all $@
 	

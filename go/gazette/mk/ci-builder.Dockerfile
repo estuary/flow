@@ -1,5 +1,10 @@
 # 18.04 (bionic) is latest Ubuntu LTS release. We require some of its updated
 # packages (notably libzstd) over Debian stretch.
+#
+# Note that this image will be cached in Github Actions, and the cache key is computed by hashing
+# this file. This works only so long as there are no _other_ files that go into the final image.
+# So if you add any ADD or COPY directives, be sure to update the cache key in the github actions 
+# workflow yaml
 FROM ubuntu:18.04
 
 RUN apt-get update -y \
@@ -18,6 +23,7 @@ RUN apt-get update -y \
       libzstd-dev \
       protobuf-compiler \
       zlib1g-dev \
+      zip \
  && rm -rf /var/lib/apt/lists/*
 
 ARG GOLANG_VERSION=1.14.2
@@ -63,3 +69,4 @@ RUN curl -L -o /tmp/etcd.tgz \
  && etcd --version
 
 WORKDIR /gazette
+
