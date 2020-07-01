@@ -138,5 +138,5 @@ jobs:
           docker login -u '${{ secrets.DOCKER_USERNAME }}' -p '${{ secrets.DOCKER_PASSWORD }}' ${{ secrets.DOCKER_REGISTRY }}
           make as-ci target=ci-release-gazette-examples VERSION=${{ steps.release_info.outputs.VERSION }}
           make as-ci target=ci-release-gazette-broker VERSION=${{ steps.release_info.outputs.VERSION }}
-          make as-ci target=push-to-registry REGISTRY=${{ secrets.DOCKER_REGISTRY }} RELEASE_TAG=${{ steps.release_info.outputs.DOCKER_TAG }}
+          make push-to-registry REGISTRY=${{ secrets.DOCKER_REGISTRY }} RELEASE_TAG=${{ steps.release_info.outputs.DOCKER_TAG }}
 
