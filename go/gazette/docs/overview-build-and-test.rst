@@ -48,11 +48,11 @@ Docker for Desktop or Minikube). Soak tests run with ``latest`` images.
 
    $ kubectl apply -k ./kustomize/test/deploy-stream-sum-with-crash-tests/
 
-Push images to a registry. If ``registry`` is not specified, it defaults to ``localhost:32000`` (which is used by MicroK8s):
+Push images to a registry. If ``REGISTRY`` is not specified, it defaults to ``localhost:32000`` (which is used by MicroK8s):
 
 .. code-block:: console
 
-   $ make push-to-registry registry=my.registry.com
+   $ make push-to-registry REGISTRY=my.registry.com
 
 The ``kustomize`` directory also has a
 :githubsource:`helper manifest<kustomize/test/run-with-local-registry/kustomization.yaml>` for using

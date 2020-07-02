@@ -3,9 +3,9 @@
    :alt: Gazette Logo
 
 
-.. image:: https://circleci.com/gh/gazette/core.svg?style=svg
-   :target: https://circleci.com/gh/gazette/core
-   :alt: CircleCI
+.. image:: https://github.com/gazette/core/workflows/Gazette%20Continuous%20Integration/badge.svg
+   :target: https://github.com/gazette/core/actions?query=workflow%3A%22Gazette+Continuous+Integration%22
+   :alt: Gazette Continuous Integration
 .. image:: https://godoc.org/go.gazette.dev/core?status.svg
    :target: https://godoc.org/go.gazette.dev/core
    :alt: GoDoc
