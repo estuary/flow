@@ -2,12 +2,17 @@ name: Gazette Continuous Integration
 
 # We build on any push to a branch, or when a release is created.
 on:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
   push:
     branches:
-      - '*'
+      - 'master'
     # Ignore pushes to tags, since those ought to be handled by the release created event.
     tags-ignore:
       - '*'
+    paths-ignore:
+      - 'docs/**'
   release:
     # Without this additional restriction, GH actions will trigger multiple runs for a single
     # release, because it fires off separate events creating vs publishing the release.
@@ -18,21 +23,12 @@ env:
   # we'll need to figure out a solution that doesn't duplicate this version everywhere.
   # For now, ensure that it's changed both here and in mk/common-config.mk.
   ROCKSDB_VERSION: "6.7.3"
-  GITHUB_EVENT_JSON: '${{ toJson(github.event) }}'
 
 jobs:
   build:
     name: 'Build'
     runs-on: ubuntu-18.04
     steps:
-
-        # This is just really useful info to have when debugging issues with the action itself.
-      - name: 'Print event info'
-        run: |
-          echo 'event_name=${{ github.event_name }}';
-          echo 'ref=${{ github.ref }}';
-          echo "Event Json: ";
-          echo '$GITHUB_EVENT_JSON'
 
       - name: 'Checkout'
         uses: actions/checkout@v2
@@ -41,6 +37,9 @@ jobs:
         # artifacts. These outputs are used by later steps.
       - name: 'Release Info'
         id: release_info
+        env:
+          # just having this in the env is enough to make it visible in the "raw" logs attached to the run
+          GITHUB_EVENT_JSON: '${{ toJson(github.event) }}'
         run: |
           is_release=${{ github.event_name == 'release' }}
           if [[ "$is_release" == "true" ]]; then
@@ -57,10 +56,10 @@ jobs:
               version="${tag_name}"
             fi
           else
-            # This is not a release, so we'll use 'latest-dev-<sha>' for the version number
+            # This is not a release, so we'll use 'dev-<sha>' for the version number
             # and just 'latest-dev' for the docker tag.
             sha=${{ github.sha }}
-            version="${docker_tag}-${sha:0:7}"
+            version="dev-${sha:0:7}"
             # If this is a master build, then we'll treat this as a release and just use the 
             # hard-coded tag as the docker image tag.
             if [[ '${{ github.ref }}' == 'refs/heads/master' ]]; then
