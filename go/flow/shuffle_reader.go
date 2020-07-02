@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -14,7 +15,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
 
@@ -23,18 +23,18 @@ type shuffleReader struct {
 	cancel     context.CancelFunc
 	polledList *client.PolledList
 
-	rawJSONMeta *RawJSONMeta
 	envCh       chan<- consumer.EnvelopeOrError
 	idleOffsets map[pb.Journal]pb.Offset
 	activeReads map[pb.Journal]context.CancelFunc
 
-	ring      []pf.Ring
-	ringName  string
-	ringIndex int
-	shuffles  []pf.ShuffleRequest_Shuffle
-	resolver  *consumer.Resolver
+	resolver *consumer.Resolver
 
-	client pf.ShufflerClient
+	ring      pf.Ring
+	ringIndex int
+	shuffles  []pf.ShuffleConfig_Shuffle
+
+	journalClient pb.RoutedJournalClient
+	shuffleClient pf.ShufflerClient
 
 	wg sync.WaitGroup
 	mu sync.Mutex
@@ -77,7 +77,7 @@ func (sr *shuffleReader) converge() {
 		var subCtx, subCancelFn = context.WithCancel(sr.ctx)
 
 		sr.wg.Add(1)
-		go sr.journalReadLoop(subCtx, journal, offset)
+		go sr.journalReadLoop(subCtx, &journal.Spec, offset)
 
 		nextFns[journal.Spec.Name] = subCancelFn
 	}
@@ -90,30 +90,35 @@ func (sr *shuffleReader) converge() {
 	sr.activeReads = nextFns
 }
 
-func (sr *shuffleReader) journalReadLoop(ctx context.Context, journal pb.ListResponse_Journal, offset pb.Offset) {
+func (sr *shuffleReader) journalReadLoop(ctx context.Context, spec *pb.JournalSpec, offset pb.Offset) {
 	defer func() {
 		sr.mu.Lock()
-		sr.idleOffsets[journal.Spec.Name] = offset
-		delete(sr.activeReads, journal.Spec.Name)
+		sr.idleOffsets[spec.Name] = offset
+		delete(sr.activeReads, spec.Name)
 		sr.mu.Unlock()
 
 		sr.wg.Done()
 	}()
 
 	// Hash and map journal to a coordinating participant of the current ring.
-	// We use SHA-2 for it's strong collision avoidance properties, and not for security.
+	// We use SHA-2 for its strong collision avoidance properties, and not for security.
 	// Journals often differ from one another by a single bit (eg, 'foo-002' vs 'foo-003'),
 	// which can cause grouping with FNV-a and other standard non-secure hashes.
-	var hash = sha256.Sum256([]byte(journal.Spec.Name))
-	var index = binary.LittleEndian.Uint32(hash[:]) % sr.ring[len(sr.ring)-1].TotalReaders
-	var coordinator = pc.ShardID(fmt.Sprintf("%s-%03d", sr.ringName, index))
+	var hash = sha256.Sum256([]byte(spec.Name))
+
+	var cfg = pf.ShuffleConfig{
+		Journal:     spec.Name,
+		Ring:        sr.ring,
+		Coordinator: binary.LittleEndian.Uint32(hash[:]) % uint32(len(sr.ring.Members)),
+		Shuffles:    sr.shuffles,
+	}
 
 	var log = log.WithFields(log.Fields{
-		"ring":        sr.ringName,
-		"ringIndex":   sr.ringIndex,
-		"journal":     journal.Spec.Name,
-		"coordinator": coordinator,
+		"ring":        cfg.Ring.Name,
+		"journal":     cfg.Journal,
+		"coordinator": cfg.Coordinator,
 		"offset":      offset,
+		"ringIndex":   sr.ringIndex,
 	})
 	log.Info("starting shuffled journal read")
 
@@ -128,11 +133,31 @@ func (sr *shuffleReader) journalReadLoop(ctx context.Context, journal pb.ListRes
 		case <-time.After(backoff(attempt)):
 		}
 
+		// Apply MinMsgClock to identify a lower-bound fragment & offset to begin reading from.
+		if bound := cfg.Ring.Members[sr.ringIndex].MinMsgClock; offset == 0 && bound != 0 {
+			var list, err = client.ListAllFragments(ctx, sr.journalClient, pb.FragmentsRequest{
+				Journal: cfg.Journal,
+				// If the fragment was persisted _before_ our time bound (with a small adjustment
+				// to account for clock drift), it cannot possibly contain messages published
+				// _after_ the time bound.
+				BeginModTime: bound.Time().Add(-time.Minute).Unix(),
+			})
+			if err != nil {
+				log.WithField("err", err).Warn("failed to list fragments to identify lower-bound offset")
+				continue
+			} else if l := len(list.Fragments); l != 0 {
+				offset = list.Fragments[0].Spec.Begin
+			} else {
+				log.Info("empty fragment listing; reading from offset zero")
+			}
+		}
+
+		// Start a new shuffle stream, if none currently exists.
 		if stream == nil {
-			// Resolve |coordinator| to a current member process.
+			// Resolve coordinator shard to a current member process.
 			var resolution, err = sr.resolver.Resolve(consumer.ResolveArgs{
 				Context:  ctx,
-				ShardID:  coordinator,
+				ShardID:  cfg.CoordinatorShard(),
 				MayProxy: true,
 			})
 			if err != nil && resolution.Status != pc.Status_OK {
@@ -144,25 +169,23 @@ func (sr *shuffleReader) journalReadLoop(ctx context.Context, journal pb.ListRes
 			var ctx = pb.WithDispatchRoute(ctx, resolution.Header.Route, resolution.Header.ProcessId)
 
 			var req = pf.ShuffleRequest{
-				Journal:     journal.Spec.Name,
-				ContentType: journal.Spec.LabelSet.ValueOf(labels.ContentType),
-				Offset:      offset,
-				ReaderIndex: int64(sr.ringIndex),
-				ReaderRing:  sr.ring,
-				Shuffles:    sr.shuffles,
-				Coordinator: coordinator,
-				Resolution:  &resolution.Header,
+				Config:     cfg,
+				RingIndex:  int64(sr.ringIndex),
+				Offset:     offset,
+				Resolution: &resolution.Header,
 			}
-			if stream, err = sr.client.Shuffle(ctx, &req); err != nil {
+			if stream, err = sr.shuffleClient.Shuffle(ctx, &req); err != nil {
 				log.WithField("err", err).Warn("failed to start shuffle RPC (will retry)")
 				stream = nil
 				continue
 			}
 		}
 
+		// Read next ShuffleResponse.
 		if err := stream.RecvMsg(&resp); err != nil || resp.Status != pc.Status_OK {
-			if resp.Status != pc.Status_OK {
-				_, _ = stream.Recv() // Read stream EOF to free resources.
+			if err == nil {
+				// Server sent a !OK status, and will close. Read EOF to free resources.
+				_, _ = stream.Recv()
 			}
 			log.WithField("err", err).
 				WithField("status", resp.Status).
@@ -171,21 +194,30 @@ func (sr *shuffleReader) journalReadLoop(ctx context.Context, journal pb.ListRes
 			continue
 		}
 
-		attempt = 0
+		attempt = 0 // Reset backoff timer.
+
 		for _, doc := range resp.Documents {
 			offset = doc.JournalBeginOffset + pb.Offset(len(doc.JournalBytes))
 
-			sr.envCh <- consumer.EnvelopeOrError{
-				Envelope: message.Envelope{
-					Journal: &journal.Spec,
-					Begin:   doc.JournalBeginOffset,
-					End:     offset,
-					Message: &RawJSONMessage{
-						Meta:               sr.rawJSONMeta,
-						RawMessage:         doc.JournalBytes,
-						ShuffledTransforms: doc.ShuffleIds,
+			if msg, err := NewRawJSONMessage(spec); err != nil {
+				sr.envCh <- consumer.EnvelopeOrError{
+					Error: fmt.Errorf("NewRawJSONMessage: %w", err),
+				}
+				return
+			} else if err = msg.(json.Unmarshaler).UnmarshalJSON(doc.JournalBytes); err != nil {
+				sr.envCh <- consumer.EnvelopeOrError{
+					Error: fmt.Errorf("unmarshal of RawJSONMessage: %w", err),
+				}
+				return
+			} else {
+				sr.envCh <- consumer.EnvelopeOrError{
+					Envelope: message.Envelope{
+						Journal: spec,
+						Begin:   doc.JournalBeginOffset,
+						End:     offset,
+						Message: msg,
 					},
-				},
+				}
 			}
 		}
 	}

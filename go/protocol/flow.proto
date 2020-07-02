@@ -14,41 +14,42 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-// Ring is an unpacked representation of an entry in an
-// `estuary.dev/worker-ring` label value. It describes the effective ring
-// configuration within a range of possible Clocks. WorkerRings are ordered
-// on ascending lower Clock bound.
 message Ring {
   option (gogoproto.equal) = true;
 
-  // Lower clock bound for this ring configuration.
-  // For a given Clock C, the effective configuration is given
-  // by the last entry having a clock_lower_bound B such that B <= C.
-  uint64 clock_lower_bound = 1
-      [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
-  // Size of the reader ring within this Clock range.
-  uint32 total_readers = 2;
+  // Unique name of this ring.
+  string name = 1;
+  // Current members of this ring.
+  message Member {
+    option (gogoproto.equal) = true;
+
+    // Miniumum Clock of messages processed by this member, used to:
+    // - Lower-bound messages mapped to this member.
+    // - Lower-bound the fragment from which this member starts reading.
+    uint64 min_msg_clock = 1
+        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+    // Maximum Clock of messages processed by this member, used to
+    // upper-bound messages mapped to this member.
+    uint64 max_msg_clock = 2
+        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+  }
+  repeated Member members = 2 [ (gogoproto.nullable) = false ];
 }
 
-// ShuffleRequest is the request message of a Shuffle RPC.
-message ShuffleRequest {
+message ShuffleConfig {
   option (gogoproto.equal) = true;
-
-  // Journal to be read.
+  // Journal to be shuffled.
   string journal = 1
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
   // Content-Type label of the Journal.
-  string content_type = 2;
-  // Offset to begin reading from.
-  int64 offset = 3
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
-
-  // Ring configuration under which this shuffled read is occurring.
-  int64 reader_index = 4;
-  repeated Ring reader_ring = 5 [ (gogoproto.nullable) = false ];
-
+  // string content_type = 2;
+  // Ring on whose behalf this journal is being shuffled.
+  Ring ring = 3 [ (gogoproto.nullable) = false ];
+  // Coordinator is the ring member index which is responsible for shuffled
+  // reads of this journal.
+  uint32 coordinator = 4;
   // Shuffles applied to journal documents, mapping each document to
-  // a specific reader index of the ring.
+  // indicies within the |ring|.
   message Shuffle {
     option (gogoproto.equal) = true;
 
@@ -69,14 +70,23 @@ message ShuffleRequest {
     // |broadcast_to| cannot be set.
     uint32 choose_from = 4;
   }
-  repeated Shuffle shuffles = 6 [ (gogoproto.nullable) = false ];
+  repeated Shuffle shuffles = 5 [ (gogoproto.nullable) = false ];
+}
 
-  // Coordinator is the ShardID responsible for shuffled reads of this journal.
-  string coordinator = 7
-      [ (gogoproto.casttype) =
-            "go.gazette.dev/core/consumer/protocol.ShardID" ];
-  // Resolution header of |coordinator|, attached by originating peer.
-  protocol.Header resolution = 8;
+// ShuffleRequest is the request message of a Shuffle RPC.
+message ShuffleRequest {
+  option (gogoproto.equal) = true;
+
+  ShuffleConfig config = 1 [ (gogoproto.nullable) = false ];
+
+  // Index of this member within the ring.
+  int64 ring_index = 3;
+  // Offset to begin reading the journal from.
+  int64 offset = 2
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+
+  // Resolution header of the |config.coordinator_index| shard.
+  protocol.Header resolution = 5;
 }
 
 // ShuffleResponse is the streamed response message of a Shuffle RPC.

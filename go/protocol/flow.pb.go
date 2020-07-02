@@ -12,7 +12,6 @@ import (
 	empty "github.com/golang/protobuf/ptypes/empty"
 	go_gazette_dev_core_broker_protocol "go.gazette.dev/core/broker/protocol"
 	protocol "go.gazette.dev/core/broker/protocol"
-	go_gazette_dev_core_consumer_protocol "go.gazette.dev/core/consumer/protocol"
 	protocol1 "go.gazette.dev/core/consumer/protocol"
 	recoverylog "go.gazette.dev/core/consumer/recoverylog"
 	go_gazette_dev_core_message "go.gazette.dev/core/message"
@@ -126,20 +125,13 @@ func (DeriveState) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_9dd0e7f3bbc7f41f, []int{0}
 }
 
-// Ring is an unpacked representation of an entry in an
-// `estuary.dev/worker-ring` label value. It describes the effective ring
-// configuration within a range of possible Clocks. WorkerRings are ordered
-// on ascending lower Clock bound.
 type Ring struct {
-	// Lower clock bound for this ring configuration.
-	// For a given Clock C, the effective configuration is given
-	// by the last entry having a clock_lower_bound B such that B <= C.
-	ClockLowerBound go_gazette_dev_core_message.Clock `protobuf:"varint,1,opt,name=clock_lower_bound,json=clockLowerBound,proto3,casttype=go.gazette.dev/core/message.Clock" json:"clock_lower_bound,omitempty"`
-	// Size of the reader ring within this Clock range.
-	TotalReaders         uint32   `protobuf:"varint,2,opt,name=total_readers,json=totalReaders,proto3" json:"total_readers,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	// Unique name of this ring.
+	Name                 string        `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Members              []Ring_Member `protobuf:"bytes,2,rep,name=members,proto3" json:"members"`
+	XXX_NoUnkeyedLiteral struct{}      `json:"-"`
+	XXX_unrecognized     []byte        `json:"-"`
+	XXX_sizecache        int32         `json:"-"`
 }
 
 func (m *Ring) Reset()         { *m = Ring{} }
@@ -175,36 +167,252 @@ func (m *Ring) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Ring proto.InternalMessageInfo
 
-func (m *Ring) GetClockLowerBound() go_gazette_dev_core_message.Clock {
+func (m *Ring) GetName() string {
 	if m != nil {
-		return m.ClockLowerBound
+		return m.Name
+	}
+	return ""
+}
+
+func (m *Ring) GetMembers() []Ring_Member {
+	if m != nil {
+		return m.Members
+	}
+	return nil
+}
+
+// Current members of this ring.
+type Ring_Member struct {
+	// Miniumum Clock of messages processed by this member, used to:
+	// - Lower-bound messages mapped to this member.
+	// - Lower-bound the fragment from which this member starts reading.
+	MinMsgClock go_gazette_dev_core_message.Clock `protobuf:"varint,1,opt,name=min_msg_clock,json=minMsgClock,proto3,casttype=go.gazette.dev/core/message.Clock" json:"min_msg_clock,omitempty"`
+	// Maximum Clock of messages processed by this member, used to
+	// upper-bound messages mapped to this member.
+	MaxMsgClock          go_gazette_dev_core_message.Clock `protobuf:"varint,2,opt,name=max_msg_clock,json=maxMsgClock,proto3,casttype=go.gazette.dev/core/message.Clock" json:"max_msg_clock,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                          `json:"-"`
+	XXX_unrecognized     []byte                            `json:"-"`
+	XXX_sizecache        int32                             `json:"-"`
+}
+
+func (m *Ring_Member) Reset()         { *m = Ring_Member{} }
+func (m *Ring_Member) String() string { return proto.CompactTextString(m) }
+func (*Ring_Member) ProtoMessage()    {}
+func (*Ring_Member) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{0, 0}
+}
+func (m *Ring_Member) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Ring_Member) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Ring_Member.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Ring_Member) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Ring_Member.Merge(m, src)
+}
+func (m *Ring_Member) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Ring_Member) XXX_DiscardUnknown() {
+	xxx_messageInfo_Ring_Member.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Ring_Member proto.InternalMessageInfo
+
+func (m *Ring_Member) GetMinMsgClock() go_gazette_dev_core_message.Clock {
+	if m != nil {
+		return m.MinMsgClock
 	}
 	return 0
 }
 
-func (m *Ring) GetTotalReaders() uint32 {
+func (m *Ring_Member) GetMaxMsgClock() go_gazette_dev_core_message.Clock {
 	if m != nil {
-		return m.TotalReaders
+		return m.MaxMsgClock
+	}
+	return 0
+}
+
+type ShuffleConfig struct {
+	// Journal to be shuffled.
+	Journal go_gazette_dev_core_broker_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=go.gazette.dev/core/broker/protocol.Journal" json:"journal,omitempty"`
+	// Content-Type label of the Journal.
+	// string content_type = 2;
+	// Ring on whose behalf this journal is being shuffled.
+	Ring Ring `protobuf:"bytes,3,opt,name=ring,proto3" json:"ring"`
+	// Coordinator is the ring member index which is responsible for shuffled
+	// reads of this journal.
+	Coordinator          uint32                  `protobuf:"varint,4,opt,name=coordinator,proto3" json:"coordinator,omitempty"`
+	Shuffles             []ShuffleConfig_Shuffle `protobuf:"bytes,5,rep,name=shuffles,proto3" json:"shuffles"`
+	XXX_NoUnkeyedLiteral struct{}                `json:"-"`
+	XXX_unrecognized     []byte                  `json:"-"`
+	XXX_sizecache        int32                   `json:"-"`
+}
+
+func (m *ShuffleConfig) Reset()         { *m = ShuffleConfig{} }
+func (m *ShuffleConfig) String() string { return proto.CompactTextString(m) }
+func (*ShuffleConfig) ProtoMessage()    {}
+func (*ShuffleConfig) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1}
+}
+func (m *ShuffleConfig) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ShuffleConfig) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ShuffleConfig.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ShuffleConfig) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShuffleConfig.Merge(m, src)
+}
+func (m *ShuffleConfig) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ShuffleConfig) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShuffleConfig.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ShuffleConfig proto.InternalMessageInfo
+
+func (m *ShuffleConfig) GetJournal() go_gazette_dev_core_broker_protocol.Journal {
+	if m != nil {
+		return m.Journal
+	}
+	return ""
+}
+
+func (m *ShuffleConfig) GetRing() Ring {
+	if m != nil {
+		return m.Ring
+	}
+	return Ring{}
+}
+
+func (m *ShuffleConfig) GetCoordinator() uint32 {
+	if m != nil {
+		return m.Coordinator
+	}
+	return 0
+}
+
+func (m *ShuffleConfig) GetShuffles() []ShuffleConfig_Shuffle {
+	if m != nil {
+		return m.Shuffles
+	}
+	return nil
+}
+
+// Shuffles applied to journal documents, mapping each document to
+// indicies within the |ring|.
+type ShuffleConfig_Shuffle struct {
+	// ID by which this Shuffle should be identified within ShuffleResponses.
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Composite key over which shuffling occurs, specified as one or more
+	// JSON-Pointers indicating a message location to extract.
+	ShuffleKeyPtr []string `protobuf:"bytes,2,rep,name=shuffle_key_ptr,json=shuffleKeyPtr,proto3" json:"shuffle_key_ptr,omitempty"`
+	// Number of top-ranked processors to broadcast each message to, after
+	// shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
+	BroadcastTo uint32 `protobuf:"varint,3,opt,name=broadcast_to,json=broadcastTo,proto3" json:"broadcast_to,omitempty"`
+	// Number of top-ranked readers from which a single reader index will be
+	// selected, after shuffling. The message Clock value is used to pseudo
+	// randomly pick the final index, making the selection deterministic.
+	// Values larger than one can be used to distribute "hot keys" which might
+	// otherwise overwhelm specific readers.
+	// Usually this is zero and |broadcast_to| is used instead. If non-zero,
+	// |broadcast_to| cannot be set.
+	ChooseFrom           uint32   `protobuf:"varint,4,opt,name=choose_from,json=chooseFrom,proto3" json:"choose_from,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ShuffleConfig_Shuffle) Reset()         { *m = ShuffleConfig_Shuffle{} }
+func (m *ShuffleConfig_Shuffle) String() string { return proto.CompactTextString(m) }
+func (*ShuffleConfig_Shuffle) ProtoMessage()    {}
+func (*ShuffleConfig_Shuffle) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1, 0}
+}
+func (m *ShuffleConfig_Shuffle) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ShuffleConfig_Shuffle) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ShuffleConfig_Shuffle.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ShuffleConfig_Shuffle) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShuffleConfig_Shuffle.Merge(m, src)
+}
+func (m *ShuffleConfig_Shuffle) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ShuffleConfig_Shuffle) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShuffleConfig_Shuffle.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ShuffleConfig_Shuffle proto.InternalMessageInfo
+
+func (m *ShuffleConfig_Shuffle) GetId() int64 {
+	if m != nil {
+		return m.Id
+	}
+	return 0
+}
+
+func (m *ShuffleConfig_Shuffle) GetShuffleKeyPtr() []string {
+	if m != nil {
+		return m.ShuffleKeyPtr
+	}
+	return nil
+}
+
+func (m *ShuffleConfig_Shuffle) GetBroadcastTo() uint32 {
+	if m != nil {
+		return m.BroadcastTo
+	}
+	return 0
+}
+
+func (m *ShuffleConfig_Shuffle) GetChooseFrom() uint32 {
+	if m != nil {
+		return m.ChooseFrom
 	}
 	return 0
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.
 type ShuffleRequest struct {
-	// Journal to be read.
-	Journal go_gazette_dev_core_broker_protocol.Journal `protobuf:"bytes,1,opt,name=journal,proto3,casttype=go.gazette.dev/core/broker/protocol.Journal" json:"journal,omitempty"`
-	// Content-Type label of the Journal.
-	ContentType string `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
-	// Offset to begin reading from.
-	Offset go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,3,opt,name=offset,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"offset,omitempty"`
-	// Ring configuration under which this shuffled read is occurring.
-	ReaderIndex int64                    `protobuf:"varint,4,opt,name=reader_index,json=readerIndex,proto3" json:"reader_index,omitempty"`
-	ReaderRing  []Ring                   `protobuf:"bytes,5,rep,name=reader_ring,json=readerRing,proto3" json:"reader_ring"`
-	Shuffles    []ShuffleRequest_Shuffle `protobuf:"bytes,6,rep,name=shuffles,proto3" json:"shuffles"`
-	// Coordinator is the ShardID responsible for shuffled reads of this journal.
-	Coordinator go_gazette_dev_core_consumer_protocol.ShardID `protobuf:"bytes,7,opt,name=coordinator,proto3,casttype=go.gazette.dev/core/consumer/protocol.ShardID" json:"coordinator,omitempty"`
-	// Resolution header of |coordinator|, attached by originating peer.
-	Resolution           *protocol.Header `protobuf:"bytes,8,opt,name=resolution,proto3" json:"resolution,omitempty"`
+	Config ShuffleConfig `protobuf:"bytes,1,opt,name=config,proto3" json:"config"`
+	// Index of this member within the ring.
+	RingIndex int64 `protobuf:"varint,3,opt,name=ring_index,json=ringIndex,proto3" json:"ring_index,omitempty"`
+	// Offset to begin reading the journal from.
+	Offset go_gazette_dev_core_broker_protocol.Offset `protobuf:"varint,2,opt,name=offset,proto3,casttype=go.gazette.dev/core/broker/protocol.Offset" json:"offset,omitempty"`
+	// Resolution header of the |config.coordinator_index| shard.
+	Resolution           *protocol.Header `protobuf:"bytes,5,opt,name=resolution,proto3" json:"resolution,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
 	XXX_unrecognized     []byte           `json:"-"`
 	XXX_sizecache        int32            `json:"-"`
@@ -214,7 +422,7 @@ func (m *ShuffleRequest) Reset()         { *m = ShuffleRequest{} }
 func (m *ShuffleRequest) String() string { return proto.CompactTextString(m) }
 func (*ShuffleRequest) ProtoMessage()    {}
 func (*ShuffleRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{2}
 }
 func (m *ShuffleRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -243,18 +451,18 @@ func (m *ShuffleRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ShuffleRequest proto.InternalMessageInfo
 
-func (m *ShuffleRequest) GetJournal() go_gazette_dev_core_broker_protocol.Journal {
+func (m *ShuffleRequest) GetConfig() ShuffleConfig {
 	if m != nil {
-		return m.Journal
+		return m.Config
 	}
-	return ""
+	return ShuffleConfig{}
 }
 
-func (m *ShuffleRequest) GetContentType() string {
+func (m *ShuffleRequest) GetRingIndex() int64 {
 	if m != nil {
-		return m.ContentType
+		return m.RingIndex
 	}
-	return ""
+	return 0
 }
 
 func (m *ShuffleRequest) GetOffset() go_gazette_dev_core_broker_protocol.Offset {
@@ -264,124 +472,11 @@ func (m *ShuffleRequest) GetOffset() go_gazette_dev_core_broker_protocol.Offset 
 	return 0
 }
 
-func (m *ShuffleRequest) GetReaderIndex() int64 {
-	if m != nil {
-		return m.ReaderIndex
-	}
-	return 0
-}
-
-func (m *ShuffleRequest) GetReaderRing() []Ring {
-	if m != nil {
-		return m.ReaderRing
-	}
-	return nil
-}
-
-func (m *ShuffleRequest) GetShuffles() []ShuffleRequest_Shuffle {
-	if m != nil {
-		return m.Shuffles
-	}
-	return nil
-}
-
-func (m *ShuffleRequest) GetCoordinator() go_gazette_dev_core_consumer_protocol.ShardID {
-	if m != nil {
-		return m.Coordinator
-	}
-	return ""
-}
-
 func (m *ShuffleRequest) GetResolution() *protocol.Header {
 	if m != nil {
 		return m.Resolution
 	}
 	return nil
-}
-
-// Shuffles applied to journal documents, mapping each document to
-// a specific reader index of the ring.
-type ShuffleRequest_Shuffle struct {
-	// ID by which this Shuffle should be identified within ShuffleResponses.
-	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Composite key over which shuffling occurs, specified as one or more
-	// JSON-Pointers indicating a message location to extract.
-	ShuffleKeyPtr []string `protobuf:"bytes,2,rep,name=shuffle_key_ptr,json=shuffleKeyPtr,proto3" json:"shuffle_key_ptr,omitempty"`
-	// Number of top-ranked processors to broadcast each message to, after
-	// shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
-	BroadcastTo uint32 `protobuf:"varint,3,opt,name=broadcast_to,json=broadcastTo,proto3" json:"broadcast_to,omitempty"`
-	// Number of top-ranked readers from which a single reader index will be
-	// selected, after shuffling. The message Clock value is used to pseudo
-	// randomly pick the final index, making the selection deterministic.
-	// Values larger than one can be used to distribute "hot keys" which might
-	// otherwise overwhelm specific readers.
-	// Usually this is zero and |broadcast_to| is used instead. If non-zero,
-	// |broadcast_to| cannot be set.
-	ChooseFrom           uint32   `protobuf:"varint,4,opt,name=choose_from,json=chooseFrom,proto3" json:"choose_from,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *ShuffleRequest_Shuffle) Reset()         { *m = ShuffleRequest_Shuffle{} }
-func (m *ShuffleRequest_Shuffle) String() string { return proto.CompactTextString(m) }
-func (*ShuffleRequest_Shuffle) ProtoMessage()    {}
-func (*ShuffleRequest_Shuffle) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1, 0}
-}
-func (m *ShuffleRequest_Shuffle) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ShuffleRequest_Shuffle) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ShuffleRequest_Shuffle.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ShuffleRequest_Shuffle) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ShuffleRequest_Shuffle.Merge(m, src)
-}
-func (m *ShuffleRequest_Shuffle) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ShuffleRequest_Shuffle) XXX_DiscardUnknown() {
-	xxx_messageInfo_ShuffleRequest_Shuffle.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ShuffleRequest_Shuffle proto.InternalMessageInfo
-
-func (m *ShuffleRequest_Shuffle) GetId() int64 {
-	if m != nil {
-		return m.Id
-	}
-	return 0
-}
-
-func (m *ShuffleRequest_Shuffle) GetShuffleKeyPtr() []string {
-	if m != nil {
-		return m.ShuffleKeyPtr
-	}
-	return nil
-}
-
-func (m *ShuffleRequest_Shuffle) GetBroadcastTo() uint32 {
-	if m != nil {
-		return m.BroadcastTo
-	}
-	return 0
-}
-
-func (m *ShuffleRequest_Shuffle) GetChooseFrom() uint32 {
-	if m != nil {
-		return m.ChooseFrom
-	}
-	return 0
 }
 
 // ShuffleResponse is the streamed response message of a Shuffle RPC.
@@ -401,7 +496,7 @@ func (m *ShuffleResponse) Reset()         { *m = ShuffleResponse{} }
 func (m *ShuffleResponse) String() string { return proto.CompactTextString(m) }
 func (*ShuffleResponse) ProtoMessage()    {}
 func (*ShuffleResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{2}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{3}
 }
 func (m *ShuffleResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -469,7 +564,7 @@ func (m *ShuffleResponse_Document) Reset()         { *m = ShuffleResponse_Docume
 func (m *ShuffleResponse_Document) String() string { return proto.CompactTextString(m) }
 func (*ShuffleResponse_Document) ProtoMessage()    {}
 func (*ShuffleResponse_Document) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{2, 0}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{3, 0}
 }
 func (m *ShuffleResponse_Document) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -538,7 +633,7 @@ func (m *DeriveRequest) Reset()         { *m = DeriveRequest{} }
 func (m *DeriveRequest) String() string { return proto.CompactTextString(m) }
 func (*DeriveRequest) ProtoMessage()    {}
 func (*DeriveRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{3}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{4}
 }
 func (m *DeriveRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -612,7 +707,7 @@ func (m *DeriveResponse) Reset()         { *m = DeriveResponse{} }
 func (m *DeriveResponse) String() string { return proto.CompactTextString(m) }
 func (*DeriveResponse) ProtoMessage()    {}
 func (*DeriveResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{4}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{5}
 }
 func (m *DeriveResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -665,8 +760,10 @@ func (m *DeriveResponse) GetPartitions() map[string]string {
 func init() {
 	proto.RegisterEnum("flow.DeriveState", DeriveState_name, DeriveState_value)
 	proto.RegisterType((*Ring)(nil), "flow.Ring")
+	proto.RegisterType((*Ring_Member)(nil), "flow.Ring.Member")
+	proto.RegisterType((*ShuffleConfig)(nil), "flow.ShuffleConfig")
+	proto.RegisterType((*ShuffleConfig_Shuffle)(nil), "flow.ShuffleConfig.Shuffle")
 	proto.RegisterType((*ShuffleRequest)(nil), "flow.ShuffleRequest")
-	proto.RegisterType((*ShuffleRequest_Shuffle)(nil), "flow.ShuffleRequest.Shuffle")
 	proto.RegisterType((*ShuffleResponse)(nil), "flow.ShuffleResponse")
 	proto.RegisterType((*ShuffleResponse_Document)(nil), "flow.ShuffleResponse.Document")
 	proto.RegisterType((*DeriveRequest)(nil), "flow.DeriveRequest")
@@ -677,71 +774,72 @@ func init() {
 func init() { proto.RegisterFile("go/protocol/flow.proto", fileDescriptor_9dd0e7f3bbc7f41f) }
 
 var fileDescriptor_9dd0e7f3bbc7f41f = []byte{
-	// 1021 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x55, 0xcf, 0x6e, 0x1b, 0x45,
-	0x1c, 0xee, 0xda, 0x8e, 0xe3, 0xfc, 0x6c, 0x27, 0xce, 0xe0, 0x46, 0x2b, 0xab, 0x8a, 0xdd, 0x00,
-	0xc5, 0x2a, 0x62, 0x9d, 0x1a, 0x24, 0xaa, 0x22, 0x90, 0xea, 0xd8, 0x21, 0x86, 0x84, 0x86, 0x71,
-	0x90, 0x10, 0x97, 0x65, 0xbd, 0x3b, 0xde, 0x2c, 0x59, 0xef, 0x98, 0x99, 0xd9, 0x14, 0x73, 0xe6,
-	0xc6, 0x4b, 0xf4, 0x15, 0xe0, 0x0d, 0xb8, 0xf5, 0xc8, 0x03, 0x20, 0x1f, 0xca, 0x85, 0x37, 0x40,
-	0xca, 0x09, 0xcd, 0xcc, 0xee, 0xc6, 0x0d, 0x06, 0x21, 0xd4, 0x8b, 0x35, 0xfb, 0xcd, 0xf7, 0xfb,
-	0x33, 0xdf, 0xef, 0x9b, 0x31, 0xec, 0xf8, 0xb4, 0x33, 0x63, 0x54, 0x50, 0x97, 0x86, 0x9d, 0x49,
-	0x48, 0x9f, 0x5a, 0xea, 0x0b, 0x15, 0xe4, 0xba, 0xb1, 0x3b, 0x66, 0xf4, 0x82, 0xb0, 0x6b, 0x46,
-	0xba, 0xd0, 0xac, 0x46, 0xcb, 0xa5, 0x11, 0x8f, 0xa7, 0xff, 0xc2, 0xb8, 0x97, 0x31, 0x18, 0x71,
-	0xe9, 0x25, 0x61, 0xf3, 0x90, 0xfa, 0x6a, 0xcd, 0x3c, 0xe2, 0xd9, 0x74, 0x96, 0xf0, 0xcc, 0x99,
-	0x98, 0xcf, 0x08, 0xef, 0x90, 0xe9, 0x4c, 0xcc, 0xf5, 0x6f, 0xb2, 0x53, 0xf7, 0xa9, 0x4f, 0xd5,
-	0xb2, 0x23, 0x57, 0x1a, 0xdd, 0xfb, 0xc1, 0x80, 0x02, 0x0e, 0x22, 0x1f, 0x7d, 0x0e, 0xdb, 0x6e,
-	0x48, 0xdd, 0x0b, 0x3b, 0xa4, 0x4f, 0x09, 0xb3, 0xc7, 0x34, 0x8e, 0x3c, 0xd3, 0x68, 0x19, 0xed,
-	0x42, 0xef, 0xcd, 0xab, 0x45, 0xf3, 0xae, 0x4f, 0x2d, 0xdf, 0xf9, 0x9e, 0x08, 0x41, 0x2c, 0x8f,
-	0x5c, 0x76, 0x5c, 0xca, 0x48, 0x67, 0x4a, 0x38, 0x77, 0x7c, 0x62, 0x1d, 0xc8, 0x40, 0xbc, 0xa5,
-	0xe2, 0x8f, 0x65, 0x78, 0x4f, 0x46, 0xa3, 0xd7, 0xa1, 0x2a, 0xa8, 0x70, 0x42, 0x9b, 0x11, 0xc7,
-	0x23, 0x8c, 0x9b, 0xb9, 0x96, 0xd1, 0xae, 0xe2, 0x8a, 0x02, 0xb1, 0xc6, 0x1e, 0x15, 0xfe, 0x78,
-	0xd6, 0x34, 0xf6, 0xfe, 0x2c, 0xc0, 0xe6, 0xe8, 0x3c, 0x9e, 0x4c, 0x42, 0x82, 0xc9, 0xb7, 0x31,
-	0xe1, 0x02, 0x0d, 0x61, 0xfd, 0x1b, 0x1a, 0xb3, 0xc8, 0x09, 0x55, 0x1b, 0x1b, 0xbd, 0xce, 0xd5,
-	0xa2, 0xf9, 0xf6, 0xaa, 0x36, 0x6e, 0x88, 0x6b, 0x7d, 0xa2, 0xc3, 0x70, 0x1a, 0x8f, 0xee, 0x42,
-	0xc5, 0xa5, 0x91, 0x20, 0x91, 0xb0, 0xa5, 0x3a, 0xaa, 0x8f, 0x0d, 0x5c, 0x4e, 0xb0, 0xb3, 0xf9,
-	0x8c, 0xa0, 0x43, 0x28, 0xd2, 0xc9, 0x84, 0x13, 0x61, 0xe6, 0x5b, 0x46, 0x3b, 0xdf, 0xb3, 0xae,
-	0x16, 0xcd, 0xfb, 0xff, 0xa5, 0xd8, 0x13, 0x15, 0x85, 0x93, 0x68, 0x59, 0x4a, 0x9f, 0xd6, 0x0e,
-	0x22, 0x8f, 0x7c, 0x67, 0x16, 0x64, 0x36, 0x5c, 0xd6, 0xd8, 0x50, 0x42, 0xe8, 0x01, 0x24, 0x9f,
-	0x36, 0x0b, 0x22, 0xdf, 0x5c, 0x6b, 0xe5, 0xdb, 0xe5, 0x2e, 0x58, 0xca, 0x34, 0x72, 0x14, 0xbd,
-	0xc2, 0xf3, 0x45, 0xf3, 0x16, 0x06, 0x4d, 0x52, 0xc3, 0xf9, 0x08, 0x4a, 0x5c, 0xab, 0xc3, 0xcd,
-	0xa2, 0xe2, 0xdf, 0xd1, 0xfc, 0x97, 0x35, 0x4b, 0x3f, 0x93, 0x0c, 0x59, 0x0c, 0x1a, 0x41, 0xd9,
-	0xa5, 0x94, 0x79, 0x41, 0xe4, 0x08, 0xca, 0xcc, 0x75, 0xa5, 0xe7, 0x83, 0xab, 0x45, 0xf3, 0x9d,
-	0x55, 0x47, 0xfc, 0x9b, 0x19, 0xad, 0xd1, 0xb9, 0xc3, 0xbc, 0x61, 0x1f, 0x2f, 0x67, 0x41, 0xfb,
-	0x00, 0x8c, 0x70, 0x1a, 0xc6, 0x22, 0xa0, 0x91, 0x59, 0x6a, 0x19, 0xed, 0x72, 0xb7, 0x66, 0x65,
-	0x31, 0x47, 0xba, 0xfd, 0x25, 0x4e, 0xe3, 0x47, 0x03, 0xd6, 0x93, 0x16, 0xd1, 0x26, 0xe4, 0x02,
-	0x6d, 0xb0, 0x3c, 0xce, 0x05, 0x1e, 0xba, 0x07, 0x5b, 0x49, 0xbb, 0xf6, 0x05, 0x99, 0xdb, 0x33,
-	0xc1, 0xcc, 0x5c, 0x2b, 0xdf, 0xde, 0xc0, 0xd5, 0x04, 0xfe, 0x94, 0xcc, 0x4f, 0x05, 0x93, 0x02,
-	0x8f, 0x19, 0x75, 0x3c, 0xd7, 0xe1, 0xc2, 0x16, 0x54, 0x8d, 0xab, 0x8a, 0xcb, 0x19, 0x76, 0x46,
-	0x51, 0x13, 0xca, 0xee, 0x39, 0xa5, 0x9c, 0xd8, 0x13, 0x46, 0xa7, 0x6a, 0x04, 0x55, 0x0c, 0x1a,
-	0x3a, 0x64, 0x74, 0xaa, 0x3d, 0x97, 0x38, 0x6f, 0x91, 0x83, 0xad, 0x4c, 0x45, 0x3e, 0xa3, 0x11,
-	0x27, 0xa8, 0x0d, 0x45, 0x2e, 0x1c, 0x11, 0x73, 0xd5, 0xdf, 0x66, 0xb7, 0x66, 0xa5, 0x92, 0x58,
-	0x23, 0x85, 0xe3, 0x64, 0x5f, 0x32, 0xcf, 0xd5, 0x39, 0x95, 0xa7, 0x56, 0x9d, 0x3f, 0xd9, 0x47,
-	0x3d, 0xd8, 0xf0, 0xa8, 0x1b, 0x4f, 0x49, 0x24, 0xb8, 0x99, 0x57, 0x33, 0xdc, 0xbd, 0x31, 0x43,
-	0x5d, 0xdd, 0xea, 0x27, 0xb4, 0x64, 0x8a, 0xd7, 0x61, 0x8d, 0x9f, 0x0d, 0x28, 0xa5, 0xbb, 0xe8,
-	0x6b, 0xa8, 0x27, 0xfe, 0xb6, 0xc7, 0xc4, 0x0f, 0x22, 0x3b, 0xf1, 0x6f, 0xee, 0x7f, 0xf9, 0x17,
-	0x25, 0xb9, 0x7a, 0x32, 0x95, 0xc6, 0xe4, 0xfd, 0xcd, 0x2a, 0xcc, 0x05, 0xe1, 0x4a, 0xeb, 0x0a,
-	0xae, 0xa4, 0x54, 0x89, 0x49, 0xb1, 0xd3, 0xb9, 0x05, 0x1e, 0x37, 0x0b, 0xad, 0x7c, 0x3b, 0x8f,
-	0x21, 0x81, 0x86, 0x1e, 0xdf, 0xfb, 0xc9, 0x80, 0x6a, 0x9f, 0xb0, 0xe0, 0x32, 0xbb, 0xd9, 0x6f,
-	0xc1, 0x9a, 0x94, 0x8f, 0x24, 0xea, 0x6e, 0x6b, 0x19, 0x34, 0x47, 0xea, 0x4b, 0xb0, 0xde, 0x47,
-	0x77, 0x96, 0x35, 0x93, 0x6e, 0xa8, 0x2c, 0xa9, 0xa1, 0x9e, 0x17, 0xe6, 0x44, 0x7c, 0x42, 0xd9,
-	0x54, 0xd5, 0xce, 0xab, 0xda, 0x95, 0x0c, 0x1c, 0x7a, 0x1c, 0xbd, 0x07, 0xe0, 0x9e, 0x13, 0xf7,
-	0x62, 0x46, 0x83, 0x48, 0x28, 0x2b, 0x94, 0xbb, 0xf5, 0xeb, 0x71, 0x1e, 0x64, 0x7b, 0x78, 0x89,
-	0xb7, 0xf7, 0x9b, 0x01, 0x9b, 0x69, 0xcf, 0x89, 0x27, 0x5e, 0x51, 0xd3, 0x7d, 0x80, 0x99, 0xc3,
-	0x44, 0x20, 0xef, 0x43, 0xea, 0x83, 0x37, 0x96, 0x73, 0x65, 0x36, 0x38, 0xcd, 0x68, 0x83, 0x48,
-	0xb0, 0x39, 0x5e, 0x8a, 0x6b, 0x7c, 0x08, 0x5b, 0x37, 0xb6, 0x51, 0x0d, 0xf2, 0x17, 0x64, 0xae,
-	0x9f, 0x4a, 0x2c, 0x97, 0xa8, 0x0e, 0x6b, 0x97, 0x4e, 0x18, 0xa7, 0xcf, 0x9d, 0xfe, 0x78, 0x94,
-	0x7b, 0x68, 0xdc, 0xff, 0x18, 0xca, 0x4b, 0x8d, 0xa3, 0x12, 0x14, 0x86, 0xfd, 0xe3, 0x41, 0xed,
-	0x16, 0x02, 0x28, 0x0e, 0xbe, 0x3c, 0x1b, 0x7c, 0xd6, 0xaf, 0x19, 0x68, 0x03, 0xd6, 0x0e, 0x8f,
-	0xbf, 0x18, 0x1d, 0xd5, 0x72, 0xa8, 0x0c, 0xeb, 0xa7, 0x78, 0x70, 0xfa, 0x18, 0x0f, 0x6a, 0x79,
-	0xc9, 0x39, 0x78, 0x72, 0x72, 0x32, 0x3c, 0xab, 0x15, 0xba, 0x7d, 0x28, 0x25, 0xee, 0x65, 0xe8,
-	0xe1, 0xf5, 0xdd, 0xae, 0xaf, 0x7a, 0x9c, 0x1a, 0xb7, 0x57, 0xda, 0x7d, 0xdf, 0xe8, 0xfe, 0x62,
-	0x40, 0x51, 0xf7, 0x83, 0x1e, 0xc3, 0x36, 0x26, 0x5c, 0x50, 0x46, 0xae, 0x27, 0x83, 0x76, 0x2c,
-	0x9f, 0x52, 0x3f, 0x24, 0xfa, 0x6e, 0x8d, 0xe3, 0x89, 0x35, 0x90, 0xff, 0x6b, 0x8d, 0x95, 0x73,
-	0x44, 0xef, 0x67, 0xc9, 0x5e, 0x7b, 0x59, 0x57, 0xdd, 0x45, 0x7d, 0x95, 0xd8, 0x6d, 0x63, 0xdf,
-	0x40, 0x1f, 0x00, 0xf4, 0xe2, 0x20, 0xf4, 0x8e, 0x02, 0x39, 0xa8, 0x7f, 0x2a, 0x7a, 0xdb, 0x5a,
-	0xfa, 0x03, 0xb6, 0x0e, 0x47, 0x27, 0x8a, 0xde, 0xdb, 0x79, 0xfe, 0x62, 0xd7, 0xf8, 0xf5, 0xc5,
-	0xae, 0xf1, 0xec, 0xf7, 0x5d, 0xe3, 0xab, 0x52, 0x7a, 0xbd, 0xc6, 0x45, 0xb5, 0x7a, 0xf7, 0xaf,
-	0x00, 0x00, 0x00, 0xff, 0xff, 0x4b, 0x8f, 0xd0, 0xde, 0x20, 0x08, 0x00, 0x00,
+	// 1032 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x55, 0x41, 0x6f, 0x1b, 0x45,
+	0x14, 0xee, 0x78, 0x37, 0x4e, 0xfc, 0x1c, 0xa7, 0xee, 0xd4, 0x8d, 0x2c, 0x03, 0xb1, 0x1b, 0x4a,
+	0xb1, 0x8a, 0xb4, 0x4e, 0x0d, 0x12, 0x55, 0x51, 0x0f, 0x75, 0xec, 0x10, 0x43, 0x43, 0xa3, 0x49,
+	0x90, 0x10, 0x17, 0xb3, 0xde, 0x1d, 0x6f, 0x96, 0x78, 0x77, 0xcc, 0xcc, 0x38, 0xc4, 0xfc, 0x05,
+	0xfe, 0x44, 0x0f, 0xfc, 0x01, 0xf8, 0x07, 0xdc, 0x7a, 0xe4, 0x07, 0xa0, 0x1c, 0xc2, 0x85, 0x3f,
+	0xc0, 0x25, 0x27, 0x34, 0xb3, 0xb3, 0x6b, 0x27, 0x32, 0x08, 0x04, 0x97, 0xd5, 0x9b, 0xf7, 0xbe,
+	0xf7, 0xe6, 0xbd, 0xef, 0x7d, 0xbb, 0x0b, 0x9b, 0x01, 0x6b, 0x4d, 0x38, 0x93, 0xcc, 0x63, 0xe3,
+	0xd6, 0x68, 0xcc, 0xbe, 0x75, 0xf4, 0x09, 0xdb, 0xca, 0xae, 0x6d, 0x0d, 0x39, 0x3b, 0xa5, 0x7c,
+	0x8e, 0x48, 0x8d, 0x04, 0x55, 0x6b, 0x78, 0x2c, 0x16, 0xd3, 0xe8, 0x6f, 0x10, 0x0f, 0x33, 0x04,
+	0xa7, 0x1e, 0x3b, 0xa3, 0x7c, 0x36, 0x66, 0x81, 0xb6, 0xb9, 0x4f, 0xfd, 0x01, 0x9b, 0x18, 0x5c,
+	0x75, 0x22, 0x67, 0x13, 0x2a, 0x5a, 0x34, 0x9a, 0xc8, 0x59, 0xf2, 0x34, 0x91, 0x4a, 0xc0, 0x02,
+	0xa6, 0xcd, 0x96, 0xb2, 0x12, 0xef, 0xf6, 0x15, 0x02, 0x9b, 0x84, 0x71, 0x80, 0x31, 0xd8, 0xb1,
+	0x1b, 0xd1, 0x2a, 0x6a, 0xa0, 0x66, 0x81, 0x68, 0x1b, 0x3f, 0x86, 0xd5, 0x88, 0x46, 0x43, 0xca,
+	0x45, 0x35, 0xd7, 0xb0, 0x9a, 0xc5, 0xf6, 0x1d, 0x47, 0x8f, 0xa6, 0x12, 0x9c, 0x03, 0x1d, 0xe9,
+	0xd8, 0xaf, 0x2f, 0xea, 0xb7, 0x48, 0x8a, 0xab, 0xfd, 0x80, 0x20, 0x9f, 0x44, 0x70, 0x1f, 0x4a,
+	0x51, 0x18, 0x0f, 0x22, 0x11, 0x0c, 0xbc, 0x31, 0xf3, 0x4e, 0x75, 0x69, 0xbb, 0xf3, 0xce, 0xd5,
+	0x45, 0xfd, 0x7e, 0xc0, 0x9c, 0xc0, 0xfd, 0x8e, 0x4a, 0x49, 0x1d, 0x9f, 0x9e, 0xb5, 0x3c, 0xc6,
+	0x69, 0x2b, 0xa2, 0x42, 0xb8, 0x01, 0x75, 0x76, 0x15, 0x98, 0x14, 0xa3, 0x30, 0x3e, 0x10, 0x81,
+	0x3e, 0xe8, 0x52, 0xee, 0xf9, 0x42, 0xa9, 0xdc, 0xbf, 0x2b, 0xe5, 0x9e, 0xa7, 0xa5, 0x9e, 0xda,
+	0xbf, 0xbf, 0xaa, 0xa3, 0xe4, 0xb9, 0xfd, 0x47, 0x0e, 0x4a, 0x47, 0x27, 0xd3, 0xd1, 0x68, 0x4c,
+	0x77, 0x59, 0x3c, 0x0a, 0x03, 0xdc, 0x87, 0xd5, 0xaf, 0xd9, 0x94, 0xc7, 0xee, 0x38, 0x21, 0xa2,
+	0xd3, 0xba, 0xba, 0xa8, 0xbf, 0xb7, 0xec, 0x8a, 0x1b, 0x1b, 0x75, 0x3e, 0x49, 0xd2, 0x48, 0x9a,
+	0x8f, 0x1f, 0x80, 0xcd, 0xc3, 0x38, 0xa8, 0x5a, 0x0d, 0xd4, 0x2c, 0xb6, 0x61, 0xce, 0x9c, 0xa1,
+	0x4c, 0x47, 0x71, 0x03, 0x8a, 0x1e, 0x63, 0xdc, 0x0f, 0x63, 0x57, 0x32, 0x5e, 0xb5, 0x1b, 0xa8,
+	0x59, 0x22, 0x8b, 0x2e, 0xfc, 0x0c, 0xd6, 0x44, 0xd2, 0xa3, 0xa8, 0xae, 0xe8, 0x2d, 0xbc, 0x91,
+	0xd4, 0xba, 0xd6, 0x79, 0x7a, 0x32, 0xc5, 0xb3, 0x94, 0xda, 0xf7, 0x08, 0x56, 0x4d, 0x0c, 0x6f,
+	0x40, 0x2e, 0xf4, 0xf5, 0x60, 0x16, 0xc9, 0x85, 0x3e, 0x7e, 0x08, 0xb7, 0x0d, 0x6e, 0x70, 0x4a,
+	0x67, 0x83, 0x89, 0xe4, 0x7a, 0xcf, 0x05, 0x52, 0x32, 0xee, 0x4f, 0xe9, 0xec, 0x50, 0x72, 0x7c,
+	0x1f, 0xd6, 0x87, 0x9c, 0xb9, 0xbe, 0xe7, 0x0a, 0x39, 0x90, 0x4c, 0x8f, 0x54, 0x22, 0xc5, 0xcc,
+	0x77, 0xcc, 0x70, 0x1d, 0x8a, 0xde, 0x09, 0x63, 0x82, 0x0e, 0x46, 0x9c, 0x45, 0x66, 0x0e, 0x48,
+	0x5c, 0x7b, 0x9c, 0x45, 0xd7, 0x78, 0xbf, 0x44, 0xb0, 0x61, 0x7a, 0x22, 0xf4, 0x9b, 0x29, 0x15,
+	0x12, 0x3f, 0x86, 0xbc, 0xa7, 0x07, 0xd1, 0xed, 0x15, 0xdb, 0x77, 0x97, 0xcc, 0x68, 0x66, 0x33,
+	0x40, 0xfc, 0x16, 0x80, 0xa2, 0x70, 0x10, 0xc6, 0x3e, 0x3d, 0xd7, 0x3d, 0x59, 0xa4, 0xa0, 0x3c,
+	0x7d, 0xe5, 0xc0, 0x7b, 0x90, 0x67, 0xa3, 0x91, 0xa0, 0x52, 0x8b, 0xc5, 0xea, 0x38, 0x57, 0x17,
+	0xf5, 0x47, 0xff, 0x64, 0x93, 0x2f, 0x75, 0x16, 0x31, 0xd9, 0x78, 0x07, 0x80, 0x53, 0xc1, 0xc6,
+	0x53, 0x19, 0xb2, 0xb8, 0xba, 0xa2, 0xbb, 0x2b, 0x3b, 0x19, 0x7a, 0x9f, 0xba, 0x3e, 0xe5, 0x64,
+	0x01, 0x63, 0x86, 0xbc, 0xc8, 0xc1, 0xed, 0x6c, 0x48, 0x31, 0x61, 0xb1, 0xa0, 0xb8, 0x09, 0x79,
+	0x21, 0x5d, 0x39, 0x15, 0x7a, 0xca, 0x8d, 0x76, 0xd9, 0x49, 0x5f, 0x6b, 0xe7, 0x48, 0xfb, 0x89,
+	0x89, 0x2b, 0xe4, 0x89, 0xae, 0xac, 0xbb, 0x5f, 0x76, 0xa3, 0x89, 0xe3, 0x0e, 0x14, 0x7c, 0xe6,
+	0x4d, 0x23, 0x1a, 0x4b, 0x51, 0xb5, 0xb4, 0x40, 0xb6, 0xae, 0x91, 0x97, 0xde, 0xee, 0x74, 0x0d,
+	0xcc, 0xf0, 0x38, 0x4f, 0xab, 0xfd, 0x84, 0x60, 0x2d, 0x8d, 0xe2, 0xaf, 0xa0, 0x62, 0x34, 0x3c,
+	0x18, 0xd2, 0x20, 0x8c, 0x07, 0xff, 0x89, 0x46, 0x6c, 0x6a, 0x75, 0x54, 0xa9, 0xc4, 0x87, 0xdf,
+	0x86, 0x52, 0x76, 0xc3, 0x4c, 0x52, 0xa1, 0x97, 0xb7, 0x4e, 0xd6, 0x53, 0xa8, 0xf2, 0x29, 0x45,
+	0xa5, 0xe2, 0x0c, 0x7d, 0x51, 0xb5, 0x1b, 0x56, 0xd3, 0x22, 0x60, 0x5c, 0x7d, 0x5f, 0x6c, 0xff,
+	0x88, 0xa0, 0xd4, 0xa5, 0x3c, 0x3c, 0xcb, 0x44, 0xf4, 0x2e, 0xac, 0x28, 0xfa, 0xa8, 0x61, 0xd7,
+	0x7c, 0xad, 0x12, 0x8c, 0xe2, 0x97, 0x92, 0x24, 0x8e, 0xdf, 0x5c, 0xe4, 0x4c, 0x49, 0x7e, 0x7d,
+	0x81, 0x0d, 0xd5, 0x9e, 0xe4, 0x6e, 0x2c, 0x46, 0x8c, 0x47, 0xfa, 0x6e, 0x4b, 0xdf, 0xbd, 0x9e,
+	0x39, 0xfb, 0xbe, 0xc0, 0x1f, 0x00, 0x78, 0x27, 0xd4, 0x3b, 0x9d, 0xb0, 0x30, 0x96, 0x5a, 0xef,
+	0xc5, 0x76, 0x65, 0xbe, 0xce, 0xdd, 0x2c, 0x46, 0x16, 0x70, 0xdb, 0xbf, 0x22, 0xd8, 0x48, 0x7b,
+	0x36, 0x9a, 0xf8, 0x9f, 0x9a, 0xee, 0x02, 0x4c, 0x5c, 0x2e, 0x43, 0xa5, 0xc0, 0x54, 0x07, 0x0f,
+	0x16, 0x6b, 0x65, 0x32, 0x38, 0xcc, 0x60, 0xbd, 0x58, 0xf2, 0x19, 0x59, 0xc8, 0xab, 0x3d, 0x83,
+	0xdb, 0x37, 0xc2, 0xb8, 0x0c, 0xd6, 0x29, 0x9d, 0x99, 0xff, 0x82, 0x32, 0x71, 0x05, 0x56, 0xce,
+	0xdc, 0xf1, 0x94, 0x6a, 0x45, 0x14, 0x48, 0x72, 0x78, 0x9a, 0x7b, 0x82, 0x1e, 0x7d, 0x0c, 0xc5,
+	0x85, 0xc6, 0xf1, 0x1a, 0xd8, 0xfd, 0xee, 0x8b, 0x5e, 0xf9, 0x16, 0x06, 0xc8, 0xf7, 0xbe, 0x38,
+	0xee, 0x7d, 0xd6, 0x2d, 0x23, 0x5c, 0x80, 0x95, 0xbd, 0x17, 0x9f, 0x1f, 0xed, 0x97, 0x73, 0xb8,
+	0x08, 0xab, 0x87, 0xa4, 0x77, 0xf8, 0x9c, 0xf4, 0xca, 0x96, 0xc2, 0xec, 0xbe, 0x3c, 0x38, 0xe8,
+	0x1f, 0x97, 0xed, 0x76, 0x17, 0xd6, 0x8c, 0x7a, 0x39, 0x7e, 0x32, 0xff, 0x80, 0x55, 0x6e, 0x08,
+	0x5b, 0xaf, 0xbd, 0x76, 0x6f, 0xa9, 0xdc, 0x77, 0x50, 0xfb, 0x67, 0x04, 0xf9, 0xa4, 0x1f, 0xfc,
+	0x1c, 0xee, 0x10, 0x2a, 0x24, 0xe3, 0x74, 0xbe, 0x19, 0xbc, 0xe9, 0x04, 0x8c, 0x05, 0x63, 0x9a,
+	0xbc, 0x5b, 0xc3, 0xe9, 0xc8, 0xe9, 0xa9, 0x1f, 0x66, 0x6d, 0xe9, 0x1e, 0xf1, 0x87, 0x59, 0xb1,
+	0xbb, 0xd7, 0x79, 0x4d, 0xba, 0xa8, 0x2c, 0x23, 0xbb, 0x89, 0x76, 0x10, 0xfe, 0x08, 0xa0, 0x33,
+	0x0d, 0xc7, 0xfe, 0x7e, 0xa8, 0x16, 0xf5, 0x57, 0x97, 0xde, 0x73, 0x16, 0xfe, 0xec, 0xce, 0xde,
+	0xd1, 0x81, 0x86, 0x77, 0x36, 0x5f, 0x5f, 0x6e, 0xa1, 0x5f, 0x2e, 0xb7, 0xd0, 0xab, 0xdf, 0xb6,
+	0xd0, 0x97, 0x6b, 0xe9, 0xeb, 0x35, 0xcc, 0x6b, 0xeb, 0xfd, 0x3f, 0x03, 0x00, 0x00, 0xff, 0xff,
+	0x66, 0x97, 0x86, 0xf5, 0x79, 0x08, 0x00, 0x00,
 }
 
 func (this *Ring) Equal(that interface{}) bool {
@@ -763,10 +861,45 @@ func (this *Ring) Equal(that interface{}) bool {
 	} else if this == nil {
 		return false
 	}
-	if this.ClockLowerBound != that1.ClockLowerBound {
+	if this.Name != that1.Name {
 		return false
 	}
-	if this.TotalReaders != that1.TotalReaders {
+	if len(this.Members) != len(that1.Members) {
+		return false
+	}
+	for i := range this.Members {
+		if !this.Members[i].Equal(&that1.Members[i]) {
+			return false
+		}
+	}
+	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
+		return false
+	}
+	return true
+}
+func (this *Ring_Member) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*Ring_Member)
+	if !ok {
+		that2, ok := that.(Ring_Member)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.MinMsgClock != that1.MinMsgClock {
+		return false
+	}
+	if this.MaxMsgClock != that1.MaxMsgClock {
 		return false
 	}
 	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
@@ -774,14 +907,14 @@ func (this *Ring) Equal(that interface{}) bool {
 	}
 	return true
 }
-func (this *ShuffleRequest) Equal(that interface{}) bool {
+func (this *ShuffleConfig) Equal(that interface{}) bool {
 	if that == nil {
 		return this == nil
 	}
 
-	that1, ok := that.(*ShuffleRequest)
+	that1, ok := that.(*ShuffleConfig)
 	if !ok {
-		that2, ok := that.(ShuffleRequest)
+		that2, ok := that.(ShuffleConfig)
 		if ok {
 			that1 = &that2
 		} else {
@@ -796,22 +929,11 @@ func (this *ShuffleRequest) Equal(that interface{}) bool {
 	if this.Journal != that1.Journal {
 		return false
 	}
-	if this.ContentType != that1.ContentType {
+	if !this.Ring.Equal(&that1.Ring) {
 		return false
 	}
-	if this.Offset != that1.Offset {
+	if this.Coordinator != that1.Coordinator {
 		return false
-	}
-	if this.ReaderIndex != that1.ReaderIndex {
-		return false
-	}
-	if len(this.ReaderRing) != len(that1.ReaderRing) {
-		return false
-	}
-	for i := range this.ReaderRing {
-		if !this.ReaderRing[i].Equal(&that1.ReaderRing[i]) {
-			return false
-		}
 	}
 	if len(this.Shuffles) != len(that1.Shuffles) {
 		return false
@@ -821,25 +943,19 @@ func (this *ShuffleRequest) Equal(that interface{}) bool {
 			return false
 		}
 	}
-	if this.Coordinator != that1.Coordinator {
-		return false
-	}
-	if !this.Resolution.Equal(that1.Resolution) {
-		return false
-	}
 	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
 		return false
 	}
 	return true
 }
-func (this *ShuffleRequest_Shuffle) Equal(that interface{}) bool {
+func (this *ShuffleConfig_Shuffle) Equal(that interface{}) bool {
 	if that == nil {
 		return this == nil
 	}
 
-	that1, ok := that.(*ShuffleRequest_Shuffle)
+	that1, ok := that.(*ShuffleConfig_Shuffle)
 	if !ok {
-		that2, ok := that.(ShuffleRequest_Shuffle)
+		that2, ok := that.(ShuffleConfig_Shuffle)
 		if ok {
 			that1 = &that2
 		} else {
@@ -866,6 +982,42 @@ func (this *ShuffleRequest_Shuffle) Equal(that interface{}) bool {
 		return false
 	}
 	if this.ChooseFrom != that1.ChooseFrom {
+		return false
+	}
+	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
+		return false
+	}
+	return true
+}
+func (this *ShuffleRequest) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*ShuffleRequest)
+	if !ok {
+		that2, ok := that.(ShuffleRequest)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if !this.Config.Equal(&that1.Config) {
+		return false
+	}
+	if this.RingIndex != that1.RingIndex {
+		return false
+	}
+	if this.Offset != that1.Offset {
+		return false
+	}
+	if !this.Resolution.Equal(that1.Resolution) {
 		return false
 	}
 	if !bytes.Equal(this.XXX_unrecognized, that1.XXX_unrecognized) {
@@ -1202,13 +1354,175 @@ func (m *Ring) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.TotalReaders != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.TotalReaders))
+	if len(m.Members) > 0 {
+		for iNdEx := len(m.Members) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Members[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Name)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Ring_Member) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Ring_Member) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Ring_Member) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.MaxMsgClock != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.MaxMsgClock))
 		i--
 		dAtA[i] = 0x10
 	}
-	if m.ClockLowerBound != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.ClockLowerBound))
+	if m.MinMsgClock != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.MinMsgClock))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ShuffleConfig) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ShuffleConfig) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ShuffleConfig) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Shuffles) > 0 {
+		for iNdEx := len(m.Shuffles) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Shuffles[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
+	if m.Coordinator != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Coordinator))
+		i--
+		dAtA[i] = 0x20
+	}
+	{
+		size, err := m.Ring.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintFlow(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	if len(m.Journal) > 0 {
+		i -= len(m.Journal)
+		copy(dAtA[i:], m.Journal)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Journal)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ShuffleConfig_Shuffle) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ShuffleConfig_Shuffle) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ShuffleConfig_Shuffle) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.ChooseFrom != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.ChooseFrom))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.BroadcastTo != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.BroadcastTo))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.ShuffleKeyPtr) > 0 {
+		for iNdEx := len(m.ShuffleKeyPtr) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.ShuffleKeyPtr[iNdEx])
+			copy(dAtA[i:], m.ShuffleKeyPtr[iNdEx])
+			i = encodeVarintFlow(dAtA, i, uint64(len(m.ShuffleKeyPtr[iNdEx])))
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if m.Id != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Id))
 		i--
 		dAtA[i] = 0x8
 	}
@@ -1249,118 +1563,28 @@ func (m *ShuffleRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i = encodeVarintFlow(dAtA, i, uint64(size))
 		}
 		i--
-		dAtA[i] = 0x42
+		dAtA[i] = 0x2a
 	}
-	if len(m.Coordinator) > 0 {
-		i -= len(m.Coordinator)
-		copy(dAtA[i:], m.Coordinator)
-		i = encodeVarintFlow(dAtA, i, uint64(len(m.Coordinator)))
+	if m.RingIndex != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.RingIndex))
 		i--
-		dAtA[i] = 0x3a
-	}
-	if len(m.Shuffles) > 0 {
-		for iNdEx := len(m.Shuffles) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Shuffles[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintFlow(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x32
-		}
-	}
-	if len(m.ReaderRing) > 0 {
-		for iNdEx := len(m.ReaderRing) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.ReaderRing[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintFlow(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x2a
-		}
-	}
-	if m.ReaderIndex != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.ReaderIndex))
-		i--
-		dAtA[i] = 0x20
+		dAtA[i] = 0x18
 	}
 	if m.Offset != 0 {
 		i = encodeVarintFlow(dAtA, i, uint64(m.Offset))
 		i--
-		dAtA[i] = 0x18
+		dAtA[i] = 0x10
 	}
-	if len(m.ContentType) > 0 {
-		i -= len(m.ContentType)
-		copy(dAtA[i:], m.ContentType)
-		i = encodeVarintFlow(dAtA, i, uint64(len(m.ContentType)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.Journal) > 0 {
-		i -= len(m.Journal)
-		copy(dAtA[i:], m.Journal)
-		i = encodeVarintFlow(dAtA, i, uint64(len(m.Journal)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ShuffleRequest_Shuffle) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ShuffleRequest_Shuffle) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *ShuffleRequest_Shuffle) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.ChooseFrom != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.ChooseFrom))
-		i--
-		dAtA[i] = 0x20
-	}
-	if m.BroadcastTo != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.BroadcastTo))
-		i--
-		dAtA[i] = 0x18
-	}
-	if len(m.ShuffleKeyPtr) > 0 {
-		for iNdEx := len(m.ShuffleKeyPtr) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.ShuffleKeyPtr[iNdEx])
-			copy(dAtA[i:], m.ShuffleKeyPtr[iNdEx])
-			i = encodeVarintFlow(dAtA, i, uint64(len(m.ShuffleKeyPtr[iNdEx])))
-			i--
-			dAtA[i] = 0x12
+	{
+		size, err := m.Config.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
 		}
+		i -= size
+		i = encodeVarintFlow(dAtA, i, uint64(size))
 	}
-	if m.Id != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.Id))
-		i--
-		dAtA[i] = 0x8
-	}
+	i--
+	dAtA[i] = 0xa
 	return len(dAtA) - i, nil
 }
 
@@ -1447,21 +1671,21 @@ func (m *ShuffleResponse_Document) MarshalToSizedBuffer(dAtA []byte) (int, error
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if len(m.ShuffleIds) > 0 {
-		dAtA4 := make([]byte, len(m.ShuffleIds)*10)
-		var j3 int
+		dAtA6 := make([]byte, len(m.ShuffleIds)*10)
+		var j5 int
 		for _, num1 := range m.ShuffleIds {
 			num := uint64(num1)
 			for num >= 1<<7 {
-				dAtA4[j3] = uint8(uint64(num)&0x7f | 0x80)
+				dAtA6[j5] = uint8(uint64(num)&0x7f | 0x80)
 				num >>= 7
-				j3++
+				j5++
 			}
-			dAtA4[j3] = uint8(num)
-			j3++
+			dAtA6[j5] = uint8(num)
+			j5++
 		}
-		i -= j3
-		copy(dAtA[i:], dAtA4[:j3])
-		i = encodeVarintFlow(dAtA, i, uint64(j3))
+		i -= j5
+		copy(dAtA[i:], dAtA6[:j5])
+		i = encodeVarintFlow(dAtA, i, uint64(j5))
 		i--
 		dAtA[i] = 0x22
 	}
@@ -1517,21 +1741,21 @@ func (m *DeriveRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		dAtA[i] = 0x22
 	}
 	if len(m.TransformIds) > 0 {
-		dAtA7 := make([]byte, len(m.TransformIds)*10)
-		var j6 int
+		dAtA9 := make([]byte, len(m.TransformIds)*10)
+		var j8 int
 		for _, num1 := range m.TransformIds {
 			num := uint64(num1)
 			for num >= 1<<7 {
-				dAtA7[j6] = uint8(uint64(num)&0x7f | 0x80)
+				dAtA9[j8] = uint8(uint64(num)&0x7f | 0x80)
 				num >>= 7
-				j6++
+				j8++
 			}
-			dAtA7[j6] = uint8(num)
-			j6++
+			dAtA9[j8] = uint8(num)
+			j8++
 		}
-		i -= j6
-		copy(dAtA[i:], dAtA7[:j6])
-		i = encodeVarintFlow(dAtA, i, uint64(j6))
+		i -= j8
+		copy(dAtA[i:], dAtA9[:j8])
+		i = encodeVarintFlow(dAtA, i, uint64(j8))
 		i--
 		dAtA[i] = 0x1a
 	}
@@ -1629,11 +1853,15 @@ func (m *Ring) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
-	if m.ClockLowerBound != 0 {
-		n += 1 + sovFlow(uint64(m.ClockLowerBound))
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
 	}
-	if m.TotalReaders != 0 {
-		n += 1 + sovFlow(uint64(m.TotalReaders))
+	if len(m.Members) > 0 {
+		for _, e := range m.Members {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -1641,7 +1869,25 @@ func (m *Ring) ProtoSize() (n int) {
 	return n
 }
 
-func (m *ShuffleRequest) ProtoSize() (n int) {
+func (m *Ring_Member) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.MinMsgClock != 0 {
+		n += 1 + sovFlow(uint64(m.MinMsgClock))
+	}
+	if m.MaxMsgClock != 0 {
+		n += 1 + sovFlow(uint64(m.MaxMsgClock))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ShuffleConfig) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1651,21 +1897,10 @@ func (m *ShuffleRequest) ProtoSize() (n int) {
 	if l > 0 {
 		n += 1 + l + sovFlow(uint64(l))
 	}
-	l = len(m.ContentType)
-	if l > 0 {
-		n += 1 + l + sovFlow(uint64(l))
-	}
-	if m.Offset != 0 {
-		n += 1 + sovFlow(uint64(m.Offset))
-	}
-	if m.ReaderIndex != 0 {
-		n += 1 + sovFlow(uint64(m.ReaderIndex))
-	}
-	if len(m.ReaderRing) > 0 {
-		for _, e := range m.ReaderRing {
-			l = e.ProtoSize()
-			n += 1 + l + sovFlow(uint64(l))
-		}
+	l = m.Ring.ProtoSize()
+	n += 1 + l + sovFlow(uint64(l))
+	if m.Coordinator != 0 {
+		n += 1 + sovFlow(uint64(m.Coordinator))
 	}
 	if len(m.Shuffles) > 0 {
 		for _, e := range m.Shuffles {
@@ -1673,21 +1908,13 @@ func (m *ShuffleRequest) ProtoSize() (n int) {
 			n += 1 + l + sovFlow(uint64(l))
 		}
 	}
-	l = len(m.Coordinator)
-	if l > 0 {
-		n += 1 + l + sovFlow(uint64(l))
-	}
-	if m.Resolution != nil {
-		l = m.Resolution.ProtoSize()
-		n += 1 + l + sovFlow(uint64(l))
-	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
 	return n
 }
 
-func (m *ShuffleRequest_Shuffle) ProtoSize() (n int) {
+func (m *ShuffleConfig_Shuffle) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1707,6 +1934,30 @@ func (m *ShuffleRequest_Shuffle) ProtoSize() (n int) {
 	}
 	if m.ChooseFrom != 0 {
 		n += 1 + sovFlow(uint64(m.ChooseFrom))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ShuffleRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.Config.ProtoSize()
+	n += 1 + l + sovFlow(uint64(l))
+	if m.Offset != 0 {
+		n += 1 + sovFlow(uint64(m.Offset))
+	}
+	if m.RingIndex != 0 {
+		n += 1 + sovFlow(uint64(m.RingIndex))
+	}
+	if m.Resolution != nil {
+		l = m.Resolution.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -1862,10 +2113,10 @@ func (m *Ring) Unmarshal(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ClockLowerBound", wireType)
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
 			}
-			m.ClockLowerBound = 0
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowFlow
@@ -1875,16 +2126,136 @@ func (m *Ring) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.ClockLowerBound |= go_gazette_dev_core_message.Clock(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Members", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Members = append(m.Members, Ring_Member{})
+			if err := m.Members[len(m.Members)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Ring_Member) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Member: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Member: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinMsgClock", wireType)
+			}
+			m.MinMsgClock = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MinMsgClock |= go_gazette_dev_core_message.Clock(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 2:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TotalReaders", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxMsgClock", wireType)
 			}
-			m.TotalReaders = 0
+			m.MaxMsgClock = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowFlow
@@ -1894,7 +2265,7 @@ func (m *Ring) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.TotalReaders |= uint32(b&0x7F) << shift
+				m.MaxMsgClock |= go_gazette_dev_core_message.Clock(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1924,7 +2295,7 @@ func (m *Ring) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
+func (m *ShuffleConfig) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1947,10 +2318,10 @@ func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ShuffleRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: ShuffleConfig: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ShuffleRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ShuffleConfig: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1985,79 +2356,9 @@ func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
 			}
 			m.Journal = go_gazette_dev_core_broker_protocol.Journal(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContentType", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ContentType = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Offset", wireType)
-			}
-			m.Offset = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.Offset |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 4:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ReaderIndex", wireType)
-			}
-			m.ReaderIndex = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ReaderIndex |= int64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ReaderRing", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Ring", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -2084,12 +2385,30 @@ func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ReaderRing = append(m.ReaderRing, Ring{})
-			if err := m.ReaderRing[len(m.ReaderRing)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Ring.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 6:
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Coordinator", wireType)
+			}
+			m.Coordinator = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Coordinator |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Shuffles", wireType)
 			}
@@ -2118,76 +2437,8 @@ func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Shuffles = append(m.Shuffles, ShuffleRequest_Shuffle{})
+			m.Shuffles = append(m.Shuffles, ShuffleConfig_Shuffle{})
 			if err := m.Shuffles[len(m.Shuffles)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 7:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Coordinator", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Coordinator = go_gazette_dev_core_consumer_protocol.ShardID(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 8:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Resolution", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Resolution == nil {
-				m.Resolution = &protocol.Header{}
-			}
-			if err := m.Resolution.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -2216,7 +2467,7 @@ func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ShuffleRequest_Shuffle) Unmarshal(dAtA []byte) error {
+func (m *ShuffleConfig_Shuffle) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -2334,6 +2585,167 @@ func (m *ShuffleRequest_Shuffle) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ShuffleRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ShuffleRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Config", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Config.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Offset", wireType)
+			}
+			m.Offset = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Offset |= go_gazette_dev_core_broker_protocol.Offset(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RingIndex", wireType)
+			}
+			m.RingIndex = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RingIndex |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Resolution", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Resolution == nil {
+				m.Resolution = &protocol.Header{}
+			}
+			if err := m.Resolution.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipFlow(dAtA[iNdEx:])
