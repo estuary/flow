@@ -212,7 +212,7 @@ func servePrimary(s *shard) (err error) {
 		"log": s.recovery.log,
 	}).Info("promoted to primary")
 
-	var msgCh = make(chan readMessage, messageBufferSize)
+	var msgCh = make(chan EnvelopeOrError, messageBufferSize)
 
 	// Complete recovery log playback (if applicable) and restore the last
 	// transaction checkpoint.
@@ -298,14 +298,14 @@ func updateStatusWithRetry(s *shard, status pc.ReplicaStatus) {
 	}
 }
 
-// readMessage composes an Envelope with its read error.
-type readMessage struct {
+// EnvelopeOrError composes an Envelope with its read error.
+type EnvelopeOrError struct {
 	message.Envelope
-	err error
+	Error error
 }
 
 // startReadingMessages from source journals into the provided channel.
-func startReadingMessages(s *shard, cp pc.Checkpoint, ch chan<- readMessage) {
+func startReadingMessages(s *shard, cp pc.Checkpoint, ch chan<- EnvelopeOrError) {
 	for _, src := range s.Spec().Sources {
 
 		// Lower-bound checkpoint offset to the ShardSpec.Source.MinOffset.
@@ -326,9 +326,9 @@ func startReadingMessages(s *shard, cp pc.Checkpoint, ch chan<- readMessage) {
 		go func(it message.Iterator) {
 			defer s.wg.Done()
 
-			var v readMessage
-			for v.err == nil {
-				v.Envelope, v.err = it.Next()
+			var v EnvelopeOrError
+			for v.Error == nil {
+				v.Envelope, v.Error = it.Next()
 
 				// Attempt to place |v| even if context is cancelled,
 				// but don't hang if we're cancelled and buffer is full.

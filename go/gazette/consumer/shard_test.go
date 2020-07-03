@@ -29,7 +29,7 @@ func TestReadMessages(t *testing.T) {
 	<-aa.Done()
 	shard.Spec().Sources[0].MinOffset = aa.Response().Commit.End
 
-	var ch = make(chan readMessage, 12)
+	var ch = make(chan EnvelopeOrError, 12)
 	startReadingMessages(shard, cp, ch)
 
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "one"})
@@ -38,19 +38,19 @@ func TestReadMessages(t *testing.T) {
 	require.Equal(t, "two", (<-ch).Envelope.Message.(*testMessage).Key)
 
 	cleanup()
-	require.Regexp(t, `framing.Unmarshal\(offset \d+\): context canceled`, (<-ch).err)
+	require.Regexp(t, `framing.Unmarshal\(offset \d+\): context canceled`, (<-ch).Error)
 }
 
 func TestReadMessagesFailsWithUnknownJournal(t *testing.T) {
 	var _, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	var ch = make(chan readMessage, 12)
+	var ch = make(chan EnvelopeOrError, 12)
 	shard.resolved.spec.Sources[1].Journal = "yyy/zzz"
 
 	// Error is detected on first attempt at reading a message.
 	startReadingMessages(shard, pc.Checkpoint{}, ch)
-	require.EqualError(t, (<-ch).err,
+	require.EqualError(t, (<-ch).Error,
 		"fetching journal spec: named journal does not exist (yyy/zzz)")
 }
 
@@ -58,12 +58,12 @@ func TestReadMessagesFailsWithBadFraming(t *testing.T) {
 	var _, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
 
-	var ch = make(chan readMessage, 12)
+	var ch = make(chan EnvelopeOrError, 12)
 	shard.resolved.spec.Sources[1].Journal = shard.Spec().RecoveryLog()
 
 	// Error is detected on first attempt at reading a message.
 	startReadingMessages(shard, pc.Checkpoint{}, ch)
-	require.EqualError(t, (<-ch).err, "determining framing: unrecognized "+labels.ContentType+
+	require.EqualError(t, (<-ch).Error, "determining framing: unrecognized "+labels.ContentType+
 		" ("+labels.ContentType_RecoveryLog+")")
 }
 

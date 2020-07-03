@@ -18,7 +18,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 
 	var (
 		cp          = playAndComplete(t, shard)
-		msgCh       = make(chan readMessage, 1)
+		msgCh       = make(chan EnvelopeOrError, 1)
 		priorCommit = client.NewAsyncOperation()
 		priorAck    = client.NewAsyncOperation()
 		timer       = newTestTimer()
@@ -108,7 +108,7 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 
 	var (
 		cp          = playAndComplete(t, shard)
-		msgCh       = make(chan readMessage, 1)
+		msgCh       = make(chan EnvelopeOrError, 1)
 		priorCommit = client.NewAsyncOperation()
 		priorAck    = client.NewAsyncOperation()
 		timer       = newTestTimer()
@@ -191,7 +191,7 @@ func TestTxnMaxDurElapsesThenPriorSyncs(t *testing.T) {
 
 	var (
 		cp          = playAndComplete(t, shard)
-		msgCh       = make(chan readMessage, 1)
+		msgCh       = make(chan EnvelopeOrError, 1)
 		priorCommit = client.NewAsyncOperation()
 		priorAck    = client.NewAsyncOperation()
 		timer       = newTestTimer()
@@ -271,7 +271,7 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 
 	var (
 		cp    = playAndComplete(t, shard)
-		msgCh = make(chan readMessage, 1)
+		msgCh = make(chan EnvelopeOrError, 1)
 		timer = newTestTimer()
 		prior = transaction{
 			commitBarrier: client.FinishedOperation(nil),
@@ -362,8 +362,8 @@ func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {
 	}
 
 	// Use a read channel fixture which immediately cancels.
-	var readCh = make(chan readMessage, 1)
-	readCh <- readMessage{err: context.Canceled}
+	var readCh = make(chan EnvelopeOrError, 1)
+	readCh <- EnvelopeOrError{Error: context.Canceled}
 	require.Equal(t, context.Canceled, errors.Cause(runTransactions(shard, cp, readCh, nil)))
 
 	// Expect the ACK intent fixture is written to |echoOut|.
@@ -384,7 +384,7 @@ func TestRunTxnsUpdatesRecordedHints(t *testing.T) {
 
 	var (
 		cp      = playAndComplete(t, shard)
-		msgCh   = make(chan readMessage, 1)
+		msgCh   = make(chan EnvelopeOrError, 1)
 		hintsCh = make(chan time.Time, 1)
 	)
 	startReadingMessages(shard, cp, msgCh)
@@ -411,7 +411,7 @@ func TestRunTxnsAppErrorCases(t *testing.T) {
 
 	var (
 		cp    = playAndComplete(t, shard)
-		msgCh = make(chan readMessage, 1)
+		msgCh = make(chan EnvelopeOrError, 1)
 	)
 	startReadingMessages(shard, cp, msgCh)
 

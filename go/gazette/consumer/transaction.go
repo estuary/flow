@@ -13,7 +13,7 @@ import (
 
 // runTransactions runs consumer transactions. It consumes from the provided
 // |readCh| and, when notified by |hintsCh|, occasionally stores recorded FSMHints.
-func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan readMessage, hintsCh <-chan time.Time) error {
+func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, hintsCh <-chan time.Time) error {
 	var (
 		realTimer = time.NewTimer(0)
 		txnTimer  = txnTimer{
@@ -68,7 +68,7 @@ type transaction struct {
 	minDur, maxDur time.Duration      // Min/max processing durations. Set to -1 when elapsed.
 	waitForAck     bool               // Wait for ACKs of pending messages read this txn?
 	barrierCh      <-chan struct{}    // Next barrier of previous transaction to resolve.
-	readCh         <-chan readMessage // Message source. Nil'd upon reaching |maxDur|.
+	readCh         <-chan EnvelopeOrError // Message source. Nil'd upon reaching |maxDur|.
 	readThrough    pb.Offsets         // Offsets read through this transaction.
 	consumedCount  int                // Number of acknowledged Messages consumed.
 	consumedBytes  int64              // Number of acknowledged Message bytes consumed.
@@ -86,7 +86,7 @@ type transaction struct {
 }
 
 // txnInit initializes transaction |txn| in preparation to run.
-func txnInit(s *shard, txn, prev *transaction, readCh <-chan readMessage, timer txnTimer) {
+func txnInit(s *shard, txn, prev *transaction, readCh <-chan EnvelopeOrError, timer txnTimer) {
 	var spec = s.Spec()
 
 	*txn = transaction{
@@ -169,9 +169,9 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	return true, nil
 }
 
-func txnRead(s *shard, txn *transaction, env readMessage) error {
-	if env.err != nil {
-		return errors.WithMessage(env.err, "readMessage")
+func txnRead(s *shard, txn *transaction, env EnvelopeOrError) error {
+	if env.Error != nil {
+		return errors.WithMessage(env.Error, "readMessage")
 	}
 	txn.readThrough[env.Journal.Name] = env.End
 	s.sequencer.QueueUncommitted(env.Envelope)
