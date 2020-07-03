@@ -33,13 +33,12 @@ type RawJSONMeta struct {
 
 // NewRawJSONMeta returns a RawJSONMeta derived from the JournalSpec.
 func NewRawJSONMeta(spec *pb.JournalSpec) (*RawJSONMeta, error) {
-	// TODO(johnny): Handle `jsonparser`'s index "[0]" syntax.
 	var uuidPtr = spec.LabelSet.ValueOf(labels.UUIDPointer)
-
 	if len(uuidPtr) == 0 || uuidPtr[0] != '/' {
 		return nil, fmt.Errorf("invalid UUID pointer: %s", uuidPtr)
 	}
 
+	// TODO(johnny): Handle jsonparser's index "[0]" syntax.
 	var uuidPath = strings.Split(uuidPtr[1:], "/")
 	var ackTemplate, err = base64.StdEncoding.DecodeString(
 		spec.LabelSet.ValueOf(labels.ACKTemplate))
@@ -90,10 +89,13 @@ func (r *RawJSONMessage) GetUUID() message.UUID { return r.UUID }
 
 // SetUUID sets the value of the (pre-allocated) UUID within the RawJSON message.
 func (r *RawJSONMessage) SetUUID(uuid message.UUID) {
-	if val, err := findUUID(r.Raw, r.Meta.UUIDPath); err != nil {
+	if uuid.Version() != 1 {
+		panic("not a RFC 4122 v1 UUID")
+	} else if val, err := findUUID(r.Raw, r.Meta.UUIDPath); err != nil {
 		panic(err) // Already checked by UnmarshalJSON or NewAcknowledgement.
 	} else {
 		copy(val, uuid.String()[:])
+		r.UUID = uuid
 	}
 }
 
@@ -101,7 +103,7 @@ func (r *RawJSONMessage) SetUUID(uuid message.UUID) {
 // a placeholder UUID.
 func (r *RawJSONMessage) NewAcknowledgement(pb.Journal) message.Message {
 	var m = &RawJSONMessage{Meta: r.Meta}
-	if err := r.Raw.UnmarshalJSON(r.Meta.ACKTemplate); err != nil {
+	if err := m.Raw.UnmarshalJSON(r.Meta.ACKTemplate); err != nil {
 		panic(err) // Fails only if Raw is nil.
 	}
 	return m
@@ -120,7 +122,7 @@ func (r *RawJSONMessage) UnmarshalJSON(data []byte) error {
 	} else if val, err := findUUID(r.Raw, r.Meta.UUIDPath); err != nil {
 		return fmt.Errorf("failed to locate UUID within RawJSONMessage: %w", err)
 	} else if r.UUID, err = uuid.ParseBytes(val); err != nil {
-		return fmt.Errorf("failed to parse UUID: %w", err)
+		return fmt.Errorf("failed to parse UUID %s: %w", val, err)
 	} else if v := r.UUID.Version(); v != 1 {
 		return fmt.Errorf("%s is not a RFC 4122 v1 UUID (it's version %s)", r.UUID, v)
 	}
@@ -132,7 +134,7 @@ func findUUID(bytes []byte, uuidPath []string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch UUID: %w", err)
 	} else if typ != jsonparser.String || len(val) != 36 {
-		return nil, fmt.Errorf("message UUID format is invalid: %v", val)
+		return nil, fmt.Errorf("message UUID format is invalid: %s", val)
 	}
 	return val, nil
 }

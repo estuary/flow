@@ -13,4 +13,4 @@ require (
 	google.golang.org/grpc v1.28.0
 )
 
-replace go.gazette.dev/core => ../gazette
+replace go.gazette.dev/core => ../../gazette
