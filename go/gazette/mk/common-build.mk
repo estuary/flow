@@ -15,6 +15,12 @@ ${WORKDIR}/ci-builder-image.tar:
 	mkdir -p ${WORKDIR}
 	docker save -o ${WORKDIR}/ci-builder-image.tar gazette/ci-builder:latest
 
+host_os=$(shell uname -s)
+AS_CI_RUN_ARGS=
+ifeq ($(host_os),Linux)
+	AS_CI_RUN_ARGS = --user $(shell id -u):$(shell id -g) --group-add $(shell stat -c '%g' /var/run/docker.sock)
+endif
+
 # The as-ci rule recursively calls `make` _within_ a instance of the ci-builder-image,
 # and bind-mounting the gazette repository into the container. This rule allows for
 # idempotent gazette builds which exactly match those produced by the CI builder.
@@ -28,22 +34,29 @@ ${WORKDIR}/ci-builder-image.tar:
 #    cache, and the go build cache.
 #  * The Host's Docker socket is bind-mounted into the container, which has a docker
 #    client. This allows the ci-builder container to itself build Docker images.
+#
+# This will always run 'go mod download' before running the desired make target. This is
+# done because users of gazette libraries are also depending on this makefile and so
+# they need go to download the modules so that these files will be present before calling
+# make. End-to-end, the process is to use 'go mod download' to download the makefile within
+# the container, then the consumer's makefile will import this file, then make continues 
+# to build the target.
 as-ci: ci-builder-image
 	mkdir -p ${WORKDIR} ${WORKDIR}-ci
 	# Strip root prefix from WORKDIR to build its equivalent within the container. 
 	ROOT_CI=/gazette ;\
 	WORK_CI=$${ROOT_CI}$(subst ${ROOTDIR},,${WORKDIR}) ;\
-	docker run \
+	docker run ${AS_CI_RUN_ARGS} \
 		--rm \
 		--tty \
-		--user "$(shell id -u):$(shell id -g)" \
 		--mount src=${WORKDIR}-ci,target=$${WORK_CI},type=bind \
 		--mount src=${ROOTDIR},target=$${ROOT_CI},type=bind \
 		--env  GOPATH=$${WORK_CI}/go-path \
 		--env GOCACHE=$${WORK_CI}/go-build-cache \
 		--mount src=/var/run/docker.sock,target=/var/run/docker.sock,type=bind \
 		gazette/ci-builder /bin/sh -ec \
-			"make ${target} VERSION=${VERSION} DATE=${DATE} REGISTRY=${REGISTRY} RELEASE_TAG=${RELEASE_TAG}"
+			"go mod download && \
+				make ${target} VERSION=${VERSION} DATE=${DATE} REGISTRY=${REGISTRY} RELEASE_TAG=${RELEASE_TAG}"
 
 # Go build & test targets.
 go-install:   $(ROCKSDIR)/librocksdb.so $(protobuf-targets)
