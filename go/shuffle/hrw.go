@@ -1,4 +1,4 @@
-package flow
+package shuffle
 
 import (
 	"crypto/aes"

@@ -14,6 +14,89 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
+
+// UUIDParts is a deconstructed, RFC 4122 v1 variant Universally Unique Identifier
+// as used by Gazette.
+message UUIDParts {
+  option (gogoproto.equal) = true;
+
+  // Producer is the unique node identifier portion of a v1 UUID, as the high
+  // 48 bits of |producer_and_flags|. The MSB must be 1 to mark this producer
+  // as "multicast" and not an actual MAC address (as per RFC 4122).
+  //
+  // Bits 49-54 must be zero.
+  //
+  // The low 10 bits are the 10 least-significant bits of the v1 UUID clock
+  // sequence, used by Gazette to represent flags over message transaction
+  // semantics.
+  fixed64 producer_and_flags = 1;
+  // Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of
+  // sequence counter.
+  fixed64 clock = 2 
+        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+}
+
+// Field is a value extracted from a given Document location.
+message Field {
+  enum Type {
+    INVALID = 0;
+    NULL = 1;
+    TRUE = 2;
+    FALSE = 3;
+    STRING = 4;
+    UNSIGNED = 5;
+    SIGNED = 6;
+    NUMBER = 7;
+    OBJECT = 8;
+    ARRAY = 9;
+  }
+  Type type = 1;
+
+  string string = 2;
+  uint64 unsigned = 3;
+  int64 signed = 4;
+  float number = 5;
+  bytes object = 6;
+  bytes array = 7;
+};
+
+// Document is a standardized runtime representation of an Estuary document.
+// It holds a super-set of properties used by various APIs in processing
+// documents, and not all properties need be set in a given API context.
+message Document {
+  // The begin offset of the document within the journal, if applicable.
+  int64 journal_begin_offset = 1
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // The end offset of the document within the journal, if applicable.
+  int64 journal_end_offset = 2
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // ContentType is the encoding used for Document |content|.
+  enum ContentType {
+    INVALID = 0;
+    JSON = 1;
+    // Future ContentTypes may include CBOR or tape-based representations.
+  };
+  ContentType content_type = 3;
+  // Content of the document, encoded under the accompanying ContentType.
+  bytes content = 4;
+  // UUIDParts of this document.
+  UUIDParts uuid_parts = 5 [(gogoproto.nullable) = false];
+  // Hash of a composite key extracted from this Document, if applicable.
+  fixed64 hash_key = 6;
+  // Field values extracted from this Document, if applicable.
+  repeated Field fields = 7;
+  // Shuffles of this document.
+  message Shuffle {
+    // Member index within the worker ring to which the document is shuffled.
+    uint32 member_index = 1;
+    // Transform ID to which the document is shuffled.
+    uint32 transform_id = 2;
+    // Highest-random weight from rendezvous hashing the document into the ring.
+    fixed32 hrw = 3;
+  }
+  repeated Shuffle shuffles = 8;
+}
+
 message Ring {
   option (gogoproto.equal) = true;
 
@@ -53,8 +136,8 @@ message ShuffleConfig {
   message Shuffle {
     option (gogoproto.equal) = true;
 
-    // ID by which this Shuffle should be identified within ShuffleResponses.
-    int64 id = 1;
+    // Transform ID for which this Shuffle is being applied.
+    int64 transform_id = 1;
     // Composite key over which shuffling occurs, specified as one or more
     // JSON-Pointers indicating a message location to extract.
     repeated string shuffle_key_ptr = 2;
@@ -95,20 +178,19 @@ message ShuffleResponse {
   consumer.Status status = 1;
   // Header of the response.
   protocol.Header header = 2;
-
-  // Document matched to this reader and included in this ShuffleResponse.
-  message Document {
-    // The begin offset of the document within the journal.
-    int64 journal_begin_offset = 2
-        [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
-    // Bytes of the document, exactly as encoded within the journal,
-    // including framing.
-    bytes journal_bytes = 3;
-    // One or more request shuffle IDs which matched this document.
-    repeated int64 shuffle_ids = 4;
-  }
   // Documents included in this ShuffleResponse.
   repeated Document documents = 3 [ (gogoproto.nullable) = false ];
+  // Terminal error encountered while serving this ShuffleRequest. A terminal
+  // error is only sent if a future ShuffleRequest of this same configuration
+  // and offset will fail in the exact same way, and operator intervention is
+  // required to properly recover. Such errors are returned so that the caller
+  // can also abort with a useful, contextual error message.
+  //
+  // Examples of terminal errors include the requested journal not existing,
+  // or data corruption. Errors *not* returned as |terminal_error| include
+  // network errors, process failures, and other conditions which can be
+  // retried.
+  string terminal_error = 4;
 }
 
 service Shuffler {
@@ -185,10 +267,7 @@ message DeriveRequest {
   DeriveState state = 1;
 
   // Source collection documents to derive from. Set iff state == EXTEND.
-  repeated bytes documents = 2;
-  // One or more transforms to which documents of this DeriveRequest should be
-  // dispatched. Set iff state == EXTEND.
-  repeated int64 transform_ids = 3;
+  repeated Document documents = 2 [ (gogoproto.nullable) = false ];
   // Checkpoint to commit. Set iff state == PREPARE.
   consumer.Checkpoint checkpoint = 4;
 }
@@ -198,10 +277,32 @@ message DeriveResponse {
   DeriveState state = 1;
 
   // Documents derived from request documents. Set iff state == EXTEND.
-  repeated bytes documents = 2;
-  // Logical partition fields and JSON values of these documents
-  // in the derived collection. Set iff state == EXTEND.
-  map<string, string> partitions = 3;
+  repeated Document documents = 2 [ (gogoproto.nullable) = false ];
+  // Names of associated logical partition fields extracted from |documents|.
+  // Arity and ordering matches Document.fields.
+  repeated string field_names = 3;
+};
+
+message ExtractRequest {
+  // Documents to extract from.
+  repeated Document documents = 1 [ (gogoproto.nullable) = false ];
+  // JSON pointer of document UUID.
+  string uuid_key = 2;
+  // Composite key of JSON pointers to extract and hash from documents.
+  repeated string hash_key = 3;
+  // Field names and JSON pointers to extract from documents.
+  message Field {
+    // Name of field to extract.
+    string name = 1;
+    // JSON Pointer of field location within documents.
+    string ptr = 2;
+  }
+  repeated Field fields = 4;
+};
+
+message ExtractResponse {
+  // Documents with |uuid|, |hash_key|, and/or |fields| populated as per the request.
+  repeated Document documents = 1 [ (gogoproto.nullable) = false ];
 };
 
 service Derive {
@@ -220,4 +321,6 @@ service Derive {
   // the local filesystem state produced by this derive worker. It may block
   // while pending operations sync to the recovery log.
   rpc BuildHints(google.protobuf.Empty) returns (recoverylog.FSMHints);
+
+  rpc Extract(ExtractRequest) returns (ExtractResponse);
 }
