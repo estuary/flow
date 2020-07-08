@@ -23,6 +23,9 @@ func (s *NodeSuite) TestValidationCases(c *gc.C) {
 	node.Revision = 0
 	c.Check(node.Validate(), gc.ErrorMatches, `expected one or more Children`)
 
+	node.Revision = -1
+	c.Check(node.Validate(), gc.ErrorMatches, `expected one or more Children`)
+
 	node.Children = append(node.Children,
 		Node{Spec: pb.JournalSpec{Name: "foo"}},
 		Node{Spec: pb.JournalSpec{Name: "bar"}})

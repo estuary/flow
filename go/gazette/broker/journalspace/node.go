@@ -67,7 +67,7 @@ func (n Node) IsDir() bool { return len(n.Spec.Name) == 0 || n.Spec.Name[len(n.S
 // checked separately.
 func (n *Node) Validate() error {
 	if n.IsDir() {
-		if n.Revision != 0 {
+		if n.Revision != 0 && n.Revision != -1 {
 			return pb.NewValidationError("unexpected Revision (%d)", n.Revision)
 		} else if len(n.Children) == 0 {
 			return pb.NewValidationError("expected one or more Children")
