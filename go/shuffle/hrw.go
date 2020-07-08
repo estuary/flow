@@ -13,13 +13,6 @@ type rendezvous struct {
 	cfg pf.ShuffleConfig
 	// Weights of each ring member, of length len(cfg.Ring.Members).
 	weights []uint32
-	// Temporary that's re-used storage for ranking evaluation.
-	tmp []rank
-}
-
-type rank struct {
-	ind int32
-	hrw uint32
 }
 
 func newRendezvous(cfg pf.ShuffleConfig) rendezvous {
@@ -29,51 +22,59 @@ func newRendezvous(cfg pf.ShuffleConfig) rendezvous {
 	var r = rendezvous{
 		cfg:     cfg,
 		weights: generateStableWeights(len(cfg.Ring.Members)),
-		tmp:     make([]rank, 0, len(cfg.Ring.Members)),
 	}
 	return r
 }
 
-func (m *rendezvous) pick(shuffle int, hash uint32, clock message.Clock) []rank {
+func (m *rendezvous) pick(shuffle int, hash uint32, clock message.Clock, out []pf.Document_Shuffle) []pf.Document_Shuffle {
 	var (
-		ranks = m.tmp[:0]
-		B     = m.cfg.Shuffles[shuffle].BroadcastTo
-		C     = m.cfg.Shuffles[shuffle].ChooseFrom
-		N     = B // N is larger of B & C.
+		B = m.cfg.Shuffles[shuffle].BroadcastTo
+		C = m.cfg.Shuffles[shuffle].ChooseFrom
+		// First and last index of |out| to accumulate into (exclusive).
+		begin = len(out)
+		end   = begin + int(B+C) // Note that B or C must be zero.
 	)
-	if C > N {
-		N = C
-	}
 
+	// Rendezvous-hash to accumulate a window of size no larger than |end-begin|,
+	// holding the top-ranked mappings of this hash to ring members.
 	for i, bounds := range m.cfg.Ring.Members {
-		var cur = rank{hrw: hashCombine(hash, m.weights[i]), ind: int32(i)}
-
-		var r = uint32(len(ranks))
-		for ; r != 0 && ranks[r-1].hrw < cur.hrw; r-- {
+		var cur = pf.Document_Shuffle{
+			RingIndex:   uint32(i),
+			TransformId: uint32(shuffle),
+			Hrw:         hashCombine(hash, m.weights[i]),
 		}
 
-		if r >= N {
-			// Member |i| is too low-rank to fall within our ranking window.
+		var r = len(out)
+		for ; r != begin && out[r-1].Hrw < cur.Hrw; r-- {
+		}
+
+		if r == end {
+			// Member is too low-rank to be placed within our ranking window.
 		} else if bounds.MinMsgClock != 0 && bounds.MinMsgClock > clock {
 			// Outside minimum clock bound.
 		} else if bounds.MaxMsgClock != 0 && bounds.MaxMsgClock < clock {
 			// Outside maximum clock bound.
 		} else {
-			if N != uint32(len(ranks)) {
-				ranks = append(ranks, cur)
+			if len(out) != end {
+				out = append(out, cur)
 			}
 			// Shift, discarding bottom entry.
-			copy(ranks[r+1:], ranks[r:])
-			ranks[r] = cur
+			copy(out[r+1:], out[r:])
+			out[r] = cur
 		}
 	}
 
-	// If choosing among N, select a pseudo-random member via clock modulo.
-	if C != 0 {
-		var ind = int(clock) % len(ranks)
-		return ranks[ind : ind+1]
+	if B != 0 {
+		return out // Broadcast to the entire ranked window.
 	}
-	return ranks
+
+	// We're choosing 1 member from amoung the window. Select a pseudo-random
+	// member (via Clock modulo), pivot it to |begin|, and truncate the remainder
+	// of the returned window. Note that there may be fewer members than |C|.
+
+	var swap = int(clock) % (len(out) - begin)
+	out[begin] = out[begin+swap]
+	return out[:begin+1]
 }
 
 func hashCombine(a, b uint32) uint32 {

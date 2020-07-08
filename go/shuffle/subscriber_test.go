@@ -8,6 +8,64 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
+func TestSubscriberResponseStaging(t *testing.T) {
+	// Document fixtures with Shuffle outcomes, to be staged for sending.
+	var docs = [3]pf.Document{
+		{
+			Shuffles: []pf.Document_Shuffle{
+				{RingIndex: 1, TransformId: 10},
+				{RingIndex: 1, TransformId: 20},
+				{RingIndex: 2, TransformId: 10},
+			},
+			Content: []byte("one"),
+		},
+		{
+			Content: []byte("two"),
+		},
+		{
+			Shuffles: []pf.Document_Shuffle{
+				{RingIndex: 0, TransformId: 5},
+				{RingIndex: 0, TransformId: 6},
+				{RingIndex: 1, TransformId: 6},
+			},
+			Content: []byte("three"),
+		},
+	}
+
+	var s = make(subscribers, 4)
+	s.stageResponses(docs[:])
+
+	// Expected staged outcomes.
+	require.Equal(t, subscribers{
+		{response: pf.ShuffleResponse{
+			Documents: []pf.Document{docs[1], docs[2]},
+		}},
+		{response: pf.ShuffleResponse{
+			Documents: []pf.Document{docs[0], docs[1], docs[2]},
+		}},
+		{response: pf.ShuffleResponse{
+			Documents: []pf.Document{docs[0], docs[1]},
+		}},
+		{response: pf.ShuffleResponse{
+			Documents: []pf.Document{docs[1]},
+		}},
+	}, s)
+
+	// Expect the next staged response clears the prior.
+	s.stageResponses(docs[2:])
+	require.Equal(t, subscribers{
+		{response: pf.ShuffleResponse{
+			Documents: []pf.Document{docs[2]},
+		}},
+		{response: pf.ShuffleResponse{
+			Documents: []pf.Document{docs[2]},
+		}},
+		{response: pf.ShuffleResponse{Documents: []pf.Document{}}},
+		{response: pf.ShuffleResponse{Documents: []pf.Document{}}},
+	}, s)
+
+}
+
 func TestSubscriberAddCases(t *testing.T) {
 	// Case: First subscriber, at offset 0.
 	var s = subscribers{{}, {}, {}}

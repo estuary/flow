@@ -69,85 +69,127 @@ func TestRankingCases(t *testing.T) {
 	var cases = []struct {
 		hash   uint32
 		clock  message.Clock
-		expect []rank
+		expect []pf.Document_Shuffle
 	}{
 		// Regression tests, demonstrating mixing.
 		{
-			hash:   hash("a"),
-			clock:  2000,
-			expect: []rank{{ind: 4, hrw: 0xc8ed7884}, {ind: 2, hrw: 0xc7920930}, {ind: 3, hrw: 0x6e7f3905}},
+			hash:  hash("a"),
+			clock: 2000,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 4, Hrw: 0xc8ed7884},
+				{RingIndex: 2, Hrw: 0xc7920930},
+				{RingIndex: 3, Hrw: 0x6e7f3905},
+			},
 		},
 		{
-			hash:   hash("b"),
-			clock:  2000,
-			expect: []rank{{ind: 3, hrw: 0xac381272}, {ind: 0, hrw: 0x89031ee2}, {ind: 1, hrw: 0x6d0d23dc}},
+			hash:  hash("b"),
+			clock: 2000,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 3, Hrw: 0xac381272},
+				{RingIndex: 0, Hrw: 0x89031ee2},
+				{RingIndex: 1, Hrw: 0x6d0d23dc},
+			},
 		},
 		{
-			hash:   hash("c"),
-			clock:  2000,
-			expect: []rank{{ind: 3, hrw: 0xecfff620}, {ind: 0, hrw: 0xcbc2e1b0}, {ind: 1, hrw: 0xafcc8546}},
+			hash:  hash("c"),
+			clock: 2000,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 3, Hrw: 0xecfff620},
+				{RingIndex: 0, Hrw: 0xcbc2e1b0},
+				{RingIndex: 1, Hrw: 0xafcc8546},
+			},
 		},
 		{
-			hash:   hash("d"),
-			clock:  2000,
-			expect: []rank{{ind: 1, hrw: 0xe9728b2f}, {ind: 4, hrw: 0x8d2c064a}, {ind: 2, hrw: 0x83d0d4de}},
+			hash:  hash("d"),
+			clock: 2000,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 1, Hrw: 0xe9728b2f},
+				{RingIndex: 4, Hrw: 0x8d2c064a},
+				{RingIndex: 2, Hrw: 0x83d0d4de},
+			},
 		},
 		{
-			hash:   hash("e"),
-			clock:  2000,
-			expect: []rank{{ind: 4, hrw: 0xcbd39ff5}, {ind: 2, hrw: 0xc290a969}, {ind: 3, hrw: 0x697d5976}},
+			hash:  hash("e"),
+			clock: 2000,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 4, Hrw: 0xcbd39ff5},
+				{RingIndex: 2, Hrw: 0xc290a969},
+				{RingIndex: 3, Hrw: 0x697d5976}},
 		},
 
 		// Index 3 is rank-one for this value, but the clock falls outside its minimum bound.
 		{
-			hash:   hash("b"),
-			clock:  500,
-			expect: []rank{{ind: 0, hrw: 0x89031ee2}, {ind: 1, hrw: 0x6d0d23dc}, {ind: 4, hrw: 0xaaeacf3}},
+			hash:  hash("b"),
+			clock: 500,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 0, Hrw: 0x89031ee2},
+				{RingIndex: 1, Hrw: 0x6d0d23dc},
+				{RingIndex: 4, Hrw: 0x0aaeacf3},
+			},
 		},
 		// Index 4 is rank-two, but the clock falls outside its maximum bound.
 		{
-			hash:   hash("d"),
-			clock:  3500,
-			expect: []rank{{ind: 1, hrw: 0xe9728b2f}, {ind: 2, hrw: 0x83d0d4de}, {ind: 3, hrw: 0x28bdc4c9}},
+			hash:  hash("d"),
+			clock: 3500,
+			expect: []pf.Document_Shuffle{
+				{RingIndex: 1, Hrw: 0xe9728b2f},
+				{RingIndex: 2, Hrw: 0x83d0d4de},
+				{RingIndex: 3, Hrw: 0x28bdc4c9},
+			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Logf("hash %x clock %v", tc.hash, tc.clock)
-		require.Equal(t, tc.expect, r.pick(0, tc.hash, tc.clock))
+
+		var prefix = [2]pf.Document_Shuffle{
+			{RingIndex: 12, TransformId: 34, Hrw: 56},
+			{RingIndex: 78, TransformId: 90, Hrw: 11},
+		}
+		var out = r.pick(0, tc.hash, tc.clock, prefix[:])
+
+		require.Equal(t, prefix[:], out[:2]) // Expect the prefix fixture was passed through.
+		require.Equal(t, tc.expect, out[2:]) // And expected shuffles were appended.
 	}
 
 	// For these cases, use the second "choose" shuffle.
 	cases = []struct {
 		hash   uint32
 		clock  message.Clock
-		expect []rank
+		expect []pf.Document_Shuffle
 	}{
 		// One of the top-N processers is selected, depending on the clock.
 		{
 			hash:   hash("a"),
 			clock:  2000,
-			expect: []rank{{ind: 3, hrw: 0x6e7f3905}},
+			expect: []pf.Document_Shuffle{{RingIndex: 3, TransformId: 1, Hrw: 0x6e7f3905}},
 		},
 		{
 			hash:   hash("a"),
 			clock:  2001,
-			expect: []rank{{ind: 4, hrw: 0xc8ed7884}},
+			expect: []pf.Document_Shuffle{{RingIndex: 4, TransformId: 1, Hrw: 0xc8ed7884}},
 		},
 		{
 			hash:   hash("a"),
 			clock:  2002,
-			expect: []rank{{ind: 2, hrw: 0xc7920930}},
+			expect: []pf.Document_Shuffle{{RingIndex: 2, TransformId: 1, Hrw: 0xc7920930}},
 		},
 		{
 			hash:   hash("a"),
 			clock:  2003,
-			expect: []rank{{ind: 3, hrw: 0x6e7f3905}},
+			expect: []pf.Document_Shuffle{{RingIndex: 3, TransformId: 1, Hrw: 0x6e7f3905}},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Logf("hash %x clock %v", tc.hash, tc.clock)
-		require.Equal(t, tc.expect, r.pick(1, tc.hash, tc.clock))
+
+		var prefix = [1]pf.Document_Shuffle{
+			{RingIndex: 12, TransformId: 34, Hrw: 56},
+		}
+		var out = r.pick(1, tc.hash, tc.clock, prefix[:])
+
+		require.Equal(t, prefix[:], out[:1])
+		require.Equal(t, tc.expect, out[1:])
 	}
 }

@@ -85,16 +85,21 @@ message Document {
   fixed64 hash_key = 6;
   // Field values extracted from this Document, if applicable.
   repeated Field fields = 7;
-  // Shuffles of this document.
+  // Shuffle records a shuffling outcome of mapping this Document into a ring
+  // of readers. Documents may be shuffled to multiple ring locations with
+  // the same or different transforms. They may also be mapped to a specific
+  // location with multiple transforms (or both!).
   message Shuffle {
-    // Member index within the worker ring to which the document is shuffled.
-    uint32 member_index = 1;
+    // Index within the worker ring to which the document is shuffled.
+    uint32 ring_index = 1;
     // Transform ID to which the document is shuffled.
     uint32 transform_id = 2;
     // Highest-random weight from rendezvous hashing the document into the ring.
     fixed32 hrw = 3;
   }
-  repeated Shuffle shuffles = 8;
+  // Shuffles is the set of Shuffle outcomes for this Document.
+  // It must be ordered and unique on ascending (ring_index, transform_id).
+  repeated Shuffle shuffles = 8 [(gogoproto.nullable) = false];
 }
 
 message Ring {
