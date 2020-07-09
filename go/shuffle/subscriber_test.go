@@ -10,7 +10,7 @@ import (
 
 func TestSubscriberResponseStaging(t *testing.T) {
 	// Document fixtures with Shuffle outcomes, to be staged for sending.
-	var docs = [3]pf.Document{
+	var docs = []pf.Document{
 		{
 			Shuffles: []pf.Document_Shuffle{
 				{RingIndex: 1, TransformId: 10},
@@ -18,9 +18,13 @@ func TestSubscriberResponseStaging(t *testing.T) {
 				{RingIndex: 2, TransformId: 10},
 			},
 			Content: []byte("one"),
+			Begin:   100,
+			End:     200,
 		},
 		{
 			Content: []byte("two"),
+			Begin:   200,
+			End:     300,
 		},
 		{
 			Shuffles: []pf.Document_Shuffle{
@@ -29,41 +33,72 @@ func TestSubscriberResponseStaging(t *testing.T) {
 				{RingIndex: 1, TransformId: 6},
 			},
 			Content: []byte("three"),
+			Begin:   300,
+			End:     400,
 		},
 	}
 
-	var s = make(subscribers, 4)
-	s.stageResponses(docs[:])
+	var s = subscribers{
+		{},
+		{},
+		{request: pf.ShuffleRequest{Offset: 200}},
+		{request: pf.ShuffleRequest{Offset: 500}},
+	}
+	s.stageResponses(pf.ShuffleResponse{Documents: docs})
 
 	// Expected staged outcomes.
 	require.Equal(t, subscribers{
-		{response: pf.ShuffleResponse{
-			Documents: []pf.Document{docs[1], docs[2]},
-		}},
-		{response: pf.ShuffleResponse{
-			Documents: []pf.Document{docs[0], docs[1], docs[2]},
-		}},
-		{response: pf.ShuffleResponse{
-			Documents: []pf.Document{docs[0], docs[1]},
-		}},
-		{response: pf.ShuffleResponse{
-			Documents: []pf.Document{docs[1]},
-		}},
+		{
+			request: pf.ShuffleRequest{Offset: 400},
+			response: pf.ShuffleResponse{
+				Documents: []pf.Document{docs[1], docs[2]},
+			}},
+		{
+			request: pf.ShuffleRequest{Offset: 400},
+			response: pf.ShuffleResponse{
+				Documents: []pf.Document{docs[0], docs[1], docs[2]},
+			}},
+		{
+			request: pf.ShuffleRequest{Offset: 300},
+			response: pf.ShuffleResponse{
+				// docs[0] matches, but is filtered by the requested offest.
+				Documents: []pf.Document{docs[1]},
+			}},
+		{
+			request: pf.ShuffleRequest{Offset: 500},
+			// docs[1] is filtered by the requested offset.
+		},
 	}, s)
 
+	docs = []pf.Document{
+		{
+			Shuffles: []pf.Document_Shuffle{
+				{RingIndex: 0, TransformId: 7},
+				{RingIndex: 3, TransformId: 8},
+			},
+			Content: []byte("four"),
+			Begin:   400,
+			End:     500,
+		},
+	}
 	// Expect the next staged response clears the prior.
-	s.stageResponses(docs[2:])
-	require.Equal(t, subscribers{
-		{response: pf.ShuffleResponse{
-			Documents: []pf.Document{docs[2]},
-		}},
-		{response: pf.ShuffleResponse{
-			Documents: []pf.Document{docs[2]},
-		}},
-		{response: pf.ShuffleResponse{Documents: []pf.Document{}}},
-		{response: pf.ShuffleResponse{Documents: []pf.Document{}}},
-	}, s)
+	s.stageResponses(pf.ShuffleResponse{Documents: docs})
 
+	require.Equal(t, subscribers{
+		{
+			request:  pf.ShuffleRequest{Offset: 500},
+			response: pf.ShuffleResponse{Documents: docs},
+		},
+		{
+			request:  pf.ShuffleRequest{Offset: 400},
+			response: pf.ShuffleResponse{Documents: []pf.Document{}},
+		},
+		{
+			request:  pf.ShuffleRequest{Offset: 300},
+			response: pf.ShuffleResponse{Documents: []pf.Document{}},
+		},
+		{request: pf.ShuffleRequest{Offset: 500}}, // Still filtered by offset.
+	}, s)
 }
 
 func TestSubscriberAddCases(t *testing.T) {

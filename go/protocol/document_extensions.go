@@ -25,6 +25,15 @@ func (parts *UUIDParts) Pack() message.UUID {
 	)
 }
 
+// Less returns true if this Document_Shuffle orders before |other|,
+// under the Shuffle's (RingIndex, TransformId) ordering.
+func (s Document_Shuffle) Less(other Document_Shuffle) bool {
+	if s.RingIndex != other.RingIndex {
+		return s.RingIndex < other.RingIndex
+	}
+	return s.TransformId < other.TransformId
+}
+
 // GetUUID fetches the UUID of the Document.
 func (d *Document) GetUUID() message.UUID { return d.UuidParts.Pack() }
 

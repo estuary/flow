@@ -14,9 +14,8 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-
-// UUIDParts is a deconstructed, RFC 4122 v1 variant Universally Unique Identifier
-// as used by Gazette.
+// UUIDParts is a deconstructed, RFC 4122 v1 variant Universally Unique
+// Identifier as used by Gazette.
 message UUIDParts {
   option (gogoproto.equal) = true;
 
@@ -32,8 +31,8 @@ message UUIDParts {
   fixed64 producer_and_flags = 1;
   // Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of
   // sequence counter.
-  fixed64 clock = 2 
-        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+  fixed64 clock = 2
+      [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
 }
 
 // Field is a value extracted from a given Document location.
@@ -65,10 +64,10 @@ message Field {
 // documents, and not all properties need be set in a given API context.
 message Document {
   // The begin offset of the document within the journal, if applicable.
-  int64 journal_begin_offset = 1
+  int64 begin = 1
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // The end offset of the document within the journal, if applicable.
-  int64 journal_end_offset = 2
+  int64 end = 2
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // ContentType is the encoding used for Document |content|.
   enum ContentType {
@@ -80,7 +79,7 @@ message Document {
   // Content of the document, encoded under the accompanying ContentType.
   bytes content = 4;
   // UUIDParts of this document.
-  UUIDParts uuid_parts = 5 [(gogoproto.nullable) = false];
+  UUIDParts uuid_parts = 5 [ (gogoproto.nullable) = false ];
   // Hash of a composite key extracted from this Document, if applicable.
   fixed64 hash_key = 6;
   // Field values extracted from this Document, if applicable.
@@ -99,7 +98,7 @@ message Document {
   }
   // Shuffles is the set of Shuffle outcomes for this Document.
   // It must be ordered and unique on ascending (ring_index, transform_id).
-  repeated Shuffle shuffles = 8 [(gogoproto.nullable) = false];
+  repeated Shuffle shuffles = 8 [ (gogoproto.nullable) = false ];
 }
 
 message Ring {
@@ -306,7 +305,8 @@ message ExtractRequest {
 };
 
 message ExtractResponse {
-  // Documents with |uuid|, |hash_key|, and/or |fields| populated as per the request.
+  // Documents with |uuid|, |hash_key|, and/or |fields| populated as per the
+  // request.
   repeated Document documents = 1 [ (gogoproto.nullable) = false ];
 };
 

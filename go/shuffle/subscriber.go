@@ -23,7 +23,6 @@ func distribute(
 			// ACK documents have no shuffles, and go to all readers.
 			continue
 		}
-
 		for e := range extracts {
 			docs[d].Shuffles = rendezvous.pick(e,
 				uint32(extracts[e].Documents[d].HashKey),
@@ -40,29 +39,39 @@ type subscriber struct {
 	doneCh   chan error
 }
 
+func (s *subscriber) stageDoc(doc pf.Document) {
+	if s.request.Offset <= doc.Begin {
+		s.response.Documents = append(s.response.Documents, doc)
+		s.request.Offset = doc.End
+	}
+}
+
 type subscribers []subscriber
 
-func (s *subscribers) stageResponses(docs []pf.Document) {
+func (s subscribers) stageResponses(response pf.ShuffleResponse) {
 	// Clear previous staged responses, retaining slices for re-use.
-	for ind := range *s {
-		(*s)[ind].response.Documents = (*s)[ind].response.Documents[:0]
+	// Also pass-through any terminal error to all subscribers.
+	for ind := range s {
+		s[ind].response.Documents = s[ind].response.Documents[:0]
+		s[ind].response.TerminalError = response.TerminalError
 	}
-	for _, doc := range docs {
-		// ACK documents have no Shuffles, and are sent to all members.
+	for _, doc := range response.Documents {
+		// ACKs (indicated here by having no shuffles) are broadcast to all members.
 		if doc.Shuffles == nil {
-			for ind := range *s {
-				(*s)[ind].response.Documents = append(
-					(*s)[ind].response.Documents, doc)
+			for ind := range s {
+				s[ind].stageDoc(doc)
 			}
 			continue
 		}
-		// Add each document to each shuffled member -- but only one time
-		// (it may have multiple transforms for a single member).
-		var last uint32 = uint32(len(*s))
-		for _, shuffle := range doc.Shuffles {
+		// Add each document to each shuffled member -- but only add once
+		// (a doc may have multiple transforms for a single ring member).
+		var last uint32 = uint32(len(s))
+		for ind, shuffle := range doc.Shuffles {
+			if ind != 0 && doc.Shuffles[ind].Less(doc.Shuffles[ind-1]) {
+				panic("shuffles are not ordered")
+			}
 			if shuffle.RingIndex != last {
-				(*s)[shuffle.RingIndex].response.Documents = append(
-					(*s)[shuffle.RingIndex].response.Documents, doc)
+				s[shuffle.RingIndex].stageDoc(doc)
 				last = shuffle.RingIndex
 			}
 		}
