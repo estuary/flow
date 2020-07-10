@@ -14,18 +14,19 @@ func distribute(
 	cfg pf.ShuffleConfig,
 	rendezvous rendezvous,
 	docs []pf.Document,
-	extracts []pf.ExtractResponse,
+	uuids []pf.UUIDParts,
+	hashes []pf.Hash,
 ) {
 	for d := range docs {
-		docs[d].UuidParts = extracts[0].Documents[d].UuidParts
+		docs[d].UuidParts = uuids[d]
 
 		if message.Flags(docs[d].UuidParts.ProducerAndFlags) == message.Flag_ACK_TXN {
 			// ACK documents have no shuffles, and go to all readers.
 			continue
 		}
-		for e := range extracts {
-			docs[d].Shuffles = rendezvous.pick(e,
-				uint32(extracts[e].Documents[d].HashKey),
+		for h := range hashes {
+			docs[d].Shuffles = rendezvous.pick(h,
+				hashes[h].Values[d],
 				docs[d].UuidParts.Clock,
 				docs[d].Shuffles)
 		}
@@ -50,7 +51,7 @@ type subscribers []subscriber
 
 func (s subscribers) stageResponses(response pf.ShuffleResponse) {
 	// Clear previous staged responses, retaining slices for re-use.
-	// Also pass-through any terminal error to all subscribers.
+	// Also pass-through a TerminalError to all subscribers.
 	for ind := range s {
 		s[ind].response.Documents = s[ind].response.Documents[:0]
 		s[ind].response.TerminalError = response.TerminalError

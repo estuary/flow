@@ -35,30 +35,6 @@ message UUIDParts {
       [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
 }
 
-// Field is a value extracted from a given Document location.
-message Field {
-  enum Type {
-    INVALID = 0;
-    NULL = 1;
-    TRUE = 2;
-    FALSE = 3;
-    STRING = 4;
-    UNSIGNED = 5;
-    SIGNED = 6;
-    NUMBER = 7;
-    OBJECT = 8;
-    ARRAY = 9;
-  }
-  Type type = 1;
-
-  string string = 2;
-  uint64 unsigned = 3;
-  int64 signed = 4;
-  float number = 5;
-  bytes object = 6;
-  bytes array = 7;
-};
-
 // Document is a standardized runtime representation of an Estuary document.
 // It holds a super-set of properties used by various APIs in processing
 // documents, and not all properties need be set in a given API context.
@@ -80,10 +56,6 @@ message Document {
   bytes content = 4;
   // UUIDParts of this document.
   UUIDParts uuid_parts = 5 [ (gogoproto.nullable) = false ];
-  // Hash of a composite key extracted from this Document, if applicable.
-  fixed64 hash_key = 6;
-  // Field values extracted from this Document, if applicable.
-  repeated Field fields = 7;
   // Shuffle records a shuffling outcome of mapping this Document into a ring
   // of readers. Documents may be shuffled to multiple ring locations with
   // the same or different transforms. They may also be mapped to a specific
@@ -128,8 +100,6 @@ message ShuffleConfig {
   // Journal to be shuffled.
   string journal = 1
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
-  // Content-Type label of the Journal.
-  // string content_type = 2;
   // Ring on whose behalf this journal is being shuffled.
   Ring ring = 3 [ (gogoproto.nullable) = false ];
   // Coordinator is the ring member index which is responsible for shuffled
@@ -290,10 +260,13 @@ message DeriveResponse {
 message ExtractRequest {
   // Documents to extract from.
   repeated Document documents = 1 [ (gogoproto.nullable) = false ];
-  // JSON pointer of document UUID.
-  string uuid_key = 2;
-  // Composite key of JSON pointers to extract and hash from documents.
-  repeated string hash_key = 3;
+  // JSON pointer of document UUID to extract.
+  string uuid_ptr = 2;
+  // Hash is a composite of JSON pointers to extract & hash.
+  message Hash {
+    repeated string ptrs = 1;
+  }
+  repeated Hash hashes = 3 [ (gogoproto.nullable) = false ];
   // Field names and JSON pointers to extract from documents.
   message Field {
     // Name of field to extract.
@@ -304,10 +277,47 @@ message ExtractRequest {
   repeated Field fields = 4;
 };
 
+// Field holds values extracted for a given named Document field.
+message Field {
+  // Name of this field .
+  string name = 1;
+  // Value is the extracted representation fo the field value.
+  message Value {
+    enum Type {
+      INVALID = 0;
+      NULL = 1;
+      TRUE = 2;
+      FALSE = 3;
+      STRING = 4;
+      UNSIGNED = 5;
+      SIGNED = 6;
+      NUMBER = 7;
+      OBJECT = 8;
+      ARRAY = 9;
+    }
+    Type type = 1;
+
+    string string = 2;
+    uint64 unsigned = 3;
+    int64 signed = 4;
+    float number = 5;
+    bytes object = 6;
+    bytes array = 7;
+  };
+  repeated Value values = 2 [(gogoproto.nullable) = false ];
+}
+
+// Hash holds hashes extracted for a given Hash key of Documents.
+message Hash {
+  repeated fixed32 values = 1;
+}
+
 message ExtractResponse {
-  // Documents with |uuid|, |hash_key|, and/or |fields| populated as per the
-  // request.
-  repeated Document documents = 1 [ (gogoproto.nullable) = false ];
+  // UUIDParts extracted from request Documents.
+  repeated UUIDParts uuid_parts = 5 [ (gogoproto.nullable) = false ];
+  // Hashes extracted from request Documents, one column for each requested Hash.
+  repeated Hash hashes = 2 [ (gogoproto.nullable) = false ];
+  // Fields extracted from request Documents, one column for each requested Field.
 };
 
 service Derive {
