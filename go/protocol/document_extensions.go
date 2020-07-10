@@ -68,7 +68,7 @@ func (d *Document) MarshalJSONTo(bw *bufio.Writer) (int, error) {
 // and the JSON ContentType.
 func (d *Document) UnmarshalJSON(data []byte) error {
 	d.ContentType = Document_JSON
-	d.Content = data
+	d.Content = append(d.Content[:0], data...)
 	return nil
 }
 

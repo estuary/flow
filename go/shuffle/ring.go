@@ -62,44 +62,49 @@ var readDocuments = func(
 		return new(pf.Document), nil
 	})
 
-	for {
-		var env, err = it.Next()
-
-		// Attempt to pop a pending ShuffleResponse that we can extend.
-		// Or, start a new one if none is buffered.
-		var response pf.ShuffleResponse
+	// Pop attempts to dequeue a pending ShuffleResponse that we can extend.
+	// Or, it returns a new one if none is buffered.
+	var popPending = func() (out pf.ShuffleResponse) {
 		select {
-		case response = <-ch:
+		case out = <-ch:
 		default:
 		}
-		var delta int64
+		return
+	}
+
+	for {
+		var env, err = it.Next()
+		var out = popPending()
+
+		if l := len(out.Documents); l != 0 &&
+			(out.Documents[l-1].End-out.Documents[0].Begin) >= responseSizeThreshold {
+			// |out| is too large for us to extend. Put it back. This cannot block,
+			// since buffer N=1, we dequeued above, and we're the only writer.
+			ch <- out
+
+			// Push an empty ShuffleResponse. This may block, applying back pressure
+			// until the prior |out| is picked up by the channel reader.
+			select {
+			case ch <- pf.ShuffleResponse{}:
+			case <-ctx.Done():
+				return
+			}
+			// Pop it again, for us to extend.
+			out = popPending()
+		}
 
 		if err == nil {
 			var doc = *env.Message.(*pf.Document)
 			doc.Begin, doc.End = env.Begin, env.End
-			response.Documents = append(response.Documents, doc)
-			delta = response.Documents[len(response.Documents)-1].End - response.Documents[0].Begin
+			out.Documents = append(out.Documents, doc)
 		} else if err != io.EOF {
-			response.TerminalError = err.Error()
+			out.TerminalError = err.Error()
 		}
 
-		// Place back onto channel. This cannot block since buffer N=1,
-		// we dequeued above, and we're the only writer.
-		ch <- response
+		// Place back onto channel (cannot block).
+		ch <- out
 
 		if err != nil {
-			return
-		} else if delta < responseSizeThreshold {
-			continue
-		}
-
-		// We cannot queue further documents into the |response| that we just placed
-		// into the channel. Send a new & empty ShuffleResponse, which will block
-		// until the prior |response| is recieved (making room in the N=1 buffer)
-		// or until the context is cancelled.
-		select {
-		case ch <- pf.ShuffleResponse{}:
-		case <-ctx.Done():
 			return
 		}
 	}
