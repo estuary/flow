@@ -137,11 +137,13 @@ message ShuffleRequest {
   ShuffleConfig config = 1 [ (gogoproto.nullable) = false ];
 
   // Index of this member within the ring.
-  int64 ring_index = 3;
+  int64 ring_index = 2;
   // Offset to begin reading the journal from.
-  int64 offset = 2
+  int64 offset = 3
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
-
+  // Offset to stop reading the journal at, or zero if unbounded.
+  int64 end_offset = 4
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // Resolution header of the |config.coordinator_index| shard.
   protocol.Header resolution = 5;
 }

@@ -150,13 +150,39 @@ func TestSubscriberAddCases(t *testing.T) {
 	sub.request.Offset = 789
 	require.Nil(t, s.add(sub))
 
-	// Case: Add of subscriber that exists.
+	// Case: Add of subscriber that exists with a conflicting offset range.
 	sub = subscriber{
-		request: pf.ShuffleRequest{RingIndex: 0},
-		doneCh:  make(chan error, 1),
+		request: pf.ShuffleRequest{
+			Offset:    123,
+			RingIndex: 1,
+		},
+		doneCh: make(chan error, 1),
 	}
 	require.Nil(t, s.add(sub))
-	require.EqualError(t, <-sub.doneCh, "subscriber at ring index 0 already exists")
+	require.EqualError(t, <-sub.doneCh,
+		"existing subscriber at ring index 1 (offset 456) overlaps with request range [123, 0)")
+
+	// Case: A second read of an existing subscriber may be added
+	// *if* it's a lower offset range.
+	sub = subscriber{
+		request: pf.ShuffleRequest{
+			Offset:    123,
+			EndOffset: 456,
+			RingIndex: 1,
+		},
+		doneCh: make(chan error, 1),
+	}
+	require.Nil(t, s.add(sub))
+
+	// Expect the prior subscriber at this index was pushed into |next|.
+	require.Equal(t, s[1].next, &subscriber{
+		request: pf.ShuffleRequest{
+			Config:    pf.ShuffleConfig{Journal: "a/journal"},
+			Offset:    456,
+			RingIndex: 1,
+		},
+		doneCh: s[1].next.doneCh,
+	})
 }
 
 func TestSubscriberMinOffset(t *testing.T) {

@@ -38,6 +38,7 @@ type subscriber struct {
 	response pf.ShuffleResponse
 	stream   grpc.ServerStream
 	doneCh   chan error
+	next     *subscriber
 }
 
 func (s *subscriber) stageDoc(doc pf.Document) {
@@ -52,55 +53,56 @@ type subscribers []subscriber
 func (s subscribers) stageResponses(response pf.ShuffleResponse) {
 	// Clear previous staged responses, retaining slices for re-use.
 	// Also pass-through a TerminalError to all subscribers.
-	for ind := range s {
-		s[ind].response.Documents = s[ind].response.Documents[:0]
-		s[ind].response.TerminalError = response.TerminalError
+	for i := range s {
+		s[i].response.Documents = s[i].response.Documents[:0]
+		s[i].response.TerminalError = response.TerminalError
 	}
 	for _, doc := range response.Documents {
 		// ACKs (indicated here by having no shuffles) are broadcast to all members.
 		if doc.Shuffles == nil {
-			for ind := range s {
-				s[ind].stageDoc(doc)
+			for i := range s {
+				s[i].stageDoc(doc)
 			}
-			continue
-		}
-		// Add each document to each shuffled member -- but only add once
-		// (a doc may have multiple transforms for a single ring member).
-		var last uint32 = uint32(len(s))
-		for ind, shuffle := range doc.Shuffles {
-			if ind != 0 && doc.Shuffles[ind].Less(doc.Shuffles[ind-1]) {
-				panic("shuffles are not ordered")
-			}
-			if shuffle.RingIndex != last {
+		} else {
+			for _, shuffle := range doc.Shuffles {
 				s[shuffle.RingIndex].stageDoc(doc)
-				last = shuffle.RingIndex
 			}
 		}
 	}
 }
 
-func (s *subscribers) add(sub subscriber) *pb.ReadRequest {
-	if (*s)[sub.request.RingIndex].doneCh != nil {
-		sub.doneCh <- fmt.Errorf("subscriber at ring index %d already exists",
-			sub.request.RingIndex)
-		return nil
-	}
+func (s subscribers) add(add subscriber) *pb.ReadRequest {
 	var rr *pb.ReadRequest
 
 	// If this is the first subscriber (!ok), start a base read with
 	// EndOffset: 0 which will never EOF. Or, if this subscriber has a
 	// lower offset than the current minimum, start a read of the difference
 	// which will EOF on reaching the prior minimum.
-	if offset, ok := s.minOffset(); !ok || sub.request.Offset < offset {
+	if offset, ok := s.minOffset(); !ok || add.request.Offset < offset {
 		rr = &pb.ReadRequest{
-			Journal:    sub.request.Config.Journal,
-			Offset:     sub.request.Offset,
+			Journal:    add.request.Config.Journal,
+			Offset:     add.request.Offset,
 			EndOffset:  offset,
 			Block:      true,
 			DoNotProxy: true,
 		}
 	}
-	(*s)[sub.request.RingIndex] = sub
+
+	var prev = s[add.request.RingIndex]
+
+	if prev.doneCh != nil {
+		// A subscriber exists at this ring index already. This is allowed *if*
+		// this request is over a closed, earlier offset range than that reader.
+		if add.request.EndOffset == 0 || add.request.EndOffset > prev.request.Offset {
+			add.doneCh <- fmt.Errorf(
+				"existing subscriber at ring index %d (offset %d) overlaps with request range [%d, %d)",
+				add.request.RingIndex, prev.request.Offset, add.request.Offset, add.request.EndOffset)
+			return nil
+		}
+		add.next = new(subscriber)
+		*add.next = prev
+	}
+	s[add.request.RingIndex] = add
 
 	return rr
 }
