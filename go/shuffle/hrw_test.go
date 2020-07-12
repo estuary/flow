@@ -38,23 +38,7 @@ func TestStableWeightsRegression(t *testing.T) {
 }
 
 func TestRankingCases(t *testing.T) {
-	var cfg = pf.ShuffleConfig{
-		Journal: "a/journal",
-		Ring: pf.Ring{
-			Name: "a-ring",
-			Members: []pf.Ring_Member{
-				{MinMsgClock: 0, MaxMsgClock: 0},
-				{MinMsgClock: 0, MaxMsgClock: 0},
-				{MinMsgClock: 0, MaxMsgClock: 0},
-				{MinMsgClock: 1000, MaxMsgClock: 0},
-				{MinMsgClock: 0, MaxMsgClock: 3000},
-			},
-		},
-		Shuffles: []pf.ShuffleConfig_Shuffle{
-			{ShuffleKeyPtr: []string{"/foo"}, BroadcastTo: 3},
-			{ShuffleKeyPtr: []string{"/bar"}, ChooseFrom: 3},
-		},
-	}
+	var cfg = newTestShuffleConfig()
 	var r = newRendezvous(cfg)
 
 	// FNVa with single-letter inputs, as below, produces a pretty low quality hash
@@ -191,5 +175,25 @@ func TestRankingCases(t *testing.T) {
 
 		require.Equal(t, prefix[:], out[:1])
 		require.Equal(t, tc.expect, out[1:])
+	}
+}
+
+func newTestShuffleConfig() pf.ShuffleConfig {
+	return pf.ShuffleConfig{
+		Journal: "a/journal",
+		Ring: pf.Ring{
+			Name: "a-ring",
+			Members: []pf.Ring_Member{
+				{MinMsgClock: 0, MaxMsgClock: 0},
+				{MinMsgClock: 0, MaxMsgClock: 0},
+				{MinMsgClock: 0, MaxMsgClock: 0},
+				{MinMsgClock: 1000, MaxMsgClock: 0},
+				{MinMsgClock: 0, MaxMsgClock: 3000},
+			},
+		},
+		Shuffles: []pf.ShuffleConfig_Shuffle{
+			{ShuffleKeyPtr: []string{"/foo"}, BroadcastTo: 3},
+			{ShuffleKeyPtr: []string{"/bar"}, ChooseFrom: 3},
+		},
 	}
 }

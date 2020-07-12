@@ -2,6 +2,7 @@ package shuffle
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,57 @@ func TestReadingDocuments(t *testing.T) {
 	require.Equal(t, "fetching journal spec: named journal does not exist (does/not/exist)", out.TerminalError)
 	var _, ok = <-ch
 	require.False(t, ok)
+}
+
+func TestDocumentExtraction(t *testing.T) {
+	var docs = []pf.Document{
+		{Content: []byte("doc-1"), ContentType: pf.Document_JSON},
+		{Content: []byte("doc-2"), ContentType: pf.Document_JSON},
+	}
+	var cfg = newTestShuffleConfig()
+	var r = ring{
+		staged:      pf.ShuffleResponse{Documents: docs},
+		subscribers: make(subscribers, len(cfg.Ring.Members)),
+		rendezvous:  newRendezvous(cfg),
+	}
+
+	require.Equal(t, &pf.ExtractRequest{
+		Documents: docs,
+		UuidPtr:   pf.DocumentUUIDPointer,
+		Hashes: []pf.ExtractRequest_Hash{
+			{Ptrs: []string{"/foo"}},
+			{Ptrs: []string{"/bar"}},
+		},
+	}, r.buildExtractRequest())
+
+	// Case: extraction fails.
+	r.onExtract(nil, fmt.Errorf("an error"))
+	require.Equal(t, pf.ShuffleResponse{
+		Documents:     docs,
+		TerminalError: "an error",
+	}, r.staged)
+	r.staged.TerminalError = "" // Reset.
+
+	// Case: extraction succeeds. Shuffling decisions are made & attached to documents.
+	r.onExtract(&pf.ExtractResponse{
+		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
+		Hashes: []pf.Hash{
+			{Values: []uint32{0xababab, 0xcdcdcd}},
+			{Values: []uint32{0xefefef, 0x121212}},
+		},
+	}, nil)
+
+	require.Equal(t, pf.Document{
+		Content:     []byte("doc-1"),
+		ContentType: pf.Document_JSON,
+		UuidParts:   pf.UUIDParts{Clock: 123},
+		Shuffles: []pf.Document_Shuffle{
+			{RingIndex: 1, TransformId: 0, Hrw: 3101947009},
+			{RingIndex: 0, TransformId: 0, Hrw: 2633836627},
+			{RingIndex: 4, TransformId: 0, Hrw: 457341356},
+			{RingIndex: 1, TransformId: 1, Hrw: 3380965076},
+		},
+	}, r.staged.Documents[0])
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

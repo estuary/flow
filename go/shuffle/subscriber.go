@@ -5,33 +5,8 @@ import (
 
 	pf "github.com/estuary/flow/go/protocol"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
 )
-
-// TODO - hoist to ring, and/or invert to drive with extract responses?
-func distribute(
-	cfg pf.ShuffleConfig,
-	rendezvous rendezvous,
-	docs []pf.Document,
-	uuids []pf.UUIDParts,
-	hashes []pf.Hash,
-) {
-	for d := range docs {
-		docs[d].UuidParts = uuids[d]
-
-		if message.Flags(docs[d].UuidParts.ProducerAndFlags) == message.Flag_ACK_TXN {
-			// ACK documents have no shuffles, and go to all readers.
-			continue
-		}
-		for h := range hashes {
-			docs[d].Shuffles = rendezvous.pick(h,
-				hashes[h].Values[d],
-				docs[d].UuidParts.Clock,
-				docs[d].Shuffles)
-		}
-	}
-}
 
 type subscriber struct {
 	request  pf.ShuffleRequest

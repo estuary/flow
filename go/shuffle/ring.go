@@ -5,6 +5,7 @@ import (
 	"io"
 
 	pf "github.com/estuary/flow/go/protocol"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -12,6 +13,7 @@ import (
 
 type coordinator struct {
 	rjc pb.RoutedJournalClient
+	dc  pf.DeriveClient
 }
 
 type ring struct {
@@ -19,8 +21,12 @@ type ring struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	subscriberCh chan subscriber
+	readChans    []chan pf.ShuffleResponse
+
+	rendezvous
+	staged pf.ShuffleResponse
 	subscribers
-	readChans []chan pf.ShuffleResponse
 }
 
 func (r *ring) onSubscribe(sub subscriber) {
@@ -37,14 +43,63 @@ func (r *ring) onSubscribe(sub subscriber) {
 func (r *ring) onRead(resp pf.ShuffleResponse, ok bool) {
 	if !ok {
 		// Reader at the top of the read stack has reached EOF.
-		if len(r.readChans) <= 1 {
-			panic("unexpected EOF from shuffle reader at stack bottom")
-		}
 		r.readChans = r.readChans[:len(r.readChans)-1]
 		return
-	} else if resp.TerminalError != "" {
-		r.subscribers.stageResponses(resp)
+	}
+	r.staged = resp
+	r.onExtract(r.coordinator.dc.Extract(r.ctx, r.buildExtractRequest()))
+	r.subscribers.stageResponses(r.staged)
 
+	// Do send.
+}
+
+func (r *ring) buildExtractRequest() *pf.ExtractRequest {
+	var hashes []pf.ExtractRequest_Hash
+	for _, shuffle := range r.cfg.Shuffles {
+		hashes = append(hashes, pf.ExtractRequest_Hash{Ptrs: shuffle.ShuffleKeyPtr})
+	}
+	return &pf.ExtractRequest{
+		Documents: r.staged.Documents,
+		UuidPtr:   pf.DocumentUUIDPointer,
+		Hashes:    hashes,
+	}
+}
+
+func (r *ring) onExtract(extract *pf.ExtractResponse, err error) {
+	if err != nil {
+		if r.staged.TerminalError == "" {
+			r.staged.TerminalError = err.Error()
+		}
+		log.WithField("err", err).Error("failed to extract hashes")
+		return
+	}
+
+	for d := range r.staged.Documents {
+		var uuid = extract.UuidParts[d]
+		r.staged.Documents[d].UuidParts = uuid
+
+		if message.Flags(uuid.ProducerAndFlags) == message.Flag_ACK_TXN {
+			// ACK documents have no shuffles, and go to all readers.
+			continue
+		}
+		for h := range extract.Hashes {
+			r.staged.Documents[d].Shuffles = r.rendezvous.pick(h,
+				extract.Hashes[h].Values[d],
+				uuid.Clock,
+				r.staged.Documents[d].Shuffles)
+		}
+	}
+}
+
+func (r *ring) serve() {
+	for {
+		var readCh chan pf.ShuffleResponse
+		select {
+		case sub := <-r.subscriberCh:
+			r.onSubscribe(sub)
+		case resp, ok := <-readCh:
+			r.onRead(resp, ok)
+		}
 	}
 }
 
