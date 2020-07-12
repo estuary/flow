@@ -15,7 +15,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 			Shuffles: []pf.Document_Shuffle{
 				{RingIndex: 1, TransformId: 10},
 				{RingIndex: 1, TransformId: 20},
-				{RingIndex: 2, TransformId: 10},
+				{RingIndex: 2, TransformId: 10}, // Filtered.
 			},
 			Content: []byte("one"),
 			Begin:   100,
@@ -39,7 +39,12 @@ func TestSubscriberResponseStaging(t *testing.T) {
 	}
 
 	var s = subscribers{
-		{},
+		{
+			request: pf.ShuffleRequest{EndOffset: 300},
+			next: &subscriber{
+				request: pf.ShuffleRequest{Offset: 300},
+			},
+		},
 		{},
 		{request: pf.ShuffleRequest{Offset: 200}},
 		{request: pf.ShuffleRequest{Offset: 500}},
@@ -49,10 +54,17 @@ func TestSubscriberResponseStaging(t *testing.T) {
 	// Expected staged outcomes.
 	require.Equal(t, subscribers{
 		{
-			request: pf.ShuffleRequest{Offset: 400},
+			request: pf.ShuffleRequest{Offset: 300, EndOffset: 300},
 			response: pf.ShuffleResponse{
-				Documents: []pf.Document{docs[1], docs[2]},
-			}},
+				Documents: []pf.Document{docs[1]},
+			},
+			next: &subscriber{
+				request: pf.ShuffleRequest{Offset: 400},
+				response: pf.ShuffleResponse{
+					Documents: []pf.Document{docs[2]},
+				},
+			},
+		},
 		{
 			request: pf.ShuffleRequest{Offset: 400},
 			response: pf.ShuffleResponse{
@@ -86,8 +98,14 @@ func TestSubscriberResponseStaging(t *testing.T) {
 
 	require.Equal(t, subscribers{
 		{
-			request:  pf.ShuffleRequest{Offset: 500},
-			response: pf.ShuffleResponse{Documents: docs},
+			request: pf.ShuffleRequest{Offset: 300, EndOffset: 300},
+			response: pf.ShuffleResponse{
+				Documents: []pf.Document{},
+			},
+			next: &subscriber{
+				request:  pf.ShuffleRequest{Offset: 500},
+				response: pf.ShuffleResponse{Documents: docs},
+			},
 		},
 		{
 			request:  pf.ShuffleRequest{Offset: 400},
@@ -98,6 +116,22 @@ func TestSubscriberResponseStaging(t *testing.T) {
 			response: pf.ShuffleResponse{Documents: []pf.Document{}},
 		},
 		{request: pf.ShuffleRequest{Offset: 500}}, // Still filtered by offset.
+	}, s)
+
+	// Expect that a TerminalError is staged to all subscribers.
+	var errResponse = pf.ShuffleResponse{TerminalError: "an error"}
+	s = subscribers{
+		{next: &subscriber{}},
+		{},
+	}
+	s.stageResponses(errResponse)
+
+	require.Equal(t, subscribers{
+		{
+			response: errResponse,
+			next:     &subscriber{response: errResponse},
+		},
+		{response: errResponse},
 	}, s)
 }
 
@@ -145,9 +179,17 @@ func TestSubscriberAddCases(t *testing.T) {
 			DoNotProxy: true,
 		}, s.add(sub))
 
-	// Case: Third subscriber, at a higher offset.
+	// Case: Third subscriber, at a higher offset, but with an unexpected endOffset.
 	sub.request.RingIndex = 2
 	sub.request.Offset = 789
+	sub.request.EndOffset = 1011
+	require.Nil(t, s.add(sub))
+
+	require.EqualError(t, <-sub.doneCh,
+		"unexpected EndOffset 1011 (no other subscriber at ring index 2)")
+
+	// Case: Third subscriber again, without an EndOffset.
+	sub.request.EndOffset = 0
 	require.Nil(t, s.add(sub))
 
 	// Case: Add of subscriber that exists with a conflicting offset range.

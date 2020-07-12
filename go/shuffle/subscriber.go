@@ -42,7 +42,9 @@ type subscriber struct {
 }
 
 func (s *subscriber) stageDoc(doc pf.Document) {
-	if s.request.Offset <= doc.Begin {
+	if s.next != nil && doc.Begin >= s.request.EndOffset {
+		s.next.stageDoc(doc)
+	} else if doc.Begin >= s.request.Offset {
 		s.response.Documents = append(s.response.Documents, doc)
 		s.request.Offset = doc.End
 	}
@@ -52,10 +54,12 @@ type subscribers []subscriber
 
 func (s subscribers) stageResponses(response pf.ShuffleResponse) {
 	// Clear previous staged responses, retaining slices for re-use.
-	// Also pass-through a TerminalError to all subscribers.
+	// If a TerminalError is set, pass it through to all subscribers.
 	for i := range s {
-		s[i].response.Documents = s[i].response.Documents[:0]
-		s[i].response.TerminalError = response.TerminalError
+		for sub := &s[i]; sub != nil; sub = sub.next {
+			sub.response.Documents = sub.response.Documents[:0]
+			sub.response.TerminalError = response.TerminalError
+		}
 	}
 	for _, doc := range response.Documents {
 		// ACKs (indicated here by having no shuffles) are broadcast to all members.
@@ -101,9 +105,14 @@ func (s subscribers) add(add subscriber) *pb.ReadRequest {
 		}
 		add.next = new(subscriber)
 		*add.next = prev
+	} else if add.request.EndOffset != 0 {
+		add.doneCh <- fmt.Errorf(
+			"unexpected EndOffset %d (no other subscriber at ring index %d)",
+			add.request.EndOffset, add.request.RingIndex)
+		return nil
 	}
-	s[add.request.RingIndex] = add
 
+	s[add.request.RingIndex] = add
 	return rr
 }
 
