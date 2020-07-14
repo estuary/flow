@@ -76,9 +76,15 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 		// errors (possibly logging a warning), manage our own back-off timer,
 		// and restart the stream when ready for another attempt.
 
-		// Restart the Reader re-using the same context (note we could be racing
+		// Restart the Reader, carrying forward fields which continue to apply.
+		// Note we're re-using the same context (and we could be racing
 		// this restart with a concurrent call to |rr.Cancel|).
-		rr.Reader = NewReader(rr.Reader.ctx, rr.Reader.client, rr.Reader.Request)
+		rr.Reader = &Reader{
+			Request:  rr.Reader.Request,
+			Response: rr.Reader.Response,
+			ctx:      rr.Reader.ctx,
+			client:   rr.Reader.client,
+		}
 
 		switch err {
 		case context.DeadlineExceeded, context.Canceled:

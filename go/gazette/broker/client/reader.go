@@ -99,6 +99,8 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 		return
 	}
 
+	var previous = r.Response
+
 	// Read and Validate the next frame.
 	if err = r.stream.RecvMsg(&r.Response); err == nil {
 		if err = r.Response.Validate(); err != nil {
@@ -131,6 +133,15 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 		}
 
 		if r.Response.Status == pb.Status_OK {
+			if r.Response.Content != nil {
+				// This is a content chunk. Preserve it's associated fragment
+				// metadata for the benefit of clients who want to inspect it.
+				if r.Response.Fragment != nil {
+					panic("unexpected fragment of content chunk")
+				}
+				r.Response.Fragment = previous.Fragment
+				r.Response.WriteHead = previous.WriteHead
+			}
 			// Return empty read, to allow inspection of the updated |r.Response|.
 		} else {
 			// The broker will send a stream closure following a !OK status.

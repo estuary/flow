@@ -218,6 +218,14 @@ func (s *ReaderSuite) TestReaderCases(c *gc.C) {
 	c.Check(string(b[:n]), gc.Equals, "ng")
 	c.Check(r.Request.Offset, gc.Equals, int64(126))
 
+	// Expect that fragment metadata was carried across multiple content chunks.
+	c.Check(r.Response.Fragment, gc.DeepEquals, &pb.Fragment{
+		Journal:          "a/journal",
+		End:              1024,
+		CompressionCodec: pb.CompressionCodec_NONE,
+	})
+	c.Check(r.Response.WriteHead, gc.Equals, int64(1024))
+
 	// Case 8: content followed by a non-EOF error.
 	r = NewReader(ctx, rjc, pb.ReadRequest{Journal: "a/journal", Offset: 105})
 
