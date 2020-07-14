@@ -5,6 +5,7 @@ import (
 	"io"
 
 	pf "github.com/estuary/flow/go/protocol"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -112,6 +113,12 @@ var readDocuments = func(
 ) {
 	defer close(ch)
 
+	// Start reading in non-blocking mode. This ensures we'll minimally send an opening
+	// ShuffleResponse, which informs the client of whether we're tailing the journal
+	// (and further responses may block).
+	req.Block = false
+	req.DoNotProxy = !rjc.IsNoopRouter()
+
 	var rr = client.NewRetryReader(ctx, rjc, req)
 	var it = message.NewReadUncommittedIter(rr, func(*pb.JournalSpec) (message.Message, error) {
 		return new(pf.Document), nil
@@ -152,6 +159,11 @@ var readDocuments = func(
 			var doc = *env.Message.(*pf.Document)
 			doc.Begin, doc.End = env.Begin, env.End
 			out.Documents = append(out.Documents, doc)
+			out.Tailing = doc.End == rr.Reader.Response.WriteHead
+		} else if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
+			out.Tailing = true
+			// Continue reading, now with blocking reads.
+			err, rr.Reader.Request.Block = nil, true
 		} else if err != io.EOF {
 			out.TerminalError = err.Error()
 		}

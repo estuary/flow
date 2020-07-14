@@ -149,9 +149,7 @@ func TestSubscriberAddCases(t *testing.T) {
 	}
 	require.Equal(t,
 		&pb.ReadRequest{
-			Journal:    "a/journal",
-			Block:      true,
-			DoNotProxy: true,
+			Journal: "a/journal",
 		}, s.add(sub))
 
 	// Case: First subscriber, at non-zero offset.
@@ -160,11 +158,9 @@ func TestSubscriberAddCases(t *testing.T) {
 	sub.request.Offset = 456
 	require.Equal(t,
 		&pb.ReadRequest{
-			Journal:    "a/journal",
-			Offset:     456,
-			EndOffset:  0, // Never EOFs.
-			Block:      true,
-			DoNotProxy: true,
+			Journal:   "a/journal",
+			Offset:    456,
+			EndOffset: 0, // Never EOFs.
 		}, s.add(sub))
 
 	// Case: Second subscriber, at a lower offset.
@@ -172,11 +168,9 @@ func TestSubscriberAddCases(t *testing.T) {
 	sub.request.Offset = 0
 	require.Equal(t,
 		&pb.ReadRequest{
-			Journal:    "a/journal",
-			Offset:     0,
-			EndOffset:  456,
-			Block:      true,
-			DoNotProxy: true,
+			Journal:   "a/journal",
+			Offset:    0,
+			EndOffset: 456,
 		}, s.add(sub))
 
 	// Case: Third subscriber, at a higher offset, but with an unexpected endOffset.

@@ -167,6 +167,10 @@ message ShuffleResponse {
   // network errors, process failures, and other conditions which can be
   // retried.
   string terminal_error = 4;
+  // Tailing indicates that the reader is at the current journal write head,
+  // and hints that the next ShuffleResponse may block indefinitely while
+  // waiting for more documents to be written.
+  bool tailing = 5;
 }
 
 service Shuffler {

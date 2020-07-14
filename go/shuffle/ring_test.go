@@ -20,7 +20,10 @@ func TestReadingDocuments(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var ctx = pb.WithDispatchDefault(context.Background())
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx = pb.WithDispatchDefault(ctx)
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 
 	brokertest.CreateJournals(t, bk, brokertest.Journal(pb.JournalSpec{
@@ -71,10 +74,40 @@ func TestReadingDocuments(t *testing.T) {
 			require.Equal(t, out.Documents[0].ContentType, pf.Document_JSON)
 			count -= l
 		}
+		// The final ShuffleResponse (only) should have the Tailing bit set.
+		require.Equal(t, count == 0, out.Tailing)
 	}
 	require.Equal(t, count, 0)
 
-	// Start a read which errors. Expect it's passed through, then the channel is closed.
+	// Case: Start a read that's at the current write head.
+	ch = make(chan pf.ShuffleResponse, 1)
+
+	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
+		Journal: "a/journal",
+		Offset:  app.Response.Commit.End,
+	}, ch)
+
+	// Expect an initial ShuffleResponse which informs us that we're tailing the live log.
+	require.Equal(t, pf.ShuffleResponse{Tailing: true}, <-ch)
+
+	// Write a single record, and expect to receive a tailing read.
+	app = client.NewAppender(ctx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
+	_, _ = app.Write(record)
+	require.NoError(t, app.Close())
+
+	require.Equal(t, pf.ShuffleResponse{
+		Documents: []pf.Document{
+			{
+				Content:     record,
+				ContentType: pf.Document_JSON,
+				Begin:       app.Response.Commit.Begin,
+				End:         app.Response.Commit.End,
+			},
+		},
+		Tailing: true,
+	}, <-ch)
+
+	// Case: Start a read which errors. Expect it's passed through, then the channel is closed.
 	ch = make(chan pf.ShuffleResponse, 1)
 
 	go readDocuments(ctx, bk.Client(), pb.ReadRequest{

@@ -59,11 +59,9 @@ func (s subscribers) add(add subscriber) *pb.ReadRequest {
 	// which will EOF on reaching the prior minimum.
 	if offset, ok := s.minOffset(); !ok || add.request.Offset < offset {
 		rr = &pb.ReadRequest{
-			Journal:    add.request.Config.Journal,
-			Offset:     add.request.Offset,
-			EndOffset:  offset,
-			Block:      true,
-			DoNotProxy: true,
+			Journal:   add.request.Config.Journal,
+			Offset:    add.request.Offset,
+			EndOffset: offset,
 		}
 	}
 
