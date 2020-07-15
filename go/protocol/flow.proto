@@ -130,6 +130,41 @@ message ShuffleConfig {
   repeated Shuffle shuffles = 5 [ (gogoproto.nullable) = false ];
 }
 
+// Field holds values extracted for a given named Document field.
+message Field {
+  // Name of this field.
+  string name = 1;
+  // Value is the extracted representation fo the field value.
+  message Value {
+    enum Type {
+      INVALID = 0;
+      NULL = 1;
+      TRUE = 2;
+      FALSE = 3;
+      STRING = 4;
+      UNSIGNED = 5;
+      SIGNED = 6;
+      NUMBER = 7;
+      OBJECT = 8;
+      ARRAY = 9;
+    }
+    Type type = 1;
+
+    string string = 2;
+    uint64 unsigned = 3;
+    int64 signed = 4;
+    float number = 5;
+    bytes object = 6;
+    bytes array = 7;
+  };
+  repeated Value values = 2 [(gogoproto.nullable) = false ];
+}
+
+// Hash holds hashes extracted for a given Hash key of Documents.
+message Hash {
+  repeated fixed32 values = 1;
+}
+
 // ShuffleRequest is the request message of a Shuffle RPC.
 message ShuffleRequest {
   option (gogoproto.equal) = true;
@@ -258,9 +293,8 @@ message DeriveResponse {
 
   // Documents derived from request documents. Set iff state == EXTEND.
   repeated Document documents = 2 [ (gogoproto.nullable) = false ];
-  // Names of associated logical partition fields extracted from |documents|.
-  // Arity and ordering matches Document.fields.
-  repeated string field_names = 3;
+  // Logical partitions extracted from |documents|.
+  repeated Field partitions = 3 [ (gogoproto.nullable) = false ];
 };
 
 message ExtractRequest {
@@ -283,47 +317,13 @@ message ExtractRequest {
   repeated Field fields = 4;
 };
 
-// Field holds values extracted for a given named Document field.
-message Field {
-  // Name of this field .
-  string name = 1;
-  // Value is the extracted representation fo the field value.
-  message Value {
-    enum Type {
-      INVALID = 0;
-      NULL = 1;
-      TRUE = 2;
-      FALSE = 3;
-      STRING = 4;
-      UNSIGNED = 5;
-      SIGNED = 6;
-      NUMBER = 7;
-      OBJECT = 8;
-      ARRAY = 9;
-    }
-    Type type = 1;
-
-    string string = 2;
-    uint64 unsigned = 3;
-    int64 signed = 4;
-    float number = 5;
-    bytes object = 6;
-    bytes array = 7;
-  };
-  repeated Value values = 2 [(gogoproto.nullable) = false ];
-}
-
-// Hash holds hashes extracted for a given Hash key of Documents.
-message Hash {
-  repeated fixed32 values = 1;
-}
-
 message ExtractResponse {
   // UUIDParts extracted from request Documents.
-  repeated UUIDParts uuid_parts = 5 [ (gogoproto.nullable) = false ];
+  repeated UUIDParts uuid_parts = 1 [ (gogoproto.nullable) = false ];
   // Hashes extracted from request Documents, one column for each requested Hash.
   repeated Hash hashes = 2 [ (gogoproto.nullable) = false ];
   // Fields extracted from request Documents, one column for each requested Field.
+  repeated Field fields = 3 [ (gogoproto.nullable) = false ];
 };
 
 service Derive {
