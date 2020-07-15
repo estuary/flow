@@ -13,13 +13,13 @@ func (m *Ring) ShardID(index int) pc.ShardID {
 	if index >= len(m.Members) {
 		panic("ring index is too large")
 	}
-	return pc.ShardID(fmt.Sprintf("%s-%03d", m.Name, index))
+	return pc.ShardID(fmt.Sprintf("%s-%03x", m.Name, index))
 }
 
 // Validate returns a validation error of the Ring.
 func (m *Ring) Validate() error {
-	if m.Name == "" {
-		return pb.NewValidationError("expected Name")
+	if err := pb.ValidateToken(m.Name, pb.TokenSymbols, minRingNameLen, maxRingNameLen); err != nil {
+		return pb.ExtendContext(err, "Name")
 	} else if len(m.Members) == 0 {
 		return pb.NewValidationError("expected at least one Member")
 	}
@@ -47,7 +47,9 @@ func (m *ShuffleConfig) Validate() error {
 	} else if err = m.Ring.Validate(); err != nil {
 		return pb.ExtendContext(err, "Ring")
 	} else if m.Coordinator >= uint32(len(m.Ring.Members)) {
-		pb.NewValidationError("invalid Coordinator < len(Members) (%d vs %d)", m.Coordinator, len(m.Ring.Members))
+		return pb.NewValidationError("invalid Coordinator (expected < len(Members); got %d vs %d)", m.Coordinator, len(m.Ring.Members))
+	} else if len(m.Shuffles) == 0 {
+		return pb.NewValidationError("expected at least one Shuffle")
 	}
 	for i, s := range m.Shuffles {
 		if err := s.Validate(); err != nil {
@@ -71,3 +73,28 @@ func (m *ShuffleConfig_Shuffle) Validate() error {
 	}
 	return nil
 }
+
+// Validate returns a validation error of the ShuffleRequest.
+func (m *ShuffleRequest) Validate() error {
+	if m.Resolution != nil {
+		if err := m.Resolution.Validate(); err != nil {
+			return pb.ExtendContext(err, "Resolution")
+		}
+	}
+	if err := m.Config.Validate(); err != nil {
+		return pb.ExtendContext(err, "Config")
+	} else if m.Offset < 0 {
+		return pb.NewValidationError("invalid Offset (%d; expected 0 <= Offset <= MaxInt64)", m.Offset)
+	} else if m.EndOffset < 0 || m.EndOffset != 0 && m.EndOffset < m.Offset {
+		return pb.NewValidationError("invalid EndOffset (%d; expected 0 or Offset <= EndOffset)", m.EndOffset)
+	}
+
+	// RingIndex requires no extra validation.
+
+	return nil
+}
+
+const (
+	// Compare to ShardID.Validate() in Gazette's shard_spec_extensions.go.
+	minRingNameLen, maxRingNameLen = 4, 508 // Plus "-XYZ" suffix => 512.
+)

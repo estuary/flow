@@ -137,7 +137,7 @@ message ShuffleRequest {
   ShuffleConfig config = 1 [ (gogoproto.nullable) = false ];
 
   // Index of this member within the ring.
-  int64 ring_index = 2;
+  uint32 ring_index = 2;
   // Offset to begin reading the journal from.
   int64 offset = 3
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];

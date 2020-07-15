@@ -11,10 +11,23 @@ import (
 
 var _ message.Message = new(Document)
 
-// Pack these UUIDParts into a message.UUID.
+// NewUUIDParts returns a decomposition of |uuid| into its UUIDParts.
+func NewUUIDParts(uuid message.UUID) UUIDParts {
+	var tmp [8]byte
+	var producer = message.GetProducerID(uuid)
+	copy(tmp[:6], producer[:])
+	binary.BigEndian.PutUint16(tmp[6:8], uint16(message.GetFlags(uuid)))
+
+	return UUIDParts{
+		ProducerAndFlags: binary.BigEndian.Uint64(tmp[:]),
+		Clock:            message.GetClock(uuid),
+	}
+}
+
+// Pack this UUIDParts into a message.UUID.
 func (parts *UUIDParts) Pack() message.UUID {
 	var tmp [8]byte
-	binary.LittleEndian.PutUint64(tmp[:], parts.ProducerAndFlags)
+	binary.BigEndian.PutUint64(tmp[:], parts.ProducerAndFlags)
 	var producerID message.ProducerID
 	copy(producerID[:], tmp[:6])
 
@@ -25,20 +38,15 @@ func (parts *UUIDParts) Pack() message.UUID {
 	)
 }
 
-// Less returns true if this Document_Shuffle orders before |other|,
-// under the Shuffle's (RingIndex, TransformId) ordering.
-func (s Document_Shuffle) Less(other Document_Shuffle) bool {
-	if s.RingIndex != other.RingIndex {
-		return s.RingIndex < other.RingIndex
-	}
-	return s.TransformId < other.TransformId
-}
-
 // GetUUID fetches the UUID of the Document.
 func (d *Document) GetUUID() message.UUID { return d.UuidParts.Pack() }
 
 // SetUUID replaces the placeholder UUID string, which must exist, with the UUID.
 func (d *Document) SetUUID(uuid message.UUID) {
+	d.UuidParts = NewUUIDParts(uuid)
+
+	// Require that the current content has a placeholder.
+	// Replace it with the string-form UUID.
 	var str = uuid.String()
 	var ind = bytes.Index(d.Content, DocumentUUIDPlaceholder)
 	if ind == -1 {
@@ -80,5 +88,5 @@ var (
 	DocumentUUIDPlaceholder = []byte("DocUUIDPlaceholder-329Bb50aa48EAa9ef")
 	// DocumentAckJSONTemplate is a JSON-encoded document template which serves
 	// as a Gazette consumer transaction acknowledgement.
-	DocumentAckJSONTemplate = `{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack": true}}"`
+	DocumentAckJSONTemplate = `{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}` + "\n"
 )
