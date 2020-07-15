@@ -50,6 +50,9 @@ func (s subscribers) stageResponses(response pf.ShuffleResponse) {
 	}
 }
 
+// TODO(johnny): implementation for actually sending responses, and pruning
+// subscribers on send error / context cancellation.
+
 func (s subscribers) add(add subscriber) *pb.ReadRequest {
 	var rr *pb.ReadRequest
 

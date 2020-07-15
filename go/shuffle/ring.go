@@ -3,18 +3,53 @@ package shuffle
 import (
 	"context"
 	"io"
+	"sync"
 
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/message"
 )
 
 type coordinator struct {
 	rjc pb.RoutedJournalClient
 	dc  pf.DeriveClient
+
+	rings map[*ring]struct{}
+	mu    sync.Mutex
+}
+
+// TODO(johnny) This compiles, and is approximately right, but is untested and I'm
+// none too sure of the details.
+func (c *coordinator) findOrCreateRing(shard consumer.Shard, cfg pf.ShuffleConfig) *ring {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for ring := range c.rings {
+		if ring.cfg.Equal(cfg) {
+			// Return a matched, existing ring.
+			return ring
+		}
+	}
+
+	// We must create a new ring.
+	var ctx, cancel = context.WithCancel(shard.Context())
+
+	var ring = &ring{
+		coordinator:  c,
+		ctx:          ctx,
+		cancel:       cancel,
+		subscriberCh: make(chan subscriber, 1),
+		rendezvous:   newRendezvous(cfg),
+		subscribers:  make(subscribers, len(cfg.Ring.Members)),
+	}
+	c.rings[ring] = struct{}{}
+	go ring.serve()
+
+	return ring
 }
 
 type ring struct {
