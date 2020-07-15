@@ -1,4 +1,9 @@
-package flow
+package shuffle
+
+/*
+
+TODO(johnny): There's some good stuff in here, but it needs re-working
+for API-side changes and to implement min-heaping behavior.
 
 import (
 	"context"
@@ -246,3 +251,5 @@ func backoff(attempt int) time.Duration {
 		return 5 * time.Second
 	}
 }
+
+*/
