@@ -1,5 +1,5 @@
 
-master (unreleased)
+v 0.88.0
 --------------------
 
 - Behavior change: journal *registers* are a small set of labels which are used
@@ -13,6 +13,9 @@ master (unreleased)
   gazette/examples:latest, instead of gazette-broker:latest and gazette-examples:latest.
 - Additional sanity checks to ensure badly-behaved clients or peers cannot
   block an exiting broker from draining its server.
+- Gazette no longer logs "wrong fragment format" warnings when encountering "directory" objects
+  (those where the object key ends with a '/') in cloud storage. These were just adding noise and
+  were not actually anything to worry about.
 - Fix various test flakes.
 
 v0.87.3
