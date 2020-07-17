@@ -1,5 +1,6 @@
 use crate::catalog;
 use estuary_json::schema::index;
+use estuary_protocol::flow;
 use http;
 use hyper;
 use thiserror;
@@ -44,11 +45,11 @@ pub enum Error {
     NoSuccessTrailerRenameMe,
     #[error("channel send error: {0}")]
     ChannelSendErr(#[from] futures::channel::mpsc::SendError),
-    #[error("invalid UUID: {0}")]
-    UUIDErr(#[from] uuid::Error),
-    #[error("invalid extraction value in document {index}: {value}")]
-    InvalidValue {
-        index: usize,
-        value: serde_json::Value,
+    #[error("invalid document ContentType: {content_type:?}, code {code}")]
+    InvalidContentType {
+        code: i32,
+        content_type: Option<flow::document::ContentType>,
     },
+    #[error("invalid document UUID: {value}")]
+    InvalidUuid { value: serde_json::Value },
 }

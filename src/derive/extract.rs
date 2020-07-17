@@ -1,15 +1,16 @@
+use super::Error;
 use crate::doc::Pointer;
 use estuary_protocol::consumer;
-use estuary_protocol::flow::{self, derive_server::Derive};
+use estuary_protocol::flow;
 use estuary_protocol::recoverylog;
-use std::hash::Hasher;
-
-//use futures_core::Stream;
 use futures::stream::Stream;
 use std::pin::Pin;
 
+#[derive(Debug)]
+pub struct DeriveService {}
+
 #[tonic::async_trait]
-impl Derive for DeriveService {
+impl flow::derive_server::Derive for DeriveService {
     async fn restore_checkpoint(
         &self,
         _request: tonic::Request<()>,
@@ -39,72 +40,112 @@ impl Derive for DeriveService {
         &self,
         request: tonic::Request<flow::ExtractRequest>,
     ) -> Result<tonic::Response<flow::ExtractResponse>, tonic::Status> {
-        unimplemented!();
+        extract(request.get_ref())
     }
 }
 
-#[derive(Debug)]
-pub struct DeriveService {}
-
-fn extract(request: flow::ExtractRequest) -> Result<flow::ExtractResponse, super::Error> {
-    // Project UUID pointer, hashes and fields into a representation with parsed JSON pointers.
-    let uuid_ptr = Pointer::from(&request.uuid_ptr);
-    let hashes: Vec<Vec<Pointer>> = request
-        .hashes
-        .iter()
-        .map(|h| h.ptrs.iter().map(|p| p.into()).collect())
-        .collect();
-
-    let fields: Vec<(&str, Pointer)> = request
-        .fields
-        .iter()
-        .map(|f| (f.name.as_ref(), Pointer::from(&f.ptr)))
-        .collect();
-
+fn extract(
+    request: &flow::ExtractRequest,
+) -> Result<tonic::Response<flow::ExtractResponse>, tonic::Status> {
+    // Allocate an ExtractResponse of the right shape.
     let mut response = flow::ExtractResponse {
         uuid_parts: Vec::with_capacity(request.documents.len()),
-        hashes: hashes
+        hashes: request
+            .hashes
             .iter()
             .map(|_| flow::Hash {
                 values: Vec::with_capacity(request.documents.len()),
             })
             .collect(),
-        fields: fields
+        fields: request
+            .fields
             .iter()
-            .map(|f| flow::Field {
-                name: f.0.to_owned(),
+            .map(|field| flow::Field {
+                name: field.name.clone(),
                 values: Vec::with_capacity(request.documents.len()),
             })
             .collect(),
     };
 
+    // Project UUID pointer, hashes and fields into parsed JSON pointers.
+    let uuid_ptr = Pointer::from(&request.uuid_ptr);
+    let hash_ptrs: Vec<Vec<Pointer>> = request
+        .hashes
+        .iter()
+        .map(|h| h.ptrs.iter().map(|p| p.into()).collect())
+        .collect();
+    let field_ptrs: Vec<Pointer> = request
+        .fields
+        .iter()
+        .map(|field| Pointer::from(&field.ptr))
+        .collect();
+
     for (index, doc) in request.documents.iter().enumerate() {
-        let v: serde_json::Value = serde_json::from_slice(&doc.content)?;
+        decode_to_value(&doc.content, doc.content_type)
+            .and_then(|v| {
+                // Extract UUIDParts, fields, and hashes.
+                response.uuid_parts.push(extract_uuid_parts(&v, &uuid_ptr)?);
 
-        // Extract UUID parts.
-        let v_uuid = uuid_ptr.query(&v).unwrap_or(&serde_json::Value::Null);
-        let v_uuid = v_uuid
-            .as_str()
-            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            .and_then(|u| uuid_to_parts(u))
-            .ok_or_else(|| super::Error::InvalidValue {
-                index,
-                value: v_uuid.clone(),
+                for (field, ptr) in response.fields.iter_mut().zip(field_ptrs.iter()) {
+                    field.values.push(extract_field(&v, ptr));
+                }
+                for (hash, ptrs) in response.hashes.iter_mut().zip(hash_ptrs.iter()) {
+                    hash.values.push(extract_hash(&v, &ptrs) as u32);
+                }
+                Ok(())
+            })
+            .map_err(|err| {
+                tonic::Status::invalid_argument(format!(
+                    "extraction of document {}: {}",
+                    index, err
+                ))
             })?;
-        response.uuid_parts.push(v_uuid);
-
-        // Extract hashes.
-        for (h, ptrs) in hashes.iter().enumerate() {
-            response.hashes[h]
-                .values
-                .push(extract_hash(&v, &ptrs) as u32);
-        }
-        // Extract fields.
-        for (f, (_, ptr)) in fields.iter().enumerate() {
-            response.fields[f].values.push(extract_field(&v, ptr));
-        }
     }
-    Ok(response)
+    Ok(tonic::Response::new(response))
+}
+
+fn decode_to_value(content: &[u8], content_type_code: i32) -> Result<serde_json::Value, Error> {
+    match content_type_code {
+        ct if ct == (flow::document::ContentType::Json as i32) => {
+            Ok(serde_json::from_slice(content)?)
+        }
+        _ => Err(Error::InvalidContentType {
+            code: content_type_code,
+            content_type: flow::document::ContentType::from_i32(content_type_code),
+        }),
+    }
+}
+
+fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Result<flow::UuidParts, Error> {
+    let v_uuid = ptr.query(&v).unwrap_or(&serde_json::Value::Null);
+    v_uuid
+        .as_str()
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .and_then(|u| {
+            if u.get_version_num() != 1 {
+                return None;
+            }
+            let (c_low, c_mid, c_high, seq_node_id) = u.as_fields();
+
+            Some(flow::UuidParts {
+                clock: (c_low as u64) << 4          // Clock low bits.
+            | (c_mid as u64) << 36                  // Clock middle bits.
+            | (c_high as u64) << 52                 // Clock high bits.
+            | ((seq_node_id[0] as u64) >> 2) & 0xf, // High 4 bits of sequence number.
+
+                producer_and_flags: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
+            | (seq_node_id[3] as u64) << 48
+            | (seq_node_id[4] as u64) << 40
+            | (seq_node_id[5] as u64) << 32
+            | (seq_node_id[6] as u64) << 24
+            | (seq_node_id[7] as u64) << 16
+            | ((seq_node_id[0] as u64) & 0x3) << 8 // High 2 bits of flags.
+            | (seq_node_id[1] as u64), // Low 8 bits of flags.
+            })
+        })
+        .ok_or_else(|| Error::InvalidUuid {
+            value: v_uuid.clone(),
+        })
 }
 
 fn extract_field(v: &serde_json::Value, ptr: &Pointer) -> flow::field::Value {
@@ -167,48 +208,84 @@ fn extract_hash(doc: &serde_json::Value, ptrs: &[Pointer]) -> u64 {
     hash.0
 }
 
-fn uuid_to_parts(u: uuid::Uuid) -> Option<flow::UuidParts> {
-    if u.get_version_num() != 1 {
-        return None;
-    }
-    let (c_low, c_mid, c_high, seq_node_id) = u.as_fields();
-
-    Some(flow::UuidParts {
-        clock: (c_low as u64) << 4                  // Clock low bits.
-            | (c_mid as u64) << 36                  // Clock middle bits.
-            | (c_high as u64) << 52                 // Clock high bits.
-            | ((seq_node_id[0] as u64) >> 2) & 0xf, // High 4 bits of sequence number.
-
-        producer_and_flags: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
-            | (seq_node_id[3] as u64) << 48
-            | (seq_node_id[4] as u64) << 40
-            | (seq_node_id[5] as u64) << 32
-            | (seq_node_id[6] as u64) << 24
-            | (seq_node_id[7] as u64) << 16
-            | ((seq_node_id[0] as u64) & 0x3) << 8 // High 2 bits of flags.
-            | (seq_node_id[1] as u64), // Low 8 bits of flags.
-    })
-}
-
 #[cfg(test)]
 mod test {
-    use super::{extract_field, extract_hash, flow, uuid_to_parts, Pointer};
+    use super::{
+        decode_to_value, extract_field, extract_hash, extract_uuid_parts, flow, Error, Pointer,
+    };
 
     #[test]
-    fn test_uuid_to_parts() {
-        let uuid = uuid::Uuid::parse_str("9f2952f3-c6a3-11ea-8802-080607050309").unwrap();
-
+    fn test_decode_to_value() {
         assert_eq!(
-            uuid_to_parts(uuid),
-            Some(flow::UuidParts {
-                producer_and_flags: 0x0806070503090000 + 0x02,
-                clock: 0x1eac6a39f2952f32,
-            })
+            decode_to_value(
+                r#"{"key":42}"#.as_bytes(),
+                flow::document::ContentType::Json as i32
+            )
+            .unwrap(),
+            serde_json::json!({"key": 42}),
         );
+        // Reports malformed JSON.
+        match decode_to_value(
+            r#"{"key":42"#.as_bytes(),
+            flow::document::ContentType::Json as i32,
+        ) {
+            Err(Error::JSONErr(_)) => {}
+            p @ _ => panic!(p),
+        };
+        // Reports unexpected / unknown Content-Type.
+        match decode_to_value(r#"foobar"#.as_bytes(), 1234567) {
+            Err(Error::InvalidContentType {
+                code: 1234567,
+                content_type: None,
+            }) => {}
+            p @ _ => panic!(p),
+        };
     }
 
     #[test]
-    fn test_extraction() {
+    fn test_extraction_uuid_to_parts() {
+        let v = serde_json::json!({
+            "_meta": {
+                "uuid": "9f2952f3-c6a3-11ea-8802-080607050309",
+            },
+            "foo": "bar",
+            "tru": true,
+        });
+
+        // "/_meta/uuid" maps to an encoded UUID. This fixture and the values
+        // below are also used in Go-side tests.
+        assert_eq!(
+            extract_uuid_parts(&v, &Pointer::from("/_meta/uuid")).unwrap(),
+            flow::UuidParts {
+                producer_and_flags: 0x0806070503090000 + 0x02,
+                clock: 0x1eac6a39f2952f32,
+            },
+        );
+        // "/missing" maps to Null, which is the wrong type.
+        match extract_uuid_parts(&v, &Pointer::from("/missing")) {
+            Err(Error::InvalidUuid {
+                value: serde_json::Value::Null,
+            }) => {}
+            p @ _ => panic!(p),
+        }
+        // "/foo" maps to "bar", also not a UUID.
+        match extract_uuid_parts(&v, &Pointer::from("/foo")) {
+            Err(Error::InvalidUuid {
+                value: serde_json::Value::String(s),
+            }) if s == "bar" => {}
+            p @ _ => panic!(p),
+        }
+        // "/tru" maps to true, of the wrong type.
+        match extract_uuid_parts(&v, &Pointer::from("/tru")) {
+            Err(Error::InvalidUuid {
+                value: serde_json::Value::Bool(b),
+            }) if b => {}
+            p @ _ => panic!(p),
+        }
+    }
+
+    #[test]
+    fn test_extraction_hashes_and_fields() {
         let v1 = serde_json::json!({
             "a": "value",
             "obj": {"tru": true, "other": "value"},

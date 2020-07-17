@@ -1,7 +1,7 @@
 use super::protocol::{journal_client::JournalClient, ReadRequest, ReadResponse};
 use tonic::transport::Channel;
 
-pub async fn foo_the_bar() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn _foo_the_bar() -> Result<(), Box<dyn std::error::Error>> {
     let mut client: JournalClient<Channel> = JournalClient::connect("http://[::1]:50051").await?;
 
     let resp: tonic::Response<tonic::Streaming<ReadResponse>> = client
