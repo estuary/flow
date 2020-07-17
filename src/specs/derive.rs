@@ -14,20 +14,14 @@ pub struct Config {
     // Unix domain socket to listen on for message transform
     // streams and key/value state operations.
     pub socket_path: PathBuf,
-    // Configuration for the worker's persistent state
-    pub state: State,
-}
-
-/// Recorder is configuration to enable recording to a recovery log.
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct State {
-    // Directory which roots the persistent state of this worker.
-    pub dir: PathBuf,
-    // Author under which new operations should be fenced and recorded to the log.
-    pub author: u32,
     // FSM which details the persistent state manifest, including its recovery log.
     pub fsm: Box<RawValue>,
+    // Author under which new operations should be fenced and recorded to the log.
+    pub author: u32,
+    // Directory which roots the persistent state of this worker.
+    pub dir: PathBuf,
+    // Gazette registers to check during recovery-log writes.
+    pub check_registers: Box<RawValue>,
 }
 
 /// SourceEnvelope is read from the flow-consumer within derive transaction streams.

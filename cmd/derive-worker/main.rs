@@ -123,5 +123,10 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
 
     // Signal to host process that we're ready to accept connections.
     println!("READY");
-    Ok(server_handle.await?)
+    server_handle.await?;
+
+    // TODO(johnny): Update |cfg| with current Recorder FSM state.
+
+    serde_json::to_writer_pretty(std::io::stdout(), &cfg)?;
+    Ok(())
 }

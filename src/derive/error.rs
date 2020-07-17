@@ -44,4 +44,11 @@ pub enum Error {
     NoSuccessTrailerRenameMe,
     #[error("channel send error: {0}")]
     ChannelSendErr(#[from] futures::channel::mpsc::SendError),
+    #[error("invalid UUID: {0}")]
+    UUIDErr(#[from] uuid::Error),
+    #[error("invalid extraction value in document {index}: {value}")]
+    InvalidValue {
+        index: usize,
+        value: serde_json::Value,
+    },
 }
