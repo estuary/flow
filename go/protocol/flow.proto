@@ -136,7 +136,7 @@ message Field {
   string name = 1;
   // Value is the extracted representation fo the field value.
   message Value {
-    enum Type {
+    enum Kind {
       INVALID = 0;
       NULL = 1;
       TRUE = 2;
@@ -144,26 +144,21 @@ message Field {
       STRING = 4;
       UNSIGNED = 5;
       SIGNED = 6;
-      NUMBER = 7;
+      DOUBLE = 7;
       OBJECT = 8;
       ARRAY = 9;
     }
-    Type type = 1;
-
-    string string = 2;
-    uint64 unsigned = 3;
-    int64 signed = 4;
-    float number = 5;
-    bytes object = 6;
-    bytes array = 7;
+    Kind kind = 1;
+    uint64 unsigned = 2;
+    sint64 signed = 3;
+    double double = 4;
+    bytes bytes = 5;
   };
-  repeated Value values = 2 [(gogoproto.nullable) = false ];
+  repeated Value values = 2 [ (gogoproto.nullable) = false ];
 }
 
 // Hash holds hashes extracted for a given Hash key of Documents.
-message Hash {
-  repeated fixed32 values = 1;
-}
+message Hash { repeated fixed32 values = 1; }
 
 // ShuffleRequest is the request message of a Shuffle RPC.
 message ShuffleRequest {
@@ -303,9 +298,7 @@ message ExtractRequest {
   // JSON pointer of document UUID to extract.
   string uuid_ptr = 2;
   // Hash is a composite of JSON pointers to extract & hash.
-  message Hash {
-    repeated string ptrs = 1;
-  }
+  message Hash { repeated string ptrs = 1; }
   repeated Hash hashes = 3 [ (gogoproto.nullable) = false ];
   // Field names and JSON pointers to extract from documents.
   message Field {
@@ -320,9 +313,11 @@ message ExtractRequest {
 message ExtractResponse {
   // UUIDParts extracted from request Documents.
   repeated UUIDParts uuid_parts = 1 [ (gogoproto.nullable) = false ];
-  // Hashes extracted from request Documents, one column for each requested Hash.
+  // Hashes extracted from request Documents, one column for each requested
+  // Hash.
   repeated Hash hashes = 2 [ (gogoproto.nullable) = false ];
-  // Fields extracted from request Documents, one column for each requested Field.
+  // Fields extracted from request Documents, one column for each requested
+  // Field.
   repeated Field fields = 3 [ (gogoproto.nullable) = false ];
 };
 

@@ -26,6 +26,7 @@ func TestUUIDPartsRoundTrip(t *testing.T) {
 	}, parts)
 
 	var uuid = parts.Pack()
+	require.Equal(t, "9f2952f3-c6a3-11ea-8802-080607050309", uuid.String())
 	require.Equal(t, message.GetProducerID(uuid), producer)
 	require.Equal(t, message.GetFlags(uuid), message.Flag_ACK_TXN)
 	require.Equal(t, message.GetClock(uuid), clock)
