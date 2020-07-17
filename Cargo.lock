@@ -283,6 +283,7 @@ dependencies = [
  "chrono",
  "clap",
  "estuary_json",
+ "estuary_protocol",
  "futures",
  "fxhash",
  "headers",
@@ -295,6 +296,7 @@ dependencies = [
  "log 0.4.8",
  "pin-utils",
  "pretty_env_logger",
+ "prost",
  "regex",
  "reqwest",
  "rusqlite",
@@ -305,6 +307,7 @@ dependencies = [
  "thiserror",
  "tinyvec",
  "tokio",
+ "tonic",
  "url",
  "uuid",
  "warp",
@@ -325,6 +328,16 @@ dependencies = [
  "thiserror",
  "tinyvec",
  "url",
+]
+
+[[package]]
+name = "estuary_protocol"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]
@@ -477,16 +490,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
 dependencies = [
  "byteorder",
-]
-
-[[package]]
-name = "gazette-rs"
-version = "0.1.0"
-dependencies = [
- "prost",
- "prost-types",
- "tonic",
- "tonic-build",
 ]
 
 [[package]]
@@ -1080,18 +1083,18 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "0.4.9"
+version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f6a7f5eee6292c559c793430c55c00aea9d3b3d1905e855806ca4d7253426a2"
+checksum = "12e3a6cdbfe94a5e4572812a0201f8c0ed98c1c452c7b8563ce2276988ef9c17"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "0.4.9"
+version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8988430ce790d8682672117bc06dda364c0be32d3abd738234f19f3240bad99a"
+checksum = "6a0ffd45cf79d88737d7cc85bfd5d2894bee1139b356e616fe85dc389c61aaf7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1856,13 +1859,13 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4afef9ce97ea39593992cf3fa00ff33b1ad5eb07665b31355df63a690e38c736"
+checksum = "b13b102a19758191af97cff34c6785dffd6610f68de5ab1c4bb8378638e4ef90"
 dependencies = [
  "async-stream",
  "async-trait",
- "base64 0.11.0",
+ "base64 0.12.0",
  "bytes",
  "futures-core",
  "futures-util",
@@ -1886,9 +1889,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-build"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71d8d21cb568e802d77055ab7fcd43f0992206de5028de95c8d3a41118d32e8e"
+checksum = "daec8b14e55497072204b53d5c0b1eb0a6ad1cd8301d6d4c079d4aeec35b21e9"
 dependencies = [
  "proc-macro2",
  "prost-build",

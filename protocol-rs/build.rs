@@ -10,6 +10,7 @@ fn main() {
         "go.gazette.dev/core",
         "github.com/gogo/protobuf",
         "github.com/golang/protobuf", // Remove?
+        "github.com/estuary/flow",
     ];
     for module in go_modules {
         let go_list = Command::new("/usr/local/go/bin/go")
@@ -27,11 +28,17 @@ fn main() {
     }
 
     println!("proto_include: {:?}", proto_include);
-    let broker_proto = proto_include[0].join("broker/protocol/protocol.proto");
+
+    let proto_build = [
+        proto_include[0].join("broker/protocol/protocol.proto"),
+        proto_include[0].join("consumer/protocol/protocol.proto"),
+        proto_include[0].join("consumer/recoverylog/recorded_op.proto"),
+        proto_include[3].join("go/protocol/flow.proto"),
+    ];
 
     tonic_build::configure()
-        .build_server(false)
-        //.out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"))
-        .compile(&[broker_proto], &proto_include)
+        .build_server(true)
+        .out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"))
+        .compile(&proto_build, &proto_include)
         .expect("failed to compile protobuf");
 }
