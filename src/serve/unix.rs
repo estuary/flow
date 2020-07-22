@@ -1,20 +1,29 @@
 use hyper::service::make_service_fn;
 use hyperlocal::UnixServerExt;
-use log::{debug, error};
+use log::{debug, error, info};
 use std::convert::Infallible;
 use std::fs;
 use std::future::Future;
 use std::path::Path;
-use warp::filters::BoxedFilter;
 
-// Asynchronously serve a warp::Filter over the given Unix Domain Socket path,
+// Asynchronously serve a tower::Service over the given Unix Domain Socket path,
 // until signaled to gracefully stop.
-pub fn serve(
-    filter: BoxedFilter<(impl warp::Reply + 'static,)>,
+pub fn serve<Svc, B>(
+    svc: Svc,
     socket_path: &Path,
     stop: impl Future<Output = ()>,
-) -> impl Future<Output = ()> {
-    let svc = warp::service(filter);
+) -> impl Future<Output = ()>
+where
+    Svc: tower::Service<http::Request<hyper::Body>, Response = http::Response<B>>
+        + Send
+        + Clone
+        + 'static,
+    Svc::Error: std::error::Error + Send + Sync,
+    Svc::Future: Send,
+    B: http_body::Body + Send + 'static,
+    B::Data: Send,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let make_svc = make_service_fn(move |stream: &tokio::net::UnixStream| {
         debug!("socket connected {:?}", stream);
 
@@ -31,7 +40,7 @@ pub fn serve(
         if let Err(err) = server.await {
             error!("error on service stop: {}", err);
         } else {
-            debug!("service stop complete");
+            info!("service stop complete");
         }
         if let Err(err) = fs::remove_file(&socket_path) {
             error!(
@@ -66,7 +75,7 @@ mod test {
             .boxed();
 
         // Expect |serve| synchronously binds a socket listener, and returns a future to serve it.
-        let server = serve(filter, &path, rx_stop);
+        let server = serve(warp::service(filter), &path, rx_stop);
         let _ = fs::metadata(&path).unwrap(); // Exists.
 
         // Start serving asynchronously.

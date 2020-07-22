@@ -11,9 +11,8 @@ pub struct Config {
     pub catalog: PathBuf,
     // Name of collection which we're deriving.
     pub derivation: String,
-    // Unix domain socket to listen on for message transform
-    // streams and key/value state operations.
-    pub socket_path: PathBuf,
+    // Unix domain socket to listen on for gRPC connections.
+    pub grpc_socket_path: PathBuf,
     // FSM which details the persistent state manifest, including its recovery log.
     pub fsm: Box<RawValue>,
     // Author under which new operations should be fenced and recorded to the log.

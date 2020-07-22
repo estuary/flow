@@ -4,16 +4,18 @@ use estuary::{
     derive, doc,
     specs::derive as specs,
 };
+use estuary_protocol::flow;
 use futures::{select, FutureExt};
 use log::{error, info};
 use pretty_env_logger;
+use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio;
 use tokio::signal::unix::{signal, SignalKind};
+use tower::Service;
 use url::Url;
-use warp::Filter;
 
-type Error = Box<dyn std::error::Error + 'static>;
+type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 #[tokio::main]
 async fn main() {
@@ -49,7 +51,7 @@ async fn main() {
 
 fn parse_config(args: &clap::ArgMatches) -> Result<specs::Config, Error> {
     let cfg = args.value_of("config").unwrap();
-    let cfg = std::fs::read(cfg).map_err(|e| format!("parsing config {:?}: {}", cfg, e))?;
+    let cfg = fs::read(cfg).map_err(|e| format!("parsing config {:?}: {}", cfg, e))?;
     Ok(serde_json::from_slice::<specs::Config>(&cfg)?)
 }
 
@@ -74,7 +76,7 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     // "Open" recovered state store, instrumented with a Recorder.
     // TODO rocksdb, sqlite, Go CGO bindings to client / Recorder, blah blah.
     let store = Box::new(derive::state::MemoryStore::new());
-    let store = Arc::new(Mutex::new(store));
+    let _store = Arc::new(Mutex::new(store));
 
     // Compile the bundle of catalog schemas. Then, deliberately "leak" the
     // immutable Schema bundle for the remainder of program in order to achieve
@@ -89,19 +91,29 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     }
     schema_index.verify_references()?;
 
-    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
+    info!("loaded {} JSON-Schemas from catalog", schemas.len());
 
     // Start NodeJS transform worker.
-    let loopback = Url::from_file_path(&cfg.socket_path).unwrap();
+    let loopback = Url::from_file_path(&cfg.grpc_socket_path).unwrap();
     let node = derive::nodejs::Service::new(&db, loopback)?;
 
     let txn_ctx = derive::transform::Context::new(&db, derivation_id, node, schema_index)?;
     let txn_ctx = Arc::new(Box::new(txn_ctx));
 
     // Build service.
-    let service = derive::state::build_service(store)
-        .or(derive::build_service(txn_ctx.clone()))
-        .boxed();
+    let mut extract_svc =
+        flow::extract_server::ExtractServer::new(derive::extract::ExtractService {});
+    //let mut derive_svc = flow::derive_server::DeriveServer::new(derive::DeriveService {});
+
+    let service = tower::service_fn(move |req: hyper::Request<hyper::Body>| {
+        let path = &req.uri().path()[1..];
+
+        if path.starts_with(grpc_service_name(&extract_svc)) {
+            extract_svc.call(req)
+        } else {
+            extract_svc.call(req)
+        }
+    });
 
     // Register for shutdown signals and wire up a future.
     let mut sigterm = signal(SignalKind::terminate())?;
@@ -115,7 +127,7 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
     };
 
     // Bind local listener and begin serving.
-    let server = estuary::serve::unix_domain_socket(service, &cfg.socket_path, stop);
+    let server = estuary::serve::unix_domain_socket(service, &cfg.grpc_socket_path, stop);
     let server_handle = tokio::spawn(server);
 
     // Invoke derivation bootstraps.
@@ -129,4 +141,8 @@ async fn do_run<'a>(args: &'a clap::ArgMatches<'a>) -> Result<(), Error> {
 
     serde_json::to_writer_pretty(std::io::stdout(), &cfg)?;
     Ok(())
+}
+
+fn grpc_service_name<S: tonic::transport::NamedService>(_: &S) -> &str {
+    return S::NAME;
 }

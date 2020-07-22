@@ -1,41 +1,12 @@
 use super::Error;
 use crate::doc::Pointer;
-use estuary_protocol::consumer;
 use estuary_protocol::flow;
-use estuary_protocol::recoverylog;
-use futures::stream::Stream;
-use std::pin::Pin;
 
 #[derive(Debug)]
-pub struct DeriveService {}
+pub struct ExtractService {}
 
 #[tonic::async_trait]
-impl flow::derive_server::Derive for DeriveService {
-    async fn restore_checkpoint(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<consumer::Checkpoint>, tonic::Status> {
-        unimplemented!();
-    }
-
-    type DeriveStream = Pin<
-        Box<dyn Stream<Item = Result<flow::DeriveResponse, tonic::Status>> + Send + Sync + 'static>,
-    >;
-
-    async fn derive(
-        &self,
-        _request: tonic::Request<tonic::Streaming<flow::DeriveRequest>>,
-    ) -> Result<tonic::Response<Self::DeriveStream>, tonic::Status> {
-        unimplemented!();
-    }
-
-    async fn build_hints(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<recoverylog::FsmHints>, tonic::Status> {
-        unimplemented!();
-    }
-
+impl flow::extract_server::Extract for ExtractService {
     async fn extract(
         &self,
         request: tonic::Request<flow::ExtractRequest>,
