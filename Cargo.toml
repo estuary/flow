@@ -13,8 +13,8 @@ members = [
 ]
 
 [[bin]]
-name = "derive-worker"
-path = "cmd/derive-worker/main.rs"
+name = "flow-worker"
+path = "cmd/flow-worker/main.rs"
 
 [[bin]]
 name = "estctl"

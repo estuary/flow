@@ -16,11 +16,12 @@ use url::Url;
 
 #[derive(StructOpt, Debug)]
 struct DeriveCommand {
-    #[structopt(parse(from_os_str), help = "Path to the catalog database.")]
+    #[structopt(long, parse(from_os_str), help = "Path to the catalog database.")]
     catalog: PathBuf,
-    #[structopt(help = "Name of the collection to derive.")]
+    #[structopt(long, help = "Name of the collection to derive.")]
     derivation: String,
     #[structopt(
+        long,
         parse(from_os_str),
         help = "Unix domain socket to listen on for gRPC connections."
     )]
@@ -30,6 +31,7 @@ struct DeriveCommand {
 #[derive(StructOpt, Debug)]
 struct ExtractCommand {
     #[structopt(
+        long,
         parse(from_os_str),
         help = "Unix domain socket to listen on for gRPC connections."
     )]
