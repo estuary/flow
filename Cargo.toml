@@ -26,6 +26,7 @@ estuary_protocol = { path = "protocol-rs" }
 bytes = "^0.5"
 chrono = { version = "0.4", features = ["serde"] }
 clap = "^2.33" # Used only for CLI binaries.
+structopt = "0.3"
 futures = "^0.3"
 headers = "^0.3"
 http = "^0.2"
@@ -52,7 +53,6 @@ pin-utils = "^0.1"
 async-stream = "^0.2"
 reqwest = { version = "^0.10", default-features = false, features = ["blocking", "rustls-tls"] }
 include_dir = { version = "0.6", default-features = false }
-
 tonic = { version = "0.3" }
 prost = "0.6"
 tower = "0.3"

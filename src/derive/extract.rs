@@ -3,10 +3,10 @@ use crate::doc::Pointer;
 use estuary_protocol::flow;
 
 #[derive(Debug)]
-pub struct ExtractService {}
+pub struct ExtractAPI {}
 
 #[tonic::async_trait]
-impl flow::extract_server::Extract for ExtractService {
+impl flow::extract_server::Extract for ExtractAPI {
     async fn extract(
         &self,
         request: tonic::Request<flow::ExtractRequest>,

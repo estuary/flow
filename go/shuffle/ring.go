@@ -16,7 +16,7 @@ import (
 
 type coordinator struct {
 	rjc pb.RoutedJournalClient
-	dc  pf.DeriveClient
+	ec  pf.ExtractClient
 
 	rings map[*ring]struct{}
 	mu    sync.Mutex
@@ -83,7 +83,7 @@ func (r *ring) onRead(resp pf.ShuffleResponse, ok bool) {
 		return
 	}
 	r.staged = resp
-	r.onExtract(r.coordinator.dc.Extract(r.ctx, r.buildExtractRequest()))
+	r.onExtract(r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest()))
 	r.subscribers.stageResponses(r.staged)
 
 	// Do send.
