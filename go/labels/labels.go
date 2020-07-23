@@ -8,20 +8,18 @@ const (
 	// Field is a logical partition of the Collection that's implemented by this
 	// journal.
 	FieldPrefix = "estuary.dev/field/"
-	// UUIDPointer is a JSON-Pointer which resolves to the location of UUIDs
-	// within documents of this journal.
-	UUIDPointer = "estuary.dev/uuid-ptr"
-	// ACKTemplate is a valid document which models transaction acknowledgements
-	// of this journal, and contains a placeholder UUID.
-	ACKTemplate = "estuary.dev/ack-template"
 )
 
 // ShardSpec labels.
 const (
 	// CatalogURL is the URL of the catalog that's processed by this Shard.
+	// The CatalogURL of a ShardSpec may change over time.
+	// A running consumer detects and applies changes to the CatalogURL.
 	CatalogURL = "estuary.dev/catalog-url"
 	// Derivation is the name of the Estuary collection to be derived.
+	// Once set on a ShardSpec, it cannot change.
 	Derivation = "estuary.dev/derivation"
 	// Index of this Shard within the topology of workers for Derivation.
+	// Once set on a ShardSpec, it cannot change.
 	WorkerIndex = "estuary.dev/worker-index"
 )
