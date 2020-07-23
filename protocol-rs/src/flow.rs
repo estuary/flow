@@ -112,8 +112,8 @@ pub mod shuffle_config {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Shuffle {
         /// Transform ID for which this Shuffle is being applied.
-        #[prost(int64, tag = "1")]
-        pub transform_id: i64,
+        #[prost(uint32, tag = "1")]
+        pub transform_id: u32,
         /// Composite key over which shuffling occurs, specified as one or more
         /// JSON-Pointers indicating a message location to extract.
         #[prost(string, repeated, tag = "2")]
