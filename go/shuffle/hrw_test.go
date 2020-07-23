@@ -192,8 +192,8 @@ func newTestShuffleConfig() pf.ShuffleConfig {
 			},
 		},
 		Shuffles: []pf.ShuffleConfig_Shuffle{
-			{ShuffleKeyPtr: []string{"/foo"}, BroadcastTo: 3},
-			{ShuffleKeyPtr: []string{"/bar"}, ChooseFrom: 3},
+			{TransformId: 0, ShuffleKeyPtr: []string{"/foo"}, BroadcastTo: 3},
+			{TransformId: 1, ShuffleKeyPtr: []string{"/bar"}, ChooseFrom: 3},
 		},
 	}
 }

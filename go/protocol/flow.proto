@@ -111,7 +111,7 @@ message ShuffleConfig {
     option (gogoproto.equal) = true;
 
     // Transform ID for which this Shuffle is being applied.
-    int64 transform_id = 1;
+    uint32 transform_id = 1;
     // Composite key over which shuffling occurs, specified as one or more
     // JSON-Pointers indicating a message location to extract.
     repeated string shuffle_key_ptr = 2;

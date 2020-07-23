@@ -40,7 +40,7 @@ func (m *rendezvous) pick(shuffle int, hash uint32, clock message.Clock, out []p
 	for i, bounds := range m.cfg.Ring.Members {
 		var cur = pf.Document_Shuffle{
 			RingIndex:   uint32(i),
-			TransformId: uint32(shuffle),
+			TransformId: m.cfg.Shuffles[shuffle].TransformId,
 			Hrw:         hashCombine(hash, m.weights[i]),
 		}
 

@@ -2,6 +2,7 @@ package shuffle
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -10,11 +11,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/message"
+	"google.golang.org/grpc/status"
 )
 
+// Coordinator collects a set of rings servicing ongoing shuffle reads,
+// and matches new ShuffleConfigs to a new or existing ring.
 type coordinator struct {
+	ctx context.Context
 	rjc pb.RoutedJournalClient
 	ec  pf.ExtractClient
 
@@ -22,21 +26,31 @@ type coordinator struct {
 	mu    sync.Mutex
 }
 
-// TODO(johnny) This compiles, and is approximately right, but is untested and I'm
-// none too sure of the details.
-func (c *coordinator) findOrCreateRing(shard consumer.Shard, cfg pf.ShuffleConfig) *ring {
+func newCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.ExtractClient) *coordinator {
+	return &coordinator{
+		ctx:   ctx,
+		rjc:   rjc,
+		ec:    ec,
+		rings: make(map[*ring]struct{}),
+	}
+}
+
+func (c *coordinator) findOrCreateRing(cfg pf.ShuffleConfig) *ring {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for ring := range c.rings {
-		if ring.cfg.Equal(cfg) {
+		if ring.ctx.Err() != nil {
+			// Prune completed ring from the collection.
+			delete(c.rings, ring)
+		} else if ring.cfg.Equal(cfg) {
 			// Return a matched, existing ring.
 			return ring
 		}
 	}
 
 	// We must create a new ring.
-	var ctx, cancel = context.WithCancel(shard.Context())
+	var ctx, cancel = context.WithCancel(c.ctx)
 
 	var ring = &ring{
 		coordinator:  c,
@@ -52,6 +66,8 @@ func (c *coordinator) findOrCreateRing(shard consumer.Shard, cfg pf.ShuffleConfi
 	return ring
 }
 
+// Ring coordinates a read over a single journal on behalf of a
+// set of subscribers.
 type ring struct {
 	*coordinator
 	ctx    context.Context
@@ -83,10 +99,16 @@ func (r *ring) onRead(resp pf.ShuffleResponse, ok bool) {
 		return
 	}
 	r.staged = resp
-	r.onExtract(r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest()))
-	r.subscribers.stageResponses(r.staged)
 
-	// Do send.
+	// Extract from staged documents.
+	r.onExtract(r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest()))
+
+	// Stage responses for subscribers, and send. If no active subscribers
+	// remain then cancel this ring.
+	r.subscribers.stageResponses(r.staged)
+	if !r.subscribers.sendResponses() {
+		r.cancel()
+	}
 }
 
 func (r *ring) buildExtractRequest() *pf.ExtractRequest {
@@ -103,8 +125,15 @@ func (r *ring) buildExtractRequest() *pf.ExtractRequest {
 
 func (r *ring) onExtract(extract *pf.ExtractResponse, err error) {
 	if err != nil {
+		var description string
+		if s, ok := status.FromError(err); ok {
+			description = fmt.Sprintf("flow-worker: %s: %s", s.Code(), s.Message())
+		} else {
+			description = err.Error()
+		}
+
 		if r.staged.TerminalError == "" {
-			r.staged.TerminalError = err.Error()
+			r.staged.TerminalError = description
 		}
 		log.WithField("err", err).Error("failed to extract hashes")
 		return
@@ -130,6 +159,10 @@ func (r *ring) onExtract(extract *pf.ExtractResponse, err error) {
 func (r *ring) serve() {
 	for {
 		var readCh chan pf.ShuffleResponse
+		if l := len(r.readChans); l != 0 {
+			readCh = r.readChans[l-1]
+		}
+
 		select {
 		case sub := <-r.subscriberCh:
 			r.onSubscribe(sub)
@@ -139,8 +172,10 @@ func (r *ring) serve() {
 	}
 }
 
-// readDocuments is a function variable for easy mocking in tests.
-var readDocuments = func(
+// readDocuments pumps reads from a journal into the provided channel,
+// which must have a buffer of size one. Documents are merged into a
+// channel-buffered ShuffleResponse (up to a limit).
+func readDocuments(
 	ctx context.Context,
 	rjc pb.RoutedJournalClient,
 	req pb.ReadRequest,

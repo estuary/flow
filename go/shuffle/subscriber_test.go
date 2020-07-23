@@ -1,6 +1,7 @@
 package shuffle
 
 import (
+	"fmt"
 	"testing"
 
 	pf "github.com/estuary/flow/go/protocol"
@@ -135,6 +136,75 @@ func TestSubscriberResponseStaging(t *testing.T) {
 	}, s)
 }
 
+func TestSubscriberSendAndPruneCases(t *testing.T) {
+
+	var s0a = make(chan error, 1)
+	var s0b = make(chan error, 1)
+	var s1 = make(chan error, 1)
+	var s2 = make(chan error, 1)
+	var sends int
+
+	var sendMsg = func(interface{}) error {
+		sends++
+		return nil
+	}
+
+	var s = subscribers{
+		{
+			request: pf.ShuffleRequest{Offset: 0, EndOffset: 200},
+			sendMsg: sendMsg,
+			doneCh:  s0a,
+
+			next: &subscriber{
+				request: pf.ShuffleRequest{Offset: 200},
+				doneCh:  s0b,
+				sendMsg: sendMsg,
+			},
+		},
+		{
+			request: pf.ShuffleRequest{Offset: 100},
+			sendMsg: sendMsg,
+			doneCh:  s1,
+		},
+		{
+			sendMsg: func(m interface{}) error { return fmt.Errorf("an-error") },
+			doneCh:  s2,
+		},
+	}
+
+	// Case: Message sent to 0, omitted from 1, and causes 2 to error.
+	s.stageResponses(pf.ShuffleResponse{
+		Documents: []pf.Document{{Begin: 0, End: 100}},
+	})
+	require.True(t, s.sendResponses())
+
+	require.Equal(t, 1, sends) // Sent to 0 only.
+	sends = 0                  // Re-zero for next case.
+	require.EqualError(t, <-s2, "an-error")
+	require.Nil(t, s[2].doneCh) // Expect reset.
+
+	// Case: Message sent to 0, which completes, and 1.
+	s.stageResponses(pf.ShuffleResponse{
+		Documents: []pf.Document{{Begin: 100, End: 200}},
+	})
+	require.True(t, s.sendResponses())
+
+	require.Equal(t, 2, sends) // Sent to 0 & 1.
+	sends = 0                  // Re-zero for next case.
+	require.Nil(t, <-s0a)      // Notified of EOF.
+	require.Nil(t, s[0].next)  // Expect child was promoted.
+
+	// Case: Terminal error sent to 0 & 1.
+	s.stageResponses(pf.ShuffleResponse{
+		TerminalError: "foobar",
+	})
+	require.False(t, s.sendResponses()) // No more subscribers.
+
+	require.Equal(t, 2, sends) // Sent to 0 & 1.
+	require.Nil(t, <-s0b)      // Notified of EOF.
+	require.Nil(t, <-s1)       // Notified of EOF.
+}
+
 func TestSubscriberAddCases(t *testing.T) {
 	// Case: First subscriber, at offset 0.
 	var s = subscribers{{}, {}, {}}
@@ -177,10 +247,15 @@ func TestSubscriberAddCases(t *testing.T) {
 	sub.request.RingIndex = 2
 	sub.request.Offset = 789
 	sub.request.EndOffset = 1011
-	require.Nil(t, s.add(sub))
 
-	require.EqualError(t, <-sub.doneCh,
-		"unexpected EndOffset 1011 (no other subscriber at ring index 2)")
+	sub.sendMsg = func(m interface{}) error {
+		require.Equal(t, m.(*pf.ShuffleResponse).TerminalError,
+			"unexpected EndOffset 1011 (no other subscriber at ring index 2)")
+		return fmt.Errorf("send-err-is-plumbed")
+	}
+	require.Nil(t, s.add(sub))
+	require.EqualError(t, <-sub.doneCh, "send-err-is-plumbed")
+	sub.sendMsg = nil
 
 	// Case: Third subscriber again, without an EndOffset.
 	sub.request.EndOffset = 0
@@ -192,11 +267,16 @@ func TestSubscriberAddCases(t *testing.T) {
 			Offset:    123,
 			RingIndex: 1,
 		},
+		sendMsg: func(m interface{}) error {
+			require.Equal(t, m.(*pf.ShuffleResponse).TerminalError,
+				"existing subscriber at ring index 1 (offset 456) overlaps with request range [123, 0)")
+			return fmt.Errorf("other-send-err-is-plumbed")
+		},
 		doneCh: make(chan error, 1),
 	}
 	require.Nil(t, s.add(sub))
-	require.EqualError(t, <-sub.doneCh,
-		"existing subscriber at ring index 1 (offset 456) overlaps with request range [123, 0)")
+	require.EqualError(t, <-sub.doneCh, "other-send-err-is-plumbed")
+	sub.sendMsg = nil
 
 	// Case: A second read of an existing subscriber may be added
 	// *if* it's a lower offset range.

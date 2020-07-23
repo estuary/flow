@@ -55,8 +55,6 @@ async fn main() {
     pretty_env_logger::init();
     let cmd = Command::from_args();
 
-    println!("{:?}", cmd);
-
     let result = match cmd {
         Command::Extract(cmd) => cmd.run().await,
         Command::Derive(cmd) => cmd.run().await,
