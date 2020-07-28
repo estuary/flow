@@ -292,6 +292,21 @@ BEGIN
     SELECT RAISE(ABORT, 'Transforms of a derived collection which read from the same source collection must use the same source schema URI');
 END;
 
+-- If the source_schema_uri is the same as the schema_uri of the source collection, then we'll raise
+-- an error. This condition would not necessarily affect correctness, but it would essentially have
+-- no effect, and so we'll assume that this isn't what the user intended and raise an error.
+CREATE TRIGGER transforms_source_schema_different_from_collection_schema
+    BEFORE INSERT
+    ON transforms
+    FOR EACH ROW
+    WHEN (
+        SELECT schema_uri FROM collections
+            WHERE collection_id = NEW.source_collection_id
+    ) = NEW.source_schema_uri
+    BEGIN
+        SELECT RAISE(ABORT, 'Transforms that specify a source schema may not use the same schema as the source collection');
+    END;
+
 -- Require that the specification resource which defines a collection transform,
 -- also imports the specification which contains the referenced source collection.
 CREATE TRIGGER transforms_import_source_collection

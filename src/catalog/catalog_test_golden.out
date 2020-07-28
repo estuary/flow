@@ -376,6 +376,11 @@ UPDATE transforms
 SET source_schema_uri = 'not-a-url'
 WHERE transform_id = 1;
 
+-- Invalid source schema is the same as the collection schema
+Error: near line (XYZ): Transforms that specify a source schema may not use the same schema as the source collection
+INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri) 
+VALUES (2, 1, 'file:///path/to/a/schema.yaml#anchor');
+
 -- Can only set one of 'broadcast' or 'choose'.
 Error: near line (XYZ): CHECK constraint failed: Cannot set both shuffle 'broadcast' and 'choose'
 UPDATE transforms

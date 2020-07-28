@@ -262,6 +262,10 @@ UPDATE transforms
 SET source_schema_uri = 'not-a-url'
 WHERE transform_id = 1;
 
+-- Invalid source schema is the same as the collection schema
+INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri) 
+VALUES (2, 1, 'file:///path/to/a/schema.yaml#anchor');
+
 -- Can only set one of 'broadcast' or 'choose'.
 UPDATE transforms
 SET shuffle_broadcast = 2,
