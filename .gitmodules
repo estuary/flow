@@ -1,3 +1,3 @@
 [submodule "json/tests/official"]
 	path = json/tests/official
-	url = git@github.com:jgraettinger/JSON-Schema-Test-Suite.git
+	url = https://github.com/jgraettinger/JSON-Schema-Test-Suite.git
