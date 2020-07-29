@@ -123,7 +123,7 @@ func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRe
 func GetJournal(ctx context.Context, jc pb.JournalClient, journal pb.Journal) (*pb.JournalSpec, error) {
 	var lr, err = ListAllJournals(ctx, jc, pb.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.LabelSet{Labels: []pb.Label{{Name: "name", Value: journal.String()}}},
+			Include: pb.LabelSet{Labels: []pb.Label{{Name: "name", Value: journal.StripQuery().String()}}},
 		},
 	})
 	if err == nil && len(lr.Journals) == 0 {

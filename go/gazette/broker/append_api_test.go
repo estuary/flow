@@ -21,7 +21,7 @@ func TestAppendSingle(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	var stream, _ = broker.client().Append(ctx)
-	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal"}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "a/journal?with=query"}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("foo")}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("bar")}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{})) // Intend to commit.

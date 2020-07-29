@@ -55,7 +55,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 
 	CreateShards(c, cmr1, &pc.ShardSpec{
 		Id:                "a-shard",
-		Sources:           []pc.ShardSpec_Source{{Journal: "a/journal"}},
+		Sources:           []pc.ShardSpec_Source{{Journal: "a/journal?with=query"}},
 		RecoveryLogPrefix: "recovery/logs",
 		HintPrefix:        "/hints",
 		HintBackups:       1,

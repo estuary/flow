@@ -88,4 +88,6 @@ const (
 	// pathSymbols is allowed runes of strings which form path components.
 	// It extends TokenSymbols with the '=' and '%' runes.
 	pathSymbols = TokenSymbols + "=%"
+	// querySymbols is allowed runes of strings which form query components.
+	querySymbols = "-_+.&=%"
 )

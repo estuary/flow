@@ -24,11 +24,37 @@ type Offset = int64
 // Offsets is a map of Journals and Offsets.
 type Offsets map[Journal]Offset
 
-// Validate returns an error if the Journal is not well-formed. It must be of
-// the base64 alphabet, a clean path (as defined by path.Clean), and must not
-// begin with a '/'.
+// SplitQuery splits off a "?query" suffix of this Journal, separately
+// returning the Journal without a query, and the "?query" remainder.
+func (n Journal) SplitQuery() (Journal, string) {
+	var ind = strings.IndexByte(n.String(), '?')
+	if ind != -1 {
+		return n[:ind], n[ind:].String()
+	}
+	return n, ""
+}
+
+// StripQuery returns this Journal with a "?query" suffix removed.
+func (n Journal) StripQuery() Journal {
+	var nn, _ = n.SplitQuery()
+	return nn
+}
+
+// Validate returns an error if the Journal is not well-formed. It must draw
+// from a restricted set of allowed path runes, be a clean path (as defined by
+// path.Clean), and must not begin with a '/'. A Journal query component, if
+// present, must similarly consist only of allowed query runes.
 func (n Journal) Validate() error {
-	return ValidatePathComponent(n.String(), minJournalNameLen, maxJournalNameLen)
+	var nn, q = n.SplitQuery()
+
+	if err := ValidatePathComponent(nn.String(), minJournalNameLen, maxJournalNameLen); err != nil {
+		return err
+	} else if q == "" {
+		// No query to validate.
+	} else if err = ValidateToken(q[1:], querySymbols, 1, maxJournalNameLen); err != nil {
+		return ExtendContext(err, "query")
+	}
+	return nil
 }
 
 // String returns the Journal as a string.
@@ -61,6 +87,8 @@ func (o Offsets) Copy() Offsets {
 func (m *JournalSpec) Validate() error {
 	if err := m.Name.Validate(); err != nil {
 		return ExtendContext(err, "Name")
+	} else if _, q := m.Name.SplitQuery(); q != "" {
+		return NewValidationError("Name cannot have a query component (%s; expected no query)", q)
 	} else if m.Replication < 1 || m.Replication > maxJournalReplication {
 		return NewValidationError("invalid Replication (%d; expected 1 <= Replication <= %d)",
 			m.Replication, maxJournalReplication)

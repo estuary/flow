@@ -96,7 +96,7 @@ func (s *ListSuite) TestGetJournal(c *gc.C) {
 	}
 
 	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
-	var spec, err = GetJournal(context.Background(), rjc, "foo/bar")
+	var spec, err = GetJournal(context.Background(), rjc, "foo/bar?with=query")
 
 	c.Check(err, gc.IsNil)
 	c.Check(spec.Name, gc.Equals, pb.Journal("foo/bar"))

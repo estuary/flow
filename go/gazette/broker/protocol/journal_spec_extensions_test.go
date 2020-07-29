@@ -22,6 +22,13 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 		{"not-$%|-a valid token", `not a valid token \(.*\)`},
 		{"", `invalid length \(0; expected 4 <= .*`},
 		{"zz", `invalid length \(2; expected 4 <= .*`},
+
+		// Journals may have query components.
+		{"foo/bar?query=baz&other", ""},
+		// Queries must consist of a restricted alphabet.
+		{"foo/bar?disallowed#rune", `query: not a valid token \(disallowed#rune\)`},
+		// If '?' is present, the query must be non-empty.
+		{"foo/bar?", `query: invalid length \(0; expected 1 <= length <= 512\)`},
 	}
 	for _, tc := range cases {
 		if tc.expect == "" {
@@ -30,6 +37,18 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 			c.Check(tc.j.Validate(), gc.ErrorMatches, tc.expect)
 		}
 	}
+}
+
+func (s *JournalSuite) TestJournalQuerySplits(c *gc.C) {
+	c.Check(Journal("foo/bar?query-part").StripQuery(), gc.Equals, Journal("foo/bar"))
+	var n, q = Journal("foo/bar?query-part").SplitQuery()
+	c.Check(n, gc.Equals, Journal("foo/bar"))
+	c.Check(q, gc.Equals, "?query-part")
+
+	c.Check(Journal("foo/bar").StripQuery(), gc.Equals, Journal("foo/bar"))
+	n, q = Journal("foo/bar").SplitQuery()
+	c.Check(n, gc.Equals, Journal("foo/bar"))
+	c.Check(q, gc.Equals, "")
 }
 
 func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
@@ -53,6 +72,8 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 
 	spec.Name = "/bad/name"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Name: cannot begin with '/' \(/bad/name\)`)
+	spec.Name = "a/journal?disallowed=query"
+	c.Check(spec.Validate(), gc.ErrorMatches, `Name cannot have a query component \(\?disallowed=query; expected no query\)`)
 	spec.Name = "a/journal"
 
 	spec.Replication = 0
