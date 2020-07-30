@@ -97,6 +97,16 @@ where
         if has_contains && !has_min {
             self.kw
                 .push(Keyword::Validation(Validation::MinContains(1)));
+        } else if !has_contains {
+            // The spec explicitly says to ignore minContains and maxContains if the schema
+            // does not include the "contains" keyword, so we remove those here if that's the case
+            self.kw.retain(|kw| {
+                match kw {
+                    Keyword::Validation(Validation::MinContains(_)) => false,
+                    Keyword::Validation(Validation::MaxContains(_)) => false,
+                    _ => true,
+                }
+            })
         }
 
         self.tbl.freeze();
