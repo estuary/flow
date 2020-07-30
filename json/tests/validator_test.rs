@@ -78,6 +78,11 @@ fn test_d09_one_of() {
 }
 
 #[test]
+fn test_d09_id() {
+    run_draft09_test("id.json");
+}
+
+#[test]
 fn test_d09_if_then_else() {
     run_draft09_test("if-then-else.json");
 }
@@ -105,6 +110,11 @@ fn test_d09_max_properties() {
 #[test]
 fn test_d09_min_items() {
     run_draft09_test("minItems.json");
+}
+
+#[test]
+fn test_d09_max_contains() {
+    run_draft09_test("maxContains.json");
 }
 
 #[test]
