@@ -148,8 +148,13 @@ fn test_d09_defs() {
 }
 
 #[test]
-fn test_d09_dependencies() {
-    run_draft09_test("dependencies.json");
+fn test_d09_dependent_requried() {
+    run_draft09_test("dependentRequired.json");
+}
+
+#[test]
+fn test_d09_dependent_schemas() {
+    run_draft09_test("dependentSchemas.json");
 }
 
 #[test]
