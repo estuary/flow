@@ -421,14 +421,13 @@ where
                 False => false,
                 Type(expect) => {
                     let actual = match num {
-                        Number::Unsigned(_) | Number::Signed(_) => types::INTEGER | types::NUMBER,
                         // The json schema spec says that the "integer" type must match
                         // "any number with a zero fractional part":
-                        // "https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1"
-                        Number::Float(value) if value.fract() == 0.0 => {
-                            types::NUMBER | types::INTEGER
-                        },
-                        Number::Float(_) => types::NUMBER,
+                        // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
+                        // So if there's an actual fractional part, then only "number" is valid,
+                        // but for any other numeric value, then "integer" is also valid.
+                        Number::Float(value) if value.fract() > 0.0 => types::NUMBER,
+                        _ => types::INTEGER | types::NUMBER,
                     };
                     *expect & actual != types::INVALID
                 }
