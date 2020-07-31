@@ -10,8 +10,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.5.0
 	github.com/stretchr/testify v1.5.1
-	go.gazette.dev/core v0.86.1
+	go.gazette.dev/core v0.88.0
 	google.golang.org/grpc v1.28.0
 )
 
-replace go.gazette.dev/core => ../../gazette

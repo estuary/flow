@@ -13,7 +13,7 @@ fn main() {
         "github.com/estuary/flow",
     ];
     for module in go_modules {
-        let go_list = Command::new("/usr/local/go/bin/go")
+        let go_list = Command::new("go")
             .args(&["list", "-f", "{{ .Dir }}", "-m", module])
             .stderr(process::Stdio::inherit())
             .output()
