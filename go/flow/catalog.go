@@ -10,7 +10,7 @@ import (
 	"net/url"
 
 	"github.com/estuary/flow/go/labels"
-	pb "go.gazette.dev/core/broker/protocol"
+	pf "github.com/estuary/flow/go/protocol"
 )
 
 // Catalog is a catalog database which has been fetched to a local file.
@@ -50,26 +50,19 @@ func newCatalog(url, tempDir string) (*catalog, error) {
 
 func (c *catalog) LocalPath() string { return c.dbPath }
 
-type transform struct {
-	id               int
-	sourceName       string
-	sourcePartitions pb.LabelSelector
-	shuffleKey       []string
-	shuffleBroadcast int
-	shuffleChoose    int
-}
-
-func (c *catalog) loadTransforms(derivation string) ([]transform, error) {
-	var transforms []transform
+func (c *catalog) loadTransforms(derivation string) ([]pf.TransformSpec, error) {
+	var transforms []pf.TransformSpec
 
 	var rows, err = c.db.Query(`
 	SELECT
 		transform_id,
 		source_name,
+		derivation_name,
 		source_partitions_json,
 		shuffle_key_json,
 		shuffle_broadcast,
-		shuffle_choose
+		shuffle_choose,
+		0 -- TODO(johnny): Not implemented in catalog yet.
 	FROM transform_details
 		WHERE derivation_name = ?`,
 		derivation,
@@ -80,7 +73,7 @@ func (c *catalog) loadTransforms(derivation string) ([]transform, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var transform transform
+		var transform pf.TransformSpec
 
 		// Structure is from view 'transform_source_partitions_json' in catalog.sql
 		var partitionsFlat []struct {
@@ -88,22 +81,24 @@ func (c *catalog) loadTransforms(derivation string) ([]transform, error) {
 			Exclude      bool
 		}
 		if err = rows.Scan(
-			&transform.id,
-			&transform.sourceName,
+			&transform.Shuffle.Transform,
+			&transform.Source.Name,
+			&transform.Derivation.Name,
 			scanJSON{&partitionsFlat},
-			scanJSON{&transform.shuffleKey},
-			&transform.shuffleBroadcast,
-			&transform.shuffleChoose,
+			scanJSON{&transform.Shuffle.ShuffleKeyPtr},
+			&transform.Shuffle.BroadcastTo,
+			&transform.Shuffle.ChooseFrom,
+			&transform.Shuffle.ReadDelaySeconds,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan tranform from catalog: %w", err)
 		}
 
-		transform.sourcePartitions.Include.AddValue(labels.Collection, transform.sourceName)
+		transform.Source.Partitions.Include.AddValue(labels.Collection, transform.Source.Name.String())
 		for _, f := range partitionsFlat {
 			if f.Exclude {
-				transform.sourcePartitions.Exclude.AddValue(encodePartitionToLabel(f.Field, f.Value))
+				transform.Source.Partitions.Exclude.AddValue(encodePartitionToLabel(f.Field, f.Value))
 			} else {
-				transform.sourcePartitions.Include.AddValue(encodePartitionToLabel(f.Field, f.Value))
+				transform.Source.Partitions.Include.AddValue(encodePartitionToLabel(f.Field, f.Value))
 			}
 		}
 	}
