@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"testing"
 
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/protocol"
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
+	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
@@ -25,10 +26,11 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
+	// Start a flow-worker to serve the extraction RPC.
+	wh, err := flow.NewWorkerHost("extract")
+	require.Nil(t, err)
+	defer wh.Stop()
 
-	ctx = pb.WithDispatchDefault(ctx)
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 
 	brokertest.CreateJournals(t, bk, brokertest.Journal(pb.JournalSpec{
@@ -37,145 +39,157 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	}))
 
 	// Write a bunch of Document fixtures.
-	var app = client.NewAppender(ctx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
+	var backgroundCtx = pb.WithDispatchDefault(context.Background())
+	var app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
 
 	for i := 0; i != 100; i++ {
 		var record = fmt.Sprintf(`{"_meta":{"uuid":"%s"}, "a": %d, "b": "%d"}`+"\n",
 			message.BuildUUID(message.ProducerID{8, 6, 7, 5, 3, 0},
-				message.Clock(i), message.Flag_CONTINUE_TXN).String(),
+				message.Clock(i), message.Flag_OUTSIDE_TXN).String(),
 			i%3,
 			i%2,
 		)
 		var _, err = app.Write([]byte(record))
 		require.NoError(t, err)
 	}
-	// Write a single ACK Document and commit the append.
+	require.NoError(t, app.Close())
+
+	// Start a shuffled read of the fixtures.
+	var cfg = pf.ShuffleConfig{
+		Journal: "a/journal",
+		Ring: pf.Ring{
+			Name:    "a-ring",
+			Members: []pf.Ring_Member{{}, {}, {}, {}},
+		},
+		Coordinator: 1,
+		Shuffle: pf.Shuffle{
+			Transform:     "a-transform",
+			ShuffleKeyPtr: []string{"/a", "/b"},
+			BroadcastTo:   2,
+		},
+	}
+
+	// Build coordinator and start a gRPC ShuffleServer over loopback.
+	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
+	var srv = server.MustLoopback()
+	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
+	var coordinator = newCoordinator(apiCtx, bk.Client(), pf.NewExtractClient(wh.Conn))
+
+	pf.RegisterShufflerServer(srv.GRPCServer, &API{
+		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
+			require.Equal(t, args.ShardID, cfg.Ring.ShardID(int(cfg.Coordinator)))
+
+			return consumer.Resolution{
+				Store: &testStore{coordinator: coordinator},
+				Done:  func() {},
+			}, nil
+		},
+	})
+
+	var tasks = task.NewGroup(apiCtx)
+	srv.QueueTasks(tasks)
+	tasks.GoRun()
+
+	// Start a blocking read which starts at the current write head.
+	tailStream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(backgroundCtx, &pf.ShuffleRequest{
+		Config:    cfg,
+		RingIndex: 2,
+		Offset:    app.Response.Commit.End,
+	})
+	require.NoError(t, err)
+
+	// Expect we read a ShuffleResponse which tells us we're currently tailing.
+	out, err := tailStream.Recv()
+	require.Equal(t, &pf.ShuffleResponse{
+		Transform:   "a-transform",
+		ReadThrough: app.Response.Commit.End,
+		WriteHead:   app.Response.Commit.End,
+	}, out)
+
+	// Start a non-blocking, fixed read which "replays" the written fixtures.
+	replayStream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(backgroundCtx, &pf.ShuffleRequest{
+		Config:    cfg,
+		RingIndex: 2,
+		Offset:    0,
+		EndOffset: app.Response.Commit.End,
+	})
+	require.NoError(t, err)
+
+	// Read from |replayStream| until EOF.
+	var actual = pf.ShuffleResponse{
+		ShuffleKey: make([]pf.Field, len(cfg.Shuffle.ShuffleKeyPtr)),
+	}
+	for {
+		var out, err = replayStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		require.Equal(t, "", out.TerminalError)
+
+		var content = out.Arena.AllBytes(out.Content...)
+		actual.Content = actual.Arena.AddAll(content...)
+		actual.Begin = append(actual.Begin, out.Begin...)
+		actual.End = append(actual.End, out.End...)
+		actual.UuidParts = append(actual.UuidParts, out.UuidParts...)
+		actual.ShuffleHashesLow = append(actual.ShuffleHashesLow, out.ShuffleHashesLow...)
+		actual.ShuffleHashesHigh = append(actual.ShuffleHashesLow, out.ShuffleHashesHigh...)
+
+		for k, kk := range out.ShuffleKey {
+			for _, vv := range kk.Values {
+				actual.ShuffleKey[k].AppendValue(&out.Arena, &actual.Arena, vv)
+			}
+		}
+	}
+
+	for doc, parts := range actual.UuidParts {
+		var i = int(parts.Clock)
+
+		// Verify expected record shape.
+		var record struct {
+			Meta struct {
+				message.UUID
+			} `json:"_meta"`
+			A int
+			B string
+		}
+		require.NoError(t, json.Unmarshal(actual.Arena.Bytes(actual.Content[doc]), &record))
+		require.Equal(t, i%3, record.A)
+		require.Equal(t, strconv.Itoa(i%2), record.B)
+		require.Equal(t, parts.Pack(), record.Meta.UUID)
+
+		// Composite shuffle key components were extracted and accompany responses.
+		require.Equal(t, uint64(i%3), actual.ShuffleKey[0].Values[doc].Unsigned)
+		require.Equal(t, strconv.Itoa(i%2),
+			string(actual.Arena.Bytes(actual.ShuffleKey[1].Values[doc].Bytes)))
+	}
+	// 100 documents, broadcast to 2 of 4 members, means we see ~50.
+	require.Equal(t, 49, len(actual.Content))
+
+	// Write and commit a single ACK document.
+	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
 	var record = fmt.Sprintf(`{"_meta":{"uuid":"%s"}}`+"\n",
 		message.BuildUUID(message.ProducerID{8, 6, 7, 5, 3, 0},
 			message.Clock(100), message.Flag_ACK_TXN).String(),
 	)
-	var _, err = app.Write([]byte(record))
+	_, err = app.Write([]byte(record))
 	require.NoError(t, err)
 	require.NoError(t, app.Close())
 
-	// Start a flow-worker to serve the extraction RPC.
-	wh, err := flow.NewWorkerHost("extract")
-	require.Nil(t, err)
-	defer wh.Stop()
-
-	// Build coordinator and start gRPC ShuffleServer over loopback.
-	var coordinator = newCoordinator(ctx, bk.Client(), pf.NewExtractClient(wh.Conn))
-	var srv = server.MustLoopback()
-	pf.RegisterShufflerServer(srv.GRPCServer, &API{
-		fooCoordinator: coordinator,
-	})
-
-	var tasks = task.NewGroup(ctx)
-	srv.QueueTasks(tasks)
-	tasks.GoRun()
-
-	// Start a read of the fixtures, shuffled on combinations of /a and /b.
-	var cfg = pf.ShuffleConfig{
-		Journal: "a/journal",
-		Ring: pf.Ring{
-			Name:    "a/ring",
-			Members: []pf.Ring_Member{{}, {}, {}, {}},
-		},
-		Coordinator: 1,
-		Shuffles: []pf.ShuffleConfig_Shuffle{
-			{
-				TransformId:   32,
-				ShuffleKeyPtr: []string{"/a", "/b"},
-				BroadcastTo:   2,
-			},
-			{
-				TransformId:   42,
-				ShuffleKeyPtr: []string{"/b"},
-				BroadcastTo:   2,
-			},
-		},
-	}
-
-	stream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(ctx, &pf.ShuffleRequest{
-		Config:    cfg,
-		RingIndex: 2,
-	})
+	// Expect it's sent to |tailStream|.
+	out, err = tailStream.Recv()
 	require.NoError(t, err)
+	require.Len(t, out.UuidParts, 1)
+	require.True(t, message.Flags(out.UuidParts[0].ProducerAndFlags)&message.Flag_ACK_TXN != 0)
 
-	var docs []pf.Document
-	for done := false; !done; {
-		var out, err = stream.Recv()
-		require.NoError(t, err)
-		require.Equal(t, "", out.TerminalError)
+	// Cancel the server-side API context, then do a GracefulStop() (*not* a BoundedGracefulStop)
+	// of the server. This will hang if the API doesn't properly unwind our in-flight tailing RPC.
+	cancelAPICtx()
+	srv.GRPCServer.GracefulStop()
 
-		for _, doc := range out.Documents {
-			if doc.UuidParts.ProducerAndFlags&uint64(message.Flag_ACK_TXN) != 0 {
-				done = true
-				break
-			}
+	// We expect to read a clean stream EOF after being kicked off the server.
+	_, err = tailStream.Recv()
+	require.Equal(t, io.EOF, err)
 
-			var i = int(doc.UuidParts.Clock)
-
-			// Verify expected record shape.
-			var record struct {
-				Meta struct {
-					message.UUID
-				} `json:"_meta"`
-				A int
-				B string
-			}
-			require.NoError(t, json.Unmarshal(doc.Content, &record))
-			require.Equal(t, i%3, record.A)
-			require.Equal(t, strconv.Itoa(i%2), record.B)
-			require.Equal(t, doc.UuidParts.Pack(), record.Meta.UUID)
-
-			docs = append(docs, pf.Document{
-				UuidParts: pf.UUIDParts{Clock: doc.UuidParts.Clock},
-				Begin:     doc.Begin,
-				End:       doc.End,
-				Shuffles:  doc.Shuffles,
-			})
-		}
-		docs = append(docs, out.Documents...)
-	}
-
-	// Verify that shuffle outcomes match expectations.
-	require.Equal(t, []protocol.Document{
-		{Begin: 76, End: 152, UuidParts: pf.UUIDParts{Clock: 1}, Shuffles: []protocol.Document_Shuffle{
-			{RingIndex: 0x1, TransformId: 32, Hrw: 0xed5ac51a}, // (a: 1 % 3 = 1, b: 1 % 2 = 1)
-			{RingIndex: 0x3, TransformId: 32, Hrw: 0xa20737bc}, // (1, 1)
-			{RingIndex: 0x2, TransformId: 42, Hrw: 0x9933cbbe}, // (1)
-			{RingIndex: 0x3, TransformId: 42, Hrw: 0x6208dba9}, // (1)
-		}},
-		{Begin: 228, End: 304, UuidParts: pf.UUIDParts{Clock: 3}, Shuffles: []protocol.Document_Shuffle{
-			{RingIndex: 0x3, TransformId: 32, Hrw: 0xbaf8e0c4}, // (0, 1)
-			{RingIndex: 0x0, TransformId: 32, Hrw: 0x981ddc74}, // (0, 1)
-			{RingIndex: 0x2, TransformId: 42, Hrw: 0x9933cbbe}, // (1)
-			{RingIndex: 0x3, TransformId: 42, Hrw: 0x6208dba9}, // (1)
-		}},
-		{Begin: 304, End: 380, UuidParts: pf.UUIDParts{Clock: 4}, Shuffles: []protocol.Document_Shuffle{
-			{RingIndex: 0x1, TransformId: 32, Hrw: 0xfb91ad38}, // (1, 0)
-			{RingIndex: 0x2, TransformId: 32, Hrw: 0x9dcfe389}, // (1, 0)
-			{RingIndex: 0x1, TransformId: 42, Hrw: 0xee652e7b}, // (0)
-			{RingIndex: 0x0, TransformId: 42, Hrw: 0xca57152d}, // (0)
-		}},
-		{Begin: 380, End: 456, UuidParts: pf.UUIDParts{Clock: 5}, Shuffles: []protocol.Document_Shuffle{
-			{RingIndex: 0x1, TransformId: 32, Hrw: 0xf51b1572}, // (2, 1)
-			{RingIndex: 0x2, TransformId: 32, Hrw: 0x92faca9d}, // (2, 1)
-			{RingIndex: 0x2, TransformId: 42, Hrw: 0x9933cbbe}, // (1)
-			{RingIndex: 0x3, TransformId: 42, Hrw: 0x6208dba9}, // (1)
-		}},
-		{Begin: 532, End: 608, UuidParts: pf.UUIDParts{Clock: 7}, Shuffles: []protocol.Document_Shuffle{
-			{RingIndex: 0x1, TransformId: 32, Hrw: 0xed5ac51a}, // (1, 1)
-			{RingIndex: 0x3, TransformId: 32, Hrw: 0xa20737bc}, // (1, 1)
-			{RingIndex: 0x2, TransformId: 42, Hrw: 0x9933cbbe}, // (1)
-			{RingIndex: 0x3, TransformId: 42, Hrw: 0x6208dba9}, // (1)
-		}},
-		{Begin: 684, End: 760, UuidParts: pf.UUIDParts{Clock: 9}, Shuffles: []protocol.Document_Shuffle{
-			{RingIndex: 0x3, TransformId: 32, Hrw: 0xbaf8e0c4}, // (0, 1)
-			{RingIndex: 0x0, TransformId: 32, Hrw: 0x981ddc74}, // (0, 1)
-			{RingIndex: 0x2, TransformId: 42, Hrw: 0x9933cbbe}, // (1)
-			{RingIndex: 0x3, TransformId: 42, Hrw: 0x6208dba9}, // (1)
-		}},
-	}, docs[:6])
+	require.NoError(t, tasks.Wait())
 }

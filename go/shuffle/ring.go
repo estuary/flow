@@ -1,6 +1,7 @@
 package shuffle
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -61,6 +62,8 @@ func (c *coordinator) findOrCreateRing(cfg pf.ShuffleConfig) *ring {
 		subscribers:  make(subscribers, len(cfg.Ring.Members)),
 	}
 	c.rings[ring] = struct{}{}
+
+	ring.log().Info("starting shuffle ring service")
 	go ring.serve()
 
 	return ring
@@ -77,11 +80,16 @@ type ring struct {
 	readChans    []chan pf.ShuffleResponse
 
 	rendezvous
-	staged pf.ShuffleResponse
 	subscribers
 }
 
 func (r *ring) onSubscribe(sub subscriber) {
+	r.log().WithFields(log.Fields{
+		"ringIndex": sub.request.RingIndex,
+		"offset":    sub.request.Offset,
+		"endOffset": sub.request.EndOffset,
+	}).Info("adding shuffle ring subscriber")
+
 	var rr = r.subscribers.add(sub)
 	if rr == nil {
 		return // This subscriber doesn't require starting a new read.
@@ -89,41 +97,51 @@ func (r *ring) onSubscribe(sub subscriber) {
 
 	var readCh = make(chan pf.ShuffleResponse, 1)
 	r.readChans = append(r.readChans, readCh)
+
+	if len(r.readChans) == 1 && rr.EndOffset != 0 {
+		panic("top-most read cannot have EndOffset")
+	}
 	go readDocuments(r.ctx, r.coordinator.rjc, *rr, readCh)
 }
 
-func (r *ring) onRead(resp pf.ShuffleResponse, ok bool) {
+func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 	if !ok {
-		// Reader at the top of the read stack has reached EOF.
+		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
 		return
 	}
-	r.staged = resp
+	// Pass the request Tranform through to the response.
+	staged.Transform = r.cfg.Shuffle.Transform
 
-	// Extract from staged documents.
-	r.onExtract(r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest()))
+	var readThrough pb.Offset
+	if l := len(staged.End); l != 0 {
+		// Extract from staged documents.
+		var extract, err = r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest(&staged))
+		r.onExtract(&staged, extract, err)
+
+		readThrough = staged.End[l-1]
+	}
 
 	// Stage responses for subscribers, and send. If no active subscribers
 	// remain then cancel this ring.
-	r.subscribers.stageResponses(r.staged)
-	if !r.subscribers.sendResponses() {
+	r.subscribers.stageResponses(&staged, &r.rendezvous)
+	if r.subscribers.sendResponses(readThrough) == 0 {
 		r.cancel()
 	}
 }
 
-func (r *ring) buildExtractRequest() *pf.ExtractRequest {
-	var hashes []pf.ExtractRequest_Hash
-	for _, shuffle := range r.cfg.Shuffles {
-		hashes = append(hashes, pf.ExtractRequest_Hash{Ptrs: shuffle.ShuffleKeyPtr})
-	}
+func (r *ring) buildExtractRequest(staged *pf.ShuffleResponse) *pf.ExtractRequest {
 	return &pf.ExtractRequest{
-		Documents: r.staged.Documents,
-		UuidPtr:   pf.DocumentUUIDPointer,
-		Hashes:    hashes,
+		Arena:       staged.Arena,
+		ContentType: staged.ContentType,
+		Content:     staged.Content,
+		UuidPtr:     pf.DocumentUUIDPointer,
+		HashPtrs:    r.cfg.Shuffle.ShuffleKeyPtr,
+		FieldPtrs:   r.cfg.Shuffle.ShuffleKeyPtr,
 	}
 }
 
-func (r *ring) onExtract(extract *pf.ExtractResponse, err error) {
+func (r *ring) onExtract(staged *pf.ShuffleResponse, extract *pf.ExtractResponse, err error) {
 	if err != nil {
 		var description string
 		if s, ok := status.FromError(err); ok {
@@ -132,32 +150,30 @@ func (r *ring) onExtract(extract *pf.ExtractResponse, err error) {
 			description = err.Error()
 		}
 
-		if r.staged.TerminalError == "" {
-			r.staged.TerminalError = description
+		if staged.TerminalError == "" {
+			staged.TerminalError = description
 		}
 		log.WithField("err", err).Error("failed to extract hashes")
 		return
 	}
 
-	for d := range r.staged.Documents {
-		var uuid = extract.UuidParts[d]
-		r.staged.Documents[d].UuidParts = uuid
+	staged.UuidParts = extract.UuidParts
+	staged.ShuffleHashesLow = extract.HashesLow
+	staged.ShuffleHashesHigh = extract.HashesHigh
+	staged.ShuffleKey = extract.Fields
 
-		if message.Flags(uuid.ProducerAndFlags) == message.Flag_ACK_TXN {
-			// ACK documents have no shuffles, and go to all readers.
-			continue
-		}
-		for h := range extract.Hashes {
-			r.staged.Documents[d].Shuffles = r.rendezvous.pick(h,
-				extract.Hashes[h].Values[d],
-				uuid.Clock,
-				r.staged.Documents[d].Shuffles)
+	// Re-write field values, updating the Arena that's used.
+	for k, v := range staged.ShuffleKey {
+		staged.ShuffleKey[k].Values = v.Values[:0]
+
+		for _, vv := range v.Values {
+			staged.ShuffleKey[k].AppendValue(&extract.Arena, &staged.Arena, vv)
 		}
 	}
 }
 
 func (r *ring) serve() {
-	for {
+	for len(r.readChans) != 0 || r.ctx.Err() == nil {
 		var readCh chan pf.ShuffleResponse
 		if l := len(r.readChans); l != 0 {
 			readCh = r.readChans[l-1]
@@ -170,6 +186,17 @@ func (r *ring) serve() {
 			r.onRead(resp, ok)
 		}
 	}
+	r.subscribers.sendEOF()
+	r.log().Info("shuffle ring service exiting")
+}
+
+func (r *ring) log() *log.Entry {
+	return log.WithFields(log.Fields{
+		"journal":     r.cfg.Journal,
+		"coordinator": r.cfg.Coordinator,
+		"transform":   r.cfg.Shuffle.Transform,
+		"ring":        r.cfg.Ring.Name,
+	})
 }
 
 // readDocuments pumps reads from a journal into the provided channel,
@@ -190,9 +217,7 @@ func readDocuments(
 	req.DoNotProxy = !rjc.IsNoopRouter()
 
 	var rr = client.NewRetryReader(ctx, rjc, req)
-	var it = message.NewReadUncommittedIter(rr, func(*pb.JournalSpec) (message.Message, error) {
-		return new(pf.Document), nil
-	})
+	var br = bufio.NewReader(rr)
 
 	// Pop attempts to dequeue a pending ShuffleResponse that we can extend.
 	// Or, it returns a new one if none is buffered.
@@ -204,12 +229,36 @@ func readDocuments(
 		return
 	}
 
+	var buffer = make([]byte, 0, 1024)
+	var offset = rr.AdjustedOffset(br)
+
+	// TODO(johnny): Use journal ContentType label / wire this up better.
+	var contentType = pf.ContentType_JSON
+
 	for {
-		var env, err = it.Next()
+		var line, err = message.UnpackLine(br)
+
+		switch err {
+		case io.EOF:
+			return // Reached EndOffset, all done!
+		case context.Canceled:
+			return
+		case io.ErrNoProgress:
+			continue // Returned by bufio.Reader sometimes. Ignore.
+		case client.ErrOffsetJump:
+			// Occurs when fragments are removed from the middle of the journal.
+			log.WithFields(log.Fields{
+				"journal": rr.Journal,
+				"from":    offset,
+				"to":      rr.AdjustedOffset(br),
+			}).Warn("source journal offset jump")
+			offset = rr.AdjustedOffset(br)
+			continue
+		}
+
 		var out = popPending()
 
-		if l := len(out.Documents); l != 0 &&
-			(out.Documents[l-1].End-out.Documents[0].Begin) >= responseSizeThreshold {
+		if l := len(out.End); l != 0 && (out.End[l-1]-out.Begin[0]) >= responseSizeThreshold {
 			// |out| is too large for us to extend. Put it back. This cannot block,
 			// since buffer N=1, we dequeued above, and we're the only writer.
 			ch <- out
@@ -217,7 +266,10 @@ func readDocuments(
 			// Push an empty ShuffleResponse. This may block, applying back pressure
 			// until the prior |out| is picked up by the channel reader.
 			select {
-			case ch <- pf.ShuffleResponse{}:
+			case ch <- pf.ShuffleResponse{
+				ReadThrough: out.ReadThrough,
+				WriteHead:   out.WriteHead,
+			}:
 			case <-ctx.Done():
 				return
 			}
@@ -226,15 +278,24 @@ func readDocuments(
 		}
 
 		if err == nil {
-			var doc = *env.Message.(*pf.Document)
-			doc.Begin, doc.End = env.Begin, env.End
-			out.Documents = append(out.Documents, doc)
-			out.Tailing = doc.End == rr.Reader.Response.WriteHead
+			line = append(buffer, line...)
+			buffer = line[len(line):]
+			out.Content = append(out.Content, out.Arena.Add(line))
+			out.ContentType = contentType
+
+			out.Begin = append(out.Begin, offset)
+			offset = rr.AdjustedOffset(br)
+			out.End = append(out.End, offset)
+
+			out.ReadThrough = offset
+			out.WriteHead = rr.Reader.Response.WriteHead
 		} else if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
-			out.Tailing = true
 			// Continue reading, now with blocking reads.
 			err, rr.Reader.Request.Block = nil, true
-		} else if err != io.EOF {
+
+			out.ReadThrough = offset
+			out.WriteHead = rr.Reader.Response.WriteHead
+		} else /* err != nil */ {
 			out.TerminalError = err.Error()
 		}
 

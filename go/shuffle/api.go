@@ -3,19 +3,14 @@ package shuffle
 import (
 	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // API is the server side implementation of the Shuffle protocol.
 type API struct {
-	resolver *consumer.Resolver
-
-	// TODO(johnny): this is here just for testing, and will be removed when corresponding
-	// tests are lifted to a proper E2E consumer integration tests (which requires wiring)
-	// up the consumer.Store to host a *coordinator.
-	fooCoordinator *coordinator
+	// resolve is a consumer.Resolver.Resolve() closure, stubbed for easier testing.
+	resolve func(consumer.ResolveArgs) (consumer.Resolution, error)
 }
 
 // Shuffle implements the gRPC Shuffle endpoint.
@@ -23,26 +18,12 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	if err := req.Validate(); err != nil {
 		return err
 	}
-
-	// TODO(johnny): Enable, use in a proper E2E integration test.
-	var res = consumer.Resolution{
-		Header: pb.Header{ // Fake data just to validate.
-			ProcessId: pb.ProcessSpec_ID{Zone: "local", Suffix: "peer"},
-			Route:     pb.Route{},
-			Etcd:      pb.Header_Etcd{},
-		},
-		Done: func() {},
-	}
-	var err error
-
-	if false {
-		res, err = api.resolver.Resolve(consumer.ResolveArgs{
-			Context:     stream.Context(),
-			ShardID:     req.Config.CoordinatorShard(),
-			MayProxy:    false,
-			ProxyHeader: req.Resolution,
-		})
-	}
+	var res, err = api.resolve(consumer.ResolveArgs{
+		Context:     stream.Context(),
+		ShardID:     req.Config.CoordinatorShard(),
+		MayProxy:    false,
+		ProxyHeader: req.Resolution,
+	})
 	var resp = pf.ShuffleResponse{
 		Status: res.Status,
 		Header: &res.Header,
@@ -55,9 +36,8 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	}
 	defer res.Done()
 
-	// TODO(johnny): Pluck *coordinator from resolved |res.Store|.
-	var coordinator = api.fooCoordinator
-
+	// API requires that the consumer.Store be able to provide a Coordinator.
+	var coordinator = res.Store.(interface{ Coordinator() *coordinator }).Coordinator()
 	var ring = coordinator.findOrCreateRing(req.Config)
 	var doneCh = make(chan error, 1)
 
