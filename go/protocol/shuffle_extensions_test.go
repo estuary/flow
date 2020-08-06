@@ -55,17 +55,11 @@ func TestShuffleConfig(t *testing.T) {
 	require.EqualError(t, m.Validate(), "invalid Coordinator (expected < len(Members); got 3 vs 2)")
 	m.Coordinator = 1
 
-	require.EqualError(t, m.Validate(), "expected at least one Shuffle")
-	m.Shuffles = []ShuffleConfig_Shuffle{
-		{ShuffleKeyPtr: []string{"/foo"}},
-		{BroadcastTo: 3},
-	}
+	require.EqualError(t, m.Validate(), "Shuffle: expected at least one ShuffleKeyPtr")
+	m.Shuffle.ShuffleKeyPtr = []string{"/foo"}
 
-	require.EqualError(t, m.Validate(), "Shuffles[0]: expected one of ChooseFrom or BroadcastTo to be non-zero")
-	m.Shuffles[0].ChooseFrom = 2
-
-	require.EqualError(t, m.Validate(), "Shuffles[1]: expected at least one ShuffleKeyPtr")
-	m.Shuffles[1].ShuffleKeyPtr = []string{"/bar", "/baz"}
+	require.EqualError(t, m.Validate(), "Shuffle: expected one of ChooseFrom or BroadcastTo to be non-zero")
+	m.Shuffle.ChooseFrom = 2
 
 	require.Nil(t, m.Validate())
 
@@ -81,8 +75,9 @@ func TestShuffleRequest(t *testing.T) {
 				Name:    "a-ring",
 				Members: nil, // Missing.
 			},
-			Shuffles: []ShuffleConfig_Shuffle{
-				{BroadcastTo: 1, ShuffleKeyPtr: []string{"/foo"}},
+			Shuffle: Shuffle{
+				ShuffleKeyPtr: []string{"/foo"},
+				BroadcastTo:   1,
 			},
 		},
 		Offset:    -1,

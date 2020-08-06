@@ -1,3 +1,11 @@
+/// Slice represents a contiguous slice of bytes within an associated Arena.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Slice {
+    #[prost(uint32, tag = "1")]
+    pub begin: u32,
+    #[prost(uint32, tag = "2")]
+    pub end: u32,
+}
 /// UUIDParts is a deconstructed, RFC 4122 v1 variant Universally Unique
 /// Identifier as used by Gazette.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -18,56 +26,39 @@ pub struct UuidParts {
     #[prost(fixed64, tag = "2")]
     pub clock: u64,
 }
-/// Document is a standardized runtime representation of an Estuary document.
-/// It holds a super-set of properties used by various APIs in processing
-/// documents, and not all properties need be set in a given API context.
+/// Shuffle of documents, mapping each document to member indicies within a
+/// Ring.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Document {
-    /// The begin offset of the document within the journal, if applicable.
-    #[prost(int64, tag = "1")]
-    pub begin: i64,
-    /// The end offset of the document within the journal, if applicable.
-    #[prost(int64, tag = "2")]
-    pub end: i64,
-    #[prost(enumeration = "document::ContentType", tag = "3")]
-    pub content_type: i32,
-    /// Content of the document, encoded under the accompanying ContentType.
-    #[prost(bytes, tag = "4")]
-    pub content: std::vec::Vec<u8>,
-    /// UUIDParts of this document.
-    #[prost(message, optional, tag = "5")]
-    pub uuid_parts: ::std::option::Option<UuidParts>,
-    /// Shuffles is the set of Shuffle outcomes for this Document.
-    /// It must be ordered and unique on ascending (ring_index, transform_id).
-    #[prost(message, repeated, tag = "8")]
-    pub shuffles: ::std::vec::Vec<document::Shuffle>,
+pub struct Shuffle {
+    /// Transform for which this Shuffle is being applied.
+    #[prost(string, tag = "1")]
+    pub transform: std::string::String,
+    /// Composite key over which shuffling occurs, specified as one or more
+    /// JSON-Pointers indicating a message location to extract.
+    #[prost(string, repeated, tag = "2")]
+    pub shuffle_key_ptr: ::std::vec::Vec<std::string::String>,
+    /// Number of top-ranked processors to broadcast each message to, after
+    /// shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
+    #[prost(uint32, tag = "3")]
+    pub broadcast_to: u32,
+    /// Number of top-ranked readers from which a single reader index will be
+    /// selected, after shuffling. The message Clock value is used to pseudo
+    /// randomly pick the final index, making the selection deterministic.
+    /// Values larger than one can be used to distribute "hot keys" which might
+    /// otherwise overwhelm specific readers.
+    /// Usually this is zero and |broadcast_to| is used instead. If non-zero,
+    /// |broadcast_to| cannot be set.
+    #[prost(uint32, tag = "4")]
+    pub choose_from: u32,
+    /// Number of seconds for which documents of this collection are delayed
+    /// while reading, relative to other documents (when back-filling) and the
+    /// present wall-clock time (when tailing).
+    #[prost(uint32, tag = "5")]
+    pub read_delay_seconds: u32,
 }
-pub mod document {
-    /// Shuffle records a shuffling outcome of mapping this Document into a ring
-    /// of readers. Documents may be shuffled to multiple ring locations with
-    /// the same or different transforms. They may also be mapped to a specific
-    /// location with multiple transforms (or both!).
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Shuffle {
-        /// Index within the worker ring to which the document is shuffled.
-        #[prost(uint32, tag = "1")]
-        pub ring_index: u32,
-        /// Transform ID to which the document is shuffled.
-        #[prost(uint32, tag = "2")]
-        pub transform_id: u32,
-        /// Highest-random weight from rendezvous hashing the document into the ring.
-        #[prost(fixed32, tag = "3")]
-        pub hrw: u32,
-    }
-    /// ContentType is the encoding used for Document |content|.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum ContentType {
-        Invalid = 0,
-        /// Future ContentTypes may include CBOR or tape-based representations.
-        Json = 1,
-    }
-}
+/// Ring is a topology of members, working in concert to share a task.
+/// Each derived collection has a Ring of member shards which are
+/// responsible for its continuous derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Ring {
     /// Unique name of this ring.
@@ -91,59 +82,62 @@ pub mod ring {
         pub max_msg_clock: u64,
     }
 }
+/// ShuffleConfig places a Shuffle within a specific, configured execution
+/// context within which it runs.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleConfig {
     /// Journal to be shuffled.
     #[prost(string, tag = "1")]
     pub journal: std::string::String,
     /// Ring on whose behalf this journal is being shuffled.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "2")]
     pub ring: ::std::option::Option<Ring>,
     /// Coordinator is the ring member index which is responsible for shuffled
     /// reads of this journal.
-    #[prost(uint32, tag = "4")]
+    #[prost(uint32, tag = "3")]
     pub coordinator: u32,
-    #[prost(message, repeated, tag = "5")]
-    pub shuffles: ::std::vec::Vec<shuffle_config::Shuffle>,
+    /// Shuffle of this ShuffleConfig.
+    #[prost(message, optional, tag = "4")]
+    pub shuffle: ::std::option::Option<Shuffle>,
 }
-pub mod shuffle_config {
-    /// Shuffles applied to journal documents, mapping each document to
-    /// indicies within the |ring|.
+/// Transform describes a specific transform of a derived collection.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransformSpec {
+    #[prost(message, optional, tag = "2")]
+    pub source: ::std::option::Option<transform_spec::Source>,
+    /// Shuffle applied to source documents for this transform.
+    /// Note that the Shuffle embeds the Transform name.
+    #[prost(message, optional, tag = "3")]
+    pub shuffle: ::std::option::Option<Shuffle>,
+    #[prost(message, optional, tag = "5")]
+    pub derivation: ::std::option::Option<transform_spec::Derivation>,
+}
+pub mod transform_spec {
+    /// Source collection read by this transform.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Shuffle {
-        /// Transform ID for which this Shuffle is being applied.
-        #[prost(uint32, tag = "1")]
-        pub transform_id: u32,
-        /// Composite key over which shuffling occurs, specified as one or more
-        /// JSON-Pointers indicating a message location to extract.
-        #[prost(string, repeated, tag = "2")]
-        pub shuffle_key_ptr: ::std::vec::Vec<std::string::String>,
-        /// Number of top-ranked processors to broadcast each message to, after
-        /// shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
-        #[prost(uint32, tag = "3")]
-        pub broadcast_to: u32,
-        /// Number of top-ranked readers from which a single reader index will be
-        /// selected, after shuffling. The message Clock value is used to pseudo
-        /// randomly pick the final index, making the selection deterministic.
-        /// Values larger than one can be used to distribute "hot keys" which might
-        /// otherwise overwhelm specific readers.
-        /// Usually this is zero and |broadcast_to| is used instead. If non-zero,
-        /// |broadcast_to| cannot be set.
-        #[prost(uint32, tag = "4")]
-        pub choose_from: u32,
+    pub struct Source {
+        /// Name of the collection.
+        #[prost(string, tag = "1")]
+        pub name: std::string::String,
+        /// Selector of partitions of the collection which this transform reads.
+        #[prost(message, optional, tag = "2")]
+        pub partitions: ::std::option::Option<super::super::protocol::LabelSelector>,
+    }
+    /// Derived collection produced by this transform.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Derivation {
+        #[prost(string, tag = "1")]
+        pub name: std::string::String,
     }
 }
-/// Field holds values extracted for a given named Document field.
+/// Field holds a column of values extracted from a document location.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Field {
-    /// Name of this field.
-    #[prost(string, tag = "1")]
-    pub name: std::string::String,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(message, repeated, tag = "1")]
     pub values: ::std::vec::Vec<field::Value>,
 }
 pub mod field {
-    /// Value is the extracted representation fo the field value.
+    /// Value is the extracted representation of the field value.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Value {
         #[prost(enumeration = "value::Kind", tag = "1")]
@@ -154,8 +148,8 @@ pub mod field {
         pub signed: i64,
         #[prost(double, tag = "4")]
         pub double: f64,
-        #[prost(bytes, tag = "5")]
-        pub bytes: std::vec::Vec<u8>,
+        #[prost(message, optional, tag = "5")]
+        pub bytes: ::std::option::Option<super::Slice>,
     }
     pub mod value {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -173,12 +167,6 @@ pub mod field {
             Array = 9,
         }
     }
-}
-/// Hash holds hashes extracted for a given Hash key of Documents.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Hash {
-    #[prost(fixed32, repeated, tag = "1")]
-    pub values: ::std::vec::Vec<u32>,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -207,9 +195,6 @@ pub struct ShuffleResponse {
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
     pub header: ::std::option::Option<super::protocol::Header>,
-    /// Documents included in this ShuffleResponse.
-    #[prost(message, repeated, tag = "3")]
-    pub documents: ::std::vec::Vec<Document>,
     /// Terminal error encountered while serving this ShuffleRequest. A terminal
     /// error is only sent if a future ShuffleRequest of this same configuration
     /// and offset will fail in the exact same way, and operator intervention is
@@ -220,24 +205,64 @@ pub struct ShuffleResponse {
     /// or data corruption. Errors *not* returned as |terminal_error| include
     /// network errors, process failures, and other conditions which can be
     /// retried.
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "3")]
     pub terminal_error: std::string::String,
-    /// Tailing indicates that the reader is at the current journal write head,
-    /// and hints that the next ShuffleResponse may block indefinitely while
-    /// waiting for more documents to be written.
-    #[prost(bool, tag = "5")]
-    pub tailing: bool,
+    /// Offset which was read through to produce this ShuffleResponse.
+    #[prost(int64, tag = "4")]
+    pub read_through: i64,
+    /// WriteHead of the journal as reported by the broker, as of the creation of
+    /// this ShuffleResponse.
+    #[prost(int64, tag = "5")]
+    pub write_head: i64,
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "6")]
+    pub arena: std::vec::Vec<u8>,
+    /// Transform name, passed through from the ShuffleRequest.
+    #[prost(string, tag = "7")]
+    pub transform: std::string::String,
+    /// ContentType of documents in this ShuffleResponse.
+    #[prost(enumeration = "ContentType", tag = "8")]
+    pub content_type: i32,
+    /// Content of documents included in this ShuffleResponse.
+    #[prost(message, repeated, tag = "9")]
+    pub content: ::std::vec::Vec<Slice>,
+    /// The begin offset of each document within the requested journal.
+    #[prost(int64, repeated, packed = "false", tag = "10")]
+    pub begin: ::std::vec::Vec<i64>,
+    /// The end offset of each document within the journal.
+    #[prost(int64, repeated, packed = "false", tag = "11")]
+    pub end: ::std::vec::Vec<i64>,
+    /// UUIDParts of each document.
+    #[prost(message, repeated, tag = "12")]
+    pub uuid_parts: ::std::vec::Vec<UuidParts>,
+    /// Extracted shuffle key of each document, with one Field for each
+    /// component of the composite shuffle key.
+    #[prost(message, repeated, tag = "13")]
+    pub shuffle_key: ::std::vec::Vec<Field>,
+    /// Extracted unique hash of the document shuffle key (low 64-bits).
+    #[prost(fixed64, repeated, tag = "14")]
+    pub shuffle_hashes_low: ::std::vec::Vec<u64>,
+    /// Extracted unique hash of the document shuffle key (high 64-bits).
+    #[prost(fixed64, repeated, tag = "15")]
+    pub shuffle_hashes_high: ::std::vec::Vec<u64>,
 }
 /// DeriveRequest is the streamed message of a Derive RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveRequest {
     #[prost(enumeration = "DeriveState", tag = "1")]
     pub state: i32,
-    /// Source collection documents to derive from. Set iff state == EXTEND.
-    #[prost(message, repeated, tag = "2")]
-    pub documents: ::std::vec::Vec<Document>,
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "2")]
+    pub arena: std::vec::Vec<u8>,
+    /// ContentType of documents in this DeriveRequest. Set iff state == EXTEND.
+    #[prost(enumeration = "ContentType", tag = "3")]
+    pub content_type: i32,
+    /// Content of documents included in this DeriveRequest.
+    /// Set iff state == EXTEND.
+    #[prost(message, repeated, tag = "4")]
+    pub content: ::std::vec::Vec<Slice>,
     /// Checkpoint to commit. Set iff state == PREPARE.
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag = "5")]
     pub checkpoint: ::std::option::Option<super::consumer::Checkpoint>,
 }
 /// DeriveResponse is the streamed response message of a Derive RPC.
@@ -245,57 +270,70 @@ pub struct DeriveRequest {
 pub struct DeriveResponse {
     #[prost(enumeration = "DeriveState", tag = "1")]
     pub state: i32,
-    /// Documents derived from request documents. Set iff state == EXTEND.
-    #[prost(message, repeated, tag = "2")]
-    pub documents: ::std::vec::Vec<Document>,
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "2")]
+    pub arena: std::vec::Vec<u8>,
+    /// ContentType of documents in this DeriveResponse. Set iff state == EXTEND.
+    #[prost(enumeration = "ContentType", tag = "3")]
+    pub content_type: i32,
+    /// Content of documents included in this DeriveResponse.
+    /// Set iff state == EXTEND.
+    #[prost(message, repeated, tag = "4")]
+    pub content: ::std::vec::Vec<Slice>,
     /// Logical partitions extracted from |documents|.
-    #[prost(message, repeated, tag = "3")]
+    #[prost(message, repeated, tag = "5")]
     pub partitions: ::std::vec::Vec<Field>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractRequest {
-    /// Documents to extract from.
-    #[prost(message, repeated, tag = "1")]
-    pub documents: ::std::vec::Vec<Document>,
-    /// JSON pointer of document UUID to extract.
-    #[prost(string, tag = "2")]
-    pub uuid_ptr: std::string::String,
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "1")]
+    pub arena: std::vec::Vec<u8>,
+    /// ContentType of documents in this ExtractRequest.
+    #[prost(enumeration = "ContentType", tag = "2")]
+    pub content_type: i32,
+    /// Content of documents included in this ExtractRequest.
     #[prost(message, repeated, tag = "3")]
-    pub hashes: ::std::vec::Vec<extract_request::Hash>,
-    #[prost(message, repeated, tag = "4")]
-    pub fields: ::std::vec::Vec<extract_request::Field>,
-}
-pub mod extract_request {
-    /// Hash is a composite of JSON pointers to extract & hash.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Hash {
-        #[prost(string, repeated, tag = "1")]
-        pub ptrs: ::std::vec::Vec<std::string::String>,
-    }
-    /// Field names and JSON pointers to extract from documents.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Field {
-        /// Name of field to extract.
-        #[prost(string, tag = "1")]
-        pub name: std::string::String,
-        /// JSON Pointer of field location within documents.
-        #[prost(string, tag = "2")]
-        pub ptr: std::string::String,
-    }
+    pub content: ::std::vec::Vec<Slice>,
+    /// JSON pointer of document UUID to extract.
+    /// If empty, UUIDParts are not extracted.
+    #[prost(string, tag = "4")]
+    pub uuid_ptr: std::string::String,
+    /// Composite of JSON pointers to extract from documents and hash.
+    /// If empty, hashes are not extracted.
+    #[prost(string, repeated, tag = "5")]
+    pub hash_ptrs: ::std::vec::Vec<std::string::String>,
+    /// Field JSON pointers to extract from documents and return.
+    /// If empty, no fields are extracted.
+    #[prost(string, repeated, tag = "6")]
+    pub field_ptrs: ::std::vec::Vec<std::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractResponse {
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "1")]
+    pub arena: std::vec::Vec<u8>,
     /// UUIDParts extracted from request Documents.
-    #[prost(message, repeated, tag = "1")]
-    pub uuid_parts: ::std::vec::Vec<UuidParts>,
-    /// Hashes extracted from request Documents, one column for each requested
-    /// Hash.
     #[prost(message, repeated, tag = "2")]
-    pub hashes: ::std::vec::Vec<Hash>,
-    /// Fields extracted from request Documents, one column for each requested
-    /// Field.
-    #[prost(message, repeated, tag = "3")]
+    pub uuid_parts: ::std::vec::Vec<UuidParts>,
+    /// Hashes extracted from request Documents (low 64-bits).
+    /// If the request |hash_ptrs| was empty, so are these.
+    #[prost(fixed64, repeated, tag = "3")]
+    pub hashes_low: ::std::vec::Vec<u64>,
+    /// Hashes extracted from request Documents (high 64-bits).
+    #[prost(fixed64, repeated, tag = "4")]
+    pub hashes_high: ::std::vec::Vec<u64>,
+    /// Fields extracted from request Documents, one column per request pointer.
+    #[prost(message, repeated, tag = "5")]
     pub fields: ::std::vec::Vec<Field>,
+}
+/// ContentType is an encoding used for document content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ContentType {
+    Invalid = 0,
+    /// JSON is the usual text encoding, with a trailing newline.
+    Json = 1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
