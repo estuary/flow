@@ -48,7 +48,7 @@ pub enum Error {
     #[error("invalid document ContentType: {content_type:?}, code {code}")]
     InvalidContentType {
         code: i32,
-        content_type: Option<flow::document::ContentType>,
+        content_type: Option<flow::ContentType>,
     },
     #[error("invalid document UUID: {value}")]
     InvalidUuid { value: serde_json::Value },
