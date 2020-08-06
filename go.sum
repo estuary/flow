@@ -152,6 +152,8 @@ github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANyt
 github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4 h1:xKkUL6QBojwguhKKetf1SocCAKqc6W7S/mGm9xEGllo=
 github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
+github.com/jgraettinger/gazette v0.0.0-20200806192856-c10bc47738a5 h1:GiDwiJDNoHPAXY76djCFqZRh0EYzFustEGIIa1icgjA=
+github.com/jgraettinger/gazette v0.0.0-20200806192856-c10bc47738a5/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0 h1:OS12ieG61fsCg5+qLJ+SsW9NicxNkg3b25OyT2yCeUc=
 github.com/jmespath/go-jmespath v0.3.0/go.mod h1:9QtRXoHjLGCJ5IBSaohpXITPlowMeeYCZ7fLUTSywik=
@@ -248,6 +250,7 @@ go.etcd.io/etcd v0.5.0-alpha.5.0.20200407032746-7eae024eade9 h1:pqQyWiBFoj5UN9DC
 go.etcd.io/etcd v0.5.0-alpha.5.0.20200407032746-7eae024eade9/go.mod h1:YoUyTScD3Vcv2RBm3eGVOq7i1ULiz3OuXoQFWOirmAM=
 go.gazette.dev/core v0.86.1 h1:xEAJI3QkrfiLOfhzRwhWivI9EAKobyougfT6aT8a6Bc=
 go.gazette.dev/core v0.86.1/go.mod h1:dO1H2DRlWkf4mP+OUXafA825S4L+zacnZ+NTJYe8R1g=
+go.gazette.dev/core v0.88.0 h1:Nz82Qsu1zfmMPI+xc+sepjZMIB1k856RaU8Qt1KXbws=
 go.gazette.dev/core v0.88.0/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
