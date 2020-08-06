@@ -32,9 +32,9 @@ func NewWorkerHost(args ...string) (*WorkerHost, error) {
 		return nil, fmt.Errorf("failed to remove tempfile: %w", err)
 	}
 
-	var cmd = exec.Command("/home/johnny/estuary/flow/target/debug/flow-worker", append(args, "--grpc-socket-path", socketPath)...)
+	var cmd = exec.Command("flow-worker", append(args, "--grpc-socket-path", socketPath)...)
 	cmd.Stderr = os.Stderr
-	cmd.Env = []string{"RUST_LOG=debug"}
+	cmd.Env = []string{"RUST_LOG=info"}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
