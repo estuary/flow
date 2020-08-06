@@ -20,69 +20,59 @@ fn extract(
 ) -> Result<tonic::Response<flow::ExtractResponse>, tonic::Status> {
     // Allocate an ExtractResponse of the right shape.
     let mut response = flow::ExtractResponse {
-        uuid_parts: Vec::with_capacity(request.documents.len()),
-        hashes: request
-            .hashes
-            .iter()
-            .map(|_| flow::Hash {
-                values: Vec::with_capacity(request.documents.len()),
-            })
-            .collect(),
+        arena: Vec::new(),
+        uuid_parts: Vec::with_capacity(request.content.len()),
+        hashes_high: Vec::with_capacity(request.content.len()),
+        hashes_low: Vec::with_capacity(request.content.len()),
         fields: request
-            .fields
+            .field_ptrs
             .iter()
-            .map(|field| flow::Field {
-                name: field.name.clone(),
-                values: Vec::with_capacity(request.documents.len()),
+            .map(|_| flow::Field {
+                values: Vec::with_capacity(request.content.len()),
             })
             .collect(),
     };
 
     // Project UUID pointer, hashes and fields into parsed JSON pointers.
     let uuid_ptr = Pointer::from(&request.uuid_ptr);
-    let hash_ptrs: Vec<Vec<Pointer>> = request
-        .hashes
-        .iter()
-        .map(|h| h.ptrs.iter().map(|p| p.into()).collect())
-        .collect();
-    let field_ptrs: Vec<Pointer> = request
-        .fields
-        .iter()
-        .map(|field| Pointer::from(&field.ptr))
-        .collect();
+    let hash_ptrs: Vec<Pointer> = request.hash_ptrs.iter().map(|p| p.into()).collect();
+    let field_ptrs: Vec<Pointer> = request.field_ptrs.iter().map(|p| p.into()).collect();
 
-    for (index, doc) in request.documents.iter().enumerate() {
-        decode_to_value(&doc.content, doc.content_type)
-            .and_then(|v| {
-                // Extract UUIDParts, fields, and hashes.
-                response.uuid_parts.push(extract_uuid_parts(&v, &uuid_ptr)?);
+    for (index, content) in request.content.iter().enumerate() {
+        decode_to_value(
+            &request.arena[(content.begin as usize)..(content.end as usize)],
+            request.content_type,
+        )
+        .and_then(|v| {
+            // Extract UUIDParts, fields, and hashes.
+            response.uuid_parts.push(extract_uuid_parts(&v, &uuid_ptr)?);
 
-                for (field, ptr) in response.fields.iter_mut().zip(field_ptrs.iter()) {
-                    field.values.push(extract_field(&v, ptr));
-                }
-                for (hash, ptrs) in response.hashes.iter_mut().zip(hash_ptrs.iter()) {
-                    hash.values.push(extract_hash(&v, &ptrs) as u32);
-                }
-                Ok(())
-            })
-            .map_err(|err| {
-                tonic::Status::invalid_argument(format!(
-                    "extraction of document {}: {}",
-                    index, err
-                ))
-            })?;
+            for (field, ptr) in response.fields.iter_mut().zip(field_ptrs.iter()) {
+                field
+                    .values
+                    .push(extract_field(&mut response.arena, &v, ptr));
+            }
+
+            // TODO(johnny): Use a unique (128-bit) hash, like XXH128.
+            // See: https://github.com/Cyan4973/xxHash/wiki/Performance-comparison
+            response.hashes_high.push(extract_hash(&v, &hash_ptrs));
+            response.hashes_low.push(extract_hash(&v, &hash_ptrs));
+
+            Ok(())
+        })
+        .map_err(|err| {
+            tonic::Status::invalid_argument(format!("extraction of document {}: {}", index, err))
+        })?;
     }
     Ok(tonic::Response::new(response))
 }
 
 fn decode_to_value(content: &[u8], content_type_code: i32) -> Result<serde_json::Value, Error> {
     match content_type_code {
-        ct if ct == (flow::document::ContentType::Json as i32) => {
-            Ok(serde_json::from_slice(content)?)
-        }
+        ct if ct == (flow::ContentType::Json as i32) => Ok(serde_json::from_slice(content)?),
         _ => Err(Error::InvalidContentType {
             code: content_type_code,
-            content_type: flow::document::ContentType::from_i32(content_type_code),
+            content_type: flow::ContentType::from_i32(content_type_code),
         }),
     }
 }
@@ -119,7 +109,11 @@ fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Result<flow::Uuid
         })
 }
 
-fn extract_field(v: &serde_json::Value, ptr: &Pointer) -> flow::field::Value {
+fn extract_field(
+    mut arena: &mut Vec<u8>,
+    v: &serde_json::Value,
+    ptr: &Pointer,
+) -> flow::field::Value {
     let vv = ptr.query(v).unwrap_or(&serde_json::Value::Null);
 
     let mut out = flow::field::Value {
@@ -127,7 +121,7 @@ fn extract_field(v: &serde_json::Value, ptr: &Pointer) -> flow::field::Value {
         unsigned: 0,
         signed: 0,
         double: 0.0,
-        bytes: Vec::new(),
+        bytes: None,
     };
 
     match vv {
@@ -150,15 +144,27 @@ fn extract_field(v: &serde_json::Value, ptr: &Pointer) -> flow::field::Value {
         },
         serde_json::Value::String(s) => {
             out.kind = flow::field::value::Kind::String as i32;
-            out.bytes.extend(s.as_bytes().iter()); // Send raw UTF-8 string.
+
+            let begin = arena.len() as u32;
+            arena.extend(s.as_bytes().iter()); // Send raw UTF-8 string.
+            let end = arena.len() as u32;
+            out.bytes = Some(flow::Slice { begin, end });
         }
         serde_json::Value::Array(_) => {
             out.kind = flow::field::value::Kind::Array as i32;
-            out.bytes = serde_json::to_vec(vv).unwrap();
+
+            let begin = arena.len() as u32;
+            serde_json::to_writer(&mut arena, vv).unwrap();
+            let end = arena.len() as u32;
+            out.bytes = Some(flow::Slice { begin, end });
         }
         serde_json::Value::Object(_) => {
             out.kind = flow::field::value::Kind::Object as i32;
-            out.bytes = serde_json::to_vec(vv).unwrap();
+
+            let begin = arena.len() as u32;
+            serde_json::to_writer(&mut arena, vv).unwrap();
+            let end = arena.len() as u32;
+            out.bytes = Some(flow::Slice { begin, end });
         }
     }
     out
@@ -188,18 +194,11 @@ mod test {
     #[test]
     fn test_decode_to_value() {
         assert_eq!(
-            decode_to_value(
-                r#"{"key":42}"#.as_bytes(),
-                flow::document::ContentType::Json as i32
-            )
-            .unwrap(),
+            decode_to_value(r#"{"key":42}"#.as_bytes(), flow::ContentType::Json as i32).unwrap(),
             serde_json::json!({"key": 42}),
         );
         // Reports malformed JSON.
-        match decode_to_value(
-            r#"{"key":42"#.as_bytes(),
-            flow::document::ContentType::Json as i32,
-        ) {
+        match decode_to_value(r#"{"key":42"#.as_bytes(), flow::ContentType::Json as i32) {
             Err(Error::JSONErr(_)) => {}
             p @ _ => panic!(p),
         };
@@ -291,64 +290,105 @@ mod test {
             unsigned: 0,
             signed: 0,
             double: 0.0,
-            bytes: Vec::new(),
+            bytes: None,
         };
 
         let cases = vec![
-            ("/missing", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::Null as i32;
-                o
-            }),
-            ("/obj/tru", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::True as i32;
-                o
-            }),
-            ("/fals", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::False as i32;
-                o
-            }),
-            ("/arr/0", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::String as i32;
-                o.bytes = "foo".as_bytes().iter().copied().collect();
-                o
-            }),
-            ("/unsi", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::Unsigned as i32;
-                o.unsigned = 2;
-                o
-            }),
-            ("/doub", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::Double as i32;
-                o.double = 1.3;
-                o
-            }),
-            ("/sign", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::Signed as i32;
-                o.signed = -30;
-                o
-            }),
-            ("/obj", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::Object as i32;
-                o.bytes = r#"{"other":"value","tru":true}"#.as_bytes().iter().copied().collect();
-                o
-            }),
-            ("/arr", {
-                let mut o = zero_value.clone();
-                o.kind = flow::field::value::Kind::Array as i32;
-                o.bytes = r#"["foo"]"#.as_bytes().iter().copied().collect();
-                o
-            }),
+            (
+                "/missing",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::Null as i32;
+                    o
+                },
+                "xyz!",
+            ),
+            (
+                "/obj/tru",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::True as i32;
+                    o
+                },
+                "xyz!",
+            ),
+            (
+                "/fals",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::False as i32;
+                    o
+                },
+                "xyz!",
+            ),
+            (
+                "/arr/0",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::String as i32;
+                    o.bytes = Some(flow::Slice { begin: 4, end: 7 });
+                    o
+                },
+                "xyz!foo",
+            ),
+            (
+                "/unsi",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::Unsigned as i32;
+                    o.unsigned = 2;
+                    o
+                },
+                "xyz!",
+            ),
+            (
+                "/doub",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::Double as i32;
+                    o.double = 1.3;
+                    o
+                },
+                "xyz!",
+            ),
+            (
+                "/sign",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::Signed as i32;
+                    o.signed = -30;
+                    o
+                },
+                "xyz!",
+            ),
+            (
+                "/obj",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::Object as i32;
+                    o.bytes = Some(flow::Slice { begin: 4, end: 32 });
+                    o
+                },
+                r#"xyz!{"other":"value","tru":true}"#,
+            ),
+            (
+                "/arr",
+                {
+                    let mut o = zero_value.clone();
+                    o.kind = flow::field::value::Kind::Array as i32;
+                    o.bytes = Some(flow::Slice { begin: 4, end: 11 });
+                    o
+                },
+                r#"xyz!["foo"]"#,
+            ),
         ];
-        for (ptr, expect) in cases {
-            assert_eq!(expect, extract_field(&v1, &Pointer::from(ptr)));
+        for (ptr, expect_value, expect_arena) in cases {
+            let mut arena = "xyz!".as_bytes().iter().copied().collect();
+            assert_eq!(
+                expect_value,
+                extract_field(&mut arena, &v1, &Pointer::from(ptr))
+            );
+            assert_eq!(expect_arena.as_bytes(), &arena[..]);
         }
     }
 }
