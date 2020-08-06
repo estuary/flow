@@ -1,7 +1,8 @@
 package shuffle
 
 import (
-	"hash/fnv"
+	"crypto/sha256"
+	"encoding/binary"
 	"math/bits"
 	"testing"
 
@@ -11,15 +12,16 @@ import (
 )
 
 func TestStableWeightsRegression(t *testing.T) {
-	var expect = []uint32{
-		0xd3093495, 0xeefb0fc7, 0x49595118, 0xb02e4125,
-		0x529c82a4, 0xd5ae684a, 0x509754c5, 0x7c1b60d2,
-		0xc26ff1f1, 0x32ed8df0, 0xd881c0f7, 0x129f0565,
-		0xf3ce95a1, 0xe06c7873, 0x4315653f, 0x2d371fa0,
-		0xade0e428, 0x10ab0285, 0x365aff82, 0xc44ee188,
-		0x1f0d096f, 0xd84bd42c, 0xcc51a130, 0x66281834,
-		0xc1ee27a2, 0x4c1edb77, 0xc3f077d1, 0xb8e1e80d,
-		0xc4a7746f, 0x3f3a93c5, 0xd6f138c0, 0x71924578}
+	var expect = []uint64{
+		0xeefb0fc7d3093495, 0xb02e412549595118, 0xd5ae684a529c82a4, 0x7c1b60d2509754c5,
+		0x32ed8df0c26ff1f1, 0x129f0565d881c0f7, 0xe06c7873f3ce95a1, 0x2d371fa04315653f,
+		0x10ab0285ade0e428, 0xc44ee188365aff82, 0xd84bd42c1f0d096f, 0x66281834cc51a130,
+		0x4c1edb77c1ee27a2, 0xb8e1e80dc3f077d1, 0x3f3a93c5c4a7746f, 0x71924578d6f138c0,
+		0x68422be1c5d0b5d1, 0x228a5f52192f3f37, 0xde5e93def103c9b9, 0x0316810eebcc3715,
+		0xe9bab156b3707651, 0x18fd96e496ee2e1d, 0xdc12b3615b690121, 0x05a69742caa2b5b0,
+		0xdd310fe134095423, 0x90b60b55796fb05c, 0x8c3a4363a674f82d, 0x81bd243447bb354e,
+		0x8a6c3fbc9caf37ec, 0x21a5e2acef624771, 0xf7db158f6199a386, 0x292ad7bea31319b2,
+	}
 
 	// Generated weights are stable.
 	require.Equal(t, expect, generateStableWeights(len(expect)))
@@ -31,150 +33,147 @@ func TestStableWeightsRegression(t *testing.T) {
 	// Weight bits are uniformly distributed.
 	var total int
 	for _, n := range expect {
-		total += bits.OnesCount32(n)
+		total += bits.OnesCount64(n)
 	}
-	require.Equal(t, 490, total) // Ideal is 512 (32 * 16).
-
+	require.Equal(t, 1000, total) // Ideal is 1024 (64 * 16).
 }
 
 func TestRankingCases(t *testing.T) {
 	var cfg = newTestShuffleConfig()
 	var r = newRendezvous(cfg)
 
-	// FNVa with single-letter inputs, as below, produces a pretty low quality hash
-	// (many identical bit values in outputs). We expect to still do a decent job of
-	// mixing across processors.
-	var hash = func(s string) uint32 {
-		var h = fnv.New32a()
-		_, _ = h.Write([]byte(s))
-		return h.Sum32()
+	var hash = func(s string) uint64 {
+		var b = sha256.Sum256([]byte(s))
+		return binary.LittleEndian.Uint64(b[:8])
 	}
 
 	var cases = []struct {
-		hash   uint32
+		hash   uint64
 		clock  message.Clock
-		expect []pf.Document_Shuffle
+		expect []rank
 	}{
 		// Regression tests, demonstrating mixing.
 		{
 			hash:  hash("a"),
 			clock: 2000,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 4, Hrw: 0xc8ed7884},
-				{RingIndex: 2, Hrw: 0xc7920930},
-				{RingIndex: 3, Hrw: 0x6e7f3905},
+			expect: []rank{
+				{index: 4, hrw: 0xf850963ad0ee663b},
+				{index: 3, hrw: 0xb6a67b184216c30f},
+				{index: 1, hrw: 0x7a935aef5bd8c6d2},
 			},
 		},
 		{
 			hash:  hash("b"),
 			clock: 2000,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 3, Hrw: 0xac381272},
-				{RingIndex: 0, Hrw: 0x89031ee2},
-				{RingIndex: 1, Hrw: 0x6d0d23dc},
+			expect: []rank{
+				{index: 1, hrw: 0xfa7778255fb17226},
+				{index: 0, hrw: 0xa4a236c7c5e117ab},
+				{index: 2, hrw: 0x9ff7514a4474a19a},
 			},
 		},
 		{
 			hash:  hash("c"),
 			clock: 2000,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 3, Hrw: 0xecfff620},
-				{RingIndex: 0, Hrw: 0xcbc2e1b0},
-				{RingIndex: 1, Hrw: 0xafcc8546},
+			expect: []rank{
+				{index: 4, hrw: 0xd097dd59c1438cdf},
+				{index: 3, hrw: 0x9e61307b53bb29eb},
+				{index: 1, hrw: 0x5254118c4a752c36},
 			},
 		},
 		{
 			hash:  hash("d"),
 			clock: 2000,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 1, Hrw: 0xe9728b2f},
-				{RingIndex: 4, Hrw: 0x8d2c064a},
-				{RingIndex: 2, Hrw: 0x83d0d4de},
+			expect: []rank{
+				{index: 3, hrw: 0xf50d909123a9f8dd},
+				{index: 4, hrw: 0xbbfb7db3b1515de9},
+				{index: 0, hrw: 0x67edff84a037988d},
 			},
 		},
 		{
 			hash:  hash("e"),
 			clock: 2000,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 4, Hrw: 0xcbd39ff5},
-				{RingIndex: 2, Hrw: 0xc290a969},
-				{RingIndex: 3, Hrw: 0x697d5976}},
+			expect: []rank{
+				{index: 2, hrw: 0xe7ab33092927fb9b},
+				{index: 0, hrw: 0xdcfe5484a8b24daa},
+				{index: 1, hrw: 0x822b1a6632e22827},
+			},
 		},
 
 		// Index 3 is rank-one for this value, but the clock falls outside its minimum bound.
 		{
-			hash:  hash("b"),
+			hash:  hash("c"),
 			clock: 500,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 0, Hrw: 0x89031ee2},
-				{RingIndex: 1, Hrw: 0x6d0d23dc},
-				{RingIndex: 4, Hrw: 0x0aaeacf3},
+			expect: []rank{
+				{index: 4, hrw: 0xd097dd59c1438cdf},
+				// {index: 3, hrw: 0x9e61307b53bb29eb},
+				{index: 1, hrw: 0x5254118c4a752c36},
+				{index: 2, hrw: 0x37d438e351b0ff8a},
 			},
 		},
 		// Index 4 is rank-two, but the clock falls outside its maximum bound.
 		{
 			hash:  hash("d"),
 			clock: 3500,
-			expect: []pf.Document_Shuffle{
-				{RingIndex: 1, Hrw: 0xe9728b2f},
-				{RingIndex: 2, Hrw: 0x83d0d4de},
-				{RingIndex: 3, Hrw: 0x28bdc4c9},
+			expect: []rank{
+				{index: 3, hrw: 0xf50d909123a9f8dd},
+				// {index: 4, hrw: 0xbbfb7db3b1515de9},
+				{index: 0, hrw: 0x67edff84a037988d},
+				{index: 2, hrw: 0x5cb8980921a22ebc},
 			},
+		},
+		// Clock falls outside *any* member bound.
+		{
+			hash:   hash("d"),
+			clock:  100,
+			expect: []rank{},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Logf("hash %x clock %v", tc.hash, tc.clock)
-
-		var prefix = [2]pf.Document_Shuffle{
-			{RingIndex: 12, TransformId: 34, Hrw: 56},
-			{RingIndex: 78, TransformId: 90, Hrw: 11},
-		}
-		var out = r.pick(0, tc.hash, tc.clock, prefix[:])
-
-		require.Equal(t, prefix[:], out[:2]) // Expect the prefix fixture was passed through.
-		require.Equal(t, tc.expect, out[2:]) // And expected shuffles were appended.
+		require.Equal(t, tc.expect, r.pick(tc.hash, tc.clock))
 	}
 
-	// For these cases, use the second "choose" shuffle.
+	// For these cases, switch from "broadcast" to "choose" mode.
+	r.cfg.Shuffle.ChooseFrom, r.cfg.Shuffle.BroadcastTo =
+		r.cfg.Shuffle.BroadcastTo, r.cfg.Shuffle.ChooseFrom
+
 	cases = []struct {
-		hash   uint32
+		hash   uint64
 		clock  message.Clock
-		expect []pf.Document_Shuffle
+		expect []rank
 	}{
 		// One of the top-N processers is selected, depending on the clock.
 		{
 			hash:   hash("a"),
 			clock:  2000,
-			expect: []pf.Document_Shuffle{{RingIndex: 3, TransformId: 1, Hrw: 0x6e7f3905}},
+			expect: []rank{{index: 1, hrw: 0x7a935aef5bd8c6d2}},
 		},
 		{
 			hash:   hash("a"),
 			clock:  2001,
-			expect: []pf.Document_Shuffle{{RingIndex: 4, TransformId: 1, Hrw: 0xc8ed7884}},
+			expect: []rank{{index: 4, hrw: 0xf850963ad0ee663b}},
 		},
 		{
 			hash:   hash("a"),
 			clock:  2002,
-			expect: []pf.Document_Shuffle{{RingIndex: 2, TransformId: 1, Hrw: 0xc7920930}},
+			expect: []rank{{index: 3, hrw: 0xb6a67b184216c30f}},
 		},
 		{
 			hash:   hash("a"),
 			clock:  2003,
-			expect: []pf.Document_Shuffle{{RingIndex: 3, TransformId: 1, Hrw: 0x6e7f3905}},
+			expect: []rank{{index: 1, hrw: 0x7a935aef5bd8c6d2}},
+		},
+		{
+			hash:   hash("d"),
+			clock:  100, // Outside *any* member bound.
+			expect: []rank{},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Logf("hash %x clock %v", tc.hash, tc.clock)
-
-		var prefix = [1]pf.Document_Shuffle{
-			{RingIndex: 12, TransformId: 34, Hrw: 56},
-		}
-		var out = r.pick(1, tc.hash, tc.clock, prefix[:])
-
-		require.Equal(t, prefix[:], out[:1])
-		require.Equal(t, tc.expect, out[1:])
+		require.Equal(t, tc.expect, r.pick(tc.hash, tc.clock))
 	}
 }
 
@@ -184,16 +183,17 @@ func newTestShuffleConfig() pf.ShuffleConfig {
 		Ring: pf.Ring{
 			Name: "a-ring",
 			Members: []pf.Ring_Member{
-				{MinMsgClock: 0, MaxMsgClock: 0},
-				{MinMsgClock: 0, MaxMsgClock: 0},
-				{MinMsgClock: 0, MaxMsgClock: 0},
+				{MinMsgClock: 500, MaxMsgClock: 0},
+				{MinMsgClock: 500, MaxMsgClock: 0},
+				{MinMsgClock: 500, MaxMsgClock: 0},
 				{MinMsgClock: 1000, MaxMsgClock: 0},
-				{MinMsgClock: 0, MaxMsgClock: 3000},
+				{MinMsgClock: 500, MaxMsgClock: 3000},
 			},
 		},
-		Shuffles: []pf.ShuffleConfig_Shuffle{
-			{TransformId: 0, ShuffleKeyPtr: []string{"/foo"}, BroadcastTo: 3},
-			{TransformId: 1, ShuffleKeyPtr: []string{"/bar"}, ChooseFrom: 3},
+		Shuffle: pf.Shuffle{
+			Transform:     "a-transform",
+			ShuffleKeyPtr: []string{"/foo", "/bar"},
+			BroadcastTo:   3,
 		},
 	}
 }

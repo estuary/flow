@@ -1,255 +1,253 @@
 package shuffle
 
-/*
-
-TODO(johnny): There's some good stuff in here, but it needs re-working
-for API-side changes and to implement min-heaping behavior.
-
 import (
+	"container/heap"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
 )
 
-type shuffleReader struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	polledList *client.PolledList
-
-	envCh       chan<- consumer.EnvelopeOrError
-	idleOffsets map[pb.Journal]pb.Offset
-	activeReads map[pb.Journal]context.CancelFunc
-
-	resolver *consumer.Resolver
-
-	ring      pf.Ring
-	ringIndex int
-	shuffles  []pf.ShuffleConfig_Shuffle
-
-	journalClient pb.RoutedJournalClient
-	shuffleClient pf.ShufflerClient
-
-	wg sync.WaitGroup
-	mu sync.Mutex
+type governor struct {
+	rb *ReadBuilder
+	// Ticker sends the current time.Time once every interval (i.e., 1 second).
+	ticker <-chan time.Time
+	// Wall-time clock which is updated with every |ticker| tick.
+	wallTime message.Clock
+	// MustPoll notes that poll() must run to completion before the next
+	// Message may be returned by Next().
+	mustPoll bool
+	// Ongoing *reads having no ready Documents.
+	pending map[*read]struct{}
+	// *reads with Documents ready to emit, as a priority heap.
+	queued readHeap
+	// *reads with Documents having adjusted Clocks beyond |walltime|,
+	// which must wait for a future tick in order to be processed.
+	gated []*read
+	// Journals having an active *read.
+	active map[pb.Journal]*read
+	// Offsets of journals which are not actively being read.
+	idle map[pb.Journal]pb.Offset
+	// Channel signaled by readers when a new ShuffleResponse has
+	// been sent on the *read's channel. Used to wake poll() when
+	// blocking for more data.
+	readReadyCh chan struct{}
 }
 
-func newShuffleReader(offsets map[pb.Journal]pb.Offset) {
-
-}
-
-func (sr *shuffleReader) convergeLoop() {
-	defer sr.wg.Done()
-
-	for range sr.polledList.UpdateCh() {
-		sr.mu.Lock()
-		sr.converge()
-		sr.mu.Unlock()
+// StartReadingMessages begins reading shuffled, ordered messages into the channel, from the given Checkpoint.
+func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
+	var offsets = make(pb.Offsets)
+	for journal, meta := range cp.Sources {
+		offsets[journal] = meta.ReadThrough
 	}
-}
+	var ticker = time.NewTicker(time.Second)
 
-func (sr *shuffleReader) converge() {
-	var (
-		// Construct a new map of CancelFunc, to enable detection of
-		// journals are actively read but but no longer in the listing.
-		prevFns = sr.activeReads
-		nextFns = make(map[pb.Journal]context.CancelFunc)
-	)
-	for _, journal := range sr.polledList.List().Journals {
-		if fn, ok := prevFns[journal.Spec.Name]; ok {
-			// A read has already been started for this journal.
-			nextFns[journal.Spec.Name] = fn
-			delete(prevFns, journal.Spec.Name)
-			continue
+	var g = &governor{
+		rb:          rb,
+		ticker:      ticker.C,
+		mustPoll:    false,
+		pending:     make(map[*read]struct{}),
+		active:      make(map[pb.Journal]*read),
+		idle:        offsets,
+		readReadyCh: make(chan struct{}, 1),
+	}
+	g.wallTime.Update(time.Now())
+
+	go func() {
+		var out consumer.EnvelopeOrError
+		for out.Error == nil {
+			out.Envelope, out.Error = g.Next(ctx)
+			ch <- out
 		}
-
-		var offset = sr.idleOffsets[journal.Spec.Name]
-		delete(sr.idleOffsets, journal.Spec.Name)
-
-		// TODO(johnny): Lower-bound offset using configurable fragment time horizon.
-
-		var subCtx, subCancelFn = context.WithCancel(sr.ctx)
-
-		sr.wg.Add(1)
-		go sr.journalReadLoop(subCtx, &journal.Spec, offset)
-
-		nextFns[journal.Spec.Name] = subCancelFn
-	}
-	// Cancel any prior readers which are no longer in the listing.
-	// Keep entries: read loops will clear them on exit.
-	for j, fn := range prevFns {
-		fn()
-		nextFns[j] = fn
-	}
-	sr.activeReads = nextFns
-}
-
-func (sr *shuffleReader) journalReadLoop(ctx context.Context, spec *pb.JournalSpec, offset pb.Offset) {
-	defer func() {
-		sr.mu.Lock()
-		sr.idleOffsets[spec.Name] = offset
-		delete(sr.activeReads, spec.Name)
-		sr.mu.Unlock()
-
-		sr.wg.Done()
+		ticker.Stop()
 	}()
 
-	// Hash and map journal to a coordinating participant of the current ring.
-	// We use SHA-2 for its strong collision avoidance properties, and not for security.
-	// Journals often differ from one another by a single bit (eg, 'foo-002' vs 'foo-003'),
-	// which can cause grouping with FNV-a and other standard non-secure hashes.
-	var hash = sha256.Sum256([]byte(spec.Name))
+	return
+}
 
-	var cfg = pf.ShuffleConfig{
-		Journal:     spec.Name,
-		Ring:        sr.ring,
-		Coordinator: binary.LittleEndian.Uint32(hash[:]) % uint32(len(sr.ring.Members)),
-		Shuffles:    sr.shuffles,
-	}
-
-	var log = log.WithFields(log.Fields{
-		"ring":        cfg.Ring.Name,
-		"journal":     cfg.Journal,
-		"coordinator": cfg.Coordinator,
-		"offset":      offset,
-		"ringIndex":   sr.ringIndex,
-	})
-	log.Info("starting shuffled journal read")
-
-	var stream pf.Shuffler_ShuffleClient
-	var resp pf.ShuffleResponse
-
-	for attempt := 0; ctx.Err() == nil; attempt++ {
-		// Wait for backoff timer or context cancellation.
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff(attempt)):
-		}
-
-		// Apply MinMsgClock to identify a lower-bound fragment & offset to begin reading from.
-		if bound := cfg.Ring.Members[sr.ringIndex].MinMsgClock; offset == 0 && bound != 0 {
-			var list, err = client.ListAllFragments(ctx, sr.journalClient, pb.FragmentsRequest{
-				Journal: cfg.Journal,
-				// If the fragment was persisted _before_ our time bound (with a small adjustment
-				// to account for clock drift), it cannot possibly contain messages published
-				// _after_ the time bound.
-				BeginModTime: bound.Time().Add(-time.Minute).Unix(),
-			})
-			if err != nil {
-				log.WithField("err", err).Warn("failed to list fragments to identify lower-bound offset")
+func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
+	for {
+		if g.mustPoll || len(g.queued) == 0 {
+			if err := g.poll(ctx); err == errPollAgain {
+				g.mustPoll = true
 				continue
-			} else if l := len(list.Fragments); l != 0 {
-				offset = list.Fragments[0].Spec.Begin
+			} else if err != nil {
+				return message.Envelope{}, err
 			} else {
-				log.Info("empty fragment listing; reading from offset zero")
+				g.mustPoll = false // poll() completed.
 			}
 		}
 
-		// Start a new shuffle stream, if none currently exists.
-		if stream == nil {
-			// Resolve coordinator shard to a current member process.
-			var resolution, err = sr.resolver.Resolve(consumer.ResolveArgs{
-				Context:  ctx,
-				ShardID:  cfg.CoordinatorShard(),
-				MayProxy: true,
-			})
-			if err != nil && resolution.Status != pc.Status_OK {
-				log.WithField("err", err).
-					WithField("status", resolution.Status.String()).
-					Warn("failed to resolve shard (will retry)")
-				continue
-			}
-			var ctx = pb.WithDispatchRoute(ctx, resolution.Header.Route, resolution.Header.ProcessId)
+		// An invariant after polling is that all *read instances with
+		// an available document have been queued, and only Tailing
+		// *read instances without a ready document remain in |pending|.
 
-			var req = pf.ShuffleRequest{
-				Config:     cfg,
-				RingIndex:  int64(sr.ringIndex),
-				Offset:     offset,
-				Resolution: &resolution.Header,
-			}
-			if stream, err = sr.shuffleClient.Shuffle(ctx, &req); err != nil {
-				log.WithField("err", err).Warn("failed to start shuffle RPC (will retry)")
-				stream = nil
-				continue
-			}
-		}
+		// Pop the next ordered document to process.
+		var r = heap.Pop(&g.queued).(*read)
 
-		// Read next ShuffleResponse.
-		if err := stream.RecvMsg(&resp); err != nil || resp.Status != pc.Status_OK {
-			if err == nil {
-				// Server sent a !OK status, and will close. Read EOF to free resources.
-				_, _ = stream.Recv()
-			}
-			log.WithField("err", err).
-				WithField("status", resp.Status).
-				Warn("shuffle stream failed (will retry)")
-			stream = nil
+		if a := r.resp.UuidParts[r.resp.Index].Clock + r.pollAdjust; a > g.wallTime {
+
+			// TODO(johnny): Leaving for now until we have more testing of this feature.
+			log.WithFields(log.Fields{
+				"journal":   r.req.Config.Journal,
+				"tailing":   r.resp.Tailing(),
+				"remaining": len(r.resp.GetContent()),
+			}).Info("GATE")
+
+			// This document cannot be processed until wall time has reached
+			// its adjusted clock threshold. Gate it for a future time tick.
+			g.gated = append(g.gated, r)
 			continue
 		}
 
-		attempt = 0 // Reset backoff timer.
+		var env, err = r.Next()
+		if err != nil {
+			// Next never errors, as it never Recv()'s from the stream.
+			panic("unexpected error: " + err.Error())
+		}
 
-		for _, doc := range resp.Documents {
-			offset = doc.JournalBeginOffset + pb.Offset(len(doc.JournalBytes))
+		if r.resp.Index != len(r.resp.Content) {
+			// Next document is available without polling.
+			heap.Push(&g.queued, r)
+		} else {
+			g.pending[r] = struct{}{}
+			g.mustPoll = true
+		}
+		return env, nil
+	}
+}
 
-			if msg, err := NewRawJSONMessage(spec); err != nil {
-				sr.envCh <- consumer.EnvelopeOrError{
-					Error: fmt.Errorf("NewRawJSONMessage: %w", err),
-				}
-				return
-			} else if err = msg.(json.Unmarshaler).UnmarshalJSON(doc.JournalBytes); err != nil {
-				sr.envCh <- consumer.EnvelopeOrError{
-					Error: fmt.Errorf("unmarshal of RawJSONMessage: %w", err),
-				}
-				return
-			} else {
-				sr.envCh <- consumer.EnvelopeOrError{
-					Envelope: message.Envelope{
-						Journal: spec,
-						Begin:   doc.JournalBeginOffset,
-						End:     offset,
-						Message: msg,
-					},
-				}
+// errPollAgain is returned by poll() if another re-entrant call
+// must be made to finish the polling operation.
+var errPollAgain = fmt.Errorf("not ready; poll again")
+
+// poll for more data, a journal change, a time increment,
+// or for cancellation. poll() returns errPollAgain if it made
+// progress but another call to poll() is required. It returns
+// nil iff all *reads have been polled, and all non-tailing
+// *reads have at least one document queued.
+func (g *governor) poll(ctx context.Context) error {
+	// Walk all *reads not having a ready ShuffleResponse,
+	// polling if (or blocking until) one is available.
+	for r := range g.pending {
+
+		var chOk bool
+		if r.resp.ShuffleResponse != nil && r.resp.Tailing() {
+			// Reader is tailing the journal. Poll without blocking,
+			// as we may wait an unbounded amount of time for more
+			// data to be written to the journal.
+			select {
+			case r.resp.ShuffleResponse, chOk = <-r.pollCh:
+				// Fall through.
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-g.rb.journalsUpdateCh:
+				return g.onConverge(ctx)
+			case tick := <-g.ticker:
+				return g.onTick(tick)
+			default:
+				continue // Don't block.
+			}
+		} else {
+			// If we're not yet tailing the journal, block for the next response.
+			select {
+			case r.resp.ShuffleResponse, chOk = <-r.pollCh:
+				// Fall through.
+			case <-g.rb.journalsUpdateCh:
+				return g.onConverge(ctx)
+			case tick := <-g.ticker:
+				return g.onTick(tick)
 			}
 		}
+
+		// We read a new ShuffleResponse, invalidating the prior index.
+		r.resp.Index = 0
+
+		if !chOk {
+			// This *read was cancelled and its channel has now drained.
+			delete(g.pending, r)
+			delete(g.active, r.req.Config.Journal)
+			// Perserve the journal offset for a future read.
+			g.idle[r.req.Config.Journal] = r.req.Offset
+			// Converge again, as we may want to start a new read for this journal
+			// (i.e., if we drained this read because the coordinating shard has changed).
+			return g.onConverge(ctx)
+		} else if r.resp.TerminalError != "" {
+			return fmt.Errorf(r.resp.TerminalError)
+		} else if len(r.resp.Content) == 0 {
+			// Re-enter to poll this *read instance again. In particular,
+			// we *must* perform another blocking read if !Tailing.
+			return errPollAgain
+		} else {
+			delete(g.pending, r)
+			heap.Push(&g.queued, r)
+		}
+	}
+
+	// We've polled all pending *reads, and as a post-condition, know that
+	// a this point all *read instances with available data (i.e., !Tailing)
+	// have at least one document queued.
+	if len(g.queued) != 0 {
+		// This is the once place we return err == nil.
+		// In all other control paths, we return errPollAgain to poll() again,
+		// or a terminal error (including context cancellation).
+		return nil
+	}
+
+	// If we /still/ have no queued *reads, we must block until woken.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-g.rb.journalsUpdateCh:
+		return g.onConverge(ctx)
+	case tick := <-g.ticker:
+		return g.onTick(tick)
+	case <-g.readReadyCh:
+		return errPollAgain
 	}
 }
 
-func (sr *shuffleReader) Stop() map[pb.Journal]pb.Offset {
-	sr.cancel()
-	sr.wg.Wait()
-
-	if len(sr.activeReads) != 0 {
-		log.WithField("activeReads", sr.activeReads).
-			Panic("expected all active reads to have stopped")
+func (g *governor) onTick(tick time.Time) error {
+	// Re-add all gated reads to |queued|, to be re-evaluated
+	// against the updated |wallTime|, and poll() again.
+	for _, r := range g.gated {
+		heap.Push(&g.queued, r)
 	}
-	return sr.idleOffsets
+	g.gated = g.gated[:0]
+	g.wallTime.Update(tick)
+
+	// Ticks interrupt a current poll(), so we always poll again.
+	return errPollAgain
 }
 
-func backoff(attempt int) time.Duration {
-	switch attempt {
-	case 0:
-		return 0
-	case 1:
-		return time.Millisecond * 10
-	case 2, 3, 4, 5:
-		return time.Second * time.Duration(attempt-1)
-	default:
-		return 5 * time.Second
-	}
-}
+func (g *governor) onConverge(ctx context.Context) error {
+	var added, drain = g.rb.buildReads(g.active, g.idle)
 
-*/
+	for _, r := range added {
+		if err := g.rb.start(ctx, r); err != nil {
+			return fmt.Errorf("failed to start read: %w", err)
+		}
+		r.pollCh = make(chan *pf.ShuffleResponse, 2)
+		go r.pump(g.readReadyCh)
+
+		g.active[r.spec.Name] = r
+		delete(g.idle, r.spec.Name)
+
+		// Mark that we must poll a response from this *read.
+		g.pending[r] = struct{}{}
+	}
+
+	for _, r := range drain {
+		r.log().Info("read is no longer active; draining")
+		r.cancel()
+	}
+
+	// Converge interrupts a current poll(), so we always poll again.
+	return errPollAgain
+}

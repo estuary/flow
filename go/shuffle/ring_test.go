@@ -45,9 +45,11 @@ func TestReadingDocuments(t *testing.T) {
 	var ch = make(chan pf.ShuffleResponse, 1)
 
 	// Place a fixture in |ch| which simulates a very large ShuffleResponse.
-	// This excercises |readDocument|'s back-pressure handling.
+	// This exercises |readDocument|'s back-pressure handling.
 	ch <- pf.ShuffleResponse{
-		Documents: []pf.Document{{End: responseSizeThreshold}},
+		WriteHead: 1, // Not tailing.
+		Begin:     []pb.Offset{0},
+		End:       []pb.Offset{responseSizeThreshold},
 	}
 
 	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
@@ -62,20 +64,22 @@ func TestReadingDocuments(t *testing.T) {
 
 	// Expect to read our unmodified back-pressure fixture.
 	require.Equal(t, pf.ShuffleResponse{
-		Documents: []pf.Document{{End: responseSizeThreshold}},
+		WriteHead: 1,
+		Begin:     []pb.Offset{0},
+		End:       []pb.Offset{responseSizeThreshold},
 	}, <-ch)
 
 	// Expect to read all fixtures, followed by a channel close.
 	for out := range ch {
 		require.Equal(t, "", out.TerminalError)
 
-		if l := len(out.Documents); l > 0 {
-			require.Equal(t, out.Documents[0].Content, record)
-			require.Equal(t, out.Documents[0].ContentType, pf.Document_JSON)
+		if l := len(out.Content); l > 0 {
+			require.Equal(t, record, out.Arena.Bytes(out.Content[0]), record)
+			require.Equal(t, pf.ContentType_JSON, out.ContentType)
 			count -= l
 		}
 		// The final ShuffleResponse (only) should have the Tailing bit set.
-		require.Equal(t, count == 0, out.Tailing)
+		require.Equal(t, count == 0, out.Tailing())
 	}
 	require.Equal(t, count, 0)
 
@@ -88,87 +92,93 @@ func TestReadingDocuments(t *testing.T) {
 	}, ch)
 
 	// Expect an initial ShuffleResponse which informs us that we're tailing the live log.
-	require.Equal(t, pf.ShuffleResponse{Tailing: true}, <-ch)
+	require.Equal(t, pf.ShuffleResponse{
+		ReadThrough: app.Response.Commit.End,
+		WriteHead:   app.Response.Commit.End,
+	}, <-ch)
 
 	// Write a single record, and expect to receive a tailing read.
 	app = client.NewAppender(ctx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
 	_, _ = app.Write(record)
 	require.NoError(t, app.Close())
 
-	require.Equal(t, pf.ShuffleResponse{
-		Documents: []pf.Document{
-			{
-				Content:     record,
-				ContentType: pf.Document_JSON,
-				Begin:       app.Response.Commit.Begin,
-				End:         app.Response.Commit.End,
-			},
-		},
-		Tailing: true,
-	}, <-ch)
+	var out = <-ch
+	require.Equal(t, pf.ContentType_JSON, out.ContentType)
+	require.Equal(t, [][]byte{record}, out.Arena.AllBytes(out.Content...))
+	require.Equal(t, []pb.Offset{app.Response.Commit.Begin}, out.Begin)
+	require.Equal(t, []pb.Offset{app.Response.Commit.End}, out.End)
+	require.Equal(t, app.Response.Commit.End, out.ReadThrough)
+	require.Equal(t, app.Response.Commit.End, out.WriteHead)
 
 	// Case: Start a read which errors. Expect it's passed through, then the channel is closed.
 	ch = make(chan pf.ShuffleResponse, 1)
 
 	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
-		Journal: "does/not/exist",
+		Journal:   "a/journal",
+		Offset:    0,
+		EndOffset: 20, // EOF unexpectedly, in the middle of a message.
 	}, ch)
 
-	var out = <-ch
-	require.Equal(t, "fetching journal spec: named journal does not exist (does/not/exist)", out.TerminalError)
+	out = <-ch
+	require.Equal(t, "unexpected EOF", out.TerminalError)
 	var _, ok = <-ch
 	require.False(t, ok)
 }
 
 func TestDocumentExtraction(t *testing.T) {
-	var docs = []pf.Document{
-		{Content: []byte("doc-1"), ContentType: pf.Document_JSON},
-		{Content: []byte("doc-2"), ContentType: pf.Document_JSON},
-	}
-	var cfg = newTestShuffleConfig()
 	var r = ring{
-		staged:      pf.ShuffleResponse{Documents: docs},
-		subscribers: make(subscribers, len(cfg.Ring.Members)),
-		rendezvous:  newRendezvous(cfg),
+		rendezvous: newRendezvous(newTestShuffleConfig()),
 	}
+	var staged = pf.ShuffleResponse{
+		ContentType: pf.ContentType_JSON,
+	}
+	staged.Content = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
 
 	require.Equal(t, &pf.ExtractRequest{
-		Documents: docs,
-		UuidPtr:   pf.DocumentUUIDPointer,
-		Hashes: []pf.ExtractRequest_Hash{
-			{Ptrs: []string{"/foo"}},
-			{Ptrs: []string{"/bar"}},
-		},
-	}, r.buildExtractRequest())
+		Arena:       pf.Arena([]byte("doc-1\ndoc-2\n")),
+		ContentType: pf.ContentType_JSON,
+		Content:     []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		UuidPtr:     pf.DocumentUUIDPointer,
+		HashPtrs:    []string{"/foo", "/bar"},
+		FieldPtrs:   []string{"/foo", "/bar"},
+	}, r.buildExtractRequest(&staged))
 
 	// Case: extraction fails.
-	r.onExtract(nil, fmt.Errorf("an error"))
+	r.onExtract(&staged, nil, fmt.Errorf("an error"))
 	require.Equal(t, pf.ShuffleResponse{
-		Documents:     docs,
+		Arena:         pf.Arena([]byte("doc-1\ndoc-2\n")),
+		ContentType:   pf.ContentType_JSON,
+		Content:       []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		TerminalError: "an error",
-	}, r.staged)
-	r.staged.TerminalError = "" // Reset.
+	}, staged)
+	staged.TerminalError = "" // Reset.
 
 	// Case: extraction succeeds. Shuffling decisions are made & attached to documents.
-	r.onExtract(&pf.ExtractResponse{
-		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
-		Hashes: []pf.Hash{
-			{Values: []uint32{0xababab, 0xcdcdcd}},
-			{Values: []uint32{0xefefef, 0x121212}},
-		},
-	}, nil)
+	// The response Arena was extended with field bytes.
+	var fixture = pf.ExtractResponse{
+		UuidParts:  []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
+		HashesLow:  []uint64{0xababab, 0xcdcdcd},
+		HashesHigh: []uint64{0xefefef, 0x121212},
+	}
+	fixture.Fields = []pf.Field{{Values: []pf.Field_Value{
+		{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
+		{Kind: pf.Field_Value_STRING, Bytes: fixture.Arena.Add([]byte("some-string"))},
+	}}}
+	r.onExtract(&staged, &fixture, nil)
 
-	require.Equal(t, pf.Document{
-		Content:     []byte("doc-1"),
-		ContentType: pf.Document_JSON,
-		UuidParts:   pf.UUIDParts{Clock: 123},
-		Shuffles: []pf.Document_Shuffle{
-			{RingIndex: 1, TransformId: 0, Hrw: 3101947009},
-			{RingIndex: 0, TransformId: 0, Hrw: 2633836627},
-			{RingIndex: 4, TransformId: 0, Hrw: 457341356},
-			{RingIndex: 1, TransformId: 1, Hrw: 3380965076},
-		},
-	}, r.staged.Documents[0])
+	require.Equal(t, pf.ShuffleResponse{
+		Arena:       pf.Arena([]byte("doc-1\ndoc-2\nsome-string")),
+		ContentType: pf.ContentType_JSON,
+		Content:     []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		UuidParts:   []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
+		ShuffleKey: []pf.Field{
+			{Values: []pf.Field_Value{
+				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
+				{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 12, End: 23}},
+			}}},
+		ShuffleHashesLow:  []uint64{0xababab, 0xcdcdcd},
+		ShuffleHashesHigh: []uint64{0xefefef, 0x121212},
+	}, staged)
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

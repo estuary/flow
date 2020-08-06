@@ -7,117 +7,190 @@ import (
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/message"
 )
 
 func TestSubscriberResponseStaging(t *testing.T) {
-	// Document fixtures with Shuffle outcomes, to be staged for sending.
-	var docs = []pf.Document{
-		{
-			Shuffles: []pf.Document_Shuffle{
-				{RingIndex: 1, TransformId: 10},
-				{RingIndex: 1, TransformId: 20},
-				{RingIndex: 2, TransformId: 10}, // Filtered.
+
+	var buildFixture = func() pf.ShuffleResponse {
+		var resp = pf.ShuffleResponse{
+			ReadThrough: 400,
+			WriteHead:   600,
+			Transform:   "a-transform",
+			ContentType: pf.ContentType_JSON,
+			Begin:       []pb.Offset{100, 200, 300},
+			End:         []pb.Offset{200, 300, 400},
+			UuidParts: []pf.UUIDParts{
+				{Clock: 1000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+				{Clock: 2000, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
+				{Clock: 3000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 			},
-			Content: []byte("one"),
-			Begin:   100,
-			End:     200,
-		},
-		{
-			Content: []byte("two"),
-			Begin:   200,
-			End:     300,
-		},
-		{
-			Shuffles: []pf.Document_Shuffle{
-				{RingIndex: 0, TransformId: 5},
-				{RingIndex: 0, TransformId: 6},
-				{RingIndex: 1, TransformId: 6},
-			},
-			Content: []byte("three"),
-			Begin:   300,
-			End:     400,
-		},
+			// Hashes are tweaked such that index 0 => 3, and index 2 => 0.
+			ShuffleHashesHigh: []uint64{0xaaaaaaaaaaaaaaaa, 0x0, 0x0555555555555555},
+			ShuffleHashesLow:  []uint64{0x10, 0x20, 0x30},
+		}
+		resp.Content = resp.Arena.AddAll([]byte("one"), []byte("two"), []byte("three"))
+		resp.ShuffleKey = []pf.Field{
+			{Values: []pf.Field_Value{
+				{Kind: pf.Field_Value_STRING, Bytes: resp.Arena.Add([]byte("abc"))},
+				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
+				{Kind: pf.Field_Value_DOUBLE, Double: 3.14},
+			}},
+			{Values: []pf.Field_Value{
+				{Kind: pf.Field_Value_STRING, Bytes: resp.Arena.Add([]byte("xyz"))},
+				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
+				{Kind: pf.Field_Value_DOUBLE, Double: 8.67},
+			}},
+		}
+		return resp
 	}
 
+	var rendezvous = newRendezvous(
+		pf.ShuffleConfig{
+			Journal: "a/journal",
+			Ring: pf.Ring{
+				Name:    "a-ring",
+				Members: []pf.Ring_Member{{}, {}, {}, {}},
+			},
+			Shuffle: pf.Shuffle{
+				ShuffleKeyPtr: []string{"/foo"},
+				BroadcastTo:   1,
+			},
+		})
+
+	// Initialize each of our subscribers with pre-populated Response fixtures.
+	// This verifies correct response truncation, ahead of staging the next response.
 	var s = subscribers{
 		{
-			request: pf.ShuffleRequest{EndOffset: 300},
+			request:  pf.ShuffleRequest{EndOffset: 300},
+			response: buildFixture(),
 			next: &subscriber{
 				request: pf.ShuffleRequest{Offset: 300},
 			},
 		},
-		{},
-		{request: pf.ShuffleRequest{Offset: 200}},
-		{request: pf.ShuffleRequest{Offset: 500}},
-	}
-	s.stageResponses(pf.ShuffleResponse{Documents: docs})
-
-	// Expected staged outcomes.
-	require.Equal(t, subscribers{
 		{
-			request: pf.ShuffleRequest{Offset: 300, EndOffset: 300},
-			response: pf.ShuffleResponse{
-				Documents: []pf.Document{docs[1]},
+			response: buildFixture(),
+		},
+		{
+			request:  pf.ShuffleRequest{Offset: 500},
+			response: buildFixture(),
+		},
+		{
+			request:  pf.ShuffleRequest{},
+			response: buildFixture(),
+		},
+	}
+
+	var fixture = buildFixture()
+	s.stageResponses(&fixture, &rendezvous)
+
+	// Expect subscriber 0 sees documents 2 & 3.
+	require.Equal(t, subscriber{
+		request: pf.ShuffleRequest{EndOffset: 300},
+		response: pf.ShuffleResponse{
+			Arena:       pf.Arena("two"),
+			ReadThrough: 400,
+			WriteHead:   600,
+			Transform:   "a-transform",
+			ContentType: pf.ContentType_JSON,
+			Content:     []pf.Slice{{Begin: 0, End: 3}},
+			Begin:       []pb.Offset{200},
+			End:         []pb.Offset{300},
+			UuidParts: []pf.UUIDParts{
+				{Clock: 2000, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
 			},
-			next: &subscriber{
-				request: pf.ShuffleRequest{Offset: 400},
-				response: pf.ShuffleResponse{
-					Documents: []pf.Document{docs[2]},
+			ShuffleHashesHigh: []uint64{0x0},
+			ShuffleHashesLow:  []uint64{0x20},
+			ShuffleKey: []pf.Field{
+				{Values: []pf.Field_Value{
+					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
+				}},
+				{Values: []pf.Field_Value{
+					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
+				}},
+			},
+		},
+		next: &subscriber{
+			request: pf.ShuffleRequest{Offset: 300},
+			response: pf.ShuffleResponse{
+				Arena:       pf.Arena("three"),
+				ReadThrough: 400,
+				WriteHead:   600,
+				Transform:   "a-transform",
+				ContentType: pf.ContentType_JSON,
+				Content:     []pf.Slice{{Begin: 0, End: 5}},
+				Begin:       []pb.Offset{300},
+				End:         []pb.Offset{400},
+				UuidParts: []pf.UUIDParts{
+					{Clock: 3000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+				},
+				// Hashes are tweaked such that index 0 => 3, and index 2 => 0.
+				ShuffleHashesHigh: []uint64{0x0555555555555555},
+				ShuffleHashesLow:  []uint64{0x30},
+				ShuffleKey: []pf.Field{
+					{Values: []pf.Field_Value{
+						{Kind: pf.Field_Value_DOUBLE, Double: 3.14},
+					}},
+					{Values: []pf.Field_Value{
+						{Kind: pf.Field_Value_DOUBLE, Double: 8.67},
+					}},
 				},
 			},
 		},
-		{
-			request: pf.ShuffleRequest{Offset: 400},
-			response: pf.ShuffleResponse{
-				Documents: []pf.Document{docs[0], docs[1], docs[2]},
-			}},
-		{
-			request: pf.ShuffleRequest{Offset: 300},
-			response: pf.ShuffleResponse{
-				// docs[0] matches, but is filtered by the requested offest.
-				Documents: []pf.Document{docs[1]},
-			}},
-		{
-			request: pf.ShuffleRequest{Offset: 500},
-			// docs[1] is filtered by the requested offset.
-		},
-	}, s)
+	}, s[0])
 
-	docs = []pf.Document{
-		{
-			Shuffles: []pf.Document_Shuffle{
-				{RingIndex: 0, TransformId: 7},
-				{RingIndex: 3, TransformId: 8},
+	// Meanwhile, subscriber 3 sees documents 0 & 1.
+	require.Equal(t, subscriber{
+		request: pf.ShuffleRequest{},
+		response: pf.ShuffleResponse{
+			Arena:       pf.Arena("oneabcxyztwo"),
+			ReadThrough: 400,
+			WriteHead:   600,
+			Transform:   "a-transform",
+			ContentType: pf.ContentType_JSON,
+			Content:     []pf.Slice{{Begin: 0, End: 3}, {Begin: 9, End: 12}},
+			Begin:       []pb.Offset{100, 200},
+			End:         []pb.Offset{200, 300},
+			UuidParts: []pf.UUIDParts{
+				{Clock: 1000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+				{Clock: 2000, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
 			},
-			Content: []byte("four"),
-			Begin:   400,
-			End:     500,
+			ShuffleHashesHigh: []uint64{0xaaaaaaaaaaaaaaaa, 0x0},
+			ShuffleHashesLow:  []uint64{0x10, 0x20},
+			ShuffleKey: []pf.Field{
+				{Values: []pf.Field_Value{
+					{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 3, End: 6}},
+					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
+				}},
+				{Values: []pf.Field_Value{
+					{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 6, End: 9}},
+					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
+				}},
+			},
 		},
-	}
-	// Expect the next staged response clears the prior.
-	s.stageResponses(pf.ShuffleResponse{Documents: docs})
+	}, s[3])
 
-	require.Equal(t, subscribers{
-		{
-			request: pf.ShuffleRequest{Offset: 300, EndOffset: 300},
-			response: pf.ShuffleResponse{
-				Documents: []pf.Document{},
+	// Subscriber 2 sees no documents (offset is too high).
+	require.Equal(t, subscriber{
+		request: pf.ShuffleRequest{Offset: 500}, // Unchanged.
+		response: pf.ShuffleResponse{
+			Arena:             pf.Arena{},
+			ReadThrough:       400,
+			WriteHead:         600,
+			Transform:         "a-transform",
+			ContentType:       pf.ContentType_JSON,
+			Content:           []pf.Slice{},
+			Begin:             []pb.Offset{},
+			End:               []pb.Offset{},
+			UuidParts:         []pf.UUIDParts{},
+			ShuffleHashesHigh: []uint64{},
+			ShuffleHashesLow:  []uint64{},
+			ShuffleKey: []pf.Field{
+				{Values: []pf.Field_Value{}},
+				{Values: []pf.Field_Value{}},
 			},
-			next: &subscriber{
-				request:  pf.ShuffleRequest{Offset: 500},
-				response: pf.ShuffleResponse{Documents: docs},
-			},
 		},
-		{
-			request:  pf.ShuffleRequest{Offset: 400},
-			response: pf.ShuffleResponse{Documents: []pf.Document{}},
-		},
-		{
-			request:  pf.ShuffleRequest{Offset: 300},
-			response: pf.ShuffleResponse{Documents: []pf.Document{}},
-		},
-		{request: pf.ShuffleRequest{Offset: 500}}, // Still filtered by offset.
-	}, s)
+	}, s[2])
 
 	// Expect that a TerminalError is staged to all subscribers.
 	var errResponse = pf.ShuffleResponse{TerminalError: "an error"}
@@ -125,7 +198,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 		{next: &subscriber{}},
 		{},
 	}
-	s.stageResponses(errResponse)
+	s.stageResponses(&errResponse, &rendezvous)
 
 	require.Equal(t, subscribers{
 		{
@@ -137,7 +210,6 @@ func TestSubscriberResponseStaging(t *testing.T) {
 }
 
 func TestSubscriberSendAndPruneCases(t *testing.T) {
-
 	var s0a = make(chan error, 1)
 	var s0b = make(chan error, 1)
 	var s1 = make(chan error, 1)
@@ -151,54 +223,62 @@ func TestSubscriberSendAndPruneCases(t *testing.T) {
 
 	var s = subscribers{
 		{
-			request: pf.ShuffleRequest{Offset: 0, EndOffset: 200},
-			sendMsg: sendMsg,
-			doneCh:  s0a,
+			request:  pf.ShuffleRequest{Offset: 100, EndOffset: 200},
+			response: pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			sendMsg:  sendMsg,
+			doneCh:   s0a,
 
 			next: &subscriber{
-				request: pf.ShuffleRequest{Offset: 200},
-				doneCh:  s0b,
-				sendMsg: sendMsg,
+				request:     pf.ShuffleRequest{Offset: 300},
+				response:    pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+				doneCh:      s0b,
+				sendMsg:     sendMsg,
+				sentTailing: true,
 			},
 		},
 		{
-			request: pf.ShuffleRequest{Offset: 100},
-			sendMsg: sendMsg,
-			doneCh:  s1,
+			request:  pf.ShuffleRequest{Offset: 100},
+			response: pf.ShuffleResponse{ReadThrough: 299, WriteHead: 300}, // Not tailing.
+			sendMsg:  sendMsg,
+			doneCh:   s1,
 		},
 		{
-			sendMsg: func(m interface{}) error { return fmt.Errorf("an-error") },
-			doneCh:  s2,
+			response: pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			sendMsg:  func(m interface{}) error { return fmt.Errorf("an-error") },
+			doneCh:   s2,
 		},
 	}
 
 	// Case: Message sent to 0, omitted from 1, and causes 2 to error.
-	s.stageResponses(pf.ShuffleResponse{
-		Documents: []pf.Document{{Begin: 0, End: 100}},
-	})
-	require.True(t, s.sendResponses())
+	require.True(t, s[0].shouldSendResponse())
+	require.False(t, s[1].shouldSendResponse())
+	require.True(t, s[2].shouldSendResponse())
+	require.Equal(t, 3, s.sendResponses(0))
 
-	require.Equal(t, 1, sends) // Sent to 0 only.
-	sends = 0                  // Re-zero for next case.
+	require.Equal(t, 1, sends)        // Sent to 0 only.
+	require.True(t, s[0].sentTailing) // 0 marked as having sent Tailing.
+	sends = 0                         // Re-zero for next case.
 	require.EqualError(t, <-s2, "an-error")
 	require.Nil(t, s[2].doneCh) // Expect reset.
 
-	// Case: Message sent to 0, which completes, and 1.
-	s.stageResponses(pf.ShuffleResponse{
-		Documents: []pf.Document{{Begin: 100, End: 200}},
-	})
-	require.True(t, s.sendResponses())
+	// Case: Message is trivial for 0, which completes, and is sent to 1.
+	s[1].response.ReadThrough = 300             // Now tailing.
+	require.False(t, s[0].shouldSendResponse()) // Already Tailing.
+	require.True(t, s[1].shouldSendResponse())  // Toggles Tailing.
+	require.Equal(t, 2, s.sendResponses(s[0].request.EndOffset))
 
-	require.Equal(t, 2, sends) // Sent to 0 & 1.
+	require.Equal(t, 1, sends) // Sent to 1.
 	sends = 0                  // Re-zero for next case.
 	require.Nil(t, <-s0a)      // Notified of EOF.
 	require.Nil(t, s[0].next)  // Expect child was promoted.
 
-	// Case: Terminal error sent to 0 & 1.
-	s.stageResponses(pf.ShuffleResponse{
-		TerminalError: "foobar",
-	})
-	require.False(t, s.sendResponses()) // No more subscribers.
+	// Case: Terminal error staged, and sent to 0 & 1.
+	for i := range s {
+		s[i].response.TerminalError = "foobar"
+	}
+	require.True(t, s[0].shouldSendResponse()) // Error always sends.
+	require.True(t, s[1].shouldSendResponse()) // Error always sends.
+	require.Equal(t, 0, s.sendResponses(0))    // No more subscribers.
 
 	require.Equal(t, 2, sends) // Sent to 0 & 1.
 	require.Nil(t, <-s0b)      // Notified of EOF.
@@ -243,43 +323,13 @@ func TestSubscriberAddCases(t *testing.T) {
 			EndOffset: 456,
 		}, s.add(sub))
 
-	// Case: Third subscriber, at a higher offset, but with an unexpected endOffset.
+	// Case: Third subscriber, at a higher Offset, and with an EndOffset.
 	sub.request.RingIndex = 2
 	sub.request.Offset = 789
 	sub.request.EndOffset = 1011
-
-	sub.sendMsg = func(m interface{}) error {
-		require.Equal(t, m.(*pf.ShuffleResponse).TerminalError,
-			"unexpected EndOffset 1011 (no other subscriber at ring index 2)")
-		return fmt.Errorf("send-err-is-plumbed")
-	}
-	require.Nil(t, s.add(sub))
-	require.EqualError(t, <-sub.doneCh, "send-err-is-plumbed")
-	sub.sendMsg = nil
-
-	// Case: Third subscriber again, without an EndOffset.
-	sub.request.EndOffset = 0
 	require.Nil(t, s.add(sub))
 
-	// Case: Add of subscriber that exists with a conflicting offset range.
-	sub = subscriber{
-		request: pf.ShuffleRequest{
-			Offset:    123,
-			RingIndex: 1,
-		},
-		sendMsg: func(m interface{}) error {
-			require.Equal(t, m.(*pf.ShuffleResponse).TerminalError,
-				"existing subscriber at ring index 1 (offset 456) overlaps with request range [123, 0)")
-			return fmt.Errorf("other-send-err-is-plumbed")
-		},
-		doneCh: make(chan error, 1),
-	}
-	require.Nil(t, s.add(sub))
-	require.EqualError(t, <-sub.doneCh, "other-send-err-is-plumbed")
-	sub.sendMsg = nil
-
-	// Case: A second read of an existing subscriber may be added
-	// *if* it's a lower offset range.
+	// Case: A second read of an existing subscriber may be added.
 	sub = subscriber{
 		request: pf.ShuffleRequest{
 			Offset:    123,
@@ -327,6 +377,15 @@ func TestSubscriberMinOffset(t *testing.T) {
 	s[1].request.Offset = 456
 	o, ok = s.minOffset()
 	require.Equal(t, pb.Offset(123), o)
+	require.Equal(t, true, ok)
+
+	// Case: Linked entries.
+	s[1].next = &subscriber{
+		doneCh:  make(chan error),
+		request: pf.ShuffleRequest{Offset: 96},
+	}
+	o, ok = s.minOffset()
+	require.Equal(t, pb.Offset(96), o)
 	require.Equal(t, true, ok)
 
 	// Case: Multiple, with zero offset.
