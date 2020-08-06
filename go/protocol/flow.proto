@@ -14,10 +14,32 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
+// ContentType is an encoding used for document content.
+enum ContentType {
+  INVALID = 0;
+  // JSON is the usual text encoding, with a trailing newline.
+  JSON = 1;
+
+  // Future ContentTypes may include MessagePack or tape-based representations.
+};
+
+// Slice represents a contiguous slice of bytes within an associated Arena.
+message Slice {
+  option (gogoproto.goproto_unrecognized) = false;
+  option (gogoproto.goproto_unkeyed) = false;
+  option (gogoproto.goproto_sizecache) = false;
+
+  uint32 begin = 1;
+  uint32 end = 2;
+}
+
 // UUIDParts is a deconstructed, RFC 4122 v1 variant Universally Unique
 // Identifier as used by Gazette.
 message UUIDParts {
   option (gogoproto.equal) = true;
+  option (gogoproto.goproto_unrecognized) = false;
+  option (gogoproto.goproto_unkeyed) = false;
+  option (gogoproto.goproto_sizecache) = false;
 
   // Producer is the unique node identifier portion of a v1 UUID, as the high
   // 48 bits of |producer_and_flags|. The MSB must be 1 to mark this producer
@@ -35,44 +57,36 @@ message UUIDParts {
       [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
 }
 
-// Document is a standardized runtime representation of an Estuary document.
-// It holds a super-set of properties used by various APIs in processing
-// documents, and not all properties need be set in a given API context.
-message Document {
-  // The begin offset of the document within the journal, if applicable.
-  int64 begin = 1
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
-  // The end offset of the document within the journal, if applicable.
-  int64 end = 2
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
-  // ContentType is the encoding used for Document |content|.
-  enum ContentType {
-    INVALID = 0;
-    JSON = 1;
-    // Future ContentTypes may include CBOR or tape-based representations.
-  };
-  ContentType content_type = 3;
-  // Content of the document, encoded under the accompanying ContentType.
-  bytes content = 4;
-  // UUIDParts of this document.
-  UUIDParts uuid_parts = 5 [ (gogoproto.nullable) = false ];
-  // Shuffle records a shuffling outcome of mapping this Document into a ring
-  // of readers. Documents may be shuffled to multiple ring locations with
-  // the same or different transforms. They may also be mapped to a specific
-  // location with multiple transforms (or both!).
-  message Shuffle {
-    // Index within the worker ring to which the document is shuffled.
-    uint32 ring_index = 1;
-    // Transform ID to which the document is shuffled.
-    uint32 transform_id = 2;
-    // Highest-random weight from rendezvous hashing the document into the ring.
-    fixed32 hrw = 3;
-  }
-  // Shuffles is the set of Shuffle outcomes for this Document.
-  // It must be ordered and unique on ascending (ring_index, transform_id).
-  repeated Shuffle shuffles = 8 [ (gogoproto.nullable) = false ];
+// Shuffle of documents, mapping each document to member indicies within a
+// Ring.
+message Shuffle {
+  option (gogoproto.equal) = true;
+
+  // Transform for which this Shuffle is being applied.
+  string transform = 1 [ (gogoproto.casttype) = "Transform" ];
+  // Composite key over which shuffling occurs, specified as one or more
+  // JSON-Pointers indicating a message location to extract.
+  repeated string shuffle_key_ptr = 2;
+  // Number of top-ranked processors to broadcast each message to, after
+  // shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
+  uint32 broadcast_to = 3;
+  // Number of top-ranked readers from which a single reader index will be
+  // selected, after shuffling. The message Clock value is used to pseudo
+  // randomly pick the final index, making the selection deterministic.
+  // Values larger than one can be used to distribute "hot keys" which might
+  // otherwise overwhelm specific readers.
+  // Usually this is zero and |broadcast_to| is used instead. If non-zero,
+  // |broadcast_to| cannot be set.
+  uint32 choose_from = 4;
+  // Number of seconds for which documents of this collection are delayed
+  // while reading, relative to other documents (when back-filling) and the
+  // present wall-clock time (when tailing).
+  uint32 read_delay_seconds = 5;
 }
 
+// Ring is a topology of members, working in concert to share a task.
+// Each derived collection has a Ring of member shards which are
+// responsible for its continuous derivation.
 message Ring {
   option (gogoproto.equal) = true;
 
@@ -95,46 +109,46 @@ message Ring {
   repeated Member members = 2 [ (gogoproto.nullable) = false ];
 }
 
+// ShuffleConfig places a Shuffle within a specific, configured execution
+// context within which it runs.
 message ShuffleConfig {
   option (gogoproto.equal) = true;
+
   // Journal to be shuffled.
   string journal = 1
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
   // Ring on whose behalf this journal is being shuffled.
-  Ring ring = 3 [ (gogoproto.nullable) = false ];
+  Ring ring = 2 [ (gogoproto.nullable) = false ];
   // Coordinator is the ring member index which is responsible for shuffled
   // reads of this journal.
-  uint32 coordinator = 4;
-  // Shuffles applied to journal documents, mapping each document to
-  // indicies within the |ring|.
-  message Shuffle {
-    option (gogoproto.equal) = true;
-
-    // Transform ID for which this Shuffle is being applied.
-    uint32 transform_id = 1;
-    // Composite key over which shuffling occurs, specified as one or more
-    // JSON-Pointers indicating a message location to extract.
-    repeated string shuffle_key_ptr = 2;
-    // Number of top-ranked processors to broadcast each message to, after
-    // shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
-    uint32 broadcast_to = 3;
-    // Number of top-ranked readers from which a single reader index will be
-    // selected, after shuffling. The message Clock value is used to pseudo
-    // randomly pick the final index, making the selection deterministic.
-    // Values larger than one can be used to distribute "hot keys" which might
-    // otherwise overwhelm specific readers.
-    // Usually this is zero and |broadcast_to| is used instead. If non-zero,
-    // |broadcast_to| cannot be set.
-    uint32 choose_from = 4;
-  }
-  repeated Shuffle shuffles = 5 [ (gogoproto.nullable) = false ];
+  uint32 coordinator = 3;
+  // Shuffle of this ShuffleConfig.
+  Shuffle shuffle = 4 [ (gogoproto.nullable) = false ];
 }
 
-// Field holds values extracted for a given named Document field.
+// Transform describes a specific transform of a derived collection.
+message TransformSpec {
+  // Source collection read by this transform.
+  message Source {
+    // Name of the collection.
+    string name = 1 [ (gogoproto.casttype) = "Collection" ];
+    // Selector of partitions of the collection which this transform reads.
+    protocol.LabelSelector partitions = 2 [ (gogoproto.nullable) = false ];
+  }
+  Source source = 2 [ (gogoproto.nullable) = false ];
+  // Shuffle applied to source documents for this transform.
+  // Note that the Shuffle embeds the Transform name.
+  Shuffle shuffle = 3 [ (gogoproto.nullable) = false ];
+  // Derived collection produced by this transform.
+  message Derivation {
+    string name = 1 [ (gogoproto.casttype) = "Collection" ];
+  }
+  Derivation derivation = 5 [ (gogoproto.nullable) = false ];
+}
+
+// Field holds a column of values extracted from a document location.
 message Field {
-  // Name of this field.
-  string name = 1;
-  // Value is the extracted representation fo the field value.
+  // Value is the extracted representation of the field value.
   message Value {
     enum Kind {
       INVALID = 0;
@@ -152,20 +166,16 @@ message Field {
     uint64 unsigned = 2;
     sint64 signed = 3;
     double double = 4;
-    bytes bytes = 5;
+    Slice bytes = 5 [ (gogoproto.nullable) = false ];
   };
-  repeated Value values = 2 [ (gogoproto.nullable) = false ];
+  repeated Value values = 1 [ (gogoproto.nullable) = false ];
 }
-
-// Hash holds hashes extracted for a given Hash key of Documents.
-message Hash { repeated fixed32 values = 1; }
 
 // ShuffleRequest is the request message of a Shuffle RPC.
 message ShuffleRequest {
   option (gogoproto.equal) = true;
 
   ShuffleConfig config = 1 [ (gogoproto.nullable) = false ];
-
   // Index of this member within the ring.
   uint32 ring_index = 2;
   // Offset to begin reading the journal from.
@@ -184,8 +194,6 @@ message ShuffleResponse {
   consumer.Status status = 1;
   // Header of the response.
   protocol.Header header = 2;
-  // Documents included in this ShuffleResponse.
-  repeated Document documents = 3 [ (gogoproto.nullable) = false ];
   // Terminal error encountered while serving this ShuffleRequest. A terminal
   // error is only sent if a future ShuffleRequest of this same configuration
   // and offset will fail in the exact same way, and operator intervention is
@@ -196,11 +204,37 @@ message ShuffleResponse {
   // or data corruption. Errors *not* returned as |terminal_error| include
   // network errors, process failures, and other conditions which can be
   // retried.
-  string terminal_error = 4;
-  // Tailing indicates that the reader is at the current journal write head,
-  // and hints that the next ShuffleResponse may block indefinitely while
-  // waiting for more documents to be written.
-  bool tailing = 5;
+  string terminal_error = 3;
+  // Offset which was read through to produce this ShuffleResponse.
+  int64 read_through = 4
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // WriteHead of the journal as reported by the broker, as of the creation of
+  // this ShuffleResponse.
+  int64 write_head = 5
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // Memory arena of this message.
+  bytes arena = 6 [ (gogoproto.casttype) = "Arena" ];
+  // Transform name, passed through from the ShuffleRequest.
+  string transform = 7 [ (gogoproto.casttype) = "Transform" ];
+  // ContentType of documents in this ShuffleResponse.
+  ContentType content_type = 8;
+  // Content of documents included in this ShuffleResponse.
+  repeated Slice content = 9 [ (gogoproto.nullable) = false ];
+  // The begin offset of each document within the requested journal.
+  repeated int64 begin = 10
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // The end offset of each document within the journal.
+  repeated int64 end = 11
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // UUIDParts of each document.
+  repeated UUIDParts uuid_parts = 12 [ (gogoproto.nullable) = false ];
+  // Extracted shuffle key of each document, with one Field for each
+  // component of the composite shuffle key.
+  repeated Field shuffle_key = 13 [ (gogoproto.nullable) = false ];
+  // Extracted unique hash of the document shuffle key (low 64-bits).
+  repeated fixed64 shuffle_hashes_low = 14;
+  // Extracted unique hash of the document shuffle key (high 64-bits).
+  repeated fixed64 shuffle_hashes_high = 15;
 }
 
 service Shuffler {
@@ -275,21 +309,29 @@ enum DeriveState {
 // DeriveRequest is the streamed message of a Derive RPC.
 message DeriveRequest {
   DeriveState state = 1;
-
-  // Source collection documents to derive from. Set iff state == EXTEND.
-  repeated Document documents = 2 [ (gogoproto.nullable) = false ];
+  // Memory arena of this message.
+  bytes arena = 2 [ (gogoproto.casttype) = "Arena" ];
+  // ContentType of documents in this DeriveRequest. Set iff state == EXTEND.
+  ContentType content_type = 3;
+  // Content of documents included in this DeriveRequest.
+  // Set iff state == EXTEND.
+  repeated Slice content = 4 [ (gogoproto.nullable) = false ];
   // Checkpoint to commit. Set iff state == PREPARE.
-  consumer.Checkpoint checkpoint = 4;
+  consumer.Checkpoint checkpoint = 5;
 }
 
 // DeriveResponse is the streamed response message of a Derive RPC.
 message DeriveResponse {
   DeriveState state = 1;
-
-  // Documents derived from request documents. Set iff state == EXTEND.
-  repeated Document documents = 2 [ (gogoproto.nullable) = false ];
+  // Memory arena of this message.
+  bytes arena = 2 [ (gogoproto.casttype) = "Arena" ];
+  // ContentType of documents in this DeriveResponse. Set iff state == EXTEND.
+  ContentType content_type = 3;
+  // Content of documents included in this DeriveResponse.
+  // Set iff state == EXTEND.
+  repeated Slice content = 4 [ (gogoproto.nullable) = false ];
   // Logical partitions extracted from |documents|.
-  repeated Field partitions = 3 [ (gogoproto.nullable) = false ];
+  repeated Field partitions = 5 [ (gogoproto.nullable) = false ];
 };
 
 service Derive {
@@ -311,32 +353,35 @@ service Derive {
 }
 
 message ExtractRequest {
-  // Documents to extract from.
-  repeated Document documents = 1 [ (gogoproto.nullable) = false ];
+  // Memory arena of this message.
+  bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
+  // ContentType of documents in this ExtractRequest.
+  ContentType content_type = 2;
+  // Content of documents included in this ExtractRequest.
+  repeated Slice content = 3 [ (gogoproto.nullable) = false ];
   // JSON pointer of document UUID to extract.
-  string uuid_ptr = 2;
-  // Hash is a composite of JSON pointers to extract & hash.
-  message Hash { repeated string ptrs = 1; }
-  repeated Hash hashes = 3 [ (gogoproto.nullable) = false ];
-  // Field names and JSON pointers to extract from documents.
-  message Field {
-    // Name of field to extract.
-    string name = 1;
-    // JSON Pointer of field location within documents.
-    string ptr = 2;
-  }
-  repeated Field fields = 4;
+  // If empty, UUIDParts are not extracted.
+  string uuid_ptr = 4;
+  // Composite of JSON pointers to extract from documents and hash.
+  // If empty, hashes are not extracted.
+  repeated string hash_ptrs = 5;
+  // Field JSON pointers to extract from documents and return.
+  // If empty, no fields are extracted.
+  repeated string field_ptrs = 6;
 };
 
 message ExtractResponse {
+  // Memory arena of this message.
+  bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
   // UUIDParts extracted from request Documents.
-  repeated UUIDParts uuid_parts = 1 [ (gogoproto.nullable) = false ];
-  // Hashes extracted from request Documents, one column for each requested
-  // Hash.
-  repeated Hash hashes = 2 [ (gogoproto.nullable) = false ];
-  // Fields extracted from request Documents, one column for each requested
-  // Field.
-  repeated Field fields = 3 [ (gogoproto.nullable) = false ];
+  repeated UUIDParts uuid_parts = 2 [ (gogoproto.nullable) = false ];
+  // Hashes extracted from request Documents (low 64-bits).
+  // If the request |hash_ptrs| was empty, so are these.
+  repeated fixed64 hashes_low = 3;
+  // Hashes extracted from request Documents (high 64-bits).
+  repeated fixed64 hashes_high = 4;
+  // Fields extracted from request Documents, one column per request pointer.
+  repeated Field fields = 5 [ (gogoproto.nullable) = false ];
 };
 
 service Extract { rpc Extract(ExtractRequest) returns (ExtractResponse); }

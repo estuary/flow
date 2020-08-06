@@ -7,6 +7,18 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
+// Collection names a specified catalog collection.
+type Collection string
+
+// String returns the Collection name as a string.
+func (c Collection) String() string { return string(c) }
+
+// Transform names a specified catalog transformation.
+type Transform string
+
+// String returns the Tranform name as a string.
+func (t Transform) String() string { return string(t) }
+
 // ShardID returns the ShardID of the member at the given index,
 // which must be less than the number of ring Members.
 func (m *Ring) ShardID(index int) pc.ShardID {
@@ -48,13 +60,8 @@ func (m *ShuffleConfig) Validate() error {
 		return pb.ExtendContext(err, "Ring")
 	} else if m.Coordinator >= uint32(len(m.Ring.Members)) {
 		return pb.NewValidationError("invalid Coordinator (expected < len(Members); got %d vs %d)", m.Coordinator, len(m.Ring.Members))
-	} else if len(m.Shuffles) == 0 {
-		return pb.NewValidationError("expected at least one Shuffle")
-	}
-	for i, s := range m.Shuffles {
-		if err := s.Validate(); err != nil {
-			return pb.ExtendContext(err, "Shuffles[%d]", i)
-		}
+	} else if err = m.Shuffle.Validate(); err != nil {
+		return pb.ExtendContext(err, "Shuffle")
 	}
 	return nil
 }
@@ -64,8 +71,8 @@ func (m *ShuffleConfig) CoordinatorShard() pc.ShardID {
 	return m.Ring.ShardID(int(m.Coordinator))
 }
 
-// Validate returns a validation error of the ShuffleConfig_Shuffle.
-func (m *ShuffleConfig_Shuffle) Validate() error {
+// Validate returns a validation error of the Shuffle.
+func (m *Shuffle) Validate() error {
 	if len(m.ShuffleKeyPtr) == 0 {
 		return pb.NewValidationError("expected at least one ShuffleKeyPtr")
 	} else if (m.ChooseFrom == 0 && m.BroadcastTo == 0) || (m.ChooseFrom != 0 && m.BroadcastTo != 0) {
@@ -92,6 +99,16 @@ func (m *ShuffleRequest) Validate() error {
 	// RingIndex requires no extra validation.
 
 	return nil
+}
+
+// AppendValue into this Field. Requires the Arenas in which Value
+// bytes currently reside, and the Arena into which they should be copied.
+func (m *Field) AppendValue(from, to *Arena, field Field_Value) {
+	switch field.Kind {
+	case Field_Value_OBJECT, Field_Value_ARRAY, Field_Value_STRING:
+		field.Bytes = to.Add(from.Bytes(field.Bytes))
+	}
+	m.Values = append(m.Values, field)
 }
 
 const (

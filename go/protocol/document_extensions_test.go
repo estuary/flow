@@ -1,15 +1,21 @@
 package protocol
 
 import (
-	"bufio"
-	"bytes"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/message"
 )
+
+func TestArena(t *testing.T) {
+	var a Arena
+	require.Equal(t, []byte{4, 2, 7}, a.Bytes(a.Add([]byte{4, 2, 7})))
+
+	var fixture = [][]byte{[]byte("foo!"), []byte("bar\n"), []byte("qip")}
+	var slices = a.AddAll(fixture...)
+	require.Equal(t, fixture, a.AllBytes(slices...))
+}
 
 func TestUUIDPartsRoundTrip(t *testing.T) {
 	var producer = message.ProducerID{8, 6, 7, 5, 3, 9}
@@ -31,6 +37,9 @@ func TestUUIDPartsRoundTrip(t *testing.T) {
 	require.Equal(t, message.GetFlags(uuid), message.Flag_ACK_TXN)
 	require.Equal(t, message.GetClock(uuid), clock)
 }
+
+/*
+// TODO(johnny): Rework as part of DeriveMessage.
 
 func TestDocumentJSONInterface(t *testing.T) {
 	// Documents can build acknowledgements.
@@ -65,3 +74,5 @@ func documentToString(t *testing.T, m *Document) string {
 	require.Equal(t, []byte(m.Content), b.Bytes())
 	return b.String()
 }
+
+*/
