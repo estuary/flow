@@ -82,7 +82,20 @@ collections:
               return [{ ...source, view: await store.get(source.view_id) }]
 
   - name: marketing/purchases-with-offers
-    schema: schemas.yaml#/$defs/purchase-with-offers
+    # Example of using inline schemas, which can reference external schemas.
+    schema:
+      description: Purchase event joined with prior offer views and clicks.
+      $ref: "schemas.yaml#/$defs/purchase"
+      properties:
+        views:
+          type: array
+          items:
+            $ref: "schemas.yaml#/$defs/view-with-campaign"
+        clicks:
+          type: array
+          items:
+            $ref: "schemas.yaml#/$defs/click-with-view"
+      required: [views, clicks]
     key: [/purchase_id]
     fixtures: [fixtures/purchases-with-offers.yaml]
 

@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de, ser};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::fmt;
 
 /// Catalog is a YAML specification against which Estuary catalog input files are parsed.
 #[derive(Serialize, Deserialize, Debug)]
@@ -29,11 +30,11 @@ pub struct Catalog {
 pub struct Collection {
     /// Canonical name of this Collection. I.e. "marketing/campaigns".
     pub name: String,
-    /// Relative URL of this collection's JSON-Schema, with respect to path of
-    /// the YAML specification which included it.
+    /// This collections JSON-Schema, which all documents must validate against.
+    /// The schema may be provided as a relative or absolute URL, or written inline.
     /// I.e, "schemas/marketing.yaml#/$defs/campaign" would reference the schema
     /// at location {"$defs": {"campaign": ...}} within ./schemas/marketing.yaml.
-    pub schema: String,
+    pub schema: Schema,
     /// Composite key of this Collection, as an array of JSON-Pointers.
     pub key: Vec<String>,
     /// Relative URL of YAML or JSON files containing example "fixtures" of
@@ -120,15 +121,17 @@ pub struct Transform {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Source {
-    // Name of the source collection.
+    /// Name of the source collection.
     pub name: String,
-    /// Optional relative URL of a JSON-Schema to verify against source collection
-    /// documents. This is useful in building "Extract Load Transform" patterns,
+    /// Optional JSON-Schema to validate against the source collection. All data in the source
+    /// collection is already validated against the schema of that collection, so providing a
+    /// schema here is only used for _additional_ validation beyond that.
+    /// This is useful in building "Extract Load Transform" patterns,
     /// where a collection is captured with minimal schema applied (perhaps
     /// because it comes from an uncontrolled third party), and is then
     /// progressively verified as collections are derived.
     /// If None, the principal schema of the collection is used instead.
-    pub schema: Option<String>,
+    pub schema: Option<Schema>,
     /// Partition selector over partitions of the source collection to be read.
     #[serde(default)]
     pub partitions: PartitionSelector,
@@ -176,6 +179,79 @@ pub struct Fixture {
     pub key: Vec<Value>,
     #[serde(default)]
     pub projections: BTreeMap<String, Value>,
+}
+
+/// Used for collection schemas and transform source schemas, to allow flexibility in how they can
+/// be represented. The main distinction we're concerned with is whether the schema is provided
+/// inline or as a URI pointing to an external schema resource.
+#[derive(Debug, PartialEq)]
+pub enum Schema {
+    /// Schema was provided as a URI that is expected to resolve to a JSON schema.
+    Url(String),
+    /// Schema provided directly inline as a JSON object.
+    Object(BTreeMap<String, Value>),
+    /// Schema provided directly inline as a boolean. This is only ever really useful if the value
+    /// is the literal `true`, which permits all JSON data. A value of `false` would reject all
+    /// data.
+    Bool(bool),
+}
+
+
+struct SchemaVisitor;
+impl<'de> de::Visitor<'de> for SchemaVisitor {
+    type Value = Schema;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("string, object, or boolean")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+            A: de::MapAccess<'de>, {
+        let mut schema = BTreeMap::new();
+        while let Some((key, value)) = map.next_entry()? {
+            schema.insert(key, value);
+        }
+        Ok(Schema::Object(schema))
+    }
+
+    fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+    where
+            E: de::Error, {
+        Ok(Schema::Bool(v))
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+            E: de::Error, {
+        self.visit_string(v.to_owned())
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+            E: de::Error, {
+        Ok(Schema::Url(v))
+    }
+}
+
+impl<'de> Deserialize<'de> for Schema {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+            D: de::Deserializer<'de> {
+        deserializer.deserialize_any(SchemaVisitor)
+    }
+}
+
+impl ser::Serialize for Schema {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+            S: ser::Serializer {
+        match self {
+            Schema::Url(url) => url.serialize(serializer),
+            Schema::Object(inline) => inline.serialize(serializer),
+            Schema::Bool(inline) => inline.serialize(serializer),
+        }
+    }
 }
 
 /*

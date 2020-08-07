@@ -11,8 +11,8 @@ pub struct Resource {
 }
 
 impl Resource {
-    /// Register a resource with URL and Content-Type to the catalog, if not already known.
-    pub fn register(db: &DB, ct: ContentType, url: &Url) -> Result<Resource> {
+
+    pub fn get_by_url(db: &DB, ct: ContentType, url: &Url) -> Result<Option<Resource>> {
         // Look for an existing resource row.
         let mut stmt = db.prepare_cached(
             "SELECT resource_id, content_type
@@ -23,14 +23,47 @@ impl Resource {
         // Return an existing row, after asserting content types are the same.
         if let Some(row) = row.next()? {
             if ct != row.get(1)? {
-                return Err(Error::ContentTypeMismatch {
+                Err(Error::ContentTypeMismatch {
                     next: ct,
                     prev: row.get(1)?,
-                });
+                })
+            } else {
+                Ok(Some(Resource { id: row.get(0)? }))
             }
-            return Ok(Resource { id: row.get(0)? });
+        } else {
+            Ok(None)
         }
+    }
 
+    pub fn register_content(db: &DB, ct: ContentType, url: &Url, content: &[u8]) -> Result<Resource> {
+        if let Some(resource) = Resource::get_by_url(db, ct, url)? {
+            return Ok(resource);
+        }
+        Resource::register_content_unchecked(db, ct, url, content)
+    }
+
+    fn register_content_unchecked(db: &DB, ct: ContentType, url: &Url, content: &[u8]) -> Result<Resource> {
+        db.prepare_cached(
+            "INSERT INTO resources (content_type, content, is_processed)
+                    VALUES (?, ?, FALSE)",
+        )?
+        .execute(sql_params![ct, content])?;
+
+        let id = db.last_insert_rowid();
+        db.prepare_cached(
+            "INSERT INTO resource_urls (resource_id, url, is_primary)
+                    VALUES (?, ?, TRUE)",
+        )?
+        .execute(sql_params![id, url])?;
+
+        Ok(Resource { id })
+    }
+
+    /// Register a resource with URL and Content-Type to the catalog, if not already known.
+    pub fn register(db: &DB, ct: ContentType, url: &Url) -> Result<Resource> {
+        if let Some(resource) = Resource::get_by_url(db, ct, url)? {
+            return Ok(resource);
+        }
         // Fetch content.
         log::info!("fetching resource {:?}", url);
 
@@ -44,21 +77,7 @@ impl Resource {
             "http" | "https" => reqwest::blocking::get(url.as_str())?.bytes()?.to_vec(),
             _ => return Err(Error::FetchNotSupported(url.clone())),
         };
-
-        db.prepare_cached(
-            "INSERT INTO resources (content_type, content, is_processed)
-                    VALUES (?, ?, FALSE)",
-        )?
-        .execute(sql_params![ct, &content])?;
-
-        let id = db.last_insert_rowid();
-        db.prepare_cached(
-            "INSERT INTO resource_urls (resource_id, url, is_primary)
-                    VALUES (?, ?, TRUE)",
-        )?
-        .execute(sql_params![id, url])?;
-
-        Ok(Resource { id })
+        Resource::register_content_unchecked(db, ct, url, content.as_slice())
     }
 
     /// Register an alternate URL under which this Resource may be accessed.

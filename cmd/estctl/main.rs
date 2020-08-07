@@ -70,7 +70,10 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
 
     db.execute_batch("BEGIN;")?;
     catalog::init_db_schema(&db)?;
-    catalog::Catalog::register(&db, root)?;
+
+    let context = catalog::BuildContext::new_from_root(&db, &root);
+
+    catalog::Catalog::register(&context, root.clone())?;
     catalog::verify_extracted_fields(&db)?;
 
     // TODO:

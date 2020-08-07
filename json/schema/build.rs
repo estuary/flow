@@ -6,7 +6,6 @@ use crate::{de, NoopWalker, Number};
 use regex;
 use serde_json as sj;
 use thiserror;
-use url;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

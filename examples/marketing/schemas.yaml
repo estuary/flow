@@ -48,18 +48,3 @@ $defs:
       view: {$ref: "#/$defs/view-with-campaign"}
     required: [view]
 
-  purchase-with-offers:
-    description: Purchase event joined with prior offer views and clicks.
-    $ref: "#/$defs/purchase"
-    properties:
-      views:
-        type: array
-        items:
-          $ref: "#/$defs/view-with-campaign"
-      clicks:
-        type: array
-        items:
-          $ref: "#/$defs/click-with-view"
-    required: [views, clicks]
-
-

@@ -12,7 +12,10 @@ fn test_examples() -> catalog::Result<()> {
 
     let db = catalog::open(":memory:")?;
     catalog::init_db_schema(&db)?;
-    catalog::Catalog::register(&db, Url::from_file_path(&path).unwrap())?;
+
+    let url = Url::from_file_path(&path).unwrap();
+    let context = catalog::BuildContext::new_from_root(&db, &url);
+    catalog::Catalog::register(&context, url.clone())?;
 
     Ok(())
 }

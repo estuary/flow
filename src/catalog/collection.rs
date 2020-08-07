@@ -1,4 +1,4 @@
-use super::{sql_params, ContentType, Derivation, Error, Resource, Result, Schema, Catalog, DB};
+use super::{sql_params, ContentType, Derivation, Resource, Result, Schema, RegisteredSchema, Catalog, DB, BuildContext};
 use crate::specs::build as specs;
 
 /// Collection represents a catalog Collection.
@@ -10,16 +10,13 @@ pub struct Collection {
 
 impl Collection {
     /// Registers a Collection of the Source with the catalog.
-    pub fn register(db: &DB, source: Catalog, spec: &specs::Collection) -> Result<Collection> {
+    pub fn register(context: &BuildContext, source: Catalog, spec: &specs::Collection) -> Result<Collection> {
         // Register and import the schema document.
-        let schema_url = source.resource.join(db, &spec.schema)?;
-        let schema = Schema::register(db, &schema_url).map_err(|err| Error::At {
-            loc: format!("schema {:?}", schema_url),
-            detail: Box::new(err),
-        })?;
-        Resource::register_import(db, source.resource, schema.resource)?;
+        let RegisteredSchema {schema, schema_url} = context
+            .process_child_field("schema", &spec.schema, Schema::register)?;
+        Resource::register_import(context.db, source.resource, schema.resource)?;
 
-        db.prepare_cached(
+        context.db.prepare_cached(
             "INSERT INTO collections (
                     name,
                     schema_uri,
@@ -34,23 +31,22 @@ impl Collection {
             source.resource.id,
         ])?;
         let collection = Collection {
-            id: db.last_insert_rowid(),
+            id: context.db.last_insert_rowid(),
             resource: source.resource,
         };
 
-        for url in &spec.fixtures {
-            collection
-                .register_fixture(db, url)
-                .map_err(|err| Error::At {
-                    loc: format!("fixture {:?}", url),
-                    detail: Box::new(err),
-                })?;
-        }
-        for spec in &spec.projections {
-            collection.register_projection(db, spec)?;
-        }
+        context.process_child_array("fixtures", spec.fixtures.iter(), |context, fixture| {
+            collection.register_fixture(context.db, fixture)
+        })?;
+
+        context.process_child_array("projections", spec.projections.iter(), |context, projection| {
+            collection.register_projection(context.db, projection)
+        })?;
+
         if let Some(spec) = &spec.derivation {
-            Derivation::register(db, collection, spec)?;
+            context.process_child_field("derivation", spec, |context, spec| {
+                Derivation::register(context, collection, spec)
+            })?;
         }
 
         log::info!("added collection {}", spec.name);
@@ -100,6 +96,7 @@ mod test {
     };
     use rusqlite::params as sql_params;
     use serde_json::json;
+    use url::Url;
 
     #[test]
     fn test_register() -> Result<()> {
@@ -143,7 +140,9 @@ mod test {
         let source = Catalog {
             resource: Resource { id: 1 },
         };
-        Collection::register(&db, source, &spec)?;
+        let url = Url::parse("test://example/spec").unwrap();
+        let context = BuildContext::new_from_root(&db, &url);
+        Collection::register(&context, source, &spec)?;
 
         // Expect that the schema and fixtures were processed.
         assert!(Resource { id: 10 }.is_processed(&db)?);
