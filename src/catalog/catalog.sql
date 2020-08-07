@@ -133,7 +133,7 @@ CREATE TABLE lambdas
 
 -- Collections of the catalog.
 --
--- :name:
+-- :collection_name:
 --      Unique name of this collection.
 -- :schema_uri: 
 --      Canonical URI of the collection's JSON-Schema. This may include a fragment
@@ -144,14 +144,14 @@ CREATE TABLE lambdas
 --      Catalog source spec which defines this collection.
 CREATE TABLE collections
 (
-    collection_id INTEGER PRIMARY KEY NOT NULL,
-    name          TEXT UNIQUE         NOT NULL,
-    schema_uri    TEXT                NOT NULL,
-    key_json      TEXT                NOT NULL,
-    resource_id   INTEGER             NOT NULL REFERENCES resources (resource_id),
+    collection_id   INTEGER PRIMARY KEY NOT NULL,
+    collection_name TEXT UNIQUE         NOT NULL,
+    schema_uri      TEXT                NOT NULL,
+    key_json        TEXT                NOT NULL,
+    resource_id     INTEGER             NOT NULL REFERENCES resources (resource_id),
 
     CONSTRAINT "Collection name format isn't valid" CHECK (
-        name REGEXP '^[\pL\pN\-_+/.]+$'),
+        collection_name REGEXP '^[\pL\pN\-_+/.]+$'),
     CONSTRAINT "Schema must be a valid base (non-relative) URI" CHECK (
         schema_uri LIKE '_%://_%'),
     CONSTRAINT "Key must be non-empty JSON array of JSON-Pointers" CHECK (
@@ -374,7 +374,7 @@ CREATE VIEW transform_details AS
 SELECT transforms.transform_id,
        -- Source collection details.
        transforms.source_collection_id,
-       src.name                                                                AS source_name,
+       src.collection_name                                                     AS source_name,
        src.resource_id                                                         AS source_resource_id,
        COALESCE(transforms.source_schema_uri, src.schema_uri)                  AS source_schema_uri,
        source_partitions.json                                                  AS source_partitions_json,
@@ -383,7 +383,7 @@ SELECT transforms.transform_id,
 
        -- Derived collection details.
        transforms.derivation_id,
-       der.name                                                                AS derivation_name,
+       der.collection_name                                                     AS derivation_name,
        der.resource_id                                                         AS derivation_resource_id,
        der.schema_uri                                                          AS derivation_schema_uri,
        der.key_json                                                            AS derivation_key_json,
@@ -418,7 +418,7 @@ FROM transforms
 -- View over all schemas which apply to a collection.
 CREATE VIEW collection_schemas AS
 SELECT collection_id,
-       name,
+       collection_name,
        schema_uri,
        FALSE AS is_alternate
 FROM collections
@@ -436,7 +436,7 @@ SELECT
     c.schema_uri,
     k.value AS ptr,
     TRUE AS is_key,
-    PRINTF('key of collection %Q', c.name) AS context
+    PRINTF('key of collection %Q', c.collection_name) AS context
 FROM collections AS c, JSON_EACH(c.key_json) AS k
 UNION
 SELECT
@@ -451,14 +451,14 @@ SELECT
     c.schema_uri,
     p.location_ptr,
     TRUE AS is_key,
-    PRINTF('partitioned field %Q of collection %Q', p.field, c.name)
+    PRINTF('partitioned field %Q of collection %Q', p.field, c.collection_name)
 FROM collections AS c NATURAL JOIN projections AS p NATURAL JOIN partitions
 UNION
 SELECT
     c.schema_uri,
     p.location_ptr,
     FALSE AS is_key,
-    PRINTF('projected field %Q of collection %Q', p.field, c.name)
+    PRINTF('projected field %Q of collection %Q', p.field, c.collection_name)
 FROM collections AS c NATURAL JOIN projections AS p
 ;
 

@@ -43,7 +43,9 @@ impl Derivation {
         // Map spec source collection name to its collection ID.
         let (cid, rid) = context
             .db
-            .prepare_cached("SELECT collection_id, resource_id FROM collections WHERE name = ?")?
+            .prepare_cached(
+                "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
+            )?
             .query_row(&[&spec.source.name], |r| Ok((r.get(0)?, r.get(1)?)))
             .map_err(|e| Error::At {
                 loc: format!("querying source collection {:?}", spec.source),
@@ -172,7 +174,7 @@ mod test {
                     (1, 'test://example/spec', TRUE),
                     (10, 'test://example/a-schema.json', TRUE),
                     (20, 'test://example/alt-schema.json', TRUE);
-                INSERT INTO collections (name, schema_uri, key_json, resource_id) VALUES
+                INSERT INTO collections (collection_name, schema_uri, key_json, resource_id) VALUES
                     ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);
                 INSERT INTO projections (collection_id, field, location_ptr) VALUES
                     (1, 'a_field', '/a/field'),

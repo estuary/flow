@@ -126,32 +126,32 @@ FROM lambdas
          NATURAL LEFT JOIN resources;
 
 -- Valid collections.
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
        ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
        ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
        ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
 
 -- Invalid collection (schema is not a URI).
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'not-a-uri', '["/key"]', 1);
 
 -- Invalid collection (collection name doesn't match pattern).
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 
 -- Invalid collection (key is not non-empty [JSON-Pointer]).
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1);
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1);
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1);
 
 -- Invalid collection (resource doesn't exist).
-INSERT INTO collections (name, schema_uri, key_json, resource_id)
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42);
 
 SELECT *

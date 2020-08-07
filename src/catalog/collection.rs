@@ -25,7 +25,7 @@ impl Collection {
             .db
             .prepare_cached(
                 "INSERT INTO collections (
-                    name,
+                    collection_name,
                     schema_uri,
                     key_json,
                     resource_id
