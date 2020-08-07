@@ -62,97 +62,6 @@ func (ContentType) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_9dd0e7f3bbc7f41f, []int{0}
 }
 
-type DeriveState int32
-
-const (
-	// IDLE indicates the transaction has not yet begun.
-	// IDLE transitions to EXTEND.
-	DeriveState_IDLE DeriveState = 0
-	// EXTEND extends the derive transaction with additional
-	// source or derived collection documents.
-	//
-	// * The flow consumer sends any number of EXTEND DeriveRequests,
-	//   containing source collection documents.
-	// * Concurrently, the derive worker responds with any number of
-	//   EXTEND DeriveResponses, each having documents to be added to
-	//   the collection being derived.
-	// * The flow consumer is responsible for publishing each derived
-	//   document to the appropriate collection & partition.
-	// * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
-	//
-	// EXTEND transitions to EXTEND or FLUSH.
-	DeriveState_EXTEND DeriveState = 1
-	// FLUSH indicates the transacton pipeline is to flush.
-	//
-	// * The flow consumer issues FLUSH when its consumer transaction begins to
-	//   close.
-	// * The derive worker responds with FLUSH to indicate that all source
-	//   documents have been processed and all derived documents emitted.
-	// * The flow consumer awaits the response FLUSH, while continuing to begin
-	//   publish operations for all derived documents seen in the meantime.
-	// * On seeing FLUSH, the flow consumer is assured it's sequenced and started
-	//   publishing all derived documents of the transaction, and can now build
-	//   the consumer.Checkpoint which will be committed to the store.
-	//
-	// FLUSH transitions to PREPARE.
-	DeriveState_FLUSH DeriveState = 2
-	// PREPARE begins a commit of the transaction.
-	//
-	// * The flow consumer sends PREPARE with its consumer.Checkpoint.
-	// * On receipt, the derive worker queues an atomic recoverylog.Recorder
-	//   block that's conditioned on an (unresolved) "commit" future. Within
-	//   this recording block, underlying store commits (SQLite COMMIT and writing
-	//   a RocksDB WriteBatch) are issued to persist all state changes of the
-	//   transaction, along with the consumer.Checkpoint.
-	// * The derive worker responds with PREPARE once all local commits have
-	//   completed, and recoverylog writes have been queued (but not started,
-	//   awaiting COMMIT).
-	// * On receipt, the flow consumer arranges to invoke COMMIT on the completion
-	//   of all outstanding journal writes -- this the OpFuture passed to the
-	//   Store.StartCommit interface. It returns a future which will resolve only
-	//   after reading COMMIT from this transaction -- the OpFuture returned by
-	//   that interface.
-	//
-	// It's an error if a prior transaction is still running at the onset of
-	// PREPARE. However at the completion of PREPARE, a new & concurrent
-	// Transaction may begin, though it itself cannot PREPARE until this
-	// Transaction fully completes.
-	//
-	// PREPARE transitions to COMMIT.
-	DeriveState_PREPARE DeriveState = 3
-	// COMMIT commits the transaction by resolving the "commit" future created
-	// during PREPARE, allowing the atomic commit block created in PREPARE
-	// to flush to the recovery log. The derive worker responds with COMMIT
-	// when the commit barrier has fully resolved.
-	//
-	// COMMIT transitions to stream close.
-	DeriveState_COMMIT DeriveState = 4
-)
-
-var DeriveState_name = map[int32]string{
-	0: "IDLE",
-	1: "EXTEND",
-	2: "FLUSH",
-	3: "PREPARE",
-	4: "COMMIT",
-}
-
-var DeriveState_value = map[string]int32{
-	"IDLE":    0,
-	"EXTEND":  1,
-	"FLUSH":   2,
-	"PREPARE": 3,
-	"COMMIT":  4,
-}
-
-func (x DeriveState) String() string {
-	return proto.EnumName(DeriveState_name, int32(x))
-}
-
-func (DeriveState) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1}
-}
-
 type Field_Value_Kind int32
 
 const (
@@ -1184,176 +1093,6 @@ func (m *ShuffleResponse) GetShuffleHashesHigh() []uint64 {
 	return nil
 }
 
-// DeriveRequest is the streamed message of a Derive RPC.
-type DeriveRequest struct {
-	State DeriveState `protobuf:"varint,1,opt,name=state,proto3,enum=flow.DeriveState" json:"state,omitempty"`
-	// Memory arena of this message.
-	Arena Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
-	// ContentType of documents in this DeriveRequest. Set iff state == EXTEND.
-	ContentType ContentType `protobuf:"varint,3,opt,name=content_type,json=contentType,proto3,enum=flow.ContentType" json:"content_type,omitempty"`
-	// Content of documents included in this DeriveRequest.
-	// Set iff state == EXTEND.
-	Content []Slice `protobuf:"bytes,4,rep,name=content,proto3" json:"content"`
-	// Checkpoint to commit. Set iff state == PREPARE.
-	Checkpoint           *protocol1.Checkpoint `protobuf:"bytes,5,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
-	XXX_unrecognized     []byte                `json:"-"`
-	XXX_sizecache        int32                 `json:"-"`
-}
-
-func (m *DeriveRequest) Reset()         { *m = DeriveRequest{} }
-func (m *DeriveRequest) String() string { return proto.CompactTextString(m) }
-func (*DeriveRequest) ProtoMessage()    {}
-func (*DeriveRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{9}
-}
-func (m *DeriveRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *DeriveRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_DeriveRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *DeriveRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DeriveRequest.Merge(m, src)
-}
-func (m *DeriveRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *DeriveRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_DeriveRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_DeriveRequest proto.InternalMessageInfo
-
-func (m *DeriveRequest) GetState() DeriveState {
-	if m != nil {
-		return m.State
-	}
-	return DeriveState_IDLE
-}
-
-func (m *DeriveRequest) GetArena() Arena {
-	if m != nil {
-		return m.Arena
-	}
-	return nil
-}
-
-func (m *DeriveRequest) GetContentType() ContentType {
-	if m != nil {
-		return m.ContentType
-	}
-	return ContentType_INVALID
-}
-
-func (m *DeriveRequest) GetContent() []Slice {
-	if m != nil {
-		return m.Content
-	}
-	return nil
-}
-
-func (m *DeriveRequest) GetCheckpoint() *protocol1.Checkpoint {
-	if m != nil {
-		return m.Checkpoint
-	}
-	return nil
-}
-
-// DeriveResponse is the streamed response message of a Derive RPC.
-type DeriveResponse struct {
-	State DeriveState `protobuf:"varint,1,opt,name=state,proto3,enum=flow.DeriveState" json:"state,omitempty"`
-	// Memory arena of this message.
-	Arena Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
-	// ContentType of documents in this DeriveResponse. Set iff state == EXTEND.
-	ContentType ContentType `protobuf:"varint,3,opt,name=content_type,json=contentType,proto3,enum=flow.ContentType" json:"content_type,omitempty"`
-	// Content of documents included in this DeriveResponse.
-	// Set iff state == EXTEND.
-	Content []Slice `protobuf:"bytes,4,rep,name=content,proto3" json:"content"`
-	// Logical partitions extracted from |documents|.
-	Partitions           []Field  `protobuf:"bytes,5,rep,name=partitions,proto3" json:"partitions"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *DeriveResponse) Reset()         { *m = DeriveResponse{} }
-func (m *DeriveResponse) String() string { return proto.CompactTextString(m) }
-func (*DeriveResponse) ProtoMessage()    {}
-func (*DeriveResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{10}
-}
-func (m *DeriveResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *DeriveResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_DeriveResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *DeriveResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DeriveResponse.Merge(m, src)
-}
-func (m *DeriveResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *DeriveResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_DeriveResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_DeriveResponse proto.InternalMessageInfo
-
-func (m *DeriveResponse) GetState() DeriveState {
-	if m != nil {
-		return m.State
-	}
-	return DeriveState_IDLE
-}
-
-func (m *DeriveResponse) GetArena() Arena {
-	if m != nil {
-		return m.Arena
-	}
-	return nil
-}
-
-func (m *DeriveResponse) GetContentType() ContentType {
-	if m != nil {
-		return m.ContentType
-	}
-	return ContentType_INVALID
-}
-
-func (m *DeriveResponse) GetContent() []Slice {
-	if m != nil {
-		return m.Content
-	}
-	return nil
-}
-
-func (m *DeriveResponse) GetPartitions() []Field {
-	if m != nil {
-		return m.Partitions
-	}
-	return nil
-}
-
 type ExtractRequest struct {
 	// Memory arena of this message.
 	Arena Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
@@ -1379,7 +1118,7 @@ func (m *ExtractRequest) Reset()         { *m = ExtractRequest{} }
 func (m *ExtractRequest) String() string { return proto.CompactTextString(m) }
 func (*ExtractRequest) ProtoMessage()    {}
 func (*ExtractRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{11}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{9}
 }
 func (m *ExtractRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1471,7 +1210,7 @@ func (m *ExtractResponse) Reset()         { *m = ExtractResponse{} }
 func (m *ExtractResponse) String() string { return proto.CompactTextString(m) }
 func (*ExtractResponse) ProtoMessage()    {}
 func (*ExtractResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9dd0e7f3bbc7f41f, []int{12}
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{10}
 }
 func (m *ExtractResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1535,9 +1274,931 @@ func (m *ExtractResponse) GetFields() []Field {
 	return nil
 }
 
+type CombineRequest struct {
+	// Memory arena of this message.
+	Arena Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	// ContentType of documents in this CombineRequest.
+	ContentType ContentType `protobuf:"varint,2,opt,name=content_type,json=contentType,proto3,enum=flow.ContentType" json:"content_type,omitempty"`
+	// Content of documents included in this CombineRequest.
+	Content []Slice `protobuf:"bytes,3,rep,name=content,proto3" json:"content"`
+	// ContentType of documents in the returned CombineResponse.
+	Accept ContentType `protobuf:"varint,4,opt,name=accept,proto3,enum=flow.ContentType" json:"accept,omitempty"`
+	// Schema against which documents are to be validated,
+	// and which provides reduction annotations.
+	SchemaUri string `protobuf:"bytes,5,opt,name=schema_uri,json=schemaUri,proto3" json:"schema_uri,omitempty"`
+	// Composite key used to group documents to be combined, specified as one or
+	// more JSON-Pointers indicating a message location to extract.
+	KeyPtr []string `protobuf:"bytes,6,rep,name=key_ptr,json=keyPtr,proto3" json:"key_ptr,omitempty"`
+	// Field JSON pointers to be extracted from combined documents and returned.
+	// If empty, no fields are extracted.
+	FieldPtrs            []string `protobuf:"bytes,7,rep,name=field_ptrs,json=fieldPtrs,proto3" json:"field_ptrs,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *CombineRequest) Reset()         { *m = CombineRequest{} }
+func (m *CombineRequest) String() string { return proto.CompactTextString(m) }
+func (*CombineRequest) ProtoMessage()    {}
+func (*CombineRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{11}
+}
+func (m *CombineRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *CombineRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_CombineRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *CombineRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CombineRequest.Merge(m, src)
+}
+func (m *CombineRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *CombineRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_CombineRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CombineRequest proto.InternalMessageInfo
+
+func (m *CombineRequest) GetArena() Arena {
+	if m != nil {
+		return m.Arena
+	}
+	return nil
+}
+
+func (m *CombineRequest) GetContentType() ContentType {
+	if m != nil {
+		return m.ContentType
+	}
+	return ContentType_INVALID
+}
+
+func (m *CombineRequest) GetContent() []Slice {
+	if m != nil {
+		return m.Content
+	}
+	return nil
+}
+
+func (m *CombineRequest) GetAccept() ContentType {
+	if m != nil {
+		return m.Accept
+	}
+	return ContentType_INVALID
+}
+
+func (m *CombineRequest) GetSchemaUri() string {
+	if m != nil {
+		return m.SchemaUri
+	}
+	return ""
+}
+
+func (m *CombineRequest) GetKeyPtr() []string {
+	if m != nil {
+		return m.KeyPtr
+	}
+	return nil
+}
+
+func (m *CombineRequest) GetFieldPtrs() []string {
+	if m != nil {
+		return m.FieldPtrs
+	}
+	return nil
+}
+
+type CombineResponse struct {
+	// Memory arena of this message.
+	Arena Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	// Content of documents included in this CombineResponse.
+	// ContentType is that of the CombineRequest's |accept| field.
+	Content []Slice `protobuf:"bytes,3,rep,name=content,proto3" json:"content"`
+	// Fields extracted from request Documents, one column per request pointer.
+	Fields               []Field  `protobuf:"bytes,4,rep,name=fields,proto3" json:"fields"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *CombineResponse) Reset()         { *m = CombineResponse{} }
+func (m *CombineResponse) String() string { return proto.CompactTextString(m) }
+func (*CombineResponse) ProtoMessage()    {}
+func (*CombineResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{12}
+}
+func (m *CombineResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *CombineResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_CombineResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *CombineResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CombineResponse.Merge(m, src)
+}
+func (m *CombineResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *CombineResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_CombineResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CombineResponse proto.InternalMessageInfo
+
+func (m *CombineResponse) GetArena() Arena {
+	if m != nil {
+		return m.Arena
+	}
+	return nil
+}
+
+func (m *CombineResponse) GetContent() []Slice {
+	if m != nil {
+		return m.Content
+	}
+	return nil
+}
+
+func (m *CombineResponse) GetFields() []Field {
+	if m != nil {
+		return m.Fields
+	}
+	return nil
+}
+
+// DeriveRequest is the streamed union type message of a Derive RPC.
+type DeriveRequest struct {
+	// Types that are valid to be assigned to Kind:
+	//	*DeriveRequest_Open_
+	//	*DeriveRequest_Extend_
+	//	*DeriveRequest_Flush_
+	//	*DeriveRequest_Prepare_
+	//	*DeriveRequest_Commit_
+	Kind                 isDeriveRequest_Kind `protobuf_oneof:"kind"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *DeriveRequest) Reset()         { *m = DeriveRequest{} }
+func (m *DeriveRequest) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest) ProtoMessage()    {}
+func (*DeriveRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{13}
+}
+func (m *DeriveRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest.Merge(m, src)
+}
+func (m *DeriveRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest proto.InternalMessageInfo
+
+type isDeriveRequest_Kind interface {
+	isDeriveRequest_Kind()
+	MarshalTo([]byte) (int, error)
+	ProtoSize() int
+}
+
+type DeriveRequest_Open_ struct {
+	Open *DeriveRequest_Open `protobuf:"bytes,1,opt,name=open,proto3,oneof" json:"open,omitempty"`
+}
+type DeriveRequest_Extend_ struct {
+	Extend *DeriveRequest_Extend `protobuf:"bytes,2,opt,name=extend,proto3,oneof" json:"extend,omitempty"`
+}
+type DeriveRequest_Flush_ struct {
+	Flush *DeriveRequest_Flush `protobuf:"bytes,3,opt,name=flush,proto3,oneof" json:"flush,omitempty"`
+}
+type DeriveRequest_Prepare_ struct {
+	Prepare *DeriveRequest_Prepare `protobuf:"bytes,4,opt,name=prepare,proto3,oneof" json:"prepare,omitempty"`
+}
+type DeriveRequest_Commit_ struct {
+	Commit *DeriveRequest_Commit `protobuf:"bytes,5,opt,name=commit,proto3,oneof" json:"commit,omitempty"`
+}
+
+func (*DeriveRequest_Open_) isDeriveRequest_Kind()    {}
+func (*DeriveRequest_Extend_) isDeriveRequest_Kind()  {}
+func (*DeriveRequest_Flush_) isDeriveRequest_Kind()   {}
+func (*DeriveRequest_Prepare_) isDeriveRequest_Kind() {}
+func (*DeriveRequest_Commit_) isDeriveRequest_Kind()  {}
+
+func (m *DeriveRequest) GetKind() isDeriveRequest_Kind {
+	if m != nil {
+		return m.Kind
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetOpen() *DeriveRequest_Open {
+	if x, ok := m.GetKind().(*DeriveRequest_Open_); ok {
+		return x.Open
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetExtend() *DeriveRequest_Extend {
+	if x, ok := m.GetKind().(*DeriveRequest_Extend_); ok {
+		return x.Extend
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetFlush() *DeriveRequest_Flush {
+	if x, ok := m.GetKind().(*DeriveRequest_Flush_); ok {
+		return x.Flush
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetPrepare() *DeriveRequest_Prepare {
+	if x, ok := m.GetKind().(*DeriveRequest_Prepare_); ok {
+		return x.Prepare
+	}
+	return nil
+}
+
+func (m *DeriveRequest) GetCommit() *DeriveRequest_Commit {
+	if x, ok := m.GetKind().(*DeriveRequest_Commit_); ok {
+		return x.Commit
+	}
+	return nil
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*DeriveRequest) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*DeriveRequest_Open_)(nil),
+		(*DeriveRequest_Extend_)(nil),
+		(*DeriveRequest_Flush_)(nil),
+		(*DeriveRequest_Prepare_)(nil),
+		(*DeriveRequest_Commit_)(nil),
+	}
+}
+
+// OPEN is sent (only) as the first message of a Derive RPC,
+// and opens the derive transaction.
+type DeriveRequest_Open struct {
+	// Collection to be derived.
+	Collection Collection `protobuf:"bytes,1,opt,name=collection,proto3,casttype=Collection" json:"collection,omitempty"`
+	// ContentType of documents in the returned DeriveResponse.
+	Accept               ContentType `protobuf:"varint,2,opt,name=accept,proto3,enum=flow.ContentType" json:"accept,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
+	XXX_unrecognized     []byte      `json:"-"`
+	XXX_sizecache        int32       `json:"-"`
+}
+
+func (m *DeriveRequest_Open) Reset()         { *m = DeriveRequest_Open{} }
+func (m *DeriveRequest_Open) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest_Open) ProtoMessage()    {}
+func (*DeriveRequest_Open) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{13, 0}
+}
+func (m *DeriveRequest_Open) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest_Open.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest_Open) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest_Open.Merge(m, src)
+}
+func (m *DeriveRequest_Open) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest_Open) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest_Open.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest_Open proto.InternalMessageInfo
+
+func (m *DeriveRequest_Open) GetCollection() Collection {
+	if m != nil {
+		return m.Collection
+	}
+	return ""
+}
+
+func (m *DeriveRequest_Open) GetAccept() ContentType {
+	if m != nil {
+		return m.Accept
+	}
+	return ContentType_INVALID
+}
+
+// EXTEND extends the derive transaction with additional
+// source collection documents.
+//
+// * The flow consumer sends any number of EXTEND DeriveRequests,
+//   containing source collection documents.
+// * Concurrently, the derive worker responds with any number of
+//   EXTEND DeriveResponses, each having documents to be added to
+//   the collection being derived.
+// * The flow consumer is responsible for publishing each derived
+//   document to the appropriate collection & partition.
+// * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
+//
+// EXTEND transitions to EXTEND or FLUSH.
+type DeriveRequest_Extend struct {
+	// Transform to which documents are applied.
+	Transform Transform `protobuf:"bytes,1,opt,name=transform,proto3,casttype=Transform" json:"transform,omitempty"`
+	// Memory arena of this message.
+	Arena Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	// ContentType of documents.
+	ContentType ContentType `protobuf:"varint,3,opt,name=content_type,json=contentType,proto3,enum=flow.ContentType" json:"content_type,omitempty"`
+	// Content of documents.
+	Content              []Slice  `protobuf:"bytes,4,rep,name=content,proto3" json:"content"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveRequest_Extend) Reset()         { *m = DeriveRequest_Extend{} }
+func (m *DeriveRequest_Extend) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest_Extend) ProtoMessage()    {}
+func (*DeriveRequest_Extend) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{13, 1}
+}
+func (m *DeriveRequest_Extend) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest_Extend) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest_Extend.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest_Extend) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest_Extend.Merge(m, src)
+}
+func (m *DeriveRequest_Extend) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest_Extend) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest_Extend.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest_Extend proto.InternalMessageInfo
+
+func (m *DeriveRequest_Extend) GetTransform() Transform {
+	if m != nil {
+		return m.Transform
+	}
+	return ""
+}
+
+func (m *DeriveRequest_Extend) GetArena() Arena {
+	if m != nil {
+		return m.Arena
+	}
+	return nil
+}
+
+func (m *DeriveRequest_Extend) GetContentType() ContentType {
+	if m != nil {
+		return m.ContentType
+	}
+	return ContentType_INVALID
+}
+
+func (m *DeriveRequest_Extend) GetContent() []Slice {
+	if m != nil {
+		return m.Content
+	}
+	return nil
+}
+
+// FLUSH indicates the transacton pipeline is to flush.
+//
+// * The flow consumer issues FLUSH when its consumer transaction begins to
+//   close.
+// * The derive worker responds with FLUSH to indicate that all source
+//   documents have been processed and all derived documents emitted.
+// * The flow consumer awaits the response FLUSH, while continuing to begin
+//   publish operations for all derived documents seen in the meantime.
+// * On seeing FLUSH, the flow consumer is assured it's sequenced and started
+//   publishing all derived documents of the transaction, and can now build
+//   the consumer.Checkpoint which will be committed to the store.
+//
+// FLUSH transitions to PREPARE.
+type DeriveRequest_Flush struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveRequest_Flush) Reset()         { *m = DeriveRequest_Flush{} }
+func (m *DeriveRequest_Flush) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest_Flush) ProtoMessage()    {}
+func (*DeriveRequest_Flush) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{13, 2}
+}
+func (m *DeriveRequest_Flush) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest_Flush) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest_Flush.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest_Flush) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest_Flush.Merge(m, src)
+}
+func (m *DeriveRequest_Flush) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest_Flush) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest_Flush.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest_Flush proto.InternalMessageInfo
+
+// PREPARE begins a commit of the transaction.
+//
+// * The flow consumer sends PREPARE with its consumer.Checkpoint.
+// * On receipt, the derive worker queues an atomic recoverylog.Recorder
+//   block that's conditioned on an (unresolved) "commit" future. Within
+//   this recording block, underlying store commits (SQLite COMMIT and writing
+//   a RocksDB WriteBatch) are issued to persist all state changes of the
+//   transaction, along with the consumer.Checkpoint.
+// * The derive worker responds with PREPARE once all local commits have
+//   completed, and recoverylog writes have been queued (but not started,
+//   awaiting COMMIT).
+// * On receipt, the flow consumer arranges to invoke COMMIT on the completion
+//   of all outstanding journal writes -- this the OpFuture passed to the
+//   Store.StartCommit interface. It returns a future which will resolve only
+//   after reading COMMIT from this transaction -- the OpFuture returned by
+//   that interface.
+//
+// It's an error if a prior transaction is still running at the onset of
+// PREPARE. However at the completion of PREPARE, a new & concurrent
+// Transaction may begin, though it itself cannot PREPARE until this
+// Transaction fully completes.
+//
+// PREPARE transitions to COMMIT.
+type DeriveRequest_Prepare struct {
+	// Checkpoint to commit.
+	Checkpoint           protocol1.Checkpoint `protobuf:"bytes,1,opt,name=checkpoint,proto3" json:"checkpoint"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *DeriveRequest_Prepare) Reset()         { *m = DeriveRequest_Prepare{} }
+func (m *DeriveRequest_Prepare) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest_Prepare) ProtoMessage()    {}
+func (*DeriveRequest_Prepare) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{13, 3}
+}
+func (m *DeriveRequest_Prepare) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest_Prepare) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest_Prepare.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest_Prepare) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest_Prepare.Merge(m, src)
+}
+func (m *DeriveRequest_Prepare) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest_Prepare) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest_Prepare.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest_Prepare proto.InternalMessageInfo
+
+func (m *DeriveRequest_Prepare) GetCheckpoint() protocol1.Checkpoint {
+	if m != nil {
+		return m.Checkpoint
+	}
+	return protocol1.Checkpoint{}
+}
+
+// COMMIT commits the transaction by resolving the "commit" future created
+// during PREPARE, allowing the atomic commit block created in PREPARE
+// to flush to the recovery log. The derive worker responds with COMMIT
+// when the commit barrier has fully resolved.
+//
+// COMMIT transitions to stream close.
+type DeriveRequest_Commit struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveRequest_Commit) Reset()         { *m = DeriveRequest_Commit{} }
+func (m *DeriveRequest_Commit) String() string { return proto.CompactTextString(m) }
+func (*DeriveRequest_Commit) ProtoMessage()    {}
+func (*DeriveRequest_Commit) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{13, 4}
+}
+func (m *DeriveRequest_Commit) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveRequest_Commit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveRequest_Commit.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveRequest_Commit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveRequest_Commit.Merge(m, src)
+}
+func (m *DeriveRequest_Commit) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveRequest_Commit) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveRequest_Commit.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveRequest_Commit proto.InternalMessageInfo
+
+// DeriveResponse is the streamed response message of a Derive RPC.
+type DeriveResponse struct {
+	// Types that are valid to be assigned to Kind:
+	//	*DeriveResponse_Extend_
+	//	*DeriveResponse_Flush_
+	//	*DeriveResponse_Prepare_
+	//	*DeriveResponse_Commit_
+	Kind                 isDeriveResponse_Kind `protobuf_oneof:"kind"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
+}
+
+func (m *DeriveResponse) Reset()         { *m = DeriveResponse{} }
+func (m *DeriveResponse) String() string { return proto.CompactTextString(m) }
+func (*DeriveResponse) ProtoMessage()    {}
+func (*DeriveResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{14}
+}
+func (m *DeriveResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveResponse.Merge(m, src)
+}
+func (m *DeriveResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveResponse proto.InternalMessageInfo
+
+type isDeriveResponse_Kind interface {
+	isDeriveResponse_Kind()
+	MarshalTo([]byte) (int, error)
+	ProtoSize() int
+}
+
+type DeriveResponse_Extend_ struct {
+	Extend *DeriveResponse_Extend `protobuf:"bytes,2,opt,name=extend,proto3,oneof" json:"extend,omitempty"`
+}
+type DeriveResponse_Flush_ struct {
+	Flush *DeriveResponse_Flush `protobuf:"bytes,3,opt,name=flush,proto3,oneof" json:"flush,omitempty"`
+}
+type DeriveResponse_Prepare_ struct {
+	Prepare *DeriveResponse_Prepare `protobuf:"bytes,4,opt,name=prepare,proto3,oneof" json:"prepare,omitempty"`
+}
+type DeriveResponse_Commit_ struct {
+	Commit *DeriveResponse_Commit `protobuf:"bytes,5,opt,name=commit,proto3,oneof" json:"commit,omitempty"`
+}
+
+func (*DeriveResponse_Extend_) isDeriveResponse_Kind()  {}
+func (*DeriveResponse_Flush_) isDeriveResponse_Kind()   {}
+func (*DeriveResponse_Prepare_) isDeriveResponse_Kind() {}
+func (*DeriveResponse_Commit_) isDeriveResponse_Kind()  {}
+
+func (m *DeriveResponse) GetKind() isDeriveResponse_Kind {
+	if m != nil {
+		return m.Kind
+	}
+	return nil
+}
+
+func (m *DeriveResponse) GetExtend() *DeriveResponse_Extend {
+	if x, ok := m.GetKind().(*DeriveResponse_Extend_); ok {
+		return x.Extend
+	}
+	return nil
+}
+
+func (m *DeriveResponse) GetFlush() *DeriveResponse_Flush {
+	if x, ok := m.GetKind().(*DeriveResponse_Flush_); ok {
+		return x.Flush
+	}
+	return nil
+}
+
+func (m *DeriveResponse) GetPrepare() *DeriveResponse_Prepare {
+	if x, ok := m.GetKind().(*DeriveResponse_Prepare_); ok {
+		return x.Prepare
+	}
+	return nil
+}
+
+func (m *DeriveResponse) GetCommit() *DeriveResponse_Commit {
+	if x, ok := m.GetKind().(*DeriveResponse_Commit_); ok {
+		return x.Commit
+	}
+	return nil
+}
+
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*DeriveResponse) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
+		(*DeriveResponse_Extend_)(nil),
+		(*DeriveResponse_Flush_)(nil),
+		(*DeriveResponse_Prepare_)(nil),
+		(*DeriveResponse_Commit_)(nil),
+	}
+}
+
+// EXTEND extends the derive transaction with additional derived collection
+// documents.
+type DeriveResponse_Extend struct {
+	// Memory arena of this message.
+	Arena Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	// Content of documents. ContentType is as specified by
+	// DeriveRequest.Open.accept.
+	Content []Slice `protobuf:"bytes,2,rep,name=content,proto3" json:"content"`
+	// Logical partitions extracted from |documents|.
+	Partitions           []Field  `protobuf:"bytes,3,rep,name=partitions,proto3" json:"partitions"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveResponse_Extend) Reset()         { *m = DeriveResponse_Extend{} }
+func (m *DeriveResponse_Extend) String() string { return proto.CompactTextString(m) }
+func (*DeriveResponse_Extend) ProtoMessage()    {}
+func (*DeriveResponse_Extend) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{14, 0}
+}
+func (m *DeriveResponse_Extend) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveResponse_Extend) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveResponse_Extend.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveResponse_Extend) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveResponse_Extend.Merge(m, src)
+}
+func (m *DeriveResponse_Extend) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveResponse_Extend) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveResponse_Extend.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveResponse_Extend proto.InternalMessageInfo
+
+func (m *DeriveResponse_Extend) GetArena() Arena {
+	if m != nil {
+		return m.Arena
+	}
+	return nil
+}
+
+func (m *DeriveResponse_Extend) GetContent() []Slice {
+	if m != nil {
+		return m.Content
+	}
+	return nil
+}
+
+func (m *DeriveResponse_Extend) GetPartitions() []Field {
+	if m != nil {
+		return m.Partitions
+	}
+	return nil
+}
+
+// FLUSH is sent in response to a DeriveRequest.Flush, only after all
+// request documents have been processed and response Extend messages sent.
+type DeriveResponse_Flush struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveResponse_Flush) Reset()         { *m = DeriveResponse_Flush{} }
+func (m *DeriveResponse_Flush) String() string { return proto.CompactTextString(m) }
+func (*DeriveResponse_Flush) ProtoMessage()    {}
+func (*DeriveResponse_Flush) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{14, 1}
+}
+func (m *DeriveResponse_Flush) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveResponse_Flush) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveResponse_Flush.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveResponse_Flush) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveResponse_Flush.Merge(m, src)
+}
+func (m *DeriveResponse_Flush) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveResponse_Flush) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveResponse_Flush.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveResponse_Flush proto.InternalMessageInfo
+
+// PREPARE is sent in response to a DeriveRequest.Prepare, only after local
+// store updates for commit (including the provided checkpoint) have been
+// staged behind a created, unresolved commit barrier.
+type DeriveResponse_Prepare struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveResponse_Prepare) Reset()         { *m = DeriveResponse_Prepare{} }
+func (m *DeriveResponse_Prepare) String() string { return proto.CompactTextString(m) }
+func (*DeriveResponse_Prepare) ProtoMessage()    {}
+func (*DeriveResponse_Prepare) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{14, 2}
+}
+func (m *DeriveResponse_Prepare) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveResponse_Prepare) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveResponse_Prepare.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveResponse_Prepare) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveResponse_Prepare.Merge(m, src)
+}
+func (m *DeriveResponse_Prepare) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveResponse_Prepare) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveResponse_Prepare.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveResponse_Prepare proto.InternalMessageInfo
+
+// COMMIT is sent in response to a DeriveRequest.Commit, when the
+// commit barrier has resolved (meaning the transaction is committed).
+type DeriveResponse_Commit struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DeriveResponse_Commit) Reset()         { *m = DeriveResponse_Commit{} }
+func (m *DeriveResponse_Commit) String() string { return proto.CompactTextString(m) }
+func (*DeriveResponse_Commit) ProtoMessage()    {}
+func (*DeriveResponse_Commit) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{14, 3}
+}
+func (m *DeriveResponse_Commit) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *DeriveResponse_Commit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_DeriveResponse_Commit.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *DeriveResponse_Commit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DeriveResponse_Commit.Merge(m, src)
+}
+func (m *DeriveResponse_Commit) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *DeriveResponse_Commit) XXX_DiscardUnknown() {
+	xxx_messageInfo_DeriveResponse_Commit.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DeriveResponse_Commit proto.InternalMessageInfo
+
 func init() {
 	proto.RegisterEnum("flow.ContentType", ContentType_name, ContentType_value)
-	proto.RegisterEnum("flow.DeriveState", DeriveState_name, DeriveState_value)
 	proto.RegisterEnum("flow.Field_Value_Kind", Field_Value_Kind_name, Field_Value_Kind_value)
 	proto.RegisterType((*Slice)(nil), "flow.Slice")
 	proto.RegisterType((*UUIDParts)(nil), "flow.UUIDParts")
@@ -1552,125 +2213,152 @@ func init() {
 	proto.RegisterType((*Field_Value)(nil), "flow.Field.Value")
 	proto.RegisterType((*ShuffleRequest)(nil), "flow.ShuffleRequest")
 	proto.RegisterType((*ShuffleResponse)(nil), "flow.ShuffleResponse")
-	proto.RegisterType((*DeriveRequest)(nil), "flow.DeriveRequest")
-	proto.RegisterType((*DeriveResponse)(nil), "flow.DeriveResponse")
 	proto.RegisterType((*ExtractRequest)(nil), "flow.ExtractRequest")
 	proto.RegisterType((*ExtractResponse)(nil), "flow.ExtractResponse")
+	proto.RegisterType((*CombineRequest)(nil), "flow.CombineRequest")
+	proto.RegisterType((*CombineResponse)(nil), "flow.CombineResponse")
+	proto.RegisterType((*DeriveRequest)(nil), "flow.DeriveRequest")
+	proto.RegisterType((*DeriveRequest_Open)(nil), "flow.DeriveRequest.Open")
+	proto.RegisterType((*DeriveRequest_Extend)(nil), "flow.DeriveRequest.Extend")
+	proto.RegisterType((*DeriveRequest_Flush)(nil), "flow.DeriveRequest.Flush")
+	proto.RegisterType((*DeriveRequest_Prepare)(nil), "flow.DeriveRequest.Prepare")
+	proto.RegisterType((*DeriveRequest_Commit)(nil), "flow.DeriveRequest.Commit")
+	proto.RegisterType((*DeriveResponse)(nil), "flow.DeriveResponse")
+	proto.RegisterType((*DeriveResponse_Extend)(nil), "flow.DeriveResponse.Extend")
+	proto.RegisterType((*DeriveResponse_Flush)(nil), "flow.DeriveResponse.Flush")
+	proto.RegisterType((*DeriveResponse_Prepare)(nil), "flow.DeriveResponse.Prepare")
+	proto.RegisterType((*DeriveResponse_Commit)(nil), "flow.DeriveResponse.Commit")
 }
 
 func init() { proto.RegisterFile("go/protocol/flow.proto", fileDescriptor_9dd0e7f3bbc7f41f) }
 
 var fileDescriptor_9dd0e7f3bbc7f41f = []byte{
-	// 1743 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xd4, 0x58, 0xcd, 0x6f, 0x23, 0x49,
-	0x15, 0x4f, 0xfb, 0xa3, 0xed, 0x7e, 0x8e, 0x93, 0x9e, 0x9a, 0x6c, 0x30, 0x46, 0x1b, 0x67, 0xad,
-	0xfd, 0x08, 0x33, 0xd0, 0x99, 0x31, 0x23, 0x58, 0xcd, 0x6a, 0x25, 0xec, 0xd8, 0x99, 0x78, 0xd6,
-	0xf9, 0xa0, 0xed, 0xac, 0x80, 0x4b, 0xab, 0xdd, 0x5d, 0x6e, 0x37, 0x69, 0x77, 0x99, 0xea, 0xf6,
-	0xcc, 0x04, 0xfe, 0x01, 0x8e, 0x1c, 0x39, 0x2e, 0x2b, 0x38, 0x23, 0xfe, 0x04, 0x6e, 0x7b, 0x5c,
-	0x09, 0x09, 0x4e, 0x44, 0x68, 0xb9, 0x20, 0x71, 0x41, 0x1c, 0x73, 0x42, 0xf5, 0xd1, 0x76, 0x3b,
-	0x33, 0xb3, 0xc9, 0xe4, 0xb6, 0x97, 0xa8, 0xfa, 0xbd, 0xdf, 0x7b, 0xf5, 0xbe, 0xeb, 0x39, 0xb0,
-	0xe9, 0x91, 0xdd, 0x29, 0x25, 0x31, 0x71, 0x48, 0xb0, 0x3b, 0x0a, 0xc8, 0x73, 0x83, 0x7f, 0xa1,
-	0x1c, 0x3b, 0x57, 0xb7, 0x86, 0x94, 0x9c, 0x61, 0xba, 0x40, 0x24, 0x07, 0x81, 0xaa, 0x6e, 0x3b,
-	0x24, 0x8c, 0x66, 0x93, 0xaf, 0x41, 0xbc, 0x3f, 0x47, 0x50, 0xec, 0x90, 0x67, 0x98, 0x9e, 0x07,
-	0xc4, 0xe3, 0x67, 0xea, 0x62, 0xd7, 0x22, 0x53, 0x89, 0xab, 0x4c, 0xe3, 0xf3, 0x29, 0x8e, 0x76,
-	0xf1, 0x64, 0x1a, 0x9f, 0x8b, 0xbf, 0x92, 0xb3, 0xe1, 0x11, 0x8f, 0xf0, 0xe3, 0x2e, 0x3b, 0x09,
-	0x6a, 0xfd, 0x63, 0xc8, 0xf7, 0x03, 0xdf, 0xc1, 0x68, 0x03, 0xf2, 0x43, 0xec, 0xf9, 0x61, 0x45,
-	0xd9, 0x56, 0x76, 0xca, 0xa6, 0xf8, 0x40, 0x3a, 0x64, 0x71, 0xe8, 0x56, 0x32, 0x9c, 0xc6, 0x8e,
-	0x8f, 0x57, 0xbf, 0xfc, 0x7d, 0x6d, 0xe5, 0xb7, 0x9f, 0xd7, 0x56, 0x7e, 0xf7, 0x79, 0x6d, 0xa5,
-	0xfe, 0x1b, 0x05, 0xb4, 0xd3, 0xd3, 0x6e, 0xfb, 0xc4, 0xa6, 0x71, 0x84, 0xbe, 0x07, 0x68, 0x4a,
-	0x89, 0x3b, 0x73, 0x30, 0xb5, 0xec, 0xd0, 0xb5, 0x46, 0x81, 0xed, 0x45, 0x5c, 0xa1, 0x6a, 0xea,
-	0x09, 0xa7, 0x19, 0xba, 0xfb, 0x8c, 0x8e, 0x3e, 0x82, 0xbc, 0x13, 0x10, 0xe7, 0x8c, 0x6b, 0x57,
-	0x5b, 0xef, 0x5d, 0x5e, 0xd4, 0xde, 0xf1, 0x88, 0xe1, 0xd9, 0xbf, 0xc2, 0x71, 0x8c, 0x0d, 0x17,
-	0x3f, 0xdb, 0x75, 0x08, 0xc5, 0xbb, 0x13, 0x1c, 0x45, 0xb6, 0x87, 0x8d, 0x3d, 0x06, 0x36, 0x85,
-	0xcc, 0x63, 0xfd, 0xdf, 0x9f, 0xd5, 0x94, 0x25, 0x53, 0xfe, 0xa6, 0x40, 0xa1, 0x3f, 0x9e, 0x8d,
-	0x46, 0x01, 0x46, 0xf7, 0x41, 0x8b, 0xa9, 0x1d, 0x46, 0x23, 0x42, 0x27, 0xfc, 0x7e, 0xad, 0x55,
-	0xbe, 0xbc, 0xa8, 0x69, 0x83, 0x84, 0x68, 0x2e, 0xf8, 0xe8, 0x7d, 0x58, 0x8f, 0x84, 0x9c, 0x75,
-	0x86, 0xcf, 0xad, 0x69, 0x4c, 0x2b, 0x99, 0xed, 0xec, 0x8e, 0x66, 0x96, 0x25, 0xf9, 0x13, 0x7c,
-	0x7e, 0x12, 0x53, 0xf4, 0x0e, 0xac, 0x0e, 0x29, 0xb1, 0x5d, 0xc7, 0x8e, 0x62, 0x2b, 0x26, 0x95,
-	0x2c, 0x0f, 0x4a, 0x69, 0x4e, 0x1b, 0x10, 0x54, 0x83, 0x92, 0x33, 0x26, 0x24, 0xc2, 0xd6, 0x88,
-	0x92, 0x49, 0x25, 0xc7, 0x11, 0x20, 0x48, 0xfb, 0x94, 0x4c, 0x58, 0x84, 0x28, 0xb6, 0x5d, 0xcb,
-	0xc5, 0x81, 0x7d, 0x6e, 0x45, 0xd8, 0x21, 0xa1, 0x1b, 0x55, 0xf2, 0x1c, 0xa7, 0x33, 0x4e, 0x9b,
-	0x31, 0xfa, 0x82, 0xfe, 0x38, 0xc7, 0x9c, 0xac, 0x5f, 0x2a, 0x90, 0x33, 0xfd, 0xd0, 0x43, 0x08,
-	0x72, 0xa1, 0x3d, 0xc1, 0xc2, 0x21, 0x93, 0x9f, 0xd1, 0x43, 0x28, 0x4c, 0xf0, 0x64, 0x88, 0x69,
-	0xc4, 0x8d, 0x2e, 0x35, 0xee, 0x18, 0xbc, 0xfa, 0x98, 0x80, 0x71, 0xc8, 0x39, 0xad, 0xdc, 0x17,
-	0x17, 0xb5, 0x15, 0x33, 0xc1, 0x55, 0xff, 0xa0, 0x80, 0x2a, 0x38, 0xa8, 0x0b, 0xe5, 0x89, 0x1f,
-	0x5a, 0x93, 0xc8, 0xb3, 0x44, 0x2a, 0x98, 0xea, 0xdc, 0x4d, 0x53, 0x51, 0x9a, 0xf8, 0xe1, 0x61,
-	0xe4, 0xf1, 0x0f, 0xae, 0xca, 0x7e, 0x91, 0x52, 0x95, 0x79, 0x33, 0x55, 0xf6, 0x8b, 0x44, 0x95,
-	0x70, 0x5b, 0x3a, 0xff, 0x77, 0x05, 0xca, 0x32, 0xab, 0x7b, 0x24, 0x1c, 0xf9, 0x1e, 0xea, 0x42,
-	0xe1, 0x17, 0x64, 0x46, 0x43, 0x3b, 0x90, 0x99, 0xdd, 0xbd, 0xbc, 0xa8, 0xdd, 0x7f, 0xd5, 0x15,
-	0x57, 0x9a, 0xce, 0x78, 0x2a, 0xc4, 0xcc, 0x44, 0x1e, 0xbd, 0x0b, 0x39, 0xea, 0x87, 0x1e, 0x37,
-	0xb5, 0xd4, 0x80, 0x45, 0xe4, 0x64, 0xc8, 0x38, 0x17, 0x6d, 0x43, 0xc9, 0x21, 0x84, 0xba, 0x7e,
-	0x68, 0xc7, 0x84, 0x26, 0x69, 0x4f, 0x91, 0xd0, 0xf7, 0xa1, 0x20, 0x4b, 0x85, 0xa7, 0xbc, 0xd4,
-	0x28, 0x0b, 0x55, 0xd2, 0xf0, 0x24, 0x01, 0x12, 0x23, 0x3d, 0xfb, 0x47, 0x06, 0xca, 0xf3, 0x7a,
-	0xec, 0x4f, 0xb1, 0x83, 0x3e, 0x04, 0x35, 0x22, 0x33, 0xea, 0x60, 0x69, 0x50, 0x55, 0x68, 0x59,
-	0x02, 0x19, 0x7d, 0x8e, 0x90, 0x2a, 0x25, 0x3e, 0x6d, 0x40, 0xf6, 0x7a, 0x03, 0x50, 0x1b, 0xc0,
-	0xc5, 0xd4, 0x7f, 0x66, 0xc7, 0x3e, 0x09, 0x79, 0xf5, 0x95, 0x1a, 0x5b, 0xaf, 0xba, 0xac, 0x3d,
-	0x47, 0x49, 0x15, 0x29, 0xb9, 0xea, 0x19, 0xa8, 0xc2, 0x18, 0x54, 0x4f, 0x17, 0x66, 0x6b, 0xed,
-	0xf2, 0xa2, 0x06, 0x7b, 0x24, 0x08, 0xb0, 0xc3, 0x70, 0xb2, 0x50, 0x3f, 0x06, 0x98, 0xda, 0x34,
-	0xf6, 0x19, 0x29, 0x92, 0x0e, 0x7e, 0xcb, 0x98, 0xe7, 0xa6, 0x67, 0x0f, 0x71, 0xd0, 0xc7, 0x4c,
-	0x86, 0x24, 0x15, 0x9b, 0x12, 0xa8, 0x3e, 0x00, 0x58, 0x18, 0x73, 0x93, 0x0b, 0xeb, 0xff, 0xcc,
-	0x40, 0x7e, 0xdf, 0xc7, 0x81, 0x8b, 0x76, 0x41, 0x7d, 0x66, 0x07, 0x33, 0xcc, 0x46, 0x51, 0xaa,
-	0x45, 0x38, 0xd3, 0xf8, 0x94, 0x71, 0x92, 0x70, 0x0a, 0x58, 0xf5, 0x8f, 0x19, 0xc8, 0x73, 0x3a,
-	0xba, 0x07, 0xb9, 0x33, 0x3f, 0x74, 0xf9, 0x45, 0x6b, 0x8d, 0xcd, 0x97, 0x04, 0x8d, 0x4f, 0xfc,
-	0xd0, 0x35, 0x39, 0x06, 0x55, 0xa1, 0x38, 0x0b, 0x23, 0xdf, 0x0b, 0xb1, 0x18, 0x98, 0x39, 0x73,
-	0xfe, 0x8d, 0x36, 0x41, 0x95, 0x1c, 0x96, 0x1f, 0x64, 0xaa, 0x0b, 0xba, 0x4b, 0x66, 0x43, 0x59,
-	0x38, 0x8a, 0x29, 0xbf, 0xd0, 0x07, 0x90, 0x1f, 0x9e, 0xc7, 0x38, 0x92, 0xc9, 0x29, 0xc9, 0x74,
-	0xb2, 0x49, 0x2d, 0x6d, 0x15, 0xfc, 0xfa, 0xaf, 0x21, 0xc7, 0x4c, 0x40, 0x25, 0x28, 0x74, 0x8f,
-	0x3e, 0x6d, 0xf6, 0xba, 0x6d, 0x7d, 0x05, 0x15, 0x21, 0x77, 0x74, 0xda, 0xeb, 0xe9, 0x0a, 0x3b,
-	0x0d, 0xcc, 0xd3, 0x8e, 0x9e, 0x41, 0x1a, 0xe4, 0xf7, 0x9b, 0xbd, 0x7e, 0x47, 0xcf, 0x22, 0x00,
-	0xb5, 0x3f, 0x30, 0xbb, 0x47, 0x4f, 0xf4, 0x1c, 0x5a, 0x85, 0xe2, 0xe9, 0x51, 0xbf, 0xfb, 0xe4,
-	0xa8, 0xd3, 0xd6, 0xf3, 0x9c, 0x23, 0xce, 0x2a, 0x3b, 0xb7, 0x8f, 0x4f, 0x5b, 0xbd, 0x8e, 0x5e,
-	0x60, 0xe7, 0xe3, 0xd6, 0xd3, 0xce, 0xde, 0x40, 0x2f, 0x32, 0x45, 0x4d, 0xd3, 0x6c, 0xfe, 0x4c,
-	0xd7, 0xea, 0x7f, 0xce, 0xc0, 0x9a, 0x2c, 0x31, 0x13, 0xff, 0x72, 0x86, 0xa3, 0x18, 0x3d, 0x04,
-	0xd5, 0xe1, 0x7d, 0xca, 0x43, 0x56, 0x6a, 0xdc, 0x5d, 0x2a, 0x44, 0xd1, 0xc2, 0x49, 0xb4, 0x05,
-	0x10, 0xbd, 0x0d, 0xc0, 0xfa, 0xcc, 0xf2, 0x43, 0x17, 0xbf, 0x90, 0x4f, 0x8d, 0xc6, 0x28, 0x5d,
-	0x46, 0x40, 0xfb, 0xa0, 0x92, 0xd1, 0x28, 0xc2, 0x31, 0x0f, 0x5d, 0xb6, 0x65, 0x5c, 0x5e, 0xd4,
-	0xee, 0xdd, 0xa4, 0xdd, 0x8f, 0xb9, 0x94, 0x29, 0xa5, 0xd1, 0x21, 0x00, 0x0e, 0x5d, 0x4b, 0xea,
-	0xca, 0xdd, 0x4a, 0x97, 0x86, 0x43, 0x57, 0x1c, 0xd1, 0x03, 0x00, 0x8a, 0x23, 0x12, 0xcc, 0x52,
-	0x3d, 0xa4, 0x2f, 0xea, 0xf9, 0x00, 0xdb, 0x2e, 0xa6, 0x66, 0x0a, 0x23, 0xdb, 0xfe, 0x4f, 0x2a,
-	0xac, 0xcf, 0x63, 0x16, 0x4d, 0x49, 0x18, 0x61, 0xb4, 0x03, 0x6a, 0x14, 0xdb, 0xf1, 0x2c, 0x92,
-	0x75, 0xa6, 0x1b, 0xc9, 0x6b, 0x6f, 0xf4, 0x39, 0xdd, 0x94, 0x7c, 0x86, 0x1c, 0x73, 0xcd, 0xb2,
-	0x83, 0x5e, 0xbe, 0x51, 0xf2, 0xd1, 0x7b, 0xb0, 0x16, 0x63, 0x3a, 0xf1, 0x43, 0x3b, 0xb0, 0x30,
-	0xa5, 0x72, 0x70, 0x69, 0x66, 0x39, 0xa1, 0x76, 0x18, 0x11, 0xfd, 0x04, 0x56, 0xf9, 0x83, 0x14,
-	0x8f, 0x29, 0x99, 0x79, 0xe3, 0x5b, 0xc6, 0xa5, 0xc4, 0x74, 0x0c, 0x84, 0x0a, 0x16, 0xe8, 0xe7,
-	0xd4, 0x8f, 0xb1, 0xc5, 0x2c, 0xe1, 0x91, 0xb9, 0x45, 0xa0, 0xb9, 0x06, 0xe6, 0x12, 0xaa, 0x41,
-	0xde, 0xa6, 0x38, 0xb4, 0x2b, 0xea, 0xb6, 0xb2, 0xb3, 0xda, 0xd2, 0x2e, 0x2f, 0x6a, 0xf9, 0x26,
-	0x23, 0x98, 0x82, 0xbe, 0xfc, 0xd8, 0x17, 0xae, 0x79, 0xec, 0x1f, 0xc1, 0xaa, 0x43, 0xc2, 0x18,
-	0x87, 0xb1, 0xc5, 0x16, 0xa5, 0x4a, 0x91, 0x07, 0x5c, 0x4e, 0x84, 0x3d, 0xc1, 0x19, 0x9c, 0x4f,
-	0x31, 0x1b, 0xf0, 0xf3, 0x0f, 0x74, 0x1f, 0x0a, 0xf2, 0xb3, 0xa2, 0xf1, 0x11, 0xf2, 0x8a, 0x86,
-	0x4c, 0x10, 0xa8, 0x9d, 0x6c, 0x52, 0xb0, 0x9d, 0xbd, 0x85, 0xeb, 0x72, 0xf3, 0xfa, 0xb1, 0xd8,
-	0xbc, 0x4a, 0xb7, 0xd2, 0xc1, 0x44, 0xd1, 0x23, 0x80, 0xd9, 0xcc, 0x77, 0x2d, 0x36, 0x45, 0xa3,
-	0xca, 0x2a, 0xb7, 0x7b, 0x5d, 0xd8, 0x3d, 0x5f, 0xd9, 0xa4, 0xed, 0x1a, 0x03, 0x8a, 0x1d, 0xae,
-	0x01, 0xa5, 0xd4, 0x36, 0x54, 0x29, 0xa7, 0xdd, 0xe5, 0x83, 0x2f, 0x19, 0xce, 0x8b, 0xe5, 0x88,
-	0x6d, 0x35, 0x89, 0xcc, 0xd8, 0x8e, 0xc6, 0x38, 0xb2, 0x02, 0xf2, 0xbc, 0xb2, 0xb6, 0x9d, 0x65,
-	0x7b, 0x9f, 0xe4, 0x1c, 0x70, 0x46, 0x8f, 0x3c, 0x47, 0x06, 0xdc, 0xbd, 0x82, 0x1e, 0xfb, 0xde,
-	0xb8, 0xb2, 0xce, 0xe1, 0x77, 0x96, 0xe0, 0x07, 0xbe, 0x37, 0xae, 0xff, 0x4f, 0x81, 0x32, 0x9f,
-	0xfd, 0xf3, 0x21, 0xf3, 0x01, 0xe4, 0x59, 0x3f, 0x60, 0xd9, 0x2e, 0x32, 0x7b, 0x02, 0xc3, 0x1a,
-	0x06, 0x9b, 0x82, 0xbf, 0xa8, 0x9d, 0xcc, 0x6b, 0x6a, 0xe7, 0x6a, 0x39, 0x64, 0xdf, 0xb4, 0x1c,
-	0x72, 0xd7, 0x96, 0xc3, 0x23, 0x00, 0x67, 0x8c, 0x9d, 0xb3, 0x29, 0xf1, 0xc3, 0x58, 0x0e, 0x8a,
-	0x8d, 0x45, 0x83, 0xef, 0xcd, 0x79, 0x66, 0x0a, 0x57, 0xff, 0xaf, 0x02, 0x6b, 0x89, 0xd3, 0x72,
-	0x4a, 0x7c, 0xa3, 0xbc, 0x7e, 0xb8, 0xf4, 0xdc, 0xe7, 0x5f, 0x5b, 0x45, 0x0b, 0x50, 0xfd, 0x3f,
-	0x0a, 0xac, 0x75, 0x5e, 0xc4, 0xd4, 0x76, 0xe2, 0x24, 0xd1, 0x73, 0x4f, 0x94, 0x1b, 0x7a, 0x92,
-	0x79, 0x53, 0x4f, 0xb2, 0xd7, 0x7a, 0xf2, 0x6d, 0x28, 0x8a, 0x36, 0x8a, 0x29, 0x9f, 0x8e, 0x9a,
-	0x59, 0xe0, 0xdd, 0x12, 0x53, 0xf4, 0x1d, 0xd0, 0x58, 0x05, 0x33, 0x96, 0xf0, 0x51, 0x33, 0x8b,
-	0x8c, 0x70, 0x12, 0xd3, 0x88, 0x3d, 0x6b, 0x23, 0xe6, 0xa9, 0xe0, 0xaa, 0x9c, 0xab, 0x71, 0x0a,
-	0x63, 0xd7, 0xff, 0xaa, 0xc0, 0xfa, 0xdc, 0x5b, 0x99, 0xe1, 0x1b, 0xb8, 0x9b, 0x6e, 0xe9, 0xcc,
-	0x0d, 0x5b, 0xfa, 0x6d, 0x80, 0x54, 0x5b, 0x66, 0x79, 0x9f, 0x69, 0xe3, 0x79, 0x3f, 0xd6, 0xa0,
-	0x94, 0xee, 0xc3, 0x1c, 0xe7, 0x4b, 0x09, 0xd6, 0x80, 0xe8, 0xbb, 0xa0, 0x72, 0xbb, 0xbf, 0x26,
-	0x8f, 0x12, 0x70, 0xef, 0x5d, 0x28, 0xa5, 0xa2, 0xfe, 0xd2, 0x56, 0xf2, 0xb4, 0x7f, 0x7c, 0xa4,
-	0x2b, 0xf7, 0x9e, 0x40, 0x29, 0x55, 0xb6, 0x8c, 0xd1, 0x6d, 0xf7, 0x3a, 0xfa, 0x0a, 0xdb, 0x33,
-	0x3a, 0x3f, 0x1d, 0x74, 0x8e, 0xda, 0xba, 0xc2, 0x17, 0x96, 0xde, 0x69, 0xff, 0x40, 0xcf, 0x30,
-	0x35, 0x27, 0x66, 0xe7, 0xa4, 0x69, 0xca, 0xed, 0x65, 0xef, 0xf8, 0xf0, 0xb0, 0x3b, 0xd0, 0x73,
-	0x8d, 0x36, 0x14, 0xe5, 0x5b, 0x4a, 0xd1, 0x87, 0x8b, 0x9f, 0x7f, 0x1b, 0x4b, 0x4b, 0x87, 0x2c,
-	0xa6, 0xea, 0x5b, 0x57, 0xa8, 0x22, 0xe8, 0x0f, 0x94, 0xc6, 0x5f, 0x14, 0x50, 0x85, 0x3d, 0xa8,
-	0x09, 0x77, 0x4c, 0x1c, 0xc5, 0x84, 0xe2, 0x45, 0x5f, 0xa2, 0x4d, 0xc3, 0x23, 0xc4, 0x0b, 0xb0,
-	0x78, 0x6b, 0x87, 0xb3, 0x91, 0xd1, 0x61, 0xbf, 0xab, 0xab, 0xaf, 0xec, 0x62, 0xf4, 0xa3, 0xb9,
-	0xb2, 0xbb, 0xe9, 0x0e, 0x4d, 0xac, 0xd8, 0x58, 0x26, 0x0a, 0x23, 0x76, 0x94, 0x07, 0x0a, 0xfa,
-	0x08, 0xa0, 0x35, 0xf3, 0x03, 0xf7, 0xc0, 0x0f, 0xe3, 0xe8, 0xb5, 0x97, 0xbe, 0x65, 0xa4, 0xfe,
-	0x01, 0x60, 0xec, 0xf7, 0x0f, 0x39, 0xbc, 0xd1, 0x84, 0x82, 0xac, 0x26, 0xf4, 0xc3, 0xc5, 0x51,
-	0x5e, 0xb6, 0xdc, 0x55, 0x49, 0x20, 0xae, 0x54, 0x5f, 0x6b, 0xf3, 0x8b, 0xaf, 0xb6, 0x94, 0x2f,
-	0xbf, 0xda, 0x52, 0x3e, 0xfb, 0xd7, 0x96, 0xf2, 0xf3, 0x62, 0xf2, 0xa6, 0x0c, 0x55, 0x7e, 0xfa,
-	0xc1, 0xff, 0x03, 0x00, 0x00, 0xff, 0xff, 0x13, 0xa2, 0x3d, 0xb9, 0xe3, 0x10, 0x00, 0x00,
+	// 1989 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x58, 0x4f, 0x6f, 0xe3, 0xd6,
+	0x11, 0x37, 0x25, 0x8a, 0x12, 0x47, 0x96, 0xad, 0xbc, 0x75, 0x36, 0x8a, 0xd2, 0x58, 0x8e, 0x90,
+	0xa4, 0xce, 0x6e, 0x4b, 0xef, 0xaa, 0x9b, 0x26, 0xd8, 0x20, 0x40, 0x2d, 0x5b, 0x8e, 0xbd, 0xf1,
+	0xda, 0x5b, 0xca, 0x0e, 0xd0, 0x5e, 0x08, 0x8a, 0x7c, 0xa2, 0x58, 0x53, 0x7c, 0xea, 0x23, 0xb5,
+	0x6b, 0xb7, 0x5f, 0xa0, 0xed, 0xa9, 0xa7, 0x22, 0xa7, 0x22, 0x0d, 0xda, 0x73, 0xd1, 0x63, 0x8f,
+	0xbd, 0xe5, 0x18, 0xa0, 0x40, 0x7b, 0xaa, 0x51, 0xa4, 0x97, 0x02, 0xfd, 0x06, 0x3e, 0x15, 0xef,
+	0x0f, 0x29, 0x4a, 0xd6, 0xd6, 0x7f, 0x4e, 0xbd, 0x08, 0x8f, 0x33, 0xbf, 0x19, 0xce, 0x9b, 0xdf,
+	0xbc, 0x79, 0x43, 0xc1, 0x5d, 0x8f, 0x6c, 0x8c, 0x28, 0x89, 0x89, 0x43, 0x82, 0x8d, 0x7e, 0x40,
+	0x5e, 0x18, 0xfc, 0x09, 0xa9, 0x6c, 0x5d, 0x5f, 0xed, 0x51, 0x72, 0x82, 0xe9, 0x04, 0x91, 0x2c,
+	0x04, 0xaa, 0xbe, 0xe6, 0x90, 0x30, 0x1a, 0x0f, 0xff, 0x07, 0xe2, 0xdd, 0x14, 0x41, 0xb1, 0x43,
+	0x9e, 0x63, 0x7a, 0x16, 0x10, 0x8f, 0xaf, 0xa9, 0x8b, 0x5d, 0x8b, 0x8c, 0x24, 0xae, 0x36, 0x8a,
+	0xcf, 0x46, 0x38, 0xda, 0xc0, 0xc3, 0x51, 0x7c, 0x26, 0x7e, 0xa5, 0x66, 0xc5, 0x23, 0x1e, 0xe1,
+	0xcb, 0x0d, 0xb6, 0x12, 0xd2, 0xe6, 0xc7, 0x50, 0xe8, 0x06, 0xbe, 0x83, 0xd1, 0x0a, 0x14, 0x7a,
+	0xd8, 0xf3, 0xc3, 0x9a, 0xb2, 0xa6, 0xac, 0x57, 0x4c, 0xf1, 0x80, 0xaa, 0x90, 0xc7, 0xa1, 0x5b,
+	0xcb, 0x71, 0x19, 0x5b, 0x3e, 0x5e, 0xfc, 0xfa, 0x77, 0x8d, 0x85, 0x5f, 0x7f, 0xd9, 0x58, 0xf8,
+	0xfc, 0xcb, 0xc6, 0x42, 0xf3, 0x17, 0x0a, 0xe8, 0xc7, 0xc7, 0x7b, 0xdb, 0xcf, 0x6c, 0x1a, 0x47,
+	0xe8, 0x3b, 0x80, 0x46, 0x94, 0xb8, 0x63, 0x07, 0x53, 0xcb, 0x0e, 0x5d, 0xab, 0x1f, 0xd8, 0x5e,
+	0xc4, 0x1d, 0x6a, 0x66, 0x35, 0xd1, 0x6c, 0x86, 0xee, 0x0e, 0x93, 0xa3, 0x8f, 0xa0, 0xe0, 0x04,
+	0xc4, 0x39, 0xe1, 0xde, 0xb5, 0xf6, 0x3b, 0x17, 0xe7, 0x8d, 0xb7, 0x3c, 0x62, 0x78, 0xf6, 0xcf,
+	0x70, 0x1c, 0x63, 0xc3, 0xc5, 0xcf, 0x37, 0x1c, 0x42, 0xf1, 0xc6, 0x10, 0x47, 0x91, 0xed, 0x61,
+	0x63, 0x8b, 0x81, 0x4d, 0x61, 0xf3, 0xb8, 0xfa, 0xef, 0x2f, 0x1a, 0xca, 0x54, 0x28, 0x7f, 0x53,
+	0xa0, 0xd8, 0x1d, 0x8c, 0xfb, 0xfd, 0x00, 0xa3, 0xfb, 0xa0, 0xc7, 0xd4, 0x0e, 0xa3, 0x3e, 0xa1,
+	0x43, 0xfe, 0x7e, 0xbd, 0x5d, 0xb9, 0x38, 0x6f, 0xe8, 0x47, 0x89, 0xd0, 0x9c, 0xe8, 0xd1, 0xbb,
+	0xb0, 0x1c, 0x09, 0x3b, 0xeb, 0x04, 0x9f, 0x59, 0xa3, 0x98, 0xd6, 0x72, 0x6b, 0xf9, 0x75, 0xdd,
+	0xac, 0x48, 0xf1, 0xa7, 0xf8, 0xec, 0x59, 0x4c, 0xd1, 0x5b, 0xb0, 0xd8, 0xa3, 0xc4, 0x76, 0x1d,
+	0x3b, 0x8a, 0xad, 0x98, 0xd4, 0xf2, 0x3c, 0x29, 0xe5, 0x54, 0x76, 0x44, 0x50, 0x03, 0xca, 0xce,
+	0x80, 0x90, 0x08, 0x5b, 0x7d, 0x4a, 0x86, 0x35, 0x95, 0x23, 0x40, 0x88, 0x76, 0x28, 0x19, 0xb2,
+	0x0c, 0x51, 0x6c, 0xbb, 0x96, 0x8b, 0x03, 0xfb, 0xcc, 0x8a, 0xb0, 0x43, 0x42, 0x37, 0xaa, 0x15,
+	0x38, 0xae, 0xca, 0x34, 0xdb, 0x4c, 0xd1, 0x15, 0xf2, 0xc7, 0x2a, 0xdb, 0x64, 0xf3, 0x42, 0x01,
+	0xd5, 0xf4, 0x43, 0x0f, 0x21, 0x50, 0x43, 0x7b, 0x88, 0xc5, 0x86, 0x4c, 0xbe, 0x46, 0x0f, 0xa1,
+	0x38, 0xc4, 0xc3, 0x1e, 0xa6, 0x11, 0x0f, 0xba, 0xdc, 0x7a, 0xc5, 0xe0, 0xd5, 0xc7, 0x0c, 0x8c,
+	0xa7, 0x5c, 0xd3, 0x56, 0xbf, 0x3a, 0x6f, 0x2c, 0x98, 0x09, 0xae, 0xfe, 0x7b, 0x05, 0x34, 0xa1,
+	0x41, 0x7b, 0x50, 0x19, 0xfa, 0xa1, 0x35, 0x8c, 0x3c, 0x4b, 0x50, 0xc1, 0x5c, 0xab, 0xd7, 0xa5,
+	0xa2, 0x3c, 0xf4, 0xc3, 0xa7, 0x91, 0xc7, 0x1f, 0xb8, 0x2b, 0xfb, 0x34, 0xe3, 0x2a, 0x77, 0x33,
+	0x57, 0xf6, 0x69, 0xe2, 0x4a, 0x6c, 0x5b, 0x6e, 0xfe, 0xef, 0x0a, 0x54, 0x24, 0xab, 0x5b, 0x24,
+	0xec, 0xfb, 0x1e, 0xda, 0x83, 0xe2, 0x4f, 0xc8, 0x98, 0x86, 0x76, 0x20, 0x99, 0xdd, 0xb8, 0x38,
+	0x6f, 0xdc, 0x9f, 0xf7, 0x8a, 0x99, 0x43, 0x67, 0x3c, 0x11, 0x66, 0x66, 0x62, 0x8f, 0xde, 0x06,
+	0x95, 0xfa, 0xa1, 0xc7, 0x43, 0x2d, 0xb7, 0x60, 0x92, 0x39, 0x99, 0x32, 0xae, 0x45, 0x6b, 0x50,
+	0x76, 0x08, 0xa1, 0xae, 0x1f, 0xda, 0x31, 0xa1, 0x09, 0xed, 0x19, 0x11, 0xfa, 0x2e, 0x14, 0x65,
+	0xa9, 0x70, 0xca, 0xcb, 0xad, 0x8a, 0x70, 0x25, 0x03, 0x4f, 0x08, 0x90, 0x18, 0xb9, 0xb3, 0x7f,
+	0xe4, 0xa0, 0x92, 0xd6, 0x63, 0x77, 0x84, 0x1d, 0xf4, 0x21, 0x68, 0x11, 0x19, 0x53, 0x07, 0xcb,
+	0x80, 0xea, 0xc2, 0xcb, 0x14, 0xc8, 0xe8, 0x72, 0x84, 0x74, 0x29, 0xf1, 0xd9, 0x00, 0xf2, 0x57,
+	0x07, 0x80, 0xb6, 0x01, 0x5c, 0x4c, 0xfd, 0xe7, 0x76, 0xec, 0x93, 0x90, 0x57, 0x5f, 0xb9, 0xb5,
+	0x3a, 0xef, 0x65, 0xdb, 0x29, 0x4a, 0xba, 0xc8, 0xd8, 0xd5, 0x4f, 0x40, 0x13, 0xc1, 0xa0, 0x66,
+	0xb6, 0x30, 0xdb, 0x4b, 0x17, 0xe7, 0x0d, 0xd8, 0x22, 0x41, 0x80, 0x1d, 0x86, 0x93, 0x85, 0xfa,
+	0x31, 0xc0, 0xc8, 0xa6, 0xb1, 0xcf, 0x44, 0x91, 0xdc, 0xe0, 0x6b, 0x46, 0xca, 0xcd, 0xbe, 0xdd,
+	0xc3, 0x41, 0x17, 0x33, 0x1b, 0x92, 0x54, 0x6c, 0xc6, 0xa0, 0xfe, 0x00, 0x60, 0x12, 0xcc, 0x75,
+	0x5e, 0xd8, 0xfc, 0x67, 0x0e, 0x0a, 0x3b, 0x3e, 0x0e, 0x5c, 0xb4, 0x01, 0xda, 0x73, 0x3b, 0x18,
+	0x63, 0xd6, 0x8a, 0x32, 0x47, 0x84, 0x2b, 0x8d, 0xcf, 0x98, 0x26, 0x49, 0xa7, 0x80, 0xd5, 0xff,
+	0x90, 0x83, 0x02, 0x97, 0xa3, 0x7b, 0xa0, 0x9e, 0xf8, 0xa1, 0xcb, 0x5f, 0xb4, 0xd4, 0xba, 0x7b,
+	0xc9, 0xd0, 0xf8, 0xd4, 0x0f, 0x5d, 0x93, 0x63, 0x50, 0x1d, 0x4a, 0xe3, 0x30, 0xf2, 0xbd, 0x10,
+	0x8b, 0x86, 0xa9, 0x9a, 0xe9, 0x33, 0xba, 0x0b, 0x9a, 0xd4, 0x30, 0x7e, 0x90, 0xa9, 0x4d, 0xe4,
+	0x2e, 0x19, 0xf7, 0x64, 0xe1, 0x28, 0xa6, 0x7c, 0x42, 0xdf, 0x86, 0x42, 0xef, 0x2c, 0xc6, 0x91,
+	0x24, 0xa7, 0x2c, 0xe9, 0x64, 0x9d, 0x5a, 0xc6, 0x2a, 0xf4, 0xcd, 0x9f, 0x83, 0xca, 0x42, 0x40,
+	0x65, 0x28, 0xee, 0x1d, 0x7c, 0xb6, 0xb9, 0xbf, 0xb7, 0x5d, 0x5d, 0x40, 0x25, 0x50, 0x0f, 0x8e,
+	0xf7, 0xf7, 0xab, 0x0a, 0x5b, 0x1d, 0x99, 0xc7, 0x9d, 0x6a, 0x0e, 0xe9, 0x50, 0xd8, 0xd9, 0xdc,
+	0xef, 0x76, 0xaa, 0x79, 0x04, 0xa0, 0x75, 0x8f, 0xcc, 0xbd, 0x83, 0x4f, 0xaa, 0x2a, 0x5a, 0x84,
+	0xd2, 0xf1, 0x41, 0x77, 0xef, 0x93, 0x83, 0xce, 0x76, 0xb5, 0xc0, 0x35, 0x62, 0xad, 0xb1, 0xf5,
+	0xf6, 0xe1, 0x71, 0x7b, 0xbf, 0x53, 0x2d, 0xb2, 0xf5, 0x61, 0xfb, 0x49, 0x67, 0xeb, 0xa8, 0x5a,
+	0x62, 0x8e, 0x36, 0x4d, 0x73, 0xf3, 0x47, 0x55, 0xbd, 0xf9, 0xa7, 0x1c, 0x2c, 0xc9, 0x12, 0x33,
+	0xf1, 0x4f, 0xc7, 0x38, 0x8a, 0xd1, 0x43, 0xd0, 0x1c, 0x7e, 0x4e, 0x79, 0xca, 0xca, 0xad, 0x3b,
+	0x53, 0x85, 0x28, 0x8e, 0x70, 0x92, 0x6d, 0x01, 0x44, 0x6f, 0x02, 0xb0, 0x73, 0x66, 0xf9, 0xa1,
+	0x8b, 0x4f, 0xe5, 0x55, 0xa3, 0x33, 0xc9, 0x1e, 0x13, 0xa0, 0x1d, 0xd0, 0x48, 0xbf, 0x1f, 0xe1,
+	0x98, 0xa7, 0x2e, 0xdf, 0x36, 0x2e, 0xce, 0x1b, 0xf7, 0xae, 0x73, 0xdc, 0x0f, 0xb9, 0x95, 0x29,
+	0xad, 0xd1, 0x53, 0x00, 0x1c, 0xba, 0x96, 0xf4, 0xa5, 0xde, 0xca, 0x97, 0x8e, 0x43, 0x57, 0x2c,
+	0xd1, 0x03, 0x00, 0x8a, 0x23, 0x12, 0x8c, 0x33, 0x67, 0xa8, 0x3a, 0xa9, 0xe7, 0x5d, 0x6c, 0xbb,
+	0x98, 0x9a, 0x19, 0x8c, 0x3c, 0xf6, 0x7f, 0xd4, 0x60, 0x39, 0xcd, 0x59, 0x34, 0x22, 0x61, 0x84,
+	0xd1, 0x3a, 0x68, 0x51, 0x6c, 0xc7, 0xe3, 0x48, 0xd6, 0x59, 0xd5, 0x48, 0x6e, 0x7b, 0xa3, 0xcb,
+	0xe5, 0xa6, 0xd4, 0x33, 0xe4, 0x80, 0x7b, 0x96, 0x27, 0xe8, 0xf2, 0x1b, 0xa5, 0x1e, 0xbd, 0x03,
+	0x4b, 0x31, 0xa6, 0x43, 0x3f, 0xb4, 0x03, 0x0b, 0x53, 0x2a, 0x1b, 0x97, 0x6e, 0x56, 0x12, 0x69,
+	0x87, 0x09, 0xd1, 0x0f, 0x61, 0x91, 0x5f, 0x48, 0xf1, 0x80, 0x92, 0xb1, 0x37, 0xb8, 0x65, 0x5e,
+	0xca, 0xcc, 0xc7, 0x91, 0x70, 0xc1, 0x12, 0xfd, 0x82, 0xfa, 0x31, 0xb6, 0x58, 0x24, 0x3c, 0x33,
+	0xb7, 0x48, 0x34, 0xf7, 0xc0, 0xb6, 0x84, 0x1a, 0x50, 0xb0, 0x29, 0x0e, 0xed, 0x9a, 0xb6, 0xa6,
+	0xac, 0x2f, 0xb6, 0xf5, 0x8b, 0xf3, 0x46, 0x61, 0x93, 0x09, 0x4c, 0x21, 0x9f, 0xbe, 0xec, 0x8b,
+	0x57, 0x5c, 0xf6, 0x8f, 0x60, 0xd1, 0x21, 0x61, 0x8c, 0xc3, 0xd8, 0x62, 0x83, 0x52, 0xad, 0xc4,
+	0x13, 0x2e, 0x3b, 0xc2, 0x96, 0xd0, 0x1c, 0x9d, 0x8d, 0x30, 0x6b, 0xf0, 0xe9, 0x03, 0xba, 0x0f,
+	0x45, 0xf9, 0x58, 0xd3, 0x79, 0x0b, 0x99, 0x73, 0x20, 0x13, 0x04, 0xda, 0x4e, 0x26, 0x29, 0x58,
+	0xcb, 0xdf, 0x62, 0xeb, 0x72, 0xf2, 0xfa, 0x81, 0x98, 0xbc, 0xca, 0xb7, 0xf2, 0xc1, 0x4c, 0xd1,
+	0x23, 0x80, 0xf1, 0xd8, 0x77, 0x2d, 0xd6, 0x45, 0xa3, 0xda, 0x22, 0x8f, 0x7b, 0x59, 0xc4, 0x9d,
+	0x8e, 0x6c, 0x32, 0x76, 0x9d, 0x01, 0xc5, 0x0c, 0xd7, 0x82, 0x72, 0x66, 0x1a, 0xaa, 0x55, 0xb2,
+	0xdb, 0xe5, 0x8d, 0x2f, 0x69, 0xce, 0x93, 0xe1, 0x88, 0x4d, 0x35, 0x89, 0xcd, 0xc0, 0x8e, 0x06,
+	0x38, 0xb2, 0x02, 0xf2, 0xa2, 0xb6, 0xb4, 0x96, 0x67, 0x73, 0x9f, 0xd4, 0xec, 0x72, 0xc5, 0x3e,
+	0x79, 0x81, 0x0c, 0xb8, 0x33, 0x83, 0x1e, 0xf8, 0xde, 0xa0, 0xb6, 0xcc, 0xe1, 0xaf, 0x4c, 0xc1,
+	0x77, 0x7d, 0x6f, 0xd0, 0xfc, 0x8f, 0x02, 0x4b, 0x9d, 0xd3, 0x98, 0xda, 0x4e, 0x9c, 0x74, 0x99,
+	0xb4, 0x26, 0x94, 0x97, 0xd4, 0xc4, 0x2c, 0xcd, 0xb9, 0x9b, 0xd2, 0x9c, 0xbf, 0x92, 0xe6, 0xd7,
+	0xa1, 0x24, 0xd2, 0x1b, 0x53, 0x7e, 0x6a, 0x74, 0xb3, 0xc8, 0xb3, 0x18, 0x53, 0xf4, 0x06, 0xe8,
+	0x6c, 0x67, 0x4c, 0xc5, 0x3a, 0x38, 0x9b, 0x25, 0x4b, 0x4c, 0xf0, 0x2c, 0xa6, 0x11, 0x6b, 0x77,
+	0x7d, 0x96, 0x47, 0xa1, 0xd5, 0xb8, 0x56, 0xe7, 0x12, 0xa6, 0x6e, 0xfe, 0x55, 0x81, 0xe5, 0x74,
+	0xb7, 0xb2, 0x3f, 0x5c, 0x63, 0xbb, 0x59, 0xaa, 0x73, 0xd7, 0xa4, 0xfa, 0x4d, 0x80, 0x0c, 0x5d,
+	0x79, 0x9e, 0x7f, 0x7d, 0x90, 0xf2, 0xd4, 0x80, 0x72, 0x96, 0x1f, 0x95, 0xeb, 0xa5, 0x05, 0x23,
+	0x06, 0xbd, 0x07, 0x1a, 0x8f, 0x5b, 0xec, 0x71, 0x6e, 0x95, 0x48, 0x40, 0xf3, 0x37, 0x39, 0x58,
+	0xda, 0x22, 0xc3, 0x9e, 0x1f, 0xe2, 0xff, 0x27, 0x0e, 0xdf, 0x03, 0xcd, 0x76, 0x1c, 0x3c, 0x12,
+	0xf7, 0xc1, 0x5c, 0xe7, 0x12, 0xc0, 0x92, 0x15, 0x39, 0x03, 0x3c, 0xb4, 0xad, 0x31, 0xf5, 0x79,
+	0x57, 0xd3, 0x4d, 0x5d, 0x48, 0x8e, 0xa9, 0x8f, 0x5e, 0x83, 0x62, 0xf2, 0xf1, 0x20, 0x28, 0xd5,
+	0x4e, 0xc4, 0x57, 0xc3, 0x34, 0xdd, 0xc5, 0x59, 0xba, 0x7f, 0xa5, 0xc0, 0x72, 0x9a, 0x98, 0xeb,
+	0xd2, 0x7d, 0xd3, 0x3d, 0x4a, 0x96, 0xd4, 0xab, 0x58, 0xfa, 0xbc, 0x00, 0x15, 0x3e, 0x65, 0xa5,
+	0x24, 0x19, 0xa0, 0x92, 0x11, 0x0e, 0xe5, 0x65, 0x5e, 0x13, 0xa6, 0x53, 0x10, 0xe3, 0x70, 0x84,
+	0xc3, 0xdd, 0x05, 0x93, 0xe3, 0xd0, 0x23, 0xd0, 0xf0, 0x69, 0x9c, 0x7c, 0x32, 0xa6, 0x23, 0xec,
+	0xb4, 0x45, 0x87, 0x23, 0x76, 0x17, 0x4c, 0x89, 0x45, 0x0f, 0xa1, 0xd0, 0x0f, 0xc6, 0xd1, 0x40,
+	0x0e, 0xaf, 0xaf, 0xcf, 0x33, 0xda, 0x61, 0x80, 0xdd, 0x05, 0x53, 0x20, 0xd1, 0x07, 0x50, 0x1c,
+	0x51, 0x3c, 0xb2, 0x69, 0x32, 0x72, 0xbf, 0x31, 0xcf, 0xe8, 0x99, 0x80, 0xec, 0x2e, 0x98, 0x09,
+	0x9a, 0x45, 0xe8, 0x90, 0xe1, 0xd0, 0x8f, 0xe5, 0x9d, 0x3d, 0x37, 0xc2, 0x2d, 0x8e, 0xd8, 0xe5,
+	0x33, 0x0a, 0x5b, 0xd5, 0x6d, 0x50, 0xd9, 0x3e, 0x91, 0x01, 0xe0, 0xa4, 0x83, 0xe6, 0x4b, 0xc6,
+	0xcf, 0x0c, 0x22, 0x53, 0x60, 0xb9, 0x2b, 0x0a, 0xac, 0xfe, 0x67, 0x05, 0x34, 0x91, 0x99, 0x9b,
+	0x7d, 0xbe, 0xa6, 0xd5, 0x92, 0xbb, 0xe6, 0x39, 0xca, 0xdf, 0xf4, 0x1c, 0xa9, 0x57, 0xd5, 0x58,
+	0xbd, 0x08, 0x05, 0xce, 0x4f, 0xbd, 0x03, 0x45, 0x99, 0x73, 0xf4, 0x18, 0xc0, 0x19, 0x60, 0xe7,
+	0x64, 0x44, 0xfc, 0x30, 0x96, 0x05, 0xb4, 0x32, 0x19, 0x6c, 0xb6, 0x52, 0x5d, 0x72, 0xa1, 0x4c,
+	0xd0, 0xf5, 0x12, 0x68, 0x82, 0x82, 0xb6, 0x26, 0x06, 0xf0, 0xe6, 0x6f, 0xf3, 0xb0, 0x94, 0x70,
+	0x24, 0x8f, 0xc9, 0xfb, 0x33, 0xb5, 0x36, 0x53, 0x01, 0x02, 0x75, 0xb9, 0xd8, 0x5a, 0xd3, 0xc5,
+	0x56, 0x9f, 0x6b, 0x35, 0x53, 0x6d, 0x1f, 0xce, 0x56, 0xdb, 0xb7, 0xe6, 0x5a, 0xcd, 0x29, 0xb7,
+	0xf7, 0x67, 0xca, 0x6d, 0x7e, 0x90, 0x97, 0xea, 0xed, 0x97, 0x93, 0x62, 0xb8, 0x49, 0x37, 0xc8,
+	0x5d, 0xd9, 0x0d, 0x1e, 0x4e, 0x7d, 0x86, 0xe5, 0x5f, 0x7a, 0xbb, 0x67, 0x3e, 0xbd, 0x52, 0x72,
+	0xf5, 0x94, 0xdc, 0xcb, 0x04, 0xdd, 0x7b, 0x1b, 0xca, 0x99, 0x5a, 0xba, 0xf4, 0x3d, 0xf2, 0xa4,
+	0x7b, 0x78, 0x50, 0x55, 0x5a, 0xdb, 0x50, 0x92, 0xc3, 0x2f, 0x65, 0x49, 0x4d, 0xfe, 0xaf, 0x59,
+	0x99, 0xfa, 0x4a, 0x90, 0xa7, 0xb0, 0xfe, 0xea, 0x8c, 0x54, 0x24, 0xeb, 0x81, 0xd2, 0xda, 0x84,
+	0xa2, 0xbc, 0x22, 0xd1, 0xf7, 0x27, 0x4b, 0xe9, 0x64, 0x7a, 0x54, 0x48, 0x9c, 0xcc, 0x5c, 0xa9,
+	0xcc, 0x85, 0x6c, 0xbb, 0xcc, 0x45, 0xb2, 0x5c, 0x49, 0x0e, 0x45, 0xf6, 0xa6, 0x4a, 0x5c, 0xcc,
+	0xb4, 0xe9, 0xd6, 0x5f, 0x14, 0xd0, 0x04, 0x8f, 0x68, 0x13, 0x5e, 0x31, 0x71, 0x14, 0x13, 0x8a,
+	0x27, 0x65, 0x8d, 0xee, 0x1a, 0x1e, 0x21, 0x5e, 0x80, 0xc5, 0x88, 0xde, 0x1b, 0xf7, 0x8d, 0xce,
+	0x70, 0x14, 0x9f, 0xd5, 0xe7, 0x1e, 0x02, 0xf4, 0x41, 0xea, 0xec, 0xce, 0x9c, 0x8e, 0x54, 0x5f,
+	0x99, 0x57, 0x37, 0xeb, 0xca, 0x03, 0x05, 0x7d, 0x04, 0xd0, 0x1e, 0xfb, 0x81, 0xbb, 0xeb, 0x87,
+	0x71, 0xf4, 0xd2, 0x97, 0xbe, 0x6a, 0x64, 0xfe, 0x37, 0x34, 0x76, 0xba, 0x4f, 0x39, 0xbc, 0x7d,
+	0xf7, 0xab, 0x6f, 0x56, 0x95, 0xaf, 0xbf, 0x59, 0x55, 0xbe, 0xf8, 0xd7, 0xaa, 0xf2, 0xe3, 0x52,
+	0x32, 0x47, 0xf6, 0x34, 0xbe, 0xfa, 0xde, 0x7f, 0x03, 0x00, 0x00, 0xff, 0xff, 0x6b, 0x7d, 0x29,
+	0x82, 0xd7, 0x14, 0x00, 0x00,
 }
 
 func (this *UUIDParts) Equal(that interface{}) bool {
@@ -1992,6 +2680,150 @@ var _Shuffler_serviceDesc = grpc.ServiceDesc{
 	Metadata: "go/protocol/flow.proto",
 }
 
+// ExtractClient is the client API for Extract service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type ExtractClient interface {
+	Extract(ctx context.Context, in *ExtractRequest, opts ...grpc.CallOption) (*ExtractResponse, error)
+}
+
+type extractClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewExtractClient(cc *grpc.ClientConn) ExtractClient {
+	return &extractClient{cc}
+}
+
+func (c *extractClient) Extract(ctx context.Context, in *ExtractRequest, opts ...grpc.CallOption) (*ExtractResponse, error) {
+	out := new(ExtractResponse)
+	err := c.cc.Invoke(ctx, "/flow.Extract/Extract", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ExtractServer is the server API for Extract service.
+type ExtractServer interface {
+	Extract(context.Context, *ExtractRequest) (*ExtractResponse, error)
+}
+
+// UnimplementedExtractServer can be embedded to have forward compatible implementations.
+type UnimplementedExtractServer struct {
+}
+
+func (*UnimplementedExtractServer) Extract(ctx context.Context, req *ExtractRequest) (*ExtractResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Extract not implemented")
+}
+
+func RegisterExtractServer(s *grpc.Server, srv ExtractServer) {
+	s.RegisterService(&_Extract_serviceDesc, srv)
+}
+
+func _Extract_Extract_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExtractRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExtractServer).Extract(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.Extract/Extract",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExtractServer).Extract(ctx, req.(*ExtractRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Extract_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "flow.Extract",
+	HandlerType: (*ExtractServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Extract",
+			Handler:    _Extract_Extract_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "go/protocol/flow.proto",
+}
+
+// CombineClient is the client API for Combine service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type CombineClient interface {
+	Combine(ctx context.Context, in *CombineRequest, opts ...grpc.CallOption) (*CombineResponse, error)
+}
+
+type combineClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewCombineClient(cc *grpc.ClientConn) CombineClient {
+	return &combineClient{cc}
+}
+
+func (c *combineClient) Combine(ctx context.Context, in *CombineRequest, opts ...grpc.CallOption) (*CombineResponse, error) {
+	out := new(CombineResponse)
+	err := c.cc.Invoke(ctx, "/flow.Combine/Combine", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CombineServer is the server API for Combine service.
+type CombineServer interface {
+	Combine(context.Context, *CombineRequest) (*CombineResponse, error)
+}
+
+// UnimplementedCombineServer can be embedded to have forward compatible implementations.
+type UnimplementedCombineServer struct {
+}
+
+func (*UnimplementedCombineServer) Combine(ctx context.Context, req *CombineRequest) (*CombineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Combine not implemented")
+}
+
+func RegisterCombineServer(s *grpc.Server, srv CombineServer) {
+	s.RegisterService(&_Combine_serviceDesc, srv)
+}
+
+func _Combine_Combine_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CombineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CombineServer).Combine(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.Combine/Combine",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CombineServer).Combine(ctx, req.(*CombineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Combine_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "flow.Combine",
+	HandlerType: (*CombineServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Combine",
+			Handler:    _Combine_Combine_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "go/protocol/flow.proto",
+}
+
 // DeriveClient is the client API for Derive service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
@@ -2186,78 +3018,6 @@ var _Derive_serviceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "go/protocol/flow.proto",
-}
-
-// ExtractClient is the client API for Extract service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type ExtractClient interface {
-	Extract(ctx context.Context, in *ExtractRequest, opts ...grpc.CallOption) (*ExtractResponse, error)
-}
-
-type extractClient struct {
-	cc *grpc.ClientConn
-}
-
-func NewExtractClient(cc *grpc.ClientConn) ExtractClient {
-	return &extractClient{cc}
-}
-
-func (c *extractClient) Extract(ctx context.Context, in *ExtractRequest, opts ...grpc.CallOption) (*ExtractResponse, error) {
-	out := new(ExtractResponse)
-	err := c.cc.Invoke(ctx, "/flow.Extract/Extract", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// ExtractServer is the server API for Extract service.
-type ExtractServer interface {
-	Extract(context.Context, *ExtractRequest) (*ExtractResponse, error)
-}
-
-// UnimplementedExtractServer can be embedded to have forward compatible implementations.
-type UnimplementedExtractServer struct {
-}
-
-func (*UnimplementedExtractServer) Extract(ctx context.Context, req *ExtractRequest) (*ExtractResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Extract not implemented")
-}
-
-func RegisterExtractServer(s *grpc.Server, srv ExtractServer) {
-	s.RegisterService(&_Extract_serviceDesc, srv)
-}
-
-func _Extract_Extract_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ExtractRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ExtractServer).Extract(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/flow.Extract/Extract",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ExtractServer).Extract(ctx, req.(*ExtractRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-var _Extract_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "flow.Extract",
-	HandlerType: (*ExtractServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Extract",
-			Handler:    _Extract_Extract_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "go/protocol/flow.proto",
 }
 
@@ -3007,148 +3767,6 @@ func (m *ShuffleResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *DeriveRequest) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *DeriveRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *DeriveRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.Checkpoint != nil {
-		{
-			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintFlow(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x2a
-	}
-	if len(m.Content) > 0 {
-		for iNdEx := len(m.Content) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Content[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintFlow(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x22
-		}
-	}
-	if m.ContentType != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.ContentType))
-		i--
-		dAtA[i] = 0x18
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.State != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.State))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *DeriveResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *DeriveResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *DeriveResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.Partitions) > 0 {
-		for iNdEx := len(m.Partitions) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Partitions[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintFlow(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x2a
-		}
-	}
-	if len(m.Content) > 0 {
-		for iNdEx := len(m.Content) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Content[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintFlow(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x22
-		}
-	}
-	if m.ContentType != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.ContentType))
-		i--
-		dAtA[i] = 0x18
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.State != 0 {
-		i = encodeVarintFlow(dAtA, i, uint64(m.State))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
 func (m *ExtractRequest) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
@@ -3303,6 +3921,745 @@ func (m *ExtractResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
 		i--
 		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *CombineRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *CombineRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *CombineRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.FieldPtrs) > 0 {
+		for iNdEx := len(m.FieldPtrs) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.FieldPtrs[iNdEx])
+			copy(dAtA[i:], m.FieldPtrs[iNdEx])
+			i = encodeVarintFlow(dAtA, i, uint64(len(m.FieldPtrs[iNdEx])))
+			i--
+			dAtA[i] = 0x3a
+		}
+	}
+	if len(m.KeyPtr) > 0 {
+		for iNdEx := len(m.KeyPtr) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.KeyPtr[iNdEx])
+			copy(dAtA[i:], m.KeyPtr[iNdEx])
+			i = encodeVarintFlow(dAtA, i, uint64(len(m.KeyPtr[iNdEx])))
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if len(m.SchemaUri) > 0 {
+		i -= len(m.SchemaUri)
+		copy(dAtA[i:], m.SchemaUri)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.SchemaUri)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Accept != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Accept))
+		i--
+		dAtA[i] = 0x20
+	}
+	if len(m.Content) > 0 {
+		for iNdEx := len(m.Content) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Content[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if m.ContentType != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.ContentType))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *CombineResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *CombineResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *CombineResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Fields) > 0 {
+		for iNdEx := len(m.Fields) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Fields[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x22
+		}
+	}
+	if len(m.Content) > 0 {
+		for iNdEx := len(m.Content) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Content[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Kind != nil {
+		{
+			size := m.Kind.ProtoSize()
+			i -= size
+			if _, err := m.Kind.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest_Open_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Open_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Open != nil {
+		{
+			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveRequest_Extend_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Extend_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Extend != nil {
+		{
+			size, err := m.Extend.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveRequest_Flush_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Flush_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Flush != nil {
+		{
+			size, err := m.Flush.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveRequest_Prepare_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Prepare_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Prepare != nil {
+		{
+			size, err := m.Prepare.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveRequest_Commit_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Commit_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Commit != nil {
+		{
+			size, err := m.Commit.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveRequest_Open) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest_Open) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Accept != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Accept))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Collection) > 0 {
+		i -= len(m.Collection)
+		copy(dAtA[i:], m.Collection)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Collection)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest_Extend) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest_Extend) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Extend) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Content) > 0 {
+		for iNdEx := len(m.Content) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Content[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x22
+		}
+	}
+	if m.ContentType != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.ContentType))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Transform) > 0 {
+		i -= len(m.Transform)
+		copy(dAtA[i:], m.Transform)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Transform)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest_Flush) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest_Flush) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Flush) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest_Prepare) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest_Prepare) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Prepare) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	{
+		size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintFlow(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveRequest_Commit) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveRequest_Commit) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveRequest_Commit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Kind != nil {
+		{
+			size := m.Kind.ProtoSize()
+			i -= size
+			if _, err := m.Kind.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveResponse_Extend_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Extend_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Extend != nil {
+		{
+			size, err := m.Extend.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveResponse_Flush_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Flush_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Flush != nil {
+		{
+			size, err := m.Flush.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveResponse_Prepare_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Prepare_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Prepare != nil {
+		{
+			size, err := m.Prepare.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveResponse_Commit_) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Commit_) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.Commit != nil {
+		{
+			size, err := m.Commit.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	return len(dAtA) - i, nil
+}
+func (m *DeriveResponse_Extend) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveResponse_Extend) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Extend) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Partitions) > 0 {
+		for iNdEx := len(m.Partitions) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Partitions[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Content) > 0 {
+		for iNdEx := len(m.Content) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Content[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveResponse_Flush) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveResponse_Flush) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Flush) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveResponse_Prepare) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveResponse_Prepare) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Prepare) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *DeriveResponse_Commit) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeriveResponse_Commit) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *DeriveResponse_Commit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	return len(dAtA) - i, nil
 }
@@ -3643,72 +5000,6 @@ func (m *ShuffleResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *DeriveRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.State != 0 {
-		n += 1 + sovFlow(uint64(m.State))
-	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovFlow(uint64(l))
-	}
-	if m.ContentType != 0 {
-		n += 1 + sovFlow(uint64(m.ContentType))
-	}
-	if len(m.Content) > 0 {
-		for _, e := range m.Content {
-			l = e.ProtoSize()
-			n += 1 + l + sovFlow(uint64(l))
-		}
-	}
-	if m.Checkpoint != nil {
-		l = m.Checkpoint.ProtoSize()
-		n += 1 + l + sovFlow(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *DeriveResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.State != 0 {
-		n += 1 + sovFlow(uint64(m.State))
-	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovFlow(uint64(l))
-	}
-	if m.ContentType != 0 {
-		n += 1 + sovFlow(uint64(m.ContentType))
-	}
-	if len(m.Content) > 0 {
-		for _, e := range m.Content {
-			l = e.ProtoSize()
-			n += 1 + l + sovFlow(uint64(l))
-		}
-	}
-	if len(m.Partitions) > 0 {
-		for _, e := range m.Partitions {
-			l = e.ProtoSize()
-			n += 1 + l + sovFlow(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
 func (m *ExtractRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
@@ -3778,6 +5069,366 @@ func (m *ExtractResponse) ProtoSize() (n int) {
 			n += 1 + l + sovFlow(uint64(l))
 		}
 	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *CombineRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.ContentType != 0 {
+		n += 1 + sovFlow(uint64(m.ContentType))
+	}
+	if len(m.Content) > 0 {
+		for _, e := range m.Content {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.Accept != 0 {
+		n += 1 + sovFlow(uint64(m.Accept))
+	}
+	l = len(m.SchemaUri)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.KeyPtr) > 0 {
+		for _, s := range m.KeyPtr {
+			l = len(s)
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if len(m.FieldPtrs) > 0 {
+		for _, s := range m.FieldPtrs {
+			l = len(s)
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *CombineResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.Content) > 0 {
+		for _, e := range m.Content {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if len(m.Fields) > 0 {
+		for _, e := range m.Fields {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Kind != nil {
+		n += m.Kind.ProtoSize()
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest_Open_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Open != nil {
+		l = m.Open.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveRequest_Extend_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Extend != nil {
+		l = m.Extend.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveRequest_Flush_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Flush != nil {
+		l = m.Flush.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveRequest_Prepare_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Prepare != nil {
+		l = m.Prepare.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveRequest_Commit_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Commit != nil {
+		l = m.Commit.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveRequest_Open) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Collection)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Accept != 0 {
+		n += 1 + sovFlow(uint64(m.Accept))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest_Extend) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Transform)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.ContentType != 0 {
+		n += 1 + sovFlow(uint64(m.ContentType))
+	}
+	if len(m.Content) > 0 {
+		for _, e := range m.Content {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest_Flush) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest_Prepare) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.Checkpoint.ProtoSize()
+	n += 1 + l + sovFlow(uint64(l))
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveRequest_Commit) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Kind != nil {
+		n += m.Kind.ProtoSize()
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveResponse_Extend_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Extend != nil {
+		l = m.Extend.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveResponse_Flush_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Flush != nil {
+		l = m.Flush.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveResponse_Prepare_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Prepare != nil {
+		l = m.Prepare.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveResponse_Commit_) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Commit != nil {
+		l = m.Commit.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	return n
+}
+func (m *DeriveResponse_Extend) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.Content) > 0 {
+		for _, e := range m.Content {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if len(m.Partitions) > 0 {
+		for _, e := range m.Partitions {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveResponse_Flush) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveResponse_Prepare) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *DeriveResponse_Commit) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -5917,396 +7568,6 @@ func (m *ShuffleResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *DeriveRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowFlow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: DeriveRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DeriveRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
-			}
-			m.State = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.State |= DeriveState(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContentType", wireType)
-			}
-			m.ContentType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ContentType |= ContentType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Content = append(m.Content, Slice{})
-			if err := m.Content[len(m.Content)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Checkpoint == nil {
-				m.Checkpoint = &protocol1.Checkpoint{}
-			}
-			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipFlow(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *DeriveResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowFlow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: DeriveResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DeriveResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
-			}
-			m.State = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.State |= DeriveState(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContentType", wireType)
-			}
-			m.ContentType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ContentType |= ContentType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Content = append(m.Content, Slice{})
-			if err := m.Content[len(m.Content)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Partitions", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowFlow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthFlow
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Partitions = append(m.Partitions, Field{})
-			if err := m.Partitions[len(m.Partitions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipFlow(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
 func (m *ExtractRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -6779,6 +8040,1632 @@ func (m *ExtractResponse) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CombineRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CombineRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CombineRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContentType", wireType)
+			}
+			m.ContentType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ContentType |= ContentType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Content = append(m.Content, Slice{})
+			if err := m.Content[len(m.Content)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Accept", wireType)
+			}
+			m.Accept = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Accept |= ContentType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SchemaUri", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SchemaUri = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyPtr", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.KeyPtr = append(m.KeyPtr, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FieldPtrs", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FieldPtrs = append(m.FieldPtrs, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CombineResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CombineResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CombineResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Content = append(m.Content, Slice{})
+			if err := m.Content[len(m.Content)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Fields", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Fields = append(m.Fields, Field{})
+			if err := m.Fields[len(m.Fields)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DeriveRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DeriveRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveRequest_Open{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveRequest_Open_{v}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Extend", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveRequest_Extend{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveRequest_Extend_{v}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Flush", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveRequest_Flush{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveRequest_Flush_{v}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Prepare", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveRequest_Prepare{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveRequest_Prepare_{v}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Commit", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveRequest_Commit{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveRequest_Commit_{v}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest_Open) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Open: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Open: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Collection", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Collection = Collection(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Accept", wireType)
+			}
+			m.Accept = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Accept |= ContentType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest_Extend) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Extend: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Extend: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Transform", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Transform = Transform(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContentType", wireType)
+			}
+			m.ContentType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ContentType |= ContentType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Content = append(m.Content, Slice{})
+			if err := m.Content[len(m.Content)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest_Flush) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Flush: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Flush: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest_Prepare) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Prepare: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Prepare: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveRequest_Commit) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Commit: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Commit: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DeriveResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DeriveResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Extend", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveResponse_Extend{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveResponse_Extend_{v}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Flush", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveResponse_Flush{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveResponse_Flush_{v}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Prepare", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveResponse_Prepare{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveResponse_Prepare_{v}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Commit", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &DeriveResponse_Commit{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Kind = &DeriveResponse_Commit_{v}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveResponse_Extend) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Extend: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Extend: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Content = append(m.Content, Slice{})
+			if err := m.Content[len(m.Content)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Partitions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Partitions = append(m.Partitions, Field{})
+			if err := m.Partitions[len(m.Partitions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveResponse_Flush) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Flush: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Flush: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveResponse_Prepare) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Prepare: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Prepare: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeriveResponse_Commit) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Commit: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Commit: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
 		default:
 			iNdEx = preIndex
 			skippy, err := skipFlow(dAtA[iNdEx:])
