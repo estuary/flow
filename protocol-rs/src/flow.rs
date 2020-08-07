@@ -246,44 +246,6 @@ pub struct ShuffleResponse {
     #[prost(fixed64, repeated, tag = "15")]
     pub shuffle_hashes_high: ::std::vec::Vec<u64>,
 }
-/// DeriveRequest is the streamed message of a Derive RPC.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeriveRequest {
-    #[prost(enumeration = "DeriveState", tag = "1")]
-    pub state: i32,
-    /// Memory arena of this message.
-    #[prost(bytes, tag = "2")]
-    pub arena: std::vec::Vec<u8>,
-    /// ContentType of documents in this DeriveRequest. Set iff state == EXTEND.
-    #[prost(enumeration = "ContentType", tag = "3")]
-    pub content_type: i32,
-    /// Content of documents included in this DeriveRequest.
-    /// Set iff state == EXTEND.
-    #[prost(message, repeated, tag = "4")]
-    pub content: ::std::vec::Vec<Slice>,
-    /// Checkpoint to commit. Set iff state == PREPARE.
-    #[prost(message, optional, tag = "5")]
-    pub checkpoint: ::std::option::Option<super::consumer::Checkpoint>,
-}
-/// DeriveResponse is the streamed response message of a Derive RPC.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeriveResponse {
-    #[prost(enumeration = "DeriveState", tag = "1")]
-    pub state: i32,
-    /// Memory arena of this message.
-    #[prost(bytes, tag = "2")]
-    pub arena: std::vec::Vec<u8>,
-    /// ContentType of documents in this DeriveResponse. Set iff state == EXTEND.
-    #[prost(enumeration = "ContentType", tag = "3")]
-    pub content_type: i32,
-    /// Content of documents included in this DeriveResponse.
-    /// Set iff state == EXTEND.
-    #[prost(message, repeated, tag = "4")]
-    pub content: ::std::vec::Vec<Slice>,
-    /// Logical partitions extracted from |documents|.
-    #[prost(message, repeated, tag = "5")]
-    pub partitions: ::std::vec::Vec<Field>,
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractRequest {
     /// Memory arena of this message.
@@ -327,22 +289,66 @@ pub struct ExtractResponse {
     #[prost(message, repeated, tag = "5")]
     pub fields: ::std::vec::Vec<Field>,
 }
-/// ContentType is an encoding used for document content.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ContentType {
-    Invalid = 0,
-    /// JSON is the usual text encoding, with a trailing newline.
-    Json = 1,
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CombineRequest {
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "1")]
+    pub arena: std::vec::Vec<u8>,
+    /// ContentType of documents in this CombineRequest.
+    #[prost(enumeration = "ContentType", tag = "2")]
+    pub content_type: i32,
+    /// Content of documents included in this CombineRequest.
+    #[prost(message, repeated, tag = "3")]
+    pub content: ::std::vec::Vec<Slice>,
+    /// ContentType of documents in the returned CombineResponse.
+    #[prost(enumeration = "ContentType", tag = "4")]
+    pub accept: i32,
+    /// Schema against which documents are to be validated,
+    /// and which provides reduction annotations.
+    #[prost(string, tag = "5")]
+    pub schema_uri: std::string::String,
+    /// Composite key used to group documents to be combined, specified as one or
+    /// more JSON-Pointers indicating a message location to extract.
+    #[prost(string, repeated, tag = "6")]
+    pub key_ptr: ::std::vec::Vec<std::string::String>,
+    /// Field JSON pointers to be extracted from combined documents and returned.
+    /// If empty, no fields are extracted.
+    #[prost(string, repeated, tag = "7")]
+    pub field_ptrs: ::std::vec::Vec<std::string::String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum DeriveState {
-    /// IDLE indicates the transaction has not yet begun.
-    /// IDLE transitions to EXTEND.
-    Idle = 0,
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CombineResponse {
+    /// Memory arena of this message.
+    #[prost(bytes, tag = "1")]
+    pub arena: std::vec::Vec<u8>,
+    /// Content of documents included in this CombineResponse.
+    /// ContentType is that of the CombineRequest's |accept| field.
+    #[prost(message, repeated, tag = "3")]
+    pub content: ::std::vec::Vec<Slice>,
+    /// Fields extracted from request Documents, one column per request pointer.
+    #[prost(message, repeated, tag = "4")]
+    pub fields: ::std::vec::Vec<Field>,
+}
+/// DeriveRequest is the streamed union type message of a Derive RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeriveRequest {
+    #[prost(oneof = "derive_request::Kind", tags = "1, 2, 3, 4, 5")]
+    pub kind: ::std::option::Option<derive_request::Kind>,
+}
+pub mod derive_request {
+    /// OPEN is sent (only) as the first message of a Derive RPC,
+    /// and opens the derive transaction.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        /// Collection to be derived.
+        #[prost(string, tag = "1")]
+        pub collection: std::string::String,
+        /// ContentType of documents in the returned DeriveResponse.
+        #[prost(enumeration = "super::ContentType", tag = "2")]
+        pub accept: i32,
+    }
     /// EXTEND extends the derive transaction with additional
-    /// source or derived collection documents.
+    /// source collection documents.
     ///
     /// * The flow consumer sends any number of EXTEND DeriveRequests,
     ///   containing source collection documents.
@@ -354,7 +360,21 @@ pub enum DeriveState {
     /// * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
     ///
     /// EXTEND transitions to EXTEND or FLUSH.
-    Extend = 1,
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Extend {
+        /// Transform to which documents are applied.
+        #[prost(string, tag = "1")]
+        pub transform: std::string::String,
+        /// Memory arena of this message.
+        #[prost(bytes, tag = "2")]
+        pub arena: std::vec::Vec<u8>,
+        /// ContentType of documents.
+        #[prost(enumeration = "super::ContentType", tag = "3")]
+        pub content_type: i32,
+        /// Content of documents.
+        #[prost(message, repeated, tag = "4")]
+        pub content: ::std::vec::Vec<super::Slice>,
+    }
     /// FLUSH indicates the transacton pipeline is to flush.
     ///
     /// * The flow consumer issues FLUSH when its consumer transaction begins to
@@ -368,7 +388,8 @@ pub enum DeriveState {
     ///   the consumer.Checkpoint which will be committed to the store.
     ///
     /// FLUSH transitions to PREPARE.
-    Flush = 2,
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flush {}
     /// PREPARE begins a commit of the transaction.
     ///
     /// * The flow consumer sends PREPARE with its consumer.Checkpoint.
@@ -392,14 +413,88 @@ pub enum DeriveState {
     /// Transaction fully completes.
     ///
     /// PREPARE transitions to COMMIT.
-    Prepare = 3,
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Prepare {
+        /// Checkpoint to commit.
+        #[prost(message, optional, tag = "1")]
+        pub checkpoint: ::std::option::Option<super::super::consumer::Checkpoint>,
+    }
     /// COMMIT commits the transaction by resolving the "commit" future created
     /// during PREPARE, allowing the atomic commit block created in PREPARE
     /// to flush to the recovery log. The derive worker responds with COMMIT
     /// when the commit barrier has fully resolved.
     ///
     /// COMMIT transitions to stream close.
-    Commit = 4,
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Commit {}
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(message, tag = "1")]
+        Open(Open),
+        #[prost(message, tag = "2")]
+        Extend(Extend),
+        #[prost(message, tag = "3")]
+        Flush(Flush),
+        #[prost(message, tag = "4")]
+        Prepare(Prepare),
+        #[prost(message, tag = "5")]
+        Commit(Commit),
+    }
+}
+/// DeriveResponse is the streamed response message of a Derive RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeriveResponse {
+    #[prost(oneof = "derive_response::Kind", tags = "2, 3, 4, 5")]
+    pub kind: ::std::option::Option<derive_response::Kind>,
+}
+pub mod derive_response {
+    /// EXTEND extends the derive transaction with additional derived collection
+    /// documents.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Extend {
+        /// Memory arena of this message.
+        #[prost(bytes, tag = "1")]
+        pub arena: std::vec::Vec<u8>,
+        /// Content of documents. ContentType is as specified by
+        /// DeriveRequest.Open.accept.
+        #[prost(message, repeated, tag = "2")]
+        pub content: ::std::vec::Vec<super::Slice>,
+        /// Logical partitions extracted from |documents|.
+        #[prost(message, repeated, tag = "3")]
+        pub partitions: ::std::vec::Vec<super::Field>,
+    }
+    /// FLUSH is sent in response to a DeriveRequest.Flush, only after all
+    /// request documents have been processed and response Extend messages sent.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flush {}
+    /// PREPARE is sent in response to a DeriveRequest.Prepare, only after local
+    /// store updates for commit (including the provided checkpoint) have been
+    /// staged behind a created, unresolved commit barrier.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Prepare {}
+    /// COMMIT is sent in response to a DeriveRequest.Commit, when the
+    /// commit barrier has resolved (meaning the transaction is committed).
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Commit {}
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(message, tag = "2")]
+        Extend(Extend),
+        #[prost(message, tag = "3")]
+        Flush(Flush),
+        #[prost(message, tag = "4")]
+        Prepare(Prepare),
+        #[prost(message, tag = "5")]
+        Commit(Commit),
+    }
+}
+/// ContentType is an encoding used for document content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ContentType {
+    Invalid = 0,
+    /// JSON is the usual text encoding, with a trailing newline.
+    Json = 1,
 }
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {
@@ -462,6 +557,128 @@ pub mod shuffler_client {
     impl<T> std::fmt::Debug for ShufflerClient<T> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "ShufflerClient {{ ... }}")
+        }
+    }
+}
+#[doc = r" Generated client implementations."]
+pub mod extract_client {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    pub struct ExtractClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl ExtractClient<tonic::transport::Channel> {
+        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> ExtractClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::ResponseBody: Body + HttpBody + Send + 'static,
+        T::Error: Into<StdError>,
+        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
+            Self { inner }
+        }
+        pub async fn extract(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ExtractRequest>,
+        ) -> Result<tonic::Response<super::ExtractResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.Extract/Extract");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+    impl<T: Clone> Clone for ExtractClient<T> {
+        fn clone(&self) -> Self {
+            Self {
+                inner: self.inner.clone(),
+            }
+        }
+    }
+    impl<T> std::fmt::Debug for ExtractClient<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "ExtractClient {{ ... }}")
+        }
+    }
+}
+#[doc = r" Generated client implementations."]
+pub mod combine_client {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    pub struct CombineClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl CombineClient<tonic::transport::Channel> {
+        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> CombineClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::ResponseBody: Body + HttpBody + Send + 'static,
+        T::Error: Into<StdError>,
+        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
+            Self { inner }
+        }
+        pub async fn combine(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CombineRequest>,
+        ) -> Result<tonic::Response<super::CombineResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.Combine/Combine");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+    impl<T: Clone> Clone for CombineClient<T> {
+        fn clone(&self) -> Self {
+            Self {
+                inner: self.inner.clone(),
+            }
+        }
+    }
+    impl<T> std::fmt::Debug for CombineClient<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "CombineClient {{ ... }}")
         }
     }
 }
@@ -564,67 +781,6 @@ pub mod derive_client {
     impl<T> std::fmt::Debug for DeriveClient<T> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "DeriveClient {{ ... }}")
-        }
-    }
-}
-#[doc = r" Generated client implementations."]
-pub mod extract_client {
-    #![allow(unused_variables, dead_code, missing_docs)]
-    use tonic::codegen::*;
-    pub struct ExtractClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl ExtractClient<tonic::transport::Channel> {
-        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> ExtractClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::ResponseBody: Body + HttpBody + Send + 'static,
-        T::Error: Into<StdError>,
-        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
-            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
-            Self { inner }
-        }
-        pub async fn extract(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ExtractRequest>,
-        ) -> Result<tonic::Response<super::ExtractResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Extract/Extract");
-            self.inner.unary(request.into_request(), path, codec).await
-        }
-    }
-    impl<T: Clone> Clone for ExtractClient<T> {
-        fn clone(&self) -> Self {
-            Self {
-                inner: self.inner.clone(),
-            }
-        }
-    }
-    impl<T> std::fmt::Debug for ExtractClient<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "ExtractClient {{ ... }}")
         }
     }
 }
@@ -738,6 +894,216 @@ pub mod shuffler_server {
     }
     impl<T: Shuffler> tonic::transport::NamedService for ShufflerServer<T> {
         const NAME: &'static str = "flow.Shuffler";
+    }
+}
+#[doc = r" Generated server implementations."]
+pub mod extract_server {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = "Generated trait containing gRPC methods that should be implemented for use with ExtractServer."]
+    #[async_trait]
+    pub trait Extract: Send + Sync + 'static {
+        async fn extract(
+            &self,
+            request: tonic::Request<super::ExtractRequest>,
+        ) -> Result<tonic::Response<super::ExtractResponse>, tonic::Status>;
+    }
+    #[derive(Debug)]
+    pub struct ExtractServer<T: Extract> {
+        inner: _Inner<T>,
+    }
+    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
+    impl<T: Extract> ExtractServer<T> {
+        pub fn new(inner: T) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, None);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, Some(interceptor.into()));
+            Self { inner }
+        }
+    }
+    impl<T, B> Service<http::Request<B>> for ExtractServer<T>
+    where
+        T: Extract,
+        B: HttpBody + Send + Sync + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = Never;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/flow.Extract/Extract" => {
+                    #[allow(non_camel_case_types)]
+                    struct ExtractSvc<T: Extract>(pub Arc<T>);
+                    impl<T: Extract> tonic::server::UnaryService<super::ExtractRequest> for ExtractSvc<T> {
+                        type Response = super::ExtractResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ExtractRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).extract(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = ExtractSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .body(tonic::body::BoxBody::empty())
+                        .unwrap())
+                }),
+            }
+        }
+    }
+    impl<T: Extract> Clone for ExtractServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self { inner }
+        }
+    }
+    impl<T: Extract> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone(), self.1.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: Extract> tonic::transport::NamedService for ExtractServer<T> {
+        const NAME: &'static str = "flow.Extract";
+    }
+}
+#[doc = r" Generated server implementations."]
+pub mod combine_server {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = "Generated trait containing gRPC methods that should be implemented for use with CombineServer."]
+    #[async_trait]
+    pub trait Combine: Send + Sync + 'static {
+        async fn combine(
+            &self,
+            request: tonic::Request<super::CombineRequest>,
+        ) -> Result<tonic::Response<super::CombineResponse>, tonic::Status>;
+    }
+    #[derive(Debug)]
+    pub struct CombineServer<T: Combine> {
+        inner: _Inner<T>,
+    }
+    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
+    impl<T: Combine> CombineServer<T> {
+        pub fn new(inner: T) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, None);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, Some(interceptor.into()));
+            Self { inner }
+        }
+    }
+    impl<T, B> Service<http::Request<B>> for CombineServer<T>
+    where
+        T: Combine,
+        B: HttpBody + Send + Sync + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = Never;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/flow.Combine/Combine" => {
+                    #[allow(non_camel_case_types)]
+                    struct CombineSvc<T: Combine>(pub Arc<T>);
+                    impl<T: Combine> tonic::server::UnaryService<super::CombineRequest> for CombineSvc<T> {
+                        type Response = super::CombineResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CombineRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).combine(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = CombineSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .body(tonic::body::BoxBody::empty())
+                        .unwrap())
+                }),
+            }
+        }
+    }
+    impl<T: Combine> Clone for CombineServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self { inner }
+        }
+    }
+    impl<T: Combine> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone(), self.1.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: Combine> tonic::transport::NamedService for CombineServer<T> {
+        const NAME: &'static str = "flow.Combine";
     }
 }
 #[doc = r" Generated server implementations."]
@@ -924,110 +1290,5 @@ pub mod derive_server {
     }
     impl<T: Derive> tonic::transport::NamedService for DeriveServer<T> {
         const NAME: &'static str = "flow.Derive";
-    }
-}
-#[doc = r" Generated server implementations."]
-pub mod extract_server {
-    #![allow(unused_variables, dead_code, missing_docs)]
-    use tonic::codegen::*;
-    #[doc = "Generated trait containing gRPC methods that should be implemented for use with ExtractServer."]
-    #[async_trait]
-    pub trait Extract: Send + Sync + 'static {
-        async fn extract(
-            &self,
-            request: tonic::Request<super::ExtractRequest>,
-        ) -> Result<tonic::Response<super::ExtractResponse>, tonic::Status>;
-    }
-    #[derive(Debug)]
-    pub struct ExtractServer<T: Extract> {
-        inner: _Inner<T>,
-    }
-    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
-    impl<T: Extract> ExtractServer<T> {
-        pub fn new(inner: T) -> Self {
-            let inner = Arc::new(inner);
-            let inner = _Inner(inner, None);
-            Self { inner }
-        }
-        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
-            let inner = Arc::new(inner);
-            let inner = _Inner(inner, Some(interceptor.into()));
-            Self { inner }
-        }
-    }
-    impl<T, B> Service<http::Request<B>> for ExtractServer<T>
-    where
-        T: Extract,
-        B: HttpBody + Send + Sync + 'static,
-        B::Error: Into<StdError> + Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = Never;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
-            match req.uri().path() {
-                "/flow.Extract/Extract" => {
-                    #[allow(non_camel_case_types)]
-                    struct ExtractSvc<T: Extract>(pub Arc<T>);
-                    impl<T: Extract> tonic::server::UnaryService<super::ExtractRequest> for ExtractSvc<T> {
-                        type Response = super::ExtractResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ExtractRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).extract(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let interceptor = inner.1.clone();
-                        let inner = inner.0;
-                        let method = ExtractSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = if let Some(interceptor) = interceptor {
-                            tonic::server::Grpc::with_interceptor(codec, interceptor)
-                        } else {
-                            tonic::server::Grpc::new(codec)
-                        };
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .body(tonic::body::BoxBody::empty())
-                        .unwrap())
-                }),
-            }
-        }
-    }
-    impl<T: Extract> Clone for ExtractServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self { inner }
-        }
-    }
-    impl<T: Extract> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone(), self.1.clone())
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
-        }
-    }
-    impl<T: Extract> tonic::transport::NamedService for ExtractServer<T> {
-        const NAME: &'static str = "flow.Extract";
     }
 }
