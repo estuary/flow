@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 /// Catalog is a YAML specification against which Estuary catalog input files are parsed.
 #[derive(Serialize, Deserialize, Debug)]
@@ -106,6 +107,15 @@ pub enum Lambda {
 pub struct Transform {
     /// Source collection read by this transform.
     pub source: Source,
+    /// Delay applied to documents read by this transform. Delays are applied
+    /// as an adjustment to the UUID clock encoded within each document, which
+    /// is then used to impose a relative ordering of all documents read by this
+    /// derivation. This means that read delays are applied in a consistent way,
+    /// even when back-filling over historical documents. When caught up and
+    /// tailing the source collection, delays also "gate" documents such that
+    /// they aren't processed until the current wall-time reflects the delay.
+    #[serde(default, with = "humantime_serde")]
+    pub read_delay: Option<Duration>,
     /// Shuffle applied to source collection messages in their mapping to a
     /// specific parallel processor of the derived collection. By default,
     /// messages are shuffled on the source collection key to a single

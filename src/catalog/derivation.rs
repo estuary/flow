@@ -84,8 +84,9 @@ impl Derivation {
                         source_schema_uri,
                         shuffle_key_json,
                         shuffle_broadcast,
-                        shuffle_choose
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        shuffle_choose,
+                        read_delay_seconds
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 self.collection.id,
@@ -98,6 +99,7 @@ impl Derivation {
                     .map(|k| serde_json::to_string(&k).unwrap()),
                 spec.shuffle.broadcast,
                 spec.shuffle.choose,
+                spec.read_delay.map(|d| d.as_secs() as i64),
             ])?;
 
         self.register_transform_source_partitions(
@@ -153,7 +155,7 @@ mod test {
         super::{dump_tables, init_db_schema, open, Catalog},
         *,
     };
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     #[test]
     fn test_register() -> Result<()> {
@@ -193,6 +195,7 @@ mod test {
         //  - Explicit parallelism.
         //  - Explicit alternate source schema.
         //  - Explicit shuffle key w/ choose.
+        //  - Explicit read delay.
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "d1/collection",
             "schema": "a-schema.json",
@@ -212,6 +215,7 @@ mod test {
                                 "exclude": {"other_field": [false]},
                             },
                         },
+                        "readDelay": "1 hour",
                         "shuffle": {
                             "key": ["/shuffle", "/key"],
                             "choose": 3,
@@ -261,13 +265,13 @@ mod test {
                     [1, 2, 1],
                 ],
                 "lambdas":[
-                    [1, "nodeJS","nodeJS bootstrap", Value::Null],
-                    [2, "nodeJS","lambda one", Value::Null],
-                    [3, "nodeJS","lambda two", Value::Null],
+                    [1, "nodeJS","nodeJS bootstrap", null],
+                    [2, "nodeJS","lambda one", null],
+                    [3, "nodeJS","lambda two", null],
                 ],
                 "transforms":[
-                    [1, 2, 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3],
-                    [2, 3, 1, 3, null, null, null, null],
+                    [1, 2, null, 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3, 3600],
+                    [2, 3, null, 1, 3, null, null, null, null, null],
                 ],
                 "transform_source_partitions":[
                     [1, 1, "a_field", "foo", false],

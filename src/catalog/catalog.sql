@@ -236,11 +236,13 @@ CREATE TABLE bootstraps
     lambda_id     INTEGER             NOT NULL REFERENCES lambdas (lambda_id)
 );
 
--- Transforms relate a source collection, an applied lambda, and a derived
+-- Transforms relate a source collection, applied lambda(s), and a derived
 -- collection into which transformed documents are produced.
 --
 -- :derivation_id:
---      Derivation to which this transform applies.
+--      Derivation produced (in part) by this transform, and to which this transform belongs.
+-- :transform_name:
+--      Name of this transform, which must be unique amoung transforms of its derivation.
 -- :lambda_id:
 --      Lambda expression which consumes source documents and emits target documents.
 -- :source_collection_id:
@@ -256,17 +258,26 @@ CREATE TABLE bootstraps
 --      is implicitly treated as `1`.
 -- :shuffle_choose:
 --      Number of ranked shards from which a shard is randomly selected.
+-- :read_delay_seconds:
+--      Number of seconds by which documents read by this transform should be delayed,
+--      both with respect to other documents and transforms, and also with respect to
+--      the current wall-clock time.
 CREATE TABLE transforms
 (
     transform_id           INTEGER PRIMARY KEY NOT NULL,
     derivation_id          INTEGER             NOT NULL REFERENCES derivations (collection_id),
+    transform_name         TEXT, -- TODO(johnny): Enable non-null check:  NOT NULL,
     source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
     lambda_id              INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
     source_schema_uri      TEXT,
     shuffle_key_json       TEXT,
     shuffle_broadcast      INTEGER CHECK (shuffle_broadcast > 0),
     shuffle_choose         INTEGER CHECK (shuffle_choose > 0),
+    read_delay_seconds     INTEGER CHECK (read_delay_seconds > 0),
 
+    -- Name must be unique amoung transforms of the derivation.
+    UNIQUE(transform_name, derivation_id),
+    -- Required index of the transform_source_partitions foreign-key.
     UNIQUE(transform_id, source_collection_id),
 
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
@@ -372,6 +383,7 @@ FROM transform_source_partitions GROUP BY transform_id, collection_id;
 -- and flattening NULL-able fields into their assumed defaults.
 CREATE VIEW transform_details AS
 SELECT transforms.transform_id,
+       transforms.transform_name,
        -- Source collection details.
        transforms.source_collection_id,
        src.collection_name                                                     AS source_name,
@@ -380,6 +392,7 @@ SELECT transforms.transform_id,
        source_partitions.json                                                  AS source_partitions_json,
        transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
        COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
+       transforms.read_delay_seconds,
 
        -- Derived collection details.
        transforms.derivation_id,

@@ -358,17 +358,37 @@ changes:   0   total_changes: XYZ
 
 -- Valid transforms.
 INSERT INTO transforms (
+    transform_name,
     derivation_id,
     source_collection_id,
     lambda_id,
+    read_delay_seconds,
     source_schema_uri)
-VALUES (2, 1, 2, NULL),
-       (2, 1, 3, NULL),
-       (2, 1, 5, NULL),
-       (2, 1, 6, NULL),
-       (3, 1, 7, 'https://alt/source/schema#anchor')
+VALUES ("one", 2, 1, 2, NULL, NULL),
+       ("two", 2, 1, 3, NULL, NULL),
+       ("3re", 2, 1, 5, 60, NULL),
+       ("4or", 2, 1, 6, 120, NULL),
+       ("one", 3, 1, 7, 1, 'https://alt/source/schema#anchor')
 ;
 changes:   5   total_changes: XYZ
+
+-- Name must be set.
+UPDATE transforms
+SET transform_name = NULL
+WHERE transform_id = 1;
+changes:   1   total_changes: XYZ
+-- TODO(johnny): Currently NULL names are allowed, until transform names are wired up properly.
+-- Undo the effects of the above case.
+UPDATE transforms
+SET transform_name = "one"
+WHERE transform_id = 1;
+changes:   1   total_changes: XYZ
+
+-- And must be unique to the derivation.
+Error: near line (XYZ): UNIQUE constraint failed: transforms.transform_name, transforms.derivation_id
+UPDATE transforms
+SET transform_name = "two"
+WHERE transform_id = 1;
 
 -- Invalid source-schema
 Error: near line (XYZ): CHECK constraint failed: Source schema must be NULL or a valid base (non-relative) URI
@@ -421,13 +441,16 @@ SET shuffle_key_json = '["/key"]'
 WHERE transform_id = 1;
 changes:   1   total_changes: XYZ
 
--- Derivation must exist (cannot use a collection).
+-- Derivation must exist (not a collection).
 Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
-SET derivation_id = 42;
+SET derivation_id = 42
+WHERE transform_id = 1;
+-- Derivation must exist (a collection, but not a derivation).
 Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
-SET derivation_id = 1;
+SET derivation_id = 1
+WHERE transform_id = 1;
 -- Source collection must exist.
 Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
@@ -437,27 +460,32 @@ Error: near line (XYZ): FOREIGN KEY constraint failed
 UPDATE transforms
 SET lambda_id = 42;
 
+-- Read delay must be positive.
+Error: near line (XYZ): CHECK constraint failed: transforms
+UPDATE transforms
+SET read_delay_seconds = 0;
+
 -- The resource of the spec defining this transform must also import the
 -- spec of the referenced source collection.
 Error: near line (XYZ): Transform references a source collection which is not imported by this catalog spec
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
-VALUES (2, 4, 2);
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id)
+VALUES ("fails", 2, 4, 2);
 
 -- Transforms of a single derivation reading from the same source collection
 -- must all use the same source schema URI.
 
 -- Case: existing transform with same schema (success).
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (3, 1, 7, 'https://alt/source/schema#anchor');
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES ("works", 3, 1, 7, 'https://alt/source/schema#anchor');
 changes:   1   total_changes: XYZ
 -- Case: existing transform with explicit different schema (fails).
 Error: near line (XYZ): Transforms of a derived collection which read from the same source collection must use the same source schema URI
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (3, 1, 7, 'https://alt/source/schema#different-anchor');
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES ("fails", 3, 1, 7, 'https://alt/source/schema#different-anchor');
 -- Case: existing transform with null source-schema (fails).
 Error: near line (XYZ): Transforms of a derived collection which read from the same source collection must use the same source schema URI
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (2, 1, 2, 'https://alt/source/schema#anchor');
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
 -- Valid transform source partitions.
 INSERT INTO transform_source_partitions (
@@ -494,13 +522,13 @@ VALUES (1, 1, 'field_a', 'true', FALSE);
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
 SELECT * FROM transform_details;
-transform_id|source_collection_id|source_name|source_resource_id|source_schema_uri|source_partitions_json|is_alt_source_schema|shuffle_key_json|derivation_id|derivation_name|derivation_resource_id|derivation_schema_uri|derivation_key_json|shuffle_broadcast|shuffle_choose|lambda_id|lambda_runtime|lambda_inline|lambda_resource_id|lambda_resource_content
-1|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|3|0|2|nodeJS|(doc, state) => {...doc, key: 1}||
-2|1|col/src|3|file:///path/to/a/schema.yaml#anchor|[{"field":"field_2","value":"true","exclude":0}]|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|0|3|3|sqlite|SELECT 1;||
-3|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|5|sqliteFile||7|transform content
-4|1|col/src|3|file:///path/to/a/schema.yaml#anchor|[{"field":"field_2","value":"\"456\"","exclude":1}]|0|["/key/0","/key/1"]|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|6|remote|https://remote/endpoint||
-5|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
-6|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
+transform_id|transform_name|source_collection_id|source_name|source_resource_id|source_schema_uri|source_partitions_json|is_alt_source_schema|shuffle_key_json|read_delay_seconds|derivation_id|derivation_name|derivation_resource_id|derivation_schema_uri|derivation_key_json|shuffle_broadcast|shuffle_choose|lambda_id|lambda_runtime|lambda_inline|lambda_resource_id|lambda_resource_content
+1|one|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key"]||2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|3|0|2|nodeJS|(doc, state) => {...doc, key: 1}||
+2|two|1|col/src|3|file:///path/to/a/schema.yaml#anchor|[{"field":"field_2","value":"true","exclude":0}]|0|["/key/0","/key/1"]||2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|0|3|3|sqlite|SELECT 1;||
+3|3re|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key/0","/key/1"]|60|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|5|sqliteFile||7|transform content
+4|4or|1|col/src|3|file:///path/to/a/schema.yaml#anchor|[{"field":"field_2","value":"\"456\"","exclude":1}]|0|["/key/0","/key/1"]|120|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|6|remote|https://remote/endpoint||
+5|one|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]|1|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
+6|works|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]||3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0|7|nodeJS|(doc, state) => {...doc, foo: true}||
 changes:   0   total_changes: XYZ
 
 -- View of collection schemas which unions collection schemas with

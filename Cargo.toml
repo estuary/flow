@@ -56,3 +56,4 @@ include_dir = { version = "0.6", default-features = false }
 tonic = { version = "0.3" }
 prost = "0.6"
 tower = "0.3"
+humantime-serde = "1.0"

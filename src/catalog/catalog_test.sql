@@ -246,16 +246,33 @@ FROM bootstraps
 
 -- Valid transforms.
 INSERT INTO transforms (
+    transform_name,
     derivation_id,
     source_collection_id,
     lambda_id,
+    read_delay_seconds,
     source_schema_uri)
-VALUES (2, 1, 2, NULL),
-       (2, 1, 3, NULL),
-       (2, 1, 5, NULL),
-       (2, 1, 6, NULL),
-       (3, 1, 7, 'https://alt/source/schema#anchor')
+VALUES ("one", 2, 1, 2, NULL, NULL),
+       ("two", 2, 1, 3, NULL, NULL),
+       ("3re", 2, 1, 5, 60, NULL),
+       ("4or", 2, 1, 6, 120, NULL),
+       ("one", 3, 1, 7, 1, 'https://alt/source/schema#anchor')
 ;
+
+-- Name must be set.
+UPDATE transforms
+SET transform_name = NULL
+WHERE transform_id = 1;
+-- TODO(johnny): Currently NULL names are allowed, until transform names are wired up properly.
+-- Undo the effects of the above case.
+UPDATE transforms
+SET transform_name = "one"
+WHERE transform_id = 1;
+
+-- And must be unique to the derivation.
+UPDATE transforms
+SET transform_name = "two"
+WHERE transform_id = 1;
 
 -- Invalid source-schema
 UPDATE transforms
@@ -298,11 +315,14 @@ UPDATE transforms
 SET shuffle_key_json = '["/key"]'
 WHERE transform_id = 1;
 
--- Derivation must exist (cannot use a collection).
+-- Derivation must exist (not a collection).
 UPDATE transforms
-SET derivation_id = 42;
+SET derivation_id = 42
+WHERE transform_id = 1;
+-- Derivation must exist (a collection, but not a derivation).
 UPDATE transforms
-SET derivation_id = 1;
+SET derivation_id = 1
+WHERE transform_id = 1;
 -- Source collection must exist.
 UPDATE transforms
 SET source_collection_id = 42;
@@ -310,23 +330,27 @@ SET source_collection_id = 42;
 UPDATE transforms
 SET lambda_id = 42;
 
+-- Read delay must be positive.
+UPDATE transforms
+SET read_delay_seconds = 0;
+
 -- The resource of the spec defining this transform must also import the
 -- spec of the referenced source collection.
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id)
-VALUES (2, 4, 2);
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id)
+VALUES ("fails", 2, 4, 2);
 
 -- Transforms of a single derivation reading from the same source collection
 -- must all use the same source schema URI.
 
 -- Case: existing transform with same schema (success).
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (3, 1, 7, 'https://alt/source/schema#anchor');
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES ("works", 3, 1, 7, 'https://alt/source/schema#anchor');
 -- Case: existing transform with explicit different schema (fails).
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (3, 1, 7, 'https://alt/source/schema#different-anchor');
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES ("fails", 3, 1, 7, 'https://alt/source/schema#different-anchor');
 -- Case: existing transform with null source-schema (fails).
-INSERT INTO transforms (derivation_id, source_collection_id, lambda_id, source_schema_uri)
-VALUES (2, 1, 2, 'https://alt/source/schema#anchor');
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
 -- Valid transform source partitions.
 INSERT INTO transform_source_partitions (
