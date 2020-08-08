@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize, de, ser};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::fmt;
 
 /// Catalog is a YAML specification against which Estuary catalog input files are parsed.
 #[derive(Serialize, Deserialize, Debug)]
@@ -131,6 +130,7 @@ pub struct Source {
     /// because it comes from an uncontrolled third party), and is then
     /// progressively verified as collections are derived.
     /// If None, the principal schema of the collection is used instead.
+    #[serde(default)]
     pub schema: Option<Schema>,
     /// Partition selector over partitions of the source collection to be read.
     #[serde(default)]
@@ -184,7 +184,8 @@ pub struct Fixture {
 /// Used for collection schemas and transform source schemas, to allow flexibility in how they can
 /// be represented. The main distinction we're concerned with is whether the schema is provided
 /// inline or as a URI pointing to an external schema resource.
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(untagged)]
 pub enum Schema {
     /// Schema was provided as a URI that is expected to resolve to a JSON schema.
     Url(String),
@@ -194,64 +195,6 @@ pub enum Schema {
     /// is the literal `true`, which permits all JSON data. A value of `false` would reject all
     /// data.
     Bool(bool),
-}
-
-
-struct SchemaVisitor;
-impl<'de> de::Visitor<'de> for SchemaVisitor {
-    type Value = Schema;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("string, object, or boolean")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-            A: de::MapAccess<'de>, {
-        let mut schema = BTreeMap::new();
-        while let Some((key, value)) = map.next_entry()? {
-            schema.insert(key, value);
-        }
-        Ok(Schema::Object(schema))
-    }
-
-    fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
-    where
-            E: de::Error, {
-        Ok(Schema::Bool(v))
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-            E: de::Error, {
-        self.visit_string(v.to_owned())
-    }
-
-    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
-    where
-            E: de::Error, {
-        Ok(Schema::Url(v))
-    }
-}
-
-impl<'de> Deserialize<'de> for Schema {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-            D: de::Deserializer<'de> {
-        deserializer.deserialize_any(SchemaVisitor)
-    }
-}
-
-impl ser::Serialize for Schema {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-            S: ser::Serializer {
-        match self {
-            Schema::Url(url) => url.serialize(serializer),
-            Schema::Object(inline) => inline.serialize(serializer),
-            Schema::Bool(inline) => inline.serialize(serializer),
-        }
-    }
 }
 
 /*
