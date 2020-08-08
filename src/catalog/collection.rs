@@ -1,4 +1,6 @@
-use super::{sql_params, ContentType, Derivation, Resource, Result, Schema, RegisteredSchema, Catalog, DB, BuildContext};
+use super::{
+    sql_params, BuildContext, Catalog, ContentType, Derivation, Resource, Result, Schema, DB,
+};
 use crate::specs::build as specs;
 
 /// Collection represents a catalog Collection.
@@ -10,26 +12,31 @@ pub struct Collection {
 
 impl Collection {
     /// Registers a Collection of the Source with the catalog.
-    pub fn register(context: &BuildContext, source: Catalog, spec: &specs::Collection) -> Result<Collection> {
+    pub fn register(
+        context: &BuildContext,
+        source: Catalog,
+        spec: &specs::Collection,
+    ) -> Result<Collection> {
         // Register and import the schema document.
-        let RegisteredSchema {schema, schema_url} = context
-            .process_child_field("schema", &spec.schema, Schema::register)?;
+        let schema = context.process_child_field("schema", &spec.schema, Schema::register)?;
         Resource::register_import(context.db, source.resource, schema.resource)?;
 
-        context.db.prepare_cached(
-            "INSERT INTO collections (
+        context
+            .db
+            .prepare_cached(
+                "INSERT INTO collections (
                     name,
                     schema_uri,
                     key_json,
                     resource_id
                 ) VALUES (?, ?, ?, ?)",
-        )?
-        .execute(sql_params![
-            spec.name,
-            schema_url,
-            serde_json::to_string(&spec.key)?,
-            source.resource.id,
-        ])?;
+            )?
+            .execute(sql_params![
+                spec.name,
+                schema.primary_url_with_fragment(context.db)?,
+                serde_json::to_string(&spec.key)?,
+                source.resource.id,
+            ])?;
         let collection = Collection {
             id: context.db.last_insert_rowid(),
             resource: source.resource,
@@ -39,9 +46,11 @@ impl Collection {
             collection.register_fixture(context.db, fixture)
         })?;
 
-        context.process_child_array("projections", spec.projections.iter(), |context, projection| {
-            collection.register_projection(context.db, projection)
-        })?;
+        context.process_child_array(
+            "projections",
+            spec.projections.iter(),
+            |context, projection| collection.register_projection(context.db, projection),
+        )?;
 
         if let Some(spec) = &spec.derivation {
             context.process_child_field("derivation", spec, |context, spec| {

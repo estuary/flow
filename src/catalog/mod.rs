@@ -23,7 +23,7 @@ pub use extraction::verify_extracted_fields;
 pub use lambda::Lambda;
 pub use resource::Resource;
 pub use rusqlite::{params as sql_params, Connection as DB};
-pub use schema::{Schema, RegisteredSchema};
+pub use schema::Schema;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -57,7 +57,6 @@ pub struct BuildContext<'a> {
 const DUMMY_FIELD_INDEX: usize = usize::MAX;
 
 impl<'a> BuildContext<'a> {
-
     /// Returns a new build context, using the given database and resource url.
     pub fn new_from_root(db: &'a DB, resource_url: &'a Url) -> BuildContext<'a> {
         BuildContext {
@@ -66,7 +65,7 @@ impl<'a> BuildContext<'a> {
             resource_url,
         }
     }
-    
+
     /// Returns a new context for processing a different resource as part of the same build.
     pub fn for_new_resource(&self, resource_url: &'a Url) -> BuildContext<'a> {
         BuildContext::new_from_root(self.db, resource_url)
@@ -77,39 +76,50 @@ impl<'a> BuildContext<'a> {
         self.current_location.to_pointer()
     }
 
-    pub fn process_child_field<T, R, F>(&'a self, field_name: &'a str, field_value: &'a T, mut fun: F) -> Result<R>
-        where
-        F: FnMut(&BuildContext, &'a T) -> Result<R>
+    pub fn process_child_field<T, R, F>(
+        &'a self,
+        field_name: &'a str,
+        field_value: &'a T,
+        mut fun: F,
+    ) -> Result<R>
+    where
+        F: FnMut(&BuildContext, &'a T) -> Result<R>,
     {
         let field_context = self.child_field(field_name);
-        fun(&field_context, field_value).map_err(|err| {
-            self.locate_err(err)
-        })
+        fun(&field_context, field_value).map_err(|err| self.locate_err(err))
     }
 
-    pub fn process_child_array<T, I, F>(&'a self, field_name: &'a str, iter: I, mut fun: F) -> Result<()>
-        where F: FnMut(&BuildContext, &'a T) -> Result<()>,
-              I: Iterator<Item=&'a T>,
-              T: 'a
+    pub fn process_child_array<T, I, F>(
+        &'a self,
+        field_name: &'a str,
+        iter: I,
+        mut fun: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&BuildContext, &'a T) -> Result<()>,
+        I: Iterator<Item = &'a T>,
+        T: 'a,
     {
         let field_context = self.child_field(field_name);
-        
+
         for (index, value) in iter.enumerate() {
             let elem_context = field_context.child_array_element(index);
-            fun(&elem_context, value).map_err(|err| {
-                self.locate_err(err)
-            })?;
+            fun(&elem_context, value).map_err(|err| self.locate_err(err))?;
         }
         Ok(())
     }
 
     fn locate_err(&self, err: Error) -> Error {
         match err {
-            located @ Error::At{..} => located,
-            other => Error::At{ 
-                loc: format!("resource: '{}', field: '{}'", self.resource_url, self.current_location.as_json_pointer()),
-                detail: Box::new(other) 
-            }
+            located @ Error::At { .. } => located,
+            other => Error::At {
+                loc: format!(
+                    "resource: '{}', field: '{}'",
+                    self.resource_url,
+                    self.current_location.as_json_pointer()
+                ),
+                detail: Box::new(other),
+            },
         }
     }
 
@@ -123,7 +133,9 @@ impl<'a> BuildContext<'a> {
 
     fn child_field(&'a self, field_name: &'a str) -> BuildContext<'a> {
         BuildContext {
-            current_location: self.current_location.child_property(field_name, DUMMY_FIELD_INDEX),
+            current_location: self
+                .current_location
+                .child_property(field_name, DUMMY_FIELD_INDEX),
             db: &self.db,
             resource_url: self.resource_url,
         }
