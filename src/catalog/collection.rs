@@ -1,6 +1,4 @@
-use super::{
-    sql_params, BuildContext, Catalog, ContentType, Derivation, Resource, Result, Schema, DB,
-};
+use super::{sql_params, ContentType, Derivation, Resource, Result, Schema, Scope};
 use crate::specs::build as specs;
 
 /// Collection represents a catalog Collection.
@@ -12,16 +10,15 @@ pub struct Collection {
 
 impl Collection {
     /// Registers a Collection of the Source with the catalog.
-    pub fn register(
-        context: &BuildContext,
-        source: Catalog,
-        spec: &specs::Collection,
-    ) -> Result<Collection> {
+    pub fn register(scope: Scope, spec: &specs::Collection) -> Result<Collection> {
         // Register and import the schema document.
-        let schema = context.process_child_field("schema", &spec.schema, Schema::register)?;
-        Resource::register_import(context.db, source.resource, schema.resource)?;
+        let schema = scope.push_prop("schema").then(|scope| {
+            let schema = Schema::register(scope, &spec.schema)?;
+            Resource::register_import(scope, schema.resource)?;
+            Ok(schema)
+        })?;
 
-        context
+        scope
             .db
             .prepare_cached(
                 "INSERT INTO collections (
@@ -33,64 +30,77 @@ impl Collection {
             )?
             .execute(sql_params![
                 spec.name,
-                schema.primary_url_with_fragment(context.db)?,
+                schema.primary_url_with_fragment(scope.db)?,
                 serde_json::to_string(&spec.key)?,
-                source.resource.id,
+                scope.resource().id,
             ])?;
+
         let collection = Collection {
-            id: context.db.last_insert_rowid(),
-            resource: source.resource,
+            id: scope.db.last_insert_rowid(),
+            resource: scope.resource(),
         };
 
-        context.process_child_array("fixtures", spec.fixtures.iter(), |context, fixture| {
-            collection.register_fixture(context.db, fixture)
-        })?;
+        for (index, fixture) in spec.fixtures.iter().enumerate() {
+            scope
+                .push_prop("fixtures")
+                .push_item(index)
+                .then(|scope| collection.register_fixture(scope, fixture))?;
+        }
 
-        context.process_child_array(
-            "projections",
-            spec.projections.iter(),
-            |context, projection| collection.register_projection(context.db, projection),
-        )?;
+        for (index, projection) in spec.projections.iter().enumerate() {
+            scope
+                .push_prop("projections")
+                .push_item(index)
+                .then(|scope| collection.register_projection(scope, projection))?;
+        }
 
         if let Some(spec) = &spec.derivation {
-            context.process_child_field("derivation", spec, |context, spec| {
-                Derivation::register(context, collection, spec)
-            })?;
+            scope
+                .push_prop("derivation")
+                .then(|scope| Derivation::register(scope, collection, spec))?;
         }
 
         log::info!("added collection {}", spec.name);
         Ok(collection)
     }
 
-    fn register_fixture(&self, db: &DB, url: &str) -> Result<()> {
-        let url = self.resource.join(db, url)?;
-        let fixtures = Resource::register(db, ContentType::CatalogFixtures, &url)?;
-        Resource::register_import(db, self.resource, fixtures)?;
+    fn register_fixture(&self, scope: Scope, url: &str) -> Result<()> {
+        let url = self.resource.join(scope.db, url)?;
+        let fixtures = Resource::register(scope.db, ContentType::CatalogFixtures, &url)?;
+        Resource::register_import(scope, fixtures)?;
 
-        if !fixtures.is_processed(db)? {
-            // Just verify fixtures parse correctly.
-            serde_yaml::from_slice::<Vec<specs::Fixture>>(&fixtures.content(db)?)?;
-            fixtures.mark_as_processed(db)?;
+        if !fixtures.is_processed(scope.db)? {
+            scope.push_resource(fixtures).then(|scope| {
+                // Just verify fixtures parse correctly.
+                serde_yaml::from_slice::<Vec<specs::Fixture>>(&fixtures.content(scope.db)?)?;
+                fixtures.mark_as_processed(scope.db)
+            })?;
         }
-        db.prepare_cached("INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
+        scope
+            .db
+            .prepare_cached("INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
             .execute(sql_params![self.id, fixtures.id])?;
 
         Ok(())
     }
 
-    fn register_projection(&self, db: &DB, spec: &specs::Projection) -> Result<()> {
-        db.prepare_cached(
-            "INSERT INTO projections (collection_id, field, location_ptr)
+    fn register_projection(&self, scope: Scope, spec: &specs::Projection) -> Result<()> {
+        scope
+            .db
+            .prepare_cached(
+                "INSERT INTO projections (collection_id, field, location_ptr)
                     VALUES (?, ?, ?)",
-        )?
-        .execute(sql_params![self.id, spec.field, spec.location])?;
+            )?
+            .execute(sql_params![self.id, spec.field, spec.location])?;
 
         if spec.partition {
-            db.prepare_cached(
-                "INSERT INTO partitions (collection_id, field)
+            scope
+                .db
+                .prepare_cached(
+                    "INSERT INTO partitions (collection_id, field)
                         VALUES (?, ?)",
-            )?
-            .execute(sql_params![self.id, spec.field])?;
+                )?
+                .execute(sql_params![self.id, spec.field])?;
         }
 
         Ok(())
@@ -105,7 +115,6 @@ mod test {
     };
     use rusqlite::params as sql_params;
     use serde_json::json;
-    use url::Url;
 
     #[test]
     fn test_register() -> Result<()> {
@@ -146,12 +155,9 @@ mod test {
             ],
         }))?;
 
-        let source = Catalog {
-            resource: Resource { id: 1 },
-        };
-        let url = Url::parse("test://example/spec").unwrap();
-        let context = BuildContext::new_from_root(&db, &url);
-        Collection::register(&context, source, &spec)?;
+        Scope::empty(&db)
+            .push_resource(Resource { id: 1 })
+            .then(|scope| Collection::register(scope, &spec))?;
 
         // Expect that the schema and fixtures were processed.
         assert!(Resource { id: 10 }.is_processed(&db)?);

@@ -8,7 +8,7 @@ use url;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("{loc}: {detail}")]
+    #[error("at {loc}:\n{detail}")]
     At { loc: String, detail: Box<Error> },
 
     #[error("IO error: {0}")]

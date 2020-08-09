@@ -1,7 +1,7 @@
-use super::{Result, DB};
+use super::Result;
 
 /// Create the catalog SQL schema in the connected database.
-pub fn init(db: &DB) -> Result<()> {
+pub fn init(db: &rusqlite::Connection) -> Result<()> {
     db.execute_batch(include_str!("catalog.sql"))?;
     Ok(())
 }
@@ -9,7 +9,7 @@ pub fn init(db: &DB) -> Result<()> {
 #[cfg(test)]
 pub mod test {
     use super::{super::open, *};
-    use rusqlite::{params as sql_params, Result as DBResult};
+    use rusqlite::{params as sql_params, Connection as DB, Result as DBResult};
     use serde_json::Value;
     use std::borrow::Cow;
 

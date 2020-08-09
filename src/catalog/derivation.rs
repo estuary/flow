@@ -1,4 +1,4 @@
-use super::{sql_params, BuildContext, Collection, Error, Lambda, Resource, Result, Schema, DB};
+use super::{sql_params, Collection, Lambda, Resource, Result, Schema, Scope};
 use crate::specs::build as specs;
 
 /// Derivation is a catalog Collection which is derived from other Collections.
@@ -10,71 +10,78 @@ pub struct Derivation {
 impl Derivation {
     /// Register a catalog Collection as a Derivation.
     pub fn register(
-        context: &BuildContext,
+        scope: Scope,
         collection: Collection,
         spec: &specs::Derivation,
     ) -> Result<Derivation> {
-        context
+        scope
             .db
             .prepare_cached("INSERT INTO derivations (collection_id, parallelism) VALUES (?, ?)")?
             .execute(sql_params![collection.id, spec.parallelism])?;
 
         let derivation = Derivation { collection };
 
-        context.process_child_array("bootstrap", spec.bootstrap.iter(), |context, spec| {
-            derivation.register_bootstrap(context.db, spec)
-        })?;
-
-        context.process_child_array("transform", spec.transform.iter(), |context, spec| {
-            derivation.register_transform(context, spec)
-        })?;
+        for (index, spec) in spec.bootstrap.iter().enumerate() {
+            scope
+                .push_prop("bootstrap")
+                .push_item(index)
+                .then(|scope| derivation.register_bootstrap(scope, spec))?;
+        }
+        for (index, spec) in spec.transform.iter().enumerate() {
+            scope
+                .push_prop("transform")
+                .push_item(index)
+                .then(|scope| derivation.register_transform(scope, spec))?;
+        }
         Ok(derivation)
     }
 
-    fn register_bootstrap(&self, db: &DB, spec: &specs::Lambda) -> Result<()> {
-        let lambda = Lambda::register(db, self.collection.resource, spec)?;
+    fn register_bootstrap(&self, scope: Scope, spec: &specs::Lambda) -> Result<()> {
+        let lambda = Lambda::register(scope, spec)?;
 
-        db.prepare_cached("INSERT INTO bootstraps (derivation_id, lambda_id) VALUES (?, ?)")?
+        scope
+            .db
+            .prepare_cached("INSERT INTO bootstraps (derivation_id, lambda_id) VALUES (?, ?)")?
             .execute(sql_params![self.collection.id, lambda.id])?;
         Ok(())
     }
 
-    fn register_transform(&self, context: &BuildContext, spec: &specs::Transform) -> Result<()> {
+    fn register_transform(&self, scope: Scope, spec: &specs::Transform) -> Result<()> {
         // Map spec source collection name to its collection ID.
-        let (cid, rid) = context
-            .db
-            .prepare_cached(
-                "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
-            )?
-            .query_row(&[&spec.source.name], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map_err(|e| Error::At {
-                loc: format!("querying source collection {:?}", spec.source),
-                detail: Box::new(e.into()),
+        let source = scope.push_prop("source").then(|scope| {
+            let (cid, rid) = scope
+                .db
+                .prepare_cached(
+                    "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
+                )?
+                .query_row(&[&spec.source.name], |r| Ok((r.get(0)?, r.get(1)?)))?;
+
+            let source = Collection {
+                id: cid,
+                resource: Resource { id: rid },
+            };
+            // Verify that the catalog spec of the source collection is imported by this collection's catalog.
+            Resource::verify_import(scope, source.resource)?;
+            Ok(source)
+        })?;
+        // Register optional source schema.
+        let schema_url = scope
+            .push_prop("source")
+            .push_prop("schema")
+            .then(|scope| match &spec.source.schema {
+                Some(schema) => {
+                    let schema = Schema::register(scope, schema)?;
+                    Resource::register_import(scope, schema.resource)?;
+                    Ok(Some(schema.primary_url_with_fragment(scope.db)?))
+                }
+                None => Ok(None),
             })?;
 
-        let source = Collection {
-            id: cid,
-            resource: Resource { id: rid },
-        };
-        // Verify that the catalog spec of the source collection is imported by this collection's.
-        Resource::verify_import(context.db, self.collection.resource, source.resource)?;
+        let lambda = scope
+            .push_prop("lambda")
+            .then(|scope| Lambda::register(scope, &spec.lambda))?;
 
-        // Register optional source schema.
-        let schema_url = match &spec.source.schema {
-            None => None,
-            Some(schema) => {
-                let schema =
-                    context.process_child_field("source/schema", schema, Schema::register)?;
-                Resource::register_import(context.db, self.collection.resource, schema.resource)?;
-                Some(schema.primary_url_with_fragment(context.db)?)
-            }
-        };
-
-        let lambda = context.process_child_field("lambda", &spec.lambda, |context, lambda| {
-            Lambda::register(context.db, self.collection.resource, lambda)
-        })?;
-
-        context
+        scope
             .db
             .prepare_cached(
                 "INSERT INTO transforms (
@@ -103,8 +110,8 @@ impl Derivation {
             ])?;
 
         self.register_transform_source_partitions(
-            context.db,
-            context.db.last_insert_rowid(),
+            scope,
+            scope.db.last_insert_rowid(),
             source.id,
             &spec.source.partitions,
         )?;
@@ -114,33 +121,36 @@ impl Derivation {
 
     fn register_transform_source_partitions(
         &self,
-        db: &DB,
+        scope: Scope,
         transform_id: i64,
         collection_id: i64,
         parts: &specs::PartitionSelector,
     ) -> Result<()> {
-        for (m, is_exclude) in &[(&parts.include, false), (&parts.exclude, true)] {
+        for (m, is_exclude, scope) in &[
+            (&parts.include, false, scope.push_prop("include")),
+            (&parts.exclude, true, scope.push_prop("exclude")),
+        ] {
             for (field, values) in m.iter() {
-                for value in values.iter() {
-                    db.prepare_cached(
-                        "INSERT INTO transform_source_partitions (
+                for (index, value) in values.iter().enumerate() {
+                    scope.push_prop(field).push_item(index).then(|scope| {
+                        Ok(scope
+                            .db
+                            .prepare_cached(
+                                "INSERT INTO transform_source_partitions (
                                     transform_id,
                                     collection_id,
                                     field,
                                     value_json,
                                     is_exclude
                                 ) VALUES (?, ?, ?, ?, ?);",
-                    )?
-                    .execute(sql_params![
-                        transform_id,
-                        collection_id,
-                        field,
-                        value,
-                        is_exclude,
-                    ])
-                    .map_err(|e| Error::At {
-                        loc: format!("transform source partition {:?}", field),
-                        detail: Box::new(e.into()),
+                            )?
+                            .execute(sql_params![
+                                transform_id,
+                                collection_id,
+                                field,
+                                value,
+                                is_exclude,
+                            ])?)
                     })?;
                 }
             }
@@ -152,7 +162,7 @@ impl Derivation {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open, Catalog},
+        super::{dump_tables, init_db_schema, open},
         *,
     };
     use serde_json::json;
@@ -185,11 +195,8 @@ mod test {
                     (1, 'a_field'),
                     (1, 'other_field');",
         )?;
-        let source = Catalog {
-            resource: Resource { id: 1 },
-        };
-        let url = source.resource.primary_url(&db)?;
-        let context = BuildContext::new_from_root(&db, &url);
+        let scope = Scope::empty(&db);
+        let scope = scope.push_resource(Resource { id: 1 });
 
         // Derived collection with:
         //  - Explicit parallelism.
@@ -225,7 +232,7 @@ mod test {
                 ],
             }
         }))?;
-        Collection::register(&context, source, &spec)?;
+        Collection::register(scope, &spec)?;
 
         // Derived collection with implicit defaults.
         let spec: specs::Collection = serde_json::from_value(json!({
@@ -241,7 +248,7 @@ mod test {
                 ],
             }
         }))?;
-        Collection::register(&context, source, &spec)?;
+        Collection::register(scope, &spec)?;
 
         let dump = dump_tables(
             &db,

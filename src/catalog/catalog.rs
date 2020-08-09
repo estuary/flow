@@ -1,4 +1,4 @@
-use super::{sql_params, Collection, ContentType, Error, Resource, Result, BuildContext};
+use super::{sql_params, Collection, ContentType, Resource, Result, Scope};
 use crate::specs::build as specs;
 use url::Url;
 
@@ -10,40 +10,48 @@ pub struct Catalog {
 
 impl Catalog {
     /// Register an Estuary Catalog specification with the catalog database.
-    pub fn register(context: &BuildContext, uri: Url) -> Result<Catalog> {
-        let source = Catalog {
-            resource: Resource::register(context.db, ContentType::CatalogSpec, &uri)?,
-        };
-        if source.resource.is_processed(context.db)? {
-            return Ok(source);
-        }
-        source.resource.mark_as_processed(context.db)?;
+    pub fn register(scope: Scope, uri: Url) -> Result<Catalog> {
+        let resource = Resource::register(scope.db, ContentType::CatalogSpec, &uri)?;
+        let scope = scope.push_resource(resource);
 
-        let spec = source.resource.content(context.db)?;
+        if resource.is_processed(scope.db)? {
+            return Ok(Catalog { resource });
+        }
+        resource.mark_as_processed(scope.db)?;
+
+        let spec = resource.content(scope.db)?;
         let spec: specs::Catalog = serde_yaml::from_slice(&spec)?;
 
-        context.process_child_array("import", spec.import.iter(), |context, uri| {
-            let resolved_uri = source.resource.join(context.db, uri)?;
-            let context = context.for_new_resource(&resolved_uri);
-            let import = Self::register(&context, resolved_uri.clone()).map_err(|err| Error::At {
-                // The error will already be located within the specific file, but this will make
-                // it a little more clear which import we were processing since `uri` holds the
-                // exact text from the yaml.
-                loc: format!("import {:?}", uri),
-                detail: Box::new(err),
+        for (index, url) in spec.import.iter().enumerate() {
+            scope.push_prop("import").push_item(index).then(|scope| {
+                let url = resource.join(scope.db, url)?;
+                let import = Self::register(scope, url)?;
+                Resource::register_import(scope, import.resource)
             })?;
-            Resource::register_import(&context.db, source.resource, import.resource)
-        })?;
-
-        for (package, version) in spec.node_dependencies.iter() {
-            context.db.prepare_cached("INSERT INTO nodejs_dependencies (package, version) VALUES (?, ?);")?
-                .execute(sql_params![package, version])?;
         }
 
-        context.process_child_array("collections", spec.collections.iter(), |context, spec| {
-            Collection::register(context, source, spec).map(|_| ())
-        })?;
-        Ok(source)
+        for (package, version) in spec.node_dependencies.iter() {
+            scope
+                .push_prop("nodeDependencies")
+                .push_prop(package)
+                .then(|scope| {
+                    Ok(scope
+                        .db
+                        .prepare_cached(
+                            "INSERT INTO nodejs_dependencies (package, version) VALUES (?, ?);",
+                        )?
+                        .execute(sql_params![package, version])?)
+                })?;
+        }
+
+        for (index, spec) in spec.collections.iter().enumerate() {
+            scope
+                .push_prop("collections")
+                .push_item(index)
+                .then(|scope| Collection::register(scope, spec))?;
+        }
+
+        Ok(Catalog { resource })
     }
 }
 
@@ -94,8 +102,7 @@ mod test {
         )?;
 
         let url = Url::parse("test://example/main/spec")?;
-        let context = BuildContext::new_from_root(&db, &url);
-        Catalog::register(&context, url.clone())?;
+        Catalog::register(Scope::empty(&db), url)?;
 
         // Expect other catalog spec & schema were processed.
         assert!(Resource { id: 2 }.is_processed(&db)?);

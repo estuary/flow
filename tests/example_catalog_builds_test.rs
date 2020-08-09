@@ -14,8 +14,7 @@ fn test_examples() -> catalog::Result<()> {
     catalog::init_db_schema(&db)?;
 
     let url = Url::from_file_path(&path).unwrap();
-    let context = catalog::BuildContext::new_from_root(&db, &url);
-    catalog::Catalog::register(&context, url.clone())?;
+    catalog::Catalog::register(catalog::Scope::empty(&db), url)?;
 
     Ok(())
 }

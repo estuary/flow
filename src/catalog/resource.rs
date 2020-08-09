@@ -1,4 +1,4 @@
-use super::{sql_params, ContentType, Error, Result, DB};
+use super::{sql_params, ContentType, Error, Result, Scope, DB};
 use rusqlite::Error as DBError;
 use url::Url;
 
@@ -11,7 +11,6 @@ pub struct Resource {
 }
 
 impl Resource {
-
     pub fn get_by_url(db: &DB, ct: ContentType, url: &Url) -> Result<Option<Resource>> {
         // Look for an existing resource row.
         let mut stmt = db.prepare_cached(
@@ -35,14 +34,24 @@ impl Resource {
         }
     }
 
-    pub fn register_content(db: &DB, ct: ContentType, url: &Url, content: &[u8]) -> Result<Resource> {
+    pub fn register_content(
+        db: &DB,
+        ct: ContentType,
+        url: &Url,
+        content: &[u8],
+    ) -> Result<Resource> {
         if let Some(resource) = Resource::get_by_url(db, ct, url)? {
             return Ok(resource);
         }
         Resource::register_content_unchecked(db, ct, url, content)
     }
 
-    fn register_content_unchecked(db: &DB, ct: ContentType, url: &Url, content: &[u8]) -> Result<Resource> {
+    fn register_content_unchecked(
+        db: &DB,
+        ct: ContentType,
+        url: &Url,
+        content: &[u8],
+    ) -> Result<Resource> {
         db.prepare_cached(
             "INSERT INTO resources (content_type, content, is_processed)
                     VALUES (?, ?, FALSE)",
@@ -141,31 +150,31 @@ impl Resource {
         }
     }
 
-    /// Registers an import of Resource |import| by Resource |resource|.
-    pub fn register_import(db: &DB, resource: Resource, import: Resource) -> Result<()> {
-        if resource.id == import.id {
+    /// Registers an import of Resource |import| by the Scope's Resource.
+    pub fn register_import(scope: Scope, import: Resource) -> Result<()> {
+        if scope.resource().id == import.id {
             return Ok(()); // A resource implicitly imports itself.
         }
-        let mut s = db.prepare_cached(
+        let mut s = scope.db.prepare_cached(
             "INSERT INTO resource_imports (resource_id, import_id)
                     VALUES (?, ?) ON CONFLICT DO NOTHING;",
         )?;
-        s.execute(&[resource.id, import.id])?;
+        s.execute(&[scope.resource().id, import.id])?;
 
         Ok(())
     }
 
     /// Verify that a transitive import path from |source| to |import| exists.
-    pub fn verify_import(db: &DB, source: Resource, import: Resource) -> Result<()> {
-        let result = db
+    pub fn verify_import(scope: Scope, import: Resource) -> Result<()> {
+        let result = scope.db
             .prepare_cached(
                 "SELECT 1 FROM resource_transitive_imports WHERE resource_id = ? AND import_id = ?;")?
-            .query_row(&[source.id, import.id], |_| Ok(()));
+            .query_row(&[scope.resource().id, import.id], |_| Ok(()));
         match result {
             Ok(()) => Ok(()),
             Err(DBError::QueryReturnedNoRows) => Err(Error::MissingImport {
-                source_uri: source.primary_url(db)?.into_string(),
-                import_uri: import.primary_url(db)?.into_string(),
+                source_uri: scope.resource().primary_url(&scope.db)?.into_string(),
+                import_uri: import.primary_url(&scope.db)?.into_string(),
             }),
             Err(err) => Err(err.into()),
         }
@@ -378,42 +387,47 @@ mod test {
         let b = Resource { id: 2 };
         let c = Resource { id: 3 };
         let d = Resource { id: 4 };
+        let scope = Scope::empty(&db);
+        let s_a = scope.push_resource(a);
+        let s_b = scope.push_resource(b);
+        let s_c = scope.push_resource(c);
+        let s_d = scope.push_resource(d);
 
         // Marking a self-import is a no-op (and doesn't break CTE evaluation).
-        Resource::register_import(&db, a, a)?;
+        Resource::register_import(s_a, a)?;
 
         // A => B => D.
-        Resource::register_import(&db, a, b)?;
-        Resource::register_import(&db, b, d)?;
-        Resource::verify_import(&db, a, d)?;
+        Resource::register_import(s_a, b)?;
+        Resource::register_import(s_b, d)?;
+        Resource::verify_import(s_a, d)?;
 
         // It's not okay for D => A (since A => B => D).
         assert_eq!(
             "catalog database error: Import creates an cycle (imports must be acyclic)",
-            format!("{}", Resource::register_import(&db, d, a).unwrap_err())
+            format!("{}", Resource::register_import(s_d, a).unwrap_err())
         );
         // Or for D => B (since B => D).
-        Resource::register_import(&db, d, b).unwrap_err();
+        Resource::register_import(s_d, b).unwrap_err();
 
         // Imports may form a DAG. Create some valid alternate paths.
         // A => C => D.
-        Resource::register_import(&db, c, d)?;
-        Resource::register_import(&db, a, c)?;
+        Resource::register_import(s_c, d)?;
+        Resource::register_import(s_a, c)?;
         // A => B => C => D.
-        Resource::register_import(&db, b, c)?;
+        Resource::register_import(s_b, c)?;
         // A => D.
-        Resource::register_import(&db, a, d)?;
+        Resource::register_import(s_a, d)?;
 
-        Resource::verify_import(&db, a, b)?;
-        Resource::verify_import(&db, a, c)?;
-        Resource::verify_import(&db, a, d)?;
-        Resource::verify_import(&db, b, d)?;
-        Resource::verify_import(&db, b, c)?;
-        Resource::verify_import(&db, c, d)?;
+        Resource::verify_import(s_a, b)?;
+        Resource::verify_import(s_a, c)?;
+        Resource::verify_import(s_a, d)?;
+        Resource::verify_import(s_b, d)?;
+        Resource::verify_import(s_b, c)?;
+        Resource::verify_import(s_c, d)?;
 
         // C still does not import B, however.
         assert_eq!(
-            format!("{}", Resource::verify_import(&db, c, b).unwrap_err()),
+            format!("{}", Resource::verify_import(s_c, b).unwrap_err()),
             "\"test://c\" references \"test://b\" without directly or indirectly importing it",
         );
 

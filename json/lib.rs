@@ -1,4 +1,5 @@
-use std::fmt;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use std::fmt::{self, Write};
 
 mod number;
 pub use number::Number;
@@ -31,37 +32,22 @@ impl Span {
     }
 }
 
-/// Wraps a `Location` and provides a `Display` impl that formats the location as a JSON pointer.
-///
-pub struct JsonPointer<'a, 'b>(&'b Location<'a>);
-
-// TODO: Do we need to handle escaping '/' and '~' chars in display and debug impls
-impl<'a, 'b> fmt::Display for JsonPointer<'a, 'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.0.format_pointer(f)
-    }
-}
-impl<'a, 'b> fmt::Debug for JsonPointer<'a, 'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
-
 /// `Location` of a value within a JSON document.
 /// Examples:
 /// ```
-/// use estuary_json::{Location, JsonPointer};
+/// use estuary_json::Location;
 ///
-/// let root = Location::Root;
-/// let foo = root.child_property("foo", 1);
-/// let elem_0 = foo.child_array_element(0);
+/// let l0 = Location::Root;
+/// let l1 = l0.push_prop("foo");
+/// let l2 = l1.push_item(42);
 ///
-/// let elem_0_fragment = format!("http://foo.test/myschema.json{}", elem_0);
-/// assert_eq!("http://foo.test/myschema.json#/foo/0", elem_0_fragment.as_str());
+/// let as_url = format!("http://foo.test/myschema.json#{}", l2);
+/// assert_eq!("http://foo.test/myschema.json#/foo/42", as_url);
 ///
-/// let elem_0_pointer = format!("my_pointer={}", elem_0.as_json_pointer());
-/// assert_eq!("my_pointer=/foo/0", elem_0_pointer.as_str());
+/// let l3 = l2.push_prop("ba~ ba/ 45");
+/// assert_eq!("q=/foo/42/ba~0%20ba~1%2045", format!("q={}", l3));
 /// ```
+#[derive(Copy, Clone)]
 pub enum Location<'a> {
     Root,
     Property(LocatedProperty<'a>),
@@ -69,45 +55,24 @@ pub enum Location<'a> {
 }
 
 impl<'a> Location<'a> {
-    /// Returns a new `Location` for the given field that is a child of this location.
-    pub fn child_property(&'a self, field_name: &'a str, enumeration_index: usize) -> Location<'a> {
-        let prop = LocatedProperty {
+    /// Returns a new Location that extends this one with the given property and index.
+    pub fn push_prop_with_index(&'a self, name: &'a str, index: usize) -> Location<'a> {
+        Location::Property(LocatedProperty {
             parent: self,
-            name: field_name,
-            index: enumeration_index,
-        };
-        Location::Property(prop)
+            name,
+            index,
+        })
     }
-
-    /// Returns a new `Location` for the given field that is a child of this location.
-    pub fn child_array_element(&'a self, index: usize) -> Location<'a> {
-        let item = LocatedItem {
+    /// Returns a new Location that extends this one with the given property.
+    pub fn push_prop(&'a self, name: &'a str) -> Location<'a> {
+        self.push_prop_with_index(name, usize::MAX)
+    }
+    /// Returns a new Location that extends this one with the given index.
+    pub fn push_item(&'a self, index: usize) -> Location<'a> {
+        Location::Item(LocatedItem {
             parent: self,
             index,
-        };
-        Location::Item(item)
-    }
-
-    /// Returns a string representation of this location as a JSON pointer.
-    pub fn to_pointer(&self) -> String {
-        self.as_json_pointer().to_string()
-    }
-
-    /// Returns a struct that implements `Display` and `Debug` to format the location as a json pointer.
-    pub fn as_json_pointer<'b>(&'b self) -> JsonPointer<'a, 'b> {
-        JsonPointer(self)
-    }
-
-    fn format_pointer(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Location::Root => Ok(()),
-            Location::Property(LocatedProperty { parent, name, .. }) => {
-                write!(f, "{}/{}", parent.as_json_pointer(), name)
-            }
-            Location::Item(LocatedItem { parent, index }) => {
-                write!(f, "{}/{}", parent.as_json_pointer(), index)
-            }
-        }
+        })
     }
 }
 
@@ -126,19 +91,45 @@ pub struct LocatedItem<'a> {
     pub index: usize,
 }
 
-/// The `Display` impl formats the Location as a fragment with a json pointer. If you just want the
-/// pointer without the leading `#`, then use `Location::as_json_pointer`.
+/// The `Display` impl formats the Location as an escaped RFC 6901 JSON Pointer
+/// (i.e., with '~' => "~0" and '/' => "~1") which is additionally URL-encoded,
+/// making it directly useable within URL query and fragment components.
 impl<'a> fmt::Display for Location<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "#{}", self.as_json_pointer())
+        match *self {
+            Location::Root => write!(f, ""),
+            Location::Property(LocatedProperty { parent, name, .. }) => {
+                write!(f, "{}/", parent)?;
+
+                for p in utf8_percent_encode(name, PTR_ESCAPE_SET) {
+                    for c in p.chars() {
+                        match c {
+                            '~' => f.write_str("~0")?,
+                            '/' => f.write_str("~1")?,
+                            _ => f.write_char(c)?,
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Location::Item(LocatedItem { parent, index }) => write!(f, "{}/{}", parent, index),
+        }
     }
 }
 
-impl<'a> fmt::Debug for Location<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
+/// This is a superset of the required fragment and query percent-encode sets.
+/// See: https://url.spec.whatwg.org/#fragment-percent-encode-set
+const PTR_ESCAPE_SET: &AsciiSet = &CONTROLS
+    .add(b'%')
+    .add(b' ')
+    .add(b'"')
+    .add(b'<')
+    .add(b'>')
+    .add(b'`')
+    .add(b'#')
+    .add(b'?')
+    .add(b'&')
+    .add(b'=');
 
 /// `Walker` visits values within JSON documents.
 pub trait Walker {

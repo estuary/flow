@@ -1,10 +1,10 @@
-use super::{sql_params, BuildContext, ContentType, Error, Resource, Result, DB};
+use super::{sql_params, ContentType, Resource, Result, Scope, DB};
 use crate::doc::Schema as CompiledSchema;
 use crate::specs::build as specs;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
 
-pub const INLINE_POINTER_KEY: &str = "schema_ptr";
+pub const INLINE_POINTER_KEY: &str = "ptr";
 
 /// Schema represents a JSON-Schema document, and an optional fragment which
 /// further locates a specific sub-schema thereof.
@@ -22,119 +22,121 @@ impl Schema {
         Ok(url)
     }
 
-    /// Register a JSON-Schema document. If already registered, this is a no-op and its existing
-    /// handle is returned. Otherwise the document and all of its recursive references are added to
-    /// the catalog. The return value will hold both the full `Schema`, as well as the `Url` that
-    /// should be used to reference the specific sub-schema within it.
-    pub fn register(context: &BuildContext, spec: &specs::Schema) -> Result<Schema> {
-        match spec {
-            specs::Schema::Url(url) => {
-                // Schema URLs frequently have fragment components which locate a specific
-                // sub-schema within the schema document. Decompose and separately track it,
-                // then work with the entire schema document.
-                let mut url = context.resource_url.join(url)?;
-                let fragment = url.fragment().map(str::to_owned);
-                url.set_fragment(None);
-
-                let resource = Resource::register(context.db, ContentType::Schema, &url)?;
-                let context = context.for_new_resource(&url);
-
-                Schema::register_schema_resource(&context, resource, url.clone(), fragment)
-            }
-            inline @ specs::Schema::Object(_) | inline @ specs::Schema::Bool(_) => {
+    /// Register a JSON-Schema document relative to a current, external Resource
+    /// (which must be the current Resource of the Scope). The JSON-Schema may
+    /// be either a relative URL, or inline.
+    /// * If a relative URL, the canonical URL is determined by joining with the
+    ///   Scope's base URL in the usual way.
+    /// * If an inline URL, a canonical URL is created by extending the Scope's
+    ///   base URL with a query argument which captures the Scope's current
+    ///   location. The inline document is then registered as a resource at that
+    ///   (fictional) URL.
+    pub fn register(scope: Scope, spec: &specs::Schema) -> Result<Schema> {
+        // Map either inline vs relative URL cases to a canonical URL.
+        let url = match spec {
+            specs::Schema::Object(_) | specs::Schema::Bool(_) => {
                 // Create the full URL by taking the URL of the parent resource (typically a
                 // catalog yaml document) and adding a query parameter with a json pointer to
                 // the location of the inline schema.
-                let mut url = context.resource_url.clone();
-                url.query_pairs_mut()
-                    .append_pair(INLINE_POINTER_KEY, &context.current_location_pointer());
+                let mut url = scope.resource().primary_url(scope.db)?;
+                url.set_query(Some(&format!("{}={}", INLINE_POINTER_KEY, scope.location)));
 
-                // Now we'll create the content for this resource, since `Resource::register` won't
-                // be able to resolve the json pointer. Technically, this means that inline schemas
-                // get stored twice. Once in the original catalog resource, and again in the schema
-                // resource, which has the same URL except with the addition of the query
-                // parameter.
-                let content = serde_json::to_vec(inline)?;
-                let resource = Resource::register_content(
-                    context.db,
+                Resource::register_content(
+                    scope.db,
                     ContentType::Schema,
                     &url,
-                    content.as_slice(),
+                    serde_json::to_vec(spec)?.as_slice(),
                 )?;
-                // For inline schemas, the `resource_url` and the `schema_url` will be the same.
-                Schema::register_schema_resource(context, resource, url, None)
+                url
             }
-        }
+            specs::Schema::Url(url) => scope.resource().primary_url(scope.db)?.join(url)?,
+        };
+
+        Self::register_url(scope, &url)
     }
 
-    fn register_schema_resource(
-        context: &BuildContext,
-        resource: Resource,
-        url: Url,
-        fragment: Option<String>,
-    ) -> Result<Schema> {
+    /// Register a JSON-Schema document at the URL. If already registered, this
+    /// is a no-op and its existing handle is returned. Otherwise the document
+    /// and all of its recursive references are added to the catalog.
+    pub fn register_url(scope: Scope, url: &Url) -> Result<Schema> {
+        // Schema URLs frequently have fragment components which locate a specific
+        // sub-schema within the schema document. Decompose it to track separately,
+        // then work with the entire schema document.
+        let fragment = url.fragment().map(str::to_owned);
+        let mut url = url.clone();
+        url.set_fragment(None);
+
+        let resource = Resource::register(scope.db, ContentType::Schema, &url)?;
+        let scope = scope.push_resource(resource);
         let schema = Schema { resource, fragment };
-        if !resource.is_processed(context.db)? {
-            resource.mark_as_processed(context.db)?;
 
-            let dom = schema.resource.content(context.db)?;
-            let dom = serde_yaml::from_slice::<serde_json::Value>(&dom)?;
-
-            let compiled: CompiledSchema = build_schema(url, &dom)?;
-
-            // Walk the schema to identify sub-schemas having canonical URIs which differ
-            // from the registered |url|. Each of these canonical URIs is registered as
-            // an alternate URL of this schema resource. By doing this, when we encounter
-            // a direct reference to a sub-schema's canonical URI elsewhere, we will
-            // correctly resolve it back to this resource.
-            schema.register_alternate_urls(context.db, &compiled)?;
-
-            // Walk the schema again, this time registering schemas which it references.
-            // Since we've already registered alternate URLs, and usage of those URLs
-            // in references will correctly resolve back to this document.
-            schema.register_references(context, &compiled)?;
+        if resource.is_processed(scope.db)? {
+            return Ok(schema);
         }
+        resource.mark_as_processed(scope.db)?;
+
+        let dom = resource.content(scope.db)?;
+        let dom = serde_yaml::from_slice::<serde_json::Value>(&dom)?;
+        let compiled: CompiledSchema = build_schema(url, &dom)?;
+
+        // Walk the schema to identify sub-schemas having canonical URIs which differ
+        // from the registered |url|. Each of these canonical URIs is registered as
+        // an alternate URL of this schema resource. By doing this, when we encounter
+        // a direct reference to a sub-schema's canonical URI elsewhere, we will
+        // correctly resolve it back to this resource.
+        Self::register_alternate_urls(scope, &compiled)?;
+
+        // Walk the schema again, this time registering schemas which it references.
+        // Since we've already registered alternate URLs, usages of those URLs
+        // in references will correctly resolve back to this document.
+        Self::register_references(scope, &compiled)?;
+
         Ok(schema)
     }
 
     /// Walks compiled schema and registers an alternate URL for each encountered $id.
-    fn register_alternate_urls(&self, db: &DB, compiled: &CompiledSchema) -> Result<()> {
+    fn register_alternate_urls(scope: Scope, compiled: &CompiledSchema) -> Result<()> {
         // Register Schemas having fragment-less canonical URIs.
         // Note the JSON-Schema spec requires that $id applications have no fragment.
         if compiled.curi.fragment().is_none() {
-            self.resource.register_alternate_url(db, &compiled.curi)?;
+            scope
+                .resource()
+                .register_alternate_url(scope.db, &compiled.curi)?;
         }
         for kw in &compiled.kw {
-            if let Keyword::Application(_, child) = kw {
-                self.register_alternate_urls(&db, child)?;
+            if let Keyword::Application(app, child) = kw {
+                // Add Application keywords to the Scope's Location.
+                let location = app.push_keyword(&scope.location);
+                let scope = Scope {
+                    location: app.push_keyword_target(&location),
+                    ..scope
+                };
+                Self::register_alternate_urls(scope, child)?;
             }
         }
         Ok(())
     }
 
     /// Walks compiled schema and registers schemas which it references.
-    fn register_references(&self, context: &BuildContext, compiled: &CompiledSchema) -> Result<()> {
+    fn register_references(scope: Scope, compiled: &CompiledSchema) -> Result<()> {
         for kw in &compiled.kw {
             if let Keyword::Application(app, child) = kw {
+                // Add Application keywords to the Scope's Location.
+                let location = app.push_keyword(&scope.location);
+                let scope = Scope {
+                    location: app.push_keyword_target(&location),
+                    ..scope
+                };
                 // "Ref" applications indirect to a canonical schema URI which may
                 // be in this document or another, and often include a fragment
                 // component bearing a JSON-pointer into the document. We strip the
                 // fragment here, since we're registering with whole-document granularity.
-                if let Application::Ref(ref_uri) = app {
-                    let mut uri = context.resource_url.join(ref_uri.as_str())?;
-                    uri.set_fragment(None);
-                    let spec = specs::Schema::Url(uri.to_string());
-
-                    let context = BuildContext::new_from_root(context.db, &uri);
-                    let import = Self::register(&context, &spec).map_err(|e| Error::At {
-                        loc: format!("$ref: {}", ref_uri),
-                        detail: Box::new(e),
-                    })?;
-
-                    Resource::register_import(context.db, self.resource, import.resource)?;
+                if let Application::Ref(uri) = app {
+                    let refed = Self::register_url(scope, uri)?;
+                    Resource::register_import(scope, refed.resource)?;
                 }
                 // Recurse to sub-schemas.
-                self.register_references(context, child)?;
+                Self::register_references(scope, child)?;
             }
         }
         Ok(())
@@ -213,15 +215,13 @@ mod test {
         )?;
 
         let url = Url::parse("test://actual")?;
-        let context = BuildContext::new_from_root(&db, &url);
-
         // Kick off registration using the registered resource path. Expect it works.
-        let s = Schema::register(&context, &specs::Schema::Url(url.to_string()))?;
+        let s = Schema::register_url(Scope::empty(&db), &url)?;
 
         assert_eq!(s.resource.id, 10);
         assert!(s.resource.is_processed(&db)?);
         assert!(s.fragment.is_none());
-        assert_eq!(s.primary_url_with_fragment(&context.db)?, url);
+        assert_eq!(s.primary_url_with_fragment(&db)?, url);
 
         assert_eq!(
             dump_table(&db, "resource_urls")?,
@@ -265,12 +265,10 @@ mod test {
             sql_params![],
         )?;
         let url = Url::parse("file:///dev/null/a#/$defs/a")?;
-        let context = BuildContext::new_from_root(&db, &url);
-
-        let s = Schema::register(&context, &specs::Schema::Url(url.to_string()))?;
+        let s = Schema::register_url(Scope::empty(&db), &url)?;
         assert_eq!(s.resource.id, 10);
         assert_eq!(s.fragment.as_ref().unwrap(), "/$defs/a");
-        assert_eq!(s.primary_url_with_fragment(&context.db)?, url);
+        assert_eq!(s.primary_url_with_fragment(&db)?, url);
 
         assert_eq!(
             dump_tables(&db, &["resources", "resource_imports"])?,
@@ -307,7 +305,7 @@ mod test {
         "##;
 
         db.execute(
-            "INSERT INTO resources (resource_id, content_type, content, is_processed) 
+            "INSERT INTO resources (resource_id, content_type, content, is_processed)
             VALUES
             (10, 'application/vnd.estuary.dev-catalog-spec+yaml', CAST(? AS BLOB), FALSE);",
             sql_params![catalog_yaml],
@@ -318,20 +316,17 @@ mod test {
             sql_params![],
         )?;
 
-        let url = Url::parse("file:///dev/null/a/catalog.yaml")?;
-        let context = BuildContext::new_from_root(&db, &url);
         let spec = serde_yaml::from_str::<specs::Catalog>(catalog_yaml)?;
 
-        let result = context
-            .process_child_field(
-                "collections/0/schema",
-                &spec.collections[0].schema,
-                Schema::register,
-            )
-            .expect("failed to register schema");
+        let result = Scope::empty(&db)
+            .push_resource(Resource { id: 10 })
+            .push_prop("path to")
+            .push_item(32)
+            .push_prop("schema")
+            .then(|scope| Schema::register(scope, &spec.collections[0].schema))?;
 
         assert_eq!(
-            Url::parse("file:///dev/null/a/catalog.yaml?schema_ptr=%2Fcollections%2F0%2Fschema")?,
+            Url::parse("file:///dev/null/a/catalog.yaml?ptr=/path%20to/32/schema")?,
             result.resource.primary_url(&db)?
         );
         assert!(result.fragment.is_none());

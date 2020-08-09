@@ -1,4 +1,4 @@
-use super::{ContentType, Resource, Result, DB};
+use super::{ContentType, Resource, Result, Scope};
 use crate::specs::build as specs;
 use url::Url;
 
@@ -10,7 +10,8 @@ pub struct Lambda {
 
 impl Lambda {
     /// Register a Lambda with the catalog.
-    pub fn register(db: &DB, res: Resource, spec: &specs::Lambda) -> Result<Lambda> {
+    pub fn register(scope: Scope, spec: &specs::Lambda) -> Result<Lambda> {
+        let db = scope.db;
         match spec {
             specs::Lambda::Remote(endpoint) => {
                 Url::parse(endpoint)?; // Must be a base URI.
@@ -27,9 +28,9 @@ impl Lambda {
                     .execute(&[body])?;
             }
             specs::Lambda::SqliteFile(url) => {
-                let url = res.join(db, url)?;
-                let import = Resource::register(db, ContentType::Sql, &url)?;
-                Resource::register_import(db, res, import)?;
+                let url = scope.resource().join(scope.db, url)?;
+                let import = Resource::register(scope.db, ContentType::Sql, &url)?;
+                Resource::register_import(scope, import)?;
 
                 db.prepare_cached(
                     "INSERT INTO lambdas (runtime, resource_id) VALUES ('sqliteFile', ?)",
@@ -79,8 +80,11 @@ mod test {
             SqliteFile("../sibling/some.sql".to_owned()),
         ];
 
-        for fixture in fixtures.iter() {
-            Lambda::register(&db, root, fixture)?;
+        for (index, fixture) in fixtures.iter().enumerate() {
+            Scope::empty(&db)
+                .push_resource(root)
+                .push_item(index)
+                .then(|scope| Lambda::register(scope, fixture))?;
         }
 
         assert_eq!(

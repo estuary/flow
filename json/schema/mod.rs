@@ -1,8 +1,6 @@
 use crate::Number;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json as sj;
 use std::fmt::Write;
-use std::ops::Add;
 
 pub mod build;
 pub mod index;
@@ -124,84 +122,82 @@ pub enum Application {
     UnevaluatedItems,
 }
 
-fn encode_frag_ptr(into: &mut String, component: &str) {
-    for p in utf8_percent_encode(component, FRAGMENT) {
-        for c in p.chars() {
-            match c {
-                '~' => into.push_str("~0"),
-                '/' => into.push_str("~1"),
-                _ => into.push(c),
-            }
-        }
-    }
-}
-
 impl Application {
-    pub fn extend_fragment_pointer(&self, mut ptr: String) -> String {
-        ptr.push('/');
-
+    /// Returns a new Location that extends this one with the Application's keyword.
+    pub fn push_keyword<'a>(&'a self, parent: &'a super::Location<'a>) -> super::Location<'a> {
         use Application::*;
         match self {
-            Def { key } => {
-                ptr.push_str(keywords::DEF);
-                ptr.push('/');
-                encode_frag_ptr(&mut ptr, key);
-                ptr
-            }
+            Def { .. } => parent.push_prop(keywords::DEF),
 
             // In-place keywords.
-            Ref(_) => ptr.add(keywords::REF),
-            RecursiveRef(_) => ptr.add(keywords::RECURSIVE_REF),
-            AnyOf { index } => {
-                write!(&mut ptr, "{}/{}", keywords::ANY_OF, index).unwrap();
-                ptr
-            }
-            AllOf { index } => {
-                write!(&mut ptr, "{}/{}", keywords::ALL_OF, index).unwrap();
-                ptr
-            }
-            OneOf { index } => {
-                write!(&mut ptr, "{}/{}", keywords::ONE_OF, index).unwrap();
-                ptr
-            }
-            Not => ptr.add(keywords::NOT),
-            If => ptr.add(keywords::IF),
-            Then => ptr.add(keywords::THEN),
-            Else => ptr.add(keywords::ELSE),
-            DependentSchema { if_, .. } => {
-                ptr.push_str(keywords::DEPENDENT_SCHEMAS);
-                ptr.push('/');
-                encode_frag_ptr(&mut ptr, if_);
-                ptr
-            }
+            Ref(_) => parent.push_prop(keywords::REF),
+            RecursiveRef(_) => parent.push_prop(keywords::RECURSIVE_REF),
+            AnyOf { .. } => parent.push_prop(keywords::ANY_OF),
+            AllOf { .. } => parent.push_prop(keywords::ALL_OF),
+            OneOf { .. } => parent.push_prop(keywords::ONE_OF),
+            Not => parent.push_prop(keywords::NOT),
+            If => parent.push_prop(keywords::IF),
+            Then => parent.push_prop(keywords::THEN),
+            Else => parent.push_prop(keywords::ELSE),
+            DependentSchema { .. } => parent.push_prop(keywords::DEPENDENT_SCHEMAS),
 
             // Property keywords.
-            PropertyNames => ptr.add(keywords::PROPERTY_NAMES),
-            Properties { name, .. } => {
-                ptr.push_str(keywords::PROPERTIES);
-                ptr.push('/');
-                encode_frag_ptr(&mut ptr, name);
-                ptr
-            }
-            PatternProperties { re, .. } => {
-                ptr.push_str(keywords::PATTERN_PROPERTIES);
-                ptr.push('/');
-                encode_frag_ptr(&mut ptr, re.as_str());
-                ptr
-            }
-            AdditionalProperties => ptr.add(keywords::ADDITIONAL_PROPERTIES),
-            UnevaluatedProperties => ptr.add(keywords::UNEVALUATED_PROPERTIES),
+            PropertyNames => parent.push_prop(keywords::PROPERTY_NAMES),
+            Properties { .. } => parent.push_prop(keywords::PROPERTIES),
+            PatternProperties { .. } => parent.push_prop(keywords::PATTERN_PROPERTIES),
+            AdditionalProperties => parent.push_prop(keywords::ADDITIONAL_PROPERTIES),
+            UnevaluatedProperties => parent.push_prop(keywords::UNEVALUATED_PROPERTIES),
 
             // Item keywords.
-            Contains => ptr.add(keywords::CONTAINS),
-            Items { index: None } => ptr.add(keywords::ITEMS),
-            Items { index: Some(i) } => {
-                write!(&mut ptr, "{}/{}", keywords::ITEMS, i).unwrap();
-                ptr
-            }
-            AdditionalItems => ptr.add(keywords::ADDITIONAL_ITEMS),
-            UnevaluatedItems => ptr.add(keywords::UNEVALUATED_ITEMS),
+            Contains => parent.push_prop(keywords::CONTAINS),
+            Items { .. } => parent.push_prop(keywords::ITEMS),
+            AdditionalItems => parent.push_prop(keywords::ADDITIONAL_ITEMS),
+            UnevaluatedItems => parent.push_prop(keywords::UNEVALUATED_ITEMS),
         }
+    }
+
+    /// Returns a new Location that extends this one with the Application's target,
+    /// if applicable. If not applicable, a copy of |parent| is returned instead.
+    /// The parent should be a Location of this Application's keyword (c.f. push_keyword).
+    pub fn push_keyword_target<'a>(
+        &'a self,
+        parent: &'a super::Location<'a>,
+    ) -> super::Location<'a> {
+        use Application::*;
+        match self {
+            Def { key } => parent.push_prop(key),
+
+            // In-place keywords.
+            Ref(_) => *parent,
+            RecursiveRef(_) => *parent,
+            AnyOf { index } => parent.push_item(*index),
+            AllOf { index } => parent.push_item(*index),
+            OneOf { index } => parent.push_item(*index),
+            Not | If | Then | Else => *parent,
+            DependentSchema { if_, .. } => parent.push_prop(if_),
+
+            // Property keywords.
+            PropertyNames => *parent,
+            Properties { name, .. } => parent.push_prop(name),
+            PatternProperties { re, .. } => parent.push_prop(re.as_str()),
+            AdditionalProperties | UnevaluatedProperties => *parent,
+
+            // Item keywords.
+            Contains => *parent,
+            Items { index: None } => *parent,
+            Items { index: Some(i) } => parent.push_item(*i),
+            AdditionalItems | UnevaluatedItems => *parent,
+        }
+    }
+
+    /// Extend |ptr| with the JSON-Pointer components of this Application.
+    pub fn extend_fragment_pointer(&self, mut ptr: String) -> String {
+        let l_root = super::Location::Root;
+        let l_kw = self.push_keyword(&l_root);
+        let l_kwt = self.push_keyword_target(&l_kw);
+
+        write!(&mut ptr, "{}", l_kwt).unwrap();
+        ptr
     }
 }
 
@@ -254,12 +250,3 @@ pub enum Validation {
         then_interned: intern::Set,
     },
 }
-
-/// https://url.spec.whatwg.org/#fragment-percent-encode-set
-const FRAGMENT: &AsciiSet = &CONTROLS
-    .add(b'%')
-    .add(b' ')
-    .add(b'"')
-    .add(b'<')
-    .add(b'>')
-    .add(b'`');
