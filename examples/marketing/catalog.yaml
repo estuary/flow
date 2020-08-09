@@ -2,7 +2,6 @@ nodeDependencies:
   moment: "^2.24"
 
 collections:
-
   - name: marketing/campaigns
     schema: schemas.yaml#/$defs/campaign
     key: [/campaign_id]
@@ -31,10 +30,11 @@ collections:
     derivation:
       parallelism: 8
       transform:
-        # Index the campaign on its id. We broadcast out to 4 processors because
-        # there are relatively few of these, and we can spread out the load of any
-        # particularly "hot" campaign IDs.
-        - source:
+        indexCampaigns:
+          # Index the campaign on its id. We broadcast out to 4 processors because
+          # there are relatively few of these, and we can spread out the load of any
+          # particularly "hot" campaign IDs.
+          source:
             name: marketing/campaigns
           shuffle:
             # As we don't specify a key, the source key "/campaign_id" is used by default.
@@ -43,7 +43,8 @@ collections:
             nodeJS: |
               await store.set(`${source.campaign_id}`, source)
         # Enrich each view event by joining with its present campaign.
-        - source:
+        joinViewWithIndexedCampaign:
+          source:
             name: marketing/offer/views
           shuffle:
             # Shuffle to a processor which indexed this view's campaign.
@@ -65,7 +66,8 @@ collections:
       parallelism: 8
       transform:
         # Index each view with a 2-day TTL relative to the view's timestamp.
-        - source:
+        indexViews:
+          source:
             name: marketing/views-with-campaign
           lambda:
             nodeJS: |
@@ -73,7 +75,8 @@ collections:
               let expiry = ts.add({days: 2});
               await store.set(source.view_id, source, expiry.toDate());
         # Enrich clicks by adding its indexed `view`.
-        - source:
+        joinClickWithIndexedViews:
+          source:
             name: marketing/offer/clicks
           shuffle:
             key: [/view_id]
@@ -106,7 +109,8 @@ collections:
         # Index views with a 30-day look-back. For a given user ID, only the first
         # view of any UTC day is indexed (meaning each user will have at most 30
         # views indexed at a given time).
-        - source:
+        indexViews:
+          source:
             name: marketing/views-with-campaign
           shuffle:
             key: [/user_id]
@@ -119,7 +123,8 @@ collections:
 
         # Index clicks with a 30-day look-back. Track only the first click of a given
         # user and hour. Each click has already been enriched with a joined view.
-        - source:
+        indexClicks:
+          source:
             name: marketing/clicks-with-views
           shuffle:
             key: [/user_id]
@@ -131,7 +136,8 @@ collections:
               await store.set(key, source, expiry.toDate());
 
         # Enrich purchase events by joining with all indexed views and clicks.
-        - source:
+        joinPurchaseWithViewsAndClicks:
+          source:
             name: marketing/purchases
           shuffle:
             key: [/user_id]

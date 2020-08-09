@@ -86,7 +86,7 @@ pub struct Derivation {
     #[serde(default)]
     pub bootstrap: Vec<Lambda>,
     /// Transforms of source collections which produce the derived collection.
-    pub transform: Vec<Transform>,
+    pub transform: BTreeMap<String, Transform>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

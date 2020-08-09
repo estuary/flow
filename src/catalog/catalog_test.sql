@@ -263,11 +263,6 @@ VALUES ("one", 2, 1, 2, NULL, NULL),
 UPDATE transforms
 SET transform_name = NULL
 WHERE transform_id = 1;
--- TODO(johnny): Currently NULL names are allowed, until transform names are wired up properly.
--- Undo the effects of the above case.
-UPDATE transforms
-SET transform_name = "one"
-WHERE transform_id = 1;
 
 -- And must be unique to the derivation.
 UPDATE transforms

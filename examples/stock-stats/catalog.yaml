@@ -30,8 +30,9 @@ collections:
       bootstrap:
         - nodeJS: console.error("example of a bootstrap!");
       transform:
-        - source:
-            name:   stock/ticks
+        fromTicks:
+          source:
+            name: stock/ticks
             schema: "schemas/L1-tick.yaml#/$defs/withRequired"
             partitions:
               include:

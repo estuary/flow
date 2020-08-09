@@ -27,11 +27,11 @@ impl Derivation {
                 .push_item(index)
                 .then(|scope| derivation.register_bootstrap(scope, spec))?;
         }
-        for (index, spec) in spec.transform.iter().enumerate() {
+        for (name, spec) in spec.transform.iter() {
             scope
                 .push_prop("transform")
-                .push_item(index)
-                .then(|scope| derivation.register_transform(scope, spec))?;
+                .push_prop(name)
+                .then(|scope| derivation.register_transform(scope, name, spec))?;
         }
         Ok(derivation)
     }
@@ -46,7 +46,7 @@ impl Derivation {
         Ok(())
     }
 
-    fn register_transform(&self, scope: Scope, spec: &specs::Transform) -> Result<()> {
+    fn register_transform(&self, scope: Scope, name: &str, spec: &specs::Transform) -> Result<()> {
         // Map spec source collection name to its collection ID.
         let source = scope.push_prop("source").then(|scope| {
             let (cid, rid) = scope
@@ -86,6 +86,7 @@ impl Derivation {
             .prepare_cached(
                 "INSERT INTO transforms (
                         derivation_id,
+                        transform_name,
                         source_collection_id,
                         lambda_id,
                         source_schema_uri,
@@ -93,10 +94,11 @@ impl Derivation {
                         shuffle_broadcast,
                         shuffle_choose,
                         read_delay_seconds
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 self.collection.id,
+                name,
                 source.id,
                 lambda.id,
                 schema_url,
@@ -212,8 +214,8 @@ mod test {
                 "bootstrap": [
                     {"nodeJS": "nodeJS bootstrap"},
                 ],
-                "transform": [
-                    {
+                "transform": {
+                    "some-name": {
                         "source": {
                             "name": "src/collection",
                             "schema": "alt-schema.json#foobar",
@@ -229,7 +231,7 @@ mod test {
                         },
                         "lambda": {"nodeJS": "lambda one"},
                     },
-                ],
+                },
             }
         }))?;
         Collection::register(scope, &spec)?;
@@ -240,12 +242,12 @@ mod test {
             "schema": "a-schema.json",
             "key": ["/d2-key"],
             "derivation": {
-                "transform": [
-                    {
+                "transform": {
+                    "do-the-thing": {
                         "source": {"name": "src/collection"},
                         "lambda": {"nodeJS": "lambda two"},
                     },
-                ],
+                },
             }
         }))?;
         Collection::register(scope, &spec)?;
@@ -277,8 +279,8 @@ mod test {
                     [3, "nodeJS","lambda two", null],
                 ],
                 "transforms":[
-                    [1, 2, null, 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3, 3600],
-                    [2, 3, null, 1, 3, null, null, null, null, null],
+                    [1, 2, "some-name", 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3, 3600],
+                    [2, 3, "do-the-thing", 1, 3, null, null, null, null, null],
                 ],
                 "transform_source_partitions":[
                     [1, 1, "a_field", "foo", false],

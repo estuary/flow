@@ -373,16 +373,10 @@ VALUES ("one", 2, 1, 2, NULL, NULL),
 changes:   5   total_changes: XYZ
 
 -- Name must be set.
+Error: near line (XYZ): NOT NULL constraint failed: transforms.transform_name
 UPDATE transforms
 SET transform_name = NULL
 WHERE transform_id = 1;
-changes:   1   total_changes: XYZ
--- TODO(johnny): Currently NULL names are allowed, until transform names are wired up properly.
--- Undo the effects of the above case.
-UPDATE transforms
-SET transform_name = "one"
-WHERE transform_id = 1;
-changes:   1   total_changes: XYZ
 
 -- And must be unique to the derivation.
 Error: near line (XYZ): UNIQUE constraint failed: transforms.transform_name, transforms.derivation_id

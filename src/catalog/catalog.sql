@@ -266,7 +266,7 @@ CREATE TABLE transforms
 (
     transform_id           INTEGER PRIMARY KEY NOT NULL,
     derivation_id          INTEGER             NOT NULL REFERENCES derivations (collection_id),
-    transform_name         TEXT, -- TODO(johnny): Enable non-null check:  NOT NULL,
+    transform_name         TEXT                NOT NULL,
     source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
     lambda_id              INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
     source_schema_uri      TEXT,
