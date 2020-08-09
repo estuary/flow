@@ -1,5 +1,5 @@
 use super::{sql_params, ContentType, Resource, Result, Scope, DB};
-use crate::doc::Schema as CompiledSchema;
+use crate::doc::{Schema as CompiledSchema, SchemaIndex};
 use crate::specs::build as specs;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
@@ -55,43 +55,48 @@ impl Schema {
         Self::register_url(scope, &url)
     }
 
-    /// Register a JSON-Schema document at the URL. If already registered, this
-    /// is a no-op and its existing handle is returned. Otherwise the document
-    /// and all of its recursive references are added to the catalog.
-    pub fn register_url(scope: Scope, url: &Url) -> Result<Schema> {
+    /// Register a JSON-Schema document at the URL, which must be the canonical
+    /// URI of the schema. If already registered, this is a no-op and its existing
+    /// handle is returned. Otherwise the document and all of its recursive references
+    /// are added to the catalog.
+    pub fn register_url(scope: Scope, canonical_url: &Url) -> Result<Schema> {
         // Schema URLs frequently have fragment components which locate a specific
         // sub-schema within the schema document. Decompose it to track separately,
         // then work with the entire schema document.
-        let fragment = url.fragment().map(str::to_owned);
-        let mut url = url.clone();
-        url.set_fragment(None);
+        let fragment = canonical_url.fragment().map(str::to_owned);
+        let mut base_url = canonical_url.clone();
+        base_url.set_fragment(None);
 
-        let resource = Resource::register(scope.db, ContentType::Schema, &url)?;
+        let resource = Resource::register(scope.db, ContentType::Schema, &base_url)?;
         let scope = scope.push_resource(resource);
-        let schema = Schema { resource, fragment };
-
-        if resource.is_processed(scope.db)? {
-            return Ok(schema);
-        }
-        resource.mark_as_processed(scope.db)?;
 
         let dom = resource.content(scope.db)?;
         let dom = serde_yaml::from_slice::<serde_json::Value>(&dom)?;
-        let compiled: CompiledSchema = build_schema(url, &dom)?;
+        let compiled: CompiledSchema = build_schema(resource.primary_url(scope.db)?, &dom)?;
 
-        // Walk the schema to identify sub-schemas having canonical URIs which differ
-        // from the registered |url|. Each of these canonical URIs is registered as
-        // an alternate URL of this schema resource. By doing this, when we encounter
-        // a direct reference to a sub-schema's canonical URI elsewhere, we will
-        // correctly resolve it back to this resource.
-        Self::register_alternate_urls(scope, &compiled)?;
+        if !resource.is_processed(scope.db)? {
+            resource.mark_as_processed(scope.db)?;
 
-        // Walk the schema again, this time registering schemas which it references.
-        // Since we've already registered alternate URLs, usages of those URLs
-        // in references will correctly resolve back to this document.
-        Self::register_references(scope, &compiled)?;
+            // Walk the schema to identify sub-schemas having canonical URIs which differ
+            // from the registered |url|. Each of these canonical URIs is registered as
+            // an alternate URL of this schema resource. By doing this, when we encounter
+            // a direct reference to a sub-schema's canonical URI elsewhere, we will
+            // correctly resolve it back to this resource.
+            Self::register_alternate_urls(scope, &compiled)?;
 
-        Ok(schema)
+            // Walk the schema again, this time registering schemas which it references.
+            // Since we've already registered alternate URLs, usages of those URLs
+            // in references will correctly resolve back to this document.
+            Self::register_references(scope, &compiled)?;
+        }
+
+        // Index the compiled schema, and confirm that the registered URL (with fragment)
+        // resolves correctly.
+        let mut index = SchemaIndex::new();
+        index.add(&compiled)?;
+        index.must_fetch(canonical_url)?;
+
+        Ok(Schema { resource, fragment })
     }
 
     /// Walks compiled schema and registers an alternate URL for each encountered $id.
@@ -177,31 +182,36 @@ mod test {
         init_db_schema(&db)?;
 
         let doc = json!({
-            "$id": "test://example/root",
             "$defs": {
-                "a": {
-                    "$id": "test://example/other/a-doc",
-                    "items": [
-                        true,
-                        {"$ref": "b-doc#/items/1"},
+                "wrapper": {
+                    "$id": "test://example/root",
+                    "$defs": {
+                        "a": {
+                            "$id": "test://example/other/a-doc",
+                            "items": [
+                                true,
+                                {"$ref": "b-doc#/items/1"},
+                            ],
+                        },
+                        "b": {
+                            "$id": "test://example/other/b-doc",
+                            "items": [
+                                {"$ref": "a-doc#/items/0"},
+                                true,
+                            ],
+                        },
+                        "c": true,
+                    },
+                    "allOf": [
+                        {"$ref": "other/a-doc#/items/1"},
+                        {"$ref": "test://example/other/b-doc#/items/0"},
+                        {"$ref": "#/$defs/c"},
+                        {"$ref": "root#/$defs/c"},
+                        {"$ref": "test://example/root#/$defs/c"},
                     ],
-                },
-                "b": {
-                    "$id": "test://example/other/b-doc",
-                    "items": [
-                        {"$ref": "a-doc#/items/0"},
-                        true,
-                    ],
-                },
-                "c": true,
+                }
             },
-            "allOf": [
-                {"$ref": "other/a-doc#/items/1"},
-                {"$ref": "test://example/other/b-doc#/items/0"},
-                {"$ref": "#/$defs/c"},
-                {"$ref": "root#/$defs/c"},
-                {"$ref": "test://example/root#/$defs/c"},
-            ],
+            "$ref": "test://example/root",
         });
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
@@ -216,7 +226,7 @@ mod test {
 
         let url = Url::parse("test://actual")?;
         // Kick off registration using the registered resource path. Expect it works.
-        let s = Schema::register_url(Scope::empty(&db), &url)?;
+        let s = Scope::empty(&db).then(|scope| Schema::register_url(scope, &url))?;
 
         assert_eq!(s.resource.id, 10);
         assert!(s.resource.is_processed(&db)?);

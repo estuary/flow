@@ -105,7 +105,8 @@ fn generate_collections_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     };
 
     // Generate a named type for each schema used by a collection.
-    let mut stmt = db.prepare("SELECT name, schema_uri, is_alternate FROM collection_schemas")?;
+    let mut stmt =
+        db.prepare("SELECT collection_name, schema_uri, is_alternate FROM collection_schemas")?;
     let mut rows = stmt.query(sql_params![])?;
 
     let p = pkg.join("src/catalog/collections.ts");
