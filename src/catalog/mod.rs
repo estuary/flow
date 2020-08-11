@@ -1,5 +1,6 @@
 mod db;
 mod regexp_sql_fn;
+mod unicode_collation;
 
 mod collection;
 mod content_type;
@@ -31,6 +32,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<DB> {
     let db = DB::open(path)?;
     regexp_sql_fn::install(&db)?; // Install support for REGEXP operator.
+    unicode_collation::install(&db)?;
     Ok(db)
 }
 

@@ -47,6 +47,7 @@ impl Collection {
                 .then(|scope| collection.register_fixture(scope, fixture))?;
         }
 
+        // TODO: (phil) register the default projections derived from the schema?
         for (index, projection) in spec.projections.iter().enumerate() {
             scope
                 .push_prop("projections")
@@ -157,7 +158,8 @@ mod test {
 
         Scope::empty(&db)
             .push_resource(Resource { id: 1 })
-            .then(|scope| Collection::register(scope, &spec))?;
+            .then(|scope| Collection::register(scope, &spec))
+            .expect("failed to register collection");
 
         // Expect that the schema and fixtures were processed.
         assert!(Resource { id: 10 }.is_processed(&db)?);

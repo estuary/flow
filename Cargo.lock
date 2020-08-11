@@ -186,6 +186,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e4cec68f03f32e44924783795810fa50a7035d8c8ebe78580ad7e6c703fba38"
 
 [[package]]
+name = "caseless"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "808dab3318747be122cb31d36de18d4d1c81277a76f8332a02b81a3d73463d7f"
+dependencies = [
+ "regex",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -363,6 +373,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bytes",
+ "caseless",
  "chrono",
  "clap",
  "estuary_json",
@@ -398,6 +409,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tower",
+ "unicode-normalization",
  "url",
  "uuid",
  "warp",
