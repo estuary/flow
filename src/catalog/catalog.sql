@@ -217,10 +217,17 @@ CREATE TABLE fixtures
 --      Collection to which this derivation applies.
 -- :parallelism:
 --      Number of parallel derivation processors.
+-- :register_uri:
+--      JSON-Schema to verify and supply reduction annotations over the
+--      derivation's register documents.
 CREATE TABLE derivations
 (
     collection_id INTEGER PRIMARY KEY NOT NULL REFERENCES collections (collection_id),
-    parallelism   INTEGER CHECK (parallelism > 0)
+    parallelism   INTEGER CHECK (parallelism > 0),
+    register_uri  TEXT                NOT NULL,
+
+    CONSTRAINT "Register schema must be a valid base (non-relative) URI" CHECK (
+        register_uri LIKE '_%://_%')
 );
 
 -- Bootstraps relate a derivation and lambdas which are invoked to initialize it.
@@ -243,8 +250,12 @@ CREATE TABLE bootstraps
 --      Derivation produced (in part) by this transform, and to which this transform belongs.
 -- :transform_name:
 --      Name of this transform, which must be unique amoung transforms of its derivation.
--- :lambda_id:
---      Lambda expression which consumes source documents and emits target documents.
+-- :update_id:
+--      Lambda expression which takes a source document and associated register,
+--      and emits documents to be combined back into the register.
+-- :publish_id:
+--      Lambda expression which takes a source document and associated register,
+--      and emits documents to be published into the derived collection.
 -- :source_collection_id:
 --      Collection being read from.
 -- :source_schema_uri:
@@ -268,7 +279,8 @@ CREATE TABLE transforms
     derivation_id          INTEGER             NOT NULL REFERENCES derivations (collection_id),
     transform_name         TEXT                NOT NULL,
     source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
-    lambda_id              INTEGER             NOT NULL REFERENCES lambdas (lambda_id),
+    update_id              INTEGER                      REFERENCES lambdas (lambda_id),
+    publish_id             INTEGER                      REFERENCES lambdas (lambda_id),
     source_schema_uri      TEXT,
     shuffle_key_json       TEXT,
     shuffle_broadcast      INTEGER CHECK (shuffle_broadcast > 0),
@@ -285,7 +297,9 @@ CREATE TABLE transforms
     CONSTRAINT "Cannot set both shuffle 'broadcast' and 'choose'" CHECK (
         (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL)),
     CONSTRAINT "Shuffle key must be NULL or non-empty JSON array of JSON-Pointers" CHECK (
-        JSON_ARRAY_LENGTH(shuffle_key_json) > 0)
+        JSON_ARRAY_LENGTH(shuffle_key_json) > 0),
+    CONSTRAINT "Must set at least one of 'update' or 'publish' lambdas" CHECK (
+        (update_id NOT NULL) OR (publish_id NOT NULL))
 );
 
 -- All transforms of a derivation reading from the same source, must also use the same source schema.
@@ -407,25 +421,36 @@ SELECT transforms.transform_id,
                 CASE WHEN transforms.shuffle_choose IS NULL THEN 1 ELSE 0 END) AS shuffle_broadcast,
        COALESCE(transforms.shuffle_choose, 0)                                  AS shuffle_choose,
 
-       -- Lambda fields.
-       transforms.lambda_id                                                    AS lambda_id,
-       lambdas.runtime                                                         AS lambda_runtime,
-       lambdas.inline                                                          AS lambda_inline,
-       lambdas.resource_id                                                     AS lambda_resource_id,
-       lambda_resources.content                                                AS lambda_resource_content
+       -- Update lambda fields.
+       transforms.update_id                                                    AS update_id,
+       updates.runtime                                                         AS update_runtime,
+       updates.inline                                                          AS update_inline,
+       updates.resource_id                                                     AS update_resource_id,
+       update_resources.content                                                AS update_resource_content,
+
+       -- Publish lambda fields.
+       transforms.publish_id                                                   AS publish_id,
+       publish.runtime                                                         AS publish_runtime,
+       publish.inline                                                          AS publish_inline,
+       publish.resource_id                                                     AS publish_resource_id,
+       publish_resources.content                                               AS publish_resource_content
 
 FROM transforms
          JOIN collections AS src
               ON transforms.source_collection_id = src.collection_id
          JOIN collections AS der
               ON transforms.derivation_id = der.collection_id
-         JOIN lambdas
-              ON transforms.lambda_id = lambdas.lambda_id
+         LEFT JOIN lambdas AS updates
+              ON transforms.update_id = updates.lambda_id
+         LEFT JOIN resources AS update_resources
+              ON updates.resource_id = update_resources.resource_id
+         LEFT JOIN lambdas AS publish
+              ON transforms.publish_id = publish.lambda_id
+         LEFT JOIN resources AS publish_resources
+              ON publish.resource_id = publish_resources.resource_id
          LEFT JOIN transform_source_partitions_json as source_partitions
               ON transforms.transform_id = source_partitions.transform_id
               AND transforms.source_collection_id = source_partitions.collection_id
-         LEFT JOIN resources AS lambda_resources
-                   ON lambdas.resource_id = lambda_resources.resource_id
 ;
 
 -- View over all schemas which apply to a collection.

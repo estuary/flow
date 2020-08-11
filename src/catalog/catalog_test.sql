@@ -204,23 +204,23 @@ VALUES (42, 2);
 INSERT INTO fixtures (collection_id, resource_id)
 VALUES (2, 42);
 
+-- Valid derivations.
+INSERT INTO derivations (collection_id, parallelism, register_uri)
+VALUES (2, NULL, "file:///path/to/a/schema.yaml#register"),
+       (3, 16, "file:///path/to/a/schema.yaml#other-register");
 
--- Valid derivation, with NULL parallelism.
-INSERT INTO derivations (collection_id)
-VALUES (2),
-       (3);
-
--- Invalid derivation (parallelism <= 0)
+-- Derivation parallelism must be NULL or > 0.
 UPDATE derivations
 SET parallelism = 0;
+-- Registers must not be NULL.
 UPDATE derivations
-SET parallelism = 16;
--- OK.
-
+SET register_uri = NULL;
 -- Invalid derivation (collection must exist).
-INSERT INTO derivations (collection_id)
-VALUES (42);
-
+INSERT INTO derivations (collection_id, register_uri)
+VALUES (42, "file:///path/to/a/schema.yaml#register");
+-- Invalid derivation (schema is not a URI).
+INSERT INTO derivations (collection_id, register_uri)
+VALUES (1, 'not-a-uri');
 
 -- Valid bootstrap.
 INSERT INTO bootstraps (derivation_id, lambda_id)
@@ -249,14 +249,15 @@ INSERT INTO transforms (
     transform_name,
     derivation_id,
     source_collection_id,
-    lambda_id,
+    update_id,
+    publish_id,
     read_delay_seconds,
     source_schema_uri)
-VALUES ("one", 2, 1, 2, NULL, NULL),
-       ("two", 2, 1, 3, NULL, NULL),
-       ("3re", 2, 1, 5, 60, NULL),
-       ("4or", 2, 1, 6, 120, NULL),
-       ("one", 3, 1, 7, 1, 'https://alt/source/schema#anchor')
+VALUES ("one", 2, 1, 2,    NULL, NULL, NULL),
+       ("two", 2, 1, NULL, 3,    NULL, NULL),
+       ("3re", 2, 1, NULL, 5,    60,   NULL),
+       ("4or", 2, 1, 6,    NULL, 120,  NULL),
+       ("one", 3, 1, 5,    7,    1,    'https://alt/source/schema#anchor')
 ;
 
 -- Name must be set.
@@ -321,9 +322,16 @@ WHERE transform_id = 1;
 -- Source collection must exist.
 UPDATE transforms
 SET source_collection_id = 42;
--- Lambda must exist.
+
+-- Update & publish lambdas must exist.
 UPDATE transforms
-SET lambda_id = 42;
+SET publish_id = 42;
+UPDATE transforms
+SET update_id = 42;
+-- At least one of update & publish must be set.
+UPDATE transforms
+SET publish_id = NULL, update_id = NULL
+WHERE transform_id = 1;
 
 -- Read delay must be positive.
 UPDATE transforms
@@ -331,20 +339,20 @@ SET read_delay_seconds = 0;
 
 -- The resource of the spec defining this transform must also import the
 -- spec of the referenced source collection.
-INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id)
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id)
 VALUES ("fails", 2, 4, 2);
 
 -- Transforms of a single derivation reading from the same source collection
 -- must all use the same source schema URI.
 
 -- Case: existing transform with same schema (success).
-INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("works", 3, 1, 7, 'https://alt/source/schema#anchor');
 -- Case: existing transform with explicit different schema (fails).
-INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("fails", 3, 1, 7, 'https://alt/source/schema#different-anchor');
 -- Case: existing transform with null source-schema (fails).
-INSERT INTO transforms (transform_name, derivation_id, source_collection_id, lambda_id, source_schema_uri)
+INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
 -- Valid transform source partitions.

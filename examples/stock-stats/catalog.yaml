@@ -27,6 +27,7 @@ collections:
         location: /bid
 
     derivation:
+      register: false
       bootstrap:
         - nodeJS: console.error("example of a bootstrap!");
       transform:
@@ -38,7 +39,7 @@ collections:
               include:
                 exchange: [NYSE, NASDAQ]
 
-          lambda:
+          publish:
             nodeJS: |
               // Alias "source" document to "tick".
               let tick = source;

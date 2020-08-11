@@ -25,18 +25,21 @@ impl std::convert::TryFrom<&sj::Value> for Strategy {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Minimize {
     #[serde(default)]
     key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Maximize {
     #[serde(default)]
     key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Merge {
     #[serde(default)]
     key: Vec<String>,

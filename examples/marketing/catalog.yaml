@@ -29,6 +29,7 @@ collections:
 
     derivation:
       parallelism: 8
+      register: schemas.yaml#/$defs/campaign
       transform:
         indexCampaigns:
           # Index the campaign on its id. We broadcast out to 4 processors because
@@ -39,9 +40,9 @@ collections:
           shuffle:
             # As we don't specify a key, the source key "/campaign_id" is used by default.
             broadcast: 4
-          lambda:
-            nodeJS: |
-              await store.set(`${source.campaign_id}`, source)
+          update:
+            # Index the latest campaign.
+            nodeJS: return [source];
         # Enrich each view event by joining with its present campaign.
         joinViewWithIndexedCampaign:
           source:
@@ -52,10 +53,9 @@ collections:
             # this campaign was broadcast.
             key: [/campaign_id]
             choose: 4
-          lambda:
+          publish:
             # Join the view with a previously indexed campaign.
-            nodeJS: |
-              return [{ ...source, campaign: await store.get(`${source.campaign_id}`) }]
+            nodeJS: "return [{ ...source, campaign: register }];"
 
   - name: marketing/clicks-with-views
     schema: schemas.yaml#/$defs/click-with-view
@@ -64,25 +64,22 @@ collections:
 
     derivation:
       parallelism: 8
+      register: schemas.yaml#/$defs/view-with-campaign
       transform:
         # Index each view with a 2-day TTL relative to the view's timestamp.
         indexViews:
           source:
             name: marketing/views-with-campaign
-          lambda:
-            nodeJS: |
-              let ts = moment.utc(source.timestamp);
-              let expiry = ts.add({days: 2});
-              await store.set(source.view_id, source, expiry.toDate());
+          update:
+            nodeJS: return [source];
         # Enrich clicks by adding its indexed `view`.
         joinClickWithIndexedViews:
           source:
             name: marketing/offer/clicks
           shuffle:
             key: [/view_id]
-          lambda:
-            nodeJS: |
-              return [{ ...source, view: await store.get(source.view_id) }]
+          publish:
+            nodeJS: "return [{ ...source, view: register }]"
 
   - name: marketing/purchases-with-offers
     # Example of using inline schemas, which can reference external schemas.
@@ -105,35 +102,70 @@ collections:
     derivation:
       parallelism: 8
 
+      # This derivation indexes a windowed history of clicks and views
+      # for the given user.
+      register:
+        $defs:
+          # A bounded map which is keyed on a timestamp, and retains a limited
+          # number of elements. The first value written with a given timestamp
+          # is retained.
+          boundedTimestampMap:
+            type: object
+            reduce:
+              strategy: merge
+              #limit: 20
+              #eviction:
+              #  drop: smallest
+            additionalProperties:
+              # Only the first record of a given time interval is kept.
+              reduce: 
+                strategy: firstWriteWins
+        properties:
+          lastSeen:
+            type: integer
+          views:
+            allOf:
+              - $ref: "#/$defs/boundedTimestampMap"
+              - additionalProperties:
+                  $ref: schemas.yaml#/$defs/view-with-campaign
+          clicks:
+            allOf:
+              - $ref: "#/$defs/boundedTimestampMap"
+              - additionalProperties:
+                  $ref: schemas.yaml#/$defs/click-with-view
+        #expiration:
+        #  # Retain for 30 days after the last observation of the user.
+        #  key: "/lastSeen"
+        #  delta: "720h"
+
       transform:
-        # Index views with a 30-day look-back. For a given user ID, only the first
-        # view of any UTC day is indexed (meaning each user will have at most 30
-        # views indexed at a given time).
+        # Index views of the user. Only the first view of a UTC day is retained.
         indexViews:
           source:
             name: marketing/views-with-campaign
           shuffle:
             key: [/user_id]
-          lambda:
+          update:
             nodeJS: |
               let ts = moment.utc(source.timestamp);
-              let key = `${source.user_id}/views/${ts.format('YYYY-MM-DD')}`;
-              let expiry = ts.add({days: 30});
-              await store.set(key, source, expiry.toDate());
+              return [{
+                lastSeen: source.timestamp,
+                views: { ts.format('YYYY-MM-DD'): source },
+              }];
 
-        # Index clicks with a 30-day look-back. Track only the first click of a given
-        # user and hour. Each click has already been enriched with a joined view.
+        # Index clicks of the user. Only the first click of a given hour is retained.
         indexClicks:
           source:
             name: marketing/clicks-with-views
           shuffle:
             key: [/user_id]
-          lambda:
+          update:
             nodeJS: |
               let ts = moment.utc(source.timestamp);
-              let key = `${source.user_id}/clicks/${ts.format('yyyy-mm-dd-hh')}`;
-              let expiry = ts.add({days: 30});
-              await store.set(key, source, expiry.toDate());
+              return [{
+                lastSeen: source.timestamp,
+                clicks: { ts.format('YYYY-MM-DD-HH'): source },
+              }];
 
         # Enrich purchase events by joining with all indexed views and clicks.
         joinPurchaseWithViewsAndClicks:
@@ -141,9 +173,6 @@ collections:
             name: marketing/purchases
           shuffle:
             key: [/user_id]
-          lambda:
+          publish:
             nodeJS: |
-              return [{ ...source,
-                views: await store.get(`${source.user_id}/views/`),
-                clicks: await store.get(`${source.user_id}/clicks/`),
-              }]
+              return [{ ...source, views: register.views, clicks: register.clicks }]

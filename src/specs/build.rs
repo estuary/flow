@@ -78,6 +78,12 @@ pub struct Derivation {
     /// changing parallelism also alters the correspondence of specific shuffle
     /// keys and the processor to which they are shuffled.
     pub parallelism: Option<u8>,
+    /// A derivation "register" is an place to store arbitrary internal state
+    /// which is shared between transforms of the derivation, and available to
+    /// lambdas alongside the source document which is being processed.
+    /// Derivations may have an arbitrary number of registers, where each register
+    /// is keyed on the shuffle ID of the source document.
+    pub register: Schema,
     /// Lambdas to invoke when an instance of a distributed processor is started,
     /// and before any messages are processed. This is an opportunity to initialize
     /// SQL tables or other state. Note that bootstrap lambdas will be invoked for
@@ -122,9 +128,18 @@ pub struct Transform {
     /// processor.
     #[serde(default)]
     pub shuffle: Shuffle,
-    /// Lambda to invoke to transform a source collection document into a derived
-    /// collection document.
-    pub lambda: Lambda,
+    /// An "update" lambda takes a source document and associated register,
+    /// produces documents to be reduced back into the register
+    /// according to its schema.
+    #[serde(default)]
+    pub update: Option<Lambda>,
+    /// A "publish" lambda takes a source document and associated register,
+    /// and produces or more documents to be published into the derived collection.
+    /// If the transform has both "update" and "publish" lambdas, the "update"
+    /// lambda is run first, its output is reduced into the register,
+    /// and then the "publish" lambda is invoked with the result.
+    #[serde(default)]
+    pub publish: Option<Lambda>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

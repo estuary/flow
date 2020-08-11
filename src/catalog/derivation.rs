@@ -14,10 +14,27 @@ impl Derivation {
         collection: Collection,
         spec: &specs::Derivation,
     ) -> Result<Derivation> {
+        // Register and import the register schema document.
+        let register = scope.push_prop("register").then(|scope| {
+            let register = Schema::register(scope, &spec.register)?;
+            Resource::register_import(scope, register.resource)?;
+            Ok(register)
+        })?;
+
         scope
             .db
-            .prepare_cached("INSERT INTO derivations (collection_id, parallelism) VALUES (?, ?)")?
-            .execute(sql_params![collection.id, spec.parallelism])?;
+            .prepare_cached(
+                "INSERT INTO derivations (
+                collection_id,
+                parallelism,
+                register_uri
+            ) VALUES (?, ?, ?)",
+            )?
+            .execute(sql_params![
+                collection.id,
+                spec.parallelism,
+                register.primary_url_with_fragment(scope.db)?,
+            ])?;
 
         let derivation = Derivation { collection };
 
@@ -77,9 +94,23 @@ impl Derivation {
                 None => Ok(None),
             })?;
 
-        let lambda = scope
-            .push_prop("lambda")
-            .then(|scope| Lambda::register(scope, &spec.lambda))?;
+        // Register "update" and "publish" lambdas.
+        let update = match &spec.update {
+            None => None,
+            Some(l) => Some(
+                scope
+                    .push_prop("update")
+                    .then(|scope| Lambda::register(scope, l))?,
+            ),
+        };
+        let publish = match &spec.publish {
+            None => None,
+            Some(l) => Some(
+                scope
+                    .push_prop("publish")
+                    .then(|scope| Lambda::register(scope, l))?,
+            ),
+        };
 
         scope
             .db
@@ -88,19 +119,21 @@ impl Derivation {
                         derivation_id,
                         transform_name,
                         source_collection_id,
-                        lambda_id,
+                        update_id,
+                        publish_id,
                         source_schema_uri,
                         shuffle_key_json,
                         shuffle_broadcast,
                         shuffle_choose,
                         read_delay_seconds
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 self.collection.id,
                 name,
                 source.id,
-                lambda.id,
+                update.map(|l| l.id),
+                publish.map(|l| l.id),
                 schema_url,
                 spec.shuffle
                     .key
@@ -176,18 +209,21 @@ mod test {
 
         let a_schema = json!(true);
         let alt_schema = json!({"$anchor": "foobar"});
+        let register_schema = json!({"$defs": {"qib": true}});
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
                     (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
                     (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
-                    (20, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
-            sql_params![a_schema, alt_schema],
+                    (20, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
+                    (30, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![a_schema, alt_schema, register_schema],
         )?;
         db.execute_batch(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
                     (10, 'test://example/a-schema.json', TRUE),
-                    (20, 'test://example/alt-schema.json', TRUE);
+                    (20, 'test://example/alt-schema.json', TRUE),
+                    (30, 'test://example/reg-schema.json', TRUE);
                 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id) VALUES
                     ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);
                 INSERT INTO projections (collection_id, field, location_ptr) VALUES
@@ -202,6 +238,7 @@ mod test {
 
         // Derived collection with:
         //  - Explicit parallelism.
+        //  - External register schema.
         //  - Explicit alternate source schema.
         //  - Explicit shuffle key w/ choose.
         //  - Explicit read delay.
@@ -211,6 +248,7 @@ mod test {
             "key": ["/d1-key"],
             "derivation": {
                 "parallelism": 8,
+                "register": "reg-schema.json#/$defs/qib",
                 "bootstrap": [
                     {"nodeJS": "nodeJS bootstrap"},
                 ],
@@ -229,7 +267,8 @@ mod test {
                             "key": ["/shuffle", "/key"],
                             "choose": 3,
                         },
-                        "lambda": {"nodeJS": "lambda one"},
+                        "update": {"nodeJS": "update one"},
+                        "publish": {"nodeJS": "publish one"},
                     },
                 },
             }
@@ -242,10 +281,11 @@ mod test {
             "schema": "a-schema.json",
             "key": ["/d2-key"],
             "derivation": {
+                "register": true,
                 "transform": {
                     "do-the-thing": {
                         "source": {"name": "src/collection"},
-                        "lambda": {"nodeJS": "lambda two"},
+                        "publish": {"nodeJS": "publish two"},
                     },
                 },
             }
@@ -267,20 +307,21 @@ mod test {
             dump,
             json!({
                 "derivations": [
-                    [2, 8],
-                    [3, null],
+                    [2, 8, "test://example/reg-schema.json#/$defs/qib"],
+                    [3, null, "test://example/spec?ptr=/derivation/register"],
                 ],
                 "bootstraps":[
                     [1, 2, 1],
                 ],
                 "lambdas":[
                     [1, "nodeJS","nodeJS bootstrap", null],
-                    [2, "nodeJS","lambda one", null],
-                    [3, "nodeJS","lambda two", null],
+                    [2, "nodeJS","update one", null],
+                    [3, "nodeJS","publish one", null],
+                    [4, "nodeJS","publish two", null],
                 ],
                 "transforms":[
-                    [1, 2, "some-name", 1, 2, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3, 3600],
-                    [2, 3, "do-the-thing", 1, 3, null, null, null, null, null],
+                    [1, 2, "some-name",    1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3, 3600],
+                    [2, 3, "do-the-thing", 1, null, 4, null, null, null, null, null],
                 ],
                 "transform_source_partitions":[
                     [1, 1, "a_field", "foo", false],
