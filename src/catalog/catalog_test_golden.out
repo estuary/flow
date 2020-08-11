@@ -265,6 +265,11 @@ VALUES (1, 'field_1', '/path/1'),
        (2, 'field_a', '/a');
 changes:   4   total_changes: XYZ
 
+-- Invalid projection (field name only differs in case)
+Error: near line (XYZ): UNIQUE constraint failed: projections.collection_id, projections.field
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'FIELD_1', '/path/3');
+
 -- Invalid projection (bad field name).
 Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
 INSERT INTO projections (collection_id, field, location_ptr)

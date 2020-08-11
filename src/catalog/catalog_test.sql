@@ -167,6 +167,10 @@ VALUES (1, 'field_1', '/path/1'),
        (2, 'field_1', ''), -- Repeat field name with different collection.
        (2, 'field_a', '/a');
 
+-- Invalid projection (field name only differs in case)
+INSERT INTO projections (collection_id, field, location_ptr)
+VALUES (1, 'FIELD_1', '/path/3');
+
 -- Invalid projection (bad field name).
 INSERT INTO projections (collection_id, field, location_ptr)
 VALUES (1, 'no spaces', '/path/1');

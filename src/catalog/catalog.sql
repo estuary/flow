@@ -194,6 +194,8 @@ CREATE TABLE projections
 
     PRIMARY KEY (collection_id, field),
 
+    UNIQUE(collection_id, field COLLATE NOCASE),
+
     CONSTRAINT "Field name format isn't valid" CHECK (
         field REGEXP '^[\pL\pN_]+$'),
     CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
