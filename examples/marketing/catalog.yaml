@@ -120,9 +120,9 @@ collections:
               # Only the first record of a given time interval is kept.
               reduce: 
                 strategy: firstWriteWins
+        type: object
         properties:
-          lastSeen:
-            type: integer
+          lastSeen: {type: string, format: date-time}
           views:
             allOf:
               - $ref: "#/$defs/boundedTimestampMap"
@@ -133,6 +133,7 @@ collections:
               - $ref: "#/$defs/boundedTimestampMap"
               - additionalProperties:
                   $ref: schemas.yaml#/$defs/click-with-view
+        required: ["lastSeen", "views", "clicks"]
         #expiration:
         #  # Retain for 30 days after the last observation of the user.
         #  key: "/lastSeen"
@@ -147,10 +148,11 @@ collections:
             key: [/user_id]
           update:
             nodeJS: |
-              let ts = moment.utc(source.timestamp);
+              let day = moment.utc(source.timestamp).format('YYYY-MM-DD');
               return [{
                 lastSeen: source.timestamp,
-                views: { ts.format('YYYY-MM-DD'): source },
+                views: { [day]: source },
+                clicks: {},
               }];
 
         # Index clicks of the user. Only the first click of a given hour is retained.
@@ -161,10 +163,11 @@ collections:
             key: [/user_id]
           update:
             nodeJS: |
-              let ts = moment.utc(source.timestamp);
+              let hour = moment.utc(source.timestamp).format('YYYY-MM-DD-HH');
               return [{
                 lastSeen: source.timestamp,
-                clicks: { ts.format('YYYY-MM-DD-HH'): source },
+                views: {},
+                clicks: { [hour]: source },
               }];
 
         # Enrich purchase events by joining with all indexed views and clicks.
@@ -175,4 +178,8 @@ collections:
             key: [/user_id]
           publish:
             nodeJS: |
-              return [{ ...source, views: register.views, clicks: register.clicks }]
+              return [{
+                ...source,
+                views: Object.values(register.views),
+                clicks: Object.values(register.clicks),
+              }]

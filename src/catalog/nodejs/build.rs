@@ -34,7 +34,7 @@ pub fn build_package(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     write_package_template(&TEMPLATE_ROOT, pkg)?;
 
     patch_package_json(db, pkg)?;
-    generate_collections_ts(db, pkg)?;
+    generate_schemas_ts(db, pkg)?;
     generate_lambdas_ts(db, pkg)?;
 
     npm_cmd(pkg, &["install", "--no-audit", "--no-fund"])?;
@@ -89,7 +89,7 @@ fn patch_package_json(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     Ok(())
 }
 
-fn generate_collections_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
+fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     let schemas = catalog::Schema::compile_all(db)?;
 
     // Index all Schemas.
@@ -104,32 +104,49 @@ fn generate_collections_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
         top_level: &BTreeMap::new(),
     };
 
+    let generate_each = |p, query| -> Result<(), Error> {
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
+
+        let header = r#"
+/* eslint @typescript-eslint/no-explicit-any: "off" */
+
+    "#;
+        w.write(header.as_bytes())?;
+
+        let mut stmt = db.prepare(query)?;
+        let mut rows = stmt.query(sql_params![])?;
+
+        while let Some(r) = rows.next()? {
+            let (name, schema_url, is_alt): (String, Url, bool) = (r.get(0)?, r.get(1)?, r.get(2)?);
+
+            write!(
+                w,
+                "// Generated from {:?} @ {:?}\n",
+                name,
+                schema_url.as_str()
+            )?;
+            write!(w, "export type {} = ", ts_name(&name, &schema_url, is_alt))?;
+            let scm = index.must_fetch(&schema_url)?;
+            let ast = mapper.map(scm);
+
+            let mut out = Vec::new();
+            ast.render(&mut out);
+            w.write(&out)?;
+            write!(w, ";\n\n")?;
+        }
+        Ok(())
+    };
+
     // Generate a named type for each schema used by a collection.
-    let mut stmt =
-        db.prepare("SELECT collection_name, schema_uri, is_alternate FROM collection_schemas")?;
-    let mut rows = stmt.query(sql_params![])?;
-
-    let p = pkg.join("src/catalog/collections.ts");
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-
-    while let Some(r) = rows.next()? {
-        let (name, schema_url, is_alt): (String, Url, bool) = (r.get(0)?, r.get(1)?, r.get(2)?);
-
-        write!(
-            w,
-            "// Generated from {:?} @ {:?}\n",
-            name,
-            schema_url.as_str()
-        )?;
-        write!(w, "type {} = ", ts_name(&name, &schema_url, is_alt))?;
-        let scm = index.must_fetch(&schema_url)?;
-        let ast = mapper.map(scm);
-
-        let mut out = Vec::new();
-        ast.render(&mut out);
-        w.write(&out)?;
-        write!(w, ";\n\n")?;
-    }
+    generate_each(
+        pkg.join("src/catalog/collections.ts"),
+        "SELECT collection_name, schema_uri, is_alternate FROM collection_schemas",
+    )?;
+    // Generate a named type for each register used by a derivation.
+    generate_each(
+        pkg.join("src/catalog/registers.ts"),
+        "SELECT collection_name, register_uri, FALSE FROM collections NATURAL JOIN derivations",
+    )?;
 
     Ok(())
 }
@@ -139,12 +156,13 @@ fn generate_lambdas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
 
     let header = r#"
-/*eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^store$" }]*/
-/*eslint @typescript-eslint/require-await: "off"*/
+/* eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^register$|^previous$" }] */
+/* eslint @typescript-eslint/require-await: "off" */
 
-import './collections';
-import {Store} from '../runtime/store';
+import * as collections from './collections';
+import * as registers from './registers';
 import {BootstrapMap, TransformMap} from '../runtime/types';
+
     "#;
     w.write(header.as_bytes())?;
 
@@ -170,43 +188,63 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
         let expressions: Vec<String> = serde_json::from_value(expressions)?;
         let expressions = expressions
             .into_iter()
-            .map(|e| format!("async (store: Store) : Promise<void> => {{ {} }}", e))
+            .map(|e| format!("async () : Promise<void> => {{ {} }}", e))
             .collect::<Vec<String>>()
             .join(", ");
         write!(w, "\t{}: [{}],\n", id, expressions)?;
     }
     write!(w, "}};\n\n")?;
 
-    // Write out transforms.
+    // Write out update lambdas.
     let mut stmt = db.prepare(
-        "SELECT
-                    transform_id,          -- 0
-                    source_name,           -- 1
-                    source_schema_uri,     -- 2
-                    derivation_name,       -- 3
-                    derivation_schema_uri, -- 4
-                    is_alt_source_schema,  -- 5
-                    lambda_inline          -- 6
+        "
+        SELECT
+            transform_id,          -- 0
+            transform_name,        -- 1
+            register_uri,          -- 2
+            source_name,           -- 3
+            source_schema_uri,     -- 4
+            is_alt_source_schema,  -- 5
+            derivation_name,       -- 6
+            derivation_schema_uri, -- 7
+            CASE WHEN  update_runtime = 'nodeJS' THEN update_inline  ELSE NULL END, -- 8
+            CASE WHEN publish_runtime = 'nodeJS' THEN publish_inline ELSE NULL END  -- 9
             FROM transform_details
-                WHERE lambda_runtime = 'nodeJS';",
+        ;",
     )?;
     let mut rows = stmt.query(sql_params![])?;
 
     write!(w, "export const transforms : TransformMap = {{\n")?;
     while let Some(row) = rows.next()? {
-        let id: i64 = row.get(0)?;
-        let (src_name, src_uri): (String, Url) = (row.get(1)?, row.get(2)?);
-        let (der_name, der_uri): (String, Url) = (row.get(3)?, row.get(4)?);
-        let (is_alt, body): (bool, String) = (row.get(5)?, row.get(6)?);
+        let (id, name, reg_uri): (i64, String, Url) = (row.get(0)?, row.get(1)?, row.get(2)?);
+        let (src_name, src_uri, is_alt): (String, Url, bool) =
+            (row.get(3)?, row.get(4)?, row.get(5)?);
+        let (der_name, der_uri): (String, Url) = (row.get(6)?, row.get(7)?);
+        let (update, publish): (Option<String>, Option<String>) = (row.get(8)?, row.get(9)?);
 
-        write!(
-            w,
-            "\t{}: async (source: {}, store: Store) : Promise<{}[] | void> => {{ {} }},\n",
-            id,
-            ts_name(&src_name, &src_uri, is_alt),
-            ts_name(&der_name, &der_uri, false),
-            body
-        )?;
+        write!(w, "// Derivation {:?}, transform {:?}.\n", der_name, name)?;
+        write!(w, "{}: {{\n", id)?;
+
+        if let Some(update) = update {
+            write!(
+                    w,
+                    "update: async (source: collections.{src}) : Promise<registers.{reg}[]> => {{ {body} }},\n",
+                    src = ts_name(&src_name, &src_uri, is_alt),
+                    reg = ts_name(&der_name, &reg_uri, false),
+                    body = update,
+                )?;
+        }
+        if let Some(publish) = publish {
+            write!(
+                w,
+                "publish: async (source: collections.{src}, register: registers.{reg}, previous?: registers.{reg}) : Promise<collections.{der}[]> => {{ {publish} }},\n",
+                src = ts_name(&src_name, &src_uri, is_alt),
+                reg = ts_name(&der_name, &reg_uri, false),
+                der = ts_name(&der_name, &der_uri, false),
+                publish = publish,
+            )?;
+        }
+        write!(w, "}},\n")?;
     }
     write!(w, "}};\n\n")?;
 

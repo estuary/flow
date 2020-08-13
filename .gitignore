@@ -1,3 +1,5 @@
 target/
 .build/
 .build-ci/
+catalog-nodejs
+catalog.db

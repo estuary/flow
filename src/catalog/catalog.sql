@@ -398,6 +398,10 @@ FROM transform_source_partitions GROUP BY transform_id, collection_id;
 CREATE VIEW transform_details AS
 SELECT transforms.transform_id,
        transforms.transform_name,
+
+       -- Derivation details.
+       derivations.register_uri,
+
        -- Source collection details.
        transforms.source_collection_id,
        src.collection_name                                                     AS source_name,
@@ -440,6 +444,8 @@ FROM transforms
               ON transforms.source_collection_id = src.collection_id
          JOIN collections AS der
               ON transforms.derivation_id = der.collection_id
+         JOIN derivations
+              ON transforms.derivation_id = derivations.collection_id
          LEFT JOIN lambdas AS updates
               ON transforms.update_id = updates.lambda_id
          LEFT JOIN resources AS update_resources

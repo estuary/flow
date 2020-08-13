@@ -15,7 +15,7 @@
     "clean": "rm -r dist/",
     "compile": "tsc",
     "lint": "eslint --fix src/**/*.ts",
-    "prettify-generated": "prettier --write src/catalog/collections.ts src/catalog/lambdas.ts",
+    "prettify-generated": "prettier --write src/catalog/collections.ts src/catalog/registers.ts src/catalog/lambdas.ts",
     "start": "node dist/src/app.js"
   },
   "bin": "dist/src/app.js",

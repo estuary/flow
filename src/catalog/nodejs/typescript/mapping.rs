@@ -92,15 +92,16 @@ fn object_to_ast(obj: &inference::ObjShape) -> AST {
     for prop in &obj.properties {
         props.push(ASTProperty {
             field: prop.name.clone(),
-            is_required: prop.is_required,
             value: to_ast(&prop.shape),
+            is_required: prop.is_required,
         });
     }
     if let Some(addl) = &obj.additional {
         props.push(ASTProperty {
             field: "[k: string]".to_owned(),
             value: to_ast(&addl),
-            is_required: false,
+            // Optional '?' has no meaning for variadic properties.
+            is_required: true,
         })
     }
     AST::Object { properties: props }
