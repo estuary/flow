@@ -1,5 +1,15 @@
 target/
 .build/
 .build-ci/
+
 catalog-nodejs
 catalog.db
+
+# typical vim stuff
+.vim
+*.swp
+Session.vim
+
+.vscode
+.idea
+

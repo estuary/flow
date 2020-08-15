@@ -1,4 +1,6 @@
-use super::{sql_params, Collection, ContentType, Resource, Result, Scope};
+use super::{
+    materialization, projections, sql_params, Collection, ContentType, Resource, Result, Scope,
+};
 use crate::specs::build as specs;
 use url::Url;
 
@@ -44,12 +46,20 @@ impl Source {
                 })?;
         }
 
+        let mut registered_collections = Vec::with_capacity(spec.collections.len());
         for (index, spec) in spec.collections.iter().enumerate() {
-            scope
+            let collection = scope
                 .push_prop("collections")
                 .push_item(index)
                 .then(|scope| Collection::register(scope, spec))?;
+            registered_collections.push(collection);
         }
+
+        projections::register_default_projections_and_inferences(
+            &scope,
+            registered_collections.as_slice(),
+        )?;
+        materialization::generate_all_ddl(&scope, registered_collections.as_slice())?;
 
         Ok(Source { resource })
     }
@@ -115,7 +125,7 @@ mod test {
             )?,
             json!({
                 "resource_imports": [[1, 2], [1, 10]],
-                "collections": [[1, "a/collection", "test://example/schema", ["/key"], 1]],
+                "collections": [[1, "a/collection", "test://example/schema", ["/key"], 1, 4]],
                 "nodejs_dependencies": [["package-one", "v0.1.2"], ["pkg-2", "~v2"]],
             }),
         );

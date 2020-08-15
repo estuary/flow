@@ -196,7 +196,7 @@ impl Application {
         let l_kw = self.push_keyword(&l_root);
         let l_kwt = self.push_keyword_target(&l_kw);
 
-        write!(&mut ptr, "{}", l_kwt).unwrap();
+        write!(&mut ptr, "{}", l_kwt.url_escaped()).unwrap();
         ptr
     }
 }

@@ -99,12 +99,10 @@ where
         } else if !has_contains {
             // The spec explicitly says to ignore minContains and maxContains if the schema
             // does not include the "contains" keyword, so we remove those here if that's the case
-            self.kw.retain(|kw| {
-                match kw {
-                    Keyword::Validation(Validation::MinContains(_)) => false,
-                    Keyword::Validation(Validation::MaxContains(_)) => false,
-                    _ => true,
-                }
+            self.kw.retain(|kw| match kw {
+                Keyword::Validation(Validation::MinContains(_)) => false,
+                Keyword::Validation(Validation::MaxContains(_)) => false,
+                _ => true,
             })
         }
 
@@ -479,17 +477,11 @@ fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
     let mut set = types::INVALID;
 
     let mut fold = |vv: &sj::Value| -> Result<(), Error> {
-        set = set
-            | match vv {
-                sj::Value::String(s) if s == "array" => types::ARRAY,
-                sj::Value::String(s) if s == "boolean" => types::BOOLEAN,
-                sj::Value::String(s) if s == "integer" => types::INTEGER,
-                sj::Value::String(s) if s == "null" => types::NULL,
-                sj::Value::String(s) if s == "number" => types::NUMBER,
-                sj::Value::String(s) if s == "object" => types::OBJECT,
-                sj::Value::String(s) if s == "string" => types::STRING,
-                _ => return Err(ExpectedType),
-            };
+        let newset = vv
+            .as_str()
+            .and_then(types::Set::for_type_name)
+            .ok_or(ExpectedType)?;
+        set = set | newset;
         Ok(())
     };
 

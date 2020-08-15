@@ -55,7 +55,7 @@ impl Context for FullContext {
         A: Annotation,
     {
         FullContext {
-            instance_ptr: loc.to_string(),
+            instance_ptr: loc.url_escaped().to_string(),
             canonical_uri: scope.schema.curi.as_str().to_owned(),
             keyword_location: scope.keyword_location(parents),
             span: Span {

@@ -49,24 +49,133 @@ pub struct Collection {
     /// may be used for logical partitioning or directly exposed to databases
     /// into which collections are materialized.
     #[serde(default)]
-    pub projections: Vec<Projection>,
+    pub projections: Projections,
     /// A derivation specifies how this collection is derived from other
     /// collections (as opposed to being a captured collection into which
     /// documents are directly written).
     pub derivation: Option<Derivation>,
+    /// Materializations project a view of the current state into an external system like a
+    /// database or key/value store. These states will be kept up to date automatically as
+    /// documents are processed in the collection. The keys used here are arbitrary identifiers
+    /// that will be used to uniquely identify each materialization, and the values are any valid
+    /// Materialization object.
+    #[serde(default)]
+    pub materializations: BTreeMap<String, Materialization>,
+}
+
+fn default_projections_enabled() -> bool {
+    true
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct DefaultProjectionSpec {
+    #[serde(default = "default_projections_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub max_depth: Option<u8>,
+}
+impl Default for DefaultProjectionSpec {
+    fn default() -> Self {
+        DefaultProjectionSpec {
+            enabled: default_projections_enabled(),
+            max_depth: None,
+        }
+    }
+}
+
+/// Determines how "default" projections are generated. This allows for multiple representations in
+/// an attempt to make it as ergonomic as possible. Just disabling default projections altogether
+/// only requires a `defaults: false`, while more advanced options use a more future-proofed
+/// object representation.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum DefaultProjections {
+    Enabled(bool),
+    Spec(DefaultProjectionSpec),
+}
+
+impl DefaultProjections {
+    pub fn get_config(&self) -> DefaultProjectionSpec {
+        match self {
+            DefaultProjections::Spec(s) => *s,
+            DefaultProjections::Enabled(true) => DefaultProjectionSpec::default(),
+            DefaultProjections::Enabled(false) => DefaultProjectionSpec {
+                enabled: false,
+                max_depth: None,
+            },
+        }
+    }
+}
+
+impl Default for DefaultProjections {
+    fn default() -> Self {
+        DefaultProjections::Enabled(true)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Projections {
+    #[serde(default)]
+    pub defaults: DefaultProjections,
+    #[serde(default)]
+    pub fields: BTreeMap<String, Projection>,
+}
+
+impl Projections {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = ProjectionSpec<'a>> {
+        self.fields
+            .iter()
+            .map(|(field, projection)| ProjectionSpec {
+                field,
+                location: &projection.location(),
+                partition: projection.is_partition(),
+            })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
+pub enum Projection {
+    SimpleLocation(String),
+    Object(FullProjection),
+}
+impl Projection {
+    fn location(&self) -> &str {
+        match self {
+            Projection::SimpleLocation(loc) => loc.as_str(),
+            Projection::Object(obj) => obj.location.as_str(),
+        }
+    }
+
+    fn is_partition(&self) -> bool {
+        match self {
+            Projection::SimpleLocation(_) => false,
+            Projection::Object(obj) => obj.partition,
+        }
+    }
 }
 
 /// A Projection is a named location within a document.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Projection {
-    /// Name of this projection, which is used as the field or column name in
-    /// tabular databases or stores to which this collection is materialized.
-    pub field: String,
+pub struct FullProjection {
     /// Location of the projected field within the document, as a JSON-Pointer.
     pub location: String,
     /// Is this projection a logical partition?
     #[serde(default)]
+    pub partition: bool,
+}
+
+/// An intermediate representation of a Projection that is used for both explicit projections
+/// defined in the catalog spec, as well as default projections that are generated automatically.
+#[derive(Debug)]
+pub struct ProjectionSpec<'a> {
+    /// Name of this projection, which is used as the field or column name in
+    /// tabular databases or stores to which this collection is materialized.
+    pub field: &'a str,
+    /// Location of the projected field within the document, as a JSON-Pointer.
+    pub location: &'a str,
+    /// Is this projection a logical partition?
     pub partition: bool,
 }
 
@@ -229,18 +338,21 @@ pub enum Schema {
     Bool(bool),
 }
 
-/*
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Materialization {
-    pub collection: String,
-    pub target: Target,
+pub struct SqlTargetConnection {
+    pub uri: String,
+    pub table: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type", deny_unknown_fields, rename_all = "camelCase")]
-pub enum Target {
-    Postgres { endpoint: String, table: String },
-    Elastic { endpoint: String, index: String },
+pub enum Materialization {
+    Postgres {
+        #[serde(flatten)]
+        connection: SqlTargetConnection,
+    },
+    Sqlite {
+        #[serde(flatten)]
+        connection: SqlTargetConnection,
+    },
 }
-*/

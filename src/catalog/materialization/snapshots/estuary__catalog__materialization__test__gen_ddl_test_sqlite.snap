@@ -1,0 +1,5 @@
+---
+source: src/catalog/materialization/mod.rs
+expression: sqlite_ddl
+---
+"CREATE TABLE \"test_sqlite_table\" IF NOT EXISTS (\n\t\"field_a\" INTEGER NOT NULL,\n\t\"field_b\" TEXT NOT NULL,\n\t\"field_c\" BLOB,\n\t\"field_d\" TEXT,\n\t\"field_e\" REAL,\n\n\tPRIMARY KEY(\"field_a\", \"field_b\")\n);"

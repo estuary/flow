@@ -39,7 +39,11 @@ impl Schema {
                 // catalog yaml document) and adding a query parameter with a json pointer to
                 // the location of the inline schema.
                 let mut url = scope.resource().primary_url(scope.db)?;
-                url.set_query(Some(&format!("{}={}", INLINE_POINTER_KEY, scope.location)));
+                url.set_query(Some(&format!(
+                    "{}={}",
+                    INLINE_POINTER_KEY,
+                    scope.location.url_escaped()
+                )));
 
                 Resource::register_content(
                     scope.db,
@@ -146,6 +150,39 @@ impl Schema {
         }
         Ok(())
     }
+
+    /*
+    pub fn compile_required(db: &DB, collection: Collection) -> Result<Vec<CompiledSchema>> {
+        use std::collections::HashSet;
+        let mut resource_ids = HashSet::new();
+        let mut current = collection.resource.id;
+
+        // loop:
+        //   - get schemas for this resource
+        //   - get resources that this resource imports
+        //       - for each recurse if not already fetched
+    }
+
+    fn compile_schemas_for_resource(
+        db: &DB,
+        resource_id: i64,
+        visited: &mut HashSet<i64>,
+    ) -> Result<Vec<CompiledSchema>> {
+        let mut stmt = db.prepare(
+            "SELECT url, content FROM resources NATURAL JOIN resource_urls
+                WHERE resource_id = ? AND content_type = ? AND is_primary;",
+        )?;
+        let mut rows = stmt
+            .query(sql_params![resource_id, ContentType::Schema])?
+            .mapped(|row| (row.get::<String>(0)?, row.get::<Vec<u8>>(1)?));
+        let mut schemas = Vec::new();
+
+        for row in rows {
+            let (url, content) = row?;
+
+        }
+    }
+    */
 
     /// Fetch and compile all Schemas in the catalog.
     pub fn compile_all(db: &DB) -> Result<Vec<CompiledSchema>> {
