@@ -72,27 +72,45 @@ struct PrintWalker;
 
 impl Walker for PrintWalker {
     fn push_property<'a>(&mut self, span: &Span, loc: &'a LocatedProperty<'a>) {
-        println!("push_property {} @ {:?}", Location::Property(*loc), span);
+        println!(
+            "push_property {} @ {:?}",
+            Location::Property(*loc).pointer_str(),
+            span
+        );
     }
     fn push_item<'a>(&mut self, span: &Span, loc: &'a LocatedItem<'a>) {
-        println!("push_item {} @ {:?}", Location::Item(*loc), span);
+        println!(
+            "push_item {} @ {:?}",
+            Location::Item(*loc).pointer_str(),
+            span
+        );
     }
     fn pop_object<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num_properties: usize) {
-        println!("pop_object {:?} @ {}:{:?}", num_properties, loc, span);
+        println!(
+            "pop_object {:?} @ {}:{:?}",
+            num_properties,
+            loc.pointer_str(),
+            span
+        );
     }
     fn pop_array<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num_items: usize) {
-        println!("pop_array {:?} @ {}:{:?}", num_items, loc, span);
+        println!(
+            "pop_array {:?} @ {}:{:?}",
+            num_items,
+            loc.pointer_str(),
+            span
+        );
     }
     fn pop_bool<'a>(&mut self, span: &Span, loc: &'a Location<'a>, val: bool) {
-        println!("pop_bool {:?} @ {}:{:?}", val, loc, span);
+        println!("pop_bool {:?} @ {}:{:?}", val, loc.pointer_str(), span);
     }
     fn pop_numeric<'a>(&mut self, span: &Span, loc: &'a Location<'a>, val: Number) {
-        println!("pop_numeric {:?} @ {}:{:?}", val, loc, span);
+        println!("pop_numeric {:?} @ {}:{:?}", val, loc.pointer_str(), span);
     }
     fn pop_str<'a>(&mut self, span: &Span, loc: &'a Location<'a>, val: &'a str) {
-        println!("pop_str {:?} @ {}:{:?}", val, loc, span);
+        println!("pop_str {:?} @ {}:{:?}", val, loc.pointer_str(), span);
     }
     fn pop_null<'a>(&mut self, span: &Span, loc: &'a Location<'a>) {
-        println!("pop_null <null> @ {}:{:?}", loc, span);
+        println!("pop_null <null> @ {}:{:?}", loc.pointer_str(), span);
     }
 }

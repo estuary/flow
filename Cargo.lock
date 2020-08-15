@@ -277,7 +277,11 @@ dependencies = [
  "libc",
  "terminal_size",
  "termios",
+<<<<<<< HEAD
  "winapi 0.3.9",
+=======
+ "winapi 0.3.8",
+>>>>>>> b856814... Add materialization specs to catalog yaml
 ]
 
 [[package]]
@@ -301,6 +305,12 @@ name = "cpuid-bool"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8aebca1129a03dc6dc2b127edd729435bbc4a37e1d5f4d7513165089ceb02634"
+
+[[package]]
+name = "difference"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "524cbf6897b527295dff137cec09ecf3a05f4fddffd7dfcd1585403449e74198"
 
 [[package]]
 name = "difference"
@@ -337,6 +347,12 @@ name = "either"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd56b59865bce947ac5958779cfa508f6c3b9497cc762b7e24a12d11ccde2c4f"
+
+[[package]]
+name = "encode_unicode"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
 
 [[package]]
 name = "encode_unicode"
@@ -2023,7 +2039,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a14cd9f8c72704232f0bfc8455c0e861f0ad4eb60cc9ec8a170e231414c1e13"
 dependencies = [
  "libc",
+<<<<<<< HEAD
  "winapi 0.3.9",
+=======
+ "winapi 0.3.8",
+>>>>>>> b856814... Add materialization specs to catalog yaml
 ]
 
 [[package]]

@@ -161,6 +161,9 @@ CREATE TABLE lambdas
 --     Composite key extractors of the collection, as `[JSON-Pointer]`.
 -- :resource_id:
 --      Catalog source spec which defines this collection.
+-- :default_projections_max_depth:
+--      Generate default projections up to this given depth of nesting. A value of 0 will disable
+--      generation of default projections.
 CREATE TABLE collections
 (
     collection_id   INTEGER PRIMARY KEY NOT NULL,
@@ -168,14 +171,40 @@ CREATE TABLE collections
     schema_uri      TEXT                NOT NULL,
     key_json        TEXT                NOT NULL,
     resource_id     INTEGER             NOT NULL REFERENCES resources (resource_id),
+    default_projections_max_depth INTEGER NOT NULL,
 
     CONSTRAINT "Collection name format isn't valid" CHECK (
         collection_name REGEXP '^[\pL\pN\-_+/.]+$'),
     CONSTRAINT "Schema must be a valid base (non-relative) URI" CHECK (
         schema_uri LIKE '_%://_%'),
     CONSTRAINT "Key must be non-empty JSON array of JSON-Pointers" CHECK (
-        JSON_ARRAY_LENGTH(key_json) > 0)
+        JSON_ARRAY_LENGTH(key_json) > 0),
+    CONSTRAINT "Default Projections maximum depth must be between 0 and 255 inclusive" CHECK (
+        default_projections_max_depth >= 0 AND default_projections_max_depth <= 255)
 );
+
+
+-- Materialization targets for a collection
+CREATE TABLE materializations
+(
+    materialization_id INTEGER PRIMARY KEY NOT NULL,
+    materialization_name TEXT NOT NULL,
+    collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
+    target_type TEXT NOT NULL,
+    target_uri TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    config_json TEXT CHECK(JSON_VALID(config_json)),
+
+    UNIQUE(collection_id, materialization_name COLLATE NOCASE)
+);
+
+CREATE TABLE materialization_ddl
+(
+    materialization_id INTEGER NOT NULL PRIMARY KEY,
+    ddl TEXT,
+    FOREIGN KEY (materialization_id) REFERENCES materializations (materialization_id)
+);
+
 
 -- Projections are locations within collection documents which may be projected
 -- into a flattened (i.e. columnar) attribute/value space.
@@ -191,10 +220,10 @@ CREATE TABLE projections
     collection_id        INTEGER NOT NULL REFERENCES collections (collection_id),
     field                TEXT    NOT NULL,
     location_ptr         TEXT    NOT NULL,
+    user_provided        BOOLEAN NOT NULL CHECK (user_provided IN(0,1)),
 
     PRIMARY KEY (collection_id, field),
-
-    UNIQUE(collection_id, field COLLATE NOCASE),
+    UNIQUE (collection_id, field COLLATE NOCASE),
 
     CONSTRAINT "Field name format isn't valid" CHECK (
         field REGEXP '^[\pL\pN_]+$'),
@@ -564,8 +593,17 @@ SELECT
     c.schema_uri,
     p.location_ptr,
     FALSE AS is_key,
-    PRINTF('projected field %Q of collection %Q', p.field, c.collection_name)
+    PRINTF('automatically projected field %Q of collection %Q', p.field, c.collection_name)
 FROM collections AS c NATURAL JOIN projections AS p
+WHERE p.user_provided = FALSE
+UNION
+SELECT
+    c.schema_uri,
+    p.location_ptr,
+    FALSE AS is_key,
+    PRINTF('user-specified projected field %Q of collection %Q', p.field, c.collection_name)
+FROM collections AS c NATURAL JOIN projections AS p
+WHERE p.user_provided = TRUE
 ;
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
@@ -600,46 +638,29 @@ BEGIN
     END;
 END;
 
-/*
 -- Inferences are locations of collection documents and associated attributes
 -- which are statically provable solely from the collection's JSON-Schema.
 CREATE TABLE inferences
 (
     -- Collection to which this inference pertains.
     collection_id                     INTEGER NOT NULL REFERENCES collections (collection_id),
-    -- Inferred collection document location, as a JSON-Pointer.
-    location_ptr                      TEXT    NOT NULL,
-    -- Is |location_ptr| a regex pattern over applicable JSON-Pointers?
-    is_pattern                        BOOLEAN,
+    -- Field name for the projection
+    field                             TEXT NOT NULL,
     -- Possible types for this location.
-    -- Subset of ["null", "true", "false", "object", "array", "integer", "numeric", "string"].
+    -- Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
     types_json                        TEXT    NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
-    -- When the location is a "string" type, the format which the string must take.
-    string_format                     TEXT,
+
+    -- Strings end up being used to represent a variety of different things, e.g. dates, xml, or binary
+    -- content, which may benefit for specialized storage in other systems. So we store a lot more
+    -- metadata on strings than we do for other types in case we're able to use it during
+    -- materialization.
     -- If of type "string", media MIME type of its content.
     string_content_type               TEXT,
     -- If of type "string", is the value base64-encoded ?
-    string_content_encoding_is_base64 BOOLEAN,
-    -- Is this location the message UUID?
-    is_message_uuid                   BOOLEAN,
+    string_content_encoding_is_base64 BOOLEAN CHECK (string_content_encoding_is_base64 IN (0,1)),
+    -- If the location is a "string" type and has a maximum length, it will be here
+    string_max_length                 INTEGER,
 
-    PRIMARY KEY (collection_id, location_ptr)
+    FOREIGN KEY (collection_id, field)
+        REFERENCES projections(collection_id, field)
 );
-
-CREATE TABLE materializations
-(
-    material_id   INTEGER PRIMARY KEY NOT NULL,
-    -- Collection to be materialized.
-    collection_id INTEGER             NOT NULL REFERENCES collections (collection_id),
-    -- Catalog source spec which defines this collection.
-    resource_id   INTEGER             NOT NULL REFERENCES resources (resource_id)
-);
-
-CREATE TABLE materializations_postgres
-(
-    material_id INTEGER PRIMARY KEY NOT NULL REFERENCES materializations (material_id),
-    address     TEXT                NOT NULL,
-    schema_name TEXT                NOT NULL,
-    table_name  TEXT                NOT NULL
-);
-*/

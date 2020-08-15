@@ -1,4 +1,4 @@
-use super::ContentType;
+use super::{ContentType, ProjectionsError};
 use crate::doc;
 use estuary_json::schema;
 
@@ -62,4 +62,6 @@ pub enum Error {
     },
     #[error("schema validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
     FailedValidation(doc::FailedValidation),
+    #[error("Unable to generate default projections due to: {0}")]
+    InvalidProjections(#[from] ProjectionsError),
 }

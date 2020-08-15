@@ -23,6 +23,8 @@ pub struct StringShape {
     pub is_base64: Option<bool>,
     pub content_type: Option<String>,
     pub format: Option<String>,
+    pub max_length: Option<usize>,
+    pub min_length: usize,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -63,18 +65,32 @@ impl PartialEq for ObjPattern {
 
 impl StringShape {
     fn intersect(lhs: Self, rhs: Self) -> Self {
+        let max_length = match (lhs.max_length, rhs.max_length) {
+            (Some(l), Some(r)) => Some(l.min(r)),
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            _ => None,
+        };
         StringShape {
             is_base64: lhs.is_base64.or(rhs.is_base64),
             content_type: lhs.content_type.or(rhs.content_type),
             format: lhs.format.or(rhs.format),
+            min_length: lhs.min_length.max(rhs.min_length),
+            max_length,
         }
     }
 
     fn union(lhs: Self, rhs: Self) -> Self {
+        let max_length = match (lhs.max_length, rhs.max_length) {
+            (Some(l), Some(r)) => Some(l.max(r)),
+            _ => None,
+        };
         StringShape {
             is_base64: union_option(lhs.is_base64, rhs.is_base64),
             content_type: union_option(lhs.content_type, rhs.content_type),
             format: union_option(lhs.format, rhs.format),
+            max_length,
+            min_length: lhs.min_length.min(rhs.min_length),
         }
     }
 }
@@ -441,6 +457,12 @@ impl Shape {
                             .sorted_by(estuary_json::json_cmp)
                             .collect::<Vec<_>>(),
                     );
+                }
+                Keyword::Validation(Validation::MaxLength(max)) => {
+                    shape.string.max_length = Some(*max);
+                }
+                Keyword::Validation(Validation::MinLength(min)) => {
+                    shape.string.min_length = *min;
                 }
 
                 Keyword::Annotation(annot) => match annot.as_core() {
@@ -929,8 +951,38 @@ mod test {
                     is_base64: Some(true),
                     content_type: Some("some/thing".to_owned()),
                     format: None, // Not implemented yet.
+                    max_length: None,
+                    min_length: 0,
                 },
                 ..Shape::default()
+            },
+        );
+    }
+
+    #[test]
+    fn test_string_length() {
+        infer_test(
+            &[
+                "{type: string, minLength: 3, maxLength: 33}",
+                "{oneOf: [
+                  {type: string, minLength: 19, maxLength: 20},
+                  {type: string, minLength: 3, maxLength: 20},
+                  {type: string, minLength: 20, maxLength: 33}
+                ]}",
+                "{allOf: [
+                  {type: string, maxLength: 60},
+                  {type: string, minLength: 3, maxLength: 78},
+                  {type: string, minLength: 2, maxLength: 33}
+                ]}",
+            ],
+            Shape {
+                type_: types::STRING,
+                string: StringShape {
+                    min_length: 3,
+                    max_length: Some(33),
+                    ..Default::default()
+                },
+                ..Default::default()
             },
         );
     }

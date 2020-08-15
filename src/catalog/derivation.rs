@@ -218,8 +218,8 @@ mod test {
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = open(":memory:").unwrap();
+        init_db_schema(&db).unwrap();
 
         let a_schema = json!(true);
         let alt_schema = json!({"$anchor": "foobar"});
@@ -239,14 +239,16 @@ mod test {
                     (20, 'test://example/alt-schema.json', TRUE),
                     (30, 'test://example/reg-schema.json', TRUE);
                 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id) VALUES
-                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);
-                INSERT INTO projections (collection_id, field, location_ptr) VALUES
-                    (1, 'a_field', '/a/field'),
-                    (1, 'other_field', '/other/field');
+                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1, 3);
+                INSERT INTO projections (collection_id, field, location_ptr, user_provided) VALUES
+                    (1, 'a_field', '/a/field', true),
+                    (1, 'other_field', '/other/field', true);
+
                 INSERT INTO partitions (collection_id, field) VALUES
                     (1, 'a_field'),
                     (1, 'other_field');",
-        )?;
+        )
+        .unwrap();
         let scope = Scope::empty(&db);
         let scope = scope.push_resource(Resource { id: 1 });
 
@@ -285,7 +287,7 @@ mod test {
                 },
             }
         }))?;
-        Collection::register(scope, &spec)?;
+        Collection::register(scope, &spec).unwrap();
 
         // Derived collection with implicit defaults.
         let spec: specs::Collection = serde_json::from_value(json!({
@@ -301,7 +303,7 @@ mod test {
                 },
             }
         }))?;
-        Collection::register(scope, &spec)?;
+        Collection::register(scope, &spec).unwrap();
 
         let dump = dump_tables(
             &db,

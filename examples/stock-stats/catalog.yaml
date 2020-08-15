@@ -8,11 +8,11 @@ collections:
     fixtures: [fixtures/L1-tick.yaml]
 
     projections:
-      - field: exchange
-        location: /exchange
-        partition: true
-      - field: the_bid_price
-        location: /bid/price
+      fields:
+        exchange:
+          location: /exchange
+          partition: true
+        the_bid_price: /bid/price
 
   - name: stock/daily-stats
     schema: schemas/daily-stat.yaml
@@ -20,11 +20,11 @@ collections:
     fixtures: [fixtures/daily-stats.yaml]
 
     projections:
-      - field: exchange
-        location: /exchange
-        partition: true
-      - field: my_special_column
-        location: /bid
+      fields:
+        my_special_column: /bid
+        exchange:
+          location: /exchange
+          partition: true
 
     derivation:
       bootstrap:

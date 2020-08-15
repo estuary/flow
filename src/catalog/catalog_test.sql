@@ -129,63 +129,63 @@ FROM lambdas
          NATURAL LEFT JOIN resources;
 
 -- Valid collections.
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
-       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
-       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
-       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3, 3),
+       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2, 4),
+       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1, 0),
+       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6, 0);
 
 -- Invalid collection (schema is not a URI).
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('col/bad', 'not-a-uri', '["/key"]', 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('col/bad', 'not-a-uri', '["/key"]', 1, 3);
 
 -- Invalid collection (collection name doesn't match pattern).
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1, 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1, 9);
 
 -- Invalid collection (key is not non-empty [JSON-Pointer]).
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1);
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1);
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1, 4);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1, 5);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1, 5);
 
 -- Invalid collection (resource doesn't exist).
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42, 3);
 
 SELECT *
 FROM collections;
 
 -- Valid projections.
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (1, 'field_1', '/path/1'),
-       (1, 'field_2', '/path/2'),
-       (2, 'field_1', ''), -- Repeat field name with different collection.
-       (2, 'field_a', '/a');
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (1, 'field_1', '/path/1', TRUE),
+       (1, 'field_2', '/path/2', FALSE),
+       (2, 'field_1', '', FALSE), -- Repeat field name with different collection.
+       (2, 'field_a', '/a', TRUE);
 
 -- Invalid projection (field name only differs in case)
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (1, 'FIELD_1', '/path/3');
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (1, 'FIELD_1', '/path/3', TRUE);
 
 -- Invalid projection (bad field name).
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (1, 'no spaces', '/path/1');
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (1, 'or-hyphens', '/path/1');
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (1, 'no spaces', '/path/1', TRUE);
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (1, 'or-hyphens', '/path/1', TRUE);
 
 -- Invalid projection (no such collection).
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (42, 'foo', '/bar');
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (42, 'foo', '/bar', TRUE);
 
 -- Invalid projection (invalid JSON-Pointer).
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (1, 'foo', 'bar');
-INSERT INTO projections (collection_id, field, location_ptr)
-VALUES (1, 'foo', '/bar/');
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (1, 'foo', 'bar', TRUE);
+INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+VALUES (1, 'foo', '/bar/', TRUE);
 
 -- Valid projections which are partitions.
 INSERT INTO partitions (collection_id, field)
@@ -400,3 +400,44 @@ VALUES ('a-package', '^1.2.3'),
 -- Invalid indexed package at a different version.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^4.5.6');
+
+-- Valid inferences
+INSERT INTO inferences (
+    collection_id, 
+    field, 
+    types_json, 
+    string_content_type, 
+    string_content_encoding_is_base64, 
+    string_max_length
+) 
+VALUES 
+    (1, 'field_1', '["string", "integer", "null"]', 'text/plain', false, 97);
+
+INSERT INTO inferences (collection_id, field, types_json) 
+VALUES
+    (1, 'field_2', '["string"]'),
+    (2, 'field_1', '["object"]');
+
+-- Invalid inference (missing projection)
+INSERT INTO inferences (collection_id, field, types_json) 
+VALUES (1, 'no_such_field', '["number"]');
+    
+-- Invalid inference (duplicate field differs only in case)
+INSERT INTO inferences (collection_id, field, types_json) 
+VALUES (1, 'FIELD_1', '["number"]');
+
+-- Invalid inference (types are not valid json)
+INSERT INTO inferences (collection_id, field, types_json) 
+VALUES (1, 'field_2', '} not json {');
+
+-- Invalid inference (types are null)
+INSERT INTO inferences (collection_id, field, types_json) 
+VALUES (1, 'field_2', NULL);
+
+-- Invalid inference (types are not an array)
+INSERT INTO inferences (collection_id, field, types_json) 
+VALUES (1, 'field_2', '{"not": "an array"}');
+
+-- Invalid inference (string_content_encoding_is_base64 is not a boolean)
+INSERT INTO inferences (collection_id, field, types_json, string_content_encoding_is_base64) 
+VALUES (1, 'field_2', '["string"]', 99);

@@ -1,0 +1,5 @@
+---
+source: src/catalog/materialization/mod.rs
+expression: pg_ddl
+---
+"CREATE TABLE \"test_pg_table\" IF NOT EXISTS (\n\t\"field_a\" BIGINT NOT NULL,\n\t\"field_b\" TEXT NOT NULL,\n\t\"field_c\" BYTEA,\n\t\"field_d\" JSON,\n\t\"field_e\" DOUBLE PRECISION,\n\n\tPRIMARY KEY(\"field_a\", \"field_b\")\n);"

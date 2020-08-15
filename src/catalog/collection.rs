@@ -1,4 +1,7 @@
-use super::{sql_params, ContentType, Derivation, Resource, Result, Schema, Scope};
+use super::{
+    projections, sql_params, ContentType, Derivation, Materialization, Resource, Result, Schema,
+    Scope,
+};
 use crate::specs::build as specs;
 
 /// Collection represents a catalog Collection.
@@ -17,6 +20,20 @@ impl Collection {
             Resource::register_import(scope, schema.resource)?;
             Ok(schema)
         })?;
+        let defaults_spec = spec.projections.defaults.get_config();
+        let default_projections_max_depth = if defaults_spec.enabled {
+            log::debug!(
+                "generating default projections with default depth for collection: {}",
+                spec.name
+            );
+            defaults_spec.max_depth.unwrap_or(4u8)
+        } else {
+            log::debug!(
+                "default projections are disabled for collection: {}",
+                spec.name
+            );
+            0u8
+        };
 
         scope
             .db
@@ -25,14 +42,16 @@ impl Collection {
                     collection_name,
                     schema_uri,
                     key_json,
-                    resource_id
-                ) VALUES (?, ?, ?, ?)",
+                    resource_id,
+                    default_projections_max_depth
+                ) VALUES (?, ?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 spec.name,
                 schema.primary_url_with_fragment(scope.db)?,
                 serde_json::to_string(&spec.key)?,
                 scope.resource().id,
+                default_projections_max_depth,
             ])?;
 
         let collection = Collection {
@@ -47,12 +66,29 @@ impl Collection {
                 .then(|scope| collection.register_fixture(scope, fixture))?;
         }
 
-        // TODO: (phil) register the default projections derived from the schema?
-        for (index, projection) in spec.projections.iter().enumerate() {
+        scope
+            .push_prop("projections")
+            .push_prop("fields)")
+            .then(|scope| {
+                for projection in spec.projections.iter() {
+                    scope.push_prop(projection.field).then(|scope| {
+                        projections::register_user_provided_projection(
+                            &scope,
+                            collection,
+                            &projection,
+                        )
+                    })?;
+                }
+                Ok(())
+            })?;
+
+        for (name, materialization) in spec.materializations.iter() {
             scope
-                .push_prop("projections")
-                .push_item(index)
-                .then(|scope| collection.register_projection(scope, projection))?;
+                .push_prop("materializations")
+                .push_prop(name)
+                .then(|scope| {
+                    Materialization::register(&scope, collection, name, materialization)
+                })?;
         }
 
         if let Some(spec) = &spec.derivation {
@@ -81,28 +117,6 @@ impl Collection {
             .db
             .prepare_cached("INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
             .execute(sql_params![self.id, fixtures.id])?;
-
-        Ok(())
-    }
-
-    fn register_projection(&self, scope: Scope, spec: &specs::Projection) -> Result<()> {
-        scope
-            .db
-            .prepare_cached(
-                "INSERT INTO projections (collection_id, field, location_ptr)
-                    VALUES (?, ?, ?)",
-            )?
-            .execute(sql_params![self.id, spec.field, spec.location])?;
-
-        if spec.partition {
-            scope
-                .db
-                .prepare_cached(
-                    "INSERT INTO partitions (collection_id, field)
-                        VALUES (?, ?)",
-                )?
-                .execute(sql_params![self.id, spec.field])?;
-        }
 
         Ok(())
     }
@@ -150,10 +164,12 @@ mod test {
             "schema": "schema.json#foobar",
             "key": ["/key/1", "/key/0"],
             "fixtures": ["fixtures.json"],
-            "projections": [
-                {"field": "field_a", "location": "/a/a", "partition": true},
-                {"field": "field_b", "location": "/b/b", "partition": false},
-            ],
+            "projections": {
+                "fields": {
+                    "field_a": {"location": "/a/a", "partition": true},
+                    "field_b": {"location": "/b/b", "partition": false},
+                }
+            }
         }))?;
 
         Scope::empty(&db)
@@ -188,12 +204,13 @@ mod test {
                         "test://example/schema.json#foobar",
                         ["/key/1","/key/0"],
                         1,
+                        4,
                     ],
                 ],
                 "fixtures": [[1, 20]],
                 "projections": [
-                    [1, "field_a", "/a/a"],
-                    [1, "field_b", "/b/b"],
+                    [1, "field_a", "/a/a", true],
+                    [1, "field_b", "/b/b", true],
                 ],
                 "partitions": [[1, "field_a"]],
             }),

@@ -106,7 +106,7 @@ impl<'a> Scope<'a> {
             Ok(url) => url,
         };
         err = Error::At {
-            loc: format!("{}#{}", url, self.location),
+            loc: format!("{}#{}", url, self.location.url_escaped()),
             detail: Box::new(err),
         };
 

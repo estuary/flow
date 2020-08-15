@@ -1,0 +1,20 @@
+---
+source: src/catalog/materialization/sql.rs
+expression: schema
+---
+CREATE TABLE "test_postgres_table" IF NOT EXISTS (
+	"intCol" BIGINT NOT NULL,
+	"numCol" BIGINT NOT NULL,
+	"boolCol" BOOLEAN NOT NULL,
+	"objCol" JSON NOT NULL,
+	"arrayCol" JSON NOT NULL,
+	"intColNullable" BIGINT,
+	"numColNullable" DOUBLE PRECISION,
+	"boolColNullable" BOOLEAN,
+	"objColNullable" JSON,
+	"arrayColNullable" JSON,
+	"basicString" TEXT NOT NULL,
+	"basicStringNullable" TEXT,
+	"base64String" BYTEA NOT NULL,
+	"base64StringNullable" BYTEA
+);

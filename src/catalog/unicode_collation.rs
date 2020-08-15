@@ -14,8 +14,8 @@ pub fn install(db: &Connection) -> Result<()> {
 /// http://www.unicode.org/versions/Unicode13.0.0/ch03.pdf
 /// in Section 3.13 - "Default Caseless Matching"
 fn compare_strings(a: &str, b: &str) -> Ordering {
-    use unicode_normalization::UnicodeNormalization;
     use caseless::Caseless;
+    use unicode_normalization::UnicodeNormalization;
 
     // Follows the "Itentifier Caseless Matching" guidelines from the unicode standard. If you're
     // following along in the pdf linked above, it's all the way at the end. This implementation
@@ -35,32 +35,42 @@ mod test {
         let db = Connection::open_in_memory().unwrap();
         install(&db).unwrap();
 
-        db.execute(r##"CREATE TABLE test (
+        db.execute(
+            r##"CREATE TABLE test (
                        x TEXT NOT NULL,
                        UNIQUE(x COLLATE NOCASE)
-                   );"##, 
-            rusqlite::NO_PARAMS).unwrap();
+                   );"##,
+            rusqlite::NO_PARAMS,
+        )
+        .unwrap();
 
         // We'll insert the first row with the decomposed version of Å, and then try to insert
         // another row with the composed version of å to make sure that both case folding and
         // normalization are being done.
-        db.execute("INSERT INTO test (x) VALUES ('valu\u{0041}\u{030A}');", 
-                   rusqlite::NO_PARAMS).unwrap();
+        db.execute(
+            "INSERT INTO test (x) VALUES ('valu\u{0041}\u{030A}');",
+            rusqlite::NO_PARAMS,
+        )
+        .unwrap();
 
-        let count: i64 = db.query_row(
-            "SELECT COUNT(*) FROM test;", 
-            rusqlite::NO_PARAMS, 
-            |r| r.get(0)).unwrap();
+        let count: i64 = db
+            .query_row("SELECT COUNT(*) FROM test;", rusqlite::NO_PARAMS, |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(1, count);
 
-        let result = db.execute("INSERT INTO test (x) VALUES ('valu\u{00E5}');", 
-                   rusqlite::NO_PARAMS);
+        let result = db.execute(
+            "INSERT INTO test (x) VALUES ('valu\u{00E5}');",
+            rusqlite::NO_PARAMS,
+        );
         assert!(result.is_err());
 
-        let count: i64 = db.query_row(
-            "SELECT COUNT(*) FROM test;", 
-            rusqlite::NO_PARAMS, 
-            |r| r.get(0)).unwrap();
+        let count: i64 = db
+            .query_row("SELECT COUNT(*) FROM test;", rusqlite::NO_PARAMS, |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(1, count);
     }
 
@@ -89,7 +99,7 @@ mod test {
             ("FOO bar", "foo BAR"),
             ("faſt carſ", "fast cars"),
             ("ß Minnow", "ss Minnow"),
-            ("spiﬃest", "spiffiest")
+            ("spiﬃest", "spiffiest"),
         ];
         for (a, b) in inputs {
             assert_comare_result(Ordering::Equal, a, b);
@@ -122,9 +132,10 @@ mod test {
 
     fn assert_comare_result(expected: Ordering, a: &str, b: &str) {
         let actual = compare_strings(a, b);
-        assert_eq!(expected, actual, 
-                   "expected compare_strings({:?}, {:?}) to return {:?}, but got {:?}",
-                   a, b, expected, actual);
+        assert_eq!(
+            expected, actual,
+            "expected compare_strings({:?}, {:?}) to return {:?}, but got {:?}",
+            a, b, expected, actual
+        );
     }
 }
-

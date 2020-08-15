@@ -1,3 +1,4 @@
+use estuary_json::Location;
 use serde_json as sj;
 use std::str::FromStr;
 use tinyvec::TinyVec;
@@ -26,6 +27,44 @@ impl Pointer {
     // Builds an empty Pointer which references the document root.
     pub fn new() -> Pointer {
         Pointer(TinyVec::new())
+    }
+
+    /// Builds a `Pointer` from a `Location`. Since both `Location` and `Pointer`
+    /// internally represent property names without any escaping, this function will
+    /// always use the raw property names without performing any conversions.
+    ///
+    /// ```
+    /// use estuary_json::Location;
+    /// use estuary::doc::ptr::{Pointer, Token};
+    ///
+    /// let root = Location::Root;
+    /// let foo = root.push_prop("foo");
+    /// let bar = foo.push_prop("bar");
+    /// let index = bar.push_item(3);
+    ///
+    /// let pointer = Pointer::from_location(&index);
+    /// // equivalent to "/foo/bar/3"
+    /// let expected_tokens = vec![
+    ///     Token::Property("foo"),
+    ///     Token::Property("bar"),
+    ///     Token::Index(3)
+    /// ];
+    /// let actual_tokens = pointer.iter().collect::<Vec<_>>();
+    /// assert_eq!(expected_tokens, actual_tokens);
+    /// ```
+    pub fn from_location(location: &Location) -> Pointer {
+        location.fold(Pointer::new(), |location, mut ptr| {
+            match location {
+                Location::Root => {}
+                Location::Property(prop) => {
+                    ptr.push(Token::Property(prop.name));
+                }
+                Location::Item(item) => {
+                    ptr.push(Token::Index(item.index));
+                }
+            }
+            ptr
+        })
     }
 
     // Push a new Token onto the Pointer.
