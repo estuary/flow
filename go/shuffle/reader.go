@@ -95,7 +95,7 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 
 			// TODO(johnny): Leaving for now until we have more testing of this feature.
 			log.WithFields(log.Fields{
-				"journal":   r.req.Config.Journal,
+				"journal":   r.req.Shuffle.Journal,
 				"tailing":   r.resp.Tailing(),
 				"remaining": len(r.resp.GetContent()),
 			}).Info("GATE")
@@ -172,9 +172,9 @@ func (g *governor) poll(ctx context.Context) error {
 		if !chOk {
 			// This *read was cancelled and its channel has now drained.
 			delete(g.pending, r)
-			delete(g.active, r.req.Config.Journal)
+			delete(g.active, r.req.Shuffle.Journal)
 			// Perserve the journal offset for a future read.
-			g.idle[r.req.Config.Journal] = r.req.Offset
+			g.idle[r.req.Shuffle.Journal] = r.req.Offset
 			// Converge again, as we may want to start a new read for this journal
 			// (i.e., if we drained this read because the coordinating shard has changed).
 			return g.onConverge(ctx)
@@ -227,7 +227,10 @@ func (g *governor) onTick(tick time.Time) error {
 }
 
 func (g *governor) onConverge(ctx context.Context) error {
-	var added, drain = g.rb.buildReads(g.active, g.idle)
+	var added, drain, err = g.rb.buildReads(g.active, g.idle)
+	if err != nil {
+		return fmt.Errorf("failed to build reads: %w", err)
+	}
 
 	for _, r := range added {
 		if err := g.rb.start(ctx, r); err != nil {

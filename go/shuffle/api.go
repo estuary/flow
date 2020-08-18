@@ -20,7 +20,7 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	}
 	var res, err = api.resolve(consumer.ResolveArgs{
 		Context:     stream.Context(),
-		ShardID:     req.Config.CoordinatorShard(),
+		ShardID:     req.Shuffle.Coordinator,
 		MayProxy:    false,
 		ProxyHeader: req.Resolution,
 	})
@@ -38,13 +38,14 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 
 	// API requires that the consumer.Store be able to provide a Coordinator.
 	var coordinator = res.Store.(interface{ Coordinator() *coordinator }).Coordinator()
-	var ring = coordinator.findOrCreateRing(req.Config)
+	var ring = coordinator.findOrCreateRing(req.Shuffle)
 	var doneCh = make(chan error, 1)
 
 	ring.subscriberCh <- subscriber{
-		request: *req,
-		sendMsg: stream.SendMsg,
-		doneCh:  doneCh,
+		ShuffleRequest: *req,
+		sendMsg:        stream.SendMsg,
+		sendCtx:        stream.Context(),
+		doneCh:         doneCh,
 	}
 	err = <-doneCh
 
@@ -55,10 +56,9 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 		err = stream.RecvMsg(new(pf.ShuffleRequest)) // Read a more descriptive error.
 
 		log.WithFields(log.Fields{
-			"err":       err,
-			"journal":   req.Config.Journal,
-			"ringName":  req.Config.Ring.Name,
-			"ringIndex": req.RingIndex,
+			"err":     err,
+			"journal": req.Shuffle.Journal,
+			"range":   req.Range,
 		}).Warn("failed to send ShuffleResponse to client")
 	}
 	return err

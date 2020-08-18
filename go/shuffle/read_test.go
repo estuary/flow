@@ -5,29 +5,25 @@ import (
 	"fmt"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/message"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestReadBuilding(t *testing.T) {
 	var (
-		allJournals, allTransforms = buildReadTestJournalsAndTransforms()
-		curJournals                = []pb.ListResponse_Journal{}
-		curTransforms              = allTransforms
-		ring                       = pf.Ring{
-			Name:    "a-ring",
-			Members: []pf.Ring_Member{{}, {}, {}},
-		}
-		rb = &ReadBuilder{
+		allJournals, allShards, allTransforms = buildReadTestJournalsAndTransforms()
+		curJournals                           = []pb.ListResponse_Journal{}
+		curTransforms                         = allTransforms
+		ranges                                = labels.MustParseRangeSpec(allShards[0].LabelSet)
+		rb                                    = &ReadBuilder{
 			service:    nil, // Not used in this test.
+			ranges:     ranges,
 			transforms: func() []pf.TransformSpec { return curTransforms },
-			ring:       func() pf.Ring { return ring },
-			ringIndex:  2,
+			members:    func() []*pc.ShardSpec { return allShards },
 			listJournals: func(req pb.ListRequest) *pb.ListResponse {
 				require.Equal(t, pb.LabelSelector{
 					Include: pb.MustLabelSet(labels.Collection, "foo"),
@@ -35,7 +31,6 @@ func TestReadBuilding(t *testing.T) {
 
 				return &pb.ListResponse{Journals: curJournals}
 			},
-			listFragments:    func(pb.FragmentsRequest) (*pb.FragmentsResponse, error) { return &pb.FragmentsResponse{}, nil },
 			journalsUpdateCh: nil, // Not used in this test.
 		}
 		existing = map[pb.Journal]*read{}
@@ -44,7 +39,7 @@ func TestReadBuilding(t *testing.T) {
 	var toKeys = func(m map[pb.Journal]*read) (out []string) {
 		for j, r := range m {
 			require.Equal(t, j, r.spec.Name)
-			require.Equal(t, j, r.req.Config.Journal)
+			require.Equal(t, j, r.req.Shuffle.Journal)
 			out = append(out, j.String())
 		}
 		sort.Strings(out)
@@ -52,7 +47,8 @@ func TestReadBuilding(t *testing.T) {
 	}
 
 	// Case: empty journals results in no built reads.
-	var added, drain = rb.buildReads(existing, nil)
+	added, drain, err := rb.buildReads(existing, nil)
+	require.NoError(t, err)
 	require.Empty(t, drain)
 	require.Empty(t, added)
 
@@ -60,7 +56,8 @@ func TestReadBuilding(t *testing.T) {
 	curJournals, curTransforms = allJournals[:1], allTransforms[:1]
 	const aJournal = "foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one"
 
-	added, drain = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
+	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
+	require.NoError(t, err)
 	require.Empty(t, drain)
 	require.Equal(t, map[pb.Journal]*read{
 		aJournal: {
@@ -69,14 +66,13 @@ func TestReadBuilding(t *testing.T) {
 				LabelSet: allJournals[0].Spec.LabelSet,
 			},
 			req: pf.ShuffleRequest{
-				Config: pf.ShuffleConfig{
+				Shuffle: pf.JournalShuffle{
 					Journal:     aJournal,
-					Ring:        ring,
-					Coordinator: 0,
+					Coordinator: "shard/0",
 					Shuffle:     allTransforms[0].Shuffle,
 				},
-				RingIndex: 2,
-				Offset:    1122,
+				Range:  ranges,
+				Offset: 1122,
 			},
 			pollAdjust: 60e7 << 4, // 60 seconds as a message.Clock.
 		},
@@ -84,12 +80,13 @@ func TestReadBuilding(t *testing.T) {
 
 	// Case: once the read exists, repeat invocations are no-ops.
 	existing = added
-	added, drain = rb.buildReads(existing, nil)
+	added, drain, err = rb.buildReads(existing, nil)
+	require.NoError(t, err)
 	require.Empty(t, drain)
 	require.Empty(t, added)
 
 	// Case: we can build a replay-read of a specific journal.
-	var r, err = rb.buildReplayRead(aJournal, 1000, 2000)
+	r, err := rb.buildReplayRead(aJournal, 1000, 2000)
 	require.NoError(t, err)
 	require.Equal(t, &read{
 		spec: pb.JournalSpec{
@@ -97,13 +94,12 @@ func TestReadBuilding(t *testing.T) {
 			LabelSet: allJournals[0].Spec.LabelSet,
 		},
 		req: pf.ShuffleRequest{
-			Config: pf.ShuffleConfig{
+			Shuffle: pf.JournalShuffle{
 				Journal:     aJournal,
-				Ring:        ring,
-				Coordinator: 0,
+				Coordinator: "shard/0",
 				Shuffle:     allTransforms[0].Shuffle,
 			},
-			RingIndex: 2,
+			Range:     ranges,
 			Offset:    1000,
 			EndOffset: 2000,
 		},
@@ -113,7 +109,8 @@ func TestReadBuilding(t *testing.T) {
 	// Case: if the configuration changes, the existing *read
 	// is drained so that it may be restarted.
 	allTransforms[0].Shuffle.ReadDelaySeconds++
-	added, drain = rb.buildReads(existing, nil)
+	added, drain, err = rb.buildReads(existing, nil)
+	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
 	require.Empty(t, added)
 
@@ -121,7 +118,8 @@ func TestReadBuilding(t *testing.T) {
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
 	curJournals, curTransforms = allJournals[1:], allTransforms
-	added, drain = rb.buildReads(existing, nil)
+	added, drain, err = rb.buildReads(existing, nil)
+	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
 	require.Equal(t, []string{
 		"foo/bar=1/baz=abc/part=01?derivation=der&transform=bar-one",
@@ -200,105 +198,67 @@ func TestReadHeaping(t *testing.T) {
 	require.Empty(t, h)
 }
 
-func TestBuildAndApplyFragmentBounds(t *testing.T) {
-	var t1 message.Clock
-	t1.Update(time.Unix(11111111, 0))
-
-	var cfg = pf.ShuffleConfig{
-		Journal: "a/journal?query",
-		Ring: pf.Ring{
-			Members: []pf.Ring_Member{
-				{MinMsgClock: t1},
-				{},
-			},
-		},
-	}
-
-	// Index 0 has a MinMsgClock, which is projected into a BeginModTime.
-	require.Equal(t,
-		pb.FragmentsRequest{
-			Journal:      "a/journal?query",
-			BeginModTime: 11111051,
-			PageLimit:    1,
-		},
-		buildFragmentBoundRequest(&pf.ShuffleRequest{
-			Config:    cfg,
-			RingIndex: 0,
-		}))
-	// Index 1 does not.
-	require.Equal(t,
-		pb.FragmentsRequest{
-			Journal:   "a/journal?query",
-			PageLimit: 1,
-		},
-		buildFragmentBoundRequest(&pf.ShuffleRequest{
-			Config:    cfg,
-			RingIndex: 1,
-		}))
-
-	// Empty response: no-op.
-	var req = pf.ShuffleRequest{Offset: 1234}
-	applyFragmentBoundResponse(&req, &pb.FragmentsResponse{})
-	require.Equal(t, req.Offset, int64(1234))
-
-	// Lower offset bound: no-op.
-	applyFragmentBoundResponse(&req, &pb.FragmentsResponse{
-		Fragments: []pb.FragmentsResponse__Fragment{{Spec: pb.Fragment{Begin: 1000}}},
-	})
-	require.Equal(t, req.Offset, int64(1234))
-
-	// Higher offset bound: steps forward request Offset.
-	applyFragmentBoundResponse(&req, &pb.FragmentsResponse{
-		Fragments: []pb.FragmentsResponse__Fragment{{Spec: pb.Fragment{Begin: 2345}}},
-	})
-	require.Equal(t, req.Offset, int64(2345))
-}
-
-func TestLogicalPartitionGroupingAndReadWalking(t *testing.T) {
-	var journals, transforms = buildReadTestJournalsAndTransforms()
-
-	require.Equal(t, []struct{ begin, end int }{
-		{begin: 0, end: 2},
-		{begin: 2, end: 3},
-		{begin: 3, end: 5},
-	}, groupLogicalPartitions(journals))
+func TestCoordinatorAssignment(t *testing.T) {
+	var journals, shards, transforms = buildReadTestJournalsAndTransforms()
 
 	// Expect coordinators align with physical partitions of logical groups.
 	var expect = []struct {
 		journal     string
 		transform   string
-		coordinator int
+		coordinator pc.ShardID
 	}{
-		{"foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one", "bar-one", 0},
-		{"foo/bar=1/baz=abc/part=01?derivation=der&transform=bar-one", "bar-one", 1},
-		{"foo/bar=1/baz=def/part=00?derivation=der&transform=bar-one", "bar-one", 0},
-		{"foo/bar=1/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", 0},
-		{"foo/bar=2/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", 0},
-		{"foo/bar=2/baz=def/part=01?derivation=der&transform=baz-def", "baz-def", 1},
+		{"foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one", "bar-one", "shard/0"},
+		{"foo/bar=1/baz=abc/part=01?derivation=der&transform=bar-one", "bar-one", "shard/2"},
+		{"foo/bar=1/baz=def/part=00?derivation=der&transform=bar-one", "bar-one", "shard/1"},
+		{"foo/bar=1/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/1"},
+		{"foo/bar=2/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/0"},
+		{"foo/bar=2/baz=def/part=01?derivation=der&transform=baz-def", "baz-def", "shard/1"},
 	}
-	walkReads(3, journals, transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator int) {
-			require.Equal(t, spec.Name.String(), expect[0].journal)
-			require.Equal(t, transform.Shuffle.Transform.String(), expect[0].transform)
-			require.Equal(t, coordinator, coordinator)
+	var err = walkReads(shards, journals, transforms,
+		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
+			require.Equal(t, expect[0].journal, spec.Name.String())
+			require.Equal(t, expect[0].transform, transform.Shuffle.Transform.String())
+			require.Equal(t, expect[0].coordinator, coordinator)
 			expect = expect[1:]
 		})
+	require.NoError(t, err)
 	require.Empty(t, expect)
 }
 
-func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []pf.TransformSpec) {
+func TestHRWRegression(t *testing.T) {
+	var ring = []uint32{
+		hashString("Foo"),
+		hashString("Bar"),
+		hashString("Baz"),
+		hashString("Qib"),
+	}
+	var h = hashString("Test")
+
+	require.Equal(t, []uint32{0x306b1a20, 0x20fd96e4, 0x89f7f0e4, 0xe3b56c18}, ring)
+	require.Equal(t, uint32(0xbab20a64), h)
+
+	require.Equal(t, 1, pickHRW(h, ring, 0, 4))
+	require.Equal(t, 0, pickHRW(h, ring, 0, 1))
+	require.Equal(t, 1, pickHRW(h, ring, 1, 4))
+	require.Equal(t, 3, pickHRW(h, ring, 2, 4))
+	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
+}
+
+func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []*pc.ShardSpec, []pf.TransformSpec) {
 	var journals []pb.ListResponse_Journal
 
 	for _, j := range []struct {
-		bar  string
-		baz  string
-		part int
+		bar   string
+		baz   string
+		begin string
+		end   string
+		part  int
 	}{
-		{"1", "abc", 0}, // foo/bar=1/baz=abc/part=00
-		{"1", "abc", 1}, // foo/bar=1/baz=abc/part=01
-		{"1", "def", 0}, // foo/bar=1/baz=def/part=00
-		{"2", "def", 0}, // foo/bar=2/baz=def/part=00
-		{"2", "def", 1}, // foo/bar=2/baz=def/part=01
+		{"1", "abc", "aa", "cc", 0}, // foo/bar=1/baz=abc/part=00
+		{"1", "abc", "cc", "ff", 1}, // foo/bar=1/baz=abc/part=01
+		{"1", "def", "aa", "ff", 0}, // foo/bar=1/baz=def/part=00
+		{"2", "def", "aa", "bb", 0}, // foo/bar=2/baz=def/part=00
+		{"2", "def", "bb", "ff", 1}, // foo/bar=2/baz=def/part=01
 	} {
 		var name = fmt.Sprintf("foo/bar=%s/baz=%s/part=%02d", j.bar, j.baz, j.part)
 
@@ -309,9 +269,28 @@ func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []pf.Trans
 					labels.Collection, "foo",
 					labels.FieldPrefix+"bar", j.bar,
 					labels.FieldPrefix+"baz", j.baz,
+					labels.KeyBegin, j.begin,
+					labels.KeyEnd, j.end,
 				),
 			},
 		})
+	}
+	var shards = []*pc.ShardSpec{
+		{Id: "shard/0", LabelSet: pb.MustLabelSet(
+			labels.KeyBegin, "aa",
+			labels.KeyEnd, "bb",
+			labels.RClockBegin, "0000000000000000",
+			labels.RClockEnd, "ffffffffffffffff")},
+		{Id: "shard/1", LabelSet: pb.MustLabelSet(
+			labels.KeyBegin, "bb",
+			labels.KeyEnd, "cc",
+			labels.RClockBegin, "0000000000000000",
+			labels.RClockEnd, "ffffffffffffffff")},
+		{Id: "shard/2", LabelSet: pb.MustLabelSet(
+			labels.KeyBegin, "cc",
+			labels.KeyEnd, "ff",
+			labels.RClockBegin, "0000000000000000",
+			labels.RClockEnd, "8000000000000000")},
 	}
 
 	// Transforms reading partitions of "foo" into derivation "der".
@@ -319,6 +298,7 @@ func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []pf.Trans
 		{
 			Shuffle: pf.Shuffle{
 				Transform:        "bar-one",
+				UsesSourceKey:    true,
 				ReadDelaySeconds: 60,
 			},
 			Source: pf.TransformSpec_Source{
@@ -330,7 +310,10 @@ func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []pf.Trans
 			Derivation: pf.TransformSpec_Derivation{Name: "der"},
 		},
 		{
-			Shuffle: pf.Shuffle{Transform: "baz-def"},
+			Shuffle: pf.Shuffle{
+				Transform:     "baz-def",
+				UsesSourceKey: false,
+			},
 			Source: pf.TransformSpec_Source{
 				Name: "foo",
 				Partitions: pb.LabelSelector{
@@ -350,5 +333,5 @@ func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []pf.Trans
 			Derivation: pf.TransformSpec_Derivation{Name: "der"},
 		},
 	}
-	return journals, transforms
+	return journals, shards, transforms
 }
