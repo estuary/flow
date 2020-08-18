@@ -61,8 +61,7 @@ func (c *catalog) loadTransforms(derivation string) ([]pf.TransformSpec, error) 
 		source_partitions_json,
 		shuffle_key_json,
 		shuffle_broadcast,
-		shuffle_choose,
-		0 -- TODO(johnny): Not implemented in catalog yet.
+		read_delay_seconds,
 	FROM transform_details
 		WHERE derivation_name = ?`,
 		derivation,
@@ -86,8 +85,6 @@ func (c *catalog) loadTransforms(derivation string) ([]pf.TransformSpec, error) 
 			&transform.Derivation.Name,
 			scanJSON{&partitionsFlat},
 			scanJSON{&transform.Shuffle.ShuffleKeyPtr},
-			&transform.Shuffle.BroadcastTo,
-			&transform.Shuffle.ChooseFrom,
 			&transform.Shuffle.ReadDelaySeconds,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan tranform from catalog: %w", err)

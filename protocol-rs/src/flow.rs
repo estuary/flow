@@ -37,67 +37,62 @@ pub struct Shuffle {
     /// JSON-Pointers indicating a message location to extract.
     #[prost(string, repeated, tag = "2")]
     pub shuffle_key_ptr: ::std::vec::Vec<std::string::String>,
-    /// Number of top-ranked processors to broadcast each message to, after
-    /// shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
-    #[prost(uint32, tag = "3")]
-    pub broadcast_to: u32,
-    /// Number of top-ranked readers from which a single reader index will be
-    /// selected, after shuffling. The message Clock value is used to pseudo
-    /// randomly pick the final index, making the selection deterministic.
-    /// Values larger than one can be used to distribute "hot keys" which might
-    /// otherwise overwhelm specific readers.
-    /// Usually this is zero and |broadcast_to| is used instead. If non-zero,
-    /// |broadcast_to| cannot be set.
-    #[prost(uint32, tag = "4")]
-    pub choose_from: u32,
+    /// uses_source_key is true if shuffle_key_ptr is the source's native key,
+    /// and false if it's some other key. When shuffling using the source's key,
+    /// we can minimize data movement by assigning a shard coordinator for each
+    /// journal such that the shard's key range overlap that of the journal.
+    #[prost(bool, tag = "3")]
+    pub uses_source_key: bool,
+    /// filter_r_clocks is true if the shuffle coordinator should filter documents
+    /// sent to each subscriber based on its covered r-clock ranges and the
+    /// individual document clocks. If false, the subscriber's r-clock range is
+    /// ignored and all documents which match the key range are sent.
+    ///
+    /// filter_r_clocks is set 'true' when reading on behalf of transforms having
+    /// a "publish" but not an "update" lambda, as such documents have no
+    /// side-effects on the reader's state store, and would not be published anyway
+    /// for falling outside of the reader's r-clock range.
+    #[prost(bool, tag = "6")]
+    pub filter_r_clocks: bool,
+    #[prost(enumeration = "shuffle::Hash", tag = "4")]
+    pub hash: i32,
     /// Number of seconds for which documents of this collection are delayed
     /// while reading, relative to other documents (when back-filling) and the
     /// present wall-clock time (when tailing).
     #[prost(uint32, tag = "5")]
     pub read_delay_seconds: u32,
 }
-/// Ring is a topology of members, working in concert to share a task.
-/// Each derived collection has a Ring of member shards which are
-/// responsible for its continuous derivation.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Ring {
-    /// Unique name of this ring.
-    #[prost(string, tag = "1")]
-    pub name: std::string::String,
-    #[prost(message, repeated, tag = "2")]
-    pub members: ::std::vec::Vec<ring::Member>,
-}
-pub mod ring {
-    /// Current members of this ring.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Member {
-        /// Miniumum Clock of messages processed by this member, used to:
-        /// - Lower-bound messages mapped to this member.
-        /// - Lower-bound the fragment from which this member starts reading.
-        #[prost(uint64, tag = "1")]
-        pub min_msg_clock: u64,
-        /// Maximum Clock of messages processed by this member, used to
-        /// upper-bound messages mapped to this member.
-        #[prost(uint64, tag = "2")]
-        pub max_msg_clock: u64,
+pub mod shuffle {
+    /// Optional hash applied to extracted, packed shuffle keys. Hashes can:
+    /// * Mitigate shard skew which might otherwise occur due to key locality
+    ///   (many co-occurring updates to "nearby" keys).
+    /// * Give predictable storage sizes for keys which are otherwise unbounded.
+    /// * Allow for joins over sensitive fields, which should not be stored
+    ///   in-the-clear at rest where possible.
+    /// Either cryptographic or non-cryptographic functions may be appropriate
+    /// depending on thse use case.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Hash {
+        /// None performs no hash, returning the original key.
+        None = 0,
+        /// MD5 returns the MD5 digest of the original key. It is not a safe
+        /// cryptographic hash, but is well-known and fast, with good distribution
+        /// properties.
+        Md5 = 1,
     }
 }
-/// ShuffleConfig places a Shuffle within a specific, configured execution
-/// context within which it runs.
+/// JournalShuffle is a Shuffle of a Journal by a Coordinator shard.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShuffleConfig {
+pub struct JournalShuffle {
     /// Journal to be shuffled.
     #[prost(string, tag = "1")]
     pub journal: std::string::String,
-    /// Ring on whose behalf this journal is being shuffled.
-    #[prost(message, optional, tag = "2")]
-    pub ring: ::std::option::Option<Ring>,
-    /// Coordinator is the ring member index which is responsible for shuffled
-    /// reads of this journal.
-    #[prost(uint32, tag = "3")]
-    pub coordinator: u32,
-    /// Shuffle of this ShuffleConfig.
-    #[prost(message, optional, tag = "4")]
+    /// Coordinator is the Shard ID which is responsible for reads of this journal.
+    #[prost(string, tag = "2")]
+    pub coordinator: std::string::String,
+    /// Shuffle of this JournalShuffle.
+    #[prost(message, optional, tag = "3")]
     pub shuffle: ::std::option::Option<Shuffle>,
 }
 /// Transform describes a specific transform of a derived collection.
@@ -168,14 +163,29 @@ pub mod field {
         }
     }
 }
+/// RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
+/// is responsible for.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RangeSpec {
+    /// Byte [begin, end) exclusive range of keys to be shuffled to this reader.
+    #[prost(bytes, tag = "2")]
+    pub key_begin: std::vec::Vec<u8>,
+    #[prost(bytes, tag = "3")]
+    pub key_end: std::vec::Vec<u8>,
+    /// Rotated [begin, end) exclusive ranges of Clocks to be shuffled to this
+    /// reader.
+    #[prost(uint64, tag = "4")]
+    pub r_clock_begin: u64,
+    #[prost(uint64, tag = "5")]
+    pub r_clock_end: u64,
+}
 /// ShuffleRequest is the request message of a Shuffle RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleRequest {
     #[prost(message, optional, tag = "1")]
-    pub config: ::std::option::Option<ShuffleConfig>,
-    /// Index of this member within the ring.
-    #[prost(uint32, tag = "2")]
-    pub ring_index: u32,
+    pub shuffle: ::std::option::Option<JournalShuffle>,
+    #[prost(message, optional, tag = "2")]
+    pub range: ::std::option::Option<RangeSpec>,
     /// Offset to begin reading the journal from.
     #[prost(int64, tag = "3")]
     pub offset: i64,
@@ -235,16 +245,14 @@ pub struct ShuffleResponse {
     /// UUIDParts of each document.
     #[prost(message, repeated, tag = "12")]
     pub uuid_parts: ::std::vec::Vec<UuidParts>,
+    /// Packed, embedded encoding of the shuffle key into a byte string.
+    /// If the Shuffle specified a Hash to use, it's applied as well.
+    #[prost(message, repeated, tag = "13")]
+    pub packed_key: ::std::vec::Vec<Slice>,
     /// Extracted shuffle key of each document, with one Field for each
     /// component of the composite shuffle key.
-    #[prost(message, repeated, tag = "13")]
+    #[prost(message, repeated, tag = "14")]
     pub shuffle_key: ::std::vec::Vec<Field>,
-    /// Extracted unique hash of the document shuffle key (low 64-bits).
-    #[prost(fixed64, repeated, tag = "14")]
-    pub shuffle_hashes_low: ::std::vec::Vec<u64>,
-    /// Extracted unique hash of the document shuffle key (high 64-bits).
-    #[prost(fixed64, repeated, tag = "15")]
-    pub shuffle_hashes_high: ::std::vec::Vec<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractRequest {

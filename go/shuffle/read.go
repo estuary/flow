@@ -2,15 +2,18 @@ package shuffle
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/binary"
 	"fmt"
 	"net/url"
-	"path"
-	"strconv"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -21,19 +24,16 @@ import (
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
 	service *consumer.Service
-
-	// Transforms and ring may change over the life of a ReadBuilder
-	// (though |ringIndex| may not). We're careful not to assume that
-	// these values are stable. If they change, that will flow through
-	// to changes of ShuffleConfigs, which will cause reads to be drained
-	// and re-started with updated configurations.
+	ranges  pf.RangeSpec
+	// Transforms and members may change over the life of a ReadBuilder.
+	// We're careful not to assume that values are stable. If they change,
+	// that will flow through to changes of ShuffleConfigs, which will
+	// cause reads to be drained and re-started with updated configurations.
 	transforms func() []pf.TransformSpec
-	ring       func() pf.Ring
-	ringIndex  uint32
+	members    func() []*pc.ShardSpec
 
 	// These closures are simple wrappers which are easily mocked in testing.
-	listJournals  func(pb.ListRequest) *pb.ListResponse
-	listFragments func(pb.FragmentsRequest) (*pb.FragmentsResponse, error)
+	listJournals func(pb.ListRequest) *pb.ListResponse
 	// journalsUpdateCh is signalled with each refresh of listJournals.
 	// Journals must be inspected to determine if any have changed.
 	journalsUpdateCh <-chan struct{}
@@ -43,14 +43,13 @@ type ReadBuilder struct {
 func NewReadBuilder(
 	service *consumer.Service,
 	shard consumer.Shard,
-	ring func() pf.Ring,
 	transforms func() []pf.TransformSpec,
 ) (*ReadBuilder, error) {
 
-	// Determine the ring index of this shard.
-	var ringIndex, err = strconv.Atoi(shard.Spec().LabelSet.ValueOf(labels.WorkerIndex))
+	// Build a RangeSpec from shard labels.
+	var ranges, err = labels.ParseRangeSpec(shard.Spec().LabelSet)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract shard worker index: %w", err)
+		return nil, fmt.Errorf("extracting RangeSpec from shard: %w", err)
 	}
 
 	list, err := client.NewPolledList(
@@ -62,18 +61,28 @@ func NewReadBuilder(
 		return nil, fmt.Errorf("initial journal listing failed: %w", err)
 	}
 
+	// Prefix is the "directory" portion of the ShardID,
+	// up-to and including a final '/'.
+	var prefix = shard.Spec().Id.String()
+	prefix = prefix[:strings.LastIndexByte(prefix, '/')+1]
+	prefix = allocator.ItemKey(service.State.KS, prefix)
+
 	return &ReadBuilder{
 		service:    service,
+		ranges:     ranges,
 		transforms: transforms,
-		ring:       ring,
-		ringIndex:  uint32(ringIndex),
 
+		members: func() (out []*pc.ShardSpec) {
+			service.State.KS.Mu.RLock()
+			for _, m := range service.State.Items.Prefixed(prefix) {
+				out = append(out, m.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec))
+			}
+			service.State.KS.Mu.RUnlock()
+			return
+		},
 		listJournals: func(req pb.ListRequest) *pb.ListResponse {
 			list.UpdateRequest(req)
 			return list.List()
-		},
-		listFragments: func(req pb.FragmentsRequest) (*pb.FragmentsResponse, error) {
-			return client.ListAllFragments(shard.Context(), shard.JournalClient(), req)
 		},
 		journalsUpdateCh: list.UpdateCh(),
 	}, nil
@@ -105,29 +114,27 @@ type read struct {
 
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var (
-		ring       = rb.ring()
 		transforms = rb.transforms()
 		journals   = rb.listJournals(buildListRequest(transforms))
 	)
 
 	var out *read
-	walkReads(len(ring.Members), journals.Journals, transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator int) {
+	var err = walkReads(rb.members(), journals.Journals, transforms,
+		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
 			if spec.Name != journal {
 				return
 			}
 
-			var config = pf.ShuffleConfig{
+			var shuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
-				Ring:        ring,
-				Coordinator: uint32(coordinator),
+				Coordinator: coordinator,
 				Shuffle:     transform.Shuffle,
 			}
 			out = &read{
 				spec: spec,
 				req: pf.ShuffleRequest{
-					Config:    config,
-					RingIndex: rb.ringIndex,
+					Shuffle:   shuffle,
+					Range:     rb.ranges,
 					Offset:    begin,
 					EndOffset: end,
 				},
@@ -135,17 +142,19 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 			}
 		})
 
-	if out == nil {
+	if err != nil {
+		return nil, err
+	} else if out == nil {
 		return nil, fmt.Errorf("journal not matched for replay: %s", journal)
 	}
 	return out, nil
 }
 
 func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offsets,
-) (added map[pb.Journal]*read, drain map[pb.Journal]*read) {
+) (added map[pb.Journal]*read, drain map[pb.Journal]*read, err error) {
 	var (
-		ring       = rb.ring()
 		transforms = rb.transforms()
+		members    = rb.members()
 		journals   = rb.listJournals(buildListRequest(transforms))
 	)
 
@@ -157,52 +166,38 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 		drain[j] = r
 	}
 
-	walkReads(len(ring.Members), journals.Journals, transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator int) {
+	err = walkReads(members, journals.Journals, transforms,
+		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
 			// Build the configuration under which we'll read.
-			var config = pf.ShuffleConfig{
+			var shuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
-				Ring:        ring,
-				Coordinator: uint32(coordinator),
+				Coordinator: coordinator,
 				Shuffle:     transform.Shuffle,
-
-				// TODO(johnny): Include ReadDelaySecs to incorporate into equality checks.
 			}
 
 			var r, ok = existing[spec.Name]
 			if ok {
 				// A *read for this journal & transform already exists. If it's
-				// ShuffleConfig hasn't changed, keep it active (i.e., don't drain).
-				if r.req.Config.Equal(&config) {
+				// JournalShuffle hasn't changed, keep it active (i.e., don't drain).
+				if r.req.Shuffle.Equal(&shuffle) {
 					delete(drain, spec.Name)
 				}
 				return
 			}
 
 			// A *read of this journal doesn't exist. Start one.
-			var adjust = message.NewClock(time.Unix(int64(config.Shuffle.ReadDelaySeconds), 0)) -
+			var adjust = message.NewClock(time.Unix(int64(shuffle.ReadDelaySeconds), 0)) -
 				message.NewClock(time.Unix(0, 0))
 
-			r = &read{
+			added[spec.Name] = &read{
 				spec: spec,
 				req: pf.ShuffleRequest{
-					Config:    config,
-					RingIndex: rb.ringIndex,
-					Offset:    offsets[spec.Name],
+					Shuffle: shuffle,
+					Range:   rb.ranges,
+					Offset:  offsets[spec.Name],
 				},
 				pollAdjust: adjust,
 			}
-
-			// Potentially increment the read offset by lower-bounding via the member clock.
-			if list, err := rb.listFragments(buildFragmentBoundRequest(&r.req)); err == nil {
-				applyFragmentBoundResponse(&r.req, list)
-			} else {
-				r.pollCh <- &pf.ShuffleResponse{
-					TerminalError: fmt.Sprintf("failed to list fragments (for bounding read offset): %s", err),
-				}
-			}
-
-			added[spec.Name] = r
 		})
 
 	return
@@ -215,7 +210,7 @@ func (rb *ReadBuilder) start(ctx context.Context, r *read) error {
 	// Resolve coordinator shard to a current member process.
 	var resolution, err = rb.service.Resolver.Resolve(consumer.ResolveArgs{
 		Context:  r.ctx,
-		ShardID:  r.req.Config.CoordinatorShard(),
+		ShardID:  r.req.Shuffle.Coordinator,
 		MayProxy: true,
 	})
 	if err == nil && resolution.Status != pc.Status_OK {
@@ -287,13 +282,12 @@ func (r *read) pump(ch chan<- struct{}) (err error) {
 
 func (r *read) log() *log.Entry {
 	return log.WithFields(log.Fields{
-		"journal":     r.req.Config.Journal,
-		"coordinator": r.req.Config.Coordinator,
-		"transform":   r.req.Config.Shuffle.Transform,
+		"journal":     r.req.Shuffle.Journal,
+		"coordinator": r.req.Shuffle.Coordinator,
+		"transform":   r.req.Shuffle.Transform,
 		"offset":      r.req.Offset,
 		"endOffset":   r.req.EndOffset,
-		"ring":        r.req.Config.Ring.Name,
-		"ringIndex":   r.req.RingIndex,
+		"range":       &r.req.Range,
 	})
 }
 
@@ -325,39 +319,6 @@ func (h *readHeap) Pop() interface{} {
 	return x
 }
 
-// buildFragmentBoundRequest returns a FragmentsRequest which identifies a
-// lower-bound fragment for the request's minimum ring clock.
-func buildFragmentBoundRequest(req *pf.ShuffleRequest) pb.FragmentsRequest {
-	var beginModTime int64
-	if c := req.Config.Ring.Members[req.RingIndex].MinMsgClock; c != 0 {
-		// If we have a MinMsgClock, and the fragment was persisted _before_ it
-		// (with a small adjustment to account for clock drift), it cannot possibly
-		// contain messages published _after_ the minimum clock.
-		beginModTime = c.Time().Add(-time.Minute).Unix()
-	}
-
-	return pb.FragmentsRequest{
-		Journal:      req.Config.Journal,
-		BeginModTime: beginModTime,
-		// Return only the first fragment with a larger ModTime.
-		PageLimit: 1,
-	}
-}
-
-// applyFragmentBoundResponse constraints the request offset by the
-// given lower-bound fragment.
-func applyFragmentBoundResponse(req *pf.ShuffleRequest, list *pb.FragmentsResponse) {
-	if l := len(list.Fragments); l != 0 && list.Fragments[0].Spec.Begin > req.Offset {
-		log.WithFields(log.Fields{
-			"journal":  req.Config.Journal,
-			"offset":   req.Offset,
-			"fragment": list.Fragments[0].String(),
-		}).Info("skipping forward offset to that of matched fragment bound")
-
-		req.Offset = list.Fragments[0].Spec.Begin
-	}
-}
-
 // buildListRequest returns a ListRequest which enumerates all journals of each
 // collection serving as a source of one the provided Transforms.
 func buildListRequest(transforms []pf.TransformSpec) pb.ListRequest {
@@ -372,51 +333,89 @@ func buildListRequest(transforms []pf.TransformSpec) pb.ListRequest {
 	return out
 }
 
-func walkReads(coordinators int, journals []pb.ListResponse_Journal, transforms []pf.TransformSpec,
-	cb func(_ pb.JournalSpec, _ pf.TransformSpec, coordinator int)) {
+type shardsByKey []*pc.ShardSpec
 
-	for _, partition := range groupLogicalPartitions(journals) {
-		for j, journal := range journals[partition.begin:partition.end] {
-			for _, transform := range transforms {
-				if !transform.Source.Partitions.Matches(journal.Spec.LabelSet) {
-					continue
-				}
+func (s shardsByKey) len() int                 { return len(s) }
+func (s shardsByKey) getKeyBegin(i int) []byte { return []byte(s[i].LabelSet.ValueOf(labels.KeyBegin)) }
+func (s shardsByKey) getKeyEnd(i int) []byte   { return []byte(s[i].LabelSet.ValueOf(labels.KeyEnd)) }
 
-				// Augment JournalSpec to capture derivation and transform on
-				// whose behalf the read is being done.
-				// TODO(johnny): THIS NEEDS TO BE A STABLE NAME!.
-				var spec = journal.Spec
-				spec.Name = pb.Journal(fmt.Sprintf("%s?derivation=%s&transform=%s",
-					journal.Spec.Name.String(),
-					url.QueryEscape(transform.Derivation.Name.String()),
-					url.QueryEscape(transform.Shuffle.Transform.String()),
-				))
+func walkReads(members []*pc.ShardSpec, journals []pb.ListResponse_Journal, transforms []pf.TransformSpec,
+	cb func(_ pb.JournalSpec, _ pf.TransformSpec, coordinator pc.ShardID)) error {
 
-				// Map each physical partition to its corresponding member shard.
-				// TODO(johnny): This minimizes data shuffles if
-				// len(physical partitions) ~= len(ring.Members), but can result in
-				// uneven shuffle coordination otherwise. It's unclear right now whether
-				// that's an issue.
-				cb(spec, transform, j%coordinators)
+	// Sort |members| on ascending KeyBegin.
+	sort.SliceStable(members, func(i, j int) bool {
+		return members[i].LabelSet.ValueOf(labels.KeyBegin) < members[j].LabelSet.ValueOf(labels.KeyEnd)
+	})
+
+	// Generate hashes for each of |members| and |journals|, on their IDs/Names.
+	var memberHashes = make([]uint32, len(members))
+	for m := range members {
+		memberHashes[m] = hashString(members[m].Id.String())
+	}
+	var journalHashes = make([]uint32, len(journals))
+	for j := range journals {
+		journalHashes[j] = hashString(journals[j].Spec.Name.String())
+	}
+
+	for j, journal := range journals {
+		for _, transform := range transforms {
+			if !transform.Source.Partitions.Matches(journal.Spec.LabelSet) {
+				continue
 			}
+
+			var start, stop int
+			if transform.Shuffle.UsesSourceKey {
+				// This tranform uses the source's natural key, which means that the key ranges
+				// present on JournalSpecs refer to the same keys as ShardSpecs. As an optimization
+				// to reduce data movement, select only from ShardSpecs which overlap the journal.
+				// Notice we're operating over the hex-encoded values here (which is order-preserving).
+				start, stop = rangeSpan(shardsByKey(members),
+					[]byte(journal.Spec.LabelSet.ValueOf(labels.KeyBegin)),
+					[]byte(journal.Spec.LabelSet.ValueOf(labels.KeyEnd)),
+				)
+			} else {
+				start, stop = 0, len(members)
+			}
+
+			// Augment JournalSpec to capture derivation and transform name on
+			// whose behalf the read is being done.
+			var spec = journal.Spec
+			spec.Name = pb.Journal(fmt.Sprintf("%s?derivation=%s&transform=%s",
+				journal.Spec.Name.String(),
+				url.QueryEscape(transform.Derivation.Name.String()),
+				url.QueryEscape(transform.Shuffle.Transform.String()),
+			))
+
+			if start == stop {
+				return fmt.Errorf("none of %d shards cover journal %s", len(members), journal.Spec.Name)
+			}
+			var m = pickHRW(journalHashes[j], memberHashes, start, stop)
+			cb(spec, transform, members[m].Id)
 		}
 	}
+	return nil
 }
 
-// groupLogicalPartitions groups ordered journals by their "directory"
-// (the prefix of the journal name through its final '/').
-func groupLogicalPartitions(journals []pb.ListResponse_Journal) (out []struct{ begin, end int }) {
-	for i, j := 0, 1; i != len(journals); j++ {
-		if j == len(journals) ||
-			path.Dir(journals[i].Spec.Name.String()) !=
-				path.Dir(journals[j].Spec.Name.String()) {
+func hashString(s string) uint32 {
+	// This doesn't need to be cryptographic, but we use MD5 because FNV has a
+	// pretty terrible avalanche factor (eg, very close inputs have outputs with
+	// many co-occurring bits).
+	var h = sha1.New()
+	h.Write([]byte(s))
 
-			// Range [i,j) are physical partitions of a shared logical partition.
-			out = append(out, struct{ begin, end int }{i, j})
-			i = j
+	var b [sha1.BlockSize]byte
+	return binary.LittleEndian.Uint32(h.Sum(b[:0]))
+}
+
+func pickHRW(h uint32, from []uint32, start, stop int) int {
+	var max uint32
+	var at int
+	for i := start; i != stop; i++ {
+		if n := from[i] ^ h; max < n {
+			max, at = n, i
 		}
 	}
-	return
+	return at
 }
 
 func backoff(attempt int) time.Duration {

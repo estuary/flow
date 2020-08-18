@@ -2,6 +2,7 @@ package shuffle
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -9,8 +10,9 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	fLabels "github.com/estuary/flow/go/labels"
+	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
+	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -20,50 +22,32 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/labels"
+	gazLabels "go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
 
 func TestConsumerIntegration(t *testing.T) {
-
 	// Fixtures which parameterize the test:
 	var (
 		sourcePartitions = []pb.Journal{
-			"foo/bar=10/part=000",
-			"foo/bar=10/part=001",
-			"foo/bar=42/part=000",
+			"source/foo/part=10",
+			"source/foo/part=20",
+			"source/foo/part=42",
 		}
-		ring = pf.Ring{
-			Name:    "test-ring",
-			Members: []pf.Ring_Member{{}, {}, {}},
+		shards = []pc.ShardID{
+			"derive/bar/abc",
+			"derive/bar/def",
 		}
 		transforms = []pf.TransformSpec{
 			{
-				Source: pf.TransformSpec_Source{Name: "source-foo"},
+				Source: pf.TransformSpec_Source{Name: "source/foo"},
 				Shuffle: pf.Shuffle{
 					Transform:     "highAndLow",
 					ShuffleKeyPtr: []string{"/High", "/Low"},
-					BroadcastTo:   1,
+					UsesSourceKey: false,
+					FilterRClocks: false,
 				},
-				Derivation: pf.TransformSpec_Derivation{Name: "derived-bar"},
-			},
-			{
-				Source: pf.TransformSpec_Source{Name: "source-foo"},
-				Shuffle: pf.Shuffle{
-					Transform:     "high",
-					ShuffleKeyPtr: []string{"/High"},
-					BroadcastTo:   2, // Two workers read each key.
-				},
-				Derivation: pf.TransformSpec_Derivation{Name: "derived-bar"},
-			},
-			{
-				Source: pf.TransformSpec_Source{Name: "source-foo"},
-				Shuffle: pf.Shuffle{
-					Transform:     "low",
-					ShuffleKeyPtr: []string{"/Low"},
-					BroadcastTo:   3, // All workers read each key.
-				},
-				Derivation: pf.TransformSpec_Derivation{Name: "derived-bar"},
+				Derivation: pf.TransformSpec_Derivation{Name: "derive/bar"},
 			},
 		}
 		N = 200 // Publish each combination of High & Low values two times.
@@ -86,15 +70,15 @@ func TestConsumerIntegration(t *testing.T) {
 		journalSpecs = append(journalSpecs, brokertest.Journal(pb.JournalSpec{
 			Name: name,
 			LabelSet: pb.MustLabelSet(
-				labels.ContentType, labels.ContentType_JSONLines,
-				fLabels.Collection, "source-foo",
+				gazLabels.ContentType, gazLabels.ContentType_JSONLines,
+				flowLabels.Collection, "source/foo",
 			),
 		}))
 	}
-	for index := range ring.Members {
+	for _, id := range shards {
 		journalSpecs = append(journalSpecs, brokertest.Journal(pb.JournalSpec{
-			Name:     pb.Journal(fmt.Sprintf("recovery/logs/%s", ring.ShardID(index).String())),
-			LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_RecoveryLog),
+			Name:     pb.Journal(fmt.Sprintf("recovery/logs/%s", id)),
+			LabelSet: pb.MustLabelSet(gazLabels.ContentType, gazLabels.ContentType_RecoveryLog),
 		}))
 	}
 
@@ -105,14 +89,10 @@ func TestConsumerIntegration(t *testing.T) {
 	var ajc = client.NewAppendService(ctx, broker.Client())
 	var pub = message.NewPublisher(ajc, nil)
 	var mapping = func(m message.Mappable) (_ pb.Journal, contentType string, _ error) {
-		return sourcePartitions[rand.Intn(len(sourcePartitions))], labels.ContentType_JSONLines, nil
+		return sourcePartitions[rand.Intn(len(sourcePartitions))], gazLabels.ContentType_JSONLines, nil
 	}
 
-	var expect = testState{
-		High:       make(map[uint64]int),
-		Low:        make(map[string]int),
-		HighAndLow: make(map[string]int),
-	}
+	var expect = make(map[string]int)
 	for i := 0; i != N; i++ {
 		var msg = &testMsg{
 			High: ((i / 10) * 10) % 100, // Takes values [0, 10, 20, 30, ... 90].
@@ -121,9 +101,11 @@ func TestConsumerIntegration(t *testing.T) {
 		var aa, _ = pub.PublishCommitted(mapping, msg)
 		require.NoError(t, aa.Err())
 
-		expect.HighAndLow[fmt.Sprintf("%d,%s", msg.High, msg.Low)]++
-		expect.High[uint64(msg.High)] += 2 // Broadcast to 2 shards.
-		expect.Low[msg.Low] += 3           // Broadcast to 3 shards.
+		// Build expected packed shuffle key.
+		var k = encoding.EncodeStringAscending(
+			encoding.EncodeUvarintAscending(nil, uint64(msg.High)),
+			msg.Low)
+		expect[string(k)]++
 	}
 	for op := range ajc.PendingExcept("") {
 		require.NoError(t, op.Err())
@@ -136,7 +118,6 @@ func TestConsumerIntegration(t *testing.T) {
 		Journals: broker.Client(),
 		App: &testApp{
 			workerHost: wh,
-			ring:       ring,
 			transforms: transforms,
 		},
 	})
@@ -144,19 +125,25 @@ func TestConsumerIntegration(t *testing.T) {
 	pf.RegisterShufflerServer(c.Server.GRPCServer, &API{resolve: c.Service.Resolver.Resolve})
 	c.Tasks.GoRun()
 
-	var shardSpecs []*pc.ShardSpec
-	for index := range ring.Members {
-		shardSpecs = append(shardSpecs, &pc.ShardSpec{
-			Id:                ring.ShardID(index),
+	var shardSpecs = make([]*pc.ShardSpec, len(shards))
+	for i, id := range shards {
+		var step = 100 / len(shards)
+
+		shardSpecs[i] = &pc.ShardSpec{
+			Id:                id,
 			Sources:           []pc.ShardSpec_Source{},
 			RecoveryLogPrefix: "recovery/logs",
 			HintPrefix:        "/hints",
 			HintBackups:       1,
 			MaxTxnDuration:    time.Second,
 			LabelSet: pb.MustLabelSet(
-				fLabels.Derivation, "derived-bar",
-				fLabels.WorkerIndex, strconv.Itoa(index)),
-		})
+				flowLabels.Derivation, "derived-bar",
+				flowLabels.KeyBegin, hex.EncodeToString(encoding.EncodeUvarintAscending(nil, uint64((i+0)*step))),
+				flowLabels.KeyEnd, hex.EncodeToString(encoding.EncodeUvarintAscending(nil, uint64((i+1)*step))),
+				flowLabels.RClockBegin, "0000000000000000",
+				flowLabels.RClockEnd, "ffffffffffffffff",
+			),
+		}
 	}
 	consumertest.CreateShards(t, c, shardSpecs...)
 
@@ -168,26 +155,16 @@ func TestConsumerIntegration(t *testing.T) {
 	// feature which future tests are likely to cover.
 
 	// Pluck out each of the worker states.
-	var merged = testState{
-		High:       make(map[uint64]int),
-		Low:        make(map[string]int),
-		HighAndLow: make(map[string]int),
-	}
+	var merged = make(map[string]int)
 
-	for index := range ring.Members {
+	for _, id := range shards {
 		// Expect the shard store reflects consumed messages.
-		res, err := c.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: ring.ShardID(index)})
+		res, err := c.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: id})
 		require.NoError(t, err)
 
-		var state = res.Store.(*testStore).JSONFileStore.State.(*testState)
-		for h, c := range state.High {
-			merged.High[h] += c
-		}
-		for l, c := range state.Low {
-			merged.Low[l] += c
-		}
-		for hl, c := range state.HighAndLow {
-			merged.HighAndLow[hl] += c
+		var state = res.Store.(*testStore).JSONFileStore.State.(map[string]int)
+		for k, c := range state {
+			merged[k] += c
 		}
 		res.Done() // Release resolution.
 	}
@@ -197,7 +174,6 @@ func TestConsumerIntegration(t *testing.T) {
 type testApp struct {
 	service    *consumer.Service
 	workerHost *flow.WorkerHost
-	ring       pf.Ring
 	transforms []pf.TransformSpec
 }
 
@@ -207,20 +183,10 @@ type testStore struct {
 	coordinator *coordinator
 }
 
-type testState struct {
-	High       map[uint64]int
-	Low        map[string]int
-	HighAndLow map[string]int
-}
-
 func (s *testStore) Coordinator() *coordinator { return s.coordinator }
 
 func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) (consumer.Store, error) {
-	var store, err = consumer.NewJSONFileStore(recorder, &testState{
-		High:       make(map[uint64]int),
-		Low:        make(map[string]int),
-		HighAndLow: make(map[string]int),
-	})
+	var store, err = consumer.NewJSONFileStore(recorder, make(map[string]int))
 	return &testStore{JSONFileStore: store}, err
 }
 
@@ -231,7 +197,6 @@ func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store
 
 	var err error
 	if testStore.readBuilder, err = NewReadBuilder(a.service, shard,
-		func() pf.Ring { return a.ring },
 		func() []pf.TransformSpec { return a.transforms },
 	); err != nil {
 		ch <- consumer.EnvelopeOrError{Error: err}
@@ -247,41 +212,12 @@ func (a testApp) ReplayRange(shard consumer.Shard, store consumer.Store, journal
 
 func (a testApp) NewMessage(*pb.JournalSpec) (message.Message, error) { panic("never called") }
 
-func (a testApp) ConsumeMessage(_ consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
-	var state = store.(*testStore).State.(*testState)
+func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
+	var state = store.(*testStore).State.(map[string]int)
 	var msg = env.Message.(pf.IndexedShuffleResponse)
 
-	// Update counter of observations of each shuffle key,
-	// switched on the transform which read this message.
-	switch msg.Transform {
-	case "high":
-		var f = msg.ShuffleKey[0].Values[msg.Index]
-		if f.Kind != pf.Field_Value_UNSIGNED {
-			panic(f)
-		}
-		state.High[f.Unsigned] = state.High[f.Unsigned] + 1
-	case "low":
-		var f = msg.ShuffleKey[0].Values[msg.Index]
-		if f.Kind != pf.Field_Value_STRING {
-			panic(f)
-		}
-		state.Low[string(msg.Arena.Bytes(f.Bytes))] =
-			state.Low[string(msg.Arena.Bytes(f.Bytes))] + 1
-	case "highAndLow":
-		var fh = msg.ShuffleKey[0].Values[msg.Index]
-		var fl = msg.ShuffleKey[1].Values[msg.Index]
-		if fh.Kind != pf.Field_Value_UNSIGNED {
-			panic(fh)
-		}
-		if fl.Kind != pf.Field_Value_STRING {
-			panic(fl)
-		}
-		var f = fmt.Sprintf("%d,%s", fh.Unsigned, msg.Arena.Bytes(fl.Bytes))
-		state.HighAndLow[f] = state.HighAndLow[f] + 1
-
-	default:
-		panic("unknown transform: " + msg.Transform.String())
-	}
+	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
+	state[string(key)]++
 
 	return nil
 }

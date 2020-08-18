@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	pf "github.com/estuary/flow/go/protocol"
+	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -36,7 +37,7 @@ func newCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.Extra
 	}
 }
 
-func (c *coordinator) findOrCreateRing(cfg pf.ShuffleConfig) *ring {
+func (c *coordinator) findOrCreateRing(shuffle pf.JournalShuffle) *ring {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -44,7 +45,7 @@ func (c *coordinator) findOrCreateRing(cfg pf.ShuffleConfig) *ring {
 		if ring.ctx.Err() != nil {
 			// Prune completed ring from the collection.
 			delete(c.rings, ring)
-		} else if ring.cfg.Equal(cfg) {
+		} else if ring.shuffle.Equal(shuffle) {
 			// Return a matched, existing ring.
 			return ring
 		}
@@ -58,8 +59,7 @@ func (c *coordinator) findOrCreateRing(cfg pf.ShuffleConfig) *ring {
 		ctx:          ctx,
 		cancel:       cancel,
 		subscriberCh: make(chan subscriber, 1),
-		rendezvous:   newRendezvous(cfg),
-		subscribers:  make(subscribers, len(cfg.Ring.Members)),
+		shuffle:      shuffle,
 	}
 	c.rings[ring] = struct{}{}
 
@@ -79,15 +79,15 @@ type ring struct {
 	subscriberCh chan subscriber
 	readChans    []chan pf.ShuffleResponse
 
-	rendezvous
+	shuffle pf.JournalShuffle
 	subscribers
 }
 
 func (r *ring) onSubscribe(sub subscriber) {
 	r.log().WithFields(log.Fields{
-		"ringIndex": sub.request.RingIndex,
-		"offset":    sub.request.Offset,
-		"endOffset": sub.request.EndOffset,
+		"range":     &sub.Range,
+		"offset":    sub.Offset,
+		"endOffset": sub.EndOffset,
 	}).Info("adding shuffle ring subscriber")
 
 	var rr = r.subscribers.add(sub)
@@ -111,21 +111,19 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 		return
 	}
 	// Pass the request Tranform through to the response.
-	staged.Transform = r.cfg.Shuffle.Transform
+	staged.Transform = r.shuffle.Transform
 
-	var readThrough pb.Offset
 	if l := len(staged.End); l != 0 {
 		// Extract from staged documents.
 		var extract, err = r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest(&staged))
 		r.onExtract(&staged, extract, err)
-
-		readThrough = staged.End[l-1]
 	}
 
-	// Stage responses for subscribers, and send. If no active subscribers
-	// remain then cancel this ring.
-	r.subscribers.stageResponses(&staged, &r.rendezvous)
-	if r.subscribers.sendResponses(readThrough) == 0 {
+	// Stage responses for subscribers, and send.
+	r.subscribers.stageResponses(&staged)
+	r.subscribers.sendResponses()
+	// If no active subscribers remain, then cancel this ring.
+	if len(r.subscribers) == 0 {
 		r.cancel()
 	}
 }
@@ -136,8 +134,7 @@ func (r *ring) buildExtractRequest(staged *pf.ShuffleResponse) *pf.ExtractReques
 		ContentType: staged.ContentType,
 		Content:     staged.Content,
 		UuidPtr:     pf.DocumentUUIDPointer,
-		HashPtrs:    r.cfg.Shuffle.ShuffleKeyPtr,
-		FieldPtrs:   r.cfg.Shuffle.ShuffleKeyPtr,
+		FieldPtrs:   r.shuffle.ShuffleKeyPtr,
 	}
 }
 
@@ -157,19 +154,40 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, extract *pf.ExtractResponse
 		return
 	}
 
-	staged.UuidParts = extract.UuidParts
-	staged.ShuffleHashesLow = extract.HashesLow
-	staged.ShuffleHashesHigh = extract.HashesHigh
-	staged.ShuffleKey = extract.Fields
+	staged.PackedKey = make([]pf.Slice, 0, len(extract.UuidParts))
+	var packed []byte
 
-	// Re-write field values, updating the Arena that's used.
-	for k, v := range staged.ShuffleKey {
-		staged.ShuffleKey[k].Values = v.Values[:0]
+	for doc := range extract.UuidParts {
+		packed = packed[:0]
 
-		for _, vv := range v.Values {
-			staged.ShuffleKey[k].AppendValue(&extract.Arena, &staged.Arena, vv)
+		for _, v := range extract.Fields {
+			var vv = v.Values[doc]
+
+			switch vv.Kind {
+			case pf.Field_Value_NULL:
+				packed = encoding.EncodeNullAscending(packed)
+			case pf.Field_Value_TRUE:
+				packed = encoding.EncodeTrueAscending(packed)
+			case pf.Field_Value_FALSE:
+				packed = encoding.EncodeFalseAscending(packed)
+			case pf.Field_Value_UNSIGNED:
+				packed = encoding.EncodeUvarintAscending(packed, vv.Unsigned)
+			case pf.Field_Value_SIGNED:
+				packed = encoding.EncodeVarintAscending(packed, vv.Signed)
+			case pf.Field_Value_DOUBLE:
+				packed = encoding.EncodeFloatAscending(packed, vv.Double)
+			case pf.Field_Value_STRING, pf.Field_Value_OBJECT, pf.Field_Value_ARRAY:
+				var b = extract.Arena.Bytes(vv.Bytes)
+				packed = encoding.EncodeBytesAscending(packed, b)
+				// Update field Slice to use |staged|'s Arena.
+				v.Values[doc].Bytes = staged.Arena.Add(b)
+			}
 		}
+		staged.PackedKey = append(staged.PackedKey, staged.Arena.Add(packed))
 	}
+
+	staged.UuidParts = extract.UuidParts
+	staged.ShuffleKey = extract.Fields
 }
 
 func (r *ring) serve() {
@@ -192,10 +210,9 @@ func (r *ring) serve() {
 
 func (r *ring) log() *log.Entry {
 	return log.WithFields(log.Fields{
-		"journal":     r.cfg.Journal,
-		"coordinator": r.cfg.Coordinator,
-		"transform":   r.cfg.Shuffle.Transform,
-		"ring":        r.cfg.Ring.Name,
+		"journal":     r.shuffle.Journal,
+		"coordinator": r.shuffle.Coordinator,
+		"transform":   r.shuffle.Transform,
 	})
 }
 

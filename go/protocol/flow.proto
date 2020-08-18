@@ -67,63 +67,58 @@ message Shuffle {
   // Composite key over which shuffling occurs, specified as one or more
   // JSON-Pointers indicating a message location to extract.
   repeated string shuffle_key_ptr = 2;
-  // Number of top-ranked processors to broadcast each message to, after
-  // shuffling. Usually this is one. If non-zero, |choose_from| cannot be set.
-  uint32 broadcast_to = 3;
-  // Number of top-ranked readers from which a single reader index will be
-  // selected, after shuffling. The message Clock value is used to pseudo
-  // randomly pick the final index, making the selection deterministic.
-  // Values larger than one can be used to distribute "hot keys" which might
-  // otherwise overwhelm specific readers.
-  // Usually this is zero and |broadcast_to| is used instead. If non-zero,
-  // |broadcast_to| cannot be set.
-  uint32 choose_from = 4;
+  // uses_source_key is true if shuffle_key_ptr is the source's native key,
+  // and false if it's some other key. When shuffling using the source's key,
+  // we can minimize data movement by assigning a shard coordinator for each
+  // journal such that the shard's key range overlap that of the journal.
+  bool uses_source_key = 3;
+  // filter_r_clocks is true if the shuffle coordinator should filter documents
+  // sent to each subscriber based on its covered r-clock ranges and the
+  // individual document clocks. If false, the subscriber's r-clock range is
+  // ignored and all documents which match the key range are sent.
+  //
+  // filter_r_clocks is set 'true' when reading on behalf of transforms having
+  // a "publish" but not an "update" lambda, as such documents have no
+  // side-effects on the reader's state store, and would not be published anyway
+  // for falling outside of the reader's r-clock range.
+  bool filter_r_clocks = 6;
+  // Optional hash applied to extracted, packed shuffle keys. Hashes can:
+  // * Mitigate shard skew which might otherwise occur due to key locality
+  //   (many co-occurring updates to "nearby" keys).
+  // * Give predictable storage sizes for keys which are otherwise unbounded.
+  // * Allow for joins over sensitive fields, which should not be stored
+  //   in-the-clear at rest where possible.
+  // Either cryptographic or non-cryptographic functions may be appropriate
+  // depending on thse use case.
+  enum Hash {
+    // None performs no hash, returning the original key.
+    NONE = 0;
+    // MD5 returns the MD5 digest of the original key. It is not a safe
+    // cryptographic hash, but is well-known and fast, with good distribution
+    // properties.
+    MD5 = 1;
+  };
+  Hash hash = 4;
   // Number of seconds for which documents of this collection are delayed
   // while reading, relative to other documents (when back-filling) and the
   // present wall-clock time (when tailing).
   uint32 read_delay_seconds = 5;
 }
 
-// Ring is a topology of members, working in concert to share a task.
-// Each derived collection has a Ring of member shards which are
-// responsible for its continuous derivation.
-message Ring {
-  option (gogoproto.equal) = true;
-
-  // Unique name of this ring.
-  string name = 1;
-  // Current members of this ring.
-  message Member {
-    option (gogoproto.equal) = true;
-
-    // Miniumum Clock of messages processed by this member, used to:
-    // - Lower-bound messages mapped to this member.
-    // - Lower-bound the fragment from which this member starts reading.
-    uint64 min_msg_clock = 1
-        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
-    // Maximum Clock of messages processed by this member, used to
-    // upper-bound messages mapped to this member.
-    uint64 max_msg_clock = 2
-        [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
-  }
-  repeated Member members = 2 [ (gogoproto.nullable) = false ];
-}
-
-// ShuffleConfig places a Shuffle within a specific, configured execution
-// context within which it runs.
-message ShuffleConfig {
+// JournalShuffle is a Shuffle of a Journal by a Coordinator shard.
+message JournalShuffle {
   option (gogoproto.equal) = true;
 
   // Journal to be shuffled.
   string journal = 1
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
-  // Ring on whose behalf this journal is being shuffled.
-  Ring ring = 2 [ (gogoproto.nullable) = false ];
-  // Coordinator is the ring member index which is responsible for shuffled
-  // reads of this journal.
-  uint32 coordinator = 3;
-  // Shuffle of this ShuffleConfig.
-  Shuffle shuffle = 4 [ (gogoproto.nullable) = false ];
+  // Coordinator is the Shard ID which is responsible for reads of this journal.
+  string coordinator = 2
+      [ (gogoproto.casttype) =
+            "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  // Shuffle of this JournalShuffle.
+  Shuffle shuffle = 3
+      [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
 }
 
 // Transform describes a specific transform of a derived collection.
@@ -171,13 +166,22 @@ message Field {
   repeated Value values = 1 [ (gogoproto.nullable) = false ];
 }
 
+// RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
+// is responsible for.
+message RangeSpec {
+  // Byte [begin, end) exclusive range of keys to be shuffled to this reader.
+  bytes key_begin = 2;
+  bytes key_end = 3;
+  // Rotated [begin, end) exclusive ranges of Clocks to be shuffled to this
+  // reader.
+  uint64 r_clock_begin = 4;
+  uint64 r_clock_end = 5;
+}
+
 // ShuffleRequest is the request message of a Shuffle RPC.
 message ShuffleRequest {
-  option (gogoproto.equal) = true;
-
-  ShuffleConfig config = 1 [ (gogoproto.nullable) = false ];
-  // Index of this member within the ring.
-  uint32 ring_index = 2;
+  JournalShuffle shuffle = 1 [ (gogoproto.nullable) = false ];
+  RangeSpec range = 2 [ (gogoproto.nullable) = false ];
   // Offset to begin reading the journal from.
   int64 offset = 3
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
@@ -228,13 +232,12 @@ message ShuffleResponse {
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // UUIDParts of each document.
   repeated UUIDParts uuid_parts = 12 [ (gogoproto.nullable) = false ];
+  // Packed, embedded encoding of the shuffle key into a byte string.
+  // If the Shuffle specified a Hash to use, it's applied as well.
+  repeated Slice packed_key = 13 [ (gogoproto.nullable) = false ];
   // Extracted shuffle key of each document, with one Field for each
   // component of the composite shuffle key.
-  repeated Field shuffle_key = 13 [ (gogoproto.nullable) = false ];
-  // Extracted unique hash of the document shuffle key (low 64-bits).
-  repeated fixed64 shuffle_hashes_low = 14;
-  // Extracted unique hash of the document shuffle key (high 64-bits).
-  repeated fixed64 shuffle_hashes_high = 15;
+  repeated Field shuffle_key = 14 [ (gogoproto.nullable) = false ];
 }
 
 service Shuffler {

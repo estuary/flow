@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"testing"
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
+	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
@@ -55,18 +56,22 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	require.NoError(t, app.Close())
 
 	// Start a shuffled read of the fixtures.
-	var cfg = pf.ShuffleConfig{
-		Journal: "a/journal",
-		Ring: pf.Ring{
-			Name:    "a-ring",
-			Members: []pf.Ring_Member{{}, {}, {}, {}},
-		},
-		Coordinator: 1,
+	var shuffle = pf.JournalShuffle{
+		Journal:     "a/journal",
+		Coordinator: "the-coordinator",
 		Shuffle: pf.Shuffle{
 			Transform:     "a-transform",
 			ShuffleKeyPtr: []string{"/a", "/b"},
-			BroadcastTo:   2,
+			FilterRClocks: true,
 		},
+	}
+	var ranges = pf.RangeSpec{
+		// Observe only messages having {"a": 1}.
+		KeyBegin: encoding.EncodeUvarintAscending(nil, 1),
+		KeyEnd:   encoding.EncodeUvarintAscending(nil, 2),
+		// Observe only even Clock values.
+		RClockBegin: 0,
+		RClockEnd:   1 << 63,
 	}
 
 	// Build coordinator and start a gRPC ShuffleServer over loopback.
@@ -77,7 +82,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
-			require.Equal(t, args.ShardID, cfg.Ring.ShardID(int(cfg.Coordinator)))
+			require.Equal(t, args.ShardID, pc.ShardID("the-coordinator"))
 
 			return consumer.Resolution{
 				Store: &testStore{coordinator: coordinator},
@@ -92,9 +97,9 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Start a blocking read which starts at the current write head.
 	tailStream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(backgroundCtx, &pf.ShuffleRequest{
-		Config:    cfg,
-		RingIndex: 2,
-		Offset:    app.Response.Commit.End,
+		Shuffle: shuffle,
+		Range:   ranges,
+		Offset:  app.Response.Commit.End,
 	})
 	require.NoError(t, err)
 
@@ -108,8 +113,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Start a non-blocking, fixed read which "replays" the written fixtures.
 	replayStream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(backgroundCtx, &pf.ShuffleRequest{
-		Config:    cfg,
-		RingIndex: 2,
+		Shuffle:   shuffle,
+		Range:     ranges,
 		Offset:    0,
 		EndOffset: app.Response.Commit.End,
 	})
@@ -117,7 +122,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Read from |replayStream| until EOF.
 	var actual = pf.ShuffleResponse{
-		ShuffleKey: make([]pf.Field, len(cfg.Shuffle.ShuffleKeyPtr)),
+		ShuffleKey: make([]pf.Field, len(shuffle.ShuffleKeyPtr)),
 	}
 	for {
 		var out, err = replayStream.Recv()
@@ -132,8 +137,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		actual.Begin = append(actual.Begin, out.Begin...)
 		actual.End = append(actual.End, out.End...)
 		actual.UuidParts = append(actual.UuidParts, out.UuidParts...)
-		actual.ShuffleHashesLow = append(actual.ShuffleHashesLow, out.ShuffleHashesLow...)
-		actual.ShuffleHashesHigh = append(actual.ShuffleHashesLow, out.ShuffleHashesHigh...)
+		actual.PackedKey = actual.Arena.AddAll(out.Arena.AllBytes(out.PackedKey...)...)
 
 		for k, kk := range out.ShuffleKey {
 			for _, vv := range kk.Values {
@@ -154,17 +158,17 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 			B string
 		}
 		require.NoError(t, json.Unmarshal(actual.Arena.Bytes(actual.Content[doc]), &record))
-		require.Equal(t, i%3, record.A)
-		require.Equal(t, strconv.Itoa(i%2), record.B)
+		require.Equal(t, 1, record.A)
+		require.Equal(t, "0", record.B)
+		require.Equal(t, 0, i%2)
 		require.Equal(t, parts.Pack(), record.Meta.UUID)
 
 		// Composite shuffle key components were extracted and accompany responses.
-		require.Equal(t, uint64(i%3), actual.ShuffleKey[0].Values[doc].Unsigned)
-		require.Equal(t, strconv.Itoa(i%2),
-			string(actual.Arena.Bytes(actual.ShuffleKey[1].Values[doc].Bytes)))
+		require.Equal(t, uint64(1), actual.ShuffleKey[0].Values[doc].Unsigned)
+		require.Equal(t, "0", string(actual.Arena.Bytes(actual.ShuffleKey[1].Values[doc].Bytes)))
 	}
-	// 100 documents, broadcast to 2 of 4 members, means we see ~50.
-	require.Equal(t, 49, len(actual.Content))
+	// We see 1/3 of key values, and a further 1/2 of those clocks.
+	require.Equal(t, 16, len(actual.Content))
 
 	// Write and commit a single ACK document.
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})

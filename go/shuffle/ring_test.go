@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pf "github.com/estuary/flow/go/protocol"
+	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -127,8 +128,14 @@ func TestReadingDocuments(t *testing.T) {
 
 func TestDocumentExtraction(t *testing.T) {
 	var r = ring{
-		rendezvous: newRendezvous(newTestShuffleConfig()),
+		shuffle: pf.JournalShuffle{
+			Shuffle: pf.Shuffle{
+				Transform:     "a-transform",
+				ShuffleKeyPtr: []string{"/foo", "/bar"},
+			},
+		},
 	}
+
 	var staged = pf.ShuffleResponse{
 		ContentType: pf.ContentType_JSON,
 	}
@@ -139,7 +146,6 @@ func TestDocumentExtraction(t *testing.T) {
 		ContentType: pf.ContentType_JSON,
 		Content:     []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		UuidPtr:     pf.DocumentUUIDPointer,
-		HashPtrs:    []string{"/foo", "/bar"},
 		FieldPtrs:   []string{"/foo", "/bar"},
 	}, r.buildExtractRequest(&staged))
 
@@ -153,12 +159,11 @@ func TestDocumentExtraction(t *testing.T) {
 	}, staged)
 	staged.TerminalError = "" // Reset.
 
-	// Case: extraction succeeds. Shuffling decisions are made & attached to documents.
+	// Case: extraction succeeds, with two documents having a single field.
+	// Expect shuffling decisions are made & attached to documents.
 	// The response Arena was extended with field bytes.
 	var fixture = pf.ExtractResponse{
-		UuidParts:  []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
-		HashesLow:  []uint64{0xababab, 0xcdcdcd},
-		HashesHigh: []uint64{0xefefef, 0x121212},
+		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
 	}
 	fixture.Fields = []pf.Field{{Values: []pf.Field_Value{
 		{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
@@ -167,18 +172,49 @@ func TestDocumentExtraction(t *testing.T) {
 	r.onExtract(&staged, &fixture, nil)
 
 	require.Equal(t, pf.ShuffleResponse{
-		Arena:       pf.Arena([]byte("doc-1\ndoc-2\nsome-string")),
+		Arena:       pf.Arena([]byte("doc-1\ndoc-2\n\262some-string\022some-string\000\001")),
 		ContentType: pf.ContentType_JSON,
 		Content:     []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		UuidParts:   []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
+		PackedKey:   []pf.Slice{{Begin: 12, End: 13}, {Begin: 24, End: 38}},
 		ShuffleKey: []pf.Field{
 			{Values: []pf.Field_Value{
 				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-				{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 12, End: 23}},
+				{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 13, End: 24}},
 			}}},
-		ShuffleHashesLow:  []uint64{0xababab, 0xcdcdcd},
-		ShuffleHashesHigh: []uint64{0xefefef, 0x121212},
 	}, staged)
+
+	// Case: extraction succeeds with a single document having multiple fields,
+	// which also cover all possible field types.
+	staged = pf.ShuffleResponse{}
+	fixture = pf.ExtractResponse{
+		UuidParts: []pf.UUIDParts{{Clock: 123}},
+	}
+	fixture.Fields = []pf.Field{
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_NULL}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_TRUE}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_FALSE}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_SIGNED, Signed: -35}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_DOUBLE, Double: 3.141}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_STRING, Bytes: fixture.Arena.Add([]byte("str"))}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_OBJECT, Bytes: fixture.Arena.Add([]byte("obj"))}}},
+		{Values: []pf.Field_Value{{Kind: pf.Field_Value_ARRAY, Bytes: fixture.Arena.Add([]byte("arr"))}}},
+	}
+	r.onExtract(&staged, &fixture, nil)
+
+	var b []byte
+	b = encoding.EncodeNullAscending(b)
+	b = encoding.EncodeTrueAscending(b)
+	b = encoding.EncodeFalseAscending(b)
+	b = encoding.EncodeUvarintAscending(b, 42)
+	b = encoding.EncodeVarintAscending(b, -35)
+	b = encoding.EncodeFloatAscending(b, 3.141)
+	b = encoding.EncodeBytesAscending(b, []byte("str"))
+	b = encoding.EncodeBytesAscending(b, []byte("obj"))
+	b = encoding.EncodeBytesAscending(b, []byte("arr"))
+
+	require.Equal(t, b, staged.Arena.Bytes(staged.PackedKey[0]))
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

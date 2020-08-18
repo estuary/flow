@@ -1,311 +1,414 @@
 package shuffle
 
 import (
+	"bytes"
 	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
+	"golang.org/x/net/context"
 )
 
+func simpleResponseFixture() pf.ShuffleResponse {
+	var resp = pf.ShuffleResponse{
+		ReadThrough: 400,
+		WriteHead:   600,
+		Transform:   "a-transform",
+		ContentType: pf.ContentType_JSON,
+		Begin:       []pb.Offset{200},
+		End:         []pb.Offset{300},
+		UuidParts: []pf.UUIDParts{
+			{Clock: 1001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+		},
+	}
+	resp.Content = resp.Arena.AddAll([]byte("content"))
+	resp.PackedKey = resp.Arena.AddAll([]byte("bb-cc-key"))
+	resp.ShuffleKey = []pf.Field{
+		{Values: []pf.Field_Value{
+			{Kind: pf.Field_Value_STRING, Bytes: resp.Arena.Add([]byte("a-str"))},
+		}},
+		{Values: []pf.Field_Value{
+			{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
+		}},
+	}
+	return resp
+}
+
+func TestSubscriberInitAndStage(t *testing.T) {
+	var sub = subscriber{
+		// Start from a populated fixture, to test re-initialization.
+		staged: simpleResponseFixture(),
+	}
+
+	// Initializing and then staging all docs should re-produce the fixture.
+	var from = simpleResponseFixture()
+	sub.initStaged(&from)
+	sub.stageDoc(&from, 0)
+	require.Equal(t, sub.staged, simpleResponseFixture())
+
+	// If the Request provides offset restrictions, then expect only those documents are staged.
+	sub.Offset, sub.EndOffset = 0, 200 // Ends before fixture.
+	sub.initStaged(&from)
+	sub.stageDoc(&from, 0)
+	require.Equal(t, sub.staged.Begin, []pb.Offset{})
+
+	sub.Offset, sub.EndOffset = 300, 400 // Starts after fixture.
+	sub.initStaged(&from)
+	sub.stageDoc(&from, 0)
+	require.Equal(t, sub.staged.Begin, []pb.Offset{})
+
+	sub.Offset, sub.EndOffset = 100, 500 // Fixture is within range.
+	sub.initStaged(&from)
+	sub.stageDoc(&from, 0)
+	require.Equal(t, sub.staged.Begin, []pb.Offset{200})
+
+	from.TerminalError = "an error" // Error is copied through on staging.
+	sub.initStaged(&from)
+	require.Equal(t, sub.staged.TerminalError, "an error")
+}
+
+func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
+	var mk = func(a, b string) subscriber {
+		var ranges = pf.RangeSpec{
+			KeyBegin:  []byte(a),
+			KeyEnd:    []byte(b),
+			RClockEnd: (1 << 64) - 1,
+		}
+		if err := ranges.Validate(); err != nil {
+			panic(err)
+		}
+		return subscriber{ShuffleRequest: pf.ShuffleRequest{Range: ranges}}
+	}
+
+	var fixtures = []subscriber{
+		mk("a", "b"), // 0
+		mk("a", "b"), // 1
+		mk("a", "b"), // 2
+		mk("c", "d"), // 3
+		mk("d", "e"), // 4
+		mk("d", "e"), // 5
+		mk("g", "h"), // 6
+		mk("g", "h"), // 7
+		mk("m", "n"), // 8
+	}
+	// Perturb fixtures randomly; we should not depend on order.
+	rand.Shuffle(len(fixtures), func(i, j int) {
+		fixtures[i], fixtures[j] = fixtures[j], fixtures[i]
+	})
+
+	var s subscribers
+	for _, sub := range fixtures {
+		s.add(sub)
+	}
+
+	// Test keySpan cases.
+	for _, tc := range []struct {
+		k           string
+		start, stop int
+	}{
+		{"a", 0, 3},
+		{"aabb", 0, 3},
+		{"b", 3, 3},
+		{"bbb", 3, 3},
+		{"ccc", 3, 4},
+		{"ddcc", 4, 6},
+		{"eeee", 6, 6},
+		{"f", 6, 6},
+		{"g", 6, 8},
+		{"gzz", 6, 8},
+		{"hh", 8, 8},
+		{"mmnn", 8, 9},
+		{"n", 9, 9},
+		{"zzzz", 9, 9},
+	} {
+		var start, stop = keySpan(s, []byte(tc.k))
+		require.Equal(t, tc.start, start)
+		require.Equal(t, tc.stop, stop)
+	}
+
+	// Test rangeSpan cases.
+	for _, tc := range []struct {
+		begin, end  string
+		start, stop int
+	}{
+		// Exact matches of ranges.
+		{"a", "b", 0, 3},
+		{"g", "h", 6, 8},
+		// Partial overlap of single entry at list begin & end.
+		{"", "aa", 0, 3},
+		{"mm", "zz", 8, 9},
+		// Overlaps of multiple entries.
+		{"", "cc", 0, 4},   // Begin.
+		{"", "d", 0, 4},    // Begin.
+		{"bb", "dd", 3, 6}, // Middle.
+		{"c", "e", 3, 6},   // Middle.
+		{"c", "g", 3, 6},   // Middle.
+		{"gg", "n", 6, 9},  // End.
+		{"g", "nn", 6, 9},  // End.
+	} {
+		var start, stop = rangeSpan(s, []byte(tc.begin), []byte(tc.end))
+		require.Equal(t, tc.start, start)
+		require.Equal(t, tc.stop, stop)
+	}
+
+	for _, tc := range []struct {
+		begin, end string
+		index      int
+	}{
+		// Repetitions of key-ranges are fine.
+		{"a", "b", 3},
+		{"d", "e", 6},
+		// As are insertions into list middle.
+		{"b", "c", 3},
+		{"f", "g", 6},
+		// Or begining.
+		{"", "a", 0},
+		// Or end.
+		{"n", "o", 9},
+
+		// Overlaps are not a okay, at beginning.
+		{"", "b", -1},
+		// Or middle.
+		{"a", "c", -1},
+		{"b", "d", -1},
+		{"d", "f", -1},
+		// Or end.
+		{"m", "o", -1},
+		{"mm", "o", -1},
+	} {
+		var ind, err = insertionIndex(s, []byte(tc.begin), []byte(tc.end))
+		if tc.index != -1 {
+			require.NoError(t, err)
+			require.Equal(t, tc.index, ind)
+		} else {
+			require.Error(t, err)
+		}
+	}
+}
+
+func TestClockRotationRegression(t *testing.T) {
+	var c message.Clock
+	require.Equal(t, rotateClock(c), uint64(0b00000000))
+
+	// Increasing a clock's sequence modulates the MSBs of the output.
+	c++
+	require.Equal(t, rotateClock(c), uint64(0b10000000)<<56)
+	c++
+	require.Equal(t, rotateClock(c), uint64(0b01000000)<<56)
+	c++
+	require.Equal(t, rotateClock(c), uint64(0b11000000)<<56)
+	c++
+	require.Equal(t, rotateClock(c), uint64(0b00100000)<<56)
+
+	// Timestamps are folded with sequence-counter updates.
+	// Each sequence increment leads to a large jump in semiring location.
+	c.Update(time.Unix(0, 0x1234567891))
+	require.Equal(t, rotateClock(c), uint64(0xef6dd8424bb84d80))
+	c++
+	require.Equal(t, rotateClock(c), uint64(0x6f6dd8424bb84d80))
+	c++
+	require.Equal(t, rotateClock(c), uint64(0xaf6dd8424bb84d80))
+
+	// Successive timestamps having small nano-second changes also
+	// result in large jumps in semiring location.
+	// (Recall Clocks have resolution of 100ns).
+	c.Update(time.Unix(0, 0x1234567900))
+	require.Equal(t, rotateClock(c), uint64(0x1f6dd8424bb84d80))
+	c.Update(time.Unix(0, 0x1234568000))
+	require.Equal(t, rotateClock(c), uint64(0x50edd8424bb84d80))
+	c.Update(time.Unix(0, 0x1234568100))
+	require.Equal(t, rotateClock(c), uint64(0x30edd8424bb84d80))
+}
+
 func TestSubscriberResponseStaging(t *testing.T) {
+	// Subscriber fixtures:
 
-	var buildFixture = func() pf.ShuffleResponse {
-		var resp = pf.ShuffleResponse{
-			ReadThrough: 400,
-			WriteHead:   600,
-			Transform:   "a-transform",
-			ContentType: pf.ContentType_JSON,
-			Begin:       []pb.Offset{100, 200, 300},
-			End:         []pb.Offset{200, 300, 400},
-			UuidParts: []pf.UUIDParts{
-				{Clock: 1000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-				{Clock: 2000, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
-				{Clock: 3000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+	var requests = []pf.ShuffleRequest{
+		{
+			Shuffle: pf.JournalShuffle{Shuffle: pf.Shuffle{FilterRClocks: true}},
+			Range: pf.RangeSpec{
+				KeyBegin:    []byte("a"),
+				KeyEnd:      []byte("g"),
+				RClockBegin: 0,
+				RClockEnd:   1 << 63,
 			},
-			// Hashes are tweaked such that index 0 => 3, and index 2 => 0.
-			ShuffleHashesHigh: []uint64{0xaaaaaaaaaaaaaaaa, 0x0, 0x0555555555555555},
-			ShuffleHashesLow:  []uint64{0x10, 0x20, 0x30},
-		}
-		resp.Content = resp.Arena.AddAll([]byte("one"), []byte("two"), []byte("three"))
-		resp.ShuffleKey = []pf.Field{
-			{Values: []pf.Field_Value{
-				{Kind: pf.Field_Value_STRING, Bytes: resp.Arena.Add([]byte("abc"))},
-				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
-				{Kind: pf.Field_Value_DOUBLE, Double: 3.14},
-			}},
-			{Values: []pf.Field_Value{
-				{Kind: pf.Field_Value_STRING, Bytes: resp.Arena.Add([]byte("xyz"))},
-				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-				{Kind: pf.Field_Value_DOUBLE, Double: 8.67},
-			}},
-		}
-		return resp
+		},
+		{
+			Shuffle: pf.JournalShuffle{Shuffle: pf.Shuffle{FilterRClocks: true}},
+			Range: pf.RangeSpec{
+				KeyBegin:    []byte("a"),
+				KeyEnd:      []byte("g"),
+				RClockBegin: 1 << 63,
+				RClockEnd:   (1 << 64) - 1,
+			},
+		},
+		{
+			Shuffle: pf.JournalShuffle{Shuffle: pf.Shuffle{FilterRClocks: false}},
+			Range: pf.RangeSpec{
+				KeyBegin: []byte("l"),
+				KeyEnd:   []byte("p"),
+				// RClock range matches no fixtures, but is ignored since !IsPublishOnly.
+				RClockBegin: 0,
+				RClockEnd:   1,
+			},
+		},
 	}
-
-	var rendezvous = newRendezvous(
-		pf.ShuffleConfig{
-			Journal: "a/journal",
-			Ring: pf.Ring{
-				Name:    "a-ring",
-				Members: []pf.Ring_Member{{}, {}, {}, {}},
-			},
-			Shuffle: pf.Shuffle{
-				ShuffleKeyPtr: []string{"/foo"},
-				BroadcastTo:   1,
-			},
+	var s subscribers
+	for _, r := range requests {
+		s.add(subscriber{
+			ShuffleRequest: r,
+			staged:         simpleResponseFixture(), // Test re-initialization.
 		})
-
-	// Initialize each of our subscribers with pre-populated Response fixtures.
-	// This verifies correct response truncation, ahead of staging the next response.
-	var s = subscribers{
-		{
-			request:  pf.ShuffleRequest{EndOffset: 300},
-			response: buildFixture(),
-			next: &subscriber{
-				request: pf.ShuffleRequest{Offset: 300},
-			},
-		},
-		{
-			response: buildFixture(),
-		},
-		{
-			request:  pf.ShuffleRequest{Offset: 500},
-			response: buildFixture(),
-		},
-		{
-			request:  pf.ShuffleRequest{},
-			response: buildFixture(),
-		},
 	}
 
-	var fixture = buildFixture()
-	s.stageResponses(&fixture, &rendezvous)
-
-	// Expect subscriber 0 sees documents 2 & 3.
-	require.Equal(t, subscriber{
-		request: pf.ShuffleRequest{EndOffset: 300},
-		response: pf.ShuffleResponse{
-			Arena:       pf.Arena("two"),
-			ReadThrough: 400,
-			WriteHead:   600,
-			Transform:   "a-transform",
-			ContentType: pf.ContentType_JSON,
-			Content:     []pf.Slice{{Begin: 0, End: 3}},
-			Begin:       []pb.Offset{200},
-			End:         []pb.Offset{300},
-			UuidParts: []pf.UUIDParts{
-				{Clock: 2000, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
-			},
-			ShuffleHashesHigh: []uint64{0x0},
-			ShuffleHashesLow:  []uint64{0x20},
-			ShuffleKey: []pf.Field{
-				{Values: []pf.Field_Value{
-					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
-				}},
-				{Values: []pf.Field_Value{
-					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-				}},
-			},
+	var tokens = bytes.Split([]byte("c/low c/high ACK lmn q"), []byte{' '})
+	var fixture = pf.ShuffleResponse{
+		ReadThrough: 1000,
+		WriteHead:   2000,
+		Transform:   "a-transform",
+		ContentType: pf.ContentType_JSON,
+		Begin:       []pb.Offset{200, 300, 400, 500, 600},
+		End:         []pb.Offset{300, 400, 500, 600, 700},
+		UuidParts: []pf.UUIDParts{
+			{Clock: 10000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10002, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
+			{Clock: 10003, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10004, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 		},
-		next: &subscriber{
-			request: pf.ShuffleRequest{Offset: 300},
-			response: pf.ShuffleResponse{
-				Arena:       pf.Arena("three"),
-				ReadThrough: 400,
-				WriteHead:   600,
-				Transform:   "a-transform",
-				ContentType: pf.ContentType_JSON,
-				Content:     []pf.Slice{{Begin: 0, End: 5}},
-				Begin:       []pb.Offset{300},
-				End:         []pb.Offset{400},
-				UuidParts: []pf.UUIDParts{
-					{Clock: 3000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-				},
-				// Hashes are tweaked such that index 0 => 3, and index 2 => 0.
-				ShuffleHashesHigh: []uint64{0x0555555555555555},
-				ShuffleHashesLow:  []uint64{0x30},
-				ShuffleKey: []pf.Field{
-					{Values: []pf.Field_Value{
-						{Kind: pf.Field_Value_DOUBLE, Double: 3.14},
-					}},
-					{Values: []pf.Field_Value{
-						{Kind: pf.Field_Value_DOUBLE, Double: 8.67},
-					}},
-				},
-			},
-		},
-	}, s[0])
-
-	// Meanwhile, subscriber 3 sees documents 0 & 1.
-	require.Equal(t, subscriber{
-		request: pf.ShuffleRequest{},
-		response: pf.ShuffleResponse{
-			Arena:       pf.Arena("oneabcxyztwo"),
-			ReadThrough: 400,
-			WriteHead:   600,
-			Transform:   "a-transform",
-			ContentType: pf.ContentType_JSON,
-			Content:     []pf.Slice{{Begin: 0, End: 3}, {Begin: 9, End: 12}},
-			Begin:       []pb.Offset{100, 200},
-			End:         []pb.Offset{200, 300},
-			UuidParts: []pf.UUIDParts{
-				{Clock: 1000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-				{Clock: 2000, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
-			},
-			ShuffleHashesHigh: []uint64{0xaaaaaaaaaaaaaaaa, 0x0},
-			ShuffleHashesLow:  []uint64{0x10, 0x20},
-			ShuffleKey: []pf.Field{
-				{Values: []pf.Field_Value{
-					{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 3, End: 6}},
-					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
-				}},
-				{Values: []pf.Field_Value{
-					{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 6, End: 9}},
-					{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-				}},
-			},
-		},
-	}, s[3])
-
-	// Subscriber 2 sees no documents (offset is too high).
-	require.Equal(t, subscriber{
-		request: pf.ShuffleRequest{Offset: 500}, // Unchanged.
-		response: pf.ShuffleResponse{
-			Arena:             pf.Arena{},
-			ReadThrough:       400,
-			WriteHead:         600,
-			Transform:         "a-transform",
-			ContentType:       pf.ContentType_JSON,
-			Content:           []pf.Slice{},
-			Begin:             []pb.Offset{},
-			End:               []pb.Offset{},
-			UuidParts:         []pf.UUIDParts{},
-			ShuffleHashesHigh: []uint64{},
-			ShuffleHashesLow:  []uint64{},
-			ShuffleKey: []pf.Field{
-				{Values: []pf.Field_Value{}},
-				{Values: []pf.Field_Value{}},
-			},
-		},
-	}, s[2])
-
-	// Expect that a TerminalError is staged to all subscribers.
-	var errResponse = pf.ShuffleResponse{TerminalError: "an error"}
-	s = subscribers{
-		{next: &subscriber{}},
-		{},
 	}
-	s.stageResponses(&errResponse, &rendezvous)
+	fixture.Content = fixture.Arena.AddAll(tokens...)
+	fixture.PackedKey = fixture.Arena.AddAll(tokens...)
 
-	require.Equal(t, subscribers{
-		{
-			response: errResponse,
-			next:     &subscriber{response: errResponse},
-		},
-		{response: errResponse},
-	}, s)
+	s.stageResponses(&fixture)
+
+	// Subscriber 0 sees c/low & ACK.
+	require.Equal(t, s[0].staged.Begin, []pb.Offset{200, 400})
+	// Subscriber 1 sees c/high & ACK.
+	require.Equal(t, s[1].staged.Begin, []pb.Offset{300, 400})
+	// Subscriber 2 sees ACK & lmn.
+	require.Equal(t, s[2].staged.Begin, []pb.Offset{400, 500})
+	// No subscribers see q.
 }
 
 func TestSubscriberSendAndPruneCases(t *testing.T) {
-	var s0a = make(chan error, 1)
-	var s0b = make(chan error, 1)
-	var s1 = make(chan error, 1)
-	var s2 = make(chan error, 1)
+	var ch = make(chan error, 10)
 	var sends int
 
 	var sendMsg = func(interface{}) error {
 		sends++
 		return nil
 	}
+	var errContext, cancel = context.WithCancel(context.Background())
+	cancel()
 
 	var s = subscribers{
-		{
-			request:  pf.ShuffleRequest{Offset: 100, EndOffset: 200},
-			response: pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			sendMsg:  sendMsg,
-			doneCh:   s0a,
-
-			next: &subscriber{
-				request:     pf.ShuffleRequest{Offset: 300},
-				response:    pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-				doneCh:      s0b,
-				sendMsg:     sendMsg,
-				sentTailing: true,
-			},
+		{ // Send completes this subscriber's response.
+			ShuffleRequest: pf.ShuffleRequest{Offset: 100, EndOffset: 200},
+			staged:         pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			sendMsg:        sendMsg,
+			doneCh:         ch,
 		},
-		{
-			request:  pf.ShuffleRequest{Offset: 100},
-			response: pf.ShuffleResponse{ReadThrough: 299, WriteHead: 300}, // Not tailing.
-			sendMsg:  sendMsg,
-			doneCh:   s1,
+		{ // Nothing to send (subscriber is already tailing).
+			ShuffleRequest: pf.ShuffleRequest{Offset: 300},
+			staged:         pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			sendCtx:        context.Background(),
+			sendMsg:        sendMsg,
+			sentTailing:    true,
+			doneCh:         ch,
 		},
-		{
-			response: pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			sendMsg:  func(m interface{}) error { return fmt.Errorf("an-error") },
-			doneCh:   s2,
+		{ // Nothing to send (not tailing yet as 299 != 300).
+			ShuffleRequest: pf.ShuffleRequest{Offset: 100},
+			staged:         pf.ShuffleResponse{ReadThrough: 299, WriteHead: 300},
+			sendCtx:        context.Background(),
+			sendMsg:        sendMsg,
+			doneCh:         ch,
+		},
+		{ // Send tailing, but results in an error.
+			staged:  pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			sendMsg: func(m interface{}) error { return fmt.Errorf("an-error") },
+			doneCh:  ch,
+		},
+		{ // Nothing to send (already tailing), but context is error'd.
+			staged:      pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			sendCtx:     errContext,
+			sentTailing: true,
+			doneCh:      ch,
 		},
 	}
 
-	// Case: Message sent to 0, omitted from 1, and causes 2 to error.
-	require.True(t, s[0].shouldSendResponse())
-	require.False(t, s[1].shouldSendResponse())
-	require.True(t, s[2].shouldSendResponse())
-	require.Equal(t, 3, s.sendResponses(0))
+	// Verify fixture expectations of which subscribers have responses to send.
+	for i, e := range []bool{true, false, false, true, false} {
+		require.Equal(t, e, s[i].shouldSendResponse())
+	}
+	s.sendResponses()
 
 	require.Equal(t, 1, sends)        // Sent to 0 only.
 	require.True(t, s[0].sentTailing) // 0 marked as having sent Tailing.
 	sends = 0                         // Re-zero for next case.
-	require.EqualError(t, <-s2, "an-error")
-	require.Nil(t, s[2].doneCh) // Expect reset.
 
-	// Case: Message is trivial for 0, which completes, and is sent to 1.
-	s[1].response.ReadThrough = 300             // Now tailing.
-	require.False(t, s[0].shouldSendResponse()) // Already Tailing.
-	require.True(t, s[1].shouldSendResponse())  // Toggles Tailing.
-	require.Equal(t, 2, s.sendResponses(s[0].request.EndOffset))
+	// Send to 0 finishes response, resulting in EOF.
+	require.Nil(t, <-ch)
+	// Send to 3 is an error.
+	require.EqualError(t, <-ch, "an-error")
+	// No send to 4, but context is error'd.
+	require.EqualError(t, <-ch, context.Canceled.Error())
 
-	require.Equal(t, 1, sends) // Sent to 1.
-	sends = 0                  // Re-zero for next case.
-	require.Nil(t, <-s0a)      // Notified of EOF.
-	require.Nil(t, s[0].next)  // Expect child was promoted.
+	// Only two subscribers are left now.
+	require.Len(t, s, 2)
+
+	s[1].staged.ReadThrough = 300              // Now tailing.
+	require.True(t, s[1].shouldSendResponse()) // Toggles Tailing.
+	s.sendResponses()
+
+	require.Equal(t, 1, sends)        // Sent to 1 only.
+	require.True(t, s[1].sentTailing) // 1 marked as having sent Tailing.
+	sends = 0
 
 	// Case: Terminal error staged, and sent to 0 & 1.
 	for i := range s {
-		s[i].response.TerminalError = "foobar"
+		s[i].staged.TerminalError = "foobar"
+		require.True(t, s[i].shouldSendResponse()) // Error always sends.
 	}
-	require.True(t, s[0].shouldSendResponse()) // Error always sends.
-	require.True(t, s[1].shouldSendResponse()) // Error always sends.
-	require.Equal(t, 0, s.sendResponses(0))    // No more subscribers.
+	s.sendResponses()
+	require.Equal(t, 2, sends)
 
-	require.Equal(t, 2, sends) // Sent to 0 & 1.
-	require.Nil(t, <-s0b)      // Notified of EOF.
-	require.Nil(t, <-s1)       // Notified of EOF.
+	// Both subscribers were notified of EOF.
+	require.Len(t, s, 0)
+	require.Nil(t, <-ch)
+	require.Nil(t, <-ch)
 }
 
 func TestSubscriberAddCases(t *testing.T) {
 	// Case: First subscriber, at offset 0.
-	var s = subscribers{{}, {}, {}}
+	// Starts a read at offset zero.
+	var s subscribers
 
 	var sub = subscriber{
-		request: pf.ShuffleRequest{
-			Config:    pf.ShuffleConfig{Journal: "a/journal"},
-			RingIndex: 1,
-			Offset:    0,
+		ShuffleRequest: pf.ShuffleRequest{
+			Shuffle: pf.JournalShuffle{Journal: "a/journal"},
+			Range: pf.RangeSpec{
+				KeyBegin:  []byte("a"),
+				KeyEnd:    []byte("b"),
+				RClockEnd: (1 << 64) - 1,
+			},
+			Offset: 0,
 		},
 		doneCh: make(chan error, 1),
 	}
-	require.Equal(t,
-		&pb.ReadRequest{
-			Journal: "a/journal",
-		}, s.add(sub))
+	require.Equal(t, &pb.ReadRequest{Journal: "a/journal"}, s.add(sub))
 
-	// Case: First subscriber, at non-zero offset.
-	s = subscribers{{}, {}, {}}
+	// Case: First subscriber, at non-zero Offset & EndOffset.
+	// Starts a read at the request offset.
+	s = subscribers{}
 
-	sub.request.Offset = 456
+	sub.ShuffleRequest.Offset = 456
+	sub.ShuffleRequest.EndOffset = 789
 	require.Equal(t,
 		&pb.ReadRequest{
 			Journal:   "a/journal",
@@ -314,41 +417,25 @@ func TestSubscriberAddCases(t *testing.T) {
 		}, s.add(sub))
 
 	// Case: Second subscriber, at a lower offset.
-	sub.request.RingIndex = 0
-	sub.request.Offset = 0
+	// Starts a catch-up read which ends at the already-started read.
+	sub.ShuffleRequest.Offset = 123
 	require.Equal(t,
 		&pb.ReadRequest{
 			Journal:   "a/journal",
-			Offset:    0,
+			Offset:    123,
 			EndOffset: 456,
 		}, s.add(sub))
 
-	// Case: Third subscriber, at a higher Offset, and with an EndOffset.
-	sub.request.RingIndex = 2
-	sub.request.Offset = 789
-	sub.request.EndOffset = 1011
+	// Case: Third subscriber, at a higher Offset.
+	// Doesn't start a new read.
+	sub.ShuffleRequest.Offset = 789
 	require.Nil(t, s.add(sub))
 
-	// Case: A second read of an existing subscriber may be added.
-	sub = subscriber{
-		request: pf.ShuffleRequest{
-			Offset:    123,
-			EndOffset: 456,
-			RingIndex: 1,
-		},
-		doneCh: make(chan error, 1),
-	}
+	// Case: Subscriber partially overlaps with existing key-range.
+	sub.ShuffleRequest.Range.KeyEnd = []byte("bb")
 	require.Nil(t, s.add(sub))
 
-	// Expect the prior subscriber at this index was pushed into |next|.
-	require.Equal(t, s[1].next, &subscriber{
-		request: pf.ShuffleRequest{
-			Config:    pf.ShuffleConfig{Journal: "a/journal"},
-			Offset:    456,
-			RingIndex: 1,
-		},
-		doneCh: s[1].next.doneCh,
-	})
+	require.EqualError(t, <-sub.doneCh, `range ["a", "bb") overlaps with existing range ["a", "b")`)
 }
 
 func TestSubscriberMinOffset(t *testing.T) {
@@ -359,39 +446,11 @@ func TestSubscriberMinOffset(t *testing.T) {
 	require.Equal(t, pb.Offset(0), o)
 	require.Equal(t, false, ok)
 
-	// Case: None initialized.
-	s = append(s, subscriber{}, subscriber{}, subscriber{})
-	o, ok = s.minOffset()
-	require.Equal(t, pb.Offset(0), o)
-	require.Equal(t, false, ok)
+	s = make(subscribers, 2)
+	s[0].Offset = 456
+	s[1].Offset = 123
 
-	// Case: Single entry.
-	s[2].doneCh = make(chan error)
-	s[2].request.Offset = 123
 	o, ok = s.minOffset()
 	require.Equal(t, pb.Offset(123), o)
-	require.Equal(t, true, ok)
-
-	// Case: Multiple entries.
-	s[1].doneCh = make(chan error)
-	s[1].request.Offset = 456
-	o, ok = s.minOffset()
-	require.Equal(t, pb.Offset(123), o)
-	require.Equal(t, true, ok)
-
-	// Case: Linked entries.
-	s[1].next = &subscriber{
-		doneCh:  make(chan error),
-		request: pf.ShuffleRequest{Offset: 96},
-	}
-	o, ok = s.minOffset()
-	require.Equal(t, pb.Offset(96), o)
-	require.Equal(t, true, ok)
-
-	// Case: Multiple, with zero offset.
-	s[0].doneCh = make(chan error)
-	s[0].request.Offset = 0
-	o, ok = s.minOffset()
-	require.Equal(t, pb.Offset(0), o)
 	require.Equal(t, true, ok)
 }
