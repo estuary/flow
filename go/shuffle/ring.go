@@ -3,6 +3,7 @@ package shuffle
 import (
 	"bufio"
 	"context"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"sync"
@@ -183,6 +184,16 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, extract *pf.ExtractResponse
 				v.Values[doc].Bytes = staged.Arena.Add(b)
 			}
 		}
+
+		switch r.shuffle.Hash {
+		case pf.Shuffle_NONE:
+			// No-op.
+		case pf.Shuffle_MD5:
+			var h = md5.New()
+			h.Write(packed)
+			packed = encoding.EncodeBytesAscending(packed[:0], h.Sum(nil))
+		}
+
 		staged.PackedKey = append(staged.PackedKey, staged.Arena.Add(packed))
 	}
 

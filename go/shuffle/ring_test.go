@@ -215,6 +215,15 @@ func TestDocumentExtraction(t *testing.T) {
 	b = encoding.EncodeBytesAscending(b, []byte("arr"))
 
 	require.Equal(t, b, staged.Arena.Bytes(staged.PackedKey[0]))
+
+	// Case: again, but this time expect an MD5 is returned.
+	r.shuffle.Hash = pf.Shuffle_MD5
+	staged = pf.ShuffleResponse{}
+	r.onExtract(&staged, &fixture, nil)
+
+	b = encoding.EncodeBytesAscending(nil,
+		[]byte{0x5d, 0x4b, 0xc1, 0x53, 0x5, 0xa5, 0x60, 0x15, 0x6c, 0xa3, 0x96, 0x50, 0xde, 0xd4, 0x4b, 0x2d})
+	require.Equal(t, b, staged.Arena.Bytes(staged.PackedKey[0]))
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
