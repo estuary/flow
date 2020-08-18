@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"io/ioutil"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -198,7 +199,7 @@ func beginRecovery(s *shard) error {
 		err     error
 	)
 
-	if dir, err = ioutil.TempDir("", spec.Id.String()+"-"); err != nil {
+	if dir, err = ioutil.TempDir("", strings.ReplaceAll(spec.Id.String(), "/", "_")+"-"); err != nil {
 		return errors.WithMessage(err, "creating shard working directory")
 	} else if h, err = fetchHints(s.ctx, spec, s.svc.Etcd); err != nil {
 		return errors.WithMessage(err, "fetchHints")
