@@ -162,8 +162,9 @@ FROM collections;
 
 -- Valid projections.
 INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-VALUES (1, 'field_1', '/path/1', TRUE),
-       (1, 'field_2', '/path/2', FALSE),
+VALUES (1, 'field_1', '/key/0', TRUE),
+       (1, 'field_2', '/key/1', FALSE),
+       (1, 'field_3', '/path/3', FALSE),
        (2, 'field_1', '', FALSE), -- Repeat field name with different collection.
        (2, 'field_a', '/a', TRUE);
 
@@ -286,7 +287,7 @@ SET source_schema_uri = 'not-a-url'
 WHERE transform_id = 1;
 
 -- Invalid source schema is the same as the collection schema
-INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri) 
+INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri)
 VALUES (2, 1, 'file:///path/to/a/schema.yaml#anchor');
 
 -- Shuffle-key must be array of JSON-pointers.
@@ -403,41 +404,46 @@ VALUES ('a-package', '^4.5.6');
 
 -- Valid inferences
 INSERT INTO inferences (
-    collection_id, 
-    field, 
-    types_json, 
-    string_content_type, 
-    string_content_encoding_is_base64, 
+    collection_id,
+    field,
+    types_json,
+    string_content_type,
+    string_content_encoding_is_base64,
     string_max_length
-) 
-VALUES 
-    (1, 'field_1', '["string", "integer", "null"]', 'text/plain', false, 97);
+)
+VALUES
+    (1, 'field_1', '["string", "null"]', 'text/plain', false, 97);
 
-INSERT INTO inferences (collection_id, field, types_json) 
+INSERT INTO inferences (collection_id, field, types_json)
 VALUES
     (1, 'field_2', '["string"]'),
+    (1, 'field_3', '["number"]'),
     (2, 'field_1', '["object"]');
 
 -- Invalid inference (missing projection)
-INSERT INTO inferences (collection_id, field, types_json) 
+INSERT INTO inferences (collection_id, field, types_json)
 VALUES (1, 'no_such_field', '["number"]');
-    
+
 -- Invalid inference (duplicate field differs only in case)
-INSERT INTO inferences (collection_id, field, types_json) 
+INSERT INTO inferences (collection_id, field, types_json)
 VALUES (1, 'FIELD_1', '["number"]');
 
 -- Invalid inference (types are not valid json)
-INSERT INTO inferences (collection_id, field, types_json) 
+INSERT INTO inferences (collection_id, field, types_json)
 VALUES (1, 'field_2', '} not json {');
 
 -- Invalid inference (types are null)
-INSERT INTO inferences (collection_id, field, types_json) 
+INSERT INTO inferences (collection_id, field, types_json)
 VALUES (1, 'field_2', NULL);
 
 -- Invalid inference (types are not an array)
-INSERT INTO inferences (collection_id, field, types_json) 
+INSERT INTO inferences (collection_id, field, types_json)
 VALUES (1, 'field_2', '{"not": "an array"}');
 
 -- Invalid inference (string_content_encoding_is_base64 is not a boolean)
-INSERT INTO inferences (collection_id, field, types_json, string_content_encoding_is_base64) 
+INSERT INTO inferences (collection_id, field, types_json, string_content_encoding_is_base64)
 VALUES (1, 'field_2', '["string"]', 99);
+
+-- View of schema URIs and all fields which are extracted from them,
+-- with context as to usage (primary key, shuffle key, or projection).
+SELECT * FROM schema_extracted_fields;

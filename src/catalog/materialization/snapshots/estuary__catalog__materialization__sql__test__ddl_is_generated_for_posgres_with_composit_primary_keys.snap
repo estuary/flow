@@ -2,20 +2,48 @@
 source: src/catalog/materialization/sql.rs
 expression: schema
 ---
+/* Materialization 'testMaterialization' for Estuary collection 'my_test/collection', intended for postgres */
 CREATE TABLE "test_postgres_table" IF NOT EXISTS (
+	/* user provided projection of JSON at: /intCol with inferred types: [integer] */
 	"intCol" BIGINT NOT NULL,
+
+	/* user provided projection of JSON at: /numCol with inferred types: [integer] */
 	"numCol" BIGINT NOT NULL,
+
+	/* user provided projection of JSON at: /boolCol with inferred types: [boolean] */
 	"boolCol" BOOLEAN NOT NULL,
+
+	/* user provided projection of JSON at: /objCol with inferred types: [object] */
 	"objCol" JSON NOT NULL,
+
+	/* user provided projection of JSON at: /arrayCol with inferred types: [array] */
 	"arrayCol" JSON NOT NULL,
+
+	/* user provided projection of JSON at: /intColNullable with inferred types: [integer, null] */
 	"intColNullable" BIGINT,
+
+	/* user provided projection of JSON at: /numColNullable with inferred types: [null, number] */
 	"numColNullable" DOUBLE PRECISION,
+
+	/* user provided projection of JSON at: /boolColNullable with inferred types: [boolean, null] */
 	"boolColNullable" BOOLEAN,
+
+	/* user provided projection of JSON at: /objColNullable with inferred types: [null, object] */
 	"objColNullable" JSON,
+
+	/* user provided projection of JSON at: /arrayColNullable with inferred types: [array, null] */
 	"arrayColNullable" JSON,
+
+	/* user provided projection of JSON at: /basicString with inferred types: [string] */
 	"basicString" TEXT NOT NULL,
+
+	/* user provided projection of JSON at: /basicStringNullable with inferred types: [null, string] */
 	"basicStringNullable" TEXT,
+
+	/* user provided projection of JSON at: /base64String with inferred types: [string] */
 	"base64String" BYTEA NOT NULL,
+
+	/* user provided projection of JSON at: /base64StringNullable with inferred types: [null, string] */
 	"base64StringNullable" BYTEA,
 
 	PRIMARY KEY("intCol", "numCol")
