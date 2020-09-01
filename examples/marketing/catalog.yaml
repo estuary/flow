@@ -97,6 +97,12 @@ collections:
     key: [/purchase_id]
     fixtures: [fixtures/purchases-with-offers.yaml]
 
+    materializations:
+      testPostgres:
+        type: postgres
+        uri: "postgresql://dev-postgres.estuary.test:5432/marketing"
+        table: purchases_with_offers
+
     derivation:
       # This derivation indexes a windowed history of clicks and views
       # for the given user.

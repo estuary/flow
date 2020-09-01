@@ -69,8 +69,13 @@ fn default_projections_enabled() -> bool {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct DefaultProjectionSpec {
+    /// Whether to generate default projections for this collection. This is enabled be default.
     #[serde(default = "default_projections_enabled")]
     pub enabled: bool,
+
+    /// If default projections are enabled, then this limits the maximum depth of nested JSON
+    /// properties that will be projected. For example, setting this to 1 will generate default
+    /// projections _only_ for top-level properties.
     #[serde(default)]
     pub max_depth: Option<u8>,
 }
@@ -95,6 +100,8 @@ pub enum DefaultProjections {
 }
 
 impl DefaultProjections {
+    /// Extracts the `DefaultProjectionSpec` struct from the enum representation, creating the
+    /// struct representation if required.
     pub fn get_config(&self) -> DefaultProjectionSpec {
         match self {
             DefaultProjections::Spec(s) => *s,
@@ -115,10 +122,26 @@ impl Default for DefaultProjections {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Projections {
+    /// Configruation for the automatic generation of projections based on inspection of the json
+    /// schema for the collection. By default, projections will be generated automatically for all
+    /// applicable schema fields. This can be configured to stop at a maximum depth, or disabled
+    /// entirely.
     #[serde(default)]
     pub defaults: DefaultProjections,
+
+    /// The fields to project. The value of `fields` is expected to be an object where each key is
+    /// the desired name, and the value can be either a string JSON Pointer or a projection object.
+    /// For example, both of the following forms are valid:
+    ///
+    /// ```yaml
+    /// fields:
+    ///   my_simple_field: '/pointer/to/my_simple_field'
+    ///   my_partition_field:
+    ///     partition: true
+    ///     location: '/pointer/to/my_partition_field'
+    /// ```
     #[serde(default)]
-    pub fields: BTreeMap<String, Projection>,
+    pub fields: BTreeMap<String, Projection>, // TODO: maybe a linked hashmap is better, so we can preserve the declared order
 }
 
 impl Projections {
@@ -133,6 +156,8 @@ impl Projections {
     }
 }
 
+/// A projection representation that allows projections to be specified either as a simple JSON Pointer,
+/// or as an object with separate properties for `loction` and `partition`.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 pub enum Projection {
@@ -340,10 +365,16 @@ pub enum Schema {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SqlTargetConnection {
+    /// The connection URI for the target database, e.g.
+    /// `postgresql://user:password@my-postgres.test:5432/my_database`
     pub uri: String,
+    /// The name of the table to materialize into.
     pub table: String,
 }
 
+/// Allows for materialization objects to have a different shape depending on the type of the
+/// target system. Currently, both postgresql and sqlite use the same configuration parameters, but
+/// in the future we may support materialization targets that require different fields.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Materialization {

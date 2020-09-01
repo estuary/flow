@@ -138,4 +138,3 @@ impl fmt::Display for Set {
         write!(f, "{:?}", self.iter().format(", "))
     }
 }
-
