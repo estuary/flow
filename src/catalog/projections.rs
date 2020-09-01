@@ -100,7 +100,6 @@ fn register_inferences(
             type_buffer.clear();
             shape.type_.fill_types(&mut type_buffer);
             if !must_exist && !type_buffer.contains(&"null") {
-                println!("Adding null to shape at location: {}", pointer_str);
                 type_buffer.push("null");
             }
             type_json_buffer.clear();

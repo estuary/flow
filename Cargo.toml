@@ -1,7 +1,7 @@
 [package]
 name = "estuary"
 version = "0.1.0"
-authors = ["Johnny Graettinger <johnny531@gmail.com>"]
+authors = ["Estuary Technologies, Inc. \u00A92020"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -21,6 +21,7 @@ name = "estctl"
 path = "cmd/estctl/main.rs"
 
 [dependencies]
+anyhow = "^1.0"
 estuary_json = { path = "json" }
 estuary_protocol = { path = "protocol-rs" }
 bytes = "^0.5"

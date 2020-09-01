@@ -18,7 +18,7 @@ pub fn generate_all_ddl(scope: &Scope, collections: &[Collection]) -> catalog::R
         let fields = get_field_projections(scope, collection)?;
 
         let mut stmt = scope.db.prepare_cached(
-            "SELECT materialization_id, target_uri, table_name, config_json from materializations where collection_id = ?",
+            "SELECT materialization_id, target_uri, table_name, config_json FROM materializations WHERE collection_id = ?",
         )?;
         let mut rows = stmt.query(params![collection.id])?;
         while let Some(row) = rows.next()? {
@@ -146,8 +146,8 @@ impl Materialization {
                 target_type, 
                 target_uri, 
                 table_name, 
-                config_json,
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+                config_json
+            ) VALUES (?, ?, ?, ?, ?, ?);",
         )?;
         let params = rusqlite::params![
             name,
@@ -400,4 +400,3 @@ mod test {
         insta::assert_yaml_snapshot!("gen_ddl_test_sqlite", sqlite_ddl);
     }
 }
-

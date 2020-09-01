@@ -2,8 +2,10 @@ target/
 .build/
 .build-ci/
 
-catalog-nodejs
-catalog.db
+# typical outputs from estctl build
+/catalog.db
+/catalog-nodejs/
+
 
 # typical vim stuff
 .vim

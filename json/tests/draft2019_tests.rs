@@ -219,4 +219,3 @@ fn test_d09_unevaluated_properties() {
 fn test_d09_unique_items() {
     run_draft09_test("uniqueItems.json");
 }
-
