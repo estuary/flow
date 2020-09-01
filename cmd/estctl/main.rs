@@ -184,24 +184,18 @@ fn show_materialialization_ddl(
 
     let mut current_uri: Option<String> = None;
     while let Some(row) = rows.next()? {
-        let collection_name: String = row.get(0)?;
-        let materialization_name: String = row.get(1)?;
-        let target_uri: String = row.get(2)?;
-        let ddl: String = row.get(3)?;
+        let target_uri: String = row.get(0)?;
+        let ddl: String = row.get(1)?;
 
         if current_uri.as_ref() != Some(&target_uri) {
             // print a big separator if we're going from one target uri to another
             let newlines = if current_uri.is_some() { "\n\n" } else { "" };
             println!(
-                "{}-- Materializaions for the target: {}",
+                "{}-- Materializaions for the target: {}\n",
                 newlines, target_uri
             );
         }
         current_uri = Some(target_uri);
-        println!(
-            "-- Estaury Collection: '{}', materialization: '{}'",
-            collection_name, materialization_name
-        );
         println!("{}", ddl);
     }
 

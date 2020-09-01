@@ -1,7 +1,7 @@
 mod sql;
 
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Collection, Scope, DB};
+use crate::catalog::{self, Collection, Scope};
 use crate::specs::build as specs;
 use estuary_json::schema::types;
 use rusqlite::params;
@@ -18,20 +18,31 @@ pub fn generate_all_ddl(scope: &Scope, collections: &[Collection]) -> catalog::R
         let fields = get_field_projections(scope, collection)?;
 
         let mut stmt = scope.db.prepare_cached(
-            "SELECT materialization_id, target_uri, table_name, config_json FROM materializations WHERE collection_id = ?",
+            "SELECT collection_name, materialization_id, materialization_name, target_uri, table_name, config_json
+            FROM collections NATURAL JOIN materializations
+            WHERE collection_id = ?",
         )?;
         let mut rows = stmt.query(params![collection.id])?;
         while let Some(row) = rows.next()? {
-            let materialization_id: i64 = row.get(0)?;
-            let target_uri: String = row.get(1)?;
-            let table_name: String = row.get(2)?;
-            let config_json: String = row.get(3)?;
+            let collection_name: String = row.get(0)?;
+            let materialization_id: i64 = row.get(1)?;
+            let materialization_name: String = row.get(2)?;
+            let target_uri: String = row.get(3)?;
+            let table_name: String = row.get(4)?;
+            let config_json: String = row.get(5)?;
 
             let materailization_config: MaterializationConfig =
                 serde_json::from_str(config_json.as_str())?;
 
-            let ddl =
-                materailization_config.generate_ddl(table_name, target_uri, fields.as_slice())?;
+            let target = MaterializationTarget {
+                collection_name,
+                materialization_name,
+                target_uri,
+                table_name,
+                target_type: materailization_config.type_name(),
+                fields: fields.as_slice(),
+            };
+            let ddl = materailization_config.generate_ddl(target)?;
 
             scope.db.execute(
                 "INSERT INTO materialization_ddl (materialization_id, ddl) VALUES (?, ?)",
@@ -42,63 +53,39 @@ pub fn generate_all_ddl(scope: &Scope, collections: &[Collection]) -> catalog::R
     Ok(())
 }
 
-fn get_collection_keys(db: &DB, collection: &Collection) -> catalog::Result<Vec<String>> {
-    let mut stmt = db.prepare_cached(
-        "SELECT value FROM collections, json_each(collections.key_json) WHERE collection_id = ?",
-    )?;
-    let keys: Vec<String> = stmt
-        .query_map(rusqlite::params![collection.id], |row| {
-            row.get::<usize, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<String>>>()?;
-    Ok(keys)
-}
-
 fn get_field_projections(
     scope: &Scope,
     collection: &Collection,
 ) -> catalog::Result<Vec<FieldProjection>> {
-    let collection_keys = get_collection_keys(scope.db, collection)?;
     let mut stmt = scope.db.prepare_cached(
-        "SELECT 
-            p.field, 
-            p.location_ptr, 
-            p.user_provided, 
-            i.types_json, 
-            i.string_content_type, 
-            i.string_content_encoding_is_base64, 
-            i.string_max_length,
-            CASE WHEN part.field = NULL THEN FALSE ELSE TRUE END AS is_partition_key
-            FROM projections AS p
-              NATURAL JOIN inferences AS i
-              LEFT JOIN partitions AS part ON p.collection_id = part.collection_id AND p.field = part.field
-            WHERE p.collection_id = ?;"
-                                          )?;
+        "SELECT
+            field,
+            location_ptr,
+            user_provided,
+            types_json,
+            string_content_type,
+            string_content_encoding_is_base64,
+            string_max_length,
+            is_partition_key,
+            is_primary_key
+        FROM schema_extracted_fields
+        WHERE collection_id = ?;",
+    )?;
     let fields = stmt
         .query(rusqlite::params![collection.id])?
         .and_then(|row| {
-            let field_name = row.get(0)?;
-            let location_ptr = row.get(1)?;
-            let user_provided = row.get(2)?;
-            let types_wrapper: TypesWrapper = row.get(3)?;
-            let types = types_wrapper.0;
-            let string_content_type = row.get(4)?;
-            let string_content_encoding_is_base64 =
-                row.get::<usize, Option<bool>>(5)?.unwrap_or_default();
-            let string_max_length = row.get(6)?;
-            let is_partition_key = row.get(7)?;
-            let is_primary_key = collection_keys.contains(&location_ptr);
-
             Ok(FieldProjection {
-                field_name,
-                location_ptr,
-                user_provided,
-                types,
-                string_content_type,
-                string_content_encoding_is_base64,
-                string_max_length,
-                is_partition_key,
-                is_primary_key,
+                field_name: row.get(0)?,
+                location_ptr: row.get(1)?,
+                user_provided: row.get(2)?,
+                types: row.get::<usize, TypesWrapper>(3)?.0,
+                string_content_type: row.get(4)?,
+                string_content_encoding_is_base64: row
+                    .get::<usize, Option<bool>>(5)?
+                    .unwrap_or_default(),
+                string_max_length: row.get(6)?,
+                is_partition_key: row.get(7)?,
+                is_primary_key: row.get(8)?,
             })
         })
         .collect::<catalog::Result<Vec<_>>>()?;
@@ -141,11 +128,11 @@ impl Materialization {
 
         let mut stmt = scope.db.prepare_cached(
             "INSERT INTO materializations (
-                materialization_name, 
-                collection_id, 
-                target_type, 
-                target_uri, 
-                table_name, 
+                materialization_name,
+                collection_id,
+                target_type,
+                target_uri,
+                table_name,
                 config_json
             ) VALUES (?, ?, ?, ?, ?, ?);",
         )?;
@@ -178,18 +165,7 @@ pub enum MaterializationConfig {
 }
 
 impl MaterializationConfig {
-    pub fn generate_ddl(
-        &self,
-        table_name: String,
-        target_uri: String,
-        fields: &[FieldProjection],
-    ) -> Result<String, ProjectionsError> {
-        let target = MaterializationTarget {
-            target_type: self.type_name(),
-            target_uri,
-            table_name,
-            fields,
-        };
+    pub fn generate_ddl(&self, target: MaterializationTarget) -> Result<String, ProjectionsError> {
         match self {
             MaterializationConfig::Postgres(sql_conf) => sql_conf.generate_ddl(target),
             MaterializationConfig::Sqlite(sql_conf) => sql_conf.generate_ddl(target),
@@ -260,6 +236,8 @@ impl fmt::Display for FieldProjection {
 
 #[derive(Debug)]
 pub struct MaterializationTarget<'a> {
+    pub collection_name: String,
+    pub materialization_name: String,
     pub target_type: &'static str,
     pub target_uri: String,
     pub table_name: String,
@@ -335,9 +313,9 @@ mod test {
                                 (10, 'test://example/schema.json', TRUE),
                                 (20, 'test://example/fixtures.json', TRUE);
 
-            INSERT INTO collections 
-                (collection_id, collection_name, schema_uri, key_json, resource_id, default_projections_max_depth) 
-            VALUES 
+            INSERT INTO collections
+                (collection_id, collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+            VALUES
                 (1, 'testCollection', 'test://example/schema.json', '["/a", "/b"]', 1, 3);
 
             INSERT INTO projections (collection_id, field, location_ptr, user_provided) VALUES
@@ -369,7 +347,7 @@ mod test {
         .unwrap();
         db.execute(
             "INSERT INTO materializations (materialization_id, materialization_name, collection_id, target_type, target_uri, table_name, config_json)
-            VALUES 
+            VALUES
                 (1, 'pg_mat_test', 1, 'postgres', 'postgresql:foo:bar@pg.test/mydb', 'test_pg_table', ?),
                 (2, 'sqlite_mat_test', 1, 'sqlite', 'file:///testsqlitedburi', 'test_sqlite_table', ?);",
             rusqlite::params![pg_config, sqlite_config]
@@ -396,7 +374,7 @@ mod test {
                 |r| r.get::<usize, String>(0),
             )
             .expect("no sqlite ddl was generated");
-        insta::assert_yaml_snapshot!("gen_ddl_test_postgres", pg_ddl);
-        insta::assert_yaml_snapshot!("gen_ddl_test_sqlite", sqlite_ddl);
+        insta::assert_snapshot!("gen_ddl_test_postgres", pg_ddl);
+        insta::assert_snapshot!("gen_ddl_test_sqlite", sqlite_ddl);
     }
 }

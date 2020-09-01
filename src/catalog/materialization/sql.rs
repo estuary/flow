@@ -87,15 +87,19 @@ pub struct SqlMaterializationConfig {
     /// The maximum length (in utf-8-encoded bytes) that is allowed for column names. Any field
     /// names longer than this will result in an error when DDL is generated.
     identifier_max_length: Option<u32>,
-    /// String to use for quoting identifiers on the left side. For most databases,
-    /// `identifier_quote_left` and `identifier_quote_right` will be the same, and commonly a
-    /// double-quote character is used for both. Some databases will use different characters on
-    /// the left and right (notably MS SqlServer, which can use '[' and ']'), and so these are
-    /// represented separately. Beware also of databases that allow different sets of quote
-    /// characters, as they often have different semantics.
-    identifier_quote_left: String,
-    /// see `identifier_quote_left`
-    identifier_quote_right: String,
+    /// String to use for quoting identifiers. For most databases, the `left` and `right` will be
+    /// the same, and commonly a double-quote character is used for both. Some databases will use
+    /// different characters on the left and right (notably MS SqlServer, which can use '[' and
+    /// ']'), and so these are represented separately. Beware also of databases that allow
+    /// different sets of quote characters, as they often have different semantics.
+    identifier_quotes: TokenPair,
+
+    /// How to express comments in the sql dialect. Typically this will be done using a block
+    /// comment with `/*` and `*/`, but not all databases support that, so there's also an option
+    /// for line comments, or to disable comments entirely. Comments are added to the SQL DDL to
+    /// clarify where each field came from.
+    comments: CommentStyle,
+
     /// SQL fragment to add to columns that cannot contain null. Typically this will be "NOT NULL".
     /// This can be an empty string if such a fragment is not needed.
     not_null: String,
@@ -113,8 +117,8 @@ impl SqlMaterializationConfig {
     pub fn postgres() -> Self {
         SqlMaterializationConfig {
             identifier_max_length: Some(63),
-            identifier_quote_left: "\"".to_owned(),
-            identifier_quote_right: "\"".to_owned(),
+            identifier_quotes: TokenPair::symetrical("\""),
+            comments: CommentStyle::Block(TokenPair::new("/*", "*/")),
             not_null: "NOT NULL".to_owned(),
             nullable: String::new(),
             type_mappings: ProjectionTypeMappings {
@@ -151,8 +155,8 @@ impl SqlMaterializationConfig {
     pub fn sqlite() -> Self {
         SqlMaterializationConfig {
             identifier_max_length: None,
-            identifier_quote_left: "\"".to_owned(),
-            identifier_quote_right: "\"".to_owned(),
+            identifier_quotes: TokenPair::symetrical("\""),
+            comments: CommentStyle::Block(TokenPair::new("/*", "*/")),
             not_null: "NOT NULL".to_owned(),
             nullable: String::new(),
             type_mappings: ProjectionTypeMappings {
@@ -180,9 +184,12 @@ impl SqlMaterializationConfig {
         let mut invalid_identifiers = Vec::new();
 
         let mut buffer = String::with_capacity(1024);
+
+        let table_description = TableDescription(&target);
         write!(
             &mut buffer,
-            "CREATE TABLE {} IF NOT EXISTS (",
+            "{}\nCREATE TABLE {} IF NOT EXISTS (",
+            self.comment(&table_description),
             self.quoted(target.table_name.as_str())
         )
         .unwrap();
@@ -194,6 +201,7 @@ impl SqlMaterializationConfig {
             }
             if let Some(column_type) = self.lookup_type(field) {
                 let column_ddl_gen = ColumnDdlGen {
+                    indent: "\t",
                     conf: self,
                     sql_type: column_type,
                     field,
@@ -202,9 +210,9 @@ impl SqlMaterializationConfig {
                 if first {
                     first = false;
                 } else {
-                    buffer.push(',');
+                    buffer.push_str(",\n");
                 }
-                write!(&mut buffer, "\n\t{}", column_ddl_gen).unwrap();
+                write!(&mut buffer, "\n{}", column_ddl_gen).unwrap();
             } else {
                 invalid_types.push(field.clone());
             }
@@ -254,8 +262,18 @@ impl SqlMaterializationConfig {
         }
     }
 
-    fn quoted<'a>(&'a self, field: &'a str) -> QuotedIdent<'a> {
-        QuotedIdent { conf: self, field }
+    fn comment<'a, T: fmt::Display>(&'a self, content: &'a T) -> Comment<'a, T> {
+        Comment {
+            style: &self.comments,
+            content,
+        }
+    }
+
+    fn quoted<'a>(&'a self, field: &'a str) -> Surrounded<'a, str> {
+        Surrounded {
+            conf: &self.identifier_quotes,
+            field,
+        }
     }
 
     fn lookup_type(&self, field: &FieldProjection) -> Option<&SqlColumnType> {
@@ -283,20 +301,67 @@ const MIXED_TYPES_ERR_MSG: &str = "Cannot create SQL table columns for json fiel
                            Consider either removing these fields from your projections, or updating \
                            your schema so that they will always have a single known type.";
 
+#[derive(Debug, Serialize, Deserialize)]
+enum CommentStyle {
+    Block(TokenPair),
+    Line(String),
+    None,
+}
+impl CommentStyle {
+    fn is_none(&self) -> bool {
+        match self {
+            CommentStyle::None => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Comment<'a, T: fmt::Display> {
+    style: &'a CommentStyle,
+    content: &'a T,
+}
+
+impl<'a, T: fmt::Display> fmt::Display for Comment<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.style {
+            CommentStyle::Block(pair) => write!(f, "{} {} {}", pair.left, self.content, pair.right),
+            CommentStyle::Line(start) => write!(f, "{} {}", start, self.content),
+            CommentStyle::None => Ok(()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TokenPair {
+    left: String,
+    right: String,
+}
+impl TokenPair {
+    fn new(l: impl Into<String>, r: impl Into<String>) -> TokenPair {
+        TokenPair {
+            left: l.into(),
+            right: r.into(),
+        }
+    }
+
+    fn symetrical(c: impl Into<String>) -> TokenPair {
+        let left = c.into();
+        let right = left.clone();
+        TokenPair::new(left, right)
+    }
+}
+
 /// Helper struct that just wraps the given `field` in the identifier quotes for the particular
 /// SQL dialect.
 #[derive(Debug)]
-struct QuotedIdent<'a> {
-    conf: &'a SqlMaterializationConfig,
-    field: &'a str,
+struct Surrounded<'a, T: ?Sized> {
+    conf: &'a TokenPair,
+    field: &'a T,
 }
-impl<'a> fmt::Display for QuotedIdent<'a> {
+impl<'a, T: fmt::Display + ?Sized> fmt::Display for Surrounded<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}{}",
-            self.conf.identifier_quote_left, self.field, self.conf.identifier_quote_right
-        )
+        write!(f, "{}{}{}", self.conf.left, self.field, self.conf.right)
     }
 }
 
@@ -305,6 +370,7 @@ impl<'a> fmt::Display for QuotedIdent<'a> {
 /// column.
 #[derive(Debug)]
 struct ColumnDdlGen<'a> {
+    indent: &'a str,
     sql_type: &'a SqlColumnType,
     field: &'a FieldProjection,
     conf: &'a SqlMaterializationConfig,
@@ -312,7 +378,22 @@ struct ColumnDdlGen<'a> {
 
 impl<'a> fmt::Display for ColumnDdlGen<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} ", self.conf.quoted(self.field.field_name.as_str()))?;
+        if !self.conf.comments.is_none() {
+            // regardless of whether it's a line or block comment, we'll put a newline after it for
+            // readability, since the descriptions can get a little long.
+            writeln!(
+                f,
+                "{}{}",
+                self.indent,
+                self.conf.comment(&ColumnDescription(&self.field))
+            )?;
+        }
+        write!(
+            f,
+            "{}{} ",
+            self.indent,
+            self.conf.quoted(self.field.field_name.as_str())
+        )?;
 
         match &self.sql_type.ddl {
             SqlColumnTypeDdl::AlwaysPlain { plain } => f.write_str(plain.as_str())?,
@@ -335,6 +416,41 @@ impl<'a> fmt::Display for ColumnDdlGen<'a> {
     }
 }
 
+struct ColumnDescription<'a>(&'a FieldProjection);
+impl<'a> fmt::Display for ColumnDescription<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let source = if self.0.user_provided {
+            "user provided"
+        } else {
+            "auto-generated"
+        };
+        let partition = if self.0.is_partition_key {
+            "(partition key) "
+        } else {
+            ""
+        };
+        write!(
+            f,
+            "{} projection of JSON at: {} {}with inferred types: [{}]",
+            source,
+            self.0.location_ptr,
+            partition,
+            self.0.types.iter().format(", ")
+        )
+    }
+}
+
+struct TableDescription<'a>(&'a MaterializationTarget<'a>);
+impl<'a> fmt::Display for TableDescription<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Materialization '{}' for Estuary collection '{}', intended for {}",
+            self.0.materialization_name, self.0.collection_name, self.0.target_type
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -345,6 +461,8 @@ mod test {
         let fields = basic_fields();
         let postgres_conf = SqlMaterializationConfig::postgres();
         let target = MaterializationTarget {
+            collection_name: String::from("my_test/collection"),
+            materialization_name: String::from("testMaterialization"),
             target_type: "postgres",
             target_uri: String::from("any://test/uri"),
             table_name: String::from("test_postgres_table"),
@@ -364,6 +482,8 @@ mod test {
         fields[1].is_primary_key = true;
         let postgres_conf = SqlMaterializationConfig::postgres();
         let target = MaterializationTarget {
+            collection_name: String::from("my_test/collection"),
+            materialization_name: String::from("testMaterialization"),
             target_type: "postgres",
             target_uri: String::from("any://test/uri"),
             table_name: String::from("test_postgres_table"),
@@ -383,6 +503,8 @@ mod test {
         fields[1].is_primary_key = true;
         let sqlite_conf = SqlMaterializationConfig::sqlite();
         let target = MaterializationTarget {
+            collection_name: String::from("my_test/collection"),
+            materialization_name: String::from("testMaterialization"),
             target_type: "sqlite",
             target_uri: String::from("any://test/uri"),
             table_name: String::from("test_sqlite_table"),
@@ -407,6 +529,8 @@ mod test {
         fields[3].types = types::OBJECT | types::INTEGER;
 
         let target = MaterializationTarget {
+            collection_name: String::from("my_test/collection"),
+            materialization_name: String::from("testMaterialization"),
             target_type: "postgres",
             target_uri: String::from("any://test/uri"),
             table_name: String::from("test_postgres_table"),

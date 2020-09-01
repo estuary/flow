@@ -2,4 +2,22 @@
 source: src/catalog/materialization/mod.rs
 expression: pg_ddl
 ---
-"CREATE TABLE \"test_pg_table\" IF NOT EXISTS (\n\t\"field_a\" BIGINT NOT NULL,\n\t\"field_b\" TEXT NOT NULL,\n\t\"field_c\" BYTEA,\n\t\"field_d\" JSON,\n\t\"field_e\" DOUBLE PRECISION,\n\n\tPRIMARY KEY(\"field_a\", \"field_b\")\n);"
+/* Materialization 'pg_mat_test' for Estuary collection 'testCollection', intended for postgres */
+CREATE TABLE "test_pg_table" IF NOT EXISTS (
+	/* user provided projection of JSON at: /a (partition key) with inferred types: [integer] */
+	"field_a" BIGINT NOT NULL,
+
+	/* user provided projection of JSON at: /b (partition key) with inferred types: [string] */
+	"field_b" TEXT NOT NULL,
+
+	/* auto-generated projection of JSON at: /c with inferred types: [null, string] */
+	"field_c" BYTEA,
+
+	/* auto-generated projection of JSON at: /d with inferred types: [null, object] */
+	"field_d" JSON,
+
+	/* auto-generated projection of JSON at: /e with inferred types: [null, number] */
+	"field_e" DOUBLE PRECISION,
+
+	PRIMARY KEY("field_a", "field_b")
+);

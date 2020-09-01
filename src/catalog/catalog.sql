@@ -72,13 +72,13 @@ END;
 -- JSON schemas may have '$id' properties at arbitrary locations which change the
 -- canonical base URI of that schema. So long as '$id's are first indexed here,
 -- alternate URLs can then be referenced and correctly resolved to the resource.
--- 
+--
 -- :resource_id:
 --      Resource having an associated URL.
 -- :url:
 --      URL of this resource. Eg `file:///local/path` or `https://remote/path?query`.
 --      Must be a base URL without a fragment component.
--- :is_primary: 
+-- :is_primary:
 --      A resource's primary URL is the URL at which that resource was originally
 --      fetched, and serves as the base URL when resolving relative sub-resources.
 --      Every resource has exactly one primary URL.
@@ -122,7 +122,7 @@ FROM
 --
 -- :runtime:
 --      Lambda runtime (nodeJS, sqlite, or sqliteFile).
--- :inline: 
+-- :inline:
 --      Inline function expression, with semantics that depend on the runtime:
 --      * If 'nodeJS', this is a Typescript / JavaScript expression (i.e. an arrow
 --        expression, or a named function to invoke).
@@ -154,7 +154,7 @@ CREATE TABLE lambdas
 --
 -- :collection_name:
 --      Unique name of this collection.
--- :schema_uri: 
+-- :schema_uri:
 --      Canonical URI of the collection's JSON-Schema. This may include a fragment
 --      component which references a sub-schema of the document.
 -- :key_json:
@@ -185,7 +185,7 @@ CREATE TABLE collections
 
 
 -- Materialization targets for a collection
--- 
+--
 -- :materialization_name:
 --     Human-readable name of the materialization that was provided in the catalog spec
 -- :collection_id:
@@ -248,6 +248,33 @@ CREATE TABLE projections
         field REGEXP '^[\pL\pN_]+$'),
     CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
         location_ptr REGEXP '^(/[^/]+)*$')
+);
+
+-- Inferences are locations of collection documents and associated attributes
+-- which are statically provable solely from the collection's JSON-Schema.
+CREATE TABLE inferences
+(
+    -- Collection to which this inference pertains.
+    collection_id                     INTEGER NOT NULL REFERENCES collections (collection_id),
+    -- Field name for the projection
+    field                             TEXT NOT NULL,
+    -- Possible types for this location.
+    -- Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
+    types_json                        TEXT    NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
+
+    -- Strings end up being used to represent a variety of different things, e.g. dates, xml, or binary
+    -- content, which may benefit for specialized storage in other systems. So we store a lot more
+    -- metadata on strings than we do for other types in case we're able to use it during
+    -- materialization.
+    -- If of type "string", media MIME type of its content.
+    string_content_type               TEXT,
+    -- If of type "string", is the value base64-encoded ?
+    string_content_encoding_is_base64 BOOLEAN CHECK (string_content_encoding_is_base64 IN (0,1)),
+    -- If the location is a "string" type and has a maximum length, it will be here
+    string_max_length                 INTEGER,
+
+    FOREIGN KEY (collection_id, field)
+        REFERENCES projections(collection_id, field)
 );
 
 -- Partitions are projections which logically partition the collection.
@@ -584,49 +611,32 @@ SELECT source_collection_id,
 FROM transform_details
     WHERE is_alt_source_schema;
 
--- View over schema URIs and their extracted fields, with context.
+-- View of all the projected fields, and their inferred type information.
 CREATE VIEW schema_extracted_fields AS
 SELECT
-    c.schema_uri as schema_uri,
-    k.value AS ptr,
-    TRUE AS is_key,
-    PRINTF('key of collection %Q', c.collection_name) AS context
-FROM collections AS c, JSON_EACH(c.key_json) AS k
-UNION
-SELECT
-    t.source_schema_uri,
-    k.value,
-    TRUE AS is_key,
-    PRINTF('shuffle key of source %Q by derivation %Q',
-        t.source_name, t.derivation_name)
-FROM transform_details AS t, JSON_EACH(t.shuffle_key_json) AS k
-UNION
-SELECT
-    c.schema_uri,
-    p.location_ptr,
-    TRUE AS is_key,
-    PRINTF('partitioned field %Q of collection %Q', p.field, c.collection_name)
-FROM collections AS c NATURAL JOIN projections AS p NATURAL JOIN partitions
-UNION
-SELECT
-    c.schema_uri,
-    p.location_ptr,
-    FALSE AS is_key,
-    PRINTF('automatically projected field %Q of collection %Q', p.field, c.collection_name)
-FROM collections AS c NATURAL JOIN projections AS p
-WHERE p.user_provided = FALSE
-UNION
-SELECT
-    c.schema_uri,
-    p.location_ptr,
-    FALSE AS is_key,
-    PRINTF('user-specified projected field %Q of collection %Q', p.field, c.collection_name)
-FROM collections AS c NATURAL JOIN projections AS p
-WHERE p.user_provided = TRUE
-;
+    collections.collection_id as collection_id,
+    collections.collection_name as collection_name,
+    p.field as field,
+    location_ptr,
+    user_provided,
+    types_json,
+    string_content_type,
+    string_content_encoding_is_base64,
+    string_max_length,
+    CASE WHEN part.field IS NULL THEN FALSE ELSE TRUE END AS is_partition_key,
+    CASE WHEN keys.value IS NULL THEN FALSE ELSE TRUE END AS is_primary_key
+FROM
+    collections
+    NATURAL JOIN projections AS p
+    NATURAL JOIN inferences
+    LEFT JOIN partitions part ON p.collection_id = part.collection_id AND p.field = part.field
+    LEFT JOIN json_each((
+            SELECT key_json FROM collections WHERE collections.collection_id = p.collection_id
+    )) keys ON keys.value = p.location_ptr;
+
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
--- :package: 
+-- :package:
 --      Name of the NPM package depended on.
 -- :version:
 --      Version string, as understood by NPM.
@@ -656,33 +666,6 @@ BEGIN
             RAISE(IGNORE)
     END;
 END;
-
--- Inferences are locations of collection documents and associated attributes
--- which are statically provable solely from the collection's JSON-Schema.
-CREATE TABLE inferences
-(
-    -- Collection to which this inference pertains.
-    collection_id                     INTEGER NOT NULL REFERENCES collections (collection_id),
-    -- Field name for the projection
-    field                             TEXT NOT NULL,
-    -- Possible types for this location.
-    -- Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
-    types_json                        TEXT    NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
-
-    -- Strings end up being used to represent a variety of different things, e.g. dates, xml, or binary
-    -- content, which may benefit for specialized storage in other systems. So we store a lot more
-    -- metadata on strings than we do for other types in case we're able to use it during
-    -- materialization.
-    -- If of type "string", media MIME type of its content.
-    string_content_type               TEXT,
-    -- If of type "string", is the value base64-encoded ?
-    string_content_encoding_is_base64 BOOLEAN CHECK (string_content_encoding_is_base64 IN (0,1)),
-    -- If the location is a "string" type and has a maximum length, it will be here
-    string_max_length                 INTEGER,
-
-    FOREIGN KEY (collection_id, field)
-        REFERENCES projections(collection_id, field)
-);
 
 CREATE TABLE build_info
 (
