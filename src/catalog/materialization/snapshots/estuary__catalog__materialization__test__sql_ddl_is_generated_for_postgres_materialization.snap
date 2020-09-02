@@ -1,0 +1,61 @@
+---
+source: src/catalog/materialization/mod.rs
+expression: actual
+---
+- - 1
+  - test_pg_materialization
+  - 1
+  - postgres
+  - "postgres://foo.test:5432/testdb"
+  - pg_test_table
+  - comments:
+      Block:
+        left: /*
+        right: "*/"
+    identifierMaxLength: 63
+    identifierQuotes:
+      left: "\""
+      right: "\""
+    notNull: NOT NULL
+    nullable: ""
+    type: postgres
+    typeMappings:
+      array:
+        ddl:
+          plain: JSON
+        insert_template: "?"
+        max_supported_length: ~
+      boolean:
+        ddl:
+          plain: BOOLEAN
+        insert_template: "?"
+        max_supported_length: ~
+      integer:
+        ddl:
+          plain: BIGINT
+        insert_template: "?"
+        max_supported_length: ~
+      number:
+        ddl:
+          plain: DOUBLE PRECISION
+        insert_template: "?"
+        max_supported_length: ~
+      object:
+        ddl:
+          plain: JSON
+        insert_template: "?"
+        max_supported_length: ~
+      string:
+        default_type:
+          ddl:
+            plain: TEXT
+            with_length: VARCHAR(?)
+          insert_template: "?"
+          max_supported_length: ~
+      string_base64:
+        default_type:
+          ddl:
+            plain: BYTEA
+          insert_template: "decode(?, 'base64')"
+          max_supported_length: ~
+  - "/* Materialization 'test_pg_materialization' for Estuary collection 'testCollection', intended for postgres */\nCREATE TABLE \"pg_test_table\" IF NOT EXISTS (\n\t/* user provided projection of JSON at: /a (partition key) with inferred types: [integer] */\n\t\"field_a\" BIGINT NOT NULL,\n\n\t/* user provided projection of JSON at: /b (partition key) with inferred types: [string] */\n\t\"field_b\" VARCHAR(?)(32),\n\n\t/* auto-generated projection of JSON at: /c with inferred types: [null, string] */\n\t\"field_c\" BYTEA,\n\n\t/* auto-generated projection of JSON at: /d with inferred types: [null, object] */\n\t\"field_d\" JSON,\n\n\t/* auto-generated projection of JSON at: /e with inferred types: [null, number] */\n\t\"field_e\" DOUBLE PRECISION,\n\n\tPRIMARY KEY(\"field_a\", \"field_b\")\n);"

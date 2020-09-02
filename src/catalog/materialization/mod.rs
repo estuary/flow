@@ -1,7 +1,7 @@
 mod sql;
 
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Collection, Scope};
+use crate::catalog::{self, Collection, Error, Scope, DB};
 use crate::specs::build as specs;
 use estuary_json::schema::types;
 use rusqlite::params;
@@ -13,49 +13,9 @@ pub struct Materialization {
     pub id: i64,
 }
 
-pub fn generate_all_ddl(scope: &Scope, collections: &[Collection]) -> catalog::Result<()> {
-    for collection in collections {
-        let fields = get_field_projections(scope, collection)?;
-
-        let mut stmt = scope.db.prepare_cached(
-            "SELECT collection_name, materialization_id, materialization_name, target_uri, table_name, config_json
-            FROM collections NATURAL JOIN materializations
-            WHERE collection_id = ?",
-        )?;
-        let mut rows = stmt.query(params![collection.id])?;
-        while let Some(row) = rows.next()? {
-            let collection_name: String = row.get(0)?;
-            let materialization_id: i64 = row.get(1)?;
-            let materialization_name: String = row.get(2)?;
-            let target_uri: String = row.get(3)?;
-            let table_name: String = row.get(4)?;
-            let config_json: String = row.get(5)?;
-
-            let materailization_config: MaterializationConfig =
-                serde_json::from_str(config_json.as_str())?;
-
-            let target = MaterializationTarget {
-                collection_name,
-                materialization_name,
-                target_uri,
-                table_name,
-                target_type: materailization_config.type_name(),
-                fields: fields.as_slice(),
-            };
-            let ddl = materailization_config.generate_ddl(target)?;
-
-            scope.db.execute(
-                "INSERT INTO materialization_ddl (materialization_id, ddl) VALUES (?, ?)",
-                rusqlite::params![materialization_id, ddl],
-            )?;
-        }
-    }
-    Ok(())
-}
-
 fn get_field_projections(
     scope: &Scope,
-    collection: &Collection,
+    collection_id: i64,
 ) -> catalog::Result<Vec<FieldProjection>> {
     let mut stmt = scope.db.prepare_cached(
         "SELECT
@@ -63,6 +23,7 @@ fn get_field_projections(
             location_ptr,
             user_provided,
             types_json,
+            must_exist,
             string_content_type,
             string_content_encoding_is_base64,
             string_max_length,
@@ -72,20 +33,21 @@ fn get_field_projections(
         WHERE collection_id = ?;",
     )?;
     let fields = stmt
-        .query(rusqlite::params![collection.id])?
+        .query(rusqlite::params![collection_id])?
         .and_then(|row| {
             Ok(FieldProjection {
                 field_name: row.get(0)?,
                 location_ptr: row.get(1)?,
                 user_provided: row.get(2)?,
                 types: row.get::<usize, TypesWrapper>(3)?.0,
-                string_content_type: row.get(4)?,
+                must_exist: row.get(4)?,
+                string_content_type: row.get(5)?,
                 string_content_encoding_is_base64: row
-                    .get::<usize, Option<bool>>(5)?
+                    .get::<usize, Option<bool>>(6)?
                     .unwrap_or_default(),
-                string_max_length: row.get(6)?,
-                is_partition_key: row.get(7)?,
-                is_primary_key: row.get(8)?,
+                string_max_length: row.get(7)?,
+                is_partition_key: row.get(8)?,
+                is_primary_key: row.get(9)?,
             })
         })
         .collect::<catalog::Result<Vec<_>>>()?;
@@ -112,19 +74,41 @@ impl rusqlite::types::FromSql for TypesWrapper {
     }
 }
 
+fn lookup_collection_id(db: &DB, collection_name: &str) -> catalog::Result<i64> {
+    use rusqlite::OptionalExtension;
+
+    let sql = "SELECT collection_id FROM collections WHERE collection_name = ?";
+    let id: Option<i64> = db
+        .query_row(sql, rusqlite::params![collection_name], |r| r.get(0))
+        .optional()?;
+    id.ok_or_else(|| Error::MaterializationCollectionMissing {
+        collection_name: collection_name.to_owned(),
+    })
+}
+
 impl Materialization {
     pub fn register(
         scope: &Scope,
-        collection: Collection,
-        name: &str,
+        materialization_name: &str,
         spec: &specs::Materialization,
     ) -> catalog::Result<Materialization> {
-        let conf = MaterializationConfig::from_spec(spec);
+        let collection_id = lookup_collection_id(scope.db, spec.collection.as_str())?;
+        let conf = MaterializationConfig::from_spec(&spec.config);
         let conf_json = serde_json::to_string(&conf)?;
-        let conn = match spec {
-            specs::Materialization::Postgres { connection } => connection,
-            specs::Materialization::Sqlite { connection } => connection,
+        let conn = match &spec.config {
+            specs::MaterializationConfig::Postgres(connection) => connection,
+            specs::MaterializationConfig::Sqlite(connection) => connection,
         };
+        let fields = get_field_projections(scope, collection_id)?;
+        let target = MaterializationTarget {
+            materialization_name,
+            collection_name: spec.collection.as_str(),
+            target_uri: conn.uri.as_str(),
+            table_name: conn.table.as_str(),
+            target_type: conf.type_name(),
+            fields: fields.as_slice(),
+        };
+        let ddl = conf.generate_ddl(target)?;
 
         let mut stmt = scope.db.prepare_cached(
             "INSERT INTO materializations (
@@ -133,16 +117,18 @@ impl Materialization {
                 target_type,
                 target_uri,
                 table_name,
-                config_json
-            ) VALUES (?, ?, ?, ?, ?, ?);",
+                config_json,
+                ddl
+            ) VALUES (?, ?, ?, ?, ?, ?, ?);",
         )?;
         let params = rusqlite::params![
-            name,
-            collection.id,
+            materialization_name,
+            collection_id,
             conf.type_name(),
             conn.uri,
             conn.table,
             conf_json,
+            ddl,
         ];
         stmt.execute(params)?;
 
@@ -181,12 +167,12 @@ impl MaterializationConfig {
         }
     }
 
-    pub fn from_spec(spec: &specs::Materialization) -> MaterializationConfig {
+    pub fn from_spec(spec: &specs::MaterializationConfig) -> MaterializationConfig {
         match spec {
-            specs::Materialization::Postgres { .. } => {
+            specs::MaterializationConfig::Postgres { .. } => {
                 MaterializationConfig::Postgres(SqlMaterializationConfig::postgres())
             }
-            specs::Materialization::Sqlite { .. } => {
+            specs::MaterializationConfig::Sqlite { .. } => {
                 MaterializationConfig::Sqlite(SqlMaterializationConfig::sqlite())
             }
         }
@@ -199,6 +185,7 @@ pub struct FieldProjection {
     pub location_ptr: String,
     pub user_provided: bool,
     pub types: types::Set,
+    pub must_exist: bool,
 
     pub is_partition_key: bool,
     pub is_primary_key: bool,
@@ -210,7 +197,7 @@ pub struct FieldProjection {
 
 impl FieldProjection {
     pub fn is_nullable(&self) -> bool {
-        self.types & types::NULL != types::INVALID
+        (!self.must_exist) || self.types.overlaps(types::NULL)
     }
 }
 
@@ -236,11 +223,11 @@ impl fmt::Display for FieldProjection {
 
 #[derive(Debug)]
 pub struct MaterializationTarget<'a> {
-    pub collection_name: String,
-    pub materialization_name: String,
+    pub collection_name: &'a str,
+    pub materialization_name: &'a str,
     pub target_type: &'static str,
-    pub target_uri: String,
-    pub table_name: String,
+    pub target_uri: &'a str,
+    pub table_name: &'a str,
     pub fields: &'a [FieldProjection],
 }
 
@@ -296,9 +283,49 @@ impl std::error::Error for ProjectionsError {}
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn sql_ddl_is_generated_for_all_materializations() {
+    fn sql_ddl_is_generated_for_postgres_materialization() {
+        let db = setup();
+        let pg_materialization = serde_json::from_value(json!({
+            "collection": "testCollection",
+            "postgres": {
+                "uri": "postgres://foo.test:5432/testdb",
+                "table": "pg_test_table"
+            }
+        }))
+        .unwrap();
+
+        let scope = Scope::empty(&db);
+        Materialization::register(&scope, "test_pg_materialization", &pg_materialization)
+            .expect("failed to register materialization");
+
+        let actual = catalog::dump_table(&db, "materializations").unwrap();
+        insta::assert_yaml_snapshot!(actual);
+    }
+
+    #[test]
+    fn sql_ddl_is_generated_for_sqlite_materialization() {
+        let db = setup();
+        let pg_materialization = serde_json::from_value(json!({
+            "collection": "testCollection",
+            "sqlite": {
+                "uri": "file:///tmp/test/sqlite/materialization",
+                "table": "sqlite_test_table"
+            }
+        }))
+        .unwrap();
+
+        let scope = Scope::empty(&db);
+        Materialization::register(&scope, "test_pg_materialization", &pg_materialization)
+            .expect("failed to register materialization");
+
+        let actual = catalog::dump_table(&db, "materializations").unwrap();
+        insta::assert_yaml_snapshot!(actual);
+    }
+
+    fn setup() -> DB {
         let db = catalog::open(":memory:").unwrap();
         catalog::init_db_schema(&db).unwrap();
 
@@ -314,9 +341,9 @@ mod test {
                                 (20, 'test://example/fixtures.json', TRUE);
 
             INSERT INTO collections
-                (collection_id, collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+                (collection_id, collection_name, schema_uri, key_json, resource_id)
             VALUES
-                (1, 'testCollection', 'test://example/schema.json', '["/a", "/b"]', 1, 3);
+                (1, 'testCollection', 'test://example/schema.json', '["/a", "/b"]', 1);
 
             INSERT INTO projections (collection_id, field, location_ptr, user_provided) VALUES
                 (1, 'field_a', '/a', TRUE),
@@ -329,52 +356,14 @@ mod test {
                 (1, 'field_a'),
                 (1, 'field_b');
 
-            INSERT INTO inferences (collection_id, field, types_json, string_content_encoding_is_base64, string_max_length)
+            INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist, string_content_encoding_is_base64, string_max_length)
             VALUES
-                (1, 'field_a', '["integer"]', NULL, NULL),
-                (1, 'field_b', '["string"]', FALSE, 32),
-                (1, 'field_c', '["null", "string"]', TRUE, NULL),
-                (1, 'field_d', '["null", "object"]', NULL, NULL),
-                (1, 'field_e', '["null", "number"]', NULL, NULL);
-            "##).unwrap();
-        let pg_config = serde_json::to_string(&MaterializationConfig::Postgres(
-            SqlMaterializationConfig::postgres(),
-        ))
-        .unwrap();
-        let sqlite_config = serde_json::to_string(&MaterializationConfig::Sqlite(
-            SqlMaterializationConfig::sqlite(),
-        ))
-        .unwrap();
-        db.execute(
-            "INSERT INTO materializations (materialization_id, materialization_name, collection_id, target_type, target_uri, table_name, config_json)
-            VALUES
-                (1, 'pg_mat_test', 1, 'postgres', 'postgresql:foo:bar@pg.test/mydb', 'test_pg_table', ?),
-                (2, 'sqlite_mat_test', 1, 'sqlite', 'file:///testsqlitedburi', 'test_sqlite_table', ?);",
-            rusqlite::params![pg_config, sqlite_config]
-            ).unwrap();
-
-        let scope = Scope::empty(&db);
-        let collection = &[Collection {
-            id: 1,
-            resource: catalog::Resource { id: 1 },
-        }];
-        generate_all_ddl(&scope, collection).expect("failed to generate ddl");
-
-        let pg_ddl = db
-            .query_row(
-                "select ddl from materialization_ddl where materialization_id = 1",
-                rusqlite::NO_PARAMS,
-                |r| r.get::<usize, String>(0),
-            )
-            .expect("no postgres ddl was generated");
-        let sqlite_ddl = db
-            .query_row(
-                "select ddl from materialization_ddl where materialization_id = 2",
-                rusqlite::NO_PARAMS,
-                |r| r.get::<usize, String>(0),
-            )
-            .expect("no sqlite ddl was generated");
-        insta::assert_snapshot!("gen_ddl_test_postgres", pg_ddl);
-        insta::assert_snapshot!("gen_ddl_test_sqlite", sqlite_ddl);
+                (1, '/a', '["integer"]', TRUE, NULL, NULL),
+                (1, '/b', '["string"]', FALSE, FALSE, 32),
+                (1, '/c', '["null", "string"]', TRUE, TRUE, NULL),
+                (1, '/d', '["null", "object"]', FALSE, NULL, NULL),
+                (1, '/e', '["null", "number"]', FALSE, NULL, NULL);
+        "##).unwrap();
+        db
     }
 }

@@ -22,6 +22,13 @@ pub struct Catalog {
     /// Definitions of captured and derived collections.
     #[serde(default)]
     pub collections: Vec<Collection>,
+    /// Materializations project a view of the current state into an external system like a
+    /// database or key/value store. These states will be kept up to date automatically as
+    /// documents are processed in the collection. The keys used here are arbitrary identifiers
+    /// that will be used to uniquely identify each materialization, and the values are any valid
+    /// Materialization object.
+    #[serde(default)]
+    pub materializations: BTreeMap<String, Materialization>,
 }
 
 /// Collection specifies an Estuary document Collection.
@@ -48,111 +55,37 @@ pub struct Collection {
     /// Projections are named locations within a collection document which
     /// may be used for logical partitioning or directly exposed to databases
     /// into which collections are materialized.
+    ///
+    /// The value of `projections` is expected to be an object where each key is
+    /// the desired field name, and the value can be either a string JSON Pointer or a projection object.
+    /// For example, both of the following forms are valid:
+    ///
+    /// ```yaml
+    /// projections:
+    ///   my_simple_field: '/pointer/to/my_simple_field'
+    ///   my_partition_field:
+    ///     # partition is false by default
+    ///     partition: true
+    ///     location: '/pointer/to/my_partition_field'
+    /// ```
     #[serde(default)]
     pub projections: Projections,
     /// A derivation specifies how this collection is derived from other
     /// collections (as opposed to being a captured collection into which
     /// documents are directly written).
     pub derivation: Option<Derivation>,
-    /// Materializations project a view of the current state into an external system like a
-    /// database or key/value store. These states will be kept up to date automatically as
-    /// documents are processed in the collection. The keys used here are arbitrary identifiers
-    /// that will be used to uniquely identify each materialization, and the values are any valid
-    /// Materialization object.
-    #[serde(default)]
-    pub materializations: BTreeMap<String, Materialization>,
-}
-
-fn default_projections_enabled() -> bool {
-    true
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct DefaultProjectionSpec {
-    /// Whether to generate default projections for this collection. This is enabled be default.
-    #[serde(default = "default_projections_enabled")]
-    pub enabled: bool,
-
-    /// If default projections are enabled, then this limits the maximum depth of nested JSON
-    /// properties that will be projected. For example, setting this to 1 will generate default
-    /// projections _only_ for top-level properties.
-    #[serde(default)]
-    pub max_depth: Option<u8>,
-}
-impl Default for DefaultProjectionSpec {
-    fn default() -> Self {
-        DefaultProjectionSpec {
-            enabled: default_projections_enabled(),
-            max_depth: None,
-        }
-    }
-}
-
-/// Determines how "default" projections are generated. This allows for multiple representations in
-/// an attempt to make it as ergonomic as possible. Just disabling default projections altogether
-/// only requires a `defaults: false`, while more advanced options use a more future-proofed
-/// object representation.
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum DefaultProjections {
-    Enabled(bool),
-    Spec(DefaultProjectionSpec),
-}
-
-impl DefaultProjections {
-    /// Extracts the `DefaultProjectionSpec` struct from the enum representation, creating the
-    /// struct representation if required.
-    pub fn get_config(&self) -> DefaultProjectionSpec {
-        match self {
-            DefaultProjections::Spec(s) => *s,
-            DefaultProjections::Enabled(true) => DefaultProjectionSpec::default(),
-            DefaultProjections::Enabled(false) => DefaultProjectionSpec {
-                enabled: false,
-                max_depth: None,
-            },
-        }
-    }
-}
-
-impl Default for DefaultProjections {
-    fn default() -> Self {
-        DefaultProjections::Enabled(true)
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct Projections {
-    /// Configruation for the automatic generation of projections based on inspection of the json
-    /// schema for the collection. By default, projections will be generated automatically for all
-    /// applicable schema fields. This can be configured to stop at a maximum depth, or disabled
-    /// entirely.
-    #[serde(default)]
-    pub defaults: DefaultProjections,
-
-    /// The fields to project. The value of `fields` is expected to be an object where each key is
-    /// the desired name, and the value can be either a string JSON Pointer or a projection object.
-    /// For example, both of the following forms are valid:
-    ///
-    /// ```yaml
-    /// fields:
-    ///   my_simple_field: '/pointer/to/my_simple_field'
-    ///   my_partition_field:
-    ///     partition: true
-    ///     location: '/pointer/to/my_partition_field'
-    /// ```
-    #[serde(default)]
-    pub fields: BTreeMap<String, Projection>, // TODO: maybe a linked hashmap is better, so we can preserve the declared order
-}
+pub struct Projections(BTreeMap<String, Projection>);
 
 impl Projections {
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = ProjectionSpec<'a>> {
-        self.fields
-            .iter()
-            .map(|(field, projection)| ProjectionSpec {
-                field,
-                location: &projection.location(),
-                partition: projection.is_partition(),
-            })
+        self.0.iter().map(|(field, projection)| ProjectionSpec {
+            field,
+            location: &projection.location(),
+            partition: projection.is_partition(),
+        })
     }
 }
 
@@ -372,18 +305,26 @@ pub struct SqlTargetConnection {
     pub table: String,
 }
 
+/// A materialization represents the deisre to maintain a continuously updated state of the
+/// documents in a collection.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Materialization {
+    /// The name of the collection to materialize. This must exactly match the name of a collection
+    /// that exists in either in this catalog, or in another catalog imported by this one.
+    pub collection: String,
+
+    /// The configuration for this materialization. This is supplied with a key of either
+    /// `postgres` or `sqlite`, where the value is an object containing the sql connection info.
+    #[serde(flatten)]
+    pub config: MaterializationConfig,
+}
+
 /// Allows for materialization objects to have a different shape depending on the type of the
 /// target system. Currently, both postgresql and sqlite use the same configuration parameters, but
 /// in the future we may support materialization targets that require different fields.
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type", deny_unknown_fields, rename_all = "camelCase")]
-pub enum Materialization {
-    Postgres {
-        #[serde(flatten)]
-        connection: SqlTargetConnection,
-    },
-    Sqlite {
-        #[serde(flatten)]
-        connection: SqlTargetConnection,
-    },
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum MaterializationConfig {
+    Postgres(SqlTargetConnection),
+    Sqlite(SqlTargetConnection),
 }

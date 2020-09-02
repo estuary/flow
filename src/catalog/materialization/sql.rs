@@ -35,8 +35,12 @@ impl StringTypeMapping {
     }
 }
 
-/// Top-level structure for mapping each JSON data type to a SQL column type. For most types, this
-/// mapping is fairly simple, though there may
+/// Top-level structure for mapping each JSON data type to a SQL column type. For all types except
+/// strings, this mapping is simple and direct. Strings are more complicated because they are often
+/// used to represent things like dates and email addresses, and databases often have specialized
+/// column types that are more appropriate for these things. Strings may also hold base64 encoded
+/// data, which has separate mapping here, since these might map to separate column types. For
+/// example, a base64 string might map to a BLOB column, while a plain string maps to TEXT.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectionTypeMappings {
     pub integer: SqlColumnType,
@@ -127,7 +131,6 @@ impl SqlMaterializationConfig {
                 boolean: SqlColumnType::simple("BOOLEAN"),
 
                 // we might end up needing to add configuration for how we insert json values
-                // TODO: should we use JSONB instead?
                 array: SqlColumnType::simple("JSON"),
                 object: SqlColumnType::simple("JSON"),
                 string: StringTypeMapping::new(SqlColumnType {
@@ -163,8 +166,6 @@ impl SqlMaterializationConfig {
                 integer: SqlColumnType::simple("INTEGER"),
                 number: SqlColumnType::simple("REAL"),
                 boolean: SqlColumnType::simple("BOOLEAN"),
-
-                // TODO: should we try to add a constraint like `CHECK(json_valid(<column-name>))`?
                 array: SqlColumnType::simple("TEXT"),
                 object: SqlColumnType::simple("TEXT"),
                 string: StringTypeMapping::simple("TEXT"),
@@ -190,7 +191,7 @@ impl SqlMaterializationConfig {
             &mut buffer,
             "{}\nCREATE TABLE {} IF NOT EXISTS (",
             self.comment(&table_description),
-            self.quoted(target.table_name.as_str())
+            self.quoted(target.table_name)
         )
         .unwrap();
 
@@ -461,11 +462,11 @@ mod test {
         let fields = basic_fields();
         let postgres_conf = SqlMaterializationConfig::postgres();
         let target = MaterializationTarget {
-            collection_name: String::from("my_test/collection"),
-            materialization_name: String::from("testMaterialization"),
+            collection_name: "my_test/collection",
+            materialization_name: "testMaterialization",
             target_type: "postgres",
-            target_uri: String::from("any://test/uri"),
-            table_name: String::from("test_postgres_table"),
+            target_uri: "any://test/uri",
+            table_name: "test_postgres_table",
             fields: fields.as_slice(),
         };
 
@@ -482,11 +483,11 @@ mod test {
         fields[1].is_primary_key = true;
         let postgres_conf = SqlMaterializationConfig::postgres();
         let target = MaterializationTarget {
-            collection_name: String::from("my_test/collection"),
-            materialization_name: String::from("testMaterialization"),
+            collection_name: "my_test/collection",
+            materialization_name: "testMaterialization",
             target_type: "postgres",
-            target_uri: String::from("any://test/uri"),
-            table_name: String::from("test_postgres_table"),
+            target_uri: "any://test/uri",
+            table_name: "test_postgres_table",
             fields: fields.as_slice(),
         };
 
@@ -503,11 +504,11 @@ mod test {
         fields[1].is_primary_key = true;
         let sqlite_conf = SqlMaterializationConfig::sqlite();
         let target = MaterializationTarget {
-            collection_name: String::from("my_test/collection"),
-            materialization_name: String::from("testMaterialization"),
+            collection_name: "my_test/collection",
+            materialization_name: "testMaterialization",
             target_type: "sqlite",
-            target_uri: String::from("any://test/uri"),
-            table_name: String::from("test_sqlite_table"),
+            target_uri: "any://test/uri",
+            table_name: "test_sqlite_table",
             fields: fields.as_slice(),
         };
 
@@ -529,11 +530,11 @@ mod test {
         fields[3].types = types::OBJECT | types::INTEGER;
 
         let target = MaterializationTarget {
-            collection_name: String::from("my_test/collection"),
-            materialization_name: String::from("testMaterialization"),
+            collection_name: "my_test/collection",
+            materialization_name: "testMaterialization",
             target_type: "postgres",
-            target_uri: String::from("any://test/uri"),
-            table_name: String::from("test_postgres_table"),
+            target_uri: "any://test/uri",
+            table_name: "test_postgres_table",
             fields: fields.as_slice(),
         };
 
@@ -574,6 +575,7 @@ mod test {
             location_ptr: format!("/{}", name),
             user_provided: true,
             types,
+            must_exist: true,
             is_primary_key: false,
             is_partition_key: false,
             string_content_type: None,

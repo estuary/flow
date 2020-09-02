@@ -212,49 +212,49 @@ lambda_id|runtime|inline|resource_id|content_type|content|is_processed
 changes:   0   total_changes: XYZ
 
 -- Valid collections.
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3, 3),
-       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2, 4),
-       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1, 0),
-       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6, 0);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
+       ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
+       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
+       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
 changes:   4   total_changes: XYZ
 
 -- Invalid collection (schema is not a URI).
 Error: near line (XYZ): CHECK constraint failed: Schema must be a valid base (non-relative) URI
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('col/bad', 'not-a-uri', '["/key"]', 1, 3);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'not-a-uri', '["/key"]', 1);
 
 -- Invalid collection (collection name doesn't match pattern).
 Error: near line (XYZ): CHECK constraint failed: Collection name format isn't valid
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1, 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 Error: near line (XYZ): CHECK constraint failed: Collection name format isn't valid
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1, 9);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 
 -- Invalid collection (key is not non-empty [JSON-Pointer]).
 Error: near line (XYZ): malformed JSON
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1, 4);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1);
 Error: near line (XYZ): CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1, 5);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '{"not":"array"}', 1);
 Error: near line (XYZ): CHECK constraint failed: Key must be non-empty JSON array of JSON-Pointers
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1, 5);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '[]', 1);
 
 -- Invalid collection (resource doesn't exist).
 Error: near line (XYZ): FOREIGN KEY constraint failed
-INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
-VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42, 3);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["/key"]', 42);
 
 SELECT *
 FROM collections;
-collection_id|collection_name|schema_uri|key_json|resource_id|default_projections_max_depth
-1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|3|3
-2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|2|4
-3|col/der.iv-e+d|https://canonical/schema/uri#/$defs/path|["/foo"]|1|0
-4|col/other-src|file:///path/to/a/schema.yaml|["/key"]|6|0
+collection_id|collection_name|schema_uri|key_json|resource_id
+1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|3
+2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|2
+3|col/der.iv-e+d|https://canonical/schema/uri#/$defs/path|["/foo"]|1
+4|col/other-src|file:///path/to/a/schema.yaml|["/key"]|6
 changes:   0   total_changes: XYZ
 
 -- Valid projections.
@@ -265,19 +265,6 @@ VALUES (1, 'field_1', '/key/0', TRUE),
        (2, 'field_1', '', FALSE), -- Repeat field name with different collection.
        (2, 'field_a', '/a', TRUE);
 changes:   5   total_changes: XYZ
-
--- Invalid projection (field name only differs in case)
-Error: near line (XYZ): UNIQUE constraint failed: projections.collection_id, projections.field
-INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-VALUES (1, 'FIELD_1', '/path/3', TRUE);
-
--- Invalid projection (bad field name).
-Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
-INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-VALUES (1, 'no spaces', '/path/1', TRUE);
-Error: near line (XYZ): CHECK constraint failed: Field name format isn't valid
-INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-VALUES (1, 'or-hyphens', '/path/1', TRUE);
 
 -- Invalid projection (no such collection).
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -417,7 +404,7 @@ WHERE transform_id = 1;
 
 -- Invalid source schema is the same as the collection schema
 Error: near line (XYZ): Transforms that specify a source schema may not use the same schema as the source collection
-INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri) 
+INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri)
 VALUES (2, 1, 'file:///path/to/a/schema.yaml#anchor');
 
 -- Shuffle-key must be array of JSON-pointers.
@@ -594,60 +581,38 @@ VALUES ('a-package', '^4.5.6');
 
 -- Valid inferences
 INSERT INTO inferences (
-    collection_id, 
-    field, 
-    types_json, 
-    string_content_type, 
-    string_content_encoding_is_base64, 
+    collection_id,
+    location_ptr,
+    types_json,
+    must_exist,
+    string_content_type,
+    string_content_encoding_is_base64,
     string_max_length
-) 
-VALUES 
-    (1, 'field_1', '["string", "null"]', 'text/plain', false, 97);
+)
+VALUES
+    (1, '/key/0', '["string", "null"]', TRUE, 'text/plain', false, 97);
 changes:   1   total_changes: XYZ
 
-INSERT INTO inferences (collection_id, field, types_json) 
-VALUES
-    (1, 'field_2', '["string"]'),
-    (1, 'field_3', '["number"]'),
-    (2, 'field_1', '["object"]');
-changes:   3   total_changes: XYZ
+Error: near line (XYZ): 4 values for 3 columns
 
 -- Invalid inference (missing projection)
-Error: near line (XYZ): FOREIGN KEY constraint failed
-INSERT INTO inferences (collection_id, field, types_json) 
-VALUES (1, 'no_such_field', '["number"]');
-    
--- Invalid inference (duplicate field differs only in case)
-Error: near line (XYZ): FOREIGN KEY constraint failed
-INSERT INTO inferences (collection_id, field, types_json) 
-VALUES (1, 'FIELD_1', '["number"]');
+Error: near line (XYZ): table inferences has no column named field
 
 -- Invalid inference (types are not valid json)
-Error: near line (XYZ): malformed JSON
-INSERT INTO inferences (collection_id, field, types_json) 
-VALUES (1, 'field_2', '} not json {');
+Error: near line (XYZ): table inferences has no column named field
 
 -- Invalid inference (types are null)
-Error: near line (XYZ): NOT NULL constraint failed: inferences.types_json
-INSERT INTO inferences (collection_id, field, types_json) 
-VALUES (1, 'field_2', NULL);
+Error: near line (XYZ): table inferences has no column named field
 
 -- Invalid inference (types are not an array)
-Error: near line (XYZ): CHECK constraint failed: inferences
-INSERT INTO inferences (collection_id, field, types_json) 
-VALUES (1, 'field_2', '{"not": "an array"}');
+Error: near line (XYZ): table inferences has no column named field
 
 -- Invalid inference (string_content_encoding_is_base64 is not a boolean)
-Error: near line (XYZ): CHECK constraint failed: inferences
-INSERT INTO inferences (collection_id, field, types_json, string_content_encoding_is_base64) 
-VALUES (1, 'field_2', '["string"]', 99);
+Error: near line (XYZ): table inferences has no column named field
 
 -- View of schema URIs and all fields which are extracted from them,
 -- with context as to usage (primary key, shuffle key, or projection).
 SELECT * FROM schema_extracted_fields;
-collection_id|collection_name|field|location_ptr|user_provided|types_json|string_content_type|string_content_encoding_is_base64|string_max_length|is_partition_key|is_primary_key
-1|col/src|field_1|/key/0|1|["string", "null"]|text/plain|0|97|0|1
-1|col/src|field_2|/key/1|0|["string"]||||1|1
-1|col/src|field_3|/path/3|0|["number"]||||0|0
-2|col/derived|field_1||0|["object"]||||0|0
-changes:   0   total_changes: XYZ
+collection_id|collection_name|field|location_ptr|user_provided|types_json|must_exist|string_content_type|string_content_encoding_is_base64|string_max_length|is_partition_key|is_primary_key
+1|col/src|field_1|/key/0|1|["string", "null"]|1|text/plain|0|97|0|1
+changes:   1   total_changes: XYZ

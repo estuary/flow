@@ -238,8 +238,8 @@ mod test {
                     (10, 'test://example/a-schema.json', TRUE),
                     (20, 'test://example/alt-schema.json', TRUE),
                     (30, 'test://example/reg-schema.json', TRUE);
-                INSERT INTO collections (collection_name, schema_uri, key_json, resource_id, default_projections_max_depth) VALUES
-                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1, 3);
+                INSERT INTO collections (collection_name, schema_uri, key_json, resource_id) VALUES
+                    ('src/collection', 'test://example/a-schema.json', '[\"/key\"]', 1);
                 INSERT INTO projections (collection_id, field, location_ptr, user_provided) VALUES
                     (1, 'a_field', '/a/field', true),
                     (1, 'other_field', '/other/field', true);

@@ -97,6 +97,10 @@ impl Set {
         }
     }
 
+    pub fn to_json_array(&self) -> String {
+        format!("[{}]", self)
+    }
+
     pub fn for_type_name(str_val: &str) -> Option<Set> {
         match str_val {
             "array" => Some(ARRAY),

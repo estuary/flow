@@ -170,10 +170,9 @@ fn show_materialialization_ddl(
 ) -> Result<(), Error> {
     // We're ordering by target_uri so we can print out the sql for each target database grouped
     // together.
-    let sql = "SELECT c.collection_name, m.materialization_name, m.target_uri, ddl
+    let sql = "SELECT m.target_uri, m.ddl
         FROM collections AS c
         NATURAL JOIN materializations AS m
-        NATURAL JOIN materialization_ddl
         WHERE c.collection_name LIKE ? AND m.materialization_name LIKE ?
         ORDER BY m.target_uri ASC, c.collection_name ASC";
     let mut stmt = db.prepare(sql)?;

@@ -1550,6 +1550,26 @@ mod test {
         );
     }
 
+    /*
+     * Shape::infer does not currently handle recursive schemas, and will overflow the stack.
+     * Eventually, we'll want to have some sane handling of recursive schemas, but we'll have to
+     * figure out what that should be.
+    #[test]
+    fn test_recursive() {
+        let shape = shape_from(
+            r##"
+               type: object
+               properties:
+                 val: { type: string }
+                 a: { $ref: http://example/schema }
+                 b: { $ref: http://example/schema }
+               "##,
+        );
+        let pointer = "/a/b/a/a/b/a/val".into();
+        let result = shape.locate(&pointer);
+    }
+    */
+
     fn shape_from(case: &str) -> Shape {
         let url = url::Url::parse("http://example/schema").unwrap();
         let schema: Value = serde_yaml::from_str(case).unwrap();
