@@ -18,7 +18,6 @@ mod source;
 use std::path::Path;
 use url::Url;
 
-pub use catalog::Source;
 pub use collection::Collection;
 pub use content_type::ContentType;
 pub use derivation::Derivation;

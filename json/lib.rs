@@ -81,14 +81,6 @@ impl<'a> Location<'a> {
         })
     }
 
-    // TODO: might not actually need this
-    pub fn depth(&self) -> u32 {
-        self.fold(0u32, |loc, acc| match loc {
-            Location::Root => acc,
-            _ => acc + 1,
-        })
-    }
-
     /// Returns a struct that implements `std::fmt::Display` to provide a string representation of
     /// the location as a JSON pointer that does no escaping besides '~' and '/'.
     pub fn pointer_str(&self) -> PointerStr {

@@ -8,11 +8,10 @@ collections:
     fixtures: [fixtures/L1-tick.yaml]
 
     projections:
-      fields:
-        exchange:
-          location: /exchange
-          partition: true
-        the_bid_price: /bid/price
+      exchange:
+        location: /exchange
+        partition: true
+      the_bid_price: /bid/price
 
   - name: stock/daily-stats
     schema: schemas/daily-stat.yaml
@@ -20,11 +19,10 @@ collections:
     fixtures: [fixtures/daily-stats.yaml]
 
     projections:
-      fields:
-        my_special_column: /bid
-        exchange:
-          location: /exchange
-          partition: true
+      my_special_column: /bid
+      exchange:
+        location: /exchange
+        partition: true
 
     derivation:
       bootstrap:
@@ -77,10 +75,9 @@ collections:
                   last:   tick.last,
               }];
 
-#materializations:
-#  - collection: daily-stats
-#
-#    target:
-#      type: postgres
-#      endpoint: postgres://127.0.0.1:5432/my-db
-#      table: daily_stats
+materializations:
+  dailyStatsPostgres:
+    collection: stock/daily-stats
+    postgres:
+      uri: postgres://127.0.0.1:5432/my-db
+      table: daily_stats

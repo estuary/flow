@@ -96,12 +96,9 @@ collections:
       required: [views, clicks]
     key: [/purchase_id]
     fixtures: [fixtures/purchases-with-offers.yaml]
-
-    materializations:
-      testPostgres:
-        type: postgres
-        uri: "postgresql://dev-postgres.estuary.test:5432/marketing"
-        table: purchases_with_offers
+    projections:
+      first_view_time: "/views/0/timestamp"
+      first_click_time: "/clicks/0/timestamp"
 
     derivation:
       # This derivation indexes a windowed history of clicks and views
@@ -121,7 +118,7 @@ collections:
                 #  drop: smallest
               additionalProperties:
                 # Only the first record of a given time interval is kept.
-                reduce: 
+                reduce:
                   strategy: firstWriteWins
           type: object
           properties:
@@ -185,3 +182,11 @@ collections:
                 views: Object.values(register.views),
                 clicks: Object.values(register.clicks),
               }]
+
+materializations:
+  testPostgres:
+    collection: marketing/purchases-with-offers
+    postgres:
+      uri: "postgresql://dev-postgres.estuary.test:5432/marketing"
+      table: purchases_with_offers
+

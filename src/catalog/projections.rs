@@ -3,24 +3,65 @@ use crate::catalog::{
 };
 use crate::doc::inference::Shape;
 use crate::doc::{Pointer, SchemaIndex};
-use crate::specs::build::ProjectionSpec;
+use crate::specs::build as specs;
 use estuary_json::schema::types;
 use estuary_json::Location;
 use rusqlite::params as sql_params;
-use rusqlite::types::{ToSqlOutput, ValueRef};
-use std::collections::HashSet;
 use url::Url;
+
+pub fn register_projections(
+    scope: &Scope,
+    collection: CollectionResource,
+    projections: &specs::Projections,
+) -> Result<()> {
+    let compiled_schemas = SchemaResource::compile_for(scope.db, collection.resource.id)?;
+    let mut index = SchemaIndex::new();
+    for schema in compiled_schemas.iter() {
+        index.add(schema)?;
+    }
+    let schema_uri = get_schema_uri(scope.db, collection)?;
+    let collection_schema = index.must_fetch(&schema_uri)?;
+    let shape = Shape::infer(collection_schema, &index);
+
+    for projection in projections.iter() {
+        scope
+            .push_prop("fields")
+            .push_prop(projection.field)
+            .then(|scope| {
+                register_user_provided_projection(&scope, collection, &projection, &shape)
+            })?;
+    }
+
+    register_canonical_projections_for_shape(
+        scope.db,
+        Location::Root,
+        collection.id,
+        &shape,
+        true,
+        projections,
+    )
+}
+
+fn get_schema_uri(db: &DB, collection: CollectionResource) -> Result<Url> {
+    let url_string: String = db.query_row(
+        "SELECT schema_uri FROM collections WHERE collection_id = ?;",
+        rusqlite::params![collection.id],
+        |row| row.get(0),
+    )?;
+    Url::parse(url_string.as_str()).map_err(Into::into)
+}
 
 pub fn register_user_provided_projection(
     scope: &Scope,
     collection: CollectionResource,
-    spec: &ProjectionSpec,
+    spec: &specs::ProjectionSpec,
+    schema_shape: &Shape,
 ) -> Result<()> {
     scope
         .db
         .prepare_cached(
             "INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-                        VALUES (?, ?, ?, TRUE)",
+                VALUES (?, ?, ?, TRUE);",
         )?
         .execute(sql_params![collection.id, spec.field, spec.location])?;
 
@@ -29,168 +70,134 @@ pub fn register_user_provided_projection(
             .db
             .prepare_cached(
                 "INSERT INTO partitions (collection_id, field)
-                            VALUES (?, ?)",
+                    VALUES (?, ?);",
             )?
             .execute(sql_params![collection.id, spec.field])?;
     }
 
+    let pointer = Pointer::from(spec.location);
+    let (field_shape, must_exist) =
+        schema_shape
+            .locate(&pointer)
+            .ok_or_else(|| NoSuchLocationError {
+                field: spec.field.to_string(),
+                location_ptr: spec.location.to_string(),
+            })?;
+
+    let mut stmt = scope.db.prepare_cached(
+        "INSERT INTO inferences (
+            collection_id,
+            location_ptr,
+            types_json,
+            must_exist,
+            string_content_type,
+            string_content_encoding_is_base64,
+            string_max_length
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);",
+    )?;
+    let params = rusqlite::params![
+        collection.id,
+        spec.location,
+        field_shape.type_.to_json_array(),
+        must_exist,
+        field_shape
+            .string
+            .content_type
+            .as_ref()
+            .map(String::as_str)
+            .unwrap_or(""),
+        field_shape.string.is_base64,
+        field_shape.string.max_length.map(usize_to_i64),
+    ];
+    stmt.execute(params)?;
+
     Ok(())
 }
 
-pub fn register_default_projections_and_inferences(
-    scope: &Scope,
-    collections: &[CollectionResource],
-) -> Result<()> {
-    let compiled_schemas = SchemaResource::compile_all(scope.db)?;
-
-    let mut index = SchemaIndex::new();
-    for schema in compiled_schemas.iter() {
-        index.add(schema)?;
-    }
-
-    for collection in collections {
-        let (name, schema_url, default_projection_max_depth): (String, String, i32) = scope.db.query_row(
-            "SELECT collection_name, schema_uri, default_projections_max_depth FROM collections where collection_id = ?",
-            rusqlite::params![collection.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?;
-        let scope = &scope.push_prop(name.as_str());
-
-        if default_projection_max_depth == 0 {
-            continue;
-        }
-
-        let user_provided_pointers = get_user_provided_projection_locations(scope.db, collection)?;
-
-        let schema_url = Url::parse(&schema_url)?;
-        let schema = index.must_fetch(&schema_url)?;
-        let shape = Shape::infer(&schema, &index);
-        register_projections_for_shape(
-            scope,
-            Location::Root,
-            &collection,
-            default_projection_max_depth as u8,
-            &shape,
-            &user_provided_pointers,
-        )?;
-
-        register_inferences(scope.db, collection, &shape)?;
-    }
-    Ok(())
+fn usize_to_i64(unsigned: usize) -> i64 {
+    unsigned.min(usize::MAX - 1) as i64
 }
 
-fn register_inferences(
+#[derive(Debug, thiserror::Error)]
+#[error("The location pointer: '{location_ptr}' of projection: '{field}' does not exist according to the collection schema")]
+pub struct NoSuchLocationError {
+    field: String,
+    location_ptr: String,
+}
+
+fn register_canonical_projections_for_shape<'a>(
     db: &DB,
-    collection: &CollectionResource,
-    collection_schema_shape: &Shape,
-) -> Result<()> {
-    // we'll look at all the projections here, both user-provided and auto-generated
-    let mut stmt =
-        db.prepare_cached("select field, location_ptr from projections where collection_id = ?")?;
-    let mut rows = stmt.query(sql_params![collection.id])?;
-
-    let mut type_buffer = Vec::with_capacity(4);
-    let mut type_json_buffer = Vec::with_capacity(64);
-    while let Some(row) = rows.next()? {
-        let field: String = row.get(0)?;
-        let pointer_str: String = row.get(1)?;
-        let pointer = Pointer::from(pointer_str.as_str());
-
-        if let Some((shape, must_exist)) = collection_schema_shape.locate(&pointer) {
-            type_buffer.clear();
-            shape.type_.fill_types(&mut type_buffer);
-            if !must_exist && !type_buffer.contains(&"null") {
-                type_buffer.push("null");
-            }
-            type_json_buffer.clear();
-            let mut cursor = std::io::Cursor::new(&mut type_json_buffer);
-            serde_json::to_writer(&mut cursor, &type_buffer)?;
-
-            let mut stmt = db.prepare_cached(
-                "INSERT INTO inferences
-                 (collection_id, field, types_json, string_content_type, 
-                  string_content_encoding_is_base64, string_max_length)
-                 VALUES (?, ?, ?, ?, ?, ?);",
-            )?;
-            // this weird cast is just so we don't end up with -1 in case someone uses the max
-            // value of a usize for the maxLength in their schema.
-            let str_max_len = shape
-                .string
-                .max_length
-                .map(|l| l.min(usize::MAX - 1) as i64);
-            let params = sql_params![
-                collection.id,
-                field,
-                ToSqlOutput::Borrowed(ValueRef::Text(type_json_buffer.as_slice())),
-                shape.string.content_type,
-                shape.string.is_base64,
-                str_max_len,
-            ];
-            stmt.execute(params)?;
-        } else {
-            // TODO: error since there's a projection that we know nothing about
-            panic!("need to handle this error condition");
-        }
-    }
-    Ok(())
-}
-
-fn get_user_provided_projection_locations(
-    db: &DB,
-    collection: &CollectionResource,
-) -> Result<HashSet<String>> {
-    let mut stmt =
-        db.prepare_cached("SELECT location_ptr FROM projections WHERE collection_id = ?;")?;
-    let set = stmt
-        .query_map(sql_params![collection.id], |row| row.get(0))?
-        .collect::<rusqlite::Result<HashSet<String>>>()?;
-    Ok(set)
-}
-
-fn register_projections_for_shape(
-    scope: &Scope,
     location: Location,
-    collection: &CollectionResource,
-    max_depth: u8,
+    collection_id: i64,
     shape: &Shape,
-    user_provided_pointers: &HashSet<String>,
+    must_exist: bool,
+    spec: &specs::Projections,
 ) -> Result<()> {
     let pointer = location.pointer_str().to_string();
-    if user_provided_pointers.contains(&pointer) {
+    if contains_location(spec, pointer.as_str()) {
         return Ok(());
     }
 
+    // Temporarily remove null and match on the remainder of the possible types. We're only looking
+    // at fields with a single possible type (apart from null). Any fields with multiple possible
+    // types (e.g. can be either a string or an object) are ignored.
     let non_nullable_type = (!types::NULL) & shape.type_;
     match non_nullable_type {
         types::STRING | types::INTEGER | types::NUMBER | types::BOOLEAN => {
             let field = field_name_from_location(location);
-            scope.db.prepare_cached(
-                "insert into projections (collection_id, field, location_ptr, user_provided) values (?, ?, ?, FALSE);"
-                    )?.execute(sql_params![collection.id, field, pointer])?;
+
+            let mut proj_stmt = db.prepare_cached(
+                "INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+                    VALUES (?, ?, ?, FALSE)",
+            )?;
+            proj_stmt.execute(sql_params![collection_id, field, pointer])?;
+
+            let types_json = shape.type_.to_json_array();
+            let params = sql_params![
+                collection_id,
+                pointer,
+                types_json,
+                must_exist,
+                shape.string.content_type.as_ref(),
+                shape.string.is_base64,
+                shape.string.max_length.map(usize_to_i64)
+            ];
+            db.prepare_cached(
+                "INSERT OR IGNORE INTO inferences (
+                    collection_id,
+                    location_ptr,
+                    types_json,
+                    must_exist,
+                    string_content_type,
+                    string_content_encoding_is_base64,
+                    string_max_length
+                ) VALUES (?, ?, ?, ?, ?, ?, ?);",
+            )?
+            .execute(params)?;
         }
-        types::ARRAY if location.depth() < max_depth as u32 => {
+        types::ARRAY => {
             for (index, shape) in shape.array.tuple.iter().enumerate() {
                 let location = location.push_item(index);
-                register_projections_for_shape(
-                    scope,
+                register_canonical_projections_for_shape(
+                    db,
                     location,
-                    collection,
-                    max_depth,
+                    collection_id,
                     shape,
-                    user_provided_pointers,
+                    must_exist && !shape.type_.overlaps(types::NULL),
+                    spec,
                 )?;
             }
         }
-        types::OBJECT if location.depth() < max_depth as u32 => {
+        types::OBJECT => {
             for property in shape.object.properties.iter() {
                 let location = location.push_prop(property.name.as_str());
-                register_projections_for_shape(
-                    scope,
+                register_canonical_projections_for_shape(
+                    db,
                     location,
-                    collection,
-                    max_depth,
+                    collection_id,
                     &property.shape,
-                    user_provided_pointers,
+                    must_exist && !shape.type_.overlaps(types::NULL),
+                    spec,
                 )?;
             }
         }
@@ -199,11 +206,15 @@ fn register_projections_for_shape(
     Ok(())
 }
 
+fn contains_location(spec: &specs::Projections, location: &str) -> bool {
+    spec.iter().any(|p| p.location == location)
+}
+
 fn field_name_from_location(location: Location) -> String {
     use std::fmt::{Display, Write};
     fn push_segment(name: &mut String, segment: impl Display) {
-        if !name.is_empty() && !name.ends_with('_') {
-            name.push('_')
+        if !name.is_empty() {
+            name.push('/');
         }
         write!(name, "{}", segment).unwrap();
     }
@@ -298,7 +309,6 @@ mod test {
                         }
                     ]
                 },
-                // too deeply nested
                 "redFoo": {
                     "type": "object",
                     "properties": {
@@ -345,6 +355,11 @@ mod test {
             sql_params![schema, fixtures],
         ).unwrap();
         db.execute(
+            "insert into resource_imports (resource_id, import_id) values (1, 10);",
+            rusqlite::NO_PARAMS,
+        )
+        .unwrap();
+        db.execute(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
                     (10, 'test://example/schema.json', TRUE),
@@ -353,45 +368,37 @@ mod test {
         )
         .unwrap();
         db.execute(
-            "INSERT INTO collections 
-            (collection_id, collection_name, schema_uri, key_json, resource_id, default_projections_max_depth)
+            "INSERT INTO collections
+            (collection_id, collection_name, schema_uri, key_json, resource_id)
             VALUES
-            (1, 'testCollection', 'test://example/schema.json', '[\"/id\"]', 1, 4);",
-            sql_params![],
-        )
-        .unwrap();
-        // Simulate the user having manually specified a projection, so we can assert that
-        // we don't also register a default projection with the same location_ptr.
-        db.execute(
-            "INSERT INTO projections 
-            (collection_id, field, location_ptr, user_provided)
-            VALUES
-            (1, 'user_provided_field', '/oneFoo/fooObj/a', true);",
+            (1, 'testCollection', 'test://example/schema.json', '[\"/id\"]', 1);",
             sql_params![],
         )
         .unwrap();
 
-        let coll = CollectionResource {
+        let collection = CollectionResource {
             id: 1,
             resource: Resource { id: 1 },
         };
-        let inputs = &[coll];
+        let projections = serde_json::from_str::<specs::Projections>(
+            r##"{
+                "field_a": "/oneFoo/fooObj/a",
+                "field_b": {
+                    "location": "/oneFoo/fooObj/c",
+                    "partition": true
+                },
+                "red_foo": "/redFoo"
+            }"##,
+        )
+        .unwrap();
+        let root_scope = Scope::empty(&db);
+        let scope = root_scope.push_resource(Resource { id: 1 });
+        let scope = scope.push_prop("projections");
+        register_projections(&scope, collection, &projections)
+            .expect("failed to register projections");
 
-        let scope = Scope::empty(&db);
-        register_default_projections_and_inferences(&scope.push_resource(coll.resource), inputs)
-            .expect("failed to register defaults");
-
-        let actual: Vec<(String, String, String)> = db
-            .prepare(
-                "SELECT field, location_ptr, types_json FROM projections NATURAL JOIN inferences ORDER BY field ASC",
-            )
-            .unwrap()
-            .query_map(rusqlite::NO_PARAMS, |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })
-            .expect("failed to query projections")
-            .collect::<rusqlite::Result<Vec<(String, String, String)>>>()
-            .expect("failed to read query results");
+        let actual =
+            crate::catalog::dump_tables(&db, &["projections", "partitions", "inferences"]).unwrap();
 
         insta::assert_json_snapshot!(actual);
     }
@@ -404,7 +411,7 @@ mod test {
         let b = a_5.push_prop("b");
 
         let name = field_name_from_location(b);
-        assert_eq!("a_5_b", name.as_str());
+        assert_eq!("a/5/b", name.as_str());
 
         let name = field_name_from_location(root);
         assert!(name.is_empty());

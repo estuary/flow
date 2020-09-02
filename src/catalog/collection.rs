@@ -1,6 +1,5 @@
 use super::{
-    projections, sql_params, ContentType, Derivation, Materialization, Resource, Result, Schema,
-    Scope,
+    projections, sql_params, ContentType, Derivation, Resource, Result, Schema, Scope, DB,
 };
 use crate::specs::build as specs;
 
@@ -12,6 +11,18 @@ pub struct Collection {
 }
 
 impl Collection {
+    pub fn all(db: &DB) -> Result<Vec<Collection>> {
+        let mut stmt = db.prepare("SELECT collection_id, resource_id FROM collections;")?;
+        let rows = stmt.query(rusqlite::NO_PARAMS)?;
+        rows.and_then(|row| {
+            Ok(Collection {
+                id: row.get(0)?,
+                resource: Resource { id: row.get(1)? },
+            })
+        })
+        .collect::<Result<Vec<_>>>()
+    }
+
     /// Registers a Collection of the Source with the catalog.
     pub fn register(scope: Scope, spec: &specs::Collection) -> Result<Collection> {
         // Register and import the schema document.
@@ -20,20 +31,6 @@ impl Collection {
             Resource::register_import(scope, schema.resource)?;
             Ok(schema)
         })?;
-        let defaults_spec = spec.projections.defaults.get_config();
-        let default_projections_max_depth = if defaults_spec.enabled {
-            log::debug!(
-                "generating default projections with default depth for collection: {}",
-                spec.name
-            );
-            defaults_spec.max_depth.unwrap_or(4u8)
-        } else {
-            log::debug!(
-                "default projections are disabled for collection: {}",
-                spec.name
-            );
-            0u8
-        };
 
         scope
             .db
@@ -42,16 +39,14 @@ impl Collection {
                     collection_name,
                     schema_uri,
                     key_json,
-                    resource_id,
-                    default_projections_max_depth
-                ) VALUES (?, ?, ?, ?, ?)",
+                    resource_id
+                ) VALUES (?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 spec.name,
                 schema.primary_url_with_fragment(scope.db)?,
                 serde_json::to_string(&spec.key)?,
                 scope.resource().id,
-                default_projections_max_depth,
             ])?;
 
         let collection = Collection {
@@ -66,30 +61,9 @@ impl Collection {
                 .then(|scope| collection.register_fixture(scope, fixture))?;
         }
 
-        scope
-            .push_prop("projections")
-            .push_prop("fields)")
-            .then(|scope| {
-                for projection in spec.projections.iter() {
-                    scope.push_prop(projection.field).then(|scope| {
-                        projections::register_user_provided_projection(
-                            &scope,
-                            collection,
-                            &projection,
-                        )
-                    })?;
-                }
-                Ok(())
-            })?;
-
-        for (name, materialization) in spec.materializations.iter() {
-            scope
-                .push_prop("materializations")
-                .push_prop(name)
-                .then(|scope| {
-                    Materialization::register(&scope, collection, name, materialization)
-                })?;
-        }
+        scope.push_prop("projections").then(|scope| {
+            projections::register_projections(&scope, collection, &spec.projections)
+        })?;
 
         if let Some(spec) = &spec.derivation {
             scope
@@ -136,7 +110,35 @@ mod test {
         let db = open(":memory:")?;
         init_db_schema(&db)?;
 
-        let schema = json!({"$anchor": "foobar"});
+        let schema = json!({
+            "$anchor": "foobar",
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "object",
+                    "properties": {
+                        "a": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "b": {
+                    "type": "object",
+                    "properties": {
+                        "b": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "key": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 2
+                }
+            }
+        });
         let fixtures = json!([
             {
                 "document": {"key": ["foo", "bar"], "other": "value"},
@@ -165,10 +167,8 @@ mod test {
             "key": ["/key/1", "/key/0"],
             "fixtures": ["fixtures.json"],
             "projections": {
-                "fields": {
-                    "field_a": {"location": "/a/a", "partition": true},
-                    "field_b": {"location": "/b/b", "partition": false},
-                }
+                "field_a": {"location": "/a/a", "partition": true},
+                "field_b": {"location": "/b/b", "partition": false},
             }
         }))?;
 
@@ -204,7 +204,6 @@ mod test {
                         "test://example/schema.json#foobar",
                         ["/key/1","/key/0"],
                         1,
-                        4,
                     ],
                 ],
                 "fixtures": [[1, 20]],
