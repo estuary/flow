@@ -14,15 +14,6 @@ option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
-// ContentType is an encoding used for document content.
-enum ContentType {
-  INVALID = 0;
-  // JSON is the usual text encoding, with a trailing newline.
-  JSON = 1;
-
-  // Future ContentTypes may include MessagePack or tape-based representations.
-};
-
 // Slice represents a contiguous slice of bytes within an associated Arena.
 message Slice {
   option (gogoproto.goproto_unrecognized) = false;
@@ -220,10 +211,9 @@ message ShuffleResponse {
   bytes arena = 6 [ (gogoproto.casttype) = "Arena" ];
   // Transform name, passed through from the ShuffleRequest.
   string transform = 7 [ (gogoproto.casttype) = "Transform" ];
-  // ContentType of documents in this ShuffleResponse.
-  ContentType content_type = 8;
-  // Content of documents included in this ShuffleResponse.
-  repeated Slice content = 9 [ (gogoproto.nullable) = false ];
+  // Shuffled documents, each encoded in the 'application/json'
+  // media-type.
+  repeated Slice docs_json = 9 [ (gogoproto.nullable) = false ];
   // The begin offset of each document within the requested journal.
   repeated int64 begin = 10
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
@@ -247,19 +237,15 @@ service Shuffler {
 message ExtractRequest {
   // Memory arena of this message.
   bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
-  // ContentType of documents in this ExtractRequest.
-  ContentType content_type = 2;
-  // Content of documents included in this ExtractRequest.
-  repeated Slice content = 3 [ (gogoproto.nullable) = false ];
-  // JSON pointer of document UUID to extract.
+  // Documents to extract, each encoded in the 'application/json'
+  // media-type.
+  repeated Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+  // JSON pointer of the document UUID to extract.
   // If empty, UUIDParts are not extracted.
-  string uuid_ptr = 4;
-  // Composite of JSON pointers to extract from documents and hash.
-  // If empty, hashes are not extracted.
-  repeated string hash_ptrs = 5;
+  string uuid_ptr = 3;
   // Field JSON pointers to extract from documents and return.
   // If empty, no fields are extracted.
-  repeated string field_ptrs = 6;
+  repeated string field_ptrs = 4;
 };
 
 message ExtractResponse {
@@ -267,60 +253,70 @@ message ExtractResponse {
   bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
   // UUIDParts extracted from request Documents.
   repeated UUIDParts uuid_parts = 2 [ (gogoproto.nullable) = false ];
-  // Hashes extracted from request Documents (low 64-bits).
-  // If the request |hash_ptrs| was empty, so are these.
-  repeated fixed64 hashes_low = 3;
-  // Hashes extracted from request Documents (high 64-bits).
-  repeated fixed64 hashes_high = 4;
   // Fields extracted from request Documents, one column per request pointer.
-  repeated Field fields = 5 [ (gogoproto.nullable) = false ];
+  repeated Field fields = 3 [ (gogoproto.nullable) = false ];
 };
 
 service Extract { rpc Extract(ExtractRequest) returns (ExtractResponse); }
 
 message CombineRequest {
-  // Memory arena of this message.
-  bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
-  // ContentType of documents in this CombineRequest.
-  ContentType content_type = 2;
-  // Content of documents included in this CombineRequest.
-  repeated Slice content = 3 [ (gogoproto.nullable) = false ];
-  // ContentType of documents in the returned CombineResponse.
-  ContentType accept = 4;
-  // Schema against which documents are to be validated,
-  // and which provides reduction annotations.
-  string schema_uri = 5;
-  // Composite key used to group documents to be combined, specified as one or
-  // more JSON-Pointers indicating a message location to extract.
-  repeated string key_ptr = 6;
-  // Field JSON pointers to be extracted from combined documents and returned.
-  // If empty, no fields are extracted.
-  repeated string field_ptrs = 7;
+  // Open a CombineRequest.
+  message Open {
+    // Schema against which documents are to be validated,
+    // and which provides reduction annotations.
+    string schema_uri = 1;
+    // Composite key used to group documents to be combined, specified as one or
+    // more JSON-Pointers indicating a message location to extract.
+    // If empty, all request documents are combined into a single response
+    // document.
+    repeated string key_ptr = 2;
+    // Field JSON pointers to be extracted from combined documents and returned.
+    // If empty, no fields are extracted.
+    repeated string field_ptrs = 3;
+    // JSON-Pointer at which a placeholder UUID should be inserted into
+    // returned documents. If empty, no placeholder is inserted.
+    string uuid_placeholder_ptr = 4;
+  };
+
+  // Continue an opened CombineRequest.
+  message Continue {
+    // Memory arena of this message.
+    bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
+    // Request documents to combine, each encoded in the 'application/json'
+    // media-type.
+    repeated Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+  };
+
+  oneof kind {
+    Open open = 1;
+    Continue continue = 2;
+  };
 }
 
 message CombineResponse {
   // Memory arena of this message.
   bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
-  // Content of documents included in this CombineResponse.
-  // ContentType is that of the CombineRequest's |accept| field.
-  repeated Slice content = 3 [ (gogoproto.nullable) = false ];
-  // Fields extracted from request Documents, one column per request pointer.
-  repeated Field fields = 4 [ (gogoproto.nullable) = false ];
+  // Combined response documents, each encoded in the 'application/json'
+  // media-type.
+  repeated Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+  // Fields extracted from request Documents, one column per request field
+  // pointer.
+  repeated Field fields = 3 [ (gogoproto.nullable) = false ];
 }
 
-service Combine { rpc Combine(CombineRequest) returns (CombineResponse); }
+service Combine {
+  rpc Combine(stream CombineRequest) returns (stream CombineResponse);
+}
 
 // DeriveRequest is the streamed union type message of a Derive RPC.
 message DeriveRequest {
-  // OPEN is sent (only) as the first message of a Derive RPC,
+  // Open is sent (only) as the first message of a Derive RPC,
   // and opens the derive transaction.
   message Open {
     // Collection to be derived.
     string collection = 1 [ (gogoproto.casttype) = "Collection" ];
-    // ContentType of documents in the returned DeriveResponse.
-    ContentType accept = 2;
   };
-  // EXTEND extends the derive transaction with additional
+  // Continue extends the derive transaction with additional
   // source collection documents.
   //
   // * The flow consumer sends any number of EXTEND DeriveRequests,
@@ -330,18 +326,23 @@ message DeriveRequest {
   //   the collection being derived.
   // * The flow consumer is responsible for publishing each derived
   //   document to the appropriate collection & partition.
-  // * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
+  // * Note that DeriveRequest and DeriveResponse Continue messages are _not_
+  // 1:1.
   //
-  // EXTEND transitions to EXTEND or FLUSH.
-  message Extend {
-    // Transform to which documents are applied.
-    string transform = 1 [ (gogoproto.casttype) = "Transform" ];
+  // Continue transitions to continue or flush.
+  message Continue {
     // Memory arena of this message.
-    bytes arena = 2 [ (gogoproto.casttype) = "Arena" ];
-    // ContentType of documents.
-    ContentType content_type = 3;
-    // Content of documents.
-    repeated Slice content = 4 [ (gogoproto.nullable) = false ];
+    bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
+    // Source documents to derive from, each encoded in the 'application/json'
+    // media-type.
+    repeated Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+    // UUIDParts extracted from documents.
+    repeated UUIDParts uuid_parts = 3 [ (gogoproto.nullable) = false ];
+    // Packed, embedded encoding of the shuffle key into a byte string.
+    // If the Shuffle specified a Hash to use, it's applied as well.
+    repeated Slice packed_key = 4 [ (gogoproto.nullable) = false ];
+    // Catalog transform ID to which each document is applied.
+    repeated int32 transform_id = 5;
   };
   // FLUSH indicates the transacton pipeline is to flush.
   //
@@ -356,7 +357,13 @@ message DeriveRequest {
   //   the consumer.Checkpoint which will be committed to the store.
   //
   // FLUSH transitions to PREPARE.
-  message Flush {};
+  message Flush {
+    // JSON-Pointer of the UUID placeholder in returned documents.
+    string uuid_placeholder_ptr = 1;
+    // Field JSON pointers to be extracted from combined documents and returned.
+    // If empty, no fields are extracted.
+    repeated string field_ptrs = 2;
+  };
   // PREPARE begins a commit of the transaction.
   //
   // * The flow consumer sends PREPARE with its consumer.Checkpoint.
@@ -384,52 +391,26 @@ message DeriveRequest {
     // Checkpoint to commit.
     consumer.Checkpoint checkpoint = 1 [ (gogoproto.nullable) = false ];
   };
-  // COMMIT commits the transaction by resolving the "commit" future created
-  // during PREPARE, allowing the atomic commit block created in PREPARE
-  // to flush to the recovery log. The derive worker responds with COMMIT
-  // when the commit barrier has fully resolved.
-  //
-  // COMMIT transitions to stream close.
-  message Commit {};
 
   oneof kind {
     Open open = 1;
-    Extend extend = 2;
+    Continue continue = 2;
     Flush flush = 3;
     Prepare prepare = 4;
-    Commit commit = 5;
   };
 }
 
 // DeriveResponse is the streamed response message of a Derive RPC.
 message DeriveResponse {
-  // EXTEND extends the derive transaction with additional derived collection
-  // documents.
-  message Extend {
-    // Memory arena of this message.
-    bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
-    // Content of documents. ContentType is as specified by
-    // DeriveRequest.Open.accept.
-    repeated Slice content = 2 [ (gogoproto.nullable) = false ];
-    // Logical partitions extracted from |documents|.
-    repeated Field partitions = 3 [ (gogoproto.nullable) = false ];
-  };
-  // FLUSH is sent in response to a DeriveRequest.Flush, only after all
-  // request documents have been processed and response Extend messages sent.
-  message Flush {};
-  // PREPARE is sent in response to a DeriveRequest.Prepare, only after local
-  // store updates for commit (including the provided checkpoint) have been
-  // staged behind a created, unresolved commit barrier.
-  message Prepare {};
-  // COMMIT is sent in response to a DeriveRequest.Commit, when the
-  // commit barrier has resolved (meaning the transaction is committed).
-  message Commit {};
-
   oneof kind {
-    Extend extend = 2;
-    Flush flush = 3;
-    Prepare prepare = 4;
-    Commit commit = 5;
+
+    // Continue extends the derive transaction with additional derived
+    // and combined collection documents.
+    google.protobuf.Empty continue = 1;
+    // Flushed CombineResponses are sent in response to a request flush.
+    // An empty CombineResponse signals that no further responses remain
+    // to be sent, and the server is ready to prepare to commit.
+    CombineResponse flush = 2;
   };
 };
 

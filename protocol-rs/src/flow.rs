@@ -230,12 +230,10 @@ pub struct ShuffleResponse {
     /// Transform name, passed through from the ShuffleRequest.
     #[prost(string, tag = "7")]
     pub transform: std::string::String,
-    /// ContentType of documents in this ShuffleResponse.
-    #[prost(enumeration = "ContentType", tag = "8")]
-    pub content_type: i32,
-    /// Content of documents included in this ShuffleResponse.
+    /// Shuffled documents, each encoded in the 'application/json'
+    /// media-type.
     #[prost(message, repeated, tag = "9")]
-    pub content: ::std::vec::Vec<Slice>,
+    pub docs_json: ::std::vec::Vec<Slice>,
     /// The begin offset of each document within the requested journal.
     #[prost(int64, repeated, packed = "false", tag = "10")]
     pub begin: ::std::vec::Vec<i64>,
@@ -259,23 +257,17 @@ pub struct ExtractRequest {
     /// Memory arena of this message.
     #[prost(bytes, tag = "1")]
     pub arena: std::vec::Vec<u8>,
-    /// ContentType of documents in this ExtractRequest.
-    #[prost(enumeration = "ContentType", tag = "2")]
-    pub content_type: i32,
-    /// Content of documents included in this ExtractRequest.
-    #[prost(message, repeated, tag = "3")]
-    pub content: ::std::vec::Vec<Slice>,
-    /// JSON pointer of document UUID to extract.
+    /// Documents to extract, each encoded in the 'application/json'
+    /// media-type.
+    #[prost(message, repeated, tag = "2")]
+    pub docs_json: ::std::vec::Vec<Slice>,
+    /// JSON pointer of the document UUID to extract.
     /// If empty, UUIDParts are not extracted.
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "3")]
     pub uuid_ptr: std::string::String,
-    /// Composite of JSON pointers to extract from documents and hash.
-    /// If empty, hashes are not extracted.
-    #[prost(string, repeated, tag = "5")]
-    pub hash_ptrs: ::std::vec::Vec<std::string::String>,
     /// Field JSON pointers to extract from documents and return.
     /// If empty, no fields are extracted.
-    #[prost(string, repeated, tag = "6")]
+    #[prost(string, repeated, tag = "4")]
     pub field_ptrs: ::std::vec::Vec<std::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -286,76 +278,87 @@ pub struct ExtractResponse {
     /// UUIDParts extracted from request Documents.
     #[prost(message, repeated, tag = "2")]
     pub uuid_parts: ::std::vec::Vec<UuidParts>,
-    /// Hashes extracted from request Documents (low 64-bits).
-    /// If the request |hash_ptrs| was empty, so are these.
-    #[prost(fixed64, repeated, tag = "3")]
-    pub hashes_low: ::std::vec::Vec<u64>,
-    /// Hashes extracted from request Documents (high 64-bits).
-    #[prost(fixed64, repeated, tag = "4")]
-    pub hashes_high: ::std::vec::Vec<u64>,
     /// Fields extracted from request Documents, one column per request pointer.
-    #[prost(message, repeated, tag = "5")]
+    #[prost(message, repeated, tag = "3")]
     pub fields: ::std::vec::Vec<Field>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CombineRequest {
-    /// Memory arena of this message.
-    #[prost(bytes, tag = "1")]
-    pub arena: std::vec::Vec<u8>,
-    /// ContentType of documents in this CombineRequest.
-    #[prost(enumeration = "ContentType", tag = "2")]
-    pub content_type: i32,
-    /// Content of documents included in this CombineRequest.
-    #[prost(message, repeated, tag = "3")]
-    pub content: ::std::vec::Vec<Slice>,
-    /// ContentType of documents in the returned CombineResponse.
-    #[prost(enumeration = "ContentType", tag = "4")]
-    pub accept: i32,
-    /// Schema against which documents are to be validated,
-    /// and which provides reduction annotations.
-    #[prost(string, tag = "5")]
-    pub schema_uri: std::string::String,
-    /// Composite key used to group documents to be combined, specified as one or
-    /// more JSON-Pointers indicating a message location to extract.
-    #[prost(string, repeated, tag = "6")]
-    pub key_ptr: ::std::vec::Vec<std::string::String>,
-    /// Field JSON pointers to be extracted from combined documents and returned.
-    /// If empty, no fields are extracted.
-    #[prost(string, repeated, tag = "7")]
-    pub field_ptrs: ::std::vec::Vec<std::string::String>,
+    #[prost(oneof = "combine_request::Kind", tags = "1, 2")]
+    pub kind: ::std::option::Option<combine_request::Kind>,
+}
+pub mod combine_request {
+    /// Open a CombineRequest.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        /// Schema against which documents are to be validated,
+        /// and which provides reduction annotations.
+        #[prost(string, tag = "1")]
+        pub schema_uri: std::string::String,
+        /// Composite key used to group documents to be combined, specified as one or
+        /// more JSON-Pointers indicating a message location to extract.
+        /// If empty, all request documents are combined into a single response
+        /// document.
+        #[prost(string, repeated, tag = "2")]
+        pub key_ptr: ::std::vec::Vec<std::string::String>,
+        /// Field JSON pointers to be extracted from combined documents and returned.
+        /// If empty, no fields are extracted.
+        #[prost(string, repeated, tag = "3")]
+        pub field_ptrs: ::std::vec::Vec<std::string::String>,
+        /// JSON-Pointer at which a placeholder UUID should be inserted into
+        /// returned documents. If empty, no placeholder is inserted.
+        #[prost(string, tag = "4")]
+        pub uuid_placeholder_ptr: std::string::String,
+    }
+    /// Continue an opened CombineRequest.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Continue {
+        /// Memory arena of this message.
+        #[prost(bytes, tag = "1")]
+        pub arena: std::vec::Vec<u8>,
+        /// Request documents to combine, each encoded in the 'application/json'
+        /// media-type.
+        #[prost(message, repeated, tag = "2")]
+        pub docs_json: ::std::vec::Vec<super::Slice>,
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Kind {
+        #[prost(message, tag = "1")]
+        Open(Open),
+        #[prost(message, tag = "2")]
+        Continue(Continue),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CombineResponse {
     /// Memory arena of this message.
     #[prost(bytes, tag = "1")]
     pub arena: std::vec::Vec<u8>,
-    /// Content of documents included in this CombineResponse.
-    /// ContentType is that of the CombineRequest's |accept| field.
+    /// Combined response documents, each encoded in the 'application/json'
+    /// media-type.
+    #[prost(message, repeated, tag = "2")]
+    pub docs_json: ::std::vec::Vec<Slice>,
+    /// Fields extracted from request Documents, one column per request field
+    /// pointer.
     #[prost(message, repeated, tag = "3")]
-    pub content: ::std::vec::Vec<Slice>,
-    /// Fields extracted from request Documents, one column per request pointer.
-    #[prost(message, repeated, tag = "4")]
     pub fields: ::std::vec::Vec<Field>,
 }
 /// DeriveRequest is the streamed union type message of a Derive RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveRequest {
-    #[prost(oneof = "derive_request::Kind", tags = "1, 2, 3, 4, 5")]
+    #[prost(oneof = "derive_request::Kind", tags = "1, 2, 3, 4")]
     pub kind: ::std::option::Option<derive_request::Kind>,
 }
 pub mod derive_request {
-    /// OPEN is sent (only) as the first message of a Derive RPC,
+    /// Open is sent (only) as the first message of a Derive RPC,
     /// and opens the derive transaction.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Collection to be derived.
         #[prost(string, tag = "1")]
         pub collection: std::string::String,
-        /// ContentType of documents in the returned DeriveResponse.
-        #[prost(enumeration = "super::ContentType", tag = "2")]
-        pub accept: i32,
     }
-    /// EXTEND extends the derive transaction with additional
+    /// Continue extends the derive transaction with additional
     /// source collection documents.
     ///
     /// * The flow consumer sends any number of EXTEND DeriveRequests,
@@ -365,23 +368,29 @@ pub mod derive_request {
     ///   the collection being derived.
     /// * The flow consumer is responsible for publishing each derived
     ///   document to the appropriate collection & partition.
-    /// * Note that DeriveRequest and DeriveResponse EXTEND messages are _not_ 1:1.
+    /// * Note that DeriveRequest and DeriveResponse Continue messages are _not_
+    /// 1:1.
     ///
-    /// EXTEND transitions to EXTEND or FLUSH.
+    /// Continue transitions to continue or flush.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Extend {
-        /// Transform to which documents are applied.
-        #[prost(string, tag = "1")]
-        pub transform: std::string::String,
+    pub struct Continue {
         /// Memory arena of this message.
-        #[prost(bytes, tag = "2")]
+        #[prost(bytes, tag = "1")]
         pub arena: std::vec::Vec<u8>,
-        /// ContentType of documents.
-        #[prost(enumeration = "super::ContentType", tag = "3")]
-        pub content_type: i32,
-        /// Content of documents.
+        /// Source documents to derive from, each encoded in the 'application/json'
+        /// media-type.
+        #[prost(message, repeated, tag = "2")]
+        pub docs_json: ::std::vec::Vec<super::Slice>,
+        /// UUIDParts extracted from documents.
+        #[prost(message, repeated, tag = "3")]
+        pub uuid_parts: ::std::vec::Vec<super::UuidParts>,
+        /// Packed, embedded encoding of the shuffle key into a byte string.
+        /// If the Shuffle specified a Hash to use, it's applied as well.
         #[prost(message, repeated, tag = "4")]
-        pub content: ::std::vec::Vec<super::Slice>,
+        pub packed_key: ::std::vec::Vec<super::Slice>,
+        /// Catalog transform ID to which each document is applied.
+        #[prost(int32, repeated, tag = "5")]
+        pub transform_id: ::std::vec::Vec<i32>,
     }
     /// FLUSH indicates the transacton pipeline is to flush.
     ///
@@ -397,7 +406,15 @@ pub mod derive_request {
     ///
     /// FLUSH transitions to PREPARE.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Flush {}
+    pub struct Flush {
+        /// JSON-Pointer of the UUID placeholder in returned documents.
+        #[prost(string, tag = "1")]
+        pub uuid_placeholder_ptr: std::string::String,
+        /// Field JSON pointers to be extracted from combined documents and returned.
+        /// If empty, no fields are extracted.
+        #[prost(string, repeated, tag = "2")]
+        pub field_ptrs: ::std::vec::Vec<std::string::String>,
+    }
     /// PREPARE begins a commit of the transaction.
     ///
     /// * The flow consumer sends PREPARE with its consumer.Checkpoint.
@@ -427,82 +444,37 @@ pub mod derive_request {
         #[prost(message, optional, tag = "1")]
         pub checkpoint: ::std::option::Option<super::super::consumer::Checkpoint>,
     }
-    /// COMMIT commits the transaction by resolving the "commit" future created
-    /// during PREPARE, allowing the atomic commit block created in PREPARE
-    /// to flush to the recovery log. The derive worker responds with COMMIT
-    /// when the commit barrier has fully resolved.
-    ///
-    /// COMMIT transitions to stream close.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Commit {}
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
         #[prost(message, tag = "1")]
         Open(Open),
         #[prost(message, tag = "2")]
-        Extend(Extend),
+        Continue(Continue),
         #[prost(message, tag = "3")]
         Flush(Flush),
         #[prost(message, tag = "4")]
         Prepare(Prepare),
-        #[prost(message, tag = "5")]
-        Commit(Commit),
     }
 }
 /// DeriveResponse is the streamed response message of a Derive RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveResponse {
-    #[prost(oneof = "derive_response::Kind", tags = "2, 3, 4, 5")]
+    #[prost(oneof = "derive_response::Kind", tags = "1, 2")]
     pub kind: ::std::option::Option<derive_response::Kind>,
 }
 pub mod derive_response {
-    /// EXTEND extends the derive transaction with additional derived collection
-    /// documents.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Extend {
-        /// Memory arena of this message.
-        #[prost(bytes, tag = "1")]
-        pub arena: std::vec::Vec<u8>,
-        /// Content of documents. ContentType is as specified by
-        /// DeriveRequest.Open.accept.
-        #[prost(message, repeated, tag = "2")]
-        pub content: ::std::vec::Vec<super::Slice>,
-        /// Logical partitions extracted from |documents|.
-        #[prost(message, repeated, tag = "3")]
-        pub partitions: ::std::vec::Vec<super::Field>,
-    }
-    /// FLUSH is sent in response to a DeriveRequest.Flush, only after all
-    /// request documents have been processed and response Extend messages sent.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Flush {}
-    /// PREPARE is sent in response to a DeriveRequest.Prepare, only after local
-    /// store updates for commit (including the provided checkpoint) have been
-    /// staged behind a created, unresolved commit barrier.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Prepare {}
-    /// COMMIT is sent in response to a DeriveRequest.Commit, when the
-    /// commit barrier has resolved (meaning the transaction is committed).
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Commit {}
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
+        /// Continue extends the derive transaction with additional derived
+        /// and combined collection documents.
+        #[prost(message, tag = "1")]
+        Continue(()),
+        /// Flushed CombineResponses are sent in response to a request flush.
+        /// An empty CombineResponse signals that no further responses remain
+        /// to be sent, and the server is ready to prepare to commit.
         #[prost(message, tag = "2")]
-        Extend(Extend),
-        #[prost(message, tag = "3")]
-        Flush(Flush),
-        #[prost(message, tag = "4")]
-        Prepare(Prepare),
-        #[prost(message, tag = "5")]
-        Commit(Commit),
+        Flush(super::CombineResponse),
     }
-}
-/// ContentType is an encoding used for document content.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ContentType {
-    Invalid = 0,
-    /// JSON is the usual text encoding, with a trailing newline.
-    Json = 1,
 }
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {
@@ -664,8 +636,9 @@ pub mod combine_client {
         }
         pub async fn combine(
             &mut self,
-            request: impl tonic::IntoRequest<super::CombineRequest>,
-        ) -> Result<tonic::Response<super::CombineResponse>, tonic::Status> {
+            request: impl tonic::IntoStreamingRequest<Message = super::CombineRequest>,
+        ) -> Result<tonic::Response<tonic::codec::Streaming<super::CombineResponse>>, tonic::Status>
+        {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::new(
                     tonic::Code::Unknown,
@@ -674,7 +647,9 @@ pub mod combine_client {
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.Combine/Combine");
-            self.inner.unary(request.into_request(), path, codec).await
+            self.inner
+                .streaming(request.into_streaming_request(), path, codec)
+                .await
         }
     }
     impl<T: Clone> Clone for CombineClient<T> {
@@ -1016,10 +991,15 @@ pub mod combine_server {
     #[doc = "Generated trait containing gRPC methods that should be implemented for use with CombineServer."]
     #[async_trait]
     pub trait Combine: Send + Sync + 'static {
+        #[doc = "Server streaming response type for the Combine method."]
+        type CombineStream: Stream<Item = Result<super::CombineResponse, tonic::Status>>
+            + Send
+            + Sync
+            + 'static;
         async fn combine(
             &self,
-            request: tonic::Request<super::CombineRequest>,
-        ) -> Result<tonic::Response<super::CombineResponse>, tonic::Status>;
+            request: tonic::Request<tonic::Streaming<super::CombineRequest>>,
+        ) -> Result<tonic::Response<Self::CombineStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct CombineServer<T: Combine> {
@@ -1056,12 +1036,14 @@ pub mod combine_server {
                 "/flow.Combine/Combine" => {
                     #[allow(non_camel_case_types)]
                     struct CombineSvc<T: Combine>(pub Arc<T>);
-                    impl<T: Combine> tonic::server::UnaryService<super::CombineRequest> for CombineSvc<T> {
+                    impl<T: Combine> tonic::server::StreamingService<super::CombineRequest> for CombineSvc<T> {
                         type Response = super::CombineResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type ResponseStream = T::CombineStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CombineRequest>,
+                            request: tonic::Request<tonic::Streaming<super::CombineRequest>>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
                             let fut = async move { (*inner).combine(request).await };
@@ -1070,7 +1052,7 @@ pub mod combine_server {
                     }
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let interceptor = inner.1.clone();
+                        let interceptor = inner.1;
                         let inner = inner.0;
                         let method = CombineSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
@@ -1079,7 +1061,7 @@ pub mod combine_server {
                         } else {
                             tonic::server::Grpc::new(codec)
                         };
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
