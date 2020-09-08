@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use url::Url;
 
 pub struct Context {
+    /// sources is a map from a collection name to it's schema, and
     sources: BTreeMap<String, (Url, Vec<Lambda>)>,
     pub node: nodejs::Service,
     pub schema_index: SchemaIndex<'static>,

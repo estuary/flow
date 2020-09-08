@@ -37,6 +37,7 @@ impl<'a> PartialEq for KeyedDoc<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Combiner<'a> {
     entries: HashSet<KeyedDoc<'a>>,
 }

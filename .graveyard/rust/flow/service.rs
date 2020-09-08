@@ -11,45 +11,6 @@ use futures::stream::{Stream, StreamExt, TryStreamExt};
 use std::sync::Arc;
 use warp::{filters::BoxedFilter, Filter, Reply};
 
-/* TODO(johnny): When re-working the derive service, it'll use something like this:
-
-use estuary_protocol::consumer;
-use estuary_protocol::recoverylog;
-use futures::stream::Stream;
-use std::pin::Pin;
-
-#[derive(Debug)]
-pub struct DeriveService {}
-
-#[tonic::async_trait]
-impl flow::derive_server::Derive for DeriveService {
-    async fn restore_checkpoint(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<consumer::Checkpoint>, tonic::Status> {
-        unimplemented!();
-    }
-
-    type DeriveStream = Pin<
-        Box<dyn Stream<Item = Result<flow::DeriveResponse, tonic::Status>> + Send + Sync + 'static>,
-    >;
-
-    async fn derive(
-        &self,
-        _request: tonic::Request<tonic::Streaming<flow::DeriveRequest>>,
-    ) -> Result<tonic::Response<Self::DeriveStream>, tonic::Status> {
-        unimplemented!();
-    }
-
-    async fn build_hints(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<recoverylog::FsmHints>, tonic::Status> {
-        unimplemented!();
-    }
-}
-*/
-
 // POST /transform -> Sets a document (in POST body) within the store.
 fn rt_post_transform(store: Arc<Box<Context>>) -> BoxedFilter<(impl Reply,)> {
     warp::post()
