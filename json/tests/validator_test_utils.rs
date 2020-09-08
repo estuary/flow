@@ -116,11 +116,8 @@ fn run_file_test(target: &[&str]) {
 
             println!("\t{} ({}): {}", sub_desc, valid, data);
 
-            let mut val = validator::Validator::<CoreAnnotation, validator::FullContext>::new(
-                &ind,
-                &schema.curi,
-            )
-            .unwrap();
+            let mut val = validator::Validator::<CoreAnnotation, validator::FullContext>::new(&ind);
+            val.prepare(&schema.curi).unwrap();
 
             let out = de::walk(data, &mut val).expect("validation error");
             println!("\t\t{:?}", out);

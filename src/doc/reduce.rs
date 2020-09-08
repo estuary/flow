@@ -14,6 +14,7 @@ pub enum Strategy {
     Merge(Merge),
     Minimize(Minimize),
     Sum,
+    Append,
 }
 
 impl std::convert::TryFrom<&sj::Value> for Strategy {
@@ -55,8 +56,8 @@ pub struct Reducer<'r> {
 
 impl<'r> Reducer<'r> {
     pub fn reduce(self) -> usize {
-        println!(
-            "evaluting at {} doc {} strat {:?}",
+        log::debug!(
+            "evaluating at {} doc {} strategy {:?}",
             self.at,
             &self.val,
             self.idx.get(self.at)
@@ -69,6 +70,7 @@ impl<'r> Reducer<'r> {
             Some((Strategy::Merge(s), _)) => self.merge(s),
             Some((Strategy::Minimize(s), _)) => self.minimize(s),
             Some((Strategy::Sum, _)) => self.sum(),
+            Some((Strategy::Append, _)) => self.append(),
         }
     }
 
@@ -233,6 +235,27 @@ impl<'r> Reducer<'r> {
                 self.at + 1 // Leave as null.
             }
             _ => self.at + take_val(self.val, self.into), // Default to last-write-wins.
+        }
+    }
+
+    fn append(self) -> usize {
+        match (self.into, self.val) {
+            // Append of two arrays.
+            (into @ sj::Value::Array(_), sj::Value::Array(val)) => {
+                // TODO: work-around for "cannot bind by-move and by-ref in the same pattern".
+                // https://github.com/rust-lang/rust/issues/68354
+                let into = into.as_array_mut().unwrap();
+
+                let at = self.at + val.iter().fold(1, |c, vv| c + count_nodes(vv));
+                into.extend(val.into_iter());
+                at
+            }
+            // Append of two strings.
+            (sj::Value::String(into), sj::Value::String(ref val)) => {
+                into.push_str(val);
+                self.at + 1
+            }
+            (into, val) => self.at + take_val(val, into), // Default to last-write-wins.
         }
     }
 }
@@ -643,6 +666,56 @@ mod test {
                 },
             ],
         );
+    }
+
+    #[test]
+    fn test_append() {
+        let m = Strategy::Append;
+        run_reduce_cases(
+            &m,
+            vec![
+                // Takes initial value.
+                Case {
+                    val: json!([1, 2]),
+                    nodes: 3,
+                    expect: json!([1, 2]),
+                },
+                // Additional values are appended.
+                Case {
+                    val: json!(["three"]),
+                    nodes: 2,
+                    expect: json!([1, 2, "three"]),
+                },
+                Case {
+                    val: json!([null, 5.5]),
+                    nodes: 3,
+                    expect: json!([1, 2, "three", null, 5.5]),
+                },
+                // Default to last-write-wins on incompatible types.
+                Case {
+                    val: json!("aaa"),
+                    nodes: 1,
+                    expect: json!("aaa"),
+                },
+                // Strings may also be appended.
+                Case {
+                    val: json!("bbb"),
+                    nodes: 1,
+                    expect: json!("aaabbb"),
+                },
+                Case {
+                    val: json!(""),
+                    nodes: 1,
+                    expect: json!("aaabbb"),
+                },
+                // Last-write-wins on incompatible type.
+                Case {
+                    val: json!({"an": "obj"}),
+                    nodes: 2,
+                    expect: json!({"an": "obj"}),
+                },
+            ],
+        )
     }
 
     #[test]

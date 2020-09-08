@@ -15,6 +15,10 @@ pub trait Context: Sized + Default + std::fmt::Debug {
         A: Annotation;
 
     fn span(&self) -> &Span;
+
+    /// Build a "basic" output entry for this error occurring within this Context.
+    /// See https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.10.4.2
+    fn basic_output_entry(&self, error: String) -> serde_json::Value;
 }
 
 #[derive(Debug)]
@@ -39,6 +43,7 @@ impl Default for FullContext {
         }
     }
 }
+
 impl Context for FullContext {
     fn with_details<'sm, 'a, A>(
         loc: &'a Location<'a>,
@@ -63,6 +68,15 @@ impl Context for FullContext {
 
     fn span(&self) -> &Span {
         &self.span
+    }
+
+    fn basic_output_entry(&self, error: String) -> serde_json::Value {
+        serde_json::json!({
+            "keywordLocation": self.keyword_location,
+            "instanceLocation": self.instance_ptr,
+            "absoluteKeywordLocation": self.canonical_uri,
+            "error": error,
+        })
     }
 }
 
@@ -99,6 +113,23 @@ where
     fn default() -> Self {
         Outcome::NotIsValid
     }
+}
+
+/// Build "basic" output from a set of validator outcomes.
+/// See: https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.10.4.2
+pub fn build_basic_output<'sm, C: Context, A: Annotation>(
+    outcomes: &[(Outcome<'sm, A>, C)],
+) -> serde_json::Value {
+    let errors = outcomes
+        .iter()
+        .filter(|(o, _)| o.is_error())
+        .map(|(outcome, ctx)| ctx.basic_output_entry(format!("{:?}", outcome)))
+        .collect::<Vec<_>>();
+
+    serde_json::json!({
+        "valid": errors.is_empty(),
+        "errors": errors,
+    })
 }
 
 type BoolVec = TinyVec<[bool; 15]>;
@@ -493,30 +524,41 @@ where
     A: Annotation,
     C: Context,
 {
-    pub fn new(
-        index: &'sm index::Index<'sm, A>,
-        uri: &url::Url,
-    ) -> Result<Validator<'sm, A, C>, index::Error> {
-        let schema = index.must_fetch(uri)?;
-
-        let mut val = Validator {
+    /// Return a new Validator, which must be reset prior to use.
+    pub fn new(index: &'sm index::Index<'sm, A>) -> Validator<'sm, A, C> {
+        Validator {
             index,
-            scopes: vec![Scope::new(None, schema)],
-            active_offsets: vec![0],
-        };
+            scopes: Vec::new(),
+            active_offsets: Vec::new(),
+        }
+    }
+
+    /// Prepare the Validator to begin validation of the indexed schema |uri|.
+    /// May be called more than once on a Validator, to re-use it for multiple validations.
+    pub fn prepare(&mut self, uri: &url::Url) -> Result<(), index::Error> {
+        let schema = self.index.must_fetch(uri)?;
+
+        self.scopes.truncate(0);
+        self.scopes.push(Scope::new(None, schema));
+
+        self.active_offsets.truncate(0);
+        self.active_offsets.push(0);
+
         let span = Span {
             begin: 0,
             end: 0,
             hashed: 0,
         };
-        val.expand_scopes(0, &span, &Location::Root);
+        self.expand_scopes(0, &span, &Location::Root);
 
-        Ok(val)
+        Ok(())
     }
 
+    /// Invalid is true if the input didn't validate against the schema.
     pub fn invalid(&self) -> bool {
         self.scopes[0].invalid
     }
+    /// Outcomes returns validation errors, if any, as well as collected annotations.
     pub fn outcomes(&self) -> &[(Outcome<'sm, A>, C)] {
         &self.scopes[0].outcomes
     }
