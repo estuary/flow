@@ -1,6 +1,5 @@
 use super::reduce;
 use estuary_json::{schema, validator};
-use serde_json;
 use std::convert::TryFrom;
 
 /// Enumeration of JSON-Schema associated annotations understood by Estuary.

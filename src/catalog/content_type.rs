@@ -67,7 +67,7 @@ impl TryFrom<&str> for ContentType {
 
 impl ToSql for ContentType {
     fn to_sql(&self) -> Result<ToSqlOutput<'_>> {
-        return self.as_str().to_sql();
+        self.as_str().to_sql()
     }
 }
 

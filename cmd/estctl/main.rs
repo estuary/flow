@@ -1,9 +1,7 @@
-use clap;
 use estuary::catalog;
 use std::boxed::Box;
 use std::fs;
 use std::path::Path;
-use url;
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -71,7 +69,7 @@ fn do_build(args: &clap::ArgMatches) -> Result<(), Error> {
     db.execute_batch("BEGIN;")?;
     catalog::init_db_schema(&db)?;
 
-    catalog::Catalog::register(catalog::Scope::empty(&db), root)?;
+    catalog::Source::register(catalog::Scope::empty(&db), root)?;
     catalog::verify_extracted_fields(&db)?;
 
     // TODO:

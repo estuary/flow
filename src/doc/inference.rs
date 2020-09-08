@@ -229,7 +229,7 @@ impl ObjShape {
         }
     }
 
-    fn apply_patterns_to_properties(self: Self) -> Self {
+    fn apply_patterns_to_properties(self) -> Self {
         let ObjShape {
             patterns,
             mut properties,
@@ -596,19 +596,21 @@ impl Shape {
         if let Some(any_of) = any_of {
             shape = Shape::intersect(shape, any_of);
         }
-        if if_ && then_.is_some() && else_.is_some() {
-            let then_else = Shape::union(then_.unwrap(), else_.unwrap());
+        if let (true, Some(then_), Some(else_)) = (if_, then_, else_) {
+            let then_else = Shape::union(then_, else_);
             shape = Shape::intersect(shape, then_else);
         }
 
         // Now, and *only* if loc.object.additional or loc.array.additional is
         // otherwise unset, then default to unevalutedProperties / unevaluatedItems.
 
-        if shape.object.additional.is_none() && unevaluated_properties.is_some() {
-            shape.object.additional = Some(Box::new(unevaluated_properties.unwrap()));
+        if let (None, Some(unevaluated_properties)) =
+            (&shape.object.additional, unevaluated_properties)
+        {
+            shape.object.additional = Some(Box::new(unevaluated_properties));
         }
-        if shape.array.additional.is_none() && unevaluated_items.is_some() {
-            shape.array.additional = Some(Box::new(unevaluated_items.unwrap()));
+        if let (None, Some(unevaluated_items)) = (&shape.array.additional, unevaluated_items) {
+            shape.array.additional = Some(Box::new(unevaluated_items));
         }
 
         shape

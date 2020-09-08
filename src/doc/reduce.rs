@@ -150,11 +150,11 @@ impl<'r> Reducer<'r> {
                     .map(|eob| match eob {
                         EitherOrBoth::Both((_, mut into), (_, val)) => {
                             at = Reducer {
-                                at: at,
-                                val: val,
+                                at,
+                                val,
                                 into: &mut into,
                                 created: false,
-                                idx: idx,
+                                idx,
                             }
                             .reduce();
                             into
@@ -162,11 +162,11 @@ impl<'r> Reducer<'r> {
                         EitherOrBoth::Right((_, val)) => {
                             let mut into = sj::Value::Null;
                             at = Reducer {
-                                at: at,
-                                val: val,
+                                at,
+                                val,
                                 into: &mut into,
                                 created: true,
-                                idx: idx,
+                                idx,
                             }
                             .reduce();
                             into
@@ -194,11 +194,11 @@ impl<'r> Reducer<'r> {
                     .map(|eob| match eob {
                         EitherOrBoth::Both((prop, mut into), (_, val)) => {
                             at = Reducer {
-                                at: at,
-                                val: val,
+                                at,
+                                val,
                                 into: &mut into,
                                 created: false,
-                                idx: idx,
+                                idx,
                             }
                             .reduce();
                             (prop, into)
@@ -206,11 +206,11 @@ impl<'r> Reducer<'r> {
                         EitherOrBoth::Right((prop, val)) => {
                             let mut into = sj::Value::Null;
                             at = Reducer {
-                                at: at,
-                                val: val,
+                                at,
+                                val,
                                 into: &mut into,
                                 created: true,
-                                idx: idx,
+                                idx,
                             }
                             .reduce();
                             (prop, into)

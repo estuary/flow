@@ -32,27 +32,27 @@ impl Pointer {
     pub fn push<'t>(&mut self, token: Token<'t>) -> &mut Pointer {
         match token {
             Token::Index(ind) => {
-                self.0.push('I' as u8);
+                self.0.push(b'I');
                 self.enc_varint(ind as u64);
             }
             Token::Property(prop) => {
                 // Encode as 'P' control code,
                 // followed by varint *byte* (not char) length,
                 // followed by property UTF-8 bytes.
-                self.0.push('P' as u8);
+                self.0.push(b'P');
                 let prop = prop.as_bytes();
                 self.enc_varint(prop.len() as u64);
                 self.0.extend(prop.iter().copied());
             }
             Token::NextIndex => {
-                self.0.push('-' as u8);
+                self.0.push(b'-');
             }
         }
         self
     }
 
     /// Iterate over pointer tokens.
-    pub fn iter<'t>(&'t self) -> Iter<'t> {
+    pub fn iter(&'_ self) -> Iter<'_> {
         Iter(&self.0)
     }
 
@@ -60,6 +60,12 @@ impl Pointer {
         let mut buf = [0 as u8; 10];
         let n = super::varint::write_varu64(&mut buf, n);
         self.0.extend(buf.iter().copied().take(n));
+    }
+}
+
+impl Default for Pointer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -77,9 +83,7 @@ impl<S: AsRef<str>> From<S> for Pointer {
             .for_each(|t| {
                 if t == "-" {
                     tape.push(Token::NextIndex);
-                } else if t.starts_with('+') {
-                    tape.push(Token::Property(&t));
-                } else if t.starts_with('0') && t.len() > 1 {
+                } else if t.starts_with('+') || (t.starts_with('0') && t.len() > 1) {
                     tape.push(Token::Property(&t));
                 } else if let Ok(ind) = usize::from_str(&t) {
                     tape.push(Token::Index(ind));
@@ -117,7 +121,7 @@ impl<'t> Iterator for Iter<'t> {
                 self.0 = &self.0[1 + ind_len..]; // Pop.
                 Token::Index(ind as usize)
             }
-            c @ _ => panic!("unexpected tape control {:?}", c),
+            c => panic!("unexpected tape control {:?}", c),
         })
     }
 }

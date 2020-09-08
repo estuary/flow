@@ -98,7 +98,7 @@ impl Resource {
             db.prepare_cached("SELECT 1 FROM resource_urls WHERE resource_id = ? AND url = ?")?;
         let mut rows = stmt.query(sql_params![self.id, url])?;
 
-        if let Some(_) = rows.next()? {
+        if rows.next()?.is_some() {
             return Ok(());
         }
 

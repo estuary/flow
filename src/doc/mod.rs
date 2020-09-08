@@ -32,11 +32,11 @@ where
     estuary_json::de::walk(doc, val).unwrap();
 
     if val.invalid() {
-        return Err(FailedValidation {
+        Err(FailedValidation {
             document: doc.clone(),
             basic_output: estuary_json::validator::build_basic_output(val.outcomes()),
-        });
+        })
     } else {
-        return Ok(());
+        Ok(())
     }
 }

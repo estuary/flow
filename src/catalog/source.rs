@@ -4,18 +4,18 @@ use url::Url;
 
 /// Source represents a top-level catalog build input.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-pub struct Catalog {
+pub struct Source {
     pub resource: Resource,
 }
 
-impl Catalog {
+impl Source {
     /// Register an Estuary Catalog specification with the catalog database.
-    pub fn register(scope: Scope, uri: Url) -> Result<Catalog> {
+    pub fn register(scope: Scope, uri: Url) -> Result<Source> {
         let resource = Resource::register(scope.db, ContentType::CatalogSpec, &uri)?;
         let scope = scope.push_resource(resource);
 
         if resource.is_processed(scope.db)? {
-            return Ok(Catalog { resource });
+            return Ok(Source { resource });
         }
         resource.mark_as_processed(scope.db)?;
 
@@ -51,14 +51,14 @@ impl Catalog {
                 .then(|scope| Collection::register(scope, spec))?;
         }
 
-        Ok(Catalog { resource })
+        Ok(Source { resource })
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open, Catalog},
+        super::{dump_tables, init_db_schema, open, Source},
         *,
     };
     use rusqlite::params as sql_params;
@@ -102,7 +102,7 @@ mod test {
         )?;
 
         let url = Url::parse("test://example/main/spec")?;
-        Catalog::register(Scope::empty(&db), url)?;
+        Source::register(Scope::empty(&db), url)?;
 
         // Expect other catalog spec & schema were processed.
         assert!(Resource { id: 2 }.is_processed(&db)?);

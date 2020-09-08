@@ -1,7 +1,6 @@
 mod db;
 mod regexp_sql_fn;
 
-mod catalog;
 mod collection;
 mod content_type;
 mod derivation;
@@ -12,8 +11,8 @@ mod nodejs;
 mod resource;
 mod schema;
 mod scope;
+mod source;
 
-pub use catalog::Catalog;
 pub use collection::Collection;
 pub use content_type::ContentType;
 pub use derivation::Derivation;
@@ -24,6 +23,7 @@ pub use resource::Resource;
 pub use rusqlite::{params as sql_params, Connection as DB};
 pub use schema::Schema;
 pub use scope::Scope;
+pub use source::Source;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

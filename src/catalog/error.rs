@@ -1,10 +1,5 @@
 use super::ContentType;
 use estuary_json::schema;
-use rusqlite;
-use serde_json;
-use serde_yaml;
-use thiserror;
-use url;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

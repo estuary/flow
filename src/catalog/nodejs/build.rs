@@ -111,7 +111,7 @@ fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
 /* eslint @typescript-eslint/no-explicit-any: "off" */
 
     "#;
-        w.write(header.as_bytes())?;
+        w.write_all(header.as_bytes())?;
 
         let mut stmt = db.prepare(query)?;
         let mut rows = stmt.query(sql_params![])?;
@@ -119,9 +119,9 @@ fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
         while let Some(r) = rows.next()? {
             let (name, schema_url, is_alt): (String, Url, bool) = (r.get(0)?, r.get(1)?, r.get(2)?);
 
-            write!(
+            writeln!(
                 w,
-                "// Generated from {:?} @ {:?}\n",
+                "// Generated from {:?} @ {:?}",
                 name,
                 schema_url.as_str()
             )?;
@@ -131,7 +131,7 @@ fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
 
             let mut out = Vec::new();
             ast.render(&mut out);
-            w.write(&out)?;
+            w.write_all(&out)?;
             write!(w, ";\n\n")?;
         }
         Ok(())
@@ -164,14 +164,14 @@ import * as registers from './registers';
 import {BootstrapMap, TransformMap} from '../runtime/types';
 
     "#;
-    w.write(header.as_bytes())?;
+    w.write_all(header.as_bytes())?;
 
     // Write out dynamic imports, drawn from dependencies configured in the catalog.
     let mut stmt = db.prepare("SELECT package FROM nodejs_dependencies;")?;
     let mut rows = stmt.query(sql_params![])?;
     while let Some(row) = rows.next()? {
         let pkg: String = row.get(0)?;
-        write!(w, "import * as {} from '{}';\n", pkg, pkg)?;
+        writeln!(w, "import * as {} from '{}';", pkg, pkg)?;
     }
     write!(w, "\n\n")?;
 
@@ -182,7 +182,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
     )?;
     let mut rows = stmt.query(sql_params![])?;
 
-    write!(w, "export const bootstraps: BootstrapMap = {{\n")?;
+    writeln!(w, "export const bootstraps: BootstrapMap = {{")?;
     while let Some(row) = rows.next()? {
         let (id, expressions): (i64, Value) = (row.get(0)?, row.get(1)?);
         let expressions: Vec<String> = serde_json::from_value(expressions)?;
@@ -191,7 +191,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
             .map(|e| format!("async () : Promise<void> => {{ {} }}", e))
             .collect::<Vec<String>>()
             .join(", ");
-        write!(w, "\t{}: [{}],\n", id, expressions)?;
+        writeln!(w, "\t{}: [{}],", id, expressions)?;
     }
     write!(w, "}};\n\n")?;
 
@@ -214,7 +214,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
     )?;
     let mut rows = stmt.query(sql_params![])?;
 
-    write!(w, "export const transforms : TransformMap = {{\n")?;
+    writeln!(w, "export const transforms : TransformMap = {{")?;
     while let Some(row) = rows.next()? {
         let (id, name, reg_uri): (i64, String, Url) = (row.get(0)?, row.get(1)?, row.get(2)?);
         let (src_name, src_uri, is_alt): (String, Url, bool) =
@@ -222,29 +222,29 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
         let (der_name, der_uri): (String, Url) = (row.get(6)?, row.get(7)?);
         let (update, publish): (Option<String>, Option<String>) = (row.get(8)?, row.get(9)?);
 
-        write!(w, "// Derivation {:?}, transform {:?}.\n", der_name, name)?;
-        write!(w, "{}: {{\n", id)?;
+        writeln!(w, "// Derivation {:?}, transform {:?}.", der_name, name)?;
+        writeln!(w, "{}: {{", id)?;
 
         if let Some(update) = update {
-            write!(
+            writeln!(
                     w,
-                    "update: async (source: collections.{src}) : Promise<registers.{reg}[]> => {{ {body} }},\n",
+                    "update: async (source: collections.{src}) : Promise<registers.{reg}[]> => {{ {body} }},",
                     src = ts_name(&src_name, &src_uri, is_alt),
                     reg = ts_name(&der_name, &reg_uri, false),
                     body = update,
                 )?;
         }
         if let Some(publish) = publish {
-            write!(
+            writeln!(
                 w,
-                "publish: async (source: collections.{src}, register: registers.{reg}, previous?: registers.{reg}) : Promise<collections.{der}[]> => {{ {publish} }},\n",
+                "publish: async (source: collections.{src}, register: registers.{reg}, previous?: registers.{reg}) : Promise<collections.{der}[]> => {{ {publish} }},",
                 src = ts_name(&src_name, &src_uri, is_alt),
                 reg = ts_name(&der_name, &reg_uri, false),
                 der = ts_name(&der_name, &der_uri, false),
                 publish = publish,
             )?;
         }
-        write!(w, "}},\n")?;
+        writeln!(w, "}},")?;
     }
     write!(w, "}};\n\n")?;
 

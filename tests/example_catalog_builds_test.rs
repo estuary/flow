@@ -14,7 +14,7 @@ fn test_examples() -> catalog::Result<()> {
     catalog::init_db_schema(&db)?;
 
     let url = Url::from_file_path(&path).unwrap();
-    catalog::Catalog::register(catalog::Scope::empty(&db), url)?;
+    catalog::Source::register(catalog::Scope::empty(&db), url)?;
 
     Ok(())
 }
