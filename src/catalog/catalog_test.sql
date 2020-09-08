@@ -54,16 +54,16 @@ INSERT INTO resource_urls (resource_id, url, is_primary)
 VALUES (1, 'file:///path/to/spec.yaml', TRUE),
        (2, 'file:///path/to/some/fixtures.yaml', TRUE),
        (3, 'file:///path/to/a/schema.yaml', TRUE),
-       (4, 'https://host/path/javascript?query=val', TRUE),
-       (5, 'file:///path/to/some/typescript.yaml', TRUE),
+       (4, 'https://host/path/schema?query=val', TRUE),
+       (5, 'file:///path/to/other/schema.yaml', TRUE),
        (6, 'file:///path/to/some/bootstrap.sql', TRUE),
        (7, 'file:///path/to/some/transform.sql', TRUE),
        -- Alternate resource URLs.
        -- Each resource may have multiple alternate URLs.
        (3, 'https://canonical/schema/uri', NULL),
-       (4, 'https://redirect-1/javascript', NULL),
-       (4, 'https://redirect-2/javascript', NULL),
-       (4, 'https://redirect-3/javascript', NULL);
+       (4, 'https://redirect-1/schema', NULL),
+       (4, 'https://redirect-2/schema', NULL),
+       (4, 'https://redirect-3/schema', NULL);
 
 -- Invalid URL (not a base URL).
 INSERT INTO resource_urls (resource_id, url)
@@ -85,6 +85,9 @@ VALUES (1, 'file:///path/to/dup/primary/spec.yaml', TRUE);
 SELECT *
 FROM resources
          NATURAL JOIN resource_urls;
+
+-- View over all transitive JSON-Schemas.
+SELECT * FROM resource_schemas;
 
 -- Valid lambdas.
 INSERT INTO lambdas (runtime, inline, resource_id)
@@ -205,22 +208,25 @@ INSERT INTO fixtures (collection_id, resource_id)
 VALUES (2, 42);
 
 -- Valid derivations.
-INSERT INTO derivations (collection_id, parallelism, register_uri)
-VALUES (2, NULL, "file:///path/to/a/schema.yaml#register"),
-       (3, 16, "file:///path/to/a/schema.yaml#other-register");
+INSERT INTO derivations (collection_id, register_schema_uri, register_initial_json)
+VALUES (2, "file:///path/to/a/schema.yaml#register", "{}"),
+       (3, "file:///path/to/a/schema.yaml#other-register", "[]");
 
--- Derivation parallelism must be NULL or > 0.
+-- Register schema must not be NULL.
 UPDATE derivations
-SET parallelism = 0;
--- Registers must not be NULL.
+SET register_schema_uri = NULL;
+-- Register initial JSON must not be NULL.
 UPDATE derivations
-SET register_uri = NULL;
+SET register_initial_json = NULL;
+-- Register initial JSON must be JSON.
+UPDATE derivations
+SET register_initial_json = "[";
 -- Invalid derivation (collection must exist).
-INSERT INTO derivations (collection_id, register_uri)
-VALUES (42, "file:///path/to/a/schema.yaml#register");
+INSERT INTO derivations (collection_id, register_schema_uri, register_initial_json)
+VALUES (42, "file:///path/to/a/schema.yaml#register", "1");
 -- Invalid derivation (schema is not a URI).
-INSERT INTO derivations (collection_id, register_uri)
-VALUES (1, 'not-a-uri');
+INSERT INTO derivations (collection_id, register_schema_uri, register_initial_json)
+VALUES (1, 'not-a-uri', "1");
 
 -- Valid bootstrap.
 INSERT INTO bootstraps (derivation_id, lambda_id)
@@ -278,26 +284,6 @@ WHERE transform_id = 1;
 -- Invalid source schema is the same as the collection schema
 INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri) 
 VALUES (2, 1, 'file:///path/to/a/schema.yaml#anchor');
-
--- Can only set one of 'broadcast' or 'choose'.
-UPDATE transforms
-SET shuffle_broadcast = 2,
-    shuffle_choose    = 3
-WHERE transform_id = 1;
--- They must be positive.
-UPDATE transforms
-SET shuffle_broadcast = 0
-WHERE transform_id = 1;
-UPDATE transforms
-SET shuffle_choose = 0
-WHERE transform_id = 1;
--- OK.
-UPDATE transforms
-SET shuffle_broadcast = 3
-WHERE transform_id = 1;
-UPDATE transforms
-SET shuffle_choose = 3
-WHERE transform_id = 2;
 
 -- Shuffle-key must be array of JSON-pointers.
 UPDATE transforms

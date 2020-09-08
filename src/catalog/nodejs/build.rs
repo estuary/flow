@@ -145,7 +145,7 @@ fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     // Generate a named type for each register used by a derivation.
     generate_each(
         pkg.join("src/catalog/registers.ts"),
-        "SELECT collection_name, register_uri, FALSE FROM collections NATURAL JOIN derivations",
+        "SELECT collection_name, register_schema_uri, FALSE FROM collections NATURAL JOIN derivations",
     )?;
 
     Ok(())
@@ -201,7 +201,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
         SELECT
             transform_id,          -- 0
             transform_name,        -- 1
-            register_uri,          -- 2
+            register_schema_uri,   -- 2
             source_name,           -- 3
             source_schema_uri,     -- 4
             is_alt_source_schema,  -- 5
@@ -283,7 +283,13 @@ fn npm_cmd(pkg: &path::Path, args: &[&str]) -> Result<(), Error> {
     }
     cmd.current_dir(pkg);
 
-    let status = cmd.spawn()?.wait()?;
+    let status = cmd
+        .spawn()
+        .and_then(|mut c| c.wait())
+        .map_err(|e| Error::At {
+            loc: "'npm' subprocess invocation".to_owned(),
+            detail: Box::new(e.into()),
+        })?;
 
     if !status.success() {
         Err(Error::SubprocessFailed {

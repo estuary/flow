@@ -1,4 +1,5 @@
-use super::{sql_params, Collection, Lambda, Resource, Result, Schema, Scope};
+use super::{sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope};
+use crate::doc::{validate, FullContext, SchemaIndex, Validator};
 use crate::specs::build as specs;
 
 /// Derivation is a catalog Collection which is derived from other Collections.
@@ -15,10 +16,28 @@ impl Derivation {
         spec: &specs::Derivation,
     ) -> Result<Derivation> {
         // Register and import the register schema document.
-        let register = scope.push_prop("register").then(|scope| {
-            let register = Schema::register(scope, &spec.register)?;
-            Resource::register_import(scope, register.resource)?;
-            Ok(register)
+        let register_schema = scope
+            .push_prop("register")
+            .push_prop("schema")
+            .then(|scope| {
+                let register = Schema::register(scope, &spec.register.schema)?;
+                Resource::register_import(scope, register.resource)?;
+                Ok(register)
+            })?;
+
+        let register_schema_uri = register_schema.primary_url_with_fragment(scope.db)?;
+
+        // Require that the initial register value validates against the schema.
+        scope.push_prop("register").push_prop("initial").then(|_| {
+            let mut index = SchemaIndex::new();
+            let schemas = Schema::compile_for(scope.db, register_schema.resource.id)?;
+            for schema in &schemas {
+                index.add(&schema)?;
+            }
+
+            let mut validator = Validator::<FullContext>::new(&index);
+            validate(&mut validator, &register_schema_uri, &spec.register.initial)
+                .map_err(Error::FailedValidation)
         })?;
 
         scope
@@ -26,14 +45,14 @@ impl Derivation {
             .prepare_cached(
                 "INSERT INTO derivations (
                 collection_id,
-                parallelism,
-                register_uri
+                register_schema_uri,
+                register_initial_json
             ) VALUES (?, ?, ?)",
             )?
             .execute(sql_params![
                 collection.id,
-                spec.parallelism,
-                register.primary_url_with_fragment(scope.db)?,
+                register_schema_uri,
+                spec.register.initial,
             ])?;
 
         let derivation = Derivation { collection };
@@ -123,10 +142,8 @@ impl Derivation {
                         publish_id,
                         source_schema_uri,
                         shuffle_key_json,
-                        shuffle_broadcast,
-                        shuffle_choose,
                         read_delay_seconds
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 self.collection.id,
@@ -136,11 +153,8 @@ impl Derivation {
                 publish.map(|l| l.id),
                 schema_url,
                 spec.shuffle
-                    .key
                     .as_ref()
                     .map(|k| serde_json::to_string(&k).unwrap()),
-                spec.shuffle.broadcast,
-                spec.shuffle.choose,
                 spec.read_delay.map(|d| d.as_secs() as i64),
             ])?;
 
@@ -237,18 +251,19 @@ mod test {
         let scope = scope.push_resource(Resource { id: 1 });
 
         // Derived collection with:
-        //  - Explicit parallelism.
-        //  - External register schema.
+        //  - Explicit register schema & initial value.
         //  - Explicit alternate source schema.
-        //  - Explicit shuffle key w/ choose.
+        //  - Explicit shuffle key.
         //  - Explicit read delay.
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "d1/collection",
             "schema": "a-schema.json",
             "key": ["/d1-key"],
             "derivation": {
-                "parallelism": 8,
-                "register": "reg-schema.json#/$defs/qib",
+                "register": {
+                    "schema": "reg-schema.json#/$defs/qib",
+                    "initial": {"initial": ["value", 32]},
+                },
                 "bootstrap": [
                     {"nodeJS": "nodeJS bootstrap"},
                 ],
@@ -263,10 +278,7 @@ mod test {
                             },
                         },
                         "readDelay": "1 hour",
-                        "shuffle": {
-                            "key": ["/shuffle", "/key"],
-                            "choose": 3,
-                        },
+                        "shuffle": ["/shuffle", "/key"],
                         "update": {"nodeJS": "update one"},
                         "publish": {"nodeJS": "publish one"},
                     },
@@ -281,7 +293,6 @@ mod test {
             "schema": "a-schema.json",
             "key": ["/d2-key"],
             "derivation": {
-                "register": true,
                 "transform": {
                     "do-the-thing": {
                         "source": {"name": "src/collection"},
@@ -307,8 +318,8 @@ mod test {
             dump,
             json!({
                 "derivations": [
-                    [2, 8, "test://example/reg-schema.json#/$defs/qib"],
-                    [3, null, "test://example/spec?ptr=/derivation/register"],
+                    [2, "test://example/reg-schema.json#/$defs/qib", {"initial": ["value", 32]}],
+                    [3, "test://example/spec?ptr=/derivation/register/schema", null],
                 ],
                 "bootstraps":[
                     [1, 2, 1],
@@ -320,8 +331,8 @@ mod test {
                     [4, "nodeJS","publish two", null],
                 ],
                 "transforms":[
-                    [1, 2, "some-name",    1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], null, 3, 3600],
-                    [2, 3, "do-the-thing", 1, null, 4, null, null, null, null, null],
+                    [1, 2, "some-name",    1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
+                    [2, 3, "do-the-thing", 1, null, 4, null, null, null],
                 ],
                 "transform_source_partitions":[
                     [1, 1, "a_field", "foo", false],

@@ -8,7 +8,7 @@ pub const INLINE_POINTER_KEY: &str = "ptr";
 
 /// Schema represents a JSON-Schema document, and an optional fragment which
 /// further locates a specific sub-schema thereof.
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(Debug)]
 pub struct Schema {
     pub resource: Resource,
     pub fragment: Option<String>,
@@ -149,11 +149,15 @@ impl Schema {
 
     /// Fetch and compile all Schemas in the catalog.
     pub fn compile_all(db: &DB) -> Result<Vec<CompiledSchema>> {
+        Self::compile_for(db, 1) // 1 is the root resource ID.
+    }
+
+    /// Fetch and compile all Schemas of the Resource, as well as Schemas it transitively imports.
+    pub fn compile_for(db: &DB, resource_id: i64) -> Result<Vec<CompiledSchema>> {
         let mut stmt = db.prepare(
-            "SELECT url, content FROM resources NATURAL JOIN resource_urls
-                    WHERE content_type = ? AND is_primary;",
+            "SELECT schema_uri, schema_content FROM resource_schemas WHERE resource_id = ?",
         )?;
-        let mut rows = stmt.query(sql_params![ContentType::Schema])?;
+        let mut rows = stmt.query(sql_params![resource_id])?;
 
         let mut schemas = Vec::new();
         while let Some(row) = rows.next()? {

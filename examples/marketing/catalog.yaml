@@ -28,8 +28,11 @@ collections:
     fixtures: [fixtures/views-with-campaign.yaml]
 
     derivation:
-      parallelism: 8
-      register: schemas.yaml#/$defs/campaign
+      register:
+        schema:
+          oneOf:
+            - $ref: schemas.yaml#/$defs/campaign
+            - const: null
       transform:
         indexCampaigns:
           # Index the campaign on its id. We broadcast out to 4 processors because
@@ -37,9 +40,7 @@ collections:
           # particularly "hot" campaign IDs.
           source:
             name: marketing/campaigns
-          shuffle:
-            # As we don't specify a key, the source key "/campaign_id" is used by default.
-            broadcast: 4
+          # As we don't specify a "shuffle" key, the source key "/campaign_id" is used by default.
           update:
             # Index the latest campaign.
             nodeJS: return [source];
@@ -47,12 +48,7 @@ collections:
         joinViewWithIndexedCampaign:
           source:
             name: marketing/offer/views
-          shuffle:
-            # Shuffle to a processor which indexed this view's campaign.
-            # "choose: 4" will randomly select one of the 4 processors to which
-            # this campaign was broadcast.
-            key: [/campaign_id]
-            choose: 4
+          shuffle: [/campaign_id]
           publish:
             # Join the view with a previously indexed campaign.
             nodeJS: "return [{ ...source, campaign: register }];"
@@ -63,8 +59,11 @@ collections:
     fixtures: [fixtures/clicks-with-views.yaml]
 
     derivation:
-      parallelism: 8
-      register: schemas.yaml#/$defs/view-with-campaign
+      register:
+        schema:
+          oneOf:
+            - $ref: schemas.yaml#/$defs/view-with-campaign
+            - const: null
       transform:
         # Index each view with a 2-day TTL relative to the view's timestamp.
         indexViews:
@@ -76,8 +75,7 @@ collections:
         joinClickWithIndexedViews:
           source:
             name: marketing/offer/clicks
-          shuffle:
-            key: [/view_id]
+          shuffle: [/view_id]
           publish:
             nodeJS: "return [{ ...source, view: register }]"
 
@@ -100,52 +98,52 @@ collections:
     fixtures: [fixtures/purchases-with-offers.yaml]
 
     derivation:
-      parallelism: 8
-
       # This derivation indexes a windowed history of clicks and views
       # for the given user.
       register:
-        $defs:
-          # A bounded map which is keyed on a timestamp, and retains a limited
-          # number of elements. The first value written with a given timestamp
-          # is retained.
-          boundedTimestampMap:
-            type: object
-            reduce:
-              strategy: merge
-              #limit: 20
-              #eviction:
-              #  drop: smallest
-            additionalProperties:
-              # Only the first record of a given time interval is kept.
-              reduce: 
-                strategy: firstWriteWins
-        type: object
-        properties:
-          lastSeen: {type: string, format: date-time}
-          views:
-            allOf:
-              - $ref: "#/$defs/boundedTimestampMap"
-              - additionalProperties:
-                  $ref: schemas.yaml#/$defs/view-with-campaign
-          clicks:
-            allOf:
-              - $ref: "#/$defs/boundedTimestampMap"
-              - additionalProperties:
-                  $ref: schemas.yaml#/$defs/click-with-view
-        required: ["lastSeen", "views", "clicks"]
-        #expiration:
-        #  # Retain for 30 days after the last observation of the user.
-        #  key: "/lastSeen"
-        #  delta: "720h"
+        schema:
+          $defs:
+            # A bounded map which is keyed on a timestamp, and retains a limited
+            # number of elements. The first value written with a given timestamp
+            # is retained.
+            boundedTimestampMap:
+              type: object
+              reduce:
+                strategy: merge
+                #limit: 20
+                #eviction:
+                #  drop: smallest
+              additionalProperties:
+                # Only the first record of a given time interval is kept.
+                reduce: 
+                  strategy: firstWriteWins
+          type: object
+          properties:
+            lastSeen: {type: string, format: date-time}
+            views:
+              allOf:
+                - $ref: "#/$defs/boundedTimestampMap"
+                - additionalProperties:
+                    $ref: schemas.yaml#/$defs/view-with-campaign
+            clicks:
+              allOf:
+                - $ref: "#/$defs/boundedTimestampMap"
+                - additionalProperties:
+                    $ref: schemas.yaml#/$defs/click-with-view
+          required: ["views", "clicks"]
+          #expiration:
+          #  # Retain for 30 days after the last observation of the user.
+          #  key: "/lastSeen"
+          #  delta: "720h"
+
+        initial: {"views": {}, "clicks": {}}
 
       transform:
         # Index views of the user. Only the first view of a UTC day is retained.
         indexViews:
           source:
             name: marketing/views-with-campaign
-          shuffle:
-            key: [/user_id]
+          shuffle: [/user_id]
           update:
             nodeJS: |
               let day = moment.utc(source.timestamp).format('YYYY-MM-DD');
@@ -159,8 +157,7 @@ collections:
         indexClicks:
           source:
             name: marketing/clicks-with-views
-          shuffle:
-            key: [/user_id]
+          shuffle: [/user_id]
           update:
             nodeJS: |
               let hour = moment.utc(source.timestamp).format('YYYY-MM-DD-HH');
@@ -174,8 +171,7 @@ collections:
         joinPurchaseWithViewsAndClicks:
           source:
             name: marketing/purchases
-          shuffle:
-            key: [/user_id]
+          shuffle: [/user_id]
           publish:
             nodeJS: |
               return [{

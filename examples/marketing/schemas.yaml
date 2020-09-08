@@ -38,13 +38,19 @@ $defs:
     description: View event joined with it's campaign.
     $ref: "#/$defs/view"
     properties:
-      campaign: {$ref: "#/$defs/campaign"}
+      campaign:
+        oneOf:
+          - $ref: "#/$defs/campaign"
+          - const: null
     required: [campaign]
 
   click-with-view:
     description: Click event joined with it's view.
     $ref: "#/$defs/click"
     properties:
-      view: {$ref: "#/$defs/view-with-campaign"}
+      view:
+        oneOf:
+          - $ref: "#/$defs/view-with-campaign"
+          - const: null
     required: [view]
 

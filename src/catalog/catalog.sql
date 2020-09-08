@@ -99,6 +99,25 @@ CREATE TABLE resource_urls
         CHECK (is_primary IS TRUE OR is_primary IS NULL)
 );
 
+-- Resource schemas is a view over all JSON-Schemas which are transitively
+-- imported or referenced from a given resource_id. In other words, this is
+-- the set of JSON-Schemas which must be compiled and indexed when validating
+-- on behalf of the given resource. 
+CREATE VIEW resource_schemas AS
+SELECT
+	rti.resource_id AS resource_id,
+	resource_urls.url AS schema_uri,
+   	resources.content AS schema_content
+FROM
+	resource_transitive_imports AS rti
+    JOIN resources ON rti.import_id = resources.resource_id
+    JOIN resource_urls ON rti.import_id = resource_urls.resource_id
+    WHERE
+    	resources.content_type = 'application/schema+yaml' AND
+        resource_urls.is_primary
+	GROUP BY rti.resource_id, rti.import_id
+;
+
 -- Lambdas are invokable expressions within an associated lambda runtime.
 --
 -- :runtime:
@@ -215,19 +234,21 @@ CREATE TABLE fixtures
 --
 -- :collection_id:
 --      Collection to which this derivation applies.
--- :parallelism:
---      Number of parallel derivation processors.
--- :register_uri:
+-- :register_schema_uri:
 --      JSON-Schema to verify and supply reduction annotations over the
 --      derivation's register documents.
+-- :register_initial_json:
+--      JSON value which is used as the initial value of a register,
+--      before any user updates have been reduced in.
 CREATE TABLE derivations
 (
-    collection_id INTEGER PRIMARY KEY NOT NULL REFERENCES collections (collection_id),
-    parallelism   INTEGER CHECK (parallelism > 0),
-    register_uri  TEXT                NOT NULL,
+    collection_id          INTEGER PRIMARY KEY NOT NULL REFERENCES collections (collection_id),
+    register_schema_uri    TEXT NOT NULL,
+    register_initial_json  TEXT NOT NULL,
 
     CONSTRAINT "Register schema must be a valid base (non-relative) URI" CHECK (
-        register_uri LIKE '_%://_%')
+        register_schema_uri LIKE '_%://_%')
+    CONSTRAINT "Initial Register must be valid JSON" CHECK (JSON_VALID(register_initial_json))
 );
 
 -- Bootstraps relate a derivation and lambdas which are invoked to initialize it.
@@ -263,12 +284,6 @@ CREATE TABLE bootstraps
 -- :shuffle_key_json:
 --      Composite key extractor for shuffling source documents to shards, as
 --      `[JSON-Pointer]`. If null, the `key_json` of the source collection is used.
--- :shuffle_broadcast:
---      Number of ranked shards by which each document is read. If both
---      `shuffle_broadcast` and `shuffle_choose` are NULL, then `shuffle_broadcast`
---      is implicitly treated as `1`.
--- :shuffle_choose:
---      Number of ranked shards from which a shard is randomly selected.
 -- :read_delay_seconds:
 --      Number of seconds by which documents read by this transform should be delayed,
 --      both with respect to other documents and transforms, and also with respect to
@@ -283,8 +298,6 @@ CREATE TABLE transforms
     publish_id             INTEGER                      REFERENCES lambdas (lambda_id),
     source_schema_uri      TEXT,
     shuffle_key_json       TEXT,
-    shuffle_broadcast      INTEGER CHECK (shuffle_broadcast > 0),
-    shuffle_choose         INTEGER CHECK (shuffle_choose > 0),
     read_delay_seconds     INTEGER CHECK (read_delay_seconds > 0),
 
     -- Name must be unique amoung transforms of the derivation.
@@ -294,8 +307,6 @@ CREATE TABLE transforms
 
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
         source_schema_uri LIKE '_%://_%'),
-    CONSTRAINT "Cannot set both shuffle 'broadcast' and 'choose'" CHECK (
-        (shuffle_broadcast IS NULL) OR (shuffle_choose IS NULL)),
     CONSTRAINT "Shuffle key must be NULL or non-empty JSON array of JSON-Pointers" CHECK (
         JSON_ARRAY_LENGTH(shuffle_key_json) > 0),
     CONSTRAINT "Must set at least one of 'update' or 'publish' lambdas" CHECK (
@@ -400,7 +411,7 @@ SELECT transforms.transform_id,
        transforms.transform_name,
 
        -- Derivation details.
-       derivations.register_uri,
+       derivations.register_schema_uri,
 
        -- Source collection details.
        transforms.source_collection_id,
@@ -418,12 +429,6 @@ SELECT transforms.transform_id,
        der.resource_id                                                         AS derivation_resource_id,
        der.schema_uri                                                          AS derivation_schema_uri,
        der.key_json                                                            AS derivation_key_json,
-
-       -- Shuffle details. Convert broadcast/choose NULL's to 0.
-       -- Default to broadcast: 1, choose: 0 if both are NULL.
-       COALESCE(transforms.shuffle_broadcast,
-                CASE WHEN transforms.shuffle_choose IS NULL THEN 1 ELSE 0 END) AS shuffle_broadcast,
-       COALESCE(transforms.shuffle_choose, 0)                                  AS shuffle_choose,
 
        -- Update lambda fields.
        transforms.update_id                                                    AS update_id,

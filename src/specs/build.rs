@@ -72,18 +72,40 @@ pub struct Projection {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Register {
+    /// The schema of this register, which all register instances must validate against.
+    /// Reduction annotations from the schema are used to reduce registers into a single,
+    /// current value for each key.
+    pub schema: Schema,
+    /// The initial value of a register which hasn't been written to yet.
+    /// If not specified, the default is "null".
+    #[serde(default = "value_null")]
+    pub initial: Value,
+}
+
+fn value_null() -> Value {
+    Value::Null
+}
+
+impl Default for Register {
+    fn default() -> Self {
+        Register {
+            schema: Schema::Bool(true),
+            initial: Value::Null,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Derivation {
-    /// Number of distributed processors of this derivation. Derivations which
-    /// use no state may freely change this value. If state is used, beware that
-    /// changing parallelism also alters the correspondence of specific shuffle
-    /// keys and the processor to which they are shuffled.
-    pub parallelism: Option<u8>,
     /// A derivation "register" is an place to store arbitrary internal state
     /// which is shared between transforms of the derivation, and available to
     /// lambdas alongside the source document which is being processed.
     /// Derivations may have an arbitrary number of registers, where each register
     /// is keyed on the shuffle ID of the source document.
-    pub register: Schema,
+    #[serde(default)]
+    pub register: Register,
     /// Lambdas to invoke when an instance of a distributed processor is started,
     /// and before any messages are processed. This is an opportunity to initialize
     /// SQL tables or other state. Note that bootstrap lambdas will be invoked for
@@ -122,12 +144,11 @@ pub struct Transform {
     /// they aren't processed until the current wall-time reflects the delay.
     #[serde(default, with = "humantime_serde")]
     pub read_delay: Option<Duration>,
-    /// Shuffle applied to source collection messages in their mapping to a
-    /// specific parallel processor of the derived collection. By default,
-    /// messages are shuffled on the source collection key to a single
-    /// processor.
+    /// Shuffle key by which source collection messages are mapped to a
+    /// derivation register, as an array of JSON-Pointers. If empty, the key of
+    /// the source collection is used.
     #[serde(default)]
-    pub shuffle: Shuffle,
+    pub shuffle: Option<Vec<String>>,
     /// An "update" lambda takes a source document and associated register,
     /// produces documents to be reduced back into the register
     /// according to its schema.
@@ -179,22 +200,6 @@ pub struct PartitionSelector {
     /// will be excluded.
     #[serde(default)]
     pub exclude: BTreeMap<String, Vec<Value>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Shuffle {
-    /// Composite key on which to shuffle documents of the source collection,
-    /// as an array of JSON-Pointers.
-    pub key: Option<Vec<String>>,
-    /// Number of processors to which this source message is sent, after ranking
-    /// on the shuffle key. Default is 1. If set, the "choose" parameter must be
-    /// unset or zero.
-    pub broadcast: Option<u16>,
-    /// Number of processors from which a single processor is randomly selected,
-    /// after ranking on the shuffle key. Default is unset. If set, the "broadcast"
-    /// parameter must be unset or zero.
-    pub choose: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -12,11 +12,12 @@ pub use annotation::{extract_reduce_annotations, Annotation};
 pub type Schema = estuary_json::schema::Schema<Annotation>;
 pub type SchemaIndex<'sm> = estuary_json::schema::index::Index<'sm, Annotation>;
 pub type Validator<'sm, C> = estuary_json::validator::Validator<'sm, Annotation, C>;
+pub type FullContext = estuary_json::validator::FullContext;
 
 #[derive(Debug, serde::Serialize)]
 pub struct FailedValidation {
-    document: serde_json::Value,
-    basic_output: serde_json::Value,
+    pub document: serde_json::Value,
+    pub basic_output: serde_json::Value,
 }
 
 pub fn validate<C>(

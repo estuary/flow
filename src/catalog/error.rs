@@ -1,4 +1,5 @@
 use super::ContentType;
+use crate::doc;
 use estuary_json::schema;
 
 #[derive(thiserror::Error, Debug)]
@@ -59,4 +60,6 @@ pub enum Error {
         context: String,
         msg: String,
     },
+    #[error("schema validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
+    FailedValidation(doc::FailedValidation),
 }
