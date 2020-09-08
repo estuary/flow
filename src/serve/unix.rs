@@ -20,7 +20,7 @@ where
         + 'static,
     Svc::Error: std::error::Error + Send + Sync,
     Svc::Future: Send,
-    B: http_body::Body + Send + 'static,
+    B: http_body::Body + Send + Sync + 'static,
     B::Data: Send,
     B::Error: std::error::Error + Send + Sync + 'static,
 {

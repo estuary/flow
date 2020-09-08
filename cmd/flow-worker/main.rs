@@ -1,18 +1,37 @@
 use estuary::{
-    catalog::{self, sql_params},
+    catalog::{self},
     derive, doc,
 };
 use estuary_protocol::flow;
 use futures::{select, FutureExt};
 use log::{error, info};
-use pretty_env_logger;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use structopt::StructOpt;
-use tokio;
 use tokio::signal::unix::{signal, SignalKind};
 use tower::Service;
-use url::Url;
+
+#[derive(StructOpt, Debug)]
+struct ExtractCommand {
+    #[structopt(
+        long,
+        parse(from_os_str),
+        help = "Unix domain socket to listen on for gRPC connections."
+    )]
+    grpc_socket_path: PathBuf,
+}
+
+#[derive(StructOpt, Debug)]
+struct CombineCommand {
+    #[structopt(long, parse(from_os_str), help = "Path to the catalog database.")]
+    catalog: PathBuf,
+    #[structopt(
+        long,
+        parse(from_os_str),
+        help = "Unix domain socket to listen on for gRPC connections."
+    )]
+    grpc_socket_path: PathBuf,
+}
 
 #[derive(StructOpt, Debug)]
 struct DeriveCommand {
@@ -26,16 +45,12 @@ struct DeriveCommand {
         help = "Unix domain socket to listen on for gRPC connections."
     )]
     grpc_socket_path: PathBuf,
-}
-
-#[derive(StructOpt, Debug)]
-struct ExtractCommand {
-    #[structopt(
-        long,
-        parse(from_os_str),
-        help = "Unix domain socket to listen on for gRPC connections."
-    )]
-    grpc_socket_path: PathBuf,
+    #[structopt(long, help = "Directory of the local state database.")]
+    dir: String,
+    #[structopt(long, help = "Author under which recovery log operations are fenced.")]
+    author: u32,
+    #[structopt(long, help = "Path to JSON-encoded recovery-log FSM state.")]
+    fsm_path: String,
 }
 
 #[derive(StructOpt, Debug)]
@@ -44,8 +59,9 @@ struct ExtractCommand {
     about = "Worker side-car process of Estuary Flow, for deriving and extracting documents"
 )]
 enum Command {
-    Derive(DeriveCommand),
     Extract(ExtractCommand),
+    Combine(CombineCommand),
+    Derive(DeriveCommand),
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -57,6 +73,7 @@ async fn main() {
 
     let result = match cmd {
         Command::Extract(cmd) => cmd.run().await,
+        Command::Combine(cmd) => cmd.run().await,
         Command::Derive(cmd) => cmd.run().await,
     };
     if let Err(err) = result {
@@ -66,8 +83,7 @@ async fn main() {
 
 impl ExtractCommand {
     async fn run(&self) -> Result<(), Error> {
-        let mut extract_api =
-            flow::extract_server::ExtractServer::new(derive::extract::ExtractAPI {});
+        let mut extract_api = flow::extract_server::ExtractServer::new(derive::extract_api::API {});
         let service =
             tower::service_fn(move |req: hyper::Request<hyper::Body>| extract_api.call(req));
 
@@ -87,64 +103,16 @@ impl ExtractCommand {
     }
 }
 
-impl DeriveCommand {
+impl CombineCommand {
     async fn run(&self) -> Result<(), Error> {
-        // Open catalog DB.
+        // Open catalog DB & build schema index.
         let db = catalog::open(&self.catalog)?;
+        let schema_index = build_schema_index(&db)?;
 
-        let derivation_id = db
-            .prepare(
-                "SELECT collection_id
-                FROM collections NATURAL JOIN derivations
-                WHERE name = ?",
-            )?
-            .query_row(sql_params![self.derivation], |r| r.get(0))
-            .map_err(|err| catalog::Error::At {
-                loc: format!("querying for derived collection {:?}", self.derivation),
-                detail: Box::new(err.into()),
-            })?;
-
-        // "Open" recovered state store, instrumented with a Recorder.
-        // TODO rocksdb, sqlite, Go CGO bindings to client / Recorder, blah blah.
-        let store = Box::new(derive::state::MemoryStore::new());
-        let _store = Arc::new(Mutex::new(store));
-
-        // Compile the bundle of catalog schemas. Then, deliberately "leak" the
-        // immutable Schema bundle for the remainder of program in order to achieve
-        // a 'static lifetime, which is required for use in spawned tokio Tasks (and
-        // therefore in TxnCtx).
-        let schemas = catalog::Schema::compile_all(&db)?;
-        let schemas = Box::leak(Box::new(schemas));
-
-        let mut schema_index = doc::SchemaIndex::<'static>::new();
-        for schema in schemas.iter() {
-            schema_index.add(schema)?;
-        }
-        schema_index.verify_references()?;
-
-        info!("loaded {} JSON-Schemas from catalog", schemas.len());
-
-        // Start NodeJS transform worker.
-        let loopback = Url::from_file_path(&self.grpc_socket_path).unwrap();
-        let node = derive::nodejs::Service::new(&db, loopback)?;
-
-        let txn_ctx = derive::transform::Context::new(&db, derivation_id, node, schema_index)?;
-        let txn_ctx = Arc::new(Box::new(txn_ctx));
-
-        // Build service.
-        let mut extract_svc =
-            flow::extract_server::ExtractServer::new(derive::extract::ExtractAPI {});
-        //let mut derive_svc = flow::derive_server::DeriveServer::new(derive::DeriveService {});
-
-        let service = tower::service_fn(move |req: hyper::Request<hyper::Body>| {
-            let path = &req.uri().path()[1..];
-
-            if path.starts_with(grpc_service_name(&extract_svc)) {
-                extract_svc.call(req)
-            } else {
-                extract_svc.call(req)
-            }
-        });
+        let mut combine_api =
+            flow::combine_server::CombineServer::new(derive::combine_api::API::new(schema_index));
+        let service =
+            tower::service_fn(move |req: hyper::Request<hyper::Body>| combine_api.call(req));
 
         // Bind local listener and begin serving.
         let server = estuary::serve::unix_domain_socket(
@@ -154,9 +122,6 @@ impl DeriveCommand {
         );
         let server_handle = tokio::spawn(server);
 
-        // Invoke derivation bootstraps.
-        txn_ctx.node.bootstrap(derivation_id).await?;
-
         // Signal to host process that we're ready to accept connections.
         println!("READY");
         server_handle.await?;
@@ -165,8 +130,71 @@ impl DeriveCommand {
     }
 }
 
-fn grpc_service_name<S: tonic::transport::NamedService>(_: &S) -> &str {
-    return S::NAME;
+impl DeriveCommand {
+    async fn run(&self) -> Result<(), Error> {
+        // Open catalog DB & build schema index.
+        let db = catalog::open(&self.catalog)?;
+        let schema_index = build_schema_index(&db)?;
+
+        // Start NodeJS transform worker.
+        let node = derive::nodejs::NodeRuntime::start(&db)?;
+
+        // Build derivation context.
+        let ctx = derive::context::Context::build_from_catalog(
+            &db,
+            &self.derivation,
+            schema_index,
+            &node,
+        )?;
+        let ctx = Arc::new(ctx);
+
+        // Open local RocksDB.
+        let mut rocks_opts = rocksdb::Options::default();
+        rocks_opts.create_if_missing(true);
+        rocks_opts.create_missing_column_families(true);
+        rocks_opts.set_env(&rocksdb::Env::default()?);
+
+        let rocks_db = rocksdb::DB::open_cf(
+            &rocks_opts,
+            &self.dir,
+            [
+                rocksdb::DEFAULT_COLUMN_FAMILY_NAME,
+                crate::derive::registers::REGISTERS_CF,
+            ]
+            .iter(),
+        )?;
+
+        let registers = derive::registers::Registers::new(
+            rocks_db,
+            schema_index,
+            &ctx.register_schema,
+            ctx.register_default.clone(),
+        );
+
+        let mut derive_api = flow::derive_server::DeriveServer::new(derive::derive_api::API::new(
+            ctx.clone(),
+            registers,
+        ));
+        let service =
+            tower::service_fn(move |req: hyper::Request<hyper::Body>| derive_api.call(req));
+
+        // Bind local listener and begin serving.
+        let server = estuary::serve::unix_domain_socket(
+            service,
+            &self.grpc_socket_path,
+            register_signal_handlers()?,
+        );
+        let server_handle = tokio::spawn(server);
+
+        // Invoke any user-provide runtime bootstraps.
+        node.invoke_bootstrap(ctx.derivation_id).await?;
+
+        // Signal to host process that we're ready to accept connections.
+        println!("READY");
+        server_handle.await?;
+
+        Ok(())
+    }
 }
 
 fn register_signal_handlers() -> Result<impl std::future::Future<Output = ()>, Error> {
@@ -179,4 +207,28 @@ fn register_signal_handlers() -> Result<impl std::future::Future<Output = ()>, E
             _ = sigint.recv().fuse() => info!("caught SIGINT; stopping"),
         );
     })
+}
+
+fn build_schema_index(
+    db: &rusqlite::Connection,
+) -> Result<&'static doc::SchemaIndex<'static>, Error> {
+    // Compile the bundle of catalog schemas. Then, deliberately "leak" the
+    // immutable Schema bundle for the remainder of program in order to achieve
+    // a 'static lifetime, which is required for use in spawned tokio Tasks (and
+    // therefore in TxnCtx).
+    let schemas = catalog::Schema::compile_all(&db)?;
+    let schemas = Box::leak(Box::new(schemas));
+
+    let mut schema_index = doc::SchemaIndex::<'static>::new();
+    for schema in schemas.iter() {
+        schema_index.add(schema)?;
+    }
+    schema_index.verify_references()?;
+
+    // Also leak a &'static SchemaIndex.
+    let schema_index = Box::leak(Box::new(schema_index));
+
+    info!("loaded {} JSON-Schemas from catalog", schemas.len());
+
+    Ok(schema_index)
 }

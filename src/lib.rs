@@ -1,3 +1,6 @@
+// Increase limit for use by select! in derive_api.rs.
+#![recursion_limit = "256"]
+
 pub mod catalog;
 pub mod derive;
 pub mod doc;

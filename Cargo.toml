@@ -33,6 +33,8 @@ http = "^0.2"
 hyper = "^0.13"
 hyperlocal = "^0.7"
 itertools = "^0.9"
+hyper-tls = "^0.4"
+rocksdb = "^0.15"
 log = "^0.4"
 pretty_env_logger = "^0.4"
 regex = "^1.3"
@@ -57,3 +59,8 @@ tonic = { version = "0.3" }
 prost = "0.6"
 tower = "0.3"
 humantime-serde = "1.0"
+mime = "0.3"
+async-trait = "0.1"
+
+[dev-dependencies]
+insta = "^0.16"
