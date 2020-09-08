@@ -24,7 +24,7 @@ pub struct Registers {
     rocks_db: rocksdb::DB,
     validator: Validator<'static, FullContext>,
     schema: Url,
-    initial_fallback: serde_json::Value,
+    initial: serde_json::Value,
     cache: HashMap<Box<[u8]>, Option<Value>>,
 }
 
@@ -40,13 +40,13 @@ impl Registers {
         rocks_db: rocksdb::DB,
         schema_index: &'static SchemaIndex,
         schema: &Url,
-        initial_fallback: serde_json::Value,
+        initial: serde_json::Value,
     ) -> Registers {
         Registers {
             rocks_db,
             schema: schema.clone(),
             validator: Validator::new(schema_index),
-            initial_fallback,
+            initial,
             cache: HashMap::new(),
         }
     }
@@ -93,7 +93,7 @@ impl Registers {
 
         match entry {
             Some(value) => value,
-            None => &self.initial_fallback,
+            None => &self.initial,
         }
     }
 
@@ -114,7 +114,7 @@ impl Registers {
         let into = match into {
             Some(v) => v,
             None => {
-                *into = Some(self.initial_fallback.clone());
+                *into = Some(self.initial.clone());
                 into.as_mut().unwrap()
             }
         };

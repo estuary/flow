@@ -168,7 +168,7 @@ impl DeriveCommand {
             rocks_db,
             schema_index,
             &ctx.register_schema,
-            ctx.register_default.clone(),
+            ctx.register_initial.clone(),
         );
 
         let mut derive_api = flow::derive_server::DeriveServer::new(derive::derive_api::API::new(

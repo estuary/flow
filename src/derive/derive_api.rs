@@ -939,7 +939,7 @@ mod test {
                 derivation_key: vec!["/key".into()].into(),
 
                 register_schema: schema_url.join("#/$defs/register").unwrap(),
-                register_default: json!({"value": 1000}),
+                register_initial: json!({"value": 1000}),
             });
 
             let (db_tmpdir, db) = build_test_rocks();
@@ -948,7 +948,7 @@ mod test {
                 db,
                 schema_index,
                 &schema_url.join("#/$defs/register").unwrap(),
-                ctx.register_default.clone(),
+                ctx.register_initial.clone(),
             );
 
             TestAPI {

@@ -26,7 +26,7 @@ pub struct Context {
     pub derivation_key: Arc<[Pointer]>,
 
     pub register_schema: Url,
-    pub register_default: serde_json::Value,
+    pub register_initial: serde_json::Value,
 }
 
 impl Context {
@@ -36,7 +36,7 @@ impl Context {
         schema_index: &'static SchemaIndex<'static>,
         node: &nodejs::NodeRuntime,
     ) -> Result<Context, catalog::Error> {
-        let (derivation_id, derived_schema, derived_key, register_schema, register_default): (
+        let (derivation_id, derived_schema, derived_key, register_schema, register_initial): (
             i32,
             Url,
             serde_json::Value,
@@ -48,8 +48,8 @@ impl Context {
                     collection_id,
                     schema_uri,
                     key_json,
-                    register_uri,
-                    '{}',
+                    register_schema_uri,
+                    register_initial_json,
                 FROM collections
                 NATURAL JOIN derivations
                 WHERE collection_name = ?",
@@ -126,7 +126,7 @@ impl Context {
             derivation_schema: derived_schema,
             derivation_key: derived_key.into(),
             register_schema,
-            register_default,
+            register_initial,
         })
     }
 }
