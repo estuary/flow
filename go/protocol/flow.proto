@@ -402,11 +402,14 @@ message DeriveRequest {
 
 // DeriveResponse is the streamed response message of a Derive RPC.
 message DeriveResponse {
-  oneof kind {
 
+  message Continue {
+  };
+
+  oneof kind {
     // Continue extends the derive transaction with additional derived
     // and combined collection documents.
-    google.protobuf.Empty continue = 1;
+    Continue continue = 1;
     // Flushed CombineResponses are sent in response to a request flush.
     // An empty CombineResponse signals that no further responses remain
     // to be sent, and the server is ready to prepare to commit.

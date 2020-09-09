@@ -19,14 +19,13 @@ func simpleResponseFixture() pf.ShuffleResponse {
 		ReadThrough: 400,
 		WriteHead:   600,
 		Transform:   "a-transform",
-		ContentType: pf.ContentType_JSON,
 		Begin:       []pb.Offset{200},
 		End:         []pb.Offset{300},
 		UuidParts: []pf.UUIDParts{
 			{Clock: 1001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 		},
 	}
-	resp.Content = resp.Arena.AddAll([]byte("content"))
+	resp.DocsJson = resp.Arena.AddAll([]byte("content"))
 	resp.PackedKey = resp.Arena.AddAll([]byte("bb-cc-key"))
 	resp.ShuffleKey = []pf.Field{
 		{Values: []pf.Field_Value{
@@ -271,7 +270,6 @@ func TestSubscriberResponseStaging(t *testing.T) {
 		ReadThrough: 1000,
 		WriteHead:   2000,
 		Transform:   "a-transform",
-		ContentType: pf.ContentType_JSON,
 		Begin:       []pb.Offset{200, 300, 400, 500, 600},
 		End:         []pb.Offset{300, 400, 500, 600, 700},
 		UuidParts: []pf.UUIDParts{
@@ -282,7 +280,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 			{Clock: 10004, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 		},
 	}
-	fixture.Content = fixture.Arena.AddAll(tokens...)
+	fixture.DocsJson = fixture.Arena.AddAll(tokens...)
 	fixture.PackedKey = fixture.Arena.AddAll(tokens...)
 
 	s.stageResponses(&fixture)

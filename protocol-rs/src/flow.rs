@@ -463,12 +463,14 @@ pub struct DeriveResponse {
     pub kind: ::std::option::Option<derive_response::Kind>,
 }
 pub mod derive_response {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Continue {}
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
         /// Continue extends the derive transaction with additional derived
         /// and combined collection documents.
         #[prost(message, tag = "1")]
-        Continue(()),
+        Continue(Continue),
         /// Flushed CombineResponses are sent in response to a request flush.
         /// An empty CombineResponse signals that no further responses remain
         /// to be sent, and the server is ready to prepare to commit.

@@ -304,7 +304,7 @@ async fn derive_rpc(
     // The client can apply flow control by bounding the number of in-flight Continue
     // messages, and this acknowledgement "opens" the window for a next client Continue.
     let ack = Ok(flow::DeriveResponse {
-        kind: Some(flow::derive_response::Kind::Continue(())),
+        kind: Some(flow::derive_response::Kind::Continue(flow::derive_response::Continue{})),
     });
 
     let mut rx_stream = rx_request.fuse();

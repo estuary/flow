@@ -131,11 +131,10 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 
 func (r *ring) buildExtractRequest(staged *pf.ShuffleResponse) *pf.ExtractRequest {
 	return &pf.ExtractRequest{
-		Arena:       staged.Arena,
-		ContentType: staged.ContentType,
-		Content:     staged.Content,
-		UuidPtr:     pf.DocumentUUIDPointer,
-		FieldPtrs:   r.shuffle.ShuffleKeyPtr,
+		Arena:     staged.Arena,
+		DocsJson:  staged.DocsJson,
+		UuidPtr:   pf.DocumentUUIDPointer,
+		FieldPtrs: r.shuffle.ShuffleKeyPtr,
 	}
 }
 
@@ -260,9 +259,6 @@ func readDocuments(
 	var buffer = make([]byte, 0, 1024)
 	var offset = rr.AdjustedOffset(br)
 
-	// TODO(johnny): Use journal ContentType label / wire this up better.
-	var contentType = pf.ContentType_JSON
-
 	for {
 		var line, err = message.UnpackLine(br)
 
@@ -308,8 +304,7 @@ func readDocuments(
 		if err == nil {
 			line = append(buffer, line...)
 			buffer = line[len(line):]
-			out.Content = append(out.Content, out.Arena.Add(line))
-			out.ContentType = contentType
+			out.DocsJson = append(out.DocsJson, out.Arena.Add(line))
 
 			out.Begin = append(out.Begin, offset)
 			offset = rr.AdjustedOffset(br)

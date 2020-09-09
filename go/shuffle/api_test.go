@@ -132,8 +132,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "", out.TerminalError)
 
-		var content = out.Arena.AllBytes(out.Content...)
-		actual.Content = actual.Arena.AddAll(content...)
+		var content = out.Arena.AllBytes(out.DocsJson...)
+		actual.DocsJson = actual.Arena.AddAll(content...)
 		actual.Begin = append(actual.Begin, out.Begin...)
 		actual.End = append(actual.End, out.End...)
 		actual.UuidParts = append(actual.UuidParts, out.UuidParts...)
@@ -157,7 +157,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 			A int
 			B string
 		}
-		require.NoError(t, json.Unmarshal(actual.Arena.Bytes(actual.Content[doc]), &record))
+		require.NoError(t, json.Unmarshal(actual.Arena.Bytes(actual.DocsJson[doc]), &record))
 		require.Equal(t, 1, record.A)
 		require.Equal(t, "0", record.B)
 		require.Equal(t, 0, i%2)
@@ -168,7 +168,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		require.Equal(t, "0", string(actual.Arena.Bytes(actual.ShuffleKey[1].Values[doc].Bytes)))
 	}
 	// We see 1/3 of key values, and a further 1/2 of those clocks.
-	require.Equal(t, 16, len(actual.Content))
+	require.Equal(t, 16, len(actual.DocsJson))
 
 	// Write and commit a single ACK document.
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})

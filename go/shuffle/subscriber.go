@@ -36,11 +36,10 @@ func (s *subscriber) initStaged(from *pf.ShuffleResponse) {
 		ReadThrough:   from.ReadThrough,
 		WriteHead:     from.WriteHead,
 		Transform:     from.Transform,
-		ContentType:   from.ContentType,
 
 		// Truncate per-document slices.
 		Arena:     s.staged.Arena[:0],
-		Content:   s.staged.Content[:0],
+		DocsJson:  s.staged.DocsJson[:0],
 		Begin:     s.staged.Begin[:0],
 		End:       s.staged.End[:0],
 		UuidParts: s.staged.UuidParts[:0],
@@ -62,8 +61,8 @@ func (s *subscriber) stageDoc(response *pf.ShuffleResponse, doc int) {
 	var offset = response.Begin[doc]
 
 	if offset >= s.Offset && (s.EndOffset == 0 || offset < s.EndOffset) {
-		s.staged.Content = append(s.staged.Content,
-			s.staged.Arena.Add(response.Arena.Bytes(response.Content[doc])))
+		s.staged.DocsJson = append(s.staged.DocsJson,
+			s.staged.Arena.Add(response.Arena.Bytes(response.DocsJson[doc])))
 		s.staged.Begin = append(s.staged.Begin, offset)
 		s.staged.End = append(s.staged.End, response.End[doc])
 		s.staged.UuidParts = append(s.staged.UuidParts, response.UuidParts[doc])

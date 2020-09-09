@@ -74,9 +74,8 @@ func TestReadingDocuments(t *testing.T) {
 	for out := range ch {
 		require.Equal(t, "", out.TerminalError)
 
-		if l := len(out.Content); l > 0 {
-			require.Equal(t, record, out.Arena.Bytes(out.Content[0]), record)
-			require.Equal(t, pf.ContentType_JSON, out.ContentType)
+		if l := len(out.DocsJson); l > 0 {
+			require.Equal(t, record, out.Arena.Bytes(out.DocsJson[0]), record)
 			count -= l
 		}
 		// The final ShuffleResponse (only) should have the Tailing bit set.
@@ -104,8 +103,7 @@ func TestReadingDocuments(t *testing.T) {
 	require.NoError(t, app.Close())
 
 	var out = <-ch
-	require.Equal(t, pf.ContentType_JSON, out.ContentType)
-	require.Equal(t, [][]byte{record}, out.Arena.AllBytes(out.Content...))
+	require.Equal(t, [][]byte{record}, out.Arena.AllBytes(out.DocsJson...))
 	require.Equal(t, []pb.Offset{app.Response.Commit.Begin}, out.Begin)
 	require.Equal(t, []pb.Offset{app.Response.Commit.End}, out.End)
 	require.Equal(t, app.Response.Commit.End, out.ReadThrough)
@@ -136,25 +134,21 @@ func TestDocumentExtraction(t *testing.T) {
 		},
 	}
 
-	var staged = pf.ShuffleResponse{
-		ContentType: pf.ContentType_JSON,
-	}
-	staged.Content = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
+	var staged pf.ShuffleResponse
+	staged.DocsJson = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
 
 	require.Equal(t, &pf.ExtractRequest{
-		Arena:       pf.Arena([]byte("doc-1\ndoc-2\n")),
-		ContentType: pf.ContentType_JSON,
-		Content:     []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
-		UuidPtr:     pf.DocumentUUIDPointer,
-		FieldPtrs:   []string{"/foo", "/bar"},
+		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n")),
+		DocsJson:  []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		UuidPtr:   pf.DocumentUUIDPointer,
+		FieldPtrs: []string{"/foo", "/bar"},
 	}, r.buildExtractRequest(&staged))
 
 	// Case: extraction fails.
 	r.onExtract(&staged, nil, fmt.Errorf("an error"))
 	require.Equal(t, pf.ShuffleResponse{
 		Arena:         pf.Arena([]byte("doc-1\ndoc-2\n")),
-		ContentType:   pf.ContentType_JSON,
-		Content:       []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		DocsJson:      []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		TerminalError: "an error",
 	}, staged)
 	staged.TerminalError = "" // Reset.
@@ -172,11 +166,10 @@ func TestDocumentExtraction(t *testing.T) {
 	r.onExtract(&staged, &fixture, nil)
 
 	require.Equal(t, pf.ShuffleResponse{
-		Arena:       pf.Arena([]byte("doc-1\ndoc-2\n\262some-string\022some-string\000\001")),
-		ContentType: pf.ContentType_JSON,
-		Content:     []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
-		UuidParts:   []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
-		PackedKey:   []pf.Slice{{Begin: 12, End: 13}, {Begin: 24, End: 38}},
+		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n\262some-string\022some-string\000\001")),
+		DocsJson:  []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
+		PackedKey: []pf.Slice{{Begin: 12, End: 13}, {Begin: 24, End: 38}},
 		ShuffleKey: []pf.Field{
 			{Values: []pf.Field_Value{
 				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},

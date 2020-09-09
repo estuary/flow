@@ -97,7 +97,7 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 			log.WithFields(log.Fields{
 				"journal":   r.req.Shuffle.Journal,
 				"tailing":   r.resp.Tailing(),
-				"remaining": len(r.resp.GetContent()),
+				"remaining": len(r.resp.GetDocsJson()),
 			}).Info("GATE")
 
 			// This document cannot be processed until wall time has reached
@@ -112,7 +112,7 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 			panic("unexpected error: " + err.Error())
 		}
 
-		if r.resp.Index != len(r.resp.Content) {
+		if r.resp.Index != len(r.resp.DocsJson) {
 			// Next document is available without polling.
 			heap.Push(&g.queued, r)
 		} else {
@@ -180,7 +180,7 @@ func (g *governor) poll(ctx context.Context) error {
 			return g.onConverge(ctx)
 		} else if r.resp.TerminalError != "" {
 			return fmt.Errorf(r.resp.TerminalError)
-		} else if len(r.resp.Content) == 0 {
+		} else if len(r.resp.DocsJson) == 0 {
 			// Re-enter to poll this *read instance again. In particular,
 			// we *must* perform another blocking read if !Tailing.
 			return errPollAgain
