@@ -5,21 +5,24 @@ export type Document = any;
 // BootstrapLambda is the type shape of a catalog bootstrap lambda.
 export type BootstrapLambda = () => Promise<void>;
 
-// TransformLambda is the generic shape of a lambda function, taking
-// up to three Documents as input.
-export type TransformLambda = (source: Document, ...rest: Document[]) =>
-    Promise<Document[]>;
+// UpdateLambda takes a document and returns an array of register update
+// Documents.
+export type UpdateLambda = (source: Document) => Promise<Document[]>;
+
+// PublishLambda takes a source document, a previous register, and a
+// next register, and returns an array of derived documents to publish.
+export type PublishLambda = (source: Document, previous: Document, register: Document) => Promise<Document[]>;
 
 // TransformMap indexes "update" and "publish" lambdas on their catalog
 // transform_id.
 export interface TransformMap {
-  [transformId: number]: {
-    update?: TransformLambda,
-    publish?: TransformLambda,
-  };
+    [transformId: number]: {
+        update?: UpdateLambda;
+        publish?: PublishLambda;
+    };
 }
 
 // BootstrapMap indexes BootstrapLambdas on their catalog derivation_id.
 export interface BootstrapMap {
-  [derivationId: number]: BootstrapLambda[];
+    [derivationId: number]: BootstrapLambda[];
 }

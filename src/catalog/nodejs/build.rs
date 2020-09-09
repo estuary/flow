@@ -237,7 +237,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
         if let Some(publish) = publish {
             writeln!(
                 w,
-                "publish: async (source: collections.{src}, register: registers.{reg}, previous?: registers.{reg}) : Promise<collections.{der}[]> => {{ {publish} }},",
+                "publish: async (source: collections.{src}, previous: registers.{reg}, register: registers.{reg}) : Promise<collections.{der}[]> => {{ {publish} }},",
                 src = ts_name(&src_name, &src_uri, is_alt),
                 reg = ts_name(&der_name, &reg_uri, false),
                 der = ts_name(&der_name, &der_uri, false),

@@ -1,9 +1,5 @@
-import {OutgoingHttpHeaders} from 'http';
 import * as h2 from 'http2';
-import * as JSONStreamValues from 'stream-json/streamers/StreamValues';
-
-import {LambdaTransformer} from './lambda_transform';
-import {BootstrapLambda, BootstrapMap, TransformMap} from './types';
+import {BootstrapLambda, BootstrapMap, Document, PublishLambda, TransformMap, UpdateLambda} from './types';
 
 // Server serves transform lambda invocation requests, streaming source
 // collection documents, processing each via the designated transform, and
@@ -59,49 +55,64 @@ class Server {
   _process(
       req: h2.ServerHttp2Stream,
       _: h2.IncomingHttpHeaders,
-      transform: (one: Document, two?: Document, three?: Document) =>
-          Promise<Document[]>,
+      update?: UpdateLambda,
+      publish?: PublishLambda,
       ): void {
-    req.respond(
-        {
-          ':status': 200,
-          'content-type': 'application/json-seq',
-        },
-        {endStream: false, waitForTrailers: true},
-    );
+    // Gather and join all data buffers.
+    const chunks: string[] = [];
 
-    // We'll send trailer headers at the end of the response.
-    const trailers: OutgoingHttpHeaders = {};
-
-    // Stand up a processing pipeline which:
-    // 1) parses input byte-stream into JSON documents
-    // 2) invokes |lambda| with each document, using |store|.
-    // 3) marshals emitted documents as stringified sequential JSON.
-    // 4) pipes back to the request's response stream.
-    const parse = JSONStreamValues.withParser();
-    const transformer = new LambdaTransformer(transform);
-    req.pipe(parse).pipe(transformer).pipe(req);
-
-    // 'wantTrailers' is invoked (only) on clean |req| write stream end.
-    // pipe() doesn't end streams or forward if an error occurs.
-    req.on('wantTrailers', () => {
-      if (!trailers['error']) {
-        trailers['success'] = 'true';
-      }
-      req.sendTrailers(trailers);
-      parse.destroy();
-      transformer.destroy();
+    req.on('data', (chunk: string) => {
+      chunks.push(chunk);
     });
 
-    // Errors in intermediate pipeline steps abort the |req| stream with an
-    // error.
-    const onErr = (err: Error): void => {
+    req.on('end', () => {
+      // Join input chunks and parse into an array of invocation rows.
+      const rows: Document[][] = JSON.parse(chunks.join(''));
+
+      // Map each row into a future which will return Document[].
+      const futures = rows.map(async (row) => {
+        const source = row[0];
+
+        if (update !== undefined) {
+          return update(source);
+        }
+
+        const previous = row[1];
+        const register = row[2];
+
+        if (publish !== undefined) {
+          return publish(source, previous, register || previous);
+        }
+
+        throw 'not reached';
+      });
+
+      // When all rows resolve, return the Document[][] to the caller.
+      Promise.all(futures)
+          .then((rows: Document[][]) => {
+            const body = JSON.stringify(rows);
+
+            req.respond({
+              ':status': 200,
+              'content-type': 'application/json',
+              'content-length': body.length,
+            });
+            req.end(body);
+          })
+          .catch((err) => {
+            // Send |err| to peer, and log to console.
+            req.respond({
+              ':status': 400,
+              'content-type': 'text/plain',
+            });
+            req.end(`${err.name}: (${err.message})`);
+            console.error(err);
+          });
+    });
+
+    req.on('error', (err) => {
       console.error(err);
-      trailers['error'] = `${err.name} (${err.message})`;
-      req.end();  // Trigger sending of trailers.
-    };
-    parse.on('error', onErr);
-    transformer.on('error', onErr);
+    });
   }
 
   // Processes request streams:
@@ -135,21 +146,21 @@ class Server {
 
     const pathUpdate = /^\/update\/(\d+)$/.exec(path);
     if (pathUpdate) {
-      const transform = this.transforms[parseInt(pathUpdate[1], 10)].update;
-      if (transform === undefined) {
+      const update = this.transforms[parseInt(pathUpdate[1], 10)].update;
+      if (update === undefined) {
         return malformed(`update ${path} is not defined`);
       }
-      this._process(req, hdrs, transform);
+      this._process(req, hdrs, update, undefined);
       return;
     }
 
-    const pathPublish = /^\/update\/(\d+)$/.exec(path);
+    const pathPublish = /^\/publish\/(\d+)$/.exec(path);
     if (pathPublish) {
-      const transform = this.transforms[parseInt(pathPublish[1], 10)].update;
-      if (transform === undefined) {
+      const publish = this.transforms[parseInt(pathPublish[1], 10)].publish;
+      if (publish === undefined) {
         return malformed(`publish ${path} is not defined`);
       }
-      this._process(req, hdrs, transform);
+      this._process(req, hdrs, undefined, publish);
       return;
     }
 
