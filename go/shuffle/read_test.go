@@ -9,14 +9,15 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/etcd/mvcc/mvccpb"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/keyspace"
 )
 
 func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, allTransforms = buildReadTestJournalsAndTransforms()
-		curJournals                           = []pb.ListResponse_Journal{}
 		curTransforms                         = allTransforms
 		ranges                                = labels.MustParseRangeSpec(allShards[0].LabelSet)
 		rb                                    = &ReadBuilder{
@@ -24,14 +25,7 @@ func TestReadBuilding(t *testing.T) {
 			ranges:     ranges,
 			transforms: func() []pf.TransformSpec { return curTransforms },
 			members:    func() []*pc.ShardSpec { return allShards },
-			listJournals: func(req pb.ListRequest) *pb.ListResponse {
-				require.Equal(t, pb.LabelSelector{
-					Include: pb.MustLabelSet(labels.Collection, "foo"),
-				}, req.Selector)
-
-				return &pb.ListResponse{Journals: curJournals}
-			},
-			journalsUpdateCh: nil, // Not used in this test.
+			journals:   &keyspace.KeySpace{Root: allJournals.Root},
 		}
 		existing = map[pb.Journal]*read{}
 	)
@@ -53,7 +47,7 @@ func TestReadBuilding(t *testing.T) {
 	require.Empty(t, added)
 
 	// Case: one journal & one transform => one read.
-	curJournals, curTransforms = allJournals[:1], allTransforms[:1]
+	rb.journals.KeyValues, curTransforms = allJournals.KeyValues[:1], allTransforms[:1]
 	const aJournal = "foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one"
 
 	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
@@ -63,12 +57,12 @@ func TestReadBuilding(t *testing.T) {
 		aJournal: {
 			spec: pb.JournalSpec{
 				Name:     aJournal,
-				LabelSet: allJournals[0].Spec.LabelSet,
+				LabelSet: allJournals.KeyValues[0].Decoded.(*pb.JournalSpec).LabelSet,
 			},
 			req: pf.ShuffleRequest{
 				Shuffle: pf.JournalShuffle{
 					Journal:     aJournal,
-					Coordinator: "shard/0",
+					Coordinator: "shard/1",
 					Shuffle:     allTransforms[0].Shuffle,
 				},
 				Range:  ranges,
@@ -91,12 +85,12 @@ func TestReadBuilding(t *testing.T) {
 	require.Equal(t, &read{
 		spec: pb.JournalSpec{
 			Name:     aJournal,
-			LabelSet: allJournals[0].Spec.LabelSet,
+			LabelSet: allJournals.KeyValues[0].Decoded.(*pb.JournalSpec).LabelSet,
 		},
 		req: pf.ShuffleRequest{
 			Shuffle: pf.JournalShuffle{
 				Journal:     aJournal,
-				Coordinator: "shard/0",
+				Coordinator: "shard/1",
 				Shuffle:     allTransforms[0].Shuffle,
 			},
 			Range:     ranges,
@@ -117,7 +111,7 @@ func TestReadBuilding(t *testing.T) {
 	allTransforms[0].Shuffle.ReadDelaySeconds-- // Reset.
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
-	curJournals, curTransforms = allJournals[1:], allTransforms
+	rb.journals.KeyValues, curTransforms = allJournals.KeyValues[1:], allTransforms
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
@@ -207,12 +201,12 @@ func TestCoordinatorAssignment(t *testing.T) {
 		transform   string
 		coordinator pc.ShardID
 	}{
-		{"foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one", "bar-one", "shard/0"},
+		{"foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one", "bar-one", "shard/1"},
 		{"foo/bar=1/baz=abc/part=01?derivation=der&transform=bar-one", "bar-one", "shard/2"},
-		{"foo/bar=1/baz=def/part=00?derivation=der&transform=bar-one", "bar-one", "shard/1"},
-		{"foo/bar=1/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/1"},
+		{"foo/bar=1/baz=def/part=00?derivation=der&transform=bar-one", "bar-one", "shard/0"},
+		{"foo/bar=1/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/0"},
 		{"foo/bar=2/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/0"},
-		{"foo/bar=2/baz=def/part=01?derivation=der&transform=baz-def", "baz-def", "shard/1"},
+		{"foo/bar=2/baz=def/part=01?derivation=der&transform=baz-def", "baz-def", "shard/2"},
 	}
 	var err = walkReads(shards, journals, transforms,
 		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
@@ -229,23 +223,25 @@ func TestHRWRegression(t *testing.T) {
 	var ring = []uint32{
 		hashString("Foo"),
 		hashString("Bar"),
-		hashString("Baz"),
+		hashString("Bez"),
 		hashString("Qib"),
 	}
 	var h = hashString("Test")
 
-	require.Equal(t, []uint32{0x306b1a20, 0x20fd96e4, 0x89f7f0e4, 0xe3b56c18}, ring)
-	require.Equal(t, uint32(0xbab20a64), h)
+	require.Equal(t, []uint32{0xc7e1677, 0xdbbc7dba, 0xcbb36a2e, 0x5389fa17}, ring)
+	require.Equal(t, uint32(0x2ffcbe05), h)
 
 	require.Equal(t, 1, pickHRW(h, ring, 0, 4))
 	require.Equal(t, 0, pickHRW(h, ring, 0, 1))
 	require.Equal(t, 1, pickHRW(h, ring, 1, 4))
-	require.Equal(t, 3, pickHRW(h, ring, 2, 4))
+	require.Equal(t, 2, pickHRW(h, ring, 2, 4))
 	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
 }
 
-func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []*pc.ShardSpec, []pf.TransformSpec) {
-	var journals []pb.ListResponse_Journal
+func buildReadTestJournalsAndTransforms() (*keyspace.KeySpace, []*pc.ShardSpec, []pf.TransformSpec) {
+	var journals = &keyspace.KeySpace{
+		Root: "/the/journals",
+	}
 
 	for _, j := range []struct {
 		bar   string
@@ -262,8 +258,11 @@ func buildReadTestJournalsAndTransforms() ([]pb.ListResponse_Journal, []*pc.Shar
 	} {
 		var name = fmt.Sprintf("foo/bar=%s/baz=%s/part=%02d", j.bar, j.baz, j.part)
 
-		journals = append(journals, pb.ListResponse_Journal{
-			Spec: pb.JournalSpec{
+		journals.KeyValues = append(journals.KeyValues, keyspace.KeyValue{
+			Raw: mvccpb.KeyValue{
+				Key: append(append([]byte(journals.Root), '/'), name...),
+			},
+			Decoded: &pb.JournalSpec{
 				Name: pb.Journal(name),
 				LabelSet: pb.MustLabelSet(
 					labels.Collection, "foo",

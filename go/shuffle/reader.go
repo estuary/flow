@@ -11,6 +11,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 )
 
@@ -38,6 +39,8 @@ type governor struct {
 	// been sent on the *read's channel. Used to wake poll() when
 	// blocking for more data.
 	readReadyCh chan struct{}
+	// Channel which is signaled with each update of journals.
+	journalsUpdateCh chan struct{}
 }
 
 // StartReadingMessages begins reading shuffled, ordered messages into the channel, from the given Checkpoint.
@@ -49,16 +52,18 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 	var ticker = time.NewTicker(time.Second)
 
 	var g = &governor{
-		rb:          rb,
-		ticker:      ticker.C,
-		mustPoll:    false,
-		pending:     make(map[*read]struct{}),
-		active:      make(map[pb.Journal]*read),
-		idle:        offsets,
-		readReadyCh: make(chan struct{}, 1),
+		rb:               rb,
+		ticker:           ticker.C,
+		mustPoll:         false,
+		pending:          make(map[*read]struct{}),
+		active:           make(map[pb.Journal]*read),
+		idle:             offsets,
+		readReadyCh:      make(chan struct{}, 1),
+		journalsUpdateCh: make(chan struct{}, 1),
 	}
 	g.wallTime.Update(time.Now())
 
+	// Spawn a loop which invokes Next() and passes the result to the output |ch|.
 	go func() {
 		var out consumer.EnvelopeOrError
 		for out.Error == nil {
@@ -67,6 +72,8 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 		}
 		ticker.Stop()
 	}()
+	// Spawn a loop which wakes |journalsUpdateCh| on each revision update.
+	go signalKeySpaceUpdates(ctx, rb.journals, g.journalsUpdateCh)
 
 	return
 }
@@ -147,7 +154,7 @@ func (g *governor) poll(ctx context.Context) error {
 				// Fall through.
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-g.rb.journalsUpdateCh:
+			case <-g.journalsUpdateCh:
 				return g.onConverge(ctx)
 			case tick := <-g.ticker:
 				return g.onTick(tick)
@@ -159,7 +166,7 @@ func (g *governor) poll(ctx context.Context) error {
 			select {
 			case r.resp.ShuffleResponse, chOk = <-r.pollCh:
 				// Fall through.
-			case <-g.rb.journalsUpdateCh:
+			case <-g.journalsUpdateCh:
 				return g.onConverge(ctx)
 			case tick := <-g.ticker:
 				return g.onTick(tick)
@@ -204,7 +211,7 @@ func (g *governor) poll(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-g.rb.journalsUpdateCh:
+	case <-g.journalsUpdateCh:
 		return g.onConverge(ctx)
 	case tick := <-g.ticker:
 		return g.onTick(tick)
@@ -253,4 +260,21 @@ func (g *governor) onConverge(ctx context.Context) error {
 
 	// Converge interrupts a current poll(), so we always poll again.
 	return errPollAgain
+}
+
+func signalKeySpaceUpdates(ctx context.Context, ks *keyspace.KeySpace, ch chan<- struct{}) {
+	ks.Mu.RLock()
+	defer ks.Mu.RUnlock()
+
+	for {
+		select {
+		case ch <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+
+		if err := ks.WaitForRevision(ctx, ks.Header.Revision+1); err != nil {
+			return
+		}
+	}
 }
