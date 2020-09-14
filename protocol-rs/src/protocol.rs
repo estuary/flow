@@ -481,14 +481,6 @@ pub struct ListRequest {
     ///     The prefix Label value must end in '/'.
     #[prost(message, optional, tag = "1")]
     pub selector: ::std::option::Option<LabelSelector>,
-    /// Maximum number of journals to return in a ListResponse.
-    /// This field is optional, and the broker may enforce its own limit.
-    #[prost(uint32, tag = "2")]
-    pub page_limit: u32,
-    /// A pagination token returned by a previous call to List, that indicates
-    /// where this request should continue from. Optional.
-    #[prost(string, tag = "3")]
-    pub page_token: std::string::String,
 }
 /// ListResponse is the unary response message of the broker List RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -501,10 +493,6 @@ pub struct ListResponse {
     pub header: ::std::option::Option<Header>,
     #[prost(message, repeated, tag = "3")]
     pub journals: ::std::vec::Vec<list_response::Journal>,
-    /// A pagination token which indicates where the next request should continue
-    /// from. Empty if and only if this ListResponse completes the listing.
-    #[prost(string, tag = "4")]
-    pub next_page_token: std::string::String,
 }
 pub mod list_response {
     /// Journals of the response.

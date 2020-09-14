@@ -147,6 +147,8 @@ pub struct Transform {
     /// Shuffle key by which source collection messages are mapped to a
     /// derivation register, as an array of JSON-Pointers. If empty, the key of
     /// the source collection is used.
+    // TODO(johnny): It was a whoops to hoist the key back here.
+    // We want this to be able to represent a hash function to use also.
     #[serde(default)]
     pub shuffle: Option<Vec<String>>,
     /// An "update" lambda takes a source document and associated register,

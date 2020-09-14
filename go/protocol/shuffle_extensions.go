@@ -1,8 +1,11 @@
 package protocol
 
 import (
-	bytes "bytes"
+	"bytes"
+	"strconv"
+	"unsafe"
 
+	"github.com/jgraettinger/cockroach-encoding/encoding"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -81,4 +84,49 @@ func (m *Field) AppendValue(from, to *Arena, field Field_Value) {
 		field.Bytes = to.Add(from.Bytes(field.Bytes))
 	}
 	m.Values = append(m.Values, field)
+}
+
+// ToJSON returns the JSON-encoding of this field Value, as a string.
+func (m *Field_Value) ToJSON(arena Arena) string {
+	switch m.Kind {
+	case Field_Value_NULL:
+		return "null"
+	case Field_Value_TRUE:
+		return "true"
+	case Field_Value_FALSE:
+		return "false"
+	case Field_Value_UNSIGNED:
+		return strconv.FormatUint(m.Unsigned, 10)
+	case Field_Value_SIGNED:
+		return strconv.FormatInt(m.Signed, 10)
+	case Field_Value_DOUBLE:
+		return strconv.FormatFloat(m.Double, 'g', -1, 64)
+	case Field_Value_OBJECT, Field_Value_ARRAY, Field_Value_STRING:
+		var b = arena.Bytes(m.Bytes)
+		return *(*string)(unsafe.Pointer(&b))
+	default:
+		panic("invalid value Kind")
+	}
+}
+
+// EncodePacked encodes this Value into an order-preserving, embedded []byte encoding.
+func (m *Field_Value) EncodePacked(b []byte, arena Arena) []byte {
+	switch m.Kind {
+	case Field_Value_NULL:
+		return encoding.EncodeNullAscending(b)
+	case Field_Value_TRUE:
+		return encoding.EncodeTrueAscending(b)
+	case Field_Value_FALSE:
+		return encoding.EncodeFalseAscending(b)
+	case Field_Value_UNSIGNED:
+		return encoding.EncodeUvarintAscending(b, m.Unsigned)
+	case Field_Value_SIGNED:
+		return encoding.EncodeVarintAscending(b, m.Signed)
+	case Field_Value_DOUBLE:
+		return encoding.EncodeFloatAscending(b, m.Double)
+	case Field_Value_STRING, Field_Value_OBJECT, Field_Value_ARRAY:
+		return encoding.EncodeBytesAscending(b, arena.Bytes(m.Bytes))
+	default:
+		panic("invalid value Kind")
+	}
 }

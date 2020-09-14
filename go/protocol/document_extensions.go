@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"bufio"
+	bytes "bytes"
 	"encoding/binary"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -91,51 +93,48 @@ func (m *ShuffleResponse) Tailing() bool {
 	return m != nil && m.ReadThrough == m.WriteHead
 }
 
-/*
+// IndexedCombineResponse is an implementation of message.Message which
+// indexes a specific document within a CombineResponse.
+type IndexedCombineResponse struct {
+	*CombineResponse
+	Index int
+}
 
-// TODO(johnny): Right now, I'm expecting to have a DeriveMessage which, like
-// ShuffleMessage, indexes a given document of a DeriveResponse. These
-// implementations need to be re-worked for it.
+var _ message.Message = IndexedCombineResponse{}
+
+// GetUUID panics if called.
+func (cd IndexedCombineResponse) GetUUID() message.UUID { panic("not implemented") }
 
 // SetUUID replaces the placeholder UUID string, which must exist, with the UUID.
-func (d *Document) SetUUID(uuid message.UUID) {
-	d.UuidParts = NewUUIDParts(uuid)
+func (cd IndexedCombineResponse) SetUUID(uuid message.UUID) {
+	var b = cd.Arena.Bytes(cd.DocsJson[cd.Index])
 
-	// Require that the current content has a placeholder.
+	// Require that the current content has a placeholder UUID.
+	var ind = bytes.Index(b, DocumentUUIDPlaceholder)
+	if ind == -1 {
+		panic("document UUID placeholder not found")
+	}
+
 	// Replace it with the string-form UUID.
 	var str = uuid.String()
-	var ind = bytes.Index(d.Content, DocumentUUIDPlaceholder)
-	if ind == -1 {
-		panic("document UUID placeholder not found!")
-	}
-	copy(d.Content[ind:ind+36], str[0:36])
+	copy(b[ind:ind+36], str[0:36])
 }
 
-// NewAcknowledgement builds and returns an initialized RawJSON message having
-// a placeholder UUID.
-func (d *Document) NewAcknowledgement(pb.Journal) message.Message {
-	return &Document{
-		ContentType: Document_JSON,
-		Content:     []byte(DocumentAckJSONTemplate),
+// NewAcknowledgement returns an IndexedCombineResponse of the acknowledgement template.
+func (cd IndexedCombineResponse) NewAcknowledgement(pb.Journal) message.Message {
+	return IndexedCombineResponse{
+		CombineResponse: &CombineResponse{
+			Arena:    append([]byte(nil), DocumentAckJSONTemplate...),
+			DocsJson: []Slice{{Begin: 0, End: uint32(len(DocumentAckJSONTemplate))}},
+		},
+		Index: 0,
 	}
 }
 
-// MarshalJSONTo marshals a Document message with a following newline.
-func (d *Document) MarshalJSONTo(bw *bufio.Writer) (int, error) {
-	if d.ContentType != Document_JSON {
-		panic("unexpected ContentType")
-	}
-	return bw.Write(d.Content)
+// MarshalJSONTo copies the raw document json into the Writer.
+func (cd IndexedCombineResponse) MarshalJSONTo(bw *bufio.Writer) (int, error) {
+	return bw.Write(cd.Arena.Bytes(cd.DocsJson[cd.Index]))
 }
-
-// UnmarshalJSON sets the Document's Content with a copy of |data|,
-// and the JSON ContentType.
-func (d *Document) UnmarshalJSON(data []byte) error {
-	d.ContentType = Document_JSON
-	d.Content = append(d.Content[:0], data...)
-	return nil
-}
-*/
 
 var (
 	// DocumentUUIDPointer is a JSON pointer of the location of the document UUID.
@@ -145,5 +144,5 @@ var (
 	DocumentUUIDPlaceholder = []byte("DocUUIDPlaceholder-329Bb50aa48EAa9ef")
 	// DocumentAckJSONTemplate is a JSON-encoded document template which serves
 	// as a Gazette consumer transaction acknowledgement.
-	DocumentAckJSONTemplate = `{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}` + "\n"
+	DocumentAckJSONTemplate = []byte(`{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}` + "\n")
 )

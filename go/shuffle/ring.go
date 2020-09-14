@@ -162,25 +162,12 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, extract *pf.ExtractResponse
 
 		for _, v := range extract.Fields {
 			var vv = v.Values[doc]
+			packed = vv.EncodePacked(packed, extract.Arena)
 
+			// Update field Bytes from extract.Arena to staged.Arena|.
 			switch vv.Kind {
-			case pf.Field_Value_NULL:
-				packed = encoding.EncodeNullAscending(packed)
-			case pf.Field_Value_TRUE:
-				packed = encoding.EncodeTrueAscending(packed)
-			case pf.Field_Value_FALSE:
-				packed = encoding.EncodeFalseAscending(packed)
-			case pf.Field_Value_UNSIGNED:
-				packed = encoding.EncodeUvarintAscending(packed, vv.Unsigned)
-			case pf.Field_Value_SIGNED:
-				packed = encoding.EncodeVarintAscending(packed, vv.Signed)
-			case pf.Field_Value_DOUBLE:
-				packed = encoding.EncodeFloatAscending(packed, vv.Double)
 			case pf.Field_Value_STRING, pf.Field_Value_OBJECT, pf.Field_Value_ARRAY:
-				var b = extract.Arena.Bytes(vv.Bytes)
-				packed = encoding.EncodeBytesAscending(packed, b)
-				// Update field Slice to use |staged|'s Arena.
-				v.Values[doc].Bytes = staged.Arena.Add(b)
+				v.Values[doc].Bytes = staged.Arena.Add(extract.Arena.Bytes(vv.Bytes))
 			}
 		}
 
