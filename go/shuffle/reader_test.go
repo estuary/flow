@@ -22,6 +22,7 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/keyspace"
 	gazLabels "go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
@@ -63,6 +64,12 @@ func TestConsumerIntegration(t *testing.T) {
 	wh, err := flow.NewWorkerHost("extract")
 	require.Nil(t, err)
 	defer wh.Stop()
+
+	// Journals is a consumer-held KeySpace that observes broker-managed journals.
+	journals, err := flow.NewJournalsKeySpace(ctx, etcd, "/broker.test")
+	require.NoError(t, err)
+	journals.WatchApplyDelay = 0
+	go journals.Watch(ctx, etcd)
 
 	// Start broker, with journal fixtures.
 	var journalSpecs []*pb.JournalSpec
@@ -117,6 +124,7 @@ func TestConsumerIntegration(t *testing.T) {
 		Etcd:     etcd,
 		Journals: broker.Client(),
 		App: &testApp{
+			journals:   journals,
 			workerHost: wh,
 			transforms: transforms,
 		},
@@ -176,6 +184,7 @@ func TestConsumerIntegration(t *testing.T) {
 
 type testApp struct {
 	service    *consumer.Service
+	journals   *keyspace.KeySpace
 	workerHost *flow.WorkerHost
 	transforms []pf.TransformSpec
 }
@@ -199,7 +208,7 @@ func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store
 		pf.NewExtractClient(a.workerHost.Conn))
 
 	var err error
-	if testStore.readBuilder, err = NewReadBuilder(a.service, shard,
+	if testStore.readBuilder, err = NewReadBuilder(a.service, a.journals, shard,
 		func() []pf.TransformSpec { return a.transforms },
 	); err != nil {
 		ch <- consumer.EnvelopeOrError{Error: err}
