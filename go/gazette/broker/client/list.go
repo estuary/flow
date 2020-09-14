@@ -83,32 +83,17 @@ func (pl *PolledList) periodicRefresh(dur time.Duration) {
 	}
 }
 
-// ListAllJournals performs multiple List RPCs, as required to join across multiple
-// ListResponse pages, and returns the complete ListResponse of the ListRequest.
+// ListAllJournals performs a broker journal listing.
 // Any encountered error is returned.
 func ListAllJournals(ctx context.Context, client pb.JournalClient, req pb.ListRequest) (*pb.ListResponse, error) {
-	var resp *pb.ListResponse
-
-	for {
-		// List RPCs may be dispatched to any broker.
-		if r, err := client.List(pb.WithDispatchDefault(ctx), &req, grpc.FailFast(false)); err != nil {
-			return resp, mapGRPCCtxErr(ctx, err)
-		} else if err = r.Validate(); err != nil {
-			return resp, err
-		} else if r.Status != pb.Status_OK {
-			return resp, errors.New(r.Status.String())
-		} else {
-			req.PageToken, r.NextPageToken = r.NextPageToken, ""
-
-			if resp == nil {
-				resp = r
-			} else {
-				resp.Journals = append(resp.Journals, r.Journals...)
-			}
-		}
-		if req.PageToken == "" {
-			break // All done.
-		}
+	// List RPCs may be dispatched to any broker.
+	var resp, err = client.List(pb.WithDispatchDefault(ctx), &req, grpc.FailFast(false))
+	if err != nil {
+		return resp, mapGRPCCtxErr(ctx, err)
+	} else if err = resp.Validate(); err != nil {
+		return resp, err
+	} else if resp.Status != pb.Status_OK {
+		return resp, errors.New(resp.Status.String())
 	}
 
 	if dr, ok := client.(pb.DispatchRouter); ok {

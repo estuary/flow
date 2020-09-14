@@ -541,6 +541,8 @@ message ReplicateResponse {
 
 // ListRequest is the unary request message of the broker List RPC.
 message ListRequest {
+  // Tags used for unimplemented, removed page_limit / page_token.
+  reserved 2, 3;
   // Selector optionally refines the set of journals which will be enumerated.
   // If zero-valued, all journals are returned. Otherwise, only JournalSpecs
   // matching the LabelSelector will be returned. Two meta-labels "name" and
@@ -550,16 +552,12 @@ message ListRequest {
   //   * prefix=examples/ will match any JournalSpec having prefix "examples/".
   //     The prefix Label value must end in '/'.
   LabelSelector selector = 1 [ (gogoproto.nullable) = false ];
-  // Maximum number of journals to return in a ListResponse.
-  // This field is optional, and the broker may enforce its own limit.
-  uint32 page_limit = 2;
-  // A pagination token returned by a previous call to List, that indicates
-  // where this request should continue from. Optional.
-  string page_token = 3;
 }
 
 // ListResponse is the unary response message of the broker List RPC.
 message ListResponse {
+  // Tag used for unimplemented, removed next_page_token.
+  reserved 4;
   // Status of the List RPC.
   Status status = 1;
   // Header of the response.
@@ -573,9 +571,6 @@ message ListResponse {
     Route route = 3 [ (gogoproto.nullable) = false ];
   }
   repeated Journal journals = 3 [ (gogoproto.nullable) = false ];
-  // A pagination token which indicates where the next request should continue
-  // from. Empty if and only if this ListResponse completes the listing.
-  string next_page_token = 4;
 }
 
 // ApplyRequest is the unary request message of the broker Apply RPC.

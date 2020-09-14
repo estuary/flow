@@ -37,9 +37,6 @@ func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.Lis
 	if err = req.Validate(); err != nil {
 		return resp, err
 	}
-
-	// TODO(johnny): Implement support for PageLimit & PageToken.
-
 	var metaLabels, allLabels pb.LabelSet
 
 	defer s.KS.Mu.RUnlock()
@@ -87,18 +84,13 @@ func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.A
 		}
 	}()
 
-	var s = svc.resolver.state
-
-	resp = &pb.ApplyResponse{
-		Status: pb.Status_OK,
-		Header: pbx.NewUnroutedHeader(s),
-	}
 	if err = req.Validate(); err != nil {
-		return resp, err
+		return new(pb.ApplyResponse), err
 	}
 
 	var cmp []clientv3.Cmp
 	var ops []clientv3.Op
+	var s = svc.resolver.state
 
 	for _, change := range req.Changes {
 		var key string
@@ -118,6 +110,11 @@ func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.A
 		}
 	}
 
+	resp = &pb.ApplyResponse{
+		Status: pb.Status_OK,
+		Header: pbx.NewUnroutedHeader(s),
+	}
+
 	var txnResp clientv3.OpResponse
 	if txnResp, err = svc.etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil)); err != nil {
 		return resp, err
@@ -129,5 +126,6 @@ func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.A
 		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
 		s.KS.Mu.RUnlock()
 	}
+	resp.Header.Etcd.Revision = txnResp.Txn().Header.Revision
 	return resp, err
 }

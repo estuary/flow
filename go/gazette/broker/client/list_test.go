@@ -21,54 +21,42 @@ func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	var selector = pb.LabelSelector{Include: pb.MustLabelSet("foo", "bar")}
 	var mk = buildListResponseFixture // Alias.
 
-	// Case: ListAllJournals submits multiple requests and joins their results.
-	var expect = []pb.ListRequest{
-		{Selector: selector, PageLimit: 10},
-		{Selector: selector, PageLimit: 10, PageToken: "tok-1"},
-		{Selector: selector, PageLimit: 10, PageToken: "tok-2"},
+	// Case: successful RPC.
+	var expect = pb.ListRequest{
+		Selector: selector,
 	}
 	var hdr = *buildHeaderFixture(broker)
 	var responses = []pb.ListResponse{
-		{Header: hdr, Journals: mk("part-one"), NextPageToken: "tok-1"},
-		{Header: hdr, Journals: mk("part-two"), NextPageToken: "tok-2"},
-		{Header: hdr, Journals: mk("part-three")},
+		{Header: hdr, Journals: mk("journal/one", "journal/two", "journal/3")},
 	}
 
 	broker.ListFunc = func(_ context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
-		c.Check(*req, gc.DeepEquals, expect[0])
+		c.Check(*req, gc.DeepEquals, expect)
 		var resp = &responses[0]
-		expect, responses = expect[1:], responses[1:]
+		responses = responses[1:]
 		return resp, nil
 	}
 
 	var rc = NewRouteCache(10, time.Hour)
 	var rjc = pb.NewRoutedJournalClient(broker.Client(), rc)
-	var resp, err = ListAllJournals(context.Background(), rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
+	var resp, err = ListAllJournals(context.Background(), rjc, pb.ListRequest{Selector: selector})
 
 	c.Check(err, gc.IsNil)
 	c.Check(resp, gc.DeepEquals, &pb.ListResponse{
 		Header:   hdr,
-		Journals: mk("part-one", "part-two", "part-three"),
+		Journals: mk("journal/one", "journal/two", "journal/3"),
 	})
 	c.Check(rc.cache.Len(), gc.Equals, 3)
 
-	// Case: A single RPC is required.
-	expect = []pb.ListRequest{{Selector: selector}}
-	responses = []pb.ListResponse{{Header: hdr, Journals: mk("only/one")}}
-
-	resp, err = ListAllJournals(context.Background(), broker.Client(), pb.ListRequest{Selector: selector})
-	c.Check(err, gc.IsNil)
-	c.Check(resp, gc.DeepEquals, &pb.ListResponse{Header: hdr, Journals: mk("only/one")})
-
 	// Case: It fails on response validation failure.
-	expect = []pb.ListRequest{{Selector: selector}}
+	expect = pb.ListRequest{Selector: selector}
 	responses = []pb.ListResponse{{Header: hdr, Journals: mk("invalid name")}}
 
 	_, err = ListAllJournals(context.Background(), broker.Client(), pb.ListRequest{Selector: selector})
 	c.Check(err, gc.ErrorMatches, `Journals\[0\].Spec.Name: not a valid token \(invalid name\)`)
 
 	// Case: It fails on non-OK status.
-	expect = []pb.ListRequest{{Selector: selector}}
+	expect = pb.ListRequest{Selector: selector}
 	responses = []pb.ListResponse{{Header: hdr, Status: pb.Status_WRONG_ROUTE}}
 
 	_, err = ListAllJournals(context.Background(), broker.Client(), pb.ListRequest{Selector: selector})
@@ -77,7 +65,7 @@ func (s *ListSuite) TestListAllJournalsCases(c *gc.C) {
 	// Case: It surfaces context.Canceled, rather than a gRPC error.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector, PageLimit: 10})
+	_, err = ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector})
 	c.Check(err, gc.Equals, context.Canceled)
 }
 

@@ -276,8 +276,6 @@ func (m *ListRequest) Validate() error {
 		}
 	}
 
-	// PageLimit and PageToken require no extra validation.
-
 	return nil
 }
 
@@ -292,8 +290,6 @@ func (m *ListResponse) Validate() error {
 			return ExtendContext(err, "Journals[%d]", i)
 		}
 	}
-
-	// NextPageToken requires no extra validation.
 
 	return nil
 }
