@@ -1,9 +1,12 @@
 package protocol
 
 import (
+	"bufio"
+	"bytes"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/message"
 )
@@ -38,41 +41,22 @@ func TestUUIDPartsRoundTrip(t *testing.T) {
 	require.Equal(t, message.GetClock(uuid), clock)
 }
 
-/*
-// TODO(johnny): Rework as part of DeriveMessage.
-
-func TestDocumentJSONInterface(t *testing.T) {
-	// Documents can build acknowledgements.
-	var doc = new(Document).NewAcknowledgement("").(*Document)
-	require.Equal(t, doc.Content, []byte(DocumentAckJSONTemplate))
-	require.Equal(t, doc.ContentType, Document_JSON)
+func TestCombineResponseUUIDFlow(t *testing.T) {
+	// IndexedCombineResponse can build acknowledgements.
+	var doc = IndexedCombineResponse{}.NewAcknowledgement("").(IndexedCombineResponse)
+	require.Equal(t, []byte(doc.Arena), []byte(DocumentAckJSONTemplate))
 
 	// We can update the UUID.
 	var testUUID = uuid.MustParse("000001a8-0000-1000-9402-000102030405")
 	doc.SetUUID(testUUID)
 
-	// The updated UUID is seen via accessor, and serialization.
-	require.Equal(t, testUUID, doc.GetUUID())
-	var serialization = documentToString(t, doc)
-	require.Equal(t, `{"_meta":{"uuid":"000001a8-0000-1000-9402-000102030405","ack":true}}`+"\n",
-		serialization)
-
-	// We can round-trip back to a Document (though UUID is parsed elsewhere).
-	require.NoError(t, doc.UnmarshalJSON([]byte(serialization)))
-	require.Equal(t, doc.Content, []byte(serialization))
-	require.Equal(t, doc.ContentType, Document_JSON)
-	require.Equal(t, serialization, documentToString(t, doc))
-}
-
-func documentToString(t *testing.T, m *Document) string {
+	// The updated UUID is seen via serialization.
 	var b bytes.Buffer
 	var bw = bufio.NewWriter(&b)
-	var _, err = m.MarshalJSONTo(bw)
+	var _, err = doc.MarshalJSONTo(bw)
 	require.NoError(t, err)
 	bw.Flush()
 
-	require.Equal(t, []byte(m.Content), b.Bytes())
-	return b.String()
+	require.Equal(t, `{"_meta":{"uuid":"000001a8-0000-1000-9402-000102030405","ack":true}}`+"\n",
+		b.String())
 }
-
-*/

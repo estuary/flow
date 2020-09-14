@@ -169,6 +169,9 @@ func TestConsumerIntegration(t *testing.T) {
 		res.Done() // Release resolution.
 	}
 	require.Equal(t, expect, merged)
+
+	broker.Tasks.Cancel()
+	require.NoError(t, broker.Tasks.Wait())
 }
 
 type testApp struct {
