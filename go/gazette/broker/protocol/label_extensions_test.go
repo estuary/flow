@@ -14,7 +14,8 @@ func (s *LabelSuite) TestLabelValidationCases(c *gc.C) {
 		name, value string
 		expect      string
 	}{
-		{"a-label", "a-value", ""}, // Success.
+		{"a-label", "a-value", ""},     // Success.
+		{"a%20label", "a%20value", ""}, // Success.
 		{"a|label", "a-value", `Name: not a valid token \(a|label\)`},
 		{"a-label", "a|value", `Value: not a valid token \(a|value\)`},
 		{"a", "a-value", `Name: invalid length \(1; expected 2 <= length <= 64\)`},

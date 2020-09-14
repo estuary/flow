@@ -84,10 +84,11 @@ const (
 	// Note that any character with ordinal value less than or equal to '#' (35),
 	// which is the allocator KeySpace separator, must not be included in this alphabet.
 	// The alphabet leads with '-' to facilitate escaping in |reToken|.
-	TokenSymbols = "-_+/."
+	TokenSymbols = "-_+/.%"
 	// pathSymbols is allowed runes of strings which form path components.
-	// It extends TokenSymbols with the '=' and '%' runes.
-	pathSymbols = TokenSymbols + "=%"
+	// It extends TokenSymbols with the '=' rune.
+	pathSymbols = TokenSymbols + "="
 	// querySymbols is allowed runes of strings which form query components.
-	querySymbols = "-_+.&=%"
+	// As compared to |pathSymbols|, it removes '/' and adds '&'.
+	querySymbols = "-_+.%=&"
 )
