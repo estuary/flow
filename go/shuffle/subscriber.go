@@ -35,7 +35,6 @@ func (s *subscriber) initStaged(from *pf.ShuffleResponse) {
 		TerminalError: from.TerminalError,
 		ReadThrough:   from.ReadThrough,
 		WriteHead:     from.WriteHead,
-		Transform:     from.Transform,
 
 		// Truncate per-document slices.
 		Arena:     s.staged.Arena[:0],

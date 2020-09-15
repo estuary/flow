@@ -48,21 +48,22 @@ message UUIDParts {
       [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
 }
 
-// Shuffle of documents, mapping each document to member indicies within a
-// Ring.
+// Shuffle is a description of a document shuffle, where each document
+// is mapped into:
+//  * An extracted, packed composite key (a "shuffle key").
+//  * A rotated Clock value (an "r-clock").
+// The packed key and r-clock can then be compared to a reader RangeSpec.
 message Shuffle {
   option (gogoproto.equal) = true;
 
-  // Transform for which this Shuffle is being applied.
-  string transform = 1 [ (gogoproto.casttype) = "Transform" ];
   // Composite key over which shuffling occurs, specified as one or more
   // JSON-Pointers indicating a message location to extract.
-  repeated string shuffle_key_ptr = 2;
+  repeated string shuffle_key_ptr = 1;
   // uses_source_key is true if shuffle_key_ptr is the source's native key,
   // and false if it's some other key. When shuffling using the source's key,
   // we can minimize data movement by assigning a shard coordinator for each
   // journal such that the shard's key range overlap that of the journal.
-  bool uses_source_key = 3;
+  bool uses_source_key = 2;
   // filter_r_clocks is true if the shuffle coordinator should filter documents
   // sent to each subscriber based on its covered r-clock ranges and the
   // individual document clocks. If false, the subscriber's r-clock range is
@@ -72,7 +73,7 @@ message Shuffle {
   // a "publish" but not an "update" lambda, as such documents have no
   // side-effects on the reader's state store, and would not be published anyway
   // for falling outside of the reader's r-clock range.
-  bool filter_r_clocks = 6;
+  bool filter_r_clocks = 3;
   // Optional hash applied to extracted, packed shuffle keys. Hashes can:
   // * Mitigate shard skew which might otherwise occur due to key locality
   //   (many co-occurring updates to "nearby" keys).
@@ -114,6 +115,12 @@ message JournalShuffle {
 
 // Transform describes a specific transform of a derived collection.
 message TransformSpec {
+  // Stable name of this transform, scoped to it's Derivation.
+  string name = 1 [ (gogoproto.casttype) = "Transform" ];
+  // ID of this transform within the present catalog DB.
+  // This ID is *not* stable /across/ different catalog DBs.
+  // Instead, use |name| for equality testing.
+  int32 catalog_db_id = 2;
   // Source collection read by this transform.
   message Source {
     // Name of the collection.
@@ -121,10 +128,10 @@ message TransformSpec {
     // Selector of partitions of the collection which this transform reads.
     protocol.LabelSelector partitions = 2 [ (gogoproto.nullable) = false ];
   }
-  Source source = 2 [ (gogoproto.nullable) = false ];
+  Source source = 3 [ (gogoproto.nullable) = false ];
   // Shuffle applied to source documents for this transform.
   // Note that the Shuffle embeds the Transform name.
-  Shuffle shuffle = 3 [ (gogoproto.nullable) = false ];
+  Shuffle shuffle = 4 [ (gogoproto.nullable) = false ];
   // Derived collection produced by this transform.
   message Derivation {
     string name = 1 [ (gogoproto.casttype) = "Collection" ];
@@ -209,25 +216,23 @@ message ShuffleResponse {
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // Memory arena of this message.
   bytes arena = 6 [ (gogoproto.casttype) = "Arena" ];
-  // Transform name, passed through from the ShuffleRequest.
-  string transform = 7 [ (gogoproto.casttype) = "Transform" ];
   // Shuffled documents, each encoded in the 'application/json'
   // media-type.
-  repeated Slice docs_json = 9 [ (gogoproto.nullable) = false ];
+  repeated Slice docs_json = 7 [ (gogoproto.nullable) = false ];
   // The begin offset of each document within the requested journal.
-  repeated int64 begin = 10
+  repeated int64 begin = 8
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // The end offset of each document within the journal.
-  repeated int64 end = 11
+  repeated int64 end = 9
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // UUIDParts of each document.
-  repeated UUIDParts uuid_parts = 12 [ (gogoproto.nullable) = false ];
+  repeated UUIDParts uuid_parts = 10 [ (gogoproto.nullable) = false ];
   // Packed, embedded encoding of the shuffle key into a byte string.
   // If the Shuffle specified a Hash to use, it's applied as well.
-  repeated Slice packed_key = 13 [ (gogoproto.nullable) = false ];
+  repeated Slice packed_key = 11 [ (gogoproto.nullable) = false ];
   // Extracted shuffle key of each document, with one Field for each
   // component of the composite shuffle key.
-  repeated Field shuffle_key = 14 [ (gogoproto.nullable) = false ];
+  repeated Field shuffle_key = 12 [ (gogoproto.nullable) = false ];
 }
 
 service Shuffler {

@@ -12,7 +12,6 @@ func TestJournalShuffle(t *testing.T) {
 		Journal:     "bad journal",
 		Coordinator: "bad shard",
 		Shuffle: Shuffle{
-			Transform:     "",
 			ShuffleKeyPtr: nil,
 			Hash:          99999,
 		},
@@ -23,8 +22,6 @@ func TestJournalShuffle(t *testing.T) {
 	require.EqualError(t, m.Validate(), "Coordinator: not a valid token (bad shard)")
 	m.Coordinator = "some-shard"
 
-	require.EqualError(t, m.Validate(), "Shuffle: expected Transform")
-	m.Shuffle.Transform = "a transform"
 	require.EqualError(t, m.Validate(), "Shuffle: expected at least one ShuffleKeyPtr")
 	m.Shuffle.ShuffleKeyPtr = []string{"/foo"}
 	require.EqualError(t, m.Validate(), "Shuffle: unknown Hash (99999)")
@@ -40,7 +37,6 @@ func TestShuffleRequest(t *testing.T) {
 			Journal:     "a/journal",
 			Coordinator: "bad coordinator",
 			Shuffle: Shuffle{
-				Transform:     "a transform",
 				ShuffleKeyPtr: []string{"/foo"},
 			},
 		},

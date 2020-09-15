@@ -46,9 +46,7 @@ func (m RangeSpec) Validate() error {
 
 // Validate returns a validation error of the Shuffle.
 func (m *Shuffle) Validate() error {
-	if len(m.Transform) == 0 {
-		return pb.NewValidationError("expected Transform")
-	} else if len(m.ShuffleKeyPtr) == 0 {
+	if len(m.ShuffleKeyPtr) == 0 {
 		return pb.NewValidationError("expected at least one ShuffleKeyPtr")
 	} else if _, ok := Shuffle_Hash_name[int32(m.Hash)]; !ok {
 		return pb.NewValidationError("unknown Hash (%v)", m.Hash)
