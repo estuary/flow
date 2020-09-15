@@ -128,7 +128,6 @@ func TestDocumentExtraction(t *testing.T) {
 	var r = ring{
 		shuffle: pf.JournalShuffle{
 			Shuffle: pf.Shuffle{
-				Transform:     "a-transform",
 				ShuffleKeyPtr: []string{"/foo", "/bar"},
 			},
 		},

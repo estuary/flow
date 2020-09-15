@@ -73,6 +73,8 @@ func (parts *UUIDParts) Pack() message.UUID {
 type IndexedShuffleResponse struct {
 	*ShuffleResponse
 	Index int
+	// Transform on whose behalf this document was read.
+	Transform *TransformSpec
 }
 
 var _ message.Message = IndexedShuffleResponse{}

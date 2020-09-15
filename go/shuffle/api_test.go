@@ -60,7 +60,6 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		Journal:     "a/journal",
 		Coordinator: "the-coordinator",
 		Shuffle: pf.Shuffle{
-			Transform:     "a-transform",
 			ShuffleKeyPtr: []string{"/a", "/b"},
 			FilterRClocks: true,
 		},
@@ -106,7 +105,6 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Expect we read a ShuffleResponse which tells us we're currently tailing.
 	out, err := tailStream.Recv()
 	require.Equal(t, &pf.ShuffleResponse{
-		Transform:   "a-transform",
 		ReadThrough: app.Response.Commit.End,
 		WriteHead:   app.Response.Commit.End,
 	}, out)

@@ -41,9 +41,9 @@ func TestConsumerIntegration(t *testing.T) {
 		}
 		transforms = []pf.TransformSpec{
 			{
+				Name:   "highAndLow",
 				Source: pf.TransformSpec_Source{Name: "source/foo"},
 				Shuffle: pf.Shuffle{
-					Transform:     "highAndLow",
 					ShuffleKeyPtr: []string{"/High", "/Low"},
 					UsesSourceKey: false,
 					FilterRClocks: false,
@@ -208,9 +208,9 @@ func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store
 		pf.NewExtractClient(a.workerHost.Conn))
 
 	var err error
-	if testStore.readBuilder, err = NewReadBuilder(a.service, a.journals, shard,
-		func() []pf.TransformSpec { return a.transforms },
-	); err != nil {
+	testStore.readBuilder, err = NewReadBuilder(a.service, a.journals, shard, a.transforms)
+
+	if err != nil {
 		ch <- consumer.EnvelopeOrError{Error: err}
 		return
 	}
@@ -231,6 +231,9 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
 	state[string(key)]++
 
+	if msg.Transform.Name != "highAndLow" {
+		return fmt.Errorf("expected TransformSpec fixture to be passed-through")
+	}
 	return nil
 }
 

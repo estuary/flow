@@ -18,7 +18,6 @@ func simpleResponseFixture() pf.ShuffleResponse {
 	var resp = pf.ShuffleResponse{
 		ReadThrough: 400,
 		WriteHead:   600,
-		Transform:   "a-transform",
 		Begin:       []pb.Offset{200},
 		End:         []pb.Offset{300},
 		UuidParts: []pf.UUIDParts{
@@ -269,7 +268,6 @@ func TestSubscriberResponseStaging(t *testing.T) {
 	var fixture = pf.ShuffleResponse{
 		ReadThrough: 1000,
 		WriteHead:   2000,
-		Transform:   "a-transform",
 		Begin:       []pb.Offset{200, 300, 400, 500, 600},
 		End:         []pb.Offset{300, 400, 500, 600, 700},
 		UuidParts: []pf.UUIDParts{

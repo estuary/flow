@@ -111,8 +111,6 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 		r.readChans = r.readChans[:len(r.readChans)-1]
 		return
 	}
-	// Pass the request Tranform through to the response.
-	staged.Transform = r.shuffle.Transform
 
 	if l := len(staged.End); l != 0 {
 		// Extract from staged documents.
@@ -209,7 +207,6 @@ func (r *ring) log() *log.Entry {
 	return log.WithFields(log.Fields{
 		"journal":     r.shuffle.Journal,
 		"coordinator": r.shuffle.Coordinator,
-		"transform":   r.shuffle.Transform,
 	})
 }
 

@@ -21,15 +21,17 @@ import (
 
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
-	service  *consumer.Service
-	journals *keyspace.KeySpace
-	ranges   pf.RangeSpec
-	// Transforms and members may change over the life of a ReadBuilder.
+	service    *consumer.Service
+	journals   *keyspace.KeySpace
+	ranges     pf.RangeSpec
+	transforms []pf.TransformSpec
+
+	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
-	// that will flow through to changes of ShuffleConfigs, which will
-	// cause reads to be drained and re-started with updated configurations.
-	transforms func() []pf.TransformSpec
-	members    func() []*pc.ShardSpec
+	// that will flow through to changes in the selected Coordinator of
+	// JournalShuffle configs, which will cause reads to be drained and
+	// re-started with updated configurations.
+	members func() []*pc.ShardSpec
 }
 
 // NewReadBuilder builds a new ReadBuilder.
@@ -37,7 +39,7 @@ func NewReadBuilder(
 	service *consumer.Service,
 	journals *keyspace.KeySpace,
 	shard consumer.Shard,
-	transforms func() []pf.TransformSpec,
+	transforms []pf.TransformSpec,
 ) (*ReadBuilder, error) {
 
 	// Build a RangeSpec from shard labels.
@@ -96,7 +98,7 @@ type read struct {
 
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var out *read
-	var err = walkReads(rb.members(), rb.journals, rb.transforms(),
+	var err = walkReads(rb.members(), rb.journals, rb.transforms,
 		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
 			if spec.Name != journal {
 				return
@@ -115,6 +117,7 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 					Offset:    begin,
 					EndOffset: end,
 				},
+				resp:       pf.IndexedShuffleResponse{Transform: &transform},
 				pollAdjust: 0, // Not used during replay.
 			}
 		})
@@ -138,7 +141,7 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 		drain[j] = r
 	}
 
-	err = walkReads(rb.members(), rb.journals, rb.transforms(),
+	err = walkReads(rb.members(), rb.journals, rb.transforms,
 		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
 			// Build the configuration under which we'll read.
 			var shuffle = pf.JournalShuffle{
@@ -168,6 +171,7 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 					Range:   rb.ranges,
 					Offset:  offsets[spec.Name],
 				},
+				resp:       pf.IndexedShuffleResponse{Transform: &transform},
 				pollAdjust: adjust,
 			}
 		})
@@ -256,7 +260,6 @@ func (r *read) log() *log.Entry {
 	return log.WithFields(log.Fields{
 		"journal":     r.req.Shuffle.Journal,
 		"coordinator": r.req.Shuffle.Coordinator,
-		"transform":   r.req.Shuffle.Transform,
 		"offset":      r.req.Offset,
 		"endOffset":   r.req.EndOffset,
 		"range":       &r.req.Range,
@@ -339,7 +342,7 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 			copied.Name = pb.Journal(fmt.Sprintf("%s?derivation=%s&transform=%s",
 				source.Name.String(),
 				url.QueryEscape(transform.Derivation.Name.String()),
-				url.QueryEscape(transform.Shuffle.Transform.String()),
+				url.QueryEscape(transform.Name.String()),
 			))
 
 			if start == stop {

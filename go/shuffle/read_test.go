@@ -18,12 +18,11 @@ import (
 func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, allTransforms = buildReadTestJournalsAndTransforms()
-		curTransforms                         = allTransforms
 		ranges                                = labels.MustParseRangeSpec(allShards[0].LabelSet)
 		rb                                    = &ReadBuilder{
 			service:    nil, // Not used in this test.
 			ranges:     ranges,
-			transforms: func() []pf.TransformSpec { return curTransforms },
+			transforms: allTransforms,
 			members:    func() []*pc.ShardSpec { return allShards },
 			journals:   &keyspace.KeySpace{Root: allJournals.Root},
 		}
@@ -47,7 +46,7 @@ func TestReadBuilding(t *testing.T) {
 	require.Empty(t, added)
 
 	// Case: one journal & one transform => one read.
-	rb.journals.KeyValues, curTransforms = allJournals.KeyValues[:1], allTransforms[:1]
+	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[:1], allTransforms[:1]
 	const aJournal = "foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one"
 
 	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
@@ -68,6 +67,7 @@ func TestReadBuilding(t *testing.T) {
 				Range:  ranges,
 				Offset: 1122,
 			},
+			resp:       pf.IndexedShuffleResponse{Transform: &allTransforms[0]},
 			pollAdjust: 60e7 << 4, // 60 seconds as a message.Clock.
 		},
 	}, added)
@@ -97,6 +97,7 @@ func TestReadBuilding(t *testing.T) {
 			Offset:    1000,
 			EndOffset: 2000,
 		},
+		resp:       pf.IndexedShuffleResponse{Transform: &allTransforms[0]},
 		pollAdjust: 0,
 	}, r)
 
@@ -111,7 +112,7 @@ func TestReadBuilding(t *testing.T) {
 	allTransforms[0].Shuffle.ReadDelaySeconds-- // Reset.
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
-	rb.journals.KeyValues, curTransforms = allJournals.KeyValues[1:], allTransforms
+	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[1:], allTransforms
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
@@ -211,7 +212,7 @@ func TestCoordinatorAssignment(t *testing.T) {
 	var err = walkReads(shards, journals, transforms,
 		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
 			require.Equal(t, expect[0].journal, spec.Name.String())
-			require.Equal(t, expect[0].transform, transform.Shuffle.Transform.String())
+			require.Equal(t, expect[0].transform, transform.Name.String())
 			require.Equal(t, expect[0].coordinator, coordinator)
 			expect = expect[1:]
 		})
@@ -295,8 +296,8 @@ func buildReadTestJournalsAndTransforms() (*keyspace.KeySpace, []*pc.ShardSpec, 
 	// Transforms reading partitions of "foo" into derivation "der".
 	var transforms = []pf.TransformSpec{
 		{
+			Name: "bar-one",
 			Shuffle: pf.Shuffle{
-				Transform:        "bar-one",
 				UsesSourceKey:    true,
 				ReadDelaySeconds: 60,
 			},
@@ -309,8 +310,8 @@ func buildReadTestJournalsAndTransforms() (*keyspace.KeySpace, []*pc.ShardSpec, 
 			Derivation: pf.TransformSpec_Derivation{Name: "der"},
 		},
 		{
+			Name: "baz-def",
 			Shuffle: pf.Shuffle{
-				Transform:     "baz-def",
 				UsesSourceKey: false,
 			},
 			Source: pf.TransformSpec_Source{
@@ -322,7 +323,8 @@ func buildReadTestJournalsAndTransforms() (*keyspace.KeySpace, []*pc.ShardSpec, 
 			Derivation: pf.TransformSpec_Derivation{Name: "der"},
 		},
 		{
-			Shuffle: pf.Shuffle{Transform: "unmatched"},
+			Name:    "unmatched",
+			Shuffle: pf.Shuffle{},
 			Source: pf.TransformSpec_Source{
 				Name: "foo",
 				Partitions: pb.LabelSelector{
