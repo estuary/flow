@@ -39,18 +39,16 @@ struct DeriveCommand {
     catalog: PathBuf,
     #[structopt(long, help = "Name of the collection to derive.")]
     derivation: String,
+    #[structopt(long, help = "Directory of the local state database.")]
+    dir: String,
+    #[structopt(long, help = "Path to JSON-encoded recorder state.")]
+    recorder_state_path: String,
     #[structopt(
         long,
         parse(from_os_str),
         help = "Unix domain socket to listen on for gRPC connections."
     )]
     grpc_socket_path: PathBuf,
-    #[structopt(long, help = "Directory of the local state database.")]
-    dir: String,
-    #[structopt(long, help = "Author under which recovery log operations are fenced.")]
-    author: u32,
-    #[structopt(long, help = "Path to JSON-encoded recovery-log FSM state.")]
-    fsm_path: String,
 }
 
 #[derive(StructOpt, Debug)]
