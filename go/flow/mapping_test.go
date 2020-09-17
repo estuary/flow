@@ -17,13 +17,12 @@ import (
 )
 
 func TestPartitionPicking(t *testing.T) {
-	var cr = buildMapperCombineResponseFixture()
+	var spec, cr = buildMapperCombineResponseFixture()
 	var logicalPrefix, hexKey, b []byte
 
-	var m = Mapping{
-		journals:   &keyspace.KeySpace{Root: "/items"},
-		collection: "a/collection",
-		partitions: []string{"bar", "fo o"},
+	var m = Mapper{
+		Journals:   &keyspace.KeySpace{Root: "/items"},
+		Collection: spec,
 	}
 
 	for ind, tc := range []struct {
@@ -35,13 +34,13 @@ func TestPartitionPicking(t *testing.T) {
 		{"/items/a/collection/bar=42/fo%20o=A%2FB/", "0a"},
 	} {
 		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0],
-			pf.IndexedCombineResponse{CombineResponse: cr, Index: ind})
+			pf.IndexedCombineResponse{CombineResponse: &cr, Index: ind})
 
 		require.Equal(t, tc.expectPrefix, string(logicalPrefix))
 		require.Equal(t, tc.expectKey, string(hexKey))
 	}
 
-	m.journals.KeyValues = keyspace.KeyValues{
+	m.Journals.KeyValues = keyspace.KeyValues{
 		{Decoded: &pb.JournalSpec{
 			Name:     "a/collection/bar=32/fo%20o=A/_phys=0",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "77"),
@@ -55,8 +54,8 @@ func TestPartitionPicking(t *testing.T) {
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
 		}},
 	}
-	for i, j := range m.journals.KeyValues {
-		m.journals.KeyValues[i].Raw.Key = append([]byte(m.journals.Root+"/"), j.Decoded.(*pb.JournalSpec).Name...)
+	for i, j := range m.Journals.KeyValues {
+		m.Journals.KeyValues[i].Raw.Key = append([]byte(m.Journals.Root+"/"), j.Decoded.(*pb.JournalSpec).Name...)
 	}
 
 	require.Equal(t,
@@ -77,13 +76,11 @@ func TestPartitionPicking(t *testing.T) {
 }
 
 func TestBuildingUpsert(t *testing.T) {
-	var m = Mapping{
-		journals:   &keyspace.KeySpace{Root: "/items"},
-		collection: "a/collection",
-		partitions: []string{"bar", "fo o"},
-		model:      *brokertest.Journal(pb.JournalSpec{}),
+	var spec, cr = buildMapperCombineResponseFixture()
+	var m = Mapper{
+		Journals:   &keyspace.KeySpace{Root: "/items"},
+		Collection: spec,
 	}
-	var cr = buildMapperCombineResponseFixture()
 
 	require.Equal(t, &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{
@@ -98,13 +95,13 @@ func TestBuildingUpsert(t *testing.T) {
 						flowLabels.FieldPrefix+"bar", "32",
 						flowLabels.FieldPrefix+"fo%20o", "A",
 					),
-					Replication: m.model.Replication,
-					Fragment:    m.model.Fragment,
+					Replication: m.Collection.JournalSpec.Replication,
+					Fragment:    m.Collection.JournalSpec.Fragment,
 				},
 				ExpectModRevision: 0,
 			},
 		},
-	}, m.partitionUpsert(pf.IndexedCombineResponse{CombineResponse: cr, Index: 0}))
+	}, m.partitionUpsert(pf.IndexedCombineResponse{CombineResponse: &cr, Index: 0}))
 }
 
 func TestPublisherMappingIntegration(t *testing.T) {
@@ -122,19 +119,17 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	journals.WatchApplyDelay = 0
 	go journals.Watch(ctx, etcd)
 
-	var mapper = &Mapping{
-		ctx:        ctx,
-		rjc:        broker.Client(),
-		collection: "a/collection",
-		partitions: []string{"bar", "fo o"},
-		model:      *brokertest.Journal(pb.JournalSpec{}),
-		journals:   journals,
+	var spec, cr = buildMapperCombineResponseFixture()
+	var mapper = &Mapper{
+		Ctx:           ctx,
+		JournalClient: broker.Client(),
+		Journals:      journals,
+		Collection:    spec,
 	}
 
-	var cr = buildMapperCombineResponseFixture()
 	for ind := range cr.DocsJson {
 		var _, err = pub.PublishCommitted(mapper.Map, pf.IndexedCombineResponse{
-			CombineResponse: cr,
+			CombineResponse: &cr,
 			Index:           ind,
 		})
 		require.NoError(t, err)
@@ -148,19 +143,26 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	defer journals.Mu.RUnlock()
 
 	require.Len(t, journals.KeyValues, 2)
-	require.Equal(t,
+	for i, n := range []string{
 		"a/collection/bar=32/fo%20o=A/_phys=0000",
-		journals.KeyValues[0].Decoded.(*pb.JournalSpec).Name.String())
-	require.Equal(t,
-		"a/collection/bar=32/fo%20o=A/_phys=0000",
-		journals.KeyValues[0].Decoded.(*pb.JournalSpec).Name.String())
+		"a/collection/bar=42/fo%20o=A%2FB/_phys=0000",
+	} {
+		require.Equal(t, n, journals.KeyValues[i].Decoded.(*pb.JournalSpec).Name.String())
+	}
 
 	broker.Tasks.Cancel()
 	require.NoError(t, broker.Tasks.Wait())
 }
 
-func buildMapperCombineResponseFixture() *pf.CombineResponse {
-	var cr = new(pf.CombineResponse)
+func buildMapperCombineResponseFixture() (pf.CollectionSpec, pf.CombineResponse) {
+	var spec = pf.CollectionSpec{
+		Name: "a/collection",
+		Partitions: []pf.Projection{
+			{Field: "bar"}, {Field: "fo o"},
+		},
+		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
+	}
+	var cr pf.CombineResponse
 
 	cr.DocsJson = cr.Arena.AddAll(
 		[]byte(`{"one":1,"_uuid":"`+string(pf.DocumentUUIDPlaceholder)+`"}`+"\n"),
@@ -192,7 +194,7 @@ func buildMapperCombineResponseFixture() *pf.CombineResponse {
 			},
 		},
 	}
-	return cr
+	return spec, cr
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
