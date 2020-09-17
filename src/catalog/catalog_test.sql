@@ -376,6 +376,10 @@ SELECT * FROM transform_details;
 -- any alternate schemas used by transforms reading the collection.
 SELECT * FROM collection_schemas;
 
+-- Detail view of collections joined with projections, partitions,
+-- and alternate source schemas.
+SELECT * FROM collection_details;
+
 -- View of schema URIs and all fields which are extracted from them,
 -- with context as to usage (primary key, shuffle key, or projection).
 SELECT * FROM schema_extracted_fields;

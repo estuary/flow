@@ -464,7 +464,62 @@ FROM transforms
               AND transforms.source_collection_id = source_partitions.collection_id
 ;
 
+-- Detail view of collections joined with projections, partitions,
+-- derivations, and alternate source schemas.
+CREATE VIEW collection_details AS
+WITH
+collection_partitions AS (
+SELECT
+	collection_id,
+	JSON_GROUP_ARRAY(
+		JSON_OBJECT(
+			'field', field,
+			'ptr', location_ptr
+	)) AS partitions_json
+	FROM projections
+	NATURAL JOIN partitions
+	GROUP BY collection_id
+),
+collection_projections AS (
+SELECT
+	collection_id,
+	JSON_GROUP_ARRAY(
+		JSON_OBJECT(
+			'field', field,
+			'ptr', location_ptr
+	)) AS projections_json
+	FROM projections
+	GROUP BY collection_id
+),
+collection_alt_schemas AS (
+SELECT
+	source_collection_id AS collection_id,
+	JSON_GROUP_ARRAY(DISTINCT source_schema_uri) AS alt_schemas_json
+	FROM transforms
+	WHERE source_schema_uri IS NOT NULL
+	GROUP BY collection_id
+)
+SELECT
+    collection_id,
+    collection_name,
+    schema_uri,
+    key_json,
+    resource_id,
+	IFNULL(partitions_json,  '[]') AS partitions_json,
+	IFNULL(projections_json, '[]') AS projections_json,
+    IFNULL(alt_schemas_json, '[]') AS alt_schemas_json,
+    derivations.collection_id IS NOT NULL AS is_derivation,
+    register_schema_uri,
+    register_initial_json
+FROM collections
+NATURAL LEFT JOIN collection_partitions
+NATURAL LEFT JOIN collection_projections
+NATURAL LEFT JOIN collection_alt_schemas
+NATURAL LEFT JOIN derivations
+;
+
 -- View over all schemas which apply to a collection.
+-- DEPRECATED. Use `collection_details` instead.
 CREATE VIEW collection_schemas AS
 SELECT collection_id,
        collection_name,
