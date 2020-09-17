@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
@@ -88,6 +90,10 @@ func TestResolverCases(t *testing.T) {
 		},
 		Spec: makeShard(shardA),
 	}, resolve(ResolveArgs{ShardID: shardA, MayProxy: true}))
+
+	// Interlude: wait for our assignment to reach STANDBY, so its status update
+	// doesn't race the following allocateShard() etcd transaction.
+	expectStatusCode(t, tf.state, pc.ReplicaStatus_STANDBY)
 
 	// Case: Shard is transitioning to primary. Resolution request includes a
 	// ProxyHeader referencing a Revision we don't know about yet, but which will
@@ -261,6 +267,8 @@ func TestResolverShardTransitions(t *testing.T) {
 	<-sC.recovery.player.Done() // Expect |sC| is cancelled.
 	<-sC.Context().Done()
 
+	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
+
 	// Cancel |sdB|.
 	tf.allocateShard(makeShard(shardB))
 
@@ -294,4 +302,24 @@ func TestResolverJournalIndexing(t *testing.T) {
 	tf.allocateShard(specA)
 	require.Equal(t, []*pc.ShardSpec{specA, specB}, tf.resolver.ShardsWithSource(sourceA.Name))
 	require.Equal(t, []*pc.ShardSpec{specB}, tf.resolver.ShardsWithSource(sourceB.Name))
+}
+
+func TestResolverCollect(t *testing.T) {
+	tf, _, cleanup := newTestFixtureWithIdleShard(t)
+	defer cleanup()
+	require.Implements(t, (*prometheus.Collector)(nil), tf.resolver)
+	expectStatusCode(t, tf.state, pc.ReplicaStatus_IDLE)
+	ch := make(chan prometheus.Metric)
+	go func() {
+		m := <-ch
+		dtom := &dto.Metric{}
+		m.Write(dtom)
+		require.Equal(t, 1.0, *dtom.Gauge.Value)
+		require.Equal(t, "shard", *dtom.Label[0].Name)
+		require.Equal(t, "shard-A", *dtom.Label[0].Value)
+		require.Equal(t, "status", *dtom.Label[1].Name)
+		require.Equal(t, "IDLE", *dtom.Label[1].Value)
+	}()
+	tf.resolver.Collect(ch)
+	close(ch)
 }

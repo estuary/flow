@@ -261,6 +261,13 @@ type BeginFinisher interface {
 }
 
 var (
+	shardUpDesc = prometheus.NewDesc(
+		"gazette_shard_up",
+		"Indicates the processing status of a shard by this consumer.",
+		[]string{"shard", "status"}, nil)
+)
+
+var (
 	shardTxnTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "gazette_shard_transactions_total",
 		Help: "Total number of consumer transactions.",

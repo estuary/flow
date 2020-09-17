@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
@@ -147,6 +148,9 @@ func (sc cmdServe) Execute(args []string) error {
 		signalCh = make(chan os.Signal, 1)
 	)
 	pc.RegisterShardServer(srv.GRPCServer, service)
+
+	// Register Resolver as a prometheus.Collector for tracking shard status
+	prometheus.MustRegister(service.Resolver)
 
 	log.WithFields(log.Fields{
 		"zone":     spec.Id.Zone,

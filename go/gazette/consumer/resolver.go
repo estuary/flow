@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
@@ -362,6 +363,27 @@ func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 		err = nil
 	}
 	return err
+}
+
+
+// Describe implements prometheus.Collector
+func (r *Resolver) Describe(ch chan<- *prometheus.Desc) {
+	prometheus.DescribeByCollect(r, ch)
+}
+
+// Collect implements prometheus.Collector
+func (r *Resolver) Collect(ch chan<- prometheus.Metric) {
+	r.state.KS.Mu.RLock()
+	defer r.state.KS.Mu.RUnlock()
+	for shardID, shard := range r.shards {
+		status := shard.resolved.assignment.Decoded.(allocator.Assignment).AssignmentValue.(*pc.ReplicaStatus)
+		ch <- prometheus.MustNewConstMetric(
+			shardUpDesc,
+			prometheus.GaugeValue,
+			1,
+			shardID.String(),
+			status.Code.String())
+	}
 }
 
 // ErrResolverStopped is returned by Resolver if a ShardID resolves to a local
