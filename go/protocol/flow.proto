@@ -113,6 +113,39 @@ message JournalShuffle {
       [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
 }
 
+// Projection is a mapping between a document location, specified as a
+// JSON-Pointer, and a corresponding field string in a flattened
+// (i.e. tabular or SQL) namespace which aliases it.
+message Projection {
+  option (gogoproto.equal) = true;
+
+  // Document location of this projection, as a JSON-Pointer.
+  string location_ptr = 1;
+  // Field is the flattened, tabular alias of this projection.
+  string field = 2;
+}
+
+message CollectionSpec {
+  // Name of this collection.
+  string name = 1 [ (gogoproto.casttype) = "Collection" ];
+  // Schema against which collection documents are validated,
+  // and which provides reduction annotations.
+  string schema_uri = 2;
+  // Composite key of the collection, as JSON-Pointers.
+  repeated string key_ptrs = 3;
+  // JSON pointer locating the UUID of each collection document.
+  string uuid_ptr = 4;
+  // Logical partitions of this collection.
+  repeated Projection partitions = 5 [ (gogoproto.nullable) = false ];
+  // Logical projections of this collection.
+  repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
+  // JournalSpec used for dynamically-created journals of this collection.
+  protocol.JournalSpec journal_spec = 7 [ (gogoproto.nullable) = false ];
+  // JSON-encoded document template for creating Gazette consumer
+  // transaction acknowledgements of writes into this collection.
+  bytes ack_json_template = 8;
+}
+
 // Transform describes a specific transform of a derived collection.
 message TransformSpec {
   // Stable name of this transform, scoped to it's Derivation.

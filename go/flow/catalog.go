@@ -8,18 +8,21 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
-// Catalog is a catalog database which has been fetched to a local file.
-type catalog struct {
+// Catalog is a Catalog database which has been fetched to a local file.
+type Catalog struct {
 	dbPath string
 	db     *sql.DB
 }
 
-func newCatalog(url, tempDir string) (*catalog, error) {
+// NewCatalog copies the catalog DB at the given |url| to the local |tempDir|, and opens it.
+func NewCatalog(url, tempDir string) (*Catalog, error) {
 	// Download catalog from URL to a local file.
 	var dbFile, err = ioutil.TempFile(tempDir, "catalog-db")
 	if err != nil {
@@ -42,19 +45,88 @@ func newCatalog(url, tempDir string) (*catalog, error) {
 		return nil, fmt.Errorf("opening catalog database %v: %w", dbPath, err)
 	}
 
-	return &catalog{
+	return &Catalog{
 		dbPath: dbPath,
 		db:     db,
 	}, nil
 }
 
-func (c *catalog) LocalPath() string { return c.dbPath }
+// LocalPath returns the local path of the catalog.
+func (c *Catalog) LocalPath() string { return c.dbPath }
 
-func (c *catalog) loadTransforms(derivation string) ([]pf.TransformSpec, error) {
+// LoadDerivedCollection loads the named derived collection from the catalog.
+func (c *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, error) {
+	var collections, err = scanCollections(c.db.Query(
+		selectCollection+"WHERE is_derivation AND collection_name = ?", derivation))
+
+	if err != nil {
+		return pf.CollectionSpec{}, err
+	} else if len(collections) != 1 {
+		return pf.CollectionSpec{}, fmt.Errorf("no such derived collection %q", derivation)
+	}
+	return collections[0], nil
+}
+
+// LoadCapturedCollections loads all captured collections from the catalog.
+func (c *Catalog) LoadCapturedCollections() ([]pf.CollectionSpec, error) {
+	return scanCollections(c.db.Query(selectCollection + "WHERE NOT is_derivation"))
+}
+
+const selectCollection = `
+	SELECT
+		collection_name,
+		schema_uri,
+		key_json,
+		partitions_json,
+		projections_json
+	FROM collection_details
+`
+
+func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
+	if err != nil {
+		return nil, fmt.Errorf("failed to read collections from catalog: %w", err)
+	}
+	defer rows.Close()
+
+	var collections []pf.CollectionSpec
+	for rows.Next() {
+		var collection pf.CollectionSpec
+
+		if err = rows.Scan(
+			&collection.Name,
+			&collection.SchemaUri,
+			scanJSON{&collection.KeyPtrs},
+			scanJSON{&collection.Partitions},
+			scanJSON{&collection.Projections},
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan collection from catalog: %w", err)
+		}
+
+		// TODO(johnny): Draw these from the catalog DB.
+		collection.JournalSpec = pb.JournalSpec{
+			Replication: 1,
+			Fragment: pb.JournalSpec_Fragment{
+				Length:              1 << 28, // 256MB.
+				Stores:              []pb.FragmentStore{"file:///"},
+				CompressionCodec:    pb.CompressionCodec_SNAPPY,
+				RefreshInterval:     5 * time.Minute,
+				PathPostfixTemplate: `date={{.Spool.FirstAppendTime.Format "2006-01-02"}}/hour={{.Spool.FirstAppendTime.Format "15"}}`,
+				FlushInterval:       time.Hour,
+			},
+		}
+		collection.UuidPtr = pf.DocumentUUIDPointer
+		collection.AckJsonTemplate = pf.DocumentAckJSONTemplate
+	}
+	return collections, nil
+}
+
+// LoadTransforms returns []TransformSpecs of all transforms of the given derivation.
+func (c *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) {
 	var transforms []pf.TransformSpec
 
 	var rows, err = c.db.Query(`
 	SELECT
+		transform_name,
 		transform_id,
 		source_name,
 		derivation_name,
@@ -80,7 +152,8 @@ func (c *catalog) loadTransforms(derivation string) ([]pf.TransformSpec, error) 
 			Exclude      bool
 		}
 		if err = rows.Scan(
-			&transform.Shuffle.Transform,
+			&transform.Name,
+			&transform.CatalogDbId,
 			&transform.Source.Name,
 			&transform.Derivation.Name,
 			scanJSON{&partitionsFlat},

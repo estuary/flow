@@ -26,22 +26,22 @@ pub struct UuidParts {
     #[prost(fixed64, tag = "2")]
     pub clock: u64,
 }
-/// Shuffle of documents, mapping each document to member indicies within a
-/// Ring.
+/// Shuffle is a description of a document shuffle, where each document
+/// is mapped into:
+///  * An extracted, packed composite key (a "shuffle key").
+///  * A rotated Clock value (an "r-clock").
+/// The packed key and r-clock can then be compared to a reader RangeSpec.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Shuffle {
-    /// Transform for which this Shuffle is being applied.
-    #[prost(string, tag = "1")]
-    pub transform: std::string::String,
     /// Composite key over which shuffling occurs, specified as one or more
     /// JSON-Pointers indicating a message location to extract.
-    #[prost(string, repeated, tag = "2")]
+    #[prost(string, repeated, tag = "1")]
     pub shuffle_key_ptr: ::std::vec::Vec<std::string::String>,
     /// uses_source_key is true if shuffle_key_ptr is the source's native key,
     /// and false if it's some other key. When shuffling using the source's key,
     /// we can minimize data movement by assigning a shard coordinator for each
     /// journal such that the shard's key range overlap that of the journal.
-    #[prost(bool, tag = "3")]
+    #[prost(bool, tag = "2")]
     pub uses_source_key: bool,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
@@ -52,7 +52,7 @@ pub struct Shuffle {
     /// a "publish" but not an "update" lambda, as such documents have no
     /// side-effects on the reader's state store, and would not be published anyway
     /// for falling outside of the reader's r-clock range.
-    #[prost(bool, tag = "6")]
+    #[prost(bool, tag = "3")]
     pub filter_r_clocks: bool,
     #[prost(enumeration = "shuffle::Hash", tag = "4")]
     pub hash: i32,
@@ -95,14 +95,63 @@ pub struct JournalShuffle {
     #[prost(message, optional, tag = "3")]
     pub shuffle: ::std::option::Option<Shuffle>,
 }
+/// Projection is a mapping between a document location, specified as a
+/// JSON-Pointer, and a corresponding field string in a flattened
+/// (i.e. tabular or SQL) namespace which aliases it.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Projection {
+    /// Document location of this projection, as a JSON-Pointer.
+    #[prost(string, tag = "1")]
+    pub location_ptr: std::string::String,
+    /// Field is the flattened, tabular alias of this projection.
+    #[prost(string, tag = "2")]
+    pub field: std::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CollectionSpec {
+    /// Name of this collection.
+    #[prost(string, tag = "1")]
+    pub name: std::string::String,
+    /// Schema against which collection documents are validated,
+    /// and which provides reduction annotations.
+    #[prost(string, tag = "2")]
+    pub schema_uri: std::string::String,
+    /// Composite key of the collection, as JSON-Pointers.
+    #[prost(string, repeated, tag = "3")]
+    pub key_ptrs: ::std::vec::Vec<std::string::String>,
+    /// JSON pointer locating the UUID of each collection document.
+    #[prost(string, tag = "4")]
+    pub uuid_ptr: std::string::String,
+    /// Logical partitions of this collection.
+    #[prost(message, repeated, tag = "5")]
+    pub partitions: ::std::vec::Vec<Projection>,
+    /// Logical projections of this collection.
+    #[prost(message, repeated, tag = "6")]
+    pub projections: ::std::vec::Vec<Projection>,
+    /// JournalSpec used for dynamically-created journals of this collection.
+    #[prost(message, optional, tag = "7")]
+    pub journal_spec: ::std::option::Option<super::protocol::JournalSpec>,
+    /// JSON-encoded document template for creating Gazette consumer
+    /// transaction acknowledgements of writes into this collection.
+    #[prost(bytes, tag = "8")]
+    pub ack_json_template: std::vec::Vec<u8>,
+}
 /// Transform describes a specific transform of a derived collection.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransformSpec {
-    #[prost(message, optional, tag = "2")]
+    /// Stable name of this transform, scoped to it's Derivation.
+    #[prost(string, tag = "1")]
+    pub name: std::string::String,
+    /// ID of this transform within the present catalog DB.
+    /// This ID is *not* stable /across/ different catalog DBs.
+    /// Instead, use |name| for equality testing.
+    #[prost(int32, tag = "2")]
+    pub catalog_db_id: i32,
+    #[prost(message, optional, tag = "3")]
     pub source: ::std::option::Option<transform_spec::Source>,
     /// Shuffle applied to source documents for this transform.
     /// Note that the Shuffle embeds the Transform name.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "4")]
     pub shuffle: ::std::option::Option<Shuffle>,
     #[prost(message, optional, tag = "5")]
     pub derivation: ::std::option::Option<transform_spec::Derivation>,
@@ -227,29 +276,26 @@ pub struct ShuffleResponse {
     /// Memory arena of this message.
     #[prost(bytes, tag = "6")]
     pub arena: std::vec::Vec<u8>,
-    /// Transform name, passed through from the ShuffleRequest.
-    #[prost(string, tag = "7")]
-    pub transform: std::string::String,
     /// Shuffled documents, each encoded in the 'application/json'
     /// media-type.
-    #[prost(message, repeated, tag = "9")]
+    #[prost(message, repeated, tag = "7")]
     pub docs_json: ::std::vec::Vec<Slice>,
     /// The begin offset of each document within the requested journal.
-    #[prost(int64, repeated, packed = "false", tag = "10")]
+    #[prost(int64, repeated, packed = "false", tag = "8")]
     pub begin: ::std::vec::Vec<i64>,
     /// The end offset of each document within the journal.
-    #[prost(int64, repeated, packed = "false", tag = "11")]
+    #[prost(int64, repeated, packed = "false", tag = "9")]
     pub end: ::std::vec::Vec<i64>,
     /// UUIDParts of each document.
-    #[prost(message, repeated, tag = "12")]
+    #[prost(message, repeated, tag = "10")]
     pub uuid_parts: ::std::vec::Vec<UuidParts>,
     /// Packed, embedded encoding of the shuffle key into a byte string.
     /// If the Shuffle specified a Hash to use, it's applied as well.
-    #[prost(message, repeated, tag = "13")]
+    #[prost(message, repeated, tag = "11")]
     pub packed_key: ::std::vec::Vec<Slice>,
     /// Extracted shuffle key of each document, with one Field for each
     /// component of the composite shuffle key.
-    #[prost(message, repeated, tag = "14")]
+    #[prost(message, repeated, tag = "12")]
     pub shuffle_key: ::std::vec::Vec<Field>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
