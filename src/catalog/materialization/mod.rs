@@ -1,89 +1,15 @@
 mod sql;
 
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Collection, Error, Scope, DB};
+use crate::catalog::{self, Error, Scope, DB};
 use crate::specs::build as specs;
 use estuary_json::schema::types;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
 pub struct Materialization {
     pub id: i64,
-}
-
-fn get_field_projections(
-    scope: &Scope,
-    collection_id: i64,
-) -> catalog::Result<Vec<FieldProjection>> {
-    let mut stmt = scope.db.prepare_cached(
-        "SELECT
-            field,
-            location_ptr,
-            user_provided,
-            types_json,
-            must_exist,
-            string_content_type,
-            string_content_encoding_is_base64,
-            string_max_length,
-            is_partition_key,
-            is_primary_key
-        FROM schema_extracted_fields
-        WHERE collection_id = ?;",
-    )?;
-    let fields = stmt
-        .query(rusqlite::params![collection_id])?
-        .and_then(|row| {
-            Ok(FieldProjection {
-                field_name: row.get(0)?,
-                location_ptr: row.get(1)?,
-                user_provided: row.get(2)?,
-                types: row.get::<usize, TypesWrapper>(3)?.0,
-                must_exist: row.get(4)?,
-                string_content_type: row.get(5)?,
-                string_content_encoding_is_base64: row
-                    .get::<usize, Option<bool>>(6)?
-                    .unwrap_or_default(),
-                string_max_length: row.get(7)?,
-                is_partition_key: row.get(8)?,
-                is_primary_key: row.get(9)?,
-            })
-        })
-        .collect::<catalog::Result<Vec<_>>>()?;
-    Ok(fields)
-}
-
-struct TypesWrapper(types::Set);
-impl rusqlite::types::FromSql for TypesWrapper {
-    fn column_result(val: rusqlite::types::ValueRef) -> rusqlite::types::FromSqlResult<Self> {
-        match val {
-            rusqlite::types::ValueRef::Text(bytes) => {
-                let type_names: Vec<&'_ str> = serde_json::from_slice(bytes)
-                    .map_err(|err| rusqlite::types::FromSqlError::Other(Box::new(err)))?;
-                let mut types = types::INVALID;
-                for name in type_names {
-                    let ty = types::Set::for_type_name(name)
-                        .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
-                    types = types | ty;
-                }
-                Ok(TypesWrapper(types))
-            }
-            _ => Err(rusqlite::types::FromSqlError::InvalidType),
-        }
-    }
-}
-
-fn lookup_collection_id(db: &DB, collection_name: &str) -> catalog::Result<i64> {
-    use rusqlite::OptionalExtension;
-
-    let sql = "SELECT collection_id FROM collections WHERE collection_name = ?";
-    let id: Option<i64> = db
-        .query_row(sql, rusqlite::params![collection_name], |r| r.get(0))
-        .optional()?;
-    id.ok_or_else(|| Error::MaterializationCollectionMissing {
-        collection_name: collection_name.to_owned(),
-    })
 }
 
 impl Materialization {
@@ -137,6 +63,79 @@ impl Materialization {
     }
 }
 
+fn get_field_projections(
+    scope: &Scope,
+    collection_id: i64,
+) -> catalog::Result<Vec<FieldProjection>> {
+    let mut stmt = scope.db.prepare_cached(
+        "SELECT
+            field,
+            location_ptr,
+            user_provided,
+            types_json,
+            must_exist,
+            string_content_type,
+            string_content_encoding_is_base64,
+            string_max_length,
+            is_partition_key,
+            is_primary_key
+        FROM schema_extracted_fields
+        WHERE collection_id = ?;",
+    )?;
+    let fields = stmt
+        .query(rusqlite::params![collection_id])?
+        .and_then(|row| {
+            Ok(FieldProjection {
+                field_name: row.get(0)?,
+                location_ptr: row.get(1)?,
+                user_provided: row.get(2)?,
+                types: row.get::<usize, TypesWrapper>(3)?.0,
+                must_exist: row.get(4)?,
+                string_content_type: row.get(5)?,
+                string_content_encoding_is_base64: row
+                    .get::<usize, Option<bool>>(6)?
+                    .unwrap_or_default(),
+                string_max_length: row.get(7)?,
+                is_partition_key: row.get(8)?,
+                is_primary_key: row.get(9)?,
+            })
+        })
+        .collect::<catalog::Result<Vec<_>>>()?;
+    Ok(fields)
+}
+
+#[derive(Debug)]
+pub struct TypesWrapper(pub types::Set);
+impl rusqlite::types::FromSql for TypesWrapper {
+    fn column_result(val: rusqlite::types::ValueRef) -> rusqlite::types::FromSqlResult<Self> {
+        match val {
+            rusqlite::types::ValueRef::Text(bytes) => {
+                let type_names: Vec<&'_ str> = serde_json::from_slice(bytes)
+                    .map_err(|err| rusqlite::types::FromSqlError::Other(Box::new(err)))?;
+                let mut types = types::INVALID;
+                for name in type_names {
+                    let ty = types::Set::for_type_name(name)
+                        .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
+                    types = types | ty;
+                }
+                Ok(TypesWrapper(types))
+            }
+            _ => Err(rusqlite::types::FromSqlError::InvalidType),
+        }
+    }
+}
+
+fn lookup_collection_id(db: &DB, collection_name: &str) -> catalog::Result<i64> {
+    use rusqlite::OptionalExtension;
+
+    let sql = "SELECT collection_id FROM collections WHERE collection_name = ?";
+    let id: Option<i64> = db
+        .query_row(sql, rusqlite::params![collection_name], |r| r.get(0))
+        .optional()?;
+    id.ok_or_else(|| Error::MaterializationCollectionMissing {
+        collection_name: collection_name.to_owned(),
+    })
+}
 /// Materialization configurations are expected to be different for different types of systems.
 /// This enum is intended to represent all of the possible shapes and allow serialization as json,
 /// which is how this is stored in the catalog database. This configuration is intended to live in

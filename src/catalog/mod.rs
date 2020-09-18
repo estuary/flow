@@ -6,6 +6,7 @@ mod collection;
 mod content_type;
 mod derivation;
 mod error;
+mod extraction;
 mod lambda;
 mod materialization;
 mod nodejs;
@@ -51,6 +52,7 @@ pub fn build(db: &DB, spec_url: Url, nodejs_dir: &Path) -> Result<()> {
     init_db_schema(db)?;
 
     Source::register(Scope::empty(db), spec_url)?;
+    extraction::verify_extracted_fields(db)?;
     build_nodejs_package(db, nodejs_dir)?;
     db.execute(
         "INSERT INTO build_info (description) VALUES (?);",

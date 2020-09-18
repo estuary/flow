@@ -608,6 +608,7 @@ FROM transform_details
 CREATE VIEW schema_extracted_fields AS
 SELECT
     collections.collection_id as collection_id,
+    collections.schema_uri as schema_uri,
     collections.collection_name as collection_name,
     p.field as field,
     location_ptr,
@@ -627,7 +628,6 @@ FROM
     LEFT JOIN json_each((
             SELECT key_json FROM collections WHERE collections.collection_id = p.collection_id
     )) keys ON keys.value = p.location_ptr;
-
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 -- :package:
