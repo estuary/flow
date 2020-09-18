@@ -602,8 +602,8 @@ Error: near line (XYZ): table inferences has no column named field
 -- View of schema URIs and all fields which are extracted from them,
 -- with context as to usage (primary key, shuffle key, or projection).
 SELECT * FROM schema_extracted_fields;
-collection_id|collection_name|field|location_ptr|user_provided|types_json|must_exist|string_content_type|string_content_encoding_is_base64|string_max_length|is_partition_key|is_primary_key
-1|col/src|field_1|/key/0|1|["string"]|1|text/plain|0|97|0|1
-1|col/src|field_2|/key/1|0|["string", "null"]|1|text/plain|0|97|1|1
-1|col/src|field_3|/path/3|0|["string", "null"]|1|text/plain|0|97|0|0
+collection_id|schema_uri|collection_name|field|location_ptr|user_provided|types_json|must_exist|string_content_type|string_content_encoding_is_base64|string_max_length|is_partition_key|is_primary_key
+1|file:///path/to/a/schema.yaml#anchor|col/src|field_1|/key/0|1|["string"]|1|text/plain|0|97|0|1
+1|file:///path/to/a/schema.yaml#anchor|col/src|field_2|/key/1|0|["string", "null"]|1|text/plain|0|97|1|1
+1|file:///path/to/a/schema.yaml#anchor|col/src|field_3|/path/3|0|["string", "null"]|1|text/plain|0|97|0|0
 changes:   0   total_changes: XYZ
