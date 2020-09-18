@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -226,7 +227,9 @@ func txnConsume(s *shard, txn *transaction, env message.Envelope) error {
 		}
 		txn.beganAt = txn.timer.Now()
 		txn.timer.Reset(txn.minDur)
-		s.clock.Update(txn.beganAt)
+
+		var delta = atomic.LoadInt64((*int64)(&s.svc.PublishClockDelta))
+		s.clock.Update(txn.beganAt.Add(time.Duration(delta)))
 	}
 	txn.consumedCount++
 	txn.consumedBytes += (env.End - env.Begin)

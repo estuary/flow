@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"time"
 
 	"go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
@@ -32,6 +33,14 @@ type Service struct {
 	Journals pb.RoutedJournalClient
 	// Etcd client for use by consumer applications.
 	Etcd *clientv3.Client
+	// Delta to apply to message.Clocks used by Shards to sequence published
+	// messages, with respect to real time. This should almost always be left
+	// as zero, but is helpful for test workflows which require fine-grain
+	// control over the write timestamps encoded within message UUIDs.
+	// Never decrease this value once the Service is running, only increase it,
+	// as a decrement will cause Publisher sequencing invariants to be violated.
+	// This is an EXPERIMENTAL API.
+	PublishClockDelta time.Duration
 
 	// stoppingCh is closed when the Service is in the process of shutting down.
 	stoppingCh chan struct{}
