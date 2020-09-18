@@ -238,29 +238,41 @@ CREATE TABLE projections
         location_ptr REGEXP '^(/[^/]+)*$')
 );
 
+-- Type information that's been extracted from collection schemas.
+--
+-- :collection_id:
+--     Collection that the inference is for. Technically, inferences are only per schema_uri, so we
+--     duplicate them here if multiple collections use the same schema. This makes it easier to work
+--     with and probably has little down side since it's unlikely that many collection would use
+--     exactly the same schema.
+-- :location_ptr:
+--     Json pointer of the location within the schema to which this inference pertains
+-- :types_json:
+--     The possible types for this location.
+--     Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
+-- :must_exist:
+--     Whether location pointer references a field that must always exist. This will be false if any
+--     parent object or array is not required in the schema. The _value_ of the field may still be
+--     null, even if must_exist is true. So to check whether a field is nullable, you need to check
+--     both this field and types_json.
+-- :string_content_type:
+--     Strings end up being used to represent a variety of different things, e.g. dates, xml, or binary
+--     content, which may benefit for specialized storage in other systems. So we store a lot more
+--     metadata on strings than we do for other types in case we're able to use it during
+--     materialization. If of type "string", media MIME type of its content.
+-- :string_content_encoding_is_base64:
+--     If of type "string", is the value base64-encoded?
+-- :string_max_length:
+--     If the location is a "string" type and has a maximum length, it will be here.
 CREATE TABLE inferences
 (
     collection_id        INTEGER NOT NULL REFERENCES collections (collection_id),
     location_ptr         TEXT    NOT NULL,
-
-    -- Possible types for this location.
-    -- Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
     types_json                        TEXT    NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
-    -- Whether location pointer references a field that must always exist. This will be false if any
-    -- parent object or array is not required in the schema. The _value_ of the field may still be
-    -- null, even if must_exist is true. So to check whether a field is nullable, you need to check
-    -- both this field and types_json.
     must_exist           BOOLEAN NOT NULL CHECK (must_exist IN(0, 1)),
 
-    -- Strings end up being used to represent a variety of different things, e.g. dates, xml, or binary
-    -- content, which may benefit for specialized storage in other systems. So we store a lot more
-    -- metadata on strings than we do for other types in case we're able to use it during
-    -- materialization.
-    -- If of type "string", media MIME type of its content.
     string_content_type               TEXT,
-    -- If of type "string", is the value base64-encoded ?
     string_content_encoding_is_base64 BOOLEAN CHECK (string_content_encoding_is_base64 IN (0,1)),
-    -- If the location is a "string" type and has a maximum length, it will be here
     string_max_length                 INTEGER,
 
     PRIMARY KEY (collection_id, location_ptr),
@@ -661,6 +673,8 @@ BEGIN
     END;
 END;
 
+-- Contains informational and diagnostic data about the build itself. This is intended to be used
+-- somewhat like a log.
 CREATE TABLE build_info
 (
     time TEXT DEFAULT(datetime('now', 'utc')) NOT NULL,
