@@ -403,7 +403,10 @@ INSERT INTO inferences (
     string_max_length
 )
 VALUES
-    (1, '/key/0', '["string", "null"]', TRUE, 'text/plain', false, 97);
+    (1, '/key/0', '["string"]', TRUE, 'text/plain', false, 97),
+    (1, '/key/1', '["string", "null"]', TRUE, 'text/plain', false, 97),
+    (1, '/path/3', '["string", "null"]', TRUE, 'text/plain', false, 97);
+
 
 INSERT INTO inferences (collection_id, types_json, must_exist)
 VALUES
@@ -411,25 +414,17 @@ VALUES
     (1, 'field_3', '["number"]', FALSE),
     (2, '/path/3', '["object"]', TRUE);
 
--- Invalid inference (missing projection)
-INSERT INTO inferences (collection_id, field, types_json)
-VALUES (1, 'no_such_field', '["number"]');
-
--- Invalid inference (duplicate field differs only in case)
-INSERT INTO inferences (collection_id, field, types_json)
-VALUES (1, 'FIELD_1', '["number"]');
-
 -- Invalid inference (types are not valid json)
-INSERT INTO inferences (collection_id, field, types_json)
-VALUES (1, 'field_2', '} not json {');
+INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
+VALUES (1, '/field_2', '} not json {', FALSE);
 
 -- Invalid inference (types are null)
-INSERT INTO inferences (collection_id, field, types_json)
-VALUES (1, 'field_2', NULL);
+INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
+VALUES (1, '/field_2', NULL, FALSE);
 
 -- Invalid inference (types are not an array)
-INSERT INTO inferences (collection_id, field, types_json)
-VALUES (1, 'field_2', '{"not": "an array"}');
+INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
+VALUES (1, '/field_2', '{"not": "an array"}', TRUE);
 
 -- Invalid inference (string_content_encoding_is_base64 is not a boolean)
 INSERT INTO inferences (collection_id, field, types_json, must_exist, string_content_encoding_is_base64)
