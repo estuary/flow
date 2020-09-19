@@ -246,7 +246,7 @@ CREATE TABLE projections
 --     with and probably has little down side since it's unlikely that many collection would use
 --     exactly the same schema.
 -- :location_ptr:
---     Json pointer of the location within the schema to which this inference pertains
+--     Json pointer of the location within the document to which this inference pertains
 -- :types_json:
 --     The possible types for this location.
 --     Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
@@ -266,10 +266,10 @@ CREATE TABLE projections
 --     If the location is a "string" type and has a maximum length, it will be here.
 CREATE TABLE inferences
 (
-    collection_id        INTEGER NOT NULL REFERENCES collections (collection_id),
-    location_ptr         TEXT    NOT NULL,
+    collection_id                     INTEGER NOT NULL REFERENCES collections (collection_id),
+    location_ptr                      TEXT NOT NULL,
     types_json                        TEXT    NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
-    must_exist           BOOLEAN NOT NULL CHECK (must_exist IN(0, 1)),
+    must_exist                        BOOLEAN NOT NULL,
 
     string_content_type               TEXT,
     string_content_encoding_is_base64 BOOLEAN CHECK (string_content_encoding_is_base64 IN (0,1)),
@@ -279,7 +279,6 @@ CREATE TABLE inferences
 
     CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
         location_ptr REGEXP '^(/[^/]+)*$')
-
 );
 
 -- Partitions are projections which logically partition the collection.

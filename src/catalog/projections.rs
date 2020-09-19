@@ -100,12 +100,7 @@ pub fn register_user_provided_projection(
         spec.location,
         field_shape.type_.to_json_array(),
         must_exist,
-        field_shape
-            .string
-            .content_type
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or(""),
+        field_shape.string.content_type.as_deref().unwrap_or(""),
         field_shape.string.is_base64,
         field_shape.string.max_length.map(usize_to_i64),
     ];
@@ -125,7 +120,7 @@ pub struct NoSuchLocationError {
     location_ptr: String,
 }
 
-fn register_canonical_projections_for_shape<'a>(
+fn register_canonical_projections_for_shape(
     db: &DB,
     location: Location,
     collection_id: i64,

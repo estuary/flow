@@ -1,7 +1,7 @@
 mod sql;
 
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Error, Scope, DB};
+use crate::catalog::{self, Collection, Resource, Scope};
 use crate::specs::build as specs;
 use estuary_json::schema::types;
 use serde::{Deserialize, Serialize};
@@ -18,14 +18,16 @@ impl Materialization {
         materialization_name: &str,
         spec: &specs::Materialization,
     ) -> catalog::Result<Materialization> {
-        let collection_id = lookup_collection_id(scope.db, spec.collection.as_str())?;
+        let collection = Collection::get_by_name(scope.db, spec.collection.as_str())?;
+        // verifies that the collection is actually imported by our current resource
+        Resource::verify_import(*scope, collection.resource)?;
         let conf = MaterializationConfig::from_spec(&spec.config);
         let conf_json = serde_json::to_string(&conf)?;
         let conn = match &spec.config {
             specs::MaterializationConfig::Postgres(connection) => connection,
             specs::MaterializationConfig::Sqlite(connection) => connection,
         };
-        let fields = get_field_projections(scope, collection_id)?;
+        let fields = get_field_projections(scope, collection.id)?;
         let target = MaterializationTarget {
             materialization_name,
             collection_name: spec.collection.as_str(),
@@ -49,7 +51,7 @@ impl Materialization {
         )?;
         let params = rusqlite::params![
             materialization_name,
-            collection_id,
+            collection.id,
             conf.type_name(),
             conn.uri,
             conn.table,
@@ -125,17 +127,6 @@ impl rusqlite::types::FromSql for TypesWrapper {
     }
 }
 
-fn lookup_collection_id(db: &DB, collection_name: &str) -> catalog::Result<i64> {
-    use rusqlite::OptionalExtension;
-
-    let sql = "SELECT collection_id FROM collections WHERE collection_name = ?";
-    let id: Option<i64> = db
-        .query_row(sql, rusqlite::params![collection_name], |r| r.get(0))
-        .optional()?;
-    id.ok_or_else(|| Error::MaterializationCollectionMissing {
-        collection_name: collection_name.to_owned(),
-    })
-}
 /// Materialization configurations are expected to be different for different types of systems.
 /// This enum is intended to represent all of the possible shapes and allow serialization as json,
 /// which is how this is stored in the catalog database. This configuration is intended to live in
@@ -282,6 +273,7 @@ impl std::error::Error for ProjectionsError {}
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::catalog::DB;
     use serde_json::json;
 
     #[test]
@@ -296,7 +288,7 @@ mod test {
         }))
         .unwrap();
 
-        let scope = Scope::empty(&db);
+        let scope = Scope::for_test(&db, 1);
         Materialization::register(&scope, "test_pg_materialization", &pg_materialization)
             .expect("failed to register materialization");
 
@@ -316,7 +308,7 @@ mod test {
         }))
         .unwrap();
 
-        let scope = Scope::empty(&db);
+        let scope = Scope::for_test(&db, 1);
         Materialization::register(&scope, "test_pg_materialization", &pg_materialization)
             .expect("failed to register materialization");
 

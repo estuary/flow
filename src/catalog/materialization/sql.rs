@@ -278,7 +278,7 @@ impl SqlMaterializationConfig {
     }
 
     fn lookup_type(&self, field: &FieldProjection) -> Option<&SqlColumnType> {
-        let mime = field.string_content_type.as_ref().map(String::as_str);
+        let mime = field.string_content_type.as_deref();
         let non_null = field.types & (!types::NULL);
         match non_null {
             types::STRING if !field.string_content_encoding_is_base64 => {

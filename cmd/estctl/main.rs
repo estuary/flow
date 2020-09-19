@@ -4,7 +4,6 @@ use rusqlite::Connection as DB;
 use std::fs;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
-use url;
 
 #[derive(StructOpt, Debug)]
 #[structopt(about = "Command-line interface for working with Estuary projects",
@@ -82,9 +81,8 @@ impl BuildArgs {
         } else {
             let possible_filenames = &["catalog.yaml", "catalog.yml", "catalog.json"];
             possible_filenames
-                .into_iter()
-                .filter(|path| fs::metadata(*path).is_ok())
-                .next()
+                .iter()
+                .find(|path| fs::metadata(*path).is_ok())
                 .map(|p| PathBuf::from(*p))
                 .ok_or(NoCatalogSpecError)
         }
@@ -113,10 +111,8 @@ fn do_build(args: &BuildArgs) -> Result<DB, Error> {
 
     // If we know that we won't be re-using the existing database, then delete the
     // whole file now. This lets us only open the database once.
-    if !args.no_rebuild {
-        if delete_ignore_missing(args.catalog.as_str())? {
-            log::debug!("deleted '{}' so that we can rebuild it", args.catalog);
-        }
+    if (!args.no_rebuild) && delete_ignore_missing(args.catalog.as_str())? {
+        log::debug!("deleted '{}' so that we can rebuild it", args.catalog);
     }
 
     let db = catalog::open(args.catalog.as_str())?;

@@ -80,7 +80,7 @@ pub struct Collection {
 pub struct Projections(BTreeMap<String, Projection>);
 
 impl Projections {
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = ProjectionSpec<'a>> {
+    pub fn iter(&self) -> impl Iterator<Item = ProjectionSpec> {
         self.0.iter().map(|(field, projection)| ProjectionSpec {
             field,
             location: &projection.location(),

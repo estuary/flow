@@ -85,17 +85,7 @@ impl Derivation {
     fn register_transform(&self, scope: Scope, name: &str, spec: &specs::Transform) -> Result<()> {
         // Map spec source collection name to its collection ID.
         let source = scope.push_prop("source").then(|scope| {
-            let (cid, rid) = scope
-                .db
-                .prepare_cached(
-                    "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
-                )?
-                .query_row(&[&spec.source.name], |r| Ok((r.get(0)?, r.get(1)?)))?;
-
-            let source = Collection {
-                id: cid,
-                resource: Resource { id: rid },
-            };
+            let source = Collection::get_by_name(scope.db, spec.source.name.as_str())?;
             // Verify that the catalog spec of the source collection is imported by this collection's catalog.
             Resource::verify_import(scope, source.resource)?;
             Ok(source)

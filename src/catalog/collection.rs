@@ -23,6 +23,19 @@ impl Collection {
         .collect::<Result<Vec<_>>>()
     }
 
+    /// Returns the collection with the given name, or an error if it doesn't exist
+    pub fn get_by_name(db: &DB, name: &str) -> Result<Collection> {
+        let (collection_id, resource_id) = db
+            .prepare_cached(
+                "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
+            )?
+            .query_row(&[name], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(Collection {
+            id: collection_id,
+            resource: Resource { id: resource_id },
+        })
+    }
+
     /// Registers a Collection of the Source with the catalog.
     pub fn register(scope: Scope, spec: &specs::Collection) -> Result<Collection> {
         // Register and import the schema document.
