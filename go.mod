@@ -6,6 +6,7 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/protobuf v1.3.5
 	github.com/google/uuid v1.1.1
+	github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4
 	github.com/jgraettinger/cockroach-encoding v1.1.0
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.5.0
@@ -16,4 +17,4 @@ require (
 	google.golang.org/grpc v1.28.0
 )
 
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20200914173619-372d9a4fcfc2
+replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20200918174650-acfd0d43c755
