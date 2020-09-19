@@ -19,6 +19,15 @@ pub struct Scope<'a> {
 }
 
 impl<'a> Scope<'a> {
+    #[cfg(test)]
+    pub fn for_test(db: &'a rusqlite::Connection, resource_id: i64) -> Scope<'a> {
+        Scope {
+            db,
+            parent: None,
+            resource: Some(Resource { id: resource_id }),
+            location: Location::Root,
+        }
+    }
     /// Empty create an empty Scope.
     pub fn empty(db: &'a rusqlite::Connection) -> Scope<'a> {
         Scope {
