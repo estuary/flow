@@ -38,7 +38,6 @@ func TestTransactionLifeCycle(t *testing.T) {
 		Ctx:           ctx,
 		JournalClient: broker.Client(),
 		Journals:      journals,
-		Collection:    collectionSpec,
 	}
 
 	// Start a Transaction, with a mocked RPC stream.

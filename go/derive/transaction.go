@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -150,20 +151,12 @@ func (txn *Transaction) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) er
 		return fmt.Errorf("sending final DeriveRequest_Continue: %w", err)
 	}
 
-	// flow.Mapper expects to see extracts of ordered logical partitions,
-	// followed by the composite key.
-	var flushPtrs []string
-	for _, p := range txn.derivation.Partitions {
-		flushPtrs = append(flushPtrs, p.LocationPtr)
-	}
-	flushPtrs = append(flushPtrs, txn.derivation.KeyPtrs...)
-
 	// Send Flush to signal all documents of the transaction have been sent,
 	// and the worker should send back combined responses.
 	if err := txn.tx.Send(&pf.DeriveRequest{
 		Kind: &pf.DeriveRequest_Flush_{Flush: &pf.DeriveRequest_Flush{
 			UuidPlaceholderPtr: txn.derivation.UuidPtr,
-			FieldPtrs:          flushPtrs,
+			FieldPtrs:          flow.FieldPointersForMapper(txn.derivation),
 		}},
 	}); err != nil {
 		return fmt.Errorf("sending DeriveRequest_Flush: %w", err)
@@ -184,6 +177,7 @@ func (txn *Transaction) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) er
 		var icr = pf.IndexedCombineResponse{
 			CombineResponse: combined,
 			Index:           0,
+			Collection:      txn.derivation,
 		}
 		for ; icr.Index != len(icr.DocsJson); icr.Index++ {
 			if _, err = pub.PublishUncommitted(txn.mapFn, icr); err != nil {

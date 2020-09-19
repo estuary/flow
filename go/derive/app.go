@@ -21,10 +21,12 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+// App wires the high-level runtime of the derive consumer flow.
 type App struct {
 	delegate    *flow.WorkerHost
 	readBuilder *shuffle.ReadBuilder
 	mapper      flow.Mapper
+	derivation  pf.CollectionSpec
 
 	*Transaction
 }
@@ -68,7 +70,6 @@ func NewApp(service *consumer.Service, journals *keyspace.KeySpace, shard consum
 		Ctx:           shard.Context(),
 		JournalClient: shard.JournalClient(),
 		Journals:      journals,
-		Collection:    spec,
 	}
 
 	// Write out recorder-state.json
@@ -104,6 +105,7 @@ func NewApp(service *consumer.Service, journals *keyspace.KeySpace, shard consum
 		delegate:    delegate,
 		readBuilder: readBuilder,
 		mapper:      mapper,
+		derivation:  spec,
 		Transaction: nil,
 	}, nil
 }
@@ -152,18 +154,20 @@ func (a *App) Destroy() {
 	}
 }
 
+// BeginTxn begins a derive RPC transaction with the flow-worker.
 func (a *App) BeginTxn(shard consumer.Shard) error {
 	if a.Transaction != nil {
 		panic("unexpected !nil Transaction")
 	}
 
 	var err error
-	if a.Transaction, err = NewTransaction(shard.Context(), a.delegate.Conn, a.derivation, a.mapper.Map); err != nil {
+	if a.Transaction, err = NewTransaction(shard.Context(), a.delegate.Conn, &a.derivation, a.mapper.Map); err != nil {
 		return fmt.Errorf("BeginTxn: %w", err)
 	}
 	return nil
 }
 
+// FinishedTxn resets the current derive RPC.
 func (a *App) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
 	if a.Transaction == nil {
 		panic("unexpected nil Transaction")
@@ -171,10 +175,12 @@ func (a *App) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
 	a.Transaction = nil
 }
 
+// StartReadingMessages delegates to shuffle.StartReadingMessages.
 func (a *App) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
 	shuffle.StartReadingMessages(shard.Context(), a.readBuilder, cp, ch)
 }
 
+// ReplayRange delegates to shuffle's StartReplayRead.
 func (a *App) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
 	return a.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
 }

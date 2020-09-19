@@ -21,8 +21,7 @@ func TestPartitionPicking(t *testing.T) {
 	var logicalPrefix, hexKey, b []byte
 
 	var m = Mapper{
-		Journals:   &keyspace.KeySpace{Root: "/items"},
-		Collection: spec,
+		Journals: &keyspace.KeySpace{Root: "/items"},
 	}
 
 	for ind, tc := range []struct {
@@ -34,7 +33,7 @@ func TestPartitionPicking(t *testing.T) {
 		{"/items/a/collection/bar=42/fo%20o=A%2FB/", "0a"},
 	} {
 		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0],
-			pf.IndexedCombineResponse{CombineResponse: &cr, Index: ind})
+			pf.IndexedCombineResponse{CombineResponse: &cr, Index: ind, Collection: &spec})
 
 		require.Equal(t, tc.expectPrefix, string(logicalPrefix))
 		require.Equal(t, tc.expectKey, string(hexKey))
@@ -78,8 +77,7 @@ func TestPartitionPicking(t *testing.T) {
 func TestBuildingUpsert(t *testing.T) {
 	var spec, cr = buildMapperCombineResponseFixture()
 	var m = Mapper{
-		Journals:   &keyspace.KeySpace{Root: "/items"},
-		Collection: spec,
+		Journals: &keyspace.KeySpace{Root: "/items"},
 	}
 
 	require.Equal(t, &pb.ApplyRequest{
@@ -95,13 +93,13 @@ func TestBuildingUpsert(t *testing.T) {
 						flowLabels.FieldPrefix+"bar", "32",
 						flowLabels.FieldPrefix+"fo%20o", "A",
 					),
-					Replication: m.Collection.JournalSpec.Replication,
-					Fragment:    m.Collection.JournalSpec.Fragment,
+					Replication: spec.JournalSpec.Replication,
+					Fragment:    spec.JournalSpec.Fragment,
 				},
 				ExpectModRevision: 0,
 			},
 		},
-	}, m.partitionUpsert(pf.IndexedCombineResponse{CombineResponse: &cr, Index: 0}))
+	}, m.partitionUpsert(pf.IndexedCombineResponse{CombineResponse: &cr, Index: 0, Collection: &spec}))
 }
 
 func TestPublisherMappingIntegration(t *testing.T) {
@@ -124,13 +122,13 @@ func TestPublisherMappingIntegration(t *testing.T) {
 		Ctx:           ctx,
 		JournalClient: broker.Client(),
 		Journals:      journals,
-		Collection:    spec,
 	}
 
 	for ind := range cr.DocsJson {
 		var _, err = pub.PublishCommitted(mapper.Map, pf.IndexedCombineResponse{
 			CombineResponse: &cr,
 			Index:           ind,
+			Collection:      &spec,
 		})
 		require.NoError(t, err)
 	}

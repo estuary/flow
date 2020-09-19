@@ -100,6 +100,8 @@ func (m *ShuffleResponse) Tailing() bool {
 type IndexedCombineResponse struct {
 	*CombineResponse
 	Index int
+	// Collection on whose behalf this document was combined.
+	Collection *CollectionSpec
 }
 
 var _ message.Message = IndexedCombineResponse{}

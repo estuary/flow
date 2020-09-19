@@ -24,7 +24,17 @@ type Mapper struct {
 	Ctx           context.Context
 	JournalClient pb.JournalClient
 	Journals      *keyspace.KeySpace
-	Collection    pf.CollectionSpec
+}
+
+// FieldPointersForMapper returns JSON-pointers of fields which should be extracted
+// and included in CombineRespones mapped through a Mapper of this CollectionSpec.
+func FieldPointersForMapper(collection *pf.CollectionSpec) []string {
+	var ptrs []string
+	for _, p := range collection.Partitions {
+		ptrs = append(ptrs, p.LocationPtr)
+	}
+	ptrs = append(ptrs, collection.KeyPtrs...)
+	return ptrs
 }
 
 // Map the Mappable, which must be an IndexedCombineResponse, into a physical journal partition
@@ -61,17 +71,17 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 
 func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest {
 	var spec = new(pb.JournalSpec)
-	*spec = m.Collection.JournalSpec
+	*spec = cr.Collection.JournalSpec
 
-	spec.LabelSet.SetValue(flowLabels.Collection, m.Collection.Name.String())
+	spec.LabelSet.SetValue(flowLabels.Collection, cr.Collection.Name.String())
 	spec.LabelSet.SetValue(flowLabels.KeyBegin, "")
 	spec.LabelSet.SetValue(flowLabels.KeyEnd, "ffffffff")
 	spec.LabelSet.SetValue(labels.ContentType, labels.ContentType_JSONLines)
 
 	var name strings.Builder
-	name.WriteString(m.Collection.Name.String())
+	name.WriteString(cr.Collection.Name.String())
 
-	for i, partition := range m.Collection.Partitions {
+	for i, partition := range cr.Collection.Partitions {
 		var (
 			k = url.PathEscape(partition.Field)
 			v = url.PathEscape(cr.Fields[i].Values[cr.Index].ToJSON(cr.Arena))
@@ -99,10 +109,10 @@ func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest 
 func (m *Mapper) logicalPrefixAndHexKey(b []byte, cr pf.IndexedCombineResponse) (logicalPrefix []byte, hexKey []byte, buf []byte) {
 	b = append(b, m.Journals.Root...)
 	b = append(b, '/')
-	b = append(b, m.Collection.Name...)
+	b = append(b, cr.Collection.Name...)
 	b = append(b, '/')
 
-	for i, partition := range m.Collection.Partitions {
+	for i, partition := range cr.Collection.Partitions {
 		b = append(b, url.PathEscape(partition.Field)...)
 		b = append(b, '=')
 		b = append(b,
@@ -117,7 +127,7 @@ func (m *Mapper) logicalPrefixAndHexKey(b []byte, cr pf.IndexedCombineResponse) 
 	const hextable = "0123456789abcdef"
 	var scratch [64]byte
 
-	for _, field := range cr.Fields[len(m.Collection.Partitions):] {
+	for _, field := range cr.Fields[len(cr.Collection.Partitions):] {
 		for _, v := range field.Values[cr.Index].EncodePacked(scratch[:0], cr.Arena) {
 			b = append(b, hextable[v>>4], hextable[v&0x0f])
 		}
