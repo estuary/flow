@@ -5,27 +5,22 @@ collections:
   - name: marketing/campaigns
     schema: schemas.yaml#/$defs/campaign
     key: [/campaign_id]
-    fixtures: [fixtures/campaigns.yaml]
 
   - name: marketing/offer/views
     schema: schemas.yaml#/$defs/view
     key: [/view_id]
-    fixtures: [fixtures/offer-views.yaml]
 
   - name: marketing/offer/clicks
     schema: schemas.yaml#/$defs/click
     key: [/click_id]
-    fixtures: [fixtures/offer-clicks.yaml]
 
   - name: marketing/purchases
     schema: schemas.yaml#/$defs/purchase
     key: [/purchase_id]
-    fixtures: [fixtures/purchases.yaml]
 
   - name: marketing/views-with-campaign
     schema: schemas.yaml#/$defs/view-with-campaign
     key: [/view_id]
-    fixtures: [fixtures/views-with-campaign.yaml]
 
     derivation:
       register:
@@ -56,7 +51,6 @@ collections:
   - name: marketing/clicks-with-views
     schema: schemas.yaml#/$defs/click-with-view
     key: [/click_id]
-    fixtures: [fixtures/clicks-with-views.yaml]
 
     derivation:
       register:
@@ -95,7 +89,6 @@ collections:
             $ref: "schemas.yaml#/$defs/click-with-view"
       required: [views, clicks]
     key: [/purchase_id]
-    fixtures: [fixtures/purchases-with-offers.yaml]
     projections:
       first_view_time: "/views/0/timestamp"
       first_click_time: "/clicks/0/timestamp"

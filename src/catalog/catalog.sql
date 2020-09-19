@@ -17,7 +17,6 @@ CREATE TABLE resources
 
     CONSTRAINT "Invalid resource content-type" CHECK (content_type IN (
         'application/vnd.estuary.dev-catalog-spec+yaml',
-        'application/vnd.estuary.dev-catalog-fixtures+yaml',
         'application/schema+yaml',
         'application/sql',
         'application/vnd.estuary.dev-catalog-npm-pack'
@@ -295,20 +294,6 @@ CREATE TABLE partitions
     PRIMARY KEY (collection_id, field),
     FOREIGN KEY (collection_id, field)
         REFERENCES projections(collection_id, field)
-);
-
--- Fixtures of catalog collections.
---
--- :collection_id:
---      Collection to which this fixture pertains.
--- :resource_id:
---      Fixture resource.
-CREATE TABLE fixtures
-(
-    collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
-    resource_id   INTEGER NOT NULL REFERENCES resources (resource_id),
-
-    PRIMARY KEY (collection_id, resource_id)
 );
 
 -- Derivations details collections of the catalog which are derived from other collections.

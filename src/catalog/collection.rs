@@ -1,5 +1,5 @@
 use super::{
-    projections, sql_params, ContentType, Derivation, Resource, Result, Schema, Scope, DB,
+    projections, sql_params, Derivation, Resource, Result, Schema, Scope, DB,
 };
 use crate::specs::build as specs;
 
@@ -67,13 +67,6 @@ impl Collection {
             resource: scope.resource(),
         };
 
-        for (index, fixture) in spec.fixtures.iter().enumerate() {
-            scope
-                .push_prop("fixtures")
-                .push_item(index)
-                .then(|scope| collection.register_fixture(scope, fixture))?;
-        }
-
         scope.push_prop("projections").then(|scope| {
             projections::register_projections(&scope, collection, &spec.projections)
         })?;
@@ -86,26 +79,6 @@ impl Collection {
 
         log::info!("added collection {}", spec.name);
         Ok(collection)
-    }
-
-    fn register_fixture(&self, scope: Scope, url: &str) -> Result<()> {
-        let url = self.resource.join(scope.db, url)?;
-        let fixtures = Resource::register(scope.db, ContentType::CatalogFixtures, &url)?;
-        Resource::register_import(scope, fixtures)?;
-
-        if !fixtures.is_processed(scope.db)? {
-            scope.push_resource(fixtures).then(|scope| {
-                // Just verify fixtures parse correctly.
-                serde_yaml::from_slice::<Vec<specs::Fixture>>(&fixtures.content(scope.db)?)?;
-                fixtures.mark_as_processed(scope.db)
-            })?;
-        }
-        scope
-            .db
-            .prepare_cached("INSERT INTO fixtures (collection_id, resource_id) VALUES (?, ?)")?
-            .execute(sql_params![self.id, fixtures.id])?;
-
-        Ok(())
     }
 }
 
@@ -152,25 +125,16 @@ mod test {
                 }
             }
         });
-        let fixtures = json!([
-            {
-                "document": {"key": ["foo", "bar"], "other": "value"},
-                "key": ["bar", "foo"],
-                "projections": {"field-name": "value"}
-            },
-        ]);
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
                     (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
-                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
-                    (20, 'application/vnd.estuary.dev-catalog-fixtures+yaml', CAST(? AS BLOB), FALSE);",
-            sql_params![schema, fixtures],
+                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![schema],
         )?;
         db.execute(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
-                    (10, 'test://example/schema.json', TRUE),
-                    (20, 'test://example/fixtures.json', TRUE);",
+                    (10, 'test://example/schema.json', TRUE)",
             sql_params![],
         )?;
 
@@ -178,7 +142,6 @@ mod test {
             "name": "test/collection",
             "schema": "schema.json#foobar",
             "key": ["/key/1", "/key/0"],
-            "fixtures": ["fixtures.json"],
             "projections": {
                 "field_a": {"location": "/a/a", "partition": true},
                 "field_b": {"location": "/b/b", "partition": false},
@@ -190,9 +153,8 @@ mod test {
             .then(|scope| Collection::register(scope, &spec))
             .expect("failed to register collection");
 
-        // Expect that the schema and fixtures were processed.
+        // Expect that the schema was processed.
         assert!(Resource { id: 10 }.is_processed(&db)?);
-        assert!(Resource { id: 20 }.is_processed(&db)?);
 
         // Expect the collection records the absolute schema URI, with fragment component.
         let dump = dump_tables(
@@ -202,14 +164,13 @@ mod test {
                 "collections",
                 "projections",
                 "partitions",
-                "fixtures",
             ],
         )?;
 
         assert_eq!(
             dump,
             json!({
-                "resource_imports": [[1, 10], [1, 20]],
+                "resource_imports": [[1, 10]],
                 "collections": [
                     [
                         1,
@@ -219,7 +180,6 @@ mod test {
                         1,
                     ],
                 ],
-                "fixtures": [[1, 20]],
                 "projections": [
                     [1, "field_a", "/a/a", true],
                     [1, "field_b", "/b/b", true],

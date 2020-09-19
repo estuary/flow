@@ -323,13 +323,11 @@ mod test {
         db.execute_batch(r##"
             INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
                     (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', TRUE),
-                    (10, 'application/schema+yaml', CAST('true' AS BLOB), TRUE),
-                    (20, 'application/vnd.estuary.dev-catalog-fixtures+yaml', CAST('[1, 2, 3]' AS BLOB), TRUE);
+                    (10, 'application/schema+yaml', CAST('true' AS BLOB), TRUE);
 
             INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                                 (1, 'test://example/spec', TRUE),
-                                (10, 'test://example/schema.json', TRUE),
-                                (20, 'test://example/fixtures.json', TRUE);
+                                (10, 'test://example/schema.json', TRUE);
 
             INSERT INTO collections
                 (collection_id, collection_name, schema_uri, key_json, resource_id)

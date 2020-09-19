@@ -239,28 +239,6 @@ mod test {
         let db = catalog::open(":memory:").unwrap();
         catalog::init_db_schema(&db).unwrap();
 
-        let fixtures = json!([{
-            "id": 333,
-            "oneFoo": {
-                "fooObj": {"a": "someString"},
-                "fooArray": [ 5, 6 ]
-            },
-            "twoFoo": {
-                "fooObj": {"a": "someString"},
-                "fooArray": [ 7, 8 ],
-                "extra": 9,
-            },
-            "redFoo": {
-                "nested": {
-                    "fooObj": {"a": "someString"},
-                    "fooArray": [ 7, 8 ]
-                }
-            },
-            "blueFoo": [ {
-                    "fooObj": {"a": "someString"},
-                    "fooArray": [ 7, 8 ]
-            } ],
-        }]);
         let schema = json!({
             "$defs": {
                 "foo": {
@@ -345,9 +323,8 @@ mod test {
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
                     (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
-                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
-                    (20, 'application/vnd.estuary.dev-catalog-fixtures+yaml', CAST(? AS BLOB), FALSE);",
-            sql_params![schema, fixtures],
+                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![schema],
         ).unwrap();
         db.execute(
             "insert into resource_imports (resource_id, import_id) values (1, 10);",
@@ -357,8 +334,7 @@ mod test {
         db.execute(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
-                    (10, 'test://example/schema.json', TRUE),
-                    (20, 'test://example/fixtures.json', TRUE);",
+                    (10, 'test://example/schema.json', TRUE);",
             sql_params![],
         )
         .unwrap();

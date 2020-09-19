@@ -5,7 +5,6 @@ collections:
   - name: stock/ticks
     schema: schemas/L1-tick.yaml
     key: [/id]
-    fixtures: [fixtures/L1-tick.yaml]
 
     projections:
       exchange:
@@ -16,7 +15,6 @@ collections:
   - name: stock/daily-stats
     schema: schemas/daily-stat.yaml
     key: [/security, /date]
-    fixtures: [fixtures/daily-stats.yaml]
 
     projections:
       my_special_column: /bid
@@ -81,3 +79,32 @@ materializations:
     postgres:
       uri: postgres://127.0.0.1:5432/my-db
       table: daily_stats
+
+tests:
+  "stock/daily-stats rolls up from stock/ticks":
+    - ingest:
+        stock/ticks:
+        - exchange: NYSE
+          security: APPL
+          time: "2019-01-16T12:34:56Z"
+          bid:  {"price": 321.09, "size": 100}
+          ask:  {"price": 321.45, "size": 200}
+          last: {"price": 321.12, "size": 50}
+        - exchange: NYSE
+          security: APPL
+          time: "2019-01-16T12:34:58Z"
+          bid:  {"price": 321.10, "size": 150}
+          ask:  {"price": 321.44, "size": 100}
+          last: {"price": 321.15, "size": 75}
+    - verify:
+        stock/daily-stats/exchange=NYSE:
+        - exchange: NYSE
+          security: APPL
+          date:    "2019-01-16"
+          price:  { "low": 321.12, "high": 321.12, "avgN":  16056, "avgD": 50 }
+          bid:    { "low": 321.09, "high": 321.09, "avgN": 321.09, "avgD": 1 }
+          ask:    { "low": 321.45, "high": 321.45, "avgN": 321.45, "avgD": 1 }
+          spread: { "low":   0.36, "high":   0.36, "avgN":   0.36, "avgD": 1 }
+          volume: 50
+          first:  { "price": 321.12, "size": 50 }
+          last:   { "price": 321.12, "size": 50 }

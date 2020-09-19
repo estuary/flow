@@ -29,6 +29,9 @@ pub struct Catalog {
     /// Materialization object.
     #[serde(default)]
     pub materializations: BTreeMap<String, Materialization>,
+    // Tests of the catalog, indexed by name.
+    #[serde(default)]
+    pub tests: BTreeMap<String, Vec<TestStep>>,
 }
 
 /// Collection specifies an Estuary document Collection.
@@ -44,14 +47,6 @@ pub struct Collection {
     pub schema: Schema,
     /// Composite key of this Collection, as an array of JSON-Pointers.
     pub key: Vec<String>,
-    /// Relative URL of YAML or JSON files containing example "fixtures" of
-    /// collection documents. Fixtures are used to test the catalog:
-    /// - Fixtures of captured collections are validated against the collection
-    ///   schema.
-    /// - Derived collections process and transform fixture documents of their
-    ///   source collections, and then validated them against their own fixtures.
-    #[serde(default)]
-    pub fixtures: Vec<String>,
     /// Projections are named locations within a collection document which
     /// may be used for logical partitioning or directly exposed to databases
     /// into which collections are materialized.
@@ -271,15 +266,6 @@ pub struct PartitionSelector {
     pub exclude: BTreeMap<String, Vec<Value>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Fixture {
-    pub document: Value,
-    pub key: Vec<Value>,
-    #[serde(default)]
-    pub projections: BTreeMap<String, Value>,
-}
-
 /// Used for collection schemas and transform source schemas, to allow flexibility in how they can
 /// be represented. The main distinction we're concerned with is whether the schema is provided
 /// inline or as a URI pointing to an external schema resource.
@@ -294,6 +280,20 @@ pub enum Schema {
     /// is the literal `true`, which permits all JSON data. A value of `false` would reject all
     /// data.
     Bool(bool),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum TestStep {
+    // Ingest steps associate one or more captured collections with a Vec of
+    // documents to be ingested.
+    Ingest(BTreeMap<String, Vec<Value>>),
+    // Derived steps associate one or more logical partitions of collections
+    // with a Vec of expected derivations. Provided derivations must each be
+    // unique under the collection's key. Logical partitions are expressed in
+    // their flattened & URL-encoded form, eg:
+    //   'name/of/collection/a=partition/other%20partition=123'.
+    Verify(BTreeMap<String, Vec<Value>>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

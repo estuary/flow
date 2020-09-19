@@ -319,7 +319,6 @@ mod test {
                     type: object
                     additionalProperties: true
                   key: [/mykey]
-                  fixtures: [nonexistant/fixtures.yaml]
         "##;
 
         db.execute(

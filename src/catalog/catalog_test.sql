@@ -1,7 +1,7 @@
 -- Valid resources.
 INSERT INTO resources (content_type, content, is_processed)
 VALUES ('application/vnd.estuary.dev-catalog-spec+yaml', 'catalog spec content', FALSE),
-       ('application/vnd.estuary.dev-catalog-fixtures+yaml', 'catalog fixtures content', TRUE),
+       ('application/vnd.estuary.dev-catalog-spec+yaml', 'included catalog content', TRUE),
        ('application/schema+yaml', 'json-schema content', FALSE),
        ('application/schema+yaml', 'other schema', TRUE),
        ('application/schema+yaml', 'yet more schema content', FALSE),
@@ -52,7 +52,7 @@ FROM resource_transitive_imports;
 -- Valid resource URLs.
 INSERT INTO resource_urls (resource_id, url, is_primary)
 VALUES (1, 'file:///path/to/spec.yaml', TRUE),
-       (2, 'file:///path/to/some/fixtures.yaml', TRUE),
+       (2, 'file:///path/to/included/catalog/spec.yaml', TRUE),
        (3, 'file:///path/to/a/schema.yaml', TRUE),
        (4, 'https://host/path/schema?query=val', TRUE),
        (5, 'file:///path/to/other/schema.yaml', TRUE),
@@ -188,19 +188,6 @@ VALUES (42, 'field_2');
 -- Invalid partition (no such projection).
 INSERT INTO partitions (collection_id, field)
 VALUES (1, 'field_zzz');
-
--- Valid fixtures.
-INSERT INTO fixtures (collection_id, resource_id)
-VALUES (1, 2),
-       (2, 2);
-
--- Invalid fixture (no such collection);
-INSERT INTO fixtures (collection_id, resource_id)
-VALUES (42, 2);
-
--- Invalid fixture (no such resource);
-INSERT INTO fixtures (collection_id, resource_id)
-VALUES (2, 42);
 
 -- Valid derivations.
 INSERT INTO derivations (collection_id, register_schema_uri, register_initial_json)
