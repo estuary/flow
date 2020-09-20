@@ -163,10 +163,12 @@ CREATE TABLE lambdas
 CREATE TABLE collections
 (
     collection_id   INTEGER PRIMARY KEY NOT NULL,
-    collection_name TEXT UNIQUE         NOT NULL,
+    collection_name TEXT                NOT NULL,
     schema_uri      TEXT                NOT NULL,
     key_json        TEXT                NOT NULL,
     resource_id     INTEGER             NOT NULL REFERENCES resources (resource_id),
+
+    UNIQUE(collection_name COLLATE NOCASE)
 
     CONSTRAINT "Collection name format isn't valid" CHECK (
         collection_name REGEXP '^[\pL\pN\-_+/.]+$'),
@@ -175,6 +177,20 @@ CREATE TABLE collections
     CONSTRAINT "Key must be non-empty JSON array of JSON-Pointers" CHECK (
         JSON_ARRAY_LENGTH(key_json) > 0)
 );
+
+-- No collection name may prefix any other collection name.
+CREATE TRIGGER one_collection_cannot_prefix_another
+    BEFORE INSERT
+    ON collections
+    FOR EACH ROW
+    WHEN (
+        SELECT 1 FROM collections
+            WHERE collection_name LIKE NEW.collection_name || '%' COLLATE NOCASE OR
+                NEW.collection_name LIKE collection_name || '%' COLLATE NOCASE
+    ) NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'A collection name cannot be a prefix of another collection name');
+END;
 
 
 -- Materialization targets for a collection

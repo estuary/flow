@@ -145,6 +145,12 @@ VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 
+-- Invalid collection (a collection name cannot prefix another collection name).
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('col/Src/extra', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('coL/s', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+
 -- Invalid collection (key is not non-empty [JSON-Pointer]).
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/bad', 'file:///path/to/a/schema.yaml', '["malformed"', 1);
