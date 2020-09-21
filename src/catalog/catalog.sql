@@ -550,27 +550,17 @@ FROM transforms
 -- derivations, and alternate source schemas.
 CREATE VIEW collection_details AS
 WITH
-collection_partitions AS (
+collection_fields AS (
 SELECT
 	collection_id,
 	JSON_GROUP_ARRAY(
-		JSON_OBJECT(
-			'field', field,
-			'ptr', location_ptr
-	)) AS partitions_json
-	FROM projections
-	NATURAL JOIN partitions
-	GROUP BY collection_id
-),
-collection_projections AS (
-SELECT
-	collection_id,
+		JSON_OBJECT('field', field, 'ptr', location_ptr)
+    ) AS projections_json,
 	JSON_GROUP_ARRAY(
-		JSON_OBJECT(
-			'field', field,
-			'ptr', location_ptr
-	)) AS projections_json
+		JSON_OBJECT('field', field, 'ptr', location_ptr)
+    ) FILTER (WHERE partitions.field IS NOT NULL) AS partitions_json
 	FROM projections
+	NATURAL LEFT JOIN partitions
 	GROUP BY collection_id
 ),
 collection_alt_schemas AS (
@@ -594,8 +584,7 @@ SELECT
     register_schema_uri,
     register_initial_json
 FROM collections
-NATURAL LEFT JOIN collection_partitions
-NATURAL LEFT JOIN collection_projections
+NATURAL LEFT JOIN collection_fields
 NATURAL LEFT JOIN collection_alt_schemas
 NATURAL LEFT JOIN derivations
 ;
