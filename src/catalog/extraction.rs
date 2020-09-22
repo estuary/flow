@@ -1,79 +1,145 @@
 use super::{Error, Result, DB};
-use crate::catalog::materialization::TypesWrapper;
-use estuary_json::schema::types;
+use std::fmt::{self, Display};
 
 /// Verifies that all locations used either as collection primary keys or as shuffle keys point to
 /// locations that are guaranteed to exist and have valid scalar types. Locations are valid if they
 /// have only one possible type (besides null) that is either "integer", "string", or "boolean".
 /// Object, arrays, and floats may not be used for these keys.
 pub fn verify_extracted_fields(db: &DB) -> Result<()> {
+    let errors = collect_errors(db)?;
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::InvalidCollectionKeys(errors))
+    }
+}
+
+fn collect_errors(db: &DB) -> Result<Vec<KeyError>> {
     // Check all collection primary keys to ensure that they have valid inferences
     let mut stmt = db.prepare(
-        "SELECT c.collection_name, c.schema_uri, keys.value as ptr, i.types_json, i.must_exist
-        FROM collections AS c, JSON_EACH(c.key_json) AS keys
-        LEFT JOIN inferences AS i ON c.collection_id = i.collection_id AND keys.value = i.location_ptr
-        "
+        "SELECT schema_uri, location_ptr, source, types_json, error
+            FROM collection_keys
+            WHERE error IS NOT NULL;",
     )?;
-    let rows = stmt.query(rusqlite::NO_PARAMS)?;
-    check_rows("primary", rows)?;
+    let results = stmt
+        .query_map(rusqlite::NO_PARAMS, |row| {
+            Ok(KeyError {
+                location_ptr: row.get("location_ptr")?,
+                source: row.get("source")?,
+                schema_uri: row.get("schema_uri")?,
+                inferred_types_json: row.get("types_json")?,
+                message: row.get("error")?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    // Check all transform shuffle keys to ensure that they have valid inferences
-    let mut stmt = db.prepare(
-        "SELECT collections.collection_name, coalesce(t.source_schema_uri, collections.schema_uri) as schema_uri, keys.value as ptr, i.types_json, i.must_exist
-        FROM transforms AS t, JSON_EACH(t.shuffle_key_json) AS keys
-        JOIN collections ON collections.collection_id = t.source_collection_id
-        LEFT JOIN inferences AS i ON t.source_collection_id = i.collection_id AND keys.value = i.location_ptr;
-        "
-    )?;
-    let rows = stmt.query(rusqlite::NO_PARAMS)?;
-    check_rows("shuffle", rows)?;
-
-    Ok(())
+    Ok(results)
 }
 
-fn check_rows(key_type: &str, mut rows: rusqlite::Rows) -> Result<()> {
-    let invalid_key_types = types::ARRAY | types::OBJECT | types::NUMBER;
-    while let Some(row) = rows.next()? {
-        let types_json: Option<TypesWrapper> = row.get("types_json")?;
-        let must_exist: Option<bool> = row.get("must_exist")?;
-
-        if !must_exist.unwrap_or_default() {
-            return Err(error(
-                key_type,
-                row,
-                "The pointer location is not guaranteed to exist by the schema.",
-            )?);
-        }
-
-        if let Some(TypesWrapper(types)) = types_json {
-            if types.overlaps(invalid_key_types) {
-                let flavor = format!(
-                    "Location may have possible values: {}",
-                    types.to_json_array()
-                );
-                return Err(error(key_type, row, &flavor)?);
-            }
-        } else {
-            unreachable!("must_exist was true, but there was no type information for the field");
-        }
+#[derive(Debug, PartialEq)]
+pub struct KeyError {
+    location_ptr: String,
+    source: String,
+    message: String,
+    schema_uri: String,
+    inferred_types_json: Option<String>,
+}
+impl Display for KeyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Invalid {}: '{}' (from {}). {}",
+            self.source, self.location_ptr, self.schema_uri, self.message
+        )
     }
-    Ok(())
 }
 
-// Ok I'll admit that it's pretty weird to return a result where the success value is an error, but
-// we are reading this information from the database to populate the error fields, so who knows
-// what may happen.
-fn error(key_type: &str, row: &rusqlite::Row, msg_flavor: &str) -> Result<Error> {
-    let collection_name: String = row.get("collection_name")?;
-    let schema_uri: String = row.get("schema_uri")?;
-    let ptr: String = row.get("ptr")?;
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::catalog::{init_db_schema, open};
+    use itertools::Itertools;
 
-    let context = format!("{} key of collection: '{}'", key_type, collection_name);
-    let msg = format!("{} The key pointer must point to a location within the schema that has a single value type of integer, string, boolean, or null.", msg_flavor);
-    Ok(Error::ExtractedFieldErr {
-        schema_uri,
-        ptr,
-        context,
-        msg,
-    })
+    #[test]
+    fn all_key_errors_are_returned() {
+        let db = open(":memory:").unwrap();
+        init_db_schema(&db).unwrap();
+
+        db.execute_batch(
+            r##"
+            INSERT INTO resources (resource_id, content_type, content, is_processed)
+            VALUES (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'0123', TRUE);
+
+            INSERT INTO collections
+                (collection_id, resource_id, collection_name, schema_uri, key_json)
+            VALUES
+                (1, 1, 'okA', 'test://schema.json', '["/a", "/b"]'),
+                (2, 1, 'okB', 'test://schema.json', '["/a", "/b"]'),
+                (3, 1, 'okC', 'test://schema.json', '["/a", "/b"]'),
+
+                (98, 1, 'bad/a', 'test://bad/schema.json', '["/missing_inference", "/object"]'),
+                (99, 1, 'bad/b', 'test://bad/schema.json', '["/missing_inference", "/object"]');
+
+            INSERT INTO derivations
+                (collection_id, register_schema_uri, register_initial_json)
+            VALUES
+                (2, 'test://whatever', '{}'),
+                (3, 'test://anything', '{}'),
+                (98, 'test://anything', '{}'),
+                (99, 'test://anything', '{}');
+
+            INSERT INTO lambdas (lambda_id, runtime, inline) VALUES (1, 'remote', 'http://test.test/foo');
+
+            INSERT INTO transforms
+                (transform_id, derivation_id, transform_name, source_collection_id, publish_id,
+                        source_schema_uri, shuffle_key_json)
+            VALUES
+                (1, 2, 'goodTransformA', 1, 1, 'test://tsource/schema.json', '["/goodKeyA", "/goodKeyB"]'),
+                (2, 3, 'goodTransformB', 2, 1, NULL, '["/goodKeyC"]'),
+
+                (3, 98, 'badTransformA', 1, 1, NULL, '["/multi_types", "/may_not_exist"]'),
+                (4, 99, 'badTransformB', 2, 1, 'test://badTrans/schema.json', '["/float", "/array"]');
+
+            INSERT INTO projections
+                (collection_id, field, location_ptr, user_provided)
+            VALUES
+                (2, 'a', '/a', TRUE),
+                (2, 'b', '/b', TRUE),
+                (99, 'missing_inference', '/missing_inference', TRUE),
+                (99, 'object', '/object', TRUE),
+                (99, 'multi_types', '/multi_types', TRUE);
+
+            INSERT INTO partitions
+                (collection_id, field)
+            VALUES
+                (2, 'a'),
+                (2, 'b'),
+                (99, 'missing_inference'),
+                (99, 'object'),
+                (99, 'multi_types');
+
+            INSERT INTO inferences
+                (schema_uri, location_ptr, types_json, must_exist)
+            VALUES
+                -- These are all valid to use as keys
+                ('test://schema.json', '/a', '["string"]', TRUE),
+                ('test://schema.json', '/b', '["integer", "null"]', TRUE),
+                ('test://tsource/schema.json', '/goodKeyA', '["boolean"]', TRUE),
+                ('test://tsource/schema.json', '/goodKeyB', '["string", "null"]', TRUE),
+                ('test://schema.json', '/goodKeyC', '["integer"]', TRUE),
+
+                -- All invalid to use as keys
+                ('test://bad/schema.json', '/object', '["object"]', TRUE),
+                ('test://bad/schema.json', '/multi_types', '["string", "integer"]', TRUE),
+                ('test://bad/schema.json', '/may_not_exist', '["integer"]', FALSE),
+
+                ('test://badTrans/schema.json', '/float', '["number"]', TRUE),
+                ('test://badTrans/schema.json', '/array', '["array"]', TRUE);
+         "##,
+        )
+        .expect("setup failed");
+
+        let errors = collect_errors(&db).expect("failed to verify fields");
+        insta::assert_display_snapshot!(errors.into_iter().join("\n"));
+    }
 }

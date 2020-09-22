@@ -385,10 +385,6 @@ SELECT * FROM collection_schemas;
 -- and alternate source schemas.
 SELECT * FROM collection_details;
 
--- View of schema URIs and all fields which are extracted from them,
--- with context as to usage (primary key, shuffle key, or projection).
-SELECT * FROM schema_extracted_fields;
-
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),
@@ -404,7 +400,7 @@ VALUES ('a-package', '^4.5.6');
 
 -- Valid inferences
 INSERT INTO inferences (
-    collection_id,
+    schema_uri,
     location_ptr,
     types_json,
     must_exist,
@@ -413,36 +409,36 @@ INSERT INTO inferences (
     string_max_length
 )
 VALUES
-    (1, '/key/0', '["string"]', TRUE, 'text/plain', false, 97),
-    (1, '/key/1', '["string", "null"]', TRUE, 'text/plain', false, 97),
-    (1, '/path/3', '["string", "null"]', TRUE, 'text/plain', false, 97);
+    ('file:///path/to/a/schema.yaml#anchor', '/key/0', '["string"]', TRUE, 'text/plain', false, 97),
+    ('file:///path/to/a/schema.yaml#anchor', '/key/1', '["string", "null"]', TRUE, 'text/plain', false, 97),
+    ('file:///path/to/a/schema.yaml#anchor', '/path/3', '["string", "null"]', TRUE, 'text/plain', false, 97);
 
 
-INSERT INTO inferences (collection_id, types_json, must_exist)
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
 VALUES
-    (1, '/key/1', '["string"]', FALSE),
-    (1, 'field_3', '["number"]', FALSE),
-    (2, '/path/3', '["object"]', TRUE);
+    -- Will show up in collection_keys as error due to invalid type "number"
+    ('https://canonical/schema/uri#/$defs/path', '/foo', '["number"]', TRUE),
+    -- Will show up in collection_keys as error due to multiple possible types
+    ( 'file:///path/to/a/schema.yaml', '/path/3', '["integer", "string"]', TRUE),
+    -- Will show up in collection_keys as error due to must_exist being FALSE
+    ( 'file:///path/to/a/schema.yaml', '/key', '["integer"]', FALSE);
 
 -- Invalid inference (types are not valid json)
-INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
-VALUES (1, '/field_2', '} not json {', FALSE);
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES ('file:///path/to/a/schema.yaml', '/field_2', '} not json {', FALSE);
 
 -- Invalid inference (types are null)
-INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
-VALUES (1, '/field_2', NULL, FALSE);
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES ('file:///path/to/a/schema.yaml', '/field_2', NULL, FALSE);
 
 -- Invalid inference (types are not an array)
-INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
-VALUES (1, '/field_2', '{"not": "an array"}', TRUE);
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES ('file:///path/to/a/schema.yaml', '/field_2', '{"not": "an array"}', TRUE);
 
--- Invalid inference (string_content_encoding_is_base64 is not a boolean)
-INSERT INTO inferences (collection_id, field, types_json, must_exist, string_content_encoding_is_base64)
-VALUES (1, '/a', '["string"]', TRUE, 99);
 
--- View of schema URIs and all fields which are extracted from them,
--- with context as to usage (primary key, shuffle key, or projection).
-SELECT * FROM schema_extracted_fields;
+SELECT * FROM projected_fields;
+
+SELECT * FROM collection_keys;
 
 -- Valid test cases.
 INSERT INTO test_cases(test_case_id, test_case_name, resource_id) VALUES
@@ -472,3 +468,4 @@ SELECT * FROM test_steps_json;
 -- test_cases_json is a view which presents test cases as a nested
 -- JSON structure.
 SELECT * FROM test_cases_json;
+

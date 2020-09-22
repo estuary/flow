@@ -558,11 +558,6 @@ collection_id|collection_name|schema_uri|key_json|resource_id|partitions_json|pr
 4|col/other-src|file:///path/to/a/schema.yaml|["/key"]|6|[]|[]|[]|0||
 changes:   0   total_changes: XYZ
 
--- View of schema URIs and all fields which are extracted from them,
--- with context as to usage (primary key, shuffle key, or projection).
-SELECT * FROM schema_extracted_fields;
-changes:   0   total_changes: XYZ
-
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),
@@ -580,7 +575,7 @@ VALUES ('a-package', '^4.5.6');
 
 -- Valid inferences
 INSERT INTO inferences (
-    collection_id,
+    schema_uri,
     location_ptr,
     types_json,
     must_exist,
@@ -589,39 +584,57 @@ INSERT INTO inferences (
     string_max_length
 )
 VALUES
-    (1, '/key/0', '["string"]', TRUE, 'text/plain', false, 97),
-    (1, '/key/1', '["string", "null"]', TRUE, 'text/plain', false, 97),
-    (1, '/path/3', '["string", "null"]', TRUE, 'text/plain', false, 97);
+    ('file:///path/to/a/schema.yaml#anchor', '/key/0', '["string"]', TRUE, 'text/plain', false, 97),
+    ('file:///path/to/a/schema.yaml#anchor', '/key/1', '["string", "null"]', TRUE, 'text/plain', false, 97),
+    ('file:///path/to/a/schema.yaml#anchor', '/path/3', '["string", "null"]', TRUE, 'text/plain', false, 97);
 changes:   3   total_changes: XYZ
 
 
-Error: near line (XYZ): 4 values for 3 columns
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES
+    -- Will show up in collection_keys as error due to invalid type "number"
+    ('https://canonical/schema/uri#/$defs/path', '/foo', '["number"]', TRUE),
+    -- Will show up in collection_keys as error due to multiple possible types
+    ( 'file:///path/to/a/schema.yaml', '/path/3', '["integer", "string"]', TRUE),
+    -- Will show up in collection_keys as error due to must_exist being FALSE
+    ( 'file:///path/to/a/schema.yaml', '/key', '["integer"]', FALSE);
+changes:   3   total_changes: XYZ
 
 -- Invalid inference (types are not valid json)
 Error: near line (XYZ): malformed JSON
-INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
-VALUES (1, '/field_2', '} not json {', FALSE);
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES ('file:///path/to/a/schema.yaml', '/field_2', '} not json {', FALSE);
 
 -- Invalid inference (types are null)
 Error: near line (XYZ): NOT NULL constraint failed: inferences.types_json
-INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
-VALUES (1, '/field_2', NULL, FALSE);
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES ('file:///path/to/a/schema.yaml', '/field_2', NULL, FALSE);
 
 -- Invalid inference (types are not an array)
 Error: near line (XYZ): CHECK constraint failed: inferences
-INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist)
-VALUES (1, '/field_2', '{"not": "an array"}', TRUE);
+INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+VALUES ('file:///path/to/a/schema.yaml', '/field_2', '{"not": "an array"}', TRUE);
 
--- Invalid inference (string_content_encoding_is_base64 is not a boolean)
-Error: near line (XYZ): table inferences has no column named field
 
--- View of schema URIs and all fields which are extracted from them,
--- with context as to usage (primary key, shuffle key, or projection).
-SELECT * FROM schema_extracted_fields;
+SELECT * FROM projected_fields;
 collection_id|schema_uri|collection_name|field|location_ptr|user_provided|types_json|must_exist|string_content_type|string_content_encoding_is_base64|string_max_length|is_partition_key|is_primary_key
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_1|/key/0|1|["string"]|1|text/plain|0|97|0|1
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_2|/key/1|0|["string", "null"]|1|text/plain|0|97|1|1
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_3|/path/3|0|["string", "null"]|1|text/plain|0|97|0|0
+2|https://canonical/schema/uri#/$defs/path|col/derived|field_1||0||||||0|0
+2|https://canonical/schema/uri#/$defs/path|col/derived|field_a|/a|1||||||1|0
+changes:   0   total_changes: XYZ
+
+SELECT * FROM collection_keys;
+collection_id|schema_uri|location_ptr|types_json|must_exist|source|error
+1|file:///path/to/a/schema.yaml#anchor|/key|||shuffle key from transform "one"|The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
+1|file:///path/to/a/schema.yaml#anchor|/key/0|["string"]|1|primary key of collection "col/src"|
+1|file:///path/to/a/schema.yaml#anchor|/key/1|["string", "null"]|1|partition key for collection "col/src"|
+1|file:///path/to/a/schema.yaml#anchor|/key/1|["string", "null"]|1|primary key of collection "col/src"|
+2|https://canonical/schema/uri#/$defs/path|/a|||partition key for collection "col/derived"|The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
+2|https://canonical/schema/uri#/$defs/path|/foo|["number"]|1|primary key of collection "col/derived"|Locations used as keys may not hold objects, arrays, or floats as possible values
+3|https://canonical/schema/uri#/$defs/path|/foo|["number"]|1|primary key of collection "col/der.iv-e+d"|Locations used as keys may not hold objects, arrays, or floats as possible values
+4|file:///path/to/a/schema.yaml|/key|["integer"]|0|primary key of collection "col/other-src"|Location may not exist in all documents. Consider using "required" or "minItems" in the schema to validate that the location will always have a value of type string, integer, or boolean (or null).
 changes:   0   total_changes: XYZ
 
 -- Valid test cases.
@@ -668,3 +681,4 @@ test_case_id|case_json
 420|{"name":"my test","steps":[{"operation":"ingest","collection":"col/der.iv-e+d","documents":[true,false]},{"operation":"verify","collection":"col/der.iv-e+d","documents":[111,222],"selector":{}}]}
 860|{"name":"another test","steps":[{"operation":"ingest","collection":"col/derived","documents":["a","b"]},{"operation":"verify","collection":"col/src","documents":[333,444],"selector":{"include":[{"name":"field_2","value":null}],"exclude":[{"name":"field_2","value":456},{"name":"field_2","value":"789"}]}}]}
 changes:   0   total_changes: XYZ
+
