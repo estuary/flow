@@ -1,7 +1,7 @@
 mod sql;
 
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Collection, Resource, Scope};
+use crate::catalog::{self, Collection, Scope};
 use crate::specs::build as specs;
 use estuary_json::schema::types;
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,9 @@ impl Materialization {
         materialization_name: &str,
         spec: &specs::Materialization,
     ) -> catalog::Result<Materialization> {
-        let collection = Collection::get_by_name(scope.db, spec.collection.as_str())?;
-        // verifies that the collection is actually imported by our current resource
-        Resource::verify_import(*scope, collection.resource)?;
+        let collection = scope.push_prop("collection").then(|scope| {
+            Ok(Collection::get_by_name(scope, spec.collection.as_str())?)
+        })?;
         let conf = MaterializationConfig::from_spec(&spec.config);
         let conf_json = serde_json::to_string(&conf)?;
         let conn = match &spec.config {

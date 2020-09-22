@@ -195,6 +195,49 @@ VALUES (42, 'field_2');
 INSERT INTO partitions (collection_id, field)
 VALUES (1, 'field_zzz');
 
+-- Valid partition selectors.
+INSERT INTO partition_selectors (selector_id, collection_id) VALUES (312, 1), (231, 1);
+INSERT INTO partition_selector_labels (
+    selector_id,
+    collection_id,
+    field,
+    value_json,
+    is_exclude
+)
+VALUES (312, 1, 'field_2', 'true',  FALSE),
+       (312, 1, 'field_2', 'false', FALSE),
+       (231, 1, 'field_2', 'null',  FALSE),
+       (231, 1, 'field_2', '456',   TRUE),
+       (231, 1, 'field_2', '"789"', TRUE);
+-- Case: invalid json.
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '{"invalid":', FALSE);
+-- Case: not a scalar (array).
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '[12,34]', FALSE);
+-- Case: not a scalar (real).
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '12.34', FALSE);
+-- Case: projection field doesn't exist.
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_zzz', 'true', FALSE);
+-- Case: projection field exists, but is not a logical partition.
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_1', 'true', FALSE);
+-- Case: projection is a logical partition of another collection (not this source).
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_a', 'true', FALSE);
+
+-- partition_selectors_json is a view which groups-up selector labels into a
+-- JSON structure which matches the shape of protocol.LabelSelector.
+SELECT * from partition_selectors_json;
+
 -- Valid derivations.
 INSERT INTO derivations (collection_id, register_schema_uri, register_initial_json)
 VALUES (2, "file:///path/to/a/schema.yaml#register", "{}"),
@@ -243,15 +286,16 @@ INSERT INTO transforms (
     transform_name,
     derivation_id,
     source_collection_id,
+    source_selector_id,
     update_id,
     publish_id,
     read_delay_seconds,
     source_schema_uri)
-VALUES ("one", 2, 1, 2,    NULL, NULL, NULL),
-       ("two", 2, 1, NULL, 3,    NULL, NULL),
-       ("3re", 2, 1, NULL, 5,    60,   NULL),
-       ("4or", 2, 1, 6,    NULL, 120,  NULL),
-       ("one", 3, 1, 5,    7,    1,    'https://alt/source/schema#anchor')
+VALUES ("one", 2, 1, NULL, 2,    NULL, NULL, NULL),
+       ("two", 2, 1, 231,  NULL, 3,    NULL, NULL),
+       ("3re", 2, 1, NULL, NULL, 5,    60,   NULL),
+       ("4or", 2, 1, 312,  6,    NULL, 120,  NULL),
+       ("one", 3, 1, NULL, 5,    7,    1,    'https://alt/source/schema#anchor')
 ;
 
 -- Name must be set.
@@ -329,33 +373,6 @@ VALUES ("fails", 3, 1, 7, 'https://alt/source/schema#different-anchor');
 INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
--- Valid transform source partitions.
-INSERT INTO transform_source_partitions (
-    transform_id,
-    collection_id,
-    field,
-    value_json,
-    is_exclude)
-VALUES (2, 1, 'field_2', 'true', FALSE),
-       (4, 1, 'field_2', '"456"', TRUE)
-;
--- Case: invalid json.
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_2', '{"invalid":', FALSE);
--- Case: projection doesn't exist.
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_zzz', 'true', FALSE);
--- Case: projection exists, but is not a logical partition.
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_1', 'true', FALSE);
--- Case: projection is a logical partition of another collection (not this source).
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_a', 'true', FALSE);
-
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
 SELECT * FROM transform_details;
@@ -426,3 +443,32 @@ VALUES (1, '/a', '["string"]', TRUE, 99);
 -- View of schema URIs and all fields which are extracted from them,
 -- with context as to usage (primary key, shuffle key, or projection).
 SELECT * FROM schema_extracted_fields;
+
+-- Valid test cases.
+INSERT INTO test_cases(test_case_id, test_case_name, resource_id) VALUES
+    (420, "my test", 1),
+    (860, "another test", 2);
+INSERT INTO test_step_ingests (test_case_id, step_index, collection_id, documents_json) VALUES
+    (420, 0, 3, '[true, false]'),
+    (860, 0, 2, '["a", "b"]');
+INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selector_id, documents_json) VALUES
+    (420, 1, 3, NULL, '[111, 222]'),
+    (860, 1, 1, 231, '[333, 444]');
+
+-- Invalid (documents not a JSON array).
+INSERT INTO test_step_ingests (test_case_id, step_index, collection_id, documents_json) VALUES
+    (860, 2, 1, '"zzz"');
+-- Invalid (documents not a JSON array).
+INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, documents_json) VALUES
+    (860, 2, 1, '"zzz"');
+-- Invalid (collection doesn't match that of the selector).
+INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selector_id, documents_json) VALUES
+    (860, 2, 2, 231, '[]');
+
+-- test_steps_json is a view which unifies test step variant tables
+-- into a unified JSON structure.
+SELECT * FROM test_steps_json;
+
+-- test_cases_json is a view which presents test cases as a nested
+-- JSON structure.
+SELECT * FROM test_cases_json;

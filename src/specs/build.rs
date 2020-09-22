@@ -244,10 +244,10 @@ pub struct Source {
     pub schema: Option<Schema>,
     /// Partition selector over partitions of the source collection to be read.
     #[serde(default)]
-    pub partitions: PartitionSelector,
+    pub partitions: Option<PartitionSelector>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PartitionSelector {
     /// Partition field names and corresponding values which must be matched
@@ -269,7 +269,7 @@ pub struct PartitionSelector {
 /// Used for collection schemas and transform source schemas, to allow flexibility in how they can
 /// be represented. The main distinction we're concerned with is whether the schema is provided
 /// inline or as a URI pointing to an external schema resource.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum Schema {
     /// Schema was provided as a URI that is expected to resolve to a JSON schema.
@@ -282,18 +282,34 @@ pub enum Schema {
     Bool(bool),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub enum TestStep {
-    // Ingest steps associate one or more captured collections with a Vec of
-    // documents to be ingested.
-    Ingest(BTreeMap<String, Vec<Value>>),
-    // Derived steps associate one or more logical partitions of collections
-    // with a Vec of expected derivations. Provided derivations must each be
-    // unique under the collection's key. Logical partitions are expressed in
-    // their flattened & URL-encoded form, eg:
-    //   'name/of/collection/a=partition/other%20partition=123'.
-    Verify(BTreeMap<String, Vec<Value>>),
+    /// Ingest document fixtures into a collection.
+    Ingest(TestStepIngest),
+    /// Verify the contents of a collection match a set of document fixtures.
+    Verify(TestStepVerify),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStepIngest {
+    /// Name of the collection into which the test will ingest.
+    pub collection: String,
+    /// Documents to ingest.
+    pub documents: Vec<Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStepVerify {
+    /// Name of the collection into which the test will ingest.
+    pub collection: String,
+    /// Documents to ingest.
+    pub documents: Vec<Value>,
+    /// Partition selector over partitions of the collection to verify against.
+    #[serde(default)]
+    pub partitions: Option<PartitionSelector>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

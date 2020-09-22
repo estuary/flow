@@ -30,6 +30,8 @@ pub mod test {
 
             for (ind, col) in row.columns().iter().enumerate() {
                 // Map the column into a JSON serialization.
+                // If there is no declared column type, then we're querying a computed
+                // view column and should fall back to TEXT (with JSON decoding).
                 let val_str = match col.decl_type() {
                     Some("INTEGER") => {
                         let n: Option<i64> = row.get(ind)?;
@@ -46,7 +48,7 @@ pub mod test {
                             None => Cow::from("null"),
                         }
                     }
-                    Some("TEXT") => {
+                    Some("TEXT") | None => {
                         let s: Option<String> = row.get(ind)?;
                         match s {
                             Some(s) if col.name().ends_with("_json") => Cow::from(s),

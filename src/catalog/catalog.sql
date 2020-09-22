@@ -253,6 +253,22 @@ CREATE TABLE projections
         location_ptr REGEXP '^(/[^/]+)*$')
 );
 
+-- Partitions are projections which logically partition the collection.
+--
+-- :collection_id:
+--      Collection to which this projection pertains.
+-- :field:
+--      Field of this partition.
+CREATE TABLE partitions
+(
+    collection_id INTEGER NOT NULL,
+    field         TEXT    NOT NULL,
+
+    PRIMARY KEY (collection_id, field),
+    FOREIGN KEY (collection_id, field)
+        REFERENCES projections(collection_id, field)
+);
+
 -- Type information that's been extracted from collection schemas.
 --
 -- :collection_id:
@@ -296,21 +312,66 @@ CREATE TABLE inferences
         location_ptr REGEXP '^(/[^/]+)*$')
 );
 
--- Partitions are projections which logically partition the collection.
---
--- :collection_id:
---      Collection to which this projection pertains.
--- :field:
---      Field of this partition.
-CREATE TABLE partitions
+-- Partition selectors express a selection of partitions of a collection.
+CREATE TABLE partition_selectors
 (
+    selector_id   INTEGER PRIMARY KEY NOT NULL,
     collection_id INTEGER NOT NULL,
-    field         TEXT    NOT NULL,
 
-    PRIMARY KEY (collection_id, field),
-    FOREIGN KEY (collection_id, field)
-        REFERENCES projections(collection_id, field)
+    UNIQUE(selector_id, collection_id)
 );
+
+-- Individual labels which constitute a partition selector.
+--
+-- :selector_id:
+--      ID of this selector.
+-- :collection_id:
+--      Collection which is selected over.
+-- :field:
+--      Partitioned field of the collection.
+-- :value_json:
+--      JSON-encoded value to be matched.
+-- :is_exclude:
+--      If true, this record is a selector exclusion (as opposed to an inclusion).
+CREATE TABLE partition_selector_labels
+(
+    selector_id   INTEGER NOT NULL,
+    collection_id INTEGER NOT NULL,
+
+    field         TEXT    NOT NULL,
+    value_json    TEXT    NOT NULL,
+    is_exclude    BOOLEAN NOT NULL,
+
+    FOREIGN KEY(selector_id, collection_id)
+        REFERENCES partition_selectors(selector_id, collection_id),
+    FOREIGN KEY(collection_id, field)
+        REFERENCES partitions(collection_id, field),
+
+    CONSTRAINT "Value must be a scalar (not an array, object, or real number)" CHECK (
+        JSON_TYPE(value_json) IN ('null', 'true', 'false', 'integer','text'))
+);
+
+-- View over partition_selectors which groups into a JSON object
+-- matching the schema of protocol.LabelSelector.
+CREATE VIEW partition_selectors_json AS
+WITH flat_include_exclude AS (
+    SELECT
+        selector_id,
+        collection_id,
+        JSON_GROUP_ARRAY(
+            JSON_OBJECT('name', field, 'value', JSON(value_json))
+        ) FILTER (WHERE NOT is_exclude) AS inc,
+        JSON_GROUP_ARRAY(
+            JSON_OBJECT('name', field, 'value', JSON(value_json))
+        ) FILTER (WHERE is_exclude) AS exc
+        FROM partition_selector_labels
+        GROUP BY selector_id
+)
+SELECT
+    selector_id,
+    collection_id,
+    JSON_OBJECT('include', JSON(inc), 'exclude', JSON(exc)) AS selector_json
+    FROM flat_include_exclude;
 
 -- Derivations details collections of the catalog which are derived from other collections.
 --
@@ -376,6 +437,7 @@ CREATE TABLE transforms
     derivation_id          INTEGER             NOT NULL REFERENCES derivations (collection_id),
     transform_name         TEXT                NOT NULL,
     source_collection_id   INTEGER             NOT NULL REFERENCES collections (collection_id),
+    source_selector_id     INTEGER,
     update_id              INTEGER                      REFERENCES lambdas (lambda_id),
     publish_id             INTEGER                      REFERENCES lambdas (lambda_id),
     source_schema_uri      TEXT,
@@ -383,9 +445,10 @@ CREATE TABLE transforms
     read_delay_seconds     INTEGER CHECK (read_delay_seconds > 0),
 
     -- Name must be unique amoung transforms of the derivation.
-    UNIQUE(transform_name, derivation_id),
-    -- Required index of the transform_source_partitions foreign-key.
-    UNIQUE(transform_id, source_collection_id),
+    UNIQUE(transform_name COLLATE NOCASE, derivation_id),
+
+    FOREIGN KEY(source_selector_id, source_collection_id)
+        REFERENCES partition_selectors(selector_id, collection_id),
 
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
         source_schema_uri LIKE '_%://_%'),
@@ -445,47 +508,6 @@ BEGIN
     SELECT RAISE(ABORT, 'Transform references a source collection which is not imported by this catalog spec');
 END;
 
--- Partitions of the transform source which the transform is restricted to.
---
--- :transform_id:
---      Transform to which the partition restriction applies.
--- :collection_id:
---      Source collection which is partitioned.
--- :field:
---      Partitioned field of the source collection.
--- :value_json:
---      JSON-encoded value to be matched.
--- :is_exclude:
---      If true, this record is a partition exclusion (as opposed to an inclusion).
-CREATE TABLE transform_source_partitions
-(
-    transform_id  INTEGER NOT NULL,
-    collection_id INTEGER NOT NULL,
-    field         TEXT    NOT NULL,
-    value_json    TEXT    NOT NULL,
-    is_exclude    BOOLEAN NOT NULL,
-
-    FOREIGN KEY(transform_id, collection_id)
-        REFERENCES transforms(transform_id, source_collection_id),
-    FOREIGN KEY(collection_id, field)
-        REFERENCES partitions(collection_id, field),
-
-    CONSTRAINT "Value must be valid JSON" CHECK (JSON_VALID(value_json))
-);
-
--- View over transform_source_partitions which groups partitions on
--- transform_id, and aggregates partition selectors into a flat JSON array.
-CREATE VIEW transform_source_partitions_json AS
-SELECT
-    transform_id,
-    collection_id,
-    JSON_GROUP_ARRAY(JSON_OBJECT(
-        'field', field,
-        'value', value_json,
-        'exclude', is_exclude
-    )) AS json
-FROM transform_source_partitions GROUP BY transform_id, collection_id;
-
 -- Detail view of transforms joined with collection and lambda details,
 -- and flattening NULL-able fields into their assumed defaults.
 CREATE VIEW transform_details AS
@@ -500,7 +522,7 @@ SELECT transforms.transform_id,
        src.collection_name                                                     AS source_name,
        src.resource_id                                                         AS source_resource_id,
        COALESCE(transforms.source_schema_uri, src.schema_uri)                  AS source_schema_uri,
-       source_partitions.json                                                  AS source_partitions_json,
+       source_selector.selector_json                                           AS source_selector_json,
        transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
        COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
        transforms.read_delay_seconds,
@@ -541,9 +563,8 @@ FROM transforms
               ON transforms.publish_id = publish.lambda_id
          LEFT JOIN resources AS publish_resources
               ON publish.resource_id = publish_resources.resource_id
-         LEFT JOIN transform_source_partitions_json as source_partitions
-              ON transforms.transform_id = source_partitions.transform_id
-              AND transforms.source_collection_id = source_partitions.collection_id
+         LEFT JOIN partition_selectors_json as source_selector
+              ON transforms.source_selector_id = source_selector.selector_id
 ;
 
 -- Detail view of collections joined with projections, partitions,
@@ -661,6 +682,113 @@ BEGIN
             RAISE(IGNORE)
     END;
 END;
+
+-- Test cases of the catalog.
+--
+-- :test_name:
+--      Unique name of this test case.
+-- :steps_json:
+--      Encoded JSON array of steps of this test case.
+-- :resource_id:
+--      Catalog source spec which defines this test case.
+CREATE TABLE test_cases
+(
+    test_case_id   INTEGER PRIMARY KEY NOT NULL,
+    test_case_name TEXT    UNIQUE      NOT NULL,
+    resource_id    INTEGER             NOT NULL REFERENCES resources (resource_id)
+);
+
+-- Ingest test case steps ingest documents into a collection.
+--
+-- :test_case_id:
+--      ID of the test case.
+-- :step_index:
+--      Index of this test step within the overall test case.
+-- :collection_id:
+--      Collection into which the test step will ingest.
+-- :documents_json:
+--      Fixture of documents to ingest into the collection.
+CREATE TABLE test_step_ingests
+(
+    test_case_id   INTEGER NOT NULL REFERENCES test_cases (test_case_id),
+    step_index     INTEGER NOT NULL,
+    collection_id  INTEGER NOT NULL REFERENCES collections (collection_id),
+    documents_json TEXT    NOT NULL,
+
+    CONSTRAINT "Documents must be a JSON array" CHECK (JSON_TYPE(documents_json) == 'array')
+);
+
+-- Verify test case steps verify documents of a collection match a fixture expectation.
+--
+-- :test_case_id:
+--      ID of the test case.
+-- :step_index:
+--      Index of this test step within the overall test case.
+-- :collection_id:
+--      Collection into which the test step will ingest.
+-- :selector_id:
+--      Optional selector of collection partitions which fixture documents must match.
+-- :documents_json:
+--      Fixture of documents to verify against the collection.
+CREATE TABLE test_step_verifies
+(
+    test_case_id   INTEGER NOT NULL REFERENCES test_cases (test_case_id),
+    step_index     INTEGER NOT NULL,
+    collection_id  INTEGER NOT NULL REFERENCES collections (collection_id),
+    selector_id    INTEGER,
+    documents_json TEXT    NOT NULL,
+
+    FOREIGN KEY(selector_id, collection_id)
+        REFERENCES partition_selectors(selector_id, collection_id),
+
+    CONSTRAINT "Documents must be a JSON array" CHECK (JSON_TYPE(documents_json) == 'array')
+);
+
+-- View which unions test step variant tables into a JSON object with
+-- unified fields, where appropriate.
+CREATE VIEW test_steps_json AS
+SELECT
+    test_case_id,
+    step_index,
+    JSON_OBJECT(
+        'operation',  'ingest',
+        'collection', collection_name,
+        'documents',  JSON(documents_json)
+    ) AS step_json
+    FROM test_step_ingests
+    NATURAL JOIN collections
+UNION ALL
+SELECT
+    test_case_id,
+    step_index,
+    JSON_OBJECT(
+        'operation',  'verify',
+        'collection', collection_name,
+        'documents',  JSON(documents_json),
+        'selector',   JSON(IFNULL(selector_json, '{}'))
+    ) AS step_json
+    FROM test_step_verifies
+    NATURAL JOIN collections
+    NATURAL LEFT JOIN partition_selectors_json
+;
+
+-- View of test cases, aggregated into a nested JSON object.
+CREATE VIEW test_cases_json AS WITH
+inner AS (
+    SELECT test_case_id,
+        test_case_name,
+        JSON_GROUP_ARRAY(JSON(step_json)) AS steps_json
+    FROM test_steps_json
+    NATURAL JOIN test_cases
+    GROUP BY test_case_id
+    ORDER BY step_index ASC
+)
+SELECT test_case_id,
+    JSON_OBJECT(
+        'name', test_case_name,
+        'steps', JSON(steps_json)
+    ) AS case_json
+    FROM inner;
 
 -- Contains informational and diagnostic data about the build itself. This is intended to be used
 -- somewhat like a log.

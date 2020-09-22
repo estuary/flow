@@ -73,7 +73,7 @@ collections:
           publish:
             nodeJS: "return [{ ...source, view: register }]"
 
-  - name: marketing/purchases-with-offers
+  - name: marketing/purchase-with-offers
     # Example of using inline schemas, which can reference external schemas.
     schema:
       description: Purchase event joined with prior offer views and clicks.
@@ -115,7 +115,7 @@ collections:
                   strategy: firstWriteWins
           type: object
           properties:
-            lastSeen: {type: string, format: date-time}
+            lastSeen: { type: string, format: date-time }
             views:
               allOf:
                 - $ref: "#/$defs/boundedTimestampMap"
@@ -132,7 +132,7 @@ collections:
           #  key: "/lastSeen"
           #  delta: "720h"
 
-        initial: {"views": {}, "clicks": {}}
+        initial: { "views": {}, "clicks": {} }
 
       transform:
         # Index views of the user. Only the first view of a UTC day is retained.
@@ -178,8 +178,7 @@ collections:
 
 materializations:
   testPostgres:
-    collection: marketing/purchases-with-offers
+    collection: marketing/purchase-with-offers
     postgres:
       uri: "postgresql://dev-postgres.estuary.test:5432/marketing"
       table: purchases_with_offers
-

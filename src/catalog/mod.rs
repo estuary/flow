@@ -14,7 +14,9 @@ mod projections;
 mod resource;
 mod schema;
 mod scope;
+mod selector;
 mod source;
+mod test_case;
 
 use std::path::Path;
 use url::Url;
@@ -29,7 +31,9 @@ pub use resource::Resource;
 pub use rusqlite::{params as sql_params, Connection as DB};
 pub use schema::Schema;
 pub use scope::Scope;
+pub use selector::Selector;
 pub use source::Source;
+pub use test_case::TestCase;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

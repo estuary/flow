@@ -301,6 +301,61 @@ Error: near line (XYZ): FOREIGN KEY constraint failed
 INSERT INTO partitions (collection_id, field)
 VALUES (1, 'field_zzz');
 
+-- Valid partition selectors.
+INSERT INTO partition_selectors (selector_id, collection_id) VALUES (312, 1), (231, 1);
+changes:   2   total_changes: XYZ
+INSERT INTO partition_selector_labels (
+    selector_id,
+    collection_id,
+    field,
+    value_json,
+    is_exclude
+)
+VALUES (312, 1, 'field_2', 'true',  FALSE),
+       (312, 1, 'field_2', 'false', FALSE),
+       (231, 1, 'field_2', 'null',  FALSE),
+       (231, 1, 'field_2', '456',   TRUE),
+       (231, 1, 'field_2', '"789"', TRUE);
+changes:   5   total_changes: XYZ
+-- Case: invalid json.
+Error: near line (XYZ): malformed JSON
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '{"invalid":', FALSE);
+-- Case: not a scalar (array).
+Error: near line (XYZ): CHECK constraint failed: Value must be a scalar (not an array, object, or real number)
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '[12,34]', FALSE);
+-- Case: not a scalar (real).
+Error: near line (XYZ): CHECK constraint failed: Value must be a scalar (not an array, object, or real number)
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '12.34', FALSE);
+-- Case: projection field doesn't exist.
+Error: near line (XYZ): FOREIGN KEY constraint failed
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_zzz', 'true', FALSE);
+-- Case: projection field exists, but is not a logical partition.
+Error: near line (XYZ): FOREIGN KEY constraint failed
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_1', 'true', FALSE);
+-- Case: projection is a logical partition of another collection (not this source).
+Error: near line (XYZ): FOREIGN KEY constraint failed
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_a', 'true', FALSE);
+
+-- partition_selectors_json is a view which groups-up selector labels into a
+-- JSON structure which matches the shape of protocol.LabelSelector.
+SELECT * from partition_selectors_json;
+selector_id|collection_id|selector_json
+231|1|{"include":[{"name":"field_2","value":null}],"exclude":[{"name":"field_2","value":456},{"name":"field_2","value":"789"}]}
+312|1|{"include":[{"name":"field_2","value":true},{"name":"field_2","value":false}],"exclude":[]}
+changes:   0   total_changes: XYZ
+
 -- Valid derivations.
 INSERT INTO derivations (collection_id, register_schema_uri, register_initial_json)
 VALUES (2, "file:///path/to/a/schema.yaml#register", "{}"),
@@ -364,15 +419,16 @@ INSERT INTO transforms (
     transform_name,
     derivation_id,
     source_collection_id,
+    source_selector_id,
     update_id,
     publish_id,
     read_delay_seconds,
     source_schema_uri)
-VALUES ("one", 2, 1, 2,    NULL, NULL, NULL),
-       ("two", 2, 1, NULL, 3,    NULL, NULL),
-       ("3re", 2, 1, NULL, 5,    60,   NULL),
-       ("4or", 2, 1, 6,    NULL, 120,  NULL),
-       ("one", 3, 1, 5,    7,    1,    'https://alt/source/schema#anchor')
+VALUES ("one", 2, 1, NULL, 2,    NULL, NULL, NULL),
+       ("two", 2, 1, 231,  NULL, 3,    NULL, NULL),
+       ("3re", 2, 1, NULL, NULL, 5,    60,   NULL),
+       ("4or", 2, 1, 312,  6,    NULL, 120,  NULL),
+       ("one", 3, 1, NULL, 5,    7,    1,    'https://alt/source/schema#anchor')
 ;
 changes:   5   total_changes: XYZ
 
@@ -469,46 +525,14 @@ Error: near line (XYZ): Transforms of a derived collection which read from the s
 INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
--- Valid transform source partitions.
-INSERT INTO transform_source_partitions (
-    transform_id,
-    collection_id,
-    field,
-    value_json,
-    is_exclude)
-VALUES (2, 1, 'field_2', 'true', FALSE),
-       (4, 1, 'field_2', '"456"', TRUE)
-;
-changes:   2   total_changes: XYZ
--- Case: invalid json.
-Error: near line (XYZ): CHECK constraint failed: Value must be valid JSON
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_2', '{"invalid":', FALSE);
--- Case: projection doesn't exist.
-Error: near line (XYZ): FOREIGN KEY constraint failed
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_zzz', 'true', FALSE);
--- Case: projection exists, but is not a logical partition.
-Error: near line (XYZ): FOREIGN KEY constraint failed
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_1', 'true', FALSE);
--- Case: projection is a logical partition of another collection (not this source).
-Error: near line (XYZ): FOREIGN KEY constraint failed
-INSERT INTO transform_source_partitions (
-    transform_id, collection_id, field, value_json, is_exclude)
-VALUES (1, 1, 'field_a', 'true', FALSE);
-
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
 SELECT * FROM transform_details;
-transform_id|transform_name|register_schema_uri|source_collection_id|source_name|source_resource_id|source_schema_uri|source_partitions_json|is_alt_source_schema|shuffle_key_json|read_delay_seconds|derivation_id|derivation_name|derivation_resource_id|derivation_schema_uri|derivation_key_json|update_id|update_runtime|update_inline|update_resource_id|update_resource_content|publish_id|publish_runtime|publish_inline|publish_resource_id|publish_resource_content
+transform_id|transform_name|register_schema_uri|source_collection_id|source_name|source_resource_id|source_schema_uri|source_selector_json|is_alt_source_schema|shuffle_key_json|read_delay_seconds|derivation_id|derivation_name|derivation_resource_id|derivation_schema_uri|derivation_key_json|update_id|update_runtime|update_inline|update_resource_id|update_resource_content|publish_id|publish_runtime|publish_inline|publish_resource_id|publish_resource_content
 1|one|file:///path/to/a/schema.yaml#register|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key"]||2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|2|nodeJS|(doc, state) => {...doc, key: 1}|||||||
-2|two|file:///path/to/a/schema.yaml#register|1|col/src|3|file:///path/to/a/schema.yaml#anchor|[{"field":"field_2","value":"true","exclude":0}]|0|["/key/0","/key/1"]||2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]||||||3|sqlite|SELECT 1;||
+2|two|file:///path/to/a/schema.yaml#register|1|col/src|3|file:///path/to/a/schema.yaml#anchor|{"include":[{"name":"field_2","value":null}],"exclude":[{"name":"field_2","value":456},{"name":"field_2","value":"789"}]}|0|["/key/0","/key/1"]||2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]||||||3|sqlite|SELECT 1;||
 3|3re|file:///path/to/a/schema.yaml#register|1|col/src|3|file:///path/to/a/schema.yaml#anchor||0|["/key/0","/key/1"]|60|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]||||||5|sqliteFile||7|transform content
-4|4or|file:///path/to/a/schema.yaml#register|1|col/src|3|file:///path/to/a/schema.yaml#anchor|[{"field":"field_2","value":"\"456\"","exclude":1}]|0|["/key/0","/key/1"]|120|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|6|remote|https://remote/endpoint|||||||
+4|4or|file:///path/to/a/schema.yaml#register|1|col/src|3|file:///path/to/a/schema.yaml#anchor|{"include":[{"name":"field_2","value":true},{"name":"field_2","value":false}],"exclude":[]}|0|["/key/0","/key/1"]|120|2|col/derived|2|https://canonical/schema/uri#/$defs/path|["/foo"]|6|remote|https://remote/endpoint|||||||
 5|one|file:///path/to/a/schema.yaml#other-register|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]|1|3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]|5|sqliteFile||7|transform content|7|nodeJS|(doc, state) => {...doc, foo: true}||
 6|works|file:///path/to/a/schema.yaml#other-register|1|col/src|3|https://alt/source/schema#anchor||1|["/key/0","/key/1"]||3|col/der.iv-e+d|1|https://canonical/schema/uri#/$defs/path|["/foo"]||||||7|nodeJS|(doc, state) => {...doc, foo: true}||
 changes:   0   total_changes: XYZ
@@ -598,4 +622,49 @@ collection_id|schema_uri|collection_name|field|location_ptr|user_provided|types_
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_1|/key/0|1|["string"]|1|text/plain|0|97|0|1
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_2|/key/1|0|["string", "null"]|1|text/plain|0|97|1|1
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_3|/path/3|0|["string", "null"]|1|text/plain|0|97|0|0
+changes:   0   total_changes: XYZ
+
+-- Valid test cases.
+INSERT INTO test_cases(test_case_id, test_case_name, resource_id) VALUES
+    (420, "my test", 1),
+    (860, "another test", 2);
+changes:   2   total_changes: XYZ
+INSERT INTO test_step_ingests (test_case_id, step_index, collection_id, documents_json) VALUES
+    (420, 0, 3, '[true, false]'),
+    (860, 0, 2, '["a", "b"]');
+changes:   2   total_changes: XYZ
+INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selector_id, documents_json) VALUES
+    (420, 1, 3, NULL, '[111, 222]'),
+    (860, 1, 1, 231, '[333, 444]');
+changes:   2   total_changes: XYZ
+
+-- Invalid (documents not a JSON array).
+Error: near line (XYZ): CHECK constraint failed: Documents must be a JSON array
+INSERT INTO test_step_ingests (test_case_id, step_index, collection_id, documents_json) VALUES
+    (860, 2, 1, '"zzz"');
+-- Invalid (documents not a JSON array).
+Error: near line (XYZ): CHECK constraint failed: Documents must be a JSON array
+INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, documents_json) VALUES
+    (860, 2, 1, '"zzz"');
+-- Invalid (collection doesn't match that of the selector).
+Error: near line (XYZ): FOREIGN KEY constraint failed
+INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selector_id, documents_json) VALUES
+    (860, 2, 2, 231, '[]');
+
+-- test_steps_json is a view which unifies test step variant tables
+-- into a unified JSON structure.
+SELECT * FROM test_steps_json;
+test_case_id|step_index|step_json
+420|0|{"operation":"ingest","collection":"col/der.iv-e+d","documents":[true,false]}
+860|0|{"operation":"ingest","collection":"col/derived","documents":["a","b"]}
+420|1|{"operation":"verify","collection":"col/der.iv-e+d","documents":[111,222],"selector":{}}
+860|1|{"operation":"verify","collection":"col/src","documents":[333,444],"selector":{"include":[{"name":"field_2","value":null}],"exclude":[{"name":"field_2","value":456},{"name":"field_2","value":"789"}]}}
+changes:   0   total_changes: XYZ
+
+-- test_cases_json is a view which presents test cases as a nested
+-- JSON structure.
+SELECT * FROM test_cases_json;
+test_case_id|case_json
+420|{"name":"my test","steps":[{"operation":"ingest","collection":"col/der.iv-e+d","documents":[true,false]},{"operation":"verify","collection":"col/der.iv-e+d","documents":[111,222],"selector":{}}]}
+860|{"name":"another test","steps":[{"operation":"ingest","collection":"col/derived","documents":["a","b"]},{"operation":"verify","collection":"col/src","documents":[333,444],"selector":{"include":[{"name":"field_2","value":null}],"exclude":[{"name":"field_2","value":456},{"name":"field_2","value":"789"}]}}]}
 changes:   0   total_changes: XYZ

@@ -1,4 +1,6 @@
-use super::{materialization, sql_params, Collection, ContentType, Resource, Result, Scope};
+use super::{
+    sql_params, Collection, ContentType, Materialization, Resource, Result, Scope, TestCase,
+};
 use crate::specs::build as specs;
 use url::Url;
 
@@ -44,22 +46,25 @@ impl Source {
                 })?;
         }
 
-        let mut registered_collections = Vec::with_capacity(spec.collections.len());
         for (index, spec) in spec.collections.iter().enumerate() {
-            let collection = scope
+            scope
                 .push_prop("collections")
                 .push_item(index)
                 .then(|scope| Collection::register(scope, spec))?;
-            registered_collections.push(collection);
         }
 
         for (name, materialization) in spec.materializations.iter() {
             scope
                 .push_prop("materializations")
                 .push_prop(name)
-                .then(|scope| {
-                    materialization::Materialization::register(&scope, name, materialization)
-                })?;
+                .then(|scope| Materialization::register(&scope, name, materialization))?;
+        }
+
+        for (name, spec) in spec.tests.iter() {
+            scope
+                .push_prop("tests")
+                .push_prop(name)
+                .then(|scope| TestCase::register(scope, name, spec))?;
         }
 
         Ok(Source { resource })

@@ -1,4 +1,4 @@
-use super::{sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope};
+use super::{sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope, Selector};
 use crate::doc::{validate, FullContext, SchemaIndex, Validator};
 use crate::specs::build as specs;
 
@@ -84,12 +84,9 @@ impl Derivation {
 
     fn register_transform(&self, scope: Scope, name: &str, spec: &specs::Transform) -> Result<()> {
         // Map spec source collection name to its collection ID.
-        let source = scope.push_prop("source").then(|scope| {
-            let source = Collection::get_by_name(scope.db, spec.source.name.as_str())?;
-            // Verify that the catalog spec of the source collection is imported by this collection's catalog.
-            Resource::verify_import(scope, source.resource)?;
-            Ok(source)
-        })?;
+        let source = scope
+            .push_prop("source")
+            .then(|scope| Ok(Collection::get_by_name(scope, spec.source.name.as_str())?))?;
         // Register optional source schema.
         let schema_url = scope
             .push_prop("source")
@@ -101,6 +98,17 @@ impl Derivation {
                     Ok(Some(schema.primary_url_with_fragment(scope.db)?))
                 }
                 None => Ok(None),
+            })?;
+        // Register optional source partition selector.
+        let selector = scope
+            .push_prop("source")
+            .push_prop("partitions")
+            .then(|scope| {
+                spec.source
+                    .partitions
+                    .as_ref()
+                    .map(|spec| Selector::register(scope, source, spec))
+                    .map_or(Ok(None), |v| v.map(Some))
             })?;
 
         // Register "update" and "publish" lambdas.
@@ -128,17 +136,19 @@ impl Derivation {
                         derivation_id,
                         transform_name,
                         source_collection_id,
+                        source_selector_id,
                         update_id,
                         publish_id,
                         source_schema_uri,
                         shuffle_key_json,
                         read_delay_seconds
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?
             .execute(sql_params![
                 self.collection.id,
                 name,
                 source.id,
+                selector.map(|s| s.id),
                 update.map(|l| l.id),
                 publish.map(|l| l.id),
                 schema_url,
@@ -148,52 +158,6 @@ impl Derivation {
                 spec.read_delay.map(|d| d.as_secs() as i64),
             ])?;
 
-        self.register_transform_source_partitions(
-            scope,
-            scope.db.last_insert_rowid(),
-            source.id,
-            &spec.source.partitions,
-        )?;
-
-        Ok(())
-    }
-
-    fn register_transform_source_partitions(
-        &self,
-        scope: Scope,
-        transform_id: i64,
-        collection_id: i64,
-        parts: &specs::PartitionSelector,
-    ) -> Result<()> {
-        for (m, is_exclude, scope) in &[
-            (&parts.include, false, scope.push_prop("include")),
-            (&parts.exclude, true, scope.push_prop("exclude")),
-        ] {
-            for (field, values) in m.iter() {
-                for (index, value) in values.iter().enumerate() {
-                    scope.push_prop(field).push_item(index).then(|scope| {
-                        Ok(scope
-                            .db
-                            .prepare_cached(
-                                "INSERT INTO transform_source_partitions (
-                                    transform_id,
-                                    collection_id,
-                                    field,
-                                    value_json,
-                                    is_exclude
-                                ) VALUES (?, ?, ?, ?, ?);",
-                            )?
-                            .execute(sql_params![
-                                transform_id,
-                                collection_id,
-                                field,
-                                value,
-                                is_exclude,
-                            ])?)
-                    })?;
-                }
-            }
-        }
         Ok(())
     }
 }
@@ -242,11 +206,12 @@ mod test {
         let scope = Scope::empty(&db);
         let scope = scope.push_resource(Resource { id: 1 });
 
-        // Derived collection with:
-        //  - Explicit register schema & initial value.
-        //  - Explicit alternate source schema.
-        //  - Explicit shuffle key.
-        //  - Explicit read delay.
+        // Derived collection with explicit:
+        //  - Register schema & initial value.
+        //  - Alternate source schema.
+        //  - Source partition selector.
+        //  - Shuffle key.
+        //  - Read delay.
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "d1/collection",
             "schema": "a-schema.json",
@@ -298,23 +263,24 @@ mod test {
         let dump = dump_tables(
             &db,
             &[
-                "derivations",
-                "transforms",
-                "transform_source_partitions",
                 "bootstraps",
+                "derivations",
                 "lambdas",
+                "partition_selector_labels",
+                "partition_selectors",
+                "transforms",
             ],
         )?;
 
         assert_eq!(
             dump,
             json!({
+                "bootstraps":[
+                    [1, 2, 1],
+                ],
                 "derivations": [
                     [2, "test://example/reg-schema.json#/$defs/qib", {"initial": ["value", 32]}],
                     [3, "test://example/spec?ptr=/derivation/register/schema", null],
-                ],
-                "bootstraps":[
-                    [1, 2, 1],
                 ],
                 "lambdas":[
                     [1, "nodeJS","nodeJS bootstrap", null],
@@ -322,14 +288,17 @@ mod test {
                     [3, "nodeJS","publish one", null],
                     [4, "nodeJS","publish two", null],
                 ],
-                "transforms":[
-                    [1, 2, "some-name",    1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
-                    [2, 3, "do-the-thing", 1, null, 4, null, null, null],
+                "partition_selectors":[
+                    [1, 1],
                 ],
-                "transform_source_partitions":[
+                "partition_selector_labels":[
                     [1, 1, "a_field", "foo", false],
                     [1, 1, "a_field", 42, false],
                     [1, 1, "other_field", false, true],
+                ],
+                "transforms":[
+                    [1, 2, "some-name",    1, 1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
+                    [2, 3, "do-the-thing", 1, null, null, 4, null, null, null],
                 ],
             }),
         );
