@@ -137,14 +137,13 @@ impl<'a> Scope<'a> {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{init_db_schema, open, sql_params, ContentType},
+        super::{create, sql_params, ContentType},
         *,
     };
 
     #[test]
     fn test_scope_errors() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute(
             "INSERT INTO resources

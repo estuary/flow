@@ -77,7 +77,7 @@ impl Collection {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open},
+        super::{create, dump_tables},
         *,
     };
     use rusqlite::params as sql_params;
@@ -85,8 +85,7 @@ mod test {
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         let schema = json!({
             "$anchor": "foobar",

@@ -2,31 +2,25 @@ use anyhow::{Context, Error};
 use estuary::catalog;
 use rusqlite::Connection as DB;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt(about = "Command-line interface for working with Estuary projects",
             author = env!("CARGO_PKG_AUTHORS"))]
-struct Args {
-    #[structopt(subcommand)]
-    command: SubCommand,
-    #[structopt(flatten)]
-    build_args: BuildArgs,
-}
-
-#[derive(StructOpt, Debug)]
-enum SubCommand {
+enum Command {
     /// Builds a Catalog spec into a catalog database that can be deployed or inspected.
-    Build,
-
+    Build(BuildArgs),
     /// Shows outputs from a built catalog.
     Show(ShowArgs),
 }
 
 #[derive(StructOpt, Debug)]
 struct ShowArgs {
-    /// The thing to show
+    /// Path to input catalog database.
+    #[structopt(long, default_value = "catalog.db")]
+    catalog: String,
+    /// The thing to show.
     #[structopt(subcommand)]
     target: ShowTarget,
 }
@@ -44,58 +38,30 @@ enum ShowTarget {
 
 #[derive(StructOpt, Debug)]
 struct BuildArgs {
-    /// Path to input specification file. Defaults to a file named 'catalog.[yaml|yml|json]' in the current
-    /// directory.
-    #[structopt(long, global = true)]
-    path: Option<String>,
-
-    /// Allow re-using an existing catalog database if one exists.
-    ///
-    /// Estctl does not currently account for files that have been modified since the catalog was
-    /// built, so using this option could cause a build to be skipped, even when an input manifest
-    /// has been modified since the last build. The default behavior is to always delete an
-    /// existing catalog database and rebuild it from scratch.
-    #[structopt(long, global = true)]
-    no_rebuild: bool,
-
-    /// Path to output catalog database
-    #[structopt(long, default_value = "catalog.db", global = true)]
+    /// URL or filesystem path of the input specification source file.
+    #[structopt(long, default_value = "catalog.yaml")]
+    source: String,
+    /// Path to output catalog database.
+    #[structopt(long, default_value = "catalog.db")]
     catalog: String,
-
     /// Path to NodeJS package which will hold JavaScript lambdas. If this directory
     /// doesn't exist, it will be automatically created from a template. The package
     /// is used temporarily during the catalog build process -- it's compiled and
     /// then packed into the output catalog database -- but re-using the same directory
     /// across invocations will save time otherwise spent fetching npm packages.
-    #[structopt(long = "nodejs", default_value = "catalog-nodejs", global = true)]
+    #[structopt(long = "nodejs", default_value = "catalog-nodejs")]
     nodejs_package_path: String,
 }
 
-impl BuildArgs {
-    /// Resloves the path to the input catalog spec. If the `--path` argument was provided,then
-    /// that is always returned directly. Otherwise, this will look in the current directory for a
-    /// file named `catalog.yaml|yml|json` and return the path to the first one that exists.
-    fn get_catalog_spec_path(&self) -> Result<PathBuf, NoCatalogSpecError> {
-        if let Some(path) = self.path.as_ref() {
-            Ok(PathBuf::from(path))
-        } else {
-            let possible_filenames = &["catalog.yaml", "catalog.yml", "catalog.json"];
-            possible_filenames
-                .iter()
-                .find(|path| fs::metadata(*path).is_ok())
-                .map(|p| PathBuf::from(*p))
-                .ok_or(NoCatalogSpecError)
-        }
-    }
-}
-
 fn main() {
-    pretty_env_logger::init();
-    let args = Args::from_args();
+    pretty_env_logger::init_timed();
+
+    let args = Command::from_args();
     log::debug!("{:?}", args);
-    let result = match &args.command {
-        SubCommand::Build => do_build(&args.build_args),
-        SubCommand::Show(show_args) => do_show(show_args, &args.build_args),
+
+    let result = match args {
+        Command::Build(build) => do_build(build),
+        Command::Show(show) => do_show(show),
     };
 
     match result {
@@ -104,49 +70,42 @@ fn main() {
     };
 }
 
-fn do_build(args: &BuildArgs) -> Result<DB, Error> {
-    let spec_path = args.get_catalog_spec_path()?;
-    let root = fs::canonicalize(spec_path.as_path())?;
-    log::debug!("Building catalog spec: '{}'", root.display());
+fn do_build(args: BuildArgs) -> Result<DB, Error> {
+    let spec_url = match url::Url::parse(&args.source) {
+        Ok(url) => url,
+        Err(err) => {
+            log::debug!(
+                "--source {:?} is not a URL; assuming it's a filesystem path (parse error: {})",
+                &args.source,
+                err
+            );
+            let source = fs::canonicalize(&args.source).context(format!(
+                "finding --source {:?} in the local filesystem",
+                &args.source
+            ))?;
+            // Safe unwrap since we've canonicalized the path.
+            url::Url::from_file_path(&source).unwrap()
+        }
+    };
+    let db = catalog::create(&args.catalog)
+        .context(format!("creating --catalog {:?}", &args.catalog))?;
 
-    // If we know that we won't be re-using the existing database, then delete the
-    // whole file now. This lets us only open the database once.
-    if (!args.no_rebuild) && delete_ignore_missing(args.catalog.as_str())? {
-        log::debug!("deleted '{}' so that we can rebuild it", args.catalog);
-    }
+    log::info!(
+        "Building --source {:?} into --catalog {:?}",
+        spec_url,
+        fs::canonicalize(&args.catalog)?
+    );
+    let nodejs_dir = Path::new(args.nodejs_package_path.as_str());
 
-    let db = catalog::open(args.catalog.as_str())?;
-    if args.no_rebuild && catalog::database_is_built(&db) {
-        log::info!("no need to rebuild the catalog");
-        return Ok(db);
-    }
-
-    // safe unwrap since we've canonicalized the path above
-    let root = url::Url::from_file_path(&root).unwrap();
-    let node = Path::new(args.nodejs_package_path.as_str());
-
-    catalog::build(&db, root, node)?;
-    log::debug!("Successfully built catalog");
+    catalog::build(&db, spec_url, nodejs_dir).context("building catalog")?;
+    log::info!("Successfully built catalog");
     Ok(db)
 }
 
-fn delete_ignore_missing(path: impl AsRef<Path>) -> Result<bool, std::io::Error> {
-    match fs::remove_file(path) {
-        Ok(_) => Ok(true),
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                Ok(false)
-            } else {
-                Err(e)
-            }
-        }
-    }
-}
+fn do_show(args: ShowArgs) -> Result<DB, Error> {
+    let db = catalog::open(&args.catalog).context("opening --catalog")?;
 
-fn do_show(show_args: &ShowArgs, build_args: &BuildArgs) -> Result<DB, Error> {
-    let db = do_build(build_args).context("failed to build catalog")?;
-
-    match &show_args.target {
+    match &args.target {
         ShowTarget::DDL {
             collection,
             materialization,
@@ -206,7 +165,3 @@ fn show_materialialization_ddl(
 
     Ok(())
 }
-
-#[derive(Debug, thiserror::Error)]
-#[error("Missing input catalog spec. Either provide the `--path` option or re-run from the parent directory of a file named catalog.yaml|yml|json")]
-struct NoCatalogSpecError;

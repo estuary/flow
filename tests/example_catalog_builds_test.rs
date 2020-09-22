@@ -11,7 +11,7 @@ fn test_examples() {
     let catalog_path = root_dir.join("examples/catalog.yaml");
     let nodejs_dir = root_dir.join("target/nodejs/");
 
-    let db = catalog::open(":memory:").unwrap();
+    let db = catalog::create(":memory:").unwrap();
     let url = Url::from_file_path(&catalog_path).unwrap();
     catalog::build(&db, url, &nodejs_dir).expect("failed to build catalog");
 }

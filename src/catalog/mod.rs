@@ -37,15 +37,26 @@ pub use test_case::TestCase;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Open a new connection to a catalog database.
-pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<DB> {
-    let db = DB::open(path)?;
-    regexp_sql_fn::install(&db)?; // Install support for REGEXP operator.
-    unicode_collation::install(&db)?;
-    Ok(db)
+/// Create a new and empty catalog database, returning an open connection.
+/// Any existing database at the given path is truncated.
+pub fn create(path: &str) -> Result<DB> {
+    if path != ":memory:" {
+        // Create or truncate the database at |path|.
+        std::fs::write(path, &[])?;
+    }
+    let c = open(path)?;
+    db::init(&c)?;
+    Ok(c)
 }
 
-pub use db::init as init_db_schema;
+/// Open an existing catalog database, which must already exist.
+pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<DB> {
+    let c = DB::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    regexp_sql_fn::install(&c)?; // Install support for REGEXP operator.
+    unicode_collation::install(&c)?;
+    Ok(c)
+}
+
 pub use nodejs::build_package as build_nodejs_package;
 
 const BUILD_COMPLETE_DESCRIPTION: &str = "completed catalog build";
@@ -53,7 +64,6 @@ const BUILD_COMPLETE_DESCRIPTION: &str = "completed catalog build";
 /// Builds a catalog
 pub fn build(db: &DB, spec_url: Url, nodejs_dir: &Path) -> Result<()> {
     db.execute_batch("BEGIN;")?;
-    init_db_schema(db)?;
 
     Source::register(Scope::empty(db), spec_url)?;
     extraction::verify_extracted_fields(db)?;

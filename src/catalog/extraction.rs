@@ -57,13 +57,12 @@ impl Display for KeyError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::catalog::{init_db_schema, open};
+    use crate::catalog::create;
     use itertools::Itertools;
 
     #[test]
     fn all_key_errors_are_returned() {
-        let db = open(":memory:").unwrap();
-        init_db_schema(&db).unwrap();
+        let db = create(":memory:").unwrap();
 
         db.execute_batch(
             r##"

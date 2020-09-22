@@ -109,15 +109,14 @@ impl TestCase {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open, Collection, Resource},
+        super::{create, dump_tables, Collection, Resource},
         *,
     };
     use serde_json::json;
 
     #[test]
     fn test_register() {
-        let db = open(":memory:").unwrap();
-        init_db_schema(&db).unwrap();
+        let db = create(":memory:").unwrap();
 
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES

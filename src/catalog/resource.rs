@@ -184,7 +184,7 @@ impl Resource {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_table, init_db_schema, open},
+        super::{create, dump_table},
         *,
     };
     use serde_json::{json, Value};
@@ -197,8 +197,7 @@ mod test {
         file.as_file_mut().write(b"file content!").unwrap();
         let file_url = Url::from_file_path(file.path()).unwrap();
 
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         let r = Resource::register(&db, ContentType::CatalogSpec, &file_url)?;
         assert_eq!(r, Resource { id: 1 });
@@ -224,8 +223,7 @@ mod test {
 
     #[test]
     fn test_registration_unprocessed() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "
@@ -256,8 +254,7 @@ mod test {
 
     #[test]
     fn test_registration_via_alt_url() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "
@@ -281,8 +278,7 @@ mod test {
 
     #[test]
     fn test_registration_with_different_content_type() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "
@@ -303,8 +299,7 @@ mod test {
 
     #[test]
     fn test_register_alternate_urls() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "
@@ -332,8 +327,7 @@ mod test {
 
     #[test]
     fn test_joining() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "
@@ -366,8 +360,7 @@ mod test {
 
     #[test]
     fn test_import_tracking() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "

@@ -8,7 +8,7 @@ pub fn init(db: &rusqlite::Connection) -> Result<()> {
 
 #[cfg(test)]
 pub mod test {
-    use super::{super::open, *};
+    use super::{super::create, *};
     use rusqlite::{params as sql_params, Connection as DB, Result as DBResult};
     use serde_json::Value;
     use std::borrow::Cow;
@@ -78,8 +78,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_init() -> Result<()> {
-        let db = open(":memory:")?;
-        init(&db)
+    fn test_init() {
+        create(":memory:").unwrap();
     }
 }

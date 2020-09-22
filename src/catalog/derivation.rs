@@ -165,15 +165,14 @@ impl Derivation {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open},
+        super::{create, dump_tables},
         *,
     };
     use serde_json::json;
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = open(":memory:").unwrap();
-        init_db_schema(&db).unwrap();
+        let db = create(":memory:").unwrap();
 
         let a_schema = json!(true);
         let alt_schema = json!({"$anchor": "foobar"});

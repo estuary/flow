@@ -18,9 +18,9 @@ impl Materialization {
         materialization_name: &str,
         spec: &specs::Materialization,
     ) -> catalog::Result<Materialization> {
-        let collection = scope.push_prop("collection").then(|scope| {
-            Ok(Collection::get_by_name(scope, spec.collection.as_str())?)
-        })?;
+        let collection = scope
+            .push_prop("collection")
+            .then(|scope| Ok(Collection::get_by_name(scope, spec.collection.as_str())?))?;
         let conf = MaterializationConfig::from_spec(&spec.config);
         let conf_json = serde_json::to_string(&conf)?;
         let conn = match &spec.config {
@@ -317,8 +317,7 @@ mod test {
     }
 
     fn setup() -> DB {
-        let db = catalog::open(":memory:").unwrap();
-        catalog::init_db_schema(&db).unwrap();
+        let db = catalog::create(":memory:").unwrap();
 
         db.execute_batch(r##"
             INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES

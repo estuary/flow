@@ -1,6 +1,4 @@
-use crate::catalog::{
-    Collection as CollectionResource, Result, Schema as SchemaResource, Scope, DB,
-};
+use crate::catalog::{Collection, Result, Schema, Scope, DB};
 use crate::doc::inference::Shape;
 use crate::doc::{Pointer, SchemaIndex};
 use crate::specs::build as specs;
@@ -11,10 +9,10 @@ use url::Url;
 
 pub fn register_projections(
     scope: &Scope,
-    collection: CollectionResource,
+    collection: Collection,
     projections: &specs::Projections,
 ) -> Result<()> {
-    let compiled_schemas = SchemaResource::compile_for(scope.db, collection.resource.id)?;
+    let compiled_schemas = Schema::compile_for(scope.db, collection.resource.id)?;
     let mut index = SchemaIndex::new();
     for schema in compiled_schemas.iter() {
         index.add(schema)?;
@@ -49,7 +47,7 @@ pub fn register_projections(
     )
 }
 
-fn get_schema_uri(db: &DB, collection: CollectionResource) -> Result<Url> {
+fn get_schema_uri(db: &DB, collection: Collection) -> Result<Url> {
     let url_string: String = db.query_row(
         "SELECT schema_uri FROM collections WHERE collection_id = ?;",
         rusqlite::params![collection.id],
@@ -60,7 +58,7 @@ fn get_schema_uri(db: &DB, collection: CollectionResource) -> Result<Url> {
 
 pub fn register_user_provided_projection(
     scope: &Scope,
-    collection: CollectionResource,
+    collection: Collection,
     spec: &specs::ProjectionSpec,
     schema_shape: &Shape,
     schema_uri: &str,
@@ -245,14 +243,13 @@ fn field_name_from_location(location: Location) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::catalog::{self, Resource};
+    use crate::catalog::{create, Resource};
     use rusqlite::params as sql_params;
     use serde_json::json;
 
     #[test]
     fn default_projections_and_inferences_are_registered() {
-        let db = catalog::open(":memory:").unwrap();
-        catalog::init_db_schema(&db).unwrap();
+        let db = create(":memory:").unwrap();
 
         let schema = json!({
             "$defs": {
@@ -363,7 +360,7 @@ mod test {
         )
         .unwrap();
 
-        let collection = CollectionResource {
+        let collection = Collection {
             id: 1,
             resource: Resource { id: 1 },
         };

@@ -48,15 +48,14 @@ impl Lambda {
 #[cfg(test)]
 mod test {
     use super::{
-        super::{dump_tables, init_db_schema, open},
+        super::{create, dump_tables},
         *,
     };
     use serde_json::{json, Value};
 
     #[test]
     fn test_register() -> Result<()> {
-        let db = open(":memory:")?;
-        init_db_schema(&db)?;
+        let db = create(":memory:")?;
 
         db.execute_batch(
             "
