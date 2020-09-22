@@ -1,6 +1,8 @@
 use super::{ContentType, ProjectionsError};
+use crate::catalog::extraction::KeyError;
 use crate::doc;
 use estuary_json::schema;
+use itertools::Itertools;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -53,13 +55,8 @@ pub enum Error {
         process: std::path::PathBuf,
         status: std::process::ExitStatus,
     },
-    #[error("{context}, location '{ptr}': {msg} @ schema '{schema_uri}'")]
-    ExtractedFieldErr {
-        schema_uri: String,
-        ptr: String,
-        context: String,
-        msg: String,
-    },
+    #[error("Invalid collection keys: \n{}", .0.iter().join("\n"))]
+    InvalidCollectionKeys(Vec<KeyError>),
     #[error("schema validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
     FailedValidation(doc::FailedValidation),
     #[error("Invalid projections: {0}")]

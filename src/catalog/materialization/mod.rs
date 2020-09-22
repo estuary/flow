@@ -81,7 +81,7 @@ fn get_field_projections(
             string_max_length,
             is_partition_key,
             is_primary_key
-        FROM schema_extracted_fields
+        FROM projected_fields
         WHERE collection_id = ?;",
     )?;
     let fields = stmt
@@ -345,13 +345,13 @@ mod test {
                 (1, 'field_a'),
                 (1, 'field_b');
 
-            INSERT INTO inferences (collection_id, location_ptr, types_json, must_exist, string_content_encoding_is_base64, string_max_length)
+            INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist, string_content_encoding_is_base64, string_max_length)
             VALUES
-                (1, '/a', '["integer"]', TRUE, NULL, NULL),
-                (1, '/b', '["string"]', FALSE, FALSE, 32),
-                (1, '/c', '["null", "string"]', TRUE, TRUE, NULL),
-                (1, '/d', '["null", "object"]', FALSE, NULL, NULL),
-                (1, '/e', '["null", "number"]', FALSE, NULL, NULL);
+                ('test://example/schema.json', '/a', '["integer"]', TRUE, NULL, NULL),
+                ('test://example/schema.json', '/b', '["string"]', FALSE, FALSE, 32),
+                ('test://example/schema.json', '/c', '["null", "string"]', TRUE, TRUE, NULL),
+                ('test://example/schema.json', '/d', '["null", "object"]', FALSE, NULL, NULL),
+                ('test://example/schema.json', '/e', '["null", "number"]', FALSE, NULL, NULL);
         "##).unwrap();
         db
     }

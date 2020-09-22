@@ -28,7 +28,13 @@ pub fn register_projections(
             .push_prop("fields")
             .push_prop(projection.field)
             .then(|scope| {
-                register_user_provided_projection(&scope, collection, &projection, &shape)
+                register_user_provided_projection(
+                    &scope,
+                    collection,
+                    &projection,
+                    &shape,
+                    schema_uri.as_str(),
+                )
             })?;
     }
 
@@ -36,6 +42,7 @@ pub fn register_projections(
         scope.db,
         Location::Root,
         collection.id,
+        schema_uri.as_str(),
         &shape,
         true,
         projections,
@@ -56,6 +63,7 @@ pub fn register_user_provided_projection(
     collection: CollectionResource,
     spec: &specs::ProjectionSpec,
     schema_shape: &Shape,
+    schema_uri: &str,
 ) -> Result<()> {
     scope
         .db
@@ -85,22 +93,24 @@ pub fn register_user_provided_projection(
             })?;
 
     let mut stmt = scope.db.prepare_cached(
-        "INSERT INTO inferences (
-            collection_id,
+        "INSERT OR IGNORE INTO inferences (
+            schema_uri,
             location_ptr,
             types_json,
             must_exist,
             string_content_type,
+            string_format,
             string_content_encoding_is_base64,
             string_max_length
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
     )?;
     let params = rusqlite::params![
-        collection.id,
+        schema_uri,
         spec.location,
         field_shape.type_.to_json_array(),
         must_exist,
-        field_shape.string.content_type.as_deref().unwrap_or(""),
+        field_shape.string.content_type.as_deref(),
+        field_shape.string.format.as_deref(),
         field_shape.string.is_base64,
         field_shape.string.max_length.map(usize_to_i64),
     ];
@@ -124,6 +134,7 @@ fn register_canonical_projections_for_shape(
     db: &DB,
     location: Location,
     collection_id: i64,
+    schema_uri: &str,
     shape: &Shape,
     must_exist: bool,
     spec: &specs::Projections,
@@ -149,24 +160,26 @@ fn register_canonical_projections_for_shape(
 
             let types_json = shape.type_.to_json_array();
             let params = sql_params![
-                collection_id,
+                schema_uri,
                 pointer,
                 types_json,
                 must_exist,
                 shape.string.content_type.as_ref(),
+                shape.string.format.as_ref(),
                 shape.string.is_base64,
                 shape.string.max_length.map(usize_to_i64)
             ];
             db.prepare_cached(
                 "INSERT OR IGNORE INTO inferences (
-                    collection_id,
+                    schema_uri,
                     location_ptr,
                     types_json,
                     must_exist,
                     string_content_type,
+                    string_format,
                     string_content_encoding_is_base64,
                     string_max_length
-                ) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
             )?
             .execute(params)?;
         }
@@ -177,6 +190,7 @@ fn register_canonical_projections_for_shape(
                     db,
                     location,
                     collection_id,
+                    schema_uri,
                     shape,
                     must_exist && !shape.type_.overlaps(types::NULL),
                     spec,
@@ -190,6 +204,7 @@ fn register_canonical_projections_for_shape(
                     db,
                     location,
                     collection_id,
+                    schema_uri,
                     &property.shape,
                     must_exist && !shape.type_.overlaps(types::NULL),
                     spec,

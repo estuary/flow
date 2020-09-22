@@ -271,11 +271,8 @@ CREATE TABLE partitions
 
 -- Type information that's been extracted from collection schemas.
 --
--- :collection_id:
---     Collection that the inference is for. Technically, inferences are only per schema_uri, so we
---     duplicate them here if multiple collections use the same schema. This makes it easier to work
---     with and probably has little down side since it's unlikely that many collection would use
---     exactly the same schema.
+-- :schema_uri:
+--     The URI of the schema that the inference was derived from.
 -- :location_ptr:
 --     Json pointer of the location within the document to which this inference pertains
 -- :types_json:
@@ -297,16 +294,17 @@ CREATE TABLE partitions
 --     If the location is a "string" type and has a maximum length, it will be here.
 CREATE TABLE inferences
 (
-    collection_id                     INTEGER NOT NULL REFERENCES collections (collection_id),
+    schema_uri                        TEXT NOT NULL,
     location_ptr                      TEXT NOT NULL,
     types_json                        TEXT    NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
     must_exist                        BOOLEAN NOT NULL,
 
     string_content_type               TEXT,
-    string_content_encoding_is_base64 BOOLEAN CHECK (string_content_encoding_is_base64 IN (0,1)),
+    string_format                     TEXT,
+    string_content_encoding_is_base64 BOOLEAN,
     string_max_length                 INTEGER,
 
-    PRIMARY KEY (collection_id, location_ptr),
+    PRIMARY KEY (schema_uri, location_ptr),
 
     CONSTRAINT "Location must be a valid JSON-Pointer" CHECK (
         location_ptr REGEXP '^(/[^/]+)*$')
@@ -627,13 +625,13 @@ FROM transform_details
     WHERE is_alt_source_schema;
 
 -- View of all the projected fields, and their inferred type information.
-CREATE VIEW schema_extracted_fields AS
+CREATE VIEW projected_fields AS
 SELECT
-    collections.collection_id as collection_id,
-    collections.schema_uri as schema_uri,
-    collections.collection_name as collection_name,
-    p.field as field,
-    location_ptr,
+    c.collection_id,
+    c.schema_uri,
+    c.collection_name,
+    p.field,
+    p.location_ptr,
     user_provided,
     types_json,
     must_exist,
@@ -643,13 +641,117 @@ SELECT
     CASE WHEN part.field IS NULL THEN FALSE ELSE TRUE END AS is_partition_key,
     CASE WHEN keys.value IS NULL THEN FALSE ELSE TRUE END AS is_primary_key
 FROM
-    collections
-    NATURAL JOIN projections AS p
-    NATURAL JOIN inferences
+    collections AS c
+    JOIN projections AS p ON c.collection_id = p.collection_id
+    LEFT JOIN inferences ON c.schema_uri = inferences.schema_uri AND p.location_ptr = inferences.location_ptr
     LEFT JOIN partitions part ON p.collection_id = part.collection_id AND p.field = part.field
     LEFT JOIN json_each((
             SELECT key_json FROM collections WHERE collections.collection_id = p.collection_id
     )) keys ON keys.value = p.location_ptr;
+
+-- View of all the collection primary keys, partition keys, and shuffle keys. These keys have
+-- constraints on the types of values that are used. The schema must ensure all of the following:
+-- - The location always exists (cannot be undefined). It IS allowed to hold a null value though.
+-- - The value must be of type string, integer, or boolean. No objects, arrays, or floats.
+-- - The value must only have one possible type (besides null). Locations that may hold several
+--   different types (e.g. string or integer) may not be used.
+--
+-- The query is a bit long and hairy, but the overall structure is to have CTEs for each error
+-- condition that we can check just by looking at the inferences table, and then union a separate
+-- query for each type of key that we're checking against those CTEs.
+CREATE VIEW collection_keys AS
+WITH multi_type AS (
+    SELECT
+        schema_uri,
+        location_ptr,
+        printf('Location has %d possible types besides null, but locations used as keys may only have one possible type besides null.', count(one_type.value)) AS error
+    FROM inferences, json_each(inferences.types_json) AS one_type
+    WHERE one_type.value != 'null'
+    GROUP BY schema_uri, location_ptr HAVING count(one_type.value) > 1
+),
+invalid_type AS (
+    SELECT
+        schema_uri,
+        location_ptr,
+        'Locations used as keys may not hold objects, arrays, or floats as possible values' AS error
+    FROM inferences, json_each(inferences.types_json) AS one_type
+    WHERE one_type.value IN ('object', 'array', 'number')
+    GROUP BY schema_uri, location_ptr
+),
+may_not_exist AS (
+    SELECT
+        schema_uri,
+        location_ptr,
+        'Location may not exist in all documents. Consider using "required" or "minItems" in the schema to validate that the location will always have a value of type string, integer, or boolean (or null).'
+            AS error
+    FROM inferences
+    WHERE must_exist != TRUE
+)
+
+-- collection primary keys
+SELECT
+    c.collection_id,
+    c.schema_uri,
+    keys.value as location_ptr,
+    i.types_json,
+    i.must_exist,
+    printf('primary key of collection "%s"', c.collection_name) AS source,
+    CASE WHEN i.location_ptr IS NULL THEN
+        printf("The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.")
+    ELSE
+        COALESCE(multi_type.error, invalid_type.error, may_not_exist.error)
+    END AS error
+FROM
+    collections AS c, json_each(c.key_json) AS keys
+    LEFT JOIN inferences AS i ON c.schema_uri = i.schema_uri AND keys.value = i.location_ptr
+    LEFT JOIN multi_type ON c.schema_uri = multi_type.schema_uri AND keys.value = multi_type.location_ptr
+    LEFT JOIN invalid_type ON c.schema_uri = invalid_type.schema_uri AND keys.value = invalid_type.location_ptr
+    LEFT JOIN may_not_exist ON c.schema_uri = may_not_exist.schema_uri AND keys.value = may_not_exist.location_ptr
+
+-- partition keys
+UNION
+    SELECT
+        c.collection_id,
+        c.schema_uri,
+        projections.location_ptr,
+        i.types_json,
+        i.must_exist,
+        printf('partition key for collection "%s"', c.collection_name) as source,
+        CASE WHEN i.location_ptr IS NULL THEN
+            printf("The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.")
+        ELSE
+            COALESCE(multi_type.error, invalid_type.error, may_not_exist.error)
+        END AS error
+    FROM
+        collections AS c
+        NATURAL JOIN partitions AS part
+        NATURAL JOIN projections
+        LEFT JOIN inferences AS i ON c.schema_uri = i.schema_uri AND projections.location_ptr = i.location_ptr
+        LEFT JOIN multi_type ON c.schema_uri = multi_type.schema_uri AND projections.location_ptr = multi_type.location_ptr
+        LEFT JOIN invalid_type ON c.schema_uri = invalid_type.schema_uri AND projections.location_ptr = invalid_type.location_ptr
+        LEFT JOIN may_not_exist ON c.schema_uri = may_not_exist.schema_uri AND projections.location_ptr = may_not_exist.location_ptr
+
+-- transformm shuffle keys
+UNION
+    SELECT
+        t.source_collection_id AS collection_id,
+        COALESCE(t.source_schema_uri, c.schema_uri) AS schema_uri,
+        keys.value as location_ptr,
+        i.types_json,
+        i.must_exist,
+        printf('shuffle key from transform "%s"', t.transform_name) AS source,
+        CASE WHEN i.location_ptr IS NULL THEN
+            printf("The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.")
+        ELSE
+            COALESCE(multi_type.error, invalid_type.error, may_not_exist.error)
+        END AS error
+    FROM
+        transforms AS t, json_each(t.shuffle_key_json) as keys
+        JOIN collections AS c ON t.source_collection_id = c.collection_id
+        LEFT JOIN inferences AS i ON COALESCE(t.source_schema_uri, c.schema_uri) = i.schema_uri AND keys.value = i.location_ptr
+        LEFT JOIN multi_type ON COALESCE(t.source_schema_uri, c.schema_uri) = multi_type.schema_uri AND keys.value = multi_type.location_ptr
+        LEFT JOIN invalid_type ON COALESCE(t.source_schema_uri, c.schema_uri) = invalid_type.schema_uri AND keys.value = invalid_type.location_ptr
+        LEFT JOIN may_not_exist ON COALESCE(t.source_schema_uri, c.schema_uri) = may_not_exist.schema_uri AND keys.value = may_not_exist.location_ptr;
 
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 -- :package:

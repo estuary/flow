@@ -5,40 +5,43 @@ expression: actual
 {
   "inferences": [
     [
-      1,
+      "test://example/schema.json",
       "/oneFoo/fooObj/a",
       [
         "string"
       ],
       true,
-      "",
+      null,
+      null,
       null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/oneFoo/fooObj/c",
       [
         "integer"
       ],
       false,
-      "",
+      null,
+      null,
       null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/redFoo",
       [
         "object"
       ],
       false,
-      "",
+      null,
+      null,
       null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/blueFoo/fooObj/c",
       [
         "integer"
@@ -46,10 +49,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/id",
       [
         "integer"
@@ -57,10 +61,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/oneFoo/fooArray/0",
       [
         "number"
@@ -68,10 +73,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/oneFoo/fooArray/1",
       [
         "number"
@@ -79,10 +85,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/oneFoo/fooObj/b",
       [
         "boolean"
@@ -90,10 +97,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/oneFoo/fooObj/d",
       [
         "number"
@@ -101,10 +109,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/extra",
       [
         "integer"
@@ -112,10 +121,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/fooArray/0",
       [
         "number"
@@ -123,10 +133,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/fooArray/1",
       [
         "number"
@@ -134,10 +145,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/fooObj/a",
       [
         "string"
@@ -145,10 +157,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/fooObj/b",
       [
         "boolean"
@@ -156,10 +169,11 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/fooObj/c",
       [
         "integer"
@@ -167,15 +181,17 @@ expression: actual
       true,
       null,
       null,
+      null,
       null
     ],
     [
-      1,
+      "test://example/schema.json",
       "/twoFoo/fooObj/d",
       [
         "number"
       ],
       true,
+      null,
       null,
       null,
       null

@@ -4,17 +4,14 @@ use std::{env, path::PathBuf};
 use url::Url;
 
 #[test]
-fn test_examples() -> catalog::Result<()> {
+fn test_examples() {
     pretty_env_logger::init();
 
-    let mut path = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
-    path.extend(["examples", "catalog.yaml"].iter());
+    let root_dir = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
+    let catalog_path = root_dir.join("examples/catalog.yaml");
+    let nodejs_dir = root_dir.join("target/nodejs/");
 
-    let db = catalog::open(":memory:")?;
-    catalog::init_db_schema(&db)?;
-
-    let url = Url::from_file_path(&path).unwrap();
-    catalog::Source::register(catalog::Scope::empty(&db), url)?;
-
-    Ok(())
+    let db = catalog::open(":memory:").unwrap();
+    let url = Url::from_file_path(&catalog_path).unwrap();
+    catalog::build(&db, url, &nodejs_dir).expect("failed to build catalog");
 }
