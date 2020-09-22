@@ -1,7 +1,6 @@
-use crate::catalog::{Collection, Result, Schema, Scope, DB};
+use crate::catalog::{specs, Collection, Result, Schema, Scope, DB};
 use crate::doc::inference::Shape;
 use crate::doc::{Pointer, SchemaIndex};
-use crate::specs::build as specs;
 use estuary_json::schema::types;
 use estuary_json::Location;
 use rusqlite::params as sql_params;

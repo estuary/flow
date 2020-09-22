@@ -1,6 +1,5 @@
-use super::{sql_params, ContentType, Resource, Result, Scope, DB};
+use super::{specs, sql_params, ContentType, Resource, Result, Scope, DB};
 use crate::doc::{Schema as CompiledSchema, SchemaIndex};
-use crate::specs::build as specs;
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
 

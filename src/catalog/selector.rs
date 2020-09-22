@@ -1,5 +1,4 @@
-use super::{sql_params, Collection, Result, Scope};
-use crate::specs::build as specs;
+use super::{specs, sql_params, Collection, Result, Scope};
 
 /// Selector is a selection over partitions of a Collection.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]

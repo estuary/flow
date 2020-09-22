@@ -1,6 +1,7 @@
-use super::{sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope, Selector};
+use super::{
+    specs, sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope, Selector,
+};
 use crate::doc::{validate, FullContext, SchemaIndex, Validator};
-use crate::specs::build as specs;
 
 /// Derivation is a catalog Collection which is derived from other Collections.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]

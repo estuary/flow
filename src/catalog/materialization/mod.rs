@@ -1,8 +1,7 @@
 mod sql;
 
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Collection, Scope};
-use crate::specs::build as specs;
+use crate::catalog::{self, specs, Collection, Scope};
 use estuary_json::schema::types;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

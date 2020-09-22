@@ -16,6 +16,7 @@ mod schema;
 mod scope;
 mod selector;
 mod source;
+mod specs;
 mod test_case;
 
 use std::path::Path;

@@ -1,5 +1,4 @@
-use super::{sql_params, Collection, Result, Scope, Selector};
-use crate::specs::build as specs;
+use super::{specs, sql_params, Collection, Result, Scope, Selector};
 use serde_json::Value;
 
 /// TestCase represents a catalog test case and contained sequence of test steps.

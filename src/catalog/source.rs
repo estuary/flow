@@ -1,7 +1,6 @@
 use super::{
-    sql_params, Collection, ContentType, Materialization, Resource, Result, Scope, TestCase,
+    specs, sql_params, Collection, ContentType, Materialization, Resource, Result, Scope, TestCase,
 };
-use crate::specs::build as specs;
 use url::Url;
 
 /// Source represents a top-level catalog build input.

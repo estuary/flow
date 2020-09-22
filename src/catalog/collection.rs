@@ -1,5 +1,4 @@
-use super::{projections, sql_params, Derivation, Resource, Result, Schema, Scope};
-use crate::specs::build as specs;
+use super::{projections, specs, sql_params, Derivation, Resource, Result, Schema, Scope};
 
 /// Collection represents a catalog Collection.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]

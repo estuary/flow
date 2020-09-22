@@ -1,5 +1,4 @@
-use super::{ContentType, Resource, Result, Scope};
-use crate::specs::build as specs;
+use super::{specs, ContentType, Resource, Result, Scope};
 use url::Url;
 
 /// Lambda represents a Lambda function of the catalog.
