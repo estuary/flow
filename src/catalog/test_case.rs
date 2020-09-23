@@ -1,4 +1,4 @@
-use super::{specs, sql_params, Collection, Result, Scope, Selector};
+use super::{specs, sql_params, Collection, Result, Scope, Selector, DB};
 use serde_json::Value;
 
 /// TestCase represents a catalog test case and contained sequence of test steps.
@@ -103,6 +103,20 @@ impl TestCase {
 
         Ok(())
     }
+
+    /// Load a TestCase back into its comprehensive specification.
+    pub fn load(&self, db: &DB) -> Result<(String, Vec<specs::TestStep>)> {
+        let mut stmt = db.prepare(
+            "SELECT test_case_name, steps_json FROM test_cases_json WHERE test_case_id = ?",
+        )?;
+        stmt.query_row(sql_params![self.id], |row| {
+            Ok((
+                row.get(0)?, // test_case_name.
+                serde_json::from_str::<Vec<specs::TestStep>>(row.get_raw(1).as_str()?).unwrap(),
+            ))
+        })
+        .map_err(Into::into)
+    }
 }
 
 #[cfg(test)]
@@ -114,7 +128,7 @@ mod test {
     use serde_json::json;
 
     #[test]
-    fn test_register() {
+    fn test_register_and_load() {
         let db = create(":memory:").unwrap();
 
         db.execute(
@@ -146,7 +160,7 @@ mod test {
         .unwrap();
         Collection::register(scope, &collection).unwrap();
 
-        let steps: Vec<specs::TestStep> = serde_json::from_value(json!([
+        let steps_fixture = json!([
             {"ingest": {
                 "collection": "test/collection",
                 "documents": [{"ingest":1}, true],
@@ -154,6 +168,7 @@ mod test {
             // No partition selector provided.
             {"verify": {
                 "collection": "test/collection",
+                "partitions": null,
                 "documents": [{"verify":2}, false],
             }},
             // With explicit selector.
@@ -161,13 +176,18 @@ mod test {
                 "collection": "test/collection",
                 "partitions": {
                     "include": {"a_field": ["some-val"]},
+                    "exclude": {},
                 },
                 "documents": [{"verify":3}, "fin"],
             }},
-        ]))
-        .unwrap();
+        ]);
 
-        let case = TestCase::register(scope, "my test", &steps).unwrap();
+        let case = TestCase::register(
+            scope,
+            "my test",
+            &serde_json::from_value(steps_fixture.clone()).unwrap(),
+        )
+        .unwrap();
         assert_eq!(case.id, 1);
 
         let dump = dump_tables(
@@ -195,33 +215,15 @@ mod test {
                     [1, 2, 1, 1, [{"verify":3}, "fin"]],
                 ],
                 "test_cases_json": [
-                    [1, {
-                        "name": "my test",
-                        "steps": [
-                            {
-                                "operation": "ingest",
-                                "collection": "test/collection",
-                                "documents": [{"ingest":1}, true],
-                            },
-                            {
-                                "operation": "verify",
-                                "collection": "test/collection",
-                                "documents": [{"verify":2}, false],
-                                "selector": {},
-                            },
-                            {
-                                "operation": "verify",
-                                "collection": "test/collection",
-                                "documents": [{"verify":3}, "fin"],
-                                "selector": {
-                                    "include": [{"name": "a_field", "value": "some-val"}],
-                                    "exclude": [],
-                                },
-                            },
-                        ],
-                    }]
+                    [1, "my test", steps_fixture]
                 ],
             }),
         );
+
+        // Load the TestCase. Expect we recover the original, registered fixture.
+        let (loaded_name, loaded_steps) = case.load(&db).unwrap();
+        let loaded_steps = serde_json::to_value(&loaded_steps).unwrap();
+        assert_eq!(&loaded_name, "my test");
+        assert_eq!(&loaded_steps, &steps_fixture);
     }
 }

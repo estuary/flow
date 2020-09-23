@@ -1,4 +1,4 @@
-use super::{specs, sql_params, Collection, Result, Scope};
+use super::{specs, sql_params, Collection, Result, Scope, DB};
 
 /// Selector is a selection over partitions of a Collection.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -53,6 +53,16 @@ impl Selector {
         }
         Ok(selector)
     }
+
+    /// Load a Selector back into its comprehensive PartitionSelector specification.
+    pub fn load(&self, db: &DB) -> Result<specs::PartitionSelector> {
+        let mut stmt =
+            db.prepare("SELECT selector_json FROM partition_selectors_json WHERE selector_id = ?")?;
+        stmt.query_row(sql_params![self.id], |row| {
+            Ok(serde_json::from_str::<specs::PartitionSelector>(row.get_raw(0).as_str()?).unwrap())
+        })
+        .map_err(Into::into)
+    }
 }
 
 #[cfg(test)]
@@ -64,7 +74,7 @@ mod test {
     use serde_json::json;
 
     #[test]
-    fn test_register() {
+    fn test_register_and_load() {
         let db = create(":memory:").unwrap();
 
         db.execute(
@@ -100,12 +110,16 @@ mod test {
         .unwrap();
         let collection = Collection::register(scope, &collection).unwrap();
 
-        let selector: specs::PartitionSelector = serde_json::from_value(json!({
+        let selector_spec = json!({
             "include": {"field_a": [true, null, 42], "field_b": ["52"]},
             "exclude": {"field_a": [-1], "field_b": [null]},
-        }))
+        });
+        let selector = Selector::register(
+            scope,
+            collection,
+            &serde_json::from_value(selector_spec.clone()).unwrap(),
+        )
         .unwrap();
-        let selector = Selector::register(scope, collection, &selector).unwrap();
 
         assert_eq!(selector.id, 1);
 
@@ -135,22 +149,25 @@ mod test {
                     [1, 1, "field_b", null, true],
                 ],
                 // Expect view partition_selectors_json projects the selector
-                // into a shape compatible with protocol.LabelSelector.
+                // into a shape compatible with specs::ProtocolSelector.
                 "partition_selectors_json":[
                     [1, 1, {
-                        "include": [
-                            {"name": "field_a", "value": true},
-                            {"name": "field_a", "value": null},
-                            {"name": "field_a", "value": 42},
-                            {"name": "field_b", "value": "52"},
-                        ],
-                        "exclude": [
-                            {"name": "field_a", "value": -1},
-                            {"name": "field_b", "value": null},
-                        ],
+                        "include": {
+                            "field_a": [true, null, 42],
+                            "field_b": ["52"],
+                        },
+                        "exclude": {
+                            "field_a": [-1],
+                            "field_b": [null],
+                        },
                     }]
                 ],
             }),
         );
+
+        // We can load a selector back into a specification.
+        let recovered = selector.load(scope.db).unwrap();
+        let recovered = serde_json::to_value(&recovered).unwrap();
+        assert_eq!(selector_spec, recovered);
     }
 }

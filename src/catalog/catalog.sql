@@ -357,24 +357,37 @@ CREATE TABLE partition_selector_labels
 -- View over partition_selectors which groups into a JSON object
 -- matching the schema of protocol.LabelSelector.
 CREATE VIEW partition_selectors_json AS
-WITH flat_include_exclude AS (
+WITH grouped_fields AS (
     SELECT
         selector_id,
         collection_id,
-        JSON_GROUP_ARRAY(
-            JSON_OBJECT('name', field, 'value', JSON(value_json))
-        ) FILTER (WHERE NOT is_exclude) AS inc,
-        JSON_GROUP_ARRAY(
-            JSON_OBJECT('name', field, 'value', JSON(value_json))
-        ) FILTER (WHERE is_exclude) AS exc
+        field,
+        is_exclude,
+        JSON_GROUP_ARRAY(JSON(value_json)) as values_json
         FROM partition_selector_labels
-        GROUP BY selector_id
+        GROUP BY selector_id, collection_id, field, is_exclude
+),
+grouped_include_exclude AS (
+    SELECT
+        selector_id,
+        collection_id,
+        JSON_GROUP_OBJECT(
+            field, JSON(values_json)
+        ) FILTER (WHERE NOT is_exclude) AS include_json,
+        JSON_GROUP_OBJECT(
+            field, JSON(values_json)
+        ) FILTER (WHERE is_exclude) AS exclude_json
+        FROM grouped_fields
+        GROUP BY selector_id, collection_id
 )
 SELECT
     selector_id,
     collection_id,
-    JSON_OBJECT('include', JSON(inc), 'exclude', JSON(exc)) AS selector_json
-    FROM flat_include_exclude;
+    JSON_OBJECT(
+        'include', JSON(include_json),
+        'exclude', JSON(exclude_json)
+    ) AS selector_json
+    FROM grouped_include_exclude;
 
 -- Derivations details collections of the catalog which are derived from other collections.
 --
@@ -825,9 +838,10 @@ SELECT
     test_case_id,
     step_index,
     JSON_OBJECT(
-        'operation',  'ingest',
-        'collection', collection_name,
-        'documents',  JSON(documents_json)
+        'ingest', JSON_OBJECT(
+            'collection', collection_name,
+            'documents',  JSON(documents_json)
+        )
     ) AS step_json
     FROM test_step_ingests
     NATURAL JOIN collections
@@ -836,33 +850,27 @@ SELECT
     test_case_id,
     step_index,
     JSON_OBJECT(
-        'operation',  'verify',
-        'collection', collection_name,
-        'documents',  JSON(documents_json),
-        'selector',   JSON(IFNULL(selector_json, '{}'))
+        'verify', JSON_OBJECT(
+            'collection', collection_name,
+            'documents',  JSON(documents_json),
+            'partitions',   JSON(selector_json)
+        )
     ) AS step_json
     FROM test_step_verifies
     NATURAL JOIN collections
     NATURAL LEFT JOIN partition_selectors_json
 ;
 
--- View of test cases, aggregated into a nested JSON object.
-CREATE VIEW test_cases_json AS WITH
-inner AS (
-    SELECT test_case_id,
-        test_case_name,
-        JSON_GROUP_ARRAY(JSON(step_json)) AS steps_json
-    FROM test_steps_json
-    NATURAL JOIN test_cases
-    GROUP BY test_case_id
-    ORDER BY step_index ASC
-)
-SELECT test_case_id,
-    JSON_OBJECT(
-        'name', test_case_name,
-        'steps', JSON(steps_json)
-    ) AS case_json
-    FROM inner;
+-- View of test cases, with test steps grouped into an ordered JSON array.
+CREATE VIEW test_cases_json AS
+SELECT
+    test_case_id,
+    test_case_name,
+    JSON_GROUP_ARRAY(JSON(step_json)) AS steps_json
+FROM test_steps_json
+NATURAL JOIN test_cases
+GROUP BY test_case_id
+ORDER BY step_index ASC;
 
 -- Contains informational and diagnostic data about the build itself. This is intended to be used
 -- somewhat like a log.
