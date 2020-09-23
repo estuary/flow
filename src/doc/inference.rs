@@ -480,6 +480,9 @@ impl Shape {
                     Some(CoreAnnotation::ContentMediaType(mt)) => {
                         shape.string.content_type = Some(mt.clone());
                     }
+                    Some(CoreAnnotation::Format(format)) => {
+                        shape.string.format = Some(format.clone());
+                    }
                     _ => {} // Other CoreAnnotation. No-op.
                 },
 
@@ -950,7 +953,7 @@ mod test {
                 string: StringShape {
                     is_base64: Some(true),
                     content_type: Some("some/thing".to_owned()),
-                    format: None, // Not implemented yet.
+                    format: Some("email".to_owned()),
                     max_length: None,
                     min_length: 0,
                 },

@@ -303,7 +303,6 @@ where
             keywords::PATTERN => {
                 self.add_validation(Val::Pattern(regex::Regex::new(extract_str(v)?)?))
             }
-            // "format" => vals.push(Str(Format(extract_str(v)?))),
 
             // Number-specific validation keywords.
             keywords::MULTIPLE_OF => self.add_validation(Val::MultipleOf(extract_number(v)?)),
@@ -355,7 +354,6 @@ where
             },
 
             keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
-            keywords::FORMAT => (),                                            // Ignored.
 
             // This is not a core validation keyword. Does the AnnotationBuilder consume it?
             _ => {
@@ -569,6 +567,7 @@ impl AnnotationBuilder for CoreAnnotation {
         match kw {
             keywords::CONTENT_ENCODING
             | keywords::CONTENT_MEDIA_TYPE
+            | keywords::FORMAT
             | keywords::DEFAULT
             | keywords::DEPRECATED
             | keywords::DESCRIPTION
@@ -589,6 +588,7 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::CONTENT_MEDIA_TYPE => {
                 CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
             }
+            keywords::FORMAT => CoreAnnotation::Format(extract_str(v)?.to_owned()),
             keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
             keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
             keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),

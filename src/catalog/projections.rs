@@ -262,7 +262,7 @@ mod test {
                         "fooObj": {
                             "type": "object",
                             "properties": {
-                                "a": { "type": "string" },
+                                "a": { "type": "string", "format": "email" },
                                 "b": { "type": "boolean" },
                                 "c": { "type": "integer" },
                                 "d": { "type": "number" },
@@ -340,7 +340,8 @@ mod test {
                     (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
                     (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
             sql_params![schema],
-        ).unwrap();
+        )
+        .unwrap();
         db.execute(
             "insert into resource_imports (resource_id, import_id) values (1, 10);",
             rusqlite::NO_PARAMS,
