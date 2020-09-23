@@ -42,6 +42,11 @@ pub enum CoreAnnotation {
     Examples(Vec<sj::Value>),
     ContentEncodingBase64,
     ContentMediaType(String),
+    /// The "format" annotation can be simply informational, or it can optionally be an assertion
+    /// that a string is valid for the given format. We currently only collect and use it as an
+    /// annotation, but we may also use it as an assertion in the future.
+    /// https://json-schema.org/draft/2019-09/json-schema-validation.html#format
+    Format(String),
 }
 // CoreAnnotation trivially implements Annotation.
 impl Annotation for CoreAnnotation {
