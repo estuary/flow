@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
 	"github.com/olekukonko/tablewriter"
 	"go.gazette.dev/core/broker/client"
@@ -59,7 +59,8 @@ func (cmd *cmdJournalsList) Execute([]string) error {
 	case "yaml":
 		cmd.outputYAML(resp)
 	case "json":
-		mbp.Must(json.NewEncoder(os.Stdout).Encode(resp), "failed to encode to json")
+		var m = jsonpb.Marshaler{OrigName: true, EmitDefaults: true}
+		mbp.Must(m.Marshal(os.Stdout, resp), "failed to encode to json")
 	case "proto":
 		mbp.Must(proto.MarshalText(os.Stdout, resp), "failed to write output")
 	}
