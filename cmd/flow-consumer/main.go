@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/estuary/flow/go/derive"
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
+	"github.com/estuary/flow/go/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -39,41 +39,51 @@ var _ consumer.Application = (*Flow)(nil)
 var _ consumer.BeginFinisher = (*Flow)(nil)
 var _ consumer.MessageProducer = (*Flow)(nil)
 
+// NewStore selects an implementing runtime.Application for the shard, and returns a new instance.
 func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	// TODO - inspect label and dispatch to specific application runtime builder.
-	return derive.NewApp(f.service, f.journals, f.extractor, shard, rec)
+	// TODO - inspect label and dispatch to NewDeriveApp vs NewMaterializeApp.
+	return runtime.NewDeriveApp(f.service, f.journals, f.extractor, shard, rec)
 }
 
+// NewMessage panics if called.
 func (f *Flow) NewMessage(*pb.JournalSpec) (message.Message, error) {
 	panic("NewMessage is never called")
 }
 
+// ConsumeMessage delegates to the Application.
 func (f *Flow) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, pub *message.Publisher) error {
-	return store.(flow.FlowConsumer).ConsumeMessage(shard, env, pub)
+	return store.(runtime.Application).ConsumeMessage(shard, env, pub)
 }
 
+// FinalizeTxn delegates to the Application.
 func (f *Flow) FinalizeTxn(shard consumer.Shard, store consumer.Store, pub *message.Publisher) error {
-	return store.(flow.FlowConsumer).FinalizeTxn(shard, pub)
+	return store.(runtime.Application).FinalizeTxn(shard, pub)
 }
 
+// BeginTxn delegates to the Application.
 func (f *Flow) BeginTxn(shard consumer.Shard, store consumer.Store) error {
-	return store.(flow.FlowConsumer).BeginTxn(shard)
+	return store.(runtime.Application).BeginTxn(shard)
 }
 
+// FinishedTxn delegates to the Application.
 func (f *Flow) FinishedTxn(shard consumer.Shard, store consumer.Store, future consumer.OpFuture) {
-	store.(flow.FlowConsumer).FinishedTxn(shard, future)
+	store.(runtime.Application).FinishedTxn(shard, future)
 }
 
+// StartReadingMessages delegates to the Application.
 func (f *Flow) StartReadingMessages(shard consumer.Shard, store consumer.Store, checkpoint pc.Checkpoint, envOrErr chan<- consumer.EnvelopeOrError) {
-	store.(flow.FlowConsumer).StartReadingMessages(shard, checkpoint, envOrErr)
+	store.(runtime.Application).StartReadingMessages(shard, checkpoint, envOrErr)
 }
 
+// ReplayRange delegates to the Application.
 func (f *Flow) ReplayRange(shard consumer.Shard, store consumer.Store, journal pb.Journal, begin, end pb.Offset) message.Iterator {
-	return store.(flow.FlowConsumer).ReplayRange(shard, journal, begin, end)
+	return store.(runtime.Application).ReplayRange(shard, journal, begin, end)
 }
 
+// NewConfig returns a new config instance.
 func (f *Flow) NewConfig() runconsumer.Config { return new(config) }
 
+// InitApplication starts shared services of the flow-consumer.
 func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 	var config = *args.Config.(*config)
 

@@ -1,11 +1,10 @@
-package derive
+package flow
 
 import (
 	"context"
 	"fmt"
 	"io"
 
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -156,7 +155,7 @@ func (txn *Transaction) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) er
 	if err := txn.tx.Send(&pf.DeriveRequest{
 		Kind: &pf.DeriveRequest_Flush_{Flush: &pf.DeriveRequest_Flush{
 			UuidPlaceholderPtr: txn.derivation.UuidPtr,
-			FieldPtrs:          flow.FieldPointersForMapper(txn.derivation),
+			FieldPtrs:          FieldPointersForMapper(txn.derivation),
 		}},
 	}); err != nil {
 		return fmt.Errorf("sending DeriveRequest_Flush: %w", err)

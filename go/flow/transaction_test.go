@@ -1,4 +1,4 @@
-package derive
+package flow
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
@@ -27,14 +26,14 @@ func TestTransactionLifeCycle(t *testing.T) {
 	var ajc = client.NewAppendService(context.Background(), broker.Client())
 	var pub = message.NewPublisher(ajc, nil)
 
-	var journals, err = flow.NewJournalsKeySpace(ctx, etcd, "/broker.test")
+	var journals, err = NewJournalsKeySpace(ctx, etcd, "/broker.test")
 	require.NoError(t, err)
 	journals.WatchApplyDelay = 0
 	go journals.Watch(ctx, etcd)
 
 	// Create an output Mapper.
 	var collectionSpec, shuffleResponse, combineResponse = buildFixtures()
-	var mapper = &flow.Mapper{
+	var mapper = &Mapper{
 		Ctx:           ctx,
 		JournalClient: broker.Client(),
 		Journals:      journals,
@@ -325,5 +324,3 @@ const (
 	msgAck     = 2
 	msgOutside = 3
 )
-
-func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

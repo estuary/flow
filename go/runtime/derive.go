@@ -1,4 +1,4 @@
-package derive
+package runtime
 
 import (
 	"context"
@@ -21,15 +21,15 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// App wires the high-level runtime of the derive consumer flow.
-type App struct {
+// Derive wires the high-level runtime of the derive consumer flow.
+type Derive struct {
 	delegate    *flow.WorkerHost
 	readBuilder *shuffle.ReadBuilder
 	mapper      flow.Mapper
 	derivation  pf.CollectionSpec
 	coordinator *shuffle.Coordinator
 
-	*Transaction
+	*flow.Transaction
 }
 
 type recorderState struct {
@@ -38,16 +38,16 @@ type recorderState struct {
 	CheckRegisters *pb.LabelSelector
 }
 
-var _ flow.FlowConsumer = (*App)(nil)
+var _ Application = (*Derive)(nil)
 
-// NewApp builds and returns a wrapped derive-worker process and gRPC connection.
-func NewApp(
+// NewDeriveApp builds and returns a *Derive Application.
+func NewDeriveApp(
 	service *consumer.Service,
 	journals *keyspace.KeySpace,
 	extractor *flow.WorkerHost,
 	shard consumer.Shard,
 	rec *recoverylog.Recorder,
-) (*App, error) {
+) (*Derive, error) {
 	var catalogURL, err = shardLabel(shard, labels.CatalogURL)
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func NewApp(
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(),
 		pf.NewExtractClient(extractor.Conn))
 
-	return &App{
+	return &Derive{
 		delegate:    delegate,
 		readBuilder: readBuilder,
 		mapper:      mapper,
@@ -121,7 +121,7 @@ func NewApp(
 }
 
 // RestoreCheckpoint implements the Store interface, delegating to flow-worker.
-func (a *App) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
+func (a *Derive) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
 	if a.Transaction != nil {
 		panic("unexpected !nil Transaction")
 	}
@@ -134,7 +134,7 @@ func (a *App) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
 }
 
 // BuildHints implements the Store interface, delegating to flow-worker.
-func (a *App) BuildHints() (recoverylog.FSMHints, error) {
+func (a *Derive) BuildHints() (recoverylog.FSMHints, error) {
 	if a.Transaction != nil {
 		panic("unexpected !nil Transaction")
 	}
@@ -147,7 +147,7 @@ func (a *App) BuildHints() (recoverylog.FSMHints, error) {
 }
 
 // Destroy implements the Store interface. It gracefully stops the flow-worker.
-func (a *App) Destroy() {
+func (a *Derive) Destroy() {
 	if a.Transaction != nil {
 		panic("unexpected !nil Transaction")
 	}
@@ -157,13 +157,13 @@ func (a *App) Destroy() {
 }
 
 // BeginTxn begins a derive RPC transaction with the flow-worker.
-func (a *App) BeginTxn(shard consumer.Shard) error {
+func (a *Derive) BeginTxn(shard consumer.Shard) error {
 	if a.Transaction != nil {
 		panic("unexpected !nil Transaction")
 	}
 
 	var err error
-	if a.Transaction, err = NewTransaction(shard.Context(), a.delegate.Conn, &a.derivation, a.mapper.Map); err == nil {
+	if a.Transaction, err = flow.NewTransaction(shard.Context(), a.delegate.Conn, &a.derivation, a.mapper.Map); err == nil {
 		err = a.Transaction.Open()
 	}
 	if err != nil {
@@ -174,7 +174,7 @@ func (a *App) BeginTxn(shard consumer.Shard) error {
 }
 
 // FinishedTxn resets the current derive RPC.
-func (a *App) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
+func (a *Derive) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
 	if a.Transaction == nil {
 		panic("unexpected nil Transaction")
 	}
@@ -182,17 +182,17 @@ func (a *App) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
 }
 
 // StartReadingMessages delegates to shuffle.StartReadingMessages.
-func (a *App) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
+func (a *Derive) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
 	shuffle.StartReadingMessages(shard.Context(), a.readBuilder, cp, ch)
 }
 
 // ReplayRange delegates to shuffle's StartReplayRead.
-func (a *App) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
+func (a *Derive) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
 	return a.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
 }
 
 // Coordinator returns the App's shared *shuffle.Coordinator.
-func (a *App) Coordinator() *shuffle.Coordinator { return a.coordinator }
+func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
 
 func shardLabel(shard consumer.Shard, label string) (string, error) {
 	var values = shard.Spec().LabelSet.ValuesOf(label)

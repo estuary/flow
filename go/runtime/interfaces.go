@@ -1,6 +1,7 @@
-package flow
+package runtime
 
 import (
+	"github.com/estuary/flow/go/shuffle"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -8,11 +9,11 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// FlowConsumer is the interface implemented by the flow derivation
+// Application is the interface implemented by the flow derivation
 // and materialization consumer application runtimes.
-type FlowConsumer interface {
+type Application interface {
 	consumer.Store
-	// shuffle.Store // TODO(johnny): Move & rename FlowConsumer to avoid import cycle.
+	shuffle.Store
 
 	// TODO - move to consumer.Store.
 	BuildHints() (recoverylog.FSMHints, error)
