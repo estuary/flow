@@ -137,10 +137,11 @@ class Server {
     const pathBootstrap = /^\/bootstrap\/(\d+)$/.exec(path);
     if (pathBootstrap) {
       const bootstraps = this.bootstraps[parseInt(pathBootstrap[1], 10)];
-      if (bootstraps === undefined) {
-        return malformed(`bootstrap ${path} is not defined`);
+      if (bootstraps !== undefined) {
+        this._processBootstrap(req, hdrs, bootstraps);
+      } else {
+        req.respond({':status': 204}, {endStream: true});
       }
-      this._processBootstrap(req, hdrs, bootstraps);
       return;
     }
 
