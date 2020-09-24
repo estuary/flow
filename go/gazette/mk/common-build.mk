@@ -39,11 +39,11 @@ endif
 # done because users of gazette libraries are also depending on this makefile and so
 # they need go to download the modules so that these files will be present before calling
 # make. End-to-end, the process is to use 'go mod download' to download the makefile within
-# the container, then the consumer's makefile will import this file, then make continues 
+# the container, then the consumer's makefile will import this file, then make continues
 # to build the target.
 as-ci: ci-builder-image
 	mkdir -p ${WORKDIR} ${WORKDIR}-ci
-	# Strip root prefix from WORKDIR to build its equivalent within the container. 
+	# Strip root prefix from WORKDIR to build its equivalent within the container.
 	ROOT_CI=/gazette ;\
 	WORK_CI=$${ROOT_CI}$(subst ${ROOTDIR},,${WORKDIR}) ;\
 	docker run ${AS_CI_RUN_ARGS} \
@@ -61,12 +61,12 @@ as-ci: ci-builder-image
 # Go build & test targets.
 go-install:   $(ROCKSDIR)/librocksdb.so $(protobuf-targets)
 	MBP=go.gazette.dev/core/mainboilerplate ;\
-	go install -v \
+	go install -v --tags "${GO_BUILD_TAGS}" \
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" ./...
 go-test-fast: ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
-	go test -p ${NPROC} ./...
+	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./...
 go-test-ci:   ${ROCKSDIR}/librocksdb.so ${protobuf-targets}
-	GORACE="halt_on_error=1" go test -p ${NPROC} -race -count=15 ./...
+	GORACE="halt_on_error=1" go test -p ${NPROC} -race -count=15 --tags "${GO_BUILD_TAGS}" ./...
 
 # The ci-release-% implicit rule builds a Docker image named by the rule
 # stem, using binaries enumerated by a `-target` suffix. For example,
@@ -84,7 +84,7 @@ ci-release-%: $(ROCKSDIR)/librocksdb.so go-install $$($$@-targets)
 		-t $(subst -,/,$*):latest \
 		${WORKDIR}/ci-release/
 
-# The librocksdb.so fetches and builds the version of RocksDB identified by 
+# The librocksdb.so fetches and builds the version of RocksDB identified by
 # the rule stem (eg, 5.17.2). We require a custom rule to build RocksDB as
 # it's necessary to build with run-time type information (USE_RTTI=1), which
 # is not enabled by default in third-party packages.
@@ -100,7 +100,7 @@ ${WORKDIR}/rocksdb-v%/librocksdb.so:
 	PORTABLE=1 USE_SSE=1 DEBUG_LEVEL=0 USE_RTTI=1 \
 		$(MAKE) -C $(dir $@) shared_lib -j${NPROC}
 	strip --strip-all $@
-	
+
 	# Cleanup for less disk use / faster CI caching.
 	rm -rf $(dir $@)/shared-objects
 	find $(dir $@) -name "*.[oda]" -exec rm -f {} \;
