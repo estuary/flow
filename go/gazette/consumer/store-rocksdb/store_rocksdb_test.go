@@ -29,7 +29,7 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 	store.WriteBatch.Put([]byte("baz"), []byte("bing"))
 
 	require.NoError(t, store.StartCommit(nil, pc.Checkpoint{
-		Sources: map[pb.Journal]pc.Checkpoint_Source{
+		Sources: map[pb.Journal]*pc.Checkpoint_Source{
 			"journal/A": {ReadThrough: 1234},
 		},
 	}, nil).Err())
@@ -40,7 +40,7 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 	r.Free()
 
 	require.NoError(t, store.StartCommit(nil, pc.Checkpoint{
-		Sources: map[pb.Journal]pc.Checkpoint_Source{
+		Sources: map[pb.Journal]*pc.Checkpoint_Source{
 			"journal/B": {ReadThrough: 5678},
 		},
 	}, nil).Err())
@@ -48,7 +48,7 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 	cp, err := store.RestoreCheckpoint(nil)
 	require.NoError(t, err)
 	require.Equal(t, pc.Checkpoint{
-		Sources: map[pb.Journal]pc.Checkpoint_Source{
+		Sources: map[pb.Journal]*pc.Checkpoint_Source{
 			"journal/B": {ReadThrough: 5678},
 		},
 	}, cp)

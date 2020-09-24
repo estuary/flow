@@ -313,7 +313,10 @@ func startReadingMessages(s *shard, cp pc.Checkpoint, ch chan<- EnvelopeOrError)
 	for _, src := range s.Spec().Sources {
 
 		// Lower-bound checkpoint offset to the ShardSpec.Source.MinOffset.
-		var offset = cp.Sources[src.Journal].ReadThrough
+		var offset int64
+		if s := cp.Sources[src.Journal]; s != nil {
+			offset = s.ReadThrough
+		}
 		if offset < src.MinOffset {
 			offset = src.MinOffset
 		}

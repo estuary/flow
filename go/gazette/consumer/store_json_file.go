@@ -63,7 +63,7 @@ func NewJSONFileStore(rec *recoverylog.Recorder, state interface{}) (*JSONFileSt
 	// Legacy support for offset-only state files.
 	// TODO(johnny): Remove with next release.
 	for j, o := range offsets {
-		store.checkpoint.Sources[j] = pc.Checkpoint_Source{
+		store.checkpoint.Sources[j] = &pc.Checkpoint_Source{
 			ReadThrough: o,
 			Producers:   store.checkpoint.Sources[j].Producers,
 		}

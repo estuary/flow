@@ -15,20 +15,23 @@ type BuildCheckpointArgs struct {
 // BuildCheckpoint builds a Checkpoint message instance from the arguments.
 func BuildCheckpoint(args BuildCheckpointArgs) Checkpoint {
 	var cp = Checkpoint{
-		Sources:    make(map[pb.Journal]Checkpoint_Source, len(args.ReadThrough)),
+		Sources:    make(map[pb.Journal]*Checkpoint_Source, len(args.ReadThrough)),
 		AckIntents: make(map[pb.Journal][]byte, len(args.AckIntents)),
 	}
 	for j, o := range args.ReadThrough {
-		cp.Sources[j] = Checkpoint_Source{
+		cp.Sources[j] = &Checkpoint_Source{
 			ReadThrough: o,
-			Producers:   make(map[string]Checkpoint_ProducerState),
 		}
 	}
 	for _, p := range args.ProducerStates {
-		cp.Sources[p.Journal].Producers[string(p.Producer[:])] = Checkpoint_ProducerState{
-			LastAck: p.LastAck,
-			Begin:   p.Begin,
-		}
+		cp.Sources[p.Journal].Producers = append(cp.Sources[p.Journal].Producers,
+			Checkpoint_Source_ProducerEntry{
+				Id: append([]byte(nil), p.Producer[:]...),
+				State: Checkpoint_ProducerState{
+					LastAck: p.LastAck,
+					Begin:   p.Begin,
+				},
+			})
 	}
 	for _, ack := range args.AckIntents {
 		cp.AckIntents[ack.Journal] = ack.Intent
@@ -41,17 +44,17 @@ func FlattenProducerStates(cp Checkpoint) []message.ProducerState {
 	var out []message.ProducerState
 
 	for j, s := range cp.Sources {
-		for pid, state := range s.Producers {
+		for _, p := range s.Producers {
 			var producer message.ProducerID
-			copy(producer[:], pid)
+			copy(producer[:], p.Id)
 
 			out = append(out, message.ProducerState{
 				JournalProducer: message.JournalProducer{
 					Journal:  j,
 					Producer: producer,
 				},
-				LastAck: state.LastAck,
-				Begin:   state.Begin,
+				LastAck: p.State.LastAck,
+				Begin:   p.State.Begin,
 			})
 		}
 	}

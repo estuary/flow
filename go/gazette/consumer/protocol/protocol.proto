@@ -251,7 +251,11 @@ message Checkpoint {
         [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
     // States of journal producers. Producer keys are 6-byte,
     // RFC 4122 v1 node identifiers (see message.ProducerID).
-    map<string, ProducerState> producers = 2 [ (gogoproto.nullable) = false ];
+    message ProducerEntry {
+      bytes id = 1;
+      ProducerState state = 2 [ (gogoproto.nullable) = false ];
+    }
+    repeated ProducerEntry producers = 2 [ (gogoproto.nullable) = false ];
   }
   // ProducerState is metadata of a producer as-of a read-through journal
   // offset.
@@ -267,10 +271,8 @@ message Checkpoint {
   }
 
   // Sources is metadata of journals consumed by the shard.
-  map<string, Source> sources = 1 [
-    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
-    (gogoproto.nullable) = false
-  ];
+  map<string, Source> sources = 1
+      [ (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal" ];
 
   // AckIntents is acknowledgement intents to be written to journals to which
   // uncommitted messages were published during the transaction which produced

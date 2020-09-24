@@ -19,7 +19,7 @@ func TestReadMessages(t *testing.T) {
 	<-aa.Done()
 
 	var cp = pc.Checkpoint{
-		Sources: map[pb.Journal]pc.Checkpoint_Source{
+		Sources: map[pb.Journal]*pc.Checkpoint_Source{
 			sourceB.Name: {ReadThrough: aa.Response().Commit.End},
 		},
 	}

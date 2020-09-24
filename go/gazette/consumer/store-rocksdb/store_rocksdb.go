@@ -111,7 +111,7 @@ func (s *Store) RestoreCheckpoint(_ consumer.Shard) (pc.Checkpoint, error) {
 	// Decode legacy offsets.
 	// TODO(johnny): Remove after migration to consumer checkpoints.
 	var prefix = appendOffsetKeyEncoding(nil, "")
-	cp.Sources = make(map[pb.Journal]pc.Checkpoint_Source)
+	cp.Sources = make(map[pb.Journal]*pc.Checkpoint_Source)
 
 	var it = s.DB.NewIterator(s.ReadOptions)
 	defer it.Close()
@@ -137,7 +137,7 @@ func (s *Store) RestoreCheckpoint(_ consumer.Shard) (pc.Checkpoint, error) {
 		if err != nil {
 			return cp, err
 		}
-		cp.Sources[name] = pc.Checkpoint_Source{ReadThrough: offset}
+		cp.Sources[name] = &pc.Checkpoint_Source{ReadThrough: offset}
 
 		log.WithFields(log.Fields{
 			"journal": name,
