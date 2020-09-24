@@ -20,7 +20,7 @@ import (
 
 // Coordinator collects a set of rings servicing ongoing shuffle reads,
 // and matches new ShuffleConfigs to a new or existing ring.
-type coordinator struct {
+type Coordinator struct {
 	ctx context.Context
 	rjc pb.RoutedJournalClient
 	ec  pf.ExtractClient
@@ -29,8 +29,9 @@ type coordinator struct {
 	mu    sync.Mutex
 }
 
-func newCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.ExtractClient) *coordinator {
-	return &coordinator{
+// NewCoordinator returns a new *Coordinator using the given clients.
+func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.ExtractClient) *Coordinator {
+	return &Coordinator{
 		ctx:   ctx,
 		rjc:   rjc,
 		ec:    ec,
@@ -38,7 +39,7 @@ func newCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.Extra
 	}
 }
 
-func (c *coordinator) findOrCreateRing(shuffle pf.JournalShuffle) *ring {
+func (c *Coordinator) findOrCreateRing(shuffle pf.JournalShuffle) *ring {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -73,9 +74,9 @@ func (c *coordinator) findOrCreateRing(shuffle pf.JournalShuffle) *ring {
 // Ring coordinates a read over a single journal on behalf of a
 // set of subscribers.
 type ring struct {
-	*coordinator
-	ctx    context.Context
-	cancel context.CancelFunc
+	coordinator *Coordinator
+	ctx         context.Context
+	cancel      context.CancelFunc
 
 	subscriberCh chan subscriber
 	readChans    []chan pf.ShuffleResponse

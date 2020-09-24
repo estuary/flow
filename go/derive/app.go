@@ -27,6 +27,7 @@ type App struct {
 	readBuilder *shuffle.ReadBuilder
 	mapper      flow.Mapper
 	derivation  pf.CollectionSpec
+	coordinator *shuffle.Coordinator
 
 	*Transaction
 }
@@ -40,7 +41,13 @@ type recorderState struct {
 var _ flow.FlowConsumer = (*App)(nil)
 
 // NewApp builds and returns a wrapped derive-worker process and gRPC connection.
-func NewApp(service *consumer.Service, journals *keyspace.KeySpace, shard consumer.Shard, rec *recoverylog.Recorder) (*App, error) {
+func NewApp(
+	service *consumer.Service,
+	journals *keyspace.KeySpace,
+	extractor *flow.WorkerHost,
+	shard consumer.Shard,
+	rec *recoverylog.Recorder,
+) (*App, error) {
 	var catalogURL, err = shardLabel(shard, labels.CatalogURL)
 	if err != nil {
 		return nil, err
@@ -99,23 +106,18 @@ func NewApp(service *consumer.Service, journals *keyspace.KeySpace, shard consum
 	if err != nil {
 		return nil, fmt.Errorf("starting derive flow-worker: %w", err)
 	}
-	log.Info("started derive-worker", "recorderState", recorderStatePath)
+
+	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(),
+		pf.NewExtractClient(extractor.Conn))
 
 	return &App{
 		delegate:    delegate,
 		readBuilder: readBuilder,
 		mapper:      mapper,
 		derivation:  spec,
+		coordinator: coordinator,
 		Transaction: nil,
 	}, nil
-}
-
-func shardLabel(shard consumer.Shard, label string) (string, error) {
-	var values = shard.Spec().LabelSet.ValuesOf(label)
-	if len(values) != 1 {
-		return "", fmt.Errorf("expected single shard label %q (got %s)", label, values)
-	}
-	return values[0], nil
 }
 
 // RestoreCheckpoint implements the Store interface, delegating to flow-worker.
@@ -161,9 +163,13 @@ func (a *App) BeginTxn(shard consumer.Shard) error {
 	}
 
 	var err error
-	if a.Transaction, err = NewTransaction(shard.Context(), a.delegate.Conn, &a.derivation, a.mapper.Map); err != nil {
+	if a.Transaction, err = NewTransaction(shard.Context(), a.delegate.Conn, &a.derivation, a.mapper.Map); err == nil {
+		err = a.Transaction.Open()
+	}
+	if err != nil {
 		return fmt.Errorf("BeginTxn: %w", err)
 	}
+
 	return nil
 }
 
@@ -183,4 +189,15 @@ func (a *App) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint, ch ch
 // ReplayRange delegates to shuffle's StartReplayRead.
 func (a *App) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
 	return a.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
+}
+
+// Coordinator returns the App's shared *shuffle.Coordinator.
+func (a *App) Coordinator() *shuffle.Coordinator { return a.coordinator }
+
+func shardLabel(shard consumer.Shard, label string) (string, error) {
+	var values = shard.Spec().LabelSet.ValuesOf(label)
+	if len(values) != 1 {
+		return "", fmt.Errorf("expected single shard label %q (got %s)", label, values)
+	}
+	return values[0], nil
 }

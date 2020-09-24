@@ -4,24 +4,23 @@ description: Level-one market tick of a security.
 type: object
 
 properties:
-  id: {type: string, format: uuid}
   exchange:
     $ref: exchange.yaml
   security:
     $ref: "#/$defs/security"
-  time: {type: string, format: date-time}
+  time: { type: string, format: date-time }
 
   bid:
     description: Highest current offer to buy security.
     $ref: "#/$defs/priceAndSize"
-  ask: 
+  ask:
     description: Lowest current offer to sell security.
     $ref: "#/$defs/priceAndSize"
   last:
     description: Completed transaction which generated this tick.
     $ref: "#/$defs/priceAndSize"
 
-required: [id, exchange]
+required: [exchange, security, time]
 
 $defs:
   security:
@@ -47,4 +46,3 @@ $defs:
   withRequired:
     $ref: "#"
     required: [security, time, bid, ask, last]
-

@@ -12,6 +12,7 @@ import (
 // and materialization consumer application runtimes.
 type FlowConsumer interface {
 	consumer.Store
+	// shuffle.Store // TODO(johnny): Move & rename FlowConsumer to avoid import cycle.
 
 	// TODO - move to consumer.Store.
 	BuildHints() (recoverylog.FSMHints, error)

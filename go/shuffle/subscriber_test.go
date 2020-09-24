@@ -271,11 +271,11 @@ func TestSubscriberResponseStaging(t *testing.T) {
 		Begin:       []pb.Offset{200, 300, 400, 500, 600},
 		End:         []pb.Offset{300, 400, 500, 600, 700},
 		UuidParts: []pf.UUIDParts{
-			{Clock: 10000, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 10001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 10002, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
-			{Clock: 10003, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 10004, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10000 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10001 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10002 << 4, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
+			{Clock: 10003 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10004 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 		},
 	}
 	fixture.DocsJson = fixture.Arena.AddAll(tokens...)

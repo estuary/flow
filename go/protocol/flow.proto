@@ -13,6 +13,7 @@ option go_package = "protocol";
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
 
 // Slice represents a contiguous slice of bytes within an associated Arena.
 message Slice {
@@ -118,9 +119,12 @@ message JournalShuffle {
 // (i.e. tabular or SQL) namespace which aliases it.
 message Projection {
   option (gogoproto.equal) = true;
+  option (gogoproto.goproto_unrecognized) = false;
+  option (gogoproto.goproto_unkeyed) = false;
+  option (gogoproto.goproto_sizecache) = false;
 
   // Document location of this projection, as a JSON-Pointer.
-  string location_ptr = 1;
+  string ptr = 1;
   // Field is the flattened, tabular alias of this projection.
   string field = 2;
 }
@@ -176,6 +180,10 @@ message TransformSpec {
 message Field {
   // Value is the extracted representation of the field value.
   message Value {
+    option (gogoproto.goproto_unrecognized) = false;
+    option (gogoproto.goproto_unkeyed) = false;
+    option (gogoproto.goproto_sizecache) = false;
+
     enum Kind {
       INVALID = 0;
       NULL = 1;
@@ -441,8 +449,7 @@ message DeriveRequest {
 // DeriveResponse is the streamed response message of a Derive RPC.
 message DeriveResponse {
 
-  message Continue {
-  };
+  message Continue {};
 
   oneof kind {
     // Continue extends the derive transaction with additional derived

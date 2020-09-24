@@ -504,6 +504,21 @@ CREATE TRIGGER transforms_source_schema_different_from_collection_schema
         SELECT RAISE(ABORT, 'Transforms that specify a source schema may not use the same schema as the source collection');
     END;
 
+-- If the shuffle_key is the same as the key of the source collection, then we'll raise
+-- an error. Much like the source_schema_uri restriction above, the explicit shuffle key
+-- has no effect.
+CREATE TRIGGER transforms_shuffle_key_different_from_collection_key
+    BEFORE INSERT
+    ON transforms
+    FOR EACH ROW
+    WHEN (
+        SELECT key_json FROM collections
+            WHERE collection_id = NEW.source_collection_id
+    ) = NEW.shuffle_key_json
+    BEGIN
+        SELECT RAISE(ABORT, 'Transform shuffle key is the same as the source collection key (remove the shuffle key)');
+    END;
+
 -- Require that the specification resource which defines a collection transform,
 -- also imports the specification which contains the referenced source collection.
 CREATE TRIGGER transforms_import_source_collection
@@ -541,6 +556,7 @@ SELECT transforms.transform_id,
        source_selector.selector_json                                           AS source_selector_json,
        transforms.source_schema_uri IS NOT NULL                                AS is_alt_source_schema,
        COALESCE(transforms.shuffle_key_json, src.key_json)                     AS shuffle_key_json,
+       transforms.shuffle_key_json IS NULL                                     AS uses_source_key,
        transforms.read_delay_seconds,
 
        -- Derived collection details.

@@ -102,7 +102,7 @@ pub struct JournalShuffle {
 pub struct Projection {
     /// Document location of this projection, as a JSON-Pointer.
     #[prost(string, tag = "1")]
-    pub location_ptr: std::string::String,
+    pub ptr: std::string::String,
     /// Field is the flattened, tabular alias of this projection.
     #[prost(string, tag = "2")]
     pub field: std::string::String,

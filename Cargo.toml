@@ -64,6 +64,7 @@ tower = "0.3"
 humantime-serde = "1.0"
 mime = "0.3"
 async-trait = "0.1"
+prost-types = "0.6"
 
 [dev-dependencies]
 insta = "^0.16"

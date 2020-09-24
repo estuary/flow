@@ -396,6 +396,7 @@ dependencies = [
  "pin-utils",
  "pretty_env_logger",
  "prost",
+ "prost-types",
  "regex",
  "reqwest",
  "rocksdb",

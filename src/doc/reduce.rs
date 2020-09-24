@@ -56,12 +56,14 @@ pub struct Reducer<'r> {
 
 impl<'r> Reducer<'r> {
     pub fn reduce(self) -> usize {
+        /*
         log::debug!(
             "evaluating at {} doc {} strategy {:?}",
             self.at,
             &self.val,
             self.idx.get(self.at)
         );
+        */
 
         match self.idx.get(self.at) {
             Some((Strategy::FirstWriteWins, _)) => self.first_write_wins(),

@@ -28,14 +28,14 @@ const iniFilename = "flow.ini"
 var Config = new(struct {
 	Ingest struct {
 		mbp.ServiceConfig
-		Catalog pb.Endpoint `long:"catalog" required:"true" description:"Catalog URL"`
+		Catalog string `long:"catalog" required:"true" description:"Catalog URL or local path"`
 	} `group:"Ingest" namespace:"ingest" env-namespace:"INGEST"`
 
-	Etcd struct {
-		mbp.EtcdConfig
-		JournalsPrefix string `long:"journals" env:"JOURNALS" default:"/gazette/cluster/items" description:"Etcd base prefix for broker journals"`
-	} `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
+	Flow struct {
+		BrokerRoot string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 
+	Etcd        mbp.EtcdConfig        `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
@@ -59,11 +59,14 @@ func (cmdServe) Execute(_ []string) error {
 	}).Info("ingester configuration")
 	pb.RegisterGRPCDispatcher(Config.Ingest.Zone)
 
-	catalog, err := flow.NewCatalog(Config.Ingest.Catalog.URL().String(), os.TempDir())
+	catalog, err := flow.NewCatalog(Config.Ingest.Catalog, os.TempDir())
 	mbp.Must(err, "opening catalog")
 	collections, err := catalog.LoadCapturedCollections()
 	mbp.Must(err, "loading captured collection specifications")
 
+	for _, collection := range collections {
+		log.WithField("name", collection.Name).Info("serving captured collection")
+	}
 	// Bind our server listener, grabbing a random available port if Port is zero.
 	srv, err := server.New("", Config.Ingest.Port)
 	mbp.Must(err, "building Server instance")
@@ -82,7 +85,7 @@ func (cmdServe) Execute(_ []string) error {
 		mu       sync.Mutex
 	)
 
-	journals, err := flow.NewJournalsKeySpace(context.Background(), etcd, Config.Etcd.JournalsPrefix)
+	journals, err := flow.NewJournalsKeySpace(context.Background(), etcd, Config.Flow.BrokerRoot)
 	mbp.Must(err, "failed to load Gazette journals")
 	delegate, err := flow.NewWorkerHost("combine", "--catalog", catalog.LocalPath())
 	mbp.Must(err, "failed to start flow-worker")
@@ -121,6 +124,9 @@ func (cmdServe) Execute(_ []string) error {
 			}
 
 			var rpc, err = flow.NewCombine(req.Context(), delegate.Conn, spec)
+			if err == nil {
+				err = rpc.Open(flow.FieldPointersForMapper(spec))
+			}
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -157,15 +163,27 @@ func (cmdServe) Execute(_ []string) error {
 		}
 		mu.Unlock()
 
-		// Collect and marshal append offsets in the response.
+		// Block on each append, collect write offsets, and marshal into the response.
 		var offsets = make(pb.Offsets, len(journalAppends))
 		for journal, aa := range journalAppends {
-			offsets[journal] = aa.Request().Offset
+			if err := aa.Err(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			offsets[journal] = aa.Response().Commit.End
 		}
+		w.Header().Add("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(offsets)
 	})
 
 	srv.QueueTasks(tasks)
+
+	tasks.Queue("journals.Watch", func() error {
+		if err := journals.Watch(tasks.Context(), etcd); err != context.Canceled {
+			return err
+		}
+		return nil
+	})
 
 	// Install signal handler & start broker tasks.
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
@@ -174,13 +192,20 @@ func (cmdServe) Execute(_ []string) error {
 		select {
 		case sig := <-signalCh:
 			log.WithField("signal", sig).Info("caught signal")
+
 			tasks.Cancel()
-			return nil
+			srv.BoundedGracefulStop()
+			return delegate.Stop()
+
 		case <-tasks.Context().Done():
 			return nil
 		}
 	})
 	tasks.GoRun()
+
+	// Block until all tasks complete. Assert none returned an error.
+	mbp.Must(tasks.Wait(), "ingester task failed")
+	log.Info("goodbye")
 
 	return nil
 }

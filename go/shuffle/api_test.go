@@ -46,7 +46,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	for i := 0; i != 100; i++ {
 		var record = fmt.Sprintf(`{"_meta":{"uuid":"%s"}, "a": %d, "b": "%d"}`+"\n",
 			message.BuildUUID(message.ProducerID{8, 6, 7, 5, 3, 0},
-				message.Clock(i), message.Flag_OUTSIDE_TXN).String(),
+				message.Clock(i<<4), message.Flag_OUTSIDE_TXN).String(),
 			i%3,
 			i%2,
 		)
@@ -77,7 +77,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = newCoordinator(apiCtx, bk.Client(), pf.NewExtractClient(wh.Conn))
+	var coordinator = NewCoordinator(apiCtx, bk.Client(), pf.NewExtractClient(wh.Conn))
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
@@ -172,8 +172,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
 	var record = fmt.Sprintf(`{"_meta":{"uuid":"%s"}}`+"\n",
 		message.BuildUUID(message.ProducerID{8, 6, 7, 5, 3, 0},
-			message.Clock(100), message.Flag_ACK_TXN).String(),
-	)
+			message.Clock(100<<4), message.Flag_ACK_TXN).String())
 	_, err = app.Write([]byte(record))
 	require.NoError(t, err)
 	require.NoError(t, app.Close())

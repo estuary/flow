@@ -207,10 +207,19 @@ pub mod checkpoint {
         /// Offset of the journal which has been read-through.
         #[prost(int64, tag = "1")]
         pub read_through: i64,
+        #[prost(message, repeated, tag = "2")]
+        pub producers: ::std::vec::Vec<source::ProducerEntry>,
+    }
+    pub mod source {
         /// States of journal producers. Producer keys are 6-byte,
         /// RFC 4122 v1 node identifiers (see message.ProducerID).
-        #[prost(map = "string, message", tag = "2")]
-        pub producers: ::std::collections::HashMap<std::string::String, ProducerState>,
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ProducerEntry {
+            #[prost(bytes, tag = "1")]
+            pub id: std::vec::Vec<u8>,
+            #[prost(message, optional, tag = "2")]
+            pub state: ::std::option::Option<super::ProducerState>,
+        }
     }
     /// ProducerState is metadata of a producer as-of a read-through journal
     /// offset.

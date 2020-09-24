@@ -1,9 +1,6 @@
-mod db;
-mod regexp_sql_fn;
-mod unicode_collation;
-
 mod collection;
 mod content_type;
+mod db;
 mod derivation;
 mod error;
 mod extraction;
@@ -11,13 +8,15 @@ mod lambda;
 mod materialization;
 mod nodejs;
 mod projections;
+mod regexp_sql_fn;
 mod resource;
 mod schema;
 mod scope;
 mod selector;
 mod source;
-mod specs;
+pub mod specs;
 mod test_case;
+mod unicode_collation;
 
 use std::path::Path;
 use url::Url;

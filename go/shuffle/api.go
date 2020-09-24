@@ -13,6 +13,18 @@ type API struct {
 	resolve func(consumer.ResolveArgs) (consumer.Resolution, error)
 }
 
+// Store are interface expectations of a consumer.Store which is used
+// by the shuffle subsystem.
+type Store interface {
+	// Coordinator returns the shared *Coordinator of this store.
+	Coordinator() *Coordinator
+}
+
+// NewAPI returns a new *API using the given Resolver.
+func NewAPI(resolver *consumer.Resolver) *API {
+	return &API{resolve: resolver.Resolve}
+}
+
 // Shuffle implements the gRPC Shuffle endpoint.
 func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer) error {
 	if err := req.Validate(); err != nil {
@@ -36,8 +48,7 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	}
 	defer res.Done()
 
-	// API requires that the consumer.Store be able to provide a Coordinator.
-	var coordinator = res.Store.(interface{ Coordinator() *coordinator }).Coordinator()
+	var coordinator = res.Store.(Store).Coordinator()
 	var ring = coordinator.findOrCreateRing(req.Shuffle)
 	var doneCh = make(chan error, 1)
 

@@ -104,7 +104,7 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 			log.WithFields(log.Fields{
 				"journal":   r.req.Shuffle.Journal,
 				"tailing":   r.resp.Tailing(),
-				"remaining": len(r.resp.GetDocsJson()),
+				"remaining": len(r.resp.DocsJson),
 			}).Info("GATE")
 
 			// This document cannot be processed until wall time has reached

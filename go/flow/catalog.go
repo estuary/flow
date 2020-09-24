@@ -8,10 +8,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
+	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -22,33 +24,45 @@ type Catalog struct {
 }
 
 // NewCatalog copies the catalog DB at the given |url| to the local |tempDir|, and opens it.
-func NewCatalog(url, tempDir string) (*Catalog, error) {
-	// Download catalog from URL to a local file.
-	var dbFile, err = ioutil.TempFile(tempDir, "catalog-db")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create local DB tempfile: %w", err)
-	}
-	var dbPath = dbFile.Name()
-
-	if resp, err := http.Get(url); err != nil {
-		return nil, fmt.Errorf("failed to request catalog URL: %w", err)
-	} else if _, err = io.Copy(dbFile, resp.Body); err != nil {
-		return nil, fmt.Errorf("failed to copy catalog to local file: %w", err)
-	} else if err = resp.Body.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close catalog response: %w", err)
-	} else if err = dbFile.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close local catalog file: %w", err)
+func NewCatalog(pathOrURL, tempDir string) (*Catalog, error) {
+	if tempDir == "" {
+		tempDir = os.TempDir()
 	}
 
-	db, err := sql.Open("sqlite3", "file://"+dbPath+"?immutable=true")
+	var path = pathOrURL
+	if url, err := url.Parse(pathOrURL); err != nil {
+		if path, err = fetchRemote(url, tempDir); err != nil {
+			return nil, fmt.Errorf("fetching remote catalog: %w", err)
+		}
+	}
+	db, err := sql.Open("sqlite3", "file:"+path+"?immutable=true")
 	if err != nil {
-		return nil, fmt.Errorf("opening catalog database %v: %w", dbPath, err)
+		return nil, fmt.Errorf("opening catalog database %v: %w", path, err)
 	}
 
 	return &Catalog{
-		dbPath: dbPath,
+		dbPath: path,
 		db:     db,
 	}, nil
+}
+
+func fetchRemote(url *url.URL, tempDir string) (string, error) {
+	// Download catalog from URL to a local file.
+	var dbFile, err = ioutil.TempFile(tempDir, "catalog-db")
+	if err != nil {
+		return "", fmt.Errorf("failed to create local DB tempfile: %w", err)
+	}
+
+	if resp, err := http.Get(url.String()); err != nil {
+		return "", fmt.Errorf("failed to request catalog URL: %w", err)
+	} else if _, err = io.Copy(dbFile, resp.Body); err != nil {
+		return "", fmt.Errorf("failed to copy catalog to local file: %w", err)
+	} else if err = resp.Body.Close(); err != nil {
+		return "", fmt.Errorf("failed to close catalog response: %w", err)
+	} else if err = dbFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close local catalog file: %w", err)
+	}
+	return dbFile.Name(), nil
 }
 
 // LocalPath returns the local path of the catalog.
@@ -110,12 +124,14 @@ func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
 				Stores:              []pb.FragmentStore{"file:///"},
 				CompressionCodec:    pb.CompressionCodec_SNAPPY,
 				RefreshInterval:     5 * time.Minute,
-				PathPostfixTemplate: `date={{.Spool.FirstAppendTime.Format "2006-01-02"}}/hour={{.Spool.FirstAppendTime.Format "15"}}`,
+				PathPostfixTemplate: `utc_date={{.Spool.FirstAppendTime.Format "2006-01-02"}}/utc_hour={{.Spool.FirstAppendTime.Format "15"}}`,
 				FlushInterval:       time.Hour,
 			},
 		}
 		collection.UuidPtr = pf.DocumentUUIDPointer
 		collection.AckJsonTemplate = pf.DocumentAckJSONTemplate
+
+		collections = append(collections, collection)
 	}
 	return collections, nil
 }
@@ -130,10 +146,12 @@ func (c *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) 
 		transform_id,
 		source_name,
 		derivation_name,
-		source_partitions_json,
+		uses_source_key,
+		update_id IS NULL, -- Filter R-Clocks,
+		NULL,              -- Hash.
+		source_selector_json,
 		shuffle_key_json,
-		shuffle_broadcast,
-		read_delay_seconds,
+		IFNULL(read_delay_seconds, 0)
 	FROM transform_details
 		WHERE derivation_name = ?`,
 		derivation,
@@ -144,33 +162,39 @@ func (c *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) 
 	defer rows.Close()
 
 	for rows.Next() {
-		var transform pf.TransformSpec
+		var tf pf.TransformSpec
 
-		// Structure is from view 'transform_source_partitions_json' in catalog.sql
-		var partitionsFlat []struct {
-			Field, Value string
-			Exclude      bool
+		var selector struct {
+			Include map[string][]interface{}
+			Exclude map[string][]interface{}
 		}
 		if err = rows.Scan(
-			&transform.Name,
-			&transform.CatalogDbId,
-			&transform.Source.Name,
-			&transform.Derivation.Name,
-			scanJSON{&partitionsFlat},
-			scanJSON{&transform.Shuffle.ShuffleKeyPtr},
-			&transform.Shuffle.ReadDelaySeconds,
+			&tf.Name,
+			&tf.CatalogDbId,
+			&tf.Source.Name,
+			&tf.Derivation.Name,
+			&tf.Shuffle.UsesSourceKey,
+			&tf.Shuffle.FilterRClocks,
+			scanJSON{&tf.Shuffle.Hash},
+			scanJSON{&selector},
+			scanJSON{&tf.Shuffle.ShuffleKeyPtr},
+			&tf.Shuffle.ReadDelaySeconds,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan tranform from catalog: %w", err)
 		}
 
-		transform.Source.Partitions.Include.AddValue(labels.Collection, transform.Source.Name.String())
-		for _, f := range partitionsFlat {
-			if f.Exclude {
-				transform.Source.Partitions.Exclude.AddValue(encodePartitionToLabel(f.Field, f.Value))
-			} else {
-				transform.Source.Partitions.Include.AddValue(encodePartitionToLabel(f.Field, f.Value))
+		tf.Source.Partitions.Include.AddValue(labels.Collection, tf.Source.Name.String())
+		for field, values := range selector.Include {
+			for _, value := range values {
+				tf.Source.Partitions.Include.AddValue(encodePartitionToLabel(field, fmt.Sprint(value)))
 			}
 		}
+		for field, values := range selector.Exclude {
+			for _, value := range values {
+				tf.Source.Partitions.Exclude.AddValue(encodePartitionToLabel(field, fmt.Sprint(value)))
+			}
+		}
+		transforms = append(transforms, tf)
 	}
 
 	if len(transforms) == 0 {
@@ -193,9 +217,14 @@ type scanJSON struct {
 }
 
 func (j scanJSON) Scan(value interface{}) error {
-	var b, ok = value.([]byte)
-	if !ok {
-		return fmt.Errorf("scaning json: %v is not a []byte", value)
+	switch v := value.(type) {
+	case string:
+		return json.Unmarshal([]byte(v), j.v)
+	case []byte:
+		return json.Unmarshal(v, j.v)
+	case nil:
+		return nil
+	default:
+		return fmt.Errorf("scanning json: %v is invalid type", value)
 	}
-	return json.Unmarshal(b, j.v)
 }

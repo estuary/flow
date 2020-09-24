@@ -11,6 +11,7 @@ import (
 
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
@@ -31,7 +32,7 @@ type Mapper struct {
 func FieldPointersForMapper(collection *pf.CollectionSpec) []string {
 	var ptrs []string
 	for _, p := range collection.Partitions {
-		ptrs = append(ptrs, p.LocationPtr)
+		ptrs = append(ptrs, p.Ptr)
 	}
 	ptrs = append(ptrs, collection.KeyPtrs...)
 	return ptrs
@@ -51,7 +52,7 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 		mappingBufferPool.Put(buf)
 	}()
 
-	for {
+	for i := 0; true; i++ {
 		if p := m.pickPartition(logicalPrefix, hexKey); p != nil {
 			return p.Name, p.LabelSet.ValueOf(labels.ContentType), nil
 		}
@@ -59,14 +60,18 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 		var upsert = m.partitionUpsert(cr)
 		var applyResponse, err = client.ApplyJournals(m.Ctx, m.JournalClient, upsert)
 
-		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED {
-			// We lost a race to create this journal. Ignore.
+		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED && i == 0 {
+			// We lost a race to create this journal. Ignore on the first attempt (only).
+			// If we see failures beyond that, there's likely a mis-configuration of
+			// the Etcd broker keyspace prefix.
 		} else if err != nil {
 			return "", "", fmt.Errorf("creating journal '%s': %w", upsert.Changes[0].Upsert.Name, err)
 		} else if err = m.Journals.WaitForRevision(m.Ctx, applyResponse.Header.Etcd.Revision); err != nil {
 			return "", "", fmt.Errorf("awaiting applied revision '%d': %w", applyResponse.Header.Etcd.Revision, err)
 		}
+		log.WithField("journal", upsert.Changes[0].Upsert.Name).Info("created partition")
 	}
+	panic("not reached")
 }
 
 func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest {

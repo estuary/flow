@@ -329,6 +329,10 @@ UPDATE transforms
 SET shuffle_key_json = '["/key"]'
 WHERE transform_id = 1;
 
+-- Invalid shuffle key is the same as the source collection.
+INSERT INTO transforms (derivation_id, source_collection_id, shuffle_key_json)
+VALUES (2, 1, '["/key/0","/key/1"]');
+
 -- Derivation must exist (not a collection).
 UPDATE transforms
 SET derivation_id = 42

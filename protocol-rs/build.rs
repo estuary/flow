@@ -38,6 +38,7 @@ fn main() {
 
     tonic_build::configure()
         .build_server(true)
+        .build_client(true)
         .out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"))
         .compile(&proto_build, &proto_include)
         .expect("failed to compile protobuf");

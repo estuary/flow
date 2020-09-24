@@ -304,7 +304,9 @@ async fn derive_rpc(
     // The client can apply flow control by bounding the number of in-flight Continue
     // messages, and this acknowledgement "opens" the window for a next client Continue.
     let ack = Ok(flow::DeriveResponse {
-        kind: Some(flow::derive_response::Kind::Continue(flow::derive_response::Continue{})),
+        kind: Some(flow::derive_response::Kind::Continue(
+            flow::derive_response::Continue {},
+        )),
     });
 
     let mut rx_stream = rx_request.fuse();
@@ -387,6 +389,7 @@ async fn derive_rpc(
                     checkpoint: Some(checkpoint),
                 })),
         })) => checkpoint,
+        Some(Err(err)) => return Err(Error::RecvError(err)),
         _ => return Err(Error::ExpectedPrepare),
     };
 
@@ -399,7 +402,7 @@ async fn derive_rpc(
     // Read (only) a clean EOF to commit the derive transaction.
     match rx_stream.next().await {
         None => tx_commit.send(()).expect("failed to signal commit"),
-        Some(Err(err)) => return Err(err.into()),
+        Some(Err(err)) => return Err(Error::RecvError(err)),
         Some(Ok(_)) => return Err(Error::ExpectedEOF),
     };
 

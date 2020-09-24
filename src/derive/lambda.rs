@@ -1,6 +1,7 @@
 use serde::ser::Serialize;
 use serde_json::Value;
 use std::path;
+use std::str::FromStr;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -8,11 +9,12 @@ pub enum Error {
     Hyper(#[from] hyper::Error),
     #[error("failed to decode lambda response json: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error("lambda did not return a Content-Type header")]
-    MissingMediaType,
+    #[error("parsing lambda response header: {0}")]
+    HeaderToStr(#[from] http::header::ToStrError),
+    #[error("parsing lambda content-type: {0}")]
+    MimeFromStr(#[from] mime::FromStrError),
     #[error("lambda returned an unsupported Content-Type {0:?}")]
-    UnsupportedMediaType(String),
+    UnsupportedMediaType(Option<String>),
     #[error("lambda returned {status}: {message}")]
     NotOK {
         status: hyper::StatusCode,
@@ -174,14 +176,15 @@ impl Lambda {
 }
 
 async fn unmarshal(resp: hyper::client::ResponseFuture) -> Result<Value, Error> {
-    let (ct, body) = check_headers(resp.await?).await?;
-    let buf = hyper::body::to_bytes(body).await?;
+    let resp = resp.await?;
+    let resp = check_headers(resp, &[mime::APPLICATION_JSON]).await?;
 
-    let dom: Value = match ct {
-        mime::JSON => serde_json::from_slice(&buf)?,
-        _ => panic!("content-type verified already"),
+    let body = match resp {
+        Some((_media_type, body)) => hyper::body::to_bytes(body).await?,
+        None => return Ok(Value::Array(Vec::new())),
     };
 
+    let dom = serde_json::from_slice(&body)?;
     match &dom {
         Value::Array(_) => (),
         _ => return Err(Error::ExpectedArray),
@@ -191,32 +194,27 @@ async fn unmarshal(resp: hyper::client::ResponseFuture) -> Result<Value, Error> 
 
 async fn check_headers(
     mut resp: hyper::Response<hyper::Body>,
-) -> Result<(mime::Name<'static>, hyper::Body), Error> {
+    expect_content_types: &[mime::Mime],
+) -> Result<Option<(mime::Mime, hyper::Body)>, Error> {
     if !resp.status().is_success() {
         let body = hyper::body::to_bytes(resp.body_mut()).await?;
         return Err(Error::NotOK {
             status: resp.status(),
             message: String::from_utf8_lossy(&body).into_owned(),
         });
+    } else if resp.status() == http::StatusCode::NO_CONTENT {
+        return Ok(None);
     }
 
-    let hdr = match resp.headers().get(http::header::CONTENT_TYPE) {
-        None => return Err(Error::MissingMediaType),
-        Some(v) => v.as_bytes(),
+    let ct = match resp.headers().get(http::header::CONTENT_TYPE) {
+        None => return Err(Error::UnsupportedMediaType(None)),
+        Some(ct) => mime::Mime::from_str(ct.to_str()?)?,
     };
-    let ct = match std::str::from_utf8(hdr)
-        .ok()
-        .and_then(|s| s.parse::<mime::Mime>().ok())
-    {
-        Some(m) if m.type_() == mime::APPLICATION && m.subtype() == mime::JSON => mime::JSON,
-        _ => {
-            return Err(Error::UnsupportedMediaType(
-                String::from_utf8_lossy(hdr).to_string(),
-            ))
-        }
+    match expect_content_types.iter().find(|e| **e == ct) {
+        None => return Err(Error::UnsupportedMediaType(Some(ct.to_string()))),
+        Some(_) => (),
     };
-
-    Ok((ct, resp.into_body()))
+    Ok(Some((ct, resp.into_body())))
 }
 
 #[cfg(test)]
@@ -256,6 +254,12 @@ pub mod test {
                 vec![json!("big"), json!("wide"), json!("world")],
             ]
         );
+
+        // Invoke with no input. The server returns 204: No Content,
+        // which we should interpret as an empty output iterator.
+        let inv = srv.lambda.start_invocation().finish().await.unwrap();
+        let inv = inv.collect::<Result<Vec<_>, _>>().unwrap();
+        assert!(inv.is_empty());
     }
 
     pub struct TestServer {
@@ -285,14 +289,26 @@ pub mod test {
                     for row in v.as_array().unwrap() {
                         out.push(Value::Array(func(row.as_array().unwrap())));
                     }
-                    let out = serde_json::to_vec(&out).unwrap();
 
-                    let mut resp = Response::new(hyper::Body::from(out));
-                    resp.headers_mut().append(
-                        http::header::CONTENT_TYPE,
-                        "application/json".parse().unwrap(),
-                    );
+                    let resp = match out.is_empty() {
+                        // If there are no output rows, return 204: No content.
+                        true => {
+                            let mut resp = Response::new(hyper::Body::empty());
+                            *resp.status_mut() = http::StatusCode::NO_CONTENT;
+                            resp
+                        }
+                        // Otherwise, return 200: OK with 'application/json' Content-Type.
+                        false => {
+                            let out = serde_json::to_vec(&out).unwrap();
 
+                            let mut resp = Response::new(hyper::Body::from(out));
+                            resp.headers_mut().append(
+                                http::header::CONTENT_TYPE,
+                                "application/json".parse().unwrap(),
+                            );
+                            resp
+                        }
+                    };
                     Ok::<_, std::convert::Infallible>(resp)
                 }
             };

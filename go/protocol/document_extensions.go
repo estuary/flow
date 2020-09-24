@@ -137,7 +137,8 @@ func (cd IndexedCombineResponse) NewAcknowledgement(pb.Journal) message.Message 
 
 // MarshalJSONTo copies the raw document json into the Writer.
 func (cd IndexedCombineResponse) MarshalJSONTo(bw *bufio.Writer) (int, error) {
-	return bw.Write(cd.Arena.Bytes(cd.DocsJson[cd.Index]))
+	var n, _ = bw.Write(cd.Arena.Bytes(cd.DocsJson[cd.Index]))
+	return n + 1, bw.WriteByte('\n')
 }
 
 var (
@@ -148,5 +149,5 @@ var (
 	DocumentUUIDPlaceholder = []byte("DocUUIDPlaceholder-329Bb50aa48EAa9ef")
 	// DocumentAckJSONTemplate is a JSON-encoded document template which serves
 	// as a Gazette consumer transaction acknowledgement.
-	DocumentAckJSONTemplate = []byte(`{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}` + "\n")
+	DocumentAckJSONTemplate = []byte(`{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}`)
 )

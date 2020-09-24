@@ -192,10 +192,10 @@ type testApp struct {
 type testStore struct {
 	*consumer.JSONFileStore
 	readBuilder *ReadBuilder
-	coordinator *coordinator
+	coordinator *Coordinator
 }
 
-func (s *testStore) Coordinator() *coordinator { return s.coordinator }
+func (s *testStore) Coordinator() *Coordinator { return s.coordinator }
 
 func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) (consumer.Store, error) {
 	var store, err = consumer.NewJSONFileStore(recorder, make(map[string]int))
@@ -204,7 +204,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 
 func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
 	var testStore = store.(*testStore)
-	testStore.coordinator = newCoordinator(shard.Context(), shard.JournalClient(),
+	testStore.coordinator = NewCoordinator(shard.Context(), shard.JournalClient(),
 		pf.NewExtractClient(a.workerHost.Conn))
 
 	var err error

@@ -34,7 +34,6 @@ func NewWorkerHost(args ...string) (*WorkerHost, error) {
 
 	var cmd = exec.Command("flow-worker", append(args, "--grpc-socket-path", socketPath)...)
 	cmd.Stderr = os.Stderr
-	cmd.Env = []string{"RUST_LOG=info"}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

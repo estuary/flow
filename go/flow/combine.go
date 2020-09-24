@@ -30,8 +30,8 @@ func NewCombine(ctx context.Context, conn *grpc.ClientConn, spec *pf.CollectionS
 	return &Combine{
 		rpc: stream,
 		next: pf.CombineRequest_Continue{
-			Arena:    make(pf.Arena, 4096),
-			DocsJson: make([]pf.Slice, 16),
+			Arena:    make(pf.Arena, 0, 4096),
+			DocsJson: make([]pf.Slice, 0, 16),
 		},
 		spec: spec,
 	}, nil
@@ -67,9 +67,10 @@ func (c *Combine) Flush() error {
 	if len(c.next.DocsJson) == 0 {
 		return nil // No-op.
 	}
-	if err := c.rpc.Send(&pf.CombineRequest{
+	var msg = &pf.CombineRequest{
 		Kind: &pf.CombineRequest_Continue_{Continue: &c.next},
-	}); err != nil {
+	}
+	if err := c.rpc.Send(msg); err != nil {
 		// On stream breaks gRPC returns io.EOF as the Send error,
 		// and a far more informative Recv error.
 		if _, recvErr := c.rpc.Recv(); recvErr != nil {
@@ -105,6 +106,7 @@ func (c *Combine) Finish(cb func(pf.IndexedCombineResponse) error) error {
 		var icr = pf.IndexedCombineResponse{
 			CombineResponse: combined,
 			Index:           0,
+			Collection:      c.spec,
 		}
 		for ; icr.Index != len(icr.DocsJson); icr.Index++ {
 			if err := cb(icr); err != nil {

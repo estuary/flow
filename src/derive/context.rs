@@ -49,7 +49,7 @@ impl Context {
                     schema_uri,
                     key_json,
                     register_schema_uri,
-                    register_initial_json,
+                    register_initial_json
                 FROM collections
                 NATURAL JOIN derivations
                 WHERE collection_name = ?",
@@ -62,7 +62,6 @@ impl Context {
                 detail: Box::new(err.into()),
             })?;
 
-        // TODO(johnny): Have Pointer implement serde::Deserialize? Could clean this up...
         let derived_key: Vec<String> = serde_json::from_value(derived_key)?;
         let derived_key = derived_key.iter().map(|s| s.into()).collect::<Vec<_>>();
 
@@ -75,12 +74,12 @@ impl Context {
             update_runtime,           -- 2
             publish_runtime,          -- 3
             update_inline,            -- 4 (needed for 'remote')
-            publish_inline,           -- 5
+            publish_inline            -- 5
         FROM transform_details
-            WHERE derivation_name = ?;
+            WHERE derivation_id = ?;
         ",
         )?;
-        let mut rows = stmt.query(sql_params![derivation])?;
+        let mut rows = stmt.query(sql_params![derivation_id])?;
 
         while let Some(r) = rows.next()? {
             let (transform_id, source_schema, update_runtime, publish_runtime): (
@@ -92,14 +91,14 @@ impl Context {
 
             let update = match update_runtime.as_deref() {
                 None => lambda::Lambda::Noop,
-                Some("nodejs") => node.new_update_lambda(transform_id),
+                Some("nodeJS") => node.new_update_lambda(transform_id),
                 Some("remote") => lambda::Lambda::new_web_json(r.get::<_, Url>(4)?),
                 Some(rt) => panic!("transform {} has invalid runtime {:?}", transform_id, rt),
             };
 
             let publish = match publish_runtime.as_deref() {
                 None => lambda::Lambda::Noop,
-                Some("nodejs") => node.new_publish_lambda(transform_id),
+                Some("nodeJS") => node.new_publish_lambda(transform_id),
                 Some("remote") => lambda::Lambda::new_web_json(r.get::<_, Url>(5)?),
                 Some(rt) => panic!("transform {} has invalid runtime {:?}", transform_id, rt),
             };

@@ -1,6 +1,7 @@
 use anyhow::{Context, Error};
-use estuary::catalog;
+use estuary::{catalog, runtime, testing};
 use rusqlite::Connection as DB;
+use std::convert::TryFrom;
 use std::fs;
 use std::path::Path;
 use structopt::StructOpt;
@@ -13,6 +14,8 @@ enum Command {
     Build(BuildArgs),
     /// Shows outputs from a built catalog.
     Show(ShowArgs),
+    /// Runs catalog tests.
+    Test(TestArgs),
 }
 
 #[derive(StructOpt, Debug)]
@@ -53,7 +56,15 @@ struct BuildArgs {
     nodejs_package_path: String,
 }
 
-fn main() {
+#[derive(StructOpt, Debug)]
+struct TestArgs {
+    /// Path to input catalog database.
+    #[structopt(long, default_value = "catalog.db")]
+    catalog: String,
+}
+
+#[tokio::main]
+async fn main() {
     pretty_env_logger::init_timed();
 
     let args = Command::from_args();
@@ -62,15 +73,16 @@ fn main() {
     let result = match args {
         Command::Build(build) => do_build(build),
         Command::Show(show) => do_show(show),
+        Command::Test(test) => do_test(test).await,
     };
 
-    match result {
-        Ok(_) => (),
-        Err(e) => eprintln!("Error: {:#}", e),
+    if let Err(err) = result {
+        log::error!("{:?}", err);
+        std::process::exit(-1);
     };
 }
 
-fn do_build(args: BuildArgs) -> Result<DB, Error> {
+fn do_build(args: BuildArgs) -> Result<(), Error> {
     let spec_url = match url::Url::parse(&args.source) {
         Ok(url) => url,
         Err(err) => {
@@ -99,10 +111,10 @@ fn do_build(args: BuildArgs) -> Result<DB, Error> {
 
     catalog::build(&db, spec_url, nodejs_dir).context("building catalog")?;
     log::info!("Successfully built catalog");
-    Ok(db)
+    Ok(())
 }
 
-fn do_show(args: ShowArgs) -> Result<DB, Error> {
+fn do_show(args: ShowArgs) -> Result<(), Error> {
     let db = catalog::open(&args.catalog).context("opening --catalog")?;
 
     match &args.target {
@@ -115,7 +127,44 @@ fn do_show(args: ShowArgs) -> Result<DB, Error> {
             materialization.as_ref().map(String::as_str),
         )?,
     };
-    Ok(db)
+    Ok(())
+}
+
+async fn do_test(args: TestArgs) -> Result<(), Error> {
+    let db = catalog::open(&args.catalog).context("opening --catalog")?;
+
+    let cluster = runtime::Cluster::new();
+
+    // Upsert shards for all derivations.
+    {
+        let shards = cluster.list_shards().await?;
+        eprintln!("loaded shards: {:#?}", shards);
+
+        let mut derivations = runtime::DerivationSet::try_from(shards).unwrap();
+        derivations.update_from_catalog(&db)?;
+
+        let apply = derivations.build_recovery_log_apply_request();
+        cluster.apply_journals(apply).await?;
+
+        let apply = derivations.build_shard_apply_request(&args.catalog);
+        cluster.apply_shards(apply).await?;
+    }
+
+    let mut stmt = db.prepare("SELECT test_case_id FROM test_cases")?;
+    let test_ids = stmt
+        .query_map(rusqlite::NO_PARAMS, |row| row.get(0))?
+        .collect::<Result<Vec<i64>, _>>()?;
+
+    for id in test_ids {
+        let case = catalog::TestCase { id };
+        let (name, steps) = case.load(&db)?;
+        eprintln!("loaded case {}: {:#?}", name, steps);
+
+        testing::run_test_case(&cluster, steps)
+            .await
+            .with_context(|| format!("test case {:?} failed", &name))?;
+    }
+    Ok(())
 }
 
 fn show_materialialization_ddl(

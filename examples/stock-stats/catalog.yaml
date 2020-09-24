@@ -4,7 +4,7 @@ nodeDependencies:
 collections:
   - name: stock/ticks
     schema: schemas/L1-tick.yaml
-    key: [/id]
+    key: [/security, /time]
 
     projections:
       exchange:
@@ -99,7 +99,8 @@ tests:
         collection: stock/daily-stats
         partitions: { include: { exchange: [NYSE] } }
         documents:
-          - security: APPL
+          - &document
+            security: APPL
             date: "2019-01-16"
             price: { "low": 321.12, "high": 321.12, "avgN": 16056, "avgD": 50 }
             bid: { "low": 321.09, "high": 321.09, "avgN": 321.09, "avgD": 1 }
@@ -108,3 +109,7 @@ tests:
             volume: 50
             first: { "price": 321.12, "size": 50 }
             last: { "price": 321.12, "size": 50 }
+    - verify:
+        collection: stock/daily-stats
+        documents:
+          - *document

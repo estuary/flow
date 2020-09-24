@@ -2,7 +2,7 @@ use super::lambda;
 use crate::catalog;
 use std::fs;
 use std::io::{Read, Write};
-use std::path;
+use std::path::{Path, PathBuf};
 use std::process;
 
 #[derive(thiserror::Error, Debug)]
@@ -13,51 +13,55 @@ pub enum Error {
     SQLite(#[from] rusqlite::Error),
     #[error("http error: {0}")]
     Http(#[from] lambda::Error),
-
     #[error("Failed to install npm package")]
     NpmInstallFailed,
 }
 
 pub struct NodeRuntime {
-    sock: path::PathBuf,
+    sock: PathBuf,
     proc: process::Child,
-    // TempDir is retained but not used (dropping it deletes the directory).
-    _dir: tempfile::TempDir,
 }
 
 impl NodeRuntime {
     /// Start a NodeJS worker using the NPM package extracted from the catalog database.
-    pub fn start(db: &catalog::DB) -> Result<NodeRuntime, Error> {
+    pub fn start(db: &catalog::DB, dir: impl AsRef<Path>) -> Result<NodeRuntime, Error> {
         // Extract catalog pack.tgz to a new temp directory.
-        let dir = tempfile::tempdir()?;
-        let pack: Vec<u8> = db
+        let dir = dir.as_ref();
+        let pack_path = dir.join("npm-pack.tgz");
+        let pack_contents: Vec<u8> = db
             .prepare("SELECT content FROM resources WHERE content_type = ?")?
             .query_row(catalog::sql_params![catalog::ContentType::NpmPack], |r| {
                 r.get(0)
             })?;
-        fs::write(dir.path().join("pack.tgz"), pack)?;
+        fs::write(&pack_path, pack_contents)?;
+        log::info!("wrote catalog npm package to {:?}", pack_path);
+
+        let output = process::Command::new("npm")
+            .arg("--version")
+            .current_dir(dir)
+            .output()?;
+        log::info!("running NPM version {:?}", &output.stdout);
 
         // Bootstrap a Node package with the installed pack.
         let cmd = process::Command::new("npm")
             .arg("install")
-            .arg("file://./pack.tgz")
-            .current_dir(dir.path())
+            .arg("file://./npm-pack.tgz")
+            .current_dir(dir)
             .output()?;
 
         if !cmd.status.success() {
             std::io::stderr().write_all(&cmd.stderr)?;
             return Err(Error::NpmInstallFailed);
         }
-        log::info!("installed catalog npm package to {:?}", dir.path());
 
-        let sock = dir.path().join("socket");
+        let sock = dir.join("nodejs-socket");
 
         // Start NodeJS subprocess, serving over ${dir}/socket.
-        let cmd = dir.path().join("node_modules/.bin/catalog-js-transformer");
+        let cmd = dir.join("node_modules/.bin/catalog-js-transformer");
         let mut proc = process::Command::new(cmd)
             .stdin(process::Stdio::null())
             .stdout(process::Stdio::piped())
-            .current_dir(dir.path())
+            .current_dir(dir)
             .env("SOCKET_PATH", &sock)
             .spawn()?;
 
@@ -67,11 +71,7 @@ impl NodeRuntime {
         assert_eq!(&ready, b"READY\n");
 
         log::info!("nodejs runtime is ready {:?}", proc);
-        Ok(NodeRuntime {
-            proc,
-            sock,
-            _dir: dir,
-        })
+        Ok(NodeRuntime { proc, sock })
     }
 
     pub fn new_update_lambda(&self, transform_id: i32) -> lambda::Lambda {

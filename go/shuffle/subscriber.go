@@ -165,9 +165,9 @@ func (s subscribers) len() int                 { return len(s) }
 func (s subscribers) getKeyBegin(i int) []byte { return s[i].Range.KeyBegin }
 func (s subscribers) getKeyEnd(i int) []byte   { return s[i].Range.KeyEnd }
 
-// Rotate a Clock into a high-entropy sequence by:
-//  * Shifting the top-60 timestamp bits onto the 4 sequence bits,
-//    XOR-ing in the current sequence counter.
+// Rotate a Clock into a high-entropy sequence by shifting the high-60 bits
+// of timestamp down by 4, XOR-ed with the low 4 bits of sequence counter,
+// and then rotating the result such that the LSB is now the MSB.
 func rotateClock(c message.Clock) uint64 {
 	return bits.Reverse64(uint64((c >> 4) ^ (c & 0xf)))
 }
@@ -188,7 +188,7 @@ func (s subscribers) stageResponses(from *pf.ShuffleResponse) {
 		}
 
 		var start, stop = keySpan(s, from.Arena.Bytes(from.PackedKey[doc]))
-		var rClock = bits.Reverse64(uint64(uuid.Clock))
+		var rClock = rotateClock(uuid.Clock)
 
 		for i := start; i != stop; i++ {
 			// Stage to the reader if:

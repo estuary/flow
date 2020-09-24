@@ -1,10 +1,10 @@
+use anyhow::{Context, Error};
 use estuary::{
     catalog::{self},
     derive, doc,
 };
 use estuary_protocol::flow;
 use futures::{select, FutureExt};
-use log::{error, info};
 use std::path::PathBuf;
 use std::sync::Arc;
 use structopt::StructOpt;
@@ -62,8 +62,6 @@ enum Command {
     Derive(DeriveCommand),
 }
 
-type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
-
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
@@ -75,7 +73,8 @@ async fn main() {
         Command::Derive(cmd) => cmd.run().await,
     };
     if let Err(err) = result {
-        error!("exiting with error: {}", err);
+        log::error!("{:?}", err);
+        std::process::exit(-1);
     };
 }
 
@@ -131,11 +130,12 @@ impl CombineCommand {
 impl DeriveCommand {
     async fn run(&self) -> Result<(), Error> {
         // Open catalog DB & build schema index.
-        let db = catalog::open(&self.catalog)?;
+        let db = catalog::open(&self.catalog).context("failed to open --catalog")?;
         let schema_index = build_schema_index(&db)?;
 
         // Start NodeJS transform worker.
-        let node = derive::nodejs::NodeRuntime::start(&db)?;
+        let node = derive::nodejs::NodeRuntime::start(&db, &self.dir)
+            .context("NodeJS runtime failed to start")?;
 
         // Build derivation context.
         let ctx = derive::context::Context::build_from_catalog(
@@ -143,7 +143,8 @@ impl DeriveCommand {
             &self.derivation,
             schema_index,
             &node,
-        )?;
+        )
+        .context("Failed to load derivation context from catalog")?;
         let ctx = Arc::new(ctx);
 
         // Open local RocksDB.
@@ -160,7 +161,8 @@ impl DeriveCommand {
                 crate::derive::registers::REGISTERS_CF,
             ]
             .iter(),
-        )?;
+        )
+        .context("Failed to open RocksDB")?;
 
         let registers = derive::registers::Registers::new(
             rocks_db,
@@ -201,8 +203,8 @@ fn register_signal_handlers() -> Result<impl std::future::Future<Output = ()>, E
 
     Ok(async move {
         select!(
-            _ = sigterm.recv().fuse() => info!("caught SIGTERM; stopping"),
-            _ = sigint.recv().fuse() => info!("caught SIGINT; stopping"),
+            _ = sigterm.recv().fuse() => log::info!("caught SIGTERM; stopping"),
+            _ = sigint.recv().fuse() => log::info!("caught SIGINT; stopping"),
         );
     })
 }
@@ -226,7 +228,7 @@ fn build_schema_index(
     // Also leak a &'static SchemaIndex.
     let schema_index = Box::leak(Box::new(schema_index));
 
-    info!("loaded {} JSON-Schemas from catalog", schemas.len());
+    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
 
     Ok(schema_index)
 }
