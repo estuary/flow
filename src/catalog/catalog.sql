@@ -718,7 +718,7 @@ SELECT
         WHEN i.num_non_null_types > 1 THEN
             printf('Location has %d possible types besides null, but locations used as keys may only have one possible type besides null.', i.num_non_null_types)
         WHEN i.disallowed_type NOT NULL THEN
-            'Locations used as keys may not hold objects, arrays, or floats as possible values'
+            printf('Location may hold values of type "%s", but locations used as keys may not hold objects, arrays, or floats as possible values', i.disallowed_type)
     END AS error
 FROM
     all_keys
