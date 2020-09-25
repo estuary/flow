@@ -632,8 +632,8 @@ collection_id|schema_uri|location_ptr|types_json|must_exist|source|error
 1|file:///path/to/a/schema.yaml#anchor|/key/1|["string", "null"]|1|partition key for collection "col/src"|
 1|file:///path/to/a/schema.yaml#anchor|/key/1|["string", "null"]|1|primary key of collection "col/src"|
 2|https://canonical/schema/uri#/$defs/path|/a|||partition key for collection "col/derived"|The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
-2|https://canonical/schema/uri#/$defs/path|/foo|["number"]|1|primary key of collection "col/derived"|Locations used as keys may not hold objects, arrays, or floats as possible values
-3|https://canonical/schema/uri#/$defs/path|/foo|["number"]|1|primary key of collection "col/der.iv-e+d"|Locations used as keys may not hold objects, arrays, or floats as possible values
+2|https://canonical/schema/uri#/$defs/path|/foo|["number"]|1|primary key of collection "col/derived"|Location may hold values of type "number", but locations used as keys may not hold objects, arrays, or floats as possible values
+3|https://canonical/schema/uri#/$defs/path|/foo|["number"]|1|primary key of collection "col/der.iv-e+d"|Location may hold values of type "number", but locations used as keys may not hold objects, arrays, or floats as possible values
 4|file:///path/to/a/schema.yaml|/key|["integer"]|0|primary key of collection "col/other-src"|Location may not exist in all documents. Consider using "required" or "minItems" in the schema to validate that the location will always have a value of type string, integer, or boolean (or null).
 changes:   0   total_changes: XYZ
 
