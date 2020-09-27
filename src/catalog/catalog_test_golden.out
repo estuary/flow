@@ -451,7 +451,7 @@ SET source_schema_uri = 'not-a-url'
 WHERE transform_id = 1;
 
 -- Invalid source schema is the same as the collection schema
-Error: near line (XYZ): Transforms that specify a source schema may not use the same schema as the source collection
+Error: near line (XYZ): Transforms source schema is the same as the source collection schema. This is disallowed, as it's redundant and would have no effect
 INSERT INTO transforms (derivation_id, source_collection_id, source_schema_uri)
 VALUES (2, 1, 'file:///path/to/a/schema.yaml#anchor');
 
@@ -471,7 +471,7 @@ WHERE transform_id = 1;
 changes:   1   total_changes: XYZ
 
 -- Invalid shuffle key is the same as the source collection.
-Error: near line (XYZ): Transform shuffle key is the same as the source collection key (remove the shuffle key)
+Error: near line (XYZ): Transform shuffle key is the same as the source collection key. This is disallowed, as it's redundant and would have no effect
 INSERT INTO transforms (derivation_id, source_collection_id, shuffle_key_json)
 VALUES (2, 1, '["/key/0","/key/1"]');
 

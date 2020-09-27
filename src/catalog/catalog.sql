@@ -501,7 +501,7 @@ CREATE TRIGGER transforms_source_schema_different_from_collection_schema
             WHERE collection_id = NEW.source_collection_id
     ) = NEW.source_schema_uri
     BEGIN
-        SELECT RAISE(ABORT, 'Transforms that specify a source schema may not use the same schema as the source collection');
+        SELECT RAISE(ABORT, "Transforms source schema is the same as the source collection schema. This is disallowed, as it's redundant and would have no effect");
     END;
 
 -- If the shuffle_key is the same as the key of the source collection, then we'll raise
@@ -516,7 +516,7 @@ CREATE TRIGGER transforms_shuffle_key_different_from_collection_key
             WHERE collection_id = NEW.source_collection_id
     ) = NEW.shuffle_key_json
     BEGIN
-        SELECT RAISE(ABORT, 'Transform shuffle key is the same as the source collection key (remove the shuffle key)');
+        SELECT RAISE(ABORT, "Transform shuffle key is the same as the source collection key. This is disallowed, as it's redundant and would have no effect");
     END;
 
 -- Require that the specification resource which defines a collection transform,
