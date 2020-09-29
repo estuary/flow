@@ -23,12 +23,12 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 		{"", `invalid length \(0; expected 4 <= .*`},
 		{"zz", `invalid length \(2; expected 4 <= .*`},
 
-		// Journals may have query components.
-		{"foo/bar?query=baz&other", ""},
-		// Queries must consist of a restricted alphabet.
-		{"foo/bar?disallowed#rune", `query: not a valid token \(disallowed#rune\)`},
-		// If '?' is present, the query must be non-empty.
-		{"foo/bar?", `query: invalid length \(0; expected 1 <= length <= 512\)`},
+		// Journals may have a metadata path segment.
+		{"foo/bar;baz/bing", ""},
+		// Metadata segments must consist of the token.
+		{"foo/bar;disallowed#rune", `metadata path segment: not a valid token \(disallowed#rune\)`},
+		// If ';' is present, the following segment must be non-empty.
+		{"foo/bar;", `metadata path segment: invalid length \(0; expected 1 <= length <= 512\)`},
 	}
 	for _, tc := range cases {
 		if tc.expect == "" {
@@ -39,14 +39,14 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 	}
 }
 
-func (s *JournalSuite) TestJournalQuerySplits(c *gc.C) {
-	c.Check(Journal("foo/bar?query-part").StripQuery(), gc.Equals, Journal("foo/bar"))
-	var n, q = Journal("foo/bar?query-part").SplitQuery()
+func (s *JournalSuite) TestJournalMetaSplits(c *gc.C) {
+	c.Check(Journal("foo/bar;meta-part").StripMeta(), gc.Equals, Journal("foo/bar"))
+	var n, q = Journal("foo/bar;meta-part").SplitMeta()
 	c.Check(n, gc.Equals, Journal("foo/bar"))
-	c.Check(q, gc.Equals, "?query-part")
+	c.Check(q, gc.Equals, ";meta-part")
 
-	c.Check(Journal("foo/bar").StripQuery(), gc.Equals, Journal("foo/bar"))
-	n, q = Journal("foo/bar").SplitQuery()
+	c.Check(Journal("foo/bar").StripMeta(), gc.Equals, Journal("foo/bar"))
+	n, q = Journal("foo/bar").SplitMeta()
 	c.Check(n, gc.Equals, Journal("foo/bar"))
 	c.Check(q, gc.Equals, "")
 }
@@ -72,8 +72,8 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 
 	spec.Name = "/bad/name"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Name: cannot begin with '/' \(/bad/name\)`)
-	spec.Name = "a/journal?disallowed=query"
-	c.Check(spec.Validate(), gc.ErrorMatches, `Name cannot have a query component \(\?disallowed=query; expected no query\)`)
+	spec.Name = "a/journal;disallowed/meta"
+	c.Check(spec.Validate(), gc.ErrorMatches, `Name cannot have a metadata path segment \(;disallowed/meta; expected no segment\)`)
 	spec.Name = "a/journal"
 
 	spec.Replication = 0

@@ -107,7 +107,7 @@ func (it *ReadUncommittedIter) init() error {
 	} else if framing, err = FramingByContentType(it.spec.LabelSet.ValueOf(labels.ContentType)); err != nil {
 		return errors.WithMessage(err, "determining framing")
 	}
-	// The returned |it.spec|, as a JournalSpec, has no query component in the
+	// The returned |it.spec|, as a JournalSpec, has no metadata path segment in the
 	// journal name. Re-add it (noting this technically invalidates the JournalSpec),
 	// so that the caller can disambiguate Envelopes returned from different queried
 	// reads of the same Journal.

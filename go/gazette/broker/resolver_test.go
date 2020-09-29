@@ -52,7 +52,7 @@ func TestResolveCases(t *testing.T) {
 	require.Len(t, resolver.replicas, 3)
 
 	// Case: simple resolution of local replica.
-	var r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "replica/journal?ignored=query"})
+	var r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "replica/journal;ignored/meta"})
 	require.Equal(t, pb.Status_OK, r.status)
 	// Expect the local replica is attached.
 	require.Equal(t, resolver.replicas["replica/journal"].replica, r.replica)

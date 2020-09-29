@@ -24,35 +24,37 @@ type Offset = int64
 // Offsets is a map of Journals and Offsets.
 type Offsets map[Journal]Offset
 
-// SplitQuery splits off a "?query" suffix of this Journal, separately
-// returning the Journal without a query, and the "?query" remainder.
-func (n Journal) SplitQuery() (Journal, string) {
-	var ind = strings.IndexByte(n.String(), '?')
+// SplitMeta splits off a ";meta" path segment of this Journal, separately
+// returning the Journal and the ";meta" remainder (including leading
+// ';' delimiter). If there is no metadata segment, the Journal is returned
+// with an empty string.
+func (n Journal) SplitMeta() (Journal, string) {
+	var ind = strings.IndexByte(n.String(), ';')
 	if ind != -1 {
 		return n[:ind], n[ind:].String()
 	}
 	return n, ""
 }
 
-// StripQuery returns this Journal with a "?query" suffix removed.
-func (n Journal) StripQuery() Journal {
-	var nn, _ = n.SplitQuery()
+// StripMeta returns this Journal with a ";meta" suffix removed.
+func (n Journal) StripMeta() Journal {
+	var nn, _ = n.SplitMeta()
 	return nn
 }
 
 // Validate returns an error if the Journal is not well-formed. It must draw
 // from a restricted set of allowed path runes, be a clean path (as defined by
-// path.Clean), and must not begin with a '/'. A Journal query component, if
-// present, must similarly consist only of allowed query runes.
+// path.Clean), and must not begin with a '/'. A Journal metadata component, if
+// present, must similarly consist only of allowed token runes.
 func (n Journal) Validate() error {
-	var nn, q = n.SplitQuery()
+	var name, meta = n.SplitMeta()
 
-	if err := ValidatePathComponent(nn.String(), minJournalNameLen, maxJournalNameLen); err != nil {
+	if err := ValidatePathComponent(name.String(), minJournalNameLen, maxJournalNameLen); err != nil {
 		return err
-	} else if q == "" {
-		// No query to validate.
-	} else if err = ValidateToken(q[1:], querySymbols, 1, maxJournalNameLen); err != nil {
-		return ExtendContext(err, "query")
+	} else if meta == "" {
+		// No metadata segment to validate.
+	} else if err = ValidateToken(meta[1:], TokenSymbols, 1, maxJournalNameLen); err != nil {
+		return ExtendContext(err, "metadata path segment")
 	}
 	return nil
 }
@@ -87,8 +89,8 @@ func (o Offsets) Copy() Offsets {
 func (m *JournalSpec) Validate() error {
 	if err := m.Name.Validate(); err != nil {
 		return ExtendContext(err, "Name")
-	} else if _, q := m.Name.SplitQuery(); q != "" {
-		return NewValidationError("Name cannot have a query component (%s; expected no query)", q)
+	} else if _, meta := m.Name.SplitMeta(); meta != "" {
+		return NewValidationError("Name cannot have a metadata path segment (%s; expected no segment)", meta)
 	} else if m.Replication < 1 || m.Replication > maxJournalReplication {
 		return NewValidationError("invalid Replication (%d; expected 1 <= Replication <= %d)",
 			m.Replication, maxJournalReplication)

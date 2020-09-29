@@ -34,7 +34,7 @@ func TestReadStreamingCases(t *testing.T) {
 	var cancelCtx, cancel = context.WithCancel(ctx)
 	var stream, err = broker.client().Read(cancelCtx,
 		&pb.ReadRequest{
-			Journal:      "a/journal?with=query",
+			Journal:      "a/journal;with/meta",
 			Offset:       0,
 			Block:        true,
 			DoNotProxy:   true,
@@ -195,7 +195,7 @@ func TestReadMetadataAndNonBlocking(t *testing.T) {
 	spool.MustApply(&pb.ReplicateRequest{Proposal: boxFragment(spool.Next())})
 
 	stream, err := broker.client().Read(ctx, &pb.ReadRequest{
-		Journal:      "a/journal?with=query",
+		Journal:      "a/journal;with/meta",
 		Offset:       3,
 		Block:        false,
 		MetadataOnly: false,

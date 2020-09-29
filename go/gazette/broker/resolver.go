@@ -85,8 +85,8 @@ func (r *resolver) resolve(args resolveArgs) (res *resolution, err error) {
 	var ks = r.state.KS
 	res = new(resolution)
 
-	// Discard query components, which don't alter resolution outcomes.
-	args.journal = args.journal.StripQuery()
+	// Discard metadata path segment, which doesn't alter resolution outcomes.
+	args.journal = args.journal.StripMeta()
 
 	ks.Mu.RLock()
 	defer ks.Mu.RUnlock()
