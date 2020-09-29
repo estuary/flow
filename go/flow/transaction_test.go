@@ -184,8 +184,8 @@ func TestTransactionLifeCycle(t *testing.T) {
 
 	require.Len(t, journals.KeyValues, 2)
 	for i, n := range []string{
-		"a/collection/bar=32/foo=A/_phys=0000",
-		"a/collection/bar=42/foo=B/_phys=0000",
+		"a/collection/bar=32/foo=A/pivot=00",
+		"a/collection/bar=42/foo=B/pivot=00",
 	} {
 		require.Equal(t, n, journals.KeyValues[i].Decoded.(*pb.JournalSpec).Name.String())
 	}

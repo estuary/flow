@@ -3,7 +3,6 @@ package flow
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -79,7 +78,7 @@ func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest 
 	*spec = cr.Collection.JournalSpec
 
 	spec.LabelSet.SetValue(flowLabels.Collection, cr.Collection.Name.String())
-	spec.LabelSet.SetValue(flowLabels.KeyBegin, "")
+	spec.LabelSet.SetValue(flowLabels.KeyBegin, "00")
 	spec.LabelSet.SetValue(flowLabels.KeyEnd, "ffffffff")
 	spec.LabelSet.SetValue(labels.ContentType, labels.ContentType_JSONLines)
 
@@ -87,18 +86,15 @@ func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest 
 	name.WriteString(cr.Collection.Name.String())
 
 	for i, partition := range cr.Collection.Partitions {
-		var (
-			k = url.PathEscape(partition.Field)
-			v = url.PathEscape(cr.Fields[i].Values[cr.Index].ToJSON(cr.Arena))
-		)
-		spec.LabelSet.AddValue(flowLabels.FieldPrefix+k, v)
+		var v = cr.Fields[i].Values[cr.Index].EncodePartition(nil, cr.Arena)
+		spec.LabelSet.AddValue(flowLabels.FieldPrefix+partition.Field, string(v))
 
 		name.WriteByte('/')
-		name.WriteString(k)
+		name.WriteString(partition.Field)
 		name.WriteByte('=')
-		name.WriteString(v)
+		name.Write(v)
 	}
-	name.WriteString("/_phys=0000")
+	name.WriteString("/pivot=00")
 	spec.Name = pb.Journal(name.String())
 
 	return &pb.ApplyRequest{
@@ -118,11 +114,9 @@ func (m *Mapper) logicalPrefixAndHexKey(b []byte, cr pf.IndexedCombineResponse) 
 	b = append(b, '/')
 
 	for i, partition := range cr.Collection.Partitions {
-		b = append(b, url.PathEscape(partition.Field)...)
+		b = append(b, partition.Field...)
 		b = append(b, '=')
-		b = append(b,
-			url.PathEscape(
-				cr.Fields[i].Values[cr.Index].ToJSON(cr.Arena))...)
+		b = cr.Fields[i].Values[cr.Index].EncodePartition(b, cr.Arena)
 		b = append(b, '/')
 	}
 	var pivot = len(b)

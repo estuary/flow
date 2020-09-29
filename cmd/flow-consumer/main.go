@@ -80,6 +80,19 @@ func (f *Flow) ReplayRange(shard consumer.Shard, store consumer.Store, journal p
 	return store.(runtime.Application).ReplayRange(shard, journal, begin, end)
 }
 
+// ReadThrough ensures the revision of |journals| reflects MinEtcdRevision,
+// and then delgates to the Application.
+func (f *Flow) ReadThrough(shard consumer.Shard, store consumer.Store, args consumer.ResolveArgs) (pb.Offsets, error) {
+	f.journals.Mu.RLock()
+	var err = f.journals.WaitForRevision(shard.Context(), args.MinEtcdRevision)
+	f.journals.Mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+	return store.(runtime.Application).ReadThrough(args.ReadThrough)
+}
+
 // NewConfig returns a new config instance.
 func (f *Flow) NewConfig() runconsumer.Config { return new(config) }
 

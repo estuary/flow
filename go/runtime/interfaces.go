@@ -25,4 +25,5 @@ type Application interface {
 
 	StartReadingMessages(consumer.Shard, pc.Checkpoint, chan<- consumer.EnvelopeOrError)
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
+	ReadThrough(pb.Offsets) (pb.Offsets, error)
 }

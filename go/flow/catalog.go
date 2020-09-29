@@ -184,15 +184,11 @@ func (c *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) 
 		}
 
 		tf.Source.Partitions.Include.AddValue(labels.Collection, tf.Source.Name.String())
-		for field, values := range selector.Include {
-			for _, value := range values {
-				tf.Source.Partitions.Include.AddValue(encodePartitionToLabel(field, fmt.Sprint(value)))
-			}
+		if err = addFieldLabels(&tf.Source.Partitions.Include, selector.Include); err != nil {
+			return nil, err
 		}
-		for field, values := range selector.Exclude {
-			for _, value := range values {
-				tf.Source.Partitions.Exclude.AddValue(encodePartitionToLabel(field, fmt.Sprint(value)))
-			}
+		if err = addFieldLabels(&tf.Source.Partitions.Exclude, selector.Exclude); err != nil {
+			return nil, err
 		}
 		transforms = append(transforms, tf)
 	}
@@ -203,13 +199,19 @@ func (c *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) 
 	return transforms, nil
 }
 
-func encodePartitionToLabel(field string, valueJSON string) (name, value string) {
-	name = labels.FieldPrefix + field
-	if l := len(valueJSON); l != 0 && valueJSON[0] == '"' {
-		valueJSON = valueJSON[1 : l-1] // Strip quotes wrapping string.
+func addFieldLabels(set *pb.LabelSet, fields map[string][]interface{}) error {
+	var arena pf.Arena
+
+	for field, values := range fields {
+		for _, value := range values {
+			var vv, err = pf.ValueFromInterface(&arena, value)
+			if err != nil {
+				return fmt.Errorf("building label for field %s value %#v: %w", field, value, err)
+			}
+			set.AddValue(labels.FieldPrefix+field, string(vv.EncodePartition(nil, arena)))
+		}
 	}
-	value = url.QueryEscape(valueJSON)
-	return
+	return nil
 }
 
 type scanJSON struct {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"net/url"
 	"strings"
 	"time"
 
@@ -82,6 +81,24 @@ func (rb *ReadBuilder) StartReplayRead(ctx context.Context, journal pb.Journal, 
 	}
 	rb.start(ctx, r)
 	return r
+}
+
+// ReadThrough filters the input |offsets| to those journals and offsets which are
+// read by this ReadBuilder.
+func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
+	var out = make(pb.Offsets, len(offsets))
+	var err = walkReads(rb.members(), rb.journals, rb.transforms,
+		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
+			if offset := offsets[spec.Name]; offset != 0 {
+				// Prefer an offset that exactly matches our journal + metadata extension.
+				out[spec.Name] = offset
+			} else if offset = offsets[spec.Name.StripMeta()]; offset != 0 {
+				// Otherwise, if there's an offset that matches the Journal name,
+				// then project it to our metadata extension.
+				out[spec.Name] = offset
+			}
+		})
+	return out, err
 }
 
 type read struct {
@@ -336,13 +353,13 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 				start, stop = 0, len(members)
 			}
 
-			// Augment JournalSpec to capture derivation and transform name on
-			// whose behalf the read is being done.
+			// Augment JournalSpec to capture the derivation and transform name on
+			// whose behalf the read is being done, as a Journal metadata path segment.
 			var copied = *source
-			copied.Name = pb.Journal(fmt.Sprintf("%s?derivation=%s&transform=%s",
+			copied.Name = pb.Journal(fmt.Sprintf("%s;transform/%s/%s",
 				source.Name.String(),
-				url.QueryEscape(transform.Derivation.Name.String()),
-				url.QueryEscape(transform.Name.String()),
+				transform.Derivation.Name.String(),
+				transform.Name.String(),
 			))
 
 			if start == stop {

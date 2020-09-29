@@ -66,6 +66,43 @@ func TestShuffleRequest(t *testing.T) {
 	require.Nil(t, m.Validate())
 }
 
+func TestValueConversions(t *testing.T) {
+	var arena Arena
+
+	var cases = []struct {
+		value            Field_Value
+		asInterface      interface{}
+		asPartition      string
+		fromInterfaceErr string
+	}{
+		{Field_Value{Kind: Field_Value_NULL}, nil, "null", ""},
+		{Field_Value{Kind: Field_Value_TRUE}, true, "true", ""},
+		{Field_Value{Kind: Field_Value_FALSE}, false, "false", ""},
+		{Field_Value{Kind: Field_Value_UNSIGNED, Unsigned: 32}, uint64(32), "32", ""},
+		{Field_Value{Kind: Field_Value_SIGNED, Signed: -42}, int64(-42), "-42", ""},
+		{Field_Value{Kind: Field_Value_DOUBLE, Double: -4.2}, float64(-4.2), "-4.2", ""},
+		{Field_Value{Kind: Field_Value_STRING, Bytes: arena.Add([]byte("hel lo"))}, "hel lo", "hel%20lo", ""},
+		{Field_Value{Kind: Field_Value_ARRAY, Bytes: arena.Add([]byte("[true]"))}, []byte("[true]"), "%5Btrue%5D",
+			"couldn't convert from interface []byte{0x5b, 0x74, 0x72, 0x75, 0x65, 0x5d}"},
+		{Field_Value{Kind: Field_Value_OBJECT, Bytes: arena.Add([]byte("{\"t\":1}"))}, []byte("{\"t\":1}"), "%7B%22t%22:1%7D",
+			"couldn't convert from interface []byte{0x7b, 0x22, 0x74, 0x22, 0x3a, 0x31, 0x7d}"},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.asInterface, tc.value.ToInterface(arena))
+		require.Equal(t, tc.asPartition, string(tc.value.EncodePartition(nil, arena)))
+
+		// Round-trip from interface to value and back. Expect that works,
+		// unless the test notes that conversions will error.
+		var vv, err = ValueFromInterface(&arena, tc.asInterface)
+		if tc.fromInterfaceErr != "" {
+			require.EqualError(t, err, tc.fromInterfaceErr)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, tc.asInterface, vv.ToInterface(arena))
+		}
+	}
+}
+
 func badHeaderFixture() *pb.Header {
 	return &pb.Header{
 		ProcessId: pb.ProcessSpec_ID{Zone: "zone", Suffix: "name"},

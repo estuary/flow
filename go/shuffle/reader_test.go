@@ -65,12 +65,6 @@ func TestConsumerIntegration(t *testing.T) {
 	require.Nil(t, err)
 	defer wh.Stop()
 
-	// Journals is a consumer-held KeySpace that observes broker-managed journals.
-	journals, err := flow.NewJournalsKeySpace(ctx, etcd, "/broker.test")
-	require.NoError(t, err)
-	journals.WatchApplyDelay = 0
-	go journals.Watch(ctx, etcd)
-
 	// Start broker, with journal fixtures.
 	var journalSpecs []*pb.JournalSpec
 	for _, name := range sourcePartitions {
@@ -105,8 +99,15 @@ func TestConsumerIntegration(t *testing.T) {
 			High: ((i / 10) * 10) % 100, // Takes values [0, 10, 20, 30, ... 90].
 			Low:  strconv.Itoa(i % 10),  // Takes values ["0, "1", "2", "3", ... "9"].
 		}
-		var aa, _ = pub.PublishCommitted(mapping, msg)
-		require.NoError(t, aa.Err())
+
+		// Half of published messages are immediately-committed.
+		// Second half are transactional and require an ACK.
+		if i < N/2 {
+			_, err = pub.PublishCommitted(mapping, msg)
+		} else {
+			_, err = pub.PublishUncommitted(mapping, msg)
+		}
+		require.NoError(t, err)
 
 		// Build expected packed shuffle key.
 		var k = encoding.EncodeStringAscending(
@@ -114,9 +115,10 @@ func TestConsumerIntegration(t *testing.T) {
 			msg.Low)
 		expect[string(k)]++
 	}
-	for op := range ajc.PendingExcept("") {
-		require.NoError(t, op.Err())
-	}
+
+	// Journals is a consumer-held KeySpace that observes broker-managed journals.
+	journals, err := flow.NewJournalsKeySpace(ctx, etcd, "/broker.test")
+	require.NoError(t, err)
 
 	// Start consumer, with shard fixtures.
 	var c = consumertest.NewConsumer(consumertest.Args{
@@ -155,8 +157,21 @@ func TestConsumerIntegration(t *testing.T) {
 	}
 	consumertest.CreateShards(t, c, shardSpecs...)
 
-	// TODO(johnny): Wait for consumers more elegantly & correctly than this.
-	time.Sleep(time.Second)
+	acks, err := pub.BuildAckIntents()
+	require.NoError(t, err)
+
+	var readThrough = make(pb.Offsets)
+	for _, ack := range acks {
+		var aa = ajc.StartAppend(pb.AppendRequest{Journal: ack.Journal}, nil)
+		aa.Writer().Write(ack.Intent)
+		require.NoError(t, aa.Release())
+		require.NoError(t, aa.Err())
+
+		// ACKs are broadcast to all readers, making them safe to read-through
+		// (as an uncommitted or immediately-committed message is sent only to
+		// readers to which it shuffles).
+		readThrough[ack.Journal] = aa.Response().Commit.End
+	}
 
 	// TODO(johnny): We should have some coverage of journal replays.
 	// Skipping for now, as it's kind of a "it works or it doesn't"
@@ -167,7 +182,11 @@ func TestConsumerIntegration(t *testing.T) {
 
 	for _, id := range shards {
 		// Expect the shard store reflects consumed messages.
-		res, err := c.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: id})
+		res, err := c.Service.Resolver.Resolve(consumer.ResolveArgs{
+			Context:     ctx,
+			ShardID:     id,
+			ReadThrough: readThrough,
+		})
 		require.NoError(t, err)
 
 		var state = res.Store.(*testStore).JSONFileStore.State.(map[string]int)
@@ -199,21 +218,27 @@ func (s *testStore) Coordinator() *Coordinator { return s.coordinator }
 
 func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) (consumer.Store, error) {
 	var store, err = consumer.NewJSONFileStore(recorder, make(map[string]int))
-	return &testStore{JSONFileStore: store}, err
+	if err != nil {
+		return nil, err
+	}
+
+	readBuilder, err := NewReadBuilder(a.service, a.journals, shard, a.transforms)
+	if err != nil {
+		return nil, err
+	}
+
+	var coordinator = NewCoordinator(shard.Context(), shard.JournalClient(),
+		pf.NewExtractClient(a.workerHost.Conn))
+
+	return &testStore{
+		JSONFileStore: store,
+		readBuilder:   readBuilder,
+		coordinator:   coordinator,
+	}, err
 }
 
 func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
 	var testStore = store.(*testStore)
-	testStore.coordinator = NewCoordinator(shard.Context(), shard.JournalClient(),
-		pf.NewExtractClient(a.workerHost.Conn))
-
-	var err error
-	testStore.readBuilder, err = NewReadBuilder(a.service, a.journals, shard, a.transforms)
-
-	if err != nil {
-		ch <- consumer.EnvelopeOrError{Error: err}
-		return
-	}
 	StartReadingMessages(shard.Context(), testStore.readBuilder, cp, ch)
 }
 
@@ -222,11 +247,20 @@ func (a testApp) ReplayRange(shard consumer.Shard, store consumer.Store, journal
 	return testStore.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
 }
 
+func (a testApp) ReadThrough(shard consumer.Shard, store consumer.Store, args consumer.ResolveArgs) (pb.Offsets, error) {
+	var testStore = store.(*testStore)
+	return testStore.readBuilder.ReadThrough(args.ReadThrough)
+}
+
 func (a testApp) NewMessage(*pb.JournalSpec) (message.Message, error) { panic("never called") }
 
 func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
 	var state = store.(*testStore).State.(map[string]int)
 	var msg = env.Message.(pf.IndexedShuffleResponse)
+
+	if message.GetFlags(env.GetUUID()) == message.Flag_ACK_TXN {
+		return nil
+	}
 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
 	state[string(key)]++
@@ -238,6 +272,8 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 }
 
 func (a testApp) FinalizeTxn(consumer.Shard, consumer.Store, *message.Publisher) error { return nil } // No-op.
+
+var _ consumer.MessageProducer = (*testApp)(nil)
 
 type testMsg struct {
 	Meta struct {

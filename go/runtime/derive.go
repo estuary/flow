@@ -191,6 +191,11 @@ func (a *Derive) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.
 	return a.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
 }
 
+// ReadThrough delegates to shuffle.ReadThrough.
+func (a *Derive) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
+	return a.readBuilder.ReadThrough(offsets)
+}
+
 // Coordinator returns the App's shared *shuffle.Coordinator.
 func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
 

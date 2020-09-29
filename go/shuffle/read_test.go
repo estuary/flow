@@ -47,7 +47,7 @@ func TestReadBuilding(t *testing.T) {
 
 	// Case: one journal & one transform => one read.
 	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[:1], allTransforms[:1]
-	const aJournal = "foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one"
+	const aJournal = "foo/bar=1/baz=abc/part=00;transform/der/bar-one"
 
 	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestReadBuilding(t *testing.T) {
 			req: pf.ShuffleRequest{
 				Shuffle: pf.JournalShuffle{
 					Journal:     aJournal,
-					Coordinator: "shard/1",
+					Coordinator: "shard/0",
 					Shuffle:     allTransforms[0].Shuffle,
 				},
 				Range:  ranges,
@@ -90,7 +90,7 @@ func TestReadBuilding(t *testing.T) {
 		req: pf.ShuffleRequest{
 			Shuffle: pf.JournalShuffle{
 				Journal:     aJournal,
-				Coordinator: "shard/1",
+				Coordinator: "shard/0",
 				Shuffle:     allTransforms[0].Shuffle,
 			},
 			Range:     ranges,
@@ -117,12 +117,30 @@ func TestReadBuilding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
 	require.Equal(t, []string{
-		"foo/bar=1/baz=abc/part=01?derivation=der&transform=bar-one",
-		"foo/bar=1/baz=def/part=00?derivation=der&transform=bar-one",
-		"foo/bar=1/baz=def/part=00?derivation=der&transform=baz-def",
-		"foo/bar=2/baz=def/part=00?derivation=der&transform=baz-def",
-		"foo/bar=2/baz=def/part=01?derivation=der&transform=baz-def",
+		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def",
+		"foo/bar=2/baz=def/part=00;transform/der/baz-def",
+		"foo/bar=2/baz=def/part=01;transform/der/baz-def",
 	}, toKeys(added))
+
+	// ReadThrough filters Offsets to journals of this readBuilder.
+	offsets, err := rb.ReadThrough(pb.Offsets{
+		// Matches on journal name & metadata.
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
+		"foo/bar=2/baz=def/part=01;transform/der/baz-def": 34,
+		// Matches on journal name (only).
+		"foo/bar=1/baz=abc/part=01": 56,
+		"foo/bar=1/baz=def/part=00": 78,
+		"missing":                   9999,
+	})
+	require.NoError(t, err)
+	require.Equal(t, offsets, pb.Offsets{
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
+		"foo/bar=2/baz=def/part=01;transform/der/baz-def": 34,
+		"foo/bar=1/baz=abc/part=01;transform/der/bar-one": 56,
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one": 78,
+	})
 }
 
 func TestReadIteration(t *testing.T) {
@@ -202,12 +220,12 @@ func TestCoordinatorAssignment(t *testing.T) {
 		transform   string
 		coordinator pc.ShardID
 	}{
-		{"foo/bar=1/baz=abc/part=00?derivation=der&transform=bar-one", "bar-one", "shard/1"},
-		{"foo/bar=1/baz=abc/part=01?derivation=der&transform=bar-one", "bar-one", "shard/2"},
-		{"foo/bar=1/baz=def/part=00?derivation=der&transform=bar-one", "bar-one", "shard/0"},
-		{"foo/bar=1/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/0"},
-		{"foo/bar=2/baz=def/part=00?derivation=der&transform=baz-def", "baz-def", "shard/0"},
-		{"foo/bar=2/baz=def/part=01?derivation=der&transform=baz-def", "baz-def", "shard/2"},
+		{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "bar-one", "shard/0"},
+		{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "bar-one", "shard/2"},
+		{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "bar-one", "shard/0"},
+		{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "baz-def", "shard/2"},
+		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "baz-def", "shard/0"},
+		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "baz-def", "shard/1"},
 	}
 	var err = walkReads(shards, journals, transforms,
 		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {

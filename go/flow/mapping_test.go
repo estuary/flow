@@ -28,9 +28,9 @@ func TestPartitionPicking(t *testing.T) {
 		expectPrefix string
 		expectKey    string
 	}{
-		{"/items/a/collection/bar=32/fo%20o=A/", "0a"},
-		{"/items/a/collection/bar=32/fo%20o=A/", "0b"},
-		{"/items/a/collection/bar=42/fo%20o=A%2FB/", "0a"},
+		{"/items/a/collection/bar=32/foo=A/", "0a"},
+		{"/items/a/collection/bar=32/foo=A/", "0b"},
+		{"/items/a/collection/bar=42/foo=A%2FB/", "0a"},
 	} {
 		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0],
 			pf.IndexedCombineResponse{CombineResponse: &cr, Index: ind, Collection: &spec})
@@ -41,15 +41,15 @@ func TestPartitionPicking(t *testing.T) {
 
 	m.Journals.KeyValues = keyspace.KeyValues{
 		{Decoded: &pb.JournalSpec{
-			Name:     "a/collection/bar=32/fo%20o=A/_phys=0",
+			Name:     "a/collection/bar=32/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "77"),
 		}},
 		{Decoded: &pb.JournalSpec{
-			Name:     "a/collection/bar=32/fo%20o=A/_phys=1",
+			Name:     "a/collection/bar=32/foo=A/pivot=77",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "77", flowLabels.KeyEnd, "dd"),
 		}},
 		{Decoded: &pb.JournalSpec{
-			Name:     "a/collection/bar=42/fo%20o=A/_phys=0",
+			Name:     "a/collection/bar=42/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
 		}},
 	}
@@ -58,19 +58,19 @@ func TestPartitionPicking(t *testing.T) {
 	}
 
 	require.Equal(t,
-		"a/collection/bar=32/fo%20o=A/_phys=0",
-		m.pickPartition([]byte("/items/a/collection/bar=32/fo%20o=A/"), []byte("2345")).Name.String(),
+		"a/collection/bar=32/foo=A/pivot=00",
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("2345")).Name.String(),
 	)
 	require.Equal(t,
-		"a/collection/bar=32/fo%20o=A/_phys=1",
-		m.pickPartition([]byte("/items/a/collection/bar=32/fo%20o=A/"), []byte("90ab")).Name.String(),
+		"a/collection/bar=32/foo=A/pivot=77",
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("90ab")).Name.String(),
 	)
 	require.Nil(t,
-		m.pickPartition([]byte("/items/a/collection/bar=32/fo%20o=A/"), []byte("ef01")), // Out of range.
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("ef01")), // Out of range.
 	)
 	require.Equal(t,
-		"a/collection/bar=42/fo%20o=A/_phys=0",
-		m.pickPartition([]byte("/items/a/collection/bar=42/fo%20o=A/"), []byte("abcd")).Name.String(),
+		"a/collection/bar=42/foo=A/pivot=00",
+		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("abcd")).Name.String(),
 	)
 }
 
@@ -84,14 +84,14 @@ func TestBuildingUpsert(t *testing.T) {
 		Changes: []pb.ApplyRequest_Change{
 			{
 				Upsert: &pb.JournalSpec{
-					Name: "a/collection/bar=32/fo%20o=A/_phys=0000",
+					Name: "a/collection/bar=32/foo=A/pivot=00",
 					LabelSet: pb.MustLabelSet(
 						flowLabels.Collection, "a/collection",
 						labels.ContentType, labels.ContentType_JSONLines,
-						flowLabels.KeyBegin, "",
+						flowLabels.KeyBegin, "00",
 						flowLabels.KeyEnd, "ffffffff",
 						flowLabels.FieldPrefix+"bar", "32",
-						flowLabels.FieldPrefix+"fo%20o", "A",
+						flowLabels.FieldPrefix+"foo", "A",
 					),
 					Replication: spec.JournalSpec.Replication,
 					Fragment:    spec.JournalSpec.Fragment,
@@ -142,8 +142,8 @@ func TestPublisherMappingIntegration(t *testing.T) {
 
 	require.Len(t, journals.KeyValues, 2)
 	for i, n := range []string{
-		"a/collection/bar=32/fo%20o=A/_phys=0000",
-		"a/collection/bar=42/fo%20o=A%2FB/_phys=0000",
+		"a/collection/bar=32/foo=A/pivot=00",
+		"a/collection/bar=42/foo=A%2FB/pivot=00",
 	} {
 		require.Equal(t, n, journals.KeyValues[i].Decoded.(*pb.JournalSpec).Name.String())
 	}
@@ -156,7 +156,7 @@ func buildMapperCombineResponseFixture() (pf.CollectionSpec, pf.CombineResponse)
 	var spec = pf.CollectionSpec{
 		Name: "a/collection",
 		Partitions: []pf.Projection{
-			{Field: "bar"}, {Field: "fo o"},
+			{Field: "bar"}, {Field: "foo"},
 		},
 		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}

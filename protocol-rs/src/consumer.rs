@@ -318,6 +318,11 @@ pub struct StatRequest {
     /// not read by this shard are ignored.
     #[prost(map = "string, int64", tag = "3")]
     pub read_through: ::std::collections::HashMap<std::string::String, i64>,
+    /// Minimum Etcd revision that the client may have prior knowledge of,
+    /// which could affect the resolution result and must be reflected by the
+    /// server prior to processing the request. Usually this should be zero.
+    #[prost(int64, tag = "4")]
+    pub min_etcd_revision: i64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatResponse {
