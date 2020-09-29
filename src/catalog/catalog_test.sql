@@ -132,7 +132,7 @@ FROM lambdas
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
        ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
-       ('col/der.iv-e+d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
+       ('col/der.iv-e_d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
        ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
 
 -- Invalid collection (schema is not a URI).
@@ -170,7 +170,7 @@ FROM collections;
 INSERT INTO projections (collection_id, field, location_ptr, user_provided)
 VALUES (1, 'field_1', '/key/0', TRUE),
        (1, 'field_2', '/key/1', FALSE),
-       (1, 'field_3', '/path/3', FALSE),
+       (1, 'field/3', '/path/3', FALSE),
        (2, 'field_1', '', FALSE), -- Repeat field name with different collection.
        (2, 'field_a', '/a', TRUE);
 
@@ -194,6 +194,9 @@ VALUES (42, 'field_2');
 -- Invalid partition (no such projection).
 INSERT INTO partitions (collection_id, field)
 VALUES (1, 'field_zzz');
+-- Invalid partition (projection field is not suitable).
+INSERT INTO partitions (collection_id, field)
+VALUES (1, 'field/3');
 
 -- Valid partition selectors.
 INSERT INTO partition_selectors (selector_id, collection_id) VALUES (312, 1), (231, 1);
@@ -221,6 +224,10 @@ VALUES (231, 1, 'field_2', '[12,34]', FALSE);
 INSERT INTO partition_selector_labels (
     selector_id, collection_id, field, value_json, is_exclude)
 VALUES (231, 1, 'field_2', '12.34', FALSE);
+-- Case: text cannot be empty.
+INSERT INTO partition_selector_labels (
+    selector_id, collection_id, field, value_json, is_exclude)
+VALUES (231, 1, 'field_2', '""', FALSE);
 -- Case: projection field doesn't exist.
 INSERT INTO partition_selector_labels (
     selector_id, collection_id, field, value_json, is_exclude)
@@ -302,10 +309,13 @@ VALUES ("one", 2, 1, NULL, 2,    NULL, NULL, NULL),
 UPDATE transforms
 SET transform_name = NULL
 WHERE transform_id = 1;
-
--- And must be unique to the derivation.
+-- It must be unique to the derivation.
 UPDATE transforms
 SET transform_name = "two"
+WHERE transform_id = 1;
+-- And of a restricted character set.
+UPDATE transforms
+SET transform_name = "o+ne"
 WHERE transform_id = 1;
 
 -- Invalid source-schema

@@ -170,8 +170,8 @@ CREATE TABLE collections
 
     UNIQUE(collection_name COLLATE NOCASE)
 
-    CONSTRAINT "Collection name format isn't valid" CHECK (
-        collection_name REGEXP '^[\pL\pN\-_+/.]+$'),
+    CONSTRAINT "Collection name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (
+        collection_name REGEXP '^[\pL\pN\-_./]+$'),
     CONSTRAINT "Schema must be a valid base (non-relative) URI" CHECK (
         schema_uri LIKE '_%://_%'),
     CONSTRAINT "Key must be non-empty JSON array of JSON-Pointers" CHECK (
@@ -225,7 +225,10 @@ CREATE TABLE materializations
     config_json TEXT CONSTRAINT 'config_json must be valid json' CHECK(JSON_VALID(config_json)),
     ddl TEXT NOT NULL,
 
-    UNIQUE(collection_id, materialization_name COLLATE NOCASE)
+    UNIQUE(collection_id, materialization_name COLLATE NOCASE),
+
+    CONSTRAINT "Materialization name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (
+        materialization_name REGEXP '^[\pL\pN\-_./]+$')
 );
 
 -- Projections are locations within collection documents which may be projected
@@ -263,6 +266,9 @@ CREATE TABLE partitions
 (
     collection_id INTEGER NOT NULL,
     field         TEXT    NOT NULL,
+
+    CONSTRAINT "Projection field isn't valid for use as a partition (may include Unicode letters, numbers, -, _, .)" CHECK (
+        field REGEXP '^[\pL\pN\-_.]+$'),
 
     PRIMARY KEY (collection_id, field),
     FOREIGN KEY (collection_id, field)
@@ -324,7 +330,7 @@ CREATE TABLE partition_selectors
     UNIQUE(selector_id, collection_id)
 );
 
--- Individual labels which constitute a partition selector.
+-- Individual field values which constitute a partition selector.
 --
 -- :selector_id:
 --      ID of this selector.
@@ -336,6 +342,7 @@ CREATE TABLE partition_selectors
 --      JSON-encoded value to be matched.
 -- :is_exclude:
 --      If true, this record is a selector exclusion (as opposed to an inclusion).
+-- TODO(johnny): Rename to `partition_selector_values`
 CREATE TABLE partition_selector_labels
 (
     selector_id   INTEGER NOT NULL,
@@ -350,12 +357,14 @@ CREATE TABLE partition_selector_labels
     FOREIGN KEY(collection_id, field)
         REFERENCES partitions(collection_id, field),
 
-    CONSTRAINT "Value must be a scalar (not an array, object, or real number)" CHECK (
-        JSON_TYPE(value_json) IN ('null', 'true', 'false', 'integer','text'))
+    CONSTRAINT "Value must be a key-able type (null, boolean, integer, or text)" CHECK (
+        JSON_TYPE(value_json) IN ('null', 'true', 'false', 'integer', 'text')),
+    CONSTRAINT "Value cannot be the empty string" CHECK (
+        JSON_TYPE(value_json) != 'text' OR JSON_EXTRACT(value_json, '$') != '')
 );
 
 -- View over partition_selectors which groups into a JSON object
--- matching the schema of protocol.LabelSelector.
+-- matching the schema of specs::PartitionSelector.
 CREATE VIEW partition_selectors_json AS
 WITH grouped_fields AS (
     SELECT
@@ -363,7 +372,7 @@ WITH grouped_fields AS (
         collection_id,
         field,
         is_exclude,
-        JSON_GROUP_ARRAY(JSON(value_json)) as values_json
+        JSON_GROUP_ARRAY(JSON(value_json)) AS values_json
         FROM partition_selector_labels
         GROUP BY selector_id, collection_id, field, is_exclude
 ),
@@ -466,6 +475,8 @@ CREATE TABLE transforms
     FOREIGN KEY(source_selector_id, source_collection_id)
         REFERENCES partition_selectors(selector_id, collection_id),
 
+    CONSTRAINT "Transform name isn't valid (may include Unicode letters, numbers, -, _, .)" CHECK (
+        transform_name REGEXP '^[\pL\pN\-_.]+$'),
     CONSTRAINT "Source schema must be NULL or a valid base (non-relative) URI" CHECK (
         source_schema_uri LIKE '_%://_%'),
     CONSTRAINT "Shuffle key must be NULL or non-empty JSON array of JSON-Pointers" CHECK (
