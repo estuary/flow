@@ -266,13 +266,21 @@ type BeginFinisher interface {
 type MessageProducer interface {
 	// StartReadingMessages identifies journals and messages to be processed
 	// by this consumer Shard, and dispatches them to the provided channel.
+	// Any terminal error encountered during initialization or while reading
+	// messages should be returned over the given channel.
 	StartReadingMessages(Shard, Store, pc.Checkpoint, chan<- EnvelopeOrError)
 	// ReplayRange builds and returns a read-uncommitted Iterator over the
 	// identified byte-range of the journal. The Journal and offset range are
 	// guaranteed to be a journal segment which was previously produced via
 	// StartReadingMessages. The returned Iterator must re-produce the exact
-	// set and ordering of Messages from the identified Journal.
+	// set and ordering of Messages from the identified Journal. If an error
+	// occurs while initializing the replay, it should be returned via
+	// Next() of the returned message.Iterator.
 	ReplayRange(_ Shard, _ Store, journal pb.Journal, begin, end pb.Offset) message.Iterator
+	// ReadThrough is used by Resolver to identify a set of Offsets
+	// (eg, a sub-set of the Offsets present in ResolveArgs.ReadThrough)
+	// which must be read-through before resolution may complete.
+	ReadThrough(Shard, Store, ResolveArgs) (pb.Offsets, error)
 }
 
 var (

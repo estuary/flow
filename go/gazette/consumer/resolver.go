@@ -209,21 +209,40 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 			addTrace(args.Context, "<-shard.storeReadyCh")
 		}
 
-		// Ensure args.ReadThrough are satisfied, blocking if required.
+		var readThrough pb.Offsets
+
+		if mp, ok := shard.svc.App.(MessageProducer); ok {
+			readThrough, err = mp.ReadThrough(shard, shard.store, args)
+			if err != nil {
+				err = fmt.Errorf("MessageProducer.ReadThrough: %w", err)
+				return
+			}
+		} else if l := len(args.ReadThrough); l != 0 {
+			readThrough = make(pb.Offsets, l)
+
+			// Filter ReadThrough to journals which are shard sources.
+			for _, source := range res.Spec.Sources {
+				if offset := args.ReadThrough[source.Journal]; offset != 0 {
+					readThrough[source.Journal] = offset
+				}
+			}
+		}
+
+		// Ensure |readThrough| are satisfied, blocking if required.
 		for {
 			var ch chan struct{}
 
 			shard.progress.Lock()
-			for j, o := range args.ReadThrough {
-				if a, ok := shard.progress.readThrough[j]; ok && a < o {
-					addTrace(args.Context, " ... journal %s at read offset %d, but want at least %d", j, a, o)
+			for j, desired := range readThrough {
+				if actual := shard.progress.readThrough[j]; actual < desired {
+					addTrace(args.Context, " ... journal %s at read offset %d, but want at least %d", j, actual, desired)
 					ch = shard.progress.signalCh
 				}
 			}
 			shard.progress.Unlock()
 
 			if ch == nil {
-				break // All args.ReadThrough are satisfied.
+				break // All |readThrough| are satisfied.
 			}
 
 			select {

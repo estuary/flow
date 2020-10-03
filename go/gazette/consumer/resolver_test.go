@@ -134,8 +134,11 @@ func TestResolverCases(t *testing.T) {
 		_, _ = tf.pub.PublishCommitted(toSourceB, &testMessage{Key: "read", Value: "through"})
 	})
 	r = resolve(ResolveArgs{
-		ShardID:     shardA,
-		ReadThrough: pb.Offsets{sourceB.Name: 1},
+		ShardID: shardA,
+		ReadThrough: pb.Offsets{
+			sourceB.Name: 1,
+			"bogus":      123, // Not a shard source, and ignored.
+		},
 	})
 	require.Equal(t, pc.Status_OK, r.Status)
 	require.NotNil(t, r.Shard)
