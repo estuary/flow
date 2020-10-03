@@ -222,7 +222,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		return nil, err
 	}
 
-	readBuilder, err := NewReadBuilder(a.service, a.journals, shard, a.transforms)
+	readBuilder, err := NewReadBuilder(a.service, a.journals, shard, ReadSpecsFromTransforms(a.transforms))
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
 	state[string(key)]++
 
-	if msg.Transform.Name != "highAndLow" {
+	if msg.Transform.ReaderNames[1] != "highAndLow" {
 		return fmt.Errorf("expected TransformSpec fixture to be passed-through")
 	}
 	return nil

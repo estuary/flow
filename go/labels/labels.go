@@ -34,6 +34,9 @@ const (
 	// Derivation is the name of the Estuary collection to be derived.
 	// Once set on a ShardSpec, it cannot change.
 	Derivation = "estuary.dev/derivation"
+	// Materialization is the name of the materialization (within a collection).
+	// Once set on a ShardSpec, it cannot change.
+	Materialization = "estuary.dev/materialization"
 	// RClockBegin is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"

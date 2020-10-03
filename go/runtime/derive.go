@@ -68,7 +68,7 @@ func NewDeriveApp(
 	if err != nil {
 		return nil, fmt.Errorf("loading transform specs: %w", err)
 	}
-	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard, transforms)
+	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard, shuffle.ReadSpecsFromTransforms(transforms))
 	if err != nil {
 		return nil, fmt.Errorf("NewReadBuilder: %w", err)
 	}

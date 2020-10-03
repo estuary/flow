@@ -239,7 +239,7 @@ func queueContinue(from pf.IndexedShuffleResponse, into *pf.DeriveRequest_Contin
 	into.UuidParts = append(into.UuidParts, from.UuidParts[from.Index])
 	into.PackedKey = append(into.PackedKey, into.Arena.Add(
 		from.Arena.Bytes(from.PackedKey[from.Index])))
-	into.TransformId = append(into.TransformId, from.Transform.CatalogDbId)
+	into.TransformId = append(into.TransformId, from.Transform.ReaderCatalogDbId)
 }
 
 func unwrapContinue(resp deriveResponseOrError) (*pf.DeriveResponse_Continue, error) {

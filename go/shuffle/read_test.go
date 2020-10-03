@@ -19,10 +19,11 @@ func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, allTransforms = buildReadTestJournalsAndTransforms()
 		ranges                                = labels.MustParseRangeSpec(allShards[0].LabelSet)
+		readerSpecs                           = ReadSpecsFromTransforms(allTransforms)
 		rb                                    = &ReadBuilder{
 			service:    nil, // Not used in this test.
 			ranges:     ranges,
-			transforms: allTransforms,
+			transforms: readerSpecs,
 			members:    func() []*pc.ShardSpec { return allShards },
 			journals:   &keyspace.KeySpace{Root: allJournals.Root},
 		}
@@ -31,8 +32,8 @@ func TestReadBuilding(t *testing.T) {
 
 	var toKeys = func(m map[pb.Journal]*read) (out []string) {
 		for j, r := range m {
-			require.Equal(t, j, r.spec.Name)
-			require.Equal(t, j, r.req.Shuffle.Journal)
+			require.Equal(t, j, r.spec.Name, "incorrect journalSpec name")
+			require.Equal(t, j, r.req.Shuffle.Journal, "incorrect shuffle journal name")
 			out = append(out, j.String())
 		}
 		sort.Strings(out)
@@ -46,7 +47,7 @@ func TestReadBuilding(t *testing.T) {
 	require.Empty(t, added)
 
 	// Case: one journal & one transform => one read.
-	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[:1], allTransforms[:1]
+	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[:1], readerSpecs[:1]
 	const aJournal = "foo/bar=1/baz=abc/part=00;transform/der/bar-one"
 
 	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
@@ -67,7 +68,7 @@ func TestReadBuilding(t *testing.T) {
 				Range:  ranges,
 				Offset: 1122,
 			},
-			resp:       pf.IndexedShuffleResponse{Transform: &allTransforms[0]},
+			resp:       pf.IndexedShuffleResponse{Transform: &readerSpecs[0]},
 			pollAdjust: 60e7 << 4, // 60 seconds as a message.Clock.
 		},
 	}, added)
@@ -97,22 +98,22 @@ func TestReadBuilding(t *testing.T) {
 			Offset:    1000,
 			EndOffset: 2000,
 		},
-		resp:       pf.IndexedShuffleResponse{Transform: &allTransforms[0]},
+		resp:       pf.IndexedShuffleResponse{Transform: &readerSpecs[0]},
 		pollAdjust: 0,
 	}, r)
 
 	// Case: if the configuration changes, the existing *read
 	// is drained so that it may be restarted.
-	allTransforms[0].Shuffle.ReadDelaySeconds++
+	readerSpecs[0].Shuffle.ReadDelaySeconds++
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
 	require.Empty(t, added)
 
-	allTransforms[0].Shuffle.ReadDelaySeconds-- // Reset.
+	readerSpecs[0].Shuffle.ReadDelaySeconds-- // Reset.
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
-	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[1:], allTransforms
+	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[1:], readerSpecs
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
@@ -213,6 +214,7 @@ func TestReadHeaping(t *testing.T) {
 
 func TestCoordinatorAssignment(t *testing.T) {
 	var journals, shards, transforms = buildReadTestJournalsAndTransforms()
+	readerSpecs := ReadSpecsFromTransforms(transforms)
 
 	// Expect coordinators align with physical partitions of logical groups.
 	var expect = []struct {
@@ -227,10 +229,11 @@ func TestCoordinatorAssignment(t *testing.T) {
 		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "baz-def", "shard/0"},
 		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "baz-def", "shard/1"},
 	}
-	var err = walkReads(shards, journals, transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
+	var err = walkReads(shards, journals, readerSpecs,
+		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
 			require.Equal(t, expect[0].journal, spec.Name.String())
-			require.Equal(t, expect[0].transform, transform.Name.String())
+			// TODO: Do something cleaner than just indexing into the ReaderLabels
+			require.Equal(t, expect[0].transform, transform.ReaderNames[1])
 			require.Equal(t, expect[0].coordinator, coordinator)
 			expect = expect[1:]
 		})

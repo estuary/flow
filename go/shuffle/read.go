@@ -18,12 +18,28 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+// Converts a slice of TransformSpecs to a slice of the more generic ReadSpecs.
+func ReadSpecsFromTransforms(transforms []pf.TransformSpec) []pf.ReadSpec {
+	rs := make([]pf.ReadSpec, len(transforms))
+	for i, t := range transforms {
+		rs[i] = pf.ReadSpec{
+			SourceName:        t.Source.Name.String(),
+			SourcePartitions:  t.Source.Partitions,
+			Shuffle:           t.Shuffle,
+			ReaderType:        "transform",
+			ReaderNames:       []string{t.Derivation.Name.String(), t.Name.String()},
+			ReaderCatalogDbId: t.CatalogDbId,
+		}
+	}
+	return rs
+}
+
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
 	service    *consumer.Service
 	journals   *keyspace.KeySpace
 	ranges     pf.RangeSpec
-	transforms []pf.TransformSpec
+	transforms []pf.ReadSpec
 
 	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
@@ -38,7 +54,7 @@ func NewReadBuilder(
 	service *consumer.Service,
 	journals *keyspace.KeySpace,
 	shard consumer.Shard,
-	transforms []pf.TransformSpec,
+	transforms []pf.ReadSpec,
 ) (*ReadBuilder, error) {
 
 	// Build a RangeSpec from shard labels.
@@ -88,7 +104,7 @@ func (rb *ReadBuilder) StartReplayRead(ctx context.Context, journal pb.Journal, 
 func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 	var out = make(pb.Offsets, len(offsets))
 	var err = walkReads(rb.members(), rb.journals, rb.transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
+		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
 			if offset := offsets[spec.Name]; offset != 0 {
 				// Prefer an offset that exactly matches our journal + metadata extension.
 				out[spec.Name] = offset
@@ -118,7 +134,7 @@ type read struct {
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var out *read
 	var err = walkReads(rb.members(), rb.journals, rb.transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
+		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
 			if spec.Name != journal {
 				return
 			}
@@ -161,7 +177,7 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 	}
 
 	err = walkReads(rb.members(), rb.journals, rb.transforms,
-		func(spec pb.JournalSpec, transform pf.TransformSpec, coordinator pc.ShardID) {
+		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
 			// Build the configuration under which we'll read.
 			var shuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
@@ -319,8 +335,12 @@ func (s shardsByKey) len() int                 { return len(s) }
 func (s shardsByKey) getKeyBegin(i int) []byte { return []byte(s[i].LabelSet.ValueOf(labels.KeyBegin)) }
 func (s shardsByKey) getKeyEnd(i int) []byte   { return []byte(s[i].LabelSet.ValueOf(labels.KeyEnd)) }
 
-func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transforms []pf.TransformSpec,
-	cb func(_ pb.JournalSpec, _ pf.TransformSpec, coordinator pc.ShardID)) error {
+func addQueryParameters(readSpec *pf.ReadSpec, journalName string) string {
+	return fmt.Sprintf("%s;%s/%s", journalName, readSpec.ReaderType, strings.Join(readSpec.ReaderNames, "/"))
+}
+
+func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transforms []pf.ReadSpec,
+	cb func(_ pb.JournalSpec, _ pf.ReadSpec, coordinator pc.ShardID)) error {
 
 	// Generate hashes for each of |members| derived from IDs.
 	var memberHashes = make([]uint32, len(members))
@@ -332,12 +352,12 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 	defer allJournals.Mu.RUnlock()
 
 	for _, transform := range transforms {
-		var sources = allJournals.Prefixed(allJournals.Root + "/" + transform.Source.Name.String())
+		var sources = allJournals.Prefixed(allJournals.Root + "/" + transform.SourceName)
 
 		for _, kv := range sources {
 			var source = kv.Decoded.(*pb.JournalSpec)
 
-			if !transform.Source.Partitions.Matches(source.LabelSet) {
+			if !transform.SourcePartitions.Matches(source.LabelSet) {
 				continue
 			}
 
@@ -358,11 +378,8 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 			// Augment JournalSpec to capture the derivation and transform name on
 			// whose behalf the read is being done, as a Journal metadata path segment.
 			var copied = *source
-			copied.Name = pb.Journal(fmt.Sprintf("%s;transform/%s/%s",
-				source.Name.String(),
-				transform.Derivation.Name.String(),
-				transform.Name.String(),
-			))
+			newName := addQueryParameters(&transform, source.Name.String())
+			copied.Name = pb.Journal(newName)
 
 			if start == stop {
 				return fmt.Errorf("none of %d shards cover journal %s", len(members), copied.Name)
