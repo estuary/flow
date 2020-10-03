@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocol"
 	"github.com/estuary/flow/go/runtime"
 	"github.com/estuary/flow/go/shuffle"
@@ -50,8 +51,18 @@ var _ pf.TestingServer = (*Flow)(nil)
 
 // NewStore selects an implementing runtime.Application for the shard, and returns a new instance.
 func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	// TODO - inspect label and dispatch to NewDeriveApp vs NewMaterializeApp.
-	return runtime.NewDeriveApp(f.service, f.journals, f.extractor, shard, rec)
+	isMaterialize := false
+	for _, label := range shard.Spec().Labels {
+		if label.Name == labels.Materialization {
+			isMaterialize = true
+		}
+	}
+
+	if isMaterialize {
+		return runtime.NewMaterializeApp(f.service, f.journals, f.extractor, shard, rec)
+	} else {
+		return runtime.NewDeriveApp(f.service, f.journals, f.extractor, shard, rec)
+	}
 }
 
 // NewMessage panics if called.

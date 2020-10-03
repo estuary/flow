@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/materialize"
 	pf "github.com/estuary/flow/go/protocol"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	pb "go.gazette.dev/core/broker/protocol"
@@ -81,6 +82,23 @@ func (c *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, e
 	return collections[0], nil
 }
 
+// Closes the Catalog database, rendering it unusable.
+func (self *Catalog) Close() error {
+	return self.db.Close()
+}
+
+func (c *Catalog) LoadCollection(name string) (pf.CollectionSpec, error) {
+	var collections, err = scanCollections(c.db.Query(
+		selectCollection+"WHERE collection_name = ?", name))
+
+	if err != nil {
+		return pf.CollectionSpec{}, err
+	} else if len(collections) != 1 {
+		return pf.CollectionSpec{}, fmt.Errorf("no such collection %q", name)
+	}
+	return collections[0], nil
+}
+
 // LoadCapturedCollections loads all captured collections from the catalog.
 func (c *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
 	var specs, err = scanCollections(c.db.Query(selectCollection + "WHERE NOT is_derivation"))
@@ -94,6 +112,38 @@ func (c *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpe
 	}
 	return out, nil
 }
+
+func (c *Catalog) LoadMaterialization(collectionName string, materializationName string) (*materialize.Materialization, error) {
+	stmt, err := c.db.Prepare(queryMaterialization)
+	if err != nil {
+		return nil, err
+	}
+
+	materialization := new(materialize.Materialization)
+	materialization.MaterializationName = materializationName
+	row := stmt.QueryRow(collectionName, materializationName)
+
+	err = row.Scan(
+		&materialization.CatalogDbId,
+		&materialization.TargetUri,
+		&materialization.TargetType,
+		&materialization.TableName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return materialization, nil
+}
+
+const queryMaterialization = `
+    SELECT
+        materialization_id, target_uri, target_type, table_name
+    FROM
+        collections
+        NATURAL JOIN materializations
+    WHERE
+        collections.collection_name = ? AND materializations.materialization_name = ?;
+`
 
 const selectCollection = `
 	SELECT

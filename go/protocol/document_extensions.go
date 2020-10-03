@@ -68,13 +68,29 @@ func (parts *UUIDParts) Pack() message.UUID {
 	)
 }
 
+// A generic label that describes a reader.
+type ReaderLabel struct {
+	Key   string
+	Value string
+}
+
+// A Generic descriptor of a thing that will perform a shuffled read
+type ReadSpec struct {
+	SourceName        string
+	SourcePartitions  pb.LabelSelector
+	Shuffle           Shuffle
+	ReaderType        string
+	ReaderNames       []string
+	ReaderCatalogDbId int32
+}
+
 // IndexedShuffleResponse is an implementation of message.Message which
 // indexes a specific document within a ShuffleResponse.
 type IndexedShuffleResponse struct {
 	*ShuffleResponse
 	Index int
 	// Transform on whose behalf this document was read.
-	Transform *TransformSpec
+	Transform *ReadSpec
 }
 
 var _ message.Message = IndexedShuffleResponse{}

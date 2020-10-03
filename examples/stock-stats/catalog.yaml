@@ -79,7 +79,7 @@ materializations:
   dailyStatsPostgres:
     collection: stock/daily-stats
     postgres:
-      uri: postgres://127.0.0.1:5432/my-db
+      uri: postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable
       table: daily_stats
 
 tests:
