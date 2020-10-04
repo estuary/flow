@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Stat dispatches the ShardServer.Stat API.
-func (srv *Service) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResponse, error) {
+// ShardStat is the default implementation of the ShardServer.Stat API.
+func ShardStat(ctx context.Context, srv *Service, req *pc.StatRequest) (*pc.StatResponse, error) {
 	var (
 		resp     = new(pc.StatResponse)
 		res, err = srv.Resolver.Resolve(ResolveArgs{
@@ -44,8 +44,8 @@ func (srv *Service) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResp
 	return resp, err
 }
 
-// List dispatches the ShardServer.List API.
-func (srv *Service) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResponse, error) {
+// ShardList is the default implementation of the ShardServer.List API.
+func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.ListResponse, error) {
 	var s = srv.Resolver.state
 
 	var resp = &pc.ListResponse{
@@ -94,8 +94,8 @@ func (srv *Service) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResp
 	return resp, nil
 }
 
-// Apply dispatches the ShardServer.Apply API.
-func (srv *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+// ShardApply is the default implementation of the ShardServer.Apply API.
+func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
 	var s = srv.Resolver.state
 
 	var resp = &pc.ApplyResponse{
@@ -142,8 +142,8 @@ func (srv *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyR
 	return resp, err
 }
 
-// GetHints dispatches the ShardServer.Hints API.
-func (srv *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+// ShardGetHints is the default implementation of the ShardServer.Hints API.
+func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 	var (
 		resp = &pc.GetHintsResponse{
 			Status: pc.Status_OK,

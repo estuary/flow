@@ -7,6 +7,7 @@ import (
 	"go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
@@ -41,6 +42,14 @@ type Service struct {
 	// as a decrement will cause Publisher sequencing invariants to be violated.
 	// This is an EXPERIMENTAL API.
 	PublishClockDelta time.Duration
+	// ShardAPI holds function delegates which power the ShardServer API.
+	// They're exposed to allow consumer applications to wrap or alter their behavior.
+	ShardAPI struct {
+		Stat     func(context.Context, *Service, *pc.StatRequest) (*pc.StatResponse, error)
+		List     func(context.Context, *Service, *pc.ListRequest) (*pc.ListResponse, error)
+		Apply    func(context.Context, *Service, *pc.ApplyRequest) (*pc.ApplyResponse, error)
+		GetHints func(context.Context, *Service, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
+	}
 
 	// stoppingCh is closed when the Service is in the process of shutting down.
 	stoppingCh chan struct{}
@@ -57,6 +66,12 @@ func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalCli
 		stoppingCh: make(chan struct{}),
 	}
 	svc.Resolver = NewResolver(state, func(item keyspace.KeyValue) *shard { return newShard(svc, item) })
+
+	// Default implementations of the ShardServer API.
+	svc.ShardAPI.Stat = ShardStat
+	svc.ShardAPI.List = ShardList
+	svc.ShardAPI.Apply = ShardApply
+	svc.ShardAPI.GetHints = ShardGetHints
 	return svc
 }
 
@@ -112,3 +127,26 @@ func addTrace(ctx context.Context, format string, args ...interface{}) {
 		tr.LazyPrintf(format, args...)
 	}
 }
+
+// Stat calls its ShardAPI delegate.
+func (svc *Service) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResponse, error) {
+	return svc.ShardAPI.Stat(ctx, svc, req)
+}
+
+// List calls its ShardAPI delegate.
+func (svc *Service) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResponse, error) {
+	return svc.ShardAPI.List(ctx, svc, req)
+}
+
+// Apply calls its ShardAPI delegate.
+func (svc *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+	return svc.ShardAPI.Apply(ctx, svc, req)
+}
+
+// GetHints calls its ShardAPI delegate.
+func (svc *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+	return svc.ShardAPI.GetHints(ctx, svc, req)
+}
+
+// Service implements the ShardServer interface.
+var _ pc.ShardServer = (*Service)(nil)

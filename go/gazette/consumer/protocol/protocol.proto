@@ -288,6 +288,8 @@ message ListRequest {
   // additionally supported by the selector, where "id=example-shard-ID"
   // will match a ShardSpec with ID "example-shard-ID".
   protocol.LabelSelector selector = 1 [ (gogoproto.nullable) = false ];
+  // Optional extension of the ListRequest.
+  bytes extension = 100;
 }
 
 message ListResponse {
@@ -306,6 +308,8 @@ message ListResponse {
     repeated ReplicaStatus status = 4 [ (gogoproto.nullable) = false ];
   }
   repeated Shard shards = 3 [ (gogoproto.nullable) = false ];
+  // Optional extension of the ListResponse.
+  bytes extension = 100;
 }
 
 message ApplyRequest {
@@ -322,6 +326,8 @@ message ApplyRequest {
     string delete = 3 [ (gogoproto.casttype) = "ShardID" ];
   }
   repeated Change changes = 1 [ (gogoproto.nullable) = false ];
+  // Optional extension of the ApplyRequest.
+  bytes extension = 100;
 }
 
 message ApplyResponse {
@@ -329,6 +335,8 @@ message ApplyResponse {
   Status status = 1;
   // Header of the response.
   protocol.Header header = 2 [ (gogoproto.nullable) = false ];
+  // Optional extension of the ApplyResponse.
+  bytes extension = 100;
 }
 
 message StatRequest {
@@ -343,6 +351,8 @@ message StatRequest {
     (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
     (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
   ];
+  // Optional extension of the StatRequest.
+  bytes extension = 100;
 }
 
 message StatResponse {
@@ -371,11 +381,15 @@ message StatResponse {
     (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
     (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
   ];
+  // Optional extension of the StatResponse.
+  bytes extension = 100;
 }
 
 message GetHintsRequest {
   // Shard to fetch hints for.
   string shard = 1 [ (gogoproto.casttype) = "ShardID" ];
+  // Optional extension of the GetHintsRequest.
+  bytes extension = 100;
 }
 
 message GetHintsResponse {
@@ -394,10 +408,14 @@ message GetHintsResponse {
   // be first, any subsequent hints are for historical backup. If there is no
   // value for a hint key the value corresponding hints will be nil.
   repeated ResponseHints backup_hints = 4 [ (gogoproto.nullable) = false ];
+  // Optional extension of the GetHintsResponse.
+  bytes extension = 100;
 }
 
 // Shard is the Consumer service API for interacting with Shards. Applications
-// may wish to extend the Shard API with further domain-specific APIs.
+// are able to wrap or alter the behavior of Shard API implementations via the
+// Service.ShardAPI structure. They're also able to implement additional gRPC
+// service APIs which are registered against the common gRPC server.
 service Shard {
   // Stat returns detailed status of a given Shard.
   rpc Stat(StatRequest) returns (StatResponse);
