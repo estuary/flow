@@ -133,7 +133,7 @@ INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/src', 'file:///path/to/a/schema.yaml#anchor', '["/key/0","/key/1"]', 3),
        ('col/derived', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 2),
        ('col/der.iv-e_d', 'https://canonical/schema/uri#/$defs/path', '["/foo"]', 1),
-       ('col/other-src', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
+       ('col/srcs/other', 'file:///path/to/a/schema.yaml', '["/key"]', 6);
 
 -- Invalid collection (schema is not a URI).
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
@@ -145,11 +145,17 @@ VALUES ('spaces not allowed', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('bad!', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 
--- Invalid collection (a collection name cannot prefix another collection name).
+-- Invalid collections (a collection name cannot prefix another collection name).
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
 VALUES ('col/Src/extra', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
-VALUES ('coL/s', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+VALUES ('coL/srcs', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('coL', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
+
+-- Invalid collection (cannot end in '/')
+INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)
+VALUES ('foobar/', 'file:///path/to/a/schema.yaml', '["/key"]', 1);
 
 -- Invalid collection (key is not non-empty [JSON-Pointer]).
 INSERT INTO collections (collection_name, schema_uri, key_json, resource_id)

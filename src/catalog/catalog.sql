@@ -172,6 +172,8 @@ CREATE TABLE collections
 
     CONSTRAINT "Collection name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (
         collection_name REGEXP '^[\pL\pN\-_./]+$'),
+    CONSTRAINT "Collection name isn't valid (may not end in '/')" CHECK (
+        collection_name NOT LIKE '%/'),
     CONSTRAINT "Schema must be a valid base (non-relative) URI" CHECK (
         schema_uri LIKE '_%://_%'),
     CONSTRAINT "Key must be non-empty JSON array of JSON-Pointers" CHECK (
@@ -185,8 +187,8 @@ CREATE TRIGGER one_collection_cannot_prefix_another
     FOR EACH ROW
     WHEN (
         SELECT 1 FROM collections
-            WHERE collection_name LIKE NEW.collection_name || '%' COLLATE NOCASE OR
-                NEW.collection_name LIKE collection_name || '%' COLLATE NOCASE
+            WHERE collection_name LIKE NEW.collection_name || '/%' COLLATE NOCASE OR
+                NEW.collection_name LIKE collection_name || '/%' COLLATE NOCASE
     ) NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'A collection name cannot be a prefix of another collection name');
