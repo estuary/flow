@@ -7,7 +7,7 @@ use std::path::Path;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
-#[structopt(about = "Command-line interface for working with Estuary projects",
+#[structopt(about = "Command-line interface for working with Estuary Flow projects",
             author = env!("CARGO_PKG_AUTHORS"))]
 enum Command {
     /// Builds a Catalog spec into a catalog database that can be deployed or inspected.

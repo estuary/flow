@@ -17,8 +17,8 @@ name = "flow-worker"
 path = "cmd/flow-worker/main.rs"
 
 [[bin]]
-name = "estctl"
-path = "cmd/estctl/main.rs"
+name = "flowctl"
+path = "cmd/flowctl/main.rs"
 
 [dependencies]
 anyhow = "^1.0"
