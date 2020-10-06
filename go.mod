@@ -18,4 +18,4 @@ require (
 	google.golang.org/grpc v1.28.0
 )
 
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20200929162934-ba62d085ccac
+replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20201004020409-20ef9f649ba6

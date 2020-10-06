@@ -479,3 +479,48 @@ service Derive {
   // while pending operations sync to the recovery log.
   rpc BuildHints(google.protobuf.Empty) returns (recoverylog.FSMHints);
 }
+
+// IngestRequest describes documents to ingest into collections.
+message IngestRequest {
+  // Collection describes an ingest into a collection.
+  message Collection {
+    // Name of the collection into which to ingest.
+    string name = 1 [ (gogoproto.casttype) = "Collection" ];
+    // Newline-separated JSON documents to ingest.
+    bytes docs_json_lines = 2;
+  };
+  repeated Collection collections = 1 [ (gogoproto.nullable) = false ];
+}
+
+// IngestResponse is the result of an Ingest RPC.
+message IngestResponse {
+  // Journals appended to by this ingestion, and their maximum offset on commit.
+  map<string, int64> journal_write_heads = 1 [
+    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
+    (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
+  ];
+  // Etcd header which describes current journal partitions.
+  protocol.Header.Etcd journal_etcd = 2 [ (gogoproto.nullable) = false ];
+}
+
+// Ingester offers transactional ingest of documents into collections.
+service Ingester {
+  rpc Ingest(IngestRequest) returns (IngestResponse);
+  // rpc IngestAll(stream IngestRequest) returns (IngestResponse);
+}
+
+// AdvanceTimeRequest is a testing-only request to modify effective test time.
+message AdvanceTimeRequest {
+  // Number of seconds to add to the current clock delta.
+  uint64 add_clock_delta_seconds = 1;
+}
+
+// AdvanceTimeRequest is a testing-only response to modify effective test time.
+message AdvanceTimeResponse {
+  // Current effective delta from wall-clock time, in seconds.
+  uint64 clock_delta_seconds = 1;
+}
+
+service Testing {
+  rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
+}

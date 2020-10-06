@@ -244,6 +244,9 @@ pub struct ListRequest {
     /// will match a ShardSpec with ID "example-shard-ID".
     #[prost(message, optional, tag = "1")]
     pub selector: ::std::option::Option<super::protocol::LabelSelector>,
+    /// Optional extension of the ListRequest.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListResponse {
@@ -255,6 +258,9 @@ pub struct ListResponse {
     pub header: ::std::option::Option<super::protocol::Header>,
     #[prost(message, repeated, tag = "3")]
     pub shards: ::std::vec::Vec<list_response::Shard>,
+    /// Optional extension of the ListResponse.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 pub mod list_response {
     /// Shards of the response.
@@ -277,6 +283,9 @@ pub mod list_response {
 pub struct ApplyRequest {
     #[prost(message, repeated, tag = "1")]
     pub changes: ::std::vec::Vec<apply_request::Change>,
+    /// Optional extension of the ApplyRequest.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 pub mod apply_request {
     /// Change defines an insertion, update, or deletion to be applied to the set
@@ -304,6 +313,9 @@ pub struct ApplyResponse {
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
     pub header: ::std::option::Option<super::protocol::Header>,
+    /// Optional extension of the ApplyResponse.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatRequest {
@@ -318,11 +330,9 @@ pub struct StatRequest {
     /// not read by this shard are ignored.
     #[prost(map = "string, int64", tag = "3")]
     pub read_through: ::std::collections::HashMap<std::string::String, i64>,
-    /// Minimum Etcd revision that the client may have prior knowledge of,
-    /// which could affect the resolution result and must be reflected by the
-    /// server prior to processing the request. Usually this should be zero.
-    #[prost(int64, tag = "4")]
-    pub min_etcd_revision: i64,
+    /// Optional extension of the StatRequest.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatResponse {
@@ -349,12 +359,18 @@ pub struct StatResponse {
     /// before arriving at the materialized view which is ultimately queried.
     #[prost(map = "string, int64", tag = "4")]
     pub publish_at: ::std::collections::HashMap<std::string::String, i64>,
+    /// Optional extension of the StatResponse.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetHintsRequest {
     /// Shard to fetch hints for.
     #[prost(string, tag = "1")]
     pub shard: std::string::String,
+    /// Optional extension of the GetHintsRequest.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetHintsResponse {
@@ -372,6 +388,9 @@ pub struct GetHintsResponse {
     /// value for a hint key the value corresponding hints will be nil.
     #[prost(message, repeated, tag = "4")]
     pub backup_hints: ::std::vec::Vec<get_hints_response::ResponseHints>,
+    /// Optional extension of the GetHintsResponse.
+    #[prost(bytes, tag = "100")]
+    pub extension: std::vec::Vec<u8>,
 }
 pub mod get_hints_response {
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -405,7 +424,9 @@ pub mod shard_client {
     #![allow(unused_variables, dead_code, missing_docs)]
     use tonic::codegen::*;
     #[doc = " Shard is the Consumer service API for interacting with Shards. Applications"]
-    #[doc = " may wish to extend the Shard API with further domain-specific APIs."]
+    #[doc = " are able to wrap or alter the behavior of Shard API implementations via the"]
+    #[doc = " Service.ShardAPI structure. They're also able to implement additional gRPC"]
+    #[doc = " service APIs which are registered against the common gRPC server."]
     pub struct ShardClient<T> {
         inner: tonic::client::Grpc<T>,
     }
@@ -538,7 +559,9 @@ pub mod shard_server {
         ) -> Result<tonic::Response<super::GetHintsResponse>, tonic::Status>;
     }
     #[doc = " Shard is the Consumer service API for interacting with Shards. Applications"]
-    #[doc = " may wish to extend the Shard API with further domain-specific APIs."]
+    #[doc = " are able to wrap or alter the behavior of Shard API implementations via the"]
+    #[doc = " Service.ShardAPI structure. They're also able to implement additional gRPC"]
+    #[doc = " service APIs which are registered against the common gRPC server."]
     #[derive(Debug)]
     pub struct ShardServer<T: Shard> {
         inner: _Inner<T>,
