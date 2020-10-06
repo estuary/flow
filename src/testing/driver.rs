@@ -80,8 +80,7 @@ impl Eq for PendingStat {}
 
 impl PartialEq for PendingStat {
     fn eq(&self, other: &Self) -> bool {
-        return self.derivation == other.derivation
-            && self.ready_at_seconds == other.ready_at_seconds;
+        self.derivation == other.derivation && self.ready_at_seconds == other.ready_at_seconds
     }
 }
 
@@ -98,16 +97,45 @@ impl PendingStat {
             extension,
         }
     }
+
+    // Merge an Iterator of PendingStats into a BTreeSet<PendingStat>.
+    fn merge_into(set: &mut BTreeSet<PendingStat>, it: impl Iterator<Item = PendingStat>) {
+        for next in it {
+            let merged = match set.take(&next) {
+                Some(mut prior) => {
+                    // Fold |next| into |prior| by deeply merging to take the
+                    // maximum offset observed for a journal.
+                    prior.offsets = prior
+                        .offsets
+                        .into_iter()
+                        .merge_join_by(next.offsets.into_iter(), |(l, _), (r, _)| l.cmp(r))
+                        .map(|either| match either {
+                            Both((j, lhs), (_, rhs)) => (j, lhs.max(rhs)),
+                            Left((j, o)) | Right((j, o)) => (j, o),
+                        })
+                        .collect();
+
+                    if prior.journal_etcd.revision < next.journal_etcd.revision {
+                        prior.journal_etcd = next.journal_etcd;
+                    }
+                    prior.may_publish |= next.may_publish;
+                    prior
+                }
+                None => next,
+            };
+            set.insert(merged);
+        }
+    }
 }
 
 /// Driver coordinates the execution of a catalog test case.
 pub struct Driver<'a> {
     // All catalog transforms. Ingests and shard stats are projected through
     // transforms to identify implied reads which should occur.
-    transforms: &'a Vec<Transform>,
+    transforms: &'a [Transform],
     // Transitive collection dependencies, ordered as (derived-collection, source-collection),
     // and inclusive of a base-case entry where a collection depends on itself.
-    collection_dependencies: &'a Vec<(String, String)>,
+    collection_dependencies: &'a [(String, String)],
     // Remaining steps of the test. Dequeued from the list head, as the test executes.
     steps: &'a [TestStep],
     // Current test time.
@@ -167,20 +195,16 @@ impl<'a> Iterator for Driver<'a> {
                 Some(Action::Verify(verify))
             }
             (Some(advance), Some((TestStep::Verify(verify), tail))) => {
-                // Is there a pending stat of the collection to be verified?
-                if self
-                    .pending
-                    .iter()
-                    .find(|read| {
-                        self.collection_dependencies
-                            .binary_search_by_key(
-                                &(&verify.collection, &read.derivation),
-                                |(der, src)| (&der, &src),
-                            )
-                            .is_ok()
-                    })
-                    .is_some()
-                {
+                // Is there a pending stat of |verify.collection|, or one of it's dependencies?
+                let predicate = |read: &PendingStat| {
+                    self.collection_dependencies
+                        .binary_search_by_key(
+                            &(&verify.collection, &read.derivation),
+                            |(der, src)| (&der, &src),
+                        )
+                        .is_ok()
+                };
+                if self.pending.iter().any(predicate) {
                     self.at_seconds += advance;
                     Some(Action::Advance(advance))
                 } else {
@@ -200,8 +224,8 @@ impl<'a> Iterator for Driver<'a> {
 impl<'a> Driver<'a> {
     /// Construct a new Driver of the given test case |steps|, and |transforms|.
     pub fn new(
-        transforms: &'a Vec<Transform>,
-        collection_dependencies: &'a Vec<(String, String)>,
+        transforms: &'a [Transform],
+        collection_dependencies: &'a [(String, String)],
         steps: &'a [TestStep],
     ) -> Driver<'a> {
         Driver {
@@ -219,14 +243,16 @@ impl<'a> Driver<'a> {
         log::info!("completed_ingest: {:?}", response);
         self.merge_max_heads(&response.journal_write_heads);
 
-        let reads = self
-            .project_publish(
+        PendingStat::merge_into(
+            &mut self.pending,
+            project_publish(
+                self.at_seconds,
+                self.transforms,
                 &spec.collection,
                 &response.journal_etcd.unwrap_or_default(),
                 &response.journal_write_heads,
-            )
-            .collect::<Vec<_>>();
-        self.merge_pending(reads.into_iter());
+            ),
+        );
     }
 
     /// Tell the Driver of a completed shard stat.
@@ -235,14 +261,16 @@ impl<'a> Driver<'a> {
         self.merge_max_heads(&response.publish_at);
 
         if read.may_publish {
-            let reads = self
-                .project_publish(
+            PendingStat::merge_into(
+                &mut self.pending,
+                project_publish(
+                    self.at_seconds,
+                    self.transforms,
                     &read.derivation,
                     &header::Etcd::decode(response.extension.as_ref()).unwrap(),
                     &response.publish_at,
-                )
-                .collect::<Vec<_>>();
-            self.merge_pending(reads.into_iter());
+                ),
+            );
         }
     }
 
@@ -264,70 +292,41 @@ impl<'a> Driver<'a> {
             self.at_heads.insert(j, o);
         }
     }
+}
 
-    // Project a publish into a collection, with the given offsets and journal revision,
-    // through catalog transforms to arrive at implied future reads which will occur.
-    fn project_publish<O>(
-        &'a self,
-        collection: &'a str,
-        journal_etcd: &'a header::Etcd,
-        offsets: O,
-    ) -> impl Iterator<Item = PendingStat> + 'a
-    where
-        O: IntoIterator<Item = (&'a String, &'a i64)> + Copy + 'a,
-    {
-        let at_seconds = self.at_seconds;
-        self.transforms
-            .iter()
-            .filter(move |t| t.source_name == collection)
-            .map(move |transform| PendingStat {
-                derivation: transform.derivation_name.clone(),
-                ready_at_seconds: at_seconds + transform.read_delay_seconds,
-                journal_etcd: journal_etcd.clone(),
-                offsets: offsets
-                    .into_iter()
-                    .map(|(j, o)| {
-                        (
-                            format!(
-                                "{};transform/{}/{}",
-                                j, transform.derivation_name, transform.transform_name
-                            ),
-                            *o,
-                        )
-                    })
-                    .collect(),
-                may_publish: transform.has_publish,
-            })
-    }
-
-    // Merge PendingReads into those already tracked by the Driver.
-    fn merge_pending(&mut self, it: impl Iterator<Item = PendingStat>) {
-        for next in it {
-            let merged = match self.pending.take(&next) {
-                Some(mut prior) => {
-                    // Fold |next| into |prior| by deeply merging to take the
-                    // maximum offset observed for a journal.
-                    prior.offsets = prior
-                        .offsets
-                        .into_iter()
-                        .merge_join_by(next.offsets.into_iter(), |(l, _), (r, _)| l.cmp(r))
-                        .map(|either| match either {
-                            Both((j, lhs), (_, rhs)) => (j, lhs.max(rhs)),
-                            Left((j, o)) | Right((j, o)) => (j, o),
-                        })
-                        .collect();
-
-                    if prior.journal_etcd.revision < next.journal_etcd.revision {
-                        prior.journal_etcd = next.journal_etcd;
-                    }
-                    prior.may_publish |= next.may_publish;
-                    prior
-                }
-                None => next,
-            };
-            self.pending.insert(merged);
-        }
-    }
+// Project a publish into a collection, with the given offsets and journal revision,
+// through catalog transforms to arrive at implied future reads which will occur.
+fn project_publish<'a, O>(
+    at_seconds: u64,
+    transforms: &'a [Transform],
+    collection: &'a str,
+    journal_etcd: &'a header::Etcd,
+    offsets: O,
+) -> impl Iterator<Item = PendingStat> + 'a
+where
+    O: IntoIterator<Item = (&'a String, &'a i64)> + Copy + 'a,
+{
+    transforms
+        .iter()
+        .filter(move |t| t.source_name == collection)
+        .map(move |transform| PendingStat {
+            derivation: transform.derivation_name.clone(),
+            ready_at_seconds: at_seconds + transform.read_delay_seconds,
+            journal_etcd: journal_etcd.clone(),
+            offsets: offsets
+                .into_iter()
+                .map(|(j, o)| {
+                    (
+                        format!(
+                            "{};transform/{}/{}",
+                            j, transform.derivation_name, transform.transform_name
+                        ),
+                        *o,
+                    )
+                })
+                .collect(),
+            may_publish: transform.has_publish,
+        })
 }
 
 #[cfg(test)]

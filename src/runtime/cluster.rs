@@ -15,8 +15,6 @@ pub enum Error {
 
     #[error("flow cluster returned !OK status {status}: {message}")]
     NotOK { status: i32, message: String },
-    #[error("flow cluster returned an unexpected Content-Type {0:?}")]
-    UnexpectedContentType(Option<String>),
     #[error("cluster components disagree on effective test time delta ({0}s vs {1}s)")]
     ClockDeltasDisagree(u64, u64),
 }

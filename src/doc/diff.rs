@@ -33,7 +33,7 @@ impl Diff {
         match (actual, expect) {
             (Some(Value::Object(actual)), Some(Value::Object(expect))) => {
                 for eob in actual
-                    .into_iter()
+                    .iter()
                     .merge_join_by(expect.into_iter(), |(l, _), (r, _)| l.cmp(r))
                 {
                     match eob {
@@ -50,11 +50,7 @@ impl Diff {
                 }
             }
             (Some(Value::Array(actual)), Some(Value::Array(expect))) => {
-                for (index, eob) in actual
-                    .into_iter()
-                    .zip_longest(expect.into_iter())
-                    .enumerate()
-                {
+                for (index, eob) in actual.iter().zip_longest(expect.iter()).enumerate() {
                     Self::diff(
                         eob.as_ref().left().cloned(),
                         eob.as_ref().right().cloned(),

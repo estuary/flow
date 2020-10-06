@@ -108,7 +108,7 @@ pub struct Context {
 impl Context {
     /// Run a test case to completion.
     /// TODO(johnny): This is a hair-ball that needs to be teased apart.
-    pub async fn run_test_case(&self, steps: &Vec<TestStep>) -> Result<(), Error> {
+    pub async fn run_test_case(&self, steps: &[TestStep]) -> Result<(), Error> {
         // Gather journal offsets for each journal which will be verified by this test, before we begin.
         let mut verify_from = BTreeMap::new();
 
@@ -250,7 +250,7 @@ impl Context {
                         if uuid.producer_and_flags & FLAGS_ACK_TXN != 0 {
                             continue;
                         }
-                        combiner.combine(doc).map_err(|e| Error::Validation(e))?;
+                        combiner.combine(doc).map_err(Error::Validation)?;
                     }
 
                     let root = Location::Root;

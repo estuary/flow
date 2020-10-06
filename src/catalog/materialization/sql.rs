@@ -308,14 +308,6 @@ enum CommentStyle {
     Line(String),
     None,
 }
-impl CommentStyle {
-    fn is_none(&self) -> bool {
-        match self {
-            CommentStyle::None => true,
-            _ => false,
-        }
-    }
-}
 
 #[derive(Debug)]
 struct Comment<'a, T: fmt::Display> {
@@ -379,7 +371,7 @@ struct ColumnDdlGen<'a> {
 
 impl<'a> fmt::Display for ColumnDdlGen<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if !self.conf.comments.is_none() {
+        if !matches!(self.conf.comments, CommentStyle::None) {
             // regardless of whether it's a line or block comment, we'll put a newline after it for
             // readability, since the descriptions can get a little long.
             writeln!(

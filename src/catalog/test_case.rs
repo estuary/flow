@@ -9,7 +9,7 @@ pub struct TestCase {
 
 impl TestCase {
     /// Register a TestCase of the catalog.
-    pub fn register(scope: Scope, name: &str, steps: &Vec<specs::TestStep>) -> Result<TestCase> {
+    pub fn register(scope: Scope, name: &str, steps: &[specs::TestStep]) -> Result<TestCase> {
         scope
             .db
             .prepare_cached(
@@ -185,7 +185,7 @@ mod test {
         let case = TestCase::register(
             scope,
             "my test",
-            &serde_json::from_value(steps_fixture.clone()).unwrap(),
+            &serde_json::from_value::<Vec<_>>(steps_fixture.clone()).unwrap(),
         )
         .unwrap();
         assert_eq!(case.id, 1);
