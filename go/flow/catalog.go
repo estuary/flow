@@ -30,12 +30,12 @@ func NewCatalog(pathOrURL, tempDir string) (*Catalog, error) {
 	}
 
 	var path = pathOrURL
-	if url, err := url.Parse(pathOrURL); err != nil {
+	if url, err := url.Parse(pathOrURL); err == nil && url.Scheme != "" {
 		if path, err = fetchRemote(url, tempDir); err != nil {
 			return nil, fmt.Errorf("fetching remote catalog: %w", err)
 		}
 	}
-	db, err := sql.Open("sqlite3", "file:"+path+"?immutable=true")
+	db, err := sql.Open("sqlite3", "file:"+path+"?immutable=true&mode=ro")
 	if err != nil {
 		return nil, fmt.Errorf("opening catalog database %v: %w", path, err)
 	}
@@ -82,8 +82,17 @@ func (c *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, e
 }
 
 // LoadCapturedCollections loads all captured collections from the catalog.
-func (c *Catalog) LoadCapturedCollections() ([]pf.CollectionSpec, error) {
-	return scanCollections(c.db.Query(selectCollection + "WHERE NOT is_derivation"))
+func (c *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
+	var specs, err = scanCollections(c.db.Query(selectCollection + "WHERE NOT is_derivation"))
+	if err != nil {
+		return nil, err
+	}
+
+	var out = make(map[pf.Collection]*pf.CollectionSpec)
+	for i := range specs {
+		out[specs[i].Name] = &specs[i]
+	}
+	return out, nil
 }
 
 const selectCollection = `
