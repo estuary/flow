@@ -8,6 +8,9 @@ pub mod nodejs;
 pub mod pipeline;
 pub mod registers;
 
+pub use extract_api::extract_field;
+pub use extract_api::extract_uuid_parts;
+
 /// Common test utilities used by sub-modules.
 #[cfg(test)]
 pub mod test {

@@ -7,8 +7,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("invalid arena range: {0:?}")]
     InvalidArenaRange(flow::Slice),
-    #[error("invalid document UUID: {value}")]
-    InvalidUuid { value: serde_json::Value },
+    #[error("invalid document UUID: {value:?}")]
+    InvalidUuid { value: Option<serde_json::Value> },
 }
 
 #[derive(Debug)]
@@ -51,9 +51,10 @@ fn extract_rpc(request: &flow::ExtractRequest) -> Result<flow::ExtractResponse, 
             .ok_or_else(|| Error::InvalidArenaRange(doc.clone()))?;
         let doc: serde_json::Value = serde_json::from_slice(b)?;
 
-        response
-            .uuid_parts
-            .push(extract_uuid_parts(&doc, &uuid_ptr)?);
+        let uuid = extract_uuid_parts(&doc, &uuid_ptr).ok_or_else(|| Error::InvalidUuid {
+            value: uuid_ptr.query(&doc).cloned(),
+        })?;
+        response.uuid_parts.push(uuid);
 
         for (field, ptr) in response.fields.iter_mut().zip(field_ptrs.iter()) {
             field
@@ -64,7 +65,9 @@ fn extract_rpc(request: &flow::ExtractRequest) -> Result<flow::ExtractResponse, 
     Ok(response)
 }
 
-fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Result<flow::UuidParts, Error> {
+/// Extract a UUID at the given location within the document, returning its UuidParts,
+/// or None if the Pointer does not resolve to a valid v1 UUID.
+pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Option<flow::UuidParts> {
     let v_uuid = ptr.query(&v).unwrap_or(&serde_json::Value::Null);
     v_uuid
         .as_str()
@@ -91,11 +94,11 @@ fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Result<flow::Uuid
             | (seq_node_id[1] as u64), // Low 8 bits of flags.
             })
         })
-        .ok_or_else(|| Error::InvalidUuid {
-            value: v_uuid.clone(),
-        })
 }
 
+/// Extract a field Value at the given location within the document.
+/// If the location doesn't exist, a Null Value is returned (and is indistinguishable
+/// from an explicit & existing Null within the document).
 pub fn extract_field(
     mut arena: &mut Vec<u8>,
     v: &serde_json::Value,
@@ -160,8 +163,8 @@ pub fn extract_field(
 #[cfg(test)]
 mod test {
     use super::super::test::field_to_value;
-    use super::{extract_field, extract_uuid_parts, flow, Error, Pointer};
-    use serde_json::{json, Value};
+    use super::{extract_field, extract_uuid_parts, flow, Pointer};
+    use serde_json::json;
 
     #[test]
     fn test_extraction_uuid_to_parts() {
@@ -184,21 +187,17 @@ mod test {
         );
         // "/missing" maps to Null, which is the wrong type.
         match extract_uuid_parts(&v, &Pointer::from("/missing")) {
-            Err(Error::InvalidUuid { value: Value::Null }) => {}
+            None => {}
             p @ _ => panic!(p),
         }
         // "/foo" maps to "bar", also not a UUID.
         match extract_uuid_parts(&v, &Pointer::from("/foo")) {
-            Err(Error::InvalidUuid {
-                value: Value::String(s),
-            }) if s == "bar" => {}
+            None => {}
             p @ _ => panic!(p),
         }
         // "/tru" maps to true, of the wrong type.
         match extract_uuid_parts(&v, &Pointer::from("/tru")) {
-            Err(Error::InvalidUuid {
-                value: Value::Bool(b),
-            }) if b => {}
+            None => {}
             p @ _ => panic!(p),
         }
     }
