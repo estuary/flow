@@ -1,0 +1,67 @@
+collections:
+  - name: testing/int-string
+    schema:
+      type: object
+      properties:
+        i: { type: integer }
+        s: { type: string }
+      required: [i, s]
+    key: [/i]
+
+  - name: testing/int-strings
+    schema:
+      type: object
+      properties:
+        i: { type: integer }
+        s:
+          type: array
+          items: { type: string }
+          reduce: { strategy: append }
+      reduce: { strategy: merge }
+    key: [/i]
+    derivation:
+      transform:
+        appendStrings:
+          source:
+            name: testing/int-string
+          publish:
+            nodeJS: |
+              return [{ i: source.i, s: [source.s] }];
+
+tests:
+  "int-string ingestion only":
+    - ingest:
+        collection: testing/int-string
+        documents:
+          - { i: 32, s: value }
+          - { i: 42, s: value }
+
+  "int-string tracks last value":
+    - ingest:
+        collection: testing/int-string
+        documents:
+          - { i: 32, s: replaced }
+          - { i: 42, s: kept-1 }
+          - { i: 32, s: kept-2 }
+    - verify:
+        collection: testing/int-string
+        documents:
+          - { i: 32, s: kept-2 }
+          - { i: 42, s: kept-1 }
+
+  "int-strings rolls up from successive int-string":
+    - ingest:
+        collection: testing/int-string
+        documents:
+          - { i: 32, s: one }
+          - { i: 42, s: two }
+    - ingest:
+        collection: testing/int-string
+        documents:
+          - { i: 42, s: three }
+          - { i: 32, s: four }
+    - verify:
+        collection: testing/int-strings
+        documents:
+          - { i: 32, s: [one, four] }
+          - { i: 42, s: [two, three] }
