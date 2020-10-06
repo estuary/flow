@@ -552,6 +552,26 @@ BEGIN
     SELECT RAISE(ABORT, 'Transform references a source collection which is not imported by this catalog spec');
 END;
 
+-- View which derives all transitive collection dependencies.
+CREATE VIEW collection_transitive_dependencies AS
+WITH RECURSIVE cte(derivation_id, source_collection_id) AS (
+    SELECT derivation_id, derivation_id
+        FROM transforms
+    UNION
+    SELECT cte.derivation_id, t.source_collection_id
+        FROM transforms AS t
+        JOIN cte ON t.derivation_id = cte.source_collection_id
+)
+SELECT
+    cte.derivation_id,
+    c1.collection_name AS derivation_name,
+    cte.source_collection_id,
+    c2.collection_name AS source_name
+    FROM cte
+    JOIN collections AS c1 ON cte.derivation_id = c1.collection_id
+    JOIN collections AS c2 ON cte.source_collection_id = c2.collection_id
+    ;
+
 -- Detail view of transforms joined with collection and lambda details,
 -- and flattening NULL-able fields into their assumed defaults.
 CREATE VIEW transform_details AS
@@ -863,31 +883,35 @@ CREATE TABLE test_step_verifies
 -- View which unions test step variant tables into a JSON object with
 -- unified fields, where appropriate.
 CREATE VIEW test_steps_json AS
-SELECT
-    test_case_id,
-    step_index,
-    JSON_OBJECT(
-        'ingest', JSON_OBJECT(
-            'collection', collection_name,
-            'documents',  JSON(documents_json)
-        )
-    ) AS step_json
-    FROM test_step_ingests
-    NATURAL JOIN collections
-UNION ALL
-SELECT
-    test_case_id,
-    step_index,
-    JSON_OBJECT(
-        'verify', JSON_OBJECT(
-            'collection', collection_name,
-            'documents',  JSON(documents_json),
-            'partitions',   JSON(selector_json)
-        )
-    ) AS step_json
-    FROM test_step_verifies
-    NATURAL JOIN collections
-    NATURAL LEFT JOIN partition_selectors_json
+WITH steps AS (
+    SELECT
+        test_case_id,
+        step_index,
+        JSON_OBJECT(
+            'ingest', JSON_OBJECT(
+                'collection', collection_name,
+                'documents',  JSON(documents_json)
+            )
+        ) AS step_json
+        FROM test_step_ingests
+        NATURAL JOIN collections
+    UNION ALL
+    SELECT
+        test_case_id,
+        step_index,
+        JSON_OBJECT(
+            'verify', JSON_OBJECT(
+                'collection', collection_name,
+                'documents',  JSON(documents_json),
+                'partitions',   JSON(selector_json)
+            )
+        ) AS step_json
+        FROM test_step_verifies
+        NATURAL JOIN collections
+        NATURAL LEFT JOIN partition_selectors_json
+)
+SELECT * from steps
+ORDER BY test_case_id, step_index ASC
 ;
 
 -- View of test cases, with test steps grouped into an ordered JSON array.

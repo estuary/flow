@@ -551,6 +551,15 @@ Error: near line (XYZ): Transforms of a derived collection which read from the s
 INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
+-- Derived transitive dependencies of collections.
+SELECT * FROM collection_transitive_dependencies;
+derivation_id|derivation_name|source_collection_id|source_name
+3|col/der.iv-e_d|1|col/src
+3|col/der.iv-e_d|3|col/der.iv-e_d
+2|col/derived|1|col/src
+2|col/derived|2|col/derived
+changes:   0   total_changes: XYZ
+
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
 SELECT * FROM transform_details;
@@ -669,11 +678,11 @@ INSERT INTO test_cases(test_case_id, test_case_name, resource_id) VALUES
     (860, "another test", 2);
 changes:   2   total_changes: XYZ
 INSERT INTO test_step_ingests (test_case_id, step_index, collection_id, documents_json) VALUES
-    (420, 0, 3, '[true, false]'),
+    (420, 1, 3, '[true, false]'),
     (860, 0, 2, '["a", "b"]');
 changes:   2   total_changes: XYZ
 INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selector_id, documents_json) VALUES
-    (420, 1, 3, NULL, '[111, 222]'),
+    (420, 0, 3, NULL, '[111, 222]'),
     (860, 1, 1, 231, '[333, 444]');
 changes:   2   total_changes: XYZ
 
@@ -694,9 +703,9 @@ INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selecto
 -- into a unified JSON structure.
 SELECT * FROM test_steps_json;
 test_case_id|step_index|step_json
-420|0|{"ingest":{"collection":"col/der.iv-e_d","documents":[true,false]}}
+420|0|{"verify":{"collection":"col/der.iv-e_d","documents":[111,222],"partitions":null}}
+420|1|{"ingest":{"collection":"col/der.iv-e_d","documents":[true,false]}}
 860|0|{"ingest":{"collection":"col/derived","documents":["a","b"]}}
-420|1|{"verify":{"collection":"col/der.iv-e_d","documents":[111,222],"partitions":null}}
 860|1|{"verify":{"collection":"col/src","documents":[333,444],"partitions":{"include":{"field_2":[null]},"exclude":{"field_2":[456,"789"]}}}}
 changes:   0   total_changes: XYZ
 
@@ -704,7 +713,7 @@ changes:   0   total_changes: XYZ
 -- JSON structure.
 SELECT * FROM test_cases_json;
 test_case_id|test_case_name|steps_json
-420|my test|[{"ingest":{"collection":"col/der.iv-e_d","documents":[true,false]}},{"verify":{"collection":"col/der.iv-e_d","documents":[111,222],"partitions":null}}]
+420|my test|[{"verify":{"collection":"col/der.iv-e_d","documents":[111,222],"partitions":null}},{"ingest":{"collection":"col/der.iv-e_d","documents":[true,false]}}]
 860|another test|[{"ingest":{"collection":"col/derived","documents":["a","b"]}},{"verify":{"collection":"col/src","documents":[333,444],"partitions":{"include":{"field_2":[null]},"exclude":{"field_2":[456,"789"]}}}}]
 changes:   0   total_changes: XYZ
 

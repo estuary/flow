@@ -393,6 +393,9 @@ VALUES ("fails", 3, 1, 7, 'https://alt/source/schema#different-anchor');
 INSERT INTO transforms (transform_name, derivation_id, source_collection_id, publish_id, source_schema_uri)
 VALUES ("fails", 2, 1, 2, 'https://alt/source/schema#anchor');
 
+-- Derived transitive dependencies of collections.
+SELECT * FROM collection_transitive_dependencies;
+
 -- Transform details is a view which joins transforms with related resources
 -- and emits a flattened representation with assumed default values.
 SELECT * FROM transform_details;
@@ -465,10 +468,10 @@ INSERT INTO test_cases(test_case_id, test_case_name, resource_id) VALUES
     (420, "my test", 1),
     (860, "another test", 2);
 INSERT INTO test_step_ingests (test_case_id, step_index, collection_id, documents_json) VALUES
-    (420, 0, 3, '[true, false]'),
+    (420, 1, 3, '[true, false]'),
     (860, 0, 2, '["a", "b"]');
 INSERT INTO test_step_verifies (test_case_id, step_index, collection_id, selector_id, documents_json) VALUES
-    (420, 1, 3, NULL, '[111, 222]'),
+    (420, 0, 3, NULL, '[111, 222]'),
     (860, 1, 1, 231, '[333, 444]');
 
 -- Invalid (documents not a JSON array).
