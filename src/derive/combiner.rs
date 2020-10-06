@@ -2,12 +2,10 @@ use crate::doc::reduce::Reducer;
 use crate::doc::{
     extract_reduce_annotations, validate, FailedValidation, Pointer, SchemaIndex, Validator,
 };
-use estuary_json::de::walk;
 use estuary_json::validator::FullContext;
-use estuary_json::NoopWalker;
 use serde_json::Value;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use url::Url;
 
@@ -18,34 +16,28 @@ struct KeyedDoc {
     doc: Value,
 }
 
-impl Hash for KeyedDoc {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        for key in self.key.iter() {
-            let value = key.query(&self.doc).unwrap_or(&Value::Null);
-            let span = walk(value, &mut NoopWalker).unwrap();
-            state.write_u64(span.hashed);
-        }
+impl Ord for KeyedDoc {
+    fn cmp(&self, other: &Self) -> Ordering {
+        Pointer::compare(&self.key, &self.doc, &other.doc)
+    }
+}
+
+impl PartialOrd for KeyedDoc {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
 impl PartialEq for KeyedDoc {
     fn eq(&self, other: &Self) -> bool {
-        for key in self.key.iter() {
-            let lhs = key.query(&self.doc).unwrap_or(&Value::Null);
-            let rhs = key.query(&other.doc).unwrap_or(&Value::Null);
-
-            if estuary_json::json_cmp(lhs, rhs) != std::cmp::Ordering::Equal {
-                return false;
-            }
-        }
-        true
+        self.cmp(other) == Ordering::Equal
     }
 }
 
 pub struct Combiner {
     schema: Url,
     validator: Validator<'static, FullContext>,
-    entries: HashSet<KeyedDoc>,
+    entries: BTreeSet<KeyedDoc>,
     key: Arc<[Pointer]>,
 }
 
@@ -58,7 +50,7 @@ impl Combiner {
         Combiner {
             schema: schema.clone(),
             validator: Validator::new(schema_index),
-            entries: HashSet::new(),
+            entries: BTreeSet::new(),
             key,
         }
     }
@@ -141,11 +133,8 @@ mod test {
         }
         assert_eq!(combiner.entries.len(), 3);
 
-        let mut entries = combiner.into_entries("/foo").collect::<Vec<_>>();
-        entries.sort_by_key(|v| key[0].query(v).unwrap().as_str().unwrap().to_owned());
-
         assert_eq!(
-            entries,
+            combiner.into_entries("/foo").collect::<Vec<_>>(),
             vec![
                 json!({"foo": UUID_PLACEHOLDER, "key": ["key", "one"], "min": 3, "max": 5.5}),
                 json!({"foo": UUID_PLACEHOLDER, "key": ["key", "three"], "min": 6, "max": 6.6}),

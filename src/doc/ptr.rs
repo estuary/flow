@@ -1,5 +1,6 @@
 use estuary_json::Location;
 use serde_json as sj;
+use std::cmp::Ordering;
 use std::str::FromStr;
 use tinyvec::TinyVec;
 
@@ -195,6 +196,23 @@ impl Pointer {
             }
         }
         Some(v)
+    }
+
+    /// Compare the deep ordering of |lhs| and |rhs| with respect to a composite key,
+    /// specified as a slice of Pointers relative to the respective document roots.
+    /// Pointers which point to a document location that does not exist assume an
+    /// implicit "null" value. In other words, they behave identically to a document
+    /// where the location *does* exist but with an explicit null value.
+    pub fn compare(ptrs: &[Self], lhs: &sj::Value, rhs: &sj::Value) -> Ordering {
+        ptrs.iter()
+            .map(|ptr| {
+                estuary_json::json_cmp(
+                    ptr.query(lhs).unwrap_or(&sj::Value::Null),
+                    ptr.query(rhs).unwrap_or(&sj::Value::Null),
+                )
+            })
+            .find(|o| *o != Ordering::Equal)
+            .unwrap_or(Ordering::Equal)
     }
 
     /// Query a mutable existing value at the pointer location within the document,

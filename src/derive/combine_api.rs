@@ -136,11 +136,9 @@ pub fn docs_to_combine_responses<'a>(
             });
 
             for (field, ptr) in resp.fields.iter_mut().zip(fields.iter()) {
-                field.values.push(super::extract_api::extract_field(
-                    &mut resp.arena,
-                    &doc,
-                    ptr,
-                ));
+                field
+                    .values
+                    .push(super::extract_field(&mut resp.arena, &doc, ptr));
             }
 
             if resp.arena.len() >= target_arena {
