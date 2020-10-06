@@ -65,6 +65,7 @@ humantime-serde = "1.0"
 mime = "0.3"
 async-trait = "0.1"
 prost-types = "0.6"
+percent-encoding = "2.1.0"
 
 [dev-dependencies]
 insta = "^0.16"

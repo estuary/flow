@@ -121,7 +121,10 @@ impl DerivationSet {
             })
             .collect::<Vec<_>>();
 
-        consumer::ApplyRequest { changes }
+        consumer::ApplyRequest {
+            changes,
+            ..Default::default()
+        }
     }
 }
 

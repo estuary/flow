@@ -393,6 +393,7 @@ dependencies = [
  "itertools 0.9.0",
  "log",
  "mime",
+ "percent-encoding",
  "pin-utils",
  "pretty_env_logger",
  "prost",

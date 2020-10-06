@@ -1,18 +1,11 @@
 use estuary_protocol::consumer::{self, shard_client::ShardClient};
+use estuary_protocol::flow::{
+    self, ingester_client::IngesterClient, testing_client::TestingClient,
+};
 use estuary_protocol::protocol::{self, journal_client::JournalClient};
-use std::collections::BTreeMap;
-use std::str::FromStr;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("http transport error")]
-    Hyper(#[from] hyper::Error),
-    #[error("http error")]
-    Http(#[from] http::Error),
-    #[error("failed to parse header")]
-    HeaderToStr(#[from] http::header::ToStrError),
-    #[error("failed to parse Content-Type")]
-    MimeFromStr(#[from] mime::FromStrError),
     #[error("failed to parse JSON")]
     Json(#[from] serde_json::Error),
     #[error("gRPC transport error")]
@@ -20,57 +13,139 @@ pub enum Error {
     #[error("gRPC request error")]
     TonicStatus(#[from] tonic::Status),
 
-    #[error("test cluster returned {status}: {message}")]
-    NotOK {
-        status: hyper::StatusCode,
-        message: String,
-    },
-    #[error("test cluster returned an unexpected Content-Type {0:?}")]
+    #[error("flow cluster returned !OK status {status}: {message}")]
+    NotOK { status: i32, message: String },
+    #[error("flow cluster returned an unexpected Content-Type {0:?}")]
     UnexpectedContentType(Option<String>),
+    #[error("cluster components disagree on effective test time delta ({0}s vs {1}s)")]
+    ClockDeltasDisagree(u64, u64),
 }
 
 pub struct Cluster {
-    client: hyper::Client<hyper_tls::HttpsConnector<hyper::client::HttpConnector>>,
     ingest_uri: String,
     consumer_uri: String,
     broker_uri: String,
 }
 
+// TODO(johnny): Consider this a stub implementation. I expect it to evolve
+// significantly, but am just getting something working right now.
 impl Cluster {
     pub fn new() -> Cluster {
-        let https = hyper_tls::HttpsConnector::new();
-        let client = hyper::Client::builder().build::<_, hyper::Body>(https);
-
         Cluster {
-            client,
-            ingest_uri: "http://localhost:9010/ingest".to_owned(),
+            ingest_uri: "http://localhost:9010".to_owned(),
             consumer_uri: "http://localhost:9020".to_owned(),
             broker_uri: "http://localhost:8080".to_owned(),
         }
     }
 
-    pub async fn ingest(&self, body: serde_json::Value) -> Result<BTreeMap<String, u64>, Error> {
-        let body = serde_json::to_vec(&body).expect("Value to_vec cannot fail");
-
-        let req = hyper::Request::builder()
-            .method("PUT")
-            .uri(&self.ingest_uri)
-            .header(http::header::CONTENT_TYPE, "application/json")
-            .body(hyper::Body::from(body))?;
-
-        let resp = self.client.request(req).await?;
-        let body = check_headers(resp, &mime::APPLICATION_JSON).await?;
-        let body = hyper::body::to_bytes(body).await?;
-
-        Ok(serde_json::from_slice(&body)?)
+    pub async fn ingest_client(&self) -> Result<IngesterClient<tonic::transport::Channel>, Error> {
+        IngesterClient::connect(self.ingest_uri.clone())
+            .await
+            .map_err(Into::into)
     }
 
-    pub async fn list_shards(&self) -> Result<consumer::ListResponse, Error> {
+    pub async fn shard_client(&self) -> Result<ShardClient<tonic::transport::Channel>, Error> {
+        ShardClient::connect(self.consumer_uri.clone())
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn advance_time(&self, req: flow::AdvanceTimeRequest) -> Result<(), Error> {
+        let mut last = None;
+
+        for uri in [&self.ingest_uri, &self.consumer_uri].iter().cloned() {
+            let mut cli = TestingClient::connect(uri.clone())
+                .await
+                .map_err::<Error, _>(Into::into)?;
+
+            let resp = cli.advance_time(req.clone()).await?.into_inner();
+            log::info!(
+                "got current clock delta {:?} from {:?}",
+                resp.clock_delta_seconds,
+                uri,
+            );
+
+            if let Some(last) = last {
+                if last != resp.clock_delta_seconds {
+                    return Err(Error::ClockDeltasDisagree(last, resp.clock_delta_seconds));
+                }
+            }
+            last = Some(resp.clock_delta_seconds);
+        }
+        Ok(())
+    }
+
+    pub async fn stat_shard(
+        &self,
+        req: consumer::StatRequest,
+    ) -> Result<consumer::StatResponse, Error> {
         let mut client = ShardClient::connect(self.consumer_uri.clone()).await?;
 
-        let request = tonic::Request::new(consumer::ListRequest { selector: None });
+        let request = tonic::Request::new(req);
+        let response = client.stat(request).await?;
+        let response = response.into_inner();
+
+        if response.status != consumer::Status::Ok as i32 {
+            Err(Error::NotOK {
+                status: response.status,
+                message: format!("{:?}", response),
+            })
+        } else {
+            Ok(response)
+        }
+    }
+
+    pub async fn list_journals(
+        &self,
+        selector: Option<protocol::LabelSelector>,
+    ) -> Result<protocol::ListResponse, Error> {
+        let mut client = JournalClient::connect(self.broker_uri.clone()).await?;
+
+        let request = tonic::Request::new(protocol::ListRequest { selector });
         let response = client.list(request).await?;
+        let response = response.into_inner();
+
+        if response.status != consumer::Status::Ok as i32 {
+            Err(Error::NotOK {
+                status: response.status,
+                message: format!("{:?}", response),
+            })
+        } else {
+            Ok(response)
+        }
+    }
+
+    pub async fn read(
+        &self,
+        request: protocol::ReadRequest,
+    ) -> Result<tonic::Streaming<protocol::ReadResponse>, Error> {
+        let mut client = JournalClient::connect(self.broker_uri.clone()).await?;
+
+        let response = client.read(request).await?;
         Ok(response.into_inner())
+    }
+
+    pub async fn list_shards(
+        &self,
+        selector: Option<protocol::LabelSelector>,
+    ) -> Result<consumer::ListResponse, Error> {
+        let mut client = ShardClient::connect(self.consumer_uri.clone()).await?;
+
+        let request = tonic::Request::new(consumer::ListRequest {
+            selector,
+            ..Default::default()
+        });
+        let response = client.list(request).await?;
+        let response = response.into_inner();
+
+        if response.status != consumer::Status::Ok as i32 {
+            Err(Error::NotOK {
+                status: response.status,
+                message: format!("{:?}", response),
+            })
+        } else {
+            Ok(response)
+        }
     }
 
     pub async fn apply_shards(
@@ -94,26 +169,4 @@ impl Cluster {
         let response = client.apply(request).await?;
         Ok(response.into_inner())
     }
-}
-
-async fn check_headers(
-    mut resp: hyper::Response<hyper::Body>,
-    expect_content_type: &mime::Mime,
-) -> Result<hyper::Body, Error> {
-    if !resp.status().is_success() {
-        let body = hyper::body::to_bytes(resp.body_mut()).await?;
-        return Err(Error::NotOK {
-            status: resp.status(),
-            message: String::from_utf8_lossy(&body).into_owned(),
-        });
-    }
-
-    let ct = match resp.headers().get(http::header::CONTENT_TYPE) {
-        None => return Err(Error::UnexpectedContentType(None)),
-        Some(ct) => mime::Mime::from_str(ct.to_str()?)?,
-    };
-    if ct != *expect_content_type {
-        return Err(Error::UnexpectedContentType(Some(ct.to_string())));
-    }
-    Ok(resp.into_body())
 }

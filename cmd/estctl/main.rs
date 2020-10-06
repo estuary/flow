@@ -1,5 +1,5 @@
 use anyhow::{Context, Error};
-use estuary::{catalog, runtime, testing};
+use estuary::{catalog, doc, runtime, testing};
 use rusqlite::Connection as DB;
 use std::convert::TryFrom;
 use std::fs;
@@ -137,9 +137,7 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
 
     // Upsert shards for all derivations.
     {
-        let shards = cluster.list_shards().await?;
-        eprintln!("loaded shards: {:#?}", shards);
-
+        let shards = cluster.list_shards(None).await?;
         let mut derivations = runtime::DerivationSet::try_from(shards).unwrap();
         derivations.update_from_catalog(&db)?;
 
@@ -150,19 +148,37 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
         cluster.apply_shards(apply).await?;
     }
 
-    let mut stmt = db.prepare("SELECT test_case_id FROM test_cases")?;
-    let test_ids = stmt
-        .query_map(rusqlite::NO_PARAMS, |row| row.get(0))?
-        .collect::<Result<Vec<i64>, _>>()?;
+    let collections =
+        testing::Collection::load_all(&db).context("failed to load catalog collections")?;
+    let collection_dependencies = testing::Collection::load_transitive_dependencies(&db)
+        .context("failed to load collection dependencies")?;
+    let transforms =
+        testing::Transform::load_all(&db).context("failed to load catalog transforms")?;
+    let schema_index = build_schema_index(&db).context("failed to build schema index")?;
 
-    for id in test_ids {
+    let ctx = testing::Context {
+        cluster,
+        collections,
+        collection_dependencies,
+        schema_index,
+        transforms,
+    };
+
+    // Load test case IDs. We may want to support regex, etc here.
+    let mut stmt = db.prepare("SELECT test_case_id FROM test_cases;")?;
+    let case_ids = stmt
+        .query_map(rusqlite::NO_PARAMS, |row| row.get(0))?
+        .collect::<Result<Vec<i64>, _>>()
+        .context("failed to load test cases")?;
+
+    for id in case_ids {
         let case = catalog::TestCase { id };
         let (name, steps) = case.load(&db)?;
-        eprintln!("loaded case {}: {:#?}", name, steps);
+        log::info!("starting test case {:?}", name);
 
-        testing::run_test_case(&cluster, steps)
+        ctx.run_test_case(&steps)
             .await
-            .with_context(|| format!("test case {:?} failed", &name))?;
+            .context(format!("test case {} failed", name))?
     }
     Ok(())
 }
@@ -213,4 +229,29 @@ fn show_materialialization_ddl(
     }
 
     Ok(())
+}
+
+// TODO -- copy/paste from flow-worker.
+fn build_schema_index(
+    db: &rusqlite::Connection,
+) -> Result<&'static doc::SchemaIndex<'static>, Error> {
+    // Compile the bundle of catalog schemas. Then, deliberately "leak" the
+    // immutable Schema bundle for the remainder of program in order to achieve
+    // a 'static lifetime, which is required for use in spawned tokio Tasks (and
+    // therefore in TxnCtx).
+    let schemas = catalog::Schema::compile_all(&db)?;
+    let schemas = Box::leak(Box::new(schemas));
+
+    let mut schema_index = doc::SchemaIndex::<'static>::new();
+    for schema in schemas.iter() {
+        schema_index.add(schema)?;
+    }
+    schema_index.verify_references()?;
+
+    // Also leak a &'static SchemaIndex.
+    let schema_index = Box::leak(Box::new(schema_index));
+
+    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
+
+    Ok(schema_index)
 }
