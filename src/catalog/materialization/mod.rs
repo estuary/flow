@@ -19,23 +19,11 @@ impl Materialization {
     ) -> catalog::Result<Materialization> {
         let collection = scope
             .push_prop("collection")
-            .then(|scope| Ok(Collection::get_by_name(scope, spec.collection.as_ref())?))?;
-        let conf = MaterializationConfig::from_spec(&spec.config);
-        let conf_json = serde_json::to_string(&conf)?;
+            .then(|scope| Ok(Collection::get_by_name(scope, spec.collection.as_str())?))?;
         let conn = match &spec.config {
             specs::MaterializationConfig::Postgres(connection) => connection,
             specs::MaterializationConfig::Sqlite(connection) => connection,
         };
-        let fields = get_field_projections(scope, collection.id)?;
-        let target = MaterializationTarget {
-            materialization_name,
-            collection_name: spec.collection.as_ref(),
-            target_uri: conn.uri.as_str(),
-            table_name: conn.table.as_str(),
-            target_type: conf.type_name(),
-            fields: fields.as_slice(),
-        };
-        let ddl = conf.generate_ddl(target)?;
 
         let mut stmt = scope.db.prepare_cached(
             "INSERT INTO materializations (
@@ -44,18 +32,14 @@ impl Materialization {
                 target_type,
                 target_uri,
                 table_name,
-                config_json,
-                ddl
-            ) VALUES (?, ?, ?, ?, ?, ?, ?);",
+            ) VALUES (?, ?, ?, ?, ?);",
         )?;
         let params = rusqlite::params![
             materialization_name,
             collection.id,
-            conf.type_name(),
+            spec.config.type_name(),
             conn.uri,
             conn.table,
-            conf_json,
-            ddl,
         ];
         stmt.execute(params)?;
 

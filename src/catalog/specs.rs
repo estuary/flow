@@ -710,6 +710,15 @@ pub enum MaterializationConfig {
     Sqlite(SqlTargetConnection),
 }
 
+impl MaterializationConfig {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            MaterializationConfig::Postgres(_) => "postgres",
+            MaterializationConfig::Sqlite(_) => "sqlite",
+        }
+    }
+}
+
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
     from_json_value(json!({
         "type": ["string", "null"],
@@ -717,3 +726,4 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
     }))
     .unwrap()
 }
+
