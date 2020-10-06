@@ -109,6 +109,8 @@ type read struct {
 	resp   pf.IndexedShuffleResponse
 	stream pf.Shuffler_ShuffleClient
 
+	// Positive delta by which documents are effectively delayed w.r.t. other
+	// documents, as well as literally delayed (by gating) w.r.t current wall-time.
 	pollAdjust message.Clock
 	pollCh     chan *pf.ShuffleResponse
 }
@@ -387,19 +389,6 @@ func pickHRW(h uint32, from []uint32, start, stop int) int {
 		}
 	}
 	return at
-}
-
-func backoff(attempt int) time.Duration {
-	switch attempt {
-	case 0:
-		return 0
-	case 1:
-		return time.Millisecond * 10
-	case 2, 3, 4, 5:
-		return time.Second * time.Duration(attempt-1)
-	default:
-		return 5 * time.Second
-	}
 }
 
 const shuffleListingInterval = time.Second * 30

@@ -182,8 +182,8 @@ func (a *Derive) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
 }
 
 // StartReadingMessages delegates to shuffle.StartReadingMessages.
-func (a *Derive) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
-	shuffle.StartReadingMessages(shard.Context(), a.readBuilder, cp, ch)
+func (a *Derive) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint, tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
+	shuffle.StartReadingMessages(shard.Context(), a.readBuilder, cp, tp, ch)
 }
 
 // ReplayRange delegates to shuffle's StartReplayRead.

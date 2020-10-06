@@ -239,7 +239,8 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 
 func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
 	var testStore = store.(*testStore)
-	StartReadingMessages(shard.Context(), testStore.readBuilder, cp, ch)
+	var tp = flow.NewTimepoint(time.Now())
+	StartReadingMessages(shard.Context(), testStore.readBuilder, cp, tp, ch)
 }
 
 func (a testApp) ReplayRange(shard consumer.Shard, store consumer.Store, journal pb.Journal, begin, end pb.Offset) message.Iterator {

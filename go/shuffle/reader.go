@@ -4,8 +4,10 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -17,8 +19,9 @@ import (
 
 type governor struct {
 	rb *ReadBuilder
-	// Ticker sends the current time.Time once every interval (i.e., 1 second).
-	ticker <-chan time.Time
+	// Resolved Timepoint of the present time.Time, which is updated as
+	// each Timepoint.Next resolves.
+	tp *flow.Timepoint
 	// Wall-time clock which is updated with every |ticker| tick.
 	wallTime message.Clock
 	// MustPoll notes that poll() must run to completion before the next
@@ -44,16 +47,15 @@ type governor struct {
 }
 
 // StartReadingMessages begins reading shuffled, ordered messages into the channel, from the given Checkpoint.
-func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint, ch chan<- consumer.EnvelopeOrError) {
+func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint, tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
 	var offsets = make(pb.Offsets)
 	for journal, meta := range cp.Sources {
 		offsets[journal] = meta.ReadThrough
 	}
-	var ticker = time.NewTicker(time.Second)
 
 	var g = &governor{
 		rb:               rb,
-		ticker:           ticker.C,
+		tp:               tp,
 		mustPoll:         false,
 		pending:          make(map[*read]struct{}),
 		active:           make(map[pb.Journal]*read),
@@ -70,7 +72,6 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 			out.Envelope, out.Error = g.Next(ctx)
 			ch <- out
 		}
-		ticker.Stop()
 	}()
 	// Spawn a loop which wakes |journalsUpdateCh| on each revision update.
 	go signalKeySpaceUpdates(ctx, rb.journals, g.journalsUpdateCh)
@@ -98,17 +99,21 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 		// Pop the next ordered document to process.
 		var r = heap.Pop(&g.queued).(*read)
 
-		if a := r.resp.UuidParts[r.resp.Index].Clock + r.pollAdjust; a > g.wallTime {
+		// If this *read adjusts document clocks, and the adjusted clock runs
+		// ahead of effective wall-clock time, then we must gate the document
+		// until wall-time catches up with its adjusted clock.
+		if a := r.resp.UuidParts[r.resp.Index].Clock + r.pollAdjust; r.pollAdjust != 0 && a > g.wallTime {
 
 			// TODO(johnny): Leaving for now until we have more testing of this feature.
 			log.WithFields(log.Fields{
 				"journal":   r.req.Shuffle.Journal,
 				"tailing":   r.resp.Tailing(),
 				"remaining": len(r.resp.DocsJson),
+				"wallTime":  g.wallTime.Time(),
+				"want":      a.Time(),
+				"actual":    time.Now(),
 			}).Info("GATE")
 
-			// This document cannot be processed until wall time has reached
-			// its adjusted clock threshold. Gate it for a future time tick.
 			g.gated = append(g.gated, r)
 			continue
 		}
@@ -156,8 +161,8 @@ func (g *governor) poll(ctx context.Context) error {
 				return ctx.Err()
 			case <-g.journalsUpdateCh:
 				return g.onConverge(ctx)
-			case tick := <-g.ticker:
-				return g.onTick(tick)
+			case <-g.tp.Ready():
+				return g.onTick()
 			default:
 				continue // Don't block.
 			}
@@ -168,8 +173,8 @@ func (g *governor) poll(ctx context.Context) error {
 				// Fall through.
 			case <-g.journalsUpdateCh:
 				return g.onConverge(ctx)
-			case tick := <-g.ticker:
-				return g.onTick(tick)
+			case <-g.tp.Ready():
+				return g.onTick()
 			}
 		}
 
@@ -213,22 +218,27 @@ func (g *governor) poll(ctx context.Context) error {
 		return ctx.Err()
 	case <-g.journalsUpdateCh:
 		return g.onConverge(ctx)
-	case tick := <-g.ticker:
-		return g.onTick(tick)
+	case <-g.tp.Ready():
+		return g.onTick()
 	case <-g.readReadyCh:
 		return errPollAgain
 	}
 }
 
-func (g *governor) onTick(tick time.Time) error {
+func (g *governor) onTick() error {
 	// Re-add all gated reads to |queued|, to be re-evaluated
 	// against the updated |wallTime|, and poll() again.
 	for _, r := range g.gated {
 		heap.Push(&g.queued, r)
 	}
 	g.gated = g.gated[:0]
-	g.wallTime.Update(tick)
 
+	// Adjust |tick| by the clock delta (if any) attached to the *consumer.Service.
+	var delta = atomic.LoadInt64((*int64)(&g.rb.service.PublishClockDelta))
+	g.wallTime.Update(g.tp.Time.Add(time.Duration(delta)))
+
+	// Start awaiting next *Timepoint.
+	g.tp = g.tp.Next
 	// Ticks interrupt a current poll(), so we always poll again.
 	return errPollAgain
 }

@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
@@ -23,7 +26,8 @@ type config struct {
 
 	// Flow application flags.
 	Flow struct {
-		BrokerRoot string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+		BrokerRoot   string        `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+		TickInterval time.Duration `long:"tick-interval" env:"TICK_INTERVAL" default:"1s" description:"Interval between clock ticks"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
@@ -32,12 +36,17 @@ type Flow struct {
 	service   *consumer.Service
 	journals  *keyspace.KeySpace
 	extractor *flow.WorkerHost
+	timepoint struct {
+		now *flow.Timepoint
+		mu  sync.Mutex
+	}
 }
 
 var _ runconsumer.Application = (*Flow)(nil)
 var _ consumer.Application = (*Flow)(nil)
 var _ consumer.BeginFinisher = (*Flow)(nil)
 var _ consumer.MessageProducer = (*Flow)(nil)
+var _ pf.TestingServer = (*Flow)(nil)
 
 // NewStore selects an implementing runtime.Application for the shard, and returns a new instance.
 func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
@@ -72,7 +81,11 @@ func (f *Flow) FinishedTxn(shard consumer.Shard, store consumer.Store, future co
 
 // StartReadingMessages delegates to the Application.
 func (f *Flow) StartReadingMessages(shard consumer.Shard, store consumer.Store, checkpoint pc.Checkpoint, envOrErr chan<- consumer.EnvelopeOrError) {
-	store.(runtime.Application).StartReadingMessages(shard, checkpoint, envOrErr)
+	f.timepoint.mu.Lock()
+	var tp = f.timepoint.now
+	f.timepoint.mu.Unlock()
+
+	store.(runtime.Application).StartReadingMessages(shard, checkpoint, tp, envOrErr)
 }
 
 // ReplayRange delegates to the Application.
@@ -80,21 +93,26 @@ func (f *Flow) ReplayRange(shard consumer.Shard, store consumer.Store, journal p
 	return store.(runtime.Application).ReplayRange(shard, journal, begin, end)
 }
 
-// ReadThrough ensures the revision of |journals| reflects MinEtcdRevision,
-// and then delgates to the Application.
+// ReadThrough delgates to the Application.
 func (f *Flow) ReadThrough(shard consumer.Shard, store consumer.Store, args consumer.ResolveArgs) (pb.Offsets, error) {
-	f.journals.Mu.RLock()
-	var err = f.journals.WaitForRevision(shard.Context(), args.MinEtcdRevision)
-	f.journals.Mu.RUnlock()
-
-	if err != nil {
-		return nil, err
-	}
 	return store.(runtime.Application).ReadThrough(args.ReadThrough)
 }
 
 // NewConfig returns a new config instance.
 func (f *Flow) NewConfig() runconsumer.Config { return new(config) }
+
+// AdvanceTime advances the current test time.
+func (f *Flow) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest) (*pf.AdvanceTimeResponse, error) {
+	var add = uint64(time.Second) * req.AddClockDeltaSeconds
+	var out = time.Duration(atomic.AddInt64((*int64)(&f.service.PublishClockDelta), int64(add)))
+
+	f.timepoint.mu.Lock()
+	f.timepoint.now.Next.Resolve(time.Now())
+	f.timepoint.now = f.timepoint.now.Next
+	f.timepoint.mu.Unlock()
+
+	return &pf.AdvanceTimeResponse{ClockDeltaSeconds: uint64(out / time.Second)}, nil
+}
 
 // InitApplication starts shared services of the flow-consumer.
 func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
@@ -118,10 +136,27 @@ func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 	})
 
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
+	pf.RegisterTestingServer(args.Server.GRPCServer, f)
+
+	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
+	args.Service.ShardAPI.Stat = func(ctx context.Context, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
+		return flow.ShardStat(ctx, svc, req, journals)
+	}
 
 	f.service = args.Service
 	f.journals = journals
 	f.extractor = extractor
+	f.timepoint.now = flow.NewTimepoint(time.Now())
+
+	// Start a ticker of the shared *Timepoint.
+	go func(d time.Duration) {
+		for t := range time.Tick(d) {
+			f.timepoint.mu.Lock()
+			f.timepoint.now.Next.Resolve(t)
+			f.timepoint.now = f.timepoint.now.Next
+			f.timepoint.mu.Unlock()
+		}
+	}(config.Flow.TickInterval)
 
 	return nil
 }

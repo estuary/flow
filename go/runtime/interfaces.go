@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/shuffle"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -23,7 +24,7 @@ type Application interface {
 	FinalizeTxn(consumer.Shard, *message.Publisher) error
 	FinishedTxn(consumer.Shard, consumer.OpFuture)
 
-	StartReadingMessages(consumer.Shard, pc.Checkpoint, chan<- consumer.EnvelopeOrError)
+	StartReadingMessages(consumer.Shard, pc.Checkpoint, *flow.Timepoint, chan<- consumer.EnvelopeOrError)
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
 	ReadThrough(pb.Offsets) (pb.Offsets, error)
 }
