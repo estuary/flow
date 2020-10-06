@@ -14,6 +14,9 @@ pub type SchemaIndex<'sm> = estuary_json::schema::index::Index<'sm, Annotation>;
 pub type Validator<'sm, C> = estuary_json::validator::Validator<'sm, Annotation, C>;
 pub type FullContext = estuary_json::validator::FullContext;
 
+mod diff;
+pub use diff::Diff;
+
 #[derive(Debug, serde::Serialize)]
 pub struct FailedValidation {
     pub document: serde_json::Value,
