@@ -56,7 +56,6 @@ pub struct ProjectionTypeMappings {
 pub struct SqlColumnType {
     pub ddl: SqlColumnTypeDdl,
     pub max_supported_length: Option<u64>,
-    pub insert_template: String,
 }
 
 impl SqlColumnType {
@@ -66,7 +65,6 @@ impl SqlColumnType {
                 plain: column_type.into(),
             },
             max_supported_length: None,
-            insert_template: "?".to_owned(),
         }
     }
 }
@@ -139,16 +137,12 @@ impl SqlMaterializationConfig {
                         with_length: "VARCHAR(?)".to_owned(),
                     },
                     max_supported_length: None,
-                    insert_template: "?".to_owned(),
                 }),
                 string_base64: StringTypeMapping::new(SqlColumnType {
                     ddl: SqlColumnTypeDdl::AlwaysPlain {
                         plain: "BYTEA".to_owned(),
                     },
                     max_supported_length: None,
-                    // TODO: consider alternatives for string -> blob conversions. Maybe we should
-                    // just have the application always decode the base64?
-                    insert_template: "decode(?, 'base64')".to_owned(),
                 }),
             },
         }
@@ -189,7 +183,7 @@ impl SqlMaterializationConfig {
         let table_description = TableDescription(&target);
         write!(
             &mut buffer,
-            "{}\nCREATE TABLE {} IF NOT EXISTS (",
+            "{}\nCREATE TABLE IF NOT EXISTS {} (",
             self.comment(&table_description),
             self.quoted(target.table_name)
         )
