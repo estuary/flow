@@ -192,13 +192,17 @@ func (rr *RetryReader) Restart(req pb.ReadRequest) {
 }
 
 func backoff(attempt int) time.Duration {
+	// The choices of backoff time reflect that we're usually waiting for the
+	// cluster to converge on a shared understanding of ownership, and that
+	// involves a couple of Nagle-like read delays (~30ms) as Etcd watch
+	// updates are applied by participants.
 	switch attempt {
-	case 0:
-		return 0
-	case 1:
-		return time.Millisecond * 10
-	case 2, 3, 4, 5:
-		return time.Second * time.Duration(attempt-1)
+	case 0, 1:
+		return time.Millisecond * 50
+	case 2, 3:
+		return time.Millisecond * 100
+	case 4, 5:
+		return time.Second
 	default:
 		return 5 * time.Second
 	}
