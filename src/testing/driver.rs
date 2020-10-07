@@ -53,7 +53,7 @@ impl Transform {
 /// and ordered on (read_at_seconds, derivation). PendingStats are reducible,
 /// and multiple test operations may produce PendingStats which are folded
 /// into a single tracked stat.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PendingStat {
     pub ready_at_seconds: u64,
     pub derivation: String,
@@ -163,23 +163,25 @@ impl<'a> Iterator for Driver<'a> {
     type Item = Action<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let at_seconds = self.at_seconds;
+        // Split off PendingStats having ready_at_seconds == self.at_seconds into |ready|,
+        // vs everything else which remains in |self.pending|.
+        let mut ready = self.pending.split_off(&PendingStat {
+            ready_at_seconds: self.at_seconds + 1,
+            ..Default::default()
+        });
+        std::mem::swap(&mut self.pending, &mut ready);
 
-        // If there's a satisfied pending stat, return it.
-        let ready = self
-            .pending
-            .drain_filter(|read| read.ready_at_seconds <= at_seconds)
-            .collect::<Vec<_>>();
-
+        // If there are ready PendingStats, return them.
         if !ready.is_empty() {
-            return Some(Action::Stat(ready));
+            return Some(Action::Stat(ready.into_iter().collect()));
         }
 
         // Determine the smallest time interval we could advance to unblock a pending stat.
         let min_advance = self
             .pending
-            .first()
-            .map(|p| p.ready_at_seconds - at_seconds);
+            .iter()
+            .next()
+            .map(|p| p.ready_at_seconds - self.at_seconds);
 
         match (min_advance, self.steps.split_first()) {
             (None, None) => {
