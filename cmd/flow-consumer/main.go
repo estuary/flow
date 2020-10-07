@@ -53,7 +53,7 @@ var _ pf.TestingServer = (*Flow)(nil)
 func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
 	isMaterialize := false
 	for _, label := range shard.Spec().Labels {
-		if label.Name == labels.Materialization {
+		if label.Name == labels.MaterializationTarget {
 			isMaterialize = true
 		}
 	}

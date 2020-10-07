@@ -1,4 +1,4 @@
-use super::{ContentType, ProjectionsError};
+use super::ContentType;
 use crate::catalog::extraction::KeyError;
 use crate::doc;
 use estuary_json::schema;
@@ -69,8 +69,6 @@ pub enum Error {
     InvalidCollectionKeys(Vec<KeyError>),
     #[error("schema validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
     FailedValidation(doc::FailedValidation),
-    #[error("Invalid projections: {0}")]
-    MaterializationError(#[from] ProjectionsError),
 
     #[error(transparent)]
     InvalidProjection(#[from] crate::catalog::projections::NoSuchLocationError),

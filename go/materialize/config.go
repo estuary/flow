@@ -110,11 +110,11 @@ func (self *MaterializationRuntimeConfig) getProjectionPointers() []string {
 
 // Loaded from Catalog database
 type Materialization struct {
-	CatalogDbId         int32
-	MaterializationName string
-	TargetUri           string
-	TableName           string
-	TargetType          string
+	CatalogDbId int32
+	TargetName  string
+	TargetUri   string
+	TableName   string
+	TargetType  string
 }
 
 func (self *Materialization) sqlConfig() (*SqlConfig, error) {
@@ -153,6 +153,11 @@ func NewMaterializationTarget(materialization *Materialization) (Target, error) 
 
 	var insertStatement = generateInsertStatement(materialization, runtimeConfig, sqlConfig)
 	var documentQuery = generateFlowDocumentQuery(materialization, runtimeConfig, sqlConfig)
+	log.WithFields(log.Fields{
+		"targetType":      materialization.TargetType,
+		"insertStatement": insertStatement,
+		"documentQuery":   documentQuery,
+	}).Info("Finished generating SQL for materialization")
 
 	var projectionPointers []string
 	var primaryKeyFieldIndexes []int
@@ -203,10 +208,10 @@ func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*Mat
 func generateFlowDocumentQuery(materialization *Materialization, runtimeConfig *MaterializationRuntimeConfig, sqlConfig *SqlConfig) string {
 	var tableName = sqlConfig.quoted(materialization.TableName)
 	var conditions []string
-	for i, field := range runtimeConfig.Projections {
+	for _, field := range runtimeConfig.Projections {
 		if field.PrimaryKey {
 			var col = sqlConfig.quoted(field.Field)
-			var condition = fmt.Sprintf("%s = %s", col.String(), sqlConfig.GetSqlPlaceholder(i))
+			var condition = fmt.Sprintf("%s = %s", col.String(), sqlConfig.GetSqlPlaceholder(len(conditions)))
 			conditions = append(conditions, condition)
 		}
 	}
@@ -256,6 +261,6 @@ func generateInsertStatement(materialization *Materialization, runtimeConfig *Ma
 	var onConflictDo = fmt.Sprintf("DO UPDATE SET %s", strings.Join(updates, ", "))
 
 	var sql = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) %s;", tableName.String(), strings.Join(quotedColumnNames, ", "), strings.Join(questionMarks, ", "), strings.Join(primaryKeyColumns, ", "), onConflictDo)
-	log.WithField("sql", sql).WithField("materialization", materialization.MaterializationName).Info("Generated SQL insert statement for materialization")
+	log.WithField("sql", sql).WithField("materialization", materialization.TargetName).Info("Generated SQL insert statement for materialization")
 	return sql
 }

@@ -2,3 +2,12 @@ import:
   - marketing/flow.yaml
   - stock-stats/flow.yaml
   - int-string.flow.yaml
+
+materializationTargets:
+  ourTestDbServer:
+    postgres:
+        uri: postgresql://flow:flow@localhost:5432/postgres?sslmode=disable
+  localSqlite:
+    sqlite:
+      uri: example-sqlite.db
+

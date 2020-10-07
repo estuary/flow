@@ -1,7 +1,7 @@
 use anyhow::{Context, Error};
-use estuary::{catalog, doc, runtime, testing};
+use estuary::{catalog, doc, materialization, runtime, testing};
 use futures::FutureExt;
-use rusqlite::Connection as DB;
+use itertools::Itertools;
 use std::convert::TryFrom;
 use std::fs;
 use std::path::Path;
@@ -14,35 +14,15 @@ use tokio::signal::unix;
 enum Command {
     /// Builds a Catalog spec into a catalog database that can be deployed or inspected.
     Build(BuildArgs),
-    /// Shows outputs from a built catalog.
-    Show(ShowArgs),
     /// Run a local development environment for the catalog.
     Develop(DevelopArgs),
     /// Runs catalog tests.
     Test(TestArgs),
     /// Print the catalog JSON schema.
     JsonSchema,
-}
 
-#[derive(StructOpt, Debug)]
-struct ShowArgs {
-    /// Path to input catalog database.
-    #[structopt(long, default_value = "catalog.db")]
-    catalog: String,
-    /// The thing to show.
-    #[structopt(subcommand)]
-    target: ShowTarget,
-}
-
-#[derive(StructOpt, Debug)]
-enum ShowTarget {
-    /// Print the DDL (SQL "CREATE TABLE" statement) for a given materialization
-    DDL {
-        /// The name of the collection
-        collection: Option<String>,
-        /// The name of a specific materialization for the given collection
-        materialization: Option<String>,
-    },
+    /// Materialize a view of a Collection into a target database.
+    Materialize(MaterializeArgs),
 }
 
 #[derive(StructOpt, Debug)]
@@ -76,6 +56,48 @@ struct TestArgs {
     catalog: String,
 }
 
+#[derive(StructOpt, Debug)]
+struct MaterializeArgs {
+    /// Path to input catalog database.
+    #[structopt(long, default_value = "catalog.db")]
+    catalog: String,
+
+    /// The name of the materializationTarget to materialize to. This should match one of the
+    /// `materializationTargets` from the catalog, and is used to specify the connection
+    /// information that will be used by the materialization.
+    #[structopt(long)]
+    target: String,
+    /// The name of the Flow Collection to materialize
+    #[structopt(long)]
+    collection: String,
+    /// The name of the table within the target system that will hold the materialized records.
+    /// This can be created automatically if it doesn't already exist.
+    #[structopt(long)]
+    table_name: String,
+
+    /// Include all projected fields.
+    #[structopt(long)]
+    all_fields: bool,
+    /// Include a specific field. This option may be specified multiple times to specify the
+    /// complete set of fields to include in the materialization.
+    #[structopt(short = "f", long = "field")]
+    fields: Vec<String>,
+
+    /// URL of the consumer. The default value is the localhost address that's used by `flowctl
+    /// develop`.
+    #[structopt(long, default_value = "http://localhost:9000")]
+    consumer_address: String,
+
+    /// Apply the materialization
+    #[structopt(long)]
+    apply: bool,
+
+    /// Print out a summary of what would be done, without modifying anything. This will always
+    /// take precedencs over `--apply`, if both arguments are provided.
+    #[structopt(long)]
+    dry_run: bool,
+}
+
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init_timed();
@@ -85,16 +107,169 @@ async fn main() {
 
     let result = match args {
         Command::Build(build) => do_build(build),
-        Command::Show(show) => do_show(show),
         Command::Develop(develop) => do_develop(develop).await,
         Command::Test(test) => do_test(test).await,
         Command::JsonSchema => do_dump_schema(),
+        Command::Materialize(materialize) => do_materialize(materialize).await,
     };
 
     if let Err(err) = result {
         log::error!("{:?}", err);
-        std::process::exit(-1);
+        std::process::exit(1);
     };
+}
+
+async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
+    let db = catalog::open(args.catalog.as_str())?;
+    let catalog_path = tokio::fs::canonicalize(args.catalog.as_str()).await?;
+    let catalog_path = catalog_path.display().to_string();
+
+    let collection = catalog::Collection::get_by_name(&db, args.collection.as_str())
+        .context("unable to find a collection with the given name")?;
+    let target = catalog::MaterializationTarget::get_by_name(&db, args.target.as_str())
+        .context("unable to find a materialization target with the given name")?;
+
+    // First load all of the possible projections for this collection
+    let projections = materialization::get_projections(&db, collection)?;
+    let selected_projections = if args.all_fields {
+        projections
+    } else if !args.fields.is_empty() {
+        args.fields
+            .iter()
+            .map(|field| {
+                projections
+                    .iter()
+                    .find(|p| &p.field_name == field)
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::format_err!("No such projection for field name: '{}'", field)
+                    })
+            })
+            .collect::<Result<Vec<_>, Error>>()?
+    } else {
+        // TODO: check if stdin and stdout are a tty, and have user make selections interactively
+        anyhow::bail!("no fields were specified in the arguments. Please specify specific fields using --field arguments, or use --all-fields to materialize all of them")
+    };
+
+    let payload = materialization::generate_target_initializer(
+        &db,
+        target,
+        args.target.as_str(),
+        args.table_name.as_str(),
+        args.collection.as_str(),
+        selected_projections.as_slice(),
+    )?;
+
+    // This payload is what the user asked for, so we print it directly to
+    println!("{}", payload);
+
+    if should_apply("materialization ddl to the target database", &args) {
+        let payload_file = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
+        tokio::fs::write(&payload_file, payload.as_bytes()).await?;
+
+        let apply_command = materialization::create_apply_command(
+            &db,
+            target,
+            args.table_name.as_str(),
+            payload_file.as_path(),
+        )?;
+        // print out the apply command arguments using the debug representation, so that strings
+        // will be double quoted and internal quote characters will be escaped. This is helpful
+        // since individual arguments may contain spaces, which would otherwise make this output
+        // impossible to parse correctly.
+        log::info!(
+            "Materialization target apply command:\n{}",
+            apply_command.iter().map(|s| format!("{:?}", s)).join(" ")
+        );
+        exec_external_command(apply_command.as_slice())
+            .await
+            .context("Failed to apply payload to materialization target")?;
+        log::info!(
+            "Successfully applied materialization DDL to the target '{}'",
+            args.target.as_str()
+        );
+    }
+
+    let apply_shards_request = materialization::create_shard_apply_request(
+        catalog_path.as_str(),
+        args.collection.as_str(),
+        args.target.as_str(),
+        args.table_name.as_str(),
+    );
+    println!("Gazette Shard Spec:\n{:#?}", apply_shards_request);
+
+    if should_apply("runtime configuration to the flow-consumer", &args) {
+        let cluster = runtime::Cluster {
+            broker_address: String::new(),
+            ingester_address: String::new(),
+            consumer_address: args.consumer_address.clone(),
+        };
+        let response = cluster
+            .apply_shards(apply_shards_request)
+            .await
+            .context("updating shard specs")?;
+        log::debug!("Got response: {:?}", response);
+    }
+    Ok(())
+}
+
+async fn exec_external_command(command: &[String]) -> Result<(), Error> {
+    log::info!("Executing command: {}", command.iter().join(" "));
+    let mut cmd = tokio::process::Command::new(&command[0]);
+    for arg in command.iter().skip(1) {
+        cmd.arg(arg);
+    }
+    let child = cmd.spawn()?;
+    let exit_status = child.await?;
+    if exit_status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::format_err!(
+            "command exited with failure: {:?}",
+            exit_status
+        ))
+    }
+}
+
+// Returns true if _both_ stdin and stdout are a TTY, otherwise false.
+fn is_interactive() -> bool {
+    atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout)
+}
+
+fn should_apply(thing: &str, args: &MaterializeArgs) -> bool {
+    if args.dry_run {
+        false
+    } else if args.apply {
+        true
+    } else if is_interactive() {
+        let message = format!("Would you like to apply the {}?", thing);
+        get_user_confirmation(message.as_str())
+    } else {
+        false
+    }
+}
+
+// Requests confirmation from the user, asking them to enter "y" to confirm or anything else to
+// cancel. IO errors encountered while getting user input are implicitly interpreted as a desire to
+// cancel. This function does not check whether stdin or stdout are a TTY, so **that check must be
+// done before calling this**.
+fn get_user_confirmation(message: &str) -> bool {
+    use std::io::Write;
+    print!(
+        "{}\nEnter y to confirm, or anything else to cancel: ",
+        message
+    );
+    std::io::stdout()
+        .flush()
+        .expect("failed to write to stdout");
+    let mut text = String::new();
+    if let Err(err) = std::io::stdin().read_line(&mut text) {
+        log::debug!("io error reading user input: {}", err);
+        log::error!("Failed to read user input, cancelling action");
+        false
+    } else {
+        text.as_str().trim().eq_ignore_ascii_case("y")
+    }
 }
 
 fn do_build(args: BuildArgs) -> Result<(), Error> {
@@ -126,22 +301,6 @@ fn do_build(args: BuildArgs) -> Result<(), Error> {
 
     catalog::build(&db, spec_url, nodejs_dir).context("building catalog")?;
     log::info!("Successfully built catalog");
-    Ok(())
-}
-
-fn do_show(args: ShowArgs) -> Result<(), Error> {
-    let db = catalog::open(&args.catalog).context("opening --catalog")?;
-
-    match &args.target {
-        ShowTarget::DDL {
-            collection,
-            materialization,
-        } => show_materialialization_ddl(
-            &db,
-            collection.as_ref().map(String::as_str),
-            materialization.as_ref().map(String::as_str),
-        )?,
-    };
     Ok(())
 }
 
@@ -243,54 +402,6 @@ fn do_dump_schema() -> Result<(), Error> {
     let schema = gen.into_root_schema_for::<crate::catalog::specs::Catalog>();
 
     serde_json::to_writer_pretty(std::io::stdout(), &schema)?;
-    Ok(())
-}
-
-fn show_materialialization_ddl(
-    db: &DB,
-    collection: Option<&str>,
-    materialization: Option<&str>,
-) -> Result<(), Error> {
-    // We're ordering by target_uri so we can print out the sql for each target database grouped
-    // together.
-    let sql = "SELECT m.target_uri, m.ddl
-        FROM collections AS c
-        NATURAL JOIN materializations AS m
-        WHERE c.collection_name LIKE ? AND m.materialization_name LIKE ?
-        ORDER BY m.target_uri ASC, c.collection_name ASC";
-    let mut stmt = db.prepare(sql)?;
-    let mut rows = stmt.query(rusqlite::params![
-        collection.unwrap_or("%"),
-        materialization.unwrap_or("%")
-    ])?;
-
-    let mut current_uri: Option<String> = None;
-    while let Some(row) = rows.next()? {
-        let target_uri: String = row.get(0)?;
-        let ddl: String = row.get(1)?;
-
-        if current_uri.as_ref() != Some(&target_uri) {
-            // print a big separator if we're going from one target uri to another
-            let newlines = if current_uri.is_some() { "\n\n" } else { "" };
-            println!(
-                "{}-- Materializaions for the target: {}\n",
-                newlines, target_uri
-            );
-        }
-        current_uri = Some(target_uri);
-        println!("{}", ddl);
-    }
-
-    // If current_uri is None then the query must not have returned any rows,
-    // so we'll return an error here.
-    if current_uri.is_none() {
-        anyhow::bail!(
-            "No materializations exist for collection: {} and materialization: {}",
-            collection.unwrap_or("<all>"),
-            materialization.unwrap_or("<all>")
-        );
-    }
-
     Ok(())
 }
 

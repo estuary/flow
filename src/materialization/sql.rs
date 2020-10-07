@@ -1,8 +1,11 @@
-use super::{FieldProjection, MaterializationTarget, ProjectionsError};
+use super::{FieldProjection, PayloadGenerationParameters, ProjectionsError};
 use estuary_json::schema::types;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::fmt::{self, Write};
+
+const RUNTIME_CONFIG_TABLE_COMMENT: &str = "This table holds the configuration objects for all materializations to this target system. The configuration that gets persisted here is generated automatically by flowctl, and will be used by the flow-consumer at runtime to determine which fields should be projected into the table.";
+const FLOW_DOCUMENT_COLUMN_COMMENT: &str = "This column holds the complete document from the Flow Collection, with all reduction annotations applied. It is added automatically to all materializations.";
 
 /// Encapsulates the mapping from a single JSON String type to one or more SQL column types. Currently,
 /// this only maps to a single "default" column type, but the intent is to allow for specialization
@@ -75,6 +78,35 @@ pub enum SqlColumnTypeDdl {
     AlwaysPlain { plain: String },
     OptionalLength { plain: String, with_length: String },
     // RequiredLength(String) will be needed to support oracle nvarchar columns
+}
+impl SqlColumnTypeDdl {
+    fn rendered(&self) -> RenderedColumnTypeDdl {
+        RenderedColumnTypeDdl(self, None)
+    }
+
+    fn rendered_with_length(&self, length: i64) -> RenderedColumnTypeDdl {
+        RenderedColumnTypeDdl(self, Some(length))
+    }
+}
+
+pub struct RenderedColumnTypeDdl<'a>(&'a SqlColumnTypeDdl, Option<i64>);
+
+impl<'a> fmt::Display for RenderedColumnTypeDdl<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::SqlColumnTypeDdl::*;
+        match self {
+            RenderedColumnTypeDdl(AlwaysPlain { plain }, Some(_)) => f.write_str(plain.as_str()),
+            RenderedColumnTypeDdl(AlwaysPlain { plain }, None) => f.write_str(plain.as_str()),
+            RenderedColumnTypeDdl(OptionalLength { with_length, .. }, Some(len)) => {
+                let len_string = len.to_string();
+                let col = with_length.replace('?', &len_string);
+                f.write_str(&col)
+            }
+            RenderedColumnTypeDdl(OptionalLength { plain, .. }, None) => {
+                f.write_str(plain.as_str())
+            }
+        }
+    }
 }
 
 /// Holds the configuration that's used to generate SQL statements. In order to support a given
@@ -168,21 +200,59 @@ impl SqlMaterializationConfig {
         }
     }
 
-    /// Generates the "CREATE TABLE" statement for the given materialization target.
-    pub fn generate_ddl(&self, target: MaterializationTarget) -> Result<String, ProjectionsError> {
-        use std::fmt::Write;
+    fn generate_gazette_checkpoint_ddl(&self, buffer: &mut String) {
+        let comment = self.comment(&"This table holds the checkpoints for all of the consumers for all materializations targeting this database.");
+        write!(buffer,
+               "{}\nCREATE TABLE IF NOT EXISTS gazette_checkpoints (shard_fqn {} {} PRIMARY KEY, fence {} {}, checkpoint {} {});\n\n",
+               comment,
+               self.type_mappings.string.default_type.ddl.rendered(),
+               self.not_null,
+               self.type_mappings.integer.ddl.rendered(),
+               self.not_null,
+               self.type_mappings.string_base64.default_type.ddl.rendered(),
+               self.not_null
+               ).unwrap();
+    }
 
+    fn generate_runtime_config_sql(
+        &self,
+        target: &PayloadGenerationParameters,
+        buffer: &mut String,
+    ) {
+        writeln!(buffer,
+               "{}\nCREATE TABLE IF NOT EXISTS flow_materializations (table_name {} {} PRIMARY KEY, config_json {});",
+               self.comment(&RUNTIME_CONFIG_TABLE_COMMENT),
+               self.type_mappings.string.default_type.ddl.rendered(),
+               self.not_null,
+               self.type_mappings.object.ddl.rendered()).unwrap();
+
+        // TODO: return a result instead of unwrapping
+        let config_json = serde_json::to_string(&target.get_runtime_config())
+            .expect("failed to serialize runtime config_json");
+
+        // TODO: consider what to do, if anything, when a row already exists for this table name
+        write!(
+            buffer,
+            "INSERT INTO flow_materializations (table_name, config_json) VALUES ('{}', '{}');\n",
+            target.table_name, config_json
+        )
+        .unwrap();
+    }
+
+    fn generate_collection_table_ddl(
+        &self,
+        target: &PayloadGenerationParameters,
+        buffer: &mut String,
+    ) -> Result<(), ProjectionsError> {
         // We'll accumulate invalid fields in these vectors so that we can report all of the
         // invalid projections at once instead of forcing users to re-build repeatedly in order to
         // discover one error at a time.
         let mut invalid_types = Vec::new();
         let mut invalid_identifiers = Vec::new();
 
-        let mut buffer = String::with_capacity(1024);
-
         let table_description = TableDescription(&target);
         write!(
-            &mut buffer,
+            buffer,
             "{}\nCREATE TABLE IF NOT EXISTS {} (",
             self.comment(&table_description),
             self.quoted(target.table_name)
@@ -207,11 +277,29 @@ impl SqlMaterializationConfig {
                 } else {
                     buffer.push_str(",\n");
                 }
-                write!(&mut buffer, "\n{}", column_ddl_gen).unwrap();
+                write!(buffer, "\n{}", column_ddl_gen).unwrap();
             } else {
                 invalid_types.push(field.clone());
             }
         }
+
+        // We always add the "flow_document" column as the last column. This can probably be
+        // refactored at some point to just include this in the PayloadGenerationParameters.
+        let full_document_comment = self.comment(&FLOW_DOCUMENT_COLUMN_COMMENT);
+        let full_document_ddl_gen = ColumnDdlGen {
+            indent: "\t",
+            conf: self,
+            sql_type: self
+                .lookup_type(&target.flow_document_field)
+                .expect("no field mapping for the flow_document column, this is a bug"),
+            field: &target.flow_document_field,
+        };
+        write!(
+            buffer,
+            ",\n\t{}\n{}",
+            full_document_comment, full_document_ddl_gen
+        )
+        .unwrap();
 
         let mut primary_keys = target
             .fields
@@ -221,14 +309,10 @@ impl SqlMaterializationConfig {
             .peekable();
         if primary_keys.peek().is_some() {
             // We have at least one primary key defined for the table, so we'll emit that ddl here
-            write!(
-                &mut buffer,
-                ",\n\n\tPRIMARY KEY({})",
-                primary_keys.format(", ")
-            )
-            .unwrap();
+            write!(buffer, ",\n\n\tPRIMARY KEY({})", primary_keys.format(", ")).unwrap();
         }
-        buffer.push_str("\n);");
+        // Close out the create table statement.
+        buffer.push_str("\n);\n");
 
         let mut error = ProjectionsError::empty(target.target_type);
         if !invalid_types.is_empty() {
@@ -245,8 +329,30 @@ impl SqlMaterializationConfig {
         if !error.is_empty() {
             Err(error)
         } else {
-            Ok(buffer)
+            Ok(())
         }
+    }
+
+    /// Generates the "CREATE TABLE" statement for the given materialization target.
+    pub fn generate_ddl(
+        &self,
+        target: PayloadGenerationParameters,
+    ) -> Result<String, ProjectionsError> {
+        let mut buffer = String::with_capacity(1024);
+        let comment_text = format!("This SQL has been generated automatically by flowctl for a materialization of the Flow Collection '{}' to the target '{}'", target.collection_name, target.target_name);
+        let top_level_comment = self.comment(&comment_text);
+        write!(&mut buffer, "{}\n\nBEGIN;\n\n", top_level_comment).unwrap();
+
+        self.generate_gazette_checkpoint_ddl(&mut buffer);
+
+        self.generate_runtime_config_sql(&target, &mut buffer);
+        buffer.push('\n');
+        self.generate_collection_table_ddl(&target, &mut buffer)?;
+
+        // Finish the table and commit the transaction.
+        buffer.push_str("\nCOMMIT;\n");
+
+        Ok(buffer)
     }
 
     fn is_field_name_valid(&self, field: &FieldProjection) -> bool {
@@ -382,16 +488,12 @@ impl<'a> fmt::Display for ColumnDdlGen<'a> {
             self.conf.quoted(self.field.field_name.as_str())
         )?;
 
-        match &self.sql_type.ddl {
-            SqlColumnTypeDdl::AlwaysPlain { plain } => f.write_str(plain.as_str())?,
-            SqlColumnTypeDdl::OptionalLength { plain, with_length } => {
-                if let Some(len) = self.field.string_max_length {
-                    write!(f, "{}({})", with_length, len)?;
-                } else {
-                    f.write_str(plain.as_str())?;
-                }
-            }
-        }
+        let rendered = if let Some(len) = self.field.string_max_length {
+            self.sql_type.ddl.rendered_with_length(len)
+        } else {
+            self.sql_type.ddl.rendered()
+        };
+        write!(f, "{}", rendered)?;
 
         if !self.field.is_nullable() && !self.conf.not_null.is_empty() {
             write!(f, " {}", self.conf.not_null)?;
@@ -427,13 +529,13 @@ impl<'a> fmt::Display for ColumnDescription<'a> {
     }
 }
 
-struct TableDescription<'a>(&'a MaterializationTarget<'a>);
+struct TableDescription<'a>(&'a PayloadGenerationParameters<'a>);
 impl<'a> fmt::Display for TableDescription<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Materialization '{}' for Estuary collection '{}', intended for {}",
-            self.0.materialization_name, self.0.collection_name, self.0.target_type
+            "Materialization of Estuary collection '{}', intended for {} target '{}'",
+            self.0.collection_name, self.0.target_type, self.0.target_name
         )
     }
 }
@@ -447,13 +549,14 @@ mod test {
     fn ddl_is_generated_without_any_primary_key() {
         let fields = basic_fields();
         let postgres_conf = SqlMaterializationConfig::postgres();
-        let target = MaterializationTarget {
+        let target = PayloadGenerationParameters {
             collection_name: "my_test/collection",
-            materialization_name: "testMaterialization",
+            target_name: "testMaterialization",
             target_type: "postgres",
             target_uri: "any://test/uri",
             table_name: "test_postgres_table",
             fields: fields.as_slice(),
+            flow_document_field: FieldProjection::flow_document_column(),
         };
 
         let schema = postgres_conf
@@ -468,13 +571,14 @@ mod test {
         fields[0].is_primary_key = true;
         fields[1].is_primary_key = true;
         let postgres_conf = SqlMaterializationConfig::postgres();
-        let target = MaterializationTarget {
+        let target = PayloadGenerationParameters {
             collection_name: "my_test/collection",
-            materialization_name: "testMaterialization",
+            target_name: "testMaterialization",
             target_type: "postgres",
             target_uri: "any://test/uri",
             table_name: "test_postgres_table",
             fields: fields.as_slice(),
+            flow_document_field: FieldProjection::flow_document_column(),
         };
 
         let schema = postgres_conf
@@ -489,13 +593,14 @@ mod test {
         fields[0].is_primary_key = true;
         fields[1].is_primary_key = true;
         let sqlite_conf = SqlMaterializationConfig::sqlite();
-        let target = MaterializationTarget {
+        let target = PayloadGenerationParameters {
             collection_name: "my_test/collection",
-            materialization_name: "testMaterialization",
+            target_name: "testMaterialization",
             target_type: "sqlite",
             target_uri: "any://test/uri",
             table_name: "test_sqlite_table",
             fields: fields.as_slice(),
+            flow_document_field: FieldProjection::flow_document_column(),
         };
 
         let schema = sqlite_conf
@@ -515,13 +620,14 @@ mod test {
         fields[2].types = types::BOOLEAN | types::OBJECT;
         fields[3].types = types::OBJECT | types::INTEGER;
 
-        let target = MaterializationTarget {
+        let target = PayloadGenerationParameters {
             collection_name: "my_test/collection",
-            materialization_name: "testMaterialization",
+            target_name: "testMaterialization",
             target_type: "postgres",
             target_uri: "any://test/uri",
             table_name: "test_postgres_table",
             fields: fields.as_slice(),
+            flow_document_field: FieldProjection::flow_document_column(),
         };
 
         let err = SqlMaterializationConfig::postgres()

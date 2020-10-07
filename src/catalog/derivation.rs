@@ -85,9 +85,12 @@ impl Derivation {
 
     fn register_transform(&self, scope: Scope, name: &str, spec: &specs::Transform) -> Result<()> {
         // Map spec source collection name to its collection ID.
-        let source = scope
-            .push_prop("source")
-            .then(|scope| Ok(Collection::get_by_name(scope, spec.source.name.as_ref())?))?;
+        let source = scope.push_prop("source").then(|scope| {
+            Ok(Collection::get_imported_by_name(
+                scope,
+                spec.source.name.as_ref(),
+            )?)
+        })?;
         // Register optional source schema.
         let schema_url = scope
             .push_prop("source")

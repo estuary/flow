@@ -26,7 +26,7 @@ pub use content_type::ContentType;
 pub use derivation::Derivation;
 pub use error::Error;
 pub use lambda::Lambda;
-pub use materialization::{Materialization, ProjectionsError};
+pub use materialization::MaterializationTarget;
 pub use resource::Resource;
 pub use rusqlite::{params as sql_params, Connection as DB};
 pub use schema::Schema;
@@ -96,7 +96,7 @@ pub fn database_is_built(db: &DB) -> bool {
 
 // Not public; used for testing within sub-modules.
 #[cfg(test)]
-use db::test::{dump_table, dump_tables};
+pub use db::test::{dump_table, dump_tables};
 
 #[cfg(test)]
 mod test {

@@ -61,7 +61,11 @@ func NewMaterializeApp(
 	if err != nil {
 		return nil, err
 	}
-	materializationName, err := shardLabel(shard, labels.Materialization)
+	targetName, err := shardLabel(shard, labels.MaterializationTarget)
+	if err != nil {
+		return nil, err
+	}
+	tableName, err := shardLabel(shard, labels.MaterializationTableName)
 	if err != nil {
 		return nil, err
 	}
@@ -80,10 +84,12 @@ func NewMaterializeApp(
 	if err != nil {
 		return nil, fmt.Errorf("loading collection spec: %w", err)
 	}
-	materializationSpec, err := catalog.LoadMaterialization(collectionName, materializationName)
+	targetSpec, err := catalog.LoadMaterializationTarget(targetName)
 	if err != nil {
 		return nil, fmt.Errorf("loading materialization spec: %w", err)
 	}
+	targetSpec.TableName = tableName
+
 	err = catalog.Close()
 	if err != nil {
 		return nil, fmt.Errorf("closing catalog database: %w", err)
@@ -91,7 +97,7 @@ func NewMaterializeApp(
 
 	// Initialize the Store implementation for the target system. This will actually connect to the
 	// target system and initialize the set of projected fields from data stored there.
-	targetStore, err := materialize.NewMaterializationTarget(materializationSpec)
+	targetStore, err := materialize.NewMaterializationTarget(targetSpec)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to initialize matarialization from target database: %w", err)
 	}
@@ -103,8 +109,8 @@ func NewMaterializeApp(
 			UsesSourceKey: true,
 		},
 		ReaderType:        "materialization",
-		ReaderNames:       []string{collectionName, materializationName},
-		ReaderCatalogDbId: materializationSpec.CatalogDbId,
+		ReaderNames:       []string{collectionName, targetName, tableName},
+		ReaderCatalogDbId: targetSpec.CatalogDbId,
 	}
 	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard, []pf.ReadSpec{readerSpec})
 	if err != nil {
@@ -130,8 +136,9 @@ func NewMaterializeApp(
 		return nil, fmt.Errorf("Failed to initialize materialization document cache: %w", err)
 	}
 	log.WithFields(log.Fields{
-		"collection":      collectionName,
-		"materialization": materializationName,
+		"collection":            collectionName,
+		"materializationTarget": targetName,
+		"tableName":             tableName,
 	}).Info("Successfully initialized materialization")
 
 	return &Materialize{

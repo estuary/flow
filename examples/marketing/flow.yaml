@@ -176,9 +176,3 @@ collections:
                 clicks: Object.values(register.clicks),
               }]
 
-materializations:
-  testPostgres:
-    collection: marketing/purchase-with-offers
-    postgres:
-      uri: "postgresql://dev-postgres.estuary.test:5432/marketing"
-      table: purchases_with_offers

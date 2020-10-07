@@ -197,30 +197,23 @@ END;
 
 -- Materialization targets for a collection
 --
--- :materialization_name:
+-- :target_name:
 --     Human-readable name of the materialization that was provided in the catalog spec
--- :collection_id:
---     Collection that is being materialized
 -- :target_type:
 --     The type of database to materialize into. This must be either 'postgres' or 'sqlite'
 -- :target_uri:
 --     The (database) connection uri provided in the catalog spec
--- :table_name:
---     The name of the table in the target system to materialize to. This may not always be relevant
---     for all types of systems, but for now it's required since we only support sql databases.
-CREATE TABLE materializations
+CREATE TABLE materialization_targets
 (
-    materialization_id INTEGER PRIMARY KEY NOT NULL,
-    materialization_name TEXT NOT NULL,
-    collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
+    target_id INTEGER PRIMARY KEY NOT NULL,
+    target_name TEXT NOT NULL,
     target_type TEXT NOT NULL CONSTRAINT 'target_type must be a recognized type' CHECK(target_type IN ('postgres', 'sqlite')),
     target_uri TEXT NOT NULL,
-    table_name TEXT NOT NULL,
 
-    UNIQUE(collection_id, materialization_name COLLATE NOCASE),
+    UNIQUE (target_name COLLATE NOCASE),
 
-    CONSTRAINT "Materialization name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (
-        materialization_name REGEXP '^[\pL\pN\-_./]+$')
+    CONSTRAINT "Materialization Target name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (
+        target_name REGEXP '^[\pL\pN\-_./]+$')
 );
 
 -- Projections are locations within collection documents which may be projected
