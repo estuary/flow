@@ -1,5 +1,6 @@
 use super::{
-    specs, sql_params, Collection, ContentType, Materialization, Resource, Result, Scope, TestCase,
+    specs, sql_params, Collection, ContentType, MaterializationTarget, Resource, Result, Scope,
+    TestCase,
 };
 use url::Url;
 
@@ -52,11 +53,11 @@ impl Source {
                 .then(|scope| Collection::register(scope, spec))?;
         }
 
-        for (name, materialization) in spec.materializations.iter() {
+        for (name, materialization) in spec.materialization_targets.iter() {
             scope
-                .push_prop("materializations")
+                .push_prop("materializationTargets")
                 .push_prop(name)
-                .then(|scope| Materialization::register(&scope, name, materialization))?;
+                .then(|scope| MaterializationTarget::register(&scope, name, materialization))?;
         }
 
         for (name, spec) in spec.tests.iter() {

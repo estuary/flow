@@ -262,7 +262,8 @@ fn proxy_log(log: &std::io::Result<Log>) {
         }
         Ok(Log::Structured(source, l)) => {
             let lvl = match l.level {
-                LogLevel::Debug | LogLevel::Info => log::Level::Debug,
+                LogLevel::Debug => log::Level::Debug,
+                LogLevel::Info => log::Level::Info,
                 LogLevel::Warning => log::Level::Warn,
                 LogLevel::Error | LogLevel::Fatal => log::Level::Error,
             };

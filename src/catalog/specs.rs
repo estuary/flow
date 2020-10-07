@@ -125,17 +125,14 @@ pub struct Catalog {
     #[serde(default)]
     #[schemars(example = "Catalog::example_collections")]
     pub collections: Vec<Collection>,
-    /// # Materializations defined by this catalog.
-    /// Materializations project a view of the current state into an external system like a
-    /// database or key/value store. These states will be kept up to date automatically as
+    /// MaterializationTargets each represent an external system like a database or key/value store,
+    /// which may be used to materialize views of Flow Collections. These views will be kept up to date automatically as
     /// documents are processed in the collection. The keys used here are arbitrary identifiers
-    /// that will be used to uniquely identify each materialization, and the values are any valid
-    /// Materialization object.
+    /// that will be used to uniquely identify each target system, and the values are any valid
+    /// `MaterializationTarget`, which contains the connection information.
     #[serde(default)]
-    pub materializations: BTreeMap<String, Materialization>,
-    /// # Tests defined by this Catalog.
-    /// Tests are keyed by their test name, and are defined in terms of a series of sequential
-    /// test steps.
+    pub materialization_targets: BTreeMap<String, MaterializationTarget>,
+    // Tests of the catalog, indexed by name.
     #[serde(default)]
     #[schemars(default = "Catalog::default_test")]
     #[schemars(example = "Catalog::example_test")]
@@ -682,22 +679,27 @@ pub struct SqlTargetConnection {
     /// The connection URI for the target database, e.g.
     /// `postgresql://user:password@my-postgres.test:5432/my_database`
     pub uri: String,
-    /// The name of the table to materialize into.
-    pub table: String,
 }
 
 /// A materialization represents the desire to maintain a continuously updated state of the
 /// documents in a collection.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct Materialization {
-    /// The name of the collection to materialize. This must exactly match the name of a collection
-    /// that exists in either in this catalog, or in another catalog imported by this one.
-    pub collection: CollectionName,
-
+#[schemars(example = "MaterializationTarget::example")]
+pub struct MaterializationTarget {
     /// The configuration for this materialization. This is supplied with a key of either
     /// `postgres` or `sqlite`, where the value is an object containing the sql connection info.
     #[serde(flatten)]
     pub config: MaterializationConfig,
+}
+
+impl MaterializationTarget {
+    fn example() -> Self {
+        MaterializationTarget {
+            config: MaterializationConfig::Postgres(SqlTargetConnection {
+                uri: "postgresql://user:pass@localhost:5432/postgres".to_owned(),
+            }),
+        }
+    }
 }
 
 /// Allows for materialization objects to have a different shape depending on the type of the
@@ -726,4 +728,3 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
     }))
     .unwrap()
 }
-

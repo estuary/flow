@@ -75,13 +75,6 @@ collections:
                   last:   tick.last,
               }];
 
-materializations:
-  dailyStatsPostgres:
-    collection: stock/daily-stats
-    postgres:
-      uri: postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      table: daily_stats
-
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around
   # to exercise various code paths. This should be removed and covered by novel tests

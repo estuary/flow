@@ -43,11 +43,11 @@ func TestSqliteMaterialization(t *testing.T) {
 	require.Nil(t, db.Close(), "db error on close")
 
 	materialization := Materialization{
-		CatalogDbId:         1,
-		MaterializationName: "testSqlite",
-		TargetUri:           dbfile,
-		TableName:           "good_table",
-		TargetType:          "sqlite",
+		CatalogDbId: 1,
+		TargetName:  "testSqlite",
+		TargetUri:   dbfile,
+		TableName:   "good_table",
+		TargetType:  "sqlite",
 	}
 	target, err := NewMaterializationTarget(&materialization)
 	if err != nil {
