@@ -190,6 +190,8 @@ github.com/jgraettinger/gazette v0.0.0-20201003003741-f612eb8fec63 h1:1jCMxBI3oc
 github.com/jgraettinger/gazette v0.0.0-20201003003741-f612eb8fec63/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/gazette v0.0.0-20201004020409-20ef9f649ba6 h1:D8WVhE4oHjUF0Mu9CbWHEsw4hF83tlTB/mI2fHBXAXs=
 github.com/jgraettinger/gazette v0.0.0-20201004020409-20ef9f649ba6/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
+github.com/jgraettinger/gazette v0.0.0-20201007030834-388bb8e9c598 h1:6COBhqbJOuAsB1qpld4E/9e86OYfLgdNwFFtZ63wGWo=
+github.com/jgraettinger/gazette v0.0.0-20201007030834-388bb8e9c598/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0 h1:OS12ieG61fsCg5+qLJ+SsW9NicxNkg3b25OyT2yCeUc=
 github.com/jmespath/go-jmespath v0.3.0/go.mod h1:9QtRXoHjLGCJ5IBSaohpXITPlowMeeYCZ7fLUTSywik=
