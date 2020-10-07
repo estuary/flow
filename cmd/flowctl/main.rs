@@ -1,10 +1,12 @@
 use anyhow::{Context, Error};
 use estuary::{catalog, doc, runtime, testing};
+use futures::FutureExt;
 use rusqlite::Connection as DB;
 use std::convert::TryFrom;
 use std::fs;
 use std::path::Path;
 use structopt::StructOpt;
+use tokio::signal::unix;
 
 #[derive(StructOpt, Debug)]
 #[structopt(about = "Command-line interface for working with Estuary Flow projects",
@@ -14,6 +16,8 @@ enum Command {
     Build(BuildArgs),
     /// Shows outputs from a built catalog.
     Show(ShowArgs),
+    /// Run a local development environment for the catalog.
+    Develop(DevelopArgs),
     /// Runs catalog tests.
     Test(TestArgs),
 }
@@ -57,6 +61,13 @@ struct BuildArgs {
 }
 
 #[derive(StructOpt, Debug)]
+struct DevelopArgs {
+    /// Path to input catalog database.
+    #[structopt(long, default_value = "catalog.db")]
+    catalog: String,
+}
+
+#[derive(StructOpt, Debug)]
 struct TestArgs {
     /// Path to input catalog database.
     #[structopt(long, default_value = "catalog.db")]
@@ -73,6 +84,7 @@ async fn main() {
     let result = match args {
         Command::Build(build) => do_build(build),
         Command::Show(show) => do_show(show),
+        Command::Develop(develop) => do_develop(develop).await,
         Command::Test(test) => do_test(test).await,
     };
 
@@ -130,23 +142,56 @@ fn do_show(args: ShowArgs) -> Result<(), Error> {
     Ok(())
 }
 
-async fn do_test(args: TestArgs) -> Result<(), Error> {
-    let db = catalog::open(&args.catalog).context("opening --catalog")?;
-
-    let cluster = runtime::Cluster::new();
-
+async fn install_shards(
+    catalog_path: &str,
+    db: &rusqlite::Connection,
+    cluster: &runtime::Cluster,
+) -> Result<(), Error> {
     // Upsert shards for all derivations.
-    {
-        let shards = cluster.list_shards(None).await?;
-        let mut derivations = runtime::DerivationSet::try_from(shards).unwrap();
-        derivations.update_from_catalog(&db)?;
+    let shards = cluster.list_shards(None).await?;
+    let mut derivations = runtime::DerivationSet::try_from(shards).unwrap();
+    derivations.update_from_catalog(&db)?;
 
-        let apply = derivations.build_recovery_log_apply_request();
-        cluster.apply_journals(apply).await?;
+    let apply = derivations.build_recovery_log_apply_request();
+    cluster.apply_journals(apply).await?;
 
-        let apply = derivations.build_shard_apply_request(&args.catalog);
-        cluster.apply_shards(apply).await?;
-    }
+    let apply = derivations.build_shard_apply_request(&catalog_path);
+    cluster.apply_shards(apply).await?;
+
+    Ok(())
+}
+
+async fn start_local_runtime(
+    catalog_path: &str,
+) -> Result<(runtime::Local, rusqlite::Connection), Error> {
+    let catalog_path = std::fs::canonicalize(&catalog_path).context("opening --catalog")?;
+    let catalog_path = catalog_path.to_string_lossy().to_string();
+    let db = catalog::open(&catalog_path).context("opening --catalog")?;
+
+    let local = runtime::Local::start(8080, 8081, 9000, &catalog_path).await?;
+    install_shards(&catalog_path, &db, &local.cluster)
+        .await
+        .context("failed to install specifications")?;
+
+    Ok((local, db))
+}
+
+async fn do_develop(args: DevelopArgs) -> Result<(), Error> {
+    let mut sigterm = unix::signal(unix::SignalKind::terminate())?;
+    let mut sigint = unix::signal(unix::SignalKind::interrupt())?;
+
+    let (local, _db) = start_local_runtime(&args.catalog).await?;
+
+    futures::select!(
+        _ = sigterm.recv().fuse() => log::info!("caught SIGTERM; stopping"),
+        _ = sigint.recv().fuse() => log::info!("caught SIGINT; stopping"),
+    );
+    local.stop().await.context("failed to stop local runtime")?;
+    Ok(())
+}
+
+async fn do_test(args: TestArgs) -> Result<(), Error> {
+    let (local, db) = start_local_runtime(&args.catalog).await?;
 
     let collections =
         testing::Collection::load_all(&db).context("failed to load catalog collections")?;
@@ -157,7 +202,7 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
     let schema_index = build_schema_index(&db).context("failed to build schema index")?;
 
     let ctx = testing::Context {
-        cluster,
+        cluster: local.cluster.clone(),
         collections,
         collection_dependencies,
         schema_index,
@@ -180,6 +225,8 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
             .await
             .context(format!("test case {} failed", name))?
     }
+
+    local.stop().await.context("failed to stop local runtime")?;
     Ok(())
 }
 

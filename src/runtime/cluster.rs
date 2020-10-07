@@ -19,31 +19,24 @@ pub enum Error {
     ClockDeltasDisagree(u64, u64),
 }
 
+#[derive(Clone)]
 pub struct Cluster {
-    ingest_uri: String,
-    consumer_uri: String,
-    broker_uri: String,
+    pub broker_address: String,
+    pub ingester_address: String,
+    pub consumer_address: String,
 }
 
 // TODO(johnny): Consider this a stub implementation. I expect it to evolve
 // significantly, but am just getting something working right now.
 impl Cluster {
-    pub fn new() -> Cluster {
-        Cluster {
-            ingest_uri: "http://localhost:9010".to_owned(),
-            consumer_uri: "http://localhost:9020".to_owned(),
-            broker_uri: "http://localhost:8080".to_owned(),
-        }
-    }
-
     pub async fn ingest_client(&self) -> Result<IngesterClient<tonic::transport::Channel>, Error> {
-        IngesterClient::connect(self.ingest_uri.clone())
+        IngesterClient::connect(self.ingester_address.clone())
             .await
             .map_err(Into::into)
     }
 
     pub async fn shard_client(&self) -> Result<ShardClient<tonic::transport::Channel>, Error> {
-        ShardClient::connect(self.consumer_uri.clone())
+        ShardClient::connect(self.consumer_address.clone())
             .await
             .map_err(Into::into)
     }
@@ -51,7 +44,10 @@ impl Cluster {
     pub async fn advance_time(&self, req: flow::AdvanceTimeRequest) -> Result<(), Error> {
         let mut last = None;
 
-        for uri in [&self.ingest_uri, &self.consumer_uri].iter().cloned() {
+        for uri in [&self.ingester_address, &self.consumer_address]
+            .iter()
+            .cloned()
+        {
             let mut cli = TestingClient::connect(uri.clone())
                 .await
                 .map_err::<Error, _>(Into::into)?;
@@ -77,7 +73,7 @@ impl Cluster {
         &self,
         req: consumer::StatRequest,
     ) -> Result<consumer::StatResponse, Error> {
-        let mut client = ShardClient::connect(self.consumer_uri.clone()).await?;
+        let mut client = ShardClient::connect(self.consumer_address.clone()).await?;
 
         let request = tonic::Request::new(req);
         let response = client.stat(request).await?;
@@ -97,7 +93,7 @@ impl Cluster {
         &self,
         selector: Option<protocol::LabelSelector>,
     ) -> Result<protocol::ListResponse, Error> {
-        let mut client = JournalClient::connect(self.broker_uri.clone()).await?;
+        let mut client = JournalClient::connect(self.broker_address.clone()).await?;
 
         let request = tonic::Request::new(protocol::ListRequest { selector });
         let response = client.list(request).await?;
@@ -117,7 +113,7 @@ impl Cluster {
         &self,
         request: protocol::ReadRequest,
     ) -> Result<tonic::Streaming<protocol::ReadResponse>, Error> {
-        let mut client = JournalClient::connect(self.broker_uri.clone()).await?;
+        let mut client = JournalClient::connect(self.broker_address.clone()).await?;
 
         let response = client.read(request).await?;
         Ok(response.into_inner())
@@ -127,7 +123,7 @@ impl Cluster {
         &self,
         selector: Option<protocol::LabelSelector>,
     ) -> Result<consumer::ListResponse, Error> {
-        let mut client = ShardClient::connect(self.consumer_uri.clone()).await?;
+        let mut client = ShardClient::connect(self.consumer_address.clone()).await?;
 
         let request = tonic::Request::new(consumer::ListRequest {
             selector,
@@ -150,7 +146,7 @@ impl Cluster {
         &self,
         req: consumer::ApplyRequest,
     ) -> Result<consumer::ApplyResponse, Error> {
-        let mut client = ShardClient::connect(self.consumer_uri.clone()).await?;
+        let mut client = ShardClient::connect(self.consumer_address.clone()).await?;
 
         let request = tonic::Request::new(req);
         let response = client.apply(request).await?;
@@ -161,7 +157,7 @@ impl Cluster {
         &self,
         req: protocol::ApplyRequest,
     ) -> Result<protocol::ApplyResponse, Error> {
-        let mut client = JournalClient::connect(self.broker_uri.clone()).await?;
+        let mut client = JournalClient::connect(self.broker_address.clone()).await?;
 
         let request = tonic::Request::new(req);
         let response = client.apply(request).await?;
