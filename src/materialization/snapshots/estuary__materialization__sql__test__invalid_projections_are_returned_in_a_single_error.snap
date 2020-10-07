@@ -1,5 +1,5 @@
 ---
-source: src/catalog/materialization/sql.rs
+source: src/materialization/sql.rs
 expression: err.to_string()
 ---
 There are projections that are incompatible with the materialization of type 'postgres':

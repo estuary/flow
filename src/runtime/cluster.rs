@@ -149,8 +149,16 @@ impl Cluster {
         let mut client = ShardClient::connect(self.consumer_address.clone()).await?;
 
         let request = tonic::Request::new(req);
-        let response = client.apply(request).await?;
-        Ok(response.into_inner())
+        let response = client.apply(request).await?.into_inner();
+
+        if response.status != consumer::Status::Ok as i32 {
+            Err(Error::NotOK {
+                status: response.status,
+                message: format!("{:?}", response),
+            })
+        } else {
+            Ok(response)
+        }
     }
 
     pub async fn apply_journals(
@@ -160,7 +168,14 @@ impl Cluster {
         let mut client = JournalClient::connect(self.broker_address.clone()).await?;
 
         let request = tonic::Request::new(req);
-        let response = client.apply(request).await?;
-        Ok(response.into_inner())
+        let response = client.apply(request).await?.into_inner();
+        if response.status != consumer::Status::Ok as i32 {
+            Err(Error::NotOK {
+                status: response.status,
+                message: format!("{:?}", response),
+            })
+        } else {
+            Ok(response)
+        }
     }
 }

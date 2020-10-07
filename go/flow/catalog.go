@@ -113,21 +113,20 @@ func (c *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpe
 	return out, nil
 }
 
-func (c *Catalog) LoadMaterialization(collectionName string, materializationName string) (*materialize.Materialization, error) {
+func (c *Catalog) LoadMaterializationTarget(targetName string) (*materialize.Materialization, error) {
 	stmt, err := c.db.Prepare(queryMaterialization)
 	if err != nil {
 		return nil, err
 	}
 
 	materialization := new(materialize.Materialization)
-	materialization.MaterializationName = materializationName
-	row := stmt.QueryRow(collectionName, materializationName)
+	materialization.TargetName = targetName
+	row := stmt.QueryRow(targetName)
 
 	err = row.Scan(
 		&materialization.CatalogDbId,
 		&materialization.TargetUri,
 		&materialization.TargetType,
-		&materialization.TableName,
 	)
 	if err != nil {
 		return nil, err
@@ -137,12 +136,11 @@ func (c *Catalog) LoadMaterialization(collectionName string, materializationName
 
 const queryMaterialization = `
     SELECT
-        materialization_id, target_uri, target_type, table_name
+        target_id, target_uri, target_type
     FROM
-        collections
-        NATURAL JOIN materializations
+        materialization_targets
     WHERE
-        collections.collection_name = ? AND materializations.materialization_name = ?;
+        materialization_targets.target_name = ?;
 `
 
 const selectCollection = `

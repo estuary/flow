@@ -1,4 +1,4 @@
-use crate::catalog;
+use crate::{catalog, label_set, labels::keys as label_keys, labels::values as label_values};
 use estuary_protocol::{consumer, protocol};
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -34,17 +34,9 @@ impl DerivationSet {
             .0
             .iter()
             .map(|(collection, _)| {
-                let labels = Some(protocol::LabelSet {
-                    labels: [
-                        ("app.gazette.dev/managed-by", "estuary.dev/flow"),
-                        ("content-type", "application/x-gazette-recoverylog"),
-                    ]
-                    .iter()
-                    .map(|(n, v)| protocol::Label {
-                        name: (*n).to_owned(),
-                        value: (*v).to_owned(),
-                    })
-                    .collect(),
+                let labels = Some(label_set! {
+                    label_keys::MANAGED_BY => label_values::FLOW,
+                    "content-type" => "application/x-gazette-recoverylog",
                 });
 
                 let fragment = Some(protocol::journal_spec::Fragment {
@@ -80,23 +72,15 @@ impl DerivationSet {
             .0
             .iter()
             .map(|(collection, _)| {
-                let labels = Some(protocol::LabelSet {
-                    labels: [
-                        ("app.gazette.dev/managed-by", "estuary.dev/flow"),
-                        ("estuary.dev/catalog-url", catalog_url),
-                        ("estuary.dev/derivation", collection.as_ref()),
-                        ("estuary.dev/key-begin", "00"),
-                        ("estuary.dev/key-end", "ffffffff"),
-                        ("estuary.dev/rclock-begin", "0000000000000000"),
-                        ("estuary.dev/rclock-end", "ffffffffffffffff"),
-                    ]
-                    .iter()
-                    .map(|(n, v)| protocol::Label {
-                        name: (*n).to_owned(),
-                        value: (*v).to_owned(),
-                    })
-                    .collect(),
-                });
+                let labels = label_set![
+                        label_keys::MANAGED_BY => label_values::FLOW,
+                        label_keys::CATALOG_URL => catalog_url,
+                        label_keys::DERIVATION => collection.as_str(),
+                        label_keys::KEY_BEGIN => "00",
+                        label_keys::KEY_END => "ffffffff",
+                        label_keys::RCLOCK_BEGIN => "0000000000000000",
+                        label_keys::RCLOCK_END => "ffffffffffffffff",
+                ];
 
                 consumer::apply_request::Change {
                     upsert: Some(consumer::ShardSpec {
@@ -113,7 +97,7 @@ impl DerivationSet {
                         disable: false,
                         hot_standbys: 0, // TODO
                         disable_wait_for_ack: false,
-                        labels,
+                        labels: Some(labels),
                     }),
                     expect_mod_revision: -1, // TODO (always update).
                     delete: String::new(),

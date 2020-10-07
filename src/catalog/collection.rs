@@ -1,4 +1,4 @@
-use super::{projections, specs, sql_params, Derivation, Resource, Result, Schema, Scope};
+use super::{projections, specs, sql_params, Derivation, Resource, Result, Schema, Scope, DB};
 
 /// Collection represents a catalog Collection.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -53,23 +53,29 @@ impl Collection {
         Ok(collection)
     }
 
-    /// Returns the collection with the given name, or an error if it doesn't exist
-    pub fn get_by_name(scope: Scope, name: &str) -> Result<Collection> {
-        let (collection_id, resource_id) = scope
-            .db
+    /// Returns the imported collection with the given name, or an error if it doesn't exist. The
+    /// named collection must have been imported (either transitively or directly) by the current
+    /// resource, or else an error will be returned.
+    pub fn get_imported_by_name(scope: Scope, name: &str) -> Result<Collection> {
+        let collection = Collection::get_by_name(scope.db, name)?;
+        // Verify that the catalog spec of the collection is imported by the current scope.
+        Resource::verify_import(scope, collection.resource)?;
+        Ok(collection)
+    }
+
+    /// Returns the collection with the given name, without verifying any imports. Returns an error
+    /// if the collection does not exist.
+    pub fn get_by_name(db: &DB, name: &str) -> Result<Collection> {
+        let (collection_id, resource_id) = db
             .prepare_cached(
                 "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
             )?
             .query_row(&[name], |r| Ok((r.get(0)?, r.get(1)?)))?;
 
-        let collection = Collection {
+        Ok(Collection {
             id: collection_id,
             resource: Resource { id: resource_id },
-        };
-
-        // Verify that the catalog spec of the collection is imported by the current scope.
-        Resource::verify_import(scope, collection.resource)?;
-        Ok(collection)
+        })
     }
 }
 
