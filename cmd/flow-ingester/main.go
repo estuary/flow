@@ -84,6 +84,7 @@ func (cmdServe) Execute(_ []string) error {
 
 	var (
 		etcd     = Config.Etcd.MustDial()
+		spec     = Config.Ingest.BuildProcessSpec(srv)
 		rjc      = Config.Broker.MustRoutedJournalClient(context.Background())
 		tasks    = task.NewGroup(context.Background())
 		signalCh = make(chan os.Signal, 1)
@@ -119,6 +120,12 @@ func (cmdServe) Execute(_ []string) error {
 		}
 		return nil
 	})
+
+	log.WithFields(log.Fields{
+		"zone":     spec.Id.Zone,
+		"id":       spec.Id.Suffix,
+		"endpoint": spec.Endpoint,
+	}).Info("starting flow-ingester")
 
 	// Install signal handler & start broker tasks.
 	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)

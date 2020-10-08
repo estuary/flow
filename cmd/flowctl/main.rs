@@ -162,13 +162,17 @@ async fn install_shards(
 }
 
 async fn start_local_runtime(
+    gazette_port: u16,
+    ingester_port: u16,
+    consumer_port: u16,
     catalog_path: &str,
 ) -> Result<(runtime::Local, rusqlite::Connection), Error> {
     let catalog_path = std::fs::canonicalize(&catalog_path).context("opening --catalog")?;
     let catalog_path = catalog_path.to_string_lossy().to_string();
     let db = catalog::open(&catalog_path).context("opening --catalog")?;
 
-    let local = runtime::Local::start(8080, 8081, 9000, &catalog_path).await?;
+    let local =
+        runtime::Local::start(gazette_port, ingester_port, consumer_port, &catalog_path).await?;
     install_shards(&catalog_path, &db, &local.cluster)
         .await
         .context("failed to install specifications")?;
@@ -180,7 +184,7 @@ async fn do_develop(args: DevelopArgs) -> Result<(), Error> {
     let mut sigterm = unix::signal(unix::SignalKind::terminate())?;
     let mut sigint = unix::signal(unix::SignalKind::interrupt())?;
 
-    let (local, _db) = start_local_runtime(&args.catalog).await?;
+    let (local, _db) = start_local_runtime(8080, 8081, 9000, &args.catalog).await?;
 
     futures::select!(
         _ = sigterm.recv().fuse() => log::info!("caught SIGTERM; stopping"),
@@ -191,7 +195,7 @@ async fn do_develop(args: DevelopArgs) -> Result<(), Error> {
 }
 
 async fn do_test(args: TestArgs) -> Result<(), Error> {
-    let (local, db) = start_local_runtime(&args.catalog).await?;
+    let (local, db) = start_local_runtime(0, 0, 0, &args.catalog).await?;
 
     let collections =
         testing::Collection::load_all(&db).context("failed to load catalog collections")?;
@@ -223,7 +227,7 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
 
         ctx.run_test_case(&steps)
             .await
-            .context(format!("test case {} failed", name))?
+            .context(format!("test case {} failed", name))?;
     }
 
     local.stop().await.context("failed to stop local runtime")?;
