@@ -115,11 +115,11 @@ impl Schema {
             if let Keyword::Application(app, child) = kw {
                 // Add Application keywords to the Scope's Location.
                 let location = app.push_keyword(&scope.location);
-                let scope = Scope {
+                Scope {
                     location: app.push_keyword_target(&location),
                     ..scope
-                };
-                Self::register_alternate_urls(scope, child)?;
+                }
+                .then(|scope| Self::register_alternate_urls(scope, child))?;
             }
         }
         Ok(())
@@ -131,20 +131,22 @@ impl Schema {
             if let Keyword::Application(app, child) = kw {
                 // Add Application keywords to the Scope's Location.
                 let location = app.push_keyword(&scope.location);
-                let scope = Scope {
+                Scope {
                     location: app.push_keyword_target(&location),
                     ..scope
-                };
-                // "Ref" applications indirect to a canonical schema URI which may
-                // be in this document or another, and often include a fragment
-                // component bearing a JSON-pointer into the document. We strip the
-                // fragment here, since we're registering with whole-document granularity.
-                if let Application::Ref(uri) = app {
-                    let refed = Self::register_url(scope, uri)?;
-                    Resource::register_import(scope, refed.resource)?;
                 }
-                // Recurse to sub-schemas.
-                Self::register_references(scope, child)?;
+                .then(|scope| {
+                    // "Ref" applications indirect to a canonical schema URI which may
+                    // be in this document or another, and often include a fragment
+                    // component bearing a JSON-pointer into the document. We strip the
+                    // fragment here, since we're registering with whole-document granularity.
+                    if let Application::Ref(uri) = app {
+                        let refed = Self::register_url(scope, uri)?;
+                        Resource::register_import(scope, refed.resource)?;
+                    }
+                    // Recurse to sub-schemas.
+                    Self::register_references(scope, child)
+                })?;
             }
         }
         Ok(())

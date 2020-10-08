@@ -6,10 +6,22 @@ use itertools::Itertools;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("at {loc}:\n{detail}")]
-    At { loc: String, detail: Box<Error> },
+    #[error("at {loc}")]
+    At {
+        loc: String,
+        #[source]
+        detail: Box<Error>,
+    },
+    #[error("failed to fetch resource {url}")]
+    Fetch {
+        url: url::Url,
+        #[source]
+        detail: Box<Error>,
+    },
+    #[error("don't know how to fetch this resource URI")]
+    FetchNotSupported,
 
-    #[error("IO error: {0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("joining '{relative}' with base URL '{base}': {detail}")]
     URLJoinErr {
@@ -27,8 +39,6 @@ pub enum Error {
     JSONErr(#[from] serde_json::Error),
     #[error("catalog database error: {0}")]
     SQLiteErr(#[from] rusqlite::Error),
-    #[error("cannot fetch resource URI: {0}")]
-    FetchNotSupported(url::Url),
     #[error(
         "{source_uri:?} references {import_uri:?} without directly or indirectly importing it"
     )]

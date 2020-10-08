@@ -73,20 +73,23 @@ impl Resource {
         if let Some(resource) = Resource::get_by_url(db, ct, url)? {
             return Ok(resource);
         }
-        // Fetch content.
-        log::info!("fetching resource {:?}", url);
-
-        let content = match url.scheme() {
-            "file" => {
-                let path = url
-                    .to_file_path()
-                    .map_err(|_| Error::FetchNotSupported(url.clone()))?;
-                std::fs::read(path)?
-            }
-            "http" | "https" => reqwest::blocking::get(url.as_str())?.bytes()?.to_vec(),
-            _ => return Err(Error::FetchNotSupported(url.clone())),
-        };
+        let content = Self::fetch(url).map_err(|e| Error::Fetch {
+            url: url.clone(),
+            detail: Box::new(e),
+        })?;
         Resource::register_content_unchecked(db, ct, url, content.as_slice())
+    }
+
+    fn fetch(url: &Url) -> Result<Vec<u8>> {
+        log::info!("fetching resource {:?}", url);
+        match url.scheme() {
+            "file" => {
+                let path = url.to_file_path().map_err(|_| Error::FetchNotSupported)?;
+                Ok(std::fs::read(path)?)
+            }
+            "http" | "https" => Ok(reqwest::blocking::get(url.as_str())?.bytes()?.to_vec()),
+            _ => Err(Error::FetchNotSupported),
+        }
     }
 
     /// Register an alternate URL under which this Resource may be accessed.
