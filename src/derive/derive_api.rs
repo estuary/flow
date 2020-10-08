@@ -195,7 +195,7 @@ fn collect_rows(
             }
         });
 
-        for (row, doc_index) in rows.into_iter().zip(doc_index) {
+        for (row, doc_index) in rows.zip(doc_index) {
             out[doc_index] = row?;
         }
     }
