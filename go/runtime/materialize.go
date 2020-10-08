@@ -193,7 +193,7 @@ func (self *Materialize) BeginTxn(shard consumer.Shard) error {
 		return err
 	}
 
-	combine, err := flow.NewCombine(shard.Context(), self.delegate.Conn, self.collectionSpec)
+	combine, err := flow.NewCombine(shard.Context(), pf.NewCombineClient(self.delegate.Conn), self.collectionSpec)
 	if err != nil {
 		return err
 	}
@@ -281,12 +281,10 @@ func (self *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publishe
 		"observedDocuments": totalDocuments,
 	}).Debug("on FinalizeTxn")
 
-	err := self.transacton.combine.Flush()
-	if err != nil {
+	if err := self.transacton.combine.CloseSend(); err != nil {
 		return fmt.Errorf("Failed to flush Combine RPC: %w", err)
 	}
-	err = self.transacton.combine.Finish(self.updateDatabase)
-	return err
+	return self.transacton.combine.Finish(self.updateDatabase)
 }
 
 func (self *Materialize) FinishedTxn(shard consumer.Shard, _ consumer.OpFuture) {
@@ -296,12 +294,12 @@ func (self *Materialize) FinishedTxn(shard consumer.Shard, _ consumer.OpFuture) 
 	self.transacton = nil
 }
 
-func (self *Materialize) StartReadingMessages(shard consumer.Shard, checkpoint pc.Checkpoint, channel chan<- consumer.EnvelopeOrError) {
+func (self *Materialize) StartReadingMessages(shard consumer.Shard, checkpoint pc.Checkpoint, tp *flow.Timepoint, channel chan<- consumer.EnvelopeOrError) {
 	log.WithFields(log.Fields{
 		"shard":      shard.Spec().Labels,
 		"checkpoint": checkpoint,
 	}).Debug("Starting to Read Messages")
-	shuffle.StartReadingMessages(shard.Context(), self.readBuilder, checkpoint, channel)
+	shuffle.StartReadingMessages(shard.Context(), self.readBuilder, checkpoint, tp, channel)
 }
 
 // ReadThrough delegates to shuffle.ReadThrough
