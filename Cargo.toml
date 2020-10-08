@@ -66,6 +66,7 @@ mime = "0.3"
 async-trait = "0.1"
 prost-types = "0.6"
 percent-encoding = "2.1.0"
+libc = "^0.2"
 
 [dev-dependencies]
 insta = "^0.16"

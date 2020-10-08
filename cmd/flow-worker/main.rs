@@ -67,6 +67,12 @@ async fn main() {
     pretty_env_logger::init();
     let cmd = Command::from_args();
 
+    // Register to receive a SIGTERM upon the death of our process parent.
+    #[cfg(target_os = "linux")] // This is a Linux-only API.
+    unsafe {
+        libc::prctl(libc::PR_SET_PDEATHSIG, SignalKind::terminate());
+    }
+
     let result = match cmd {
         Command::Extract(cmd) => cmd.run().await,
         Command::Combine(cmd) => cmd.run().await,
