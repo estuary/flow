@@ -1,0 +1,505 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Estuary Flow Catalog",
+  "description": "Each catalog source defines a portion of a Flow Catalog, by defining collections, derivations, tests, and materializations of the Catalog. Catalog sources may reference and import other sources, in order to collections and other entities that source defines.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "JSON-Schema against which the Catalog is validated.",
+      "default": null,
+      "type": "string"
+    },
+    "collections": {
+      "title": "Collections defined by this Catalog.",
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Collection"
+      }
+    },
+    "import": {
+      "title": "Import other Flow catalog sources.",
+      "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "materializations": {
+      "title": "Materializations defined by this catalog.",
+      "description": "Materializations project a view of the current state into an external system like a database or key/value store. These states will be kept up to date automatically as documents are processed in the collection. The keys used here are arbitrary identifiers that will be used to uniquely identify each materialization, and the values are any valid Materialization object.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Materialization"
+      }
+    },
+    "nodeDependencies": {
+      "title": "NPM package dependencies of the Catalog.",
+      "description": "Dependencies are included when building the catalog's build NodeJS package, as {\"package-name\": \"version\"}. I.e. {\"moment\": \"^2.24\"}.\n\nVersion strings can take any form understood by NPM. See https://docs.npmjs.com/files/package.json#dependencies",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tests": {
+      "title": "Tests defined by this Catalog.",
+      "description": "Tests are keyed by their test name, and are defined in terms of a series of sequential test steps.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/TestStep"
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Collection": {
+      "description": "Collection specifies an Estuary document Collection.",
+      "type": "object",
+      "required": [
+        "key",
+        "name",
+        "schema"
+      ],
+      "properties": {
+        "derivation": {
+          "description": "A derivation specifies how this collection is derived from other collections (as opposed to being a captured collection into which documents are directly written).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Derivation"
+            }
+          ]
+        },
+        "key": {
+          "description": "Composite key of this Collection, as an array of JSON-Pointers.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "Canonical name of this Collection. I.e. \"marketing/campaigns\".",
+          "type": "string"
+        },
+        "projections": {
+          "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.\n\nThe value of `projections` is expected to be an object where each key is the desired field name, and the value can be either a string JSON Pointer or a projection object. For example, both of the following forms are valid:\n\n```yaml projections: my_simple_field: '/pointer/to/my_simple_field' my_partition_field: # partition is false by default partition: true location: '/pointer/to/my_partition_field' ```",
+          "default": {},
+          "allOf": [
+            {
+              "$ref": "#/definitions/Projections"
+            }
+          ]
+        },
+        "schema": {
+          "description": "This collections JSON-Schema, which all documents must validate against. The schema may be provided as a relative or absolute URL, or written inline. I.e, \"schemas/marketing.yaml#/$defs/campaign\" would reference the schema at location {\"$defs\": {\"campaign\": ...}} within ./schemas/marketing.yaml.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Schema"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Derivation": {
+      "type": "object",
+      "required": [
+        "transform"
+      ],
+      "properties": {
+        "bootstrap": {
+          "description": "Lambdas to invoke when an instance of a distributed processor is started, and before any messages are processed. This is an opportunity to initialize SQL tables or other state. Note that bootstrap lambdas will be invoked for each processor, every time that processor is re-assigned to a new host (which may happen at any time).",
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Lambda"
+          }
+        },
+        "register": {
+          "description": "A derivation \"register\" is an place to store arbitrary internal state which is shared between transforms of the derivation, and available to lambdas alongside the source document which is being processed. Derivations may have an arbitrary number of registers, where each register is keyed on the shuffle ID of the source document.",
+          "default": {
+            "initial": null,
+            "schema": true
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/Register"
+            }
+          ]
+        },
+        "transform": {
+          "description": "Transforms of source collections which produce the derived collection.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Transform"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "FullProjection": {
+      "description": "A Projection is a named location within a document.",
+      "type": "object",
+      "required": [
+        "location"
+      ],
+      "properties": {
+        "location": {
+          "description": "Location of the projected field within the document, as a JSON-Pointer.",
+          "type": "string"
+        },
+        "partition": {
+          "description": "Is this projection a logical partition?",
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Lambda": {
+      "anyOf": [
+        {
+          "description": "Typescript / JavaScript expression.",
+          "type": "object",
+          "required": [
+            "nodeJS"
+          ],
+          "properties": {
+            "nodeJS": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "SQLite lambda expression.",
+          "type": "object",
+          "required": [
+            "sqlite"
+          ],
+          "properties": {
+            "sqlite": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Relative URL of a file which contains a SQLite lambda expression.",
+          "type": "object",
+          "required": [
+            "sqliteFile"
+          ],
+          "properties": {
+            "sqliteFile": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Remote endpoint URL of a compatible lambda function.",
+          "type": "object",
+          "required": [
+            "remote"
+          ],
+          "properties": {
+            "remote": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "Materialization": {
+      "description": "A materialization represents the deisre to maintain a continuously updated state of the documents in a collection.",
+      "type": "object",
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "postgres"
+          ],
+          "properties": {
+            "postgres": {
+              "$ref": "#/definitions/SqlTargetConnection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "sqlite"
+          ],
+          "properties": {
+            "sqlite": {
+              "$ref": "#/definitions/SqlTargetConnection"
+            }
+          }
+        }
+      ],
+      "required": [
+        "collection"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection to materialize. This must exactly match the name of a collection that exists in either in this catalog, or in another catalog imported by this one.",
+          "type": "string"
+        }
+      }
+    },
+    "PartitionSelector": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "description": "Partition field names and values which are excluded from the source collection. Any documents matching *any one* of the partition values will be excluded.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": true
+          }
+        },
+        "include": {
+          "description": "Partition field names and corresponding values which must be matched from the Source collection. Only documents having one of the specified values across all specified partition names will be matched. For example, source: [App, Web] region: [APAC] would mean only documents of 'App' or 'Web' source and also occurring in the 'APAC' region will be processed.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Projection": {
+      "description": "A projection representation that allows projections to be specified either as a simple JSON Pointer, or as an object with separate properties for `loction` and `partition`.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/FullProjection"
+        }
+      ]
+    },
+    "Projections": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Projection"
+      }
+    },
+    "Register": {
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "properties": {
+        "initial": {
+          "description": "The initial value of a register which hasn't been written to yet. If not specified, the default is \"null\".",
+          "default": null
+        },
+        "schema": {
+          "description": "The schema of this register, which all register instances must validate against. Reduction annotations from the schema are used to reduce registers into a single, current value for each key.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Schema"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Schema": {
+      "description": "Used for collection schemas and transform source schemas, to allow flexibility in how they can be represented. The main distinction we're concerned with is whether the schema is provided inline or as a URI pointing to an external schema resource.",
+      "anyOf": [
+        {
+          "description": "Schema was provided as a URI that is expected to resolve to a JSON schema.",
+          "type": "string"
+        },
+        {
+          "description": "Schema provided directly inline as a JSON object.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        {
+          "description": "Schema provided directly inline as a boolean. This is only ever really useful if the value is the literal `true`, which permits all JSON data. A value of `false` would reject all data.",
+          "type": "boolean"
+        }
+      ]
+    },
+    "Source": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "description": "Name of the source collection.",
+          "type": "string"
+        },
+        "partitions": {
+          "description": "Partition selector over partitions of the source collection to be read.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/PartitionSelector"
+            }
+          ]
+        },
+        "schema": {
+          "description": "Optional JSON-Schema to validate against the source collection. All data in the source collection is already validated against the schema of that collection, so providing a schema here is only used for _additional_ validation beyond that. This is useful in building \"Extract Load Transform\" patterns, where a collection is captured with minimal schema applied (perhaps because it comes from an uncontrolled third party), and is then progressively verified as collections are derived. If None, the principal schema of the collection is used instead.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/Schema"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SqlTargetConnection": {
+      "type": "object",
+      "required": [
+        "table",
+        "uri"
+      ],
+      "properties": {
+        "table": {
+          "description": "The name of the table to materialize into.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "The connection URI for the target database, e.g. `postgresql://user:password@my-postgres.test:5432/my_database`",
+          "type": "string"
+        }
+      }
+    },
+    "TestStep": {
+      "anyOf": [
+        {
+          "description": "Ingest document fixtures into a collection.",
+          "type": "object",
+          "required": [
+            "ingest"
+          ],
+          "properties": {
+            "ingest": {
+              "$ref": "#/definitions/TestStepIngest"
+            }
+          }
+        },
+        {
+          "description": "Verify the contents of a collection match a set of document fixtures.",
+          "type": "object",
+          "required": [
+            "verify"
+          ],
+          "properties": {
+            "verify": {
+              "$ref": "#/definitions/TestStepVerify"
+            }
+          }
+        }
+      ]
+    },
+    "TestStepIngest": {
+      "type": "object",
+      "required": [
+        "collection",
+        "documents"
+      ],
+      "properties": {
+        "collection": {
+          "description": "Name of the collection into which the test will ingest.",
+          "type": "string"
+        },
+        "documents": {
+          "description": "Documents to ingest.",
+          "type": "array",
+          "items": true
+        }
+      }
+    },
+    "TestStepVerify": {
+      "type": "object",
+      "required": [
+        "collection",
+        "documents"
+      ],
+      "properties": {
+        "collection": {
+          "description": "Name of the collection into which the test will ingest.",
+          "type": "string"
+        },
+        "documents": {
+          "description": "Documents to ingest.",
+          "type": "array",
+          "items": true
+        },
+        "partitions": {
+          "description": "Partition selector over partitions of the collection to verify against.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/PartitionSelector"
+            }
+          ]
+        }
+      }
+    },
+    "Transform": {
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "publish": {
+          "description": "A \"publish\" lambda takes a source document and associated register, and produces or more documents to be published into the derived collection. If the transform has both \"update\" and \"publish\" lambdas, the \"update\" lambda is run first, its output is reduced into the register, and then the \"publish\" lambda is invoked with the result.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/Lambda"
+            }
+          ]
+        },
+        "readDelay": {
+          "description": "Delay applied to documents read by this transform. Delays are applied as an adjustment to the UUID clock encoded within each document, which is then used to impose a relative ordering of all documents read by this derivation. This means that read delays are applied in a consistent way, even when back-filling over historical documents. When caught up and tailing the source collection, delays also \"gate\" documents such that they aren't processed until the current wall-time reflects the delay.",
+          "default": null,
+          "type": "string",
+          "pattern": "\\d+(s|m|h)"
+        },
+        "shuffle": {
+          "description": "Shuffle key by which source collection messages are mapped to a derivation register, as an array of JSON-Pointers. If empty, the key of the source collection is used.",
+          "default": null,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "Source collection read by this transform.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Source"
+            }
+          ]
+        },
+        "update": {
+          "description": "An \"update\" lambda takes a source document and associated register, produces documents to be reduced back into the register according to its schema.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/Lambda"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,27 +1,38 @@
+use schemars::{schema, JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-/// Catalog is a YAML specification against which Estuary catalog input files are parsed.
-#[derive(Serialize, Deserialize, Debug)]
+/// # Estuary Flow Catalog
+/// Each catalog source defines a portion of a Flow Catalog, by defining
+/// collections, derivations, tests, and materializations of the Catalog.
+/// Catalog sources may reference and import other sources, in order to
+/// collections and other entities that source defines.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Catalog {
-    /// Additional Estuary inputs which should be processed.
-    /// Derived collections must import the catalog sources of all source
-    /// collections they reference.
+    /// JSON-Schema against which the Catalog is validated.
+    #[serde(default, rename = "$schema")]
+    pub _schema: Option<String>,
+    /// # Import other Flow catalog sources.
+    /// By importing another Flow catalog source, the collections, schemas, and derivations
+    /// it defines become usable within this Catalog source. Each import is an absolute URI,
+    /// or a URI which is relative to this source location.
     #[serde(default)]
     pub import: Vec<String>,
-    /// Dependencies to include when building the catalog's build NodeJS
+    /// # NPM package dependencies of the Catalog.
+    /// Dependencies are included when building the catalog's build NodeJS
     /// package, as {"package-name": "version"}. I.e. {"moment": "^2.24"}.
     ///
-    /// Version strings can take any form understood by NodeJS.
+    /// Version strings can take any form understood by NPM.
     /// See https://docs.npmjs.com/files/package.json#dependencies
     #[serde(default)]
     pub node_dependencies: BTreeMap<String, String>,
-    /// Definitions of captured and derived collections.
+    /// # Collections defined by this Catalog.
     #[serde(default)]
     pub collections: Vec<Collection>,
+    /// # Materializations defined by this catalog.
     /// Materializations project a view of the current state into an external system like a
     /// database or key/value store. These states will be kept up to date automatically as
     /// documents are processed in the collection. The keys used here are arbitrary identifiers
@@ -29,13 +40,15 @@ pub struct Catalog {
     /// Materialization object.
     #[serde(default)]
     pub materializations: BTreeMap<String, Materialization>,
-    // Tests of the catalog, indexed by name.
+    /// # Tests defined by this Catalog.
+    /// Tests are keyed by their test name, and are defined in terms of a series of sequential
+    /// test steps.
     #[serde(default)]
     pub tests: BTreeMap<String, Vec<TestStep>>,
 }
 
 /// Collection specifies an Estuary document Collection.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Collection {
     /// Canonical name of this Collection. I.e. "marketing/campaigns".
@@ -71,7 +84,7 @@ pub struct Collection {
     pub derivation: Option<Derivation>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, JsonSchema)]
 pub struct Projections(BTreeMap<String, Projection>);
 
 impl Projections {
@@ -86,7 +99,7 @@ impl Projections {
 
 /// A projection representation that allows projections to be specified either as a simple JSON Pointer,
 /// or as an object with separate properties for `loction` and `partition`.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 pub enum Projection {
     SimpleLocation(String),
@@ -109,7 +122,7 @@ impl Projection {
 }
 
 /// A Projection is a named location within a document.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct FullProjection {
     /// Location of the projected field within the document, as a JSON-Pointer.
@@ -132,7 +145,7 @@ pub struct ProjectionSpec<'a> {
     pub partition: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Register {
     /// The schema of this register, which all register instances must validate against.
@@ -158,7 +171,7 @@ impl Default for Register {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Derivation {
     /// A derivation "register" is an place to store arbitrary internal state
@@ -179,7 +192,7 @@ pub struct Derivation {
     pub transform: BTreeMap<String, Transform>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum Lambda {
     /// Typescript / JavaScript expression.
@@ -192,7 +205,7 @@ pub enum Lambda {
     Remote(String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Transform {
     /// Source collection read by this transform.
@@ -205,6 +218,7 @@ pub struct Transform {
     /// tailing the source collection, delays also "gate" documents such that
     /// they aren't processed until the current wall-time reflects the delay.
     #[serde(default, with = "humantime_serde")]
+    #[schemars(schema_with = "duration_schema")]
     pub read_delay: Option<Duration>,
     /// Shuffle key by which source collection messages are mapped to a
     /// derivation register, as an array of JSON-Pointers. If empty, the key of
@@ -227,7 +241,7 @@ pub struct Transform {
     pub publish: Option<Lambda>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Source {
     /// Name of the source collection.
@@ -247,7 +261,7 @@ pub struct Source {
     pub partitions: Option<PartitionSelector>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PartitionSelector {
     /// Partition field names and corresponding values which must be matched
@@ -269,7 +283,7 @@ pub struct PartitionSelector {
 /// Used for collection schemas and transform source schemas, to allow flexibility in how they can
 /// be represented. The main distinction we're concerned with is whether the schema is provided
 /// inline or as a URI pointing to an external schema resource.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum Schema {
     /// Schema was provided as a URI that is expected to resolve to a JSON schema.
@@ -282,7 +296,7 @@ pub enum Schema {
     Bool(bool),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum TestStep {
     /// Ingest document fixtures into a collection.
@@ -291,7 +305,7 @@ pub enum TestStep {
     Verify(TestStepVerify),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TestStepIngest {
     /// Name of the collection into which the test will ingest.
@@ -300,7 +314,7 @@ pub struct TestStepIngest {
     pub documents: Vec<Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TestStepVerify {
     /// Name of the collection into which the test will ingest.
@@ -312,7 +326,7 @@ pub struct TestStepVerify {
     pub partitions: Option<PartitionSelector>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct SqlTargetConnection {
     /// The connection URI for the target database, e.g.
     /// `postgresql://user:password@my-postgres.test:5432/my_database`
@@ -323,7 +337,7 @@ pub struct SqlTargetConnection {
 
 /// A materialization represents the deisre to maintain a continuously updated state of the
 /// documents in a collection.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Materialization {
     /// The name of the collection to materialize. This must exactly match the name of a collection
     /// that exists in either in this catalog, or in another catalog imported by this one.
@@ -338,9 +352,22 @@ pub struct Materialization {
 /// Allows for materialization objects to have a different shape depending on the type of the
 /// target system. Currently, both postgresql and sqlite use the same configuration parameters, but
 /// in the future we may support materialization targets that require different fields.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationConfig {
     Postgres(SqlTargetConnection),
     Sqlite(SqlTargetConnection),
+}
+
+fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
+    schema::Schema::Object(schema::SchemaObject {
+        string: Some(Box::new(schema::StringValidation {
+            pattern: Some("\\d+(s|m|h)".to_owned()),
+            ..Default::default()
+        })),
+        instance_type: Some(schema::SingleOrVec::Single(Box::new(
+            schema::InstanceType::String,
+        ))),
+        ..Default::default()
+    })
 }
