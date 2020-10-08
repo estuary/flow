@@ -4,5 +4,10 @@
         "**/.build-ci/**": true,
         "**/target/**": true
     },
-    "restructuredtext.confPath": ""
+    "yaml.schemas": {
+        "https://json-schema.org/draft/2019-09/schema": [
+            "schema.yaml",
+            "*.schema.yaml"
+        ]
+    }
 }

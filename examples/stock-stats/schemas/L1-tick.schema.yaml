@@ -5,7 +5,7 @@ type: object
 
 properties:
   exchange:
-    $ref: exchange.yaml
+    $ref: exchange.schema.yaml
   security:
     $ref: "#/$defs/security"
   time: { type: string, format: date-time }

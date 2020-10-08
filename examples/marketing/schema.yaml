@@ -3,35 +3,35 @@ $defs:
     description: Configuration of a marketing campaign.
     type: object
     properties:
-      campaign_id: {type: integer}
+      campaign_id: { type: integer }
     required: [campaign_id]
 
   view:
     description: Event which captures a user's view of a marketing offer.
     type: object
     properties:
-      campaign_id: {type: integer}
-      timestamp: {type: string, format: date-time}
-      user_id: {type: string, format: uuid}
-      view_id: {type: string, format: uuid}
+      campaign_id: { type: integer }
+      timestamp: { type: string, format: date-time }
+      user_id: { type: string, format: uuid }
+      view_id: { type: string, format: uuid }
     required: [campaign_id, timestamp, user_id, view_id]
 
   click:
     description: Event which captures a user's click of a marketing offer.
     type: object
     properties:
-      click_id: {type: string, format: uuid}
-      timestamp: {type: string, format: date-time}
-      user_id: {type: string, format: uuid}
-      view_id: {type: string, format: uuid}
+      click_id: { type: string, format: uuid }
+      timestamp: { type: string, format: date-time }
+      user_id: { type: string, format: uuid }
+      view_id: { type: string, format: uuid }
     required: [click_id, timestamp, user_id, view_id]
 
   purchase:
     description: Event which captures a user's purchase of a product.
     type: object
     properties:
-      purchase_id: {type: integer}
-      user_id: {type: string, format: uuid}
+      purchase_id: { type: integer }
+      user_id: { type: string, format: uuid }
     required: [purchase_id, user_id]
 
   view-with-campaign:
@@ -53,4 +53,3 @@ $defs:
           - $ref: "#/$defs/view-with-campaign"
           - const: null
     required: [view]
-

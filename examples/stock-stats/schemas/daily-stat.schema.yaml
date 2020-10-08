@@ -7,8 +7,8 @@ required: [exchange, security, date]
 
 properties:
   # Grouped dimensions of the record.
-  exchange: { $ref: exchange.yaml }
-  security: { $ref: L1-tick.yaml#/$defs/security }
+  exchange: { $ref: exchange.schema.yaml }
+  security: { $ref: L1-tick.schema.yaml#/$defs/security }
   date:
     type: string
     format: date
@@ -29,34 +29,33 @@ properties:
   volume:
     description: Total number of shares transacted.
     type: integer
-    reduce: {strategy: sum}
+    reduce: { strategy: sum }
   first:
     description: First trade of the day.
-    $ref: L1-tick.yaml#/$defs/priceAndSize
-    reduce: {strategy: firstWriteWins}
+    $ref: L1-tick.schema.yaml#/$defs/priceAndSize
+    reduce: { strategy: firstWriteWins }
   last:
     description: Last trade of the day.
-    $ref: L1-tick.yaml#/$defs/priceAndSize
-    reduce: {strategy: lastWriteWins}
+    $ref: L1-tick.schema.yaml#/$defs/priceAndSize
+    reduce: { strategy: lastWriteWins }
 
 $defs:
   priceStats:
     type: object
-    reduce: {strategy: merge}
+    reduce: { strategy: merge }
 
     properties:
       low:
         type: number
-        reduce: {strategy: minimize}
+        reduce: { strategy: minimize }
       high:
         type: number
-        reduce: {strategy: maximize}
+        reduce: { strategy: maximize }
       avgN:
         description: Numerator of average.
         type: number
-        reduce: {strategy: sum}
+        reduce: { strategy: sum }
       avgD:
         description: Denominator of average.
         type: number
-        reduce: {strategy: sum}
-
+        reduce: { strategy: sum }

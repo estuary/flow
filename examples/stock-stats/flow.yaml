@@ -3,7 +3,7 @@ nodeDependencies:
 
 collections:
   - name: stock/ticks
-    schema: schemas/L1-tick.yaml
+    schema: schemas/L1-tick.schema.yaml
     key: [/security, /time]
 
     projections:
@@ -13,7 +13,7 @@ collections:
       the_bid_price: /bid/price
 
   - name: stock/daily-stats
-    schema: schemas/daily-stat.yaml
+    schema: schemas/daily-stat.schema.yaml
     key: [/security, /date]
 
     projections:
@@ -29,7 +29,7 @@ collections:
         fromTicks:
           source:
             name: stock/ticks
-            schema: "schemas/L1-tick.yaml#/$defs/withRequired"
+            schema: "schemas/L1-tick.schema.yaml#/$defs/withRequired"
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
 
           # readDelay that's temporarily set on this transform just to have one,

@@ -8,7 +8,7 @@ fn test_examples() {
     pretty_env_logger::init();
 
     let root_dir = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
-    let catalog_path = root_dir.join("examples/catalog.yaml");
+    let catalog_path = root_dir.join("examples/flow.yaml");
     let nodejs_dir = root_dir.join("target/nodejs/");
 
     let db = catalog::create(":memory:").unwrap();
