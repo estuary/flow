@@ -1,4 +1,0 @@
-import:
-  - marketing/catalog.yaml
-  - stock-stats/catalog.yaml
-  - int-string.yaml

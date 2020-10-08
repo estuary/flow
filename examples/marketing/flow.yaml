@@ -3,30 +3,30 @@ nodeDependencies:
 
 collections:
   - name: marketing/campaigns
-    schema: schemas.yaml#/$defs/campaign
+    schema: schema.yaml#/$defs/campaign
     key: [/campaign_id]
 
   - name: marketing/offer/views
-    schema: schemas.yaml#/$defs/view
+    schema: schema.yaml#/$defs/view
     key: [/view_id]
 
   - name: marketing/offer/clicks
-    schema: schemas.yaml#/$defs/click
+    schema: schema.yaml#/$defs/click
     key: [/click_id]
 
   - name: marketing/purchases
-    schema: schemas.yaml#/$defs/purchase
+    schema: schema.yaml#/$defs/purchase
     key: [/purchase_id]
 
   - name: marketing/views-with-campaign
-    schema: schemas.yaml#/$defs/view-with-campaign
+    schema: schema.yaml#/$defs/view-with-campaign
     key: [/view_id]
 
     derivation:
       register:
         schema:
           oneOf:
-            - $ref: schemas.yaml#/$defs/campaign
+            - $ref: schema.yaml#/$defs/campaign
             - const: null
       transform:
         indexCampaigns:
@@ -49,14 +49,14 @@ collections:
             nodeJS: "return [{ ...source, campaign: register }];"
 
   - name: marketing/clicks-with-views
-    schema: schemas.yaml#/$defs/click-with-view
+    schema: schema.yaml#/$defs/click-with-view
     key: [/click_id]
 
     derivation:
       register:
         schema:
           oneOf:
-            - $ref: schemas.yaml#/$defs/view-with-campaign
+            - $ref: schema.yaml#/$defs/view-with-campaign
             - const: null
       transform:
         # Index each view with a 2-day TTL relative to the view's timestamp.
@@ -77,16 +77,16 @@ collections:
     # Example of using inline schemas, which can reference external schemas.
     schema:
       description: Purchase event joined with prior offer views and clicks.
-      $ref: "schemas.yaml#/$defs/purchase"
+      $ref: "schema.yaml#/$defs/purchase"
       properties:
         views:
           type: array
           items:
-            $ref: "schemas.yaml#/$defs/view-with-campaign"
+            $ref: "schema.yaml#/$defs/view-with-campaign"
         clicks:
           type: array
           items:
-            $ref: "schemas.yaml#/$defs/click-with-view"
+            $ref: "schema.yaml#/$defs/click-with-view"
       required: [views, clicks]
     key: [/purchase_id]
     projections:
@@ -120,12 +120,12 @@ collections:
               allOf:
                 - $ref: "#/$defs/boundedTimestampMap"
                 - additionalProperties:
-                    $ref: schemas.yaml#/$defs/view-with-campaign
+                    $ref: schema.yaml#/$defs/view-with-campaign
             clicks:
               allOf:
                 - $ref: "#/$defs/boundedTimestampMap"
                 - additionalProperties:
-                    $ref: schemas.yaml#/$defs/click-with-view
+                    $ref: schema.yaml#/$defs/click-with-view
           required: ["views", "clicks"]
           #expiration:
           #  # Retain for 30 days after the last observation of the user.
