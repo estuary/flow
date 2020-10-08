@@ -142,8 +142,8 @@ mod test {
     };
 
     #[test]
-    fn test_scope_errors() -> Result<()> {
-        let db = create(":memory:")?;
+    fn test_scope_errors() {
+        let db = create(":memory:").unwrap();
 
         db.execute(
             "INSERT INTO resources
@@ -151,13 +151,15 @@ mod test {
             (10, 'application/schema+yaml', 'doc-a', FALSE),
             (20, 'application/schema+yaml', 'doc-b', FALSE);",
             sql_params![],
-        )?;
+        )
+        .unwrap();
         db.execute(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                 (10, 'file:///dev/null/a?query', TRUE),
                 (20, 'file:///dev/null/other/b', TRUE);",
             sql_params![],
-        )?;
+        )
+        .unwrap();
 
         let s0 = Scope::empty(&db);
         let s1 = s0.push_resource(Resource { id: 10 });
@@ -171,13 +173,17 @@ mod test {
             prev: ContentType::CatalogSpec,
         });
 
-        assert_eq!(
-            format!("{}", out),
-            r#"at file:///dev/null/a?query#/foo/32:
-at file:///dev/null/other/b#/something:
-resource has content-type application/schema+yaml, but is already registered with type application/vnd.estuary.dev-catalog-spec+yaml"#
-        );
-
-        Ok(())
+        insta::assert_debug_snapshot!(out, @r###"
+        At {
+            loc: "file:///dev/null/a?query#/foo/32",
+            detail: At {
+                loc: "file:///dev/null/other/b#/something",
+                detail: ContentTypeMismatch {
+                    next: Schema,
+                    prev: CatalogSpec,
+                },
+            },
+        }
+        "###);
     }
 }
