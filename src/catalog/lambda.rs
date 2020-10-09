@@ -27,7 +27,7 @@ impl Lambda {
                     .execute(&[body])?;
             }
             specs::Lambda::SqliteFile(url) => {
-                let url = scope.resource().join(scope.db, url)?;
+                let url = scope.resource().join(scope.db, url.as_ref())?;
                 let import = Resource::register(scope.db, ContentType::Sql, &url)?;
                 Resource::register_import(scope, import)?;
 
@@ -75,7 +75,7 @@ mod test {
             Sqlite("block 1".to_owned()),
             NodeJS("block 2".to_owned()),
             Remote("http://example/remote?query".to_owned()),
-            SqliteFile("../sibling/some.sql".to_owned()),
+            SqliteFile("../sibling/some.sql".into()),
         ];
 
         for (index, fixture) in fixtures.iter().enumerate() {

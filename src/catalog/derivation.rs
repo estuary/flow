@@ -87,7 +87,7 @@ impl Derivation {
         // Map spec source collection name to its collection ID.
         let source = scope
             .push_prop("source")
-            .then(|scope| Ok(Collection::get_by_name(scope, spec.source.name.as_str())?))?;
+            .then(|scope| Ok(Collection::get_by_name(scope, spec.source.name.as_ref())?))?;
         // Register optional source schema.
         let schema_url = scope
             .push_prop("source")

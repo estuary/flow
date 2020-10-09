@@ -28,7 +28,7 @@ impl Collection {
                 ) VALUES (?, ?, ?, ?)",
             )?
             .execute(sql_params![
-                spec.name,
+                spec.name.as_ref(),
                 schema.primary_url_with_fragment(scope.db)?,
                 serde_json::to_string(&spec.key)?,
                 scope.resource().id,
@@ -49,7 +49,7 @@ impl Collection {
                 .then(|scope| Derivation::register(scope, collection, spec))?;
         }
 
-        log::info!("added collection {}", spec.name);
+        log::info!("added collection {}", spec.name.as_ref());
         Ok(collection)
     }
 

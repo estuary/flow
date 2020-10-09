@@ -238,9 +238,7 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
 }
 
 fn do_dump_schema() -> Result<(), Error> {
-    let mut settings = schemars::gen::SchemaSettings::draft07();
-    settings.option_add_null_type = false;
-
+    let settings = schemars::gen::SchemaSettings::draft07();
     let gen = schemars::gen::SchemaGenerator::new(settings);
     let schema = gen.into_root_schema_for::<crate::catalog::specs::Catalog>();
 

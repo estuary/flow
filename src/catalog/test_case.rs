@@ -42,7 +42,7 @@ impl TestCase {
     ) -> Result<()> {
         let collection = scope
             .push_prop("collection")
-            .then(|scope| Collection::get_by_name(scope, &spec.collection))?;
+            .then(|scope| Collection::get_by_name(scope, spec.collection.as_ref()))?;
 
         scope
             .db
@@ -72,7 +72,7 @@ impl TestCase {
     ) -> Result<()> {
         let collection = scope
             .push_prop("collection")
-            .then(|scope| Collection::get_by_name(scope, &spec.collection))?;
+            .then(|scope| Collection::get_by_name(scope, spec.collection.as_ref()))?;
 
         // Register optional source partition selector.
         let selector = scope.push_prop("partitions").then(|scope| {
