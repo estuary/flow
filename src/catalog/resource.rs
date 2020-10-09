@@ -81,7 +81,6 @@ impl Resource {
     }
 
     fn fetch(url: &Url) -> Result<Vec<u8>> {
-        log::info!("fetching resource {:?}", url);
         match url.scheme() {
             "file" => {
                 let path = url.to_file_path().map_err(|_| Error::FetchNotSupported)?;

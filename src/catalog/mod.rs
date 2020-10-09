@@ -45,7 +45,9 @@ pub fn create(path: &str) -> Result<DB> {
         std::fs::write(path, &[])?;
     }
     let c = open(path)?;
+    c.execute_batch("BEGIN;")?;
     db::init(&c)?;
+    c.execute_batch("COMMIT;")?;
     Ok(c)
 }
 
