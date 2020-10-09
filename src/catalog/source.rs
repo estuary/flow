@@ -25,7 +25,7 @@ impl Source {
 
         for (index, url) in spec.import.iter().enumerate() {
             scope.push_prop("import").push_item(index).then(|scope| {
-                let url = resource.join(scope.db, url)?;
+                let url = resource.join(scope.db, url.as_ref())?;
                 let import = Self::register(scope, url)?;
                 Resource::register_import(scope, import.resource)
             })?;

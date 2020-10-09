@@ -52,7 +52,9 @@ impl Schema {
                 )?;
                 url
             }
-            specs::Schema::Url(url) => scope.resource().primary_url(scope.db)?.join(url)?,
+            specs::Schema::Url(url) => {
+                scope.resource().primary_url(scope.db)?.join(url.as_ref())?
+            }
         };
 
         Self::register_url(scope, &url)

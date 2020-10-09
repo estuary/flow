@@ -201,7 +201,7 @@ impl<'a> Iterator for Driver<'a> {
                 let predicate = |read: &PendingStat| {
                     self.collection_dependencies
                         .binary_search_by_key(
-                            &(&verify.collection, &read.derivation),
+                            &(verify.collection.as_ref(), &read.derivation),
                             |(der, src)| (&der, &src),
                         )
                         .is_ok()
@@ -250,7 +250,7 @@ impl<'a> Driver<'a> {
             project_publish(
                 self.at_seconds,
                 self.transforms,
-                &spec.collection,
+                spec.collection.as_ref(),
                 &response.journal_etcd.unwrap_or_default(),
                 &response.journal_write_heads,
             ),
@@ -605,7 +605,7 @@ mod test {
         // Verify "C".
         match driver.next() {
             Some(Action::Verify(spec)) => {
-                assert_eq!(spec.collection, "C");
+                assert_eq!(spec.collection.as_ref(), "C");
             }
             v @ _ => panic!("{:?}", v),
         };

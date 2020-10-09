@@ -19,7 +19,7 @@ impl Materialization {
     ) -> catalog::Result<Materialization> {
         let collection = scope
             .push_prop("collection")
-            .then(|scope| Ok(Collection::get_by_name(scope, spec.collection.as_str())?))?;
+            .then(|scope| Ok(Collection::get_by_name(scope, spec.collection.as_ref())?))?;
         let conf = MaterializationConfig::from_spec(&spec.config);
         let conf_json = serde_json::to_string(&conf)?;
         let conn = match &spec.config {
@@ -29,7 +29,7 @@ impl Materialization {
         let fields = get_field_projections(scope, collection.id)?;
         let target = MaterializationTarget {
             materialization_name,
-            collection_name: spec.collection.as_str(),
+            collection_name: spec.collection.as_ref(),
             target_uri: conn.uri.as_str(),
             table_name: conn.table.as_str(),
             target_type: conf.type_name(),

@@ -159,7 +159,7 @@ impl Context {
 
                     let request = flow::IngestRequest {
                         collections: vec![ingest_request::Collection {
-                            name: spec.collection.clone(),
+                            name: spec.collection.as_ref().to_owned(),
                             docs_json_lines,
                         }],
                     };
@@ -228,7 +228,7 @@ impl Context {
                     let collection = self
                         .collections
                         .iter()
-                        .find(|c| c.collection_name == spec.collection)
+                        .find(|c| c.collection_name == spec.collection.as_ref())
                         .unwrap();
 
                     let mut combiner = derive::combiner::Combiner::new(
@@ -271,7 +271,7 @@ impl Context {
 
                     if !diffs.is_empty() {
                         return Err(Error::Verify {
-                            collection: spec.collection.clone(),
+                            collection: spec.collection.as_ref().to_owned(),
                             diffs,
                         });
                     }
@@ -301,7 +301,7 @@ impl Context {
 fn verify_journal_selector(spec: &TestStepVerify) -> LabelSelector {
     let mut include = vec![Label {
         name: "estuary.dev/collection".to_owned(),
-        value: spec.collection.to_owned(),
+        value: spec.collection.as_ref().to_owned(),
     }];
     let mut exclude = Vec::new();
 

@@ -1,17 +1,33 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Estuary Flow Catalog",
+  "title": "Catalog",
   "description": "Each catalog source defines a portion of a Flow Catalog, by defining collections, derivations, tests, and materializations of the Catalog. Catalog sources may reference and import other sources, in order to collections and other entities that source defines.",
   "type": "object",
   "properties": {
     "$schema": {
-      "description": "JSON-Schema against which the Catalog is validated.",
+      "title": "JSON-Schema against which the Catalog is validated.",
       "default": null,
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "collections": {
       "title": "Collections defined by this Catalog.",
       "default": [],
+      "examples": [
+        [
+          {
+            "derivation": null,
+            "key": [
+              "/json/ptr"
+            ],
+            "name": "a/collection",
+            "projections": {},
+            "schema": "../path/to/local.yaml"
+          }
+        ]
+      ],
       "type": "array",
       "items": {
         "$ref": "#/definitions/Collection"
@@ -21,9 +37,15 @@
       "title": "Import other Flow catalog sources.",
       "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
       "default": [],
+      "examples": [
+        [
+          "../path/to/local.yaml",
+          "https://example/resource"
+        ]
+      ],
       "type": "array",
       "items": {
-        "type": "string"
+        "$ref": "#/definitions/RelativeUrl"
       }
     },
     "materializations": {
@@ -38,7 +60,9 @@
     "nodeDependencies": {
       "title": "NPM package dependencies of the Catalog.",
       "description": "Dependencies are included when building the catalog's build NodeJS package, as {\"package-name\": \"version\"}. I.e. {\"moment\": \"^2.24\"}.\n\nVersion strings can take any form understood by NPM. See https://docs.npmjs.com/files/package.json#dependencies",
-      "default": {},
+      "default": {
+        "a-npm-package": "^1.2.3"
+      },
       "type": "object",
       "additionalProperties": {
         "type": "string"
@@ -47,7 +71,39 @@
     "tests": {
       "title": "Tests defined by this Catalog.",
       "description": "Tests are keyed by their test name, and are defined in terms of a series of sequential test steps.",
-      "default": {},
+      "default": {
+        "Test that fob quips ipsum": []
+      },
+      "examples": [
+        {
+          "Test that fob quips ipsum": [
+            {
+              "ingest": {
+                "collection": "a/collection",
+                "documents": [
+                  {
+                    "example": "document"
+                  },
+                  {
+                    "another": "document"
+                  }
+                ]
+              }
+            },
+            {
+              "verify": {
+                "collection": "a/collection",
+                "documents": [
+                  {
+                    "expected": "document"
+                  }
+                ],
+                "partitions": null
+              }
+            }
+          ]
+        }
+      ],
       "type": "object",
       "additionalProperties": {
         "type": "array",
@@ -60,7 +116,18 @@
   "additionalProperties": false,
   "definitions": {
     "Collection": {
-      "description": "Collection specifies an Estuary document Collection.",
+      "description": "Collection describes a set of related documents, where each adheres to a common schema and grouping key. Collections are append-only: once a document is added to a collection, it is never removed. However, it may be replaced or updated (either in whole, or in part) by a future document sharing its key. Each new document of a given key is \"reduced\" into existing documents of the key. By default, this reduction is achieved by completely replacing the previous document, but much richer reduction behaviors can be specified through the use of annotated reduction strategies of the collection schema.",
+      "examples": [
+        {
+          "derivation": null,
+          "key": [
+            "/json/ptr"
+          ],
+          "name": "a/collection",
+          "projections": {},
+          "schema": "../path/to/local.yaml"
+        }
+      ],
       "type": "object",
       "required": [
         "key",
@@ -69,27 +136,41 @@
       ],
       "properties": {
         "derivation": {
-          "description": "A derivation specifies how this collection is derived from other collections (as opposed to being a captured collection into which documents are directly written).",
-          "allOf": [
+          "title": "Derivation which builds this collection from others.",
+          "anyOf": [
             {
               "$ref": "#/definitions/Derivation"
+            },
+            {
+              "type": "null"
             }
           ]
         },
         "key": {
-          "description": "Composite key of this Collection, as an array of JSON-Pointers.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "title": "Composite key of this collection.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CompositeKey"
+            }
+          ]
         },
         "name": {
-          "description": "Canonical name of this Collection. I.e. \"marketing/campaigns\".",
-          "type": "string"
+          "title": "Canonical name of this collection.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CollectionName"
+            }
+          ]
         },
         "projections": {
-          "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.\n\nThe value of `projections` is expected to be an object where each key is the desired field name, and the value can be either a string JSON Pointer or a projection object. For example, both of the following forms are valid:\n\n```yaml projections: my_simple_field: '/pointer/to/my_simple_field' my_partition_field: # partition is false by default partition: true location: '/pointer/to/my_partition_field' ```",
-          "default": {},
+          "title": "Projections and logical partitions of this collection.",
+          "default": {
+            "a_field": "/json/ptr",
+            "a_partition": {
+              "location": "/json/ptr",
+              "partition": true
+            }
+          },
           "allOf": [
             {
               "$ref": "#/definitions/Projections"
@@ -97,7 +178,10 @@
           ]
         },
         "schema": {
-          "description": "This collections JSON-Schema, which all documents must validate against. The schema may be provided as a relative or absolute URL, or written inline. I.e, \"schemas/marketing.yaml#/$defs/campaign\" would reference the schema at location {\"$defs\": {\"campaign\": ...}} within ./schemas/marketing.yaml.",
+          "title": "Schema against which collection documents are validated and reduced.",
+          "examples": [
+            "../path/to/schema#/$defs/subPath"
+          ],
           "allOf": [
             {
               "$ref": "#/definitions/Schema"
@@ -107,14 +191,58 @@
       },
       "additionalProperties": false
     },
-    "Derivation": {
-      "type": "object",
-      "required": [
-        "transform"
+    "CollectionName": {
+      "description": "Names consist of Unicode letters, numbers, and symbols: - _ . /\n\nSpaces and other special characters are disallowed.",
+      "examples": [
+        "a/collection"
       ],
+      "type": "string",
+      "pattern": "^[^ \t\n\\!@#$%^&*()+=\\<\\>?;:'\"\\[\\]\\|~`]+$"
+    },
+    "CompositeKey": {
+      "description": "Ordered JSON-Pointers which define how a composite key may be extracted from a collection document.",
+      "examples": [
+        [
+          "/json/ptr"
+        ]
+      ],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/JsonPointer"
+      }
+    },
+    "Derivation": {
+      "description": "A derivation specifies how a collection is derived from other collections. A collection without a derivation is a \"captured\" collection, into which documents are directly ingested.",
+      "examples": [
+        {
+          "bootstrap": [],
+          "register": {
+            "initial": null,
+            "schema": true
+          },
+          "transform": {
+            "nameOfTransform": {
+              "publish": {
+                "nodeJS": "return doPublish(source, register);"
+              },
+              "readDelay": null,
+              "shuffle": null,
+              "source": {
+                "name": "a/collection",
+                "partitions": null,
+                "schema": null
+              },
+              "update": {
+                "nodeJS": "return doUpdate(source);"
+              }
+            }
+          }
+        }
+      ],
+      "type": "object",
       "properties": {
         "bootstrap": {
-          "description": "Lambdas to invoke when an instance of a distributed processor is started, and before any messages are processed. This is an opportunity to initialize SQL tables or other state. Note that bootstrap lambdas will be invoked for each processor, every time that processor is re-assigned to a new host (which may happen at any time).",
+          "title": "Bootstrap lambdas of this derivation.",
           "default": [],
           "type": "array",
           "items": {
@@ -122,7 +250,7 @@
           }
         },
         "register": {
-          "description": "A derivation \"register\" is an place to store arbitrary internal state which is shared between transforms of the derivation, and available to lambdas alongside the source document which is being processed. Derivations may have an arbitrary number of registers, where each register is keyed on the shuffle ID of the source document.",
+          "title": "Register configuration of this derivation.",
           "default": {
             "initial": null,
             "schema": true
@@ -134,7 +262,14 @@
           ]
         },
         "transform": {
-          "description": "Transforms of source collections which produce the derived collection.",
+          "title": "Transforms which make up this derivation.",
+          "default": {
+            "nameOfTransform": {
+              "source": {
+                "name": "a/source/collection"
+              }
+            }
+          },
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/Transform"
@@ -144,28 +279,60 @@
       "additionalProperties": false
     },
     "FullProjection": {
-      "description": "A Projection is a named location within a document.",
+      "description": "A full projection description which may specify a logical partition.",
+      "examples": [
+        {
+          "location": "/json/ptr",
+          "partition": true
+        }
+      ],
       "type": "object",
       "required": [
         "location"
       ],
       "properties": {
         "location": {
-          "description": "Location of the projected field within the document, as a JSON-Pointer.",
-          "type": "string"
+          "title": "Location of this projection.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/JsonPointer"
+            }
+          ]
         },
         "partition": {
-          "description": "Is this projection a logical partition?",
+          "title": "Is this projection a logical partition?",
           "default": false,
           "type": "boolean"
         }
       },
       "additionalProperties": false
     },
+    "JsonPointer": {
+      "description": "JSON Pointer which identifies a location in a document.",
+      "examples": [
+        "/json/ptr"
+      ],
+      "type": "string",
+      "pattern": "/.+"
+    },
     "Lambda": {
+      "description": "Lambdas are user functions which are invoked by the Flow runtime to process and transform source collection documents into derived collections. Flow supports multiple lambda run-times, with a current focus on TypeScript and remote HTTP APIs.\n\nTypeScript lambdas are invoked within on-demand run-times, which are automatically started and scaled by Flow's task distribution in order to best co-locate data and processing, as well as to manage fail-over.\n\nRemote lambdas may be called from many Flow tasks, and are up to the API provider to provision and scale.\n\n(Note that Sqlite lambdas are not implemented yet).\n\nLambdas are invoked from a few contexts:\n\n\"Bootstrap\" lambdas are run once, at the start of a Flow task assignment, and before it processes any source documents. They provide an opportunity to initialize temporary state or ephemeral caches.\n\n\"Update\" lambdas take a source document and transform it into one or more register updates, which are then reduced into the associated register by the runtime. For example these register updates might update counters, or update the state of a \"join\" window.\n\n\"Publish\" lambdas take a source document, a current register and (if there is also an \"update\" lambda) a previous register, and transform them into one or more documents to be published into a derived collection.",
+      "examples": [
+        {
+          "nodeJS": "return doPublish(source, register);"
+        },
+        {
+          "nodeJS": "return doUpdate(source);"
+        },
+        {
+          "nodeJS": "console.error('example of a bootstrap');"
+        },
+        {
+          "remote": "http://example/api"
+        }
+      ],
       "anyOf": [
         {
-          "description": "Typescript / JavaScript expression.",
           "type": "object",
           "required": [
             "nodeJS"
@@ -177,7 +344,6 @@
           }
         },
         {
-          "description": "SQLite lambda expression.",
           "type": "object",
           "required": [
             "sqlite"
@@ -189,19 +355,17 @@
           }
         },
         {
-          "description": "Relative URL of a file which contains a SQLite lambda expression.",
           "type": "object",
           "required": [
             "sqliteFile"
           ],
           "properties": {
             "sqliteFile": {
-              "type": "string"
+              "$ref": "#/definitions/RelativeUrl"
             }
           }
         },
         {
-          "description": "Remote endpoint URL of a compatible lambda function.",
           "type": "object",
           "required": [
             "remote"
@@ -215,7 +379,7 @@
       ]
     },
     "Materialization": {
-      "description": "A materialization represents the deisre to maintain a continuously updated state of the documents in a collection.",
+      "description": "A materialization represents the desire to maintain a continuously updated state of the documents in a collection.",
       "type": "object",
       "anyOf": [
         {
@@ -247,11 +411,32 @@
       "properties": {
         "collection": {
           "description": "The name of the collection to materialize. This must exactly match the name of a collection that exists in either in this catalog, or in another catalog imported by this one.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/definitions/CollectionName"
+            }
+          ]
         }
       }
     },
     "PartitionSelector": {
+      "description": "Partition selectors identify a desired subset of the available logical partitions of a collection.",
+      "examples": [
+        {
+          "exclude": {
+            "other_partition": [
+              32,
+              64
+            ]
+          },
+          "include": {
+            "a_partition": [
+              "A",
+              "B"
+            ]
+          }
+        }
+      ],
       "type": "object",
       "properties": {
         "exclude": {
@@ -279,7 +464,7 @@
       "description": "A projection representation that allows projections to be specified either as a simple JSON Pointer, or as an object with separate properties for `loction` and `partition`.",
       "anyOf": [
         {
-          "type": "string"
+          "$ref": "#/definitions/JsonPointer"
         },
         {
           "$ref": "#/definitions/FullProjection"
@@ -287,23 +472,35 @@
       ]
     },
     "Projections": {
+      "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.",
+      "examples": [
+        {
+          "a_field": "/json/ptr",
+          "a_partition": {
+            "location": "/json/ptr",
+            "partition": true
+          }
+        }
+      ],
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Projection"
       }
     },
     "Register": {
+      "description": "Registers are the internal states of a derivation, which can be read and updated by all of its transformations. They're an important building block for joins, aggregations, and other complex stateful workflows.\n\nRegisters are implemented using JSON-Schemas, often ones with reduction annotations. When reading source documents, every distinct shuffle key by which the source collection is read is mapped to a corresponding register value (or, if no shuffle key is defined, the source collection's key is used instead).\n\nThen, an \"update\" lambda of the transformation produces updates which are reduced into the register, and a \"publish\" lambda reads the current (and previous, if updated) register value.",
       "type": "object",
       "required": [
         "schema"
       ],
       "properties": {
         "initial": {
-          "description": "The initial value of a register which hasn't been written to yet. If not specified, the default is \"null\".",
+          "title": "Initial value of a keyed register which has never been updated.",
+          "description": "If not specified, the default is \"null\".",
           "default": null
         },
         "schema": {
-          "description": "The schema of this register, which all register instances must validate against. Reduction annotations from the schema are used to reduce registers into a single, current value for each key.",
+          "title": "Schema which validates and reduces register documents.",
           "allOf": [
             {
               "$ref": "#/definitions/Schema"
@@ -313,49 +510,114 @@
       },
       "additionalProperties": false
     },
+    "RelativeUrl": {
+      "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
+      "examples": [
+        "../path/to/local.yaml",
+        "https://example/resource"
+      ],
+      "type": "string"
+    },
     "Schema": {
-      "description": "Used for collection schemas and transform source schemas, to allow flexibility in how they can be represented. The main distinction we're concerned with is whether the schema is provided inline or as a URI pointing to an external schema resource.",
-      "anyOf": [
+      "description": "A schema is a draft 2019-09 JSON Schema which validates Flow documents. Schemas also provide annotations at document locations, such as reduction strategies for combining one document into another.\n\nSchemas may be defined inline to the catalog, or given as a relative or absolute URI. URIs may optionally include a JSON fragment pointer that locates a specific sub-schema therein.\n\nI.e, \"schemas/marketing.yaml#/$defs/campaign\" would reference the schema at location {\"$defs\": {\"campaign\": ...}} within ./schemas/marketing.yaml.",
+      "examples": [
+        "http://example/schema#/$defs/subPath",
+        "../path/to/schema#/$defs/subPath",
         {
-          "description": "Schema was provided as a URI that is expected to resolve to a JSON schema.",
-          "type": "string"
+          "properties": {
+            "bar": {
+              "const": 42
+            },
+            "foo": {
+              "type": "integer"
+            }
+          },
+          "type": "object"
         },
         {
-          "description": "Schema provided directly inline as a JSON object.",
+          "properties": {
+            "foo_count": {
+              "reduce": {
+                "strategy": "sum"
+              },
+              "type": "integer"
+            }
+          },
+          "reduce": {
+            "strategy": "merge"
+          },
+          "type": "object"
+        }
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RelativeUrl"
+        },
+        {
           "type": "object",
           "additionalProperties": true
         },
         {
-          "description": "Schema provided directly inline as a boolean. This is only ever really useful if the value is the literal `true`, which permits all JSON data. A value of `false` would reject all data.",
           "type": "boolean"
         }
       ]
     },
     "Source": {
+      "examples": [
+        {
+          "name": "a/collection",
+          "partitions": null,
+          "schema": null
+        }
+      ],
       "type": "object",
       "required": [
         "name"
       ],
       "properties": {
         "name": {
-          "description": "Name of the source collection.",
-          "type": "string"
-        },
-        "partitions": {
-          "description": "Partition selector over partitions of the source collection to be read.",
-          "default": null,
+          "title": "Name of the collection to be read.",
           "allOf": [
             {
+              "$ref": "#/definitions/CollectionName"
+            }
+          ]
+        },
+        "partitions": {
+          "title": "Selector over partition of the source collection to read.",
+          "default": {
+            "exclude": {
+              "other_partition": [
+                32,
+                64
+              ]
+            },
+            "include": {
+              "a_partition": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          "anyOf": [
+            {
               "$ref": "#/definitions/PartitionSelector"
+            },
+            {
+              "type": "null"
             }
           ]
         },
         "schema": {
-          "description": "Optional JSON-Schema to validate against the source collection. All data in the source collection is already validated against the schema of that collection, so providing a schema here is only used for _additional_ validation beyond that. This is useful in building \"Extract Load Transform\" patterns, where a collection is captured with minimal schema applied (perhaps because it comes from an uncontrolled third party), and is then progressively verified as collections are derived. If None, the principal schema of the collection is used instead.",
-          "default": null,
-          "allOf": [
+          "title": "Optional JSON-Schema to validate against the source collection.",
+          "description": "All data in the source collection is already validated against the schema of that collection, so providing a source schema is only used for _additional_ validation beyond that.\n\nThis is useful in building \"Extract Load Transform\" patterns, where a collection is captured with minimal schema applied (perhaps because it comes from an uncontrolled third party), and is then progressively verified as collections are derived. If None, the principal schema of the collection is used instead.",
+          "default": "../path/to/schema#/$defs/subPath",
+          "anyOf": [
             {
               "$ref": "#/definitions/Schema"
+            },
+            {
+              "type": "null"
             }
           ]
         }
@@ -380,6 +642,32 @@
       }
     },
     "TestStep": {
+      "examples": [
+        {
+          "ingest": {
+            "collection": "a/collection",
+            "documents": [
+              {
+                "example": "document"
+              },
+              {
+                "another": "document"
+              }
+            ]
+          }
+        },
+        {
+          "verify": {
+            "collection": "a/collection",
+            "documents": [
+              {
+                "expected": "document"
+              }
+            ],
+            "partitions": null
+          }
+        }
+      ],
       "anyOf": [
         {
           "description": "Ingest document fixtures into a collection.",
@@ -408,6 +696,20 @@
       ]
     },
     "TestStepIngest": {
+      "description": "An ingestion test step ingests document fixtures into the named collection.",
+      "examples": [
+        {
+          "collection": "a/collection",
+          "documents": [
+            {
+              "example": "document"
+            },
+            {
+              "another": "document"
+            }
+          ]
+        }
+      ],
       "type": "object",
       "required": [
         "collection",
@@ -415,17 +717,34 @@
       ],
       "properties": {
         "collection": {
-          "description": "Name of the collection into which the test will ingest.",
-          "type": "string"
+          "title": "Name of the collection into which the test will ingest.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CollectionName"
+            }
+          ]
         },
         "documents": {
-          "description": "Documents to ingest.",
+          "title": "Documents to ingest.",
+          "description": "Each document must conform to the collection's schema.",
           "type": "array",
           "items": true
         }
       }
     },
     "TestStepVerify": {
+      "description": "A verification test step verifies that the contents of the named collection match the expected fixtures, after fully processing all preceding ingestion test steps.",
+      "examples": [
+        {
+          "collection": "a/collection",
+          "documents": [
+            {
+              "expected": "document"
+            }
+          ],
+          "partitions": null
+        }
+      ],
       "type": "object",
       "required": [
         "collection",
@@ -433,56 +752,111 @@
       ],
       "properties": {
         "collection": {
-          "description": "Name of the collection into which the test will ingest.",
-          "type": "string"
+          "title": "Collection into which the test will ingest.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CollectionName"
+            }
+          ]
         },
         "documents": {
-          "description": "Documents to ingest.",
+          "title": "Documents to verify.",
+          "description": "Each document may contain only a portion of the matched document's properties, and any properties present in the actual document but not in this document fixture are ignored. All other values must match or the test will fail.",
           "type": "array",
           "items": true
         },
         "partitions": {
-          "description": "Partition selector over partitions of the collection to verify against.",
-          "default": null,
-          "allOf": [
+          "title": "Selector over partitions to verify.",
+          "default": {
+            "exclude": {
+              "other_partition": [
+                32,
+                64
+              ]
+            },
+            "include": {
+              "a_partition": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          "anyOf": [
             {
               "$ref": "#/definitions/PartitionSelector"
+            },
+            {
+              "type": "null"
             }
           ]
         }
       }
     },
     "Transform": {
+      "description": "A Transform reads and shuffles documents of a source collection, and processes each document through either one or both of a register \"update\" lambda and a derived document \"publish\" lambda.",
+      "examples": [
+        {
+          "publish": {
+            "nodeJS": "return doPublish(source, register);"
+          },
+          "readDelay": null,
+          "shuffle": null,
+          "source": {
+            "name": "a/collection",
+            "partitions": null,
+            "schema": null
+          },
+          "update": {
+            "nodeJS": "return doUpdate(source);"
+          }
+        }
+      ],
       "type": "object",
       "required": [
         "source"
       ],
       "properties": {
         "publish": {
-          "description": "A \"publish\" lambda takes a source document and associated register, and produces or more documents to be published into the derived collection. If the transform has both \"update\" and \"publish\" lambdas, the \"update\" lambda is run first, its output is reduced into the register, and then the \"publish\" lambda is invoked with the result.",
-          "default": null,
-          "allOf": [
+          "title": "Publish lambda that produces documents to publish into the collection.",
+          "default": {
+            "nodeJS": "return doPublish(source, register);"
+          },
+          "anyOf": [
             {
               "$ref": "#/definitions/Lambda"
+            },
+            {
+              "type": "null"
             }
           ]
         },
         "readDelay": {
-          "description": "Delay applied to documents read by this transform. Delays are applied as an adjustment to the UUID clock encoded within each document, which is then used to impose a relative ordering of all documents read by this derivation. This means that read delays are applied in a consistent way, even when back-filling over historical documents. When caught up and tailing the source collection, delays also \"gate\" documents such that they aren't processed until the current wall-time reflects the delay.",
+          "title": "Delay applied to documents read by this transform.",
+          "description": "Delays are applied as an adjustment to the UUID clock encoded within each document, which is then used to impose a relative ordering of all documents read by this derivation. This means that read delays are applied in a consistent way, even when back-filling over historical documents. When caught up and tailing the source collection, delays also \"gate\" documents such that they aren't processed until the current wall-time reflects the delay.",
           "default": null,
-          "type": "string",
-          "pattern": "\\d+(s|m|h)"
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
         },
         "shuffle": {
-          "description": "Shuffle key by which source collection messages are mapped to a derivation register, as an array of JSON-Pointers. If empty, the key of the source collection is used.",
-          "default": null,
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "title": "Shuffle key by which source documents are mapped to registers.",
+          "description": "If empty, the key of the source collection is used.",
+          "default": [
+            "/json/ptr"
+          ],
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CompositeKey"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "source": {
-          "description": "Source collection read by this transform.",
+          "title": "Source collection read by this transform.",
           "allOf": [
             {
               "$ref": "#/definitions/Source"
@@ -490,11 +864,16 @@
           ]
         },
         "update": {
-          "description": "An \"update\" lambda takes a source document and associated register, produces documents to be reduced back into the register according to its schema.",
-          "default": null,
-          "allOf": [
+          "title": "Update lambda that produces register updates from source documents.",
+          "default": {
+            "nodeJS": "return doUpdate(source);"
+          },
+          "anyOf": [
             {
               "$ref": "#/definitions/Lambda"
+            },
+            {
+              "type": "null"
             }
           ]
         }
