@@ -25,8 +25,9 @@ EOF
 	cat ${DIR}/catalog_test.sql
 }
 
+echo "Catalog tests are using sqlite $(sqlite3 --version)"
 
-# Feed test_output() into an empty in-memory database. 
+# Feed test_output() into an empty in-memory database.
 # Strip error line numbers so differences in output are localized (and
 # don't require updating the entire golden file when the change).
 test_input | \

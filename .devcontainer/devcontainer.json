@@ -1,0 +1,52 @@
+{
+	"name": "Estuary Flow Development",
+	"dockerComposeFile": "docker-compose.yaml",
+	"service": "develop",
+	"workspaceFolder": "/workspace",
+	// Set *default* container specific settings.json values on container create.
+	"settings": {
+		"terminal.integrated.shell.linux": "/bin/bash",
+		"sqltools.connections": [
+			{
+				"name": "Container database",
+				"driver": "PostgreSQL",
+				"previewLimit": 50,
+				"server": "localhost",
+				"port": 5432,
+				"database": "postgres",
+				"username": "postgres",
+				"password": "postgres"
+			}
+		],
+	},
+	// Add the IDs of extensions you want installed when the container is created.
+	"extensions": [
+		// Toml rendering.
+		"bungcip.better-toml",
+		// Go language support.
+		"golang.go",
+		// Rust language support.
+		"matklad.rust-analyzer",
+		// SQL support.
+		"mtxr.sqltools",
+		// Driver for attached, docker compose database.
+		"mtxr.sqltools-driver-pg",
+		// YAML language & schema support.
+		"redhat.vscode-yaml",
+		// Rust debugging support.
+		"vadimcn.vscode-lldb"
+	],
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [
+		5432,
+		8080,
+		8081,
+		9000
+	],
+	// Run extra environment setup required to build & test Flow.
+	// We're using a base image which is compatible with our CI runner,
+	// and thus use the same make target.
+	"postCreateCommand": "make extra-ci-runner-setup && go mod download",
+	// Uncomment to run as a non-root user.
+	// "remoteUser": "vscode"
+}

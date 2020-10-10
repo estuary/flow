@@ -1,0 +1,4 @@
+# Use LLVM for faster linking. Drawn from:
+#  https://brokenco.de/2020/01/08/faster-rust-linking.html
+[build]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
