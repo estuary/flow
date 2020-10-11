@@ -131,7 +131,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		require.Equal(t, "", out.TerminalError)
 
 		var content = out.Arena.AllBytes(out.DocsJson...)
-		actual.DocsJson = actual.Arena.AddAll(content...)
+		actual.DocsJson = append(actual.DocsJson, actual.Arena.AddAll(content...)...)
 		actual.Begin = append(actual.Begin, out.Begin...)
 		actual.End = append(actual.End, out.End...)
 		actual.UuidParts = append(actual.UuidParts, out.UuidParts...)
