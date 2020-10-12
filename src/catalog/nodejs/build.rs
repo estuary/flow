@@ -177,8 +177,14 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
 
     // Write out bootstraps lambdas.
     let mut stmt = db.prepare(
-        "SELECT derivation_id, JSON_GROUP_ARRAY(inline) AS expressions
-                FROM lambdas NATURAL JOIN bootstraps WHERE runtime = 'nodeJS';",
+        "
+            SELECT
+                derivation_id,
+                JSON_GROUP_ARRAY(inline) AS expressions
+            FROM lambdas
+            NATURAL JOIN bootstraps
+            WHERE runtime = 'nodeJS'
+            GROUP BY derivation_id;",
     )?;
     let mut rows = stmt.query(sql_params![])?;
 
@@ -209,7 +215,7 @@ import {BootstrapMap, TransformMap} from '../runtime/types';
             derivation_schema_uri, -- 7
             CASE WHEN  update_runtime = 'nodeJS' THEN update_inline  ELSE NULL END, -- 8
             CASE WHEN publish_runtime = 'nodeJS' THEN publish_inline ELSE NULL END  -- 9
-            FROM transform_details
+        FROM transform_details
         ;",
     )?;
     let mut rows = stmt.query(sql_params![])?;
