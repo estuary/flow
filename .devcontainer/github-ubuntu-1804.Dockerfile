@@ -26,6 +26,7 @@ RUN apt-get update -y \
       libsqlite3-dev \
       libsqlite3-dev \
       libssl-dev \
+      lld-9 \
       locales \
       openssh-client  \
       pkg-config \
