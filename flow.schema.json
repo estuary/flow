@@ -313,7 +313,7 @@
         "/json/ptr"
       ],
       "type": "string",
-      "pattern": "/.+"
+      "pattern": "^/.+"
     },
     "Lambda": {
       "description": "Lambdas are user functions which are invoked by the Flow runtime to process and transform source collection documents into derived collections. Flow supports multiple lambda run-times, with a current focus on TypeScript and remote HTTP APIs.\n\nTypeScript lambdas are invoked within on-demand run-times, which are automatically started and scaled by Flow's task distribution in order to best co-locate data and processing, as well as to manage fail-over.\n\nRemote lambdas may be called from many Flow tasks, and are up to the API provider to provision and scale.\n\n(Note that Sqlite lambdas are not implemented yet).\n\nLambdas are invoked from a few contexts:\n\n\"Bootstrap\" lambdas are run once, at the start of a Flow task assignment, and before it processes any source documents. They provide an opportunity to initialize temporary state or ephemeral caches.\n\n\"Update\" lambdas take a source document and transform it into one or more register updates, which are then reduced into the associated register by the runtime. For example these register updates might update counters, or update the state of a \"join\" window.\n\n\"Publish\" lambdas take a source document, a current register and (if there is also an \"update\" lambda) a previous register, and transform them into one or more documents to be published into a derived collection.",
