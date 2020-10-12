@@ -77,7 +77,7 @@ impl JsonPointer {
     fn schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
         from_json_value(json!({
             "type": "string",
-            "pattern": "/.+",
+            "pattern": "^/.+",
         }))
         .unwrap()
     }
