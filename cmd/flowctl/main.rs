@@ -11,6 +11,19 @@ use tokio::signal::unix;
 #[derive(StructOpt, Debug)]
 #[structopt(about = "Command-line interface for working with Estuary Flow projects",
             author = env!("CARGO_PKG_AUTHORS"))]
+struct Args {
+    /// The command to run
+    #[structopt(subcommand)]
+    command: Command,
+    /// Make log output quieter. Can be used multiple times, with `-qq` suppressing all output.
+    #[structopt(long, short = "q", global = true, parse(from_occurrences))]
+    quiet: i32,
+    /// Make log output more verbose. Can be used multiple times, with `-vvv` enabling all output.
+    #[structopt(long, short = "v", global = true, parse(from_occurrences))]
+    verbose: i32,
+}
+
+#[derive(StructOpt, Debug)]
 enum Command {
     /// Builds a Catalog spec into a catalog database that can be deployed or inspected.
     Build(BuildArgs),
@@ -88,24 +101,25 @@ struct MaterializeArgs {
     #[structopt(long, default_value = "http://localhost:9000")]
     consumer_address: String,
 
-    /// Apply the materialization
+    /// Apply the SQL and the Shard Spec without asking for confirmation. Normally, you'll get an
+    /// interactive confirmation asking if you'd like to apply these items. Passing `--yes`
+    /// will skip that confirmation, making this command usable from a script.
     #[structopt(long)]
-    apply: bool,
+    yes: bool,
 
     /// Print out a summary of what would be done, without modifying anything. This will always
-    /// take precedencs over `--apply`, if both arguments are provided.
+    /// take precedencs over `--yes`, if both arguments are provided.
     #[structopt(long)]
     dry_run: bool,
 }
 
 #[tokio::main]
 async fn main() {
-    pretty_env_logger::init_timed();
-
-    let args = Command::from_args();
+    let args = Args::from_args();
+    init_logging(&args);
     log::debug!("{:?}", args);
 
-    let result = match args {
+    let result = match args.command {
         Command::Build(build) => do_build(build),
         Command::Develop(develop) => do_develop(develop).await,
         Command::Test(test) => do_test(test).await,
@@ -119,15 +133,45 @@ async fn main() {
     };
 }
 
+fn init_logging(args: &Args) {
+    let mut builder = pretty_env_logger::formatted_timed_builder();
+
+    // We subtract these so that each will cancel out occurrences of one another. This is sometimes
+    // useful when the cli is being invoked by a script and allows passing additional arguments.
+    let verbosity = args.verbose - args.quiet;
+
+    // We use a different variable than RUST_LOG so that we
+    let log_var = ::std::env::var("FLOWCTL_LOG");
+    let log_filters = if let Ok(s) = log_var.as_deref() {
+        s
+    } else {
+        match verbosity {
+            i32::MIN..=-2 => "off",
+            -1 => "off,estuary=warn,flowctl=warn",
+            0 => "error,estuary=warn,flowctl=info",
+            1 => "warn,estuary=info,flowctl=info",
+            2 => "warn,estuary=debug,flowctl=debug",
+            3..=i32::MAX => "info,estuary=trace,flowctl=trace",
+        }
+    };
+    builder.parse_filters(log_filters);
+
+    let _ = builder.try_init();
+
+    if log_var.is_ok() && verbosity != 0 {
+        log::warn!("The --quiet and --verbose arguments are being ignored since the `FLOWCTL_LOG` env variable is set");
+    }
+}
+
 async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     let db = catalog::open(args.catalog.as_str())?;
     let catalog_path = tokio::fs::canonicalize(args.catalog.as_str()).await?;
     let catalog_path = catalog_path.display().to_string();
 
     let collection = catalog::Collection::get_by_name(&db, args.collection.as_str())
-        .context("unable to find a collection with the given name")?;
+        .context("unable to find a --collection with the given name")?;
     let target = catalog::MaterializationTarget::get_by_name(&db, args.target.as_str())
-        .context("unable to find a materialization target with the given name")?;
+        .context("unable to find a materialization --target with the given name")?;
 
     // First load all of the possible projections for this collection
     let projections = materialization::get_projections(&db, collection)?;
@@ -239,7 +283,7 @@ fn is_interactive() -> bool {
 fn should_apply(thing: &str, args: &MaterializeArgs) -> bool {
     if args.dry_run {
         false
-    } else if args.apply {
+    } else if args.yes {
         true
     } else if is_interactive() {
         let message = format!("Would you like to apply the {}?", thing);
