@@ -96,7 +96,7 @@ pub fn database_is_built(db: &DB) -> bool {
 
 // Not public; used for testing within sub-modules.
 #[cfg(test)]
-pub use db::test::{dump_table, dump_tables};
+use db::test::{dump_table, dump_tables};
 
 #[cfg(test)]
 mod test {

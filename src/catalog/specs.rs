@@ -674,20 +674,22 @@ impl TestStepVerify {
     }
 }
 
+/// Connection configuration that's used for connecting to a variety of sql databases.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct SqlTargetConnection {
-    /// The connection URI for the target database, e.g.
-    /// `postgresql://user:password@my-postgres.test:5432/my_database`
+    /// # The connection URI for the target database
     pub uri: String,
 }
 
-/// A materialization represents the desire to maintain a continuously updated state of the
-/// documents in a collection.
+/// Represents an external system that can be used to materialize views of Flow Collections.
+/// A Materialization is a continuously updated view that is always kept in sync with a Flow
+/// Collection. A MaterializationTarget is a system that can be used to store and query these
+/// views. Materializations can be created at any point after the Flow catalog is running. The
+/// name of each target is used to refer to it later when creating the Materialization.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[schemars(example = "MaterializationTarget::example")]
 pub struct MaterializationTarget {
-    /// The configuration for this materialization. This is supplied with a key of either
-    /// `postgres` or `sqlite`, where the value is an object containing the sql connection info.
+    /// The connection configuration for this materialization.
     #[serde(flatten)]
     pub config: MaterializationConfig,
 }
@@ -702,13 +704,17 @@ impl MaterializationTarget {
     }
 }
 
-/// Allows for materialization objects to have a different shape depending on the type of the
-/// target system. Currently, both postgresql and sqlite use the same configuration parameters, but
-/// in the future we may support materialization targets that require different fields.
+/// This is supplied with a key of either `postgres` or `sqlite`, where the value is an object
+/// containing the sql connection info. Allows for materialization objects to have a different
+/// shape depending on the type of the target system. Currently, both postgresql and sqlite use the
+/// same configuration parameters, but in the future we may support materialization targets that
+/// require different fields.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationConfig {
+    /// # A postgresql connection configuration
     Postgres(SqlTargetConnection),
+    /// # A sqlite connection configuration
     Sqlite(SqlTargetConnection),
 }
 
