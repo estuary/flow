@@ -532,7 +532,8 @@ message IngestResponse {
 // Ingester offers transactional ingest of documents into collections.
 service Ingester {
   rpc Ingest(IngestRequest) returns (IngestResponse);
-  // rpc IngestAll(stream IngestRequest) returns (IngestResponse);
+  // rpc IngestMany(stream IngestRequest) returns (IngestResponse);
+  // rpc IngestStream(stream IngestRequest) returns (stream IngestResponse);
 }
 
 // AdvanceTimeRequest is a testing-only request to modify effective test time.
