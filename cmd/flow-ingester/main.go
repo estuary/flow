@@ -106,11 +106,8 @@ func (cmdServe) Execute(_ []string) error {
 	}
 	ingester.QueueTasks(tasks, rjc)
 
-	srv.HTTPMux.Handle("/ingest", &ingest.HTTPAPI{Ingester: ingester})
-	pf.RegisterIngesterServer(srv.GRPCServer, &ingest.GRPCAPI{
-		Ingester: ingester,
-		Journals: journals,
-	})
+	ingest.RegisterAPIs(srv, ingester, journals)
+
 	pf.RegisterTestingServer(srv.GRPCServer, (*ingesterTesting)(ingester))
 	srv.QueueTasks(tasks)
 

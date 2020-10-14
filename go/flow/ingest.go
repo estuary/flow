@@ -162,7 +162,7 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	}
 	// Must start a new RPC.
 	if spec, ok := i.ingester.Collections[collection]; !ok {
-		return fmt.Errorf("%q is not a captured collection", collection)
+		return fmt.Errorf("%q is not an ingestable collection", collection)
 	} else if rpc, err := NewCombine(context.Background(), i.ingester.Combiner, spec); err != nil {
 		return fmt.Errorf("while starting combiner RPC for %q: %w", collection, err)
 	} else if err = rpc.Open(FieldPointersForMapper(spec)); err != nil {
