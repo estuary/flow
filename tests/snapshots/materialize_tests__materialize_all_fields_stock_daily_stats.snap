@@ -16,16 +16,16 @@ INSERT INTO flow_materializations (table_name, config_json) VALUES ('test_table'
 /* Materialization of Estuary collection 'stock/daily-stats', intended for sqlite target 'localSqlite' */
 CREATE TABLE IF NOT EXISTS "test_table" (
 	/* auto-generated projection of JSON at: /ask/avgD with inferred types: [number] */
-	"ask/avgD" REAL NOT NULL,
+	"ask/avgD" REAL,
 
 	/* auto-generated projection of JSON at: /ask/avgN with inferred types: [number] */
-	"ask/avgN" REAL NOT NULL,
+	"ask/avgN" REAL,
 
 	/* auto-generated projection of JSON at: /ask/high with inferred types: [number] */
-	"ask/high" REAL NOT NULL,
+	"ask/high" REAL,
 
 	/* auto-generated projection of JSON at: /ask/low with inferred types: [number] */
-	"ask/low" REAL NOT NULL,
+	"ask/low" REAL,
 
 	/* auto-generated projection of JSON at: /date with inferred types: [string] */
 	"date" TEXT NOT NULL,
@@ -34,49 +34,49 @@ CREATE TABLE IF NOT EXISTS "test_table" (
 	"exchange" TEXT NOT NULL,
 
 	/* auto-generated projection of JSON at: /first/price with inferred types: [number] */
-	"first/price" REAL NOT NULL,
+	"first/price" REAL,
 
 	/* auto-generated projection of JSON at: /first/size with inferred types: [integer] */
-	"first/size" INTEGER NOT NULL,
+	"first/size" INTEGER,
 
 	/* auto-generated projection of JSON at: /last/price with inferred types: [number] */
-	"last/price" REAL NOT NULL,
+	"last/price" REAL,
 
 	/* auto-generated projection of JSON at: /last/size with inferred types: [integer] */
-	"last/size" INTEGER NOT NULL,
+	"last/size" INTEGER,
 
 	/* user provided projection of JSON at: /bid with inferred types: [object] */
 	"my_special_column" TEXT,
 
 	/* auto-generated projection of JSON at: /price/avgD with inferred types: [number] */
-	"price/avgD" REAL NOT NULL,
+	"price/avgD" REAL,
 
 	/* auto-generated projection of JSON at: /price/avgN with inferred types: [number] */
-	"price/avgN" REAL NOT NULL,
+	"price/avgN" REAL,
 
 	/* auto-generated projection of JSON at: /price/high with inferred types: [number] */
-	"price/high" REAL NOT NULL,
+	"price/high" REAL,
 
 	/* auto-generated projection of JSON at: /price/low with inferred types: [number] */
-	"price/low" REAL NOT NULL,
+	"price/low" REAL,
 
 	/* auto-generated projection of JSON at: /security with inferred types: [string] */
 	"security" TEXT NOT NULL,
 
 	/* auto-generated projection of JSON at: /spread/avgD with inferred types: [number] */
-	"spread/avgD" REAL NOT NULL,
+	"spread/avgD" REAL,
 
 	/* auto-generated projection of JSON at: /spread/avgN with inferred types: [number] */
-	"spread/avgN" REAL NOT NULL,
+	"spread/avgN" REAL,
 
 	/* auto-generated projection of JSON at: /spread/high with inferred types: [number] */
-	"spread/high" REAL NOT NULL,
+	"spread/high" REAL,
 
 	/* auto-generated projection of JSON at: /spread/low with inferred types: [number] */
-	"spread/low" REAL NOT NULL,
+	"spread/low" REAL,
 
 	/* auto-generated projection of JSON at: /volume with inferred types: [integer] */
-	"volume" INTEGER NOT NULL,
+	"volume" INTEGER,
 	/* This column holds the complete document from the Flow Collection, with all reduction annotations applied. It is added automatically to all materializations. */
 	/* auto-generated projection of JSON at: / with inferred types: [object] */
 	"flow_document" TEXT NOT NULL,
