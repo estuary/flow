@@ -154,9 +154,11 @@ func TestPublisherMappingIntegration(t *testing.T) {
 
 func buildMapperCombineResponseFixture() (pf.CollectionSpec, pf.CombineResponse) {
 	var spec = pf.CollectionSpec{
-		Name: "a/collection",
-		Partitions: []pf.Projection{
-			{Field: "bar"}, {Field: "foo"},
+		Name:            "a/collection",
+		PartitionFields: []string{"bar", "foo"},
+		Projections: map[string]*pf.Projection{
+			"bar": {Ptr: "/ptr"},
+			"foo": {Ptr: "/ptr"},
 		},
 		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}

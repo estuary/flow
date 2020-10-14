@@ -30,8 +30,8 @@ type Mapper struct {
 // and included in CombineRespones mapped through a Mapper of this CollectionSpec.
 func FieldPointersForMapper(collection *pf.CollectionSpec) []string {
 	var ptrs []string
-	for _, p := range collection.Partitions {
-		ptrs = append(ptrs, p.Ptr)
+	for _, field := range collection.PartitionFields {
+		ptrs = append(ptrs, collection.Projections[field].Ptr)
 	}
 	ptrs = append(ptrs, collection.KeyPtrs...)
 	return ptrs
@@ -85,12 +85,12 @@ func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest 
 	var name strings.Builder
 	name.WriteString(cr.Collection.Name.String())
 
-	for i, partition := range cr.Collection.Partitions {
+	for i, field := range cr.Collection.PartitionFields {
 		var v = cr.Fields[i].Values[cr.Index].EncodePartition(nil, cr.Arena)
-		spec.LabelSet.AddValue(flowLabels.FieldPrefix+partition.Field, string(v))
+		spec.LabelSet.AddValue(flowLabels.FieldPrefix+field, string(v))
 
 		name.WriteByte('/')
-		name.WriteString(partition.Field)
+		name.WriteString(field)
 		name.WriteByte('=')
 		name.Write(v)
 	}
@@ -113,8 +113,8 @@ func (m *Mapper) logicalPrefixAndHexKey(b []byte, cr pf.IndexedCombineResponse) 
 	b = append(b, cr.Collection.Name...)
 	b = append(b, '/')
 
-	for i, partition := range cr.Collection.Partitions {
-		b = append(b, partition.Field...)
+	for i, field := range cr.Collection.PartitionFields {
+		b = append(b, field...)
 		b = append(b, '=')
 		b = cr.Fields[i].Values[cr.Index].EncodePartition(b, cr.Arena)
 		b = append(b, '/')
@@ -126,7 +126,7 @@ func (m *Mapper) logicalPrefixAndHexKey(b []byte, cr pf.IndexedCombineResponse) 
 	const hextable = "0123456789abcdef"
 	var scratch [64]byte
 
-	for _, field := range cr.Fields[len(cr.Collection.Partitions):] {
+	for _, field := range cr.Fields[len(cr.Collection.PartitionFields):] {
 		for _, v := range field.Values[cr.Index].EncodePacked(scratch[:0], cr.Arena) {
 			b = append(b, hextable[v>>4], hextable[v&0x0f])
 		}

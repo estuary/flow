@@ -148,7 +148,7 @@ const selectCollection = `
 		collection_name,
 		schema_uri,
 		key_json,
-		partitions_json,
+		partition_fields_json,
 		projections_json
 	FROM collection_details
 `
@@ -167,7 +167,7 @@ func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
 			&collection.Name,
 			&collection.SchemaUri,
 			scanJSON{&collection.KeyPtrs},
-			scanJSON{&collection.Partitions},
+			scanJSON{&collection.PartitionFields},
 			scanJSON{&collection.Projections},
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan collection from catalog: %w", err)

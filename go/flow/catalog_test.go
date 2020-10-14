@@ -18,8 +18,19 @@ func TestLoadDerivedCollection(t *testing.T) {
 		Name:            "testing/int-strings",
 		SchemaUri:       spec.SchemaUri,
 		KeyPtrs:         []string{"/i"},
-		Projections:     []pf.Projection{{Field: "i", Ptr: "/i"}},
-		Partitions:      []pf.Projection{},
+		PartitionFields: []string{},
+		Projections: map[string]*pf.Projection{
+			"eye": {
+				Field:        "eye",
+				Ptr:          "/i",
+				UserProvided: true,
+				IsPrimaryKey: true,
+				Inference: &pf.Inference{
+					Types:     []string{"integer"},
+					MustExist: true,
+					String_:   new(pf.Inference_String),
+				}},
+		},
 		JournalSpec:     spec.JournalSpec,
 		UuidPtr:         spec.UuidPtr,
 		AckJsonTemplate: spec.AckJsonTemplate,
@@ -40,8 +51,26 @@ func TestLoadCapturedCollections(t *testing.T) {
 		Name:            "testing/int-string",
 		SchemaUri:       spec.SchemaUri,
 		KeyPtrs:         []string{"/i"},
-		Projections:     []pf.Projection{{Field: "i", Ptr: "/i"}, {Field: "s", Ptr: "/s"}},
-		Partitions:      []pf.Projection{},
+		PartitionFields: []string{},
+		Projections: map[string]*pf.Projection{
+			"i": {
+				Field:        "i",
+				IsPrimaryKey: true,
+				Ptr:          "/i",
+				Inference: &pf.Inference{
+					Types:     []string{"integer"},
+					MustExist: true,
+					String_:   new(pf.Inference_String),
+				}},
+			"s": {
+				Field: "s",
+				Ptr:   "/s",
+				Inference: &pf.Inference{
+					Types:     []string{"string"},
+					MustExist: true,
+					String_:   &pf.Inference_String{MaxLength: 128},
+				}},
+		},
 		JournalSpec:     spec.JournalSpec,
 		UuidPtr:         spec.UuidPtr,
 		AckJsonTemplate: spec.AckJsonTemplate,

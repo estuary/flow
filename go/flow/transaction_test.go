@@ -256,12 +256,13 @@ func (tx *mockTx) take() (out *pf.DeriveRequest) {
 
 func buildFixtures() (pf.CollectionSpec, pf.ShuffleResponse, pf.CombineResponse) {
 	var spec = pf.CollectionSpec{
-		Name:    "a/collection",
-		KeyPtrs: []string{"/key"},
-		UuidPtr: "/uuid",
-		Partitions: []pf.Projection{
-			{Field: "bar", Ptr: "/bar/ptr"},
-			{Field: "foo", Ptr: "/foo/ptr"},
+		Name:            "a/collection",
+		KeyPtrs:         []string{"/key"},
+		UuidPtr:         "/uuid",
+		PartitionFields: []string{"bar", "foo"},
+		Projections: map[string]*pf.Projection{
+			"bar": {Ptr: "/bar/ptr"},
+			"foo": {Ptr: "/foo/ptr"},
 		},
 		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}
