@@ -34,7 +34,11 @@
 		// YAML language & schema support.
 		"redhat.vscode-yaml",
 		// Rust debugging support.
-		"vadimcn.vscode-lldb"
+		"vadimcn.vscode-lldb",
+		// Protobuf language support.
+		"zxh404.vscode-proto3",
+		// Formatting support (eg, protobuf).
+		"xaver.clang-format"
 	],
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [
