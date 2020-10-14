@@ -748,11 +748,6 @@ FROM transform_details;
 SELECT *
 FROM collection_schemas;
 
--- Detail view of collections joined with projections, partitions,
--- and alternate source schemas.
-SELECT *
-FROM collection_details;
-
 -- Valid packages.
 INSERT INTO nodejs_dependencies (package, version)
 VALUES ('a-package', '^1.2.3'),
@@ -782,8 +777,8 @@ VALUES (
         '["string"]',
         TRUE,
         'text/plain',
-        false,
-        97
+        FALSE,
+        96
     ),
     (
         'file:///path/to/a/schema.yaml#anchor',
@@ -791,7 +786,7 @@ VALUES (
         '["string", "null"]',
         TRUE,
         'text/plain',
-        false,
+        TRUE,
         97
     ),
     (
@@ -800,8 +795,8 @@ VALUES (
         '["string", "null"]',
         TRUE,
         'text/plain',
-        false,
-        97
+        FALSE,
+        98
     );
 
 INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
@@ -858,7 +853,15 @@ SELECT *
 FROM projected_fields;
 
 SELECT *
+FROM projected_fields_json;
+
+SELECT *
 FROM collection_keys;
+
+-- Detail view of collections joined with projections, partitions,
+-- and alternate source schemas.
+SELECT *
+FROM collection_details;
 
 -- Valid test cases.
 INSERT INTO test_cases(test_case_id, test_case_name, resource_id)

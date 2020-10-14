@@ -142,7 +142,7 @@ fn init_logging(args: &Args) {
 
     // We use a different variable than RUST_LOG so that we
     let log_var = ::std::env::var("FLOWCTL_LOG");
-    let log_filters = if let Ok(s) = log_var.as_deref() {
+    let log_filters = if let Ok(s) = &log_var {
         s
     } else {
         match verbosity {

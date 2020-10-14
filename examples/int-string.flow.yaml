@@ -4,7 +4,7 @@ collections:
       type: object
       properties:
         i: { type: integer }
-        s: { type: string }
+        s: { type: string, maxLength: 128 }
       required: [i, s]
     key: [/i]
 
@@ -17,8 +17,11 @@ collections:
           type: array
           items: { type: string }
           reduce: { strategy: append }
+      required: [i]
       reduce: { strategy: merge }
     key: [/i]
+    projections:
+      eye: /i
     derivation:
       transform:
         appendStrings:

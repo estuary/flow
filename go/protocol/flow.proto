@@ -118,15 +118,41 @@ message JournalShuffle {
 // JSON-Pointer, and a corresponding field string in a flattened
 // (i.e. tabular or SQL) namespace which aliases it.
 message Projection {
-  option (gogoproto.equal) = true;
-  option (gogoproto.goproto_unrecognized) = false;
-  option (gogoproto.goproto_unkeyed) = false;
-  option (gogoproto.goproto_sizecache) = false;
-
   // Document location of this projection, as a JSON-Pointer.
   string ptr = 1;
   // Field is the flattened, tabular alias of this projection.
   string field = 2;
+  // Was this projection user provided ?
+  bool user_provided = 3;
+  // Does this projection constitute a logical partitioning of the collection?
+  bool is_partition_key = 4;
+  // Does this location form (part of) the collection key?
+  bool is_primary_key = 5;
+  // Inference of this projection.
+  Inference inference = 6;
+}
+
+// Inference details type information which is statically known
+// about a given document location.
+message Inference {
+  // The possible types for this location.
+  // Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
+  repeated string types = 1;
+  // Whether the projection must always exist (either as a location within)
+  // the source document, or as a null-able column in the database.
+  bool must_exist = 2;
+  // String type-specific inferences.
+  message String {
+    // Annotated Content-Type when the projection is of "string" type.
+    string content_type = 3;
+    // Annotated format when the projection is of "string" type.
+    string format = 4;
+    // Whether the value is base64-encoded when the projection is of "string" type.
+    bool is_base64 = 5;
+    // Maximum length when the projection is of "string" type. Zero for no limit.
+    uint32 max_length = 6;
+  }
+  String string = 3;
 }
 
 message CollectionSpec {
@@ -139,10 +165,10 @@ message CollectionSpec {
   repeated string key_ptrs = 3;
   // JSON pointer locating the UUID of each collection document.
   string uuid_ptr = 4;
-  // Logical partitions of this collection.
-  repeated Projection partitions = 5 [ (gogoproto.nullable) = false ];
-  // Logical projections of this collection.
-  repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
+  // Logical partition fields of this collection.
+  repeated string partition_fields = 5;
+  // Logical projections of this collection, indexed on projection field.
+  map<string, Projection> projections = 6;
   // JournalSpec used for dynamically-created journals of this collection.
   protocol.JournalSpec journal_spec = 7 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
