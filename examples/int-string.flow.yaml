@@ -19,6 +19,7 @@ collections:
           reduce: { strategy: append }
       required: [i]
       reduce: { strategy: merge }
+      required: [i]
     key: [/i]
     projections:
       eye: /i
