@@ -584,22 +584,8 @@ FROM transforms
     LEFT JOIN partition_selectors_json AS source_selector ON transforms.source_selector_id = source_selector.selector_id;
 
 -- Detail view of collections joined with projections, partitions,
--- derivations, and alternate source schemas.
-CREATE VIEW collection_details AS WITH collection_fields AS (
-    SELECT collection_id,
-        JSON_GROUP_ARRAY(
-            JSON_OBJECT('field', field, 'ptr', location_ptr)
-        ) AS projections_json,
-        JSON_GROUP_ARRAY(
-            JSON_OBJECT('field', field, 'ptr', location_ptr)
-        ) FILTER (
-            WHERE PARTITIONS.field IS NOT NULL
-        ) AS partitions_json
-    FROM projections NATURAL
-        LEFT JOIN PARTITIONS
-    GROUP BY collection_id
-),
-collection_alt_schemas AS (
+-- derivations, inferences, and alternate source schemas.
+CREATE VIEW collection_details AS WITH collection_alt_schemas AS (
     SELECT source_collection_id AS collection_id,
         JSON_GROUP_ARRAY(DISTINCT source_schema_uri) AS alt_schemas_json
     FROM transforms
@@ -611,14 +597,14 @@ SELECT collection_id,
     schema_uri,
     key_json,
     resource_id,
-    IFNULL(partitions_json, '[]') AS partitions_json,
-    IFNULL(projections_json, '[]') AS projections_json,
+    IFNULL(partition_fields_json, '[]') AS partition_fields_json,
+    IFNULL(projections_json, '{}') AS projections_json,
     IFNULL(alt_schemas_json, '[]') AS alt_schemas_json,
     derivations.collection_id IS NOT NULL AS is_derivation,
     register_schema_uri,
     register_initial_json
 FROM collections NATURAL
-    LEFT JOIN collection_fields NATURAL
+    LEFT JOIN projected_fields_json NATURAL
     LEFT JOIN collection_alt_schemas NATURAL
     LEFT JOIN derivations;
 
@@ -650,6 +636,7 @@ SELECT c.collection_id,
     must_exist,
     string_content_type,
     string_content_encoding_is_base64,
+    string_format,
     string_max_length,
     CASE
         WHEN part.field IS NULL THEN FALSE
@@ -666,6 +653,66 @@ FROM collections AS c
     LEFT JOIN PARTITIONS AS part ON p.collection_id = part.collection_id
     AND p.field = part.field
     LEFT JOIN json_each(c.key_json) AS KEYS ON KEYS.value = p.location_ptr;
+
+-- View of all the projected fields and inferences, grouped as a JSON object.
+CREATE VIEW projected_fields_json AS
+SELECT collection_id,
+    JSON_GROUP_OBJECT(
+        field,
+        JSON_OBJECT(
+            'field',
+            field,
+            'ptr',
+            location_ptr,
+            'user_provided',
+            CASE
+                WHEN user_provided THEN JSON('true')
+                ELSE JSON('false')
+            END,
+            'is_partition_key',
+            CASE
+                WHEN is_partition_key THEN JSON('true')
+                ELSE JSON('false')
+            END,
+            'is_primary_key',
+            CASE
+                WHEN is_primary_key THEN JSON('true')
+                ELSE JSON('false')
+            END,
+            'inference',
+            CASE
+                WHEN types_json IS NULL THEN NULL
+                ELSE JSON_OBJECT(
+                    'types',
+                    JSON(types_json),
+                    'must_exist',
+                    CASE
+                        WHEN must_exist THEN JSON('true')
+                        ELSE JSON('false')
+                    END,
+                    'string',
+                    JSON_OBJECT(
+                        'content_type',
+                        string_content_type,
+                        'format',
+                        string_format,
+                        'is_base64',
+                        CASE
+                            WHEN string_content_encoding_is_base64 THEN JSON('true')
+                            ELSE JSON('false')
+                        END,
+                        'max_length',
+                        string_max_length
+                    )
+                )
+            END
+        )
+    ) AS projections_json,
+    JSON_GROUP_ARRAY(field) FILTER (
+        WHERE is_partition_key
+    ) AS partition_fields_json
+FROM projected_fields
+GROUP BY collection_id;
 
 -- View of all the collection primary keys, partition keys, and shuffle keys. These keys have
 -- constraints on the types of values that are used. The schema must ensure all of the following:

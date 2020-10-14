@@ -106,6 +106,51 @@ pub struct Projection {
     /// Field is the flattened, tabular alias of this projection.
     #[prost(string, tag = "2")]
     pub field: std::string::String,
+    /// Was this projection user provided ?
+    #[prost(bool, tag = "3")]
+    pub user_provided: bool,
+    /// Does this projection constitute a logical partitioning of the collection?
+    #[prost(bool, tag = "4")]
+    pub is_partition_key: bool,
+    /// Does this location form (part of) the collection key?
+    #[prost(bool, tag = "5")]
+    pub is_primary_key: bool,
+    /// Inference of this projection.
+    #[prost(message, optional, tag = "6")]
+    pub inference: ::std::option::Option<Inference>,
+}
+/// Inference details type information which is statically known
+/// about a given document location.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Inference {
+    /// The possible types for this location.
+    /// Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
+    #[prost(string, repeated, tag = "1")]
+    pub types: ::std::vec::Vec<std::string::String>,
+    /// Whether the projection must always exist (either as a location within)
+    /// the source document, or as a null-able column in the database.
+    #[prost(bool, tag = "2")]
+    pub must_exist: bool,
+    #[prost(message, optional, tag = "3")]
+    pub string: ::std::option::Option<inference::String>,
+}
+pub mod inference {
+    /// String type-specific inferences.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct String {
+        /// Annotated Content-Type when the projection is of "string" type.
+        #[prost(string, tag = "3")]
+        pub content_type: std::string::String,
+        /// Annotated format when the projection is of "string" type.
+        #[prost(string, tag = "4")]
+        pub format: std::string::String,
+        /// Whether the value is base64-encoded when the projection is of "string" type.
+        #[prost(bool, tag = "5")]
+        pub is_base64: bool,
+        /// Maximum length when the projection is of "string" type. Zero for no limit.
+        #[prost(uint32, tag = "6")]
+        pub max_length: u32,
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
@@ -122,12 +167,12 @@ pub struct CollectionSpec {
     /// JSON pointer locating the UUID of each collection document.
     #[prost(string, tag = "4")]
     pub uuid_ptr: std::string::String,
-    /// Logical partitions of this collection.
-    #[prost(message, repeated, tag = "5")]
-    pub partitions: ::std::vec::Vec<Projection>,
-    /// Logical projections of this collection.
-    #[prost(message, repeated, tag = "6")]
-    pub projections: ::std::vec::Vec<Projection>,
+    /// Logical partition fields of this collection.
+    #[prost(string, repeated, tag = "5")]
+    pub partition_fields: ::std::vec::Vec<std::string::String>,
+    /// Logical projections of this collection, indexed on projection field.
+    #[prost(map = "string, message", tag = "6")]
+    pub projections: ::std::collections::HashMap<std::string::String, Projection>,
     /// JournalSpec used for dynamically-created journals of this collection.
     #[prost(message, optional, tag = "7")]
     pub journal_spec: ::std::option::Option<super::protocol::JournalSpec>,
