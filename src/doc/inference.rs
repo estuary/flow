@@ -759,7 +759,15 @@ fn enum_types<'v, I: Iterator<Item = &'v Value>>(it: I) -> types::Set {
         let t = match v {
             Value::String(_) => types::STRING,
             Value::Object(_) => types::OBJECT,
-            Value::Number(_) => types::NUMBER,
+            Value::Number(n) => {
+                let n = estuary_json::Number::from(n);
+                match n {
+                    estuary_json::Number::Float(_) => types::NUMBER,
+                    estuary_json::Number::Signed(_) | estuary_json::Number::Unsigned(_) => {
+                        types::NUMBER | types::INTEGER
+                    }
+                }
+            }
             Value::Null => types::NULL,
             Value::Bool(_) => types::BOOLEAN,
             Value::Array(_) => types::ARRAY,
@@ -991,6 +999,26 @@ mod test {
     }
 
     #[test]
+    fn test_enum_type_extraction() {
+        assert_eq!(
+            shape_from("enum: [b, 42, a]").type_,
+            types::STRING | types::NUMBER | types::INTEGER
+        );
+        assert_eq!(
+            shape_from("enum: [b, 42.3, a]").type_,
+            types::STRING | types::NUMBER
+        );
+        assert_eq!(
+            shape_from("enum: [42.3, {foo: bar}]").type_,
+            types::NUMBER | types::OBJECT
+        );
+        assert_eq!(
+            shape_from("enum: [[42], true, null]").type_,
+            types::ARRAY | types::BOOLEAN | types::NULL
+        );
+    }
+
+    #[test]
     fn test_enum_single_type() {
         infer_test(
             &[
@@ -1007,7 +1035,7 @@ mod test {
                 enum_: Some(vec![json!("a"), json!("b")]),
                 ..Shape::default()
             },
-        )
+        );
     }
 
     #[test]
