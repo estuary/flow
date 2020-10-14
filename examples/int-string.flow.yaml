@@ -18,6 +18,7 @@ collections:
           items: { type: string }
           reduce: { strategy: append }
       reduce: { strategy: merge }
+      required: [i]
     key: [/i]
     derivation:
       transform:

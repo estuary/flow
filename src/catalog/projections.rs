@@ -181,15 +181,22 @@ fn register_canonical_projections_for_shape(
             .execute(params)?;
         }
         types::ARRAY => {
-            for (index, shape) in shape.array.tuple.iter().enumerate() {
+            for (index, item_shape) in shape.array.tuple.iter().enumerate() {
                 let location = location.push_item(index);
+                // For array items, must_exist should be false unless the index of the current
+                // tuple item is less than the minimum number of required items. Note that this can
+                // still be true even if the value may be null.
+                let location_must_exist = must_exist
+                    && !item_shape.type_.overlaps(types::NULL)
+                    && index < shape.array.min.unwrap_or_default();
+
                 register_canonical_projections_for_shape(
                     db,
                     location,
                     collection_id,
                     schema_uri,
-                    shape,
-                    must_exist && !shape.type_.overlaps(types::NULL),
+                    item_shape,
+                    location_must_exist,
                     spec,
                 )?;
             }
@@ -197,13 +204,18 @@ fn register_canonical_projections_for_shape(
         types::OBJECT => {
             for property in shape.object.properties.iter() {
                 let location = location.push_prop(property.name.as_str());
+                // All parents (including the current shape) must be required and not nullable,
+                // in addition to this property being required. Note that this can still be true
+                // even if the value may be null.
+                let location_must_exist =
+                    must_exist && property.is_required && !shape.type_.overlaps(types::NULL);
                 register_canonical_projections_for_shape(
                     db,
                     location,
                     collection_id,
                     schema_uri,
                     &property.shape,
-                    must_exist && !shape.type_.overlaps(types::NULL),
+                    location_must_exist,
                     spec,
                 )?;
             }
@@ -272,10 +284,11 @@ mod test {
                             "items": [
                                 { "type": "number" },
                                 { "type": "number" }
-                            ]
+                            ],
+                            "minItems": 1
                         }
                     },
-                    "required": ["fooObj"]
+                    "required": ["fooObj", "fooArray"]
                 }
             },
             "type": "object",
@@ -329,7 +342,7 @@ mod test {
             // make oneFoo required so that there will be an entire chain of required properties
             // to `/oneFoo/fooObj/a`, so that we can validate that the inference knows it's not
             // nullable.
-            "required": ["oneFoo"]
+            "required": ["id", "oneFoo"]
         });
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
