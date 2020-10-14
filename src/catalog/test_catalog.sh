@@ -17,6 +17,7 @@ EOF
 
 	# Reconfigure for tests.
 	cat <<EOF
+
 .changes on
 .headers on
 .echo on

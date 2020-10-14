@@ -13,5 +13,12 @@
             "flow.yaml",
             "*.flow.yaml"
         ]
-    }
+    },
+    "sqltools.format": {
+        "linesBetweenQueries": 2,
+        "reservedWordCase": "upper",
+        "language": "sql"
+    },
+    "files.trimTrailingWhitespace": true,
+    "editor.formatOnSave": true,
 }
