@@ -110,6 +110,9 @@ fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
         let header = r#"
 /* eslint @typescript-eslint/no-explicit-any: "off" */
 
+// Ensure module has at least one export, even if otherwise empty.
+export const _module = null;
+
     "#;
         w.write_all(header.as_bytes())?;
 
@@ -156,13 +159,16 @@ fn generate_lambdas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
     let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
 
     let header = r#"
-/* eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^register$|^previous$" }] */
+/* eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^register$|^previous$|^_.*" }] */
 /* eslint @typescript-eslint/require-await: "off" */
 
 import * as collections from './collections';
 import * as registers from './registers';
 import {BootstrapMap, TransformMap} from '../runtime/types';
 
+// Artificial uses of collections and registers, to satisfy the compiler & linting even if they're empty.
+((_) : null => null)(collections._module);
+((_) : null => null)(registers._module);
     "#;
     w.write_all(header.as_bytes())?;
 
