@@ -199,6 +199,15 @@ func (a *Derive) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 // Coordinator returns the App's shared *shuffle.Coordinator.
 func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
 
+// ClearRegisters delegates the request to its flow-worker.
+func (a *Derive) ClearRegisters(ctx context.Context, req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
+	var _, err = pf.NewDeriveClient(a.delegate.Conn).ClearRegisters(ctx, new(empty.Empty))
+	if err != nil {
+		err = fmt.Errorf("failed to delegate ClearRegisters to flow-worker: %w", err)
+	}
+	return new(pf.ClearRegistersResponse), err
+}
+
 func shardLabel(shard consumer.Shard, label string) (string, error) {
 	var values = shard.Spec().LabelSet.ValuesOf(label)
 	if len(values) != 1 {

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -317,6 +318,11 @@ func (self *Materialize) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 // ReplayRange delegates to shuffle's StartReplayRead.
 func (self *Materialize) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
 	return self.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
+}
+
+// ClearRegisters returns a "not implemented" error.
+func (m *Materialize) ClearRegisters(context.Context, *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
+	return new(pf.ClearRegistersResponse), fmt.Errorf("not implemented")
 }
 
 // Called for each document in the Combine RPC response, after all documents have been added for

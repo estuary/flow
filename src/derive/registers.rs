@@ -169,6 +169,17 @@ impl Registers {
         self.rocks_db.write(wb)?;
         Ok(tx_commit)
     }
+
+    /// Clear all registers. May only be called in between commits.
+    /// This is a testing-centric function, used to clear state between test cases.
+    pub fn clear(&mut self) -> Result<(), Error> {
+        assert!(self.cache.is_empty());
+
+        let cf = self.rocks_db.cf_handle(REGISTERS_CF).unwrap();
+        self.rocks_db
+            .delete_range_cf(cf, &[0x00, 0x00, 0x00, 0x00], &[0xff, 0xff, 0xff, 0xff])
+            .map_err(Into::into)
+    }
 }
 
 pub const CHECKPOINT_KEY: &[u8] = b"checkpoint";
@@ -252,7 +263,13 @@ mod test {
             .into_iter(),
         );
 
-        // We can restore our persisted checkpoint.
+        // Clear registers, and expect we no longer see previous persisted versions.
+        reg.clear().unwrap();
+        reg.load(&[b"foo", b"baz"]).unwrap();
+        assert_eq!(reg.read(b"foo"), &json!({}));
+        assert_eq!(reg.read(b"baz"), &json!({}));
+
+        // However, we can still restore our persisted checkpoint (different column family).
         assert_eq!(reg.last_checkpoint().unwrap(), fixture);
     }
 }

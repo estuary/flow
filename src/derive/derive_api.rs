@@ -456,6 +456,12 @@ impl API {
         let registers = registers.recv().await;
         Ok(registers.as_ref().last_checkpoint()?)
     }
+
+    async fn clear_registers(&self) -> Result<(), Error> {
+        let registers = self.registers.lock().unwrap().chain_before();
+        let mut registers = registers.recv().await;
+        registers.as_mut().clear().map_err(Into::into)
+    }
 }
 
 #[tonic::async_trait]
@@ -486,6 +492,16 @@ impl flow::derive_server::Derive for API {
     ) -> Result<tonic::Response<recoverylog::FsmHints>, tonic::Status> {
         // TODO(johnny): Requires wiring up recoverylog recorder.
         Ok(tonic::Response::new(recoverylog::FsmHints::default()))
+    }
+
+    async fn clear_registers(
+        &self,
+        _request: tonic::Request<()>,
+    ) -> Result<tonic::Response<()>, tonic::Status> {
+        match self.clear_registers().await {
+            Ok(()) => Ok(tonic::Response::new(())),
+            Err(err) => Err(tonic::Status::internal(format!("{}", err))),
+        }
     }
 }
 
@@ -585,6 +601,8 @@ mod test {
 
         // Expect we can restore the Checkpoint just-written.
         let _ = api.api.last_checkpoint().await.unwrap();
+        // And that we can clear registers.
+        let _ = api.api.clear_registers().await.unwrap();
     }
 
     #[tokio::test]
