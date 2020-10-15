@@ -523,7 +523,9 @@ func retryUntil(fn func() error, journal pb.Journal, msg string) {
 		if journal != "" {
 			fields["journal"] = journal
 		}
-		log.WithFields(fields).Error(msg + " (will retry)")
+		if attempt != 0 {
+			log.WithFields(fields).Warn(msg + " (will retry)")
+		}
 		time.Sleep(backoff(attempt))
 	}
 }
