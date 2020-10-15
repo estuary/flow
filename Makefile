@@ -131,7 +131,7 @@ ${TOOLBIN}/websocat:
 # Rule for building Go targets.
 # go-install rules never correspond to actual files, and are always re-run each invocation.
 go-install/%:
-	MBP=go.gazette.dev/core/mainboilerplate \
+	MBP=go.gazette.dev/core/mainboilerplate ;\
 	go install -v --tags "${GO_BUILD_TAGS}" \
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" $*
 
