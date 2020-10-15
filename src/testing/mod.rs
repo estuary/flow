@@ -170,6 +170,10 @@ impl Context {
                         let offset = *verify_from.get(&journal).unwrap_or(&0);
                         let end_offset = *driver.journal_heads().get(&journal).unwrap_or(&0);
 
+                        if offset == end_offset {
+                            continue;
+                        }
+
                         log::info!(
                             "action: verify => fetching {:?} range {}:{}",
                             &journal,
