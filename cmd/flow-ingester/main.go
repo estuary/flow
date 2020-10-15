@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -51,6 +52,11 @@ func (i *ingesterTesting) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequ
 	var _, err = ingest.PrepareAndAwait()
 
 	return &pf.AdvanceTimeResponse{ClockDeltaSeconds: uint64(out / time.Second)}, err
+}
+
+// ClearRegisters returns a "not implemented" error.
+func (i *ingesterTesting) ClearRegisters(_ context.Context, req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
+	return new(pf.ClearRegistersResponse), fmt.Errorf("not implemented")
 }
 
 type cmdServe struct{}

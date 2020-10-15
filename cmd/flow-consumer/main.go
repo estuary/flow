@@ -112,7 +112,7 @@ func (f *Flow) ReadThrough(shard consumer.Shard, store consumer.Store, args cons
 // NewConfig returns a new config instance.
 func (f *Flow) NewConfig() runconsumer.Config { return new(config) }
 
-// AdvanceTime advances the current test time.
+// AdvanceTime is a testing-only API that advances the current test time.
 func (f *Flow) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest) (*pf.AdvanceTimeResponse, error) {
 	var add = uint64(time.Second) * req.AddClockDeltaSeconds
 	var out = time.Duration(atomic.AddInt64((*int64)(&f.service.PublishClockDelta), int64(add)))
@@ -123,6 +123,32 @@ func (f *Flow) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest) (*pf.A
 	f.timepoint.mu.Unlock()
 
 	return &pf.AdvanceTimeResponse{ClockDeltaSeconds: uint64(out / time.Second)}, nil
+}
+
+// ClearRegisters is a testing-only API that clears the registers of a resolved Shard.
+func (f *Flow) ClearRegisters(ctx context.Context, req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
+	var res, err = f.service.Resolver.Resolve(consumer.ResolveArgs{
+		Context:     ctx,
+		ShardID:     req.ShardId,
+		ProxyHeader: req.Header,
+		MayProxy:    false,
+	})
+	if err != nil {
+		return new(pf.ClearRegistersResponse), err
+	} else if res.Status != pc.Status_OK {
+		return &pf.ClearRegistersResponse{
+			Status: res.Status,
+			Header: res.Header,
+		}, nil
+	}
+	defer res.Done()
+
+	resp, err := res.Store.(runtime.Application).ClearRegisters(ctx, req)
+	if err == nil {
+		resp.Status = pc.Status_OK
+		resp.Header = res.Header
+	}
+	return resp, err
 }
 
 // InitApplication starts shared services of the flow-consumer.

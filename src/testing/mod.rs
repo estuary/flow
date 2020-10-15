@@ -6,16 +6,18 @@ use crate::derive;
 use crate::doc::{Diff, FailedValidation, Pointer, SchemaIndex};
 use crate::runtime::{self, cluster};
 use estuary_json::Location;
-use estuary_protocol::flow::{self, ingest_request};
+use estuary_protocol::consumer;
+use estuary_protocol::flow::{self, ingest_request, testing_client::TestingClient};
 use estuary_protocol::protocol::{Label, LabelSelector, LabelSet, ReadRequest};
-use futures::StreamExt;
+use futures::stream::futures_unordered::FuturesUnordered;
+use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod driver;
-use driver::Action;
 pub use driver::Transform;
+use driver::{Action, Offsets};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -31,6 +33,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("gRPC stream error")]
     TonicStatus(#[from] tonic::Status),
+    #[error("gRPC transport error")]
+    TonicTransport(#[from] tonic::transport::Error),
 
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
@@ -107,40 +111,12 @@ pub struct Context {
 
 impl Context {
     /// Run a test case to completion.
-    /// TODO(johnny): This is a hair-ball that needs to be teased apart.
     pub async fn run_test_case(&self, steps: &[TestStep]) -> Result<(), Error> {
-        // Gather journal offsets for each journal which will be verified by this test, before we begin.
-        let mut verify_from = BTreeMap::new();
-
-        for step in steps {
-            if let TestStep::Verify(spec) = step {
-                let selector = verify_journal_selector(spec);
-                let journals = self.cluster.list_journals(Some(selector)).await?;
-
-                for journal in journals.journals {
-                    let journal = journal.spec.unwrap().name;
-
-                    // TODO(johnny): Make this a transactional write-barrier.
-                    let mut stream = self
-                        .cluster
-                        .read(ReadRequest {
-                            header: None,
-                            journal: journal.clone(),
-                            offset: -1,
-                            block: false,
-                            do_not_proxy: false,
-                            metadata_only: true,
-                            end_offset: 0,
-                        })
-                        .await?;
-
-                    if let Some(chunk) = stream.next().await {
-                        let chunk = chunk?;
-                        verify_from.insert(journal, chunk.write_head);
-                    }
-                }
-            }
-        }
+        // Before we begin:
+        // * Gather current write-heads for journals which will be read by a verify step of this test.
+        // * Reset registers of all derivation shards.
+        let (_, verify_from) =
+            futures::try_join!(self.clear_registers(), self.gather_offsets(steps))?;
         log::info!("collected verify_from offsets {:?}", verify_from);
 
         let mut driver =
@@ -186,7 +162,7 @@ impl Context {
 
                     let mut content = Vec::new();
 
-                    let selector = verify_journal_selector(spec);
+                    let selector = journal_selector_for_verify(spec);
                     let journals = self.cluster.list_journals(Some(selector)).await?;
 
                     for journal in journals.journals {
@@ -295,10 +271,99 @@ impl Context {
         }
         Ok(())
     }
+
+    async fn clear_registers(&self) -> Result<(), Error> {
+        // Select derivation shards (note that an empty label matches all values).
+        let selector = Some(shard_selector(""));
+        let shards = self.cluster.list_shards(selector).await?;
+
+        let mut all: FuturesUnordered<_> = shards
+            .shards
+            .into_iter()
+            .map(|shard| async {
+                let shard = shard.spec.unwrap().id;
+                let mut header = None;
+
+                loop {
+                    let response = TestingClient::connect(self.cluster.consumer_address.clone())
+                        .await?
+                        .clear_registers(flow::ClearRegistersRequest {
+                            header,
+                            shard_id: shard.clone(),
+                        })
+                        .await?
+                        .into_inner();
+
+                    // NoShardPrimary is expected during startup, before the shard has been assigned.
+                    if response.status == consumer::Status::Ok as i32 {
+                        return Result::<_, Error>::Ok(shard);
+                    } else if response.status != consumer::Status::NoShardPrimary as i32 {
+                        log::warn!(
+                            "!OK status {:?} clearing registers for {:?} (will retry)",
+                            &response,
+                            &shard
+                        );
+                    }
+
+                    // Wait for the next revision *after* that which the server is aware of.
+                    header = response.header;
+                    header.as_mut().unwrap().etcd.as_mut().unwrap().revision += 1;
+                }
+            })
+            .collect();
+
+        while let Some(shard) = all.try_next().await? {
+            log::info!("cleared registers of shard {:?}", shard);
+        }
+        Ok(())
+    }
+
+    async fn gather_offsets(&self, steps: &[TestStep]) -> Result<Offsets, Error> {
+        // Start journal listings for all "verify" steps.
+        let mut all: FuturesUnordered<_> = steps
+            .iter()
+            .filter_map(|step| match step {
+                TestStep::Verify(verify) => Some({
+                    let selector = journal_selector_for_verify(verify);
+                    self.cluster.list_journals(Some(selector))
+                }),
+                _ => None,
+            })
+            .collect();
+
+        // Collect unique journals from list responses.
+        let mut journals = BTreeSet::new();
+        while let Some(resp) = all.try_next().await? {
+            journals.extend(resp.journals.into_iter().map(|j| j.spec.unwrap().name));
+        }
+
+        let verify_from: FuturesUnordered<_> = journals
+            .into_iter()
+            .map(|journal| async {
+                let mut stream = self
+                    .cluster
+                    .read(ReadRequest {
+                        header: None,
+                        journal: journal.clone(),
+                        offset: -1,
+                        block: false,
+                        do_not_proxy: false,
+                        metadata_only: true,
+                        end_offset: 0,
+                    })
+                    .await?;
+
+                let chunk = stream.try_next().await?.unwrap();
+                Result::Ok::<_, Error>((journal, chunk.write_head))
+            })
+            .collect();
+
+        Ok(verify_from.try_collect::<_>().await?)
+    }
 }
 
 // Builds a LabelSelector which matches journals to be read by this TestStepVerify.
-fn verify_journal_selector(spec: &TestStepVerify) -> LabelSelector {
+fn journal_selector_for_verify(spec: &TestStepVerify) -> LabelSelector {
     let mut include = vec![Label {
         name: "estuary.dev/collection".to_owned(),
         value: spec.collection.as_ref().to_owned(),

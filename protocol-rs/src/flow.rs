@@ -611,6 +611,22 @@ pub struct AdvanceTimeResponse {
     #[prost(uint64, tag = "1")]
     pub clock_delta_seconds: u64,
 }
+/// ClearRegistersRequest is a testing-only request to remove all registers of a shard.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClearRegistersRequest {
+    #[prost(message, optional, tag = "1")]
+    pub header: ::std::option::Option<super::protocol::Header>,
+    #[prost(string, tag = "2")]
+    pub shard_id: std::string::String,
+}
+/// ClearRegistersResponse is a testing-only response to remove all registers of a shard.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClearRegistersResponse {
+    #[prost(enumeration = "super::consumer::Status", tag = "1")]
+    pub status: i32,
+    #[prost(message, optional, tag = "2")]
+    pub header: ::std::option::Option<super::protocol::Header>,
+}
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {
     #![allow(unused_variables, dead_code, missing_docs)]
@@ -888,6 +904,21 @@ pub mod derive_client {
             let path = http::uri::PathAndQuery::from_static("/flow.Derive/BuildHints");
             self.inner.unary(request.into_request(), path, codec).await
         }
+        #[doc = " ClearRegisters is a testing-only API which resets registers in between test cases."]
+        pub async fn clear_registers(
+            &mut self,
+            request: impl tonic::IntoRequest<()>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.Derive/ClearRegisters");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
     }
     impl<T: Clone> Clone for DeriveClient<T> {
         fn clone(&self) -> Self {
@@ -1009,6 +1040,20 @@ pub mod testing_client {
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.Testing/AdvanceTime");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn clear_registers(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ClearRegistersRequest>,
+        ) -> Result<tonic::Response<super::ClearRegistersResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.Testing/ClearRegisters");
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
@@ -1388,6 +1433,11 @@ pub mod derive_server {
             &self,
             request: tonic::Request<()>,
         ) -> Result<tonic::Response<super::super::recoverylog::FsmHints>, tonic::Status>;
+        #[doc = " ClearRegisters is a testing-only API which resets registers in between test cases."]
+        async fn clear_registers(
+            &self,
+            request: tonic::Request<()>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct DeriveServer<T: Derive> {
@@ -1499,6 +1549,34 @@ pub mod derive_server {
                         let interceptor = inner.1.clone();
                         let inner = inner.0;
                         let method = BuildHintsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.Derive/ClearRegisters" => {
+                    #[allow(non_camel_case_types)]
+                    struct ClearRegistersSvc<T: Derive>(pub Arc<T>);
+                    impl<T: Derive> tonic::server::UnaryService<()> for ClearRegistersSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(&mut self, request: tonic::Request<()>) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).clear_registers(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = ClearRegistersSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = if let Some(interceptor) = interceptor {
                             tonic::server::Grpc::with_interceptor(codec, interceptor)
@@ -1657,6 +1735,10 @@ pub mod testing_server {
             &self,
             request: tonic::Request<super::AdvanceTimeRequest>,
         ) -> Result<tonic::Response<super::AdvanceTimeResponse>, tonic::Status>;
+        async fn clear_registers(
+            &self,
+            request: tonic::Request<super::ClearRegistersRequest>,
+        ) -> Result<tonic::Response<super::ClearRegistersResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct TestingServer<T: Testing> {
@@ -1710,6 +1792,39 @@ pub mod testing_server {
                         let interceptor = inner.1.clone();
                         let inner = inner.0;
                         let method = AdvanceTimeSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.Testing/ClearRegisters" => {
+                    #[allow(non_camel_case_types)]
+                    struct ClearRegistersSvc<T: Testing>(pub Arc<T>);
+                    impl<T: Testing> tonic::server::UnaryService<super::ClearRegistersRequest>
+                        for ClearRegistersSvc<T>
+                    {
+                        type Response = super::ClearRegistersResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ClearRegistersRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).clear_registers(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = ClearRegistersSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = if let Some(interceptor) = interceptor {
                             tonic::server::Grpc::with_interceptor(codec, interceptor)

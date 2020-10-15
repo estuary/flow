@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Offsets are a bag of journals and their byte offset.
-type Offsets = BTreeMap<String, i64>;
+pub type Offsets = BTreeMap<String, i64>;
 
 /// Transform is a minimal description of a flow transform as used by Driver.
 #[derive(Deserialize)]

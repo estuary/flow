@@ -504,6 +504,9 @@ service Derive {
   // the local filesystem state produced by this derive worker. It may block
   // while pending operations sync to the recovery log.
   rpc BuildHints(google.protobuf.Empty) returns (recoverylog.FSMHints);
+
+  // ClearRegisters is a testing-only API which resets registers in between test cases.
+  rpc ClearRegisters(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
 // IngestRequest describes documents to ingest into collections.
@@ -548,6 +551,21 @@ message AdvanceTimeResponse {
   uint64 clock_delta_seconds = 1;
 }
 
+// ClearRegistersRequest is a testing-only request to remove all registers of a shard.
+message ClearRegistersRequest {
+  protocol.Header header = 1;
+  string shard_id = 2
+      [ (gogoproto.casttype) =
+            "go.gazette.dev/core/consumer/protocol.ShardID" ];
+}
+
+// ClearRegistersResponse is a testing-only response to remove all registers of a shard.
+message ClearRegistersResponse {
+  consumer.Status status = 1;
+  protocol.Header header = 2 [ (gogoproto.nullable) = false ];
+}
+
 service Testing {
   rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
+  rpc ClearRegisters(ClearRegistersRequest) returns (ClearRegistersResponse);
 }
