@@ -109,6 +109,8 @@ impl Local {
                 &i_broker_address,
                 "--broker.cache.size",
                 "256",
+                "--broker.file-root",
+                "fragments",
                 "--consumer.port",
                 &format!("{}", consumer_port),
                 "--etcd.address",
