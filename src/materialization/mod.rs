@@ -5,6 +5,7 @@ use crate::catalog::{self, Collection, DB};
 use crate::label_set;
 use estuary_json::schema::types;
 use estuary_protocol::consumer;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -49,6 +50,12 @@ pub enum Error {
 
     #[error("Invalid target type '{0}' for materialization. Perhaps this catalog was created using a more recent version of flowctl?")]
     InvalidTargetType(String),
+
+    #[error("No such field named: '{0}'")]
+    NoSuchField(String),
+
+    #[error("Collection keys are missing from the list of projections. All locations used as collection primary keys must be included in materializations. Missing key pointers: {}", .0.iter().join(", "))]
+    MissingCollectionKeys(Vec<String>),
 }
 
 fn create_shard_spec(
@@ -173,8 +180,98 @@ fn get_target_type(db: &DB, target: catalog::MaterializationTarget) -> Result<St
     Ok(t)
 }
 
+#[derive(Debug)]
+pub enum FieldSelection {
+    // Take the default selection of "all" projections. Technically, this selectes a subset of
+    // projections _if_ there are user_provided projections with different names than the
+    // auto-generated projections for the same locations.
+    DefaultAll,
+
+    // Take only the set of projections matching the specific named fields
+    Named(Vec<String>),
+    //InteractiveSelect,
+}
+
+pub fn resolve_projections(
+    db: &DB,
+    collection: Collection,
+    selection: FieldSelection,
+) -> Result<Vec<FieldProjection>, Error> {
+    let all_projections = get_all_projections(db, collection)?;
+
+    let resolved = match selection {
+        FieldSelection::DefaultAll => resolve_default_all_projections(all_projections),
+        FieldSelection::Named(fields) => resolve_named_projections(all_projections, fields)?,
+        //FieldSelection::InteractiveSelect => interactive_select_projections(all_projections)?,
+    };
+    Ok(resolved)
+}
+
+//fn interactive_select_projections(
+//    all_projections: Vec<FieldProjection>,
+//) -> Result<Vec<FieldProjection>, Error> {
+//    unimplemented!();
+//}
+
+fn resolve_named_projections(
+    all_projections: Vec<FieldProjection>,
+    fields: Vec<String>,
+) -> Result<Vec<FieldProjection>, Error> {
+    let results = fields
+        .into_iter()
+        .map(|field| {
+            all_projections
+                .iter()
+                .find(|p| &p.field_name == &field)
+                .cloned()
+                .ok_or_else(|| Error::NoSuchField(field))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+
+    // Verify that the provided fields include all of the locations in the collections key
+    let mut missing_keys = all_projections
+        .iter()
+        .filter(|p| p.is_primary_key && !results.iter().any(|r| &r.location_ptr == &p.location_ptr))
+        .map(|p| p.location_ptr.to_owned())
+        .collect::<Vec<_>>();
+    if !missing_keys.is_empty() {
+        // Deduplicate these location pointers, since we got them from `all_projections`, which may
+        // contain multiple entries for the same location, which could result in a pretty confusing
+        // error message.
+        missing_keys.sort(); // sort is needed in order for dedup to remove all duplicates
+        missing_keys.dedup();
+        Err(Error::MissingCollectionKeys(missing_keys))
+    } else {
+        Ok(results)
+    }
+}
+
+/// Filters `all_projections` so that the final list will only contain a single projection per
+/// `location_ptr`. Preference is always given to user_provided projections over those that were
+/// generated automatically. This makes no guarantees about which field will be selected in the case
+/// that there are multiple user_provided projections for the same field.
+fn resolve_default_all_projections(all_projections: Vec<FieldProjection>) -> Vec<FieldProjection> {
+    let mut by_location: BTreeMap<String, FieldProjection> = BTreeMap::new();
+
+    for proj in all_projections {
+        let should_add = proj.user_provided
+            || (!by_location.contains_key(&proj.location_ptr)
+                && proj.types.is_single_scalar_type());
+        if should_add {
+            by_location.insert(proj.location_ptr.clone(), proj);
+        }
+    }
+
+    let mut results = by_location.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
+    // Sort the resulting projections to put the collection primary keys at the beginning.
+    // This is solely to enhance readability of any resulting tables or SQL. It does not affect
+    // correctness in any way.
+    results.sort_by_key(|p| !p.is_primary_key);
+    results
+}
+
 /// Returns the list of all projections for the given collection.
-pub fn get_projections(db: &DB, collection: Collection) -> Result<Vec<FieldProjection>, Error> {
+pub fn get_all_projections(db: &DB, collection: Collection) -> Result<Vec<FieldProjection>, Error> {
     let mut stmt = db.prepare_cached(
         "SELECT
             field,
@@ -307,7 +404,8 @@ impl MaterializationConfig {
         }
     }
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FieldProjection {
     pub field_name: String,
     pub location_ptr: String,
@@ -444,3 +542,118 @@ impl fmt::Display for ProjectionsError {
 }
 impl std::error::Error for ProjectionsError {}
 
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn resolve_named_projections_returns_fields_in_order_when_all_valid() {
+        let inputs = new_test_projections();
+        let fields = vec![
+            "userfoo".to_owned(),
+            "bar".to_owned(),
+            "gen/string".to_owned(),
+            "user_mixed".to_owned(),
+        ];
+        let result = resolve_named_projections(inputs, fields.clone())
+            .expect("failed to resolve named projections");
+        let result_fields = result.into_iter().map(|p| p.field_name).collect_vec();
+        assert_eq!(fields, result_fields);
+    }
+
+    #[test]
+    fn resolve_named_projections_returns_error_when_primary_keys_are_not_specified() {
+        let inputs = new_test_projections();
+        let fields = vec!["gen/string".to_owned()];
+        let result = resolve_named_projections(inputs, fields).expect_err("expected an error");
+        let expected = vec!["/bar".to_owned(), "/foo".to_owned()];
+        match result {
+            Error::MissingCollectionKeys(missing) => assert_eq!(expected, missing),
+            other => panic!("expected MissingCollectionKeys error, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_named_projections_returns_error_when_field_does_not_exist() {
+        let inputs = new_test_projections();
+        let fields = vec![
+            "userfoo".to_owned(),
+            "bar".to_owned(),
+            "naughty_field".to_owned(),
+        ];
+        let result = resolve_named_projections(inputs, fields).expect_err("expected an error");
+        match result {
+            Error::NoSuchField(field) => assert_eq!("naughty_field", field.as_str()),
+            other => panic!("expected NoSuchField error, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolve_default_all_projections_excludes_duplicate_locations() {
+        let inputs = new_test_projections();
+        // just compare the field names, since it results in more readable output
+        let expected_fields = vec!["bar", "userfoo", "gen/string", "user_mixed", "user_object"];
+        let actual = resolve_default_all_projections(inputs);
+        let actual_fields = actual
+            .iter()
+            .map(|p| p.field_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(expected_fields, actual_fields);
+    }
+
+    fn new_test_projections() -> Vec<FieldProjection> {
+        vec![
+            // included because user provided, even though it has mixed types
+            projection(
+                "user_mixed",
+                "/user/mixed",
+                types::INTEGER | types::STRING,
+                true,
+                false,
+            ),
+            // excluded because it has mixed types
+            projection(
+                "gen/mixed",
+                "/gen/mixed",
+                types::INTEGER | types::STRING,
+                false,
+                false,
+            ),
+            // excluded because not user provided and not scalar
+            projection("gen_object", "/gen/object", types::OBJECT, false, false),
+            // included because it's user provided
+            projection("user_object", "/user/object", types::OBJECT, true, false),
+            // included because it has a scalar type
+            projection("gen/string", "/gen/string", types::STRING, false, false),
+            // excluded because it's not a scalar type
+            projection("gen/obj", "/gen/obj", types::OBJECT, false, false),
+            // userfoo will take precedence
+            projection("foo", "/foo", types::INTEGER, false, true),
+            // included because it's user provided AND a primary key
+            projection("userfoo", "/foo", types::INTEGER, true, true),
+            // included because it's a primary key
+            projection("bar", "/bar", types::STRING, false, true),
+        ]
+    }
+
+    fn projection(
+        field: &str,
+        location: &str,
+        types: types::Set,
+        user_provided: bool,
+        is_primary_key: bool,
+    ) -> FieldProjection {
+        FieldProjection {
+            field_name: field.to_owned(),
+            location_ptr: location.to_owned(),
+            user_provided,
+            is_primary_key,
+            types,
+            must_exist: is_primary_key,
+            is_partition_key: false,
+            string_content_type: None,
+            string_content_encoding_is_base64: false,
+            string_max_length: None,
+        }
+    }
+}
