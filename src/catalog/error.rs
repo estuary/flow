@@ -29,15 +29,18 @@ pub enum Error {
         relative: String,
         detail: url::ParseError,
     },
-    #[error("parsing URL: {0}")]
+    #[error("failed to parse URL")]
     URLParseErr(#[from] url::ParseError),
-    #[error("HTTP error (reqwest): {0}")]
+    #[error("HTTP error (reqwest)")]
     ReqwestErr(#[from] reqwest::Error),
-    #[error("failed to parse YAML: {0}")]
+    #[error("failed to parse YAML")]
     YAMLErr(#[from] serde_yaml::Error),
-    #[error("failed to parse JSON: {0}")]
+    #[error("failed to merge YAML alias nodes")]
+    YAMLMergeErr(#[from] yaml_merge_keys::MergeKeyError),
+
+    #[error("failed to parse JSON")]
     JSONErr(#[from] serde_json::Error),
-    #[error("catalog database error: {0}")]
+    #[error("catalog database error")]
     SQLiteErr(#[from] rusqlite::Error),
     #[error(
         "{source_uri:?} references {import_uri:?} without directly or indirectly importing it"
@@ -56,9 +59,9 @@ pub enum Error {
         next: ContentType,
         prev: ContentType,
     },
-    #[error("failed to build schema: {0}")]
+    #[error("failed to build schema")]
     SchemaBuildErr(#[from] schema::build::Error),
-    #[error("schema index: {0}")]
+    #[error("schema indexing error")]
     SchemaIndexErr(#[from] schema::index::Error),
     #[error("subprocess {process:?} failed with status {status}")]
     SubprocessFailed {

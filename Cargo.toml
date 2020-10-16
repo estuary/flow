@@ -31,7 +31,6 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = "^2.33" # Used only for CLI binaries.
 estuary_json = { path = "json" }
 estuary_protocol = { path = "protocol-rs" }
-structopt = "0.3"
 futures = "^0.3"
 fxhash = "^0.2"
 headers = "^0.3"
@@ -39,8 +38,8 @@ http = "^0.2"
 http-body = "^0.3"
 humantime-serde = "1.0"
 hyper = "^0.13"
-hyperlocal = "^0.7"
 hyper-tls = "^0.4"
+hyperlocal = "^0.7"
 include_dir = { version = "0.6", default-features = false }
 itertools = "^0.9"
 lazy_static = "*"
@@ -60,6 +59,7 @@ schemars = "^0.8"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version =  "^1.0", features = ["raw_value"] }
 serde_yaml = "^0.8"
+structopt = "0.3"
 tempfile = "^3.1"
 thiserror = "^1.0"
 tinyvec = {version = "^0.3", features = ["alloc"]}
@@ -70,6 +70,7 @@ unicode-normalization = "^0.1"
 url = "^2.1"
 uuid = "^0.8"
 warp = "0.2"
+yaml-merge-keys = { version = "^0.4", features = ["serde_yaml"] }
 
 [dev-dependencies]
 insta = "^0.16"
