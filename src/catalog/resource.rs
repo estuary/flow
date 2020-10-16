@@ -397,10 +397,13 @@ mod test {
         Resource::verify_import(s_a, d)?;
 
         // It's not okay for D => A (since A => B => D).
-        assert_eq!(
-            "catalog database error: Import creates an cycle (imports must be acyclic)",
-            format!("{}", Resource::register_import(s_d, a).unwrap_err())
-        );
+        match Resource::register_import(s_d, a) {
+            Err(Error::SQLiteErr(err)) => assert_eq!(
+                "Import creates an cycle (imports must be acyclic)",
+                err.to_string()
+            ),
+            v @ _ => panic!(v),
+        }
         // Or for D => B (since B => D).
         Resource::register_import(s_d, b).unwrap_err();
 
