@@ -1,6 +1,7 @@
 use super::{
     specs, sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope, Selector,
 };
+use crate::catalog::inference;
 use crate::doc::{validate, FullContext, SchemaIndex, Validator};
 
 /// Derivation is a catalog Collection which is derived from other Collections.
@@ -99,7 +100,9 @@ impl Derivation {
                 Some(schema) => {
                     let schema = Schema::register(scope, schema)?;
                     Resource::register_import(scope, schema.resource)?;
-                    Ok(Some(schema.primary_url_with_fragment(scope.db)?))
+                    let url = schema.primary_url_with_fragment(scope.db)?;
+                    inference::register_all(scope, &url)?;
+                    Ok(Some(url))
                 }
                 None => Ok(None),
             })?;
@@ -179,7 +182,17 @@ mod test {
         let db = create(":memory:").unwrap();
 
         let a_schema = json!(true);
-        let alt_schema = json!({"$anchor": "foobar"});
+        let alt_schema = json!({
+            "$anchor": "foobar",
+            "type": "object",
+            "properties": {
+                "d1-key": {"type": "string"},
+                "shuffle": {"type": "integer"},
+                "key": {"type": "integer"},
+                "moar": {"type": "number"}
+            },
+            "required": ["d1-key", "shuffle", "key"]
+        });
         let register_schema = json!({"$defs": {"qib": true}});
         db.execute(
             "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
@@ -272,6 +285,7 @@ mod test {
                 "partition_selector_labels",
                 "partition_selectors",
                 "transforms",
+                "inferences",
             ],
         )?;
 
@@ -303,6 +317,14 @@ mod test {
                     [1, 2, "some-name",    1, 1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
                     [2, 3, "do-the-thing", 1, null, null, 4, null, null, null],
                 ],
+                "inferences": [
+                    ["test://example/a-schema.json", "", ["array", "boolean", "integer", "null", "number", "object", "string"], true, null, null, null, null],
+                    ["test://example/alt-schema.json#foobar", "", ["object"], true, null, null, null, null],
+                    ["test://example/alt-schema.json#foobar", "/d1-key", ["string"], true, null, null, null, null],
+                    ["test://example/alt-schema.json#foobar", "/key", ["integer"], true, null, null, null, null],
+                    ["test://example/alt-schema.json#foobar", "/moar", ["number"], false, null, null, null, null],
+                    ["test://example/alt-schema.json#foobar", "/shuffle", ["integer"], true, null, null, null, null]
+                ]
             }),
         );
 

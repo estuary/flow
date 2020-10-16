@@ -179,6 +179,8 @@ mod test {
                 "projections": [
                     [1, "field_a", "/a/a", true],
                     [1, "field_b", "/b/b", true],
+                    [1, "a/a", "/a/a", false],
+                    [1, "b/b", "/b/b", false],
                 ],
                 "partitions": [[1, "field_a"]],
             }),
