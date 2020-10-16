@@ -24,18 +24,41 @@ pub enum Strategy {
     /// TODO(johnny): Sum doesn't properly deal with overflow conditions yet.
     Sum,
 
-    /// If LHS and RHS are both Objects, perform a deep merge by property.
+    /// Merge is a recursive set union operation.
     ///
-    /// If LHS and RHS are both Arrays, perform a deep sorted merge of their
-    /// respective items as ordered by the provided key, if present. If a key
-    /// isn't provided, the natural ordering of items is used instead.
-    /// When merging Arrays, this reduction always produces a sorted output
-    /// and similarly requires that its inputs already be sorted by the key.
+    /// If LHS and RHS are both Objects, it perform a deep merge of properties by name.
+    ///
+    /// If LHS and RHS are both Arrays and a key is not provided, items of each index
+    /// in LHS and RHS are merged together, extended the shorter of the two by taking
+    /// items of the longer.
+    ///
+    /// If LHS and RHS are both Arrays and a key *is* provided, a deep sorted merge
+    /// of their respective items is performed, as ordered by that key.
+    /// Note that a key of [""] can be applied to use natural item ordering.
+    ///
+    /// When applied to Arrays with a key, this reduction always produces a sorted
+    /// output and similarly requires that its inputs already be sorted by the key.
     ///
     /// In all other cases, Merge behaves as LastWriteWins.
     Merge(Merge),
+    /// Subtract elements from a set.
+    ///
+    /// If LHS and RHS are both Objects, it perform a set subtraction of
+    /// properties by name, removing those properties of LHS which are in RHS.
+    ///
+    /// If LHS and RHS are both Arrays, it performs a sorted set substraction of
+    /// items in LHS which are in RHS, as ordered by a provided key. If no key is
+    /// provided, the natural ordering of items is used instead.
+    ///
+    /// When applied to Arrays, this reduction always produces a sorted output
+    /// and similarly requires that its inputs already be sorted by the key.
+    ///
+    /// In all other cases, Subtract behaves as LastWriteWins.
+    Subtract(Subtract),
+    // TODO(johnny): Intersect? Would deeply merge elements that match and remove
+    // those that don't from the LHS. Pricipled, but needs a motivating use case.
 
-    /// TODO(johnny): Planning to remove this. It's not clear it has actual utility.
+    // TODO(johnny): Planning to remove this. It's not clear it has actual utility.
     /// If LHS and RHS are both arrays or are both strings, extend LHS with RHS.
     /// Otherwise, Append defaults to LastWriteWins behavior.
     Append,
@@ -70,6 +93,13 @@ pub struct Merge {
     key: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Subtract {
+    #[serde(default)]
+    key: Vec<String>,
+}
+
 pub struct Reducer<'r> {
     pub at: usize,
     pub val: sj::Value,
@@ -90,13 +120,14 @@ impl<'r> Reducer<'r> {
         */
 
         match self.idx.get(self.at) {
+            Some((Strategy::Append, _)) => self.append(),
             Some((Strategy::FirstWriteWins, _)) => self.first_write_wins(),
             Some((Strategy::LastWriteWins, _)) | None => self.last_write_wins(),
             Some((Strategy::Maximize(s), _)) => self.maximize(s),
             Some((Strategy::Merge(s), _)) => self.merge(s),
             Some((Strategy::Minimize(s), _)) => self.minimize(s),
+            Some((Strategy::Subtract(s), _)) => self.subtract(s),
             Some((Strategy::Sum, _)) => self.sum(),
-            Some((Strategy::Append, _)) => self.append(),
         }
     }
 
@@ -248,6 +279,54 @@ impl<'r> Reducer<'r> {
                 at
             }
             (into, val) => at + take_val(val, into), // Default to last-write-wins.
+        }
+    }
+
+    fn subtract(self, strategy: &Subtract) -> usize {
+        match (self.into, self.val) {
+            // Subtract of two arrays. If a merge key is provided, use it to determine
+            // relative item ordering. Otherwise, use natural item order.
+            (into @ sj::Value::Array(_), sj::Value::Array(val)) => {
+                // TODO: work-around for "cannot bind by-move and by-ref in the same pattern".
+                // https://github.com/rust-lang/rust/issues/68354
+                let into = into.as_array_mut().unwrap();
+                let into_prev = std::mem::replace(into, Vec::new());
+
+                let at = self.at + val.iter().fold(1, |c, vv| c + count_nodes(vv));
+                into.extend(
+                    itertools::merge_join_by(into_prev.into_iter(), val.into_iter(), |lhs, rhs| {
+                        if strategy.key.is_empty() {
+                            ej::json_cmp(lhs, rhs)
+                        } else {
+                            ej::json_cmp_at(&strategy.key, lhs, rhs)
+                        }
+                    })
+                    .filter_map(|eob| match eob {
+                        EitherOrBoth::Both(_, _) | EitherOrBoth::Right(_) => None,
+                        EitherOrBoth::Left(into) => Some(into),
+                    }),
+                );
+                at
+            }
+            (into @ sj::Value::Object(_), sj::Value::Object(val)) => {
+                // TODO: work-around for "cannot bind by-move and by-ref in the same pattern".
+                // https://github.com/rust-lang/rust/issues/68354
+                let into = into.as_object_mut().unwrap();
+                let into_prev = std::mem::replace(into, sj::Map::new());
+
+                let at = self.at + val.iter().fold(1, |c, (_, vv)| c + count_nodes(vv));
+                into.extend(
+                    itertools::merge_join_by(into_prev.into_iter(), val.into_iter(), |lhs, rhs| {
+                        lhs.0.cmp(&rhs.0)
+                    })
+                    .filter_map(|eob| match eob {
+                        EitherOrBoth::Both(_, _) | EitherOrBoth::Right(_) => None,
+                        EitherOrBoth::Left(into) => Some(into),
+                    }),
+                );
+                at
+            }
+            (into, val) => self.at + take_val(val, into), // Default to last-write-wins.
         }
     }
 
@@ -673,6 +752,103 @@ mod test {
                         {"k": "b", "v": [{"k": 1}, {"k": 3}, {"k": 5, "d": true}]},
                         {"k": "c", "v": [{"k": 9}]},
                     ]),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_subtract_array_of_scalars() {
+        let m = Strategy::Subtract(Subtract { key: Vec::new() });
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!([1, 2, 3, 4, 5, 6, 7]),
+                    nodes: 8,
+                    expect: json!([1, 2, 3, 4, 5, 6, 7]),
+                },
+                Case {
+                    val: json!([2, 3, 6]),
+                    nodes: 4,
+                    expect: json!([1, 4, 5, 7]),
+                },
+                Case {
+                    val: json!([2, 3, 4, 5]),
+                    nodes: 5,
+                    expect: json!([1, 7]),
+                },
+                Case {
+                    val: json!([1, 2, 7, 10]),
+                    nodes: 5,
+                    expect: json!([]),
+                },
+                Case {
+                    val: json!({"foo": "bar"}),
+                    nodes: 2,
+                    expect: json!({"foo": "bar"}),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_subtract_array_by_key() {
+        let m = Strategy::Subtract(Subtract {
+            key: vec!["/k".to_owned()],
+        });
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!([{"k":"a"}, {"k":"b"}, {"k":"c"}]),
+                    nodes: 7,
+                    expect: json!([{"k":"a"}, {"k":"b"}, {"k":"c"}]),
+                },
+                Case {
+                    val: json!([{"a": "ignored", "k":"aa"}, {"k":"c", "extra": 1}]),
+                    nodes: 7,
+                    expect: json!([{"k":"a"}, {"k":"b"}]),
+                },
+                Case {
+                    val: json!([{"k":"a"}, {"k":"aa"}, {"k":"bb"}]),
+                    nodes: 7,
+                    expect: json!([{"k":"b"}]),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_subtract_object() {
+        let m = Strategy::Subtract(Subtract { key: Vec::new() });
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!({"1": 11, "2": 22, "3": 33, "4": 44}),
+                    nodes: 5,
+                    expect: json!({"1": 11, "2": 22, "3": 33, "4": 44}),
+                },
+                Case {
+                    val: json!({"0": 0, "2": true, "6": false}),
+                    nodes: 4,
+                    expect: json!({"1": 11, "3": 33, "4": 44}),
+                },
+                Case {
+                    val: json!({"2": null, "3": null, "4": null}),
+                    nodes: 4,
+                    expect: json!({"1": 11}),
+                },
+                Case {
+                    val: json!({"1": 32, "foo": 22}),
+                    nodes: 3,
+                    expect: json!({}),
+                },
+                Case {
+                    val: json!([1, 2]),
+                    nodes: 3,
+                    expect: json!([1, 2]),
                 },
             ],
         )
