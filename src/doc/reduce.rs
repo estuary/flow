@@ -3,17 +3,41 @@ use itertools::EitherOrBoth;
 use serde::{Deserialize, Serialize};
 use serde_json as sj;
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::iter::Iterator;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Strategy {
+    /// FirstWriteWins keeps the LHS value.
     FirstWriteWins,
+    /// LastWriteWins takes the RHS value.
     LastWriteWins,
+    /// Maximize keeps the greater of the LHS & RHS.
+    /// A provided key, if present, determines the relative ordering.
     Maximize(Maximize),
-    Merge(Merge),
+    /// Minimize keeps the smaller of the LHS & RHS.
+    /// A provided key, if present, determines the relative ordering.
     Minimize(Minimize),
+    /// Sum the LHS and RHS.
+    /// If either LHS or RHS are not numbers, Sum behaves as LastWriteWins.
+    /// TODO(johnny): Sum doesn't properly deal with overflow conditions yet.
     Sum,
+
+    /// If LHS and RHS are both Objects, perform a deep merge by property.
+    ///
+    /// If LHS and RHS are both Arrays, perform a deep sorted merge of their
+    /// respective items as ordered by the provided key, if present. If a key
+    /// isn't provided, the natural ordering of items is used instead.
+    /// When merging Arrays, this reduction always produces a sorted output
+    /// and similarly requires that its inputs already be sorted by the key.
+    ///
+    /// In all other cases, Merge behaves as LastWriteWins.
+    Merge(Merge),
+
+    /// TODO(johnny): Planning to remove this. It's not clear it has actual utility.
+    /// If LHS and RHS are both arrays or are both strings, extend LHS with RHS.
+    /// Otherwise, Append defaults to LastWriteWins behavior.
     Append,
 }
 
@@ -230,7 +254,10 @@ impl<'r> Reducer<'r> {
     fn sum(self) -> usize {
         match (&*self.into, &self.val) {
             (sj::Value::Number(lhs), sj::Value::Number(rhs)) => {
-                *self.into = (ej::Number::from(lhs) + ej::Number::from(rhs)).into();
+                let sum = ej::Number::from(lhs) + ej::Number::from(rhs);
+                if let Ok(sum) = sj::Value::try_from(sum) {
+                    *self.into = sum;
+                }
                 self.at + 1
             }
             (sj::Value::Null, sj::Value::Number(_)) if !self.created => {
@@ -444,17 +471,28 @@ mod test {
                     nodes: 1,
                     expect: json!(std::f64::MAX),
                 },
-                // Number which cannot be represented becomes null.
+                // Number which cannot be represented leaves the prior value.
                 Case {
                     val: json!(std::f64::MAX / 10.0),
                     nodes: 1,
-                    expect: Value::Null,
+                    expect: json!(std::f64::MAX),
                 },
-                // And stays null as further values are added.
+                // Sometimes changes are too small to represent.
                 Case {
                     val: json!(-1.0),
                     nodes: 1,
-                    expect: Value::Null,
+                    expect: json!(std::f64::MAX),
+                },
+                // Sometimes they aren't.
+                Case {
+                    val: json!(std::f64::MIN / 2.0),
+                    nodes: 1,
+                    expect: json!(std::f64::MAX / 2.),
+                },
+                Case {
+                    val: json!(std::f64::MIN / 2.0),
+                    nodes: 1,
+                    expect: json!(0.0),
                 },
                 // Non-numeric types default to last-write-wins.
                 Case {
@@ -468,7 +506,27 @@ mod test {
                     expect: json!(1),
                 },
             ],
-        )
+        );
+
+        // Unsigned overflow handling.
+        // TODO(johnny): This panics, today.
+        /*
+        run_reduce_cases(
+            &m,
+            vec![
+                Case {
+                    val: json!(123),
+                    nodes: 1,
+                    expect: json!(123),
+                },
+                Case {
+                    val: json!(std::u64::MAX - 2),
+                    nodes: 1,
+                    expect: json!(std::u64::MAX),
+                },
+            ],
+        );
+        */
     }
 
     #[test]
