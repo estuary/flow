@@ -39,11 +39,11 @@ RUN apt-get update -y \
       zip
 
 ## Install Rust. This is pasted from:
-# https://github.com/rust-lang/docker-rust/blob/3dea3da5cb709648d53b2a50ba89aef9c89bdd96/1.46.0/buster/Dockerfile
+# https://github.com/rust-lang/docker-rust/blob/master/1.47.0/buster/Dockerfile
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.46.0
+    RUST_VERSION=1.47.0
 
 RUN set -eux; \
     dpkgArch="$(dpkg --print-architecture)"; \
