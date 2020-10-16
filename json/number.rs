@@ -1,5 +1,6 @@
 use serde_json;
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 
 /// `Number` holds possible numeric types of the JSON object model.
 #[derive(Debug)]
@@ -22,15 +23,17 @@ impl From<&serde_json::Number> for Number {
     }
 }
 
-// convert to value instead, and NULL if not a valid float ?
-impl From<Number> for serde_json::Value {
-    fn from(n: Number) -> Self {
+impl TryFrom<Number> for serde_json::Value {
+    type Error = ();
+
+    fn try_from(n: Number) -> Result<Self, Self::Error> {
         match n {
-            Unsigned(n) => serde_json::Value::Number(n.into()),
-            Signed(n) => serde_json::Value::Number(n.into()),
-            Float(n) => serde_json::Number::from_f64(n)
-                .map(|n| serde_json::Value::Number(n))
-                .unwrap_or(serde_json::Value::Null),
+            Unsigned(n) => Ok(serde_json::Value::Number(n.into())),
+            Signed(n) => Ok(serde_json::Value::Number(n.into())),
+            Float(n) => match serde_json::Number::from_f64(n) {
+                Some(n) => Ok(serde_json::Value::Number(n)),
+                None => Err(()),
+            },
         }
     }
 }
@@ -157,6 +160,18 @@ fn f64_cmp(lhs: &f64, rhs: &f64) -> Ordering {
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::Value;
+    use std::convert::TryInto;
+
+    fn expect_eq<L, R>(l: L, r: R)
+    where
+        L: TryInto<Value>,
+        R: TryInto<Value>,
+        L::Error: std::fmt::Debug,
+        R::Error: std::fmt::Debug,
+    {
+        assert_eq!(l.try_into().unwrap(), r.try_into().unwrap());
+    }
 
     #[test]
     fn test_number_conversion() {
@@ -169,29 +184,19 @@ mod test {
         assert_eq!(from("-1234"), Signed(-1234));
         assert_eq!(from("12.34"), Float(12.34));
 
-        fn to(n: serde_json::Value) -> serde_json::Value {
-            n
-        }
-
         // Signed / unsigned integer conversions always succeed.
-        assert_eq!(to(Unsigned(1234).into()), to((1234 as u64).into()));
-        assert_eq!(to(Signed(-1234).into()), to((-1234 as i64).into()));
+        expect_eq(Unsigned(1234), 1234 as u64);
+        expect_eq(Signed(-1234), -1234 as i64);
 
-        assert_eq!(to(Float(-12.34).into()), to((-12.34 as f64).into()));
-        assert_eq!(to(Float(0.0).into()), to((0.0 as f64).into()));
-        assert_eq!(to(Float(std::f64::MIN).into()), to(std::f64::MIN.into()));
-        assert_eq!(to(Float(std::f64::MAX).into()), to(std::f64::MAX.into()));
+        expect_eq(Float(-12.34), -12.34 as f64);
+        expect_eq(Float(0.0), 0.0 as f64);
+        expect_eq(Float(std::f64::MIN), std::f64::MIN);
+        expect_eq(Float(std::f64::MAX), std::f64::MAX);
 
-        // Float converts to NULL if it's not a representable number in JSON.
-        assert_eq!(to(Float(std::f64::NAN).into()), serde_json::Value::Null);
-        assert_eq!(
-            to(Float(std::f64::INFINITY).into()),
-            serde_json::Value::Null
-        );
-        assert_eq!(
-            to(Float(std::f64::NEG_INFINITY).into()),
-            serde_json::Value::Null
-        );
+        // Float conversions fail if it's not a representable number in JSON.
+        assert!(Value::try_from(Float(std::f64::NAN)).is_err());
+        assert!(Value::try_from(Float(std::f64::INFINITY)).is_err());
+        assert!(Value::try_from(Float(std::f64::NEG_INFINITY)).is_err());
     }
 
     #[test]

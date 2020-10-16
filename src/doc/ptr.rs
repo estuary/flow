@@ -399,25 +399,22 @@ mod test {
 
     #[test]
     fn test_ptr_create() {
-        use estuary_json as ej;
-        use sj::Value as sjv;
-
         // Modify a Null root by applying a succession of upserts.
-        let mut root = sjv::Null;
+        let mut root = sj::json!(null);
 
         for case in [
             // Creates Object root, Array at /foo, and Object at /foo/1.
-            ("/foo/2/a", sjv::String("hello".to_owned())),
+            ("/foo/2/a", sj::json!("hello")),
             // Add property to existing object.
-            ("/foo/2/b", ej::Number::Unsigned(3).into()),
-            ("/foo/0", sjv::Bool(false)), // Update existing Null.
-            ("/bar", sjv::Null),          // Add property to doc root.
-            ("/foo/0", sjv::Bool(true)),  // Update from 'false'.
-            ("/foo/-", sjv::String("world".to_owned())), // NextIndex extends Array.
+            ("/foo/2/b", sj::json!(3)),
+            ("/foo/0", sj::json!(false)),   // Update existing Null.
+            ("/bar", sj::json!(null)),      // Add property to doc root.
+            ("/foo/0", sj::json!(true)),    // Update from 'false'.
+            ("/foo/-", sj::json!("world")), // NextIndex extends Array.
             // Index token is interpreted as property because object exists.
-            ("/foo/2/4", ej::Number::Unsigned(5).into()),
+            ("/foo/2/4", sj::json!(5)),
             // NextIndex token is also interpreted as property.
-            ("/foo/2/-", sjv::Bool(false)),
+            ("/foo/2/-", sj::json!(false)),
         ]
         .iter_mut()
         {
@@ -428,8 +425,8 @@ mod test {
         assert_eq!(
             root,
             sj::json!({
-                "foo": [true, sjv::Null, {"-": false, "a": "hello", "b": 3, "4": 5}, "world"],
-                "bar": sjv::Null,
+                "foo": [true, null, {"-": false, "a": "hello", "b": 3, "4": 5}, "world"],
+                "bar": null,
             })
         );
 
