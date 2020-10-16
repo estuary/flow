@@ -13,9 +13,9 @@
 				"previewLimit": 50,
 				"server": "localhost",
 				"port": 5432,
-				"database": "postgres",
-				"username": "postgres",
-				"password": "postgres"
+				"database": "flow",
+				"username": "flow",
+				"password": "flow"
 			}
 		],
 	},
