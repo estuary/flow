@@ -1,0 +1,15 @@
+---
+source: src/catalog/inference.rs
+expression: repr
+---
+location: "", types: ["object"], must_exist: true
+location: "/a", types: ["object"], must_exist: true
+location: "/a/a", types: ["string"], must_exist: true
+location: "/a/b", types: ["boolean"], must_exist: true
+location: "/a/c", types: ["integer"], must_exist: false
+location: "/a/d", types: ["number"], must_exist: false
+location: "/b", types: ["object", "string"], must_exist: true
+location: "/c", types: ["array"], must_exist: true
+location: "/c/0", types: ["string"], must_exist: true
+location: "/c/1", types: ["integer"], must_exist: false
+location: "/d", types: ["integer"], must_exist: false

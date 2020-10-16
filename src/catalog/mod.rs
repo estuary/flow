@@ -4,6 +4,7 @@ mod db;
 mod derivation;
 mod error;
 mod extraction;
+mod inference;
 mod lambda;
 mod materialization;
 mod nodejs;

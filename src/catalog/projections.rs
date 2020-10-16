@@ -1,8 +1,8 @@
-use crate::catalog::{specs, Collection, Result, Schema, Scope, DB};
+use crate::catalog::inference;
+use crate::catalog::{specs, Collection, Error, Result, Schema, Scope, DB};
 use crate::doc::inference::Shape;
-use crate::doc::{Pointer, SchemaIndex};
+use crate::doc::SchemaIndex;
 use estuary_json::schema::types;
-use estuary_json::Location;
 use rusqlite::params as sql_params;
 use url::Url;
 
@@ -37,11 +37,9 @@ pub fn register_projections(
 
     register_canonical_projections_for_shape(
         scope.db,
-        Location::Root,
         collection.id,
         schema_uri.as_str(),
         &shape,
-        true,
         projections,
     )
 }
@@ -80,44 +78,14 @@ pub fn register_user_provided_projection(
             .execute(sql_params![collection.id, spec.field])?;
     }
 
-    let pointer = Pointer::from(spec.location);
-    let (field_shape, must_exist) =
-        schema_shape
-            .locate(&pointer)
-            .ok_or_else(|| NoSuchLocationError {
-                field: spec.field.to_string(),
-                location_ptr: spec.location.to_string(),
-            })?;
-
-    let mut stmt = scope.db.prepare_cached(
-        "INSERT OR IGNORE INTO inferences (
-            schema_uri,
-            location_ptr,
-            types_json,
-            must_exist,
-            string_content_type,
-            string_format,
-            string_content_encoding_is_base64,
-            string_max_length
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-    )?;
-    let params = rusqlite::params![
-        schema_uri,
-        spec.location,
-        field_shape.type_.to_json_array(),
-        must_exist,
-        field_shape.string.content_type.as_deref(),
-        field_shape.string.format.as_deref(),
-        field_shape.string.is_base64,
-        field_shape.string.max_length.map(usize_to_i64),
-    ];
-    stmt.execute(params)?;
-
-    Ok(())
-}
-
-fn usize_to_i64(unsigned: usize) -> i64 {
-    unsigned.min(usize::MAX - 1) as i64
+    if let Some(location) = inference::Inference::locate_within(spec.location, schema_shape) {
+        inference::register_one(scope.db, schema_uri, &location)
+    } else {
+        Err(Error::InvalidProjection(NoSuchLocationError {
+            field: spec.field.to_string(),
+            location_ptr: spec.location.to_string(),
+        }))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -127,128 +95,55 @@ pub struct NoSuchLocationError {
     location_ptr: String,
 }
 
+fn is_projectable_type(types: types::Set) -> bool {
+    let without_null = types & (!types::NULL);
+    match without_null {
+        types::STRING | types::INTEGER | types::NUMBER | types::BOOLEAN => true,
+        _ => false,
+    }
+}
+
 fn register_canonical_projections_for_shape(
     db: &DB,
-    location: Location,
     collection_id: i64,
     schema_uri: &str,
     shape: &Shape,
-    must_exist: bool,
     spec: &specs::Projections,
 ) -> Result<()> {
-    let pointer = location.pointer_str().to_string();
-    if contains_location(spec, pointer.as_str()) {
-        return Ok(());
-    }
-
-    // Temporarily remove null and match on the remainder of the possible types. We're only looking
-    // at fields with a single possible type (apart from null). Any fields with multiple possible
-    // types (e.g. can be either a string or an object) are ignored.
-    let non_nullable_type = (!types::NULL) & shape.type_;
-    match non_nullable_type {
-        types::STRING | types::INTEGER | types::NUMBER | types::BOOLEAN => {
-            let field = field_name_from_location(location);
+    let inferences = inference::get_inferences(shape);
+    for inference in inferences {
+        inference::register_one(db, schema_uri, &inference)?;
+        if is_projectable_type(inference.shape.type_) {
+            let field = inference.location_ptr.trim_start_matches('/');
+            if contains_location(spec, inference.location_ptr.as_str(), field) {
+                continue;
+            }
 
             let mut proj_stmt = db.prepare_cached(
                 "INSERT INTO projections (collection_id, field, location_ptr, user_provided)
                     VALUES (?, ?, ?, FALSE)",
             )?;
-            proj_stmt.execute(sql_params![collection_id, field, pointer])?;
-
-            let types_json = shape.type_.to_json_array();
-            let params = sql_params![
-                schema_uri,
-                pointer,
-                types_json,
-                must_exist,
-                shape.string.content_type.as_ref(),
-                shape.string.format.as_ref(),
-                shape.string.is_base64,
-                shape.string.max_length.map(usize_to_i64)
-            ];
-            db.prepare_cached(
-                "INSERT OR IGNORE INTO inferences (
-                    schema_uri,
-                    location_ptr,
-                    types_json,
-                    must_exist,
-                    string_content_type,
-                    string_format,
-                    string_content_encoding_is_base64,
-                    string_max_length
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-            )?
-            .execute(params)?;
+            proj_stmt.execute(sql_params![
+                collection_id,
+                field,
+                inference.location_ptr.as_str()
+            ])?;
         }
-        types::ARRAY => {
-            for (index, item_shape) in shape.array.tuple.iter().enumerate() {
-                let location = location.push_item(index);
-                // For array items, must_exist should be false unless the index of the current
-                // tuple item is less than the minimum number of required items. Note that this can
-                // still be true even if the value may be null.
-                let location_must_exist = must_exist
-                    && !item_shape.type_.overlaps(types::NULL)
-                    && index < shape.array.min.unwrap_or_default();
-
-                register_canonical_projections_for_shape(
-                    db,
-                    location,
-                    collection_id,
-                    schema_uri,
-                    item_shape,
-                    location_must_exist,
-                    spec,
-                )?;
-            }
-        }
-        types::OBJECT => {
-            for property in shape.object.properties.iter() {
-                let location = location.push_prop(property.name.as_str());
-                // All parents (including the current shape) must be required and not nullable,
-                // in addition to this property being required. Note that this can still be true
-                // even if the value may be null.
-                let location_must_exist =
-                    must_exist && property.is_required && !shape.type_.overlaps(types::NULL);
-                register_canonical_projections_for_shape(
-                    db,
-                    location,
-                    collection_id,
-                    schema_uri,
-                    &property.shape,
-                    location_must_exist,
-                    spec,
-                )?;
-            }
-        }
-        _ => { /* no-op */ }
     }
+
     Ok(())
 }
 
-fn contains_location(spec: &specs::Projections, location: &str) -> bool {
-    spec.iter().any(|p| p.location == location)
-}
-
-fn field_name_from_location(location: Location) -> String {
-    use std::fmt::{Display, Write};
-    fn push_segment(name: &mut String, segment: impl Display) {
-        if !name.is_empty() {
-            name.push('/');
-        }
-        write!(name, "{}", segment).unwrap();
-    }
-    location.fold(String::with_capacity(32), |loc, mut name| {
-        match loc {
-            Location::Root => {}
-            Location::Property(prop) => {
-                push_segment(&mut name, prop.name);
-            }
-            Location::Item(item) => {
-                push_segment(&mut name, item.index);
-            }
-        }
-        name
-    })
+/// Checks whether the set of user-provided projections already contains a projection that matches
+/// the auto-generated one with the given location and field. This checks only for an exact match
+/// of both the location and the field. This is important because we're walking a narrow path to
+/// avoid conflicts between user-provided projections and those that are generated automatically.
+/// Given an auto-generated projection of `foo => /foo`, we must allow users to provide projections
+/// like `other_name => /foo`, but we must disallow projections like `foo => /other_pointer` (these
+/// will be caught by the uniqueness constraint on field names).
+fn contains_location(spec: &specs::Projections, location: &str, field: &str) -> bool {
+    spec.iter()
+        .any(|p| p.location == location && p.field == field)
 }
 
 #[cfg(test)]
@@ -397,19 +292,5 @@ mod test {
             crate::catalog::dump_tables(&db, &["projections", "partitions", "inferences"]).unwrap();
 
         insta::assert_json_snapshot!(actual);
-    }
-
-    #[test]
-    fn property_name_is_generated_from_location() {
-        let root = Location::Root;
-        let a = root.push_prop("a");
-        let a_5 = a.push_item(5);
-        let b = a_5.push_prop("b");
-
-        let name = field_name_from_location(b);
-        assert_eq!("a/5/b", name.as_str());
-
-        let name = field_name_from_location(root);
-        assert!(name.is_empty());
     }
 }
