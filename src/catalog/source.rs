@@ -22,7 +22,9 @@ impl Source {
         resource.mark_as_processed(scope.db)?;
 
         let spec = resource.content(scope.db)?;
-        let spec: specs::Catalog = serde_yaml::from_slice(&spec)?;
+        let spec: serde_yaml::Value = serde_yaml::from_slice(&spec)?;
+        let spec: serde_yaml::Value = yaml_merge_keys::merge_keys_serde(spec)?;
+        let spec: specs::Catalog = serde_yaml::from_value(spec)?;
 
         for (index, url) in spec.import.iter().enumerate() {
             scope.push_prop("import").push_item(index).then(|scope| {

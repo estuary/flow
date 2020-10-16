@@ -428,6 +428,7 @@ dependencies = [
  "url",
  "uuid",
  "warp",
+ "yaml-merge-keys",
 ]
 
 [[package]]
@@ -2844,6 +2845,18 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "yaml-merge-keys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd236a7dc9bb598f349fe4a8754f49181fee50284daa15cd1ba652d722280004"
+dependencies = [
+ "lazy_static",
+ "serde_yaml",
+ "thiserror",
+ "yaml-rust",
 ]
 
 [[package]]
