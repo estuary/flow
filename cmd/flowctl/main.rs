@@ -41,7 +41,7 @@ enum Command {
 #[derive(StructOpt, Debug)]
 struct BuildArgs {
     /// URL or filesystem path of the input specification source file.
-    #[structopt(long, default_value = "catalog.yaml")]
+    #[structopt(long, default_value = "flow.yaml")]
     source: String,
     /// Path to output catalog database.
     #[structopt(long, default_value = "catalog.db")]
