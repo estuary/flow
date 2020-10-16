@@ -89,11 +89,18 @@ struct MaterializeArgs {
     table_name: String,
 
     /// Include all projected fields.
-    #[structopt(long)]
+    #[structopt(long, conflicts_with("fields"), required_unless("fields"))]
     all_fields: bool,
     /// Include a specific field. This option may be specified multiple times to specify the
-    /// complete set of fields to include in the materialization.
-    #[structopt(short = "f", long = "field")]
+    /// complete set of fields to include in the materialization. If you use --field, then you must
+    /// explicitly specify all fields to materialize. These fields must include the collection's
+    /// primary key(s).
+    #[structopt(
+        short = "f",
+        long = "field",
+        conflicts_with("all-fields"),
+        required_unless("all-fields")
+    )]
     fields: Vec<String>,
 
     /// URL of the consumer. The default value is the localhost address that's used by `flowctl
@@ -164,6 +171,7 @@ fn init_logging(args: &Args) {
 }
 
 async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
+    use materialization::FieldSelection;
     let db = catalog::open(args.catalog.as_str())?;
     let catalog_path = tokio::fs::canonicalize(args.catalog.as_str()).await?;
     let catalog_path = catalog_path.display().to_string();
@@ -173,27 +181,16 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     let target = catalog::MaterializationTarget::get_by_name(&db, args.target.as_str())
         .context("unable to find a materialization --target with the given name")?;
 
-    // First load all of the possible projections for this collection
-    let projections = materialization::get_projections(&db, collection)?;
-    let selected_projections = if args.all_fields {
-        projections
-    } else if !args.fields.is_empty() {
-        args.fields
-            .iter()
-            .map(|field| {
-                projections
-                    .iter()
-                    .find(|p| &p.field_name == field)
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow::format_err!("No such projection for field name: '{}'", field)
-                    })
-            })
-            .collect::<Result<Vec<_>, Error>>()?
+    let field_selection = if !args.fields.is_empty() {
+        FieldSelection::Named(args.fields.clone())
+    } else if args.all_fields {
+        FieldSelection::DefaultAll
     } else {
         // TODO: check if stdin and stdout are a tty, and have user make selections interactively
         anyhow::bail!("no fields were specified in the arguments. Please specify specific fields using --field arguments, or use --all-fields to materialize all of them")
     };
+    let selected_projections =
+        materialization::resolve_projections(&db, collection, field_selection)?;
 
     let payload = materialization::generate_target_initializer(
         &db,

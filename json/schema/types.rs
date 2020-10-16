@@ -127,6 +127,33 @@ impl Set {
     pub fn overlaps(&self, other: Self) -> bool {
         *self & other != INVALID
     }
+
+    /// Returns true if this Set represents exactly one scalar type besides null.
+    ///
+    /// ```
+    /// use estuary_json::schema::types::*;
+    ///
+    /// assert!(STRING.is_single_scalar_type());
+    /// assert!(INTEGER.is_single_scalar_type());
+    /// assert!(BOOLEAN.is_single_scalar_type());
+    /// assert!(NUMBER.is_single_scalar_type());
+    /// assert!((STRING | NULL).is_single_scalar_type());
+    ///
+    /// assert!(!(NULL.is_single_scalar_type()));
+    /// assert!(!(OBJECT.is_single_scalar_type()));
+    /// assert!(!(ARRAY.is_single_scalar_type()));
+    /// assert!(!(INVALID.is_single_scalar_type()));
+    ///
+    /// assert!(!((OBJECT | INTEGER).is_single_scalar_type()));
+    /// assert!(!((STRING | BOOLEAN).is_single_scalar_type()));
+    /// ```
+    pub fn is_single_scalar_type(&self) -> bool {
+        let without_null = *self & (!NULL);
+        match without_null {
+            INTEGER | BOOLEAN | STRING | NUMBER => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Debug for Set {

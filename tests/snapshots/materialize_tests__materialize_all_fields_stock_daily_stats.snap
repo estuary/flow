@@ -11,10 +11,16 @@ CREATE TABLE IF NOT EXISTS gazette_checkpoints (shard_fqn TEXT NOT NULL PRIMARY 
 
 /* This table holds the configuration objects for all materializations to this target system. The configuration that gets persisted here is generated automatically by flowctl, and will be used by the flow-consumer at runtime to determine which fields should be projected into the table. */
 CREATE TABLE IF NOT EXISTS flow_materializations (table_name TEXT NOT NULL PRIMARY KEY, config_json TEXT);
-INSERT INTO flow_materializations (table_name, config_json) VALUES ('test_table', '{"collection":"stock/daily-stats","fields":[{"field":"ask/avgD","locationPtr":"/ask/avgD","primaryKey":false},{"field":"ask/avgN","locationPtr":"/ask/avgN","primaryKey":false},{"field":"ask/high","locationPtr":"/ask/high","primaryKey":false},{"field":"ask/low","locationPtr":"/ask/low","primaryKey":false},{"field":"bid/avgD","locationPtr":"/bid/avgD","primaryKey":false},{"field":"bid/avgN","locationPtr":"/bid/avgN","primaryKey":false},{"field":"bid/high","locationPtr":"/bid/high","primaryKey":false},{"field":"bid/low","locationPtr":"/bid/low","primaryKey":false},{"field":"date","locationPtr":"/date","primaryKey":true},{"field":"exchange","locationPtr":"/exchange","primaryKey":false},{"field":"first/price","locationPtr":"/first/price","primaryKey":false},{"field":"first/size","locationPtr":"/first/size","primaryKey":false},{"field":"last/price","locationPtr":"/last/price","primaryKey":false},{"field":"last/size","locationPtr":"/last/size","primaryKey":false},{"field":"my_special_column","locationPtr":"/bid","primaryKey":false},{"field":"price/avgD","locationPtr":"/price/avgD","primaryKey":false},{"field":"price/avgN","locationPtr":"/price/avgN","primaryKey":false},{"field":"price/high","locationPtr":"/price/high","primaryKey":false},{"field":"price/low","locationPtr":"/price/low","primaryKey":false},{"field":"security","locationPtr":"/security","primaryKey":true},{"field":"spread/avgD","locationPtr":"/spread/avgD","primaryKey":false},{"field":"spread/avgN","locationPtr":"/spread/avgN","primaryKey":false},{"field":"spread/high","locationPtr":"/spread/high","primaryKey":false},{"field":"spread/low","locationPtr":"/spread/low","primaryKey":false},{"field":"volume","locationPtr":"/volume","primaryKey":false}]}');
+INSERT INTO flow_materializations (table_name, config_json) VALUES ('test_table', '{"collection":"stock/daily-stats","fields":[{"field":"date","locationPtr":"/date","primaryKey":true},{"field":"security","locationPtr":"/security","primaryKey":true},{"field":"ask/avgD","locationPtr":"/ask/avgD","primaryKey":false},{"field":"ask/avgN","locationPtr":"/ask/avgN","primaryKey":false},{"field":"ask/high","locationPtr":"/ask/high","primaryKey":false},{"field":"ask/low","locationPtr":"/ask/low","primaryKey":false},{"field":"my_special_column","locationPtr":"/bid","primaryKey":false},{"field":"bid/avgD","locationPtr":"/bid/avgD","primaryKey":false},{"field":"bid/avgN","locationPtr":"/bid/avgN","primaryKey":false},{"field":"bid/high","locationPtr":"/bid/high","primaryKey":false},{"field":"bid/low","locationPtr":"/bid/low","primaryKey":false},{"field":"exchange","locationPtr":"/exchange","primaryKey":false},{"field":"first/price","locationPtr":"/first/price","primaryKey":false},{"field":"first/size","locationPtr":"/first/size","primaryKey":false},{"field":"last/price","locationPtr":"/last/price","primaryKey":false},{"field":"last/size","locationPtr":"/last/size","primaryKey":false},{"field":"price/avgD","locationPtr":"/price/avgD","primaryKey":false},{"field":"price/avgN","locationPtr":"/price/avgN","primaryKey":false},{"field":"price/high","locationPtr":"/price/high","primaryKey":false},{"field":"price/low","locationPtr":"/price/low","primaryKey":false},{"field":"spread/avgD","locationPtr":"/spread/avgD","primaryKey":false},{"field":"spread/avgN","locationPtr":"/spread/avgN","primaryKey":false},{"field":"spread/high","locationPtr":"/spread/high","primaryKey":false},{"field":"spread/low","locationPtr":"/spread/low","primaryKey":false},{"field":"volume","locationPtr":"/volume","primaryKey":false}]}');
 
 /* Materialization of Estuary collection 'stock/daily-stats', intended for sqlite target 'localSqlite' */
 CREATE TABLE IF NOT EXISTS "test_table" (
+	/* auto-generated projection of JSON at: /date with inferred types: [string] */
+	"date" TEXT NOT NULL,
+
+	/* auto-generated projection of JSON at: /security with inferred types: [string] */
+	"security" TEXT NOT NULL,
+
 	/* auto-generated projection of JSON at: /ask/avgD with inferred types: [number] */
 	"ask/avgD" REAL,
 
@@ -27,6 +33,9 @@ CREATE TABLE IF NOT EXISTS "test_table" (
 	/* auto-generated projection of JSON at: /ask/low with inferred types: [number] */
 	"ask/low" REAL,
 
+	/* user provided projection of JSON at: /bid with inferred types: [object] */
+	"my_special_column" TEXT,
+
 	/* auto-generated projection of JSON at: /bid/avgD with inferred types: [number] */
 	"bid/avgD" REAL,
 
@@ -38,9 +47,6 @@ CREATE TABLE IF NOT EXISTS "test_table" (
 
 	/* auto-generated projection of JSON at: /bid/low with inferred types: [number] */
 	"bid/low" REAL,
-
-	/* auto-generated projection of JSON at: /date with inferred types: [string] */
-	"date" TEXT NOT NULL,
 
 	/* user provided projection of JSON at: /exchange (partition key) with inferred types: [string] */
 	"exchange" TEXT NOT NULL,
@@ -57,9 +63,6 @@ CREATE TABLE IF NOT EXISTS "test_table" (
 	/* auto-generated projection of JSON at: /last/size with inferred types: [integer] */
 	"last/size" INTEGER,
 
-	/* user provided projection of JSON at: /bid with inferred types: [object] */
-	"my_special_column" TEXT,
-
 	/* auto-generated projection of JSON at: /price/avgD with inferred types: [number] */
 	"price/avgD" REAL,
 
@@ -71,9 +74,6 @@ CREATE TABLE IF NOT EXISTS "test_table" (
 
 	/* auto-generated projection of JSON at: /price/low with inferred types: [number] */
 	"price/low" REAL,
-
-	/* auto-generated projection of JSON at: /security with inferred types: [string] */
-	"security" TEXT NOT NULL,
 
 	/* auto-generated projection of JSON at: /spread/avgD with inferred types: [number] */
 	"spread/avgD" REAL,
