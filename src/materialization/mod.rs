@@ -1,15 +1,83 @@
+mod error;
+mod selection_ui;
 mod sql;
 
+pub use self::error::{Error, ProjectionsError};
+use self::selection_ui::interactive_select_projections;
 use self::sql::SqlMaterializationConfig;
-use crate::catalog::{self, Collection, DB};
+use crate::catalog::{self, DB};
 use crate::label_set;
 use estuary_json::schema::types;
 use estuary_protocol::consumer;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct CollectionInfo {
+    pub collection_id: i64,
+    pub resource_uri: String,
+    pub name: String,
+    pub schema_uri: String,
+    pub key: Vec<String>,
+    pub all_projections: Vec<FieldProjection>,
+}
+
+impl CollectionInfo {
+    /// Returns the `CollectionInfo` for the collection with the given name, or an error if such a
+    /// collection does not exist.
+    pub fn lookup(db: &DB, collection_name: &str) -> Result<CollectionInfo, Error> {
+        let (id, resource_uri, schema_uri, key_json): (i64, String, String, String) = db
+            .query_row(
+                "SELECT collection_id, resource_urls.url, schema_uri, key_json
+            FROM collections
+            NATURAL JOIN resource_urls
+            WHERE collection_name = ? AND resource_urls.is_primary;",
+                rusqlite::params![collection_name],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|err| {
+                if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
+                    Error::NoSuchCollection(collection_name.to_owned())
+                } else {
+                    Error::SQLiteErr(err)
+                }
+            })?;
+
+        let key = serde_json::from_str(&key_json)?;
+        let all_projections = get_all_projections(db, id)?;
+        Ok(CollectionInfo {
+            name: collection_name.to_owned(),
+            collection_id: id,
+            resource_uri,
+            schema_uri,
+            key,
+            all_projections,
+        })
+    }
+
+    pub fn validate_projected_fields(&self, projections: &[FieldProjection]) -> Result<(), Error> {
+        // Verify that the provided fields include all of the locations in the collections key
+        let mut missing_keys = self
+            .key
+            .iter()
+            .filter(|key| !projections.iter().any(|p| *key == &p.location_ptr))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if !missing_keys.is_empty() {
+            // Deduplicate these location pointers, since we got them from `all_projections`, which may
+            // contain multiple entries for the same location, which could result in a pretty confusing
+            // error message.
+            missing_keys.sort(); // sort is needed in order for dedup to remove all duplicates
+            missing_keys.dedup();
+            Err(Error::MissingCollectionKeys(missing_keys))
+        } else {
+            Ok(())
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeConfig {
@@ -17,6 +85,7 @@ pub struct RuntimeConfig {
     pub fields: Vec<RuntimeProjection>,
 }
 
+// TODO: get rid of this struct and just serialize FieldProjection instead
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeProjection {
@@ -33,29 +102,6 @@ impl<'a> From<&'a FieldProjection> for RuntimeProjection {
             primary_key: fp.is_primary_key,
         }
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error(transparent)]
-    InvalidProjections(#[from] ProjectionsError),
-
-    #[error("catalog database error: {0}")]
-    SQLiteErr(#[from] rusqlite::Error),
-
-    // TODO: this is pretty ugly, but it seems better than movinng this whole materialization
-    // module underneath catalog.
-    #[error(transparent)]
-    CatalogError(#[from] catalog::Error),
-
-    #[error("Invalid target type '{0}' for materialization. Perhaps this catalog was created using a more recent version of flowctl?")]
-    InvalidTargetType(String),
-
-    #[error("No such field named: '{0}'")]
-    NoSuchField(String),
-
-    #[error("The Collection's key is not fully represented in the list of projections. All pointers used in the collection key must be included in materializations. The missing key pointers are: {}", .0.iter().join(", "))]
-    MissingCollectionKeys(Vec<String>),
 }
 
 fn create_shard_spec(
@@ -181,46 +227,63 @@ fn get_target_type(db: &DB, target: catalog::MaterializationTarget) -> Result<St
 }
 
 #[derive(Debug)]
-pub enum FieldSelection {
-    // Take the default selection of "all" projections. Technically, this selectes a subset of
-    // projections _if_ there are user_provided projections with different names than the
-    // auto-generated projections for the same locations.
-    DefaultAll,
-
-    // Take only the set of projections matching the specific named fields
-    Named(Vec<String>),
+pub enum CollectionSelection {
+    Named(String),
     //InteractiveSelect,
 }
 
-pub fn resolve_projections(
+#[derive(Debug)]
+pub enum FieldSelection {
+    /// Take the default selection of "all" projections. Technically, this selectes a subset of
+    /// projections _if_ there are user_provided projections with different names than the
+    /// auto-generated projections for the same locations.
+    DefaultAll,
+
+    /// Take only the set of projections matching the specific named fields
+    Named(Vec<String>),
+    /// Have the user select fields interactively from a UI.
+    InteractiveSelect,
+}
+
+pub fn resolve_collection(
     db: &DB,
-    collection: Collection,
+    selection: CollectionSelection,
+) -> Result<CollectionInfo, Error> {
+    match selection {
+        CollectionSelection::Named(name) => CollectionInfo::lookup(db, &name),
+    }
+}
+
+pub fn resolve_projections(
+    collection: CollectionInfo,
     selection: FieldSelection,
 ) -> Result<Vec<FieldProjection>, Error> {
-    let all_projections = get_all_projections(db, collection)?;
-
+    log::debug!(
+        "Resolving projections for collection '{}': {:?}",
+        collection.name,
+        selection
+    );
     let resolved = match selection {
-        FieldSelection::DefaultAll => resolve_default_all_projections(all_projections),
-        FieldSelection::Named(fields) => resolve_named_projections(all_projections, fields)?,
-        //FieldSelection::InteractiveSelect => interactive_select_projections(all_projections)?,
+        FieldSelection::DefaultAll => resolve_default_all_projections(collection),
+        FieldSelection::Named(fields) => resolve_named_projections(collection, fields)?,
+        FieldSelection::InteractiveSelect => interactive_select_projections(collection)?,
     };
     Ok(resolved)
 }
 
-//fn interactive_select_projections(
-//    all_projections: Vec<FieldProjection>,
-//) -> Result<Vec<FieldProjection>, Error> {
-//    unimplemented!();
-//}
-
+// Returns a list of projections named by `fields`. This will return an error if any names from
+// `fields` do not exist as projections, or if the selected projections do not include all
+// components of the collection's key. The returned list will be in the same order as the given
+// `fields`, so that we will respect the order in which fields were provided by the user.
 fn resolve_named_projections(
-    all_projections: Vec<FieldProjection>,
+    collection: CollectionInfo,
     fields: Vec<String>,
 ) -> Result<Vec<FieldProjection>, Error> {
     let results = fields
         .into_iter()
         .map(|field| {
-            all_projections
+            collection
+                .all_projections
                 .iter()
                 .find(|p| &p.field_name == &field)
                 .cloned()
@@ -228,32 +291,19 @@ fn resolve_named_projections(
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
-    // Verify that the provided fields include all of the locations in the collections key
-    let mut missing_keys = all_projections
-        .iter()
-        .filter(|p| p.is_primary_key && !results.iter().any(|r| &r.location_ptr == &p.location_ptr))
-        .map(|p| p.location_ptr.to_owned())
-        .collect::<Vec<_>>();
-    if !missing_keys.is_empty() {
-        // Deduplicate these location pointers, since we got them from `all_projections`, which may
-        // contain multiple entries for the same location, which could result in a pretty confusing
-        // error message.
-        missing_keys.sort(); // sort is needed in order for dedup to remove all duplicates
-        missing_keys.dedup();
-        Err(Error::MissingCollectionKeys(missing_keys))
-    } else {
-        Ok(results)
-    }
+    // Validate that the projections include all components of the collection's key
+    collection.validate_projected_fields(results.as_slice())?;
+    Ok(results)
 }
 
 /// Filters `all_projections` so that the final list will only contain a single projection per
 /// `location_ptr`. Preference is always given to user_provided projections over those that were
 /// generated automatically. This makes no guarantees about which field will be selected in the case
 /// that there are multiple user_provided projections for the same field.
-fn resolve_default_all_projections(all_projections: Vec<FieldProjection>) -> Vec<FieldProjection> {
+fn resolve_default_all_projections(collection: CollectionInfo) -> Vec<FieldProjection> {
     let mut by_location: BTreeMap<String, FieldProjection> = BTreeMap::new();
 
-    for proj in all_projections {
+    for proj in collection.all_projections {
         let should_add = proj.user_provided
             || (!by_location.contains_key(&proj.location_ptr)
                 && proj.types.is_single_scalar_type());
@@ -271,7 +321,7 @@ fn resolve_default_all_projections(all_projections: Vec<FieldProjection>) -> Vec
 }
 
 /// Returns the list of all projections for the given collection.
-pub fn get_all_projections(db: &DB, collection: Collection) -> Result<Vec<FieldProjection>, Error> {
+fn get_all_projections(db: &DB, collection_id: i64) -> Result<Vec<FieldProjection>, Error> {
     let mut stmt = db.prepare_cached(
         "SELECT
             field,
@@ -288,7 +338,7 @@ pub fn get_all_projections(db: &DB, collection: Collection) -> Result<Vec<FieldP
         WHERE collection_id = ?;",
     )?;
     let fields = stmt
-        .query(rusqlite::params![collection.id])?
+        .query(rusqlite::params![collection_id])?
         .and_then(|row| {
             Ok(FieldProjection {
                 field_name: row.get(0)?,
@@ -405,7 +455,7 @@ impl MaterializationConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldProjection {
     pub field_name: String,
     pub location_ptr: String,
@@ -493,62 +543,80 @@ impl<'a> PayloadGenerationParameters<'a> {
     }
 }
 
-#[derive(Debug)]
-pub struct ProjectionsError {
-    materialization_type: &'static str,
-    naughty_projections: BTreeMap<String, Vec<FieldProjection>>,
-}
-impl ProjectionsError {
-    fn empty(materialization_type: &'static str) -> ProjectionsError {
-        ProjectionsError {
-            materialization_type,
-            naughty_projections: BTreeMap::new(),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        !self
-            .naughty_projections
-            .values()
-            .any(|naughty| !naughty.is_empty())
-    }
-}
-
-const MAX_PROJECTION_ERROR_MSGS: usize = 5;
-
-impl fmt::Display for ProjectionsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "There are projections that are incompatible with the materialization of type '{}':",
-            self.materialization_type
-        )?;
-        for (reason, naughty) in self.naughty_projections.iter() {
-            writeln!(f, "{}:", reason)?;
-
-            for field in naughty.iter().take(MAX_PROJECTION_ERROR_MSGS) {
-                writeln!(f, "\t{}", field)?;
-            }
-            if naughty.len() > MAX_PROJECTION_ERROR_MSGS {
-                writeln!(
-                    f,
-                    "\t...and {} more projections",
-                    naughty.len() - MAX_PROJECTION_ERROR_MSGS
-                )?;
-            }
-        }
-        Ok(())
-    }
-}
-impl std::error::Error for ProjectionsError {}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
+    fn collection_info_is_looked_up_by_name() {
+        let expected = test_collection_info();
+
+        let db = catalog::create(":memory:").unwrap();
+        db.execute_batch(
+            "INSERT INTO resources (resource_id, content_type, content, is_processed)
+            VALUES (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'0ABC', TRUE);",
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES (1, ?, TRUE)",
+            rusqlite::params![expected.resource_uri],
+        )
+        .unwrap();
+        db.execute(
+            r#"INSERT INTO collections (collection_id, collection_name, schema_uri, key_json, resource_id)
+            VALUES (1, ?, ?, '["/foo", "/bar"]', TRUE)"#,
+            rusqlite::params![expected.name, expected.schema_uri],
+        )
+        .unwrap();
+
+        for proj in expected.all_projections.iter() {
+            let mut stmt = db
+                .prepare_cached(
+                    "INSERT INTO projections (collection_id, field, location_ptr, user_provided) VALUES (1, ?, ?, ?);",
+                )
+                .unwrap();
+            stmt.execute(rusqlite::params![
+                proj.field_name,
+                proj.location_ptr,
+                proj.user_provided
+            ])
+            .unwrap();
+            // ignore duplicate inferences, since the projections contain some duplicates
+            let mut stmt = db
+                .prepare_cached(
+                    "INSERT OR IGNORE INTO inferences (schema_uri, location_ptr, types_json, must_exist)
+                         VALUES (?, ?, ?, ?)",
+                )
+                .unwrap();
+            stmt.execute(rusqlite::params![
+                expected.schema_uri,
+                proj.location_ptr,
+                proj.types.to_json_array(),
+                proj.must_exist
+            ])
+            .unwrap();
+        }
+
+        let actual =
+            CollectionInfo::lookup(&db, &expected.name).expect("failed to lookup collection");
+        assert_eq!(expected.name, actual.name);
+        assert_eq!(expected.schema_uri, actual.schema_uri);
+        assert_eq!(expected.resource_uri, actual.resource_uri);
+        assert_eq!(expected.collection_id, actual.collection_id);
+        // verify projections ignoring order
+        assert_eq!(expected.all_projections.len(), actual.all_projections.len());
+        for expected_projection in expected.all_projections {
+            assert!(
+                actual.all_projections.contains(&expected_projection),
+                "missing expected projection: {:#?}",
+                &expected_projection
+            );
+        }
+    }
+
+    #[test]
     fn resolve_named_projections_returns_fields_in_order_when_all_valid() {
-        let inputs = new_test_projections();
+        let inputs = test_collection_info();
         let fields = vec![
             "userfoo".to_owned(),
             "bar".to_owned(),
@@ -557,13 +625,13 @@ mod test {
         ];
         let result = resolve_named_projections(inputs, fields.clone())
             .expect("failed to resolve named projections");
-        let result_fields = result.into_iter().map(|p| p.field_name).collect_vec();
+        let result_fields = result.into_iter().map(|p| p.field_name).collect::<Vec<_>>();
         assert_eq!(fields, result_fields);
     }
 
     #[test]
     fn resolve_named_projections_returns_error_when_primary_keys_are_not_specified() {
-        let inputs = new_test_projections();
+        let inputs = test_collection_info();
         let fields = vec!["gen/string".to_owned()];
         let result = resolve_named_projections(inputs, fields).expect_err("expected an error");
         let expected = vec!["/bar".to_owned(), "/foo".to_owned()];
@@ -575,7 +643,7 @@ mod test {
 
     #[test]
     fn resolve_named_projections_returns_error_when_field_does_not_exist() {
-        let inputs = new_test_projections();
+        let inputs = test_collection_info();
         let fields = vec![
             "userfoo".to_owned(),
             "bar".to_owned(),
@@ -590,7 +658,7 @@ mod test {
 
     #[test]
     fn resolve_default_all_projections_excludes_duplicate_locations() {
-        let inputs = new_test_projections();
+        let inputs = test_collection_info();
         // just compare the field names, since it results in more readable output
         let expected_fields = vec!["bar", "userfoo", "gen/string", "user_mixed", "user_object"];
         let actual = resolve_default_all_projections(inputs);
@@ -601,8 +669,8 @@ mod test {
         assert_eq!(expected_fields, actual_fields);
     }
 
-    fn new_test_projections() -> Vec<FieldProjection> {
-        vec![
+    fn test_collection_info() -> CollectionInfo {
+        let projections = vec![
             // included because user provided, even though it has mixed types
             projection(
                 "user_mixed",
@@ -633,7 +701,15 @@ mod test {
             projection("userfoo", "/foo", types::INTEGER, true, true),
             // included because it's a primary key
             projection("bar", "/bar", types::STRING, false, true),
-        ]
+        ];
+        CollectionInfo {
+            collection_id: 1,
+            name: String::from("testCollection"),
+            resource_uri: String::from("test://the/test/flow.yaml"),
+            schema_uri: String::from("test://test/schema.json"),
+            all_projections: projections,
+            key: vec![String::from("/foo"), String::from("/bar")],
+        }
     }
 
     fn projection(

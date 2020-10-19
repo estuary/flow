@@ -89,19 +89,14 @@ struct MaterializeArgs {
     table_name: String,
 
     /// Include all projected fields.
-    #[structopt(long, conflicts_with("fields"), required_unless("fields"))]
+    #[structopt(long, conflicts_with("fields"))]
     all_fields: bool,
     /// Include a specific field. This option may be specified multiple times to specify the
     /// complete set of fields to include in the materialization. If you use --field, then you must
     /// explicitly specify all fields to materialize. These fields must include the collection's
     /// key. If the collection uses a composite key, then all of the pointers that constitute the
     /// key must be materialized.
-    #[structopt(
-        short = "f",
-        long = "field",
-        conflicts_with("all-fields"),
-        required_unless("all-fields")
-    )]
+    #[structopt(short = "f", long = "field", conflicts_with("all-fields"))]
     fields: Vec<String>,
 
     /// URL of the consumer. The default value is the localhost address that's used by `flowctl
@@ -172,13 +167,17 @@ fn init_logging(args: &Args) {
 }
 
 async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
-    use materialization::FieldSelection;
+    use materialization::{CollectionSelection, FieldSelection};
+
     let db = catalog::open(args.catalog.as_str())?;
     let catalog_path = tokio::fs::canonicalize(args.catalog.as_str()).await?;
     let catalog_path = catalog_path.display().to_string();
 
-    let collection = catalog::Collection::get_by_name(&db, args.collection.as_str())
+    let collection_selection = CollectionSelection::Named(args.collection.clone());
+    let collection = materialization::resolve_collection(&db, collection_selection)
         .context("unable to find a --collection with the given name")?;
+
+    // TODO: follow the same selection pattern for looking up the materialization target
     let target = catalog::MaterializationTarget::get_by_name(&db, args.target.as_str())
         .context("unable to find a materialization --target with the given name")?;
 
@@ -186,12 +185,13 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
         FieldSelection::Named(args.fields.clone())
     } else if args.all_fields {
         FieldSelection::DefaultAll
+    } else if is_interactive() {
+        FieldSelection::InteractiveSelect
     } else {
         // TODO: check if stdin and stdout are a tty, and have user make selections interactively
         anyhow::bail!("no fields were specified in the arguments. Please specify specific fields using --field arguments, or use --all-fields to materialize all of them")
     };
-    let selected_projections =
-        materialization::resolve_projections(&db, collection, field_selection)?;
+    let selected_projections = materialization::resolve_projections(collection, field_selection)?;
 
     let payload = materialization::generate_target_initializer(
         &db,
@@ -205,7 +205,10 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     // This payload is what the user asked for, so we print it directly to
     println!("{}", payload);
 
-    if should_apply("materialization ddl to the target database", &args) {
+    if should_do(
+        "apply the materialization ddl to the target database",
+        &args,
+    ) {
         let payload_file = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
         tokio::fs::write(&payload_file, payload.as_bytes()).await?;
 
@@ -230,6 +233,8 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
             "Successfully applied materialization DDL to the target '{}'",
             args.target.as_str()
         );
+    } else {
+        log::info!("Skipped applying the materialization DDL");
     }
 
     let apply_shards_request = materialization::create_shard_apply_request(
@@ -238,9 +243,9 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
         args.target.as_str(),
         args.table_name.as_str(),
     );
-    println!("Gazette Shard Spec:\n{:#?}", apply_shards_request);
 
-    if should_apply("runtime configuration to the flow-consumer", &args) {
+    log::debug!("Gazette Shard Spec: {:#?}", apply_shards_request);
+    if should_do("start running the materialization", &args) {
         let cluster = runtime::Cluster {
             broker_address: String::new(),
             ingester_address: String::new(),
@@ -251,6 +256,8 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
             .await
             .context("updating shard specs")?;
         log::debug!("Got response: {:?}", response);
+    } else {
+        log::info!("Skipped applying the flow-consumer shard specs");
     }
     Ok(())
 }
@@ -278,13 +285,13 @@ fn is_interactive() -> bool {
     atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout)
 }
 
-fn should_apply(thing: &str, args: &MaterializeArgs) -> bool {
+fn should_do(thing: &str, args: &MaterializeArgs) -> bool {
     if args.dry_run {
         false
     } else if args.yes {
         true
     } else if is_interactive() {
-        let message = format!("Would you like to apply the {}?", thing);
+        let message = format!("Would you like to {}?", thing);
         get_user_confirmation(message.as_str())
     } else {
         false
@@ -298,7 +305,7 @@ fn should_apply(thing: &str, args: &MaterializeArgs) -> bool {
 fn get_user_confirmation(message: &str) -> bool {
     use std::io::Write;
     print!(
-        "{}\nEnter y to confirm, or anything else to cancel: ",
+        "{}\nEnter y to confirm, ctrl-c to abort, or anything else to skip: ",
         message
     );
     std::io::stdout()
