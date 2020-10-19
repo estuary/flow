@@ -54,7 +54,7 @@ pub enum Error {
     #[error("No such field named: '{0}'")]
     NoSuchField(String),
 
-    #[error("Collection keys are missing from the list of projections. All locations used as collection primary keys must be included in materializations. Missing key pointers: {}", .0.iter().join(", "))]
+    #[error("The Collection's key is not fully represented in the list of projections. All pointers used in the collection key must be included in materializations. The missing key pointers are: {}", .0.iter().join(", "))]
     MissingCollectionKeys(Vec<String>),
 }
 

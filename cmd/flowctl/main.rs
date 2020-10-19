@@ -94,7 +94,8 @@ struct MaterializeArgs {
     /// Include a specific field. This option may be specified multiple times to specify the
     /// complete set of fields to include in the materialization. If you use --field, then you must
     /// explicitly specify all fields to materialize. These fields must include the collection's
-    /// primary key(s).
+    /// key. If the collection uses a composite key, then all of the pointers that constitute the
+    /// key must be materialized.
     #[structopt(
         short = "f",
         long = "field",
