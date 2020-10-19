@@ -45,7 +45,9 @@ pub fn register_all(scope: Scope, schema_uri: &Url) -> catalog::Result<()> {
     Ok(())
 }
 
-/// Persists the given inference.
+/// Persists the given inference. This function is safe to call multiple times for the same
+/// inference. This behavior was chosen because inferences may be generated from both user-provided
+/// and automatically generated projections.
 pub fn register_one(db: &DB, schema_uri: &str, inference: &Inference) -> catalog::Result<()> {
     let types_json = inference.shape.type_.to_json_array();
     let params = rusqlite::params![
@@ -58,6 +60,7 @@ pub fn register_one(db: &DB, schema_uri: &str, inference: &Inference) -> catalog
         inference.shape.string.is_base64,
         inference.shape.string.max_length.map(usize_to_i64)
     ];
+    // Using OR IGNORE here so that we don't return an error if the inference already exists.
     db.prepare_cached(
         "INSERT OR IGNORE INTO inferences (
                 schema_uri,
