@@ -30,6 +30,16 @@ func TestLoadDerivedCollection(t *testing.T) {
 					MustExist: true,
 					String_:   new(pf.Inference_String),
 				}},
+			"i": {
+				Field:        "i",
+				Ptr:          "/i",
+				UserProvided: false,
+				IsPrimaryKey: true,
+				Inference: &pf.Inference{
+					Types:     []string{"integer"},
+					MustExist: true,
+					String_:   new(pf.Inference_String),
+				}},
 		},
 		JournalSpec:     spec.JournalSpec,
 		UuidPtr:         spec.UuidPtr,
