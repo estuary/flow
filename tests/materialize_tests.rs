@@ -93,7 +93,7 @@ fn materialize_dry_run_emits_error_when_no_fields_are_specified_and_stdin_is_not
     let catalog_path = SETUP.catalog_path();
 
     assert_stderr_contains(
-        "The following required arguments were not provided:\n    --all-fields\n    --field",
+        "no fields were specified in the arguments",
         1,
         catalog_path.as_str(),
         &[
