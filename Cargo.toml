@@ -21,6 +21,7 @@ name = "flowctl"
 path = "cmd/flowctl/main.rs"
 
 [dependencies]
+ansi_term = "^0.11"
 anyhow = "^1.0"
 async-stream = "^0.2"
 async-trait = "0.1"
@@ -60,13 +61,16 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version =  "^1.0", features = ["raw_value"] }
 serde_yaml = "^0.8"
 structopt = "0.3"
+skim = "0.9"
 tempfile = "^3.1"
 thiserror = "^1.0"
 tinyvec = {version = "^0.3", features = ["alloc"]}
 tokio = { version = "0.2", features = ["full"] }
 tonic = { version = "0.3" }
 tower = "0.3"
+tuikit = "0.4"
 unicode-normalization = "^0.1"
+unicode-width = "0.1"
 url = "^2.1"
 uuid = "^0.8"
 warp = "0.2"
