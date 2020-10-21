@@ -4,6 +4,7 @@ pub use ptr::Pointer;
 
 pub mod inference;
 pub mod reduce;
+mod reduce_new;
 
 mod annotation;
 pub use annotation::{extract_reduce_annotations, Annotation};
@@ -27,13 +28,13 @@ pub fn validate<C>(
     val: &mut Validator<C>,
     schema: &url::Url,
     doc: &serde_json::Value,
-) -> Result<(), FailedValidation>
+) -> Result<estuary_json::Span, FailedValidation>
 where
     C: estuary_json::validator::Context,
 {
     val.prepare(schema)
         .expect("attempt to use invalid register schema URL for validation");
-    estuary_json::de::walk(doc, val).unwrap();
+    let span = estuary_json::de::walk(doc, val).unwrap();
 
     if val.invalid() {
         Err(FailedValidation {
@@ -41,6 +42,6 @@ where
             basic_output: estuary_json::validator::build_basic_output(val.outcomes()),
         })
     } else {
-        Ok(())
+        Ok(span)
     }
 }

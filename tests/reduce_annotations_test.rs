@@ -127,10 +127,10 @@ fn test_validate_then_reduce() {
         let mut val = doc::Validator::<validator::FullContext>::new(&idx);
         val.prepare(&uri).unwrap();
 
-        let _out = de::walk(&doc, &mut val).unwrap();
+        let span = de::walk(&doc, &mut val).unwrap();
         assert_eq!(val.invalid(), false);
 
-        let strats = doc::extract_reduce_annotations(val.outcomes());
+        let strats = doc::extract_reduce_annotations(span, val.outcomes());
         println!("strategies: {:?}", strats);
 
         reduce::Reducer {
