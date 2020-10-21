@@ -1,3 +1,5 @@
+use super::Number;
+use serde_json::Value;
 use std::fmt;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
@@ -114,13 +116,18 @@ impl Set {
         }
     }
 
-    pub fn as_str<'a>(&self, mut s: Vec<&'static str>) -> Vec<&'static str> {
-        self.fill_types(&mut s);
-        s
-    }
-
-    pub fn fill_types(&self, s: &mut Vec<&'static str>) {
-        s.extend(self.iter());
+    pub fn for_value(val: &Value) -> Set {
+        match val {
+            Value::Array(_) => ARRAY,
+            Value::Bool(_) => BOOLEAN,
+            Value::Null => NULL,
+            Value::Number(n) => match Number::from(n) {
+                Number::Float(_) => NUMBER,
+                Number::Signed(_) | Number::Unsigned(_) => NUMBER | INTEGER,
+            },
+            Value::Object(_) => OBJECT,
+            Value::String(_) => STRING,
+        }
     }
 
     #[inline]
@@ -167,5 +174,16 @@ impl fmt::Display for Set {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use itertools::Itertools;
         write!(f, "{:?}", self.iter().format(", "))
+    }
+}
+
+impl serde::Serialize for Set {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.iter()
+            .collect::<Vec<&'static str>>()
+            .serialize(serializer)
     }
 }

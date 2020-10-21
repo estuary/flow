@@ -49,21 +49,21 @@ impl schema::build::AnnotationBuilder for Annotation {
 
 /// Given outcomes of a successful validation, extract reduce annotations & hashes.
 pub fn extract_reduce_annotations<'a, C>(
+    span: estuary_json::Span,
     outcomes: &[(validator::Outcome<'a, Annotation>, C)],
 ) -> Vec<(&'a reduce::Strategy, u64)>
 where
     C: validator::Context,
 {
-    let mut idx = Vec::<(&reduce::Strategy, u64)>::new();
+    let mut idx = std::iter::repeat((DEFAULT_STRATEGY, 0))
+        .take(span.end)
+        .collect::<Vec<_>>();
 
-    for (outcome, ctx) in outcomes.iter() {
-        let span = ctx.span();
+    for (outcome, ctx) in outcomes {
+        let subspan = ctx.span();
 
-        if span.begin >= idx.len() {
-            idx.extend(std::iter::repeat((DEFAULT_STRATEGY, 0)).take(1 + span.begin - idx.len()));
-        }
         if let validator::Outcome::Annotation(Annotation::Reduce(strategy)) = outcome {
-            idx[span.begin] = (strategy, span.hashed);
+            idx[subspan.begin] = (strategy, subspan.hashed);
         }
     }
     idx

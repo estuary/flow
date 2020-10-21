@@ -56,7 +56,7 @@ impl Combiner {
     }
 
     pub fn combine(&mut self, doc: Value) -> Result<(), FailedValidation> {
-        validate(&mut self.validator, &self.schema, &doc)?;
+        let span = validate(&mut self.validator, &self.schema, &doc)?;
         let doc = KeyedDoc {
             key: self.key.clone(),
             doc,
@@ -69,7 +69,7 @@ impl Combiner {
                     val: doc.doc,
                     into: &mut prior.doc,
                     created: false,
-                    idx: &extract_reduce_annotations(self.validator.outcomes()),
+                    idx: &extract_reduce_annotations(span, self.validator.outcomes()),
                 }
                 .reduce();
 
