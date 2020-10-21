@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 
 /// `Number` holds possible numeric types of the JSON object model.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Number {
     Unsigned(u64),
     Signed(i64),
@@ -23,6 +23,24 @@ impl From<&serde_json::Number> for Number {
     }
 }
 
+impl From<u64> for Number {
+    fn from(n: u64) -> Self {
+        Self::Unsigned(n)
+    }
+}
+
+impl From<i64> for Number {
+    fn from(n: i64) -> Self {
+        Self::Signed(n)
+    }
+}
+
+impl From<f64> for Number {
+    fn from(n: f64) -> Self {
+        Self::Float(n)
+    }
+}
+
 impl TryFrom<Number> for serde_json::Value {
     type Error = ();
 
@@ -35,56 +53,6 @@ impl TryFrom<Number> for serde_json::Value {
                 None => Err(()),
             },
         }
-    }
-}
-
-impl std::ops::AddAssign<u64> for Number {
-    fn add_assign(&mut self, rhs: u64) {
-        match self {
-            Unsigned(lhs) => *lhs += rhs,
-            Signed(lhs) => *lhs += rhs as i64,
-            Float(lhs) => *lhs += rhs as f64,
-        }
-    }
-}
-
-impl std::ops::AddAssign<i64> for Number {
-    fn add_assign(&mut self, rhs: i64) {
-        match self {
-            Unsigned(lhs) => *self = Signed((*lhs as i64) + rhs),
-            Signed(lhs) => *lhs += rhs,
-            Float(lhs) => *lhs += rhs as f64,
-        }
-    }
-}
-
-impl std::ops::AddAssign<f64> for Number {
-    fn add_assign(&mut self, rhs: f64) {
-        match self {
-            Unsigned(lhs) => *self = Float((*lhs as f64) + rhs),
-            Signed(lhs) => *self = Float((*lhs as f64) + rhs),
-            Float(lhs) => *lhs += rhs,
-        }
-    }
-}
-
-impl std::ops::AddAssign<Number> for Number {
-    fn add_assign(&mut self, rhs: Number) {
-        match rhs {
-            Unsigned(rhs) => *self += rhs,
-            Signed(rhs) => *self += rhs,
-            Float(rhs) => *self += rhs,
-        }
-    }
-}
-
-impl std::ops::Add for Number {
-    type Output = Self;
-
-    fn add(self, rhs: Number) -> Self::Output {
-        let mut lhs = self;
-        lhs += rhs;
-        lhs
     }
 }
 
@@ -120,6 +88,30 @@ impl PartialEq for Number {
 impl Eq for Number {}
 
 impl Number {
+    pub fn checked_add(self: Self, other: Self) -> Option<Self> {
+        match (self, other) {
+            (Unsigned(lhs), Unsigned(rhs)) => lhs.checked_add(rhs).map(Into::into),
+            (Signed(lhs), Signed(rhs)) => lhs.checked_add(rhs).map(Into::into),
+            (Float(lhs), Float(rhs)) => f64_checked_add(lhs, rhs).map(Into::into),
+
+            // Promotion of u64 into i64. We require the value be representable.
+            (Unsigned(lhs), Signed(rhs)) => i64::try_from(lhs)
+                .ok()
+                .and_then(|lhs| lhs.checked_add(rhs))
+                .map(Into::into),
+            (Signed(lhs), Unsigned(rhs)) => i64::try_from(rhs)
+                .ok()
+                .and_then(|rhs| lhs.checked_add(rhs))
+                .map(Into::into),
+
+            // Promotion into f64. We accept loss of precision in these cases.
+            (Unsigned(lhs), Float(rhs)) => f64_checked_add(lhs as f64, rhs).map(Into::into),
+            (Signed(lhs), Float(rhs)) => f64_checked_add(lhs as f64, rhs).map(Into::into),
+            (Float(lhs), Unsigned(rhs)) => f64_checked_add(lhs, rhs as f64).map(Into::into),
+            (Float(lhs), Signed(rhs)) => f64_checked_add(lhs, rhs as f64).map(Into::into),
+        }
+    }
+
     pub fn is_multiple_of(&self, d: &Self) -> bool {
         use Number::*;
 
@@ -155,6 +147,10 @@ fn f64_cmp(lhs: &f64, rhs: &f64) -> Ordering {
             panic!("couldn't compare {} and {}", lhs, rhs);
         }
     })
+}
+
+fn f64_checked_add(a: f64, b: f64) -> Option<f64> {
+    Some(a + b).filter(|f| f.is_finite())
 }
 
 #[cfg(test)]
@@ -265,18 +261,41 @@ mod test {
 
     #[test]
     fn test_add() {
-        is_eq(Unsigned(1) + Unsigned(2), Unsigned(3));
-        is_eq(Signed(-1) + Signed(-2), Signed(-3));
-        is_eq(Float(1.0) + Float(2.0), Float(3.0));
+        assert_eq!(Unsigned(1).checked_add(Unsigned(2)), Some(Unsigned(3)));
+        assert_eq!(Signed(-1).checked_add(Signed(-2)), Some(Signed(-3)));
+        assert_eq!(Float(1.0).checked_add(Float(2.0)), Some(Float(3.0)));
 
-        is_eq(Unsigned(1) + Signed(-2), Signed(-1));
-        is_eq(Signed(-2) + Unsigned(3), Signed(1));
+        assert_eq!(Unsigned(1).checked_add(Signed(-2)), Some(Signed(-1)));
+        assert_eq!(Signed(-2).checked_add(Unsigned(3)), Some(Signed(1)));
 
-        is_eq(Unsigned(1) + Float(0.1), Float(1.1));
-        is_eq(Float(-0.1) + Unsigned(1), Float(0.9));
+        assert_eq!(Unsigned(1).checked_add(Float(0.1)), Some(Float(1.1)));
+        assert_eq!(Float(-0.1).checked_add(Unsigned(1)), Some(Float(0.9)));
 
-        is_eq(Signed(-1) + Float(2.1), Float(1.1));
-        is_eq(Float(0.1) + Signed(-2), Float(-1.9));
+        assert_eq!(Signed(-1).checked_add(Float(2.1)), Some(Float(1.1)));
+        assert_eq!(Float(0.1).checked_add(Signed(-2)), Some(Float(-1.9)));
+    }
+
+    #[test]
+    fn test_add_overflows() {
+        // Representable u64 => i64 promotions work.
+        assert_eq!(
+            Signed(-1).checked_add(Unsigned(u64::MAX / 2)),
+            Some(Signed(i64::MAX - 1))
+        );
+        assert_eq!(
+            Unsigned(u64::MAX / 2).checked_add(Signed(-1)),
+            Some(Signed(i64::MAX - 1))
+        );
+        // Unrepresentable ones don't.
+        assert_eq!(Signed(-1).checked_add(Unsigned(1 + (u64::MAX / 2))), None);
+        assert_eq!(Unsigned(1 + u64::MAX / 2).checked_add(Signed(-1)), None);
+
+        // Cases of overflow.
+        assert_eq!(Unsigned(1).checked_add(Unsigned(u64::MAX)), None);
+        assert_eq!(Signed(1).checked_add(Signed(i64::MAX)), None);
+        assert_eq!(Signed(-1).checked_add(Signed(i64::MIN)), None);
+        assert_eq!(Float(f64::MIN).checked_add(Float(f64::MIN / 2.0)), None);
+        assert_eq!(Float(f64::MAX).checked_add(Float(f64::MAX / 2.0)), None);
     }
 
     fn is_lt(lhs: Number, rhs: Number) {

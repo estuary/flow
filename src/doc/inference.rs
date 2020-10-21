@@ -736,43 +736,12 @@ fn filter_enums_to_types<I: Iterator<Item = Value>>(
     type_: types::Set,
     it: I,
 ) -> impl Iterator<Item = Value> {
-    it.filter(move |value| match value {
-        Value::Null => type_.overlaps(types::NULL),
-        Value::Bool(_) => type_.overlaps(types::BOOLEAN),
-        Value::Number(n) => {
-            let n = estuary_json::Number::from(n);
-            match n {
-                estuary_json::Number::Float(_) => type_.overlaps(types::NUMBER),
-                estuary_json::Number::Signed(_) | estuary_json::Number::Unsigned(_) => {
-                    type_.overlaps(types::NUMBER | types::INTEGER)
-                }
-            }
-        }
-        Value::String(_) => type_.overlaps(types::STRING),
-        Value::Array(_) => type_.overlaps(types::ARRAY),
-        Value::Object(_) => type_.overlaps(types::OBJECT),
-    })
+    it.filter(move |val| type_.overlaps(types::Set::for_value(val)))
 }
 
 fn enum_types<'v, I: Iterator<Item = &'v Value>>(it: I) -> types::Set {
-    it.fold(types::INVALID, |_type, v| {
-        let t = match v {
-            Value::String(_) => types::STRING,
-            Value::Object(_) => types::OBJECT,
-            Value::Number(n) => {
-                let n = estuary_json::Number::from(n);
-                match n {
-                    estuary_json::Number::Float(_) => types::NUMBER,
-                    estuary_json::Number::Signed(_) | estuary_json::Number::Unsigned(_) => {
-                        types::NUMBER | types::INTEGER
-                    }
-                }
-            }
-            Value::Null => types::NULL,
-            Value::Bool(_) => types::BOOLEAN,
-            Value::Array(_) => types::ARRAY,
-        };
-        t | _type
+    it.fold(types::INVALID, |_type, val| {
+        types::Set::for_value(val) | _type
     })
 }
 

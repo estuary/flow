@@ -121,14 +121,14 @@ impl Registers {
 
         // Apply all register deltas, in order.
         for delta in deltas.into_iter() {
-            validate(&mut self.validator, &self.schema, &delta)?;
+            let span = validate(&mut self.validator, &self.schema, &delta)?;
 
             Reducer {
                 at: 0,
                 val: delta,
                 into,
                 created: false,
-                idx: &extract_reduce_annotations(self.validator.outcomes()),
+                idx: &extract_reduce_annotations(span, self.validator.outcomes()),
             }
             .reduce();
         }

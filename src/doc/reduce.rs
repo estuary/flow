@@ -76,21 +76,21 @@ impl std::convert::TryFrom<&sj::Value> for Strategy {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Minimize {
     #[serde(default)]
-    key: Vec<String>,
+    pub key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Maximize {
     #[serde(default)]
-    key: Vec<String>,
+    pub key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Merge {
     #[serde(default)]
-    key: Vec<String>,
+    pub key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -333,8 +333,8 @@ impl<'r> Reducer<'r> {
     fn sum(self) -> usize {
         match (&*self.into, &self.val) {
             (sj::Value::Number(lhs), sj::Value::Number(rhs)) => {
-                let sum = ej::Number::from(lhs) + ej::Number::from(rhs);
-                if let Ok(sum) = sj::Value::try_from(sum) {
+                let sum = ej::Number::checked_add(lhs.into(), rhs.into());
+                if let Ok(sum) = sum.ok_or(()).and_then(sj::Value::try_from) {
                     *self.into = sum;
                 }
                 self.at + 1
@@ -368,7 +368,7 @@ impl<'r> Reducer<'r> {
     }
 }
 
-fn count_nodes(v: &sj::Value) -> usize {
+pub fn count_nodes(v: &sj::Value) -> usize {
     match v {
         sj::Value::Bool(_) | sj::Value::Null | sj::Value::String(_) | sj::Value::Number(_) => 1,
         sj::Value::Array(v) => v.iter().fold(1, |c, vv| c + count_nodes(vv)),
