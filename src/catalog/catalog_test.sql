@@ -767,6 +767,8 @@ INSERT INTO inferences (
         location_ptr,
         types_json,
         must_exist,
+        title,
+        description,
         string_content_type,
         string_content_encoding_is_base64,
         string_max_length
@@ -776,6 +778,8 @@ VALUES (
         '/key/0',
         '["string"]',
         TRUE,
+        'the title of /key/0',
+        'the description of /key/0',
         'text/plain',
         FALSE,
         96
@@ -785,6 +789,8 @@ VALUES (
         '/key/1',
         '["string", "null"]',
         TRUE,
+        'the title of /key/1',
+        'the description of /key/1',
         'text/plain',
         TRUE,
         97
@@ -794,6 +800,8 @@ VALUES (
         '/path/3',
         '["string", "null"]',
         TRUE,
+        'the title of /path/3',
+        'the description of /path/3',
         'text/plain',
         FALSE,
         98

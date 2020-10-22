@@ -55,6 +55,8 @@ pub fn register_one(db: &DB, schema_uri: &str, inference: &Inference) -> catalog
         inference.location_ptr.as_str(),
         types_json,
         inference.must_exist,
+        inference.shape.title,
+        inference.shape.description,
         inference.shape.string.content_type.as_ref(),
         inference.shape.string.format.as_ref(),
         inference.shape.string.is_base64,
@@ -67,11 +69,13 @@ pub fn register_one(db: &DB, schema_uri: &str, inference: &Inference) -> catalog
                 location_ptr,
                 types_json,
                 must_exist,
+                title,
+                description,
                 string_content_type,
                 string_format,
                 string_content_encoding_is_base64,
                 string_max_length
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
     )?
     .execute(params)?;
     Ok(())
@@ -159,7 +163,10 @@ mod test {
                 properties:
                   a: {type: string}
                   b: {type: boolean}
-                  c: {type: integer}
+                  c:
+                    type: integer
+                    title: the C title
+                    description: the C description
                   d: {type: number}
                 required: [a, b]
             required: [a]
