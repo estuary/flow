@@ -87,10 +87,15 @@ impl Derivation {
     fn register_transform(&self, scope: Scope, name: &str, spec: &specs::Transform) -> Result<()> {
         // Map spec source collection name to its collection ID.
         let source = scope.push_prop("source").then(|scope| {
-            Ok(Collection::get_imported_by_name(
-                scope,
-                spec.source.name.as_ref(),
-            )?)
+            let collection = Collection::get_imported_by_name(scope, spec.source.name.as_ref())?;
+            if collection.id == self.collection.id {
+                Err(Error::DerivationReadsItself {
+                    collection_name: spec.source.name.as_ref().to_string(),
+                    transform_name: name.to_string(),
+                })
+            } else {
+                Ok(collection)
+            }
         })?;
         // Register optional source schema.
         let schema_url = scope
@@ -329,5 +334,56 @@ mod test {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn derivation_that_uses_itself_as_source_returns_error() {
+        let db = create(":memory:").unwrap();
+
+        let schema = json!(true);
+        db.execute(
+            "INSERT INTO resources (resource_id, content_type, content, is_processed) VALUES
+                    (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
+                    (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
+            sql_params![schema],
+        )
+        .unwrap();
+        db.execute_batch(
+            "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
+                    (1, 'test://example/spec', TRUE),
+                    (10, 'test://example/schema.json', TRUE);",
+        )
+        .unwrap();
+        let scope = Scope::empty(&db);
+        let scope = scope.push_resource(Resource { id: 1 });
+
+        // Derived collection that sources itself should result in an error
+        let spec: specs::Collection = serde_json::from_value(json!({
+            "name": "bad/derivation",
+            "schema": "test://example/schema.json",
+            "key": ["/d2-key"],
+            "derivation": {
+                "transform": {
+                    "sources-itself": {
+                        "source": {"name": "bad/derivation"},
+                        "publish": {"nodeJS": "publish two"},
+                    },
+                },
+            }
+        }))
+        .unwrap();
+        let err = Collection::register(scope, &spec)
+            .expect_err("expected an error for derivation that sources itself")
+            .unlocate();
+        match err {
+            Error::DerivationReadsItself {
+                collection_name,
+                transform_name,
+            } => {
+                assert_eq!(&collection_name, "bad/derivation");
+                assert_eq!(&transform_name, "sources-itself");
+            }
+            other => panic!("expected DerivationReadsItself, got: {:?}", other),
+        }
     }
 }
