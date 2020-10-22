@@ -193,7 +193,11 @@ mod test {
             "properties": {
                 "d1-key": {"type": "string"},
                 "shuffle": {"type": "integer"},
-                "key": {"type": "integer"},
+                "key": {
+                    "type": "integer",
+                    "title": "the key title",
+                    "description": "the key description"
+                },
                 "moar": {"type": "number"}
             },
             "required": ["d1-key", "shuffle", "key"]
@@ -294,44 +298,42 @@ mod test {
             ],
         )?;
 
-        assert_eq!(
-            dump,
-            json!({
-                "bootstraps":[
-                    [1, 2, 1],
-                ],
-                "derivations": [
-                    [2, "test://example/reg-schema.json#/$defs/qib", {"initial": ["value", 32]}],
-                    [3, "test://example/spec?ptr=/derivation/register/schema", null],
-                ],
-                "lambdas":[
-                    [1, "nodeJS","nodeJS bootstrap", null],
-                    [2, "nodeJS","update one", null],
-                    [3, "nodeJS","publish one", null],
-                    [4, "nodeJS","publish two", null],
-                ],
-                "partition_selectors":[
-                    [1, 1],
-                ],
-                "partition_selector_labels":[
-                    [1, 1, "a_field", "foo", false],
-                    [1, 1, "a_field", 42, false],
-                    [1, 1, "other_field", false, true],
-                ],
-                "transforms":[
-                    [1, 2, "some-name",    1, 1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
-                    [2, 3, "do-the-thing", 1, null, null, 4, null, null, null],
-                ],
-                "inferences": [
-                    ["test://example/a-schema.json", "", ["array", "boolean", "integer", "null", "number", "object", "string"], true, null, null, null, null],
-                    ["test://example/alt-schema.json#foobar", "", ["object"], true, null, null, null, null],
-                    ["test://example/alt-schema.json#foobar", "/d1-key", ["string"], true, null, null, null, null],
-                    ["test://example/alt-schema.json#foobar", "/key", ["integer"], true, null, null, null, null],
-                    ["test://example/alt-schema.json#foobar", "/moar", ["number"], false, null, null, null, null],
-                    ["test://example/alt-schema.json#foobar", "/shuffle", ["integer"], true, null, null, null, null]
-                ]
-            }),
-        );
+        let expected = json!({
+            "bootstraps":[
+                [1, 2, 1],
+            ],
+            "derivations": [
+                [2, "test://example/reg-schema.json#/$defs/qib", {"initial": ["value", 32]}],
+                [3, "test://example/spec?ptr=/derivation/register/schema", null],
+            ],
+            "lambdas":[
+                [1, "nodeJS","nodeJS bootstrap", null],
+                [2, "nodeJS","update one", null],
+                [3, "nodeJS","publish one", null],
+                [4, "nodeJS","publish two", null],
+            ],
+            "partition_selectors":[
+                [1, 1],
+            ],
+            "partition_selector_labels":[
+                [1, 1, "a_field", "foo", false],
+                [1, 1, "a_field", 42, false],
+                [1, 1, "other_field", false, true],
+            ],
+            "transforms":[
+                [1, 2, "some-name",    1, 1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
+                [2, 3, "do-the-thing", 1, null, null, 4, null, null, null],
+            ],
+            "inferences": [
+                ["test://example/a-schema.json", "", ["array", "boolean", "integer", "null", "number", "object", "string"], true, null, null, null, null, null, null],
+                ["test://example/alt-schema.json#foobar", "", ["object"], true, null, null, null, null, null, null],
+                ["test://example/alt-schema.json#foobar", "/d1-key", ["string"], true, null, null, null, null, null, null],
+                ["test://example/alt-schema.json#foobar", "/key", ["integer"], true, "the key title", "the key description", null, null, null, null],
+                ["test://example/alt-schema.json#foobar", "/moar", ["number"], false, null, null, null, null, null, null],
+                ["test://example/alt-schema.json#foobar", "/shuffle", ["integer"], true, null, null, null, null, null, null]
+            ]
+        });
+        assert!(dump == expected, "actual: {}\nexpected: {}", dump, expected);
 
         Ok(())
     }

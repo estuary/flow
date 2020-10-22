@@ -141,11 +141,6 @@ impl SkimItem for SkimProjection {
 
     fn preview(&self, context: PreviewContext) -> ItemPreview {
         let projection = self.projection();
-        let plural_types = if projection.types.iter().count() > 1 {
-            "s"
-        } else {
-            ""
-        };
         let type_description = projection.types.iter().join(", ");
         let source_description = if projection.user_provided {
             "User-provided projection"
@@ -154,30 +149,33 @@ impl SkimItem for SkimProjection {
         };
 
         let key_comment = if projection.is_primary_key {
-            "Key: This location is part of the Collection's key. Materializations must include a projection for each JSON pointer used as part of the key.\n"
+            "\tKey: This location is part of the Collection's key. Materializations must include a projection for each JSON pointer used as part of the key.\n"
         } else {
             ""
         };
         let partition_comment = if projection.is_partition_key {
-            "Partition Key: This location is used as a partition key.\n"
+            "\tPartition Key: This location is used as a partition key.\n"
         } else {
             ""
         };
 
         // Below the field info, we'll show a list of all the currently selected fields.
-        let all_selected = context.selections.iter().join("\n");
+        let all_selected = context.selections.iter().join("\n\t");
 
         let preview = format!("Selected Projection:\n\n\
-                              Field: {}\n\
-                              JSON Pointer: {}\n\
-                              Type{}: {}\n\
-                              Must Exist: {} (if true, then the field can never be 'undefined', though it can be null)\n\
-                              Source: {}\n\
-                              {}{}\nAll Selected Fields:\n{}",
+                              \tField:        {}\n\
+                              \tJSON Pointer: {}\n\
+                              \tType:         {}\n\
+                              \tTitle:        {}\n\
+                              \tDescription:  {}\n\
+                              \tMust Exist: {} (if true, then the field can never be 'undefined', though it can be null)\n\
+                              \tSource: {}\n\
+                              {}{}\nAll Selected Fields:\n\t{}",
                               projection.field_name,
                               projection.location_ptr,
-                              plural_types,
                               type_description,
+                              projection.title.as_deref().unwrap_or(""),
+                              projection.description.as_deref().unwrap_or(""),
                               projection.must_exist,
                               source_description,
                               key_comment,

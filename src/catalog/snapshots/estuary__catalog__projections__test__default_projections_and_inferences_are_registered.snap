@@ -12,6 +12,8 @@ expression: actual
       ],
       true,
       null,
+      null,
+      null,
       "email",
       null,
       null
@@ -23,6 +25,8 @@ expression: actual
         "integer"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -38,6 +42,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -47,6 +53,8 @@ expression: actual
         "object"
       ],
       true,
+      null,
+      null,
       null,
       null,
       null,
@@ -62,6 +70,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -71,6 +81,8 @@ expression: actual
         "object"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -84,6 +96,8 @@ expression: actual
         "string"
       ],
       false,
+      null,
+      null,
       null,
       "email",
       null,
@@ -100,6 +114,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -109,6 +125,8 @@ expression: actual
         "integer"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -124,6 +142,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -133,6 +153,8 @@ expression: actual
         "object"
       ],
       true,
+      null,
+      null,
       null,
       null,
       null,
@@ -148,6 +170,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -157,6 +181,8 @@ expression: actual
         "number"
       ],
       true,
+      null,
+      null,
       null,
       null,
       null,
@@ -172,6 +198,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -181,6 +209,8 @@ expression: actual
         "object"
       ],
       true,
+      null,
+      null,
       null,
       null,
       null,
@@ -196,6 +226,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -205,6 +237,8 @@ expression: actual
         "number"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -220,6 +254,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -229,6 +265,8 @@ expression: actual
         "object"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -244,6 +282,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -253,6 +293,8 @@ expression: actual
         "object"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -268,6 +310,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -277,6 +321,8 @@ expression: actual
         "number"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -292,6 +338,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -304,6 +352,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -313,6 +363,8 @@ expression: actual
         "string"
       ],
       false,
+      null,
+      null,
       null,
       "email",
       null,
@@ -328,6 +380,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -337,6 +391,8 @@ expression: actual
         "integer"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -352,6 +408,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -361,6 +419,8 @@ expression: actual
         "array"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -376,6 +436,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -385,6 +447,8 @@ expression: actual
         "object"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -400,6 +464,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -409,6 +475,8 @@ expression: actual
         "array"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -424,6 +492,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -433,6 +503,8 @@ expression: actual
         "number"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -448,6 +520,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -457,6 +531,8 @@ expression: actual
         "string"
       ],
       false,
+      null,
+      null,
       null,
       "email",
       null,
@@ -472,6 +548,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -481,6 +559,8 @@ expression: actual
         "integer"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,
@@ -496,6 +576,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -508,6 +590,8 @@ expression: actual
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     [
@@ -517,6 +601,8 @@ expression: actual
         "object"
       ],
       false,
+      null,
+      null,
       null,
       null,
       null,

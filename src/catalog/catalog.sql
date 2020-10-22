@@ -272,6 +272,10 @@ CREATE TABLE PARTITIONS (
 --     parent object or array is not required in the schema. The _value_ of the field may still be
 --     null, even if must_exist is true. So to check whether a field is nullable, you need to check
 --     both this field and types_json.
+-- :title:
+--     The title from the schema, if specified.
+-- :description:
+--     The description from the schema, if specified.
 -- :string_content_type:
 --     Strings end up being used to represent a variety of different things, e.g. dates, xml, or binary
 --     content, which may benefit for specialized storage in other systems. So we store a lot more
@@ -289,6 +293,8 @@ CREATE TABLE inferences (
     location_ptr TEXT NOT NULL,
     types_json TEXT NOT NULL CHECK (JSON_TYPE(types_json) == 'array'),
     must_exist BOOLEAN NOT NULL,
+    title TEXT,
+    description TEXT,
     string_content_type TEXT,
     string_format TEXT,
     string_content_encoding_is_base64 BOOLEAN,
@@ -634,6 +640,8 @@ SELECT c.collection_id,
     user_provided,
     types_json,
     must_exist,
+    title,
+    description,
     string_content_type,
     string_content_encoding_is_base64,
     string_format,
