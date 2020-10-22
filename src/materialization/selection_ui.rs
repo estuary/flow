@@ -19,6 +19,11 @@ const KEY_MARKER: &str = "\u{1F511}";
 /// Can be re-used if we add a selection UI for other things like collections or targets
 const GENERIC_INSTRUCTIONS: &str = "Use arrow keys, search, or mouse to select fields.\nPress tab or space, or right-click with the mouse to toggle fields on or off.\nPress enter when done or escape to cancel.";
 
+/// Runs the interactive field selection UI, and blocks until the user has either accepted a set of
+/// projections or cancelled. If the user cancels or aborts, an `Error::ActionAborted` is returned.
+/// The list of returned projections is guaranteed to be valid for a materialization. If the user
+/// selects an invalid set of projections (missing a collection key component), then an
+/// `Error::MissingCollectionKeys` is returned.
 pub fn interactive_select_projections(
     collection: CollectionInfo,
 ) -> Result<Vec<FieldProjection>, Error> {
@@ -47,12 +52,17 @@ pub fn interactive_select_projections(
         tx.send(Arc::new(projection)).unwrap();
     }
 
-    // This call will block until the user either accepts the selection or cancels.
-    // Will return None if there's an "internal error" from skim. We'll surface this as an i/o
-    // error for now, since I have no idea how common this is or what might cause it.
+    // This call will block until the user either accepts the selection or cancels. Will return
+    // None if there's an "internal error" from skim. We'll surface this as an i/o error for now,
+    // since I have no idea how common this is or what might cause it. It's important that we don't
+    // use stdin, stdout, or stderr for anything else while skim is doing its thing. Specifically,
+    // this means don't try to log anything on calls to our `SkimProjection`.
     let output = Skim::run_with(&opts, Some(rx)).ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::Other, "interactive selection UI error")
     })?;
+    // We do this just to ensure that anything written by skim is finished and handled by the
+    // terminal before we resume our normal terminal usage for printing logs and such.
+    flush_std_streams();
 
     log::info!(
         "Finished selection with end event: {:?}, query: {:?}, cmd: {:?}",
@@ -87,6 +97,13 @@ pub fn interactive_select_projections(
     // This is purely to make the resulting sql more readable.
     results.sort_by_key(|p| !p.is_primary_key);
     Ok(results)
+}
+
+fn flush_std_streams() {
+    use std::io::Write;
+
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
 }
 
 struct FieldSelectionContext {
