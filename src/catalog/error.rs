@@ -80,4 +80,22 @@ pub enum Error {
         "Materialization references the collection: '{collection_name}', which does not exist"
     )]
     MaterializationCollectionMissing { collection_name: String },
+
+    #[error("the derived collection '{collection_name}' cannot name itself as a source in transform '{transform_name}'")]
+    DerivationReadsItself {
+        collection_name: String,
+        transform_name: String,
+    },
+}
+
+impl Error {
+    /// Removes all wrapping `At` variants and returns the inner error. If the error is already not
+    /// located, then this just returns self.
+    #[cfg(test)]
+    pub fn unlocate(self) -> Error {
+        match self {
+            Error::At { detail, .. } => detail.unlocate(),
+            other => other,
+        }
+    }
 }
