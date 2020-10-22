@@ -948,6 +948,8 @@ INSERT INTO inferences (
         location_ptr,
         types_json,
         must_exist,
+        title,
+        description,
         string_content_type,
         string_content_encoding_is_base64,
         string_max_length
@@ -957,6 +959,8 @@ VALUES (
         '/key/0',
         '["string"]',
         TRUE,
+        'the title of /key/0',
+        'the description of /key/0',
         'text/plain',
         FALSE,
         96
@@ -966,6 +970,8 @@ VALUES (
         '/key/1',
         '["string", "null"]',
         TRUE,
+        'the title of /key/1',
+        'the description of /key/1',
         'text/plain',
         TRUE,
         97
@@ -975,6 +981,8 @@ VALUES (
         '/path/3',
         '["string", "null"]',
         TRUE,
+        'the title of /path/3',
+        'the description of /path/3',
         'text/plain',
         FALSE,
         98
@@ -1037,12 +1045,12 @@ VALUES (
 
 SELECT *
 FROM projected_fields;
-collection_id|schema_uri|collection_name|field|location_ptr|user_provided|types_json|must_exist|string_content_type|string_content_encoding_is_base64|string_format|string_max_length|is_partition_key|is_primary_key
-1|file:///path/to/a/schema.yaml#anchor|col/src|field_1|/key/0|1|["string"]|1|text/plain|0||96|0|1
-1|file:///path/to/a/schema.yaml#anchor|col/src|field_2|/key/1|0|["string", "null"]|1|text/plain|1||97|1|1
-1|file:///path/to/a/schema.yaml#anchor|col/src|field/3|/path/3|0|["string", "null"]|1|text/plain|0||98|0|0
-2|https://canonical/schema/uri#/$defs/path|col/derived|field_1||0|||||||0|0
-2|https://canonical/schema/uri#/$defs/path|col/derived|field_a|/a|1|||||||1|0
+collection_id|schema_uri|collection_name|field|location_ptr|user_provided|types_json|must_exist|title|description|string_content_type|string_content_encoding_is_base64|string_format|string_max_length|is_partition_key|is_primary_key
+1|file:///path/to/a/schema.yaml#anchor|col/src|field_1|/key/0|1|["string"]|1|the title of /key/0|the description of /key/0|text/plain|0||96|0|1
+1|file:///path/to/a/schema.yaml#anchor|col/src|field_2|/key/1|0|["string", "null"]|1|the title of /key/1|the description of /key/1|text/plain|1||97|1|1
+1|file:///path/to/a/schema.yaml#anchor|col/src|field/3|/path/3|0|["string", "null"]|1|the title of /path/3|the description of /path/3|text/plain|0||98|0|0
+2|https://canonical/schema/uri#/$defs/path|col/derived|field_1||0|||||||||0|0
+2|https://canonical/schema/uri#/$defs/path|col/derived|field_a|/a|1|||||||||1|0
 changes:   0   total_changes: XYZ
 
 SELECT *

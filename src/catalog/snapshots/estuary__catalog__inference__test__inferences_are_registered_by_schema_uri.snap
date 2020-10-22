@@ -13,6 +13,8 @@ expression: actual
     null,
     null,
     null,
+    null,
+    null,
     null
   ],
   [
@@ -22,6 +24,8 @@ expression: actual
       "object"
     ],
     true,
+    null,
+    null,
     null,
     null,
     null,
@@ -37,6 +41,8 @@ expression: actual
     null,
     null,
     null,
+    null,
+    null,
     null
   ],
   [
@@ -49,6 +55,8 @@ expression: actual
     null,
     null,
     null,
+    null,
+    null,
     null
   ],
   [
@@ -58,6 +66,8 @@ expression: actual
       "integer"
     ],
     false,
+    "the C title",
+    "the C description",
     null,
     null,
     null,
@@ -70,6 +80,8 @@ expression: actual
       "number"
     ],
     false,
+    null,
+    null,
     null,
     null,
     null,

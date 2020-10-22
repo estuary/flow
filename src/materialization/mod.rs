@@ -329,6 +329,8 @@ fn get_all_projections(db: &DB, collection_id: i64) -> Result<Vec<FieldProjectio
             user_provided,
             types_json,
             must_exist,
+            title,
+            description,
             string_content_type,
             string_content_encoding_is_base64,
             string_max_length,
@@ -346,13 +348,15 @@ fn get_all_projections(db: &DB, collection_id: i64) -> Result<Vec<FieldProjectio
                 user_provided: row.get(2)?,
                 types: row.get::<usize, TypesWrapper>(3)?.0,
                 must_exist: row.get(4)?,
-                string_content_type: row.get(5)?,
+                title: row.get(5)?,
+                description: row.get(6)?,
+                string_content_type: row.get(7)?,
                 string_content_encoding_is_base64: row
-                    .get::<usize, Option<bool>>(6)?
+                    .get::<usize, Option<bool>>(8)?
                     .unwrap_or_default(),
-                string_max_length: row.get(7)?,
-                is_partition_key: row.get(8)?,
-                is_primary_key: row.get(9)?,
+                string_max_length: row.get(9)?,
+                is_partition_key: row.get(10)?,
+                is_primary_key: row.get(11)?,
             })
         })
         .collect::<catalog::Result<Vec<_>>>()?;
@@ -462,6 +466,8 @@ pub struct FieldProjection {
     pub user_provided: bool,
     pub types: types::Set,
     pub must_exist: bool,
+    pub title: Option<String>,
+    pub description: Option<String>,
 
     pub is_partition_key: bool,
     pub is_primary_key: bool,
@@ -489,6 +495,8 @@ impl FieldProjection {
             // generator handle a combined object|array type.
             types: types::OBJECT,
             must_exist: true,
+            title: Some("Flow Document".to_owned()),
+            description: Some("The complete document, with all reductions applied".to_owned()),
             is_partition_key: false,
             is_primary_key: false,
             string_content_type: None,
@@ -726,6 +734,8 @@ mod test {
             is_primary_key,
             types,
             must_exist: is_primary_key,
+            title: None,
+            description: None,
             is_partition_key: false,
             string_content_type: None,
             string_content_encoding_is_base64: false,

@@ -668,6 +668,8 @@ mod test {
             user_provided: true,
             types,
             must_exist: true,
+            title: None,
+            description: None,
             is_primary_key: false,
             is_partition_key: false,
             string_content_type: None,
