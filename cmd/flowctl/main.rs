@@ -204,39 +204,64 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
 
     // This payload is what the user asked for, so we print it directly to
     println!("{}", payload);
-
-    if should_do(
+    if !should_do(
         "apply the materialization ddl to the target database",
         &args,
     ) {
-        let payload_file = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
-        tokio::fs::write(&payload_file, payload.as_bytes()).await?;
-
-        let apply_command = materialization::create_apply_command(
-            &db,
-            target,
-            args.table_name.as_str(),
-            payload_file.as_path(),
-        )?;
-        // print out the apply command arguments using the debug representation, so that strings
-        // will be double quoted and internal quote characters will be escaped. This is helpful
-        // since individual arguments may contain spaces, which would otherwise make this output
-        // impossible to parse correctly.
-        log::info!(
-            "Materialization target apply command:\n{}",
-            apply_command.iter().map(|s| format!("{:?}", s)).join(" ")
-        );
-        exec_external_command(apply_command.as_slice())
-            .await
-            .context("Failed to apply payload to materialization target")?;
-        log::info!(
-            "Successfully applied materialization DDL to the target '{}'",
-            args.target.as_str()
-        );
-    } else {
-        log::info!("Skipped applying the materialization DDL");
+        log::info!("Skipping application of materialization");
+        return Ok(());
     }
+    // Ok, we're go for launch, but we need to do things in a sensible order so that we don't leave
+    // things in a weird state if one of these steps fails. We'll first try to list shards, in
+    // order to validate that we can connect to the flow-consumer successfully. If this works, then
+    // applying the shards is likely to also work. What we want to avoid is a situation where we
+    // apply the target initialization (which is _not_ idempotent) successfully, and then fail to
+    // apply the shard specs. That would be problematic because if the user re-tried the same
+    // command again, applying the target initialization may fail, since it's not idempotent.
+    let cluster = runtime::Cluster {
+        broker_address: String::new(),
+        ingester_address: String::new(),
+        consumer_address: args.consumer_address.clone(),
+    };
+    let response = cluster
+        .list_shards(None)
+        .await
+        .context("connecting to flow-consumer")?;
+    log::debug!(
+        "Successfully connected to the consumer and listed {} existing shards",
+        response.shards.len()
+    );
 
+    // Apply the materialization initialization payload (SQL DDL). We'll first write the
+    // initialization text to a file, then pass that path over to `create_apply_command`, which
+    // will return the command to run to apply it. For example, for postgres, this will return a
+    // psql invocation.
+    let payload_file = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
+    tokio::fs::write(&payload_file, payload.as_bytes()).await?;
+    let apply_command = materialization::create_apply_command(
+        &db,
+        target,
+        args.table_name.as_str(),
+        payload_file.as_path(),
+    )?;
+    // print out the apply command arguments using the debug representation, so that strings
+    // will be double quoted and internal quote characters will be escaped. This is helpful
+    // since individual arguments may contain spaces, which would otherwise make this output
+    // impossible to parse correctly.
+    log::info!(
+        "Materialization target apply command:\n{}",
+        apply_command.iter().map(|s| format!("{:?}", s)).join(" ")
+    );
+    exec_external_command(apply_command.as_slice())
+        .await
+        .context("Failed to apply payload to materialization target")?;
+    log::info!(
+        "Successfully applied materialization DDL to the target '{}'",
+        args.target.as_str()
+    );
+
+    // Finally, we're ready to apply the shards, which will actually start materializing into the
+    // target system.
     let apply_shards_request = materialization::create_shard_apply_request(
         catalog_path.as_str(),
         args.collection.as_str(),
@@ -245,20 +270,13 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     );
 
     log::debug!("Gazette Shard Spec: {:#?}", apply_shards_request);
-    if should_do("start running the materialization", &args) {
-        let cluster = runtime::Cluster {
-            broker_address: String::new(),
-            ingester_address: String::new(),
-            consumer_address: args.consumer_address.clone(),
-        };
-        let response = cluster
-            .apply_shards(apply_shards_request)
-            .await
-            .context("updating shard specs")?;
-        log::debug!("Got response: {:?}", response);
-    } else {
-        log::info!("Skipped applying the flow-consumer shard specs");
-    }
+    let response = cluster
+        .apply_shards(apply_shards_request)
+        .await
+        .context("updating shard specs")?;
+    log::debug!("Successfully applied shards: {:?}", response);
+
+    // TODO: consider polling the shard status until it indicates that it's running
     Ok(())
 }
 

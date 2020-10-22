@@ -226,12 +226,14 @@ fn get_target_type(db: &DB, target: catalog::MaterializationTarget) -> Result<St
     Ok(t)
 }
 
+/// How to select the collection used for a materialization.
 #[derive(Debug)]
 pub enum CollectionSelection {
     Named(String),
     //InteractiveSelect,
 }
 
+/// How to select the fields used for a materialization.
 #[derive(Debug)]
 pub enum FieldSelection {
     /// Take the default selection of "all" projections. Technically, this selectes a subset of
@@ -239,12 +241,14 @@ pub enum FieldSelection {
     /// auto-generated projections for the same locations.
     DefaultAll,
 
-    /// Take only the set of projections matching the specific named fields
+    /// Take only the set of projections matching the specific named fields, in the order provided.
     Named(Vec<String>),
     /// Have the user select fields interactively from a UI.
     InteractiveSelect,
 }
 
+/// Determines which collection to use for a materialization based on the given
+/// `CollectionSelection`.
 pub fn resolve_collection(
     db: &DB,
     selection: CollectionSelection,
@@ -254,6 +258,7 @@ pub fn resolve_collection(
     }
 }
 
+/// Determines a valid subset of projections to use for a materialization of the given collection, based on the given `FieldSelection`. If `FieldSelection::InteractiveSelect` is used, then this function will temporarily take over the terminal and may block indefinitely until the user has made their selections.
 pub fn resolve_projections(
     collection: CollectionInfo,
     selection: FieldSelection,
@@ -459,6 +464,8 @@ impl MaterializationConfig {
     }
 }
 
+/// Information about a single projection, along with information that was inferred from the
+/// schema.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldProjection {
     pub field_name: String,
@@ -478,12 +485,13 @@ pub struct FieldProjection {
 }
 
 impl FieldProjection {
+    /// Returns true if this location may be null OR undefined (must_exist == false).
     pub fn is_nullable(&self) -> bool {
         (!self.must_exist) || self.types.overlaps(types::NULL)
     }
 
-    // Returns the field projection for the complete Flow document. Every materialization will have
-    // this column added automatically.
+    /// Returns the field projection for the complete Flow document. Every materialization will have
+    /// this column added automatically.
     pub fn flow_document_column() -> FieldProjection {
         FieldProjection {
             field_name: "flow_document".to_owned(),
