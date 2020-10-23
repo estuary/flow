@@ -2,7 +2,7 @@ mod error;
 mod selection_ui;
 mod sql;
 
-pub use self::error::{Error, ProjectionsError};
+pub use self::error::{Error, NaughtyProjections};
 use self::selection_ui::interactive_select_projections;
 use self::sql::SqlMaterializationConfig;
 use crate::catalog::{self, DB};
@@ -447,7 +447,7 @@ impl MaterializationConfig {
     fn generate_target_initializer(
         &self,
         target: PayloadGenerationParameters,
-    ) -> Result<String, ProjectionsError> {
+    ) -> Result<String, NaughtyProjections> {
         match self {
             MaterializationConfig::Postgres(sql_conf) => sql_conf.generate_ddl(target),
             MaterializationConfig::Sqlite(sql_conf) => sql_conf.generate_ddl(target),
