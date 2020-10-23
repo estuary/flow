@@ -16,6 +16,7 @@ mod scope;
 mod selector;
 mod source;
 pub mod specs;
+mod str_edit_distance;
 mod test_case;
 mod unicode_collation;
 
@@ -25,7 +26,7 @@ use url::Url;
 pub use collection::Collection;
 pub use content_type::ContentType;
 pub use derivation::Derivation;
-pub use error::Error;
+pub use error::{Error, NoSuchEntity};
 pub use lambda::Lambda;
 pub use materialization::MaterializationTarget;
 pub use resource::Resource;
@@ -56,7 +57,8 @@ pub fn create(path: &str) -> Result<DB> {
 pub fn open<P: AsRef<std::path::Path>>(path: P) -> Result<DB> {
     let c = DB::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     regexp_sql_fn::install(&c)?; // Install support for REGEXP operator.
-    unicode_collation::install(&c)?;
+    unicode_collation::install(&c)?; // Overrides NOCASE so it handles unicode
+    str_edit_distance::install(&c)?; // add edit_distance scalar function
     Ok(c)
 }
 
