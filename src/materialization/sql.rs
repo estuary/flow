@@ -1,4 +1,4 @@
-use super::{FieldProjection, PayloadGenerationParameters, ProjectionsError};
+use super::{FieldProjection, NaughtyProjections, PayloadGenerationParameters};
 use estuary_json::schema::types;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -243,7 +243,7 @@ impl SqlMaterializationConfig {
         &self,
         target: &PayloadGenerationParameters,
         buffer: &mut String,
-    ) -> Result<(), ProjectionsError> {
+    ) -> Result<(), NaughtyProjections> {
         // We'll accumulate invalid fields in these vectors so that we can report all of the
         // invalid projections at once instead of forcing users to re-build repeatedly in order to
         // discover one error at a time.
@@ -314,7 +314,7 @@ impl SqlMaterializationConfig {
         // Close out the create table statement.
         buffer.push_str("\n);\n");
 
-        let mut error = ProjectionsError::empty(target.target_type);
+        let mut error = NaughtyProjections::empty(target.target_type);
         if !invalid_types.is_empty() {
             let description = String::from(MIXED_TYPES_ERR_MSG);
             error.naughty_projections.insert(description, invalid_types);
@@ -337,7 +337,7 @@ impl SqlMaterializationConfig {
     pub fn generate_ddl(
         &self,
         target: PayloadGenerationParameters,
-    ) -> Result<String, ProjectionsError> {
+    ) -> Result<String, NaughtyProjections> {
         let mut buffer = String::with_capacity(1024);
         let comment_text = format!("This SQL has been generated automatically by flowctl for a materialization of the Flow Collection '{}' to the target '{}'", target.collection_name, target.target_name);
         let top_level_comment = self.comment(&comment_text);
