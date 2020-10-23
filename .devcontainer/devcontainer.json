@@ -39,6 +39,8 @@
 		"zxh404.vscode-proto3",
 		// Formatting support (eg, protobuf).
 		"xaver.clang-format"
+		// Spell checking.
+		"streetsidesoftware.code-spell-checker"
 	],
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [

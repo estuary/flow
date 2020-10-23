@@ -4,6 +4,8 @@ use itertools::EitherOrBoth;
 use serde_json::Value;
 pub use strategy::Strategy;
 
+mod set;
+
 type Index<'a> = &'a [(&'a Strategy, u64)];
 
 #[derive(thiserror::Error, Debug)]
@@ -14,6 +16,10 @@ pub enum Error {
     SumWrongType,
     #[error("'merge' strategy expects objects or arrays")]
     MergeWrongType,
+    #[error(
+        "'set' strategy expects objects having only 'add', 'remove', and 'intersect' properties with consistent object or array types"
+    )]
+    SetWrongType,
 
     #[error("while reducing {:?}", .ptr)]
     WithLocation {
@@ -92,7 +98,7 @@ trait Reducer {
 }
 
 impl Cursor<'_, '_, '_> {
-    fn reduce(self) -> Result<Value> {
+    pub fn reduce(self) -> Result<Value> {
         let (strategy, _) = match &self {
             Cursor::Both { tape, .. } | Cursor::Right { tape, .. } => tape.first().unwrap(),
         };
@@ -169,9 +175,15 @@ fn count_nodes(v: &Value) -> usize {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
-    use serde_json::json;
+
+    use crate::doc::{
+        extract_reduce_annotations, validate, FullContext, Schema, SchemaIndex, Validator,
+    };
+    use estuary_json::{schema::build::build_schema, Location};
+    pub use serde_json::{json, Value};
+    use std::error::Error as StdError;
 
     #[test]
     fn test_node_counting() {
@@ -195,5 +207,70 @@ mod test {
             "eleven": true,
         });
         assert_eq!(count_nodes(&doc), 11);
+    }
+
+    pub enum Case {
+        Partial { rhs: Value, expect: Result<Value> },
+        Full { rhs: Value, expect: Result<Value> },
+    }
+    pub use Case::{Full, Partial};
+
+    pub fn run_reduce_cases(schema: Value, cases: Vec<Case>) {
+        let curi = url::Url::parse("http://example/schema").unwrap();
+        let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
+
+        let mut index = SchemaIndex::new();
+        index.add(&schema).unwrap();
+        index.verify_references().unwrap();
+
+        let mut validator = Validator::<FullContext>::new(&index);
+        let mut lhs: Option<Value> = None;
+
+        for case in cases {
+            let (rhs, expect, prune) = match case {
+                Partial { rhs, expect } => (rhs, expect, false),
+                Full { rhs, expect } => (rhs, expect, true),
+            };
+
+            let span = validate(&mut validator, &curi, &rhs).unwrap();
+            let tape = extract_reduce_annotations(span, validator.outcomes());
+            let tape = &mut tape.as_slice();
+
+            let cursor = match &lhs {
+                Some(lhs) => Cursor::Both {
+                    tape,
+                    loc: Location::Root,
+                    lhs: lhs.clone(),
+                    rhs,
+                    prune,
+                },
+                None => Cursor::Right {
+                    tape,
+                    loc: Location::Root,
+                    rhs,
+                    prune,
+                },
+            };
+
+            let reduced = cursor.reduce();
+
+            match expect {
+                Ok(expect) => {
+                    let reduced = reduced.unwrap();
+                    assert!(tape.is_empty());
+                    assert_eq!(&reduced, &expect);
+                    lhs = Some(reduced);
+                }
+                Err(expect) => {
+                    let reduced = reduced.unwrap_err();
+                    let mut reduced: &dyn StdError = &reduced;
+
+                    while let Some(r) = reduced.source() {
+                        reduced = r;
+                    }
+                    assert_eq!(format!("{}", reduced), format!("{}", expect));
+                }
+            }
+        }
     }
 }
