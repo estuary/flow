@@ -286,9 +286,31 @@ mod test {
             Unsigned(u64::MAX / 2).checked_add(Signed(-1)),
             Some(Signed(i64::MAX - 1))
         );
-        // Unrepresentable ones don't.
+        // Un-representable ones don't.
         assert_eq!(Signed(-1).checked_add(Unsigned(1 + (u64::MAX / 2))), None);
         assert_eq!(Unsigned(1 + u64::MAX / 2).checked_add(Signed(-1)), None);
+
+        const MAX_F64_INT: i64 = 1 << f64::MANTISSA_DIGITS;
+
+        // Representable u64 & i64 => f64 promotions work.
+        assert_eq!(
+            Unsigned(MAX_F64_INT as u64 - 1).checked_add(Float(1.0)),
+            Some(Float(MAX_F64_INT as f64))
+        );
+        assert_eq!(
+            Signed(-MAX_F64_INT + 1).checked_add(Float(-1.0)),
+            Some(Float(-MAX_F64_INT as f64))
+        );
+
+        // We begin to lose precision at the boundaries of f64 integer representation.
+        assert_eq!(
+            Unsigned(MAX_F64_INT as u64).checked_add(Float(1.0)),
+            Some(Float(MAX_F64_INT as f64))
+        );
+        assert_eq!(
+            Signed(-MAX_F64_INT).checked_add(Float(-1.0)),
+            Some(Float(-MAX_F64_INT as f64))
+        );
 
         // Cases of overflow.
         assert_eq!(Unsigned(1).checked_add(Unsigned(u64::MAX)), None);
