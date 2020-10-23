@@ -41,27 +41,41 @@ pub enum Strategy {
     ///
     /// In all other cases, Merge behaves as LastWriteWins.
     Merge(Merge),
-    /// Subtract elements from a set.
-    ///
-    /// If LHS and RHS are both Objects, it perform a set subtraction of
-    /// properties by name, removing those properties of LHS which are in RHS.
-    ///
-    /// If LHS and RHS are both Arrays, it performs a sorted set substraction of
-    /// items in LHS which are in RHS, as ordered by a provided key. If no key is
-    /// provided, the natural ordering of items is used instead.
-    ///
-    /// When applied to Arrays, this reduction always produces a sorted output
-    /// and similarly requires that its inputs already be sorted by the key.
-    ///
-    /// In all other cases, Subtract behaves as LastWriteWins.
+    /// TODO(johnny): Planning to remove this, as it's superseded by Set.
     Subtract(Subtract),
-    // TODO(johnny): Intersect? Would deeply merge elements that match and remove
-    // those that don't from the LHS. Pricipled, but needs a motivating use case.
 
     // TODO(johnny): Planning to remove this. It's not clear it has actual utility.
     /// If LHS and RHS are both arrays or are both strings, extend LHS with RHS.
     /// Otherwise, Append defaults to LastWriteWins behavior.
     Append,
+    /// Interpret this location as an update to a set.
+    ///
+    /// The location *must* be an object having (only) "add", "intersect",
+    /// and "remove" properties. Any single property is always allowed.
+    ///
+    /// An instance with "intersect" and "add" is allowed, and is interpreted
+    /// as applying the intersection to the base set, followed by a union of
+    /// the additions.
+    ///
+    /// An instance with "remove" and "add" is also allowed, and is interpreted
+    /// as applying the removals to the base set, followed by a union of
+    /// the additions.
+    ///
+    /// "remove" and "intersect" within the same instance is prohibited.
+    ///
+    /// Set additions are deeply merged. This makes sets behave as associative
+    /// maps, where the "value" of a set member can be updated by adding it to
+    /// set with a reducible update.
+    ///
+    /// Set components may be objects, in which case the object property is the
+    /// set key, or arrays which are ordered using the Set's key extractor.
+    /// Use a key extractor of [""] to apply the natural ordering of scalar
+    /// values stored in a sorted array.
+    ///
+    /// Whether arrays or objects are used, the selected type must always be
+    /// consistent across the "add" / "intersect" / "remove" terms of both
+    /// sides of the reduction.
+    Set(Set),
 }
 
 impl std::convert::TryFrom<&sj::Value> for Strategy {
@@ -70,6 +84,13 @@ impl std::convert::TryFrom<&sj::Value> for Strategy {
     fn try_from(v: &sj::Value) -> Result<Self, Self::Error> {
         Strategy::deserialize(v)
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Set {
+    #[serde(default)]
+    pub key: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -128,6 +149,7 @@ impl<'r> Reducer<'r> {
             Some((Strategy::Minimize(s), _)) => self.minimize(s),
             Some((Strategy::Subtract(s), _)) => self.subtract(s),
             Some((Strategy::Sum, _)) => self.sum(),
+            Some((Strategy::Set(_), _)) => panic!("not implemented"),
         }
     }
 
