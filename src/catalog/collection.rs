@@ -1,4 +1,6 @@
-use super::{projections, specs, sql_params, Derivation, Resource, Result, Schema, Scope, DB};
+use super::{
+    projections, specs, sql_params, Derivation, Error, Resource, Result, Schema, Scope, DB,
+};
 
 /// Collection represents a catalog Collection.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -66,16 +68,44 @@ impl Collection {
     /// Returns the collection with the given name, without verifying any imports. Returns an error
     /// if the collection does not exist.
     pub fn get_by_name(db: &DB, name: &str) -> Result<Collection> {
-        let (collection_id, resource_id) = db
+        // This query returns the closest match, even if it's not the same. We'll check later to
+        // make sure that the returned row is actually the desired collection. This allows us to
+        // include the closest match in the error, so we can display it to the user as a suggestion.
+        let (collection_id, collection_name, resource_id, osa_dist): (i64, String, i64, i64) = db
             .prepare_cached(
-                "SELECT collection_id, resource_id FROM collections WHERE collection_name = ?",
+                "SELECT collection_id, collection_name, resource_id, osa_distance(collection_name, ?) as osa_dist
+                FROM collections
+                ORDER BY osa_dist ASC
+                LIMIT 1;",
             )?
-            .query_row(&[name], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            .query_row(&[name], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(|err| {
+                if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
+                    Error::missing_collection(name.to_string(), None)
+                } else {
+                    Error::from(err)
+                }
+            })?;
 
-        Ok(Collection {
-            id: collection_id,
-            resource: Resource { id: resource_id },
-        })
+        if collection_name != name {
+            log::debug!(
+                "Query for collection: '{}' returned '{}' with osa_distance: {}",
+                name,
+                collection_name,
+                osa_dist,
+            );
+
+            // We got the closest match, not the collection we wanted
+            Err(Error::missing_collection(
+                name.to_string(),
+                Some((collection_name, osa_dist)),
+            ))
+        } else {
+            // We got the collection we wanted
+            Ok(Collection {
+                id: collection_id,
+                resource: Resource { id: resource_id },
+            })
+        }
     }
 }
 
