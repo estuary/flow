@@ -74,3 +74,5 @@ yaml-merge-keys = { version = "^0.4", features = ["serde_yaml"] }
 
 [dev-dependencies]
 insta = "^0.16"
+quickcheck = "^0.9"
+quickcheck_macros = "^0.9"

@@ -79,6 +79,7 @@ impl Reducer for Strategy {
             Strategy::Sum => Self::sum(cur),
             Strategy::Merge(merge) => Self::merge(cur, merge),
             Strategy::Subtract(_) | Strategy::Append => panic!("not implemented"),
+            Strategy::Set(set) => set.reduce(cur),
         }
     }
 }
@@ -283,92 +284,23 @@ impl Strategy {
 
 #[cfg(test)]
 mod test {
+    use super::super::test::*;
     use super::*;
-    use crate::doc::{
-        extract_reduce_annotations, validate, FullContext, Schema, SchemaIndex, Validator,
-    };
-    use estuary_json::{schema::build::build_schema, Location};
-    use serde_json::{json, Value};
-    use std::error::Error as StdError;
-
-    struct Case {
-        rhs: Value,
-        expect: Result<Value>,
-    }
-
-    fn run_reduce_cases(schema: Value, cases: Vec<Case>) {
-        let curi = url::Url::parse("http://example/schema").unwrap();
-        let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
-
-        let mut index = SchemaIndex::new();
-        index.add(&schema).unwrap();
-        index.verify_references().unwrap();
-        let index = Box::leak(Box::new(index)); // Coerce 'static lifetime.
-
-        let mut validator = Validator::<FullContext>::new(index);
-        let mut lhs: Option<Value> = None;
-
-        let prune = false;
-
-        for case in cases {
-            let Case { rhs, expect } = case;
-
-            let span = validate(&mut validator, &curi, &rhs).unwrap();
-            let tape = extract_reduce_annotations(span, validator.outcomes());
-            let tape = &mut tape.as_slice();
-
-            let cursor = match &lhs {
-                Some(lhs) => Cursor::Both {
-                    tape,
-                    loc: Location::Root,
-                    lhs: lhs.clone(),
-                    rhs,
-                    prune,
-                },
-                None => Cursor::Right {
-                    tape,
-                    loc: Location::Root,
-                    rhs,
-                    prune,
-                },
-            };
-
-            let reduced = cursor.reduce();
-
-            match expect {
-                Ok(expect) => {
-                    let reduced = reduced.unwrap();
-                    assert!(tape.is_empty());
-                    assert_eq!(&reduced, &expect);
-                    lhs = Some(reduced);
-                }
-                Err(expect) => {
-                    let reduced = reduced.unwrap_err();
-                    let mut reduced: &dyn StdError = &reduced;
-
-                    while let Some(r) = reduced.source() {
-                        reduced = r;
-                    }
-                    assert_eq!(format!("{}", reduced), format!("{}", expect));
-                }
-            }
-        }
-    }
 
     #[test]
     fn test_last_write_wins() {
         run_reduce_cases(
             json!(true),
             vec![
-                Case {
+                Partial {
                     rhs: json!("foo"),
                     expect: Ok(json!("foo")),
                 },
-                Case {
+                Partial {
                     rhs: json!({"n": 42}),
                     expect: Ok(json!({"n": 42})),
                 },
-                Case {
+                Partial {
                     rhs: json!(null),
                     expect: Ok(json!(null)),
                 },
@@ -381,15 +313,15 @@ mod test {
         run_reduce_cases(
             json!({ "reduce": { "strategy": "firstWriteWins" } }),
             vec![
-                Case {
+                Partial {
                     rhs: json!("foo"),
                     expect: Ok(json!("foo")),
                 },
-                Case {
+                Partial {
                     rhs: json!({"n": 42}),
                     expect: Ok(json!("foo")),
                 },
-                Case {
+                Partial {
                     rhs: json!(null),
                     expect: Ok(json!("foo")),
                 },
@@ -402,19 +334,19 @@ mod test {
         run_reduce_cases(
             json!({ "reduce": { "strategy": "minimize" } }),
             vec![
-                Case {
+                Partial {
                     rhs: json!(3),
                     expect: Ok(json!(3)),
                 },
-                Case {
+                Partial {
                     rhs: json!(4),
                     expect: Ok(json!(3)),
                 },
-                Case {
+                Partial {
                     rhs: json!(3),
                     expect: Ok(json!(3)),
                 },
-                Case {
+                Partial {
                     rhs: json!(2),
                     expect: Ok(json!(2)),
                 },
@@ -427,19 +359,19 @@ mod test {
         run_reduce_cases(
             json!({ "reduce": { "strategy": "maximize" } }),
             vec![
-                Case {
+                Partial {
                     rhs: json!(3),
                     expect: Ok(json!(3)),
                 },
-                Case {
+                Partial {
                     rhs: json!(4),
                     expect: Ok(json!(4)),
                 },
-                Case {
+                Partial {
                     rhs: json!(4),
                     expect: Ok(json!(4)),
                 },
-                Case {
+                Partial {
                     rhs: json!(2),
                     expect: Ok(json!(4)),
                 },
@@ -460,41 +392,41 @@ mod test {
                 },
             }),
             vec![
-                Case {
+                Partial {
                     rhs: json!({"k": 3, "n": 1}),
                     expect: Ok(json!({"k": 3, "n": 1})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"k": 4, "n": 1}),
                     expect: Ok(json!({"k": 3, "n": 1})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"k": 3, "n": 1, "!": true}),
                     expect: Ok(json!({"k": 3, "n": 2, "!": true})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"k": 4, "n": 1, "!": false}),
                     expect: Ok(json!({"k": 3, "n": 2, "!": true})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"k": 3, "n": 1}),
                     expect: Ok(json!({"k": 3, "n": 3, "!": true})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"k": 2, "n": 1}),
                     expect: Ok(json!({"k": 2, "n": 1})),
                 },
                 // Missing key orders as 'null'.
-                Case {
+                Partial {
                     rhs: json!({"n": 1, "whoops": true}),
                     expect: Ok(json!({"n": 1, "whoops": true})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"k": null, "n": 1}),
                     expect: Ok(json!({"k": null, "n": 2, "whoops": true})),
                 },
                 // Keys are technically equal, and it attempts to deep-merge.
-                Case {
+                Partial {
                     rhs: json!(42),
                     expect: Err(Error::MergeWrongType),
                 },
@@ -516,41 +448,41 @@ mod test {
                 },
             }),
             vec![
-                Case {
+                Partial {
                     rhs: json!([1, 3]),
                     expect: Ok(json!([1, 3])),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 4]),
                     expect: Ok(json!([1, 4])),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 3]),
                     expect: Ok(json!([1, 4])),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 4, '.']),
                     expect: Ok(json!([2, 4, '.'])),
                 },
                 // It returns a delegated merge error on equal keys.
-                Case {
+                Partial {
                     rhs: json!({"1": 4}),
                     expect: Err(Error::MergeWrongType),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 2, "!"]),
                     expect: Ok(json!([2, 4, '.'])),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 4, ':']),
                     expect: Ok(json!([3, 4, ':'])),
                 },
                 // Missing key orders as 'null'.
-                Case {
+                Partial {
                     rhs: json!([]),
                     expect: Ok(json!([3, 4, ':'])),
                 },
-                Case {
+                Partial {
                     rhs: json!(32),
                     expect: Ok(json!([3, 4, ':'])),
                 },
@@ -564,66 +496,66 @@ mod test {
             json!({ "reduce": { "strategy": "sum" } }),
             vec![
                 // Non-numeric RHS (without LHS) returns an error.
-                Case {
+                Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::SumWrongType),
                 },
                 // Takes initial value.
-                Case {
+                Partial {
                     rhs: json!(123),
                     expect: Ok(json!(123)),
                 },
                 // Add unsigned.
-                Case {
+                Partial {
                     rhs: json!(45),
                     expect: Ok(json!(168)),
                 },
                 // Sum results in overflow.
-                Case {
+                Partial {
                     rhs: json!(u64::MAX - 32),
                     expect: Err(Error::SumNumericOverflow),
                 },
                 // Add signed.
-                Case {
+                Partial {
                     rhs: json!(-70),
                     expect: Ok(json!(98)),
                 },
                 // Add float.
-                Case {
+                Partial {
                     rhs: json!(0.1),
                     expect: Ok(json!(98.1)),
                 },
                 // Back to f64 zero.
-                Case {
+                Partial {
                     rhs: json!(-98.1),
                     expect: Ok(json!(0.0)),
                 },
                 // Add maximum f64.
-                Case {
+                Partial {
                     rhs: json!(std::f64::MAX),
                     expect: Ok(json!(std::f64::MAX)),
                 },
                 // Number which overflows returns an error.
-                Case {
+                Partial {
                     rhs: json!(std::f64::MAX / 10.0),
                     expect: Err(Error::SumNumericOverflow),
                 },
                 // Sometimes changes are too small to represent.
-                Case {
+                Partial {
                     rhs: json!(-1.0),
                     expect: Ok(json!(std::f64::MAX)),
                 },
                 // Sometimes they aren't.
-                Case {
+                Partial {
                     rhs: json!(std::f64::MIN / 2.0),
                     expect: Ok(json!(std::f64::MAX / 2.)),
                 },
-                Case {
+                Partial {
                     rhs: json!(std::f64::MIN / 2.0),
                     expect: Ok(json!(0.0)),
                 },
                 // Non-numeric type (now with LHS) returns an error.
-                Case {
+                Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::SumWrongType),
                 },
@@ -642,27 +574,27 @@ mod test {
             }),
             vec![
                 // Non-numeric RHS (without LHS) returns an error.
-                Case {
+                Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::MergeWrongType),
                 },
-                Case {
+                Partial {
                     rhs: json!([0, 1, 0]),
                     expect: Ok(json!([0, 1, 0])),
                 },
-                Case {
+                Partial {
                     rhs: json!([3, 0, 2]),
                     expect: Ok(json!([3, 1, 2])),
                 },
-                Case {
+                Partial {
                     rhs: json!([-1, 0, 4, "a"]),
                     expect: Ok(json!([3, 1, 4, "a"])),
                 },
-                Case {
+                Partial {
                     rhs: json!([0, 32.6, 0, "b"]),
                     expect: Ok(json!([3, 32.6, 4, "b"])),
                 },
-                Case {
+                Partial {
                     rhs: json!({}),
                     expect: Err(Error::MergeWrongType),
                 },
@@ -680,19 +612,19 @@ mod test {
                 },
             }),
             vec![
-                Case {
+                Partial {
                     rhs: json!([5, 9]),
                     expect: Ok(json!([5, 9])),
                 },
-                Case {
+                Partial {
                     rhs: json!([7]),
                     expect: Ok(json!([5, 7, 9])),
                 },
-                Case {
+                Partial {
                     rhs: json!([2, 4, 5]),
                     expect: Ok(json!([2, 4, 5, 7, 9])),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 2, 7, 10]),
                     expect: Ok(json!([1, 2, 4, 5, 7, 9, 10])),
                 },
@@ -719,19 +651,19 @@ mod test {
                 },
             }),
             vec![
-                Case {
+                Partial {
                     rhs: json!([{"k": 5, "n": 1}, {"k": 9, "n": 1}]),
                     expect: Ok(json!([{"k": 5, "n": 1}, {"k": 9, "n": 1}])),
                 },
-                Case {
+                Partial {
                     rhs: json!([{"k": 7, "m": 1}]),
                     expect: Ok(json!([{"k": 5, "n": 1}, {"k": 7, "m": 1}, {"k": 9, "n": 1}])),
                 },
-                Case {
+                Partial {
                     rhs: json!([{"k": 5, "n": 3}, {"k": 7, "m": 1}]),
                     expect: Ok(json!([{"k": 5, "n": 4}, {"k": 7, "m": 2}, {"k": 9, "n": 1}])),
                 },
-                Case {
+                Partial {
                     rhs: json!([{"k": 9, "n": -2}]),
                     expect: Ok(json!([{"k": 5, "n": 4}, {"k": 7, "m": 2}, {"k": 9, "n": -1}])),
                 },
@@ -746,25 +678,25 @@ mod test {
                 "reduce": { "strategy": "merge" },
             }),
             vec![
-                Case {
+                Partial {
                     rhs: json!({"5": 5, "9": 9}),
                     expect: Ok(json!({"5": 5, "9": 9})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"7": 7}),
                     expect: Ok(json!({"5": 5, "7": 7, "9": 9})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"2": 2, "4": 4, "5": 55}),
                     expect: Ok(json!({"2": 2, "4": 4, "5": 55, "7": 7, "9": 9})),
                 },
-                Case {
+                Partial {
                     rhs: json!({"1": 1, "2": 22, "7": 77, "10": 10}),
                     expect: Ok(
                         json!({"1": 1, "2": 22, "4": 4, "5": 55, "7": 77, "9": 9, "10": 10}),
                     ),
                 },
-                Case {
+                Partial {
                     rhs: json!([1, 2]),
                     expect: Err(Error::MergeWrongType),
                 },
@@ -787,11 +719,11 @@ mod test {
                 "items": { "$ref": "#/additionalProperties" }
             }),
             vec![
-                Case {
+                Partial {
                     rhs: json!([{"k": "b", "v": [{"k": 5}]}]),
                     expect: Ok(json!([{"k": "b", "v": [{"k": 5}]}])),
                 },
-                Case {
+                Partial {
                     rhs: json!([
                         {"k": "a", "v": [{"k": 2}]},
                         {"k": "b", "v": [{"k": 3}]}
@@ -801,7 +733,7 @@ mod test {
                         {"k": "b", "v": [{"k": 3}, {"k": 5}]}
                     ])),
                 },
-                Case {
+                Partial {
                     rhs: json!([
                         {"k": "b", "v": [{"k": 1}, {"k": 5, "d": true}]},
                         {"k": "c", "v": [{"k": 9}]}
