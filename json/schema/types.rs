@@ -182,8 +182,6 @@ impl serde::Serialize for Set {
     where
         S: serde::Serializer,
     {
-        self.iter()
-            .collect::<Vec<&'static str>>()
-            .serialize(serializer)
+        serializer.collect_seq(self.iter())
     }
 }
