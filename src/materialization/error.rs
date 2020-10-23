@@ -7,9 +7,9 @@ use std::fmt;
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    InvalidProjections(#[from] ProjectionsError),
+    InvalidProjections(#[from] NaughtyProjections),
 
-    #[error("catalog database error: {0}")]
+    #[error("catalog database error")]
     SQLiteErr(#[from] rusqlite::Error),
 
     // TODO: this is pretty ugly, but it seems better than movinng this whole materialization
@@ -26,14 +26,14 @@ pub enum Error {
     #[error("No collection exists with the name: '{0}'")]
     NoSuchCollection(String),
 
-    #[error("The Collection's key is not fully represented in the list of projections. All pointers used in the collection key must be included in materializations. The missing key pointers are: {}", .0.iter().join(", "))]
+    #[error("The Collection's key is not fully represented in the list of projections. The missing key pointers are: {}", .0.iter().join(", "))]
     MissingCollectionKeys(Vec<String>),
 
     // TODO: figure out a reasonable error message
     #[error("Materialization setup was aborted by user.")]
     ActionAborted,
 
-    #[error("Encountered an I/O error while setting up materialization: {0}")]
+    #[error("Encountered an I/O error while setting up materialization")]
     IoError(#[from] std::io::Error),
 
     #[error("Failed to read json from catalog")]
@@ -41,13 +41,13 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct ProjectionsError {
+pub struct NaughtyProjections {
     pub materialization_type: &'static str,
     pub naughty_projections: BTreeMap<String, Vec<FieldProjection>>,
 }
-impl ProjectionsError {
-    pub fn empty(materialization_type: &'static str) -> ProjectionsError {
-        ProjectionsError {
+impl NaughtyProjections {
+    pub fn empty(materialization_type: &'static str) -> NaughtyProjections {
+        NaughtyProjections {
             materialization_type,
             naughty_projections: BTreeMap::new(),
         }
@@ -63,7 +63,7 @@ impl ProjectionsError {
 
 const MAX_PROJECTION_ERROR_MSGS: usize = 5;
 
-impl fmt::Display for ProjectionsError {
+impl fmt::Display for NaughtyProjections {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,
@@ -87,4 +87,4 @@ impl fmt::Display for ProjectionsError {
         Ok(())
     }
 }
-impl std::error::Error for ProjectionsError {}
+impl std::error::Error for NaughtyProjections {}

@@ -193,7 +193,7 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     };
     let selected_projections = materialization::resolve_projections(collection, field_selection)?;
 
-    let payload = materialization::generate_target_initializer(
+    let initialization_string = materialization::generate_target_initializer(
         &db,
         target,
         args.target.as_str(),
@@ -202,8 +202,9 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
         selected_projections.as_slice(),
     )?;
 
-    // This payload is what the user asked for, so we print it directly to
-    println!("{}", payload);
+    // This initialization text (SQL DDL, typically) is printed directly to stdout, bypassing the
+    // log filters. This allows the output to be redirected, if desired.
+    println!("{}", initialization_string);
     if !should_do(
         "apply the materialization ddl to the target database",
         &args,
@@ -237,7 +238,7 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     // will return the command to run to apply it. For example, for postgres, this will return a
     // psql invocation.
     let payload_file = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
-    tokio::fs::write(&payload_file, payload.as_bytes()).await?;
+    tokio::fs::write(&payload_file, initialization_string.as_bytes()).await?;
     let apply_command = materialization::create_apply_command(
         &db,
         target,

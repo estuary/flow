@@ -183,7 +183,7 @@ mod test {
     use serde_json::json;
 
     #[test]
-    fn test_register() -> Result<()> {
+    fn test_register() {
         let db = create(":memory:").unwrap();
 
         let a_schema = json!(true);
@@ -210,7 +210,8 @@ mod test {
                     (20, 'application/schema+yaml', CAST(? AS BLOB), FALSE),
                     (30, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
             sql_params![a_schema, alt_schema, register_schema],
-        )?;
+        )
+        .unwrap();
         db.execute_batch(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
@@ -266,7 +267,8 @@ mod test {
                     },
                 },
             }
-        }))?;
+        }))
+        .unwrap();
         Collection::register(scope, &spec).unwrap();
 
         // Derived collection with implicit defaults.
@@ -282,7 +284,8 @@ mod test {
                     },
                 },
             }
-        }))?;
+        }))
+        .unwrap();
         Collection::register(scope, &spec).unwrap();
 
         let dump = dump_tables(
@@ -296,46 +299,10 @@ mod test {
                 "transforms",
                 "inferences",
             ],
-        )?;
+        )
+        .unwrap();
 
-        let expected = json!({
-            "bootstraps":[
-                [1, 2, 1],
-            ],
-            "derivations": [
-                [2, "test://example/reg-schema.json#/$defs/qib", {"initial": ["value", 32]}],
-                [3, "test://example/spec?ptr=/derivation/register/schema", null],
-            ],
-            "lambdas":[
-                [1, "nodeJS","nodeJS bootstrap", null],
-                [2, "nodeJS","update one", null],
-                [3, "nodeJS","publish one", null],
-                [4, "nodeJS","publish two", null],
-            ],
-            "partition_selectors":[
-                [1, 1],
-            ],
-            "partition_selector_labels":[
-                [1, 1, "a_field", "foo", false],
-                [1, 1, "a_field", 42, false],
-                [1, 1, "other_field", false, true],
-            ],
-            "transforms":[
-                [1, 2, "some-name",    1, 1, 2, 3, "test://example/alt-schema.json#foobar", ["/shuffle", "/key"], 3600],
-                [2, 3, "do-the-thing", 1, null, null, 4, null, null, null],
-            ],
-            "inferences": [
-                ["test://example/a-schema.json", "", ["array", "boolean", "integer", "null", "number", "object", "string"], true, null, null, null, null, null, null],
-                ["test://example/alt-schema.json#foobar", "", ["object"], true, null, null, null, null, null, null],
-                ["test://example/alt-schema.json#foobar", "/d1-key", ["string"], true, null, null, null, null, null, null],
-                ["test://example/alt-schema.json#foobar", "/key", ["integer"], true, "the key title", "the key description", null, null, null, null],
-                ["test://example/alt-schema.json#foobar", "/moar", ["number"], false, null, null, null, null, null, null],
-                ["test://example/alt-schema.json#foobar", "/shuffle", ["integer"], true, null, null, null, null, null, null]
-            ]
-        });
-        assert!(dump == expected, "actual: {}\nexpected: {}", dump, expected);
-
-        Ok(())
+        insta::assert_json_snapshot!(dump);
     }
 
     #[test]

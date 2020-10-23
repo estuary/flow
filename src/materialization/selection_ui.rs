@@ -166,7 +166,7 @@ impl SkimItem for SkimProjection {
         };
 
         let key_comment = if projection.is_primary_key {
-            "\tKey: This location is part of the Collection's key. Materializations must include a projection for each JSON pointer used as part of the key.\n"
+            "\tKey: \u{1F511} This location is part of the Collection's key.\n"
         } else {
             ""
         };
