@@ -28,29 +28,20 @@ impl CollectionInfo {
     /// Returns the `CollectionInfo` for the collection with the given name, or an error if such a
     /// collection does not exist.
     pub fn lookup(db: &DB, collection_name: &str) -> Result<CollectionInfo, Error> {
-        let (id, resource_uri, schema_uri, key_json): (i64, String, String, String) = db
-            .query_row(
-                "SELECT collection_id, resource_urls.url, schema_uri, key_json
-            FROM collections
-            NATURAL JOIN resource_urls
-            WHERE collection_name = ? AND resource_urls.is_primary;",
-                rusqlite::params![collection_name],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .map_err(|err| {
-                if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
-                    Error::NoSuchCollection(collection_name.to_owned())
-                } else {
-                    Error::SQLiteErr(err)
-                }
-            })?;
-
+        let collection = catalog::Collection::get_by_name(db, collection_name)?;
+        let resource_uri = collection.resource.primary_url(db)?;
+        let (schema_uri, key_json): (String, String) = db.query_row(
+            "SELECT schema_uri, key_json FROM collections WHERE collection_id = ?",
+            rusqlite::params![collection.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         let key = serde_json::from_str(&key_json)?;
-        let all_projections = get_all_projections(db, id)?;
+        let all_projections = get_all_projections(db, collection.id)?;
+
         Ok(CollectionInfo {
             name: collection_name.to_owned(),
-            collection_id: id,
-            resource_uri,
+            collection_id: collection.id,
+            resource_uri: resource_uri.into_string(),
             schema_uri,
             key,
             all_projections,

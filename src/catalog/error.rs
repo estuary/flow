@@ -3,6 +3,7 @@ use crate::catalog::extraction::KeyError;
 use crate::doc;
 use estuary_json::schema;
 use itertools::Itertools;
+use std::fmt;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -86,6 +87,9 @@ pub enum Error {
         collection_name: String,
         transform_name: String,
     },
+
+    #[error(transparent)]
+    NoSuchEntity(#[from] NoSuchEntity),
 }
 
 impl Error {
@@ -98,4 +102,55 @@ impl Error {
             other => other,
         }
     }
+
+    pub fn missing_collection(given_name: String, closest_match: Option<(String, i64)>) -> Error {
+        Error::NoSuchEntity(NoSuchEntity::collection(given_name, closest_match))
+    }
 }
+
+#[derive(Debug)]
+pub struct NoSuchEntity {
+    entity_type: &'static str,
+    given_name: String,
+    closest_match: Option<String>,
+}
+
+impl NoSuchEntity {
+    const COLLECTION: &'static str = "collection";
+
+    pub fn collection(given_name: String, closest_match: Option<(String, i64)>) -> NoSuchEntity {
+        let closest_match = closest_match.and_then(|(name, edit_dist)| {
+            // Only suggest the closest match if it's closer than this threshold. This is to
+            // prevent us showing silly suggestions in cases where there's nothing even remotely
+            // close. The value chosen for this threshold is arbitrary, with the goal that it more
+            // or less matches a subjective assessment of whether or not the suggestion would be
+            // useful.
+            if edit_dist <= name.len().min(4) as i64 {
+                Some(name)
+            } else {
+                None
+            }
+        });
+        NoSuchEntity {
+            entity_type: NoSuchEntity::COLLECTION,
+            given_name,
+            closest_match,
+        }
+    }
+}
+
+impl fmt::Display for NoSuchEntity {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "no {} found with name: '{}'.",
+            self.entity_type, self.given_name
+        )?;
+        if let Some(suggestion) = self.closest_match.as_deref() {
+            write!(f, " Closest match is: '{}'.", suggestion)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for NoSuchEntity {}

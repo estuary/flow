@@ -35,4 +35,3 @@ macro_rules! label_set {
         estuary_protocol::protocol::LabelSet { labels }
     }}
 }
-

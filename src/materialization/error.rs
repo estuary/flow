@@ -23,8 +23,8 @@ pub enum Error {
     #[error("No such field named: '{0}'")]
     NoSuchField(String),
 
-    #[error("No collection exists with the name: '{0}'")]
-    NoSuchCollection(String),
+    #[error(transparent)]
+    NoSuchCollection(catalog::NoSuchEntity),
 
     #[error("The Collection's key is not fully represented in the list of projections. The missing key pointers are: {}", .0.iter().join(", "))]
     MissingCollectionKeys(Vec<String>),
