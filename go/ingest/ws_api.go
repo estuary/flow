@@ -22,6 +22,7 @@ import (
 
 const wsCSVProtocol = "csv/v1"
 const wsTSVProtocol = "tsv/v1"
+const wsJSONProtocol = "json/v1"
 
 // Maximum time we'll wait for a write we initiate to complete.
 // We don't use websocket's ping-pong mechanism, instead relying on TCP keep-alive.
@@ -33,20 +34,15 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 	csvReader.Comma = comma
 	csvReader.ReuseRecord = true
 
-	// Projections of each column, mapped to by using the header as a field name.
-	var collection *pf.CollectionSpec
+	// Columns of the CSV header row are mapped to determine all possible projections.
+	// Thereafter, rows may omit trailing columns having projections which are not
+	// required to exist.
+	csvReader.FieldsPerRecord = -1
 	var projections []*pf.Projection
 	var pointers []flow.Pointer
 
 	// First frame is headers, subsequent frames are documents.
-	var onHeader = func() error {
-		var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
-		collection = a.ingester.Collections[pf.Collection(name)]
-
-		if collection == nil {
-			return fmt.Errorf("%q is not an ingestable collection", name)
-		}
-
+	var onHeader = func(collection *pf.CollectionSpec) error {
 		var headers, err = csvReader.Read()
 		if err != nil {
 			return err
@@ -68,16 +64,25 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 
 	}
 
-	var onFrame = func(addCh chan<- ingestAdd) error {
-		if collection == nil {
-			return onHeader()
+	var onFrame = func(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
+		if projections == nil {
+			return onHeader(collection)
 		}
 
 		for buffer.Len() != 0 {
 			var records, err = csvReader.Read()
 			if err != nil {
 				return err
+			} else if lr, lp := len(records), len(projections); lr > lp {
+				return fmt.Errorf("row has %d columns, but header had only %d", lr, lp)
+			} else {
+				for ; lr != lp; lr++ {
+					if p := projections[lr]; p.Inference.MustExist {
+						return fmt.Errorf("row omits column %d ('%v'), which must exist", lr, projections[lr].Field)
+					}
+				}
 			}
+
 			// Doc we'll build up from parsed projections.
 			var doc interface{}
 
@@ -123,7 +128,8 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 				}
 
 				if lastErr != nil {
-					return fmt.Errorf("failed to parse %q into %v: %w", record, types, lastErr)
+					return fmt.Errorf("failed to parse '%v' (of column: %v) into %v: %w",
+						record, projections[c].Field, types, lastErr)
 				}
 			}
 
@@ -143,12 +149,35 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 	_ = serveWebsocket(a, w, r, &buffer, onFrame)
 }
 
+func serveWebsocketJSON(a args, w http.ResponseWriter, r *http.Request) {
+	var buffer bytes.Buffer
+
+	var onFrame = func(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
+		var decoder = json.NewDecoder(&buffer)
+		for {
+			var doc json.RawMessage
+
+			if err := decoder.Decode(&doc); err == io.EOF {
+				return nil
+			} else if err != nil {
+				return err
+			}
+
+			addCh <- ingestAdd{
+				collection: collection.Name,
+				doc:        doc,
+			}
+		}
+	}
+	_ = serveWebsocket(a, w, r, &buffer, onFrame)
+}
+
 func serveWebsocket(
 	a args,
 	w http.ResponseWriter,
 	r *http.Request,
 	buffer *bytes.Buffer,
-	onFrame func(chan<- ingestAdd) error,
+	onFrame func(*pf.CollectionSpec, chan<- ingestAdd) error,
 ) (err error) {
 
 	var upgrader = websocket.Upgrader{
@@ -169,6 +198,14 @@ func serveWebsocket(
 	defer func() {
 		var closeMessage []byte
 		var deadline = time.Now().Add(wsWriteTimeout)
+		var delayedClose = false
+
+		// When using a tool like `websocat` in a Unix pipe, a failure of an
+		// earlier portion of the pipe (eg, because a file doesn't exist) results
+		// in no data being sent. Make it clear this isn't expected by erroring.
+		if err == nil && frames == 0 {
+			err = fmt.Errorf("client closed the connection without sending any documents")
+		}
 
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "url": r.URL.String(), "client": r.RemoteAddr}).
@@ -185,6 +222,7 @@ func serveWebsocket(
 			}
 
 			closeMessage = websocket.FormatCloseMessage(websocket.CloseProtocolError, "error")
+			delayedClose = true
 		} else {
 			closeMessage = websocket.FormatCloseMessage(websocket.CloseNormalClosure, "success")
 		}
@@ -193,7 +231,18 @@ func serveWebsocket(
 		if err = conn.WriteControl(websocket.CloseMessage, closeMessage, deadline); err != nil {
 			log.WithFields(log.Fields{"err": err, "url": r.URL.String(), "client": r.RemoteAddr}).
 				Warn("failed to write websocket close")
-		} else if err := conn.Close(); err != nil {
+		}
+
+		if delayedClose {
+			// Sleep a short while before actually closing the underlying connection.
+			// The reason we do this is that the peer is probably still trying to send data.
+			// If we close right now, we're likely to send a reset immediately thereafter,
+			// and poorly written clients may hit the reset on attempting to send and never
+			// bother to read out the lovely error message we just put so much work into sending.
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		if err := conn.Close(); err != nil {
 			log.WithFields(log.Fields{"err": err, "url": r.URL.String(), "client": r.RemoteAddr}).
 				Warn("failed to close websocket")
 		}
@@ -202,6 +251,12 @@ func serveWebsocket(
 	// Disable the default handler, which sends an immediate close.
 	// We'll manual close on ingester drain.
 	conn.SetCloseHandler(func(int, string) error { return nil })
+
+	var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
+	var collection = a.ingester.Collections[pf.Collection(name)]
+	if collection == nil {
+		return fmt.Errorf("'%v' is not an ingestable collection", name)
+	}
 
 	var ingestCh, progressCh = newIngestPump(r.Context(), a.ingester)
 	var pollCh, frameCh = newWSReadPump(r.Context(), conn, buffer)
@@ -212,17 +267,16 @@ func serveWebsocket(
 	for {
 		select {
 		case err := <-frameCh:
-			frames++
-
 			// Did we receive a clean EOF?
 			if err == io.EOF {
 				close(ingestCh) // Drain ingestion pump.
 				continue        // Note that we don't poll a next frame.
 			} else if err != nil {
-				return fmt.Errorf("while recieving: %w", err)
-			} else if err = onFrame(ingestCh); err != nil {
+				return fmt.Errorf("while receiving: %w", err)
+			} else if err = onFrame(collection, ingestCh); err != nil {
 				return fmt.Errorf("processing frame: %w", err)
 			}
+			frames++
 			pollCh <- struct{}{} // Read next frame.
 
 		case progress, ok := <-progressCh:
