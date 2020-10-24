@@ -70,3 +70,5 @@ jobs:
       - run: make package
       - run: make docker-image
       - run: make docker-push-to-quay
+      - run: cargo install cargo-cache --no-default-features --features ci-autoclean
+      - run: cargo-cache
