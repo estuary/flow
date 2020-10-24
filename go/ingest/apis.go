@@ -37,6 +37,11 @@ func RegisterAPIs(srv *server.Server, ingester *flow.Ingester, journals *keyspac
 		Methods("GET").
 		Headers("Sec-WebSocket-Protocol", wsTSVProtocol).
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveWebsocketCSV(args, '\t', w, r) })
+	router.
+		PathPrefix("/ingest/").
+		Methods("GET").
+		Headers("Sec-WebSocket-Protocol", wsJSONProtocol).
+		HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveWebsocketJSON(args, w, r) })
 
 	pf.RegisterIngesterServer(srv.GRPCServer, &grpcAPI{args})
 }
