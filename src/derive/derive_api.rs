@@ -4,7 +4,7 @@ use super::context::{Context, Transform};
 use super::lambda;
 use super::pipeline::PendingPipeline;
 use super::registers::{self, Registers};
-use crate::doc;
+use crate::doc::{self, reduce};
 use estuary_json::validator;
 use estuary_protocol::{consumer, flow, recoverylog};
 use futures::channel::mpsc;
@@ -46,12 +46,12 @@ pub enum Error {
     UnknownTransformID(i32),
     #[error("invalid arena range: {0:?}")]
     InvalidArenaRange(flow::Slice),
-    #[error("register validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
-    RegisterValidation(doc::FailedValidation),
     #[error("source document validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
     SourceValidation(doc::FailedValidation),
-    #[error("derived document validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
-    DerivedValidation(doc::FailedValidation),
+    #[error("register reduction error: {0}")]
+    RegisterReduction(#[source] reduce::Error),
+    #[error("derived document reduction error: {0}")]
+    DerivedReduction(#[source] reduce::Error),
 }
 
 /// Convert document JSON slices referencing the |arena| into parsed Values,
@@ -155,7 +155,7 @@ fn derive_publish_docs<'fut, 'tmp>(
         if !register_deltas.is_empty() {
             registers
                 .reduce(key, register_deltas.into_iter())
-                .map_err(Error::RegisterValidation)?;
+                .map_err(Error::RegisterReduction)?;
 
             // Send the updated register value.
             inv.add_column(&registers.read(key))?;
@@ -253,8 +253,8 @@ async fn process_continue(
     for doc in derivations.into_iter().flatten() {
         combiner
             .as_mut()
-            .combine(doc)
-            .map_err(Error::DerivedValidation)?;
+            .combine(doc, false)
+            .map_err(Error::DerivedReduction)?;
     }
     // Release |combiner| to the processing task ordered behind us.
     std::mem::drop(combiner);
@@ -748,7 +748,7 @@ mod test {
         .await;
 
         assert_snapshot!(recv_error(&mut rx).await, @r###"
-        register validation error: {
+        register reduction error: document is invalid: {
           "document": {
             "type": "set",
             "value": "negative one!"
@@ -782,7 +782,7 @@ mod test {
         .await;
 
         assert_snapshot!(recv_error(&mut rx).await, @r###"
-        derived document validation error: {
+        derived document reduction error: document is invalid: {
           "document": {
             "invalid-property": 42,
             "key": "foobar",

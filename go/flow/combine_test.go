@@ -23,7 +23,7 @@ func TestBasicCombineLifecycle(t *testing.T) {
 	combiner, err := NewCombine(ctx, pf.NewCombineClient(wh.Conn), &spec)
 	require.NoError(t, err)
 
-	require.NoError(t, combiner.Open([]string{"/i", "/s/1"}))
+	require.NoError(t, combiner.Open([]string{"/i", "/s/1"}, false))
 	require.NoError(t, combiner.Add(json.RawMessage(`{"i": 32, "s": ["one"]}`)))
 	require.NoError(t, combiner.Add(json.RawMessage(`{"i": 42, "s": ["two"]}`)))
 	require.NoError(t, combiner.flush())

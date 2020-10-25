@@ -4,11 +4,8 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use estuary::doc::{
-    extract_reduce_annotations, reduce_new::Cursor, validate, FullContext, Schema, SchemaIndex,
-    Validator,
-};
-use estuary_json::{schema::build::build_schema, validator::Context, Location};
+use estuary::doc::{reduce, FullContext, Schema, SchemaIndex, Validator};
+use estuary_json::{schema::build::build_schema, validator::Context};
 use itertools::{EitherOrBoth, Itertools};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -138,28 +135,7 @@ fn test_validate_then_reduce() {
 
     let mut lhs: Option<Value> = None;
     for (rhs, expect) in cases {
-        let span = validate(&mut validator, &curi, &rhs).unwrap();
-        let tape = extract_reduce_annotations(span, validator.outcomes());
-        let tape = &mut tape.as_slice();
-
-        let cursor = match &lhs {
-            Some(lhs) => Cursor::Both {
-                tape,
-                loc: Location::Root,
-                lhs: lhs.clone(),
-                rhs,
-                prune: true,
-            },
-            None => Cursor::Right {
-                tape,
-                loc: Location::Root,
-                rhs,
-                prune: true,
-            },
-        };
-
-        let reduced = cursor.reduce().unwrap();
-        assert!(tape.is_empty());
+        let reduced = reduce::reduce(&mut validator, &curi, lhs, rhs, true).unwrap();
         assert_eq!(&reduced, &expect);
         lhs = Some(reduced);
     }
@@ -381,28 +357,7 @@ fn reduce_tree<C: Context>(
                 let mut lhs: Option<Value> = None;
 
                 for rhs in chunk {
-                    let span = validate(validator, curi, &rhs).unwrap();
-                    let tape = extract_reduce_annotations(span, validator.outcomes());
-                    let tape = &mut tape.as_slice();
-
-                    let cursor = match &lhs {
-                        Some(lhs) => Cursor::Both {
-                            tape,
-                            loc: Location::Root,
-                            lhs: lhs.clone(),
-                            rhs,
-                            prune: n == 0,
-                        },
-                        None => Cursor::Right {
-                            tape,
-                            loc: Location::Root,
-                            rhs,
-                            prune: n == 0,
-                        },
-                    };
-
-                    lhs = Some(cursor.reduce().unwrap());
-                    assert!(tape.is_empty());
+                    lhs = Some(reduce::reduce(validator, curi, lhs, rhs, n == 0).unwrap());
                 }
                 lhs.unwrap()
             })
