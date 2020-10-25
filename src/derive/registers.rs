@@ -1,6 +1,4 @@
-use crate::doc::reduce::Reducer;
-use crate::doc::{extract_reduce_annotations, validate, FailedValidation};
-use crate::doc::{SchemaIndex, Validator};
+use crate::doc::{reduce, SchemaIndex, Validator};
 use estuary_json::validator::FullContext;
 use estuary_protocol::consumer::Checkpoint;
 use futures::channel::oneshot;
@@ -103,34 +101,27 @@ impl Registers {
         &mut self,
         key: &[u8],
         deltas: impl IntoIterator<Item = Value>,
-    ) -> Result<(), FailedValidation> {
-        // Obtain a mutable reference to the Value into which we'll reduce.
-        // If the register doesn't exist, initialize it now.
-        let into = self
+    ) -> Result<(), reduce::Error> {
+        // Obtain a &mut to the pre-loaded Value into which we'll reduce.
+        let lhs = self
             .cache
             .get_mut(key)
             .expect("key must be loaded before reduce");
 
-        let into = match into {
-            Some(v) => v,
-            None => {
-                *into = Some(self.initial.clone());
-                into.as_mut().unwrap()
-            }
-        };
+        // If the register doesn't exist, initialize it now.
+        if !matches!(lhs, Some(_)) {
+            *lhs = Some(self.initial.clone());
+        }
 
         // Apply all register deltas, in order.
-        for delta in deltas.into_iter() {
-            let span = validate(&mut self.validator, &self.schema, &delta)?;
-
-            Reducer {
-                at: 0,
-                val: delta,
-                into,
-                created: false,
-                idx: &extract_reduce_annotations(span, self.validator.outcomes()),
-            }
-            .reduce();
+        for rhs in deltas.into_iter() {
+            *lhs = Some(reduce::reduce(
+                &mut self.validator,
+                &self.schema,
+                lhs.take(),
+                rhs,
+                true,
+            )?);
         }
         Ok(())
     }

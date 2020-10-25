@@ -400,6 +400,13 @@ pub mod combine_request {
         /// returned documents. If empty, no placeholder is inserted.
         #[prost(string, tag = "4")]
         pub uuid_placeholder_ptr: std::string::String,
+        /// Prune is true if this CombineRequest includes the root-most
+        /// (equivalently, left-most) document of each key. Depending on the
+        /// reduction strategy, additional pruning can be done in this case
+        /// (i.e., removing tombstones) that isn't possible in a partial
+        /// non-root reduction.
+        #[prost(bool, tag = "5")]
+        pub prune: bool,
     }
     /// Continue an opened CombineRequest.
     #[derive(Clone, PartialEq, ::prost::Message)]

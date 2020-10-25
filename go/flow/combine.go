@@ -37,13 +37,14 @@ func NewCombine(ctx context.Context, combiner pf.CombineClient, spec *pf.Collect
 }
 
 // Open the RPC with an request Open message. Must be called before Add.
-func (c *Combine) Open(extractPtrs []string) error {
+func (c *Combine) Open(extractPtrs []string, prune bool) error {
 	if err := c.rpc.Send(&pf.CombineRequest{
 		Kind: &pf.CombineRequest_Open_{Open: &pf.CombineRequest_Open{
 			SchemaUri:          c.spec.SchemaUri,
 			KeyPtr:             c.spec.KeyPtrs,
 			FieldPtrs:          extractPtrs,
 			UuidPlaceholderPtr: c.spec.UuidPtr,
+			Prune:              prune,
 		}},
 	}); err != nil {
 		return fmt.Errorf("sending CombineRequest_Open: %w", err)

@@ -160,12 +160,16 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	if rpc, ok := i.rpcs[collection]; ok {
 		return rpc.Add(doc)
 	}
+	// Ingestion never prunes, since we're combining over a limited window
+	// of all documents ingested into the collection.
+	const prune = false
+
 	// Must start a new RPC.
 	if spec, ok := i.ingester.Collections[collection]; !ok {
 		return fmt.Errorf("%q is not an ingestable collection", collection)
 	} else if rpc, err := NewCombine(context.Background(), i.ingester.Combiner, spec); err != nil {
 		return fmt.Errorf("while starting combiner RPC for %q: %w", collection, err)
-	} else if err = rpc.Open(FieldPointersForMapper(spec)); err != nil {
+	} else if err = rpc.Open(FieldPointersForMapper(spec), prune); err != nil {
 		return fmt.Errorf("while sending RPC open %q: %w", collection, err)
 	} else {
 		i.rpcs[collection] = rpc

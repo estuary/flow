@@ -4,7 +4,6 @@ pub use ptr::Pointer;
 
 pub mod inference;
 pub mod reduce;
-pub mod reduce_new;
 
 mod annotation;
 pub use annotation::{extract_reduce_annotations, Annotation};

@@ -205,9 +205,13 @@ func (self *Materialize) BeginTxn(shard consumer.Shard) error {
 	if err != nil {
 		return err
 	}
-	err = combine.Open(self.targetStore.ProjectionPointers())
-	if err != nil {
-		return err
+	// Our Combine RPCs should prune because, by construction, we ensure the
+	// root-most document (the current DB row) is ordered first in the RPC.
+	// This would *not* carry over to materializations into streams.
+	const prune = true
+
+	if err = combine.Open(self.targetStore.ProjectionPointers(), prune); err != nil {
+		return fmt.Errorf("while sending RPC open %q: %w", self.collectionSpec.Name, err)
 	}
 	self.transacton = &MaterializeTransaction{
 		storeTransaction:           tx,

@@ -1,6 +1,5 @@
 use super::combiner::Combiner;
-
-use crate::doc::{FailedValidation, Pointer, SchemaIndex};
+use crate::doc::{reduce, Pointer, SchemaIndex};
 use estuary_protocol::flow;
 use futures::channel::mpsc;
 use futures::sink::SinkExt;
@@ -21,8 +20,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("invalid arena range: {0:?}")]
     InvalidArenaRange(flow::Slice),
-    #[error("document validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
-    Validation(FailedValidation),
+    #[error(transparent)]
+    ReduceError(#[from] reduce::Error),
     #[error("channel send error: {0:?}")]
     SendError(#[from] mpsc::SendError),
     #[error("recv error from peer: {0}")]
@@ -75,7 +74,7 @@ async fn combine_rpc(
                 .ok_or_else(|| Error::InvalidArenaRange(doc.clone()))?;
             let doc: Value = serde_json::from_slice(b)?;
 
-            combiner.combine(doc).map_err(Error::Validation)?;
+            combiner.combine(doc, open.prune)?;
         }
     }
 
@@ -263,6 +262,7 @@ pub mod test {
                 key_ptr: vec!["/key".to_owned()],
                 field_ptrs: vec!["/min".to_owned(), "/max".to_owned(), "/key".to_owned()],
                 uuid_placeholder_ptr: "/foo".to_owned(),
+                prune: true,
             },
         )
         .await;
