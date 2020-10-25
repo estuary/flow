@@ -3,7 +3,7 @@ use estuary_json::json_cmp_at;
 use itertools::EitherOrBoth;
 use serde_json::{Map, Value};
 
-pub use crate::doc::reduce::Set;
+use super::strategy::Set;
 
 /// Permitted, destructured forms that set instances may take.
 /// Arrays are strictly ordered as "add", "intersect", "remove".

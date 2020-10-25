@@ -1,18 +1,16 @@
 use super::{count_nodes, reduce_item, reduce_prop, Cursor, Error, Reducer, Result};
 use estuary_json::{json_cmp, json_cmp_at};
 use itertools::EitherOrBoth;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 
-pub use crate::doc::reduce::{Maximize, Merge, Minimize, Strategy};
-
-/*
-use serde::{Deserialize, Serialize};
-
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Strategy {
+    /// Append each item of RHS to the end of LHS. Both LHS and RHS must be arrays.
+    Append,
     /// FirstWriteWins keeps the LHS value.
     FirstWriteWins,
     /// LastWriteWins takes the RHS value.
@@ -21,22 +19,59 @@ pub enum Strategy {
     /// A provided key, if present, determines the relative ordering.
     /// If values are equal, they're deeply merged.
     Maximize(Maximize),
+    /// Merge the LHS and RHS by recursively reducing shared document locations.
+    /// The LHS and RHS must either both be Objects, or both be Arrays.
+    ///
+    /// If LHS and RHS are Arrays and a merge key is provide, the Arrays *must* be
+    /// pre-sorted and de-duplicated by that key. Merge then performs a deep sorted
+    /// merge of their respective items, as ordered by the key.
+    /// Note that a key of [""] can be applied to use natural item ordering.
+    ///
+    /// If LHS and RHS are both Arrays and a key is not provided, items of each index
+    /// in LHS and RHS are merged together, extending the shorter of the two by taking
+    /// items of the longer.
+    ///
+    /// If LHS and RHS are both Objects then it perform a deep merge of each property.
+    Merge(Merge),
     /// Minimize keeps the smaller of the LHS & RHS.
     /// A provided key, if present, determines the relative ordering.
     /// If values are equal, they're deeply merged.
     Minimize(Minimize),
-    /// Sum the LHS and RHS.
-    /// If either LHS or RHS are not numbers, Sum behaves as LastWriteWins.
+    /// Interpret this location as an update to a set.
+    ///
+    /// The location *must* be an object having (only) "add", "intersect",
+    /// and "remove" properties. Any single property is always allowed.
+    ///
+    /// An instance with "intersect" and "add" is allowed, and is interpreted
+    /// as applying the intersection to the base set, followed by a union of
+    /// the additions.
+    ///
+    /// An instance with "remove" and "add" is also allowed, and is interpreted
+    /// as applying the removals to the base set, followed by a union of
+    /// the additions.
+    ///
+    /// "remove" and "intersect" within the same instance is prohibited.
+    ///
+    /// Set additions are deeply merged. This makes sets behave as associative
+    /// maps, where the "value" of a set member can be updated by adding it to
+    /// set with a reducible update.
+    ///
+    /// Set components may be objects, in which case the object property is the
+    /// set key, or arrays which are ordered using the Set's key extractor.
+    /// Use a key extractor of [""] to apply the natural ordering of scalar
+    /// values stored in a sorted array.
+    ///
+    /// Whether arrays or objects are used, the selected type must always be
+    /// consistent across the "add" / "intersect" / "remove" terms of both
+    /// sides of the reduction.
+    Set(Set),
+    /// Sum the LHS and RHS, both of which must be numbers.
+    /// Sum will fail if the operation would result in a numeric overflow
+    /// (in other words, the numbers become too large to be represented).
+    ///
+    /// In the future, we may allow for arbitrary-sized integer and
+    /// floating-point representations which use a string encoding scheme.
     Sum,
-    /// Merge recursively reduces shared document locations.
-    ///
-    /// If LHS and RHS are both Objects then it perform a deep merge of each property.
-    ///
-    /// If LHS and RHS are both Arrays then items at corresponding indexes are deeply
-    /// merged. The shorter of the two arrays is extended by taking items of the longer.
-    ///
-    /// In all other cases, Merge behaves as LastWriteWins.
-    Merge(Merge),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -60,6 +95,13 @@ pub struct Merge {
     key: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Set {
+    #[serde(default)]
+    pub key: Vec<String>,
+}
+
 impl std::convert::TryFrom<&Value> for Strategy {
     type Error = serde_json::Error;
 
@@ -67,24 +109,56 @@ impl std::convert::TryFrom<&Value> for Strategy {
         Strategy::deserialize(v)
     }
 }
-*/
 
 impl Reducer for Strategy {
     fn reduce(&self, cur: Cursor) -> Result<Value> {
         match self {
+            Strategy::Append => Self::append(cur),
             Strategy::FirstWriteWins => Self::first_write_wins(cur),
             Strategy::LastWriteWins => Self::last_write_wins(cur),
             Strategy::Maximize(max) => Self::maximize(cur, max),
-            Strategy::Minimize(min) => Self::minimize(cur, min),
-            Strategy::Sum => Self::sum(cur),
             Strategy::Merge(merge) => Self::merge(cur, merge),
-            Strategy::Subtract(_) | Strategy::Append => panic!("not implemented"),
+            Strategy::Minimize(min) => Self::minimize(cur, min),
             Strategy::Set(set) => set.reduce(cur),
+            Strategy::Sum => Self::sum(cur),
         }
     }
 }
 
 impl Strategy {
+    fn append(cur: Cursor) -> Result<Value> {
+        let (tape, loc, prune, lhs, rhs) = match cur {
+            Cursor::Both {
+                tape,
+                loc,
+                prune,
+                lhs: Value::Array(lhs),
+                rhs: Value::Array(rhs),
+            } => (tape, loc, prune, lhs, rhs),
+            Cursor::Right {
+                tape,
+                loc,
+                prune,
+                rhs: Value::Array(rhs),
+            } => (tape, loc, prune, Vec::new(), rhs),
+            cur => return Err(Error::cursor(cur, Error::AppendWrongType)),
+        };
+
+        *tape = &tape[1..]; // Consume array container.
+
+        let rhs = rhs
+            .into_iter()
+            .enumerate()
+            .map(|item| reduce_item(tape, loc, prune, EitherOrBoth::Right(item)));
+
+        Ok(Value::Array(
+            lhs.into_iter()
+                .map(Result::Ok)
+                .chain(rhs)
+                .collect::<Result<_>>()?,
+        ))
+    }
+
     fn first_write_wins(cur: Cursor) -> Result<Value> {
         match cur {
             Cursor::Right { tape, rhs, .. } => {
@@ -286,6 +360,38 @@ impl Strategy {
 mod test {
     use super::super::test::*;
     use super::*;
+
+    #[test]
+    fn test_append_array() {
+        run_reduce_cases(
+            json!({
+                "reduce": { "strategy": "append" },
+            }),
+            vec![
+                // Non-array RHS (without LHS) returns an error.
+                Partial {
+                    rhs: json!("whoops"),
+                    expect: Err(Error::AppendWrongType),
+                },
+                Partial {
+                    rhs: json!([0, 1]),
+                    expect: Ok(json!([0, 1])),
+                },
+                Partial {
+                    rhs: json!([2, 3, 4]),
+                    expect: Ok(json!([0, 1, 2, 3, 4])),
+                },
+                Partial {
+                    rhs: json!([-1, "a"]),
+                    expect: Ok(json!([0, 1, 2, 3, 4, -1, "a"])),
+                },
+                Partial {
+                    rhs: json!({}),
+                    expect: Err(Error::AppendWrongType),
+                },
+            ],
+        )
+    }
 
     #[test]
     fn test_last_write_wins() {

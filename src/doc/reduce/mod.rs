@@ -1,15 +1,22 @@
-mod strategy;
-pub use estuary_json::{schema::types, LocatedItem, LocatedProperty, Location};
+pub use super::{extract_reduce_annotations, validate, FailedValidation, FullContext, Validator};
+pub use estuary_json::{schema::types, validator::Context, LocatedItem, LocatedProperty, Location};
 use itertools::EitherOrBoth;
 use serde_json::Value;
-pub use strategy::Strategy;
+use url::Url;
 
 mod set;
+mod strategy;
+
+pub use strategy::Strategy;
 
 type Index<'a> = &'a [(&'a Strategy, u64)];
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("document is invalid: {}", serde_json::to_string_pretty(.0).unwrap())]
+    FailedValidation(FailedValidation),
+    #[error("'append' strategy expects arrays")]
+    AppendWrongType,
     #[error("`sum` resulted in numeric overflow")]
     SumNumericOverflow,
     #[error("'sum' strategy expects numbers")]
@@ -34,6 +41,45 @@ pub enum Error {
         #[source]
         detail: Box<Error>,
     },
+}
+
+/// Reduce a RHS document into a preceding LHS document. The RHS document must
+/// validate against the provided Validator and schema URI, which will also
+/// provide reduction annotations.
+/// If |prune|, then LHS is the root-most (or left-most) document in the reduction
+/// sequence. Depending on the reduction strategy, additional pruning can be done
+/// in this case (i.e., removing tombstones) that isn't possible in a partial
+/// non-root reduction.
+pub fn reduce<C: Context>(
+    mut validator: &mut Validator<C>,
+    schema_curi: &Url,
+    lhs: Option<Value>,
+    rhs: Value,
+    prune: bool,
+) -> Result<Value> {
+    let span = validate(&mut validator, &schema_curi, &rhs).map_err(Error::FailedValidation)?;
+    let tape = extract_reduce_annotations(span, validator.outcomes());
+    let tape = &mut tape.as_slice();
+
+    let reduced = match lhs {
+        Some(lhs) => Cursor::Both {
+            tape,
+            loc: Location::Root,
+            prune,
+            lhs,
+            rhs,
+        },
+        None => Cursor::Right {
+            tape,
+            loc: Location::Root,
+            prune,
+            rhs,
+        },
+    }
+    .reduce()?;
+
+    assert!(tape.is_empty());
+    Ok(reduced)
 }
 
 impl Error {
@@ -72,12 +118,7 @@ impl Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Cursor models a joint document location which is being reduced.
-/// Document LHS always preceeds RHS in the application of reducible operations.
-/// If |prune|, then LHS is the root-most (or left-most) document in the reduction
-/// sequence. Depending on the reduction strategy, additional pruning can be done
-/// in this case (i.e., removing tombstones) that isn't possible in a partial
-/// non-root reduction.
-pub enum Cursor<'i, 'l, 'a> {
+enum Cursor<'i, 'l, 'a> {
     Both {
         tape: &'i mut Index<'a>,
         loc: Location<'l>,
@@ -178,10 +219,8 @@ fn count_nodes(v: &Value) -> usize {
 pub mod test {
     use super::*;
 
-    use crate::doc::{
-        extract_reduce_annotations, validate, FullContext, Schema, SchemaIndex, Validator,
-    };
-    use estuary_json::{schema::build::build_schema, Location};
+    use crate::doc::{FullContext, Schema, SchemaIndex, Validator};
+    use estuary_json::schema::build::build_schema;
     pub use serde_json::{json, Value};
     use std::error::Error as StdError;
 
@@ -231,35 +270,13 @@ pub mod test {
                 Partial { rhs, expect } => (rhs, expect, false),
                 Full { rhs, expect } => (rhs, expect, true),
             };
-
-            let span = validate(&mut validator, &curi, &rhs).unwrap();
-            let tape = extract_reduce_annotations(span, validator.outcomes());
-            let tape = &mut tape.as_slice();
-
-            let cursor = match &lhs {
-                Some(lhs) => Cursor::Both {
-                    tape,
-                    loc: Location::Root,
-                    lhs: lhs.clone(),
-                    rhs,
-                    prune,
-                },
-                None => Cursor::Right {
-                    tape,
-                    loc: Location::Root,
-                    rhs,
-                    prune,
-                },
-            };
-
-            let reduced = cursor.reduce();
+            let reduced = reduce(&mut validator, &curi, lhs.clone(), rhs, prune);
 
             match expect {
                 Ok(expect) => {
                     let reduced = reduced.unwrap();
-                    assert!(tape.is_empty());
                     assert_eq!(&reduced, &expect);
-                    lhs = Some(reduced);
+                    lhs = Some(reduced)
                 }
                 Err(expect) => {
                     let reduced = reduced.unwrap_err();

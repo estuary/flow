@@ -348,6 +348,12 @@ message CombineRequest {
     // JSON-Pointer at which a placeholder UUID should be inserted into
     // returned documents. If empty, no placeholder is inserted.
     string uuid_placeholder_ptr = 4;
+    // Prune is true if this CombineRequest includes the root-most
+    // (equivalently, left-most) document of each key. Depending on the
+    // reduction strategy, additional pruning can be done in this case
+    // (i.e., removing tombstones) that isn't possible in a partial
+    // non-root reduction.
+    bool prune = 5;
   };
 
   // Continue an opened CombineRequest.

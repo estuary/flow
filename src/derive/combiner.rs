@@ -1,7 +1,4 @@
-use crate::doc::reduce::Reducer;
-use crate::doc::{
-    extract_reduce_annotations, validate, FailedValidation, Pointer, SchemaIndex, Validator,
-};
+use crate::doc::{reduce, Pointer, SchemaIndex, Validator};
 use estuary_json::validator::FullContext;
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -55,29 +52,15 @@ impl Combiner {
         }
     }
 
-    pub fn combine(&mut self, doc: Value) -> Result<(), FailedValidation> {
-        let span = validate(&mut self.validator, &self.schema, &doc)?;
-        let doc = KeyedDoc {
+    pub fn combine(&mut self, rhs: Value, prune: bool) -> Result<(), reduce::Error> {
+        let mut entry = KeyedDoc {
             key: self.key.clone(),
-            doc,
+            doc: rhs,
         };
+        let lhs = self.entries.take(&entry).map(|kd| kd.doc);
 
-        let reduced = match self.entries.take(&doc) {
-            Some(mut prior) => {
-                Reducer {
-                    at: 0,
-                    val: doc.doc,
-                    into: &mut prior.doc,
-                    created: false,
-                    idx: &extract_reduce_annotations(span, self.validator.outcomes()),
-                }
-                .reduce();
-
-                prior
-            }
-            None => doc,
-        };
-        self.entries.insert(reduced);
+        entry.doc = reduce::reduce(&mut self.validator, &self.schema, lhs, entry.doc, prune)?;
+        self.entries.insert(entry);
 
         Ok(())
     }
@@ -129,7 +112,7 @@ mod test {
 
         let mut combiner = Combiner::new(schema_index, &schema, key.clone());
         for doc in docs {
-            combiner.combine(doc).unwrap();
+            combiner.combine(doc, false).unwrap();
         }
         assert_eq!(combiner.entries.len(), 3);
 

@@ -3,7 +3,7 @@ use crate::catalog::{
     specs::{TestStep, TestStepVerify},
 };
 use crate::derive;
-use crate::doc::{Diff, FailedValidation, Pointer, SchemaIndex};
+use crate::doc::{reduce, Diff, Pointer, SchemaIndex};
 use crate::runtime::{self, cluster};
 use estuary_json::Location;
 use estuary_protocol::consumer;
@@ -38,9 +38,8 @@ pub enum Error {
 
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
-    #[error("document validation error: {}",
-        serde_json::to_string_pretty(.0).unwrap())]
-    Validation(FailedValidation),
+    #[error("failed to reduce over documents to be verified")]
+    Reduce(#[from] reduce::Error),
     #[error("detected differences while verifying collection {:?}: {}",
         .collection, serde_json::to_string_pretty(.diffs).unwrap())]
     Verify {
@@ -230,7 +229,7 @@ impl Context {
                         if uuid.producer_and_flags & FLAGS_ACK_TXN != 0 {
                             continue;
                         }
-                        combiner.combine(doc).map_err(Error::Validation)?;
+                        combiner.combine(doc, true)?;
                     }
 
                     let root = Location::Root;
