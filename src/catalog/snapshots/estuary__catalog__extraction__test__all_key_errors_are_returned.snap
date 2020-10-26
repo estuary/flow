@@ -2,14 +2,14 @@
 source: src/catalog/extraction.rs
 expression: "errors.into_iter().join(\"\\n\")"
 ---
-Invalid shuffle key from transform "badTransformA": '/may_not_exist' (from test://schema.json). The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
-Invalid shuffle key from transform "badTransformA": '/multi_types' (from test://schema.json). The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
-Invalid shuffle key from transform "badTransformB": '/array' (from test://badTrans/schema.json). Location may hold values of type "array", but locations used as keys may not hold objects, arrays, or floats as possible values
-Invalid shuffle key from transform "badTransformB": '/float' (from test://badTrans/schema.json). Location may hold values of type "number", but locations used as keys may not hold objects, arrays, or floats as possible values
-Invalid primary key of collection "bad/a": '/missing_inference' (from test://bad/schema.json). The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
-Invalid primary key of collection "bad/a": '/object' (from test://bad/schema.json). Location may hold values of type "object", but locations used as keys may not hold objects, arrays, or floats as possible values
-Invalid partition key for collection "bad/b": '/missing_inference' (from test://bad/schema.json). The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
-Invalid primary key of collection "bad/b": '/missing_inference' (from test://bad/schema.json). The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.
-Invalid partition key for collection "bad/b": '/multi_types' (from test://bad/schema.json). Location has 2 possible types besides null, but locations used as keys may only have one possible type besides null.
-Invalid partition key for collection "bad/b": '/object' (from test://bad/schema.json). Location may hold values of type "object", but locations used as keys may not hold objects, arrays, or floats as possible values
-Invalid primary key of collection "bad/b": '/object' (from test://bad/schema.json). Location may hold values of type "object", but locations used as keys may not hold objects, arrays, or floats as possible values
+Invalid shuffle key from transform "badTransformB": '/array' (from test://badTrans/schema.json). Location may be ["array"], but locations used as keys may not be objects, arrays, or floats.
+Invalid shuffle key from transform "badTransformB": '/float' (from test://badTrans/schema.json). Location may be ["number"], but locations used as keys may not be objects, arrays, or floats.
+Invalid primary key of collection "bad/a": '/missing_inference' (from test://bad/schema.json). No inferrence for this location (internal error).
+Invalid primary key of collection "bad/a": '/object' (from test://bad/schema.json). Location may be ["object"], but locations used as keys may not be objects, arrays, or floats.
+Invalid shuffle key from transform "badTransformA": '/may_not_exist' (from test://bad/schema.json). Location may not exist in all documents. Consider using "required" or "minItems".
+Invalid partition key for collection "bad/b": '/missing_inference' (from test://bad/schema.json). No inferrence for this location (internal error).
+Invalid primary key of collection "bad/b": '/missing_inference' (from test://bad/schema.json). No inferrence for this location (internal error).
+Invalid partition key for collection "bad/b": '/multi_types' (from test://bad/schema.json). Location may be ["string", "integer"], but locations used as keys may only have one possible type besides null.
+Invalid shuffle key from transform "badTransformA": '/multi_types' (from test://bad/schema.json). Location may be ["string", "integer"], but locations used as keys may only have one possible type besides null.
+Invalid partition key for collection "bad/b": '/object' (from test://bad/schema.json). Location may be ["object"], but locations used as keys may not be objects, arrays, or floats.
+Invalid primary key of collection "bad/b": '/object' (from test://bad/schema.json). Location may be ["object"], but locations used as keys may not be objects, arrays, or floats.

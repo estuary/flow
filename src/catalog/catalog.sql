@@ -769,16 +769,16 @@ CREATE VIEW collection_keys AS WITH all_keys AS (
 inferences_with_errors AS (
     SELECT schema_uri,
         location_ptr,
-        inferences.types_json,
+        types_json,
+        must_exist,
         SUM(1) FILTER (
             WHERE one_type.value != 'null'
         ) AS num_non_null_types,
         CASE
             WHEN one_type.value IN ('object', 'array', 'number') THEN one_type.value
-        END AS disallowed_type,
-        MIN(inferences.must_exist) AS must_exist
-    FROM inferences,
-        json_each(inferences.types_json) AS one_type
+        END AS disallowed_type
+    FROM inferences
+        LEFT JOIN json_each(inferences.types_json) AS one_type
     GROUP BY schema_uri,
         location_ptr
 )
@@ -789,15 +789,16 @@ SELECT all_keys.collection_id,
     i.must_exist,
     all_keys.source,
     CASE
-        WHEN i.location_ptr IS NULL THEN 'The location cannot be used as a key because it is not known to contain a string, integer, or boolean type. Consider restricting the possible types in the schema or using a different key.'
-        WHEN COALESCE(i.must_exist, FALSE) != TRUE THEN 'Location may not exist in all documents. Consider using "required" or "minItems" in the schema to validate that the location will always have a value of type string, integer, or boolean (or null).'
+        WHEN i.location_ptr IS NULL THEN 'No inferrence for this location (internal error).'
+        WHEN types_json == '[]' THEN 'Schema is constrained such that the location cannot exist.'
+        WHEN i.must_exist == FALSE THEN 'Location may not exist in all documents. Consider using "required" or "minItems".'
         WHEN i.num_non_null_types > 1 THEN printf(
-            'Location has %d possible types besides null, but locations used as keys may only have one possible type besides null.',
-            i.num_non_null_types
+            'Location may be %s, but locations used as keys may only have one possible type besides null.',
+            i.types_json
         )
         WHEN i.disallowed_type NOT NULL THEN printf(
-            'Location may hold values of type "%s", but locations used as keys may not hold objects, arrays, or floats as possible values',
-            i.disallowed_type
+            'Location may be %s, but locations used as keys may not be objects, arrays, or floats.',
+            i.types_json
         )
     END AS error
 FROM all_keys
