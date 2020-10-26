@@ -815,19 +815,19 @@ VALUES -- Will show up in collection_keys as error due to invalid type "number"
         '["number"]',
         TRUE
     ),
-    -- Will show up in collection_keys as error due to multiple possible types
-    (
-        'file:///path/to/a/schema.yaml',
-        '/path/3',
-        '["integer", "string"]',
-        TRUE
-    ),
     -- Will show up in collection_keys as error due to must_exist being FALSE
     (
         'file:///path/to/a/schema.yaml',
         '/key',
         '["integer"]',
         FALSE
+    ),
+    -- Will show up in collection_keys as error due to being an impossible type
+    (
+        'file:///path/to/a/schema.yaml#anchor',
+        '/key',
+        '[]',
+        TRUE
     );
 
 -- Invalid inference (types are not valid json)
