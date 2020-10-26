@@ -1,6 +1,7 @@
-use super::{ptr::Token, Pointer, Schema, SchemaIndex};
-use estuary_json::schema::{
-    types, Annotation as AnnotationTrait, Application, CoreAnnotation, Keyword, Validation,
+use super::{ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
+use estuary_json::{
+    schema::{types, Application, CoreAnnotation, Keyword, Validation},
+    LocatedProperty, Location,
 };
 use itertools::{self, EitherOrBoth, Itertools};
 use regex::Regex;
@@ -12,6 +13,7 @@ pub struct Shape {
     pub enum_: Option<Vec<Value>>,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub reduction: Reduction,
 
     pub string: StringShape,
     pub array: ArrayShape,
@@ -60,6 +62,62 @@ impl Eq for ObjPattern {}
 impl PartialEq for ObjPattern {
     fn eq(&self, other: &Self) -> bool {
         self.re.as_str() == other.re.as_str() && self.shape == other.shape
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Reduction {
+    // Equivalent to Option::None.
+    Unset,
+
+    Append,
+    FirstWriteWins,
+    LastWriteWins,
+    Maximize,
+    Merge,
+    Minimize,
+    Set,
+    Sum,
+
+    // Multiple concrete strategies may apply at the location.
+    Multiple,
+}
+
+impl Reduction {
+    fn union(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (lhs, rhs) if lhs == rhs => lhs,
+            // If either side is None (unconstrained), so is the union.
+            (Reduction::Unset, _) => Reduction::Unset,
+            (_, Reduction::Unset) => Reduction::Unset,
+            // Both sides are unequal but also not None.
+            (_, _) => Reduction::Multiple,
+        }
+    }
+
+    fn intersect(self, rhs: Self) -> Self {
+        if let Reduction::Unset = self {
+            rhs
+        } else {
+            self
+        }
+    }
+}
+
+impl From<&reduce::Strategy> for Reduction {
+    fn from(s: &reduce::Strategy) -> Self {
+        use reduce::Strategy;
+
+        match s {
+            Strategy::Append => Reduction::Append,
+            Strategy::FirstWriteWins => Reduction::FirstWriteWins,
+            Strategy::LastWriteWins => Reduction::LastWriteWins,
+            Strategy::Maximize(_) => Reduction::Maximize,
+            Strategy::Minimize(_) => Reduction::Minimize,
+            Strategy::Set(_) => Reduction::Set,
+            Strategy::Sum => Reduction::Sum,
+            Strategy::Merge(_) => Reduction::Merge,
+        }
     }
 }
 
@@ -421,6 +479,7 @@ impl Default for Shape {
             enum_: None,
             title: None,
             description: None,
+            reduction: Reduction::Unset,
             string: StringShape::default(),
             array: ArrayShape::default(),
             object: ObjShape::default(),
@@ -465,25 +524,28 @@ impl Shape {
                     shape.string.min_length = *min;
                 }
 
-                Keyword::Annotation(annot) => match annot.as_core() {
-                    Some(CoreAnnotation::Title(t)) => {
+                Keyword::Annotation(annot) => match annot {
+                    Annotation::Reduce(s) => {
+                        shape.reduction = s.into();
+                    }
+                    Annotation::Core(CoreAnnotation::Title(t)) => {
                         shape.title = Some(t.clone());
                     }
-                    Some(CoreAnnotation::Description(d)) => {
+                    Annotation::Core(CoreAnnotation::Description(d)) => {
                         shape.description = Some(d.clone());
                     }
 
                     // String constraints.
-                    Some(CoreAnnotation::ContentEncodingBase64) => {
+                    Annotation::Core(CoreAnnotation::ContentEncodingBase64) => {
                         shape.string.is_base64 = Some(true);
                     }
-                    Some(CoreAnnotation::ContentMediaType(mt)) => {
+                    Annotation::Core(CoreAnnotation::ContentMediaType(mt)) => {
                         shape.string.content_type = Some(mt.clone());
                     }
-                    Some(CoreAnnotation::Format(format)) => {
+                    Annotation::Core(CoreAnnotation::Format(format)) => {
                         shape.string.format = Some(format.clone());
                     }
-                    _ => {} // Other CoreAnnotation. No-op.
+                    Annotation::Core(_) => {} // Other CoreAnnotations are no-ops.
                 },
 
                 // Array constraints.
@@ -627,7 +689,7 @@ impl Shape {
         }
 
         // Now, and *only* if loc.object.additional or loc.array.additional is
-        // otherwise unset, then default to unevalutedProperties / unevaluatedItems.
+        // otherwise unset, then default to unevaluatedProperties / unevaluatedItems.
 
         if let (None, Some(unevaluated_properties)) =
             (&shape.object.additional, unevaluated_properties)
@@ -646,6 +708,7 @@ impl Shape {
         let enum_ = union_enum(lhs.enum_, rhs.enum_);
         let title = union_option(lhs.title, rhs.title);
         let description = union_option(lhs.description, rhs.description);
+        let reduction = lhs.reduction.union(rhs.reduction);
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -677,6 +740,7 @@ impl Shape {
             enum_,
             title,
             description,
+            reduction,
             string,
             array,
             object,
@@ -685,7 +749,7 @@ impl Shape {
 
     fn intersect(lhs: Self, rhs: Self) -> Self {
         let mut type_ = lhs.type_ & rhs.type_;
-        // The enum intersection is additionally filtered to varaints matching
+        // The enum intersection is additionally filtered to variants matching
         // the intersected type.
         let enum_ = intersect_enum(type_, lhs.enum_, rhs.enum_);
         // Further tighten type_ to the possible variant types of the intersected
@@ -697,6 +761,7 @@ impl Shape {
 
         let title = lhs.title.or(rhs.title);
         let description = lhs.description.or(rhs.description);
+        let reduction = lhs.reduction.intersect(rhs.reduction);
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -725,6 +790,7 @@ impl Shape {
             enum_,
             title,
             description,
+            reduction,
             string,
             array,
             object,
@@ -886,6 +952,114 @@ impl Shape {
     }
 }
 
+#[derive(thiserror::Error, Debug, Eq, PartialEq)]
+pub enum Error {
+    #[error("'{0}' has reduction strategy, but its parent does not")]
+    ChildWithoutParentReduction(String),
+    #[error("{0} has 'sum' reduction strategy, restricted to numbers, but has types {1:?}")]
+    SumNotNumber(String, types::Set),
+    #[error(
+        "{0} has 'merge' reduction strategy, restricted to objects & arrays, but has types {1:?}"
+    )]
+    MergeNotObjectOrArray(String, types::Set),
+    #[error("{0} has 'set' reduction strategy, restricted to objects, but has types {1:?}")]
+    SetNotObject(String, types::Set),
+    #[error(
+        "{0} location's parent has 'set' reduction strategy, restricted to 'add'/'remove'/'intersect' properties"
+    )]
+    SetInvalidProperty(String),
+}
+
+impl Shape {
+    pub fn inspect(&self) -> Vec<Error> {
+        let mut v = Vec::new();
+        self.inspect_inner(Location::Root, &mut v);
+        v
+    }
+
+    fn inspect_inner(&self, loc: Location, out: &mut Vec<Error>) {
+        // Enumerations over array sub-locations.
+        let items = self
+            .array
+            .tuple
+            .iter()
+            .enumerate()
+            .map(|(index, s)| (loc.push_item(index), s));
+        let addl_items = self
+            .array
+            .additional
+            .iter()
+            .map(|s| (loc.push_prop("-"), s.as_ref()));
+
+        // Enumerations over object sub-locations.
+        let props = self
+            .object
+            .properties
+            .iter()
+            .map(|op| (loc.push_prop(&op.name), &op.shape));
+        let patterns = self
+            .object
+            .patterns
+            .iter()
+            .map(|op| (loc.push_prop(op.re.as_str()), &op.shape));
+        let addl_props = self
+            .object
+            .additional
+            .iter()
+            .map(|shape| (loc.push_prop("*"), shape.as_ref()));
+
+        if matches!(self.reduction, Reduction::Sum)
+            && (self.type_ & !(types::NUMBER | types::INTEGER) != types::INVALID)
+        {
+            out.push(Error::SumNotNumber(
+                loc.pointer_str().to_string(),
+                self.type_,
+            ));
+        }
+        if matches!(self.reduction, Reduction::Merge)
+            && (self.type_ & !(types::OBJECT | types::ARRAY) != types::INVALID)
+        {
+            out.push(Error::MergeNotObjectOrArray(
+                loc.pointer_str().to_string(),
+                self.type_,
+            ));
+        }
+        if matches!(self.reduction, Reduction::Set) {
+            if self.type_ & !types::OBJECT != types::INVALID {
+                out.push(Error::SetNotObject(
+                    loc.pointer_str().to_string(),
+                    self.type_,
+                ));
+            }
+
+            for (loc, _) in props.clone().chain(patterns.clone()) {
+                if !matches!(loc, Location::Property(LocatedProperty { name, .. })
+                        if name == "add" || name == "intersect" || name == "remove")
+                {
+                    out.push(Error::SetInvalidProperty(loc.pointer_str().to_string()));
+                }
+            }
+        }
+
+        for (loc, child) in items
+            .chain(addl_items)
+            .chain(props)
+            .chain(patterns)
+            .chain(addl_props)
+        {
+            if matches!(self.reduction, Reduction::Unset)
+                && !matches!(child.reduction, Reduction::Unset)
+            {
+                out.push(Error::ChildWithoutParentReduction(
+                    loc.pointer_str().to_string(),
+                ))
+            }
+
+            child.inspect_inner(loc, out);
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{super::Annotation, *};
@@ -902,6 +1076,7 @@ mod test {
                 type: [string, array]
                 title: a-title
                 description: a-description
+                reduce: {strategy: firstWriteWins}
                 contentEncoding: base64
                 contentMediaType: some/thing
                 format: email
@@ -913,6 +1088,7 @@ mod test {
                 allOf:
                 - title: a-title
                 - description: a-description
+                - reduce: {strategy: firstWriteWins}
                 anyOf:
                 - contentEncoding: base64
                 - type: object # Elided (impossible).
@@ -927,6 +1103,7 @@ mod test {
                 type_: types::STRING | types::ARRAY,
                 title: Some("a-title".to_owned()),
                 description: Some("a-description".to_owned()),
+                reduction: Reduction::FirstWriteWins,
                 string: StringShape {
                     is_base64: Some(true),
                     content_type: Some("some/thing".to_owned()),
@@ -934,6 +1111,81 @@ mod test {
                     max_length: None,
                     min_length: 0,
                 },
+                ..Shape::default()
+            },
+        );
+    }
+
+    #[test]
+    fn test_multiple_reductions() {
+        infer_test(
+            &[
+                r#"
+                oneOf:
+                - reduce: {strategy: firstWriteWins}
+                - reduce: {strategy: firstWriteWins}
+                "#,
+                r#"
+                anyOf:
+                - reduce: {strategy: firstWriteWins}
+                - reduce: {strategy: firstWriteWins}
+                "#,
+                r#"
+                if: true
+                then: {reduce: {strategy: firstWriteWins}}
+                else: {reduce: {strategy: firstWriteWins}}
+                "#,
+            ],
+            Shape {
+                reduction: Reduction::FirstWriteWins,
+                ..Shape::default()
+            },
+        );
+        // Non-equal annotations are promoted to a Multiple variant.
+        infer_test(
+            &[
+                r#"
+                oneOf:
+                - reduce: {strategy: firstWriteWins}
+                - reduce: {strategy: lastWriteWins}
+                "#,
+                r#"
+                anyOf:
+                - reduce: {strategy: firstWriteWins}
+                - reduce: {strategy: lastWriteWins}
+                "#,
+                r#"
+                if: true
+                then: {reduce: {strategy: firstWriteWins}}
+                else: {reduce: {strategy: lastWriteWins}}
+                "#,
+            ],
+            Shape {
+                reduction: Reduction::Multiple,
+                ..Shape::default()
+            },
+        );
+        // All paths must have an annotation, or it becomes unset.
+        infer_test(
+            &[
+                r#"
+                oneOf:
+                - reduce: {strategy: firstWriteWins}
+                - {}
+                "#,
+                r#"
+                anyOf:
+                - reduce: {strategy: firstWriteWins}
+                - {}
+                "#,
+                r#"
+                if: true
+                then: {reduce: {strategy: firstWriteWins}}
+                else: {}
+                "#,
+            ],
+            Shape {
+                reduction: Reduction::Unset,
                 ..Shape::default()
             },
         );
@@ -1507,6 +1759,58 @@ mod test {
             });
             assert_eq!(expect, &actual, "case {:?}", ptr);
         }
+    }
+
+    #[test]
+    fn test_error_collection() {
+        let obj = shape_from(
+            r#"
+        type: object
+        reduce: {strategy: merge}
+        properties:
+            sum-wrong-type:
+                reduce: {strategy: sum}
+                type: [number, string]
+        patternProperties:
+            merge-wrong-type:
+                reduce: {strategy: merge}
+                type: boolean
+
+        additionalProperties:
+            type: object
+            # Valid child, but parent is missing reduce annotation.
+            properties:
+                nested-sum:
+                    reduce: {strategy: sum}
+                    type: integer
+
+        items:
+            # Set without type restriction.
+            - reduce: {strategy: set}
+        additionalItems:
+            type: object
+            properties:
+                add: true
+                intersect: true
+                whoops1: true
+            patternProperties:
+                remove: true
+                whoops2: true
+            reduce: {strategy: set}
+        "#,
+        );
+
+        assert_eq!(
+            obj.inspect(),
+            vec![
+                Error::SetNotObject("/0".to_owned(), types::ANY),
+                Error::SetInvalidProperty("/-/whoops1".to_owned()),
+                Error::SetInvalidProperty("/-/whoops2".to_owned()),
+                Error::SumNotNumber("/sum-wrong-type".to_owned(), types::NUMBER | types::STRING),
+                Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
+                Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
+            ]
+        );
     }
 
     fn infer_test(cases: &[&str], expect: Shape) {

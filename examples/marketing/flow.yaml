@@ -127,6 +127,8 @@ collections:
                 - additionalProperties:
                     $ref: schema.yaml#/$defs/click-with-view
           required: ["views", "clicks"]
+          reduce:
+            strategy: merge
           #expiration:
           #  # Retain for 30 days after the last observation of the user.
           #  key: "/lastSeen"
@@ -175,4 +177,3 @@ collections:
                 views: Object.values(register.views),
                 clicks: Object.values(register.clicks),
               }]
-

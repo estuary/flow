@@ -1,5 +1,5 @@
 use super::{specs, sql_params, ContentType, Resource, Result, Scope, DB};
-use crate::doc::{Schema as CompiledSchema, SchemaIndex};
+use crate::doc::{inference, Schema as CompiledSchema, SchemaIndex};
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
 
@@ -75,11 +75,12 @@ impl Schema {
         let resource = Resource::register(scope.db, ContentType::Schema, &base_url)?;
         let scope = scope.push_resource(resource);
 
-        let dom = resource.content(scope.db)?;
-        let dom = serde_yaml::from_slice::<serde_json::Value>(&dom)?;
-        let compiled: CompiledSchema = build_schema(resource.primary_url(scope.db)?, &dom)?;
-
         if !resource.is_processed(scope.db)? {
+            let dom = resource.content(scope.db)?;
+            let dom = serde_yaml::from_slice::<serde_json::Value>(&dom)?;
+            let compiled: CompiledSchema = build_schema(resource.primary_url(scope.db)?, &dom)?;
+
+            // Must do this before recursive register_* calls.
             resource.mark_as_processed(scope.db)?;
 
             // Walk the schema to identify sub-schemas having canonical URIs which differ
@@ -93,13 +94,14 @@ impl Schema {
             // Since we've already registered alternate URLs, usages of those URLs
             // in references will correctly resolve back to this document.
             Self::register_references(scope, &compiled)?;
-        }
 
-        // Index the compiled schema, and confirm that the registered URL (with fragment)
-        // resolves correctly.
-        let mut index = SchemaIndex::new();
-        index.add(&compiled)?;
-        index.must_fetch(canonical_url)?;
+            // Require that the inferred Shape have no inspected errors.
+            let shape = Self::shape_for(scope.db, resource.id, canonical_url)?;
+            // TODO(johnny): Catalog-wide wiring for multiple, structured errors.
+            if let Some(err) = shape.inspect().into_iter().next() {
+                return Err(err.into());
+            }
+        }
 
         Ok(Schema { resource, fragment })
     }
@@ -175,6 +177,17 @@ impl Schema {
         }
         schemas.shrink_to_fit();
         Ok(schemas)
+    }
+
+    /// Extract the inferred Shape of the given Schema URL within the given Resource.
+    pub fn shape_for(db: &DB, resource_id: i64, uri: &Url) -> Result<inference::Shape> {
+        let compiled = Self::compile_for(db, resource_id)?;
+
+        let mut index = SchemaIndex::new();
+        for schema in compiled.iter() {
+            index.add(schema)?;
+        }
+        Ok(inference::Shape::infer(index.must_fetch(&uri)?, &index))
     }
 }
 
@@ -252,6 +265,13 @@ mod test {
                 (10, "test://example/other/b-doc", Value::Null),
             ]),
         );
+
+        Schema::shape_for(
+            &db,
+            s.resource.id,
+            &s.primary_url_with_fragment(&db).unwrap(),
+        )
+        .unwrap();
 
         Ok(())
     }
