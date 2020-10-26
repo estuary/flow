@@ -1,6 +1,6 @@
 use super::ContentType;
 use crate::catalog::extraction::KeyError;
-use crate::doc;
+use crate::doc::{self, inference};
 use estuary_json::schema;
 use itertools::Itertools;
 use std::fmt;
@@ -64,6 +64,8 @@ pub enum Error {
     SchemaBuildErr(#[from] schema::build::Error),
     #[error("schema indexing error")]
     SchemaIndexErr(#[from] schema::index::Error),
+    #[error("detected error in schema during inference")]
+    SchemaInferenceErr(#[from] inference::Error),
     #[error("subprocess {process:?} failed with status {status}")]
     SubprocessFailed {
         process: std::path::PathBuf,

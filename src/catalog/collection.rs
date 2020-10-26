@@ -107,6 +107,15 @@ impl Collection {
             })
         }
     }
+
+    /// Returns the schema URI of the Collection.
+    pub fn schema_uri(&self, db: &DB) -> Result<url::Url> {
+        Ok(db.query_row(
+            "SELECT schema_uri FROM collections WHERE collection_id = ?;",
+            rusqlite::params![self.id],
+            |row| row.get(0),
+        )?)
+    }
 }
 
 #[cfg(test)]
