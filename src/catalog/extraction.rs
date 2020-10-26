@@ -96,7 +96,7 @@ mod test {
                 (1, 2, 'goodTransformA', 1, 1, 'test://tsource/schema.json', '["/goodKeyA", "/goodKeyB"]'),
                 (2, 3, 'goodTransformB', 2, 1, NULL, '["/goodKeyC"]'),
 
-                (3, 98, 'badTransformA', 1, 1, NULL, '["/multi_types", "/may_not_exist"]'),
+                (3, 98, 'badTransformA', 99, 1, NULL, '["/multi_types", "/may_not_exist"]'),
                 (4, 99, 'badTransformB', 2, 1, 'test://badTrans/schema.json', '["/float", "/array"]');
 
             INSERT INTO projections
