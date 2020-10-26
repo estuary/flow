@@ -1,24 +1,16 @@
 use crate::catalog::inference;
 use crate::catalog::{specs, Collection, Error, Result, Schema, Scope, DB};
 use crate::doc::inference::Shape;
-use crate::doc::SchemaIndex;
 use estuary_json::schema::types;
 use rusqlite::params as sql_params;
-use url::Url;
 
 pub fn register_projections(
     scope: &Scope,
     collection: Collection,
     projections: &specs::Projections,
 ) -> Result<()> {
-    let compiled_schemas = Schema::compile_for(scope.db, collection.resource.id)?;
-    let mut index = SchemaIndex::new();
-    for schema in compiled_schemas.iter() {
-        index.add(schema)?;
-    }
-    let schema_uri = get_schema_uri(scope.db, collection)?;
-    let collection_schema = index.must_fetch(&schema_uri)?;
-    let shape = Shape::infer(collection_schema, &index);
+    let schema_uri = collection.schema_uri(scope.db)?;
+    let shape = Schema::shape_for(scope.db, collection.resource.id, &schema_uri)?;
 
     for projection in projections.iter() {
         scope
@@ -42,15 +34,6 @@ pub fn register_projections(
         &shape,
         projections,
     )
-}
-
-fn get_schema_uri(db: &DB, collection: Collection) -> Result<Url> {
-    let url_string: String = db.query_row(
-        "SELECT schema_uri FROM collections WHERE collection_id = ?;",
-        rusqlite::params![collection.id],
-        |row| row.get(0),
-    )?;
-    Url::parse(url_string.as_str()).map_err(Into::into)
 }
 
 pub fn register_user_provided_projection(

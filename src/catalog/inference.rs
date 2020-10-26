@@ -1,7 +1,6 @@
-use crate::catalog::{self, Scope, DB};
+use crate::catalog::{self, Schema, Scope, DB};
 use crate::doc::inference::Shape;
 use crate::doc::Pointer;
-use estuary_json::schema::index::Index;
 use estuary_json::schema::types;
 use estuary_json::Location;
 use url::Url;
@@ -30,16 +29,9 @@ impl<'a> Inference<'a> {
 
 /// Traverses the shape and persists inferences for all of the "projectable" locations within it.
 pub fn register_all(scope: Scope, schema_uri: &Url) -> catalog::Result<()> {
-    let schemas = catalog::Schema::compile_for(scope.db, scope.resource().id)?;
-    let mut index = Index::new();
-    for schema in schemas.iter() {
-        index.add(schema)?;
-    }
-    let schema = index.must_fetch(schema_uri)?;
+    let shape = Schema::shape_for(scope.db, scope.resource().id, schema_uri)?;
 
-    let shape = Shape::infer(schema, &index);
-    let inferences = get_inferences(&shape);
-    for inference in inferences {
+    for inference in get_inferences(&shape) {
         register_one(scope.db, schema_uri.as_str(), &inference)?;
     }
     Ok(())
