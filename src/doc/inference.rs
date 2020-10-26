@@ -954,6 +954,8 @@ impl Shape {
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum Error {
+    #[error("'{0}' must exist, but is constrained to always be invalid")]
+    ImpossibleMustExist(String),
     #[error("'{0}' has reduction strategy, but its parent does not")]
     ChildWithoutParentReduction(String),
     #[error("{0} has 'sum' reduction strategy, restricted to numbers, but has types {1:?}")]
@@ -973,41 +975,44 @@ pub enum Error {
 impl Shape {
     pub fn inspect(&self) -> Vec<Error> {
         let mut v = Vec::new();
-        self.inspect_inner(Location::Root, &mut v);
+        self.inspect_inner(Location::Root, true, &mut v);
         v
     }
 
-    fn inspect_inner(&self, loc: Location, out: &mut Vec<Error>) {
+    fn inspect_inner(&self, loc: Location, must_exist: bool, out: &mut Vec<Error>) {
         // Enumerations over array sub-locations.
         let items = self
             .array
             .tuple
             .iter()
             .enumerate()
-            .map(|(index, s)| (loc.push_item(index), s));
+            .map(|(index, s)| (loc.push_item(index), index < self.array.min.unwrap_or(0), s));
         let addl_items = self
             .array
             .additional
             .iter()
-            .map(|s| (loc.push_prop("-"), s.as_ref()));
+            .map(|s| (loc.push_prop("-"), false, s.as_ref()));
 
         // Enumerations over object sub-locations.
         let props = self
             .object
             .properties
             .iter()
-            .map(|op| (loc.push_prop(&op.name), &op.shape));
+            .map(|op| (loc.push_prop(&op.name), op.is_required, &op.shape));
         let patterns = self
             .object
             .patterns
             .iter()
-            .map(|op| (loc.push_prop(op.re.as_str()), &op.shape));
+            .map(|op| (loc.push_prop(op.re.as_str()), false, &op.shape));
         let addl_props = self
             .object
             .additional
             .iter()
-            .map(|shape| (loc.push_prop("*"), shape.as_ref()));
+            .map(|shape| (loc.push_prop("*"), false, shape.as_ref()));
 
+        if self.type_ == types::INVALID && must_exist {
+            out.push(Error::ImpossibleMustExist(loc.pointer_str().to_string()));
+        }
         if matches!(self.reduction, Reduction::Sum)
             && (self.type_ & !(types::NUMBER | types::INTEGER) != types::INVALID)
         {
@@ -1032,7 +1037,7 @@ impl Shape {
                 ));
             }
 
-            for (loc, _) in props.clone().chain(patterns.clone()) {
+            for (loc, _, _) in props.clone().chain(patterns.clone()) {
                 if !matches!(loc, Location::Property(LocatedProperty { name, .. })
                         if name == "add" || name == "intersect" || name == "remove")
                 {
@@ -1041,7 +1046,7 @@ impl Shape {
             }
         }
 
-        for (loc, child) in items
+        for (loc, child_must_exist, child) in items
             .chain(addl_items)
             .chain(props)
             .chain(patterns)
@@ -1055,7 +1060,7 @@ impl Shape {
                 ))
             }
 
-            child.inspect_inner(loc, out);
+            child.inspect_inner(loc, must_exist && child_must_exist, out);
         }
     }
 }
@@ -1771,10 +1776,16 @@ mod test {
             sum-wrong-type:
                 reduce: {strategy: sum}
                 type: [number, string]
+
+            must-exist-but-cannot: false
+            may-not-exist: false
+
         patternProperties:
             merge-wrong-type:
                 reduce: {strategy: merge}
                 type: boolean
+
+        required: [must-exist-but-cannot]
 
         additionalProperties:
             type: object
@@ -1806,6 +1817,7 @@ mod test {
                 Error::SetNotObject("/0".to_owned(), types::ANY),
                 Error::SetInvalidProperty("/-/whoops1".to_owned()),
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
+                Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::SumNotNumber("/sum-wrong-type".to_owned(), types::NUMBER | types::STRING),
                 Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
