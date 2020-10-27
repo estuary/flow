@@ -981,12 +981,13 @@ impl Shape {
 
     fn inspect_inner(&self, loc: Location, must_exist: bool, out: &mut Vec<Error>) {
         // Enumerations over array sub-locations.
-        let items = self
-            .array
-            .tuple
-            .iter()
-            .enumerate()
-            .map(|(index, s)| (loc.push_item(index), index < self.array.min.unwrap_or(0), s));
+        let items = self.array.tuple.iter().enumerate().map(|(index, s)| {
+            (
+                loc.push_item(index),
+                self.type_ == types::ARRAY && index < self.array.min.unwrap_or(0),
+                s,
+            )
+        });
         let addl_items = self
             .array
             .additional
@@ -994,11 +995,13 @@ impl Shape {
             .map(|s| (loc.push_prop("-"), false, s.as_ref()));
 
         // Enumerations over object sub-locations.
-        let props = self
-            .object
-            .properties
-            .iter()
-            .map(|op| (loc.push_prop(&op.name), op.is_required, &op.shape));
+        let props = self.object.properties.iter().map(|op| {
+            (
+                loc.push_prop(&op.name),
+                self.type_ == types::OBJECT && op.is_required,
+                &op.shape,
+            )
+        });
         let patterns = self
             .object
             .patterns
@@ -1780,12 +1783,28 @@ mod test {
             must-exist-but-cannot: false
             may-not-exist: false
 
+            nested-obj-or-string:
+                type: [object, string]
+                properties:
+                    must-exist-and-cannot-but-parent-could-be-string: false
+                required: [must-exist-and-cannot-but-parent-could-be-string]
+
+            nested-array:
+                type: array
+                items: [true, false, false]
+                minItems: 2
+
+            nested-array-or-string:
+                oneOf:
+                    - $ref: '#/properties/nested-array'
+                    - type: string
+
         patternProperties:
             merge-wrong-type:
                 reduce: {strategy: merge}
                 type: boolean
 
-        required: [must-exist-but-cannot]
+        required: [must-exist-but-cannot, nested-obj-or-string, nested-array, nested-array-or-string]
 
         additionalProperties:
             type: object
@@ -1818,6 +1837,7 @@ mod test {
                 Error::SetInvalidProperty("/-/whoops1".to_owned()),
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
+                Error::ImpossibleMustExist("/nested-array/1".to_owned()),
                 Error::SumNotNumber("/sum-wrong-type".to_owned(), types::NUMBER | types::STRING),
                 Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
