@@ -1,4 +1,4 @@
-use super::{specs, sql_params, ContentType, Resource, Result, Scope, DB};
+use super::{specs, sql_params, ContentType, Error, Resource, Result, Scope, DB};
 use crate::doc::{inference, Schema as CompiledSchema, SchemaIndex};
 use estuary_json::schema::{build::build_schema, Application, Keyword};
 use url::Url;
@@ -56,15 +56,27 @@ impl Schema {
                 scope.resource().primary_url(scope.db)?.join(url.as_ref())?
             }
         };
+        let schema = Self::register_url(scope, &url)?;
 
-        Self::register_url(scope, &url)
+        // Require that the inferred Shape have no inspected errors.
+        // TODO(johnny): Catalog-wide wiring for multiple, structured errors.
+        let shape = Self::shape_for(scope.db, schema.resource.id, &url)?;
+
+        if let Some(err) = shape.inspect().into_iter().next() {
+            return Err(Error::SchemaInferenceErr {
+                schema_uri: url,
+                detail: err,
+            });
+        }
+
+        Ok(schema)
     }
 
     /// Register a JSON-Schema document at the URL, which must be the canonical
     /// URI of the schema. If already registered, this is a no-op and its existing
     /// handle is returned. Otherwise the document and all of its recursive references
     /// are added to the catalog.
-    pub fn register_url(scope: Scope, canonical_url: &Url) -> Result<Schema> {
+    fn register_url(scope: Scope, canonical_url: &Url) -> Result<Schema> {
         // Schema URLs frequently have fragment components which locate a specific
         // sub-schema within the schema document. Decompose it to track separately,
         // then work with the entire schema document.
@@ -94,15 +106,7 @@ impl Schema {
             // Since we've already registered alternate URLs, usages of those URLs
             // in references will correctly resolve back to this document.
             Self::register_references(scope, &compiled)?;
-
-            // Require that the inferred Shape have no inspected errors.
-            let shape = Self::shape_for(scope.db, resource.id, canonical_url)?;
-            // TODO(johnny): Catalog-wide wiring for multiple, structured errors.
-            if let Some(err) = shape.inspect().into_iter().next() {
-                return Err(err.into());
-            }
         }
-
         Ok(Schema { resource, fragment })
     }
 

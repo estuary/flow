@@ -64,8 +64,12 @@ pub enum Error {
     SchemaBuildErr(#[from] schema::build::Error),
     #[error("schema indexing error")]
     SchemaIndexErr(#[from] schema::index::Error),
-    #[error("detected error in schema during inference")]
-    SchemaInferenceErr(#[from] inference::Error),
+    #[error("inferred error in schema {schema_uri:?}")]
+    SchemaInferenceErr {
+        schema_uri: url::Url,
+        #[source]
+        detail: inference::Error,
+    },
     #[error("subprocess {process:?} failed with status {status}")]
     SubprocessFailed {
         process: std::path::PathBuf,
