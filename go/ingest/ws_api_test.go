@@ -175,7 +175,7 @@ func testJSONInvalidSchema(t *testing.T, addr string) {
 	require.NoError(t, err)
 
 	var whoops, _ = runWebsocket(t, c, valid)
-	require.Regexp(t, "ingestion of collection.*document validation error.*", whoops)
+	require.Regexp(t, "ingestion of collection.*document is invalid: .*", whoops)
 }
 
 func testJSONMalformed(t *testing.T, addr string) {
