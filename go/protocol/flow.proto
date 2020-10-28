@@ -153,6 +153,10 @@ message Inference {
     uint32 max_length = 6;
   }
   String string = 3;
+  // The title from the schema, if provided
+  string title = 4;
+  // The description from the schema, if provided
+  string description = 5;
 }
 
 message CollectionSpec {
@@ -168,7 +172,7 @@ message CollectionSpec {
   // Logical partition fields of this collection.
   repeated string partition_fields = 5;
   // Logical projections of this collection, indexed on projection field.
-  map<string, Projection> projections = 6;
+  repeated Projection projections = 6;
   // JournalSpec used for dynamically-created journals of this collection.
   protocol.JournalSpec journal_spec = 7 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer

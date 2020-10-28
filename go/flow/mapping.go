@@ -31,7 +31,12 @@ type Mapper struct {
 func FieldPointersForMapper(collection *pf.CollectionSpec) []string {
 	var ptrs []string
 	for _, field := range collection.PartitionFields {
-		ptrs = append(ptrs, collection.Projections[field].Ptr)
+		// TODO: we should probably not panic when there's a malformed message
+		var projection = pf.GetProjectionByField(field, collection.Projections)
+		if projection == nil {
+			panic("CollectionSpec partitionFields names a field that does not have a projection")
+		}
+		ptrs = append(ptrs, projection.Ptr)
 	}
 	ptrs = append(ptrs, collection.KeyPtrs...)
 	return ptrs
