@@ -260,9 +260,9 @@ func buildFixtures() (pf.CollectionSpec, pf.ShuffleResponse, pf.CombineResponse)
 		KeyPtrs:         []string{"/key"},
 		UuidPtr:         "/uuid",
 		PartitionFields: []string{"bar", "foo"},
-		Projections: map[string]*pf.Projection{
-			"bar": {Ptr: "/bar/ptr"},
-			"foo": {Ptr: "/foo/ptr"},
+		Projections: []*pf.Projection{
+			{Field: "bar", Ptr: "/bar/ptr", IsPartitionKey: true},
+			{Field: "foo", Ptr: "/foo/ptr", IsPartitionKey: true},
 		},
 		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}

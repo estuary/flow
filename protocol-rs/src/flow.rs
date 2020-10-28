@@ -98,7 +98,8 @@ pub struct JournalShuffle {
 /// Projection is a mapping between a document location, specified as a
 /// JSON-Pointer, and a corresponding field string in a flattened
 /// (i.e. tabular or SQL) namespace which aliases it.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Projection {
     /// Document location of this projection, as a JSON-Pointer.
     #[prost(string, tag = "1")]
@@ -117,11 +118,13 @@ pub struct Projection {
     pub is_primary_key: bool,
     /// Inference of this projection.
     #[prost(message, optional, tag = "6")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inference: ::std::option::Option<Inference>,
 }
 /// Inference details type information which is statically known
 /// about a given document location.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Inference {
     /// The possible types for this location.
     /// Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
@@ -132,27 +135,46 @@ pub struct Inference {
     #[prost(bool, tag = "2")]
     pub must_exist: bool,
     #[prost(message, optional, tag = "3")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub string: ::std::option::Option<inference::String>,
+    /// The title from the schema, if provided
+    #[prost(string, tag = "4")]
+    #[serde(default, skip_serializing_if = "str::is_empty")]
+    #[doc("This field is optional. An empty String denotes a missing value.")]
+    pub title: std::string::String,
+    /// The description from the schema, if provided
+    #[prost(string, tag = "5")]
+    #[serde(default, skip_serializing_if = "str::is_empty")]
+    #[doc("This field is optional. An empty String denotes a missing value.")]
+    pub description: std::string::String,
 }
 pub mod inference {
     /// String type-specific inferences.
-    #[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+    #[serde(deny_unknown_fields)]
     pub struct String {
         /// Annotated Content-Type when the projection is of "string" type.
         #[prost(string, tag = "3")]
+        #[serde(default, skip_serializing_if = "str::is_empty")]
+        #[doc("This field is optional. An empty String denotes a missing value.")]
         pub content_type: std::string::String,
         /// Annotated format when the projection is of "string" type.
         #[prost(string, tag = "4")]
+        #[serde(default, skip_serializing_if = "str::is_empty")]
+        #[doc("This field is optional. An empty String denotes a missing value.")]
         pub format: std::string::String,
         /// Whether the value is base64-encoded when the projection is of "string" type.
         #[prost(bool, tag = "5")]
         pub is_base64: bool,
         /// Maximum length when the projection is of "string" type. Zero for no limit.
         #[prost(uint32, tag = "6")]
+        #[serde(default, skip_serializing_if = "crate::u32_is_0")]
+        #[doc("This field is optional. A value of 0 represents a missing value.")]
         pub max_length: u32,
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CollectionSpec {
     /// Name of this collection.
     #[prost(string, tag = "1")]
@@ -166,19 +188,26 @@ pub struct CollectionSpec {
     pub key_ptrs: ::std::vec::Vec<std::string::String>,
     /// JSON pointer locating the UUID of each collection document.
     #[prost(string, tag = "4")]
+    #[serde(default, skip_serializing_if = "str::is_empty")]
+    #[doc("This field is optional. An empty String denotes a missing value.")]
     pub uuid_ptr: std::string::String,
     /// Logical partition fields of this collection.
     #[prost(string, repeated, tag = "5")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[doc("This field is optional. An empty Vec represents a missing value.")]
     pub partition_fields: ::std::vec::Vec<std::string::String>,
     /// Logical projections of this collection, indexed on projection field.
-    #[prost(map = "string, message", tag = "6")]
-    pub projections: ::std::collections::HashMap<std::string::String, Projection>,
+    #[prost(message, repeated, tag = "6")]
+    pub projections: ::std::vec::Vec<Projection>,
     /// JournalSpec used for dynamically-created journals of this collection.
     #[prost(message, optional, tag = "7")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub journal_spec: ::std::option::Option<super::protocol::JournalSpec>,
     /// JSON-encoded document template for creating Gazette consumer
     /// transaction acknowledgements of writes into this collection.
     #[prost(bytes, tag = "8")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[doc("This field is optional. An empty Vec represents a missing value.")]
     pub ack_json_template: std::vec::Vec<u8>,
 }
 /// Transform describes a specific transform of a derived collection.

@@ -19,27 +19,33 @@ func TestLoadDerivedCollection(t *testing.T) {
 		SchemaUri:       spec.SchemaUri,
 		KeyPtrs:         []string{"/i"},
 		PartitionFields: []string{},
-		Projections: map[string]*pf.Projection{
-			"eye": {
+		Projections: []*pf.Projection{
+			{
 				Field:        "eye",
 				Ptr:          "/i",
 				UserProvided: true,
 				IsPrimaryKey: true,
 				Inference: &pf.Inference{
-					Types:     []string{"integer"},
-					MustExist: true,
-					String_:   new(pf.Inference_String),
-				}},
-			"i": {
+					Title:       "",
+					Description: "",
+					Types:       []string{"integer"},
+					MustExist:   true,
+					String_:     new(pf.Inference_String),
+				},
+			},
+			{
 				Field:        "i",
 				Ptr:          "/i",
 				UserProvided: false,
 				IsPrimaryKey: true,
 				Inference: &pf.Inference{
-					Types:     []string{"integer"},
-					MustExist: true,
-					String_:   new(pf.Inference_String),
-				}},
+					Title:       "",
+					Description: "",
+					Types:       []string{"integer"},
+					MustExist:   true,
+					String_:     new(pf.Inference_String),
+				},
+			},
 		},
 		JournalSpec:     spec.JournalSpec,
 		UuidPtr:         spec.UuidPtr,
@@ -62,24 +68,30 @@ func TestLoadCapturedCollections(t *testing.T) {
 		SchemaUri:       spec.SchemaUri,
 		KeyPtrs:         []string{"/i"},
 		PartitionFields: []string{},
-		Projections: map[string]*pf.Projection{
-			"i": {
+		Projections: []*pf.Projection{
+			{
 				Field:        "i",
 				IsPrimaryKey: true,
 				Ptr:          "/i",
 				Inference: &pf.Inference{
-					Types:     []string{"integer"},
-					MustExist: true,
-					String_:   new(pf.Inference_String),
-				}},
-			"s": {
+					Title:       "",
+					Description: "",
+					Types:       []string{"integer"},
+					MustExist:   true,
+					String_:     new(pf.Inference_String),
+				},
+			},
+			{
 				Field: "s",
 				Ptr:   "/s",
 				Inference: &pf.Inference{
-					Types:     []string{"string"},
-					MustExist: true,
-					String_:   &pf.Inference_String{MaxLength: 128},
-				}},
+					Title:       "",
+					Description: "",
+					Types:       []string{"string"},
+					MustExist:   true,
+					String_:     &pf.Inference_String{MaxLength: 128},
+				},
+			},
 		},
 		JournalSpec:     spec.JournalSpec,
 		UuidPtr:         spec.UuidPtr,

@@ -43,8 +43,8 @@ fn build_example_catalog() -> Setup {
 fn materialize_dry_run_generates_output_for_all_fields() {
     let catalog_path = SETUP.catalog_path();
 
-    assert_stdout_matches(
-        "materialize_all_fields_stock_daily_stats",
+    assert_stdout_contains(
+        "Materialization of Estuary collection 'stock/daily-stats'",
         0,
         catalog_path.as_str(),
         &[
@@ -65,8 +65,8 @@ fn materialize_dry_run_generates_output_for_all_fields() {
 fn materialize_dry_run_generates_ouput_for_specific_fields() {
     let catalog_path = SETUP.catalog_path();
 
-    assert_stdout_matches(
-        "materialize_specific_fields_stock_daily_stats",
+    assert_stdout_contains(
+        "Materialization of Estuary collection 'stock/daily-stats'",
         0,
         catalog_path.as_str(),
         &[
@@ -152,8 +152,8 @@ fn assert_stderr_contains(
     );
 }
 
-fn assert_stdout_matches(
-    snapshot_name: &str,
+fn assert_stdout_contains(
+    expected_text: &str,
     expected_exit_code: i32,
     catalog_path: &str,
     args: &[&str],
@@ -164,10 +164,7 @@ fn assert_stdout_matches(
         "unexpected exit code from: {:?}, output: {:#?}",
         args, output
     );
-    let clean_output = output
-        .stdout
-        .replace(catalog_path, "<placeholder-catalog-path>");
-    insta::assert_snapshot!(snapshot_name, clean_output);
+    assert!(output.stdout.contains(expected_text));
 }
 
 #[derive(Debug, Clone, PartialEq)]

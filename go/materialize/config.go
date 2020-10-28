@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/consumer"
 
@@ -58,7 +59,7 @@ var SqliteSqlConfig SqlConfig = SqlConfig{
 *     config_json TEXT NOT NULL
 * );
 *
-* Where config_json is a json representation of a MaterializationRuntimeConfig.
+* Where config_json is a json representation of a pf.CollectionSpec.
 * This json holds information about the fields that will be materialized.
  */
 
@@ -67,7 +68,7 @@ var SqliteSqlConfig SqlConfig = SqlConfig{
 type MaterializationSql struct {
 	InsertStatement        string
 	FullDocumentQuery      string
-	RuntimeConfig          *MaterializationRuntimeConfig
+	RuntimeConfig          *pf.CollectionSpec
 	ProjectionPointers     []string
 	PrimaryKeyFieldIndexes []int
 }
@@ -90,20 +91,10 @@ func (self *SqlConfig) quoted(inner interface{}) quoted {
 	}
 }
 
-type Projection struct {
-	Field           string `json:"field"`
-	LocationPointer string `json:"locationPtr"`
-	PrimaryKey      bool   `json:"primaryKey"`
-}
-
-type MaterializationRuntimeConfig struct {
-	Projections []Projection `json:"fields"`
-}
-
-func (self *MaterializationRuntimeConfig) getProjectionPointers() []string {
+func getProjectionPointers(collection *pf.CollectionSpec) []string {
 	var pointers []string
-	for _, field := range self.Projections {
-		pointers = append(pointers, field.LocationPointer)
+	for _, field := range collection.Projections {
+		pointers = append(pointers, field.Ptr)
 	}
 	return pointers
 }
@@ -162,8 +153,8 @@ func NewMaterializationTarget(materialization *Materialization) (Target, error) 
 	var projectionPointers []string
 	var primaryKeyFieldIndexes []int
 	for i, projection := range runtimeConfig.Projections {
-		projectionPointers = append(projectionPointers, projection.LocationPointer)
-		if projection.PrimaryKey {
+		projectionPointers = append(projectionPointers, projection.Ptr)
+		if projection.IsPrimaryKey {
 			primaryKeyFieldIndexes = append(primaryKeyFieldIndexes, i)
 		}
 	}
@@ -182,7 +173,7 @@ func NewMaterializationTarget(materialization *Materialization) (Target, error) 
 	}, nil
 }
 
-func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*MaterializationRuntimeConfig, error) {
+func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*pf.CollectionSpec, error) {
 	var sql = fmt.Sprintf("SELECT config_json FROM flow_materializations WHERE table_name = %s;", sqlConfig.GetSqlPlaceholder(0))
 	log.WithFields(log.Fields{
 		"tableName": tableName,
@@ -194,7 +185,7 @@ func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*Mat
 	if err != nil {
 		return nil, fmt.Errorf("Failed to query the materialization runtime configuration from the target database: %v", err)
 	}
-	var runtimeConf = new(MaterializationRuntimeConfig)
+	var runtimeConf = new(pf.CollectionSpec)
 	err = json.Unmarshal([]byte(runtimeConfigJson), runtimeConf)
 	if err != nil {
 		log.WithField("rawRuntimeConfiguration", runtimeConfigJson).
@@ -205,11 +196,11 @@ func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*Mat
 	return runtimeConf, nil
 }
 
-func generateFlowDocumentQuery(materialization *Materialization, runtimeConfig *MaterializationRuntimeConfig, sqlConfig *SqlConfig) string {
+func generateFlowDocumentQuery(materialization *Materialization, runtimeConfig *pf.CollectionSpec, sqlConfig *SqlConfig) string {
 	var tableName = sqlConfig.quoted(materialization.TableName)
 	var conditions []string
 	for _, field := range runtimeConfig.Projections {
-		if field.PrimaryKey {
+		if field.IsPrimaryKey {
 			var col = sqlConfig.quoted(field.Field)
 			var condition = fmt.Sprintf("%s = %s", col.String(), sqlConfig.GetSqlPlaceholder(len(conditions)))
 			conditions = append(conditions, condition)
@@ -220,7 +211,7 @@ func generateFlowDocumentQuery(materialization *Materialization, runtimeConfig *
 	return fmt.Sprintf("SELECT %s from %v WHERE %s;", columnName.String(), tableName.String(), strings.Join(conditions, " AND "))
 }
 
-func generateInsertStatement(materialization *Materialization, runtimeConfig *MaterializationRuntimeConfig, sqlConfig *SqlConfig) string {
+func generateInsertStatement(materialization *Materialization, runtimeConfig *pf.CollectionSpec, sqlConfig *SqlConfig) string {
 	var tableName = sqlConfig.quoted(materialization.TableName)
 
 	var primaryKeyColumns []string
@@ -232,7 +223,7 @@ func generateInsertStatement(materialization *Materialization, runtimeConfig *Ma
 		var quotedCol = sqlConfig.quoted(field.Field)
 		var quotedColumnName = quotedCol.String()
 		quotedColumnNames[i] = quotedColumnName
-		if field.PrimaryKey {
+		if field.IsPrimaryKey {
 			primaryKeyColumns = append(primaryKeyColumns, quotedColumnName)
 		} else {
 			updateColumns = append(updateColumns, quotedColumnName)

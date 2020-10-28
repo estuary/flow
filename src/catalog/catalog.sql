@@ -665,8 +665,7 @@ FROM collections AS c
 -- View of all the projected fields and inferences, grouped as a JSON object.
 CREATE VIEW projected_fields_json AS
 SELECT collection_id,
-    JSON_GROUP_OBJECT(
-        field,
+    JSON_GROUP_ARRAY(
         JSON_OBJECT(
             'field',
             field,

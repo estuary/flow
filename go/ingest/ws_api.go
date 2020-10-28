@@ -48,8 +48,8 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 			return err
 		}
 		for _, header := range headers {
-			var projection, ok = collection.Projections[header]
-			if !ok {
+			var projection = pf.GetProjectionByField(header, collection.Projections)
+			if projection == nil {
 				return fmt.Errorf("collection %q has no projection %q", collection.Name, header)
 			}
 			projections = append(projections, projection)
