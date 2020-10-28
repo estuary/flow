@@ -156,9 +156,9 @@ func buildMapperCombineResponseFixture() (pf.CollectionSpec, pf.CombineResponse)
 	var spec = pf.CollectionSpec{
 		Name:            "a/collection",
 		PartitionFields: []string{"bar", "foo"},
-		Projections: map[string]*pf.Projection{
-			"bar": {Ptr: "/ptr"},
-			"foo": {Ptr: "/ptr"},
+		Projections: []*pf.Projection{
+			{Ptr: "/ptr"},
+			{Ptr: "/ptr"},
 		},
 		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}

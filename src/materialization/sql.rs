@@ -1,4 +1,4 @@
-use super::{FieldProjection, NaughtyProjections, PayloadGenerationParameters};
+use super::{NaughtyProjections, PayloadGenerationParameters, Projection};
 use estuary_json::schema::types;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -227,7 +227,7 @@ impl SqlMaterializationConfig {
                self.type_mappings.object.ddl.rendered()).unwrap();
 
         // TODO: return a result instead of unwrapping
-        let config_json = serde_json::to_string(&target.get_runtime_config())
+        let config_json = serde_json::to_string(target.collection)
             .expect("failed to serialize runtime config_json");
 
         // TODO: consider what to do, if anything, when a row already exists for this table name
@@ -260,7 +260,7 @@ impl SqlMaterializationConfig {
         .unwrap();
 
         let mut first = true;
-        for field in target.fields.iter() {
+        for field in target.collection.projections.iter() {
             if !self.is_field_name_valid(field) {
                 invalid_identifiers.push(field.clone());
             }
@@ -302,10 +302,11 @@ impl SqlMaterializationConfig {
         .unwrap();
 
         let mut primary_keys = target
-            .fields
+            .collection
+            .projections
             .iter()
             .filter(|f| f.is_primary_key)
-            .map(|f| self.quoted(f.field_name.as_str()))
+            .map(|f| self.quoted(f.field.as_str()))
             .peekable();
         if primary_keys.peek().is_some() {
             // We have at least one primary key defined for the table, so we'll emit that ddl here
@@ -339,7 +340,7 @@ impl SqlMaterializationConfig {
         target: PayloadGenerationParameters,
     ) -> Result<String, NaughtyProjections> {
         let mut buffer = String::with_capacity(1024);
-        let comment_text = format!("This SQL has been generated automatically by flowctl for a materialization of the Flow Collection '{}' to the target '{}'", target.collection_name, target.target_name);
+        let comment_text = format!("This SQL has been generated automatically by flowctl for a materialization of the Flow Collection '{}' to the target '{}'", target.collection.name, target.target_name);
         let top_level_comment = self.comment(&comment_text);
         write!(&mut buffer, "{}\n\nBEGIN;\n\n", top_level_comment).unwrap();
 
@@ -355,9 +356,9 @@ impl SqlMaterializationConfig {
         Ok(buffer)
     }
 
-    fn is_field_name_valid(&self, field: &FieldProjection) -> bool {
+    fn is_field_name_valid(&self, field: &Projection) -> bool {
         if let Some(max) = self.identifier_max_length {
-            field.field_name.len() <= max as usize
+            field.field.len() <= max as usize
         } else {
             true
         }
@@ -377,15 +378,27 @@ impl SqlMaterializationConfig {
         }
     }
 
-    fn lookup_type(&self, field: &FieldProjection) -> Option<&SqlColumnType> {
-        let mime = field.string_content_type.as_deref();
-        let non_null = field.types & (!types::NULL);
+    fn lookup_type(&self, field: &Projection) -> Option<&SqlColumnType> {
+        let inference = field.inference.as_ref()?;
+
+        let mime = inference
+            .string
+            .as_ref()
+            .map(|s| s.content_type.as_str())
+            .filter(|s| !s.is_empty());
+        let non_null = inference.types.iter().collect::<types::Set>() & (!types::NULL);
+        let is_base64 = inference
+            .string
+            .as_ref()
+            .map(|s| s.is_base64)
+            .unwrap_or_default();
         match non_null {
-            types::STRING if !field.string_content_encoding_is_base64 => {
-                Some(&self.type_mappings.string.lookup(mime))
-            }
-            types::STRING if field.string_content_encoding_is_base64 => {
-                Some(&self.type_mappings.string_base64.lookup(mime))
+            types::STRING => {
+                if is_base64 {
+                    Some(&self.type_mappings.string_base64.lookup(mime))
+                } else {
+                    Some(&self.type_mappings.string.lookup(mime))
+                }
             }
             types::BOOLEAN => Some(&self.type_mappings.boolean),
             types::INTEGER => Some(&self.type_mappings.integer),
@@ -458,14 +471,14 @@ impl<'a, T: fmt::Display + ?Sized> fmt::Display for Surrounded<'a, T> {
     }
 }
 
-/// Helper struct that holds the resolved `SqlColumnType`, the `FieldProjection`, and the
+/// Helper struct that holds the resolved `SqlColumnType`, the `Projection`, and the
 /// `SqlMaterializationConfig`, and implements `Display` to format the actual DDL for a single
 /// column.
 #[derive(Debug)]
 struct ColumnDdlGen<'a> {
     indent: &'a str,
     sql_type: &'a SqlColumnType,
-    field: &'a FieldProjection,
+    field: &'a Projection,
     conf: &'a SqlMaterializationConfig,
 }
 
@@ -485,27 +498,39 @@ impl<'a> fmt::Display for ColumnDdlGen<'a> {
             f,
             "{}{} ",
             self.indent,
-            self.conf.quoted(self.field.field_name.as_str())
+            self.conf.quoted(self.field.field.as_str())
         )?;
 
-        let rendered = if let Some(len) = self.field.string_max_length {
-            self.sql_type.ddl.rendered_with_length(len)
+        let max_len = self
+            .field
+            .inference
+            .as_ref()
+            .and_then(|i| i.string.as_ref().map(|s| s.max_length).filter(|m| *m != 0));
+        let rendered = if let Some(len) = max_len {
+            self.sql_type.ddl.rendered_with_length(len as i64)
         } else {
             self.sql_type.ddl.rendered()
         };
         write!(f, "{}", rendered)?;
 
-        if !self.field.is_nullable() && !self.conf.not_null.is_empty() {
+        if !is_nullable(self.field) && !self.conf.not_null.is_empty() {
             write!(f, " {}", self.conf.not_null)?;
         }
-        if self.field.is_nullable() && !self.conf.nullable.is_empty() {
+        if is_nullable(self.field) && !self.conf.nullable.is_empty() {
             write!(f, " {}", self.conf.nullable)?;
         }
         Ok(())
     }
 }
 
-struct ColumnDescription<'a>(&'a FieldProjection);
+fn is_nullable(p: &Projection) -> bool {
+    p.inference
+        .as_ref()
+        .map(|inf| (!inf.must_exist) || inf.types.iter().any(|ty| ty == "null"))
+        .unwrap_or(true)
+}
+
+struct ColumnDescription<'a>(&'a Projection);
 impl<'a> fmt::Display for ColumnDescription<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let source = if self.0.user_provided {
@@ -518,13 +543,19 @@ impl<'a> fmt::Display for ColumnDescription<'a> {
         } else {
             ""
         };
+        let types = self
+            .0
+            .inference
+            .as_ref()
+            .map(|i| i.types.as_slice())
+            .unwrap_or_default();
         write!(
             f,
             "{} projection of JSON at: {} {}with inferred types: [{}]",
             source,
-            self.0.location_ptr,
+            self.0.ptr,
             partition,
-            self.0.types.iter().format(", ")
+            types.iter().format(", ")
         )
     }
 }
@@ -535,7 +566,7 @@ impl<'a> fmt::Display for TableDescription<'a> {
         write!(
             f,
             "Materialization of Estuary collection '{}', intended for {} target '{}'",
-            self.0.collection_name, self.0.target_type, self.0.target_name
+            self.0.collection.name, self.0.target_type, self.0.target_name
         )
     }
 }
@@ -543,6 +574,8 @@ impl<'a> fmt::Display for TableDescription<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::materialization::flow_document_projection;
+    use estuary_protocol::flow::{inference, CollectionSpec, Inference};
     use insta::assert_snapshot;
 
     #[test]
@@ -550,13 +583,12 @@ mod test {
         let fields = basic_fields();
         let postgres_conf = SqlMaterializationConfig::postgres();
         let target = PayloadGenerationParameters {
-            collection_name: "my_test/collection",
             target_name: "testMaterialization",
             target_type: "postgres",
             target_uri: "any://test/uri",
             table_name: "test_postgres_table",
-            fields: fields.as_slice(),
-            flow_document_field: FieldProjection::flow_document_column(),
+            collection: &test_collection(fields),
+            flow_document_field: flow_document_projection(),
         };
 
         let schema = postgres_conf
@@ -572,13 +604,12 @@ mod test {
         fields[1].is_primary_key = true;
         let postgres_conf = SqlMaterializationConfig::postgres();
         let target = PayloadGenerationParameters {
-            collection_name: "my_test/collection",
             target_name: "testMaterialization",
             target_type: "postgres",
             target_uri: "any://test/uri",
             table_name: "test_postgres_table",
-            fields: fields.as_slice(),
-            flow_document_field: FieldProjection::flow_document_column(),
+            collection: &test_collection(fields),
+            flow_document_field: flow_document_projection(),
         };
 
         let schema = postgres_conf
@@ -594,13 +625,12 @@ mod test {
         fields[1].is_primary_key = true;
         let sqlite_conf = SqlMaterializationConfig::sqlite();
         let target = PayloadGenerationParameters {
-            collection_name: "my_test/collection",
             target_name: "testMaterialization",
             target_type: "sqlite",
             target_uri: "any://test/uri",
             table_name: "test_sqlite_table",
-            fields: fields.as_slice(),
-            flow_document_field: FieldProjection::flow_document_column(),
+            collection: &test_collection(fields),
+            flow_document_field: flow_document_projection(),
         };
 
         let schema = sqlite_conf
@@ -613,21 +643,20 @@ mod test {
     fn invalid_projections_are_returned_in_a_single_error() {
         let mut fields = basic_fields();
         // names are too long for postgres
-        fields[0].field_name = std::iter::repeat('f').take(64).collect();
-        fields[1].field_name = std::iter::repeat('g').take(64).collect();
+        fields[0].field = std::iter::repeat('f').take(64).collect();
+        fields[1].field = std::iter::repeat('g').take(64).collect();
 
         // columns with mixed types don't work for any sql database
-        fields[2].types = types::BOOLEAN | types::OBJECT;
-        fields[3].types = types::OBJECT | types::INTEGER;
+        fields[2].inference.as_mut().unwrap().types = (types::BOOLEAN | types::OBJECT).to_vec();
+        fields[3].inference.as_mut().unwrap().types = (types::OBJECT | types::INTEGER).to_vec();
 
         let target = PayloadGenerationParameters {
-            collection_name: "my_test/collection",
             target_name: "testMaterialization",
             target_type: "postgres",
             target_uri: "any://test/uri",
             table_name: "test_postgres_table",
-            fields: fields.as_slice(),
-            flow_document_field: FieldProjection::flow_document_column(),
+            flow_document_field: flow_document_projection(),
+            collection: &test_collection(fields),
         };
 
         let err = SqlMaterializationConfig::postgres()
@@ -636,45 +665,88 @@ mod test {
         assert_snapshot!(err.to_string());
     }
 
-    fn basic_fields() -> Vec<FieldProjection> {
+    fn test_collection(projections: Vec<Projection>) -> CollectionSpec {
+        CollectionSpec {
+            projections,
+            name: String::from("my_test/collection"),
+            schema_uri: String::from("test://test/schema.json"),
+            key_ptrs: vec!["/anything".to_owned()],
+            uuid_ptr: String::new(),
+            partition_fields: Vec::new(),
+            journal_spec: None,
+            ack_json_template: Vec::new(),
+        }
+    }
+
+    fn basic_fields() -> Vec<Projection> {
         vec![
-            field("intCol", types::INTEGER),
-            field("numCol", types::INTEGER),
-            field("boolCol", types::BOOLEAN),
-            field("objCol", types::OBJECT),
-            field("arrayCol", types::ARRAY),
-            field("intColNullable", types::INTEGER | types::NULL),
-            field("numColNullable", types::NUMBER | types::NULL),
-            field("boolColNullable", types::BOOLEAN | types::NULL),
-            field("objColNullable", types::OBJECT | types::NULL),
-            field("arrayColNullable", types::ARRAY | types::NULL),
-            field("basicString", types::STRING),
-            field("basicStringNullable", types::STRING | types::NULL),
-            FieldProjection {
-                string_content_encoding_is_base64: true,
-                ..field("base64String", types::STRING)
-            },
-            FieldProjection {
-                string_content_encoding_is_base64: true,
-                ..field("base64StringNullable", types::STRING | types::NULL)
-            },
+            field("intCol", types::INTEGER, None),
+            field("numCol", types::INTEGER, None),
+            field("boolCol", types::BOOLEAN, None),
+            field("objCol", types::OBJECT, None),
+            field("arrayCol", types::ARRAY, None),
+            field("intColNullable", types::INTEGER | types::NULL, None),
+            field("numColNullable", types::NUMBER | types::NULL, None),
+            field("boolColNullable", types::BOOLEAN | types::NULL, None),
+            field("objColNullable", types::OBJECT | types::NULL, None),
+            field("arrayColNullable", types::ARRAY | types::NULL, None),
+            field(
+                "basicString",
+                types::STRING,
+                Some(inference::String {
+                    content_type: String::new(),
+                    format: String::new(),
+                    max_length: 0,
+                    is_base64: false,
+                }),
+            ),
+            field(
+                "basicStringNullable",
+                types::STRING | types::NULL,
+                Some(inference::String {
+                    content_type: String::new(),
+                    format: String::new(),
+                    max_length: 0,
+                    is_base64: false,
+                }),
+            ),
+            field(
+                "base64String",
+                types::STRING,
+                Some(inference::String {
+                    content_type: String::new(),
+                    format: String::new(),
+                    max_length: 0,
+                    is_base64: true,
+                }),
+            ),
+            field(
+                "base64StringNullable",
+                types::STRING | types::NULL,
+                Some(inference::String {
+                    content_type: String::new(),
+                    format: String::new(),
+                    max_length: 0,
+                    is_base64: true,
+                }),
+            ),
         ]
     }
 
-    fn field(name: &str, types: types::Set) -> FieldProjection {
-        FieldProjection {
-            field_name: name.to_owned(),
-            location_ptr: format!("/{}", name),
+    fn field(name: &str, types: types::Set, string: Option<inference::String>) -> Projection {
+        Projection {
+            field: name.to_owned(),
+            ptr: format!("/{}", name),
             user_provided: true,
-            types,
-            must_exist: true,
-            title: None,
-            description: None,
+            inference: Some(Inference {
+                string,
+                types: types.to_vec(),
+                must_exist: true,
+                title: String::new(),
+                description: String::new(),
+            }),
             is_primary_key: false,
             is_partition_key: false,
-            string_content_type: None,
-            string_content_encoding_is_base64: false,
-            string_max_length: None,
         }
     }
 }

@@ -1,5 +1,5 @@
-use super::FieldProjection;
 use crate::catalog;
+use estuary_protocol::flow::Projection;
 use itertools::Itertools;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -43,7 +43,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct NaughtyProjections {
     pub materialization_type: &'static str,
-    pub naughty_projections: BTreeMap<String, Vec<FieldProjection>>,
+    pub naughty_projections: BTreeMap<String, Vec<Projection>>,
 }
 impl NaughtyProjections {
     pub fn empty(materialization_type: &'static str) -> NaughtyProjections {
@@ -74,7 +74,30 @@ impl fmt::Display for NaughtyProjections {
             writeln!(f, "{}:", reason)?;
 
             for field in naughty.iter().take(MAX_PROJECTION_ERROR_MSGS) {
-                writeln!(f, "\t{}", field)?;
+                let source = if field.user_provided {
+                    "user provided"
+                } else {
+                    "automatically generated"
+                };
+                let primary_key = if field.is_primary_key {
+                    ", part of collection key"
+                } else {
+                    ""
+                };
+                let types = field
+                    .inference
+                    .as_ref()
+                    .map(|i| i.types.as_slice())
+                    .unwrap_or_default();
+                writeln!(
+                    f,
+                    "\tfield: '{}', ptr: '{}', possible_types: [{}], source: {}{}",
+                    field.field,
+                    field.ptr,
+                    types.iter().join(", "),
+                    source,
+                    primary_key
+                )?;
             }
             if naughty.len() > MAX_PROJECTION_ERROR_MSGS {
                 writeln!(

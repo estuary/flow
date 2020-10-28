@@ -729,8 +729,12 @@ dependencies = [
 name = "estuary_protocol"
 version = "0.1.0"
 dependencies = [
+ "humantime-serde",
+ "insta",
  "prost",
  "prost-types",
+ "serde",
+ "serde_json",
  "tonic",
  "tonic-build",
 ]

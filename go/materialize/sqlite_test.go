@@ -29,12 +29,14 @@ func TestSqliteMaterialization(t *testing.T) {
 	execSql(db, t, `
         INSERT INTO flow_materializations (table_name, config_json)
         VALUES ('good_table', '{
-            "fields": [
-                { "field": "a", "locationPtr": "/a", "primaryKey": true },
-                { "field": "b", "locationPtr": "/b", "primaryKey": true },
-                { "field": "x", "locationPtr": "/x", "primaryKey": false },
-                { "field": "y", "locationPtr": "/y", "primaryKey": false },
-                { "field": "z", "locationPtr": "/z", "primaryKey": false }
+            "name": "testCollectionName",
+            "schema_uri": "test://test/schema.json",
+            "projections": [
+                { "field": "a", "ptr": "/a", "is_primary_key": true },
+                { "field": "b", "ptr": "/b", "is_primary_key": true },
+                { "field": "x", "ptr": "/x", "is_primary_key": false },
+                { "field": "y", "ptr": "/y", "is_primary_key": false },
+                { "field": "z", "ptr": "/z", "is_primary_key": false }
             ]
         }');
     `)

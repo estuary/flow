@@ -1,11 +1,12 @@
-use super::CollectionInfo;
-use crate::materialization::{Error, FieldProjection};
+use crate::materialization::Error;
+use estuary_protocol::flow::{CollectionSpec, Projection};
 use itertools::Itertools;
 use skim::{
     AnsiString, DisplayContext, ItemPreview, PreviewContext, Selector, Skim, SkimItem, SkimOptions,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 use tuikit::attr::{Attr, Effect};
 
@@ -25,17 +26,17 @@ const GENERIC_INSTRUCTIONS: &str = "Use arrow keys, search, or mouse to select f
 /// selects an invalid set of projections (missing a collection key component), then an
 /// `Error::MissingCollectionKeys` is returned.
 pub fn interactive_select_projections(
-    collection: CollectionInfo,
-) -> Result<Vec<FieldProjection>, Error> {
+    collection: CollectionSpec,
+) -> Result<Vec<Projection>, Error> {
     let header = field_selection_header(&collection);
-    let opts = projection_skim_options(&collection.all_projections, &header);
+    let opts = projection_skim_options(&collection.projections, &header);
 
     // determine the max length of a field name. We'll use this to calculate padding so that
     // columns line up nicely
     let max_length = collection
-        .all_projections
+        .projections
         .iter()
-        .map(|proj| proj.field_name.width())
+        .map(|proj| proj.field.width())
         .max()
         .expect("Empty list of projections. This is a bug.");
 
@@ -44,7 +45,7 @@ pub fn interactive_select_projections(
         max_rendered_field_length: max_length,
     });
     let (tx, rx) = skim::prelude::unbounded::<Arc<dyn SkimItem>>();
-    for field_index in 0..context.collection.all_projections.len() {
+    for field_index in 0..context.collection.projections.len() {
         let projection = SkimProjection {
             field_index,
             context: context.clone(),
@@ -89,9 +90,7 @@ pub fn interactive_select_projections(
 
     // Ensures that the user has selected a valid subset of fields that includes all components of
     // the collection's key
-    context
-        .collection
-        .validate_projected_fields(results.as_slice())?;
+    super::validate_projected_fields(&context.collection, results.as_slice())?;
 
     // Re-order the projections to put all projections that are part of the key at the beginning.
     // This is purely to make the resulting sql more readable.
@@ -107,7 +106,7 @@ fn flush_std_streams() {
 }
 
 struct FieldSelectionContext {
-    collection: CollectionInfo,
+    collection: CollectionSpec,
     max_rendered_field_length: usize,
 }
 
@@ -116,8 +115,8 @@ struct SkimProjection {
     field_index: usize,
 }
 impl SkimProjection {
-    fn projection(&self) -> &FieldProjection {
-        &self.context.collection.all_projections[self.field_index]
+    fn projection(&self) -> &Projection {
+        &self.context.collection.projections[self.field_index]
     }
 }
 
@@ -126,17 +125,24 @@ impl SkimItem for SkimProjection {
         // We use ONLY the field name as `text`, which means that skim will only match against that
         // when the user searches. This is to prvent matching against text that's just part of the
         // description.
-        Cow::Borrowed(self.projection().field_name.as_str())
+        Cow::Borrowed(self.projection().field.as_str())
     }
 
     fn display<'a>(&self, ctx: DisplayContext<'a>) -> AnsiString {
-        let types = self.projection().types.iter().join(", ");
+        let types = self
+            .projection()
+            .inference
+            .as_ref()
+            .map(|i| i.types.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .join(", ");
         let padding = {
-            let field_len = self.projection().field_name.width();
+            let field_len = self.projection().field.width();
             let space_count = self.context.max_rendered_field_length - field_len;
             std::iter::repeat(" ").take(space_count).join("")
         };
-        let mut s = format!("{}{}\t[{}]", self.projection().field_name, padding, types);
+        let mut s = format!("{}{}\t[{}]", self.projection().field, padding, types);
         let attrs = if self.projection().is_primary_key {
             let range_end = s.len() as u32;
             s.push(' ');
@@ -157,52 +163,69 @@ impl SkimItem for SkimProjection {
     }
 
     fn preview(&self, context: PreviewContext) -> ItemPreview {
-        let projection = self.projection();
-        let type_description = projection.types.iter().join(", ");
-        let source_description = if projection.user_provided {
+        let projection = ProjectionPreview(self.projection());
+
+        // Below the field info, we'll show a list of all the currently selected fields.
+        let all_selected = context.selections.iter().join("\n\t");
+
+        let preview = format!(
+            "Selected Projection:\n\n{}\nAll Selected Fields:\n\t{}",
+            projection, all_selected
+        );
+        ItemPreview::Text(preview)
+    }
+}
+
+struct ProjectionPreview<'a>(&'a Projection);
+impl<'a> fmt::Display for ProjectionPreview<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "\tField:        {}\n\
+                \tJSON Pointer: {}\n",
+            self.0.field, self.0.ptr
+        )?;
+
+        if let Some(inference) = self.0.inference.as_ref() {
+            writeln!(f, "\tType:         {}\n\
+                  \tTitle:        {}\n\
+                  \tDescription:  {}\n\
+                  \tMust Exist: {} (if true, then the field can never be 'undefined', though it can be null)",
+                  inference.types.iter().join(", "),
+                  inference.title,
+                  inference.description,
+                  inference.must_exist)?;
+        } else {
+            writeln!(
+                f,
+                "\tError: No type inference information available for this location."
+            )?;
+        }
+        let source_description = if self.0.user_provided {
             "User-provided projection"
         } else {
             "Automatically generated projection"
         };
-
-        let key_comment = if projection.is_primary_key {
+        let key_comment = if self.0.is_primary_key {
             "\tKey: \u{1F511} This location is part of the Collection's key.\n"
         } else {
             ""
         };
-        let partition_comment = if projection.is_partition_key {
+        let partition_comment = if self.0.is_partition_key {
             "\tPartition Key: This location is used as a partition key.\n"
         } else {
             ""
         };
 
-        // Below the field info, we'll show a list of all the currently selected fields.
-        let all_selected = context.selections.iter().join("\n\t");
-
-        let preview = format!("Selected Projection:\n\n\
-                              \tField:        {}\n\
-                              \tJSON Pointer: {}\n\
-                              \tType:         {}\n\
-                              \tTitle:        {}\n\
-                              \tDescription:  {}\n\
-                              \tMust Exist: {} (if true, then the field can never be 'undefined', though it can be null)\n\
-                              \tSource: {}\n\
-                              {}{}\nAll Selected Fields:\n\t{}",
-                              projection.field_name,
-                              projection.location_ptr,
-                              type_description,
-                              projection.title.as_deref().unwrap_or(""),
-                              projection.description.as_deref().unwrap_or(""),
-                              projection.must_exist,
-                              source_description,
-                              key_comment,
-                              partition_comment,
-                              all_selected);
-        ItemPreview::Text(preview)
+        write!(
+            f,
+            "\tSource: {}\n{}{}",
+            source_description, key_comment, partition_comment
+        )
     }
 }
 
-fn field_selection_header(collection: &CollectionInfo) -> String {
+fn field_selection_header(collection: &CollectionSpec) -> String {
     format!(
         "Please select the fields to materialize.\n\
         {}\n\n\
@@ -211,11 +234,11 @@ fn field_selection_header(collection: &CollectionInfo) -> String {
         GENERIC_INSTRUCTIONS,
         collection.name,
         KEY_MARKER,
-        collection.key.iter().join(", ")
+        collection.key_ptrs.iter().join(", ")
     )
 }
 
-fn projection_skim_options<'a>(fields: &[FieldProjection], header: &'a str) -> SkimOptions<'a> {
+fn projection_skim_options<'a>(fields: &[Projection], header: &'a str) -> SkimOptions<'a> {
     use std::rc::Rc;
     let default_selector = DefaultPreSelector::from_fields(fields);
     SkimOptions {
@@ -248,25 +271,25 @@ fn projection_skim_options<'a>(fields: &[FieldProjection], header: &'a str) -> S
 /// that were generated automatically.
 struct DefaultPreSelector(HashSet<String>);
 impl DefaultPreSelector {
-    fn from_fields(projections: &[FieldProjection]) -> DefaultPreSelector {
+    fn from_fields(projections: &[Projection]) -> DefaultPreSelector {
         let mut by_location = HashMap::with_capacity(8);
 
         // First add all user-provided projections. In the case that there are multiple
         // user-provided projections for a given location, we'll just pick one arbitrarily based on
         // insertion order.
         for projection in projections.iter().filter(|p| p.user_provided) {
-            by_location.insert(projection.location_ptr.as_str(), projection);
+            by_location.insert(projection.ptr.as_str(), projection);
         }
 
         // Now add all key projections, but only if they're not already represented.
         for projection in projections.iter().filter(|f| f.is_primary_key) {
-            if !by_location.contains_key(&projection.location_ptr.as_str()) {
-                by_location.insert(projection.location_ptr.as_str(), projection);
+            if !by_location.contains_key(&projection.ptr.as_str()) {
+                by_location.insert(projection.ptr.as_str(), projection);
             }
         }
         let default_fields: HashSet<String> = by_location
             .into_iter()
-            .map(|(_, projection)| projection.field_name.to_string())
+            .map(|(_, projection)| projection.field.clone())
             .collect();
         DefaultPreSelector(default_fields)
     }
@@ -278,7 +301,7 @@ impl Selector for DefaultPreSelector {
             .downcast_ref::<SkimProjection>()
             .unwrap()
             .projection()
-            .field_name
+            .field
             .as_str();
         self.0.contains(field)
     }

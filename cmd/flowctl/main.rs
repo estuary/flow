@@ -188,18 +188,21 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     } else if is_interactive() {
         FieldSelection::InteractiveSelect
     } else {
-        // TODO: check if stdin and stdout are a tty, and have user make selections interactively
+        // We can't show the interactive selection UI since we're not running interactively, so the
+        // only thing to do at this point is to return an error.
         anyhow::bail!("no fields were specified in the arguments. Please specify specific fields using --field arguments, or use --all-fields to materialize all of them")
     };
-    let selected_projections = materialization::resolve_projections(collection, field_selection)?;
+    let selected_projections =
+        materialization::resolve_projections(collection.clone(), field_selection)?;
+    let mut resolved_collection = collection;
+    resolved_collection.projections = selected_projections;
 
     let initialization_string = materialization::generate_target_initializer(
         &db,
         target,
         args.target.as_str(),
         args.table_name.as_str(),
-        args.collection.as_str(),
-        selected_projections.as_slice(),
+        &resolved_collection,
     )?;
 
     // This initialization text (SQL DDL, typically) is printed directly to stdout, bypassing the

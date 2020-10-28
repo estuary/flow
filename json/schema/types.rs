@@ -77,6 +77,26 @@ impl Iterator for Iter {
     }
 }
 
+impl<A> std::iter::FromIterator<A> for Set
+where
+    A: AsRef<str>,
+{
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = A>,
+    {
+        let mut s = INVALID;
+        for ty in iter {
+            if let Some(t) = Set::for_type_name(ty.as_ref()) {
+                s = s | t;
+            } else {
+                return INVALID;
+            }
+        }
+        s
+    }
+}
+
 impl Set {
     /// Returns an iterator over the type names as static strings.
     ///
@@ -99,10 +119,37 @@ impl Set {
         }
     }
 
+    /// Returns a vec containing owned strings representing the types in this set.
+    ///
+    /// ```
+    /// use estuary_json::schema::types::*;
+    ///
+    /// let ty = ARRAY | OBJECT | NULL;
+    ///
+    /// let names = ty.to_vec();
+    /// assert_eq!(vec!["array".to_owned(), "null".to_owned(), "object".to_owned()], names);
+    ///
+    /// ```
+    pub fn to_vec(&self) -> Vec<String> {
+        self.iter().map(String::from).collect()
+    }
+
     pub fn to_json_array(&self) -> String {
         format!("[{}]", self)
     }
 
+    /// Returns the `Set` value for a single type with the given name.
+    ///
+    /// ```
+    /// use estuary_json::schema::types::*;
+    /// assert_eq!(Some(NUMBER), Set::for_type_name("number"));
+    /// assert_eq!(Some(INTEGER), Set::for_type_name("integer"));
+    /// assert_eq!(Some(BOOLEAN), Set::for_type_name("boolean"));
+    /// assert_eq!(Some(OBJECT), Set::for_type_name("object"));
+    /// assert_eq!(Some(ARRAY), Set::for_type_name("array"));
+    /// assert_eq!(Some(NULL), Set::for_type_name("null"));
+    /// assert!(Set::for_type_name("not a real type").is_none());
+    /// ```
     pub fn for_type_name(str_val: &str) -> Option<Set> {
         match str_val {
             "array" => Some(ARRAY),
@@ -186,3 +233,53 @@ impl serde::Serialize for Set {
     }
 }
 
+struct SetVisitor;
+impl<'de> serde::de::Visitor<'de> for SetVisitor {
+    type Value = Set;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "an array of strings")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut s = INVALID;
+        while let Some(type_str) = seq.next_element::<&str>()? {
+            if let Some(t) = Set::for_type_name(type_str) {
+                s = s | t;
+            } else {
+                return Err(serde::de::Error::custom(format!(
+                    "invalid type name: '{}'",
+                    type_str
+                )));
+            }
+        }
+        Ok(s)
+    }
+}
+impl<'de> serde::Deserialize<'de> for Set {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(SetVisitor)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn round_trip_set_serde() {
+        let input = ARRAY | NULL | INTEGER;
+
+        let json = serde_json::to_string(&input).unwrap();
+        assert_eq!(r##"["array", "null", "integer"]"##, &json);
+
+        let result = serde_json::from_str::<Set>(&json).unwrap();
+        assert_eq!(input, result);
+    }
+}
