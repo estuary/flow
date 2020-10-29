@@ -113,28 +113,34 @@ func TestConsumerIntegration(t *testing.T) {
 		var k = encoding.EncodeStringAscending(
 			encoding.EncodeUvarintAscending(nil, uint64(msg.High)),
 			msg.Low)
-		expect[string(k)]++
+		expect[hex.EncodeToString(k)]++
 	}
 
 	// Journals is a consumer-held KeySpace that observes broker-managed journals.
 	journals, err := flow.NewJournalsKeySpace(ctx, etcd, "/broker.test")
 	require.NoError(t, err)
 
-	// Start consumer, with shard fixtures.
-	var c = consumertest.NewConsumer(consumertest.Args{
-		C:        t,
-		Etcd:     etcd,
-		Journals: broker.Client(),
-		App: &testApp{
-			journals:   journals,
-			workerHost: wh,
-			transforms: transforms,
-		},
-	})
-	c.Service.App.(*testApp).service = c.Service
-	pf.RegisterShufflerServer(c.Server.GRPCServer, &API{resolve: c.Service.Resolver.Resolve})
-	c.Tasks.GoRun()
+	// Start consumer.
+	var buildConsumer = func() *consumertest.Consumer {
+		var cmr = consumertest.NewConsumer(consumertest.Args{
+			C:        t,
+			Etcd:     etcd,
+			Journals: broker.Client(),
+			App: &testApp{
+				journals:   journals,
+				workerHost: wh,
+				transforms: transforms,
+			},
+		})
+		cmr.Service.App.(*testApp).service = cmr.Service
+		pf.RegisterShufflerServer(cmr.Server.GRPCServer, &API{resolve: cmr.Service.Resolver.Resolve})
+		cmr.Tasks.GoRun()
+		return cmr
 
+	}
+	var cmr = buildConsumer()
+
+	// Create & install shard fixtures.
 	var shardSpecs = make([]*pc.ShardSpec, len(shards))
 	for i, id := range shards {
 		var step = 100 / len(shards)
@@ -153,10 +159,38 @@ func TestConsumerIntegration(t *testing.T) {
 				flowLabels.RClockBegin, "0000000000000000",
 				flowLabels.RClockEnd, "ffffffffffffffff",
 			),
+			DisableWaitForAck: true, // Don't block waiting for an ACK that we'll deliberately delay.
 		}
 	}
-	consumertest.CreateShards(t, c, shardSpecs...)
+	consumertest.CreateShards(t, cmr, shardSpecs...)
 
+	// Block until all shards have read at least one byte from each source partition.
+	for _, id := range shards {
+		res, err := cmr.Service.Resolver.Resolve(consumer.ResolveArgs{
+			Context: ctx,
+			ShardID: id,
+			ReadThrough: pb.Offsets{
+				sourcePartitions[0]: 1,
+				sourcePartitions[1]: 1,
+				sourcePartitions[2]: 1,
+			},
+		})
+		require.NoError(t, err)
+		res.Done()
+	}
+
+	// Crash the consumer.
+	cmr.Tasks.Cancel()
+	require.NoError(t, cmr.Tasks.Wait())
+
+	// Start it again, and wait for shards to recover & become primary.
+	cmr = buildConsumer()
+	for _, s := range shardSpecs {
+		require.NoError(t, cmr.WaitForPrimary(context.Background(), s.Id, nil))
+	}
+
+	// *Now* build ACK intents. On reading the intent, the shard must go back
+	// and re-play a previous portion of the journal (exercising replay mechanics).
 	acks, err := pub.BuildAckIntents()
 	require.NoError(t, err)
 
@@ -182,20 +216,24 @@ func TestConsumerIntegration(t *testing.T) {
 
 	for _, id := range shards {
 		// Expect the shard store reflects consumed messages.
-		res, err := c.Service.Resolver.Resolve(consumer.ResolveArgs{
+		res, err := cmr.Service.Resolver.Resolve(consumer.ResolveArgs{
 			Context:     ctx,
 			ShardID:     id,
 			ReadThrough: readThrough,
 		})
+		require.Equal(t, res.Status, pc.Status_OK)
 		require.NoError(t, err)
 
-		var state = res.Store.(*testStore).JSONFileStore.State.(map[string]int)
+		var state = *res.Store.(*testStore).JSONFileStore.State.(*map[string]int)
 		for k, c := range state {
 			merged[k] += c
 		}
 		res.Done() // Release resolution.
 	}
 	require.Equal(t, expect, merged)
+
+	cmr.Tasks.Cancel()
+	require.NoError(t, cmr.Tasks.Wait())
 
 	broker.Tasks.Cancel()
 	require.NoError(t, broker.Tasks.Wait())
@@ -217,7 +255,8 @@ type testStore struct {
 func (s *testStore) Coordinator() *Coordinator { return s.coordinator }
 
 func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) (consumer.Store, error) {
-	var store, err = consumer.NewJSONFileStore(recorder, make(map[string]int))
+	var state = make(map[string]int)
+	var store, err = consumer.NewJSONFileStore(recorder, &state)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +295,7 @@ func (a testApp) ReadThrough(shard consumer.Shard, store consumer.Store, args co
 func (a testApp) NewMessage(*pb.JournalSpec) (message.Message, error) { panic("never called") }
 
 func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
-	var state = store.(*testStore).State.(map[string]int)
+	var state = *store.(*testStore).State.(*map[string]int)
 	var msg = env.Message.(pf.IndexedShuffleResponse)
 
 	if message.GetFlags(env.GetUUID()) == message.Flag_ACK_TXN {
@@ -264,7 +303,7 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	}
 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
-	state[string(key)]++
+	state[hex.EncodeToString(key)]++
 
 	if msg.Transform.ReaderNames[1] != "highAndLow" {
 		return fmt.Errorf("expected TransformSpec fixture to be passed-through")
