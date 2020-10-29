@@ -143,7 +143,10 @@ func (fc *appendFlowControl) recv() (*pb.AppendRequest, error) {
 // onTick is called with each ticker tick.
 func (fc *appendFlowControl) onTick(millis int64) error {
 	if millis < fc.lastMillis {
-		panic("millis < fc.lastMillis")
+		// It's possible for system clock adjustments to shift time backwards,
+		// and we're working outside of the montonicity guarantees of time.Time.
+		// Wait for "now" to catch up to |lastMillis|.
+		return nil
 	}
 
 	// Add |d| interval bytes to |balance|, capping at |maxRate|.
