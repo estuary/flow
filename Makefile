@@ -144,7 +144,7 @@ ${RUSTBIN}:
 	cargo build --release
 
 ${ROOTDIR}/catalog.db: ${RUSTBIN}
-	RUST_LOG=info flowctl build --source ${ROOTDIR}/examples/flow.yaml
+	flowctl build -v --source ${ROOTDIR}/examples/flow.yaml
 
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}
@@ -211,7 +211,7 @@ go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROOTDIR}/catalog.
 
 .PHONY: catalog-test
 catalog-test: ${RUSTBIN} ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
-	RUST_LOG=info flowctl test
+	flowctl test -v
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
