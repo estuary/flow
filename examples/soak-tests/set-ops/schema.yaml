@@ -1,0 +1,86 @@
+$defs:
+  header:
+    $anchor: Header
+    type: object
+    properties:
+      Author: { type: integer }
+      ID: { type: integer }
+      Op: { type: integer }
+      Type: { type: string }
+    required: [Author, ID, Op, Type]
+
+  mutateOp:
+    $anchor: MutateOp
+    $ref: "#Header"
+
+    properties:
+      Type: { enum: [add, remove] }
+      Values:
+        type: object
+        propertyNames: { maxLength: 1 }
+        additionalProperties:
+          type: integer
+
+    required: [Values]
+
+  verifyOp:
+    $anchor: VerifyOp
+    $ref: "#Header"
+
+    properties:
+      Type: { const: verify }
+      TotalAdd: { type: integer }
+      TotalRemove: { type: integer }
+      Values:
+        type: object
+        propertyNames: { maxLength: 1 }
+        additionalProperties:
+          type: integer
+
+    required: [TotalAdd, TotalRemove, Values]
+
+  operation:
+    oneOf:
+      - { $ref: "#MutateOp" }
+      - { $ref: "#VerifyOp" }
+
+  output:
+    type: object
+    reduce: { strategy: merge }
+    properties:
+      Author: { type: integer }
+      ID: { type: integer }
+      AppliedOps:
+        type: array
+        items: { type: integer }
+        reduce: { strategy: append }
+
+      Derived:
+        type: object
+        reduce: { strategy: set }
+        additionalProperties:
+          type: object
+          reduce: { strategy: merge }
+          additionalProperties:
+            type: integer
+            reduce: { strategy: sum }
+          propertyNames: { maxLength: 1 }
+
+      AppliedAdd:
+        type: integer
+        reduce: { strategy: sum }
+
+      AppliedRemove:
+        type: integer
+        reduce: { strategy: sum }
+
+      ExpectAdd: { type: integer }
+      ExpectRemove: { type: integer }
+
+      ExpectValues:
+        type: object
+        propertyNames: { maxLength: 1 }
+        additionalProperties:
+          type: integer
+
+    required: [Author, ID]
