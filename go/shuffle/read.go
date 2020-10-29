@@ -18,7 +18,7 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Converts a slice of TransformSpecs to a slice of the more generic ReadSpecs.
+// ReadSpecsFromTransforms converts a slice of TransformSpecs to a slice of the more generic ReadSpecs.
 func ReadSpecsFromTransforms(transforms []pf.TransformSpec) []pf.ReadSpec {
 	rs := make([]pf.ReadSpec, len(transforms))
 	for i, t := range transforms {
@@ -232,6 +232,17 @@ func (rb *ReadBuilder) start(ctx context.Context, r *read) error {
 	}
 	r.req.Resolution = &resolution.Header
 
+	// We're the primary for the coordinating shard.
+	if resolution.Store != nil {
+		// TODO: Pluck out coordinator and dispatch request directly to it,
+		// without going through gRPC. E.g.:
+		//
+		// var coordinator = resolution.Store.(Store).Coordinator()
+		//   ... do stuff with coordinator ...
+
+		resolution.Done()
+	}
+
 	ctx = pb.WithDispatchRoute(r.ctx, resolution.Header.Route, resolution.Header.ProcessId)
 	r.stream, err = pf.NewShufflerClient(rb.service.Loopback).Shuffle(ctx, &r.req)
 	return err
@@ -240,7 +251,7 @@ func (rb *ReadBuilder) start(ctx context.Context, r *read) error {
 // Next implements the message.Iterator interface.
 func (r *read) Next() (env message.Envelope, err error) {
 	// Note that this loop is used in replay mode, but not in polling mode.
-	for r.resp.Index == len(r.resp.Begin) {
+	for r.resp.ShuffleResponse == nil || r.resp.Index == len(r.resp.Begin) {
 		if r.resp.ShuffleResponse, err = r.stream.Recv(); err != nil {
 			return
 		}
