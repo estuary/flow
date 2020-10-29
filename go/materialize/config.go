@@ -1,11 +1,11 @@
 package materialize
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
-	"database/sql"
-	"encoding/json"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/consumer"
 
