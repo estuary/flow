@@ -7,8 +7,8 @@ required: [exchange, security, date]
 
 properties:
   # Grouped dimensions of the record.
-  exchange: { $ref: exchange.schema.yaml }
-  security: { $ref: L1-tick.schema.yaml#/$defs/security }
+  exchange: { $ref: exchange.schema.yaml#Exchange }
+  security: { $ref: L1-tick.schema.yaml#Security }
   date:
     type: string
     format: date
@@ -16,31 +16,32 @@ properties:
   # Metrics of the record.
   price:
     description: Low, high, and average transaction price (weighted by shares).
-    $ref: "#/$defs/priceStats"
+    $ref: "#PriceStats"
   bid:
     description: Low, high, and average bid price.
-    $ref: "#/$defs/priceStats"
+    $ref: "#PriceStats"
   ask:
     description: Low, high, and average ask price.
-    $ref: "#/$defs/priceStats"
+    $ref: "#PriceStats"
   spread:
     description: Low, high, and average spread of bid vs ask.
-    $ref: "#/$defs/priceStats"
+    $ref: "#PriceStats"
   volume:
     description: Total number of shares transacted.
     type: integer
     reduce: { strategy: sum }
   first:
     description: First trade of the day.
-    $ref: L1-tick.schema.yaml#/$defs/priceAndSize
+    $ref: L1-tick.schema.yaml#PriceAndSize
     reduce: { strategy: firstWriteWins }
   last:
     description: Last trade of the day.
-    $ref: L1-tick.schema.yaml#/$defs/priceAndSize
+    $ref: L1-tick.schema.yaml#PriceAndSize
     reduce: { strategy: lastWriteWins }
 
 $defs:
   priceStats:
+    $anchor: PriceStats
     type: object
     reduce: { strategy: merge }
 

@@ -6,6 +6,7 @@ use estuary_json::{
 use itertools::{self, EitherOrBoth, Itertools};
 use regex::Regex;
 use serde_json::Value;
+use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Shape {
@@ -14,6 +15,7 @@ pub struct Shape {
     pub title: Option<String>,
     pub description: Option<String>,
     pub reduction: Reduction,
+    pub provenance: Provenance,
 
     pub string: StringShape,
     pub array: ArrayShape,
@@ -87,19 +89,53 @@ impl Reduction {
     fn union(self, rhs: Self) -> Self {
         match (self, rhs) {
             (lhs, rhs) if lhs == rhs => lhs,
-            // If either side is None (unconstrained), so is the union.
-            (Reduction::Unset, _) => Reduction::Unset,
-            (_, Reduction::Unset) => Reduction::Unset,
-            // Both sides are unequal but also not None.
-            (_, _) => Reduction::Multiple,
+            // If either side is Unset (unconstrained), so is the union.
+            (Self::Unset, _) => Self::Unset,
+            (_, Self::Unset) => Self::Unset,
+            // Both sides are unequal but also not Unset.
+            (_, _) => Self::Multiple,
         }
     }
 
     fn intersect(self, rhs: Self) -> Self {
-        if let Reduction::Unset = self {
+        if let Self::Unset = self {
             rhs
         } else {
             self
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Provenance {
+    // Equivalent to Option::None.
+    Unset,
+    // Url of another Schema, which this Schema is wholly drawn from.
+    Reference(Url),
+    // This location has local applications which constrain its Shape.
+    Inline,
+}
+
+impl Provenance {
+    fn union(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (lhs, rhs) if lhs == rhs => lhs,
+            // If either side is Unset (unconstrained), so is the union.
+            (Self::Unset, _) => Self::Unset,
+            (_, Self::Unset) => Self::Unset,
+            // Both sides are unequal and also not Unset. Promote to Inline.
+            (_, _) => Self::Inline,
+        }
+    }
+
+    fn intersect(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (lhs, rhs) if lhs == rhs => lhs,
+            // If either side is Unset (unconstrained), take the other.
+            (Self::Unset, rhs) => rhs,
+            (lhs, Self::Unset) => lhs,
+            // Both sides are unequal and also not Unset. Promote to Inline.
+            (_, _) => Self::Inline,
         }
     }
 }
@@ -480,6 +516,7 @@ impl Default for Shape {
             title: None,
             description: None,
             reduction: Reduction::Unset,
+            provenance: Provenance::Unset,
             string: StringShape::default(),
             array: ArrayShape::default(),
             object: ObjShape::default(),
@@ -488,13 +525,44 @@ impl Default for Shape {
 }
 
 impl Shape {
-    pub fn infer<'s>(schema: &Schema, index: &SchemaIndex<'s>) -> Shape {
+    pub fn infer<'s>(schema: &'s Schema, index: &SchemaIndex<'s>) -> Shape {
+        let mut visited = Vec::new();
+        Self::infer_inner(schema, index, &mut visited)
+    }
+
+    fn infer_inner<'s>(
+        schema: &'s Schema,
+        index: &SchemaIndex<'s>,
+        visited: &mut Vec<&'s Url>,
+    ) -> Shape {
         // Walk validation and annotation keywords which affect the inference result
         // at the current location.
 
         let mut shape = Shape::default();
         let mut unevaluated_properties: Option<Shape> = None;
         let mut unevaluated_items: Option<Shape> = None;
+
+        // Does this schema have any keywords which directly affect its validation
+        // or annotation result? We give a special pass to `title` and `description`.
+        if !schema.kw.iter().all(|kw| {
+            matches!(kw,
+                Keyword::Application(Application::Ref(_), _)
+                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
+                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Description(_)))
+                // An in-place application doesn't *by itself* make this an inline
+                // schema. However, if the application's target is Provenance::Inline,
+                // note that it's applied intersection will promote this Shape to
+                // Provenance::Inline as well.
+                | Keyword::Application(Application::AllOf { .. }, _)
+                | Keyword::Application(Application::AnyOf { .. }, _)
+                | Keyword::Application(Application::OneOf { .. }, _)
+                | Keyword::Application(Application::If { .. }, _)
+                | Keyword::Application(Application::Then { .. }, _)
+                | Keyword::Application(Application::Else { .. }, _)
+            )
+        }) {
+            shape.provenance = Provenance::Inline;
+        }
 
         // Walk validation keywords and subordinate applications which influence
         // the present Location.
@@ -552,19 +620,21 @@ impl Shape {
                 Keyword::Validation(Validation::MinItems(m)) => shape.array.min = Some(*m),
                 Keyword::Validation(Validation::MaxItems(m)) => shape.array.max = Some(*m),
                 Keyword::Application(Application::Items { index: None }, schema) => {
-                    shape.array.additional = Some(Box::new(Shape::infer(schema, index)));
+                    shape.array.additional =
+                        Some(Box::new(Shape::infer_inner(schema, index, visited)));
                 }
                 Keyword::Application(Application::Items { index: Some(i) }, schema) => {
                     shape.array.tuple.extend(
                         std::iter::repeat(Shape::default()).take(1 + i - shape.array.tuple.len()),
                     );
-                    shape.array.tuple[*i] = Shape::infer(schema, index);
+                    shape.array.tuple[*i] = Shape::infer_inner(schema, index, visited);
                 }
                 Keyword::Application(Application::AdditionalItems, schema) => {
-                    shape.array.additional = Some(Box::new(Shape::infer(schema, index)));
+                    shape.array.additional =
+                        Some(Box::new(Shape::infer_inner(schema, index, visited)));
                 }
                 Keyword::Application(Application::UnevaluatedItems, schema) => {
-                    unevaluated_items = Some(Shape::infer(schema, index));
+                    unevaluated_items = Some(Shape::infer_inner(schema, index, visited));
                 }
 
                 // Object constraints.
@@ -573,7 +643,7 @@ impl Shape {
                         properties: vec![ObjProperty {
                             name: name.clone(),
                             is_required: false,
-                            shape: Shape::infer(schema, index),
+                            shape: Shape::infer_inner(schema, index, visited),
                         }],
                         patterns: Vec::new(),
                         additional: None,
@@ -602,17 +672,18 @@ impl Shape {
                         properties: Vec::new(),
                         patterns: vec![ObjPattern {
                             re: re.clone(),
-                            shape: Shape::infer(schema, index),
+                            shape: Shape::infer_inner(schema, index, visited),
                         }],
                         additional: None,
                     };
                     shape.object = ObjShape::intersect(shape.object, obj);
                 }
                 Keyword::Application(Application::AdditionalProperties, schema) => {
-                    shape.object.additional = Some(Box::new(Shape::infer(schema, index)));
+                    shape.object.additional =
+                        Some(Box::new(Shape::infer_inner(schema, index, visited)));
                 }
                 Keyword::Application(Application::UnevaluatedProperties, schema) => {
-                    unevaluated_properties = Some(Shape::infer(schema, index));
+                    unevaluated_properties = Some(Shape::infer_inner(schema, index, visited));
                 }
 
                 _ => {} // Other Keyword. No-op.
@@ -644,9 +715,19 @@ impl Shape {
         for kw in &schema.kw {
             match kw {
                 Keyword::Application(Application::Ref(uri), _) => {
-                    if let Some(schema) = index.fetch(uri) {
-                        shape = Shape::intersect(shape, Shape::infer(schema, index));
-                    }
+                    let mut referent = if visited.iter().any(|u| u.as_str() == uri.as_str()) {
+                        Shape::default() // Don't re-visit this location.
+                    } else if let Some(schema) = index.fetch(uri) {
+                        visited.push(uri);
+                        let referent = Shape::infer_inner(schema, index, visited);
+                        visited.pop();
+                        referent
+                    } else {
+                        Shape::default()
+                    };
+
+                    referent.provenance = Provenance::Reference(uri.clone());
+                    shape = Shape::intersect(shape, referent);
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
                     shape = Shape::intersect(shape, Shape::infer(schema, index));
@@ -709,6 +790,7 @@ impl Shape {
         let title = union_option(lhs.title, rhs.title);
         let description = union_option(lhs.description, rhs.description);
         let reduction = lhs.reduction.union(rhs.reduction);
+        let provenance = lhs.provenance.union(rhs.provenance);
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -741,6 +823,7 @@ impl Shape {
             title,
             description,
             reduction,
+            provenance,
             string,
             array,
             object,
@@ -762,6 +845,7 @@ impl Shape {
         let title = lhs.title.or(rhs.title);
         let description = lhs.description.or(rhs.description);
         let reduction = lhs.reduction.intersect(rhs.reduction);
+        let provenance = lhs.provenance.intersect(rhs.provenance);
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -791,6 +875,7 @@ impl Shape {
             title,
             description,
             reduction,
+            provenance,
             string,
             array,
             object,
@@ -1112,6 +1197,7 @@ mod test {
                 title: Some("a-title".to_owned()),
                 description: Some("a-description".to_owned()),
                 reduction: Reduction::FirstWriteWins,
+                provenance: Provenance::Inline,
                 string: StringShape {
                     is_base64: Some(true),
                     content_type: Some("some/thing".to_owned()),
@@ -1146,6 +1232,7 @@ mod test {
             ],
             Shape {
                 reduction: Reduction::FirstWriteWins,
+                provenance: Provenance::Inline,
                 ..Shape::default()
             },
         );
@@ -1170,6 +1257,7 @@ mod test {
             ],
             Shape {
                 reduction: Reduction::Multiple,
+                provenance: Provenance::Inline,
                 ..Shape::default()
             },
         );
@@ -1194,6 +1282,7 @@ mod test {
             ],
             Shape {
                 reduction: Reduction::Unset,
+                provenance: Provenance::Unset,
                 ..Shape::default()
             },
         );
@@ -1217,6 +1306,7 @@ mod test {
             ],
             Shape {
                 type_: types::STRING,
+                provenance: Provenance::Inline,
                 string: StringShape {
                     min_length: 3,
                     max_length: Some(33),
@@ -1262,6 +1352,7 @@ mod test {
             Shape {
                 type_: types::STRING,
                 enum_: Some(vec![json!("a"), json!("b")]),
+                provenance: Provenance::Inline,
                 ..Shape::default()
             },
         );
@@ -1315,6 +1406,7 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![
                         ObjProperty {
@@ -1368,6 +1460,7 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".to_owned(),
@@ -1410,6 +1503,7 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 array: ArrayShape {
                     tuple: vec![
                         enum_fixture(json!([1, "a"])),
@@ -1448,6 +1542,7 @@ mod test {
                 "unevaluatedItems: {const: a}",
             ],
             Shape {
+                provenance: Provenance::Inline,
                 array: ArrayShape {
                     additional: Some(Box::new(enum_fixture(json!(["a"])))),
                     ..ArrayShape::default()
@@ -1477,6 +1572,7 @@ mod test {
                 "unevaluatedProperties: {const: a}",
             ],
             Shape {
+                provenance: Provenance::Inline,
                 object: ObjShape {
                     additional: Some(Box::new(enum_fixture(json!(["a"])))),
                     ..ObjShape::default()
@@ -1537,6 +1633,7 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 array: ArrayShape {
                     min: Some(5),
                     max: Some(10),
@@ -1564,7 +1661,7 @@ mod test {
                   additionalItems: {enum: [c, 3, z]}
                 - items: {enum: [a, b, c, 1, 2, 3]}
                 "#,
-                // On union, items in on tuple but not the other are unioned with
+                // On union, items in one tuple but not the other are union-ed with
                 // additionalItems.
                 r#"
                 anyOf:
@@ -1575,6 +1672,7 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 array: ArrayShape {
                     tuple: vec![
                         enum_fixture(json!([1, "a"])),
@@ -1638,6 +1736,7 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".to_owned(),
@@ -1680,12 +1779,14 @@ mod test {
                 "#,
             ],
             Shape {
+                provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
                         name: "foo".to_owned(),
                         is_required: true,
                         shape: Shape {
                             type_: types::STRING,
+                            provenance: Provenance::Inline,
                             ..Shape::default()
                         },
                     }],
@@ -1845,6 +1946,64 @@ mod test {
         );
     }
 
+    #[test]
+    fn test_provenance_cases() {
+        infer_test(
+            &[r#"
+                $defs:
+                    thing: {type: string}
+                    in-place: {type: object}
+
+                properties:
+                    a-thing:
+                        oneOf:
+                            - $ref: '#/$defs/thing'
+                            - $ref: '#/$defs/thing'
+                        title: Just a thing.
+                    a-thing-plus:
+                        $ref: '#/$defs/thing'
+                        minLength: 16
+
+                $ref: '#/$defs/in-place'
+                "#],
+            Shape {
+                type_: types::OBJECT,
+                provenance: Provenance::Inline,
+                object: ObjShape {
+                    properties: vec![
+                        ObjProperty {
+                            name: "a-thing".to_owned(),
+                            is_required: false,
+                            shape: Shape {
+                                type_: types::STRING,
+                                title: Some("Just a thing.".to_owned()),
+                                provenance: Provenance::Reference(
+                                    Url::parse("http://example/schema#/$defs/thing").unwrap(),
+                                ),
+                                ..Shape::default()
+                            },
+                        },
+                        ObjProperty {
+                            name: "a-thing-plus".to_owned(),
+                            is_required: false,
+                            shape: Shape {
+                                type_: types::STRING,
+                                string: StringShape {
+                                    min_length: 16,
+                                    ..Default::default()
+                                },
+                                provenance: Provenance::Inline,
+                                ..Default::default()
+                            },
+                        },
+                    ],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+    }
+
     fn infer_test(cases: &[&str], expect: Shape) {
         for case in cases {
             let actual = shape_from(case);
@@ -1886,25 +2045,47 @@ mod test {
         );
     }
 
-    /*
-     * Shape::infer does not currently handle recursive schemas, and will overflow the stack.
-     * Eventually, we'll want to have some sane handling of recursive schemas, but we'll have to
-     * figure out what that should be.
     #[test]
     fn test_recursive() {
         let shape = shape_from(
-            r##"
-               type: object
-               properties:
-                 val: { type: string }
-                 a: { $ref: http://example/schema }
-                 b: { $ref: http://example/schema }
-               "##,
+            r#"
+                $defs:
+                    foo:
+                        properties:
+                            a-bar: { $ref: '#/$defs/bar' }
+                    bar:
+                        properties:
+                            a-foo: { $ref: '#/$defs/foo' }
+                properties:
+                    root-foo: { $ref: '#/$defs/foo' }
+                    root-bar: { $ref: '#/$defs/bar' }
+                "#,
         );
-        let pointer = "/a/b/a/a/b/a/val".into();
-        let result = shape.locate(&pointer);
+
+        let nested_foo = shape.locate(&"/root-foo/a-bar/a-foo".into()).unwrap();
+        let nested_bar = shape.locate(&"/root-bar/a-foo/a-bar".into()).unwrap();
+
+        // When we re-encountered `foo` and `bar`, expect we tracked their provenance
+        // but didn't recurse further to apply their Shape contributions.
+        assert_eq!(
+            nested_foo.0,
+            &Shape {
+                provenance: Provenance::Reference(
+                    Url::parse("http://example/schema#/$defs/foo").unwrap()
+                ),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            nested_bar.0,
+            &Shape {
+                provenance: Provenance::Reference(
+                    Url::parse("http://example/schema#/$defs/bar").unwrap()
+                ),
+                ..Default::default()
+            }
+        );
     }
-    */
 
     fn shape_from(case: &str) -> Shape {
         let url = url::Url::parse("http://example/schema").unwrap();
@@ -1923,6 +2104,7 @@ mod test {
         Shape {
             type_: enum_types(v.iter()),
             enum_: Some(v.clone()),
+            provenance: Provenance::Inline,
             ..Shape::default()
         }
     }

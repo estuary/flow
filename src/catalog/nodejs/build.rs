@@ -98,23 +98,71 @@ fn generate_schemas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
         index.add(&schema)?;
     }
 
-    // TODO(johnny): _Maybe_ some schemas are hoisted out based on a keyword?
+    // Note that the set of allowed characters in an `$anchor` is quite limited,
+    // by Sec 8.2.3. We further restrict to anchors which start with a capital
+    // letter and include only '_' as punctuation.
+    // See: https://json-schema.org/draft/2019-09/json-schema-core.html#anchor
+    let re = regex::Regex::new("^[A-Z][\\w_]+$").unwrap();
+
+    let mut anchors = BTreeSet::new();
+    let mut anchor_index = BTreeMap::new();
+
+    // Walk |index| looking for URIs which conform to valid anchors, per |re| above.
+    // These will be hoisted out into top-level types, and will be used by reference.
+    for (uri, _) in index.iter() {
+        if let Some(anchor) = uri.split('#').next_back().filter(|s| re.is_match(s)) {
+            if anchors.insert(anchor) {
+                anchor_index.insert(*uri, anchor);
+            }
+        }
+    }
+
     let mapper = typescript::mapping::Mapper {
         index: &index,
-        top_level: &BTreeMap::new(),
+        top_level: &anchor_index,
     };
 
-    let generate_each = |p, query| -> Result<(), Error> {
-        let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-
-        let header = r#"
+    let header = br#"
+/* eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^_.*" }] */
 /* eslint @typescript-eslint/no-explicit-any: "off" */
 
 // Ensure module has at least one export, even if otherwise empty.
 export const _module = null;
 
     "#;
-        w.write_all(header.as_bytes())?;
+
+    // Generate anchors.ts.
+    let anchors_w = std::fs::File::create(&pkg.join("src/catalog/anchors.ts"))?;
+    let mut anchors_w = std::io::BufWriter::new(anchors_w);
+    anchors_w.write_all(header)?;
+
+    for (uri, schema) in index.iter() {
+        if let Some(anchor) = anchor_index.get(uri) {
+            writeln!(anchors_w, "// Generated from {:?}", uri)?;
+            write!(anchors_w, "export type {} = ", anchor)?;
+
+            let ast = mapper.map(schema);
+
+            let mut out = Vec::new();
+            ast.render(&mut out);
+            anchors_w.write_all(&out)?;
+            write!(anchors_w, ";\n\n")?;
+        }
+    }
+
+    let generate_each = |p, query| -> Result<(), Error> {
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
+
+        w.write_all(header)?;
+        w.write_all(
+            br#"
+import * as anchors from './anchors';
+
+// Artificial use of anchors, to satisfy the compiler & linting even if they're empty.
+((_) : null => null)(anchors._module);
+
+"#,
+        )?;
 
         let mut stmt = db.prepare(query)?;
         let mut rows = stmt.query(sql_params![])?;
@@ -162,11 +210,13 @@ fn generate_lambdas_ts(db: &DB, pkg: &path::Path) -> Result<(), Error> {
 /* eslint @typescript-eslint/no-unused-vars: ["error", { "argsIgnorePattern": "^register$|^previous$|^_.*" }] */
 /* eslint @typescript-eslint/require-await: "off" */
 
+import * as anchors from './anchors';
 import * as collections from './collections';
 import * as registers from './registers';
 import {BootstrapMap, TransformMap} from '../runtime/types';
 
-// Artificial uses of collections and registers, to satisfy the compiler & linting even if they're empty.
+// Artificial uses of schema modules, to satisfy the compiler & linting even if they're empty.
+((_) : null => null)(anchors._module);
 ((_) : null => null)(collections._module);
 ((_) : null => null)(registers._module);
     "#;
