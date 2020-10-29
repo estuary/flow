@@ -20,7 +20,7 @@ impl std::convert::TryFrom<consumer::ListResponse> for DerivationSet {
 impl DerivationSet {
     pub fn update_from_catalog(&mut self, db: &catalog::DB) -> catalog::Result<()> {
         let mut stmt =
-            db.prepare("SELECT collection_name FROM collection_details WHERE is_derivation")?;
+            db.prepare("SELECT collection_name FROM collections_json WHERE is_derivation")?;
         let mut rows = stmt.query(rusqlite::NO_PARAMS)?;
 
         while let Some(row) = rows.next()? {

@@ -864,6 +864,9 @@ SELECT *
 FROM projected_fields_json;
 
 SELECT *
+FROM collections_json;
+
+SELECT *
 FROM collection_keys;
 
 -- Detail view of collections joined with projections, partitions,
