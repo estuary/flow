@@ -132,7 +132,7 @@ func NewMaterializeApp(
 
 	// There's lots of room to optimize the size/characteristics of the cache, but we're ignoring all
 	// that for now and just using a reasonable limit on the total number of entries.
-	cache, err := cache.New(1024)
+	cache, err := cache.New(1)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to initialize materialization document cache: %w", err)
 	}
@@ -299,10 +299,16 @@ func (self *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publishe
 	return self.transacton.combine.Finish(self.updateDatabase)
 }
 
-func (self *Materialize) FinishedTxn(shard consumer.Shard, _ consumer.OpFuture) {
+func (self *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
 	log.WithFields(log.Fields{
 		"shard": shard.Spec().Labels,
 	}).Debug("on FinishedTxn")
+
+	// Block for commit of previous transaction.
+	// This is a dirty, dirty hack to avoid issues with the serialization of
+	// otherwise pipelined transactions.
+	<-op.Done()
+
 	self.transacton = nil
 }
 
@@ -353,8 +359,9 @@ func (self *Materialize) updateDatabase(icr pf.IndexedCombineResponse) error {
 	}
 	log.Debugf("Successfully updated database for document %d", docIndex)
 
-	packedKey := self.getPackedKey(icr)
-	self.documentCache.Add(packedKey, json.RawMessage(documentJson))
+	// TODO(johnny): Disabel cache for now, until we're more certain of it's correctness.
+	//packedKey := self.getPackedKey(icr)
+	//self.documentCache.Add(packedKey, json.RawMessage(documentJson))
 	return nil
 }
 

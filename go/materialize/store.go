@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
@@ -66,8 +67,10 @@ func (self *MaterializationStore) PrimaryKeyFieldIndexes() []int {
 
 func (self *MaterializationStore) BeginTxn(ctx context.Context) (TargetTransaction, error) {
 	txOpts := sql.TxOptions{
-		// TODO: see if we need to set an explicit value for Isolation
-		Isolation: 0,
+		// Ask the DB to surface serialization issues.
+		// In PostgreSQL, this will fail the transaction if a serialization
+		// order issue is encountered.
+		Isolation: sql.LevelSerializable,
 		ReadOnly:  false,
 	}
 	tx, err := self.delegate.Transaction(ctx, &txOpts)

@@ -239,4 +239,4 @@ docker-push-to-quay: docker-image
 .PHONY: catalog-test
 develop: ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
 	cargo build
-	PATH=${CARGO_TARGET_DIR}/develop:${PATH} ; FLOWCTL_LOG=info flowctl develop
+	PATH=${CARGO_TARGET_DIR}/develop:${PATH} ; flowctl -v develop

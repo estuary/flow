@@ -10,9 +10,9 @@ import (
 
 const (
 	// NConcurrent is the number of concurrent streams.
-	NConcurrent = 2
+	NConcurrent = 20
 	// NStreamOps is the number of operations per stream.
-	NStreamOps = 2
+	NStreamOps = 10
 	// Keys is the set of characters from which set keys are drawn.
 	Keys = string("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	// MaxKeysPerOp is the maximum number of keys appearing in a set operation.
