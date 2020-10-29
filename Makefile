@@ -195,7 +195,7 @@ sql-test: ${TOOLBIN}/sqlite3
 
 .PHONY: rust-test
 rust-test: ${TOOLBIN}/sqlite3
-	cargo test --locked
+	cargo test --all --locked
 
 .PHONY: build-test-catalog
 build-test-catalog: ${ROOTDIR}/catalog.db

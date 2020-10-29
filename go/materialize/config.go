@@ -14,7 +14,6 @@ import (
 	// required in order to connect to the databases.
 	// The sqlite driver
 	_ "github.com/mattn/go-sqlite3"
-
 	// The postgresql driver
 	_ "github.com/lib/pq"
 )

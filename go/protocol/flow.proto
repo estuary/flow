@@ -171,7 +171,7 @@ message CollectionSpec {
   string uuid_ptr = 4;
   // Logical partition fields of this collection.
   repeated string partition_fields = 5;
-  // Logical projections of this collection, indexed on projection field.
+  // Logical projections of this collection
   repeated Projection projections = 6;
   // JournalSpec used for dynamically-created journals of this collection.
   protocol.JournalSpec journal_spec = 7 [ (gogoproto.nullable) = false ];

@@ -4,6 +4,7 @@ use crate::schema::{
 };
 use crate::{de, NoopWalker, Number};
 use regex;
+use serde::Deserialize;
 use serde_json as sj;
 use thiserror;
 
@@ -472,27 +473,7 @@ fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url, Error>
 }
 
 fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
-    let mut set = types::INVALID;
-
-    let mut fold = |vv: &sj::Value| -> Result<(), Error> {
-        let newset = vv
-            .as_str()
-            .and_then(types::Set::for_type_name)
-            .ok_or(ExpectedType)?;
-        set = set | newset;
-        Ok(())
-    };
-
-    match v {
-        sj::Value::Array(vec) => {
-            for vv in vec {
-                fold(vv)?
-            }
-        }
-        sj::Value::String(_) => fold(v)?,
-        _ => return Err(ExpectedType),
-    }
-    Ok(set)
+    types::Set::deserialize(v).map_err(|_| ExpectedType)
 }
 
 fn extract_hash(v: &sj::Value) -> HashedLiteral {

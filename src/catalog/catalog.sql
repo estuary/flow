@@ -589,6 +589,7 @@ FROM transforms
     LEFT JOIN resources AS publish_resources ON publish.resource_id = publish_resources.resource_id
     LEFT JOIN partition_selectors_json AS source_selector ON transforms.source_selector_id = source_selector.selector_id;
 
+-- DEPRECATED: use collections_json instead
 -- Detail view of collections joined with projections, partitions,
 -- derivations, inferences, and alternate source schemas.
 CREATE VIEW collection_details AS WITH collection_alt_schemas AS (
@@ -663,56 +664,66 @@ FROM collections AS c
     LEFT JOIN json_each(c.key_json) AS KEYS ON KEYS.value = p.location_ptr;
 
 -- View of all the projected fields and inferences, grouped as a JSON object.
+-- These objects conform to the shape of the Projection type defined by the flow protocol.
 CREATE VIEW projected_fields_json AS
 SELECT collection_id,
     JSON_GROUP_ARRAY(
-        JSON_OBJECT(
-            'field',
-            field,
-            'ptr',
-            location_ptr,
-            'user_provided',
-            CASE
-                WHEN user_provided THEN JSON('true')
-                ELSE JSON('false')
-            END,
-            'is_partition_key',
-            CASE
-                WHEN is_partition_key THEN JSON('true')
-                ELSE JSON('false')
-            END,
-            'is_primary_key',
-            CASE
-                WHEN is_primary_key THEN JSON('true')
-                ELSE JSON('false')
-            END,
-            'inference',
-            CASE
-                WHEN types_json IS NULL THEN NULL
-                ELSE JSON_OBJECT(
-                    'types',
-                    JSON(types_json),
-                    'must_exist',
-                    CASE
-                        WHEN must_exist THEN JSON('true')
-                        ELSE JSON('false')
-                    END,
-                    'string',
-                    JSON_OBJECT(
-                        'content_type',
-                        string_content_type,
-                        'format',
-                        string_format,
-                        'is_base64',
+        -- JSON_PATCH here serves the purpose of trimming off any keys that have null values
+        JSON_PATCH('{}',
+            JSON_OBJECT(
+                'field',
+                field,
+                'ptr',
+                location_ptr,
+                'user_provided',
+                CASE
+                    WHEN user_provided THEN JSON('true')
+                    ELSE JSON('false')
+                END,
+                'is_partition_key',
+                CASE
+                    WHEN is_partition_key THEN JSON('true')
+                    ELSE JSON('false')
+                END,
+                'is_primary_key',
+                CASE
+                    WHEN is_primary_key THEN JSON('true')
+                    ELSE JSON('false')
+                END,
+                'inference',
+                CASE
+                    WHEN types_json IS NULL THEN NULL
+                    ELSE JSON_OBJECT(
+                        'types',
+                        JSON(types_json),
+                        'must_exist',
                         CASE
-                            WHEN string_content_encoding_is_base64 THEN JSON('true')
+                            WHEN must_exist THEN JSON('true')
                             ELSE JSON('false')
                         END,
-                        'max_length',
-                        string_max_length
+                        'string',
+                        CASE
+                            -- I know this is terrible, but it kinda seems preferable to creating a
+                            -- CTE for this.
+                            WHEN types_json LIKE '%"string"%' THEN
+                                JSON_OBJECT(
+                                    'content_type',
+                                    string_content_type,
+                                    'format',
+                                    string_format,
+                                    'is_base64',
+                                    CASE
+                                        WHEN string_content_encoding_is_base64 THEN JSON('true')
+                                        ELSE JSON('false')
+                                    END,
+                                    'max_length',
+                                    string_max_length
+                                )
+                            ELSE NULL
+                        END
                     )
-                )
-            END
+                END
+            )
         )
     ) AS projections_json,
     JSON_GROUP_ARRAY(field) FILTER (
@@ -720,6 +731,32 @@ SELECT collection_id,
     ) AS partition_fields_json
 FROM projected_fields
 GROUP BY collection_id;
+
+-- View of all collections as json objects that conform to the shape of a CollectionSpec as defined
+-- by the flow protocol.
+CREATE VIEW collections_json AS
+SELECT
+    c.collection_id,
+    c.collection_name,
+    derivations.collection_id IS NOT NULL AS is_derivation,
+    JSON_OBJECT(
+        'name',
+        c.collection_name,
+        'schema_uri',
+        c.schema_uri,
+        'key_ptrs',
+        JSON(c.key_json),
+        'partition_fields',
+        JSON_GROUP_ARRAY(PARTITIONS.field) FILTER (WHERE PARTITIONS.field IS NOT NULL),
+        'projections',
+        JSON(projected_fields_json.projections_json)
+    ) AS spec_json
+FROM collections AS c
+    NATURAL JOIN projected_fields_json
+    NATURAL LEFT JOIN PARTITIONS
+    NATURAL LEFT JOIN derivations
+GROUP BY collection_id;
+
 
 -- View of all the collection primary keys, partition keys, and shuffle keys. These keys have
 -- constraints on the types of values that are used. The schema must ensure all of the following:

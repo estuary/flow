@@ -491,7 +491,7 @@ type CollectionSpec struct {
 	UuidPtr string `protobuf:"bytes,4,opt,name=uuid_ptr,json=uuidPtr,proto3" json:"uuid_ptr,omitempty"`
 	// Logical partition fields of this collection.
 	PartitionFields []string `protobuf:"bytes,5,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
-	// Logical projections of this collection, indexed on projection field.
+	// Logical projections of this collection
 	Projections []*Projection `protobuf:"bytes,6,rep,name=projections,proto3" json:"projections,omitempty"`
 	// JournalSpec used for dynamically-created journals of this collection.
 	JournalSpec protocol.JournalSpec `protobuf:"bytes,7,opt,name=journal_spec,json=journalSpec,proto3" json:"journal_spec"`

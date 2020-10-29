@@ -238,7 +238,29 @@ impl<'de> serde::de::Visitor<'de> for SetVisitor {
     type Value = Set;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "an array of strings")
+        write!(formatter, "a string or an array of strings")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if let Some(ty) = Set::for_type_name(value) {
+            Ok(ty)
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "invalid type name: '{}'",
+                value
+            )))
+        }
+    }
+
+    // used when calling serde_json::from_value, since the string will be owned in that case
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_str(value.as_str())
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -264,7 +286,7 @@ impl<'de> serde::Deserialize<'de> for Set {
     where
         D: serde::de::Deserializer<'de>,
     {
-        deserializer.deserialize_seq(SetVisitor)
+        deserializer.deserialize_any(SetVisitor)
     }
 }
 
@@ -273,13 +295,40 @@ mod test {
     use super::*;
 
     #[test]
+    fn set_is_deserialized_from_a_single_string() {
+        assert_eq!(ARRAY, serde_json::from_str("\"array\"").unwrap());
+        assert_eq!(BOOLEAN, serde_json::from_str("\"boolean\"").unwrap());
+        assert_eq!(OBJECT, serde_json::from_str("\"object\"").unwrap());
+        assert_eq!(NUMBER, serde_json::from_str("\"number\"").unwrap());
+        assert_eq!(NULL, serde_json::from_str("\"null\"").unwrap());
+        assert_eq!(INTEGER, serde_json::from_str("\"integer\"").unwrap());
+        assert_eq!(STRING, serde_json::from_str("\"string\"").unwrap());
+    }
+
+    #[test]
+    fn set_is_deserialized_from_an_owned_value() {
+        let input = serde_json::json!("boolean");
+        // Calling from_value requires `Visitor::visit_string` to be implemented
+        let ty = serde_json::from_value(input).unwrap();
+        assert_eq!(BOOLEAN, ty);
+    }
+
+    #[test]
     fn round_trip_set_serde() {
         let input = ARRAY | NULL | INTEGER;
 
         let json = serde_json::to_string(&input).unwrap();
-        assert_eq!(r##"["array", "null", "integer"]"##, &json);
+        assert_eq!(r##"["array","integer","null"]"##, &json);
 
         let result = serde_json::from_str::<Set>(&json).unwrap();
         assert_eq!(input, result);
+    }
+
+    #[test]
+    fn set_is_serialized_as_an_array_even_when_there_is_only_one_possible_type() {
+        assert_eq!(
+            r##"["integer"]"##,
+            &serde_json::to_string(&INTEGER).unwrap()
+        );
     }
 }

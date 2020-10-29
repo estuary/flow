@@ -42,6 +42,5 @@ expression: serialized
         "description": "the description from b"
       }
     }
-  ],
-  "journal_spec": null
+  ]
 }
