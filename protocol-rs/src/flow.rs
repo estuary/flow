@@ -196,7 +196,7 @@ pub struct CollectionSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[doc("This field is optional. An empty Vec represents a missing value.")]
     pub partition_fields: ::std::vec::Vec<std::string::String>,
-    /// Logical projections of this collection, indexed on projection field.
+    /// Logical projections of this collection
     #[prost(message, repeated, tag = "6")]
     pub projections: ::std::vec::Vec<Projection>,
     /// JournalSpec used for dynamically-created journals of this collection.

@@ -143,15 +143,7 @@ const queryMaterialization = `
         materialization_targets.target_name = ?;
 `
 
-const selectCollection = `
-	SELECT
-		collection_name,
-		schema_uri,
-		key_json,
-		partition_fields_json,
-		projections_json
-	FROM collection_details
-`
+const selectCollection = `SELECT spec_json FROM collections_json `
 
 func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
 	if err != nil {
@@ -163,13 +155,7 @@ func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
 	for rows.Next() {
 		var collection pf.CollectionSpec
 
-		if err = rows.Scan(
-			&collection.Name,
-			&collection.SchemaUri,
-			scanJSON{&collection.KeyPtrs},
-			scanJSON{&collection.PartitionFields},
-			scanJSON{&collection.Projections},
-		); err != nil {
+		if err = rows.Scan(scanJSON{&collection}); err != nil {
 			return nil, fmt.Errorf("failed to scan collection from catalog: %w", err)
 		}
 

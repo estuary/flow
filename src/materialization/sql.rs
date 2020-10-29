@@ -549,11 +549,17 @@ impl<'a> fmt::Display for ColumnDescription<'a> {
             .as_ref()
             .map(|i| i.types.as_slice())
             .unwrap_or_default();
+
+        let ptr = if self.0.ptr.is_empty() {
+            "<document-root>"
+        } else {
+            self.0.ptr.as_str()
+        };
         write!(
             f,
             "{} projection of JSON at: {} {}with inferred types: [{}]",
             source,
-            self.0.ptr,
+            ptr,
             partition,
             types.iter().format(", ")
         )

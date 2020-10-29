@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS "test_postgres_table" (
 	/* user provided projection of JSON at: /base64StringNullable with inferred types: [null, string] */
 	"base64StringNullable" BYTEA,
 	/* This column holds the complete document from the Flow Collection, with all reduction annotations applied. It is added automatically to all materializations. */
-	/* auto-generated projection of JSON at: / with inferred types: [object] */
+	/* auto-generated projection of JSON at: <document-root> with inferred types: [object] */
 	"flow_document" JSON NOT NULL,
 
 	PRIMARY KEY("intCol", "numCol")

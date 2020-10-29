@@ -9,7 +9,7 @@ use crate::catalog::{self, DB};
 use crate::label_set;
 use estuary_json::schema::types;
 use estuary_protocol::consumer;
-use estuary_protocol::flow::{inference, CollectionSpec, Inference, Projection};
+use estuary_protocol::flow::{CollectionSpec, Inference, Projection};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -39,25 +39,16 @@ fn validate_projected_fields(
 }
 
 pub fn lookup_collection(db: &DB, collection_name: &str) -> Result<CollectionSpec, Error> {
+    // This call provides a nicer error message when the collection isn't found, which is why we're
+    // doing this with two queries rather than joining in a single query.
     let collection = catalog::Collection::get_by_name(db, collection_name)?;
-    let (schema_uri, key_json): (String, String) = db.query_row(
-        "SELECT schema_uri, key_json FROM collections WHERE collection_id = ?",
+    let collection_json = db.query_row(
+        "SELECT spec_json FROM collections_json WHERE collection_id = ?;",
         rusqlite::params![collection.id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| r.get::<usize, String>(0),
     )?;
-    let key_ptrs = serde_json::from_str(&key_json)?;
-    let projections = get_all_projections(db, collection.id)?;
-
-    Ok(CollectionSpec {
-        name: collection_name.to_owned(),
-        schema_uri,
-        key_ptrs,
-        projections,
-        uuid_ptr: String::new(),
-        partition_fields: Vec::new(),
-        journal_spec: None,
-        ack_json_template: Vec::new(),
-    })
+    let spec = serde_json::from_str(collection_json.as_str())?;
+    Ok(spec)
 }
 
 fn create_shard_spec(
@@ -291,93 +282,6 @@ fn is_single_scalar_type(projection: &Projection) -> bool {
         .unwrap_or_default()
 }
 
-/// Returns the list of all projections for the given collection.
-fn get_all_projections(db: &DB, collection_id: i64) -> Result<Vec<Projection>, Error> {
-    let mut stmt = db.prepare_cached(
-        "SELECT
-            field,
-            location_ptr,
-            user_provided,
-            types_json,
-            must_exist,
-            title,
-            description,
-            string_content_type,
-            string_content_encoding_is_base64,
-            string_max_length,
-            string_format,
-            is_partition_key,
-            is_primary_key
-        FROM projected_fields
-        WHERE collection_id = ?;",
-    )?;
-    let fields = stmt
-        .query(rusqlite::params![collection_id])?
-        .and_then(|row| {
-            let field: String = row.get("field")?;
-            let ptr: String = row.get("location_ptr")?;
-            let user_provided: bool = row.get("user_provided")?;
-            let types: TypesWrapper = row.get("types_json")?;
-            let must_exist: bool = row.get("must_exist")?;
-            let title: Option<String> = row.get("title")?;
-            let description: Option<String> = row.get("description")?;
-            let string = if types.0.overlaps(types::STRING) {
-                let ct: Option<String> = row.get("string_content_type")?;
-                let format: Option<String> = row.get("string_format")?;
-                let b64: Option<bool> = row.get("string_content_encoding_is_base64")?;
-                let max_len: Option<i64> = row.get("string_max_length")?;
-                Some(inference::String {
-                    content_type: ct.unwrap_or_default(),
-                    is_base64: b64.unwrap_or_default(),
-                    max_length: max_len.unwrap_or_default() as u32,
-                    format: format.unwrap_or_default(),
-                })
-            } else {
-                None
-            };
-            let is_partition_key: bool = row.get("is_partition_key")?;
-            let is_primary_key: bool = row.get("is_primary_key")?;
-
-            Ok(Projection {
-                field,
-                ptr,
-                user_provided,
-                inference: Some(Inference {
-                    types: types.0.to_vec(),
-                    must_exist,
-                    title: title.unwrap_or_default(),
-                    description: description.unwrap_or_default(),
-                    string,
-                }),
-                is_partition_key,
-                is_primary_key,
-            })
-        })
-        .collect::<catalog::Result<Vec<_>>>()?;
-    Ok(fields)
-}
-
-#[derive(Debug)]
-struct TypesWrapper(pub types::Set);
-impl rusqlite::types::FromSql for TypesWrapper {
-    fn column_result(val: rusqlite::types::ValueRef) -> rusqlite::types::FromSqlResult<Self> {
-        match val {
-            rusqlite::types::ValueRef::Text(bytes) => {
-                let type_names: Vec<&'_ str> = serde_json::from_slice(bytes)
-                    .map_err(|err| rusqlite::types::FromSqlError::Other(Box::new(err)))?;
-                let mut types = types::INVALID;
-                for name in type_names {
-                    let ty = types::Set::for_type_name(name)
-                        .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
-                    types = types | ty;
-                }
-                Ok(TypesWrapper(types))
-            }
-            _ => Err(rusqlite::types::FromSqlError::InvalidType),
-        }
-    }
-}
-
 /// Materialization configurations are expected to be different for different types of systems.
 /// This enum is intended to represent all of the possible shapes and allow serialization as json,
 /// which is how this is stored in the catalog database. This configuration is intended to live in
@@ -456,7 +360,7 @@ impl MaterializationConfig {
 pub fn flow_document_projection() -> Projection {
     Projection {
         field: "flow_document".to_owned(),
-        ptr: "/".to_owned(),
+        ptr: String::new(), // empty string is the root document pointer
         user_provided: false,
         inference: Some(Inference {
             // TODO: actually, flow_document _could_ hold any object or array type. This is
@@ -651,6 +555,8 @@ mod test {
         user_provided: bool,
         is_primary_key: bool,
     ) -> Projection {
+        use estuary_protocol::flow::inference;
+
         let string = if types.overlaps(types::STRING) {
             Some(inference::String {
                 content_type: String::new(),
