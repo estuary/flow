@@ -5,31 +5,33 @@ type: object
 
 properties:
   exchange:
-    $ref: exchange.schema.yaml
+    $ref: exchange.schema.yaml#Exchange
   security:
-    $ref: "#/$defs/security"
+    $ref: "#Security"
   time: { type: string, format: date-time }
 
   bid:
     description: Highest current offer to buy security.
-    $ref: "#/$defs/priceAndSize"
+    $ref: "#PriceAndSize"
   ask:
     description: Lowest current offer to sell security.
-    $ref: "#/$defs/priceAndSize"
+    $ref: "#PriceAndSize"
   last:
     description: Completed transaction which generated this tick.
-    $ref: "#/$defs/priceAndSize"
+    $ref: "#PriceAndSize"
 
 required: [exchange, security, time]
 
 $defs:
   security:
+    $anchor: Security
     description: Market security ticker name.
     type: string
     minLength: 2
     maxLength: 10
 
   priceAndSize:
+    $anchor: PriceAndSize
     type: object
     required: [price, size]
 

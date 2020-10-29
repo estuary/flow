@@ -4,3 +4,4 @@ enum:
   - NYSE
   - NASDAQ
   - SEHK
+$anchor: Exchange
