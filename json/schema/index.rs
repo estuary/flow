@@ -79,4 +79,8 @@ where
             Some(scm) => Ok(scm),
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&&'s str, &&'s Schema<A>)> {
+        self.0.iter()
+    }
 }

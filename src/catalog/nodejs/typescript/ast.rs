@@ -14,6 +14,7 @@ pub enum AST {
     Tuple(ASTTuple),
     Object { properties: Vec<ASTProperty> },
     Union { variants: Vec<AST> },
+    Anchor(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,6 +51,10 @@ impl AST {
             AST::Tuple(tuple) => Self::render_tuple(into, tuple),
             AST::Object { properties } => Self::render_object(into, properties),
             AST::Union { variants } => Self::render_set(into, variants, b" | "),
+            AST::Anchor(anchor) => {
+                into.extend_from_slice(b"anchors.");
+                into.extend_from_slice(anchor.as_bytes());
+            }
         }
     }
 
