@@ -171,6 +171,7 @@ impl Local {
             match &l {
                 Ok(Log::Structured(_, slog)) if slog.msg == needle => {
                     if let Some(Value::String(ep)) = slog.additional.get("endpoint") {
+                        log::debug!("found {:?}; extracted endpoint {:?}", needle, ep);
                         return (ep.clone(), s);
                     }
                 }
@@ -249,7 +250,7 @@ impl Log {
         name: &str,
         child: &mut tokio::process::Child,
     ) -> impl Stream<Item = std::io::Result<Log>> {
-        let name = format!("{}<{}>", name, child.id());
+        let name = format!("estuary::{}<{}>", name, child.id());
 
         BufReader::new(child.stderr.take().unwrap())
             .lines()
