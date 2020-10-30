@@ -3,6 +3,8 @@
 
 # Git version & date which are injected into built binaries.
 VERSION = $(shell git describe --dirty --tags)
+# Export this variable here so we don't have to set it in front of every invocation
+export FLOW_VERSION := ${VERSION}
 DATE    = $(shell date +%F-%T-%Z)
 # Number of available processors for parallel builds.
 NPROC := $(if ${NPROC},${NPROC},$(shell nproc))

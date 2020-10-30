@@ -96,6 +96,16 @@ pub enum Error {
 
     #[error(transparent)]
     NoSuchEntity(#[from] NoSuchEntity),
+
+    #[error("The --source-catalog cannot be used because it does not contain a source resource")]
+    MissingSourceResource,
+
+    // TODO: think of a better error message
+    #[error("Invalid --catalog was not built successfully")]
+    CatalogNotBuilt,
+
+    #[error("The --catalog was not built by this version of flowctl. Catalog version: '{0}'")]
+    CatalogVersionMismatch(String),
 }
 
 impl Error {
