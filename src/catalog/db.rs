@@ -1,8 +1,14 @@
 use super::Result;
+use crate::FLOW_VERSION;
 
 /// Create the catalog SQL schema in the connected database.
 pub fn init(db: &rusqlite::Connection) -> Result<()> {
     db.execute_batch(include_str!("catalog.sql"))?;
+
+    db.execute(
+        "INSERT INTO flow_version (version) VALUES (?)",
+        rusqlite::params![FLOW_VERSION],
+    )?;
     Ok(())
 }
 

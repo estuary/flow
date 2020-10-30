@@ -7,9 +7,11 @@ use std::fs;
 use std::path::Path;
 use structopt::StructOpt;
 use tokio::signal::unix;
+use url::Url;
 
 #[derive(StructOpt, Debug)]
-#[structopt(about = "Command-line interface for working with Estuary Flow projects",
+#[structopt(name = env!("CARGO_BIN_NAME"),
+            about = "Command-line interface for working with Estuary Flow projects",
             author = env!("CARGO_PKG_AUTHORS"))]
 struct Args {
     /// The command to run
@@ -43,6 +45,10 @@ struct BuildArgs {
     /// URL or filesystem path of the input specification source file.
     #[structopt(long, default_value = "flow.yaml")]
     source: String,
+    /// URL or filesystem path of an existing catalog to use as the source. The resources in this
+    /// catalog will be used to build a new catalog from scratch.
+    #[structopt(long, conflicts_with("source"))]
+    source_catalog: Option<String>,
     /// Path to output catalog database.
     #[structopt(long, default_value = "catalog.db")]
     catalog: String,
@@ -344,35 +350,73 @@ fn get_user_confirmation(message: &str) -> bool {
 }
 
 fn do_build(args: BuildArgs) -> Result<(), Error> {
-    let spec_url = match url::Url::parse(&args.source) {
+    let nodejs_dir = Path::new(args.nodejs_package_path.as_str());
+
+    // Try to ensure that the source catalog is not the same as the destination. We do this before
+    // calling `catalog::create` so that we don't truncate the `--source-catalog` if they are the
+    // same. This check is not at all fool proof, since we're only checking the values of the
+    // arguments, but it should be good enough to prevent someone from accidentally passing
+    // `--source=catalog.db`.
+    if args
+        .source_catalog
+        .as_deref()
+        .map(|p| p.trim_start_matches("./"))
+        == Some(args.catalog.as_str().trim_start_matches("./"))
+    {
+        anyhow::bail!(
+            "invalid --source-catalog is the same as --catalog '{}'",
+            args.catalog
+        );
+    }
+
+    let db = catalog::create(&args.catalog)
+        .context(format!("creating --catalog {:?}", &args.catalog))?;
+
+    // Are we using an existing catalog or yaml as the source?
+    if let Some(source_path) = args.source_catalog.as_deref() {
+        let source = catalog::open_unchecked(source_path)
+            .context(format!("opening --source-catalog {:?}", source_path))?;
+        log::info!(
+            "Building --source-catalog {:?} into --catalog {:?}",
+            source_path,
+            args.catalog
+        );
+        catalog::build_from_catalog(&db, &source, nodejs_dir)?;
+    } else {
+        // We're building from yaml
+        let source_url = resolve_extant_url_or_file_arg("--source", &args.source)?;
+        log::info!(
+            "Building --source {:?} into --catalog {:?}",
+            source_url,
+            fs::canonicalize(&args.catalog)?
+        );
+        catalog::build(&db, source_url, nodejs_dir).context("building catalog")?;
+    }
+
+    log::info!("Successfully built catalog");
+    Ok(())
+}
+
+fn resolve_extant_url_or_file_arg(arg_name: &str, value: impl AsRef<str>) -> Result<Url, Error> {
+    let value = value.as_ref();
+    let url = match url::Url::parse(value) {
         Ok(url) => url,
         Err(err) => {
             log::debug!(
-                "--source {:?} is not a URL; assuming it's a filesystem path (parse error: {})",
-                &args.source,
+                "{} {:?} is not a URL; assuming it's a filesystem path (parse error: {})",
+                arg_name,
+                value,
                 err
             );
-            let source = fs::canonicalize(&args.source).context(format!(
-                "finding --source {:?} in the local filesystem",
-                &args.source
+            let source = fs::canonicalize(value).context(format!(
+                "finding {} {:?} in the local filesystem",
+                arg_name, value,
             ))?;
             // Safe unwrap since we've canonicalized the path.
             url::Url::from_file_path(&source).unwrap()
         }
     };
-    let db = catalog::create(&args.catalog)
-        .context(format!("creating --catalog {:?}", &args.catalog))?;
-
-    log::info!(
-        "Building --source {:?} into --catalog {:?}",
-        spec_url,
-        fs::canonicalize(&args.catalog)?
-    );
-    let nodejs_dir = Path::new(args.nodejs_package_path.as_str());
-
-    catalog::build(&db, spec_url, nodejs_dir).context("building catalog")?;
-    log::info!("Successfully built catalog");
-    Ok(())
+    Ok(url)
 }
 
 async fn install_shards(

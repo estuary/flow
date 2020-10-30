@@ -1,6 +1,8 @@
 [package]
 name = "estuary"
-version = "0.1.0"
+# The Makefile determines the real version. This string is only used as a fallback when invoking
+# cargo directly.
+version = "0.1.0-unknown-development-version"
 authors = ["Estuary Technologies, Inc. \u00A92020"]
 edition = "2018"
 
