@@ -98,6 +98,20 @@ CREATE TABLE resource_urls (
     )
 );
 
+-- View of all resources with their primary url
+CREATE VIEW primary_resources AS
+SELECT
+    r.resource_id,
+    u.url,
+    r.content_type,
+    r.content
+FROM resource_urls AS u
+NATURAL JOIN resources AS r
+WHERE u.is_primary
+-- Technically this order by is probably redundant, but it's included here to capture that the intent
+-- of this view is to provide the resources in the same order as they were originally enountered.
+ORDER BY r.resource_id;
+
 -- Resource schemas is a view over all JSON-Schemas which are transitively
 -- imported or referenced from a given resource_id. In other words, this is
 -- the set of JSON-Schemas which must be compiled and indexed when validating
@@ -977,6 +991,14 @@ FROM test_steps_json
     NATURAL JOIN test_cases
 GROUP BY test_case_id
 ORDER BY step_index ASC;
+
+-- This table always holds a single row with the flowctl version string.
+-- This will be populated by flowctl with it's current version right after executing this file.
+CREATE TABLE flow_version (
+    -- id is here to only as a way to constrain this table to having only a single row
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version TEXT NOT NULL
+);
 
 -- Contains informational and diagnostic data about the build itself. This is intended to be used
 -- somewhat like a log.
