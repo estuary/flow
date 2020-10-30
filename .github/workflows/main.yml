@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
+          submodules: true
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
