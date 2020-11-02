@@ -165,18 +165,6 @@ resource_id|content_type|content|is_processed|url|is_primary
 4|application/schema+yaml|other schema|1|https://redirect-3/schema|
 changes:   0   total_changes: XYZ
 
--- View of all resources with their primary url
-SELECT * FROM primary_resources;
-resource_id|url|content_type|content
-1|file:///path/to/spec.yaml|application/vnd.estuary.dev-catalog-spec+yaml|catalog spec content
-2|file:///path/to/included/catalog/spec.yaml|application/vnd.estuary.dev-catalog-spec+yaml|included catalog content
-3|file:///path/to/a/schema.yaml|application/schema+yaml|json-schema content
-4|https://host/path/schema?query=val|application/schema+yaml|other schema
-5|file:///path/to/other/schema.yaml|application/schema+yaml|yet more schema content
-6|file:///path/to/some/bootstrap.sql|application/sql|bootstrap content
-7|file:///path/to/some/transform.sql|application/sql|transform content
-changes:   0   total_changes: XYZ
-
 -- View over all transitive JSON-Schemas.
 SELECT *
 FROM resource_schemas;

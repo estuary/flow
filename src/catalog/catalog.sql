@@ -98,20 +98,6 @@ CREATE TABLE resource_urls (
     )
 );
 
--- View of all resources with their primary url
-CREATE VIEW primary_resources AS
-SELECT
-    r.resource_id,
-    u.url,
-    r.content_type,
-    r.content
-FROM resource_urls AS u
-NATURAL JOIN resources AS r
-WHERE u.is_primary
--- Technically this order by is probably redundant, but it's included here to capture that the intent
--- of this view is to provide the resources in the same order as they were originally enountered.
-ORDER BY r.resource_id;
-
 -- Resource schemas is a view over all JSON-Schemas which are transitively
 -- imported or referenced from a given resource_id. In other words, this is
 -- the set of JSON-Schemas which must be compiled and indexed when validating

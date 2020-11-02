@@ -110,7 +110,6 @@ pub fn build_from_catalog(dest: &DB, source: &DB, nodejs_dir: &Path) -> Result<(
             VALUES (?, ?, ?, FALSE)",
     )?;
 
-    // TODO: change this to query the `primary_resources` view instead
     let mut read_stmt = source.prepare(
         "SELECT resource_id, url, content_type, content \
            FROM resource_urls \

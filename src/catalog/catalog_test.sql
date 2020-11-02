@@ -108,9 +108,6 @@ SELECT *
 FROM resources
     NATURAL JOIN resource_urls;
 
--- View of all resources with their primary url
-SELECT * FROM primary_resources;
-
 -- View over all transitive JSON-Schemas.
 SELECT *
 FROM resource_schemas;
