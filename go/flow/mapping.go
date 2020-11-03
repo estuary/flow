@@ -50,27 +50,39 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 	var buf = mappingBufferPool.Get().([]byte)[:0]
 	logicalPrefix, hexKey, buf := m.logicalPrefixAndHexKey(buf, cr)
 
-	m.Journals.Mu.RLock()
 	defer func() {
-		m.Journals.Mu.RUnlock()
 		mappingBufferPool.Put(buf)
 	}()
 
 	for i := 0; true; i++ {
-		if p := m.pickPartition(logicalPrefix, hexKey); p != nil {
+		m.Journals.Mu.RLock()
+		var p = m.pickPartition(logicalPrefix, hexKey)
+		m.Journals.Mu.RUnlock()
+
+		if p != nil {
+			// Partition already exists (the common case).
 			return p.Name, p.LabelSet.ValueOf(labels.ContentType), nil
 		}
+
 		// We must create a new partition for this logical prefix.
 		var upsert = m.partitionUpsert(cr)
 		var applyResponse, err = client.ApplyJournals(m.Ctx, m.JournalClient, upsert)
 
 		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED && i == 0 {
-			// We lost a race to create this journal. Ignore on the first attempt (only).
-			// If we see failures beyond that, there's likely a mis-configuration of
-			// the Etcd broker keyspace prefix.
+			// We lost a race to create this journal, and |err| is "ETCD_TRANSACTION_FAILED".
+			// Ignore on the first attempt (only). If we see failures beyond that,
+			// there's likely a mis-configuration of the Etcd broker keyspace prefix.
+			continue
 		} else if err != nil {
 			return "", "", fmt.Errorf("creating journal '%s': %w", upsert.Changes[0].Upsert.Name, err)
-		} else if err = m.Journals.WaitForRevision(m.Ctx, applyResponse.Header.Etcd.Revision); err != nil {
+		}
+
+		// We applied the journal creation. Now wait to read it's Etcd watch update.
+		m.Journals.Mu.RLock()
+		err = m.Journals.WaitForRevision(m.Ctx, applyResponse.Header.Etcd.Revision)
+		m.Journals.Mu.RUnlock()
+
+		if err != nil {
 			return "", "", fmt.Errorf("awaiting applied revision '%d': %w", applyResponse.Header.Etcd.Revision, err)
 		}
 		log.WithField("journal", upsert.Changes[0].Upsert.Name).Info("created partition")
