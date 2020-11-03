@@ -67,11 +67,12 @@ func (self *MaterializationStore) PrimaryKeyFieldIndexes() []int {
 
 func (self *MaterializationStore) BeginTxn(ctx context.Context) (TargetTransaction, error) {
 	txOpts := sql.TxOptions{
-		// Ask the DB to surface serialization issues.
-		// In PostgreSQL, this will fail the transaction if a serialization
-		// order issue is encountered.
-		Isolation: sql.LevelSerializable,
-		ReadOnly:  false,
+		// Take the default Isolation level for the driver. For postgres, this will be
+		// ReadUncommitted, and for sqlite it will be serializable. We can't support fully
+		// serializable isolation with postgres at this time because of contention for the
+		// gazette_checkpoints table. Sqlite's serializable isolation is simple enough that it
+		// shouldn't present any issues.
+		ReadOnly: false,
 	}
 	tx, err := self.delegate.Transaction(ctx, &txOpts)
 	if err != nil {
