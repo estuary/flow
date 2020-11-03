@@ -324,6 +324,10 @@ impl MaterializationConfig {
             MaterializationConfig::Postgres(_) => vec![
                 "psql".to_owned(),
                 "--echo-all".to_owned(),
+                // Without '-v ON_ERROR_STOP=1', psql will exit with 0 even when there's an error
+                // in the sql. Setting this is required in order to handle any errors from psql.
+                "-v".to_owned(),
+                "ON_ERROR_STOP=1".to_owned(),
                 format!("--file={}", initializer_file.display()),
                 uri,
             ],
