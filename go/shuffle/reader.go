@@ -273,17 +273,20 @@ func (g *governor) onConverge(ctx context.Context) error {
 }
 
 func signalKeySpaceUpdates(ctx context.Context, ks *keyspace.KeySpace, ch chan<- struct{}) {
-	ks.Mu.RLock()
-	defer ks.Mu.RUnlock()
-
+	var revision int64 = -1
 	for {
-		select {
-		case ch <- struct{}{}:
-		case <-ctx.Done():
+		ks.Mu.RLock()
+		var err = ks.WaitForRevision(ctx, revision+1)
+		revision = ks.Header.Revision
+		ks.Mu.RUnlock()
+
+		if err != nil {
 			return
 		}
 
-		if err := ks.WaitForRevision(ctx, ks.Header.Revision+1); err != nil {
+		select {
+		case ch <- struct{}{}:
+		case <-ctx.Done():
 			return
 		}
 	}
