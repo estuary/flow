@@ -3,8 +3,6 @@
 
 # Git version & date which are injected into built binaries.
 VERSION = $(shell git describe --dirty --tags)
-# Export this variable here so we don't have to set it in front of every invocation
-export FLOW_VERSION := ${VERSION}
 DATE    = $(shell date +%F-%T-%Z)
 # Number of available processors for parallel builds.
 NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
@@ -143,7 +141,7 @@ ${GOBIN}/gazette:       go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:        go-install/go.gazette.dev/core/cmd/gazctl
 
 ${RUSTBIN}:
-	cargo build --release
+	FLOW_VERSION=${VERSION} cargo build --release
 
 ${ROOTDIR}/catalog.db: ${RUSTBIN}
 	flowctl build -v --source ${ROOTDIR}/examples/flow.yaml
@@ -197,7 +195,7 @@ sql-test: ${TOOLBIN}/sqlite3
 
 .PHONY: rust-test
 rust-test: ${TOOLBIN}/sqlite3
-	cargo test --all --locked
+	FLOW_VERSION=${VERSION} cargo test --all --locked
 
 .PHONY: build-test-catalog
 build-test-catalog: ${ROOTDIR}/catalog.db
@@ -240,5 +238,5 @@ docker-push-to-quay: docker-image
 
 .PHONY: catalog-test
 develop: ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
-	cargo build
+	FLOW_VERSION=${VERSION} cargo build
 	PATH=${CARGO_TARGET_DIR}/develop:${PATH} ; flowctl -v develop
