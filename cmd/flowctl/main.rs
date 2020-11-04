@@ -57,7 +57,11 @@ struct BuildArgs {
     /// is used temporarily during the catalog build process -- it's compiled and
     /// then packed into the output catalog database -- but re-using the same directory
     /// across invocations will save time otherwise spent fetching npm packages.
-    #[structopt(long = "nodejs", default_value = "catalog-nodejs")]
+    #[structopt(
+        long = "nodejs-dir",
+        default_value = "catalog-nodejs",
+        env("FLOW_NODEJS_DIR")
+    )]
     nodejs_package_path: String,
 }
 
