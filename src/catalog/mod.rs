@@ -81,20 +81,22 @@ const BUILD_COMPLETE_DESCRIPTION: &str = "completed catalog build";
 /// which is used to indicate that the catalog is successfully built and can be used with
 /// subcommands that require a built database.
 pub fn build(db: &DB, spec_url: Url, nodejs_dir: &Path) -> Result<()> {
+    db.execute_batch("BEGIN;")?;
     let result = try_build(db, spec_url, nodejs_dir);
 
     // We'll add the build error description to the catalog on a best-effort basis. This allows us
     // to retain some information on the original error in case we need to debug this catalog.
     if let Err(err) = result.as_ref() {
         let err_message = format!("catalog build failed with error: {:?}", err);
-        log::warn!("{}", err_message);
 
-        // ignore any additional errors here since we already have `err`
+        // Ignore any additional errors here since we already have `err`.
         let _ = db.execute(
             "INSERT INTO build_info (description) VALUES (?);",
             rusqlite::params![err_message],
         );
     }
+
+    db.execute_batch("COMMIT;")?;
     result
 }
 
