@@ -35,6 +35,8 @@ func NewWorkerHost(args ...string) (*WorkerHost, error) {
 	var cmd = exec.Command("flow-worker", append(args, "--grpc-socket-path", socketPath)...)
 	cmd.Stderr = os.Stderr
 
+	// Start flow-worker, and expect to read "READY\n" from it's stdout
+	// once it's started and has bound the unix socket we provided.
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe for flow-worker: %w", err)
@@ -49,6 +51,7 @@ func NewWorkerHost(args ...string) (*WorkerHost, error) {
 	} else if ready != "READY\n" {
 		return nil, fmt.Errorf("unexpected READY from flow-worker: %q", ready)
 	}
+	go br.WriteTo(os.Stdout) // Forward future stdout content.
 
 	conn, err := grpc.DialContext(context.Background(), "unix://"+socketPath, grpc.WithBlock(), grpc.WithInsecure(), grpc.WithAuthority("localhost"))
 	if err != nil {
