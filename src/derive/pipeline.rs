@@ -1,5 +1,8 @@
 use futures::channel::oneshot;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// PendingPipeline is a pipelined value which may, in the future,
 /// be received by the current process.
@@ -15,6 +18,28 @@ pub struct HeldPipeline<T: Debug + Send + 'static> {
     tx: Option<oneshot::Sender<T>>,
 }
 
+/// PendingPipeline is a Future which receives its value and converts to a HeldPipeline.
+impl<T: Debug + Send + 'static> Future for PendingPipeline<T> {
+    type Output = HeldPipeline<T>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let rx = self.rx.as_mut().unwrap();
+        pin_utils::pin_mut!(rx);
+
+        match rx.poll(cx) {
+            Poll::Ready(t) => {
+                let (_, tx) = (self.rx.take(), self.tx.take());
+
+                Poll::Ready(HeldPipeline {
+                    t: Some(t.expect("pipeline rx")),
+                    tx,
+                })
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 impl<T: Debug + Send + 'static> PendingPipeline<T> {
     /// Build a new PendingPipeline around the given value.
     pub fn new(t: T) -> PendingPipeline<T> {
@@ -25,16 +50,6 @@ impl<T: Debug + Send + 'static> PendingPipeline<T> {
         PendingPipeline {
             rx: Some(rx),
             tx: Some(tx),
-        }
-    }
-
-    // Receive the pipelined value, converting into a HeldPipeline<T>.
-    pub async fn recv(mut self) -> HeldPipeline<T> {
-        let t = self.rx.take().unwrap().await.expect("pipeline rx");
-
-        HeldPipeline {
-            t: Some(t),
-            tx: self.tx.take(),
         }
     }
 
@@ -114,19 +129,10 @@ mod test {
         let d = b.chain_before();
         let e = a.chain_before();
 
-        {
-            let mut d = d.recv().await;
-            assert_eq!(42, *d.as_mut());
-        };
+        assert_eq!(42, *d.await.as_mut());
         std::mem::drop(b); // Drop without reading it.
-        {
-            let mut c = c.recv().await;
-            assert_eq!(42, *c.as_mut());
-        };
+        assert_eq!(42, *c.await.as_mut());
         std::mem::drop(e); // Drop without reading.
-        {
-            let a = a.recv().await;
-            assert_eq!(42, a.into_inner());
-        };
+        assert_eq!(42, a.await.into_inner());
     }
 }

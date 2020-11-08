@@ -231,7 +231,7 @@ async fn process_continue(
 
     // Now that we have deltas in-hand, receive |registers| from the
     // processing task ordered ahead of us.
-    let mut registers = registers.recv().await;
+    let mut registers = registers.await;
     // Build publish lambda invocations, applying register deltas as we go.
     // This returns a future response of those invocations, and does not block.
     let derivations = derive_publish_docs(
@@ -249,7 +249,7 @@ async fn process_continue(
 
     // Like register deltas, now that we have derived documents in-hand,
     // receive |combiner| from the task ordered ahead of us.
-    let mut combiner = combiner.recv().await;
+    let mut combiner = combiner.await;
     for doc in derivations.into_iter().flatten() {
         combiner
             .as_mut()
@@ -345,24 +345,21 @@ async fn derive_rpc(
         }
     }
 
-    // Drain the Combiner, aggregating documents into CombineResponses and
-    // sending each as a Flush DeriveResponse message variant.
-    let combiner = combiner.recv().await.into_inner();
-
-    // Drain the Combiner, extracting the given fields and inserting a
-    // UUID placeholder at the given pointer.
+    // Map requested extraction fields to Pointers.
     let fields = flush
         .field_ptrs
         .iter()
         .map(doc::Pointer::from)
         .collect::<Vec<_>>();
 
-    let responses = combiner.into_entries(&flush.uuid_placeholder_ptr);
-
+    // Block to receive and unwrap the Combiner.
+    let combiner = combiner.await.into_inner();
+    // Drain the Combiner, aggregating documents into CombineResponses
+    // and sending each as a Flush DeriveResponse message variant.
     let responses = docs_to_combine_responses(
         1 << 14, // Target arenas of 16k.
         &fields,
-        responses,
+        combiner.into_entries(&flush.uuid_placeholder_ptr),
     )
     .map(|cr| {
         Ok(Ok(flow::DeriveResponse {
@@ -393,7 +390,7 @@ async fn derive_rpc(
         _ => return Err(Error::ExpectedPrepare),
     };
 
-    let mut registers = registers.recv().await;
+    let mut registers = registers.await;
     let tx_commit = registers.as_mut().prepare(checkpoint)?;
 
     // Pass back control of registers to the caller / the next RPC.
@@ -453,14 +450,12 @@ impl API {
 
     async fn last_checkpoint(&self) -> Result<consumer::Checkpoint, Error> {
         let registers = self.registers.lock().unwrap().chain_before();
-        let registers = registers.recv().await;
-        Ok(registers.as_ref().last_checkpoint()?)
+        Ok(registers.await.as_ref().last_checkpoint()?)
     }
 
     async fn clear_registers(&self) -> Result<(), Error> {
         let registers = self.registers.lock().unwrap().chain_before();
-        let mut registers = registers.recv().await;
-        registers.as_mut().clear().map_err(Into::into)
+        registers.await.as_mut().clear().map_err(Into::into)
     }
 }
 
