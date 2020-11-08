@@ -65,10 +65,15 @@ impl NodeRuntime {
             .env("SOCKET_PATH", &sock)
             .spawn()?;
 
+        let mut stdout = proc.stdout.take().expect("stdout pipe");
+
         // Wait for subprocess to indicate it's started (and has bound its server socket).
         let mut ready = [0; 6];
-        proc.stdout.as_mut().unwrap().read_exact(&mut ready)?;
+        stdout.read_exact(&mut ready)?;
         assert_eq!(&ready, b"READY\n");
+
+        // Having read "READY\n" header, forward remaining stdout to our own descriptor.
+        std::thread::spawn(move || std::io::copy(&mut stdout, &mut std::io::stdout()));
 
         log::info!("nodejs runtime is ready {:?}", proc);
         Ok(NodeRuntime { proc, sock })
