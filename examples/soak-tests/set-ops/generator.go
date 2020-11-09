@@ -3,21 +3,20 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"math/bits"
 	"math/rand"
 	"os"
 	"time"
+
+	"github.com/jessevdk/go-flags"
 )
 
-const (
-	// NConcurrent is the number of concurrent streams.
-	NConcurrent = 20
-	// NStreamOps is the number of operations per stream.
-	NStreamOps = 10
-	// Keys is the set of characters from which set keys are drawn.
-	Keys = string("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	// MaxKeysPerOp is the maximum number of keys appearing in a set operation.
-	MaxKeysPerOp = len(Keys) / 3
-)
+var cfg struct {
+	Concurrent   int    `long:"concurrent" default:"100" description:"Number of concurrent streams"`
+	OpsPerStream int    `long:"operations" default:"10" description:"Number of operations per stream"`
+	Keys         string `long:"keys" default:"ABCDEFGHIJKLMNOPQRSTUVWXYZ" description:"Characters from which set keys are drawn"`
+	KeysPerOp    int    `long:"keys-per-op" default:"7" description:"Maximum number of keys in a single set operation"`
+}
 
 // Stream holds incremental stream state.
 type Stream struct {
@@ -33,15 +32,20 @@ func clear(m map[string]int) {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-	var author = rand.Intn(1 << 16)
 
-	var bw = bufio.NewWriter(os.Stdout)
-	var enc = json.NewEncoder(bw)
-	var err error
+	if _, err := flags.Parse(&cfg); err != nil {
+		return
+	}
 
-	var streams [NConcurrent]Stream
+	var (
+		err     error
+		author  = rand.Intn(1 << 16)
+		bw      = bufio.NewWriter(os.Stdout)
+		enc     = json.NewEncoder(bw)
+		streams = make([]Stream, cfg.Concurrent)
+		nextID  int
+	)
 
-	var nextID int
 	for s := range streams {
 		streams[s] = Stream{
 			id:     nextID,
@@ -54,18 +58,19 @@ func main() {
 
 	var update = make(map[string]int)
 	for {
-		var stream = &streams[rand.Intn(NConcurrent)]
+		var stream = &streams[rand.Intn(cfg.Concurrent)]
 
-		if op := stream.add + stream.rem; op == NStreamOps {
+		if op := stream.add + stream.rem; op == cfg.OpsPerStream {
 			if err = enc.Encode(struct {
 				Author      int
 				ID          int
+				Ones        int
 				Op          int
 				Type        string
 				TotalAdd    int
 				TotalRemove int
 				Values      map[string]int
-			}{author, stream.id, op + 1, "verify", stream.add, stream.rem, stream.values}); err != nil {
+			}{author, stream.id, bits.OnesCount(uint(stream.id)), op + 1, "verify", stream.add, stream.rem, stream.values}); err != nil {
 				panic(err)
 			}
 
@@ -78,10 +83,10 @@ func main() {
 		}
 
 		clear(update)
-		var keys = rand.Intn(MaxKeysPerOp) + 1
+		var keys = rand.Intn(cfg.KeysPerOp) + 1
 		for i := 0; i != keys; i++ {
-			var key = rand.Intn(len(Keys))
-			update[Keys[key:key+1]] = 1
+			var key = rand.Intn(len(cfg.Keys))
+			update[cfg.Keys[key:key+1]] = 1
 		}
 
 		var opType string
@@ -104,10 +109,11 @@ func main() {
 		if err = enc.Encode(struct {
 			Author int
 			ID     int
+			Ones   int
 			Op     int
 			Type   string
 			Values map[string]int
-		}{author, stream.id, stream.add + stream.rem, opType, update}); err != nil {
+		}{author, stream.id, bits.OnesCount(uint(stream.id)), stream.add + stream.rem, opType, update}); err != nil {
 			panic(err)
 		}
 	}
