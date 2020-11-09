@@ -7,25 +7,29 @@ collections:
   - name: soak/set-ops/operations
     schema: schema.yaml#/$defs/operation
     key: [/Author, /ID, /Op]
+    projections:
+      # Partition on /Ones, which is the number of set bits in /ID.
+      # This is simply to exercise the regular creation of new partitions.
+      Ones:
+        location: /Ones
+        partition: true
 
   - name: soak/set-ops/sets
-    schema: schema.yaml#/$defs/output
+    schema: schema.yaml#/$defs/outputWithReductions
     key: [/Author, /ID]
     projections:
+      # Project some non-scalar types that we want to materialize.
       AppliedOps: /AppliedOps
       DerivedValues: /Derived/add
       ExpectValues: /ExpectValues
 
     derivation:
       transform:
-        update:
-          source:
-            name: soak/set-ops/operations
+        onOperation:
+          source: { name: soak/set-ops/operations }
           shuffle: [/Author, /ID]
           publish:
-            nodeJS: |
-              console.log(source);
-
+            nodeJS: &lambda |
               if (source.Type == "add" || source.Type == "remove") {
                 let mutate = (source as anchors.MutateOp);
 
@@ -52,6 +56,34 @@ collections:
                 ExpectValues: verify.Values,
               }];
 
+  - name: soak/set-ops/sets-register
+    schema: schema.yaml#/$defs/output
+    key: [/Author, /ID]
+    projections:
+      # Project the same non-scalar types as above, for materialization.
+      AppliedOps: /AppliedOps
+      DerivedValues: /Derived/add
+      ExpectValues: /ExpectValues
+
+    derivation:
+      # Unlike "soak/set-ops/sets" above, we do all reduction within the
+      # derivation register and only output the final value on a "verify" type.
+      register:
+        schema: schema.yaml#/$defs/outputWithReductions
+        initial: { Author: 0, ID: 0 }
+
+      transform:
+        onOperation:
+          source: { name: soak/set-ops/operations }
+          shuffle: [/Author, /ID]
+          update: { nodeJS: *lambda }
+          publish:
+            nodeJS: |
+              if (source.Type == "verify") {
+                return [register];
+              }
+              return [];
+
 tests:
   "Set soak-test update and verify":
     - ingest:
@@ -60,6 +92,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 0,
+              "Ones": 0,
               "Op": 1,
               "Type": "remove",
               "Values": { "K": 1, "S": 1 },
@@ -67,6 +100,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 1,
+              "Ones": 1,
               "Op": 1,
               "Type": "add",
               "Values": { "H": 1, "K": 1, "M": 1, "Q": 1, "U": 1, "V": 1 },
@@ -74,6 +108,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 1,
+              "Ones": 1,
               "Op": 2,
               "Type": "add",
               "Values": { "A": 1, "C": 1, "F": 1, "L": 1, "U": 1 },
@@ -81,6 +116,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 0,
+              "Ones": 0,
               "Op": 2,
               "Type": "add",
               "Values": { "J": 1, "W": 1 },
@@ -88,6 +124,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 0,
+              "Ones": 0,
               "Op": 3,
               "Type": "verify",
               "TotalAdd": 1,
@@ -97,6 +134,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 2,
+              "Ones": 1,
               "Op": 1,
               "Type": "add",
               "Values": { "K": 1, "T": 1 },
@@ -104,6 +142,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 2,
+              "Ones": 1,
               "Op": 2,
               "Type": "remove",
               "Values":
@@ -112,6 +151,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 2,
+              "Ones": 1,
               "Op": 3,
               "Type": "verify",
               "TotalAdd": 1,
@@ -121,6 +161,7 @@ tests:
           - {
               "Author": 17369,
               "ID": 1,
+              "Ones": 1,
               "Op": 3,
               "Type": "verify",
               "TotalAdd": 2,
@@ -142,7 +183,7 @@ tests:
 
     - verify:
         collection: soak/set-ops/sets
-        documents:
+        documents: &expected
           - {
               "AppliedAdd": 1,
               "AppliedOps": [1, 2, 3],
@@ -202,3 +243,7 @@ tests:
               "ExpectValues": { "T": 1 },
               "ID": 2,
             }
+
+    - verify:
+        collection: soak/set-ops/sets-register
+        documents: *expected
