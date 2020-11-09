@@ -363,7 +363,7 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 	defer allJournals.Mu.RUnlock()
 
 	for _, transform := range transforms {
-		var sources = allJournals.Prefixed(allJournals.Root + "/" + transform.SourceName)
+		var sources = allJournals.Prefixed(allJournals.Root + "/" + transform.SourceName + "/")
 
 		for _, kv := range sources {
 			var source = kv.Decoded.(*pb.JournalSpec)
