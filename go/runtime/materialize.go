@@ -100,11 +100,14 @@ func NewMaterializeApp(
 	// target system and initialize the set of projected fields from data stored there.
 	targetStore, err := materialize.NewMaterializationTarget(targetSpec)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize matarialization from target database: %w", err)
+		return nil, fmt.Errorf("Failed to initialize materialization from target database: %w", err)
 	}
 
 	readerSpec := pf.ReadSpec{
 		SourceName: collectionName,
+		SourcePartitions: pb.LabelSelector{
+			Include: pb.MustLabelSet(labels.Collection, collectionName),
+		},
 		Shuffle: pf.Shuffle{
 			ShuffleKeyPtr: collectionSpec.KeyPtrs,
 			UsesSourceKey: true,

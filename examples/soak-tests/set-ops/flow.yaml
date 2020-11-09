@@ -2,6 +2,9 @@
 # go run /workspace/examples/soak-tests/set-ops/generator.go | \
 #   pv --rate-limit 100 --line-mode --quiet | \
 #   /workspace/.build/tools/websocat --protocol json/v1 ws://localhost:8081/ingest/soak/set-ops/operations
+#
+# Verify that all documents were processed correctly so far (should return no rows):
+#   psql -h localhost --user flow -c 'select * from sets where "DerivedValues"::text != "ExpectValues"::text limit 1;'
 
 collections:
   - name: soak/set-ops/operations
