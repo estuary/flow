@@ -105,7 +105,7 @@ class Server {
               ':status': 400,
               'content-type': 'text/plain',
             });
-            req.end(`${err.name}: (${err.message})`);
+            req.end(`${err.name}: (${err.message})\n`);
             console.error(err);
           });
     });
@@ -126,7 +126,7 @@ class Server {
         ':status': 400,
         'content-type': 'text/plain',
       });
-      req.end(msg);  // Send message & EOF.
+      req.end(msg + '\n');  // Send message & EOF.
     };
 
     const path = hdrs[':path'];
@@ -147,7 +147,7 @@ class Server {
 
     const pathUpdate = /^\/update\/(\d+)$/.exec(path);
     if (pathUpdate) {
-      const update = this.transforms[parseInt(pathUpdate[1], 10)].update;
+      const update = this.transforms[parseInt(pathUpdate[1], 10)]?.update;
       if (update === undefined) {
         return malformed(`update ${path} is not defined`);
       }
@@ -157,7 +157,7 @@ class Server {
 
     const pathPublish = /^\/publish\/(\d+)$/.exec(path);
     if (pathPublish) {
-      const publish = this.transforms[parseInt(pathPublish[1], 10)].publish;
+      const publish = this.transforms[parseInt(pathPublish[1], 10)]?.publish;
       if (publish === undefined) {
         return malformed(`publish ${path} is not defined`);
       }
