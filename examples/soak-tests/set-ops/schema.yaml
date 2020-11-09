@@ -1,16 +1,19 @@
 $defs:
   header:
     $anchor: Header
+    description: "Common properties of generated operations"
     type: object
     properties:
       Author: { type: integer }
       ID: { type: integer }
+      Ones: { type: integer }
       Op: { type: integer }
       Type: { type: string }
-    required: [Author, ID, Op, Type]
+    required: [Author, ID, Ones, Op, Type]
 
   mutateOp:
     $anchor: MutateOp
+    description: "Operation which mutates a stream"
     $ref: "#Header"
 
     properties:
@@ -25,6 +28,7 @@ $defs:
 
   verifyOp:
     $anchor: VerifyOp
+    description: "Operation which verifies the expected value of a stream"
     $ref: "#Header"
 
     properties:
@@ -40,47 +44,55 @@ $defs:
     required: [TotalAdd, TotalRemove, Values]
 
   operation:
+    description: "Union type over MutateOp and VerifyOp"
     oneOf:
       - { $ref: "#MutateOp" }
       - { $ref: "#VerifyOp" }
 
   output:
+    description: "Output merges expected and actual values for a given stream"
     type: object
-    reduce: { strategy: merge }
     properties:
       Author: { type: integer }
       ID: { type: integer }
       AppliedOps:
         type: array
         items: { type: integer }
-        reduce: { strategy: append }
+
+      AppliedAdd: { type: integer }
+      AppliedRemove: { type: integer }
+      ExpectAdd: { type: integer }
+      ExpectRemove: { type: integer }
 
       Derived:
         type: object
-        reduce: { strategy: set }
         additionalProperties:
           type: object
-          reduce: { strategy: merge }
-          additionalProperties:
-            type: integer
-            reduce: { strategy: sum }
+          additionalProperties: { type: integer }
           propertyNames: { maxLength: 1 }
-
-      AppliedAdd:
-        type: integer
-        reduce: { strategy: sum }
-
-      AppliedRemove:
-        type: integer
-        reduce: { strategy: sum }
-
-      ExpectAdd: { type: integer }
-      ExpectRemove: { type: integer }
 
       ExpectValues:
         type: object
         propertyNames: { maxLength: 1 }
-        additionalProperties:
-          type: integer
+        additionalProperties: { type: integer }
 
     required: [Author, ID]
+
+  # outputWithReductions extends output with reduction annotations.
+  # We separate these, so that the soak test can exercise both:
+  # * Reductions during materialization, and
+  # * Reductions within registers, but *not* during materialization.
+  outputWithReductions:
+    $ref: "#/$defs/output"
+
+    reduce: { strategy: merge }
+    properties:
+      AppliedOps: { reduce: { strategy: append } }
+      Derived:
+        reduce: { strategy: set }
+        additionalProperties:
+          reduce: { strategy: merge }
+          additionalProperties:
+            reduce: { strategy: sum }
+      AppliedAdd: { reduce: { strategy: sum } }
+      AppliedRemove: { reduce: { strategy: sum } }
