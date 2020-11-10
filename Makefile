@@ -33,6 +33,11 @@ EXTRA_APT_PACKAGES = \
 	protobuf-compiler \
 	sqlite3-pcre
 
+# Apt packages that we remove.
+# We'll manually install the sqlite CLI; this version is too old.
+REMOVE_APT_PACKAGES = \
+	sqlite3
+
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
 ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
@@ -173,6 +178,7 @@ ${PKGDIR}/flowctl:     ${PKGDIR} ${RUSTBIN}
 .PHONY: extra-ci-setup
 extra-ci-runner-setup:
 	sudo apt install -y $(EXTRA_APT_PACKAGES)
+	sudo apt remove -y $(REMOVE_APT_PACKAGES)
 	sudo ln --force --symbolic /usr/bin/ld.lld-9 /usr/bin/ld.lld
 
 .PHONY: print-versions
@@ -238,5 +244,4 @@ docker-push-to-quay: docker-image
 
 .PHONY: catalog-test
 develop: ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
-	FLOW_VERSION=${VERSION} cargo build
-	PATH=${CARGO_TARGET_DIR}/develop:${PATH} ; flowctl -v develop
+	RUST_BACKTRACE=full flowctl -v develop
