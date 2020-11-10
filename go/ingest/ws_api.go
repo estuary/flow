@@ -181,9 +181,7 @@ func serveWebsocket(
 ) (err error) {
 
 	var upgrader = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		Subprotocols:    []string{wsCSVProtocol, wsTSVProtocol},
+		Subprotocols: []string{wsCSVProtocol, wsTSVProtocol},
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

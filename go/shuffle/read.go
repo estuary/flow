@@ -143,6 +143,7 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 				Journal:     spec.Name,
 				Coordinator: coordinator,
 				Shuffle:     transform.Shuffle,
+				Replay:      true,
 			}
 			out = &read{
 				spec: spec,
@@ -183,6 +184,7 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 				Journal:     spec.Name,
 				Coordinator: coordinator,
 				Shuffle:     transform.Shuffle,
+				Replay:      false,
 			}
 
 			var r, ok = existing[spec.Name]
