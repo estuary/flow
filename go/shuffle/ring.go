@@ -111,6 +111,8 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
 		return
+	} else if len(r.subscribers) == 0 {
+		return // We've cancelled the *ring, and are draining remaining read(s).
 	}
 
 	if l := len(staged.End); l != 0 {
