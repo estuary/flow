@@ -3,6 +3,7 @@ import:
   - stock-stats/flow.yaml
   - int-string.flow.yaml
   - soak-tests/set-ops/flow.yaml
+  - weird-types.flow.yaml
 
 materializationTargets:
   testDB:

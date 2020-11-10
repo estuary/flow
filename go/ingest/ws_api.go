@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +23,10 @@ const wsCSVProtocol = "csv/v1"
 const wsTSVProtocol = "tsv/v1"
 const wsJSONProtocol = "json/v1"
 
+type wsIngester interface {
+	onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error
+}
+
 // Maximum time we'll wait for a write we initiate to complete.
 // We don't use websocket's ping-pong mechanism, instead relying on TCP keep-alive.
 const wsWriteTimeout = 10 * time.Second
@@ -38,138 +41,43 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 	// Thereafter, rows may omit trailing columns having projections which are not
 	// required to exist.
 	csvReader.FieldsPerRecord = -1
-	var projections []*pf.Projection
-	var pointers []flow.Pointer
 
-	// First frame is headers, subsequent frames are documents.
-	var onHeader = func(collection *pf.CollectionSpec) error {
-		var headers, err = csvReader.Read()
-		if err != nil {
+	var csvIngester = wsCsvIngester{
+		buffer:    &buffer,
+		csvReader: csvReader,
+	}
+
+	_ = serveWebsocket(a, w, r, &buffer, &csvIngester)
+}
+
+type wsJsonIngester struct {
+	buffer *bytes.Buffer
+}
+
+func (self *wsJsonIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
+	var decoder = json.NewDecoder(self.buffer)
+	for {
+		var doc json.RawMessage
+
+		if err := decoder.Decode(&doc); err == io.EOF {
+			return nil
+		} else if err != nil {
 			return err
 		}
-		for _, header := range headers {
-			var projection = pf.GetProjectionByField(header, collection.Projections)
-			if projection == nil {
-				return fmt.Errorf("collection %q has no projection %q", collection.Name, header)
-			}
-			projections = append(projections, projection)
 
-			var ptr, err = flow.NewPointer(projection.Ptr)
-			if err != nil {
-				panic(err)
-			}
-			pointers = append(pointers, ptr)
+		addCh <- ingestAdd{
+			collection: collection.Name,
+			doc:        doc,
 		}
-		return nil
-
 	}
-
-	var onFrame = func(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
-		if projections == nil {
-			return onHeader(collection)
-		}
-
-		for buffer.Len() != 0 {
-			var records, err = csvReader.Read()
-			if err != nil {
-				return err
-			} else if lr, lp := len(records), len(projections); lr > lp {
-				return fmt.Errorf("row has %d columns, but header had only %d", lr, lp)
-			} else {
-				for ; lr != lp; lr++ {
-					if p := projections[lr]; p.Inference.MustExist {
-						return fmt.Errorf("row omits column %d ('%v'), which must exist", lr, projections[lr].Field)
-					}
-				}
-			}
-
-			// Doc we'll build up from parsed projections.
-			var doc interface{}
-
-			for c, record := range records {
-				var value, err = pointers[c].Create(&doc)
-				if err != nil {
-					return fmt.Errorf("failed to query or create document location %q: %w", projections[c].Ptr, err)
-				}
-
-				var types = projections[c].Inference.Types
-				var lastErr error
-
-				// TODO(johnny): This cyclomatic depth is pretty gross. Refactor.
-				for _, typ := range types {
-					switch typ {
-					case "null":
-						if record == "" {
-							*value = nil
-							break
-						}
-					case "number":
-						if *value, lastErr = strconv.ParseFloat(record, 64); lastErr == nil {
-							break
-						}
-						fallthrough
-					case "integer":
-						if *value, lastErr = strconv.ParseUint(record, 10, 64); lastErr == nil {
-							break
-						}
-						if *value, lastErr = strconv.ParseInt(record, 10, 64); lastErr == nil {
-							break
-						}
-					case "boolean":
-						if *value, lastErr = strconv.ParseBool(record); err == nil {
-							break
-						}
-					case "string":
-						*value = record
-						break
-					case "object", "array":
-						// Not supported.
-					}
-				}
-
-				if lastErr != nil {
-					return fmt.Errorf("failed to parse '%v' (of column: %v) into %v: %w",
-						record, projections[c].Field, types, lastErr)
-				}
-			}
-
-			docBytes, err := json.Marshal(doc)
-			if err != nil {
-				panic(err) // Marshal cannot fail.
-			}
-
-			addCh <- ingestAdd{
-				collection: collection.Name,
-				doc:        json.RawMessage(docBytes),
-			}
-		}
-		return nil
-	}
-
-	_ = serveWebsocket(a, w, r, &buffer, onFrame)
 }
 
 func serveWebsocketJSON(a args, w http.ResponseWriter, r *http.Request) {
 	var buffer bytes.Buffer
-
-	var onFrame = func(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
-		var decoder = json.NewDecoder(&buffer)
-		for {
-			var doc json.RawMessage
-
-			if err := decoder.Decode(&doc); err == io.EOF {
-				return nil
-			} else if err != nil {
-				return err
-			}
-
-			addCh <- ingestAdd{
-				collection: collection.Name,
-				doc:        doc,
-			}
-		}
+	var ingester = wsJsonIngester{
+		buffer: &buffer,
 	}
-	_ = serveWebsocket(a, w, r, &buffer, onFrame)
+	_ = serveWebsocket(a, w, r, &buffer, &ingester)
 }
 
 func serveWebsocket(
@@ -177,7 +85,7 @@ func serveWebsocket(
 	w http.ResponseWriter,
 	r *http.Request,
 	buffer *bytes.Buffer,
-	onFrame func(*pf.CollectionSpec, chan<- ingestAdd) error,
+	ingester wsIngester,
 ) (err error) {
 
 	var upgrader = websocket.Upgrader{
@@ -271,7 +179,7 @@ func serveWebsocket(
 				continue        // Note that we don't poll a next frame.
 			} else if err != nil {
 				return fmt.Errorf("while receiving: %w", err)
-			} else if err = onFrame(collection, ingestCh); err != nil {
+			} else if err = ingester.onFrame(collection, ingestCh); err != nil {
 				return fmt.Errorf("processing frame: %w", err)
 			}
 			frames++
