@@ -20,6 +20,8 @@ RUN apt-get update -y \
       curl \
       git \
       gnupg2 \
+      iproute2 \
+      jq \
       libclang-10-dev \
       libncurses5-dev \
       libreadline-dev \
@@ -33,7 +35,9 @@ RUN apt-get update -y \
       postgresql-client \
       psmisc \
       sqlite3 \
+      strace \
       sudo \
+      tcpdump \
       unzip \
       wget \
       zip
