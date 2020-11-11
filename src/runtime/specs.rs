@@ -1,7 +1,7 @@
 use crate::{catalog, label_set, labels::keys as label_keys, labels::values as label_values};
 use estuary_protocol::{consumer, protocol};
 use std::collections::BTreeMap;
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 
 #[derive(Debug)]
 pub struct DerivationSet(BTreeMap<String, ()>);
@@ -15,6 +15,17 @@ impl std::convert::TryFrom<consumer::ListResponse> for DerivationSet {
     fn try_from(_: consumer::ListResponse) -> Result<Self, Self::Error> {
         Ok(DerivationSet(BTreeMap::new()))
     }
+}
+
+fn derivation_shard_id(
+    collection: impl Display,
+    key_range_begin: impl Display,
+    rclock_range_begin: impl Display,
+) -> String {
+    format!(
+        "derivation/{}/{}-{}",
+        collection, key_range_begin, rclock_range_begin
+    )
 }
 
 impl DerivationSet {
@@ -51,7 +62,14 @@ impl DerivationSet {
 
                 protocol::apply_request::Change {
                     upsert: Some(protocol::JournalSpec {
-                        name: format!("recovery/derivation/{}/00/00000000", collection),
+                        name: format!(
+                            "recovery/{}",
+                            derivation_shard_id(
+                                collection,
+                                label_values::DEFAULT_KEY_BEGIN,
+                                label_values::DEFAULT_RCLOCK_BEGIN
+                            )
+                        ),
                         replication: 1,
                         labels,
                         fragment,
@@ -76,17 +94,21 @@ impl DerivationSet {
                         label_keys::MANAGED_BY => label_values::FLOW,
                         label_keys::CATALOG_URL => catalog_url,
                         label_keys::DERIVATION => collection.as_str(),
-                        label_keys::KEY_BEGIN => "00",
-                        label_keys::KEY_END => "ffffffff",
-                        label_keys::RCLOCK_BEGIN => "0000000000000000",
-                        label_keys::RCLOCK_END => "ffffffffffffffff",
+                        label_keys::KEY_BEGIN => label_values::DEFAULT_KEY_BEGIN,
+                        label_keys::KEY_END => label_values::DEFAULT_KEY_END,
+                        label_keys::RCLOCK_BEGIN => label_values::DEFAULT_RCLOCK_BEGIN,
+                        label_keys::RCLOCK_END => label_values::DEFAULT_RCLOCK_END,
                 ];
 
                 consumer::apply_request::Change {
                     upsert: Some(consumer::ShardSpec {
-                        id: format!("{}/00/00000000", collection),
+                        id: derivation_shard_id(
+                            collection,
+                            label_values::DEFAULT_KEY_BEGIN,
+                            label_values::DEFAULT_RCLOCK_BEGIN,
+                        ),
                         sources: Vec::new(),
-                        recovery_log_prefix: "recovery/derivation".to_owned(),
+                        recovery_log_prefix: "recovery".to_owned(),
                         hint_prefix: "/estuary/flow/hints".to_owned(),
                         hint_backups: 2,
                         max_txn_duration: Some(prost_types::Duration {
