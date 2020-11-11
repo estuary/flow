@@ -39,17 +39,14 @@ func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.Extra
 	}
 }
 
-func (c *Coordinator) findOrCreateRing(shuffle pf.JournalShuffle) *ring {
+func (c *Coordinator) subscribe(sub subscriber) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for ring := range c.rings {
-		if ring.ctx.Err() != nil {
-			// Prune completed ring from the collection.
-			delete(c.rings, ring)
-		} else if ring.shuffle.Equal(shuffle) {
-			// Return a matched, existing ring.
-			return ring
+		if ring.shuffle.Equal(sub.Shuffle) {
+			ring.subscriberCh <- sub
+			return
 		}
 	}
 
@@ -61,14 +58,14 @@ func (c *Coordinator) findOrCreateRing(shuffle pf.JournalShuffle) *ring {
 		ctx:          ctx,
 		cancel:       cancel,
 		subscriberCh: make(chan subscriber, 1),
-		shuffle:      shuffle,
+		shuffle:      sub.Shuffle,
 	}
 	c.rings[ring] = struct{}{}
 
 	ring.log().Info("starting shuffle ring service")
 	go ring.serve()
 
-	return ring
+	ring.subscriberCh <- sub
 }
 
 // Ring coordinates a read over a single journal on behalf of a
@@ -87,9 +84,10 @@ type ring struct {
 
 func (r *ring) onSubscribe(sub subscriber) {
 	r.log().WithFields(log.Fields{
-		"range":     &sub.Range,
-		"offset":    sub.Offset,
-		"endOffset": sub.EndOffset,
+		"range":       &sub.Range,
+		"offset":      sub.Offset,
+		"endOffset":   sub.EndOffset,
+		"subscribers": len(r.subscribers),
 	}).Info("adding shuffle ring subscriber")
 
 	var rr = r.subscribers.add(sub)
@@ -111,8 +109,6 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
 		return
-	} else if len(r.subscribers) == 0 {
-		return // We've cancelled the *ring, and are draining remaining read(s).
 	}
 
 	if l := len(staged.End); l != 0 {
@@ -124,6 +120,7 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 	// Stage responses for subscribers, and send.
 	r.subscribers.stageResponses(&staged)
 	r.subscribers.sendResponses()
+
 	// If no active subscribers remain, then cancel this ring.
 	if len(r.subscribers) == 0 {
 		r.cancel()
@@ -189,7 +186,8 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, extract *pf.ExtractResponse
 }
 
 func (r *ring) serve() {
-	for len(r.readChans) != 0 || r.ctx.Err() == nil {
+loop:
+	for {
 		var readCh chan pf.ShuffleResponse
 		if l := len(r.readChans); l != 0 {
 			readCh = r.readChans[l-1]
@@ -200,9 +198,25 @@ func (r *ring) serve() {
 			r.onSubscribe(sub)
 		case resp, ok := <-readCh:
 			r.onRead(resp, ok)
+		case <-r.ctx.Done():
+			break loop
 		}
 	}
-	r.subscribers.sendEOF()
+
+	// De-link this ring from its coordinator.
+	r.coordinator.mu.Lock()
+	delete(r.coordinator.rings, r)
+	r.coordinator.mu.Unlock()
+
+	// Drain any remaining subscribers.
+	close(r.subscriberCh)
+	for sub := range r.subscriberCh {
+		r.subscribers = append(r.subscribers, sub)
+	}
+	for _, sub := range r.subscribers {
+		sub.doneCh <- r.ctx.Err()
+	}
+
 	r.log().Info("shuffle ring service exiting")
 }
 

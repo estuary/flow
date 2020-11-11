@@ -2,8 +2,10 @@ package shuffle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"strings"
 	"time"
 
@@ -89,14 +91,48 @@ func NewReadBuilder(
 
 // StartReplayRead builds and starts a read of the given journal and offset range.
 func (rb *ReadBuilder) StartReplayRead(ctx context.Context, journal pb.Journal, begin, end pb.Offset) message.Iterator {
-	var r, err = rb.buildReplayRead(journal, begin, end)
-	if err != nil {
-		return message.IteratorFunc(func() (message.Envelope, error) {
-			return message.Envelope{}, err
-		})
-	}
-	rb.start(ctx, r)
-	return r
+	var r *read
+
+	return message.IteratorFunc(func() (_ message.Envelope, err error) {
+		var attempt int
+		for {
+			if r != nil {
+				// Fall through to keep using |r|.
+			} else if r, err = rb.buildReplayRead(journal, begin, end); err != nil {
+				return message.Envelope{}, err
+			} else if err = rb.start(ctx, r); err != nil {
+				return message.Envelope{}, err
+			}
+
+			if sr := r.resp.ShuffleResponse; sr != nil && r.resp.Index != len(sr.DocsJson) {
+				return r.dequeue(), nil
+			}
+
+			// We must receive from the stream.
+			if err = r.onRead(r.doRead()); err == nil && r.resp.TerminalError == "" {
+				continue
+			} else if err == io.EOF {
+				return message.Envelope{}, err
+			} else if err == nil {
+				return message.Envelope{}, errors.New(r.resp.TerminalError)
+			}
+
+			// Stream is broken, but may be retried.
+			r.log().WithFields(log.Fields{
+				"err":     err,
+				"attempt": attempt,
+			}).Warn("failed to receive shuffled replay read (will retry)")
+
+			switch attempt {
+			case 0, 1: // Don't wait.
+			default:
+				time.Sleep(5 * time.Second)
+			}
+			attempt++
+
+			begin, r = r.req.Offset, nil
+		}
+	})
 }
 
 // ReadThrough filters the input |offsets| to those journals and offsets which are
@@ -128,7 +164,12 @@ type read struct {
 	// Positive delta by which documents are effectively delayed w.r.t. other
 	// documents, as well as literally delayed (by gating) w.r.t current wall-time.
 	pollAdjust message.Clock
-	pollCh     chan *pf.ShuffleResponse
+	pollCh     chan readResult
+}
+
+type readResult struct {
+	resp *pf.ShuffleResponse
+	err  error
 }
 
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
@@ -250,17 +291,31 @@ func (rb *ReadBuilder) start(ctx context.Context, r *read) error {
 	return err
 }
 
-// Next implements the message.Iterator interface.
-func (r *read) Next() (env message.Envelope, err error) {
-	// Note that this loop is used in replay mode, but not in polling mode.
-	for r.resp.ShuffleResponse == nil || r.resp.Index == len(r.resp.Begin) {
-		if r.resp.ShuffleResponse, err = r.stream.Recv(); err != nil {
-			return
-		}
-		r.resp.Index = 0
+func (r *read) doRead() (out readResult) {
+	out.resp, out.err = r.stream.Recv()
+	return
+}
+
+func (r *read) onRead(p readResult) error {
+	if p.err != nil {
+		return p.err
 	}
 
-	env = message.Envelope{
+	r.resp.ShuffleResponse = p.resp
+	r.resp.Index = 0 // Reset.
+
+	// Update Offset as responses are read, so that a retry
+	// of this *read knows where to pick up reading from.
+	if l := len(r.resp.End); l != 0 {
+		r.req.Offset = r.resp.ShuffleResponse.End[l-1]
+	}
+	return nil
+}
+
+// dequeue the next ready message from the current Response.
+// There must be one, or dequeue panics.
+func (r *read) dequeue() message.Envelope {
+	var env = message.Envelope{
 		Journal: &r.spec,
 		Begin:   r.resp.Begin[r.resp.Index],
 		End:     r.resp.End[r.resp.Index],
@@ -268,38 +323,29 @@ func (r *read) Next() (env message.Envelope, err error) {
 	}
 	r.resp.Index++
 
-	return env, nil
+	return env
 }
 
-func (r *read) pump(ch chan<- struct{}) (err error) {
-	defer func() {
-		if err != nil {
-			r.pollCh <- &pf.ShuffleResponse{TerminalError: err.Error()}
-		}
-		close(r.pollCh)
-	}()
-
+func (r *read) pump(readyCh chan<- struct{}) {
 	for {
-		var resp, err = r.stream.Recv()
-		if err != nil {
-			return fmt.Errorf("reading ShuffleResponse: %w", err)
-		}
+		var rx = r.doRead()
 
 		select {
 		case <-r.ctx.Done():
-			return nil
-		case r.pollCh <- resp:
+			rx.err = r.ctx.Err()
+		case r.pollCh <- rx:
+		}
+
+		if rx.err != nil {
+			close(r.pollCh)
+			return
 		}
 
 		// Signal to wake a blocked poll().
 		select {
-		case ch <- struct{}{}:
+		case readyCh <- struct{}{}:
 		default:
 			// Don't block.
-		}
-
-		if l := len(resp.End); l != 0 {
-			r.req.Offset = resp.End[l-1]
 		}
 	}
 }
