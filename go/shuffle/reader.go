@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -118,11 +117,7 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 			continue
 		}
 
-		var env, err = r.Next()
-		if err != nil {
-			// Next never errors, as it never Recv()'s from the stream.
-			panic("unexpected error: " + err.Error())
-		}
+		var env = r.dequeue()
 
 		if r.resp.Index != len(r.resp.DocsJson) {
 			// Next document is available without polling.
@@ -149,13 +144,15 @@ func (g *governor) poll(ctx context.Context) error {
 	// polling if (or blocking until) one is available.
 	for r := range g.pending {
 
-		var chOk bool
+		var result readResult
+		var ok bool
+
 		if r.resp.ShuffleResponse != nil && r.resp.Tailing() {
 			// Reader is tailing the journal. Poll without blocking,
 			// as we may wait an unbounded amount of time for more
 			// data to be written to the journal.
 			select {
-			case r.resp.ShuffleResponse, chOk = <-r.pollCh:
+			case result, ok = <-r.pollCh:
 				// Fall through.
 			case <-ctx.Done():
 				return ctx.Err()
@@ -169,7 +166,7 @@ func (g *governor) poll(ctx context.Context) error {
 		} else {
 			// If we're not yet tailing the journal, block for the next response.
 			select {
-			case r.resp.ShuffleResponse, chOk = <-r.pollCh:
+			case result, ok = <-r.pollCh:
 				// Fall through.
 			case <-g.journalsUpdateCh:
 				return g.onConverge(ctx)
@@ -178,10 +175,18 @@ func (g *governor) poll(ctx context.Context) error {
 			}
 		}
 
-		// We read a new ShuffleResponse, invalidating the prior index.
-		r.resp.Index = 0
+		// We've polled a new result for this *read instance.
 
-		if !chOk {
+		if err := r.onRead(result); err != nil {
+			// If an error occurred, the response wasn't updated and we'll return
+			// errPollAgain below, because there are no ready documents.
+			// We expect the read pump will close it's channel after this error.
+			// Log the error now, and fall through to poll again, which will remove
+			// and then re-start this read.
+			r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
+		}
+
+		if !ok {
 			// This *read was cancelled and its channel has now drained.
 			delete(g.pending, r)
 			delete(g.active, r.req.Shuffle.Journal)
@@ -253,7 +258,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 		if err := g.rb.start(ctx, r); err != nil {
 			return fmt.Errorf("failed to start read: %w", err)
 		}
-		r.pollCh = make(chan *pf.ShuffleResponse, 2)
+		r.pollCh = make(chan readResult, 2)
 		go r.pump(g.readReadyCh)
 
 		g.active[r.spec.Name] = r

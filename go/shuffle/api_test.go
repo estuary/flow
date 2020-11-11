@@ -21,6 +21,8 @@ import (
 	"go.gazette.dev/core/message"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestAPIIntegrationWithFixtures(t *testing.T) {
@@ -188,9 +190,10 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	cancelAPICtx()
 	srv.GRPCServer.GracefulStop()
 
-	// We expect to read a clean stream EOF after being kicked off the server.
+	// We expect to read an "unavailable" status after being kicked off the server.
 	_, err = tailStream.Recv()
-	require.Equal(t, io.EOF, err)
+	var s, _ = status.FromError(err)
+	require.Equal(t, codes.Unavailable, s.Code())
 
 	require.NoError(t, tasks.Wait())
 }

@@ -1,10 +1,15 @@
 package shuffle
 
 import (
+	"context"
+	"io"
+
 	pf "github.com/estuary/flow/go/protocol"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // API is the server side implementation of the Shuffle protocol.
@@ -49,23 +54,30 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	defer res.Done()
 
 	var coordinator = res.Store.(Store).Coordinator()
-	var ring = coordinator.findOrCreateRing(req.Shuffle)
 	var doneCh = make(chan error, 1)
-
-	ring.subscriberCh <- subscriber{
+	var sub = subscriber{
 		ShuffleRequest: *req,
-		sendMsg:        stream.SendMsg,
-		sendCtx:        stream.Context(),
-		doneCh:         doneCh,
+		sendMsg: func(m interface{}) (err error) {
+			if err = stream.SendMsg(m); err == io.EOF {
+				// EOF means the stream is broken; we can read a more descriptive error.
+				err = stream.RecvMsg(new(pf.ShuffleRequest))
+			}
+			return err
+		},
+		sendCtx: stream.Context(),
+		doneCh:  doneCh,
 	}
+	coordinator.subscribe(sub)
+
+	// Block for a long time, while the subscription runs.
 	err = <-doneCh
 
 	if stream.Context().Err() != nil {
 		err = nil // Peer cancellations are not an error.
+	} else if err == context.Canceled {
+		// Map semantics to gRPC "Unavailable" status.
+		err = status.Error(codes.Unavailable, "server cancelled")
 	} else if err != nil {
-		// We got an error on SendMsg to the peer, which as-implemented by gRPC is always an EOF.
-		err = stream.RecvMsg(new(pf.ShuffleRequest)) // Read a more descriptive error.
-
 		log.WithFields(log.Fields{
 			"err":     err,
 			"journal": req.Shuffle.Journal,

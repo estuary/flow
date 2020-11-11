@@ -213,7 +213,7 @@ go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROOTDIR}/catalog.
 .PHONY: go-test-ci
 go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
 	GORACE="halt_on_error=1" \
-	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 ./...
+	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
 
 .PHONY: catalog-test
 catalog-test: ${RUSTBIN} ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db

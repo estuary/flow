@@ -160,21 +160,18 @@ func TestReadIteration(t *testing.T) {
 		},
 	}
 
-	var env, err = r.Next()
-	require.NoError(t, err)
+	var env = r.dequeue()
 	require.Equal(t, env.Journal.Name, pb.Journal("a/journal"))
 	require.Equal(t, env.Begin, int64(0))
 	require.Equal(t, env.End, int64(100))
 	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 0)
 
-	env, err = r.Next()
-	require.NoError(t, err)
+	env = r.dequeue()
 	require.Equal(t, env.Begin, int64(200))
 	require.Equal(t, env.End, int64(300))
 	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 1)
 
-	env, err = r.Next()
-	require.NoError(t, err)
+	env = r.dequeue()
 	require.Equal(t, env.Begin, int64(400))
 	require.Equal(t, env.End, int64(500))
 	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 2)
