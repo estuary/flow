@@ -12,6 +12,7 @@ use estuary_protocol::consumer;
 use estuary_protocol::flow::{CollectionSpec, Inference, Projection};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Display;
 use std::path::Path;
 
 fn validate_projected_fields(
@@ -58,9 +59,12 @@ fn create_shard_spec(
     table_name: &str,
 ) -> consumer::ShardSpec {
     use crate::labels::{keys, values};
-    let id = format!(
-        "materialization/{}/{}/{}",
-        collection_name, target_name, table_name
+    let id = materialization_shard_id(
+        collection_name,
+        target_name,
+        table_name,
+        values::DEFAULT_KEY_BEGIN,
+        values::DEFAULT_RCLOCK_BEGIN,
     );
     let shard_labels = label_set![
         keys::MANAGED_BY => values::FLOW,
@@ -89,6 +93,19 @@ fn create_shard_spec(
         hot_standbys: 0,
         disable_wait_for_ack: false,
     }
+}
+
+fn materialization_shard_id(
+    collection_name: impl Display,
+    target_name: impl Display,
+    table_name: impl Display,
+    key_range_begin: impl Display,
+    rclock_range_begin: impl Display,
+) -> String {
+    format!(
+        "materialization/{}/{}/{}/{}-{}",
+        collection_name, target_name, table_name, key_range_begin, rclock_range_begin,
+    )
 }
 
 /// Returns the ApplyRequest to execute in order to create the Shard for this materialization.
