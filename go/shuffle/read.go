@@ -30,7 +30,7 @@ func ReadSpecsFromTransforms(transforms []pf.TransformSpec) []pf.ReadSpec {
 			Shuffle:           t.Shuffle,
 			ReaderType:        "transform",
 			ReaderNames:       []string{t.Derivation.Name.String(), t.Name.String()},
-			ReaderCatalogDbId: t.CatalogDbId,
+			ReaderCatalogDBID: t.CatalogDbId,
 		}
 	}
 	return rs

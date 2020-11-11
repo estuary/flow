@@ -67,11 +67,11 @@ func fetchRemote(url *url.URL, tempDir string) (string, error) {
 }
 
 // LocalPath returns the local path of the catalog.
-func (c *Catalog) LocalPath() string { return c.dbPath }
+func (catalog *Catalog) LocalPath() string { return catalog.dbPath }
 
 // LoadDerivedCollection loads the named derived collection from the catalog.
-func (c *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, error) {
-	var collections, err = scanCollections(c.db.Query(
+func (catalog *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, error) {
+	var collections, err = scanCollections(catalog.db.Query(
 		selectCollection+"WHERE is_derivation AND collection_name = ?", derivation))
 
 	if err != nil {
@@ -82,13 +82,15 @@ func (c *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, e
 	return collections[0], nil
 }
 
-// Closes the Catalog database, rendering it unusable.
-func (self *Catalog) Close() error {
-	return self.db.Close()
+// Close the Catalog database, rendering it unusable.
+func (catalog *Catalog) Close() error {
+	return catalog.db.Close()
 }
 
-func (c *Catalog) LoadCollection(name string) (pf.CollectionSpec, error) {
-	var collections, err = scanCollections(c.db.Query(
+// LoadCollection loads the collection with the given name from the catalog, or returns an error if
+// one is not found
+func (catalog *Catalog) LoadCollection(name string) (pf.CollectionSpec, error) {
+	var collections, err = scanCollections(catalog.db.Query(
 		selectCollection+"WHERE collection_name = ?", name))
 
 	if err != nil {
@@ -100,8 +102,8 @@ func (c *Catalog) LoadCollection(name string) (pf.CollectionSpec, error) {
 }
 
 // LoadCapturedCollections loads all captured collections from the catalog.
-func (c *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
-	var specs, err = scanCollections(c.db.Query(selectCollection + "WHERE NOT is_derivation"))
+func (catalog *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
+	var specs, err = scanCollections(catalog.db.Query(selectCollection + "WHERE NOT is_derivation"))
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +115,10 @@ func (c *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpe
 	return out, nil
 }
 
-func (c *Catalog) LoadMaterializationTarget(targetName string) (*materialize.Materialization, error) {
-	stmt, err := c.db.Prepare(queryMaterialization)
+// LoadMaterializationTarget load the target with the given name from the catalog, or returns an
+// error if the target is not found
+func (catalog *Catalog) LoadMaterializationTarget(targetName string) (*materialize.Materialization, error) {
+	stmt, err := catalog.db.Prepare(queryMaterialization)
 	if err != nil {
 		return nil, err
 	}
@@ -124,8 +128,8 @@ func (c *Catalog) LoadMaterializationTarget(targetName string) (*materialize.Mat
 	row := stmt.QueryRow(targetName)
 
 	err = row.Scan(
-		&materialization.CatalogDbId,
-		&materialization.TargetUri,
+		&materialization.CatalogDBID,
+		&materialization.TargetURI,
 		&materialization.TargetType,
 	)
 	if err != nil {
@@ -180,10 +184,10 @@ func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
 }
 
 // LoadTransforms returns []TransformSpecs of all transforms of the given derivation.
-func (c *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) {
+func (catalog *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) {
 	var transforms []pf.TransformSpec
 
-	var rows, err = c.db.Query(`
+	var rows, err = catalog.db.Query(`
 	SELECT
 		transform_name,
 		transform_id,

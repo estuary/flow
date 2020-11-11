@@ -68,20 +68,20 @@ func (parts *UUIDParts) Pack() message.UUID {
 	)
 }
 
-// A generic label that describes a reader.
+// ReaderLabel is generic label that describes a reader.
 type ReaderLabel struct {
 	Key   string
 	Value string
 }
 
-// A Generic descriptor of a thing that will perform a shuffled read
+// ReadSpec is a generic descriptor of a thing that will perform a shuffled read
 type ReadSpec struct {
 	SourceName        string
 	SourcePartitions  pb.LabelSelector
 	Shuffle           Shuffle
 	ReaderType        string
 	ReaderNames       []string
-	ReaderCatalogDbId int32
+	ReaderCatalogDBID int32
 }
 
 // IndexedShuffleResponse is an implementation of message.Message which

@@ -19,21 +19,21 @@ type fieldMapping struct {
 	possibleTypes []string
 }
 
-func (self *fieldMapping) extractValue(input string) (interface{}, error) {
+func (mapping *fieldMapping) extractValue(input string) (interface{}, error) {
 	// Is this value allowed to be empty? If it is, then we'll let the parsers determine the proper
 	// value to return.
-	if len(input) == 0 && !self.isOptional {
+	if len(input) == 0 && !mapping.isOptional {
 		return nil, fmt.Errorf("value cannot be null")
 	}
 	var val interface{}
 	var lastErr error
-	for _, parser := range self.parse {
+	for _, parser := range mapping.parse {
 		val, lastErr = parser(input)
 		if lastErr == nil {
 			return val, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to parse '%v' (of column: %v) into %v: %w", input, self.field, self.possibleTypes, lastErr)
+	return nil, fmt.Errorf("failed to parse '%v' (of column: %v) into %v: %w", input, mapping.field, mapping.possibleTypes, lastErr)
 }
 
 func hasType(projection *pf.Projection, typeName string) bool {
@@ -98,8 +98,8 @@ type wsCsvIngester struct {
 }
 
 // First frame is headers, subsequent frames are documents.
-func (self *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error {
-	var headers, err = self.csvReader.Read()
+func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error {
+	var headers, err = csvIngester.csvReader.Read()
 	if err != nil {
 		return err
 	}
@@ -110,16 +110,16 @@ func (self *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error {
 		if projection == nil {
 			return fmt.Errorf("collection %q has no projection %q", collection.Name, header)
 		}
-		self.projections = append(self.projections, newFieldMapping(projection))
+		csvIngester.projections = append(csvIngester.projections, newFieldMapping(projection))
 
 		var ptr, err = flow.NewPointer(projection.Ptr)
 		if err != nil {
 			panic(err)
 		}
-		self.pointers = append(self.pointers, ptr)
+		csvIngester.pointers = append(csvIngester.pointers, ptr)
 
 		if projection.Inference.MustExist {
-			self.lastMustExistIndex = i
+			csvIngester.lastMustExistIndex = i
 		}
 		columnPointers[projection.Ptr] = true
 	}
@@ -140,30 +140,30 @@ func (self *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error {
 	return nil
 }
 
-func (self *wsCsvIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
-	if len(self.projections) == 0 {
-		if err := self.onHeader(collection); err != nil {
+func (csvIngester *wsCsvIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
+	if len(csvIngester.projections) == 0 {
+		if err := csvIngester.onHeader(collection); err != nil {
 			return err
 		}
 	}
 
-	for self.buffer.Len() != 0 {
-		var records, err = self.csvReader.Read()
+	for csvIngester.buffer.Len() != 0 {
+		var records, err = csvIngester.csvReader.Read()
 		if err != nil {
 			return err
-		} else if lr, lp := len(records), len(self.projections); lr > lp {
+		} else if lr, lp := len(records), len(csvIngester.projections); lr > lp {
 			return fmt.Errorf("row has %d columns, but header had only %d", lr, lp)
-		} else if lr <= self.lastMustExistIndex {
-			return fmt.Errorf("row omits column %d ('%v'), which must exist", self.lastMustExistIndex, self.projections[self.lastMustExistIndex].field)
+		} else if lr <= csvIngester.lastMustExistIndex {
+			return fmt.Errorf("row omits column %d ('%v'), which must exist", csvIngester.lastMustExistIndex, csvIngester.projections[csvIngester.lastMustExistIndex].field)
 		}
 
 		// Doc we'll build up from parsed projections.
 		var doc interface{}
 
 		for c, record := range records {
-			var mapping = self.projections[c]
+			var mapping = csvIngester.projections[c]
 			// We know this can't be undefined since there's a row for it
-			happyValueHome, err := self.pointers[c].Create(&doc)
+			happyValueHome, err := csvIngester.pointers[c].Create(&doc)
 			if err != nil {
 				return fmt.Errorf("failed to query or create document location %q: %w", mapping.ptr, err)
 			}
@@ -219,15 +219,13 @@ func parseString(input string) (interface{}, error) {
 func parseNull(input string) (interface{}, error) {
 	if len(input) == 0 {
 		return nil, nil
-	} else {
-		return nil, fmt.Errorf("expected an empty value")
 	}
+	return nil, fmt.Errorf("expected an empty value")
 }
 
 func nullValueError(input string) (interface{}, error) {
 	if len(input) == 0 {
 		return nil, fmt.Errorf("value cannot be null")
-	} else {
-		panic("non-null value passed to nullValueError")
 	}
+	panic("non-null value passed to nullValueError")
 }

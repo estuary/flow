@@ -60,9 +60,8 @@ func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consum
 
 	if isMaterialize {
 		return runtime.NewMaterializeApp(f.service, f.journals, f.extractor, shard, rec)
-	} else {
-		return runtime.NewDeriveApp(f.service, f.journals, f.extractor, shard, rec)
 	}
+	return runtime.NewDeriveApp(f.service, f.journals, f.extractor, shard, rec)
 }
 
 // NewMessage panics if called.
