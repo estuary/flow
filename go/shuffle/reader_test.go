@@ -207,10 +207,6 @@ func TestConsumerIntegration(t *testing.T) {
 		readThrough[ack.Journal] = aa.Response().Commit.End
 	}
 
-	// TODO(johnny): We should have some coverage of journal replays.
-	// Skipping for now, as it's kind of a "it works or it doesn't"
-	// feature which future tests are likely to cover.
-
 	// Pluck out each of the worker states.
 	var merged = make(map[string]int)
 
