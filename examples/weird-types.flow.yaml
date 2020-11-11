@@ -4,18 +4,12 @@ collections:
       type: object
       properties:
         theKey: { type: string }
-        string:
-          type: string
-        bool:
-          type: boolean
-        int:
-          type: integer
-        number:
-          type: number
-        object:
-          type: object
-        array:
-          type: array
+        string: { type: string }
+        bool: { type: boolean }
+        int: { type: integer }
+        number: { type: number }
+        object: { type: object }
+        array: { type: array }
       required: [theKey]
     key: [/theKey]
 
@@ -32,7 +26,8 @@ collections:
         array: { type: [array, "null"] }
         # yeah, this is a thing. This field will always be required to have an explicit null value
         "null": { type: ["null"] }
-      required: [theKey, string, boolean, integer, number, object, array, "null"]
+      required:
+        [theKey, string, boolean, integer, number, object, array, "null"]
     key: [/theKey]
     projections:
       object: /object
@@ -87,6 +82,3 @@ collections:
       intDifferentRanges: /intDifferentRanges
       intOrNumOverlappingRanges: /intOrNumOverlappingRanges
       boolOrString: /boolOrString
-
-
-
