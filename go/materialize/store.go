@@ -10,33 +10,36 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
-type SqlTransaction struct {
+// SQLTransaction implements TargetTransaction for a generic SQL database
+type SQLTransaction struct {
 	delegate *sql.Tx
-	sql      *MaterializationSql
+	sql      *materializationSQL
 }
 
-var _ TargetTransaction = (*SqlTransaction)(nil)
+var _ TargetTransaction = (*SQLTransaction)(nil)
 
-func (self *SqlTransaction) FetchExistingDocument(primaryKey []interface{}) (json.RawMessage, error) {
-	var documentJson json.RawMessage
-	stmt, err := self.delegate.Prepare(self.sql.FullDocumentQuery)
+// FetchExistingDocument implements TargetTransaction.FetchExistingDocument
+func (transaction *SQLTransaction) FetchExistingDocument(primaryKey []interface{}) (json.RawMessage, error) {
+	var documentJSON json.RawMessage
+	stmt, err := transaction.delegate.Prepare(transaction.sql.FullDocumentQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
 	row := stmt.QueryRow(primaryKey...)
-	err = row.Scan(&documentJson)
+	err = row.Scan(&documentJSON)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("Failed to query existing docuement: %w", err)
 	} else if err == sql.ErrNoRows {
 		return nil, nil
 	} else {
-		return documentJson, nil
+		return documentJSON, nil
 	}
 }
 
-func (self *SqlTransaction) Store(extractedFields []interface{}, fullDocument json.RawMessage) error {
-	stmt, err := self.delegate.Prepare(self.sql.InsertStatement)
+// Store implements TargetTransaction.Store
+func (transaction *SQLTransaction) Store(extractedFields []interface{}, fullDocument json.RawMessage) error {
+	stmt, err := transaction.delegate.Prepare(transaction.sql.InsertStatement)
 	if err != nil {
 		return err
 	}
@@ -50,22 +53,26 @@ func (self *SqlTransaction) Store(extractedFields []interface{}, fullDocument js
 	return nil
 }
 
+// MaterializationStore implements the Target interface for a SQLStore
 type MaterializationStore struct {
-	sqlConfig *MaterializationSql
+	sqlConfig *materializationSQL
 	delegate  *consumer.SQLStore
 }
 
 var _ Target = (*MaterializationStore)(nil)
 
-func (self *MaterializationStore) ProjectionPointers() []string {
-	return self.sqlConfig.ProjectionPointers
+// ProjectionPointers implements Target.ProjectionPointers
+func (store *MaterializationStore) ProjectionPointers() []string {
+	return store.sqlConfig.ProjectionPointers
 }
 
-func (self *MaterializationStore) PrimaryKeyFieldIndexes() []int {
-	return self.sqlConfig.PrimaryKeyFieldIndexes
+// PrimaryKeyFieldIndexes implements Target.PrimaryKeyFieldIndexes
+func (store *MaterializationStore) PrimaryKeyFieldIndexes() []int {
+	return store.sqlConfig.PrimaryKeyFieldIndexes
 }
 
-func (self *MaterializationStore) BeginTxn(ctx context.Context) (TargetTransaction, error) {
+// BeginTxn implements Target.BeginTxn
+func (store *MaterializationStore) BeginTxn(ctx context.Context) (TargetTransaction, error) {
 	txOpts := sql.TxOptions{
 		// Take the default Isolation level for the driver. For postgres, this will be
 		// ReadUncommitted, and for sqlite it will be serializable. We can't support fully
@@ -74,28 +81,31 @@ func (self *MaterializationStore) BeginTxn(ctx context.Context) (TargetTransacti
 		// shouldn't present any issues.
 		ReadOnly: false,
 	}
-	tx, err := self.delegate.Transaction(ctx, &txOpts)
+	tx, err := store.delegate.Transaction(ctx, &txOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	sqlT := &SqlTransaction{
+	sqlT := &SQLTransaction{
 		delegate: tx,
-		sql:      self.sqlConfig,
+		sql:      store.sqlConfig,
 	}
 	return sqlT, nil
 }
 
-func (self *MaterializationStore) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	return self.delegate.StartCommit(shard, checkpoint, waitFor)
+// StartCommit implements consumer.Store.StartCommit
+func (store *MaterializationStore) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+	return store.delegate.StartCommit(shard, checkpoint, waitFor)
 }
 
-func (self *MaterializationStore) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
-	return self.delegate.RestoreCheckpoint(shard)
+// RestoreCheckpoint implements consumer.Store.RestoreCheckpoint
+func (store *MaterializationStore) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
+	return store.delegate.RestoreCheckpoint(shard)
 }
 
-func (self *MaterializationStore) Destroy() {
-	if self != nil {
-		self.delegate.Destroy()
+// Destroy implements consumer.Store.Destroy
+func (store *MaterializationStore) Destroy() {
+	if store != nil {
+		store.delegate.Destroy()
 	}
 }

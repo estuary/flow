@@ -56,7 +56,7 @@ func TestTransactionLifeCycle(t *testing.T) {
 				Message: pf.IndexedShuffleResponse{
 					ShuffleResponse: &shuffleResponse,
 					Index:           index,
-					Transform:       &pf.ReadSpec{ReaderCatalogDbId: int32(index)},
+					Transform:       &pf.ReadSpec{ReaderCatalogDBID: int32(index)},
 				},
 			}
 		}

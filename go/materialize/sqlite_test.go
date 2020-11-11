@@ -5,14 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/stretchr/testify/require"
 	"os"
 	"path"
 	"reflect"
 	"strconv"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSqliteMaterialization(t *testing.T) {
@@ -24,9 +25,9 @@ func TestSqliteMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execSql(db, t, createFlowMaterializationsTable)
+	execSQL(db, t, createFlowMaterializationsTable)
 
-	execSql(db, t, `
+	execSQL(db, t, `
         INSERT INTO flow_materializations (table_name, config_json)
         VALUES ('good_table', '{
             "name": "testCollectionName",
@@ -40,14 +41,14 @@ func TestSqliteMaterialization(t *testing.T) {
             ]
         }');
     `)
-	execSql(db, t, `CREATE TABLE good_table (a, b, x, y, z, flow_document, PRIMARY KEY (a, b));`)
+	execSQL(db, t, `CREATE TABLE good_table (a, b, x, y, z, flow_document, PRIMARY KEY (a, b));`)
 	// close the database, since we're done with setup
 	require.Nil(t, db.Close(), "db error on close")
 
 	materialization := Materialization{
-		CatalogDbId: 1,
+		CatalogDBID: 1,
 		TargetName:  "testSqlite",
-		TargetUri:   dbfile,
+		TargetURI:   dbfile,
 		TableName:   "good_table",
 		TargetType:  "sqlite",
 	}
@@ -97,7 +98,7 @@ CREATE TABLE IF NOT EXISTS flow_materializations
     config_json TEXT NOT NULL
 );`
 
-func execSql(db *sql.DB, t *testing.T, sql string, args ...interface{}) {
+func execSQL(db *sql.DB, t *testing.T, sql string, args ...interface{}) {
 	_, err := db.Exec(sql, args...)
 	if err != nil {
 		t.Fatalf("Failed to execute sql: %q, err: %v", sql, err)

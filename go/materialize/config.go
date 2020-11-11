@@ -19,32 +19,32 @@ import (
 )
 
 const (
-	TargetTypePostgres string = "postgres"
-	TargetTypeSqlite   string = "sqlite"
+	targetTypePostgres string = "postgres"
+	targetTypeSqlite   string = "sqlite"
 
-	MaterializationsTableName  string = "flow_materializations"
-	OriginalDocumentColumnName string = "flow_document"
+	materializationsTableName  string = "flow_materializations"
+	originalDocumentColumnName string = "flow_document"
 )
 
-var PostgresSqlConfig SqlConfig = SqlConfig{
-	IdentifierQuotes: TokenPair{
+var postgresSQLConfig sqlConfiguration = sqlConfiguration{
+	IdentifierQuotes: tokenPair{
 		Left:  "\"",
 		Right: "\"",
 	},
 	DriverName: "postgres",
-	GetSqlPlaceholder: func(i int) string {
+	getSQLPlaceholder: func(i int) string {
 		// The +1 here is because the i that's passed to this function is 0-indexed, but
 		// postgres argument numbers start at 1.
 		return fmt.Sprintf("$%d", i+1)
 	},
 }
-var SqliteSqlConfig SqlConfig = SqlConfig{
-	IdentifierQuotes: TokenPair{
+var sqliteSQLConfig sqlConfiguration = sqlConfiguration{
+	IdentifierQuotes: tokenPair{
 		Left:  "\"",
 		Right: "\"",
 	},
 	DriverName: "sqlite3",
-	GetSqlPlaceholder: func(_ int) string {
+	getSQLPlaceholder: func(_ int) string {
 		return "?"
 	},
 }
@@ -64,7 +64,7 @@ var SqliteSqlConfig SqlConfig = SqlConfig{
 
 // Holds SQL statements and related information about the target schema. This struct is created
 // on initialization using data stored in the `flow_materializations` table in target database
-type MaterializationSql struct {
+type materializationSQL struct {
 	InsertStatement        string
 	FullDocumentQuery      string
 	RuntimeConfig          *pf.CollectionSpec
@@ -72,21 +72,21 @@ type MaterializationSql struct {
 	PrimaryKeyFieldIndexes []int
 }
 
-type TokenPair struct {
+type tokenPair struct {
 	Left  string `json:"left"`
 	Right string `json:"right"`
 }
 
-type SqlConfig struct {
-	IdentifierQuotes  TokenPair
+type sqlConfiguration struct {
+	IdentifierQuotes  tokenPair
 	DriverName        string
-	GetSqlPlaceholder func(int) string
+	getSQLPlaceholder func(int) string
 }
 
-func (self *SqlConfig) quoted(inner interface{}) quoted {
+func (conf *sqlConfiguration) quoted(inner interface{}) quoted {
 	return quoted{
 		inner:  inner,
-		quotes: &self.IdentifierQuotes,
+		quotes: &conf.IdentifierQuotes,
 	}
 }
 
@@ -98,41 +98,42 @@ func getProjectionPointers(collection *pf.CollectionSpec) []string {
 	return pointers
 }
 
-// Loaded from Catalog database
+// Materialization loaded from Catalog database
 type Materialization struct {
-	CatalogDbId int32
+	CatalogDBID int32
 	TargetName  string
-	TargetUri   string
+	TargetURI   string
 	TableName   string
 	TargetType  string
 }
 
-func (self *Materialization) sqlConfig() (*SqlConfig, error) {
-	switch self.TargetType {
-	case TargetTypePostgres:
-		return &PostgresSqlConfig, nil
-	case TargetTypeSqlite:
-		return &SqliteSqlConfig, nil
+func (materialization *Materialization) sqlConfig() (*sqlConfiguration, error) {
+	switch materialization.TargetType {
+	case targetTypePostgres:
+		return &postgresSQLConfig, nil
+	case targetTypeSqlite:
+		return &sqliteSQLConfig, nil
 	default:
-		return nil, fmt.Errorf("unsupported materialization target uri scheme: '%s'", self.TargetType)
+		return nil, fmt.Errorf("unsupported materialization target uri scheme: '%s'", materialization.TargetType)
 	}
 }
 
 type quoted struct {
-	quotes *TokenPair
+	quotes *tokenPair
 	inner  interface{}
 }
 
-func (self *quoted) String() string {
-	return fmt.Sprintf("%s%s%s", self.quotes.Left, self.inner, self.quotes.Right)
+func (quotedThing *quoted) String() string {
+	return fmt.Sprintf("%s%s%s", quotedThing.quotes.Left, quotedThing.inner, quotedThing.quotes.Right)
 }
 
+// NewMaterializationTarget creates a Target from a Materialization.
 func NewMaterializationTarget(materialization *Materialization) (Target, error) {
 	var sqlConfig, err = materialization.sqlConfig()
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqlConfig.DriverName, materialization.TargetUri)
+	db, err := sql.Open(sqlConfig.DriverName, materialization.TargetURI)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func NewMaterializationTarget(materialization *Materialization) (Target, error) 
 		}
 	}
 
-	var sql = &MaterializationSql{
+	var sql = &materializationSQL{
 		RuntimeConfig:          runtimeConfig,
 		InsertStatement:        insertStatement,
 		FullDocumentQuery:      documentQuery,
@@ -172,22 +173,22 @@ func NewMaterializationTarget(materialization *Materialization) (Target, error) 
 	}, nil
 }
 
-func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*pf.CollectionSpec, error) {
-	var sql = fmt.Sprintf("SELECT config_json FROM flow_materializations WHERE table_name = %s;", sqlConfig.GetSqlPlaceholder(0))
+func loadRuntimeConfig(sqlConfig *sqlConfiguration, db *sql.DB, tableName string) (*pf.CollectionSpec, error) {
+	var sql = fmt.Sprintf("SELECT config_json FROM flow_materializations WHERE table_name = %s;", sqlConfig.getSQLPlaceholder(0))
 	log.WithFields(log.Fields{
 		"tableName": tableName,
 		"query":     sql,
 	}).Debug("Loading materialization for table")
 	var rows = db.QueryRow(sql, tableName)
-	var runtimeConfigJson string
-	var err = rows.Scan(&runtimeConfigJson)
+	var runtimeConfigJSON string
+	var err = rows.Scan(&runtimeConfigJSON)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to query the materialization runtime configuration from the target database: %v", err)
 	}
 	var runtimeConf = new(pf.CollectionSpec)
-	err = json.Unmarshal([]byte(runtimeConfigJson), runtimeConf)
+	err = json.Unmarshal([]byte(runtimeConfigJSON), runtimeConf)
 	if err != nil {
-		log.WithField("rawRuntimeConfiguration", runtimeConfigJson).
+		log.WithField("rawRuntimeConfiguration", runtimeConfigJSON).
 			WithField("tableName", tableName).
 			Error("Failed to unmarshal materialization runtime configuration")
 		return nil, fmt.Errorf("Materialization runtime configuration appears corrupted: %v", err)
@@ -195,22 +196,22 @@ func loadRuntimeConfig(sqlConfig *SqlConfig, db *sql.DB, tableName string) (*pf.
 	return runtimeConf, nil
 }
 
-func generateFlowDocumentQuery(materialization *Materialization, runtimeConfig *pf.CollectionSpec, sqlConfig *SqlConfig) string {
+func generateFlowDocumentQuery(materialization *Materialization, runtimeConfig *pf.CollectionSpec, sqlConfig *sqlConfiguration) string {
 	var tableName = sqlConfig.quoted(materialization.TableName)
 	var conditions []string
 	for _, field := range runtimeConfig.Projections {
 		if field.IsPrimaryKey {
 			var col = sqlConfig.quoted(field.Field)
-			var condition = fmt.Sprintf("%s = %s", col.String(), sqlConfig.GetSqlPlaceholder(len(conditions)))
+			var condition = fmt.Sprintf("%s = %s", col.String(), sqlConfig.getSQLPlaceholder(len(conditions)))
 			conditions = append(conditions, condition)
 		}
 	}
 
-	var columnName = sqlConfig.quoted(OriginalDocumentColumnName)
+	var columnName = sqlConfig.quoted(originalDocumentColumnName)
 	return fmt.Sprintf("SELECT %s from %v WHERE %s;", columnName.String(), tableName.String(), strings.Join(conditions, " AND "))
 }
 
-func generateInsertStatement(materialization *Materialization, runtimeConfig *pf.CollectionSpec, sqlConfig *SqlConfig) string {
+func generateInsertStatement(materialization *Materialization, runtimeConfig *pf.CollectionSpec, sqlConfig *sqlConfiguration) string {
 	var tableName = sqlConfig.quoted(materialization.TableName)
 
 	var primaryKeyColumns []string
@@ -232,13 +233,13 @@ func generateInsertStatement(materialization *Materialization, runtimeConfig *pf
 	// +1 to i for the full document column
 	var questionMarks = make([]string, len(runtimeConfig.Projections)+1)
 	for i := 0; i < len(runtimeConfig.Projections)+1; i++ {
-		questionMarks[i] = sqlConfig.GetSqlPlaceholder(i)
+		questionMarks[i] = sqlConfig.getSQLPlaceholder(i)
 	}
 
 	// We always add the column that holds the full document at the very end. This column needs to
 	// be included in both the complete list and the list of columns that will be updated on a
 	// unique constraint violation
-	var fullDocumentColumn = sqlConfig.quoted(OriginalDocumentColumnName)
+	var fullDocumentColumn = sqlConfig.quoted(originalDocumentColumnName)
 	var quotedFullDocColumn = fullDocumentColumn.String()
 	quotedColumnNames = append(quotedColumnNames, quotedFullDocColumn)
 	updateColumns = append(updateColumns, quotedFullDocColumn)

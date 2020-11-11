@@ -50,12 +50,12 @@ func serveWebsocketCSV(a args, comma rune, w http.ResponseWriter, r *http.Reques
 	_ = serveWebsocket(a, w, r, &buffer, &csvIngester)
 }
 
-type wsJsonIngester struct {
+type wsJSONIngester struct {
 	buffer *bytes.Buffer
 }
 
-func (self *wsJsonIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
-	var decoder = json.NewDecoder(self.buffer)
+func (jsonIngester *wsJSONIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
+	var decoder = json.NewDecoder(jsonIngester.buffer)
 	for {
 		var doc json.RawMessage
 
@@ -74,7 +74,7 @@ func (self *wsJsonIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- 
 
 func serveWebsocketJSON(a args, w http.ResponseWriter, r *http.Request) {
 	var buffer bytes.Buffer
-	var ingester = wsJsonIngester{
+	var ingester = wsJSONIngester{
 		buffer: &buffer,
 	}
 	_ = serveWebsocket(a, w, r, &buffer, &ingester)
