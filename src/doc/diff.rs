@@ -59,6 +59,22 @@ impl Diff {
                     );
                 }
             }
+            // if both values are floats, then compare them using an epsilon value so we don't
+            // fail the test due to floaty funny bitness
+            (Some(Value::Number(actual_num)), Some(Value::Number(expected_num)))
+                if actual_num.is_f64() && expected_num.is_f64() =>
+            {
+                // safe unwraps here since `is_f64` returned true for both of these
+                let actual_f64 = actual_num.as_f64().unwrap();
+                let expected_f64 = expected_num.as_f64().unwrap();
+                if !f64_eq(actual_f64, expected_f64) {
+                    out.push(Diff {
+                        location: format!("{}", location.pointer_str()),
+                        expect: expect.cloned(),
+                        actual: actual.cloned(),
+                    });
+                }
+            }
             _ if expect == actual => {}
             _ => {
                 out.push(Diff {
@@ -71,11 +87,43 @@ impl Diff {
     }
 }
 
-#[cfg(test)]
+fn f64_eq(actual: f64, expected: f64) -> bool {
+    // Start with the machine epsilon and scale it up based on the relative size of the numbers
+    let epsilon = f64::EPSILON * (actual.abs().max(expected.abs())).max(1.0);
+    let diff = (actual - expected).abs();
+    diff <= epsilon
+}
 
+#[cfg(test)]
 mod test {
     use super::*;
     use serde_json::json;
+
+    // I'm paranoid about the compiler pre-computing the math on constants.
+    // Using this ensures that the math will always be performed as normal.
+    #[inline(never)]
+    fn sub(a: f64, b: f64) -> f64 {
+        a - b
+    }
+
+    #[test]
+    fn test_f64_eq() {
+        assert!(f64_eq(0.0, 0.0));
+        assert!(f64_eq(0.0, sub(4.01, 4.01)));
+        assert!(f64_eq(3.3E-12, sub(6.6E-12, 3.3E-12)));
+        assert!(f64_eq(2.0, sub(2.0, f64::EPSILON)));
+        // Even for tiny numbers, we never scale the machine epsilon down, so these cases document
+        // that behavior. We might change this in the future if we end up with a motivating use
+        // case, but for now I can't think of one.
+        assert!(f64_eq(0.0, sub(0.0, f64::EPSILON)));
+        assert!(f64_eq(1.0E-10, sub(1.0E-10, f64::EPSILON)));
+        assert!(f64_eq(1.01E-16, 1.04E-16));
+        // This was an actual failure during catalog tests
+        assert!(f64_eq(1.3999999999999775, 1.3999999999999773));
+
+        assert!(!f64_eq(1.0, 1.00001));
+        assert!(!f64_eq(4.56E+10, 4.5603E+10));
+    }
 
     #[test]
     fn test_diff_cases() {
