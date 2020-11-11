@@ -133,12 +133,13 @@ func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.Ap
 		// Pass.
 	} else if !txnResp.Txn().Succeeded {
 		resp.Status = pc.Status_ETCD_TRANSACTION_FAILED
-	} else {
-		// Delay responding until we have read our own Etcd write.
+	} else if len(ops) != 0 {
+		// If we made changes, delay responding until we have read our own Etcd write.
 		s.KS.Mu.RLock()
 		err = s.KS.WaitForRevision(ctx, txnResp.Txn().Header.Revision)
 		s.KS.Mu.RUnlock()
 	}
+	resp.Header.Etcd.Revision = txnResp.Txn().Header.Revision
 	return resp, err
 }
 
