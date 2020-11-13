@@ -116,6 +116,17 @@ impl Collection {
             |row| row.get(0),
         )?)
     }
+
+    /// Returns the collection's key
+    pub fn key(&self, db: &DB) -> Result<Vec<String>> {
+        let json = db.query_row(
+            "SELECT key_json FROM collections WHERE collection_id = ?;",
+            rusqlite::params![self.id],
+            |row| row.get::<usize, String>(0),
+        )?;
+        let key = serde_json::from_str(&json)?;
+        Ok(key)
+    }
 }
 
 #[cfg(test)]
@@ -128,8 +139,8 @@ mod test {
     use serde_json::json;
 
     #[test]
-    fn test_register() -> Result<()> {
-        let db = create(":memory:")?;
+    fn test_register() {
+        let db = create(":memory:").unwrap();
 
         let schema = json!({
             "$anchor": "foobar",
@@ -165,13 +176,15 @@ mod test {
                     (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE),
                     (10, 'application/schema+yaml', CAST(? AS BLOB), FALSE);",
             sql_params![schema],
-        )?;
+        )
+        .unwrap();
         db.execute(
             "INSERT INTO resource_urls (resource_id, url, is_primary) VALUES
                     (1, 'test://example/spec', TRUE),
                     (10, 'test://example/schema.json', TRUE)",
             sql_params![],
-        )?;
+        )
+        .unwrap();
 
         let spec: specs::Collection = serde_json::from_value(json!({
             "name": "test/collection",
@@ -181,15 +194,16 @@ mod test {
                 "field_a": {"location": "/a/a", "partition": true},
                 "field_b": {"location": "/b/b", "partition": false},
             }
-        }))?;
+        }))
+        .unwrap();
 
-        Scope::empty(&db)
+        let collection = Scope::empty(&db)
             .push_resource(Resource { id: 1 })
             .then(|scope| Collection::register(scope, &spec))
             .expect("failed to register collection");
 
         // Expect that the schema was processed.
-        assert!(Resource { id: 10 }.is_processed(&db)?);
+        assert!(Resource { id: 10 }.is_processed(&db).unwrap());
 
         // Expect the collection records the absolute schema URI, with fragment component.
         let dump = dump_tables(
@@ -200,31 +214,17 @@ mod test {
                 "projections",
                 "partitions",
             ],
-        )?;
+        )
+        .unwrap();
 
-        assert_eq!(
-            dump,
-            json!({
-                "resource_imports": [[1, 10]],
-                "collections": [
-                    [
-                        1,
-                        "test/collection",
-                        "test://example/schema.json#foobar",
-                        ["/key/1","/key/0"],
-                        1,
-                    ],
-                ],
-                "projections": [
-                    [1, "field_a", "/a/a", true],
-                    [1, "field_b", "/b/b", true],
-                    [1, "a/a", "/a/a", false],
-                    [1, "b/b", "/b/b", false],
-                ],
-                "partitions": [[1, "field_a"]],
-            }),
-        );
+        insta::assert_yaml_snapshot!(dump);
 
-        Ok(())
+        let key = collection.key(&db).expect("failed to get key");
+        assert_eq!(vec!["/key/1".to_string(), "/key/0".to_string()], key);
+
+        let schema_uri = collection
+            .schema_uri(&db)
+            .expect("failed to get schema_uri");
+        assert_eq!("test://example/schema.json#foobar", schema_uri.as_str());
     }
 }
