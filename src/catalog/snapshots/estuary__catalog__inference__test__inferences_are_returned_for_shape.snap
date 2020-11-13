@@ -9,6 +9,10 @@ location: "/a/b", types: ["boolean"], must_exist: true
 location: "/a/c", types: ["integer"], must_exist: false
 location: "/a/d", types: ["number"], must_exist: false
 location: "/b", types: ["object", "string"], must_exist: true
+location: "/b/a", types: ["string"], must_exist: false
+location: "/b/b", types: ["boolean", "null"], must_exist: false
+location: "/b/c", types: ["integer"], must_exist: false
+location: "/b/d", types: ["number"], must_exist: false
 location: "/c", types: ["array"], must_exist: true
 location: "/c/0", types: ["string"], must_exist: true
 location: "/c/1", types: ["integer"], must_exist: false
