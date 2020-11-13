@@ -1,5 +1,7 @@
 use super::{specs, sql_params, Collection, Result, Scope, Selector, DB};
+use itertools::Itertools;
 use serde_json::Value;
+use std::fmt::{self, Display};
 
 /// TestCase represents a catalog test case and contained sequence of test steps.
 #[derive(Debug)]
@@ -74,6 +76,9 @@ impl TestCase {
             .push_prop("collection")
             .then(|scope| Collection::get_imported_by_name(scope, &spec.collection.as_ref()))?;
 
+        let key = collection.key(scope.db)?;
+        verify_are_documents_ordered(key, spec.documents.as_slice())?;
+
         // Register optional source partition selector.
         let selector = scope.push_prop("partitions").then(|scope| {
             spec.partitions
@@ -119,13 +124,122 @@ impl TestCase {
     }
 }
 
+fn verify_are_documents_ordered(collection_key: Vec<String>, documents: &[Value]) -> Result<()> {
+    use doc::Pointer;
+    let pointers = collection_key
+        .iter()
+        .map(|p| Pointer::from(p))
+        .collect::<Vec<_>>();
+
+    let is_sorted = is_sorted_by(documents, |a, b| Pointer::compare(&pointers, a, b));
+    if !is_sorted {
+        let mut sorted = documents.to_vec();
+        // This is a stable sort, so the suggested order will change what's given as minimally as
+        // possible.
+        sorted.sort_by(|a, b| Pointer::compare(&pointers, a, b));
+        Err(TestVerifyOutOfOrder {
+            collection_key,
+            reordered_documents: sorted,
+        })?
+    }
+    Ok(())
+}
+
+// This function exists in the standard library, but it is not yet stable.
+// See: https://github.com/rust-lang/rust/issues/53485
+fn is_sorted_by<T, F>(seq: &[T], cmp_fun: F) -> bool
+where
+    F: Fn(&T, &T) -> std::cmp::Ordering,
+{
+    for (i, item) in seq.iter().enumerate() {
+        if let Some(n) = seq.get(i + 1) {
+            if cmp_fun(item, n) == std::cmp::Ordering::Greater {
+                return false;
+            }
+        } else {
+            return true;
+        }
+    }
+    true
+}
+
+#[derive(Debug)]
+pub struct TestVerifyOutOfOrder {
+    collection_key: Vec<String>,
+    reordered_documents: Vec<Value>,
+}
+
+impl Display for TestVerifyOutOfOrder {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "The documents to verify must be provided in lexicographic order according to the collection key: [{}]",
+                 self.collection_key.iter().join(", "))?;
+        let ordered = serde_json::to_string_pretty(&self.reordered_documents).unwrap();
+        writeln!(f, "A suggested ordering is: \n{}", ordered)?;
+        Ok(())
+    }
+}
+impl std::error::Error for TestVerifyOutOfOrder {}
+
 #[cfg(test)]
 mod test {
     use super::{
         super::{create, dump_tables, Collection, Resource},
         *,
     };
+    use crate::specs::{CollectionName, TestStep, TestStepVerify};
+    use crate::Error;
     use serde_json::json;
+
+    #[test]
+    fn register_returns_error_when_expected_documents_are_not_ordered() {
+        let db = create(":memory:").unwrap();
+        db.execute_batch(r##"
+            INSERT INTO resources (resource_id, content_type, content, is_processed)
+            VALUES (111, 'application/vnd.estuary.dev-catalog-spec+yaml', X'1234', FALSE);
+
+            INSERT INTO collections (collection_id, collection_name, schema_uri, key_json, resource_id)
+            VALUES (7, 'foo', 'test://schema.json', '["/a", "/b"]', 111);
+            "##).unwrap();
+
+        let spec = TestStep::Verify(TestStepVerify {
+            collection: CollectionName::new("foo"),
+            documents: vec![
+                json!({"b": 9}),
+                json!({"a": 1, "b": 5}),
+                json!({"a": 2, "b": 5}),
+                json!({"a": 2, "b": 6}),
+                json!({"a": 2, "b": 6}),
+                json!({"a": 2, "b": 6}),
+                json!({"a": 3}),
+                json!({"c": "cee"}),
+                json!({"d": "dee"}),
+            ],
+            partitions: None,
+        });
+        let scope = Scope::for_test(&db, 111);
+
+        let err = TestCase::register(scope, "test-the-test", &[spec])
+            .expect_err("expected an err")
+            .unlocate();
+
+        match err {
+            Error::TestInvalid(ooo) => {
+                let expected_order = vec![
+                    json!({"c": "cee"}),
+                    json!({"d": "dee"}),
+                    json!({"b": 9}),
+                    json!({"a": 1, "b": 5}),
+                    json!({"a": 2, "b": 5}),
+                    json!({"a": 2, "b": 6}),
+                    json!({"a": 2, "b": 6}),
+                    json!({"a": 2, "b": 6}),
+                    json!({"a": 3}),
+                ];
+                assert_eq!(expected_order, ooo.reordered_documents);
+            }
+            other => panic!("unexpected error: {:?}", other),
+        }
+    }
 
     #[test]
     fn test_register_and_load() {

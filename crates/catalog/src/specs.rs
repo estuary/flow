@@ -11,6 +11,14 @@ use std::time::Duration;
 #[schemars(example = "CollectionName::example")]
 pub struct CollectionName(#[schemars(schema_with = "CollectionName::schema")] String);
 
+impl CollectionName {
+    /// Test only since this does not check the collection name against the validation regex
+    #[cfg(test)]
+    pub fn new(name: impl Into<String>) -> CollectionName {
+        CollectionName(name.into())
+    }
+}
+
 impl AsRef<str> for CollectionName {
     fn as_ref(&self) -> &str {
         &self.0
