@@ -1,5 +1,6 @@
 use super::ContentType;
 use crate::extraction::KeyError;
+use crate::test_case::TestVerifyOutOfOrder;
 use doc::{self, inference};
 use itertools::Itertools;
 use json::schema;
@@ -108,6 +109,9 @@ pub enum Error {
 
     #[error("The --catalog was not built by this version of flowctl. Catalog version: '{0}'")]
     CatalogVersionMismatch(String),
+
+    #[error(transparent)]
+    TestInvalid(#[from] TestVerifyOutOfOrder),
 }
 
 impl Error {
