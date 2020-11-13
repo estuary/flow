@@ -669,7 +669,8 @@ CREATE VIEW projected_fields_json AS
 SELECT collection_id,
     JSON_GROUP_ARRAY(
         -- JSON_PATCH here serves the purpose of trimming off any keys that have null values
-        JSON_PATCH('{}',
+        JSON_PATCH(
+            '{}',
             JSON_OBJECT(
                 'field',
                 field,
@@ -705,20 +706,19 @@ SELECT collection_id,
                         CASE
                             -- I know this is terrible, but it kinda seems preferable to creating a
                             -- CTE for this.
-                            WHEN types_json LIKE '%"string"%' THEN
-                                JSON_OBJECT(
-                                    'content_type',
-                                    string_content_type,
-                                    'format',
-                                    string_format,
-                                    'is_base64',
-                                    CASE
-                                        WHEN string_content_encoding_is_base64 THEN JSON('true')
-                                        ELSE JSON('false')
-                                    END,
-                                    'max_length',
-                                    string_max_length
-                                )
+                            WHEN types_json LIKE '%"string"%' THEN JSON_OBJECT(
+                                'content_type',
+                                string_content_type,
+                                'format',
+                                string_format,
+                                'is_base64',
+                                CASE
+                                    WHEN string_content_encoding_is_base64 THEN JSON('true')
+                                    ELSE JSON('false')
+                                END,
+                                'max_length',
+                                string_max_length
+                            )
                             ELSE NULL
                         END
                     )
@@ -735,8 +735,7 @@ GROUP BY collection_id;
 -- View of all collections as json objects that conform to the shape of a CollectionSpec as defined
 -- by the flow protocol.
 CREATE VIEW collections_json AS
-SELECT
-    c.collection_id,
+SELECT c.collection_id,
     c.collection_name,
     derivations.collection_id IS NOT NULL AS is_derivation,
     JSON_OBJECT(
@@ -747,16 +746,17 @@ SELECT
         'key_ptrs',
         JSON(c.key_json),
         'partition_fields',
-        JSON_GROUP_ARRAY(PARTITIONS.field) FILTER (WHERE PARTITIONS.field IS NOT NULL),
+        JSON_GROUP_ARRAY(PARTITIONS.field) FILTER (
+            WHERE PARTITIONS.field IS NOT NULL
+        ),
         'projections',
         JSON(projected_fields_json.projections_json)
     ) AS spec_json
 FROM collections AS c
-    NATURAL JOIN projected_fields_json
-    NATURAL LEFT JOIN PARTITIONS
-    NATURAL LEFT JOIN derivations
+    NATURAL JOIN projected_fields_json NATURAL
+    LEFT JOIN PARTITIONS NATURAL
+    LEFT JOIN derivations
 GROUP BY collection_id;
-
 
 -- View of all the collection primary keys, partition keys, and shuffle keys. These keys have
 -- constraints on the types of values that are used. The schema must ensure all of the following:
@@ -825,7 +825,7 @@ SELECT all_keys.collection_id,
     i.must_exist,
     all_keys.source,
     CASE
-        WHEN i.location_ptr IS NULL THEN 'No inferrence for this location (internal error).'
+        WHEN i.location_ptr IS NULL THEN 'No inference for this location.'
         WHEN types_json == '[]' THEN 'Schema is constrained such that the location cannot exist.'
         WHEN i.must_exist == FALSE THEN 'Location may not exist in all documents. Consider using "required" or "minItems".'
         WHEN i.num_non_null_types > 1 THEN printf(

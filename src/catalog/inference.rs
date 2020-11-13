@@ -86,50 +86,35 @@ fn fill_inferences<'a, 'b>(
     must_exist: bool,
     inferences: &mut Vec<Inference<'a>>,
 ) {
-    // Temporarily remove null and match on the remainder of the possible types. We're only looking
-    // at fields with a single possible type (apart from null). Any fields with multiple possible
-    // types (e.g. can be either a string or an object) are ignored.
-    let non_nullable_type = (!types::NULL) & shape.type_;
-    let is_nullable = shape.type_.overlaps(types::NULL);
-
-    // We'll always add the location to the output, even if it has mixed types. We won't recurse
-    // into fields with multiple types, but we will yield them here. This allows us to populate
-    // inferences for many of the fields that have multiple types, which in turn allows us to
-    // produce better error messages when a user attempts to use these locations as keys.
     inferences.push(Inference {
         location_ptr: location.pointer_str().to_string(),
         shape,
         must_exist,
     });
 
-    // We only test for strict equality here (not `overlaps`). This is so we only traverse into
-    // nested fields that have a single possible type.
-    if non_nullable_type == types::OBJECT {
-        for property in shape.object.properties.iter() {
-            let new_location = location.push_prop(property.name.as_str());
-            // All parents (including the current shape) must be required and not nullable,
-            // in addition to this property being required. Note that this can still be true
-            // even if the value may be null.
-            let location_must_exist = must_exist && property.is_required && !is_nullable;
-            fill_inferences(
-                new_location,
-                &property.shape,
-                location_must_exist,
-                inferences,
-            );
-        }
-    }
-    if non_nullable_type == types::ARRAY {
-        for (index, item_shape) in shape.array.tuple.iter().enumerate() {
-            let location = location.push_item(index);
-            // For array items, must_exist should be false unless the index of the current
-            // tuple item is less than the minimum number of required items. Note that this can
-            // still be true even if the value may be null.
-            let location_must_exist =
-                must_exist && !is_nullable && index < shape.array.min.unwrap_or_default();
+    // Traverse sub-locations of this location when it takes an object
+    // or array type. As a rule, children must exist only if their parent
+    // does, the parent can *only* take the applicable type, and it has
+    // validations which require that the child exist.
 
-            fill_inferences(location, item_shape, location_must_exist, inferences);
-        }
+    for property in &shape.object.properties {
+        fill_inferences(
+            location.push_prop(&property.name),
+            &property.shape,
+            must_exist && shape.type_ == types::OBJECT && property.is_required,
+            inferences,
+        );
+    }
+
+    for (index, item_shape) in shape.array.tuple.iter().enumerate() {
+        fill_inferences(
+            location.push_item(index),
+            item_shape,
+            must_exist
+                && shape.type_ == types::ARRAY
+                && index < shape.array.min.unwrap_or_default(),
+            inferences,
+        );
     }
 }
 
@@ -206,9 +191,10 @@ mod test {
                   - type: object
                     properties:
                       a: {type: string}
-                      b: {type: boolean}
+                      b: {type: [boolean, "null"]}
                       c: {type: integer}
                       d: {type: number}
+                    required: [a, d]
                   - type: string
 
               c:
