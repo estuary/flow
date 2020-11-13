@@ -116,6 +116,17 @@ impl Collection {
             |row| row.get(0),
         )?)
     }
+
+    /// Returns the collection's key
+    pub fn key(&self, db: &DB) -> Result<Vec<String>> {
+        let json = db.query_row(
+            "SELECT key_json FROM collections WHERE collection_id = ?;",
+            rusqlite::params![self.id],
+            |row| row.get::<usize, String>(0),
+        )?;
+        let key = serde_json::from_str(&json)?;
+        Ok(key)
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +137,45 @@ mod test {
     };
     use rusqlite::params as sql_params;
     use serde_json::json;
+
+    #[test]
+    fn test_get_schema_uri() {
+        let db = create(":memory:").unwrap();
+        db.execute_batch(r##"
+            INSERT INTO resources (resource_id, content_type, content, is_processed)
+            VALUES (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'abc123', TRUE);
+
+            INSERT INTO collections (collection_id, collection_name, schema_uri, key_json, resource_id)
+            VALUES (7, 'foo', 'test://test.schema.json', '["/abc","/xyz"]', 1);
+        "##).unwrap();
+        let collection = Collection {
+            id: 7,
+            resource: Resource { id: 1 },
+        };
+        let result = collection
+            .schema_uri(&db)
+            .expect("failed to get schema_uri");
+        assert_eq!("test://test.schema.json", result.as_str());
+    }
+
+    #[test]
+    fn test_get_key() {
+        let db = create(":memory:").unwrap();
+        db.execute_batch(r##"
+            INSERT INTO resources (resource_id, content_type, content, is_processed)
+            VALUES (1, 'application/vnd.estuary.dev-catalog-spec+yaml', X'abc123', TRUE);
+
+            INSERT INTO collections (collection_id, collection_name, schema_uri, key_json, resource_id)
+            VALUES (7, 'foo', 'test://test.schema.json', '["/abc","/xyz"]', 1);
+        "##).unwrap();
+        let collection = Collection {
+            id: 7,
+            resource: Resource { id: 1 },
+        };
+        let result = collection.key(&db).expect("failed to get key");
+        let expected = vec!["/abc".to_string(), "/xyz".to_string()];
+        assert_eq!(expected, result);
+    }
 
     #[test]
     fn test_register() -> Result<()> {

@@ -11,6 +11,15 @@ use std::time::Duration;
 #[schemars(example = "CollectionName::example")]
 pub struct CollectionName(#[schemars(schema_with = "CollectionName::schema")] String);
 
+impl<T> From<T> for CollectionName
+where
+    T: Into<String>,
+{
+    fn from(n: T) -> CollectionName {
+        CollectionName(n.into())
+    }
+}
+
 impl AsRef<str> for CollectionName {
     fn as_ref(&self) -> &str {
         &self.0
