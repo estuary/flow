@@ -116,6 +116,12 @@ fn fill_inferences<'a, 'b>(
             inferences,
         );
     }
+
+    // As an aide to documentation of repeated items, produce an inference
+    // using '-' ("after last item" within json-pointer spec).
+    if let Some(item_shape) = &shape.array.additional {
+        fill_inferences(location.push_prop("-"), item_shape, false, inferences);
+    };
 }
 
 fn usize_to_i64(unsigned: usize) -> i64 {
@@ -193,15 +199,22 @@ mod test {
                       a: {type: string}
                       b: {type: [boolean, "null"]}
                       c: {type: integer}
-                      d: {type: number}
+                      d:
+                        type: array
+                        allOf:
+                            - items: [{type: integer}]
+                              additionalItems: {type: [number, boolean]}
+                            - items: {type: [number, string]}
                     required: [a, d]
                   - type: string
 
               c:
                 type: array
-                items:
-                  - type: string
-                  - type: integer
+                oneOf:
+                    - items:
+                        - type: string
+                        - type: integer
+                    - items: {type: "null"}
                 minItems: 1
               d: {type: integer}
             required: [a, b, c]
