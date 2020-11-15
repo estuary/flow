@@ -559,6 +559,7 @@ impl Shape {
                 | Keyword::Application(Application::If { .. }, _)
                 | Keyword::Application(Application::Then { .. }, _)
                 | Keyword::Application(Application::Else { .. }, _)
+                | Keyword::Application(Application::Not { .. }, _)
             )
         }) {
             shape.provenance = Provenance::Inline;
@@ -730,17 +731,17 @@ impl Shape {
                     shape = Shape::intersect(shape, referent);
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
-                    shape = Shape::intersect(shape, Shape::infer(schema, index));
+                    shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
                 }
                 Keyword::Application(Application::OneOf { .. }, schema) => {
-                    let l = Shape::infer(schema, index);
+                    let l = Shape::infer_inner(schema, index, visited);
                     one_of = Some(match one_of {
                         Some(one_of) => Shape::union(one_of, l),
                         None => l,
                     })
                 }
                 Keyword::Application(Application::AnyOf { .. }, schema) => {
-                    let l = Shape::infer(schema, index);
+                    let l = Shape::infer_inner(schema, index, visited);
                     any_of = Some(match any_of {
                         Some(any_of) => Shape::union(any_of, l),
                         None => l,
@@ -748,10 +749,13 @@ impl Shape {
                 }
                 Keyword::Application(Application::If, _) => if_ = true,
                 Keyword::Application(Application::Then, schema) => {
-                    then_ = Some(Shape::infer(schema, index));
+                    then_ = Some(Shape::infer_inner(schema, index, visited));
                 }
                 Keyword::Application(Application::Else, schema) => {
-                    else_ = Some(Shape::infer(schema, index));
+                    else_ = Some(Shape::infer_inner(schema, index, visited));
+                }
+                Keyword::Application(Application::Not, _schema) => {
+                    // TODO(johnny): requires implementing difference.
                 }
 
                 _ => {} // Other Keyword. No-op.
@@ -1102,7 +1106,7 @@ impl Shape {
             out.push(Error::ImpossibleMustExist(loc.pointer_str().to_string()));
         }
         if matches!(self.reduction, Reduction::Sum)
-            && (self.type_ & !(types::NUMBER | types::INTEGER) != types::INVALID)
+            && self.type_ - types::INT_OR_FRAC != types::INVALID
         {
             out.push(Error::SumNotNumber(
                 loc.pointer_str().to_string(),
@@ -1110,7 +1114,7 @@ impl Shape {
             ));
         }
         if matches!(self.reduction, Reduction::Merge)
-            && (self.type_ & !(types::OBJECT | types::ARRAY) != types::INVALID)
+            && self.type_ - (types::OBJECT | types::ARRAY) != types::INVALID
         {
             out.push(Error::MergeNotObjectOrArray(
                 loc.pointer_str().to_string(),
@@ -1118,7 +1122,7 @@ impl Shape {
             ));
         }
         if matches!(self.reduction, Reduction::Set) {
-            if self.type_ & !types::OBJECT != types::INVALID {
+            if self.type_ != types::OBJECT {
                 out.push(Error::SetNotObject(
                     loc.pointer_str().to_string(),
                     self.type_,
@@ -1321,15 +1325,15 @@ mod test {
     fn test_enum_type_extraction() {
         assert_eq!(
             shape_from("enum: [b, 42, a]").type_,
-            types::STRING | types::NUMBER | types::INTEGER
+            types::STRING | types::INTEGER
         );
         assert_eq!(
             shape_from("enum: [b, 42.3, a]").type_,
-            types::STRING | types::NUMBER
+            types::STRING | types::FRACTIONAL
         );
         assert_eq!(
             shape_from("enum: [42.3, {foo: bar}]").type_,
-            types::NUMBER | types::OBJECT
+            types::FRACTIONAL | types::OBJECT
         );
         assert_eq!(
             shape_from("enum: [[42], true, null]").type_,
@@ -1939,7 +1943,10 @@ mod test {
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::ImpossibleMustExist("/nested-array/1".to_owned()),
-                Error::SumNotNumber("/sum-wrong-type".to_owned(), types::NUMBER | types::STRING),
+                Error::SumNotNumber(
+                    "/sum-wrong-type".to_owned(),
+                    types::INT_OR_FRAC | types::STRING
+                ),
                 Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
             ]
