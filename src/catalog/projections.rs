@@ -87,10 +87,14 @@ fn register_canonical_projections_for_shape(
     let inferences = inference::get_inferences(shape);
     for inference in inferences {
         inference::register_one(db, schema_uri, &inference)?;
+
         if inference.shape.type_.is_single_scalar_type() {
             let field = inference.location_ptr.trim_start_matches('/');
-            if contains_location(spec, inference.location_ptr.as_str(), field) {
-                continue;
+
+            if inference.location_ptr.ends_with("/-") {
+                continue; // Don't project inferred variable items of arrays.
+            } else if contains_location(spec, inference.location_ptr.as_str(), field) {
+                continue; // Already specified as a user-provided projection.
             }
 
             let mut proj_stmt = db.prepare_cached(
