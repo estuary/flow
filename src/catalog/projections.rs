@@ -1,7 +1,6 @@
 use crate::catalog::inference;
 use crate::catalog::{specs, Collection, Error, Result, Schema, Scope, DB};
 use crate::doc::inference::Shape;
-use estuary_json::schema::types;
 use rusqlite::params as sql_params;
 
 pub fn register_projections(
@@ -78,14 +77,6 @@ pub struct NoSuchLocationError {
     location_ptr: String,
 }
 
-fn is_projectable_type(types: types::Set) -> bool {
-    let without_null = types & (!types::NULL);
-    match without_null {
-        types::STRING | types::INTEGER | types::NUMBER | types::BOOLEAN => true,
-        _ => false,
-    }
-}
-
 fn register_canonical_projections_for_shape(
     db: &DB,
     collection_id: i64,
@@ -96,7 +87,7 @@ fn register_canonical_projections_for_shape(
     let inferences = inference::get_inferences(shape);
     for inference in inferences {
         inference::register_one(db, schema_uri, &inference)?;
-        if is_projectable_type(inference.shape.type_) {
+        if inference.shape.type_.is_single_scalar_type() {
             let field = inference.location_ptr.trim_start_matches('/');
             if contains_location(spec, inference.location_ptr.as_str(), field) {
                 continue;

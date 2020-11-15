@@ -34,7 +34,6 @@ expression: dump
       [
         "array",
         "boolean",
-        "integer",
         "null",
         "number",
         "object",

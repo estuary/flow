@@ -386,7 +386,7 @@ impl SqlMaterializationConfig {
             .as_ref()
             .map(|s| s.content_type.as_str())
             .filter(|s| !s.is_empty());
-        let non_null = inference.types.iter().collect::<types::Set>() & (!types::NULL);
+        let non_null = inference.types.iter().collect::<types::Set>() - types::NULL;
         let is_base64 = inference
             .string
             .as_ref()
@@ -402,7 +402,7 @@ impl SqlMaterializationConfig {
             }
             types::BOOLEAN => Some(&self.type_mappings.boolean),
             types::INTEGER => Some(&self.type_mappings.integer),
-            types::NUMBER => Some(&self.type_mappings.number),
+            types::FRACTIONAL | types::INT_OR_FRAC => Some(&self.type_mappings.number),
             types::OBJECT => Some(&self.type_mappings.object),
             types::ARRAY => Some(&self.type_mappings.array),
             _ => None,
@@ -692,7 +692,7 @@ mod test {
             field("objCol", types::OBJECT, None),
             field("arrayCol", types::ARRAY, None),
             field("intColNullable", types::INTEGER | types::NULL, None),
-            field("numColNullable", types::NUMBER | types::NULL, None),
+            field("numColNullable", types::INT_OR_FRAC | types::NULL, None),
             field("boolColNullable", types::BOOLEAN | types::NULL, None),
             field("objColNullable", types::OBJECT | types::NULL, None),
             field("arrayColNullable", types::ARRAY | types::NULL, None),
