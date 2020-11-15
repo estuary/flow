@@ -44,20 +44,22 @@ impl Span {
 /// let l0 = Location::Root;
 /// let l1 = l0.push_prop("foo");
 /// let l2 = l1.push_item(42);
+/// let l3 = l2.push_end_of_array();
 ///
-/// assert_eq!("/foo/42", l2.pointer_str().to_string());
+/// assert_eq!("/foo/42/-", l3.pointer_str().to_string());
 ///
-/// let as_url = format!("http://foo.test/myschema.json#{}", l2.url_escaped());
-/// assert_eq!("http://foo.test/myschema.json#/foo/42", as_url);
+/// let as_url = format!("http://foo.test/myschema.json#{}", l3.url_escaped());
+/// assert_eq!("http://foo.test/myschema.json#/foo/42/-", as_url);
 ///
-/// let l3 = l2.push_prop("ba~ ba/ 45");
-/// assert_eq!("q=/foo/42/ba~0%20ba~1%2045", format!("q={}", l3.url_escaped()));
+/// let l4 = l3.push_prop("ba~ ba/ 45");
+/// assert_eq!("q=/foo/42/-/ba~0%20ba~1%2045", format!("q={}", l4.url_escaped()));
 /// ```
 #[derive(Copy, Clone)]
 pub enum Location<'a> {
     Root,
     Property(LocatedProperty<'a>),
     Item(LocatedItem<'a>),
+    EndOfArray(&'a Location<'a>),
 }
 
 impl<'a> Location<'a> {
@@ -69,16 +71,23 @@ impl<'a> Location<'a> {
             index,
         })
     }
+
     /// Returns a new Location that extends this one with the given property.
     pub fn push_prop(&'a self, name: &'a str) -> Location<'a> {
         self.push_prop_with_index(name, usize::MAX)
     }
+
     /// Returns a new Location that extends this one with the given index.
     pub fn push_item(&'a self, index: usize) -> Location<'a> {
         Location::Item(LocatedItem {
             parent: self,
             index,
         })
+    }
+
+    // Returns a new Location that extends this one with a non-existent, trailing array item ("-").
+    pub fn push_end_of_array(&'a self) -> Location<'a> {
+        Location::EndOfArray(self)
     }
 
     /// Returns a struct that implements `std::fmt::Display` to provide a string representation of
@@ -118,6 +127,9 @@ impl<'a> Location<'a> {
             }
             Location::Item(item) => {
                 acc = item.parent.fold_inner(acc, fun);
+            }
+            Location::EndOfArray(parent) => {
+                acc = parent.fold_inner(acc, fun);
             }
         }
         fun(*self, acc)
@@ -171,6 +183,7 @@ impl<'a> fmt::Display for PointerStr<'a> {
                     Ok(())
                 }
                 Location::Item(LocatedItem { index, .. }) => write!(f, "/{}", index),
+                Location::EndOfArray(_) => write!(f, "/-"),
             })
         })
     }
@@ -198,6 +211,7 @@ impl<'a> fmt::Display for UrlEscaped<'a> {
                     Ok(())
                 }
                 Location::Item(LocatedItem { index, .. }) => write!(f, "/{}", index),
+                Location::EndOfArray(_) => write!(f, "/-"),
             })
         })
     }

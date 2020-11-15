@@ -40,13 +40,15 @@ impl Pointer {
     ///
     /// let root = Location::Root;
     /// let foo = root.push_prop("foo");
-    /// let bar = foo.push_prop("bar");
+    /// let eoa = foo.push_end_of_array();
+    /// let bar = eoa.push_prop("bar");
     /// let index = bar.push_item(3);
     ///
     /// let pointer = Pointer::from_location(&index);
-    /// // equivalent to "/foo/bar/3"
+    /// // equivalent to "/foo/-/bar/3"
     /// let expected_tokens = vec![
     ///     Token::Property("foo"),
+    ///     Token::NextIndex,
     ///     Token::Property("bar"),
     ///     Token::Index(3)
     /// ];
@@ -62,6 +64,9 @@ impl Pointer {
                 }
                 Location::Item(item) => {
                     ptr.push(Token::Index(item.index));
+                }
+                Location::EndOfArray(_) => {
+                    ptr.push(Token::NextIndex);
                 }
             }
             ptr
