@@ -832,7 +832,7 @@ where
                 let child_index = match loc {
                     Location::Item(LocatedItem { index, .. }) => *index,
                     Location::Property(LocatedProperty { index, .. }) => *index,
-                    Location::Root => panic!("unexpected root"),
+                    _ => unreachable!(),
                 };
 
                 for (o, c) in scope.outcomes.drain(..) {

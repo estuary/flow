@@ -120,7 +120,7 @@ fn fill_inferences<'a, 'b>(
     // As an aide to documentation of repeated items, produce an inference
     // using '-' ("after last item" within json-pointer spec).
     if let Some(item_shape) = &shape.array.additional {
-        fill_inferences(location.push_prop("-"), item_shape, false, inferences);
+        fill_inferences(location.push_end_of_array(), item_shape, false, inferences);
     };
 }
 

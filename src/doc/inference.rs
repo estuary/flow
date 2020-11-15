@@ -4,6 +4,7 @@ use estuary_json::{
     LocatedProperty, Location,
 };
 use itertools::{self, EitherOrBoth, Itertools};
+use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::Value;
 use url::Url;
@@ -1059,6 +1060,10 @@ pub enum Error {
         "{0} location's parent has 'set' reduction strategy, restricted to 'add'/'remove'/'intersect' properties"
     )]
     SetInvalidProperty(String),
+    #[error(
+        "{0} is a disallowed object property (it's an object property that looks like an array index)"
+    )]
+    DigitInvalidProperty(String),
 }
 
 impl Shape {
@@ -1069,6 +1074,9 @@ impl Shape {
     }
 
     fn inspect_inner(&self, loc: Location, must_exist: bool, out: &mut Vec<Error>) {
+        lazy_static! {
+            static ref ARRAY_PROPERTY: Regex = Regex::new(r"^([\d]+|-)$").unwrap();
+        }
         // Enumerations over array sub-locations.
         let items = self.array.tuple.iter().enumerate().map(|(index, s)| {
             (
@@ -1081,7 +1089,7 @@ impl Shape {
             .array
             .additional
             .iter()
-            .map(|s| (loc.push_prop("-"), false, s.as_ref()));
+            .map(|s| (loc.push_end_of_array(), false, s.as_ref()));
 
         // Enumerations over object sub-locations.
         let props = self.object.properties.iter().map(|op| {
@@ -1144,6 +1152,10 @@ impl Shape {
             .chain(patterns)
             .chain(addl_props)
         {
+            if matches!(loc, Location::Property(prop) if ARRAY_PROPERTY.is_match(prop.name)) {
+                out.push(Error::DigitInvalidProperty(loc.pointer_str().to_string()));
+            }
+
             if matches!(self.reduction, Reduction::Unset)
                 && !matches!(child.reduction, Reduction::Unset)
             {
@@ -1904,6 +1916,11 @@ mod test {
                     - $ref: '#/properties/nested-array'
                     - type: string
 
+            "123": {type: boolean}  # Disallowed.
+            "-": {type: boolean}    # Disallowed.
+            "-123": {type: boolean} # Allowed (cannot be an index).
+            "12.0": {type: boolean} # Allowed (also cannot be an index).
+
         patternProperties:
             merge-wrong-type:
                 reduce: {strategy: merge}
@@ -1941,6 +1958,8 @@ mod test {
                 Error::SetNotObject("/0".to_owned(), types::ANY),
                 Error::SetInvalidProperty("/-/whoops1".to_owned()),
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
+                Error::DigitInvalidProperty("/-".to_owned()),
+                Error::DigitInvalidProperty("/123".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::ImpossibleMustExist("/nested-array/1".to_owned()),
                 Error::SumNotNumber(
