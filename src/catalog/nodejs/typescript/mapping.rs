@@ -71,7 +71,8 @@ impl<'a> Mapper<'a> {
         if shape.type_.overlaps(types::BOOLEAN) {
             disjunct.push(AST::Boolean);
         }
-        if shape.type_.overlaps(types::INTEGER | types::NUMBER) {
+        if shape.type_.overlaps(types::INT_OR_FRAC) {
+            // TypeScript doesn't distinguish integer vs fractional numbers.
             disjunct.push(AST::Number);
         }
         if shape.type_.overlaps(types::STRING) {

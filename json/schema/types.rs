@@ -8,14 +8,17 @@ pub struct Set(u32);
 pub const INVALID: Set = Set(0b0000000);
 pub const ARRAY: Set = Set(0b0000001);
 pub const BOOLEAN: Set = Set(0b0000010);
-pub const INTEGER: Set = Set(0b0000100);
-pub const NULL: Set = Set(0b0001000);
-pub const NUMBER: Set = Set(0b0010000);
+pub const FRACTIONAL: Set = Set(0b0000100);
+pub const INTEGER: Set = Set(0b0001000);
+pub const NULL: Set = Set(0b0010000);
 pub const OBJECT: Set = Set(0b0100000);
 pub const STRING: Set = Set(0b1000000);
-pub const ANY: Set = Set(ARRAY.0 | BOOLEAN.0 | INTEGER.0 | NULL.0 | NUMBER.0 | OBJECT.0 | STRING.0);
-
-const ALL: &[Set] = &[ARRAY, BOOLEAN, INTEGER, NULL, NUMBER, OBJECT, STRING];
+// INT_OR_FRACT is a composite for "number". It's not called NUMBER to avoid
+// giving the impression that this is a fundamental type.
+pub const INT_OR_FRAC: Set = Set(INTEGER.0 | FRACTIONAL.0);
+// ANY is a composite for all possible types.
+pub const ANY: Set =
+    Set(ARRAY.0 | BOOLEAN.0 | FRACTIONAL.0 | INTEGER.0 | NULL.0 | OBJECT.0 | STRING.0);
 
 impl std::ops::BitOr for Set {
     type Output = Self;
@@ -33,18 +36,16 @@ impl std::ops::BitAnd for Set {
     }
 }
 
-impl std::ops::Not for Set {
+impl std::ops::Sub for Set {
     type Output = Self;
 
-    fn not(self) -> Self::Output {
-        // AND with ANY to ensure that none of the unused bits are set. Just a bit of caution to
-        // prevent garbage data leaking out.
-        Set((!self.0) & ANY.0)
+    fn sub(self, other: Self) -> Self::Output {
+        Set(self.0 & !other.0)
     }
 }
 
-/// Iterator that returns the type names for all of the types in a `Set`. You get this iterator by
-/// calling `Set::iter`.
+/// Iterator that returns the type names for all of the types in a `Set`.
+/// You get this iterator by calling `Set::iter`.
 pub struct Iter {
     types: Set,
     index: usize,
@@ -57,17 +58,32 @@ impl Iterator for Iter {
             types,
             ref mut index,
         } = self;
+
+        const ITER_ORDER: &[Set] = &[
+            ARRAY,
+            BOOLEAN,
+            FRACTIONAL,
+            INTEGER,
+            NULL,
+            INT_OR_FRAC, // "number" sorts after "null".
+            OBJECT,
+            STRING,
+        ];
+
         loop {
-            let ty = ALL.get(*index)?;
+            let ty = ITER_ORDER.get(*index)?;
             *index += 1;
 
-            if types.overlaps(*ty) {
+            // Is |ty| a subset of |types|?
+            if *ty - *types == INVALID {
                 match *ty {
                     ARRAY => return Some("array"),
                     BOOLEAN => return Some("boolean"),
-                    INTEGER => return Some("integer"),
+                    FRACTIONAL if !types.overlaps(INTEGER) => return Some("fractional"),
+                    INTEGER if !types.overlaps(FRACTIONAL) => return Some("integer"),
+                    FRACTIONAL | INTEGER => (),
                     NULL => return Some("null"),
-                    NUMBER => return Some("number"),
+                    INT_OR_FRAC => return Some("number"),
                     OBJECT => return Some("object"),
                     STRING => return Some("string"),
                     _ => unreachable!(),
@@ -142,7 +158,8 @@ impl Set {
     ///
     /// ```
     /// use estuary_json::schema::types::*;
-    /// assert_eq!(Some(NUMBER), Set::for_type_name("number"));
+    /// assert_eq!(Some(FRACTIONAL | INTEGER), Set::for_type_name("number"));
+    /// assert_eq!(Some(FRACTIONAL), Set::for_type_name("fractional"));
     /// assert_eq!(Some(INTEGER), Set::for_type_name("integer"));
     /// assert_eq!(Some(BOOLEAN), Set::for_type_name("boolean"));
     /// assert_eq!(Some(OBJECT), Set::for_type_name("object"));
@@ -154,9 +171,10 @@ impl Set {
         match str_val {
             "array" => Some(ARRAY),
             "boolean" => Some(BOOLEAN),
+            "fractional" => Some(FRACTIONAL),
             "integer" => Some(INTEGER),
             "null" => Some(NULL),
-            "number" => Some(NUMBER),
+            "number" => Some(INT_OR_FRAC),
             "object" => Some(OBJECT),
             "string" => Some(STRING),
             _ => None,
@@ -169,8 +187,13 @@ impl Set {
             Value::Bool(_) => BOOLEAN,
             Value::Null => NULL,
             Value::Number(n) => match Number::from(n) {
-                Number::Float(_) => NUMBER,
-                Number::Signed(_) | Number::Unsigned(_) => NUMBER | INTEGER,
+                // The json schema spec says that the "integer" type must match
+                // "any number with a zero fractional part":
+                // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
+                // So if there's an actual fractional part, then only "number" is valid,
+                // but for any other numeric value, then "integer" is also valid.
+                Number::Float(value) if value.fract() != 0.0 => FRACTIONAL,
+                _ => INTEGER,
             },
             Value::Object(_) => OBJECT,
             Value::String(_) => STRING,
@@ -189,8 +212,9 @@ impl Set {
     ///
     /// assert!(STRING.is_single_scalar_type());
     /// assert!(INTEGER.is_single_scalar_type());
+    /// assert!(FRACTIONAL.is_single_scalar_type());
     /// assert!(BOOLEAN.is_single_scalar_type());
-    /// assert!(NUMBER.is_single_scalar_type());
+    /// assert!(INT_OR_FRAC.is_single_scalar_type());
     /// assert!((STRING | NULL).is_single_scalar_type());
     ///
     /// assert!(!(NULL.is_single_scalar_type()));
@@ -202,9 +226,8 @@ impl Set {
     /// assert!(!((STRING | BOOLEAN).is_single_scalar_type()));
     /// ```
     pub fn is_single_scalar_type(&self) -> bool {
-        let without_null = *self & (!NULL);
-        match without_null {
-            INTEGER | BOOLEAN | STRING | NUMBER => true,
+        match *self - NULL {
+            BOOLEAN | INT_OR_FRAC | FRACTIONAL | INTEGER | STRING => true,
             _ => false,
         }
     }
@@ -299,9 +322,10 @@ mod test {
         assert_eq!(ARRAY, serde_json::from_str("\"array\"").unwrap());
         assert_eq!(BOOLEAN, serde_json::from_str("\"boolean\"").unwrap());
         assert_eq!(OBJECT, serde_json::from_str("\"object\"").unwrap());
-        assert_eq!(NUMBER, serde_json::from_str("\"number\"").unwrap());
+        assert_eq!(INT_OR_FRAC, serde_json::from_str("\"number\"").unwrap());
         assert_eq!(NULL, serde_json::from_str("\"null\"").unwrap());
         assert_eq!(INTEGER, serde_json::from_str("\"integer\"").unwrap());
+        assert_eq!(FRACTIONAL, serde_json::from_str("\"fractional\"").unwrap());
         assert_eq!(STRING, serde_json::from_str("\"string\"").unwrap());
     }
 
@@ -329,6 +353,22 @@ mod test {
         assert_eq!(
             r##"["integer"]"##,
             &serde_json::to_string(&INTEGER).unwrap()
+        );
+    }
+
+    #[test]
+    fn set_number_iteration() {
+        assert_eq!(
+            r##"["null","number"]"##,
+            &serde_json::to_string(&(NULL | INT_OR_FRAC)).unwrap()
+        );
+        assert_eq!(
+            r##"["fractional","null"]"##,
+            &serde_json::to_string(&(NULL | FRACTIONAL)).unwrap()
+        );
+        assert_eq!(
+            r##"["integer","null"]"##,
+            &serde_json::to_string(&(NULL | INTEGER)).unwrap()
         );
     }
 }

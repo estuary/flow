@@ -384,7 +384,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & types::OBJECT != types::INVALID,
+                Type(expect) => expect.overlaps(types::OBJECT),
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 Required {
@@ -412,7 +412,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & types::ARRAY != types::INVALID,
+                Type(expect) => expect.overlaps(types::ARRAY),
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 MinItems(bound) => *bound <= num_items,
@@ -433,7 +433,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & types::BOOLEAN != types::INVALID,
+                Type(expect) => expect.overlaps(types::BOOLEAN),
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 _ => true,
@@ -457,10 +457,10 @@ where
                         // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
                         // So if there's an actual fractional part, then only "number" is valid,
                         // but for any other numeric value, then "integer" is also valid.
-                        Number::Float(value) if value.fract() > 0.0 => types::NUMBER,
-                        _ => types::INTEGER | types::NUMBER,
+                        Number::Float(value) if value.fract() != 0.0 => types::FRACTIONAL,
+                        _ => types::INTEGER,
                     };
-                    *expect & actual != types::INVALID
+                    expect.overlaps(actual)
                 }
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
@@ -489,7 +489,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & types::STRING != types::INVALID,
+                Type(expect) => expect.overlaps(types::STRING),
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 MinLength(bound) => *bound <= s.chars().count(),
@@ -509,7 +509,7 @@ where
 
             match validation {
                 False => false,
-                Type(expect) => *expect & types::NULL != types::INVALID,
+                Type(expect) => expect.overlaps(types::NULL),
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 _ => true,
