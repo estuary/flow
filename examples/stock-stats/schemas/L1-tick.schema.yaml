@@ -3,6 +3,13 @@ description: Level-one market tick of a security.
 
 type: object
 
+# TODO(johnny): Quick and dirty test of additionalProperties
+# and patternProperties being merged and mapped to suitable
+# TypeScript indexers. Extract to a proper snapshot test.
+additionalProperties: { type: boolean }
+patternProperties:
+  foo\dbar: { type: "null" }
+
 properties:
   exchange:
     $ref: exchange.schema.yaml#Exchange
@@ -19,6 +26,9 @@ properties:
   last:
     description: Completed transaction which generated this tick.
     $ref: "#PriceAndSize"
+
+  # Must be here because incompatible additionalProperties is used above.
+  _meta: { type: object }
 
 required: [exchange, security, time]
 

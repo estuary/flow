@@ -1,5 +1,8 @@
 use super::ast::{ASTProperty, ASTTuple, AST};
-use crate::doc::{inference, Schema, SchemaIndex};
+use crate::doc::{
+    inference::{ArrayShape, ObjShape, Provenance, Shape},
+    Schema, SchemaIndex,
+};
 use estuary_json::schema::types;
 use std::collections::BTreeMap;
 
@@ -10,11 +13,11 @@ pub struct Mapper<'a> {
 
 impl<'a> Mapper<'a> {
     pub fn map(&self, scm: &Schema) -> AST {
-        let shape = inference::Shape::infer(scm, self.index);
+        let shape = Shape::infer(scm, self.index);
         self.to_ast(&shape)
     }
 
-    fn to_ast(&self, shape: &inference::Shape) -> AST {
+    fn to_ast(&self, shape: &Shape) -> AST {
         let mut ast = self.to_ast_inner(shape);
 
         if let Some(desc) = &shape.description {
@@ -33,8 +36,8 @@ impl<'a> Mapper<'a> {
         ast
     }
 
-    fn to_ast_inner(&self, shape: &inference::Shape) -> AST {
-        if let inference::Provenance::Reference(uri) = &shape.provenance {
+    fn to_ast_inner(&self, shape: &Shape) -> AST {
+        if let Provenance::Reference(uri) = &shape.provenance {
             if let Some(anchor) = self.top_level.get(uri.as_str()) {
                 return AST::Anchor((*anchor).to_owned());
             }
@@ -91,7 +94,7 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    fn object_to_ast(&self, obj: &inference::ObjShape) -> AST {
+    fn object_to_ast(&self, obj: &ObjShape) -> AST {
         let mut props: Vec<ASTProperty> = Vec::new();
 
         for prop in &obj.properties {
@@ -101,18 +104,57 @@ impl<'a> Mapper<'a> {
                 is_required: prop.is_required,
             });
         }
-        if let Some(addl) = &obj.additional {
+
+        if !obj.patterns.is_empty()
+            || matches!(&obj.additional, Some(addl) if addl.type_ != types::INVALID)
+        {
+            // TypeScript indexers can model additional properties, but they must be a union
+            // type that accommodates *all* types used across any property.
+            // See: https://basarat.gitbook.io/typescript/type-system/index-signatures
+
+            let mut merged = Shape {
+                type_: types::INVALID,
+                ..Shape::default()
+            };
+            let mut has_optional = false;
+
+            for prop in &obj.properties {
+                merged = Shape::union(merged, prop.shape.clone());
+                has_optional = has_optional || !prop.is_required;
+            }
+            for prop in &obj.patterns {
+                merged = Shape::union(merged, prop.shape.clone());
+            }
+            match &obj.additional {
+                Some(addl) if addl.type_ != types::INVALID => {
+                    merged = Shape::union(merged, addl.as_ref().clone());
+                }
+                _ => (),
+            }
+
+            let merged = match (has_optional, self.to_ast(&merged)) {
+                (true, AST::Union { mut variants }) => {
+                    variants.push(AST::Undefined);
+                    AST::Union { variants }
+                }
+                (true, merged) => AST::Union {
+                    variants: vec![merged, AST::Undefined],
+                },
+                (false, merged) => merged,
+            };
+
             props.push(ASTProperty {
                 field: "[k: string]".to_owned(),
-                value: self.to_ast(&addl),
+                value: merged,
                 // Optional '?' has no meaning for variadic properties.
                 is_required: true,
-            })
+            });
         }
+
         AST::Object { properties: props }
     }
 
-    fn array_to_ast(&self, obj: &inference::ArrayShape) -> AST {
+    fn array_to_ast(&self, obj: &ArrayShape) -> AST {
         if obj.tuple.is_empty() {
             let spread = match &obj.additional {
                 None => AST::Any,
@@ -126,8 +168,9 @@ impl<'a> Mapper<'a> {
         let items = obj.tuple.iter().map(|l| self.to_ast(l)).collect::<Vec<_>>();
 
         let spread = match &obj.additional {
-            None => None,
-            Some(shape) => Some(Box::new(self.to_ast(&shape))),
+            // The test filters cases of, eg, additionalItems: false.
+            Some(addl) if addl.type_ != types::INVALID => Some(Box::new(self.to_ast(&addl))),
+            _ => None,
         };
 
         AST::Tuple(ASTTuple {

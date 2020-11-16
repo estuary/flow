@@ -789,7 +789,7 @@ impl Shape {
         shape
     }
 
-    fn union(lhs: Self, rhs: Self) -> Self {
+    pub fn union(lhs: Self, rhs: Self) -> Self {
         let type_ = lhs.type_ | rhs.type_;
         let enum_ = union_enum(lhs.enum_, rhs.enum_);
         let title = union_option(lhs.title, rhs.title);
@@ -835,7 +835,7 @@ impl Shape {
         }
     }
 
-    fn intersect(lhs: Self, rhs: Self) -> Self {
+    pub fn intersect(lhs: Self, rhs: Self) -> Self {
         let mut type_ = lhs.type_ & rhs.type_;
         // The enum intersection is additionally filtered to variants matching
         // the intersected type.
