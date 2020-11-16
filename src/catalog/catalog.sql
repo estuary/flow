@@ -841,6 +841,26 @@ FROM all_keys
     LEFT JOIN inferences_with_errors AS i ON all_keys.schema_uri = i.schema_uri
     AND all_keys.location_ptr = i.location_ptr;
 
+-- shuffle_key_types_detail joins the implied or explicit shuffle key of each
+-- transform with its inferred types. It's used when registering derivations,
+-- to ensure that the shuffle keys of its transforms align.
+CREATE VIEW shuffle_key_types_detail AS
+SELECT derivation_id,
+    transform_id,
+    transform_name,
+    shuffle_key_json,
+    JSON_GROUP_ARRAY(
+        CASE
+            WHEN i.types_json IS NULL THEN "(No inference for this location)"
+            ELSE JSON(i.types_json)
+        END
+    ) AS shuffle_types_json
+FROM transform_details AS t,
+    JSON_EACH(t.shuffle_key_json) AS k
+    LEFT JOIN inferences AS i ON t.source_schema_uri = i.schema_uri
+    AND k.value = i.location_ptr
+GROUP BY transform_id;
+
 -- Map of NodeJS dependencies to bundle with the catalog's built NodeJS package.
 -- :package:
 --      Name of the NPM package depended on.

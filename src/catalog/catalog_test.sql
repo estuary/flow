@@ -869,6 +869,9 @@ FROM collections_json;
 SELECT *
 FROM collection_keys;
 
+SELECT *
+FROM shuffle_key_types_detail;
+
 -- Detail view of collections joined with projections, partitions,
 -- and alternate source schemas.
 SELECT *

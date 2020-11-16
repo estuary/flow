@@ -1,8 +1,7 @@
-use super::{
-    specs, sql_params, Collection, Error, Lambda, Resource, Result, Schema, Scope, Selector,
-};
+use super::{specs, sql_params, Collection, Error, Lambda, Resource, Schema, Scope, Selector};
 use crate::catalog::inference;
 use crate::doc::{validate, FullContext, SchemaIndex, Validator};
+use serde_json::Value;
 
 /// Derivation is a catalog Collection which is derived from other Collections.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
@@ -16,7 +15,7 @@ impl Derivation {
         scope: Scope,
         collection: Collection,
         spec: &specs::Derivation,
-    ) -> Result<Derivation> {
+    ) -> Result<Derivation, Error> {
         // Register and import the register schema document.
         let register_schema = scope
             .push_prop("register")
@@ -71,10 +70,46 @@ impl Derivation {
                 .push_prop(name)
                 .then(|scope| derivation.register_transform(scope, name, spec))?;
         }
+
+        derivation.verify_shuffles_align(scope)?;
+
         Ok(derivation)
     }
 
-    fn register_bootstrap(&self, scope: Scope, spec: &specs::Lambda) -> Result<()> {
+    fn verify_shuffles_align(&self, scope: Scope) -> Result<(), Error> {
+        let types = scope
+            .db
+            .prepare_cached(
+                "SELECT
+                transform_name,
+                shuffle_key_json,
+                shuffle_types_json
+                FROM shuffle_key_types_detail
+                WHERE derivation_id = ?;",
+            )?
+            .query_map(sql_params![self.collection.id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<Vec<(String, Value, Value)>, _>>()?;
+
+        if types.windows(2).any(|window| window[0].2 != window[1].2) {
+            let detail = types
+                .into_iter()
+                .map(|(name, shuffle, types)| {
+                    serde_json::json!({
+                        "name": name,
+                        "shuffle": shuffle,
+                        "types": types,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Err(Error::TransformShuffleMismatch(Value::Array(detail)))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn register_bootstrap(&self, scope: Scope, spec: &specs::Lambda) -> Result<(), Error> {
         let lambda = Lambda::register(scope, spec)?;
 
         scope
@@ -84,7 +119,12 @@ impl Derivation {
         Ok(())
     }
 
-    fn register_transform(&self, scope: Scope, name: &str, spec: &specs::Transform) -> Result<()> {
+    fn register_transform(
+        &self,
+        scope: Scope,
+        name: &str,
+        spec: &specs::Transform,
+    ) -> Result<(), Error> {
         // Map spec source collection name to its collection ID.
         let source = scope.push_prop("source").then(|scope| {
             let collection = Collection::get_imported_by_name(scope, spec.source.name.as_ref())?;
