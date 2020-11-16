@@ -17,6 +17,8 @@ pub struct Diff {
     /// Expected value at the document location.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expect: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 impl Diff {
@@ -72,6 +74,7 @@ impl Diff {
                         location: format!("{}", location.pointer_str()),
                         expect: expect.cloned(),
                         actual: actual.cloned(),
+                        note: None,
                     });
                 }
             }
@@ -81,6 +84,11 @@ impl Diff {
                     location: format!("{}", location.pointer_str()),
                     expect: expect.cloned(),
                     actual: actual.cloned(),
+                    note: if actual.is_none() {
+                        Some("missing in actual document".to_owned())
+                    } else {
+                        None
+                    },
                 });
             }
         }
@@ -188,7 +196,8 @@ mod test {
           },
           {
             "location": "/longer/1/missing",
-            "expect": null
+            "expect": null,
+            "note": "missing in actual document"
           },
           {
             "location": "/longer/1/null-ne",
@@ -209,7 +218,8 @@ mod test {
             "location": "/longer/2",
             "expect": {
               "extra": 1
-            }
+            },
+            "note": "missing in actual document"
           },
           {
             "location": "/shorter/1",
