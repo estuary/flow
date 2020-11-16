@@ -1080,6 +1080,17 @@ collection_id|schema_uri|location_ptr|types_json|must_exist|source|error
 4|file:///path/to/a/schema.yaml|/key|["integer"]|0|primary key of collection "col/srcs/other"|Location may not exist in all documents. Consider using "required" or "minItems".
 changes:   0   total_changes: XYZ
 
+SELECT *
+FROM shuffle_key_types_detail;
+derivation_id|transform_id|transform_name|shuffle_key_json|shuffle_types_json
+2|1|one|["/key"]|[[]]
+2|2|two|["/key/0","/key/1"]|[["string"],["string","null"]]
+2|3|3re|["/key/0","/key/1"]|[["string"],["string","null"]]
+2|4|4or|["/key/0","/key/1"]|[["string"],["string","null"]]
+3|5|one|["/key/0","/key/1"]|["(No inference for this location)","(No inference for this location)"]
+3|6|works|["/key/0","/key/1"]|["(No inference for this location)","(No inference for this location)"]
+changes:   0   total_changes: XYZ
+
 -- Detail view of collections joined with projections, partitions,
 -- and alternate source schemas.
 SELECT *

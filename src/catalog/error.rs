@@ -93,6 +93,8 @@ pub enum Error {
         collection_name: String,
         transform_name: String,
     },
+    #[error("Transforms have mismatched shuffles: {}", serde_json::to_string_pretty(.0).unwrap())]
+    TransformShuffleMismatch(serde_json::Value),
 
     #[error(transparent)]
     NoSuchEntity(#[from] NoSuchEntity),
