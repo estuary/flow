@@ -140,8 +140,8 @@ go-install/%:
 	go install -v --tags "${GO_BUILD_TAGS}" \
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" $*
 
-${GOBIN}/flow-ingester: go-install/github.com/estuary/flow/cmd/flow-ingester $(GO_PROTO_TARGETS)
-${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/cmd/flow-consumer $(GO_PROTO_TARGETS)
+${GOBIN}/flow-ingester: go-install/github.com/estuary/flow/go/flow-ingester $(GO_PROTO_TARGETS)
+${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/go/flow-consumer $(GO_PROTO_TARGETS)
 ${GOBIN}/gazette:       go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:        go-install/go.gazette.dev/core/cmd/gazctl
 
@@ -197,11 +197,11 @@ install-tools: ${TOOLBIN}/protoc-gen-gogo ${TOOLBIN}/etcd ${TOOLBIN}/sqlite3
 
 .PHONY: sql-test
 sql-test: ${TOOLBIN}/sqlite3
-	${ROOTDIR}/src/catalog/test_catalog.sh
+	${ROOTDIR}/crates/catalog/src/test_catalog.sh
 
 .PHONY: rust-test
 rust-test: ${TOOLBIN}/sqlite3
-	FLOW_VERSION=${VERSION} cargo test --all --locked
+	FLOW_VERSION=${VERSION} cargo test --locked
 
 .PHONY: build-test-catalog
 build-test-catalog: ${ROOTDIR}/catalog.db
@@ -223,7 +223,7 @@ catalog-test: ${RUSTBIN} ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/
 package: $(PACKAGE_TARGETS)
 
 .PHONY: docker-image
-docker-image:
+docker-image: package
 	docker build \
 		--file ${ROOTDIR}/.devcontainer/release.Dockerfile \
 		--tag docker.pkg.github.com/estuary/flow/bin:${VERSION} \
