@@ -1,0 +1,30 @@
+[package]
+name = "flowctl"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+catalog = { path = "../catalog", version = "0.0.0" }
+doc = { path = "../doc", version = "0.0.0" }
+materialization = { path = "../materialization", version = "0.0.0" }
+runtime = { path = "../runtime", version = "0.0.0" }
+testing = { path = "../testing", version = "0.0.0" }
+
+anyhow = "*"
+atty = "*"
+futures = "*"
+itertools = "*"
+log = "*"
+pretty_env_logger = "*"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+schemars = "*"
+serde_json = { version =  "*"}
+structopt = "*"
+tempfile = "*"
+tokio = { version = "0.2", features = ["full"] }
+url = "*"
+
+[dev-dependencies]
+lazy_static = "*"
+tempfile = "*"

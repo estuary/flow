@@ -1,0 +1,19 @@
+[package]
+name = "protocol"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+humantime-serde = "*"
+prost = "*"
+prost-types = "*"
+serde = "*"
+tonic = "*"
+
+[dev-dependencies]
+insta = "*"
+serde_json = "*"
+
+[build-dependencies]
+tonic-build = "*"
