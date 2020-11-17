@@ -1,0 +1,37 @@
+[package]
+name = "derive"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+catalog = { path = "../catalog", version = "0.0.0" }
+doc = { path = "../doc", version = "0.0.0" }
+json = { path = "../json", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+serve = { path = "../serve", version = "0.0.0" }
+
+futures = "*"
+http = "*"
+hyper = "*"
+hyper-tls = "*"
+hyperlocal = "*"
+itertools = "*"
+log = "*"
+mime = "*"
+pin-utils = "*"
+prost = "*"
+rocksdb = "*"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+serde = { version = "*", features = ["derive"] }
+serde_json = { version =  "*"}
+thiserror = "*"
+tokio = { version = "0.2", features = ["full"] }
+tonic = { version = "*" }
+url = "*"
+uuid = "*"
+
+[dev-dependencies]
+insta = "*"
+tempfile = "*"
+tower = "*"

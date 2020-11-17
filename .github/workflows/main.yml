@@ -41,9 +41,12 @@ jobs:
       - name: Cache/Restore Rust dependencies.
         uses: actions/cache@v2
         with:
+          # See: https://doc.rust-lang.org/nightly/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+          # TODO: Try https://github.com/Swatinem/rust-cache
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
