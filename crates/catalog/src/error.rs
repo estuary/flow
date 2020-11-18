@@ -64,7 +64,7 @@ pub enum Error {
     SchemaBuildErr(#[from] schema::build::Error),
     #[error("schema indexing error")]
     SchemaIndexErr(#[from] schema::index::Error),
-    #[error("inferred error in schema {schema_uri:?}")]
+    #[error("inferred error in schema {schema_uri}")]
     SchemaInferenceErr {
         schema_uri: url::Url,
         #[source]

@@ -90,7 +90,7 @@ class Server {
       // When all rows resolve, return the Document[][] to the caller.
       Promise.all(futures)
           .then((rows: Document[][]) => {
-            const body = JSON.stringify(rows);
+            const body = Buffer.from(JSON.stringify(rows), 'utf8');
 
             req.respond({
               ':status': 200,
