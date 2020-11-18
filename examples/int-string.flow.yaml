@@ -19,7 +19,6 @@ collections:
           reduce: { strategy: append }
       required: [i]
       reduce: { strategy: merge }
-      required: [i]
     key: [/i]
     projections:
       eye: /i
@@ -63,9 +62,9 @@ tests:
         collection: testing/int-string
         documents:
           - { i: 42, s: three }
-          - { i: 32, s: four }
+          - { i: 32, s: Δ }
     - verify:
         collection: testing/int-strings
         documents:
-          - { i: 32, s: [one, four] }
+          - { i: 32, s: [one, Δ] }
           - { i: 42, s: [two, three] }
