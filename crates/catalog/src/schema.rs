@@ -191,6 +191,8 @@ impl Schema {
         for schema in compiled.iter() {
             index.add(schema)?;
         }
+        index.verify_references()?;
+
         Ok(inference::Shape::infer(index.must_fetch(&uri)?, &index))
     }
 }
