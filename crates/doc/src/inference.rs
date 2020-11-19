@@ -791,6 +791,13 @@ impl Shape {
     }
 
     pub fn union(lhs: Self, rhs: Self) -> Self {
+        // If one side of the union cannot exist, the union is trivially the other side.
+        if lhs.type_ == types::INVALID {
+            return rhs;
+        } else if rhs.type_ == types::INVALID {
+            return lhs;
+        }
+
         let type_ = lhs.type_ | rhs.type_;
         let enum_ = union_enum(lhs.enum_, rhs.enum_);
         let title = union_option(lhs.title, rhs.title);
@@ -1886,6 +1893,27 @@ mod test {
             });
             assert_eq!(expect, &actual, "case {:?}", ptr);
         }
+    }
+
+    #[test]
+    fn test_union_with_impossible_shape() {
+        let obj = shape_from(r#"
+            oneOf:
+            - false
+            - type: object
+              reduce: {strategy: merge}
+              title: testTitle
+              description: testDescription
+              additionalProperties:
+                type: integer
+                reduce: {strategy: sum}
+        "#);
+
+        assert_eq!(obj.inspect(), vec![]);
+        assert_eq!("testTitle", obj.title.as_deref().unwrap_or_default());
+        assert_eq!("testDescription", obj.description.as_deref().unwrap_or_default());
+        assert_eq!(Reduction::Merge, obj.reduction);
+        assert!(obj.object.additional.is_some());
     }
 
     #[test]
