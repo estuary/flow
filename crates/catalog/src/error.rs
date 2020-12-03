@@ -1,5 +1,6 @@
 use super::ContentType;
 use crate::extraction::KeyError;
+use crate::materialization::MaterializationFieldsError;
 use crate::test_case::TestVerifyOutOfOrder;
 use doc::{self, inference};
 use itertools::Itertools;
@@ -84,11 +85,6 @@ pub enum Error {
     #[error(transparent)]
     InvalidProjection(#[from] crate::projections::NoSuchLocationError),
 
-    #[error(
-        "Materialization references the collection: '{collection_name}', which does not exist"
-    )]
-    MaterializationCollectionMissing { collection_name: String },
-
     #[error("the derived collection '{collection_name}' cannot name itself as a source in transform '{transform_name}'")]
     DerivationReadsItself {
         collection_name: String,
@@ -112,6 +108,9 @@ pub enum Error {
 
     #[error(transparent)]
     TestInvalid(#[from] TestVerifyOutOfOrder),
+
+    #[error(transparent)]
+    InvalidMaterialization(#[from] MaterializationFieldsError),
 }
 
 impl Error {
@@ -125,8 +124,20 @@ impl Error {
         }
     }
 
+    pub fn missing_projection(given_name: String, closest_match: Option<(String, i64)>) -> Error {
+        Error::NoSuchEntity(NoSuchEntity::new(
+            NoSuchEntity::PROJECTION,
+            given_name,
+            closest_match,
+        ))
+    }
+
     pub fn missing_collection(given_name: String, closest_match: Option<(String, i64)>) -> Error {
-        Error::NoSuchEntity(NoSuchEntity::collection(given_name, closest_match))
+        Error::NoSuchEntity(NoSuchEntity::new(
+            NoSuchEntity::COLLECTION,
+            given_name,
+            closest_match,
+        ))
     }
 }
 
@@ -138,26 +149,37 @@ pub struct NoSuchEntity {
 }
 
 impl NoSuchEntity {
+    // Only suggest the closest match if it's closer than this threshold. This is to
+    // prevent us showing silly suggestions in cases where there's nothing even remotely
+    // close. The value chosen for this threshold is arbitrary, with the goal that it more
+    // or less matches a subjective assessment of whether or not the suggestion would be
+    // useful.
+    const EDIT_DIST_THRESHOLD: usize = 4;
     const COLLECTION: &'static str = "collection";
+    const PROJECTION: &'static str = "projection";
 
-    pub fn collection(given_name: String, closest_match: Option<(String, i64)>) -> NoSuchEntity {
-        let closest_match = closest_match.and_then(|(name, edit_dist)| {
-            // Only suggest the closest match if it's closer than this threshold. This is to
-            // prevent us showing silly suggestions in cases where there's nothing even remotely
-            // close. The value chosen for this threshold is arbitrary, with the goal that it more
-            // or less matches a subjective assessment of whether or not the suggestion would be
-            // useful.
-            if edit_dist <= name.len().min(4) as i64 {
+    fn new(
+        entity_type: &'static str,
+        given_name: String,
+        closest_match: Option<(String, i64)>,
+    ) -> NoSuchEntity {
+        NoSuchEntity {
+            entity_type,
+            given_name,
+            closest_match: NoSuchEntity::filter_closest_match(closest_match),
+        }
+    }
+
+    fn filter_closest_match(closest_match: Option<(String, i64)>) -> Option<String> {
+        closest_match.and_then(|(name, edit_dist)| {
+            // Clamp the threshold to the name length to avoid ridiculous suggestions for short
+            // identifiers.
+            if edit_dist <= name.len().min(NoSuchEntity::EDIT_DIST_THRESHOLD) as i64 {
                 Some(name)
             } else {
                 None
             }
-        });
-        NoSuchEntity {
-            entity_type: NoSuchEntity::COLLECTION,
-            given_name,
-            closest_match,
-        }
+        })
     }
 }
 

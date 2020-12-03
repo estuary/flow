@@ -2,6 +2,7 @@ mod collection;
 mod content_type;
 mod db;
 mod derivation;
+mod endpoint;
 mod error;
 mod extraction;
 mod inference;
@@ -27,9 +28,10 @@ use url::Url;
 pub use collection::Collection;
 pub use content_type::ContentType;
 pub use derivation::Derivation;
+pub use endpoint::Endpoint;
 pub use error::{Error, NoSuchEntity};
 pub use lambda::Lambda;
-pub use materialization::MaterializationTarget;
+pub use materialization::{Materialization, MaterializationTarget};
 pub use resource::Resource;
 pub use rusqlite::{params as sql_params, Connection as DB};
 pub use schema::Schema;
@@ -233,6 +235,25 @@ fn get_build_timestamp(db: &DB) -> Result<Option<String>> {
         .query_row(params, |r| r.get::<usize, String>(0))
         .optional()?;
     Ok(timestamp)
+}
+
+#[cfg(test)]
+fn test_register(spec: &str) -> Result<DB> {
+    //fn try_build(db: &DB, spec_url: Url, nodejs_dir: &Path) -> Result<()> {
+
+    let db = create(":memory:")?;
+    let uri = Url::parse("test://flow-catalog-test-register/flow.yaml").unwrap();
+    let resource =
+        Resource::register_content(&db, ContentType::CatalogSpec, &uri, spec.as_bytes())?;
+    let scope = Scope {
+        db: &db,
+        parent: None,
+        resource: Some(resource),
+        location: json::Location::Root,
+    };
+    Source::register(scope, uri)?;
+
+    Ok(db)
 }
 
 // Not public; used for testing within sub-modules.

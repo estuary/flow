@@ -354,6 +354,7 @@ INSERT INTO projections (
 VALUES (1, 'field_1', '/key/0', TRUE),
     (1, 'field_2', '/key/1', FALSE),
     (1, 'field/3', '/path/3', FALSE),
+    (1, 'flow_document', '', FALSE),
     -- Repeat field name with different collection.
     (2, 'field_1', '', FALSE),
     (2, 'field_a', '/a', TRUE);
@@ -797,6 +798,17 @@ VALUES (
     ),
     (
         'file:///path/to/a/schema.yaml#anchor',
+        '',
+        '["object"]',
+        TRUE,
+        'flow_document title',
+        'flow_document description',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        'file:///path/to/a/schema.yaml#anchor',
         '/path/3',
         '["string", "null"]',
         TRUE,
@@ -938,3 +950,58 @@ FROM test_steps_json;
 -- JSON structure.
 SELECT *
 FROM test_cases_json;
+
+-- Insert valid endpoints
+INSERT INTO endpoints (endpoint_id, resource_id, endpoint_name, endpoint_type, endpoint_uri)
+VALUES
+    (1, 1, 'testSqlite', 'sqlite', './example-sqlite.db'),
+    (2, 1, 'testPostgres', 'postgres', 'postgres://foo:bar@testpg:5432/testdb');
+
+-- Invalid (endpoint name differs only by case)
+INSERT INTO endpoints (endpoint_id, resource_id, endpoint_name, endpoint_type, endpoint_uri)
+VALUES
+    (88, 1, 'TESTsQLITE', 'sqlite', './any-old-thing');
+
+-- Invalid (invalid type)
+INSERT INTO endpoints (endpoint_id, resource_id, endpoint_name, endpoint_type, endpoint_uri)
+VALUES
+    (99, 1, 'invalidType', 'aintright', './any-old-thing');
+
+SELECT * FROM endpoints;
+
+-- Insert valid materializations.
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    -- Valid materialization fields_json
+    (1, 1, 1, 'test_table', 1, '["field_1", "field_2", "field/3", "flow_document"]'),
+    -- Invalid fields_json (not all collection keys projected)
+    (2, 1, 2, 'test_table', 1, '["field_1", "flow_document"]'),
+    -- Invalid fields_json (missing projection of the root document)
+    (3, 1, 2, 'different_table', 1, '["field_1", "field_2"]');
+
+-- Invalid (same endpoint, source, and target)
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    (55, 1, 1, 'test_table', 1, '["field_1", "field_2"]');
+
+-- Invalid (target_entity differs only by case)
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    (55, 1, 1, 'TEST_TABLE', 1, '["field_1", "field_2"]');
+
+-- Invalid (references a field that is not a projection)
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    (66, 1, 1, 'a_unique_table', 1, '["field_three", "field_2"]');
+
+
+SELECT * FROM materializations;
+
+SELECT * FROM materializations_json;
+
+SELECT * FROM materialization_invalid_projections;
+

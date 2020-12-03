@@ -12,8 +12,6 @@ use std::time::Duration;
 pub struct CollectionName(#[schemars(schema_with = "CollectionName::schema")] String);
 
 impl CollectionName {
-    /// Test only since this does not check the collection name against the validation regex
-    #[cfg(test)]
     pub fn new(name: impl Into<String>) -> CollectionName {
         CollectionName(name.into())
     }
@@ -140,6 +138,25 @@ pub struct Catalog {
     /// `MaterializationTarget`, which contains the connection information.
     #[serde(default)]
     pub materialization_targets: BTreeMap<String, MaterializationTarget>,
+
+    /// Endpoints each represent an external system that may be bound to a Flow collection, either
+    /// as a capture or materialization. Endpoints defined in the current file may be used by any
+    /// materializations or captures defined either in the current file, or in any file imported by
+    /// the current file.
+    #[serde(default)]
+    pub endpoints: BTreeMap<String, Endpoint>,
+    /// List of Materializations, each binding a source collection to an entity (e.g. database
+    /// table) within an external system. Materializations may be provided for any collection
+    /// defined either within the current file or a file that's imported by it. Multiple
+    /// materializations may be defined per collection, and may be defined in different files.
+    #[serde(default)]
+    pub materializations: Vec<Materialization>,
+    /// List of Captures, each binding a source in an external system (e.g. cloud storage prefix)
+    /// to a captured collection. Captures may provided for any collection defined either within
+    /// the current file, or a file that's imported by it. Multiple Captures may be defined per
+    /// collection, and may be defined in different files.
+    #[serde(default)]
+    pub captures: Vec<Capture>,
     // Tests of the catalog, indexed by name.
     #[serde(default)]
     #[schemars(default = "Catalog::default_test")]
@@ -478,6 +495,24 @@ impl Transform {
     }
 }
 
+/// CollectionRef is a simple reference to a Flow collection by name. It has the same shape as
+/// `Source` so that the YAML representations are consistent.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(example = "CollectionRef::example")]
+pub struct CollectionRef {
+    /// # Name of the collection to be read.
+    pub name: CollectionName,
+}
+
+impl CollectionRef {
+    fn example() -> Self {
+        CollectionRef {
+            name: CollectionName::new("example-collection"),
+        }
+    }
+}
+
 // Source details how another collection is to be read.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -733,6 +768,131 @@ impl MaterializationConfig {
             MaterializationConfig::Sqlite(_) => "sqlite",
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+#[schemars(example = "EndpointUri::example")]
+pub struct EndpointUri(String);
+impl EndpointUri {
+    pub fn new(uri: impl Into<String>) -> EndpointUri {
+        EndpointUri(uri.into())
+    }
+
+    pub fn example() -> Self {
+        EndpointUri("postgresql://user:pass@localhost:5432/postgres".to_owned())
+    }
+}
+
+/// An Endpoint represents an external system that can be used as either a data source or a
+/// materialization target. The endpoint spec contains
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum Endpoint {
+    /// # A postgresql endpoint
+    Postgres(EndpointUri),
+    /// # A sqlite endpoint
+    Sqlite(EndpointUri),
+}
+
+impl Endpoint {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Endpoint::Postgres(_) => "postgres",
+            Endpoint::Sqlite(_) => "sqlite",
+        }
+    }
+
+    pub fn uri(&self) -> &str {
+        match self {
+            Endpoint::Postgres(uri) => uri.0.as_str(),
+            Endpoint::Sqlite(uri) => uri.0.as_str(),
+        }
+    }
+}
+
+/// A Materialization continuously updates an external system with the latest state from a Flow
+/// collection. It binds a source collection to an endpoint and a target, which identifies a
+/// specific entity (e.g. database table) within the external system.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Materialization {
+    /// # The source collection to materialize
+    pub source: CollectionRef,
+
+    /// # The name of an endpoint
+    /// Identifies a named endpoint to use for this materialization. This endpoint need not be
+    /// defined in the current file, and may even be defined by another spec that imports the
+    /// current file. This allows for connection information to be provided by environment-specific
+    /// flow.yaml files.
+    pub endpoint: String,
+    /// # The name of the type-specific entity to materialize in the target system
+    /// The specific meaning depends on the type of system the endpoint refers to.
+    /// For a database this would be the table name, for Kinesis a stream, or
+    /// for Kafka a topic.
+    pub target: String,
+
+    /// Optional specification of the projections to use for this materialization.
+    #[serde(default)]
+    pub fields: MaterializationFields,
+}
+
+/// # Specifies the set of fields to materialize
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum MaterializationFields {
+    Include(Vec<String>),
+    Exclude(Vec<String>),
+}
+impl Default for MaterializationFields {
+    fn default() -> Self {
+        MaterializationFields::Exclude(Vec::new())
+    }
+}
+impl MaterializationFields {
+    fn example() -> Self {
+        MaterializationFields::Include(vec![
+            "projection_one".to_string(),
+            "projection_two".to_string(),
+        ])
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BuiltinSource {
+    Rest,
+    Websocket,
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(untagged)]
+pub enum CaptureSource {
+    External {
+        /// # The name of an endpoint
+        /// Identifies a named endpoint to use for this materialization. This endpoint need not be
+        /// defined in the current file, and may even be defined by another spec that imports the
+        /// current file. This allows for connection information to be provided by environment-specific
+        /// flow.yaml files.
+        endpoint: String,
+        /// # The name of the type-specific entity to materialize in the target system
+        /// The specific meaning depends on the type of system the endpoint refers to.
+        /// For a database this would be the table name, for Kinesis a stream, or
+        /// for Kafka a topic.
+        target: String,
+    },
+    Builtin(BuiltinSource),
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Capture {
+    #[serde(flatten)]
+    pub source: CaptureSource,
+
+    /// # The name of the collection to write records into
+    /// This collection must be defined in the current flow yaml file or one that's imported
+    /// by it.
+    pub collection: String,
 }
 
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {

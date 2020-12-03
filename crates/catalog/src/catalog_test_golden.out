@@ -455,10 +455,11 @@ INSERT INTO projections (
 VALUES (1, 'field_1', '/key/0', TRUE),
     (1, 'field_2', '/key/1', FALSE),
     (1, 'field/3', '/path/3', FALSE),
+    (1, 'flow_document', '', FALSE),
     -- Repeat field name with different collection.
     (2, 'field_1', '', FALSE),
     (2, 'field_a', '/a', TRUE);
-changes:   5   total_changes: XYZ
+changes:   6   total_changes: XYZ
 
 -- Invalid projection (no such collection).
 Error: near line (XYZ): FOREIGN KEY constraint failed
@@ -978,6 +979,17 @@ VALUES (
     ),
     (
         'file:///path/to/a/schema.yaml#anchor',
+        '',
+        '["object"]',
+        TRUE,
+        'flow_document title',
+        'flow_document description',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        'file:///path/to/a/schema.yaml#anchor',
         '/path/3',
         '["string", "null"]',
         TRUE,
@@ -987,7 +999,7 @@ VALUES (
         FALSE,
         98
     );
-changes:   3   total_changes: XYZ
+changes:   4   total_changes: XYZ
 
 INSERT INTO inferences (schema_uri, location_ptr, types_json, must_exist)
 VALUES -- Will show up in collection_keys as error due to invalid type "number"
@@ -1049,6 +1061,7 @@ collection_id|schema_uri|collection_name|field|location_ptr|user_provided|types_
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_1|/key/0|1|["string"]|1|the title of /key/0|the description of /key/0|text/plain|0||96|0|1
 1|file:///path/to/a/schema.yaml#anchor|col/src|field_2|/key/1|0|["string", "null"]|1|the title of /key/1|the description of /key/1|text/plain|1||97|1|1
 1|file:///path/to/a/schema.yaml#anchor|col/src|field/3|/path/3|0|["string", "null"]|1|the title of /path/3|the description of /path/3|text/plain|0||98|0|0
+1|file:///path/to/a/schema.yaml#anchor|col/src|flow_document||0|["object"]|1|flow_document title|flow_document description|||||0|0
 2|https://canonical/schema/uri#/$defs/path|col/derived|field_1||0|||||||||0|0
 2|https://canonical/schema/uri#/$defs/path|col/derived|field_a|/a|1|||||||||1|0
 changes:   0   total_changes: XYZ
@@ -1056,14 +1069,14 @@ changes:   0   total_changes: XYZ
 SELECT *
 FROM projected_fields_json;
 collection_id|projections_json|partition_fields_json
-1|[{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}}]|["field_2"]
+1|[{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}},{"field":"flow_document","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["object"],"must_exist":true}}]|["field_2"]
 2|[{"field":"field_1","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false},{"field":"field_a","ptr":"/a","user_provided":true,"is_partition_key":true,"is_primary_key":false}]|["field_a"]
 changes:   0   total_changes: XYZ
 
 SELECT *
 FROM collections_json;
 collection_id|collection_name|is_derivation|spec_json
-1|col/src|0|{"name":"col/src","schema_uri":"file:///path/to/a/schema.yaml#anchor","key_ptrs":["/key/0","/key/1"],"partition_fields":["field_2"],"projections":[{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}}]}
+1|col/src|0|{"name":"col/src","schema_uri":"file:///path/to/a/schema.yaml#anchor","key_ptrs":["/key/0","/key/1"],"partition_fields":["field_2"],"projections":[{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}},{"field":"flow_document","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["object"],"must_exist":true}}]}
 2|col/derived|1|{"name":"col/derived","schema_uri":"https://canonical/schema/uri#/$defs/path","key_ptrs":["/foo"],"partition_fields":["field_a"],"projections":[{"field":"field_1","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false},{"field":"field_a","ptr":"/a","user_provided":true,"is_partition_key":true,"is_primary_key":false}]}
 changes:   0   total_changes: XYZ
 
@@ -1096,7 +1109,7 @@ changes:   0   total_changes: XYZ
 SELECT *
 FROM collection_details;
 collection_id|collection_name|schema_uri|key_json|resource_id|partition_fields_json|projections_json|alt_schemas_json|is_derivation|register_schema_uri|register_initial_json
-1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|3|["field_2"]|[{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}}]|["https://alt/source/schema#anchor"]|0||
+1|col/src|file:///path/to/a/schema.yaml#anchor|["/key/0","/key/1"]|3|["field_2"]|[{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}},{"field":"flow_document","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["object"],"must_exist":true}}]|["https://alt/source/schema#anchor"]|0||
 2|col/derived|https://canonical/schema/uri#/$defs/path|["/foo"]|2|["field_a"]|[{"field":"field_1","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false},{"field":"field_a","ptr":"/a","user_provided":true,"is_partition_key":true,"is_primary_key":false}]|[]|1|file:///path/to/a/schema.yaml#register|{}
 3|col/der.iv-e_d|https://canonical/schema/uri#/$defs/path|["/foo"]|1|[]|{}|[]|1|file:///path/to/a/schema.yaml#other-register|[]
 4|col/srcs/other|file:///path/to/a/schema.yaml|["/key"]|6|[]|{}|[]|0||
@@ -1179,3 +1192,83 @@ test_case_id|test_case_name|steps_json
 420|my test|[{"verify":{"collection":"col/der.iv-e_d","documents":[111,222],"partitions":null}},{"ingest":{"collection":"col/der.iv-e_d","documents":[true,false]}}]
 860|another test|[{"ingest":{"collection":"col/derived","documents":["a","b"]}},{"verify":{"collection":"col/src","documents":[333,444],"partitions":{"include":{"field_2":[null]},"exclude":{"field_2":[456,"789"]}}}}]
 changes:   0   total_changes: XYZ
+
+-- Insert valid endpoints
+INSERT INTO endpoints (endpoint_id, resource_id, endpoint_name, endpoint_type, endpoint_uri)
+VALUES
+    (1, 1, 'testSqlite', 'sqlite', './example-sqlite.db'),
+    (2, 1, 'testPostgres', 'postgres', 'postgres://foo:bar@testpg:5432/testdb');
+changes:   2   total_changes: XYZ
+
+-- Invalid (endpoint name differs only by case)
+Error: near line (XYZ): UNIQUE constraint failed: endpoints.endpoint_name
+INSERT INTO endpoints (endpoint_id, resource_id, endpoint_name, endpoint_type, endpoint_uri)
+VALUES
+    (88, 1, 'TESTsQLITE', 'sqlite', './any-old-thing');
+
+-- Invalid (invalid type)
+Error: near line (XYZ): CHECK constraint failed: endpoint_type must be a recognized type
+INSERT INTO endpoints (endpoint_id, resource_id, endpoint_name, endpoint_type, endpoint_uri)
+VALUES
+    (99, 1, 'invalidType', 'aintright', './any-old-thing');
+
+SELECT * FROM endpoints;
+endpoint_id|resource_id|endpoint_name|endpoint_type|endpoint_uri
+1|1|testSqlite|sqlite|./example-sqlite.db
+2|1|testPostgres|postgres|postgres://foo:bar@testpg:5432/testdb
+changes:   0   total_changes: XYZ
+
+-- Insert valid materializations.
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    -- Valid materialization fields_json
+    (1, 1, 1, 'test_table', 1, '["field_1", "field_2", "field/3", "flow_document"]'),
+    -- Invalid fields_json (not all collection keys projected)
+    (2, 1, 2, 'test_table', 1, '["field_1", "flow_document"]'),
+    -- Invalid fields_json (missing projection of the root document)
+    (3, 1, 2, 'different_table', 1, '["field_1", "field_2"]');
+changes:   3   total_changes: XYZ
+
+-- Invalid (same endpoint, source, and target)
+Error: near line (XYZ): UNIQUE constraint failed: materializations.endpoint_id, materializations.target_entity, materializations.source_collection_id
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    (55, 1, 1, 'test_table', 1, '["field_1", "field_2"]');
+
+-- Invalid (target_entity differs only by case)
+Error: near line (XYZ): UNIQUE constraint failed: materializations.endpoint_id, materializations.target_entity, materializations.source_collection_id
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    (55, 1, 1, 'TEST_TABLE', 1, '["field_1", "field_2"]');
+
+-- Invalid (references a field that is not a projection)
+Error: near line (XYZ): One or more materialization fields is not a projection of the collection
+INSERT INTO materializations
+    (materialization_id, resource_id, endpoint_id, target_entity, source_collection_id, fields_json)
+VALUES
+    (66, 1, 1, 'a_unique_table', 1, '["field_three", "field_2"]');
+
+
+SELECT * FROM materializations;
+materialization_id|resource_id|endpoint_id|target_entity|source_collection_id|fields_json
+1|1|1|test_table|1|["field_1", "field_2", "field/3", "flow_document"]
+2|1|2|test_table|1|["field_1", "flow_document"]
+3|1|2|different_table|1|["field_1", "field_2"]
+changes:   0   total_changes: XYZ
+
+SELECT * FROM materializations_json;
+materialization_id|collection_id|endpoint_name|endpoint_type|endpoint_uri|target_entity|spec_json
+1|1|testSqlite|sqlite|./example-sqlite.db|test_table|{"name":"col/src","schema_uri":"file:///path/to/a/schema.yaml#anchor","key_ptrs":["/key/0","/key/1"],"partition_fields":["field_2"],"projections":[{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}},{"field":"field/3","ptr":"/path/3","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":98}}},{"field":"flow_document","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["object"],"must_exist":true}}]}
+2|1|testPostgres|postgres|postgres://foo:bar@testpg:5432/testdb|test_table|{"name":"col/src","schema_uri":"file:///path/to/a/schema.yaml#anchor","key_ptrs":["/key/0","/key/1"],"partition_fields":["field_2"],"projections":[{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"flow_document","ptr":"","user_provided":false,"is_partition_key":false,"is_primary_key":false,"inference":{"types":["object"],"must_exist":true}}]}
+3|1|testPostgres|postgres|postgres://foo:bar@testpg:5432/testdb|different_table|{"name":"col/src","schema_uri":"file:///path/to/a/schema.yaml#anchor","key_ptrs":["/key/0","/key/1"],"partition_fields":["field_2"],"projections":[{"field":"field_1","ptr":"/key/0","user_provided":true,"is_partition_key":false,"is_primary_key":true,"inference":{"types":["string"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":false,"max_length":96}}},{"field":"field_2","ptr":"/key/1","user_provided":false,"is_partition_key":true,"is_primary_key":true,"inference":{"types":["string","null"],"must_exist":true,"string":{"content_type":"text/plain","is_base64":true,"max_length":97}}}]}
+changes:   0   total_changes: XYZ
+
+SELECT * FROM materialization_invalid_projections;
+materialization_id|error
+2|Collection key "/key/1" is not included in the materialized projections
+3|Materialization must include a projection of the root document (location pointer of an empty string)
+changes:   0   total_changes: XYZ
+

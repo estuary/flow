@@ -1,0 +1,53 @@
+---
+source: crates/catalog/src/materialization.rs
+expression: results
+---
+materializations:
+  - - 1
+    - 1
+    - 1
+    - test_table
+    - 1
+    - - id
+      - wat
+      - flow_document
+materializations_json:
+  - - 1
+    - 1
+    - testDB
+    - postgres
+    - "postgres://flow:flow@flow.test:5432/flow"
+    - test_table
+    - key_ptrs:
+        - /id
+      name: foo
+      partition_fields: []
+      projections:
+        - field: id
+          inference:
+            must_exist: true
+            types:
+              - integer
+          is_partition_key: false
+          is_primary_key: true
+          ptr: /id
+          user_provided: false
+        - field: wat
+          inference:
+            must_exist: false
+            types:
+              - number
+          is_partition_key: false
+          is_primary_key: false
+          ptr: /woo
+          user_provided: true
+        - field: flow_document
+          inference:
+            must_exist: true
+            types:
+              - object
+          is_partition_key: false
+          is_primary_key: false
+          ptr: ""
+          user_provided: false
+      schema_uri: "test://flow-catalog-test-register/flow.yaml?ptr=/collections/0/schema"

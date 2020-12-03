@@ -223,6 +223,150 @@ CREATE TABLE materialization_targets (
     CONSTRAINT "Materialization Target name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (target_name REGEXP '^[\pL\pN\-_./]+$')
 );
 
+
+-- Endpoints
+--
+-- :endpoint_name:
+--     Human-readable identifier of this endpoint, as provided in the catalog spec.
+-- :endpoint_type:
+--     The type of system that this endpoint represents. Currently only 'postgres' and 'sqlite'
+--     are supported, but many others will be added "soon".
+-- :endpoint_uri:
+--     The URI to use to connect to the target system.
+CREATE TABLE endpoints (
+    endpoint_id INTEGER PRIMARY KEY NOT NULL,
+    resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
+    endpoint_name TEXT NOT NULL,
+    endpoint_type TEXT NOT NULL CONSTRAINT 'endpoint_type must be a recognized type' CHECK(endpoint_type IN ('postgres', 'sqlite')),
+    endpoint_uri TEXT NOT NULL,
+
+    UNIQUE (endpoint_name COLLATE NOCASE),
+    CONSTRAINT "Endpoint name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (endpoint_name REGEXP '^[\pL\pN\-_./]+$')
+);
+
+-- Materializations bind a source collection, endpoint, and target.
+--
+-- :resource_id:
+--     References the resource that this materialization was defined in.
+-- :endpoint_id:
+--     References the endpoint that we'll materialize to.
+-- :target_entity:
+--     System-dependent identifier of an entity within the target system to materialize into. For
+--     database endpoints, this will be a table name. But this could also represent an S3 object key
+--     or prefix, the name of a kinesis stream, kafka topic, etc.
+-- :source_collection_id:
+--     References the collection that will be materialized.
+-- :fields_json:
+--     Array of fields to project, each referencing a projection for the source collection.
+CREATE TABLE materializations (
+    materialization_id INTEGER NOT NULL PRIMARY KEY,
+    resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints (endpoint_id),
+    target_entity TEXT,
+    source_collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
+    fields_json NOT NULL CONSTRAINT 'fields must be a json array' CHECK (json_type(fields_json) = 'array'),
+
+    UNIQUE(endpoint_id, target_entity COLLATE NOCASE, source_collection_id)
+);
+
+-- Ensures that the fields in a materializations fields_json reference actual projections for the
+-- collection.
+CREATE TRIGGER materialization_fields_reference_projections BEFORE
+INSERT ON materializations FOR EACH ROW
+    WHEN (
+        SELECT 1
+        FROM json_each(NEW.fields_json) AS m_field
+        LEFT JOIN projections ON NEW.source_collection_id = projections.collection_id AND m_field.value = projections.field
+        WHERE projections.location_ptr IS NULL
+    ) NOT NULL
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'One or more materialization fields is not a projection of the collection'
+    );
+END;
+
+-- View of materializations with projections that are invalid.
+-- :materialization_id:
+-- :location_ptr:
+-- :error:
+CREATE VIEW materialization_invalid_projections AS
+SELECT DISTINCT materialization_id, printf('Collection key "%s" is not included in the materialized projections', location_ptr) AS error
+FROM materializations AS m
+JOIN projected_fields AS pf ON m.source_collection_id = pf.collection_id
+WHERE pf.is_primary_key AND pf.location_ptr NOT IN (
+    SELECT DISTINCT location_ptr FROM projections WHERE field IN (
+        SELECT value FROM json_each(m.fields_json)
+    )
+)
+UNION SELECT materialization_id, 'Materialization must include a projection of the root document (location pointer of an empty string)' AS error
+FROM materializations AS m
+JOIN json_each(m.fields_json) AS f
+LEFT JOIN projections AS p ON p.collection_id = m.source_collection_id AND p.field = f.value AND p.location_ptr = ''
+GROUP BY materialization_id
+HAVING COUNT(p.field) <>1;
+
+
+-- View of each materialization as a complete JSON representation of a CollectionSpec from
+-- flow-protocol.
+CREATE VIEW materializations_json AS
+WITH pfj AS (
+    SELECT
+        collections.collection_id,
+        JSON_GROUP_ARRAY(PARTITIONS.field) FILTER (WHERE PARTITIONS.field IS NOT NULL) AS fields_array
+    FROM collections
+        LEFT JOIN PARTITIONS ON PARTITIONS.collection_id = collections.collection_id
+    GROUP BY collections.collection_id
+),
+selected_projections AS (
+    SELECT
+        m.materialization_id,
+        JSON_GROUP_ARRAY(pj.value) AS projections
+    FROM materializations AS m
+        JOIN JSON_EACH(m.fields_json) AS f
+        LEFT JOIN projected_fields_json AS p ON m.source_collection_id = p.collection_id
+        LEFT JOIN JSON_EACH(p.projections_json) AS pj ON f.value = JSON_EXTRACT(pj.value, '$.field')
+    GROUP BY m.materialization_id
+)
+SELECT
+    m.materialization_id,
+    c.collection_id,
+    endpoint_name,
+    endpoint_type,
+    endpoint_uri,
+    target_entity,
+    JSON_OBJECT(
+        'name',
+        c.collection_name,
+        'schema_uri',
+        c.schema_uri,
+        'key_ptrs',
+        JSON(c.key_json),
+        'partition_fields',
+        JSON(pfj.fields_array),
+        'projections',
+        JSON(selected_projections.projections)
+    ) AS spec_json
+FROM materializations AS m
+    NATURAL JOIN endpoints
+    NATURAL JOIN selected_projections
+    JOIN collections AS c ON c.collection_id = m.source_collection_id
+    JOIN pfj ON m.source_collection_id = pfj.collection_id;
+
+-- Captures bind a source endpoint, source entity
+create table captures (
+    capture_id INTEGER NOT NULL PRIMARY KEY,
+    resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
+
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints (endpoint_id),
+    source_entity TEXT,
+
+    target_collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
+
+    UNIQUE(endpoint_id, source_entity COLLATE NOCASE, target_collection_id)
+);
+
+
 -- Projections are locations within collection documents which may be projected
 -- into a flattened (i.e. columnar) attribute/value space.
 --

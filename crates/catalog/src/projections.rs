@@ -2,6 +2,9 @@ use crate::{inference, specs, Collection, Error, Result, Schema, Scope, DB};
 use doc::inference::Shape;
 use rusqlite::params as sql_params;
 
+// Name used for the automatically generated projection of the root document (with an empty location_ptr)
+const DEFAULT_ROOT_DOCUMENT_FIELD: &str = "flow_document";
+
 pub fn register_projections(
     scope: &Scope,
     collection: Collection,
@@ -31,7 +34,22 @@ pub fn register_projections(
         schema_uri.as_str(),
         &shape,
         projections,
-    )
+    )?;
+
+    // If the user has supplied their own projection for the root document, then we'll use that.
+    // Otherwise, we'll add a projection for them with a default name. Materializations require
+    // a projection of the root document, so this allows us to just generate it automatically in
+    // the common case, but still allow for customization by the user.
+    if !has_root_document_projection(projections) {
+        insert_projection(
+            scope.db,
+            collection.id,
+            DEFAULT_ROOT_DOCUMENT_FIELD,
+            "",
+            false,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn register_user_provided_projection(
@@ -41,13 +59,7 @@ pub fn register_user_provided_projection(
     schema_shape: &Shape,
     schema_uri: &str,
 ) -> Result<()> {
-    scope
-        .db
-        .prepare_cached(
-            "INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-                VALUES (?, ?, ?, TRUE);",
-        )?
-        .execute(sql_params![collection.id, spec.field, spec.location])?;
+    insert_projection(scope.db, collection.id, spec.field, spec.location, true)?;
 
     if spec.partition {
         scope
@@ -67,6 +79,10 @@ pub fn register_user_provided_projection(
             location_ptr: spec.location.to_string(),
         }))
     }
+}
+
+fn has_root_document_projection(projections: &specs::Projections) -> bool {
+    projections.iter().any(|p| p.location.is_empty())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -96,18 +112,36 @@ fn register_canonical_projections_for_shape(
                 continue; // Already specified as a user-provided projection.
             }
 
-            let mut proj_stmt = db.prepare_cached(
-                "INSERT INTO projections (collection_id, field, location_ptr, user_provided)
-                    VALUES (?, ?, ?, FALSE)",
-            )?;
-            proj_stmt.execute(sql_params![
+            insert_projection(
+                db,
                 collection_id,
                 field,
-                inference.location_ptr.as_str()
-            ])?;
+                inference.location_ptr.as_str(),
+                false,
+            )?;
         }
     }
 
+    Ok(())
+}
+
+fn insert_projection(
+    db: &DB,
+    collection_id: i64,
+    field: &str,
+    location_ptr: &str,
+    user_provided: bool,
+) -> Result<()> {
+    let mut proj_stmt = db.prepare_cached(
+        "INSERT INTO projections (collection_id, field, location_ptr, user_provided)
+            VALUES (?, ?, ?, ?)",
+    )?;
+    proj_stmt.execute(sql_params![
+        collection_id,
+        field,
+        location_ptr,
+        user_provided,
+    ])?;
     Ok(())
 }
 

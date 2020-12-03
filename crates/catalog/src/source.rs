@@ -1,6 +1,6 @@
 use super::{
-    specs, sql_params, Collection, ContentType, MaterializationTarget, Resource, Result, Scope,
-    TestCase,
+    specs, sql_params, Collection, ContentType, Endpoint, Materialization, MaterializationTarget,
+    Resource, Result, Scope, TestCase,
 };
 use url::Url;
 
@@ -25,6 +25,20 @@ impl Source {
         let spec: serde_yaml::Value = serde_yaml::from_slice(&spec)?;
         let spec: serde_yaml::Value = yaml_merge_keys::merge_keys_serde(spec)?;
         let spec: specs::Catalog = serde_yaml::from_value(spec)?;
+
+        // The order of operations here is significant. We register endpoints so that an imported
+        // flow yaml may reference an endpoint defined in the file that imports it. Imports are
+        // handled after endpoints, then collections, with materializations and captures going last.
+        // Materializations and captures may reference collections from either the current file or
+        // one imported by it, so they need to be done after registering collections.
+        // Tests must be registered after collections, since they may also reference collections
+        // defined in the current and imported files.
+        for (endpoint_name, endpoint) in spec.endpoints.iter() {
+            scope
+                .push_prop("endpoints")
+                .push_prop(endpoint_name.as_str())
+                .then(|s| Endpoint::register(s, endpoint_name.as_str(), endpoint))?;
+        }
 
         for (index, url) in spec.import.iter().enumerate() {
             scope.push_prop("import").push_item(index).then(|scope| {
@@ -60,6 +74,13 @@ impl Source {
                 .push_prop("materializationTargets")
                 .push_prop(name)
                 .then(|scope| MaterializationTarget::register(&scope, name, materialization))?;
+        }
+
+        for (i, materialization) in spec.materializations.iter().enumerate() {
+            scope
+                .push_prop("materializations")
+                .push_item(i)
+                .then(|scope| Materialization::register(scope, materialization))?;
         }
 
         for (name, spec) in spec.tests.iter() {

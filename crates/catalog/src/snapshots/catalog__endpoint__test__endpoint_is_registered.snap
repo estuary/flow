@@ -1,0 +1,9 @@
+---
+source: crates/catalog/src/endpoint.rs
+expression: endpoints
+---
+- - 1
+  - 1
+  - testName
+  - postgres
+  - "postgres://foo:bar@baz.test:5432/flow"

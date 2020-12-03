@@ -1,5 +1,5 @@
 ---
-source: src/catalog/projections.rs
+source: crates/catalog/src/projections.rs
 expression: actual
 ---
 {
@@ -758,6 +758,12 @@ expression: actual
       1,
       "twoFoo/fooObj/d",
       "/twoFoo/fooObj/d",
+      false
+    ],
+    [
+      1,
+      "flow_document",
+      "",
       false
     ]
   ]

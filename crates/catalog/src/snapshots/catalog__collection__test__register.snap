@@ -29,6 +29,10 @@ projections:
     - b/b
     - /b/b
     - false
+  - - 1
+    - flow_document
+    - ""
+    - false
 resource_imports:
   - - 1
     - 10
