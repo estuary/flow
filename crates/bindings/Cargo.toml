@@ -1,0 +1,13 @@
+[package]
+name = "bindings"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[lib]
+crate_type = ["staticlib"]
+
+[dependencies]
+
+[build-dependencies]
+cbindgen = "*"
