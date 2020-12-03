@@ -19,11 +19,11 @@ typedef struct {
    */
   uint32_t code;
   /**
-   * Begin data offset into the Channel arena.
+   * Begin data offset within the arena.
    */
   uint32_t begin;
   /**
-   * End data offset into the Channel arena.
+   * End data offset within the arena.
    */
   uint32_t end;
 } Out;
