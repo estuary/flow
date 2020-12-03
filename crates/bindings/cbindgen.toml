@@ -1,1 +1,7 @@
 language = "C"
+
+[parse]
+# Parse dependencies, but only the white-listed "protocol" crate.
+# We're required to generate bindings for the protocol::cgo::Out type.
+parse_deps = true
+include = ["protocol"]
