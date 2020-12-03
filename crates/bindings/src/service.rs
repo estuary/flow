@@ -1,30 +1,4 @@
-/// Service is a trait implemented by services which may be called from Go.
-pub trait Service {
-    /// Error type returned by Service invocations.
-    type Error: std::error::Error;
-    /// Create a new instance of the Service.
-    fn create() -> Self;
-    /// Invoke with the given op-code & |data| payload.
-    /// It extends |arena| with any returned []byte data, and pushes output messages onto |out|.
-    fn invoke(
-        &mut self,
-        code: u32,
-        data: &[u8],
-        arena: &mut Vec<u8>,
-        out: &mut Vec<Out>,
-    ) -> Result<(), Self::Error>;
-}
-
-/// Output frame produced by a Service.
-#[repr(C)]
-pub struct Out {
-    /// Service-defined response code.
-    pub code: u32,
-    /// Begin data offset into the Channel arena.
-    pub begin: u32,
-    /// End data offset into the Channel arena.
-    pub end: u32,
-}
+pub use protocol::cgo::{Out, Service};
 
 /// InN is a variadic input which invokes itself against a Service.
 pub trait InN {

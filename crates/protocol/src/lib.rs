@@ -4,6 +4,7 @@ pub mod protocol {
 }
 */
 
+pub mod cgo;
 pub mod consumer;
 pub mod flow;
 pub mod protocol;

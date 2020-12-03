@@ -8,6 +8,7 @@ edition = "2018"
 crate_type = ["staticlib"]
 
 [dependencies]
+protocol = { path = "../protocol", version = "0.0.0" }
 
 [build-dependencies]
 cbindgen = "*"

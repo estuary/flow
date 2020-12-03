@@ -138,6 +138,7 @@ name = "bindings"
 version = "0.0.0"
 dependencies = [
  "cbindgen",
+ "protocol",
 ]
 
 [[package]]
