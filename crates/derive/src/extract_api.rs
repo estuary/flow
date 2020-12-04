@@ -1,5 +1,6 @@
 use doc::Pointer;
 use json::Number;
+use prost::Message;
 use protocol::flow;
 
 #[derive(thiserror::Error, Debug)]
@@ -10,6 +11,10 @@ pub enum Error {
     InvalidArenaRange(flow::Slice),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
+    #[error("Protobuf decoding error: {0:?}")]
+    ProtoDecode(#[from] prost::DecodeError),
+    #[error("invalid service code: {0}")]
+    InvalidCode(u32),
 }
 
 #[derive(Debug)]
@@ -161,10 +166,65 @@ pub fn extract_field(
     out
 }
 
+/// Extractor provides an extraction API as a protocol::cgo::Service.
+pub struct Extractor {
+    cfg: Option<(Pointer, Vec<Pointer>)>,
+}
+
+impl protocol::cgo::Service for Extractor {
+    type Error = Error;
+
+    fn create() -> Self {
+        Self { cfg: None }
+    }
+
+    fn invoke(
+        &mut self,
+        code: u32,
+        data: &[u8],
+        arena: &mut Vec<u8>,
+        out: &mut Vec<protocol::cgo::Out>,
+    ) -> Result<(), Self::Error> {
+        match (code, &mut self.cfg) {
+            // Configure service.
+            (0, cfg) => {
+                // |data| is a protobuf ExtractRequest, which we take configuration from.
+                let req = flow::ExtractRequest::decode(data)?;
+                let uuid_ptr = Pointer::from(&req.uuid_ptr);
+                let field_ptrs: Vec<Pointer> = req.field_ptrs.iter().map(|p| p.into()).collect();
+                *cfg = Some((uuid_ptr, field_ptrs));
+
+                Ok(())
+            }
+            // Extract from JSON document.
+            (1, Some((uuid_ptr, field_ptrs))) => {
+                let doc: serde_json::Value = serde_json::from_slice(data)?;
+
+                // Extract UUID.
+                let uuid =
+                    extract_uuid_parts(&doc, &uuid_ptr).ok_or_else(|| Error::InvalidUuid {
+                        value: uuid_ptr.query(&doc).cloned(),
+                    })?;
+                Self::send_message(0, &uuid, arena, out);
+
+                // Extract field pointers.
+                for (i, ptr) in field_ptrs.iter().enumerate() {
+                    let field = extract_field(arena, &doc, ptr);
+                    Self::send_message(1 + i as u32, &field, arena, out);
+                }
+
+                Ok(())
+            }
+            _ => Err(Error::InvalidCode(code)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::super::test::field_to_value;
-    use super::{extract_field, extract_uuid_parts, flow, Pointer};
+    use super::{extract_field, extract_uuid_parts, flow, Extractor, Pointer};
+    use protocol::cgo::{Out, Service};
     use serde_json::json;
 
     #[test]
@@ -236,5 +296,42 @@ mod test {
             assert_eq!(expect_value, field_to_value(&arena, &field),);
             assert_eq!(expect_arena.as_bytes(), &arena[..]);
         }
+    }
+
+    #[test]
+    fn test_extractor_service() {
+        let mut svc = Extractor::create();
+
+        // Initialize arena & out with content which must not be touched.
+        let mut arena = b"prefix".to_vec();
+        let mut out = vec![Out {
+            code: 999,
+            begin: 0,
+            end: 0,
+        }];
+
+        // Configure the service.
+        svc.invoke_message(
+            0,
+            flow::ExtractRequest {
+                uuid_ptr: "/0".to_string(),
+                field_ptrs: vec!["/1".to_string(), "/2".to_string()],
+                ..Default::default()
+            },
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        // Extract from a document.
+        svc.invoke(
+            1,
+            br#"["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string"]"#,
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        insta::assert_debug_snapshot!((String::from_utf8_lossy(&arena), out));
     }
 }
