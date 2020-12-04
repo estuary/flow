@@ -1,3 +1,5 @@
+use prost::Message;
+
 /// Service is a trait implemented by Rust services which may be called from Go.
 pub trait Service {
     /// Error type returned by Service invocations.
@@ -26,10 +28,39 @@ pub trait Service {
         arena: &mut Vec<u8>,
         out: &mut Vec<Out>,
     ) -> Result<(), Self::Error>;
+
+    /// Invoke the Service with the given code and Message,
+    /// which is marshalled to an allocated buffer.
+    /// This routine is intended for testing Services.
+    fn invoke_message<M: Message>(
+        &mut self,
+        code: u32,
+        msg: M,
+        arena: &mut Vec<u8>,
+        out: &mut Vec<Out>,
+    ) -> Result<(), Self::Error> {
+        let mut data = Vec::new();
+        msg.encode_raw(&mut data);
+        self.invoke(code, &data, arena, out)
+    }
+
+    /// Send a protobuf message to the caller, by marshalling directly into
+    /// the |arena| and pushing an Out frame that references its offsets.
+    fn send_message<M: Message>(code: u32, msg: &M, arena: &mut Vec<u8>, out: &mut Vec<Out>) {
+        let begin = arena.len() as u32;
+        msg.encode_raw(arena);
+
+        out.push(Out {
+            code,
+            begin,
+            end: arena.len() as u32,
+        });
+    }
 }
 
 /// Output frame produced by a Service.
 #[repr(C)]
+#[derive(Debug)]
 pub struct Out {
     /// Service-defined response code.
     pub code: u32,
