@@ -8,13 +8,13 @@ import (
 )
 
 func TestExtractor(t *testing.T) {
-	var e, err = NewExtractor("/0", []string{"/1", "/2"})
+	var ex, err = NewExtractor("/0", []string{"/1", "/2"})
 	assert.NoError(t, err)
 
-	e.SendDocument([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string"]`))
-	e.SendDocument([]byte(`["9f2952f3-c6a3-12fb-8802-080607050309", 52, "other-string"]`))
+	ex.Document([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string"]`))
+	ex.Document([]byte(`["9f2952f3-c6a3-12fb-8802-080607050309", 52, "other-string"]`))
 
-	arena, uuids, fields, err := e.Poll()
+	arena, uuids, fields, err := ex.Extract()
 	assert.NoError(t, err)
 
 	assert.Equal(t, []pf.UUIDParts{

@@ -21,52 +21,53 @@ func (m frameableString) MarshalToSizedBuffer(b []byte) (int, error) {
 func TestUpperServiceFunctional(t *testing.T) {
 	var svc = newUpperCase()
 
-	// Cover frameBuf growing.
-	svc.frameBuf = make([]byte, 0, 1)
+	// Test growing |buf|.
+	svc.buf = make([]byte, 0, 1)
 
-	svc.SendBytes(1, []byte("hello"))
-	svc.SendMessage(2, frameableString("world"))
-	var arena, responses, err = svc.Poll()
+	svc.sendBytes(1, []byte("hello"))
+	svc.sendMessage(2, frameableString("world"))
+	var arena, out, err = svc.poll()
 
+	assert.NoError(t, err)
+	assert.Len(t, out, 2)
 	assert.Equal(t, pf.Arena("HELLOWORLD"), arena)
-	assert.Equal(t, []Frame{
-		{Data: []byte("HELLO"), Code: 5},
-		{Data: []byte("WORLD"), Code: 10},
-	}, responses)
+	assert.Equal(t, []byte("HELLO"), svc.arena_slice(out[0]))
+	assert.Equal(t, []byte("WORLD"), svc.arena_slice(out[1]))
+	assert.Equal(t, 5, int(out[0].code))
+	assert.Equal(t, 10, int(out[1].code))
+
+	svc.sendMessage(3, frameableString("bye"))
+	arena, out, err = svc.poll()
+
 	assert.NoError(t, err)
-
-	svc.SendMessage(3, frameableString("bye"))
-	arena, responses, err = svc.Poll()
-
+	assert.Len(t, out, 1)
 	assert.Equal(t, pf.Arena("BYE"), arena)
-	assert.Equal(t, []Frame{
-		{Data: []byte("BYE"), Code: 13},
-	}, responses)
-	assert.NoError(t, err)
+	assert.Equal(t, []byte("BYE"), svc.arena_slice(out[0]))
+	assert.Equal(t, 13, int(out[0].code))
 
 	// Trigger an error, and expect it's plumbed through.
-	svc.SendBytes(6, []byte("whoops!"))
-	_, _, err = svc.Poll()
+	svc.sendBytes(6, []byte("whoops!"))
+	_, _, err = svc.poll()
 	assert.EqualError(t, err, "Custom { kind: Other, error: \"whoops!\" }")
 }
 
 func TestNoOpServiceFunctional(t *testing.T) {
 	var svc = newNoOpService()
 
-	svc.SendBytes(1, []byte("hello"))
-	svc.SendBytes(2, []byte("world"))
+	svc.sendBytes(1, []byte("hello"))
+	svc.sendBytes(2, []byte("world"))
 
-	var arena, responses, err = svc.Poll()
-	assert.Empty(t, arena)
-	assert.Equal(t, []Frame{{}, {}}, responses)
+	var arena, out, err = svc.poll()
 	assert.NoError(t, err)
-
-	svc.SendBytes(3, []byte("bye"))
-
-	arena, responses, err = svc.Poll()
+	assert.Len(t, out, 2)
 	assert.Empty(t, arena)
-	assert.Equal(t, []Frame{{}}, responses)
+
+	svc.sendBytes(3, []byte("bye"))
+
+	arena, out, err = svc.poll()
 	assert.NoError(t, err)
+	assert.Len(t, out, 1)
+	assert.Empty(t, arena)
 }
 
 func TestUpperServiceWithStrides(t *testing.T) {
@@ -76,26 +77,26 @@ func TestUpperServiceWithStrides(t *testing.T) {
 		var given = []byte("abcd0123efghijklm456nopqrstuvwxyz789")
 		var expect = bytes.Repeat([]byte("ABCD0123EFGHIJKLM456NOPQRSTUVWXYZ789"), 2)
 
-		svc.SendBytes(1, nil)
+		svc.sendBytes(1, nil)
 		for b := 0; b != len(given); b += 2 {
-			svc.SendBytes(2, given[b:b+2])
+			svc.sendBytes(2, given[b:b+2])
 		}
-		svc.SendBytes(3, nil)
+		svc.sendBytes(3, nil)
 
 		for b := 0; b != len(given); b += 1 {
-			svc.SendBytes(4, given[b:b+1])
+			svc.sendBytes(4, given[b:b+1])
 		}
-		svc.SendBytes(5, nil)
+		svc.sendBytes(5, nil)
 
 		var got []byte
-		var _, responses, err = svc.Poll()
+		var _, out, err = svc.poll()
 		assert.NoError(t, err)
 
-		for _, r := range responses {
-			got = append(got, r.Data...)
+		for _, o := range out {
+			got = append(got, svc.arena_slice(o)...)
 		}
 		assert.Equal(t, expect, got)
-		assert.Equal(t, len(given)*2*(i+1), int(responses[len(responses)-1].Code))
+		assert.Equal(t, len(given)*2*(i+1), int(out[len(out)-1].code))
 	}
 }
 
@@ -161,11 +162,15 @@ func BenchmarkUpperService(b *testing.B) {
 
 			for i := 0; i != b.N; i++ {
 				if i%stride == 0 && i > 0 {
-					svc.Poll()
+					if _, _, err := svc.poll(); err != nil {
+						panic(err)
+					}
 				}
-				svc.SendBytes(0, input)
+				svc.sendBytes(0, input)
 			}
-			var _, _, _ = svc.Poll()
+			if _, _, err := svc.poll(); err != nil {
+				panic(err)
+			}
 		})
 
 		b.Run("noop-"+strconv.Itoa(stride), func(b *testing.B) {
@@ -173,11 +178,15 @@ func BenchmarkUpperService(b *testing.B) {
 
 			for i := 0; i != b.N; i++ {
 				if i%stride == 0 && i > 0 {
-					svc.Poll()
+					if _, _, err := svc.poll(); err != nil {
+						panic(err)
+					}
 				}
-				svc.SendBytes(0, input)
+				svc.sendBytes(0, input)
 			}
-			var _, _, _ = svc.Poll()
+			if _, _, err := svc.poll(); err != nil {
+				panic(err)
+			}
 		})
 	}
 }
