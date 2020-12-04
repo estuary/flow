@@ -1,7 +1,8 @@
 package bindings
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lbindings -ldl
+#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lbindings -lcrypto -lssl -ldl -lm -lstdc++
+
 #include "../../crates/bindings/flow_bindings.h"
 */
 import "C"
@@ -12,7 +13,15 @@ import (
 	"reflect"
 	"runtime"
 	"unsafe"
+
+	pf "github.com/estuary/flow/go/protocol"
 )
+
+// TODO(johnny): Other linker flags we'll probably need when we begin linking
+// to a shared RocksDB. Keeping these handy here so I don't have to hunt them
+// down again.
+//
+//   -lz -lbz2 -lsnappy -llz4 -lzstd
 
 // Service is a Go handle to an instantiated service binding.
 type Service struct {
@@ -55,6 +64,17 @@ func newService(
 	return svc
 }
 
+// Marshaler is a message that knows how to frame itself (e.x. protobuf messages).
+type Marshaler interface {
+	ProtoSize() int
+	MarshalToSizedBuffer([]byte) (int, error)
+}
+
+// Unmarshaler is a message that knows how to unframe itself.
+type Unmarshaler interface {
+	Unmarshal([]byte) error
+}
+
 // Frame is a payload which may be passed to and from a Service.
 type Frame struct {
 	// User-defined Code of the Frame.
@@ -63,11 +83,13 @@ type Frame struct {
 	Data []byte
 }
 
-// Frameable is the interface provided by messages that know how to frame
-// themselves, notably Protobuf messages.
-type Frameable interface {
-	ProtoSize() int
-	MarshalToSizedBuffer(dAtA []byte) (int, error)
+// MustDecode decodes this Frame into the Unmarshaler,
+// returning it. It panics on decoding error.
+func (f Frame) MustDecode(m Unmarshaler) Unmarshaler {
+	if err := m.Unmarshal(f.Data); err != nil {
+		panic(err)
+	}
+	return m
 }
 
 // SendBytes to the Service.
@@ -82,13 +104,14 @@ func (s *Service) SendBytes(code uint32, data []byte) {
 	})
 }
 
-// SendMessage sends the serialization of a Frameable message to the Service.
-func (s *Service) SendMessage(code uint32, m Frameable) error {
-	var n, err = m.MarshalToSizedBuffer(s.ReserveBytes(code, m.ProtoSize()))
-	if err != nil {
+// SendMessage sends the serialization of Marshaler to the Service.
+func (s *Service) SendMessage(code uint32, m Marshaler) error {
+	var r = s.ReserveBytes(code, m.ProtoSize())
+
+	if n, err := m.MarshalToSizedBuffer(r); err != nil {
 		return err
-	} else if n != 0 {
-		return fmt.Errorf("MarshalToSizedBuffer left unexpected remainder: %d", n)
+	} else if n != len(r) {
+		return fmt.Errorf("MarshalToSizedBuffer left unexpected remainder: %d vs %d", n, len(r))
 	}
 	return nil
 }
@@ -124,7 +147,7 @@ func (s *Service) ReserveBytes(code uint32, length int) []byte {
 // NOTE: The []byte arena and returned Frame Data is owned by the Service, not Go,
 // and is *ONLY* valid until the next call to Poll(). At that point, it may be
 // over-written or freed, and attempts to access it may crash the program.
-func (s *Service) Poll() ([]byte, []Frame, error) {
+func (s *Service) Poll() (pf.Arena, []Frame, error) {
 	// Reset output storage cursors.
 	// SAFETY: the channel arena and output frames hold only integer types
 	// (u8 bytes and u32 offsets, respectively), having trivial impl Drops.
@@ -184,7 +207,7 @@ func (s *Service) Poll() ([]byte, []Frame, error) {
 
 	// During invocations, ch.arena_*, ch.out_*, and ch.err_* slices were updated.
 	// Obtain zero-copy access to each of them.
-	var arena []byte
+	var arena pf.Arena
 	var chOut []C.Out
 	var chErr []byte
 
