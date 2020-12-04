@@ -14,7 +14,7 @@ include_dir = { version = "*", default-features = false }
 itertools = "*"
 log = "*"
 regex = "*"
-reqwest = { version = "*", default-features = false, features = ["blocking", "rustls-tls"] }
+reqwest = { version = "*", default-features = false, features = ["blocking", "native-tls"] }
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
