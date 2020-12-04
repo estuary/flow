@@ -23,90 +23,71 @@ import (
 //
 //   -lz -lbz2 -lsnappy -llz4 -lzstd
 
-// Service is a Go handle to an instantiated service binding.
-type Service struct {
-	ch       *C.Channel
-	frameIn  []C.In1
-	frameOut []Frame
-	frameBuf []byte
+// service is a Go handle to an instantiated service binding.
+type service struct {
+	ch  *C.Channel
+	in  []C.In1
+	buf []byte
 
 	invoke1  func(*C.Channel, C.In1)
 	invoke4  func(*C.Channel, C.In4)
 	invoke16 func(*C.Channel, C.In16)
 }
 
-// Build a new Service instance. This is to be wrapped by concrete, exported
-// Service constructors of this package -- constructors which also handle
-// bootstrap and configuration of the Service, map to returned errors, and may
-// provide friendlier interfaces than those of Service.
+// newService builds a new service instance. This is to be wrapped by concrete,
+// exported service constructors of this package -- constructors which also handle
+// bootstrap and configuration of the service, map to returned errors, and provide
+// memory-safe interfaces for interacting with the service.
 func newService(
 	create func() *C.Channel,
 	invoke1 func(*C.Channel, C.In1),
 	invoke4 func(*C.Channel, C.In4),
 	invoke16 func(*C.Channel, C.In16),
 	drop func(*C.Channel),
-) *Service {
+) *service {
 	var ch = create()
 
-	var svc = &Service{
+	var svc = &service{
 		ch:       ch,
-		frameIn:  make([]C.In1, 0, 16),
-		frameOut: make([]Frame, 0, 16),
-		frameBuf: make([]byte, 0, 256),
+		in:       make([]C.In1, 0, 16),
+		buf:      make([]byte, 0, 256),
 		invoke1:  invoke1,
 		invoke4:  invoke4,
 		invoke16: invoke16,
 	}
-	runtime.SetFinalizer(svc, func(svc *Service) {
+	runtime.SetFinalizer(svc, func(svc *service) {
 		drop(svc.ch)
 	})
 
 	return svc
 }
 
-// Marshaler is a message that knows how to frame itself (e.x. protobuf messages).
-type Marshaler interface {
+// marshaler is a message that knows how to frame itself (e.x. protobuf messages).
+type marshaler interface {
 	ProtoSize() int
 	MarshalToSizedBuffer([]byte) (int, error)
 }
 
-// Unmarshaler is a message that knows how to unframe itself.
+// unmarshaler is a message that knows how to unframe itself.
 type Unmarshaler interface {
 	Unmarshal([]byte) error
 }
 
-// Frame is a payload which may be passed to and from a Service.
-type Frame struct {
-	// User-defined Code of the Frame.
-	Code uint32
-	// Data payload of the frame.
-	Data []byte
-}
-
-// MustDecode decodes this Frame into the Unmarshaler,
-// returning it. It panics on decoding error.
-func (f Frame) MustDecode(m Unmarshaler) Unmarshaler {
-	if err := m.Unmarshal(f.Data); err != nil {
-		panic(err)
-	}
-	return m
-}
-
-// SendBytes to the Service.
-// The sent |data| must not be changed until the next Service Poll().
-func (s *Service) SendBytes(code uint32, data []byte) {
+// sendBytes to the service.
+// The sent |data| must not be changed until the next service poll().
+func (s *service) sendBytes(code uint32, data []byte) {
 	var h = (*reflect.SliceHeader)(unsafe.Pointer(&data))
 
-	s.frameIn = append(s.frameIn, C.In1{
+	s.in = append(s.in, C.In1{
 		code:     C.uint32_t(code),
 		data_len: C.uint32_t(h.Len),
 		data_ptr: (*C.uint8_t)(unsafe.Pointer(h.Data)),
 	})
 }
 
-// SendMessage sends the serialization of Marshaler to the Service.
-func (s *Service) SendMessage(code uint32, m Marshaler) error {
-	var r = s.ReserveBytes(code, m.ProtoSize())
+// sendMessage sends the serialization of Marshaler to the Service.
+func (s *service) sendMessage(code uint32, m marshaler) error {
+	var r = s.reserveBytes(code, m.ProtoSize())
 
 	if n, err := m.MarshalToSizedBuffer(r); err != nil {
 		return err
@@ -116,45 +97,46 @@ func (s *Service) SendMessage(code uint32, m Marshaler) error {
 	return nil
 }
 
-// ReserveBytes reserves a length-sized []byte slice which will be
-// sent with the next Service Poll(). Until then, the caller may
+// reserveBytes reserves a length-sized []byte slice which will be
+// sent with the next service poll(). Until then, the caller may
 // write into the returned bytes, e.x. in order to serialize a
 // message of prior known size.
-func (s *Service) ReserveBytes(code uint32, length int) []byte {
-	var l = len(s.frameBuf)
-	var c = cap(s.frameBuf)
+func (s *service) reserveBytes(code uint32, length int) []byte {
+	var l = len(s.buf)
+	var c = cap(s.buf)
 
 	if c-l < length {
-		// Grow frameBuf, but don't bother to copy (prior buffers are
-		// still pinned by their current Frames).
+		// Grow frameBuf, but don't bother to copy
+		// (prior buffers are still pinned by |s.in|).
 		for c < length {
 			c = c << 1
 		}
-		s.frameBuf, l = make([]byte, 0, c), 0
+		s.buf, l = make([]byte, 0, c), 0
 	}
 
-	var next = s.frameBuf[0 : l+length]
-	s.SendBytes(code, next[l:])
-	s.frameBuf = next
+	var next = s.buf[0 : l+length]
+	s.sendBytes(code, next[l:])
+	s.buf = next
 
 	return next[l:]
 }
 
-// Poll the Service. On return, all frames sent since the last Poll have been
-// processed, and any response Frames are returned. Poll also returns a memory
+// poll the Service. On return, all inputs sent since the last poll() have been
+// processed, and any response []C.Out's are returned with any error encountered.
 // arena which individual Frames may reference (e.x., by encoding offsets into
 // the returned arena).
 // NOTE: The []byte arena and returned Frame Data is owned by the Service, not Go,
 // and is *ONLY* valid until the next call to Poll(). At that point, it may be
 // over-written or freed, and attempts to access it may crash the program.
-func (s *Service) Poll() (pf.Arena, []Frame, error) {
+
+func (s *service) poll() (pf.Arena, []C.Out, error) {
 	// Reset output storage cursors.
 	// SAFETY: the channel arena and output frames hold only integer types
 	// (u8 bytes and u32 offsets, respectively), having trivial impl Drops.
 	s.ch.arena_len = 0
 	s.ch.out_len = 0
 
-	var input = s.frameIn
+	var input = s.in
 
 	// Invoke in strides of 16.
 	// The compiler is smart enough to omit bounds checks here.
@@ -202,18 +184,16 @@ func (s *Service) Poll() (pf.Arena, []Frame, error) {
 		s.invoke1(s.ch, in)
 	}
 	// All inputs are consumed. Reset.
-	s.frameIn = s.frameIn[:0]
-	s.frameBuf = s.frameBuf[:0]
+	s.in = s.in[:0]
+	s.buf = s.buf[:0]
 
 	// During invocations, ch.arena_*, ch.out_*, and ch.err_* slices were updated.
 	// Obtain zero-copy access to each of them.
 	var arena pf.Arena
 	var chOut []C.Out
-	var chErr []byte
 
 	var arenaHeader = (*reflect.SliceHeader)(unsafe.Pointer(&arena))
 	var chOutHeader = (*reflect.SliceHeader)(unsafe.Pointer(&chOut))
-	var chErrHeader = (*reflect.SliceHeader)(unsafe.Pointer(&chErr))
 
 	arenaHeader.Cap = int(s.ch.arena_cap)
 	arenaHeader.Len = int(s.ch.arena_len)
@@ -223,41 +203,34 @@ func (s *Service) Poll() (pf.Arena, []Frame, error) {
 	chOutHeader.Len = int(s.ch.out_len)
 	chOutHeader.Data = uintptr(unsafe.Pointer(s.ch.out_ptr))
 
-	chErrHeader.Cap = int(s.ch.err_cap)
-	chErrHeader.Len = int(s.ch.err_len)
-	chErrHeader.Data = uintptr(unsafe.Pointer(s.ch.err_ptr))
-
-	// We must copy raw C.Out instances to our Go-side |frameOut|.
-
-	// First grow it, if required.
-	if c := cap(s.frameOut); c < len(chOut) {
-		for c < len(chOut) {
-			c = c << 1
-		}
-		s.frameOut = make([]Frame, len(chOut), c)
-	} else {
-		s.frameOut = s.frameOut[:len(chOut)]
-	}
-
-	for i, o := range chOut {
-		// This avoids the bounds check into |arena| which would otherwise be done,
-		// if Go slicing were used. Equivalent to `arena[o.begin:o.end]`.
-		var data []byte
-		var dataHeader = (*reflect.SliceHeader)(unsafe.Pointer(&data))
-		dataHeader.Cap = int(o.end - o.begin)
-		dataHeader.Len = int(o.end - o.begin)
-		dataHeader.Data = uintptr(unsafe.Pointer(s.ch.arena_ptr)) + uintptr(o.begin)
-
-		s.frameOut[i] = Frame{
-			Code: uint32(o.code),
-			Data: data,
-		}
-	}
-
+	// Check for and return a ch.err_*.
 	var err error
-	if len(chErr) != 0 {
-		err = errors.New(string(chErr))
+	if s.ch.err_len != 0 {
+		err = errors.New(C.GoStringN(
+			(*C.char)(unsafe.Pointer(s.ch.err_ptr)),
+			C.int(s.ch.err_len)))
 	}
 
-	return arena, s.frameOut, err
+	return arena, chOut, err
+}
+
+// arena_slice returns a []byte slice of the arena, using trusted offsets.
+// It skips bounds checks which would otherwise be done.
+// Equivalent to `arena()[from:to]`.
+func (s *service) arena_slice(o C.Out) (b []byte) {
+	var h = (*reflect.SliceHeader)(unsafe.Pointer(&b))
+
+	h.Cap = int(o.end - o.begin)
+	h.Len = int(o.end - o.begin)
+	h.Data = uintptr(unsafe.Pointer(s.ch.arena_ptr)) + uintptr(o.begin)
+
+	return
+}
+
+// arena_decode decodes the unmarshaler from the given trusted arena offsets.
+func (s *service) arena_decode(o C.Out, m Unmarshaler) Unmarshaler {
+	if err := m.Unmarshal(s.arena_slice(o)); err != nil {
+		panic(err)
+	}
+	return m
 }

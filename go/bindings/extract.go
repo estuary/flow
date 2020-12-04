@@ -7,7 +7,7 @@ import (
 )
 
 type Extractor struct {
-	svc    *Service
+	svc    *service
 	uuids  []pf.UUIDParts
 	fields []pf.Field
 }
@@ -22,10 +22,10 @@ func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
 		func(ch *C.Channel) { C.extractor_drop(ch) },
 	)
 
-	var err = svc.SendMessage(0, &pf.ExtractRequest{UuidPtr: uuidPtr, FieldPtrs: fieldPtrs})
+	var err = svc.sendMessage(0, &pf.ExtractRequest{UuidPtr: uuidPtr, FieldPtrs: fieldPtrs})
 	if err != nil {
 		return nil, err
-	} else if _, _, err = svc.Poll(); err != nil {
+	} else if _, _, err = svc.poll(); err != nil {
 		return nil, err
 	}
 
@@ -38,14 +38,15 @@ func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
 	}, nil
 }
 
-// SendDocument sends the document to the Extractor.
-func (e *Extractor) SendDocument(doc []byte) { e.svc.SendBytes(1, doc) }
+// Document queues a document for extraction.
+func (e *Extractor) Document(doc []byte) { e.svc.sendBytes(1, doc) }
 
-// Poll the extractor for extracted UUIDs and Fields of all documents
-// sent since the last Poll. The returned Arena, UUIDParts, and Fields
-// are valid only until the next call to Poll.
-func (e *Extractor) Poll() (pf.Arena, []pf.UUIDParts, []pf.Field, error) {
-	var arena, frames, err = e.svc.Poll()
+// Extract UUIDs and Fields from all documents queued since the last Extract.
+// The returned Arena, UUIDParts, and Fields are valid *only* until the next
+// call to Extract -- you *must* copy any []bytes referenced by a Field out
+// of Arena, before calling Extract again.
+func (e *Extractor) Extract() (pf.Arena, []pf.UUIDParts, []pf.Field, error) {
+	var arena, out, err = e.svc.poll()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -55,20 +56,17 @@ func (e *Extractor) Poll() (pf.Arena, []pf.UUIDParts, []pf.Field, error) {
 		e.fields[f].Values = e.fields[f].Values[:0]
 	}
 
-	// One frame for each UUID & field of every document.
-	for len(frames) > len(e.fields) {
-
-		var uuid pf.UUIDParts
-		frames[0].MustDecode(&uuid)
-		e.uuids = append(e.uuids, uuid)
-
-		for f := 0; f != len(e.fields); f++ {
+	for _, o := range out {
+		if o.code == 0 {
+			var uuid pf.UUIDParts
+			e.svc.arena_decode(o, &uuid)
+			e.uuids = append(e.uuids, uuid)
+		} else {
+			var values = &e.fields[o.code-1].Values
 			var val pf.Field_Value
-			frames[f+1].MustDecode(&val)
-			e.fields[f].Values = append(e.fields[f].Values, val)
+			e.svc.arena_decode(o, &val)
+			*values = append(*values, val)
 		}
-
-		frames = frames[len(e.fields)+1:]
 	}
 
 	return arena, e.uuids, e.fields, nil
