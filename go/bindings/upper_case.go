@@ -13,7 +13,7 @@ import (
 // newUpperCase is a testing Service that upper-cases each input Frame,
 // and returns the running sum length of its inputs via its response
 // Frame Code.
-func newUpperCase() *Service {
+func newUpperCase() *service {
 	return newService(
 		func() *C.Channel { return C.upper_case_create() },
 		func(ch *C.Channel, in C.In1) { C.upper_case_invoke1(ch, in) },
@@ -25,7 +25,7 @@ func newUpperCase() *Service {
 
 // newNoOpService is a testing Service that doesn't invoke into CGO,
 // but still produces an (empty) output Frame for each input.
-func newNoOpService() *Service {
+func newNoOpService() *service {
 	return newService(
 		func() *C.Channel {
 			var ch = (*C.Channel)(C.calloc(C.sizeof_Channel, 1))
