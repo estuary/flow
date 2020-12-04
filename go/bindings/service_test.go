@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	pf "github.com/estuary/flow/go/protocol"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -27,7 +28,7 @@ func TestUpperServiceFunctional(t *testing.T) {
 	svc.SendMessage(2, frameableString("world"))
 	var arena, responses, err = svc.Poll()
 
-	assert.Equal(t, []byte("HELLOWORLD"), arena)
+	assert.Equal(t, pf.Arena("HELLOWORLD"), arena)
 	assert.Equal(t, []Frame{
 		{Data: []byte("HELLO"), Code: 5},
 		{Data: []byte("WORLD"), Code: 10},
@@ -37,7 +38,7 @@ func TestUpperServiceFunctional(t *testing.T) {
 	svc.SendMessage(3, frameableString("bye"))
 	arena, responses, err = svc.Poll()
 
-	assert.Equal(t, []byte("BYE"), arena)
+	assert.Equal(t, pf.Arena("BYE"), arena)
 	assert.Equal(t, []Frame{
 		{Data: []byte("BYE"), Code: 13},
 	}, responses)
