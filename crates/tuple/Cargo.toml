@@ -1,0 +1,26 @@
+[package]
+name = "tuple"
+version = "0.0.0"
+
+authors = [
+"Benjamin Fry <benjaminfry@me.com>",
+"Vincent Rouillé <vincent@clikengo.com>",
+"Estuary Technologies, Inc <johnny@estuary.dev>",
+]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+
+description = """
+Portions of the `tuple` module, extracted from:
+High level client bindings for FoundationDB.
+
+This subdirectory / crate is licensed under the terms of the original
+work (MIT or Apache 2), which is available at:
+  https://github.com/Clikengo/foundationdb-rs 
+"""
+
+[dependencies]
+memchr = "*"
+serde_json = "*"
+
+[dev-dependencies]
