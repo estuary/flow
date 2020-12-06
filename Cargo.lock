@@ -3149,6 +3149,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tuple"
+version = "0.0.0"
+dependencies = [
+ "memchr",
+ "serde_json",
+]
+
+[[package]]
 name = "twoway"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
