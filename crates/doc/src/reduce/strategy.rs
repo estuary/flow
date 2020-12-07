@@ -9,7 +9,9 @@ use std::convert::TryFrom;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Strategy {
-    /// Append each item of RHS to the end of LHS. Both LHS and RHS must be arrays.
+    /// Append each item of RHS to the end of LHS. RHS must be an array.
+    /// LHS must be an array, or may be null, in which case no append is
+    /// done and the reduction is a no-op.
     Append,
     /// FirstWriteWins keeps the LHS value.
     FirstWriteWins,
@@ -128,6 +130,17 @@ impl Reducer for Strategy {
 impl Strategy {
     fn append(cur: Cursor) -> Result<Value> {
         let (tape, loc, prune, lhs, rhs) = match cur {
+            // Merge of Null <= Array (treated as no-op).
+            Cursor::Both {
+                tape,
+                lhs: Value::Null,
+                rhs: rhs @ Value::Array(..),
+                ..
+            } => {
+                *tape = &tape[count_nodes(&rhs)..];
+                return Ok(Value::Null);
+            }
+            // Merge of Array <= Array.
             Cursor::Both {
                 tape,
                 loc,
@@ -135,12 +148,14 @@ impl Strategy {
                 lhs: Value::Array(lhs),
                 rhs: Value::Array(rhs),
             } => (tape, loc, prune, lhs, rhs),
+            // Merge of Undefined <= Array.
             Cursor::Right {
                 tape,
                 loc,
                 prune,
                 rhs: Value::Array(rhs),
             } => (tape, loc, prune, Vec::new(), rhs),
+
             cur => return Err(Error::cursor(cur, Error::AppendWrongType)),
         };
 
@@ -303,7 +318,18 @@ impl Strategy {
 
                 Ok(Value::Object(m))
             }
-            // Merge of Array <=> Array.
+            // Merge of Null <= Object (treated as no-op).
+            Cursor::Both {
+                tape,
+                lhs: Value::Null,
+                rhs: rhs @ Value::Object(..),
+                ..
+            } => {
+                *tape = &tape[count_nodes(&rhs)..];
+                Ok(Value::Null)
+            }
+
+            // Merge of Array <= Array.
             Cursor::Both {
                 tape,
                 loc,
@@ -346,6 +372,16 @@ impl Strategy {
 
                 Ok(Value::Array(m))
             }
+            // Merge of Null <= Array (treated as no-op).
+            Cursor::Both {
+                tape,
+                lhs: Value::Null,
+                rhs: rhs @ Value::Array(..),
+                ..
+            } => {
+                *tape = &tape[count_nodes(&rhs)..];
+                Ok(Value::Null)
+            }
 
             cur => Err(Error::cursor(cur, Error::MergeWrongType)),
         }
@@ -365,7 +401,9 @@ mod test {
     fn test_append_array() {
         run_reduce_cases(
             json!({
-                "reduce": { "strategy": "append" },
+                "if": { "type": "null" },
+                "then": { "reduce": { "strategy": "lastWriteWins" } },
+                "else": { "reduce": { "strategy": "append" } },
             }),
             vec![
                 // Non-array RHS (without LHS) returns an error.
@@ -388,6 +426,15 @@ mod test {
                 Partial {
                     rhs: json!({}),
                     expect: Err(Error::AppendWrongType),
+                },
+                Partial {
+                    rhs: json!(null),
+                    expect: Ok(json!(null)),
+                },
+                // Append with null LHS is a no-op.
+                Partial {
+                    rhs: json!([5, 6, 4]),
+                    expect: Ok(json!(null)),
                 },
             ],
         )
@@ -712,9 +759,13 @@ mod test {
     fn test_merge_ordered_scalars() {
         run_reduce_cases(
             json!({
-                "reduce": {
-                    "strategy": "merge",
-                    "key": [""],
+                "if": { "type": "null" },
+                "then": { "reduce": { "strategy": "lastWriteWins" } },
+                "else": {
+                    "reduce": {
+                        "strategy": "merge",
+                        "key": [""],
+                    },
                 },
             }),
             vec![
@@ -733,6 +784,15 @@ mod test {
                 Partial {
                     rhs: json!([1, 2, 7, 10]),
                     expect: Ok(json!([1, 2, 4, 5, 7, 9, 10])),
+                },
+                // After reducing null LHS, future merges are no-ops.
+                Partial {
+                    rhs: json!(null),
+                    expect: Ok(json!(null)),
+                },
+                Partial {
+                    rhs: json!([1, 2]),
+                    expect: Ok(json!(null)),
                 },
             ],
         )
@@ -781,7 +841,9 @@ mod test {
     fn test_merge_objects() {
         run_reduce_cases(
             json!({
-                "reduce": { "strategy": "merge" },
+                "if": { "type": "null" },
+                "then": { "reduce": { "strategy": "lastWriteWins" } },
+                "else": { "reduce": { "strategy": "merge" } },
             }),
             vec![
                 Partial {
@@ -805,6 +867,15 @@ mod test {
                 Partial {
                     rhs: json!([1, 2]),
                     expect: Err(Error::MergeWrongType),
+                },
+                // After reducing null LHS, future merges are no-ops.
+                Partial {
+                    rhs: json!(null),
+                    expect: Ok(json!(null)),
+                },
+                Partial {
+                    rhs: json!({"9": 9}),
+                    expect: Ok(json!(null)),
                 },
             ],
         )
