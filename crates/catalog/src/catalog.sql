@@ -224,8 +224,12 @@ CREATE TABLE materialization_targets (
 );
 
 
--- Endpoints
+-- Endpoints each represent connection information for an external system, which may be used for
+-- either a materialization or a capture.
 --
+-- :resource_id:
+--     Optional reference to the resource that defined this endpoint. This will be NULL only for
+--     the "builtin" endpoints provided by flow-ingester.
 -- :endpoint_name:
 --     Human-readable identifier of this endpoint, as provided in the catalog spec.
 -- :endpoint_type:
@@ -235,7 +239,7 @@ CREATE TABLE materialization_targets (
 --     The URI to use to connect to the target system.
 CREATE TABLE endpoints (
     endpoint_id INTEGER PRIMARY KEY NOT NULL,
-    resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
+    resource_id INTEGER REFERENCES resources (resource_id),
     endpoint_name TEXT NOT NULL,
     endpoint_type TEXT NOT NULL CONSTRAINT 'endpoint_type must be a recognized type' CHECK(endpoint_type IN ('postgres', 'sqlite')),
     endpoint_uri TEXT NOT NULL,
@@ -243,6 +247,7 @@ CREATE TABLE endpoints (
     UNIQUE (endpoint_name COLLATE NOCASE),
     CONSTRAINT "Endpoint name isn't valid (may include Unicode letters, numbers, -, _, ., or /)" CHECK (endpoint_name REGEXP '^[\pL\pN\-_./]+$')
 );
+
 
 -- Materializations bind a source collection, endpoint, and target.
 --
@@ -354,16 +359,29 @@ FROM materializations AS m
     JOIN pfj ON m.source_collection_id = pfj.collection_id;
 
 -- Captures bind a source endpoint, source entity
+-- :resource_id:
+--     The resource that this capture was defined in.
+-- :endpoint_id:
+--     The endpoint to capture from, or NULL if capturing from flow-ingester REST or Websocket.
+-- :source_entity:
+--     The name of the entity within the remote system. If endpoint_id is NULL (for capturing from
+--     flow-ingester), then source_entity MUST be one of ('rest' or 'websocket'). Otherwise,
+--     source_entity can be anything.
+-- :target_collection_id:
+--     The collection to which data will be appended.
 create table captures (
     capture_id INTEGER NOT NULL PRIMARY KEY,
     resource_id INTEGER NOT NULL REFERENCES resources (resource_id),
 
-    endpoint_id INTEGER NOT NULL REFERENCES endpoints (endpoint_id),
+    endpoint_id INTEGER REFERENCES endpoints (endpoint_id),
     source_entity TEXT,
 
     target_collection_id INTEGER NOT NULL REFERENCES collections (collection_id),
 
-    UNIQUE(endpoint_id, source_entity COLLATE NOCASE, target_collection_id)
+    UNIQUE(endpoint_id, source_entity COLLATE NOCASE, target_collection_id),
+    CONSTRAINT "source_entity must be flow-ingester if endpoint_id is NULL" CHECK (
+        endpoint_id IS NOT NULL OR source_entity = 'flow-ingester'
+    )
 );
 
 

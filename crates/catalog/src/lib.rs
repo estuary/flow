@@ -1,3 +1,4 @@
+mod capture;
 mod collection;
 mod content_type;
 mod db;
@@ -25,6 +26,7 @@ use std::convert::TryFrom;
 use std::path::Path;
 use url::Url;
 
+pub use capture::Capture;
 pub use collection::Collection;
 pub use content_type::ContentType;
 pub use derivation::Derivation;

@@ -1,6 +1,6 @@
 use super::{
-    specs, sql_params, Collection, ContentType, Endpoint, Materialization, MaterializationTarget,
-    Resource, Result, Scope, TestCase,
+    specs, sql_params, Capture, Collection, ContentType, Endpoint, Materialization,
+    MaterializationTarget, Resource, Result, Scope, TestCase,
 };
 use url::Url;
 
@@ -74,6 +74,13 @@ impl Source {
                 .push_prop("materializationTargets")
                 .push_prop(name)
                 .then(|scope| MaterializationTarget::register(&scope, name, materialization))?;
+        }
+
+        for (i, capture) in spec.captures.iter().enumerate() {
+            scope
+                .push_prop("captures")
+                .push_item(i)
+                .then(|scope| Capture::register(scope, capture))?;
         }
 
         for (i, materialization) in spec.materializations.iter().enumerate() {

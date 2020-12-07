@@ -837,10 +837,19 @@ pub struct Materialization {
 }
 
 /// # Specifies the set of fields to materialize
+/// Either include or exclude may be used, but not both. Using exclude will select all of the
+/// recommended projections (as determined by the type of endpoint) minus the given named projections.
+/// Using include will ignore all recommendations and only use exactly the given named projections. In either case, the set of projections must be valid for the specific type of endpoint being materialized into.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(example = "MaterializationFields::example")]
 pub enum MaterializationFields {
+    /// # Projections to include
+    /// All other projections not included in this array will be excluded.
     Include(Vec<String>),
+    /// # Projections to exclude
+    /// The default set of projections, as determined by the type of endpoint, will be used, minus
+    /// any projections in this array. An empty array will simply use the default projections.
     Exclude(Vec<String>),
 }
 impl Default for MaterializationFields {
@@ -857,13 +866,24 @@ impl MaterializationFields {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+/// Represents the built-in flow-ingester source that can be bound in a capture.
+/// The only valid value is "flow-ingester".
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BuiltinSource {
-    Rest,
-    Websocket,
+    #[serde(rename = "flow-ingester")]
+    FlowIngester,
 }
 
+impl BuiltinSource {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            BuiltinSource::FlowIngester => "flow-ingester",
+        }
+    }
+}
+
+/// The source of a capture can either be an object that references an endpoint,
+/// or the string "flow-ingester" to bind the capture to the built in rest/websocket endpoints.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum CaptureSource {
@@ -883,16 +903,15 @@ pub enum CaptureSource {
     Builtin(BuiltinSource),
 }
 
+/// A Capture binds a source of data to a target collection. The result of this binding
+/// is a process that will continuously add data to the collection as it becomes available from the
+/// source.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Capture {
-    #[serde(flatten)]
     pub source: CaptureSource,
 
-    /// # The name of the collection to write records into
-    /// This collection must be defined in the current flow yaml file or one that's imported
-    /// by it.
-    pub collection: String,
+    pub target: CollectionRef,
 }
 
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {

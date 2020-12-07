@@ -1,0 +1,11 @@
+---
+source: crates/catalog/src/capture.rs
+expression: results
+---
+captures:
+  - - 1
+    - 1
+    - ~
+    - flow-ingester
+    - 1
+endpoints: []
