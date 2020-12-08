@@ -31,6 +31,16 @@ func TestLoadDerivedCollection(t *testing.T) {
 				},
 			},
 			{
+				Field:        "flow_document",
+				Ptr:          "",
+				UserProvided: false,
+				IsPrimaryKey: false,
+				Inference: &pf.Inference{
+					Types:     []string{"object"},
+					MustExist: true,
+				},
+			},
+			{
 				Field:        "i",
 				Ptr:          "/i",
 				UserProvided: false,
@@ -63,6 +73,16 @@ func TestLoadCapturedCollections(t *testing.T) {
 		KeyPtrs:         []string{"/i"},
 		PartitionFields: []string{},
 		Projections: []*pf.Projection{
+			{
+				Field:        "flow_document",
+				Ptr:          "",
+				UserProvided: false,
+				IsPrimaryKey: false,
+				Inference: &pf.Inference{
+					Types:     []string{"object"},
+					MustExist: true,
+				},
+			},
 			{
 				Field:        "i",
 				IsPrimaryKey: true,
