@@ -36,6 +36,86 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
+// Represents a decision about a specific projection that is part of a proposed materialization.
+type ProjectionConstraint int32
+
+const (
+	// This specific projection must be present.
+	ProjectionConstraint_FIELD_REQUIRED ProjectionConstraint = 0
+	// Any projection with this location pointer must be present.
+	ProjectionConstraint_LOCATION_REQUIRED ProjectionConstraint = 1
+	// A projection with this location is recommended. Recommended locations will be added to a
+	// materialization by default. Flowctl will select one recommended projection per distinct
+	// location, preferring the user-defined projection in case there are multiple. If there are
+	// multiple user-provided projections for the same location, flowctl will make an arbitrary, but
+	// deterministic choice.
+	ProjectionConstraint_LOCATION_RECOMMENDED ProjectionConstraint = 2
+	// This projection may be present in the materialization, but it will not be included by default.
+	ProjectionConstraint_FIELD_OPTIONAL ProjectionConstraint = 3
+	// This projection must not be present in the materialization. Flowctl will report an error if the
+	// user includes this field.
+	ProjectionConstraint_FIELD_FORBIDDEN ProjectionConstraint = 4
+)
+
+var ProjectionConstraint_name = map[int32]string{
+	0: "FIELD_REQUIRED",
+	1: "LOCATION_REQUIRED",
+	2: "LOCATION_RECOMMENDED",
+	3: "FIELD_OPTIONAL",
+	4: "FIELD_FORBIDDEN",
+}
+
+var ProjectionConstraint_value = map[string]int32{
+	"FIELD_REQUIRED":       0,
+	"LOCATION_REQUIRED":    1,
+	"LOCATION_RECOMMENDED": 2,
+	"FIELD_OPTIONAL":       3,
+	"FIELD_FORBIDDEN":      4,
+}
+
+func (x ProjectionConstraint) String() string {
+	return proto.EnumName(ProjectionConstraint_name, int32(x))
+}
+
+func (ProjectionConstraint) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{0}
+}
+
+// Describes the type of a materialization, which is typically the same for all materializations to
+// a given type of target system. For example, most databases can only be a TRANSACTIONAL_STORE, and
+// most pub-sub systems can only be a STREAM.
+type MaterializationType int32
+
+const (
+	// The remote system is conceptually a store that indexes documents on their primary key and can
+	// retrieve them by that key. Materializations of this type will store fully reduced documents,
+	// which will be kept up to date by reading the current values and combining them (reducing) with
+	// new documents that are added to the collection.
+	MaterializationType_TRANSACTIONAL_STORE MaterializationType = 0
+	// The remote system is conceptually an append-only stream of events. For materializations of this
+	// type, no reduction is done, and every document that is added to the collection is simply inserted
+	// into the target system as-is.
+	MaterializationType_STREAM MaterializationType = 1
+)
+
+var MaterializationType_name = map[int32]string{
+	0: "TRANSACTIONAL_STORE",
+	1: "STREAM",
+}
+
+var MaterializationType_value = map[string]int32{
+	"TRANSACTIONAL_STORE": 0,
+	"STREAM":              1,
+}
+
+func (x MaterializationType) String() string {
+	return proto.EnumName(MaterializationType_name, int32(x))
+}
+
+func (MaterializationType) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{1}
+}
+
 // Optional hash applied to extracted, packed shuffle keys. Hashes can:
 // * Mitigate shard skew which might otherwise occur due to key locality
 //   (many co-occurring updates to "nearby" keys).
@@ -120,6 +200,63 @@ func (x Field_Value_Kind) String() string {
 
 func (Field_Value_Kind) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_9dd0e7f3bbc7f41f, []int{8, 0, 0}
+}
+
+type MaterializationStatus_StatusCode int32
+
+const (
+	// The materialization has not been initialized yet.
+	MaterializationStatus_NOT_READY MaterializationStatus_StatusCode = 0
+	// The materialization has been initialized.
+	MaterializationStatus_READY MaterializationStatus_StatusCode = 1
+	// There's been an error connecting to the remote system, or the remote system is in an invalid
+	// state. The status_message should have details.
+	MaterializationStatus_ERROR MaterializationStatus_StatusCode = 2
+)
+
+var MaterializationStatus_StatusCode_name = map[int32]string{
+	0: "NOT_READY",
+	1: "READY",
+	2: "ERROR",
+}
+
+var MaterializationStatus_StatusCode_value = map[string]int32{
+	"NOT_READY": 0,
+	"READY":     1,
+	"ERROR":     2,
+}
+
+func (x MaterializationStatus_StatusCode) String() string {
+	return proto.EnumName(MaterializationStatus_StatusCode_name, int32(x))
+}
+
+func (MaterializationStatus_StatusCode) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{26, 0}
+}
+
+type StoreStatus_Code int32
+
+const (
+	StoreStatus_OK    StoreStatus_Code = 0
+	StoreStatus_ERROR StoreStatus_Code = 1
+)
+
+var StoreStatus_Code_name = map[int32]string{
+	0: "OK",
+	1: "ERROR",
+}
+
+var StoreStatus_Code_value = map[string]int32{
+	"OK":    0,
+	"ERROR": 1,
+}
+
+func (x StoreStatus_Code) String() string {
+	return proto.EnumName(StoreStatus_Code_name, int32(x))
+}
+
+func (StoreStatus_Code) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{29, 0}
 }
 
 // Slice represents a contiguous slice of bytes within an associated Arena.
@@ -2042,9 +2179,553 @@ func (m *ClearRegistersResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ClearRegistersResponse proto.InternalMessageInfo
 
+// Represents a materialization of the given collection to an external system with the given
+// endpoint.
+type MaterializationSpec struct {
+	MaterializationId    string          `protobuf:"bytes,1,opt,name=materialization_id,json=materializationId,proto3" json:"materialization_id,omitempty"`
+	EndpointType         string          `protobuf:"bytes,2,opt,name=endpoint_type,json=endpointType,proto3" json:"endpoint_type,omitempty"`
+	Endpoint             string          `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	TargetEntity         string          `protobuf:"bytes,4,opt,name=target_entity,json=targetEntity,proto3" json:"target_entity,omitempty"`
+	Collection           *CollectionSpec `protobuf:"bytes,5,opt,name=collection,proto3" json:"collection,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
+	XXX_unrecognized     []byte          `json:"-"`
+	XXX_sizecache        int32           `json:"-"`
+}
+
+func (m *MaterializationSpec) Reset()         { *m = MaterializationSpec{} }
+func (m *MaterializationSpec) String() string { return proto.CompactTextString(m) }
+func (*MaterializationSpec) ProtoMessage()    {}
+func (*MaterializationSpec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{24}
+}
+func (m *MaterializationSpec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MaterializationSpec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MaterializationSpec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MaterializationSpec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MaterializationSpec.Merge(m, src)
+}
+func (m *MaterializationSpec) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *MaterializationSpec) XXX_DiscardUnknown() {
+	xxx_messageInfo_MaterializationSpec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MaterializationSpec proto.InternalMessageInfo
+
+// Result of validating a specific projection.
+type ProjectionResult struct {
+	// The field name of the projection.
+	Field string `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
+	// The validation result.
+	Constraint ProjectionConstraint `protobuf:"varint,2,opt,name=constraint,proto3,enum=flow.ProjectionConstraint" json:"constraint,omitempty"`
+	// Optional human readable reason for the given constraint. Implementations are strongly
+	// encouraged to supply a good descriptive message here, especially if the constraint is
+	// anything other than LOCATION_RECOMMENDED or LOCATION_OPTIONAL.
+	Reason               string   `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ProjectionResult) Reset()         { *m = ProjectionResult{} }
+func (m *ProjectionResult) String() string { return proto.CompactTextString(m) }
+func (*ProjectionResult) ProtoMessage()    {}
+func (*ProjectionResult) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{25}
+}
+func (m *ProjectionResult) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ProjectionResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ProjectionResult.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ProjectionResult) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ProjectionResult.Merge(m, src)
+}
+func (m *ProjectionResult) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ProjectionResult) XXX_DiscardUnknown() {
+	xxx_messageInfo_ProjectionResult.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ProjectionResult proto.InternalMessageInfo
+
+// Describes the current state of a Materialization as stored in the remote system.
+type MaterializationStatus struct {
+	StatusCode MaterializationStatus_StatusCode `protobuf:"varint,1,opt,name=status_code,json=statusCode,proto3,enum=flow.MaterializationStatus_StatusCode" json:"status_code,omitempty"`
+	// Human readable message which will be shown to the user.
+	StatusMessage        string   `protobuf:"bytes,2,opt,name=status_message,json=statusMessage,proto3" json:"status_message,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *MaterializationStatus) Reset()         { *m = MaterializationStatus{} }
+func (m *MaterializationStatus) String() string { return proto.CompactTextString(m) }
+func (*MaterializationStatus) ProtoMessage()    {}
+func (*MaterializationStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{26}
+}
+func (m *MaterializationStatus) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MaterializationStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MaterializationStatus.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MaterializationStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MaterializationStatus.Merge(m, src)
+}
+func (m *MaterializationStatus) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *MaterializationStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_MaterializationStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MaterializationStatus proto.InternalMessageInfo
+
+// Sent in response to validating or applying a materialization.
+type MaterializationBuildResponse struct {
+	// The status of the materialization, which may account for the current state of the remote
+	// system, in addition to the spec provided in a request.
+	Status MaterializationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status"`
+	// The initialization payload is a system-specific text that can be used to initialize the
+	// materialization in the target system. For example, the SQL CREATE TABLE statements for a
+	// database. Not all systems will have this. It's provided here so that the user can choose to
+	// initialize the target system themselves rather than having it done automatically.
+	InitializationPayload string `protobuf:"bytes,2,opt,name=initialization_payload,json=initializationPayload,proto3" json:"initialization_payload,omitempty"`
+	// The type of this materialization. This is always chosen by the target system, as most systems
+	// can only support one type.
+	Type MaterializationType `protobuf:"varint,3,opt,name=type,proto3,enum=flow.MaterializationType" json:"type,omitempty"`
+	// The results of validating the projections of the materialization. A connector must include a
+	// ProjectionResult for every projection in the materialization from the request. It is an error
+	// to omit one.
+	// TODO: we could just say that there's a default constraint (FIELD_OPTIONAL?) if one is ommitted.
+	ProjectionResults    []*ProjectionResult `protobuf:"bytes,4,rep,name=projection_results,json=projectionResults,proto3" json:"projection_results,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
+	XXX_unrecognized     []byte              `json:"-"`
+	XXX_sizecache        int32               `json:"-"`
+}
+
+func (m *MaterializationBuildResponse) Reset()         { *m = MaterializationBuildResponse{} }
+func (m *MaterializationBuildResponse) String() string { return proto.CompactTextString(m) }
+func (*MaterializationBuildResponse) ProtoMessage()    {}
+func (*MaterializationBuildResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{27}
+}
+func (m *MaterializationBuildResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MaterializationBuildResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MaterializationBuildResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MaterializationBuildResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MaterializationBuildResponse.Merge(m, src)
+}
+func (m *MaterializationBuildResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *MaterializationBuildResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MaterializationBuildResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MaterializationBuildResponse proto.InternalMessageInfo
+
+// Returned in response to a StartMaterializationShard request to indicate whether it's ok for the
+// materialization to start.
+type MaterializationStartResponse struct {
+	// Indicates whether we're ok to proceed. Any status besides READY will prevent the
+	// materialization from starting.
+	Status *MaterializationStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// The checkpoint that's been committed from a previous instance. This will be null if this is the
+	// first time that the materialization is running, or if the remote system is not a transactional
+	// store.
+	Checkpoint           *protocol1.Checkpoint `protobuf:"bytes,2,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
+}
+
+func (m *MaterializationStartResponse) Reset()         { *m = MaterializationStartResponse{} }
+func (m *MaterializationStartResponse) String() string { return proto.CompactTextString(m) }
+func (*MaterializationStartResponse) ProtoMessage()    {}
+func (*MaterializationStartResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{28}
+}
+func (m *MaterializationStartResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MaterializationStartResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MaterializationStartResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MaterializationStartResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MaterializationStartResponse.Merge(m, src)
+}
+func (m *MaterializationStartResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *MaterializationStartResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MaterializationStartResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MaterializationStartResponse proto.InternalMessageInfo
+
+// Status returned by all responses that read/write to the target system
+type StoreStatus struct {
+	Code                 StoreStatus_Code `protobuf:"varint,1,opt,name=code,proto3,enum=flow.StoreStatus_Code" json:"code,omitempty"`
+	ErrorMessage         string           `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
+	XXX_unrecognized     []byte           `json:"-"`
+	XXX_sizecache        int32            `json:"-"`
+}
+
+func (m *StoreStatus) Reset()         { *m = StoreStatus{} }
+func (m *StoreStatus) String() string { return proto.CompactTextString(m) }
+func (*StoreStatus) ProtoMessage()    {}
+func (*StoreStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{29}
+}
+func (m *StoreStatus) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *StoreStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_StoreStatus.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *StoreStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StoreStatus.Merge(m, src)
+}
+func (m *StoreStatus) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *StoreStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_StoreStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StoreStatus proto.InternalMessageInfo
+
+// Request to retrieve a set of documents from a transactional store.
+type GetDocumentsRequest struct {
+	Arena                Arena                      `protobuf:"bytes,1,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	Keys                 []*GetDocumentsRequest_Key `protobuf:"bytes,2,rep,name=keys,proto3" json:"keys,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                   `json:"-"`
+	XXX_unrecognized     []byte                     `json:"-"`
+	XXX_sizecache        int32                      `json:"-"`
+}
+
+func (m *GetDocumentsRequest) Reset()         { *m = GetDocumentsRequest{} }
+func (m *GetDocumentsRequest) String() string { return proto.CompactTextString(m) }
+func (*GetDocumentsRequest) ProtoMessage()    {}
+func (*GetDocumentsRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{30}
+}
+func (m *GetDocumentsRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetDocumentsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetDocumentsRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetDocumentsRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetDocumentsRequest.Merge(m, src)
+}
+func (m *GetDocumentsRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *GetDocumentsRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetDocumentsRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetDocumentsRequest proto.InternalMessageInfo
+
+type GetDocumentsRequest_Key struct {
+	Key                  []*Field `protobuf:"bytes,1,rep,name=key,proto3" json:"key,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *GetDocumentsRequest_Key) Reset()         { *m = GetDocumentsRequest_Key{} }
+func (m *GetDocumentsRequest_Key) String() string { return proto.CompactTextString(m) }
+func (*GetDocumentsRequest_Key) ProtoMessage()    {}
+func (*GetDocumentsRequest_Key) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{30, 0}
+}
+func (m *GetDocumentsRequest_Key) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetDocumentsRequest_Key) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetDocumentsRequest_Key.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetDocumentsRequest_Key) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetDocumentsRequest_Key.Merge(m, src)
+}
+func (m *GetDocumentsRequest_Key) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *GetDocumentsRequest_Key) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetDocumentsRequest_Key.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetDocumentsRequest_Key proto.InternalMessageInfo
+
+// TODO: think of a better way to represent missing documents?
+// Response for retrieving documents from a transacional store. Each key from the request
+// must have a corresponding document here and the results must be in the same order as they were in
+// the request. Documents that do not exist must be represented here as Fields that point to a "null" json
+// value within the arena.
+type GetDocumentsResponse struct {
+	Status               *StoreStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Arena                Arena        `protobuf:"bytes,2,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	Documents            []*Field     `protobuf:"bytes,3,rep,name=documents,proto3" json:"documents,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *GetDocumentsResponse) Reset()         { *m = GetDocumentsResponse{} }
+func (m *GetDocumentsResponse) String() string { return proto.CompactTextString(m) }
+func (*GetDocumentsResponse) ProtoMessage()    {}
+func (*GetDocumentsResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{31}
+}
+func (m *GetDocumentsResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetDocumentsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetDocumentsResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetDocumentsResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetDocumentsResponse.Merge(m, src)
+}
+func (m *GetDocumentsResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *GetDocumentsResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetDocumentsResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetDocumentsResponse proto.InternalMessageInfo
+
+// Request to either insert or update documents in a remote system. Each Document contains the
+// complete set of extracted fields corresponding to the projections from the MaterializationSpec.
+// This message is used for both inserts and updates, and the sets of fields will be exactly the
+// same in either case.
+type UpdateDocumentsRequest struct {
+	Arena                Arena                              `protobuf:"bytes,1,opt,name=arena,proto3,casttype=Arena" json:"arena,omitempty"`
+	Documents            []*UpdateDocumentsRequest_Document `protobuf:"bytes,2,rep,name=documents,proto3" json:"documents,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                           `json:"-"`
+	XXX_unrecognized     []byte                             `json:"-"`
+	XXX_sizecache        int32                              `json:"-"`
+}
+
+func (m *UpdateDocumentsRequest) Reset()         { *m = UpdateDocumentsRequest{} }
+func (m *UpdateDocumentsRequest) String() string { return proto.CompactTextString(m) }
+func (*UpdateDocumentsRequest) ProtoMessage()    {}
+func (*UpdateDocumentsRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{32}
+}
+func (m *UpdateDocumentsRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *UpdateDocumentsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_UpdateDocumentsRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *UpdateDocumentsRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_UpdateDocumentsRequest.Merge(m, src)
+}
+func (m *UpdateDocumentsRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *UpdateDocumentsRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_UpdateDocumentsRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_UpdateDocumentsRequest proto.InternalMessageInfo
+
+type UpdateDocumentsRequest_Document struct {
+	Fields               []*Field `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *UpdateDocumentsRequest_Document) Reset()         { *m = UpdateDocumentsRequest_Document{} }
+func (m *UpdateDocumentsRequest_Document) String() string { return proto.CompactTextString(m) }
+func (*UpdateDocumentsRequest_Document) ProtoMessage()    {}
+func (*UpdateDocumentsRequest_Document) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{32, 0}
+}
+func (m *UpdateDocumentsRequest_Document) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *UpdateDocumentsRequest_Document) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_UpdateDocumentsRequest_Document.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *UpdateDocumentsRequest_Document) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_UpdateDocumentsRequest_Document.Merge(m, src)
+}
+func (m *UpdateDocumentsRequest_Document) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *UpdateDocumentsRequest_Document) XXX_DiscardUnknown() {
+	xxx_messageInfo_UpdateDocumentsRequest_Document.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_UpdateDocumentsRequest_Document proto.InternalMessageInfo
+
+// Request to commit the in-progress transaction for a transactional store.
+type CommitTxRequest struct {
+	// The checkpoint to persist. This checkpoint must be returned on a call to
+	// StartMaterializationShard.
+	Checkpoint           *protocol1.Checkpoint `protobuf:"bytes,1,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
+}
+
+func (m *CommitTxRequest) Reset()         { *m = CommitTxRequest{} }
+func (m *CommitTxRequest) String() string { return proto.CompactTextString(m) }
+func (*CommitTxRequest) ProtoMessage()    {}
+func (*CommitTxRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9dd0e7f3bbc7f41f, []int{33}
+}
+func (m *CommitTxRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *CommitTxRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_CommitTxRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *CommitTxRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CommitTxRequest.Merge(m, src)
+}
+func (m *CommitTxRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *CommitTxRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_CommitTxRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CommitTxRequest proto.InternalMessageInfo
+
 func init() {
+	proto.RegisterEnum("flow.ProjectionConstraint", ProjectionConstraint_name, ProjectionConstraint_value)
+	proto.RegisterEnum("flow.MaterializationType", MaterializationType_name, MaterializationType_value)
 	proto.RegisterEnum("flow.Shuffle_Hash", Shuffle_Hash_name, Shuffle_Hash_value)
 	proto.RegisterEnum("flow.Field_Value_Kind", Field_Value_Kind_name, Field_Value_Kind_value)
+	proto.RegisterEnum("flow.MaterializationStatus_StatusCode", MaterializationStatus_StatusCode_name, MaterializationStatus_StatusCode_value)
+	proto.RegisterEnum("flow.StoreStatus_Code", StoreStatus_Code_name, StoreStatus_Code_value)
 	proto.RegisterType((*Slice)(nil), "flow.Slice")
 	proto.RegisterType((*UUIDParts)(nil), "flow.UUIDParts")
 	proto.RegisterType((*Shuffle)(nil), "flow.Shuffle")
@@ -2082,180 +2763,240 @@ func init() {
 	proto.RegisterType((*AdvanceTimeResponse)(nil), "flow.AdvanceTimeResponse")
 	proto.RegisterType((*ClearRegistersRequest)(nil), "flow.ClearRegistersRequest")
 	proto.RegisterType((*ClearRegistersResponse)(nil), "flow.ClearRegistersResponse")
+	proto.RegisterType((*MaterializationSpec)(nil), "flow.MaterializationSpec")
+	proto.RegisterType((*ProjectionResult)(nil), "flow.ProjectionResult")
+	proto.RegisterType((*MaterializationStatus)(nil), "flow.MaterializationStatus")
+	proto.RegisterType((*MaterializationBuildResponse)(nil), "flow.MaterializationBuildResponse")
+	proto.RegisterType((*MaterializationStartResponse)(nil), "flow.MaterializationStartResponse")
+	proto.RegisterType((*StoreStatus)(nil), "flow.StoreStatus")
+	proto.RegisterType((*GetDocumentsRequest)(nil), "flow.GetDocumentsRequest")
+	proto.RegisterType((*GetDocumentsRequest_Key)(nil), "flow.GetDocumentsRequest.Key")
+	proto.RegisterType((*GetDocumentsResponse)(nil), "flow.GetDocumentsResponse")
+	proto.RegisterType((*UpdateDocumentsRequest)(nil), "flow.UpdateDocumentsRequest")
+	proto.RegisterType((*UpdateDocumentsRequest_Document)(nil), "flow.UpdateDocumentsRequest.Document")
+	proto.RegisterType((*CommitTxRequest)(nil), "flow.CommitTxRequest")
 }
 
 func init() { proto.RegisterFile("go/protocol/flow.proto", fileDescriptor_9dd0e7f3bbc7f41f) }
 
 var fileDescriptor_9dd0e7f3bbc7f41f = []byte{
-	// 2681 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x59, 0xcd, 0x6f, 0x24, 0x47,
-	0x15, 0x77, 0xcf, 0x77, 0xbf, 0xb1, 0xc7, 0xb3, 0xb5, 0xde, 0xcd, 0x6c, 0x27, 0xf1, 0x78, 0x07,
-	0xb2, 0x38, 0x09, 0xdb, 0xde, 0x4c, 0x3e, 0xe5, 0x28, 0x10, 0xcf, 0xce, 0x38, 0x76, 0xd6, 0xd9,
-	0x35, 0x3d, 0x76, 0x08, 0x20, 0xd4, 0x6a, 0x77, 0x97, 0x67, 0x7a, 0xdd, 0xd3, 0xdd, 0x54, 0xf5,
-	0x6c, 0x76, 0xe0, 0x80, 0x00, 0x21, 0x21, 0x10, 0x22, 0x12, 0x17, 0x04, 0x97, 0x10, 0xe0, 0xc0,
-	0x31, 0xe2, 0x86, 0xf8, 0x03, 0x72, 0x5c, 0x09, 0x0e, 0x9c, 0x1c, 0x11, 0x24, 0xc4, 0x89, 0x33,
-	0xf2, 0x09, 0xd5, 0x47, 0x77, 0xcf, 0xcc, 0x8e, 0x59, 0xaf, 0x05, 0x97, 0x51, 0xd5, 0xab, 0xf7,
-	0x5e, 0xbd, 0x7a, 0xf5, 0xde, 0xab, 0xdf, 0xeb, 0x81, 0xcb, 0xbd, 0x60, 0x2d, 0x24, 0x41, 0x14,
-	0xd8, 0x81, 0xb7, 0x76, 0xe8, 0x05, 0xef, 0xeb, 0x7c, 0x86, 0x72, 0x6c, 0xac, 0x2d, 0x1f, 0x90,
-	0xe0, 0x08, 0x93, 0x94, 0x23, 0x1e, 0x08, 0x2e, 0x6d, 0xc5, 0x0e, 0x7c, 0x3a, 0x1c, 0xfc, 0x17,
-	0x8e, 0x6b, 0x09, 0x07, 0xc1, 0x76, 0x70, 0x0f, 0x93, 0x91, 0x17, 0xf4, 0xf8, 0x98, 0x38, 0xd8,
-	0x31, 0x83, 0x50, 0xf2, 0xd5, 0xc2, 0x68, 0x14, 0x62, 0xba, 0x86, 0x07, 0x61, 0x34, 0x12, 0xbf,
-	0x72, 0x65, 0xa9, 0x17, 0xf4, 0x02, 0x3e, 0x5c, 0x63, 0x23, 0x41, 0x6d, 0xbc, 0x01, 0xf9, 0xae,
-	0xe7, 0xda, 0x18, 0x2d, 0x41, 0xfe, 0x00, 0xf7, 0x5c, 0xbf, 0xa6, 0xac, 0x28, 0xab, 0x0b, 0x86,
-	0x98, 0xa0, 0x2a, 0x64, 0xb1, 0xef, 0xd4, 0x32, 0x9c, 0xc6, 0x86, 0xeb, 0xf3, 0x0f, 0x7e, 0x5d,
-	0x9f, 0xfb, 0xe0, 0xa3, 0xfa, 0xdc, 0x2f, 0x3e, 0xaa, 0xcf, 0x35, 0x7e, 0xa4, 0x80, 0xba, 0xbf,
-	0xbf, 0xdd, 0xde, 0xb5, 0x48, 0x44, 0xd1, 0x17, 0x01, 0x85, 0x24, 0x70, 0x86, 0x36, 0x26, 0xa6,
-	0xe5, 0x3b, 0xe6, 0xa1, 0x67, 0xf5, 0x28, 0x57, 0x58, 0x30, 0xaa, 0xf1, 0xca, 0x86, 0xef, 0x6c,
-	0x32, 0x3a, 0x7a, 0x1d, 0xf2, 0xb6, 0x17, 0xd8, 0x47, 0x5c, 0x7b, 0xa1, 0xf5, 0xcc, 0xc9, 0x71,
-	0xfd, 0x6a, 0x2f, 0xd0, 0x7b, 0xd6, 0xb7, 0x71, 0x14, 0x61, 0xdd, 0xc1, 0xf7, 0xd6, 0xec, 0x80,
-	0xe0, 0xb5, 0x01, 0xa6, 0xd4, 0xea, 0x61, 0xfd, 0x26, 0x63, 0x36, 0x84, 0xcc, 0x7a, 0xf5, 0x9f,
-	0x1f, 0xd6, 0x95, 0x09, 0x53, 0xfe, 0xad, 0x40, 0xb1, 0xdb, 0x1f, 0x1e, 0x1e, 0x7a, 0x18, 0x5d,
-	0x83, 0x45, 0x2a, 0x86, 0xe6, 0x11, 0x1e, 0x99, 0x61, 0x44, 0x6a, 0xca, 0x4a, 0x76, 0x55, 0x35,
-	0x16, 0x24, 0xf9, 0x16, 0x1e, 0xed, 0x46, 0x84, 0xf1, 0x0d, 0x29, 0xa6, 0x26, 0x0d, 0x86, 0xc4,
-	0xe6, 0xbc, 0xdc, 0x98, 0x92, 0xb1, 0xc0, 0xc8, 0x5d, 0x4e, 0xbd, 0x85, 0x47, 0x8c, 0xef, 0xd0,
-	0xf5, 0x22, 0x4c, 0x4c, 0x62, 0xf2, 0xfd, 0x69, 0x2d, 0x2b, 0xf8, 0x04, 0xd9, 0xe0, 0xb6, 0x51,
-	0x74, 0x0d, 0x72, 0x7d, 0x8b, 0xf6, 0x6b, 0xb9, 0x15, 0x65, 0xb5, 0xd2, 0x44, 0x3a, 0x0f, 0x04,
-	0x69, 0x94, 0xbe, 0x65, 0xd1, 0xbe, 0xc1, 0xd7, 0x99, 0xa3, 0x08, 0xb6, 0x1c, 0xd3, 0xc1, 0x9e,
-	0x35, 0x32, 0x29, 0xb6, 0x03, 0xdf, 0xa1, 0xb5, 0x3c, 0xf7, 0x72, 0x95, 0xad, 0xb4, 0xd9, 0x42,
-	0x57, 0xd0, 0x1b, 0x57, 0x20, 0xc7, 0x64, 0x51, 0x09, 0x72, 0xb7, 0xef, 0xdc, 0xee, 0x54, 0xe7,
-	0x50, 0x11, 0xb2, 0xef, 0xb4, 0x5f, 0xae, 0x2a, 0xeb, 0x39, 0xe6, 0x86, 0xc6, 0xf7, 0x32, 0x50,
-	0x79, 0x3b, 0x18, 0x12, 0xdf, 0xf2, 0x62, 0x0f, 0x6c, 0x43, 0xf1, 0xae, 0xa0, 0x70, 0xff, 0xab,
-	0xad, 0xb5, 0x93, 0xe3, 0xfa, 0xf3, 0xb3, 0xdc, 0x3b, 0x15, 0x9a, 0xba, 0x54, 0x64, 0xc4, 0xf2,
-	0xa8, 0x0b, 0x65, 0x3b, 0x08, 0x88, 0xe3, 0xfa, 0x56, 0x14, 0x10, 0xee, 0x20, 0xb5, 0xf5, 0xc2,
-	0xc9, 0x71, 0xfd, 0xfa, 0x2c, 0x75, 0x0f, 0x45, 0xb2, 0xde, 0xed, 0x5b, 0xc4, 0xd9, 0x6e, 0x1b,
-	0xe3, 0x5a, 0xd0, 0x0b, 0x50, 0x94, 0x57, 0xc1, 0x3d, 0x59, 0x6e, 0x2e, 0x4c, 0x38, 0xab, 0x55,
-	0xfa, 0xe4, 0xb8, 0x3e, 0xf7, 0xe0, 0xb8, 0xae, 0x18, 0x31, 0x1f, 0xba, 0x0c, 0x05, 0x82, 0x43,
-	0xcf, 0x1a, 0x71, 0xf7, 0x96, 0x0c, 0x39, 0x93, 0x3e, 0xf8, 0xab, 0x02, 0xb0, 0x4b, 0x82, 0xbb,
-	0xd8, 0x8e, 0xdc, 0x80, 0x07, 0xae, 0xb8, 0x75, 0x65, 0x55, 0x35, 0xd8, 0x90, 0x05, 0xf8, 0xa1,
-	0x8b, 0x3d, 0x11, 0xcc, 0xaa, 0x21, 0x26, 0xe8, 0x73, 0xc0, 0xae, 0x9a, 0x98, 0x21, 0x09, 0xee,
-	0xb9, 0x0e, 0x76, 0xe4, 0xbd, 0xce, 0x33, 0xe2, 0xae, 0xa4, 0xa1, 0x55, 0xa8, 0xba, 0xd4, 0x0c,
-	0x2d, 0x12, 0xb9, 0x4c, 0x39, 0x8f, 0x13, 0x61, 0x43, 0xc5, 0xa5, 0xbb, 0x31, 0x99, 0x05, 0xca,
-	0xe7, 0xa1, 0xc2, 0x38, 0x89, 0x3b, 0xb0, 0xc8, 0x88, 0xf3, 0xe5, 0x85, 0x3e, 0x97, 0xee, 0x0a,
-	0x22, 0xe3, 0xba, 0x0e, 0xaa, 0xeb, 0x1f, 0x62, 0x82, 0x7d, 0x1b, 0xd7, 0x0a, 0xfc, 0xf8, 0x8b,
-	0xe2, 0xf8, 0xdb, 0x31, 0xd9, 0x48, 0x39, 0x1a, 0xbf, 0xcf, 0x80, 0x9a, 0x2c, 0xb0, 0x73, 0xf0,
-	0x14, 0x97, 0x11, 0x2d, 0x26, 0xe8, 0x69, 0x80, 0xc1, 0x90, 0x46, 0x26, 0xbe, 0xef, 0xd2, 0x48,
-	0x06, 0xb1, 0xca, 0x28, 0x1d, 0x46, 0x40, 0x3a, 0x14, 0x68, 0x44, 0x5c, 0xbf, 0x27, 0xbd, 0x7d,
-	0x79, 0x6a, 0x3b, 0xbd, 0xcb, 0x57, 0x0d, 0xc9, 0xc5, 0x37, 0x71, 0x23, 0x0f, 0xf3, 0x63, 0xb2,
-	0x4d, 0xd8, 0x04, 0xad, 0x40, 0xd9, 0xc1, 0xd4, 0x26, 0x6e, 0xc8, 0xce, 0xcb, 0x8f, 0xa6, 0x1a,
-	0xe3, 0x24, 0xed, 0xbb, 0x50, 0x10, 0x9a, 0xd0, 0x55, 0x98, 0xb7, 0x03, 0x3f, 0xc2, 0x7e, 0x64,
-	0x32, 0x0b, 0xf9, 0xbe, 0x2a, 0x8b, 0x01, 0x4e, 0xdb, 0x1b, 0x85, 0xfc, 0x42, 0x0f, 0x03, 0x32,
-	0xb0, 0x22, 0xb9, 0x8b, 0x9c, 0xa1, 0x27, 0x41, 0x75, 0xa9, 0x79, 0x60, 0x51, 0xfc, 0xca, 0x4b,
-	0xd2, 0x7f, 0x25, 0x97, 0xb6, 0xf8, 0x9c, 0x1f, 0xd4, 0xba, 0x6f, 0x7a, 0xd8, 0xef, 0x45, 0x7d,
-	0xee, 0xbc, 0x05, 0x43, 0x1d, 0x58, 0xf7, 0x77, 0x38, 0xa1, 0xf1, 0x97, 0x0c, 0x54, 0x6e, 0x06,
-	0x9e, 0x27, 0xc2, 0xa0, 0x1b, 0x62, 0x1b, 0x35, 0x20, 0xe7, 0x5b, 0x03, 0x2c, 0xf3, 0xa0, 0x72,
-	0x72, 0x5c, 0x87, 0x94, 0xc3, 0xe0, 0x6b, 0x4c, 0x2b, 0xb5, 0xfb, 0x78, 0x60, 0x99, 0x43, 0xe2,
-	0xca, 0x08, 0x51, 0x05, 0x65, 0x9f, 0xb8, 0xe8, 0x0a, 0x94, 0x64, 0x1d, 0x61, 0x89, 0xcf, 0xdc,
-	0x5e, 0x3c, 0xe2, 0x15, 0x84, 0xb2, 0xa5, 0xe1, 0xd0, 0x75, 0x78, 0x8d, 0x11, 0xc7, 0x28, 0xb2,
-	0x39, 0xab, 0x2e, 0xcf, 0x42, 0x35, 0x8d, 0x19, 0x1e, 0x6e, 0x2c, 0xc7, 0x99, 0xf4, 0x62, 0x42,
-	0xdf, 0xe4, 0x64, 0xd4, 0x84, 0x72, 0x98, 0x04, 0x2f, 0xad, 0x15, 0x56, 0xb2, 0xab, 0xe5, 0x66,
-	0x55, 0x5c, 0x52, 0x1a, 0xd5, 0xc6, 0x38, 0x13, 0xfa, 0x12, 0xcc, 0xcb, 0x14, 0x35, 0x69, 0x88,
-	0xed, 0x5a, 0x91, 0xdf, 0xec, 0x25, 0x7d, 0x3a, 0x93, 0x99, 0x13, 0x5a, 0x39, 0x96, 0x4f, 0x46,
-	0xf9, 0x6e, 0x4a, 0x42, 0xcf, 0xc1, 0x05, 0xcb, 0x3e, 0x32, 0xef, 0xd2, 0xc0, 0x37, 0x23, 0x3c,
-	0x08, 0x3d, 0x2b, 0xc2, 0xb5, 0xd2, 0x8a, 0xb2, 0x3a, 0x6f, 0x2c, 0x5a, 0xf6, 0xd1, 0xdb, 0x34,
-	0xf0, 0xf7, 0x24, 0xb9, 0xf1, 0xdb, 0x2c, 0x2c, 0xec, 0x11, 0xcb, 0xa7, 0xec, 0x8a, 0xb8, 0xf4,
-	0xd5, 0x09, 0xaf, 0x2e, 0x9c, 0x1c, 0xd7, 0xd5, 0x84, 0x41, 0x3a, 0xb5, 0x01, 0x0b, 0xb6, 0x15,
-	0x59, 0x5e, 0xd0, 0x33, 0x9d, 0x03, 0xd3, 0x15, 0x99, 0x97, 0x37, 0xca, 0x92, 0xd8, 0x3e, 0xd8,
-	0x76, 0xd0, 0x6b, 0x50, 0x10, 0xc5, 0x57, 0x06, 0xa6, 0x26, 0xce, 0x3c, 0xb1, 0x97, 0x2e, 0x0a,
-	0xb1, 0x3c, 0x83, 0xe4, 0x47, 0xd7, 0xd3, 0x0a, 0x92, 0x9b, 0x55, 0x41, 0x04, 0x77, 0x52, 0x3d,
-	0xda, 0x00, 0x0e, 0x26, 0xee, 0x3d, 0x2b, 0x09, 0xdd, 0x72, 0x73, 0x79, 0xd6, 0x66, 0xed, 0x84,
-	0x4b, 0xaa, 0x18, 0x93, 0xd3, 0x8e, 0xa0, 0x20, 0x8c, 0x39, 0x53, 0x54, 0xbd, 0x01, 0x90, 0x5c,
-	0x34, 0xe5, 0xa7, 0x2f, 0x37, 0x9f, 0x48, 0xef, 0x67, 0xc7, 0x3a, 0xc0, 0x5e, 0x17, 0x33, 0x99,
-	0x80, 0xc4, 0x9b, 0xa5, 0x02, 0xda, 0x0d, 0x80, 0xd4, 0x98, 0xb3, 0x6c, 0xd8, 0xf8, 0x57, 0x06,
-	0xf2, 0x3c, 0xa2, 0xd0, 0x1a, 0x14, 0xee, 0x59, 0xde, 0x50, 0x96, 0x89, 0x72, 0xf3, 0x82, 0x38,
-	0x2a, 0x5f, 0xd4, 0xdf, 0x65, 0x2b, 0xb1, 0x3b, 0x05, 0x9b, 0xf6, 0x87, 0x0c, 0xe4, 0x39, 0x1d,
-	0x3d, 0x07, 0xb9, 0x23, 0xd7, 0x77, 0xf8, 0x46, 0x95, 0xb8, 0x52, 0x8c, 0x09, 0xea, 0xb7, 0x5c,
-	0xdf, 0x31, 0x38, 0x0f, 0xd2, 0xa0, 0x34, 0xf4, 0xa9, 0xdb, 0xf3, 0xb1, 0xb8, 0xdd, 0x9c, 0x91,
-	0xcc, 0x59, 0x7a, 0xcb, 0x15, 0x76, 0xb5, 0xc8, 0x28, 0xa4, 0x74, 0x27, 0x18, 0x1e, 0xc8, 0x7b,
-	0x53, 0x0c, 0x39, 0x43, 0x5f, 0x80, 0xfc, 0xc1, 0x28, 0xc2, 0x54, 0x5e, 0x4e, 0x59, 0x5e, 0x27,
-	0x43, 0x27, 0xd2, 0x56, 0xb1, 0xde, 0xf8, 0x0e, 0xe4, 0x98, 0x09, 0xa8, 0x0c, 0xc5, 0xed, 0xdb,
-	0xef, 0x6e, 0xec, 0x6c, 0xb7, 0xab, 0x73, 0xfc, 0x71, 0xdc, 0xdf, 0xd9, 0xa9, 0x2a, 0x6c, 0xb4,
-	0x67, 0xec, 0x77, 0xaa, 0x19, 0xa4, 0x42, 0x7e, 0x73, 0x63, 0xa7, 0xdb, 0xa9, 0x66, 0x11, 0x40,
-	0xa1, 0xbb, 0x67, 0x6c, 0xdf, 0x7e, 0xab, 0x9a, 0x43, 0xf3, 0x50, 0xda, 0xbf, 0xdd, 0xdd, 0x7e,
-	0xeb, 0x76, 0xa7, 0x5d, 0xcd, 0xf3, 0x15, 0x31, 0x2e, 0xb0, 0x71, 0xfb, 0xce, 0x7e, 0x6b, 0xa7,
-	0x53, 0x2d, 0xb2, 0xf1, 0x9d, 0xd6, 0xdb, 0x9d, 0x9b, 0x7b, 0xd5, 0x12, 0x53, 0xb4, 0x61, 0x18,
-	0x1b, 0x5f, 0xab, 0xaa, 0x53, 0xf8, 0xe7, 0x87, 0x0a, 0xa8, 0x86, 0xe5, 0xf7, 0x30, 0xcf, 0x89,
-	0x27, 0x41, 0x65, 0x65, 0x42, 0xe0, 0xa8, 0x0c, 0xcf, 0x24, 0x56, 0x37, 0x5a, 0x1c, 0x4a, 0x3d,
-	0x01, 0xac, 0x66, 0x98, 0x0c, 0x4e, 0x65, 0xf9, 0x52, 0xe1, 0x08, 0x8f, 0x3a, 0xbe, 0xc3, 0xd2,
-	0x44, 0xa2, 0x0a, 0x29, 0x99, 0xe3, 0x8e, 0x2c, 0x13, 0x0e, 0x2a, 0x84, 0xf0, 0x32, 0x94, 0x63,
-	0x1e, 0xa6, 0x20, 0xcf, 0x39, 0x54, 0xc1, 0xd1, 0xf1, 0x9d, 0xc6, 0x9f, 0x32, 0x50, 0x91, 0x81,
-	0x6f, 0xe0, 0x6f, 0x0d, 0x31, 0x8d, 0xd0, 0x4b, 0x69, 0x7e, 0x28, 0xdc, 0xa1, 0x4b, 0xc2, 0xa1,
-	0x93, 0x40, 0x61, 0x3a, 0x4d, 0x9e, 0x87, 0x3c, 0x61, 0xe7, 0x91, 0xd1, 0x2a, 0x9f, 0xa5, 0xe4,
-	0x88, 0xf1, 0x45, 0x70, 0x1e, 0xb4, 0x09, 0x85, 0xe0, 0xf0, 0x90, 0xe2, 0x88, 0x9f, 0x28, 0xdb,
-	0xd2, 0x4f, 0x8e, 0xeb, 0xcf, 0x9d, 0x05, 0x63, 0xdc, 0xe1, 0x52, 0x86, 0x94, 0x46, 0xef, 0x00,
-	0x60, 0xdf, 0x31, 0xa5, 0xae, 0xdc, 0xb9, 0x74, 0xa9, 0xd8, 0x77, 0xc4, 0x10, 0xdd, 0x00, 0x20,
-	0x98, 0x06, 0xde, 0x70, 0x2c, 0xd5, 0xab, 0x69, 0xda, 0x6d, 0x61, 0xcb, 0xc1, 0xc4, 0x18, 0xe3,
-	0x69, 0xfc, 0x26, 0x0f, 0x8b, 0x89, 0xfb, 0x68, 0x18, 0xf8, 0x14, 0xa3, 0x55, 0xf6, 0x64, 0x5a,
-	0xd1, 0x90, 0xca, 0x44, 0xa8, 0xea, 0x31, 0xb4, 0xd1, 0xbb, 0x9c, 0x6e, 0xc8, 0x75, 0xc6, 0xd9,
-	0xe7, 0x3a, 0xa5, 0xd3, 0x1e, 0xde, 0x4b, 0xae, 0xa3, 0x67, 0xa0, 0x12, 0x61, 0x32, 0x70, 0x59,
-	0xcd, 0xc6, 0x84, 0x04, 0x44, 0x3e, 0x8b, 0x0b, 0x31, 0xb5, 0xc3, 0x88, 0xe8, 0x2b, 0x30, 0xcf,
-	0xe1, 0x61, 0xd4, 0x27, 0xc1, 0xb0, 0xd7, 0x3f, 0xa7, 0x47, 0xca, 0x4c, 0xc7, 0x9e, 0x50, 0xc1,
-	0x5c, 0xfc, 0x3e, 0x71, 0x23, 0x6c, 0x32, 0x4b, 0xb8, 0x4f, 0xce, 0xe1, 0x62, 0xae, 0x81, 0x1d,
-	0x09, 0xd5, 0x21, 0x6f, 0x11, 0xec, 0x5b, 0xfc, 0x01, 0x9e, 0x6f, 0xa9, 0x27, 0xc7, 0xf5, 0xfc,
-	0x06, 0x23, 0x18, 0x82, 0x8e, 0x74, 0x50, 0x9d, 0xc0, 0xa6, 0xfc, 0x75, 0xa9, 0x15, 0x79, 0x09,
-	0x9a, 0x91, 0xd0, 0x25, 0xc6, 0xc3, 0x1e, 0x1a, 0xd4, 0x8e, 0xdb, 0x8f, 0xd2, 0x4a, 0xf6, 0x1c,
-	0xa6, 0xc9, 0x76, 0xe5, 0x4d, 0xd1, 0xae, 0xa8, 0xe7, 0xd2, 0xc1, 0x44, 0xd1, 0x4b, 0x00, 0xe2,
-	0x39, 0x67, 0x0d, 0x4d, 0x0d, 0xb8, 0xe1, 0x32, 0x09, 0x92, 0x3e, 0x47, 0x1a, 0xaf, 0xf2, 0x77,
-	0x9e, 0x37, 0x3e, 0x37, 0x58, 0xa1, 0xb7, 0x8f, 0xb0, 0xc3, 0x21, 0x5f, 0xf9, 0xb4, 0xe3, 0xaa,
-	0x82, 0x89, 0x41, 0xc0, 0x26, 0x94, 0xc7, 0x3a, 0x94, 0xda, 0xfc, 0xb8, 0x08, 0xaf, 0xb5, 0xf1,
-	0x7b, 0x90, 0x36, 0x2c, 0x8d, 0x5f, 0x29, 0x50, 0xe9, 0xdc, 0x8f, 0x88, 0x65, 0x47, 0x71, 0x92,
-	0x27, 0xf7, 0xa0, 0x9c, 0xe5, 0x1e, 0x32, 0x8f, 0xbe, 0x87, 0x71, 0x38, 0x93, 0x9d, 0x84, 0x33,
-	0x4f, 0x03, 0x70, 0x10, 0x23, 0x60, 0x50, 0x8e, 0x03, 0x19, 0x95, 0x53, 0x18, 0x10, 0x6a, 0xfc,
-	0x5c, 0x81, 0xc5, 0xc4, 0x3a, 0x99, 0x43, 0x8f, 0x34, 0x6f, 0xd2, 0xdd, 0x99, 0x33, 0xba, 0xfb,
-	0x59, 0x28, 0x48, 0x38, 0x95, 0x3d, 0xcd, 0x6f, 0x92, 0xa1, 0xf1, 0x93, 0x2c, 0xc3, 0x83, 0x83,
-	0x03, 0xd7, 0x4f, 0x0a, 0xe3, 0x1a, 0xe4, 0x82, 0x10, 0xfb, 0xb2, 0x2a, 0x5e, 0x11, 0xb2, 0x93,
-	0x3c, 0xfa, 0x9d, 0x10, 0xfb, 0x5b, 0x73, 0x06, 0x67, 0x44, 0xaf, 0x43, 0x89, 0xc1, 0x56, 0xd7,
-	0x1f, 0xc6, 0x65, 0xf1, 0xe9, 0x99, 0x42, 0x37, 0x25, 0xd3, 0xd6, 0x9c, 0x91, 0x08, 0x68, 0xbf,
-	0x53, 0x20, 0xc7, 0xb4, 0x4d, 0x41, 0x4c, 0x65, 0x1a, 0x62, 0xca, 0xe7, 0x81, 0xf9, 0x3d, 0xc3,
-	0x5d, 0x5b, 0x10, 0x08, 0x73, 0xca, 0xed, 0xd9, 0x29, 0xb7, 0xa3, 0x1b, 0xb0, 0x24, 0x3c, 0xe8,
-	0x59, 0x36, 0xee, 0x07, 0x9e, 0xc3, 0x9a, 0x99, 0x04, 0x8b, 0x22, 0xee, 0xb4, 0x74, 0x69, 0x57,
-	0x34, 0x42, 0x21, 0x19, 0xfa, 0x58, 0x42, 0x6b, 0x31, 0xd1, 0xbe, 0x01, 0xa5, 0xd8, 0xfe, 0xff,
-	0x79, 0x54, 0xb5, 0x0a, 0x02, 0x52, 0x34, 0x7e, 0xaa, 0xc0, 0x62, 0xe2, 0xb4, 0xb3, 0xc6, 0xc8,
-	0xe3, 0x86, 0xf0, 0x63, 0x44, 0xc7, 0xc7, 0x79, 0x58, 0xe0, 0x10, 0x2b, 0x09, 0x0e, 0x7d, 0x22,
-	0x38, 0x6a, 0x42, 0x74, 0x82, 0x65, 0x32, 0x36, 0xd6, 0x1f, 0x8a, 0x8d, 0xa7, 0x66, 0xc9, 0xcc,
-	0x0a, 0x0d, 0xf4, 0x02, 0xe4, 0x0f, 0xbd, 0x21, 0xed, 0x4b, 0xe8, 0x7b, 0x65, 0x96, 0xe0, 0x26,
-	0x63, 0xd8, 0x9a, 0x33, 0x04, 0x27, 0x7a, 0x15, 0x8a, 0x21, 0xc1, 0xa1, 0x45, 0x62, 0xd0, 0xfb,
-	0xe4, 0x2c, 0xa1, 0x5d, 0xc1, 0xb2, 0x35, 0x67, 0xc4, 0xdc, 0xda, 0x2b, 0x32, 0x0a, 0x75, 0x00,
-	0x3b, 0x41, 0x8d, 0xa7, 0x60, 0xc9, 0x31, 0x0e, 0xed, 0x1f, 0xca, 0xff, 0x31, 0x2e, 0xa6, 0xd2,
-	0x3f, 0x7b, 0xae, 0x6a, 0x9b, 0x3b, 0x43, 0xb5, 0xbd, 0x0a, 0xf3, 0x51, 0x0c, 0xf2, 0x59, 0x23,
-	0xc2, 0xba, 0xb0, 0xbc, 0x51, 0x4e, 0x68, 0xdb, 0x8e, 0xf6, 0x1e, 0xe4, 0xb9, 0xaf, 0x4f, 0x4d,
-	0x28, 0xe5, 0xd4, 0x84, 0x9a, 0xcc, 0xd0, 0xcc, 0x54, 0x86, 0x6a, 0x1d, 0x28, 0xca, 0x0b, 0x41,
-	0xeb, 0x00, 0x76, 0x1f, 0xdb, 0x47, 0x61, 0xe0, 0xfa, 0x51, 0x02, 0xcb, 0x12, 0x5c, 0x71, 0x33,
-	0x59, 0x8b, 0xab, 0x7f, 0xca, 0x9d, 0xe4, 0xd0, 0x07, 0x0a, 0x54, 0xe2, 0xeb, 0x96, 0x29, 0x34,
-	0x5e, 0xa0, 0x94, 0xf1, 0x02, 0x35, 0xc9, 0x37, 0x3b, 0x0a, 0xaf, 0xc7, 0x51, 0x98, 0x91, 0xfd,
-	0xe3, 0x64, 0x69, 0x13, 0xa2, 0x49, 0x04, 0x6a, 0x90, 0xc6, 0x43, 0x62, 0xd2, 0xc7, 0x0a, 0x2c,
-	0x6c, 0xfb, 0x3d, 0x4c, 0x93, 0x77, 0x69, 0x13, 0xca, 0x69, 0x10, 0xc5, 0x3d, 0xc8, 0x72, 0xfc,
-	0xd1, 0x61, 0x8c, 0x53, 0x4f, 0xe3, 0x2e, 0xee, 0x51, 0xc7, 0x04, 0xb5, 0xf7, 0x60, 0x2c, 0x30,
-	0xcf, 0xd4, 0x73, 0x5d, 0x83, 0xc5, 0x24, 0x04, 0x4d, 0xcf, 0xf5, 0x31, 0x95, 0x48, 0x7c, 0x21,
-	0x8e, 0xba, 0x1d, 0x46, 0x6c, 0xfc, 0x39, 0x03, 0x95, 0xd8, 0x12, 0xe9, 0xc6, 0x3f, 0x2a, 0x70,
-	0x31, 0xee, 0xa8, 0x53, 0xb0, 0x14, 0x5b, 0xff, 0xfc, 0xa4, 0xf5, 0xd2, 0xa5, 0x12, 0x4d, 0x7f,
-	0x35, 0x46, 0x46, 0xb4, 0xe3, 0x47, 0x64, 0xd4, 0xfa, 0xe6, 0xf7, 0x3f, 0x7d, 0xac, 0xaf, 0x6d,
-	0x3f, 0xfe, 0xf4, 0xb1, 0xa0, 0xca, 0x85, 0xbb, 0xd3, 0xdb, 0x8e, 0x7f, 0x0d, 0xc0, 0x91, 0xed,
-	0x24, 0xb7, 0x39, 0x05, 0x45, 0xf5, 0x4e, 0x64, 0x3b, 0x53, 0x5f, 0x03, 0x18, 0x49, 0x6b, 0xc3,
-	0xe5, 0xd9, 0x67, 0x41, 0x55, 0xc8, 0xb2, 0x3c, 0x93, 0x9f, 0xd2, 0x8e, 0xf0, 0x88, 0xbd, 0x20,
-	0xbc, 0x6b, 0xe4, 0x9b, 0x64, 0x0d, 0x31, 0x59, 0xcf, 0xbc, 0xa6, 0x34, 0x6e, 0x01, 0xda, 0x70,
-	0xee, 0x59, 0xbe, 0x8d, 0xf7, 0xdc, 0x41, 0x52, 0x54, 0x5f, 0x86, 0x27, 0x2c, 0xc7, 0x91, 0xfd,
-	0x8b, 0x83, 0xbd, 0xc8, 0x4a, 0xbe, 0x79, 0x2a, 0xbc, 0x93, 0x59, 0xb2, 0x1c, 0x87, 0xf7, 0x32,
-	0x6d, 0xb6, 0x18, 0x7f, 0xf7, 0xec, 0xc0, 0xc5, 0x09, 0x65, 0xf2, 0x9a, 0x74, 0xb8, 0x78, 0xba,
-	0xa6, 0x0b, 0xf6, 0x43, 0x6a, 0x7e, 0xa6, 0xc0, 0xa5, 0x9b, 0x1e, 0xb6, 0x88, 0x81, 0x7b, 0x2e,
-	0x8d, 0x30, 0xa1, 0xb1, 0x5d, 0x29, 0x70, 0x57, 0x1e, 0x01, 0xdc, 0x77, 0xa0, 0x44, 0xfb, 0x16,
-	0x71, 0xe2, 0xaf, 0x18, 0xe7, 0xfa, 0x00, 0x5a, 0xe4, 0x2a, 0xb6, 0x9d, 0x06, 0x81, 0xcb, 0xd3,
-	0x06, 0x3d, 0x76, 0xd3, 0xa1, 0x3f, 0xaa, 0xe9, 0x88, 0x9f, 0x3a, 0xc1, 0xd5, 0x6c, 0x43, 0x49,
-	0x76, 0x38, 0x04, 0xbd, 0x96, 0x7e, 0x29, 0x5f, 0x9a, 0xf8, 0x68, 0x22, 0x1d, 0xa3, 0x5d, 0x9a,
-	0xa2, 0x0a, 0xeb, 0x6e, 0x28, 0xcd, 0x0d, 0x28, 0x4a, 0x8c, 0x87, 0x5e, 0x49, 0x87, 0x52, 0xc9,
-	0x24, 0x36, 0x8d, 0x95, 0x4c, 0x61, 0xc2, 0x66, 0x07, 0x8a, 0xb2, 0xb8, 0xa0, 0xf5, 0x74, 0xb8,
-	0x34, 0x0b, 0x51, 0x69, 0xb3, 0x8b, 0xd1, 0xaa, 0x72, 0x43, 0x69, 0xfe, 0x20, 0x03, 0x05, 0x51,
-	0xde, 0xd0, 0x06, 0x5c, 0x30, 0x30, 0x8d, 0x02, 0x82, 0xd3, 0x02, 0x8a, 0x2e, 0xeb, 0xbd, 0x20,
-	0xe8, 0x79, 0x58, 0xb8, 0xe5, 0x60, 0x78, 0xa8, 0x77, 0x06, 0x61, 0x34, 0xd2, 0x66, 0x96, 0x5b,
-	0xf4, 0x6a, 0xa2, 0xec, 0xe2, 0x8c, 0x07, 0x55, 0x5b, 0x9a, 0x55, 0x4e, 0x99, 0x19, 0xe8, 0x75,
-	0x80, 0xd6, 0xd0, 0xf5, 0x9c, 0x2d, 0xd7, 0x8f, 0xe8, 0xa9, 0x9b, 0x5e, 0xd2, 0xc7, 0xfe, 0xb5,
-	0xd1, 0x37, 0xbb, 0xef, 0x08, 0xf6, 0x37, 0xa1, 0x32, 0x19, 0x07, 0xa7, 0x2a, 0x38, 0x85, 0xde,
-	0xfc, 0x32, 0x94, 0x44, 0x41, 0xc2, 0x04, 0xbd, 0x08, 0x05, 0x31, 0x8e, 0xcf, 0x30, 0x51, 0x68,
-	0xe3, 0x33, 0x4c, 0xd6, 0xaf, 0xe6, 0x2f, 0x15, 0x28, 0xee, 0x61, 0x1a, 0xb9, 0x7e, 0x0f, 0xb5,
-	0xa0, 0x3c, 0x96, 0x6f, 0x48, 0x82, 0x9f, 0x87, 0xf3, 0x59, 0xbb, 0x32, 0x63, 0x45, 0x06, 0xf0,
-	0xad, 0x87, 0x8e, 0x24, 0x11, 0xca, 0xcc, 0x0c, 0xd4, 0x9e, 0x9a, 0xbd, 0x28, 0x94, 0xb5, 0xb4,
-	0x4f, 0xfe, 0xb6, 0x3c, 0xf7, 0xc9, 0x67, 0xcb, 0xca, 0x83, 0xcf, 0x96, 0x95, 0x0f, 0xff, 0xbe,
-	0xac, 0x7c, 0xbd, 0x14, 0x07, 0xf9, 0x41, 0x81, 0x8f, 0x5e, 0xfc, 0x4f, 0x00, 0x00, 0x00, 0xff,
-	0xff, 0xd9, 0x41, 0x0b, 0x46, 0x79, 0x1b, 0x00, 0x00,
+	// 3454 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x5a, 0x4d, 0x6c, 0x24, 0xc7,
+	0x57, 0x77, 0xcf, 0xf7, 0xbc, 0xf1, 0xc7, 0xb8, 0xec, 0xf5, 0xce, 0x76, 0x76, 0x6d, 0xef, 0xfc,
+	0x93, 0xc5, 0xbb, 0x61, 0xdb, 0xbb, 0x93, 0xcd, 0x07, 0x8e, 0x02, 0x99, 0xf1, 0x8c, 0x77, 0x27,
+	0xeb, 0xaf, 0xf4, 0xd8, 0x21, 0x09, 0x8a, 0x5a, 0xed, 0xee, 0xf2, 0xb8, 0xd7, 0x3d, 0xdd, 0x43,
+	0x75, 0xcf, 0x66, 0x27, 0x20, 0x21, 0x3e, 0xc5, 0x87, 0x10, 0x91, 0xb8, 0x20, 0xb8, 0x84, 0x00,
+	0x07, 0x0e, 0x08, 0x45, 0xdc, 0x22, 0x2e, 0xdc, 0x72, 0x8c, 0x04, 0x07, 0x4e, 0x0e, 0x04, 0x09,
+	0x71, 0xe2, 0xc2, 0x05, 0xed, 0x09, 0xd5, 0x47, 0x7f, 0xcc, 0xb8, 0x9d, 0xb5, 0x4d, 0x72, 0xb1,
+	0xaa, 0x5f, 0xbd, 0x7a, 0x55, 0xf5, 0xde, 0xab, 0xf7, 0x7e, 0xef, 0x8d, 0x61, 0xa1, 0xeb, 0xae,
+	0xf6, 0x89, 0xeb, 0xbb, 0x86, 0x6b, 0xaf, 0x1e, 0xda, 0xee, 0xa7, 0x0a, 0xfb, 0x42, 0x19, 0x3a,
+	0x96, 0x17, 0x0f, 0x88, 0x7b, 0x8c, 0x49, 0xc4, 0x11, 0x0c, 0x38, 0x97, 0xbc, 0x6c, 0xb8, 0x8e,
+	0x37, 0xe8, 0xfd, 0x00, 0xc7, 0xad, 0x90, 0x83, 0x60, 0xc3, 0x7d, 0x8a, 0xc9, 0xd0, 0x76, 0xbb,
+	0x6c, 0x4c, 0x4c, 0x6c, 0x6a, 0x6e, 0x5f, 0xf0, 0x55, 0xfa, 0xfe, 0xb0, 0x8f, 0xbd, 0x55, 0xdc,
+	0xeb, 0xfb, 0x43, 0xfe, 0x57, 0xcc, 0xcc, 0x77, 0xdd, 0xae, 0xcb, 0x86, 0xab, 0x74, 0xc4, 0xa9,
+	0xd5, 0x77, 0x20, 0xdb, 0xb1, 0x2d, 0x03, 0xa3, 0x79, 0xc8, 0x1e, 0xe0, 0xae, 0xe5, 0x54, 0xa4,
+	0x65, 0x69, 0x65, 0x4a, 0xe5, 0x1f, 0xa8, 0x0c, 0x69, 0xec, 0x98, 0x95, 0x14, 0xa3, 0xd1, 0xe1,
+	0xda, 0xe4, 0xb7, 0x7f, 0xb9, 0x34, 0xf1, 0xf9, 0x97, 0x4b, 0x13, 0x7f, 0xf6, 0xe5, 0xd2, 0x44,
+	0xf5, 0xf7, 0x25, 0x28, 0xee, 0xef, 0xb7, 0x9b, 0xbb, 0x3a, 0xf1, 0x3d, 0xf4, 0xf3, 0x80, 0xfa,
+	0xc4, 0x35, 0x07, 0x06, 0x26, 0x9a, 0xee, 0x98, 0xda, 0xa1, 0xad, 0x77, 0x3d, 0x26, 0x30, 0xa7,
+	0x96, 0x83, 0x99, 0xba, 0x63, 0x6e, 0x50, 0x3a, 0x7a, 0x1b, 0xb2, 0x86, 0xed, 0x1a, 0xc7, 0x4c,
+	0x7a, 0xae, 0xf1, 0xca, 0xf3, 0x93, 0xa5, 0x9b, 0x5d, 0x57, 0xe9, 0xea, 0x9f, 0x61, 0xdf, 0xc7,
+	0x8a, 0x89, 0x9f, 0xae, 0x1a, 0x2e, 0xc1, 0xab, 0x3d, 0xec, 0x79, 0x7a, 0x17, 0x2b, 0xeb, 0x94,
+	0x59, 0xe5, 0x6b, 0xd6, 0xca, 0xff, 0xf5, 0xc5, 0x92, 0x34, 0x72, 0x94, 0xff, 0x95, 0x20, 0xdf,
+	0x39, 0x1a, 0x1c, 0x1e, 0xda, 0x18, 0xdd, 0x82, 0x19, 0x8f, 0x0f, 0xb5, 0x63, 0x3c, 0xd4, 0xfa,
+	0x3e, 0xa9, 0x48, 0xcb, 0xe9, 0x95, 0xa2, 0x3a, 0x25, 0xc8, 0x8f, 0xf1, 0x70, 0xd7, 0x27, 0x94,
+	0x6f, 0xe0, 0x61, 0x4f, 0xf3, 0xdc, 0x01, 0x31, 0x18, 0x2f, 0x3b, 0x4c, 0x41, 0x9d, 0xa2, 0xe4,
+	0x0e, 0xa3, 0x3e, 0xc6, 0x43, 0xca, 0x77, 0x68, 0xd9, 0x3e, 0x26, 0x1a, 0xd1, 0xd8, 0xfe, 0x5e,
+	0x25, 0xcd, 0xf9, 0x38, 0x59, 0x65, 0x67, 0xf3, 0xd0, 0x2d, 0xc8, 0x1c, 0xe9, 0xde, 0x51, 0x25,
+	0xb3, 0x2c, 0xad, 0x4c, 0xd7, 0x90, 0xc2, 0x1c, 0x41, 0x1c, 0x4a, 0x79, 0xa4, 0x7b, 0x47, 0x2a,
+	0x9b, 0xa7, 0x8a, 0x22, 0x58, 0x37, 0x35, 0x13, 0xdb, 0xfa, 0x50, 0xf3, 0xb0, 0xe1, 0x3a, 0xa6,
+	0x57, 0xc9, 0x32, 0x2d, 0x97, 0xe9, 0x4c, 0x93, 0x4e, 0x74, 0x38, 0xbd, 0x7a, 0x0d, 0x32, 0x74,
+	0x2d, 0x2a, 0x40, 0x66, 0x7b, 0x67, 0xbb, 0x55, 0x9e, 0x40, 0x79, 0x48, 0x6f, 0x35, 0x5f, 0x2f,
+	0x4b, 0x6b, 0x19, 0xaa, 0x86, 0xea, 0x6f, 0xa6, 0x60, 0xfa, 0x3d, 0x77, 0x40, 0x1c, 0xdd, 0x0e,
+	0x34, 0xd0, 0x86, 0xfc, 0x13, 0x4e, 0x61, 0xfa, 0x2f, 0x36, 0x56, 0x9f, 0x9f, 0x2c, 0xbd, 0x9a,
+	0xa4, 0xde, 0x31, 0xd7, 0x54, 0x84, 0x20, 0x35, 0x58, 0x8f, 0x3a, 0x50, 0x32, 0x5c, 0x97, 0x98,
+	0x96, 0xa3, 0xfb, 0x2e, 0x61, 0x0a, 0x2a, 0x36, 0xee, 0x3f, 0x3f, 0x59, 0xba, 0x9b, 0x24, 0xee,
+	0x94, 0x27, 0x2b, 0x9d, 0x23, 0x9d, 0x98, 0xed, 0xa6, 0x1a, 0x97, 0x82, 0xee, 0x43, 0x5e, 0x98,
+	0x82, 0x69, 0xb2, 0x54, 0x9b, 0x1a, 0x51, 0x56, 0xa3, 0xf0, 0xcd, 0xc9, 0xd2, 0xc4, 0xb7, 0x27,
+	0x4b, 0x92, 0x1a, 0xf0, 0xa1, 0x05, 0xc8, 0x11, 0xdc, 0xb7, 0xf5, 0x21, 0x53, 0x6f, 0x41, 0x15,
+	0x5f, 0x42, 0x07, 0xff, 0x2a, 0x01, 0xec, 0x12, 0xf7, 0x09, 0x36, 0x7c, 0xcb, 0x65, 0x8e, 0xcb,
+	0xad, 0x2e, 0xad, 0x14, 0x55, 0x3a, 0xa4, 0x0e, 0x7e, 0x68, 0x61, 0x9b, 0x3b, 0x73, 0x51, 0xe5,
+	0x1f, 0xe8, 0x67, 0x40, 0x4d, 0x4d, 0xb4, 0x3e, 0x71, 0x9f, 0x5a, 0x26, 0x36, 0x85, 0x5d, 0x27,
+	0x29, 0x71, 0x57, 0xd0, 0xd0, 0x0a, 0x94, 0x2d, 0x4f, 0xeb, 0xeb, 0xc4, 0xb7, 0xa8, 0x70, 0xe6,
+	0x27, 0xfc, 0x0c, 0xd3, 0x96, 0xb7, 0x1b, 0x90, 0xa9, 0xa3, 0xbc, 0x0c, 0xd3, 0x94, 0x93, 0x58,
+	0x3d, 0x9d, 0x0c, 0x19, 0x5f, 0x96, 0xcb, 0xb3, 0xbc, 0x5d, 0x4e, 0xa4, 0x5c, 0x77, 0xa1, 0x68,
+	0x39, 0x87, 0x98, 0x60, 0xc7, 0xc0, 0x95, 0x1c, 0xbb, 0xfe, 0x0c, 0xbf, 0x7e, 0x3b, 0x20, 0xab,
+	0x11, 0x47, 0xf5, 0x6f, 0x53, 0x50, 0x0c, 0x27, 0xe8, 0x3d, 0xd8, 0x13, 0x17, 0x1e, 0xcd, 0x3f,
+	0xd0, 0x0d, 0x80, 0xde, 0xc0, 0xf3, 0x35, 0xfc, 0xcc, 0xf2, 0x7c, 0xe1, 0xc4, 0x45, 0x4a, 0x69,
+	0x51, 0x02, 0x52, 0x20, 0xe7, 0xf9, 0xc4, 0x72, 0xba, 0x42, 0xdb, 0x0b, 0x63, 0xdb, 0x29, 0x1d,
+	0x36, 0xab, 0x0a, 0x2e, 0xb6, 0x89, 0xe5, 0xdb, 0x98, 0x5d, 0x93, 0x6e, 0x42, 0x3f, 0xd0, 0x32,
+	0x94, 0x4c, 0xec, 0x19, 0xc4, 0xea, 0xd3, 0xfb, 0xb2, 0xab, 0x15, 0xd5, 0x38, 0x49, 0xfe, 0x0d,
+	0xc8, 0x71, 0x49, 0xe8, 0x26, 0x4c, 0x1a, 0xae, 0xe3, 0x63, 0xc7, 0xd7, 0xe8, 0x09, 0xd9, 0xbe,
+	0x45, 0xea, 0x03, 0x8c, 0xb6, 0x37, 0xec, 0x33, 0x83, 0x1e, 0xba, 0xa4, 0xa7, 0xfb, 0x62, 0x17,
+	0xf1, 0x85, 0x5e, 0x82, 0xa2, 0xe5, 0x69, 0x07, 0xba, 0x87, 0xdf, 0x78, 0x20, 0xf4, 0x57, 0xb0,
+	0xbc, 0x06, 0xfb, 0x66, 0x17, 0xd5, 0x9f, 0x69, 0x36, 0x76, 0xba, 0xfe, 0x11, 0x53, 0xde, 0x94,
+	0x5a, 0xec, 0xe9, 0xcf, 0x36, 0x19, 0xa1, 0xfa, 0x2f, 0x29, 0x98, 0x5e, 0x77, 0x6d, 0x9b, 0xbb,
+	0x41, 0xa7, 0x8f, 0x0d, 0x54, 0x85, 0x8c, 0xa3, 0xf7, 0xb0, 0x78, 0x07, 0xd3, 0xcf, 0x4f, 0x96,
+	0x20, 0xe2, 0x50, 0xd9, 0x1c, 0x95, 0xea, 0x19, 0x47, 0xb8, 0xa7, 0x6b, 0x03, 0x62, 0x09, 0x0f,
+	0x29, 0x72, 0xca, 0x3e, 0xb1, 0xd0, 0x35, 0x28, 0x88, 0x38, 0x42, 0x1f, 0x3e, 0x55, 0x7b, 0xfe,
+	0x98, 0x45, 0x10, 0x8f, 0x4e, 0x0d, 0x06, 0x96, 0xc9, 0x62, 0x0c, 0xbf, 0x46, 0x9e, 0x7e, 0xd3,
+	0xe8, 0x72, 0x1b, 0xca, 0x91, 0xcf, 0x30, 0x77, 0xa3, 0x6f, 0x9c, 0xae, 0x9e, 0x09, 0xe9, 0x1b,
+	0x8c, 0x8c, 0x6a, 0x50, 0xea, 0x87, 0xce, 0xeb, 0x55, 0x72, 0xcb, 0xe9, 0x95, 0x52, 0xad, 0xcc,
+	0x8d, 0x14, 0x79, 0xb5, 0x1a, 0x67, 0x42, 0xbf, 0x08, 0x93, 0xe2, 0x89, 0x6a, 0x5e, 0x1f, 0x1b,
+	0x95, 0x3c, 0xb3, 0xec, 0x15, 0x65, 0xfc, 0x25, 0x53, 0x25, 0x34, 0x32, 0xf4, 0x3d, 0xa9, 0xa5,
+	0x27, 0x11, 0x09, 0xdd, 0x81, 0x59, 0xdd, 0x38, 0xd6, 0x9e, 0x78, 0xae, 0xa3, 0xf9, 0xb8, 0xd7,
+	0xb7, 0x75, 0x1f, 0x57, 0x0a, 0xcb, 0xd2, 0xca, 0xa4, 0x3a, 0xa3, 0x1b, 0xc7, 0xef, 0x79, 0xae,
+	0xb3, 0x27, 0xc8, 0xd5, 0xbf, 0x4e, 0xc3, 0xd4, 0x1e, 0xd1, 0x1d, 0x8f, 0x9a, 0x88, 0xad, 0xbe,
+	0x39, 0xa2, 0xd5, 0xa9, 0xe7, 0x27, 0x4b, 0xc5, 0x90, 0x41, 0x28, 0xb5, 0x0a, 0x53, 0x86, 0xee,
+	0xeb, 0xb6, 0xdb, 0xd5, 0xcc, 0x03, 0xcd, 0xe2, 0x2f, 0x2f, 0xab, 0x96, 0x04, 0xb1, 0x79, 0xd0,
+	0x36, 0xd1, 0x5b, 0x90, 0xe3, 0xc1, 0x57, 0x38, 0xa6, 0xcc, 0xef, 0x3c, 0xb2, 0x97, 0xc2, 0x03,
+	0xb1, 0xb8, 0x83, 0xe0, 0x47, 0x77, 0xa3, 0x08, 0x92, 0x49, 0x8a, 0x20, 0x9c, 0x3b, 0x8c, 0x1e,
+	0x4d, 0x00, 0x13, 0x13, 0xeb, 0xa9, 0x1e, 0xba, 0x6e, 0xa9, 0xb6, 0x98, 0xb4, 0x59, 0x33, 0xe4,
+	0x12, 0x22, 0x62, 0xeb, 0xe4, 0x63, 0xc8, 0xf1, 0xc3, 0x9c, 0xcb, 0xab, 0xde, 0x01, 0x08, 0x0d,
+	0xed, 0xb1, 0xdb, 0x97, 0x6a, 0x57, 0x23, 0xfb, 0x6c, 0xea, 0x07, 0xd8, 0xee, 0x60, 0xba, 0xc6,
+	0x25, 0xc1, 0x66, 0xd1, 0x02, 0xf9, 0x1e, 0x40, 0x74, 0x98, 0xf3, 0x6c, 0x58, 0xfd, 0xef, 0x14,
+	0x64, 0x99, 0x47, 0xa1, 0x55, 0xc8, 0x3d, 0xd5, 0xed, 0x81, 0x08, 0x13, 0xa5, 0xda, 0x2c, 0xbf,
+	0x2a, 0x9b, 0x54, 0x3e, 0xa0, 0x33, 0x81, 0x3a, 0x39, 0x9b, 0xfc, 0x0f, 0x29, 0xc8, 0x32, 0x3a,
+	0xba, 0x03, 0x99, 0x63, 0xcb, 0x31, 0xd9, 0x46, 0xd3, 0x41, 0xa4, 0x88, 0x2d, 0x54, 0x1e, 0x5b,
+	0x8e, 0xa9, 0x32, 0x1e, 0x24, 0x43, 0x61, 0xe0, 0x78, 0x56, 0xd7, 0xc1, 0xdc, 0xba, 0x19, 0x35,
+	0xfc, 0xa6, 0xcf, 0x5b, 0xcc, 0x50, 0xd3, 0x22, 0x35, 0x17, 0xd1, 0x4d, 0x77, 0x70, 0x20, 0xec,
+	0x26, 0xa9, 0xe2, 0x0b, 0xfd, 0x1c, 0x64, 0x0f, 0x86, 0x3e, 0xf6, 0x84, 0x71, 0x4a, 0xc2, 0x9c,
+	0x14, 0x9d, 0x88, 0xb3, 0xf2, 0xf9, 0xea, 0xaf, 0x41, 0x86, 0x1e, 0x01, 0x95, 0x20, 0xdf, 0xde,
+	0xfe, 0xa0, 0xbe, 0xd9, 0x6e, 0x96, 0x27, 0x58, 0x72, 0xdc, 0xdf, 0xdc, 0x2c, 0x4b, 0x74, 0xb4,
+	0xa7, 0xee, 0xb7, 0xca, 0x29, 0x54, 0x84, 0xec, 0x46, 0x7d, 0xb3, 0xd3, 0x2a, 0xa7, 0x11, 0x40,
+	0xae, 0xb3, 0xa7, 0xb6, 0xb7, 0x1f, 0x96, 0x33, 0x68, 0x12, 0x0a, 0xfb, 0xdb, 0x9d, 0xf6, 0xc3,
+	0xed, 0x56, 0xb3, 0x9c, 0x65, 0x33, 0x7c, 0x9c, 0xa3, 0xe3, 0xe6, 0xce, 0x7e, 0x63, 0xb3, 0x55,
+	0xce, 0xd3, 0xf1, 0x4e, 0xe3, 0xbd, 0xd6, 0xfa, 0x5e, 0xb9, 0x40, 0x05, 0xd5, 0x55, 0xb5, 0xfe,
+	0x51, 0xb9, 0x38, 0x86, 0x7f, 0x7e, 0x57, 0x82, 0xa2, 0xaa, 0x3b, 0x5d, 0xcc, 0xde, 0xc4, 0x4b,
+	0x50, 0xa4, 0x61, 0x82, 0xe3, 0xa8, 0x14, 0x7b, 0x49, 0x34, 0x6e, 0x34, 0x18, 0x94, 0xba, 0x0a,
+	0x34, 0x66, 0x68, 0x14, 0x4e, 0xa5, 0xd9, 0x54, 0xee, 0x18, 0x0f, 0x5b, 0x8e, 0x49, 0x9f, 0x89,
+	0x40, 0x15, 0x62, 0x65, 0x86, 0x29, 0xb2, 0x44, 0x18, 0xa8, 0xe0, 0x8b, 0x17, 0xa1, 0x14, 0xf0,
+	0x50, 0x01, 0x59, 0xc6, 0x51, 0xe4, 0x1c, 0x2d, 0xc7, 0xac, 0xfe, 0x63, 0x0a, 0xa6, 0x85, 0xe3,
+	0xab, 0xf8, 0x57, 0x07, 0xd8, 0xf3, 0xd1, 0x83, 0xe8, 0x7d, 0x48, 0x4c, 0xa1, 0xf3, 0x5c, 0xa1,
+	0xa3, 0x40, 0x61, 0xfc, 0x99, 0xbc, 0x0a, 0x59, 0x42, 0xef, 0x23, 0xbc, 0x55, 0xa4, 0xa5, 0xf0,
+	0x8a, 0x81, 0x21, 0x18, 0x0f, 0xda, 0x80, 0x9c, 0x7b, 0x78, 0xe8, 0x61, 0x9f, 0xdd, 0x28, 0xdd,
+	0x50, 0x9e, 0x9f, 0x2c, 0xdd, 0x39, 0x0f, 0xc6, 0xd8, 0x61, 0xab, 0x54, 0xb1, 0x1a, 0x6d, 0x01,
+	0x60, 0xc7, 0xd4, 0x84, 0xac, 0xcc, 0xa5, 0x64, 0x15, 0xb1, 0x63, 0xf2, 0x21, 0xba, 0x07, 0x40,
+	0xb0, 0xe7, 0xda, 0x83, 0xd8, 0x53, 0x2f, 0x47, 0xcf, 0xee, 0x11, 0xd6, 0x4d, 0x4c, 0xd4, 0x18,
+	0x4f, 0xf5, 0xaf, 0xb2, 0x30, 0x13, 0xaa, 0xcf, 0xeb, 0xbb, 0x8e, 0x87, 0xd1, 0x0a, 0x4d, 0x99,
+	0xba, 0x3f, 0xf0, 0xc4, 0x43, 0x28, 0x2b, 0x01, 0xb4, 0x51, 0x3a, 0x8c, 0xae, 0x8a, 0x79, 0xca,
+	0x79, 0xc4, 0x64, 0x0a, 0xa5, 0x9d, 0xde, 0x4b, 0xcc, 0xa3, 0x57, 0x60, 0xda, 0xc7, 0xa4, 0x67,
+	0xd1, 0x98, 0x8d, 0x09, 0x71, 0x89, 0x48, 0x8b, 0x53, 0x01, 0xb5, 0x45, 0x89, 0xe8, 0x7d, 0x98,
+	0x64, 0xf0, 0xd0, 0x3f, 0x22, 0xee, 0xa0, 0x7b, 0x74, 0x49, 0x8d, 0x94, 0xa8, 0x8c, 0x3d, 0x2e,
+	0x82, 0xaa, 0xf8, 0x53, 0x62, 0xf9, 0x58, 0xa3, 0x27, 0x61, 0x3a, 0xb9, 0x84, 0x8a, 0x99, 0x04,
+	0x7a, 0x25, 0xb4, 0x04, 0x59, 0x9d, 0x60, 0x47, 0x67, 0x09, 0x78, 0xb2, 0x51, 0x7c, 0x7e, 0xb2,
+	0x94, 0xad, 0x53, 0x82, 0xca, 0xe9, 0x48, 0x81, 0xa2, 0xe9, 0x1a, 0x1e, 0xcb, 0x2e, 0x95, 0x3c,
+	0x0b, 0x41, 0x09, 0x0f, 0xba, 0x40, 0x79, 0x68, 0xa2, 0x41, 0xcd, 0xa0, 0xfc, 0x28, 0x2c, 0xa7,
+	0x2f, 0x71, 0x34, 0x51, 0xae, 0xbc, 0xcb, 0xcb, 0x95, 0xe2, 0xa5, 0x64, 0xd0, 0xa5, 0xe8, 0x01,
+	0x00, 0x4f, 0xe7, 0xb4, 0xa0, 0xa9, 0x00, 0x3b, 0xb8, 0x78, 0x04, 0x61, 0x9d, 0x23, 0x0e, 0x5f,
+	0x64, 0x79, 0x9e, 0x15, 0x3e, 0xf7, 0x68, 0xa0, 0x37, 0x8e, 0xb1, 0xc9, 0x20, 0x5f, 0xe9, 0xac,
+	0xeb, 0x16, 0x39, 0x13, 0x85, 0x80, 0x35, 0x28, 0xc5, 0x2a, 0x94, 0xca, 0x64, 0x7c, 0x09, 0x8b,
+	0xb5, 0x41, 0x3e, 0x88, 0x0a, 0x96, 0xea, 0x5f, 0x48, 0x30, 0xdd, 0x7a, 0xe6, 0x13, 0xdd, 0xf0,
+	0x83, 0x47, 0x1e, 0xda, 0x41, 0x3a, 0x8f, 0x1d, 0x52, 0x2f, 0xb6, 0x43, 0x1c, 0xce, 0xa4, 0x47,
+	0xe1, 0xcc, 0x0d, 0x00, 0x06, 0x62, 0x38, 0x0c, 0xca, 0x30, 0x20, 0x53, 0x64, 0x14, 0x0a, 0x84,
+	0xaa, 0x7f, 0x2a, 0xc1, 0x4c, 0x78, 0x3a, 0xf1, 0x86, 0x5e, 0x78, 0xbc, 0x51, 0x75, 0xa7, 0xce,
+	0xa9, 0xee, 0xdb, 0x90, 0x13, 0x70, 0x2a, 0x7d, 0x96, 0xde, 0x04, 0x43, 0xf5, 0x8f, 0xd2, 0x14,
+	0x0f, 0xf6, 0x0e, 0x2c, 0x27, 0x0c, 0x8c, 0xab, 0x90, 0x71, 0xfb, 0xd8, 0x11, 0x51, 0xf1, 0x1a,
+	0x5f, 0x3b, 0xca, 0xa3, 0xec, 0xf4, 0xb1, 0xf3, 0x68, 0x42, 0x65, 0x8c, 0xe8, 0x6d, 0x28, 0x50,
+	0xd8, 0x6a, 0x39, 0x83, 0x20, 0x2c, 0xde, 0x48, 0x5c, 0xb4, 0x2e, 0x98, 0x1e, 0x4d, 0xa8, 0xe1,
+	0x02, 0xf9, 0x6f, 0x24, 0xc8, 0x50, 0x69, 0x63, 0x10, 0x53, 0x1a, 0x87, 0x98, 0x22, 0x3d, 0x50,
+	0xbd, 0xa7, 0x98, 0x6a, 0x73, 0x1c, 0x61, 0x8e, 0xa9, 0x3d, 0x3d, 0xa6, 0x76, 0x74, 0x0f, 0xe6,
+	0xb9, 0x06, 0x6d, 0xdd, 0xc0, 0x47, 0xae, 0x6d, 0xd2, 0x62, 0x26, 0xc4, 0xa2, 0x88, 0x29, 0x2d,
+	0x9a, 0xda, 0xe5, 0x85, 0x50, 0x9f, 0x0c, 0x1c, 0x2c, 0xa0, 0x35, 0xff, 0x90, 0x7f, 0x05, 0x0a,
+	0xc1, 0xf9, 0x7f, 0x74, 0xaf, 0x6a, 0xe4, 0x38, 0xa4, 0xa8, 0xfe, 0xb1, 0x04, 0x33, 0xa1, 0xd2,
+	0xce, 0xeb, 0x23, 0x17, 0x75, 0xe1, 0x0b, 0x78, 0xc7, 0x57, 0x59, 0x98, 0x62, 0x10, 0x2b, 0x74,
+	0x0e, 0x65, 0xc4, 0x39, 0x2a, 0x7c, 0xe9, 0x08, 0xcb, 0xa8, 0x6f, 0xac, 0x9d, 0xf2, 0x8d, 0xeb,
+	0x49, 0x6b, 0x92, 0x5c, 0x03, 0xdd, 0x87, 0xec, 0xa1, 0x3d, 0xf0, 0x8e, 0x04, 0xf4, 0xbd, 0x96,
+	0xb4, 0x70, 0x83, 0x32, 0x3c, 0x9a, 0x50, 0x39, 0x27, 0x7a, 0x13, 0xf2, 0x7d, 0x82, 0xfb, 0x3a,
+	0x09, 0x40, 0xef, 0x4b, 0x49, 0x8b, 0x76, 0x39, 0xcb, 0xa3, 0x09, 0x35, 0xe0, 0x96, 0xdf, 0x10,
+	0x5e, 0xa8, 0x00, 0x18, 0x21, 0x6a, 0x3c, 0x03, 0x4b, 0xc6, 0x38, 0xe4, 0xff, 0x94, 0x7e, 0x42,
+	0xbf, 0x18, 0x7b, 0xfe, 0xe9, 0x4b, 0x45, 0xdb, 0xcc, 0x39, 0xa2, 0xed, 0x4d, 0x98, 0xf4, 0x03,
+	0x90, 0x4f, 0x0b, 0x11, 0x5a, 0x85, 0x65, 0xd5, 0x52, 0x48, 0x6b, 0x9b, 0xf2, 0x87, 0x90, 0x65,
+	0xba, 0x3e, 0xf3, 0x41, 0x49, 0x67, 0x3e, 0xa8, 0xd1, 0x17, 0x9a, 0x1a, 0x7b, 0xa1, 0x72, 0x0b,
+	0xf2, 0xc2, 0x20, 0x68, 0x0d, 0xc0, 0x38, 0xc2, 0xc6, 0x71, 0xdf, 0xb5, 0x1c, 0x3f, 0x84, 0x65,
+	0x21, 0xae, 0x58, 0x0f, 0xe7, 0x82, 0xe8, 0x1f, 0x71, 0x87, 0x6f, 0xe8, 0x73, 0x09, 0xa6, 0x03,
+	0x73, 0x8b, 0x27, 0x14, 0x0f, 0x50, 0x52, 0x3c, 0x40, 0x8d, 0xf2, 0x25, 0x7b, 0xe1, 0xdd, 0xc0,
+	0x0b, 0x53, 0xa2, 0x7e, 0x1c, 0x0d, 0x6d, 0x7c, 0x69, 0xe8, 0x81, 0x32, 0x44, 0xfe, 0x10, 0x1e,
+	0xe9, 0x2b, 0x09, 0xa6, 0xda, 0x4e, 0x17, 0x7b, 0x61, 0x5e, 0xda, 0x80, 0x52, 0xe4, 0x44, 0x41,
+	0x0d, 0xb2, 0x18, 0x34, 0x1d, 0x62, 0x9c, 0x4a, 0xe4, 0x77, 0x41, 0x8d, 0x1a, 0x5b, 0x28, 0x7f,
+	0x08, 0x31, 0xc7, 0x3c, 0x57, 0xcd, 0x75, 0x0b, 0x66, 0x42, 0x17, 0xd4, 0x6c, 0xcb, 0xc1, 0x9e,
+	0x40, 0xe2, 0x53, 0x81, 0xd7, 0x6d, 0x52, 0x62, 0xf5, 0x9f, 0x53, 0x30, 0x1d, 0x9c, 0x44, 0xa8,
+	0xf1, 0x6b, 0x09, 0xe6, 0x82, 0x8a, 0x3a, 0x02, 0x4b, 0xc1, 0xe9, 0x5f, 0x1d, 0x3d, 0xbd, 0x50,
+	0xa9, 0x40, 0xd3, 0xbf, 0x1c, 0x20, 0x23, 0xaf, 0xe5, 0xf8, 0x64, 0xd8, 0xf8, 0xe4, 0xb7, 0xbe,
+	0xbb, 0x50, 0xb7, 0xed, 0x0f, 0xbf, 0xbb, 0x10, 0x54, 0x99, 0x7d, 0x32, 0xbe, 0x6d, 0xbc, 0x1b,
+	0x80, 0x7d, 0xc3, 0x0c, 0xad, 0x39, 0x06, 0x45, 0x95, 0x96, 0x6f, 0x98, 0x63, 0xdd, 0x00, 0x4a,
+	0x92, 0x9b, 0xb0, 0x90, 0x7c, 0x17, 0x54, 0x86, 0x34, 0x7d, 0x67, 0xa2, 0x95, 0x76, 0x8c, 0x87,
+	0x34, 0x83, 0xb0, 0xaa, 0x91, 0x6d, 0x92, 0x56, 0xf9, 0xc7, 0x5a, 0xea, 0x2d, 0xa9, 0xfa, 0x18,
+	0x50, 0xdd, 0x7c, 0xaa, 0x3b, 0x06, 0xde, 0xb3, 0x7a, 0x61, 0x50, 0x7d, 0x1d, 0xae, 0xea, 0xa6,
+	0x29, 0xea, 0x17, 0x13, 0xdb, 0xbe, 0x1e, 0xf6, 0x3c, 0x25, 0x56, 0xc9, 0xcc, 0xeb, 0xa6, 0xc9,
+	0x6a, 0x99, 0x26, 0x9d, 0x0c, 0xfa, 0x9e, 0x2d, 0x98, 0x1b, 0x11, 0x26, 0xcc, 0xa4, 0xc0, 0xdc,
+	0xd9, 0x92, 0x66, 0x8d, 0x53, 0x62, 0xfe, 0x44, 0x82, 0x2b, 0xeb, 0x36, 0xd6, 0x89, 0x8a, 0xbb,
+	0x96, 0xe7, 0x63, 0xe2, 0x05, 0xe7, 0x8a, 0x80, 0xbb, 0xf4, 0x02, 0xe0, 0xbe, 0x09, 0x05, 0xef,
+	0x48, 0x27, 0x66, 0xd0, 0xc5, 0xb8, 0x54, 0x03, 0x34, 0xcf, 0x44, 0xb4, 0xcd, 0x2a, 0x81, 0x85,
+	0xf1, 0x03, 0x5d, 0xb8, 0xe8, 0x50, 0x5e, 0x54, 0x74, 0x04, 0xa9, 0x8e, 0x73, 0x55, 0xff, 0x4d,
+	0x82, 0xb9, 0x2d, 0xdd, 0xc7, 0xc4, 0xd2, 0x6d, 0xeb, 0x33, 0x3d, 0xec, 0x8e, 0xdd, 0x05, 0xd4,
+	0x1b, 0x25, 0xd3, 0x3b, 0x72, 0x63, 0xcf, 0x8e, 0xcd, 0xb4, 0x59, 0xbf, 0x14, 0x3b, 0x26, 0x8b,
+	0x48, 0xbc, 0xaf, 0xc7, 0x7b, 0x65, 0x93, 0x01, 0x91, 0x35, 0xf6, 0x64, 0x28, 0x04, 0xdf, 0x02,
+	0x44, 0x86, 0xdf, 0x54, 0x80, 0xaf, 0x93, 0x2e, 0xf6, 0x35, 0xec, 0xf8, 0x96, 0x3f, 0x14, 0x40,
+	0x65, 0x92, 0x13, 0x5b, 0x8c, 0x46, 0xf3, 0x42, 0x2c, 0x4b, 0x65, 0xe3, 0xe5, 0xeb, 0x68, 0x73,
+	0x2f, 0x9e, 0xab, 0xaa, 0xbf, 0x0e, 0xe5, 0x58, 0xaf, 0x0c, 0x7b, 0x03, 0xdb, 0x8f, 0xba, 0xbe,
+	0x52, 0xbc, 0xeb, 0x4b, 0xe3, 0xb0, 0xeb, 0x78, 0x3e, 0xd1, 0xe9, 0x11, 0x53, 0x4c, 0xd5, 0xf2,
+	0x78, 0xb7, 0x6d, 0x3d, 0xe4, 0x50, 0x63, 0xdc, 0xbc, 0x0d, 0xad, 0xd3, 0x04, 0xc7, 0xaf, 0x26,
+	0xbe, 0xaa, 0x5f, 0x4b, 0x70, 0x65, 0x5c, 0xc1, 0xdc, 0x54, 0x0f, 0xa1, 0xc4, 0x8d, 0xa6, 0x19,
+	0xae, 0x89, 0x85, 0x65, 0x6f, 0xf1, 0xed, 0x12, 0x57, 0x08, 0x5b, 0xaf, 0xbb, 0x26, 0x56, 0xc1,
+	0x0b, 0xc7, 0xb4, 0x7c, 0x14, 0x82, 0xc4, 0x6f, 0x22, 0x42, 0xfb, 0x53, 0x9c, 0xba, 0xc5, 0x89,
+	0xd5, 0xfb, 0x00, 0x91, 0x00, 0x34, 0x05, 0xc5, 0xed, 0x9d, 0x3d, 0x4d, 0x6d, 0xd5, 0x9b, 0x1f,
+	0x95, 0x27, 0x50, 0x11, 0xb2, 0x7c, 0x28, 0xd1, 0x61, 0x4b, 0x55, 0x77, 0xd4, 0x72, 0xaa, 0xfa,
+	0x7b, 0x29, 0xb8, 0x3e, 0x76, 0x94, 0xc6, 0xc0, 0xb2, 0xcd, 0xd0, 0x31, 0x7f, 0x61, 0xc4, 0x31,
+	0x43, 0xdc, 0x91, 0x78, 0xfc, 0xb0, 0x51, 0xc7, 0xaf, 0xff, 0x3a, 0x2c, 0x58, 0x8e, 0xe5, 0xc7,
+	0x1c, 0xac, 0xaf, 0x0f, 0x6d, 0x57, 0x0f, 0x3a, 0xf1, 0x57, 0x46, 0x67, 0x77, 0xf9, 0x24, 0xba,
+	0x0b, 0x99, 0xb0, 0x71, 0x3c, 0x1d, 0x80, 0xa3, 0xb1, 0xfd, 0xa8, 0xb7, 0xa9, 0x8c, 0x0d, 0xb5,
+	0xd8, 0x6f, 0x4f, 0xc2, 0x74, 0x1a, 0x61, 0xd6, 0xf7, 0x04, 0x38, 0x58, 0x38, 0xd5, 0x48, 0x65,
+	0xd3, 0xea, 0x6c, 0x7f, 0x8c, 0xe2, 0x55, 0xff, 0x40, 0x3a, 0xa5, 0x88, 0x8e, 0xaf, 0x93, 0x28,
+	0x49, 0xbc, 0x76, 0x01, 0x45, 0x84, 0x2a, 0x78, 0x30, 0x92, 0xf7, 0x53, 0x67, 0xe7, 0xfd, 0x78,
+	0xc6, 0xaf, 0x0e, 0xa1, 0xd4, 0xf1, 0x5d, 0x82, 0x85, 0x1b, 0xdd, 0x81, 0x4c, 0xcc, 0x7f, 0xc4,
+	0x9d, 0x62, 0x0c, 0x0a, 0xf3, 0x17, 0xc6, 0xc3, 0x9e, 0x29, 0x21, 0x2e, 0x19, 0x73, 0x94, 0x49,
+	0x46, 0x0c, 0xfc, 0xe4, 0x1a, 0x64, 0x98, 0x87, 0xe4, 0x20, 0xb5, 0xf3, 0x98, 0xbb, 0x06, 0xf7,
+	0x07, 0x89, 0xc6, 0xcc, 0xb9, 0x87, 0xd8, 0x6f, 0xba, 0xc6, 0xa0, 0x87, 0x1d, 0xdf, 0x3b, 0x77,
+	0xbd, 0x79, 0x1f, 0x32, 0xc7, 0x78, 0x18, 0x94, 0x72, 0x02, 0x86, 0x24, 0x48, 0x52, 0x1e, 0xe3,
+	0xa1, 0xca, 0x58, 0xe5, 0x97, 0x21, 0x4d, 0x31, 0xda, 0x8d, 0x20, 0xcd, 0x8c, 0x63, 0x76, 0x96,
+	0x73, 0x68, 0xe9, 0x30, 0x3f, 0x2a, 0x47, 0x18, 0xe4, 0xf6, 0x98, 0x41, 0x66, 0x4f, 0x29, 0x26,
+	0x34, 0x43, 0x78, 0xfa, 0xd4, 0x19, 0xa7, 0xbf, 0xcd, 0xf0, 0x2b, 0xdf, 0x20, 0xa1, 0x7a, 0x50,
+	0xa3, 0xd9, 0xea, 0xdf, 0x4b, 0xb0, 0xb0, 0xdf, 0x37, 0x75, 0x1f, 0x5f, 0x5c, 0x49, 0xeb, 0xf1,
+	0x6d, 0xb8, 0xa6, 0x5e, 0x11, 0xa8, 0x37, 0x51, 0xa2, 0x12, 0x10, 0x62, 0x07, 0x90, 0x57, 0xa1,
+	0x10, 0x90, 0xd1, 0xcf, 0xc2, 0x92, 0x27, 0x41, 0x7d, 0x41, 0xb1, 0xf3, 0x90, 0xd5, 0x5e, 0x3d,
+	0xcb, 0xdf, 0x7b, 0x16, 0xf5, 0x08, 0xcf, 0x89, 0x47, 0xe3, 0x7e, 0x79, 0xe7, 0x77, 0x24, 0x98,
+	0x4f, 0x0a, 0x93, 0x08, 0xc1, 0xf4, 0x46, 0xbb, 0xb5, 0xd9, 0xd4, 0xd4, 0xd6, 0xfb, 0xfb, 0x6d,
+	0xb5, 0xd5, 0x2c, 0x4f, 0xa0, 0x2b, 0x30, 0xbb, 0xb9, 0xb3, 0x5e, 0xdf, 0x6b, 0xef, 0x6c, 0x47,
+	0x64, 0x09, 0x55, 0x60, 0x3e, 0x46, 0x5e, 0xdf, 0xd9, 0xda, 0x6a, 0x6d, 0x37, 0x5b, 0xcd, 0x72,
+	0x2a, 0x12, 0xb2, 0xb3, 0x4b, 0x67, 0xeb, 0x9b, 0xe5, 0x34, 0x9a, 0x83, 0x19, 0x4e, 0xdb, 0xd8,
+	0x51, 0x1b, 0xed, 0x66, 0xb3, 0xb5, 0x5d, 0xce, 0xdc, 0x59, 0x3b, 0x95, 0xd0, 0x58, 0xf2, 0xb9,
+	0x0a, 0x73, 0x7b, 0x6a, 0x7d, 0xbb, 0x53, 0x5f, 0xe7, 0xcb, 0xb5, 0xce, 0xde, 0x8e, 0xda, 0x2a,
+	0x4f, 0x88, 0x16, 0x70, 0xab, 0xbe, 0x55, 0x96, 0x6a, 0x4d, 0x28, 0x88, 0x7e, 0x1f, 0x41, 0x6f,
+	0x45, 0xbf, 0x1b, 0xcf, 0x8f, 0xfc, 0x84, 0x20, 0xb4, 0x24, 0x5f, 0x19, 0xa3, 0x72, 0xc7, 0xbb,
+	0x27, 0xd5, 0xea, 0x90, 0x17, 0x1d, 0x0f, 0xf4, 0x46, 0x34, 0x14, 0x42, 0x46, 0x3b, 0x35, 0x81,
+	0x90, 0xb1, 0x0e, 0x49, 0xad, 0x05, 0x79, 0x01, 0xb5, 0xd1, 0x5a, 0x34, 0x9c, 0x4f, 0xea, 0x2f,
+	0xc8, 0xc9, 0xd0, 0x7c, 0x45, 0xba, 0x27, 0xd5, 0x7e, 0x3b, 0x05, 0x39, 0x0e, 0xf6, 0x51, 0x1d,
+	0x66, 0x55, 0xec, 0x51, 0xef, 0x8f, 0xcc, 0x87, 0x16, 0x94, 0xae, 0xeb, 0x76, 0x6d, 0xcc, 0x41,
+	0xc2, 0xc1, 0xe0, 0x50, 0x69, 0xf5, 0xfa, 0xfe, 0x50, 0x4e, 0x34, 0x36, 0x7a, 0x33, 0x14, 0x36,
+	0x97, 0x50, 0x5e, 0xca, 0xf3, 0x49, 0xc5, 0x05, 0x3d, 0x06, 0x7a, 0x1b, 0x80, 0xa5, 0x8d, 0x47,
+	0x96, 0xe3, 0x7b, 0x67, 0x6e, 0x7a, 0x45, 0x89, 0xfd, 0x0f, 0x83, 0xb2, 0xd1, 0xd9, 0xe2, 0xec,
+	0xef, 0xc2, 0xf4, 0x28, 0x2a, 0x3a, 0x53, 0xc0, 0x19, 0xf4, 0xda, 0x2f, 0x41, 0x81, 0xc3, 0x73,
+	0x4c, 0x68, 0x9c, 0xe6, 0xe3, 0xe0, 0x0e, 0x23, 0x65, 0x47, 0x70, 0x87, 0x51, 0x34, 0x5f, 0xfb,
+	0x73, 0x09, 0xf2, 0x7b, 0xd8, 0xf3, 0x2d, 0xa7, 0x8b, 0x1a, 0x50, 0x8a, 0xa1, 0x4f, 0x24, 0x5a,
+	0x01, 0xa7, 0xd1, 0xad, 0x7c, 0x2d, 0x61, 0x46, 0xc4, 0xa6, 0xc7, 0xa7, 0xae, 0x24, 0xd2, 0x45,
+	0x22, 0x1e, 0x95, 0xaf, 0x27, 0x4f, 0x8a, 0xc3, 0xfd, 0x93, 0x04, 0xc5, 0x75, 0xd7, 0x71, 0xd8,
+	0xcf, 0x45, 0xe8, 0x13, 0xb8, 0xfe, 0x81, 0x6e, 0x5b, 0x34, 0x5c, 0x24, 0x25, 0x6e, 0x94, 0x9c,
+	0x30, 0x29, 0x66, 0x92, 0xab, 0x89, 0x53, 0xa3, 0xf9, 0x7e, 0x1f, 0xe6, 0xeb, 0xfd, 0xbe, 0x3d,
+	0x1c, 0x63, 0xfa, 0x7f, 0x8a, 0xad, 0xfd, 0x4f, 0x0a, 0x10, 0xfb, 0xb9, 0x4d, 0x67, 0xb1, 0x43,
+	0xb7, 0x59, 0x98, 0x46, 0x1f, 0xc3, 0x35, 0x96, 0x65, 0xc7, 0xc5, 0x52, 0xbc, 0x7c, 0xf1, 0x2d,
+	0x47, 0x13, 0x76, 0x0b, 0x26, 0xe3, 0x79, 0x23, 0x10, 0x97, 0x90, 0x93, 0x64, 0x39, 0x69, 0x4a,
+	0x88, 0x69, 0xc0, 0x4c, 0xdb, 0xf1, 0x30, 0x89, 0x49, 0xba, 0xfe, 0x43, 0x31, 0x5b, 0x3e, 0x9d,
+	0x87, 0xa8, 0x8c, 0x88, 0x19, 0xf7, 0x2e, 0x25, 0xa3, 0x06, 0x39, 0x1e, 0xc5, 0x51, 0x14, 0x0e,
+	0xe2, 0x31, 0x3d, 0x61, 0x4d, 0xed, 0xef, 0x24, 0x8a, 0x24, 0x08, 0xd6, 0x7b, 0x3f, 0xbd, 0xba,
+	0x7f, 0x04, 0x3d, 0x35, 0xe4, 0x6f, 0xfe, 0x7d, 0x71, 0xe2, 0x9b, 0xef, 0x17, 0xa5, 0x6f, 0xbf,
+	0x5f, 0x94, 0xbe, 0xf8, 0x8f, 0x45, 0xe9, 0xe3, 0x42, 0x50, 0xdc, 0x1c, 0xe4, 0xd8, 0xe8, 0xb5,
+	0xff, 0x0b, 0x00, 0x00, 0xff, 0xff, 0x2d, 0x8d, 0x70, 0xdc, 0x71, 0x25, 0x00, 0x00,
 }
 
 func (this *UUIDParts) Equal(that interface{}) bool {
@@ -3058,6 +3799,522 @@ var _Testing_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClearRegisters",
 			Handler:    _Testing_ClearRegisters_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "go/protocol/flow.proto",
+}
+
+// ConnectorClient is the client API for Connector service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type ConnectorClient interface {
+	// Validate the given hypothetical materialization, returning a response that reflects both the
+	// current state of the materialization (e.g. schema of an existing database table), if the
+	// materialization has already been applied, and the results of validating the projections for
+	// this materiliazation. This validation can and should take into account any previously applied
+	// materialization for the same target_entity. For example, the Postgres connector will disallow
+	// any modifications to an existing table schema by returning FIELD_REQUIRED for all the existing
+	// columns, and FIELD_FORBIDDEN for all other columns. This will be called one or more times as
+	// needed to arrive at an acceptable set of projections for the materialization. The
+	// implementation must not modify the remote data store as a result of this call!
+	//
+	// Connectors that do not support materializations should simply return a hard coded error
+	// response.
+	ValidateMaterializationBuild(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationBuildResponse, error)
+	// Performs a one-time global initialization of the materialization in the remote system. For
+	// example, the Postgres connector will execute the CREATE TABLE statements for the table
+	// described by the set of projections in the MaterializationSpec, as well as persist a JSON
+	// representation of the MaterializationSpec in a special flow_materializations table, and create
+	// the gazette_checkpoints table if needed.
+	//
+	// This rpc may never be called. Users may decide to apply the `initialization_payload` to the
+	// target system themselves, rather than having flowctl trigger it. This could be the case if for
+	// example the credentials used for the materialization endpoint are not allowed to modify the
+	// schema. This function is only called after satisfying the following conditions:
+	// - ValidateMaterializationBuild has returned NOT_READY status
+	// - The user has provided a set of projections that is compatible with the constraints provided
+	//   in the validation response.
+	// - The user has opted in to having the initialization performed automatically, either by
+	//   providing CLI arguments or by interactively agreeing to proceed.
+	ApplyMaterialization(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationBuildResponse, error)
+}
+
+type connectorClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewConnectorClient(cc *grpc.ClientConn) ConnectorClient {
+	return &connectorClient{cc}
+}
+
+func (c *connectorClient) ValidateMaterializationBuild(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationBuildResponse, error) {
+	out := new(MaterializationBuildResponse)
+	err := c.cc.Invoke(ctx, "/flow.Connector/ValidateMaterializationBuild", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *connectorClient) ApplyMaterialization(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationBuildResponse, error) {
+	out := new(MaterializationBuildResponse)
+	err := c.cc.Invoke(ctx, "/flow.Connector/ApplyMaterialization", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ConnectorServer is the server API for Connector service.
+type ConnectorServer interface {
+	// Validate the given hypothetical materialization, returning a response that reflects both the
+	// current state of the materialization (e.g. schema of an existing database table), if the
+	// materialization has already been applied, and the results of validating the projections for
+	// this materiliazation. This validation can and should take into account any previously applied
+	// materialization for the same target_entity. For example, the Postgres connector will disallow
+	// any modifications to an existing table schema by returning FIELD_REQUIRED for all the existing
+	// columns, and FIELD_FORBIDDEN for all other columns. This will be called one or more times as
+	// needed to arrive at an acceptable set of projections for the materialization. The
+	// implementation must not modify the remote data store as a result of this call!
+	//
+	// Connectors that do not support materializations should simply return a hard coded error
+	// response.
+	ValidateMaterializationBuild(context.Context, *MaterializationSpec) (*MaterializationBuildResponse, error)
+	// Performs a one-time global initialization of the materialization in the remote system. For
+	// example, the Postgres connector will execute the CREATE TABLE statements for the table
+	// described by the set of projections in the MaterializationSpec, as well as persist a JSON
+	// representation of the MaterializationSpec in a special flow_materializations table, and create
+	// the gazette_checkpoints table if needed.
+	//
+	// This rpc may never be called. Users may decide to apply the `initialization_payload` to the
+	// target system themselves, rather than having flowctl trigger it. This could be the case if for
+	// example the credentials used for the materialization endpoint are not allowed to modify the
+	// schema. This function is only called after satisfying the following conditions:
+	// - ValidateMaterializationBuild has returned NOT_READY status
+	// - The user has provided a set of projections that is compatible with the constraints provided
+	//   in the validation response.
+	// - The user has opted in to having the initialization performed automatically, either by
+	//   providing CLI arguments or by interactively agreeing to proceed.
+	ApplyMaterialization(context.Context, *MaterializationSpec) (*MaterializationBuildResponse, error)
+}
+
+// UnimplementedConnectorServer can be embedded to have forward compatible implementations.
+type UnimplementedConnectorServer struct {
+}
+
+func (*UnimplementedConnectorServer) ValidateMaterializationBuild(ctx context.Context, req *MaterializationSpec) (*MaterializationBuildResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateMaterializationBuild not implemented")
+}
+func (*UnimplementedConnectorServer) ApplyMaterialization(ctx context.Context, req *MaterializationSpec) (*MaterializationBuildResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyMaterialization not implemented")
+}
+
+func RegisterConnectorServer(s *grpc.Server, srv ConnectorServer) {
+	s.RegisterService(&_Connector_serviceDesc, srv)
+}
+
+func _Connector_ValidateMaterializationBuild_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaterializationSpec)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorServer).ValidateMaterializationBuild(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.Connector/ValidateMaterializationBuild",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorServer).ValidateMaterializationBuild(ctx, req.(*MaterializationSpec))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Connector_ApplyMaterialization_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaterializationSpec)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorServer).ApplyMaterialization(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.Connector/ApplyMaterialization",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorServer).ApplyMaterialization(ctx, req.(*MaterializationSpec))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Connector_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "flow.Connector",
+	HandlerType: (*ConnectorServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ValidateMaterializationBuild",
+			Handler:    _Connector_ValidateMaterializationBuild_Handler,
+		},
+		{
+			MethodName: "ApplyMaterialization",
+			Handler:    _Connector_ApplyMaterialization_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "go/protocol/flow.proto",
+}
+
+// TransactionalStoreClient is the client API for TransactionalStore service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type TransactionalStoreClient interface {
+	// Called just prior to beginning the work for a materialization shard. This function will be
+	// called each time a materialization shard starts up. If the status indicates the materialization
+	// is ready, then that is considered to go ahead to start transactions to read and write.
+	StartMaterializationShard(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationStartResponse, error)
+	// Called only for materializations with MaterializationType TRANSACTIONAL_STORE to retrieve the current document
+	// for a given (possibly composite) key.
+	GetDocuments(ctx context.Context, in *GetDocumentsRequest, opts ...grpc.CallOption) (*GetDocumentsResponse, error)
+	// Called to add new documents to the remote system. For a transactional store, this will ONLY be
+	// called with documents for which no existing document exists (GetDocuments returned null). For
+	// STREAM systems, this function will be called for all documents in the source collection,
+	// without any prior call to GetDocuments.
+	InsertDocuments(ctx context.Context, in *UpdateDocumentsRequest, opts ...grpc.CallOption) (*StoreStatus, error)
+	UpdateDocuemnts(ctx context.Context, in *UpdateDocumentsRequest, opts ...grpc.CallOption) (*StoreStatus, error)
+	Commit(ctx context.Context, in *CommitTxRequest, opts ...grpc.CallOption) (*StoreStatus, error)
+}
+
+type transactionalStoreClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewTransactionalStoreClient(cc *grpc.ClientConn) TransactionalStoreClient {
+	return &transactionalStoreClient{cc}
+}
+
+func (c *transactionalStoreClient) StartMaterializationShard(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationStartResponse, error) {
+	out := new(MaterializationStartResponse)
+	err := c.cc.Invoke(ctx, "/flow.TransactionalStore/StartMaterializationShard", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *transactionalStoreClient) GetDocuments(ctx context.Context, in *GetDocumentsRequest, opts ...grpc.CallOption) (*GetDocumentsResponse, error) {
+	out := new(GetDocumentsResponse)
+	err := c.cc.Invoke(ctx, "/flow.TransactionalStore/GetDocuments", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *transactionalStoreClient) InsertDocuments(ctx context.Context, in *UpdateDocumentsRequest, opts ...grpc.CallOption) (*StoreStatus, error) {
+	out := new(StoreStatus)
+	err := c.cc.Invoke(ctx, "/flow.TransactionalStore/InsertDocuments", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *transactionalStoreClient) UpdateDocuemnts(ctx context.Context, in *UpdateDocumentsRequest, opts ...grpc.CallOption) (*StoreStatus, error) {
+	out := new(StoreStatus)
+	err := c.cc.Invoke(ctx, "/flow.TransactionalStore/UpdateDocuemnts", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *transactionalStoreClient) Commit(ctx context.Context, in *CommitTxRequest, opts ...grpc.CallOption) (*StoreStatus, error) {
+	out := new(StoreStatus)
+	err := c.cc.Invoke(ctx, "/flow.TransactionalStore/Commit", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TransactionalStoreServer is the server API for TransactionalStore service.
+type TransactionalStoreServer interface {
+	// Called just prior to beginning the work for a materialization shard. This function will be
+	// called each time a materialization shard starts up. If the status indicates the materialization
+	// is ready, then that is considered to go ahead to start transactions to read and write.
+	StartMaterializationShard(context.Context, *MaterializationSpec) (*MaterializationStartResponse, error)
+	// Called only for materializations with MaterializationType TRANSACTIONAL_STORE to retrieve the current document
+	// for a given (possibly composite) key.
+	GetDocuments(context.Context, *GetDocumentsRequest) (*GetDocumentsResponse, error)
+	// Called to add new documents to the remote system. For a transactional store, this will ONLY be
+	// called with documents for which no existing document exists (GetDocuments returned null). For
+	// STREAM systems, this function will be called for all documents in the source collection,
+	// without any prior call to GetDocuments.
+	InsertDocuments(context.Context, *UpdateDocumentsRequest) (*StoreStatus, error)
+	UpdateDocuemnts(context.Context, *UpdateDocumentsRequest) (*StoreStatus, error)
+	Commit(context.Context, *CommitTxRequest) (*StoreStatus, error)
+}
+
+// UnimplementedTransactionalStoreServer can be embedded to have forward compatible implementations.
+type UnimplementedTransactionalStoreServer struct {
+}
+
+func (*UnimplementedTransactionalStoreServer) StartMaterializationShard(ctx context.Context, req *MaterializationSpec) (*MaterializationStartResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartMaterializationShard not implemented")
+}
+func (*UnimplementedTransactionalStoreServer) GetDocuments(ctx context.Context, req *GetDocumentsRequest) (*GetDocumentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDocuments not implemented")
+}
+func (*UnimplementedTransactionalStoreServer) InsertDocuments(ctx context.Context, req *UpdateDocumentsRequest) (*StoreStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InsertDocuments not implemented")
+}
+func (*UnimplementedTransactionalStoreServer) UpdateDocuemnts(ctx context.Context, req *UpdateDocumentsRequest) (*StoreStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateDocuemnts not implemented")
+}
+func (*UnimplementedTransactionalStoreServer) Commit(ctx context.Context, req *CommitTxRequest) (*StoreStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Commit not implemented")
+}
+
+func RegisterTransactionalStoreServer(s *grpc.Server, srv TransactionalStoreServer) {
+	s.RegisterService(&_TransactionalStore_serviceDesc, srv)
+}
+
+func _TransactionalStore_StartMaterializationShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaterializationSpec)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionalStoreServer).StartMaterializationShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.TransactionalStore/StartMaterializationShard",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionalStoreServer).StartMaterializationShard(ctx, req.(*MaterializationSpec))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TransactionalStore_GetDocuments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDocumentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionalStoreServer).GetDocuments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.TransactionalStore/GetDocuments",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionalStoreServer).GetDocuments(ctx, req.(*GetDocumentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TransactionalStore_InsertDocuments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDocumentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionalStoreServer).InsertDocuments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.TransactionalStore/InsertDocuments",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionalStoreServer).InsertDocuments(ctx, req.(*UpdateDocumentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TransactionalStore_UpdateDocuemnts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDocumentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionalStoreServer).UpdateDocuemnts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.TransactionalStore/UpdateDocuemnts",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionalStoreServer).UpdateDocuemnts(ctx, req.(*UpdateDocumentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TransactionalStore_Commit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommitTxRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionalStoreServer).Commit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.TransactionalStore/Commit",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionalStoreServer).Commit(ctx, req.(*CommitTxRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _TransactionalStore_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "flow.TransactionalStore",
+	HandlerType: (*TransactionalStoreServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StartMaterializationShard",
+			Handler:    _TransactionalStore_StartMaterializationShard_Handler,
+		},
+		{
+			MethodName: "GetDocuments",
+			Handler:    _TransactionalStore_GetDocuments_Handler,
+		},
+		{
+			MethodName: "InsertDocuments",
+			Handler:    _TransactionalStore_InsertDocuments_Handler,
+		},
+		{
+			MethodName: "UpdateDocuemnts",
+			Handler:    _TransactionalStore_UpdateDocuemnts_Handler,
+		},
+		{
+			MethodName: "Commit",
+			Handler:    _TransactionalStore_Commit_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "go/protocol/flow.proto",
+}
+
+// StreamStoreClient is the client API for StreamStore service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type StreamStoreClient interface {
+	// Called just prior to beginning the work for a materialization shard. This function will be
+	// called each time a materialization shard starts up. If the status indicates the materialization
+	// is ready, then that is considered to go ahead to start transactions to read and write.
+	StartMaterializationShard(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationStartResponse, error)
+	// Called to add new documents to the remote system. For STREAM systems, this function will be
+	// called for all documents in the source collection, without having all reductions applied.
+	// Documents may still be partially reduced.
+	InsertDocuments(ctx context.Context, in *UpdateDocumentsRequest, opts ...grpc.CallOption) (*StoreStatus, error)
+}
+
+type streamStoreClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewStreamStoreClient(cc *grpc.ClientConn) StreamStoreClient {
+	return &streamStoreClient{cc}
+}
+
+func (c *streamStoreClient) StartMaterializationShard(ctx context.Context, in *MaterializationSpec, opts ...grpc.CallOption) (*MaterializationStartResponse, error) {
+	out := new(MaterializationStartResponse)
+	err := c.cc.Invoke(ctx, "/flow.StreamStore/StartMaterializationShard", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *streamStoreClient) InsertDocuments(ctx context.Context, in *UpdateDocumentsRequest, opts ...grpc.CallOption) (*StoreStatus, error) {
+	out := new(StoreStatus)
+	err := c.cc.Invoke(ctx, "/flow.StreamStore/InsertDocuments", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// StreamStoreServer is the server API for StreamStore service.
+type StreamStoreServer interface {
+	// Called just prior to beginning the work for a materialization shard. This function will be
+	// called each time a materialization shard starts up. If the status indicates the materialization
+	// is ready, then that is considered to go ahead to start transactions to read and write.
+	StartMaterializationShard(context.Context, *MaterializationSpec) (*MaterializationStartResponse, error)
+	// Called to add new documents to the remote system. For STREAM systems, this function will be
+	// called for all documents in the source collection, without having all reductions applied.
+	// Documents may still be partially reduced.
+	InsertDocuments(context.Context, *UpdateDocumentsRequest) (*StoreStatus, error)
+}
+
+// UnimplementedStreamStoreServer can be embedded to have forward compatible implementations.
+type UnimplementedStreamStoreServer struct {
+}
+
+func (*UnimplementedStreamStoreServer) StartMaterializationShard(ctx context.Context, req *MaterializationSpec) (*MaterializationStartResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartMaterializationShard not implemented")
+}
+func (*UnimplementedStreamStoreServer) InsertDocuments(ctx context.Context, req *UpdateDocumentsRequest) (*StoreStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InsertDocuments not implemented")
+}
+
+func RegisterStreamStoreServer(s *grpc.Server, srv StreamStoreServer) {
+	s.RegisterService(&_StreamStore_serviceDesc, srv)
+}
+
+func _StreamStore_StartMaterializationShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaterializationSpec)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StreamStoreServer).StartMaterializationShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.StreamStore/StartMaterializationShard",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StreamStoreServer).StartMaterializationShard(ctx, req.(*MaterializationSpec))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _StreamStore_InsertDocuments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDocumentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StreamStoreServer).InsertDocuments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/flow.StreamStore/InsertDocuments",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StreamStoreServer).InsertDocuments(ctx, req.(*UpdateDocumentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _StreamStore_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "flow.StreamStore",
+	HandlerType: (*StreamStoreServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StartMaterializationShard",
+			Handler:    _StreamStore_StartMaterializationShard_Handler,
+		},
+		{
+			MethodName: "InsertDocuments",
+			Handler:    _StreamStore_InsertDocuments_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -5196,6 +6453,588 @@ func (m *ClearRegistersResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 	return len(dAtA) - i, nil
 }
 
+func (m *MaterializationSpec) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MaterializationSpec) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MaterializationSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Collection != nil {
+		{
+			size, err := m.Collection.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.TargetEntity) > 0 {
+		i -= len(m.TargetEntity)
+		copy(dAtA[i:], m.TargetEntity)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.TargetEntity)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.Endpoint) > 0 {
+		i -= len(m.Endpoint)
+		copy(dAtA[i:], m.Endpoint)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Endpoint)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.EndpointType) > 0 {
+		i -= len(m.EndpointType)
+		copy(dAtA[i:], m.EndpointType)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.EndpointType)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.MaterializationId) > 0 {
+		i -= len(m.MaterializationId)
+		copy(dAtA[i:], m.MaterializationId)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.MaterializationId)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ProjectionResult) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ProjectionResult) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ProjectionResult) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Reason) > 0 {
+		i -= len(m.Reason)
+		copy(dAtA[i:], m.Reason)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Reason)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.Constraint != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Constraint))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Field) > 0 {
+		i -= len(m.Field)
+		copy(dAtA[i:], m.Field)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Field)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MaterializationStatus) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MaterializationStatus) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MaterializationStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.StatusMessage) > 0 {
+		i -= len(m.StatusMessage)
+		copy(dAtA[i:], m.StatusMessage)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.StatusMessage)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.StatusCode != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.StatusCode))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MaterializationBuildResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MaterializationBuildResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MaterializationBuildResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ProjectionResults) > 0 {
+		for iNdEx := len(m.ProjectionResults) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ProjectionResults[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x22
+		}
+	}
+	if m.Type != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Type))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.InitializationPayload) > 0 {
+		i -= len(m.InitializationPayload)
+		copy(dAtA[i:], m.InitializationPayload)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.InitializationPayload)))
+		i--
+		dAtA[i] = 0x12
+	}
+	{
+		size, err := m.Status.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintFlow(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *MaterializationStartResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MaterializationStartResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MaterializationStartResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Checkpoint != nil {
+		{
+			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Status != nil {
+		{
+			size, err := m.Status.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *StoreStatus) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *StoreStatus) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *StoreStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ErrorMessage) > 0 {
+		i -= len(m.ErrorMessage)
+		copy(dAtA[i:], m.ErrorMessage)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.ErrorMessage)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Code != 0 {
+		i = encodeVarintFlow(dAtA, i, uint64(m.Code))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetDocumentsRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetDocumentsRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetDocumentsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Keys) > 0 {
+		for iNdEx := len(m.Keys) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Keys[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetDocumentsRequest_Key) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetDocumentsRequest_Key) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetDocumentsRequest_Key) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Key) > 0 {
+		for iNdEx := len(m.Key) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Key[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetDocumentsResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetDocumentsResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetDocumentsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Documents) > 0 {
+		for iNdEx := len(m.Documents) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Documents[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Status != nil {
+		{
+			size, err := m.Status.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *UpdateDocumentsRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *UpdateDocumentsRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *UpdateDocumentsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Documents) > 0 {
+		for iNdEx := len(m.Documents) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Documents[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintFlow(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *UpdateDocumentsRequest_Document) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *UpdateDocumentsRequest_Document) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *UpdateDocumentsRequest_Document) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Fields) > 0 {
+		for iNdEx := len(m.Fields) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Fields[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintFlow(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *CommitTxRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *CommitTxRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *CommitTxRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Checkpoint != nil {
+		{
+			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintFlow(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintFlow(dAtA []byte, offset int, v uint64) int {
 	offset -= sovFlow(v)
 	base := offset
@@ -6167,6 +8006,268 @@ func (m *ClearRegistersResponse) ProtoSize() (n int) {
 	}
 	l = m.Header.ProtoSize()
 	n += 1 + l + sovFlow(uint64(l))
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *MaterializationSpec) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.MaterializationId)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	l = len(m.EndpointType)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	l = len(m.Endpoint)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	l = len(m.TargetEntity)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Collection != nil {
+		l = m.Collection.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ProjectionResult) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Field)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Constraint != 0 {
+		n += 1 + sovFlow(uint64(m.Constraint))
+	}
+	l = len(m.Reason)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *MaterializationStatus) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.StatusCode != 0 {
+		n += 1 + sovFlow(uint64(m.StatusCode))
+	}
+	l = len(m.StatusMessage)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *MaterializationBuildResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.Status.ProtoSize()
+	n += 1 + l + sovFlow(uint64(l))
+	l = len(m.InitializationPayload)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Type != 0 {
+		n += 1 + sovFlow(uint64(m.Type))
+	}
+	if len(m.ProjectionResults) > 0 {
+		for _, e := range m.ProjectionResults {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *MaterializationStartResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Status != nil {
+		l = m.Status.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.Checkpoint != nil {
+		l = m.Checkpoint.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *StoreStatus) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Code != 0 {
+		n += 1 + sovFlow(uint64(m.Code))
+	}
+	l = len(m.ErrorMessage)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *GetDocumentsRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.Keys) > 0 {
+		for _, e := range m.Keys {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *GetDocumentsRequest_Key) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Key) > 0 {
+		for _, e := range m.Key {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *GetDocumentsResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Status != nil {
+		l = m.Status.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.Documents) > 0 {
+		for _, e := range m.Documents {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *UpdateDocumentsRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovFlow(uint64(l))
+	}
+	if len(m.Documents) > 0 {
+		for _, e := range m.Documents {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *UpdateDocumentsRequest_Document) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Fields) > 0 {
+		for _, e := range m.Fields {
+			l = e.ProtoSize()
+			n += 1 + l + sovFlow(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *CommitTxRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Checkpoint != nil {
+		l = m.Checkpoint.ProtoSize()
+		n += 1 + l + sovFlow(uint64(l))
+	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -11707,6 +13808,1537 @@ func (m *ClearRegistersResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MaterializationSpec) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MaterializationSpec: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MaterializationSpec: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaterializationId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.MaterializationId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.EndpointType = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Endpoint", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Endpoint = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TargetEntity", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.TargetEntity = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Collection", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Collection == nil {
+				m.Collection = &CollectionSpec{}
+			}
+			if err := m.Collection.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ProjectionResult) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ProjectionResult: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ProjectionResult: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Field", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Field = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Constraint", wireType)
+			}
+			m.Constraint = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Constraint |= ProjectionConstraint(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Reason = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MaterializationStatus) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MaterializationStatus: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MaterializationStatus: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StatusCode", wireType)
+			}
+			m.StatusCode = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.StatusCode |= MaterializationStatus_StatusCode(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StatusMessage", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.StatusMessage = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MaterializationBuildResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MaterializationBuildResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MaterializationBuildResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Status.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field InitializationPayload", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.InitializationPayload = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Type", wireType)
+			}
+			m.Type = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Type |= MaterializationType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ProjectionResults", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ProjectionResults = append(m.ProjectionResults, &ProjectionResult{})
+			if err := m.ProjectionResults[len(m.ProjectionResults)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MaterializationStartResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MaterializationStartResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MaterializationStartResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Status == nil {
+				m.Status = &MaterializationStatus{}
+			}
+			if err := m.Status.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Checkpoint == nil {
+				m.Checkpoint = &protocol1.Checkpoint{}
+			}
+			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *StoreStatus) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: StoreStatus: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: StoreStatus: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Code", wireType)
+			}
+			m.Code = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Code |= StoreStatus_Code(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ErrorMessage", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ErrorMessage = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetDocumentsRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetDocumentsRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetDocumentsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Keys", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Keys = append(m.Keys, &GetDocumentsRequest_Key{})
+			if err := m.Keys[len(m.Keys)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetDocumentsRequest_Key) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Key: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Key: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Key = append(m.Key, &Field{})
+			if err := m.Key[len(m.Key)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetDocumentsResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetDocumentsResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetDocumentsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Status == nil {
+				m.Status = &StoreStatus{}
+			}
+			if err := m.Status.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Documents = append(m.Documents, &Field{})
+			if err := m.Documents[len(m.Documents)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *UpdateDocumentsRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: UpdateDocumentsRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: UpdateDocumentsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Documents = append(m.Documents, &UpdateDocumentsRequest_Document{})
+			if err := m.Documents[len(m.Documents)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *UpdateDocumentsRequest_Document) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Document: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Document: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Fields", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Fields = append(m.Fields, &Field{})
+			if err := m.Fields[len(m.Fields)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipFlow(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CommitTxRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowFlow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CommitTxRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CommitTxRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowFlow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthFlow
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthFlow
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Checkpoint == nil {
+				m.Checkpoint = &protocol1.Checkpoint{}
+			}
+			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
