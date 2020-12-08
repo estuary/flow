@@ -378,10 +378,6 @@ pub struct ShuffleResponse {
     /// If the Shuffle specified a Hash to use, it's applied as well.
     #[prost(message, repeated, tag = "11")]
     pub packed_key: ::std::vec::Vec<Slice>,
-    /// Extracted shuffle key of each document, with one Field for each
-    /// component of the composite shuffle key.
-    #[prost(message, repeated, tag = "12")]
-    pub shuffle_key: ::std::vec::Vec<Field>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractRequest {

@@ -43,15 +43,6 @@ func (s *subscriber) initStaged(from *pf.ShuffleResponse) {
 		End:       s.staged.End[:0],
 		UuidParts: s.staged.UuidParts[:0],
 		PackedKey: s.staged.PackedKey[:0],
-
-		// ShuffleKey is a column of values per shuffle key component.
-		ShuffleKey: s.staged.ShuffleKey,
-	}
-	if l := len(from.ShuffleKey); l != len(s.staged.ShuffleKey) {
-		s.staged.ShuffleKey = make([]pf.Field, l)
-	}
-	for i := range s.staged.ShuffleKey {
-		s.staged.ShuffleKey[i] = pf.Field{Values: s.staged.ShuffleKey[i].Values[:0]}
 	}
 }
 
@@ -67,11 +58,6 @@ func (s *subscriber) stageDoc(response *pf.ShuffleResponse, doc int) {
 		s.staged.UuidParts = append(s.staged.UuidParts, response.UuidParts[doc])
 		s.staged.PackedKey = append(s.staged.PackedKey,
 			s.staged.Arena.Add(response.Arena.Bytes(response.PackedKey[doc])))
-
-		for f := range s.staged.ShuffleKey {
-			s.staged.ShuffleKey[f].AppendValue(&response.Arena, &s.staged.Arena,
-				response.ShuffleKey[f].Values[doc])
-		}
 	}
 }
 
