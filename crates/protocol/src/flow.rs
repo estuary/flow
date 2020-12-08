@@ -674,6 +674,212 @@ pub struct ClearRegistersResponse {
     #[prost(message, optional, tag = "2")]
     pub header: ::std::option::Option<super::protocol::Header>,
 }
+/// Represents a materialization of the given collection to an external system with the given
+/// endpoint.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializationSpec {
+    #[prost(string, tag = "1")]
+    pub materialization_id: std::string::String,
+    #[prost(string, tag = "2")]
+    pub endpoint_type: std::string::String,
+    #[prost(string, tag = "3")]
+    pub endpoint: std::string::String,
+    #[prost(string, tag = "4")]
+    pub target_entity: std::string::String,
+    #[prost(message, optional, tag = "5")]
+    pub collection: ::std::option::Option<CollectionSpec>,
+}
+/// Result of validating a specific projection.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProjectionResult {
+    /// The field name of the projection.
+    #[prost(string, tag = "1")]
+    pub field: std::string::String,
+    /// The validation result.
+    #[prost(enumeration = "ProjectionConstraint", tag = "2")]
+    pub constraint: i32,
+    /// Optional human readable reason for the given constraint. Implementations are strongly
+    /// encouraged to supply a good descriptive message here, especially if the constraint is
+    /// anything other than LOCATION_RECOMMENDED or LOCATION_OPTIONAL.
+    #[prost(string, tag = "3")]
+    pub reason: std::string::String,
+}
+/// Describes the current state of a Materialization as stored in the remote system.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializationStatus {
+    #[prost(enumeration = "materialization_status::StatusCode", tag = "1")]
+    pub status_code: i32,
+    /// Human readable message which will be shown to the user.
+    #[prost(string, tag = "2")]
+    pub status_message: std::string::String,
+}
+pub mod materialization_status {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum StatusCode {
+        /// The materialization has not been initialized yet.
+        NotReady = 0,
+        /// The materialization has been initialized.
+        Ready = 1,
+        /// There's been an error connecting to the remote system, or the remote system is in an invalid
+        /// state. The status_message should have details.
+        Error = 2,
+    }
+}
+/// Sent in response to validating or applying a materialization.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializationBuildResponse {
+    /// The status of the materialization, which may account for the current state of the remote
+    /// system, in addition to the spec provided in a request.
+    #[prost(message, optional, tag = "1")]
+    pub status: ::std::option::Option<MaterializationStatus>,
+    /// The initialization payload is a system-specific text that can be used to initialize the
+    /// materialization in the target system. For example, the SQL CREATE TABLE statements for a
+    /// database. Not all systems will have this. It's provided here so that the user can choose to
+    /// initialize the target system themselves rather than having it done automatically.
+    #[prost(string, tag = "2")]
+    pub initialization_payload: std::string::String,
+    /// The type of this materialization. This is always chosen by the target system, as most systems
+    /// can only support one type.
+    #[prost(enumeration = "MaterializationType", tag = "3")]
+    pub r#type: i32,
+    /// The results of validating the projections of the materialization. A connector must include a
+    /// ProjectionResult for every projection in the materialization from the request. It is an error
+    /// to omit one.
+    /// TODO: we could just say that there's a default constraint (FIELD_OPTIONAL?) if one is ommitted.
+    #[prost(message, repeated, tag = "4")]
+    pub projection_results: ::std::vec::Vec<ProjectionResult>,
+}
+// Below TransactionalStore and StreamStore are speculative sketches of what the runtime
+// implementations of the materialization protocol might look like. These were done just to have a
+// better idea of what the Connector protocol might look like more holistically. A few specific
+// things that are missing or TBD:
+// - Standardized encoding of values as tuples
+// - Accounting for partition keys of individual documents, and the key ranges for the current
+//   shard.
+// - Defining transactional semantics for StreamStore
+
+/// Returned in response to a StartMaterializationShard request to indicate whether it's ok for the
+/// materialization to start.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializationStartResponse {
+    /// Indicates whether we're ok to proceed. Any status besides READY will prevent the
+    /// materialization from starting.
+    #[prost(message, optional, tag = "1")]
+    pub status: ::std::option::Option<MaterializationStatus>,
+    /// The checkpoint that's been committed from a previous instance. This will be null if this is the
+    /// first time that the materialization is running, or if the remote system is not a transactional
+    /// store.
+    #[prost(message, optional, tag = "2")]
+    pub checkpoint: ::std::option::Option<super::consumer::Checkpoint>,
+}
+/// Status returned by all responses that read/write to the target system
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StoreStatus {
+    #[prost(enumeration = "store_status::Code", tag = "1")]
+    pub code: i32,
+    #[prost(string, tag = "2")]
+    pub error_message: std::string::String,
+}
+pub mod store_status {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Code {
+        Ok = 0,
+        Error = 1,
+    }
+}
+/// Request to retrieve a set of documents from a transactional store.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDocumentsRequest {
+    #[prost(bytes, tag = "1")]
+    pub arena: std::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "2")]
+    pub keys: ::std::vec::Vec<get_documents_request::Key>,
+}
+pub mod get_documents_request {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Key {
+        #[prost(message, repeated, tag = "1")]
+        pub key: ::std::vec::Vec<super::Field>,
+    }
+}
+/// TODO: think of a better way to represent missing documents?
+/// Response for retrieving documents from a transacional store. Each key from the request
+/// must have a corresponding document here and the results must be in the same order as they were in
+/// the request. Documents that do not exist must be represented here as Fields that point to a "null" json
+/// value within the arena.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDocumentsResponse {
+    #[prost(message, optional, tag = "1")]
+    pub status: ::std::option::Option<StoreStatus>,
+    #[prost(bytes, tag = "2")]
+    pub arena: std::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "3")]
+    pub documents: ::std::vec::Vec<Field>,
+}
+/// Request to either insert or update documents in a remote system. Each Document contains the
+/// complete set of extracted fields corresponding to the projections from the MaterializationSpec.
+/// This message is used for both inserts and updates, and the sets of fields will be exactly the
+/// same in either case.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateDocumentsRequest {
+    #[prost(bytes, tag = "1")]
+    pub arena: std::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "2")]
+    pub documents: ::std::vec::Vec<update_documents_request::Document>,
+}
+pub mod update_documents_request {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Document {
+        #[prost(message, repeated, tag = "1")]
+        pub fields: ::std::vec::Vec<super::Field>,
+    }
+}
+/// Request to commit the in-progress transaction for a transactional store.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CommitTxRequest {
+    /// The checkpoint to persist. This checkpoint must be returned on a call to
+    /// StartMaterializationShard.
+    #[prost(message, optional, tag = "1")]
+    pub checkpoint: ::std::option::Option<super::consumer::Checkpoint>,
+}
+/// Represents a decision about a specific projection that is part of a proposed materialization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ProjectionConstraint {
+    /// This specific projection must be present.
+    FieldRequired = 0,
+    /// Any projection with this location pointer must be present.
+    LocationRequired = 1,
+    /// A projection with this location is recommended. Recommended locations will be added to a
+    /// materialization by default. Flowctl will select one recommended projection per distinct
+    /// location, preferring the user-defined projection in case there are multiple. If there are
+    /// multiple user-provided projections for the same location, flowctl will make an arbitrary, but
+    /// deterministic choice.
+    LocationRecommended = 2,
+    /// This projection may be present in the materialization, but it will not be included by default.
+    FieldOptional = 3,
+    /// This projection must not be present in the materialization. Flowctl will report an error if the
+    /// user includes this field.
+    FieldForbidden = 4,
+}
+/// Describes the type of a materialization, which is typically the same for all materializations to
+/// a given type of target system. For example, most databases can only be a TRANSACTIONAL_STORE, and
+/// most pub-sub systems can only be a STREAM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum MaterializationType {
+    /// The remote system is conceptually a store that indexes documents on their primary key and can
+    /// retrieve them by that key. Materializations of this type will store fully reduced documents,
+    /// which will be kept up to date by reading the current values and combining them (reducing) with
+    /// new documents that are added to the collection.
+    TransactionalStore = 0,
+    /// The remote system is conceptually an append-only stream of events. For materializations of this
+    /// type, no reduction is done, and every document that is added to the collection is simply inserted
+    /// into the target system as-is.
+    Stream = 1,
+}
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {
     #![allow(unused_variables, dead_code, missing_docs)]
@@ -1114,6 +1320,330 @@ pub mod testing_client {
     impl<T> std::fmt::Debug for TestingClient<T> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "TestingClient {{ ... }}")
+        }
+    }
+}
+#[doc = r" Generated client implementations."]
+pub mod connector_client {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    pub struct ConnectorClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl ConnectorClient<tonic::transport::Channel> {
+        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> ConnectorClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::ResponseBody: Body + HttpBody + Send + 'static,
+        T::Error: Into<StdError>,
+        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
+            Self { inner }
+        }
+        #[doc = " Validate the given hypothetical materialization, returning a response that reflects both the"]
+        #[doc = " current state of the materialization (e.g. schema of an existing database table), if the"]
+        #[doc = " materialization has already been applied, and the results of validating the projections for"]
+        #[doc = " this materiliazation. This validation can and should take into account any previously applied"]
+        #[doc = " materialization for the same target_entity. For example, the Postgres connector will disallow"]
+        #[doc = " any modifications to an existing table schema by returning FIELD_REQUIRED for all the existing"]
+        #[doc = " columns, and FIELD_FORBIDDEN for all other columns. This will be called one or more times as"]
+        #[doc = " needed to arrive at an acceptable set of projections for the materialization. The"]
+        #[doc = " implementation must not modify the remote data store as a result of this call!"]
+        #[doc = ""]
+        #[doc = " Connectors that do not support materializations should simply return a hard coded error"]
+        #[doc = " response."]
+        pub async fn validate_materialization_build(
+            &mut self,
+            request: impl tonic::IntoRequest<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationBuildResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/flow.Connector/ValidateMaterializationBuild",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        #[doc = " Performs a one-time global initialization of the materialization in the remote system. For"]
+        #[doc = " example, the Postgres connector will execute the CREATE TABLE statements for the table"]
+        #[doc = " described by the set of projections in the MaterializationSpec, as well as persist a JSON"]
+        #[doc = " representation of the MaterializationSpec in a special flow_materializations table, and create"]
+        #[doc = " the gazette_checkpoints table if needed."]
+        #[doc = ""]
+        #[doc = " This rpc may never be called. Users may decide to apply the `initialization_payload` to the"]
+        #[doc = " target system themselves, rather than having flowctl trigger it. This could be the case if for"]
+        #[doc = " example the credentials used for the materialization endpoint are not allowed to modify the"]
+        #[doc = " schema. This function is only called after satisfying the following conditions:"]
+        #[doc = " - ValidateMaterializationBuild has returned NOT_READY status"]
+        #[doc = " - The user has provided a set of projections that is compatible with the constraints provided"]
+        #[doc = "   in the validation response."]
+        #[doc = " - The user has opted in to having the initialization performed automatically, either by"]
+        #[doc = "   providing CLI arguments or by interactively agreeing to proceed."]
+        pub async fn apply_materialization(
+            &mut self,
+            request: impl tonic::IntoRequest<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationBuildResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.Connector/ApplyMaterialization");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+    impl<T: Clone> Clone for ConnectorClient<T> {
+        fn clone(&self) -> Self {
+            Self {
+                inner: self.inner.clone(),
+            }
+        }
+    }
+    impl<T> std::fmt::Debug for ConnectorClient<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "ConnectorClient {{ ... }}")
+        }
+    }
+}
+#[doc = r" Generated client implementations."]
+pub mod transactional_store_client {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = " A service that corresponds to the TRANSACTIONAL_STORE materialization type, which covers most"]
+    #[doc = " database systems. This type of materialization stores the complete flow document in the remote"]
+    #[doc = " system, which allows it to continuously reduce documents by key and update the store on a per-key"]
+    #[doc = " basis."]
+    pub struct TransactionalStoreClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl TransactionalStoreClient<tonic::transport::Channel> {
+        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> TransactionalStoreClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::ResponseBody: Body + HttpBody + Send + 'static,
+        T::Error: Into<StdError>,
+        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
+            Self { inner }
+        }
+        #[doc = " Called just prior to beginning the work for a materialization shard. This function will be"]
+        #[doc = " called each time a materialization shard starts up. If the status indicates the materialization"]
+        #[doc = " is ready, then that is considered to go ahead to start transactions to read and write."]
+        pub async fn start_materialization_shard(
+            &mut self,
+            request: impl tonic::IntoRequest<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationStartResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/flow.TransactionalStore/StartMaterializationShard",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        #[doc = " Called only for materializations with MaterializationType TRANSACTIONAL_STORE to retrieve the current document"]
+        #[doc = " for a given (possibly composite) key."]
+        pub async fn get_documents(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetDocumentsRequest>,
+        ) -> Result<tonic::Response<super::GetDocumentsResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/flow.TransactionalStore/GetDocuments");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        #[doc = " Called to add new documents to the remote system. For a transactional store, this will ONLY be"]
+        #[doc = " called with documents for which no existing document exists (GetDocuments returned null). For"]
+        #[doc = " STREAM systems, this function will be called for all documents in the source collection,"]
+        #[doc = " without any prior call to GetDocuments."]
+        pub async fn insert_documents(
+            &mut self,
+            request: impl tonic::IntoRequest<super::UpdateDocumentsRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/flow.TransactionalStore/InsertDocuments");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn update_docuemnts(
+            &mut self,
+            request: impl tonic::IntoRequest<super::UpdateDocumentsRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/flow.TransactionalStore/UpdateDocuemnts");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn commit(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CommitTxRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.TransactionalStore/Commit");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+    impl<T: Clone> Clone for TransactionalStoreClient<T> {
+        fn clone(&self) -> Self {
+            Self {
+                inner: self.inner.clone(),
+            }
+        }
+    }
+    impl<T> std::fmt::Debug for TransactionalStoreClient<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "TransactionalStoreClient {{ ... }}")
+        }
+    }
+}
+#[doc = r" Generated client implementations."]
+pub mod stream_store_client {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = " A service corresponding to the STREAM materialization type, which covers things like pub-sub"]
+    #[doc = " systems that cannot or do not wish to index and retrieve documents by key. All documents will be"]
+    #[doc = " appended to this store without being reduced first."]
+    pub struct StreamStoreClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl StreamStoreClient<tonic::transport::Channel> {
+        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> StreamStoreClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::ResponseBody: Body + HttpBody + Send + 'static,
+        T::Error: Into<StdError>,
+        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
+            Self { inner }
+        }
+        #[doc = " Called just prior to beginning the work for a materialization shard. This function will be"]
+        #[doc = " called each time a materialization shard starts up. If the status indicates the materialization"]
+        #[doc = " is ready, then that is considered to go ahead to start transactions to read and write."]
+        pub async fn start_materialization_shard(
+            &mut self,
+            request: impl tonic::IntoRequest<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationStartResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/flow.StreamStore/StartMaterializationShard");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        #[doc = " Called to add new documents to the remote system. For STREAM systems, this function will be"]
+        #[doc = " called for all documents in the source collection, without having all reductions applied."]
+        #[doc = " Documents may still be partially reduced."]
+        pub async fn insert_documents(
+            &mut self,
+            request: impl tonic::IntoRequest<super::UpdateDocumentsRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/flow.StreamStore/InsertDocuments");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+    impl<T: Clone> Clone for StreamStoreClient<T> {
+        fn clone(&self) -> Self {
+            Self {
+                inner: self.inner.clone(),
+            }
+        }
+    }
+    impl<T> std::fmt::Debug for StreamStoreClient<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "StreamStoreClient {{ ... }}")
         }
     }
 }
@@ -1911,5 +2441,603 @@ pub mod testing_server {
     }
     impl<T: Testing> tonic::transport::NamedService for TestingServer<T> {
         const NAME: &'static str = "flow.Testing";
+    }
+}
+#[doc = r" Generated server implementations."]
+pub mod connector_server {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = "Generated trait containing gRPC methods that should be implemented for use with ConnectorServer."]
+    #[async_trait]
+    pub trait Connector: Send + Sync + 'static {
+        #[doc = " Validate the given hypothetical materialization, returning a response that reflects both the"]
+        #[doc = " current state of the materialization (e.g. schema of an existing database table), if the"]
+        #[doc = " materialization has already been applied, and the results of validating the projections for"]
+        #[doc = " this materiliazation. This validation can and should take into account any previously applied"]
+        #[doc = " materialization for the same target_entity. For example, the Postgres connector will disallow"]
+        #[doc = " any modifications to an existing table schema by returning FIELD_REQUIRED for all the existing"]
+        #[doc = " columns, and FIELD_FORBIDDEN for all other columns. This will be called one or more times as"]
+        #[doc = " needed to arrive at an acceptable set of projections for the materialization. The"]
+        #[doc = " implementation must not modify the remote data store as a result of this call!"]
+        #[doc = ""]
+        #[doc = " Connectors that do not support materializations should simply return a hard coded error"]
+        #[doc = " response."]
+        async fn validate_materialization_build(
+            &self,
+            request: tonic::Request<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationBuildResponse>, tonic::Status>;
+        #[doc = " Performs a one-time global initialization of the materialization in the remote system. For"]
+        #[doc = " example, the Postgres connector will execute the CREATE TABLE statements for the table"]
+        #[doc = " described by the set of projections in the MaterializationSpec, as well as persist a JSON"]
+        #[doc = " representation of the MaterializationSpec in a special flow_materializations table, and create"]
+        #[doc = " the gazette_checkpoints table if needed."]
+        #[doc = ""]
+        #[doc = " This rpc may never be called. Users may decide to apply the `initialization_payload` to the"]
+        #[doc = " target system themselves, rather than having flowctl trigger it. This could be the case if for"]
+        #[doc = " example the credentials used for the materialization endpoint are not allowed to modify the"]
+        #[doc = " schema. This function is only called after satisfying the following conditions:"]
+        #[doc = " - ValidateMaterializationBuild has returned NOT_READY status"]
+        #[doc = " - The user has provided a set of projections that is compatible with the constraints provided"]
+        #[doc = "   in the validation response."]
+        #[doc = " - The user has opted in to having the initialization performed automatically, either by"]
+        #[doc = "   providing CLI arguments or by interactively agreeing to proceed."]
+        async fn apply_materialization(
+            &self,
+            request: tonic::Request<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationBuildResponse>, tonic::Status>;
+    }
+    #[derive(Debug)]
+    pub struct ConnectorServer<T: Connector> {
+        inner: _Inner<T>,
+    }
+    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
+    impl<T: Connector> ConnectorServer<T> {
+        pub fn new(inner: T) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, None);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, Some(interceptor.into()));
+            Self { inner }
+        }
+    }
+    impl<T, B> Service<http::Request<B>> for ConnectorServer<T>
+    where
+        T: Connector,
+        B: HttpBody + Send + Sync + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = Never;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/flow.Connector/ValidateMaterializationBuild" => {
+                    #[allow(non_camel_case_types)]
+                    struct ValidateMaterializationBuildSvc<T: Connector>(pub Arc<T>);
+                    impl<T: Connector> tonic::server::UnaryService<super::MaterializationSpec>
+                        for ValidateMaterializationBuildSvc<T>
+                    {
+                        type Response = super::MaterializationBuildResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::MaterializationSpec>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).validate_materialization_build(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = ValidateMaterializationBuildSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.Connector/ApplyMaterialization" => {
+                    #[allow(non_camel_case_types)]
+                    struct ApplyMaterializationSvc<T: Connector>(pub Arc<T>);
+                    impl<T: Connector> tonic::server::UnaryService<super::MaterializationSpec>
+                        for ApplyMaterializationSvc<T>
+                    {
+                        type Response = super::MaterializationBuildResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::MaterializationSpec>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).apply_materialization(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = ApplyMaterializationSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .body(tonic::body::BoxBody::empty())
+                        .unwrap())
+                }),
+            }
+        }
+    }
+    impl<T: Connector> Clone for ConnectorServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self { inner }
+        }
+    }
+    impl<T: Connector> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone(), self.1.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: Connector> tonic::transport::NamedService for ConnectorServer<T> {
+        const NAME: &'static str = "flow.Connector";
+    }
+}
+#[doc = r" Generated server implementations."]
+pub mod transactional_store_server {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = "Generated trait containing gRPC methods that should be implemented for use with TransactionalStoreServer."]
+    #[async_trait]
+    pub trait TransactionalStore: Send + Sync + 'static {
+        #[doc = " Called just prior to beginning the work for a materialization shard. This function will be"]
+        #[doc = " called each time a materialization shard starts up. If the status indicates the materialization"]
+        #[doc = " is ready, then that is considered to go ahead to start transactions to read and write."]
+        async fn start_materialization_shard(
+            &self,
+            request: tonic::Request<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationStartResponse>, tonic::Status>;
+        #[doc = " Called only for materializations with MaterializationType TRANSACTIONAL_STORE to retrieve the current document"]
+        #[doc = " for a given (possibly composite) key."]
+        async fn get_documents(
+            &self,
+            request: tonic::Request<super::GetDocumentsRequest>,
+        ) -> Result<tonic::Response<super::GetDocumentsResponse>, tonic::Status>;
+        #[doc = " Called to add new documents to the remote system. For a transactional store, this will ONLY be"]
+        #[doc = " called with documents for which no existing document exists (GetDocuments returned null). For"]
+        #[doc = " STREAM systems, this function will be called for all documents in the source collection,"]
+        #[doc = " without any prior call to GetDocuments."]
+        async fn insert_documents(
+            &self,
+            request: tonic::Request<super::UpdateDocumentsRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status>;
+        async fn update_docuemnts(
+            &self,
+            request: tonic::Request<super::UpdateDocumentsRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status>;
+        async fn commit(
+            &self,
+            request: tonic::Request<super::CommitTxRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status>;
+    }
+    #[doc = " A service that corresponds to the TRANSACTIONAL_STORE materialization type, which covers most"]
+    #[doc = " database systems. This type of materialization stores the complete flow document in the remote"]
+    #[doc = " system, which allows it to continuously reduce documents by key and update the store on a per-key"]
+    #[doc = " basis."]
+    #[derive(Debug)]
+    pub struct TransactionalStoreServer<T: TransactionalStore> {
+        inner: _Inner<T>,
+    }
+    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
+    impl<T: TransactionalStore> TransactionalStoreServer<T> {
+        pub fn new(inner: T) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, None);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, Some(interceptor.into()));
+            Self { inner }
+        }
+    }
+    impl<T, B> Service<http::Request<B>> for TransactionalStoreServer<T>
+    where
+        T: TransactionalStore,
+        B: HttpBody + Send + Sync + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = Never;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/flow.TransactionalStore/StartMaterializationShard" => {
+                    #[allow(non_camel_case_types)]
+                    struct StartMaterializationShardSvc<T: TransactionalStore>(pub Arc<T>);
+                    impl<T: TransactionalStore>
+                        tonic::server::UnaryService<super::MaterializationSpec>
+                        for StartMaterializationShardSvc<T>
+                    {
+                        type Response = super::MaterializationStartResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::MaterializationSpec>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut =
+                                async move { (*inner).start_materialization_shard(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = StartMaterializationShardSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.TransactionalStore/GetDocuments" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetDocumentsSvc<T: TransactionalStore>(pub Arc<T>);
+                    impl<T: TransactionalStore>
+                        tonic::server::UnaryService<super::GetDocumentsRequest>
+                        for GetDocumentsSvc<T>
+                    {
+                        type Response = super::GetDocumentsResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetDocumentsRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).get_documents(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = GetDocumentsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.TransactionalStore/InsertDocuments" => {
+                    #[allow(non_camel_case_types)]
+                    struct InsertDocumentsSvc<T: TransactionalStore>(pub Arc<T>);
+                    impl<T: TransactionalStore>
+                        tonic::server::UnaryService<super::UpdateDocumentsRequest>
+                        for InsertDocumentsSvc<T>
+                    {
+                        type Response = super::StoreStatus;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::UpdateDocumentsRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).insert_documents(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = InsertDocumentsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.TransactionalStore/UpdateDocuemnts" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateDocuemntsSvc<T: TransactionalStore>(pub Arc<T>);
+                    impl<T: TransactionalStore>
+                        tonic::server::UnaryService<super::UpdateDocumentsRequest>
+                        for UpdateDocuemntsSvc<T>
+                    {
+                        type Response = super::StoreStatus;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::UpdateDocumentsRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).update_docuemnts(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = UpdateDocuemntsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.TransactionalStore/Commit" => {
+                    #[allow(non_camel_case_types)]
+                    struct CommitSvc<T: TransactionalStore>(pub Arc<T>);
+                    impl<T: TransactionalStore> tonic::server::UnaryService<super::CommitTxRequest> for CommitSvc<T> {
+                        type Response = super::StoreStatus;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CommitTxRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).commit(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = CommitSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .body(tonic::body::BoxBody::empty())
+                        .unwrap())
+                }),
+            }
+        }
+    }
+    impl<T: TransactionalStore> Clone for TransactionalStoreServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self { inner }
+        }
+    }
+    impl<T: TransactionalStore> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone(), self.1.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: TransactionalStore> tonic::transport::NamedService for TransactionalStoreServer<T> {
+        const NAME: &'static str = "flow.TransactionalStore";
+    }
+}
+#[doc = r" Generated server implementations."]
+pub mod stream_store_server {
+    #![allow(unused_variables, dead_code, missing_docs)]
+    use tonic::codegen::*;
+    #[doc = "Generated trait containing gRPC methods that should be implemented for use with StreamStoreServer."]
+    #[async_trait]
+    pub trait StreamStore: Send + Sync + 'static {
+        #[doc = " Called just prior to beginning the work for a materialization shard. This function will be"]
+        #[doc = " called each time a materialization shard starts up. If the status indicates the materialization"]
+        #[doc = " is ready, then that is considered to go ahead to start transactions to read and write."]
+        async fn start_materialization_shard(
+            &self,
+            request: tonic::Request<super::MaterializationSpec>,
+        ) -> Result<tonic::Response<super::MaterializationStartResponse>, tonic::Status>;
+        #[doc = " Called to add new documents to the remote system. For STREAM systems, this function will be"]
+        #[doc = " called for all documents in the source collection, without having all reductions applied."]
+        #[doc = " Documents may still be partially reduced."]
+        async fn insert_documents(
+            &self,
+            request: tonic::Request<super::UpdateDocumentsRequest>,
+        ) -> Result<tonic::Response<super::StoreStatus>, tonic::Status>;
+    }
+    #[doc = " A service corresponding to the STREAM materialization type, which covers things like pub-sub"]
+    #[doc = " systems that cannot or do not wish to index and retrieve documents by key. All documents will be"]
+    #[doc = " appended to this store without being reduced first."]
+    #[derive(Debug)]
+    pub struct StreamStoreServer<T: StreamStore> {
+        inner: _Inner<T>,
+    }
+    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
+    impl<T: StreamStore> StreamStoreServer<T> {
+        pub fn new(inner: T) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, None);
+            Self { inner }
+        }
+        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner, Some(interceptor.into()));
+            Self { inner }
+        }
+    }
+    impl<T, B> Service<http::Request<B>> for StreamStoreServer<T>
+    where
+        T: StreamStore,
+        B: HttpBody + Send + Sync + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = Never;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/flow.StreamStore/StartMaterializationShard" => {
+                    #[allow(non_camel_case_types)]
+                    struct StartMaterializationShardSvc<T: StreamStore>(pub Arc<T>);
+                    impl<T: StreamStore> tonic::server::UnaryService<super::MaterializationSpec>
+                        for StartMaterializationShardSvc<T>
+                    {
+                        type Response = super::MaterializationStartResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::MaterializationSpec>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut =
+                                async move { (*inner).start_materialization_shard(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = StartMaterializationShardSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/flow.StreamStore/InsertDocuments" => {
+                    #[allow(non_camel_case_types)]
+                    struct InsertDocumentsSvc<T: StreamStore>(pub Arc<T>);
+                    impl<T: StreamStore> tonic::server::UnaryService<super::UpdateDocumentsRequest>
+                        for InsertDocumentsSvc<T>
+                    {
+                        type Response = super::StoreStatus;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::UpdateDocumentsRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).insert_documents(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = InsertDocumentsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .body(tonic::body::BoxBody::empty())
+                        .unwrap())
+                }),
+            }
+        }
+    }
+    impl<T: StreamStore> Clone for StreamStoreServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self { inner }
+        }
+    }
+    impl<T: StreamStore> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone(), self.1.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: StreamStore> tonic::transport::NamedService for StreamStoreServer<T> {
+        const NAME: &'static str = "flow.StreamStore";
     }
 }
