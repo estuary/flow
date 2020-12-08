@@ -2,16 +2,18 @@ use doc::Pointer;
 use json::Number;
 use prost::Message;
 use protocol::flow;
+use serde_json::Value;
+use tuple::{TupleDepth, TuplePack};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("JSON error: {0}")]
+    #[error("JSON error")]
     Json(#[from] serde_json::Error),
     #[error("invalid arena range: {0:?}")]
     InvalidArenaRange(flow::Slice),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
-    #[error("Protobuf decoding error: {0:?}")]
+    #[error("Protobuf decoding error")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error("invalid service code: {0}")]
     InvalidCode(u32),
@@ -200,18 +202,22 @@ impl protocol::cgo::Service for Extractor {
             (1, Some((uuid_ptr, field_ptrs))) => {
                 let doc: serde_json::Value = serde_json::from_slice(data)?;
 
-                // Extract UUID.
+                // Send extracted UUID.
                 let uuid =
                     extract_uuid_parts(&doc, &uuid_ptr).ok_or_else(|| Error::InvalidUuid {
                         value: uuid_ptr.query(&doc).cloned(),
                     })?;
                 Self::send_message(0, &uuid, arena, out);
 
-                // Extract field pointers.
-                for (i, ptr) in field_ptrs.iter().enumerate() {
-                    let field = extract_field(arena, &doc, ptr);
-                    Self::send_message(1 + i as u32, &field, arena, out);
+                // Send extracted, packed field pointers.
+                let begin = arena.len();
+
+                for p in field_ptrs {
+                    let v = p.query(&doc).unwrap_or(&Value::Null);
+                    // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
+                    let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
                 }
+                Self::send_bytes(1, begin, arena, out);
 
                 Ok(())
             }

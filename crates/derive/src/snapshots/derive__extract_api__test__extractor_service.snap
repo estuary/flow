@@ -3,7 +3,7 @@ source: crates/derive/src/extract_api.rs
 expression: "(String::from_utf8_lossy(&arena), out)"
 ---
 (
-    "prefix\t\u{2}\u{0}\t\u{3}\u{5}\u{7}\u{6}\u{8}\u{11}2/��9j�\u{1e}\u{8}\u{5}\u{10}*a-string\u{8}\u{4}*\u{4}\u{8}\u{1c}\u{10}$",
+    "prefix\t\u{2}\u{0}\t\u{3}\u{5}\u{7}\u{6}\u{8}\u{11}2/��9j�\u{1e}\u{15}*\u{2}a-string\u{0}",
     [
         Out {
             code: 999,
@@ -18,12 +18,7 @@ expression: "(String::from_utf8_lossy(&arena), out)"
         Out {
             code: 1,
             begin: 24,
-            end: 28,
-        },
-        Out {
-            code: 2,
-            begin: 36,
-            end: 44,
+            end: 36,
         },
     ],
 )

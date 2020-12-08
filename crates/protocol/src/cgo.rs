@@ -56,6 +56,17 @@ pub trait Service {
             end: arena.len() as u32,
         });
     }
+
+    /// Send bytes to the caller, where bytes have already been appended into
+    /// |arena| beginning at arena offset |begin|. An Out frame that references
+    /// the arena span (through the current arena length) is pushed.
+    fn send_bytes(code: u32, begin: usize, arena: &mut Vec<u8>, out: &mut Vec<Out>) {
+        out.push(Out {
+            code,
+            begin: begin as u32,
+            end: arena.len() as u32,
+        });
+    }
 }
 
 /// Output frame produced by a Service.
