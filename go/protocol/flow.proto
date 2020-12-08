@@ -589,3 +589,252 @@ service Testing {
   rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
   rpc ClearRegisters(ClearRegistersRequest) returns (ClearRegistersResponse);
 }
+
+
+// Represents a materialization of the given collection to an external system with the given
+// endpoint.
+message MaterializationSpec {
+  string materialization_id = 1;
+  string endpoint_type = 2;
+  string endpoint = 3;
+  string target_entity = 4;
+  CollectionSpec collection = 5;
+}
+
+// Represents a decision about a specific projection that is part of a proposed materialization.
+enum ProjectionConstraint {
+  // This specific projection must be present.
+  FIELD_REQUIRED = 0;
+  // Any projection with this location pointer must be present.
+  LOCATION_REQUIRED = 1;
+  // A projection with this location is recommended. Recommended locations will be added to a
+  // materialization by default. Flowctl will select one recommended projection per distinct
+  // location, preferring the user-defined projection in case there are multiple. If there are
+  // multiple user-provided projections for the same location, flowctl will make an arbitrary, but
+  // deterministic choice.
+  LOCATION_RECOMMENDED = 2;
+  // This projection may be present in the materialization, but it will not be included by default.
+  FIELD_OPTIONAL = 3;
+  // This projection must not be present in the materialization. Flowctl will report an error if the
+  // user includes this field.
+  FIELD_FORBIDDEN = 4;
+}
+
+// Result of validating a specific projection.
+message ProjectionResult {
+  // The field name of the projection.
+  string field = 1;
+  // The validation result.
+  ProjectionConstraint constraint = 2;
+  // Optional human readable reason for the given constraint. Implementations are strongly
+  // encouraged to supply a good descriptive message here, especially if the constraint is 
+  // anything other than LOCATION_RECOMMENDED or LOCATION_OPTIONAL.
+  string reason = 3;
+}
+
+// Describes the current state of a Materialization as stored in the remote system.
+message MaterializationStatus {
+  enum StatusCode {
+    // The materialization has not been initialized yet.
+    NOT_READY = 0;
+    // The materialization has been initialized.
+    READY = 1;
+    // There's been an error connecting to the remote system, or the remote system is in an invalid
+    // state. The status_message should have details.
+    ERROR = 2;
+  }
+  StatusCode status_code = 1;
+  // Human readable message which will be shown to the user.
+  string status_message = 2;
+}
+
+// Describes the type of a materialization, which is typically the same for all materializations to
+// a given type of target system. For example, most databases can only be a TRANSACTIONAL_STORE, and
+// most pub-sub systems can only be a STREAM.
+enum MaterializationType {
+  // The remote system is conceptually a store that indexes documents on their primary key and can
+  // retrieve them by that key. Materializations of this type will store fully reduced documents,
+  // which will be kept up to date by reading the current values and combining them (reducing) with
+  // new documents that are added to the collection.
+  TRANSACTIONAL_STORE = 0;
+  // The remote system is conceptually an append-only stream of events. For materializations of this
+  // type, no reduction is done, and every document that is added to the collection is simply inserted
+  // into the target system as-is.
+  STREAM = 1;
+}
+
+
+// Sent in response to validating or applying a materialization.
+message MaterializationBuildResponse {
+  // The status of the materialization, which may account for the current state of the remote
+  // system, in addition to the spec provided in a request.
+  MaterializationStatus status = 1 [ (gogoproto.nullable) = false ];
+  // The initialization payload is a system-specific text that can be used to initialize the
+  // materialization in the target system. For example, the SQL CREATE TABLE statements for a
+  // database. Not all systems will have this. It's provided here so that the user can choose to
+  // initialize the target system themselves rather than having it done automatically.
+  string initialization_payload = 2;
+  // The type of this materialization. This is always chosen by the target system, as most systems
+  // can only support one type.
+  MaterializationType type = 3;
+
+  // The results of validating the projections of the materialization. A connector must include a
+  // ProjectionResult for every projection in the materialization from the request. It is an error
+  // to omit one.
+  // TODO: we could just say that there's a default constraint (FIELD_OPTIONAL?) if one is ommitted.
+  repeated ProjectionResult projection_results = 4;
+}
+
+service Connector {
+
+  // Validate the given hypothetical materialization, returning a response that reflects both the
+  // current state of the materialization (e.g. schema of an existing database table), if the
+  // materialization has already been applied, and the results of validating the projections for
+  // this materiliazation. This validation can and should take into account any previously applied
+  // materialization for the same target_entity. For example, the Postgres connector will disallow
+  // any modifications to an existing table schema by returning FIELD_REQUIRED for all the existing
+  // columns, and FIELD_FORBIDDEN for all other columns. This will be called one or more times as
+  // needed to arrive at an acceptable set of projections for the materialization. The
+  // implementation must not modify the remote data store as a result of this call!
+  //
+  // Connectors that do not support materializations should simply return a hard coded error
+  // response.
+  rpc ValidateMaterializationBuild(MaterializationSpec) returns (MaterializationBuildResponse);
+  
+  // Performs a one-time global initialization of the materialization in the remote system. For
+  // example, the Postgres connector will execute the CREATE TABLE statements for the table
+  // described by the set of projections in the MaterializationSpec, as well as persist a JSON
+  // representation of the MaterializationSpec in a special flow_materializations table, and create
+  // the gazette_checkpoints table if needed.
+  //
+  // This rpc may never be called. Users may decide to apply the `initialization_payload` to the
+  // target system themselves, rather than having flowctl trigger it. This could be the case if for
+  // example the credentials used for the materialization endpoint are not allowed to modify the
+  // schema. This function is only called after satisfying the following conditions:
+  // - ValidateMaterializationBuild has returned NOT_READY status
+  // - The user has provided a set of projections that is compatible with the constraints provided
+  //   in the validation response.
+  // - The user has opted in to having the initialization performed automatically, either by
+  //   providing CLI arguments or by interactively agreeing to proceed.
+  rpc ApplyMaterialization(MaterializationSpec) returns (MaterializationBuildResponse);
+
+}
+
+// Below TransactionalStore and StreamStore are speculative sketches of what the runtime
+// implementations of the materialization protocol might look like. These were done just to have a
+// better idea of what the Connector protocol might look like more holistically. A few specific
+// things that are missing or TBD:
+// - Standardized encoding of values as tuples
+// - Accounting for partition keys of individual documents, and the key ranges for the current
+//   shard.
+// - Defining transactional semantics for StreamStore
+
+
+// Returned in response to a StartMaterializationShard request to indicate whether it's ok for the
+// materialization to start.
+message MaterializationStartResponse {
+  // Indicates whether we're ok to proceed. Any status besides READY will prevent the
+  // materialization from starting.
+  MaterializationStatus status = 1;
+  // The checkpoint that's been committed from a previous instance. This will be null if this is the
+  // first time that the materialization is running, or if the remote system is not a transactional
+  // store.
+  consumer.Checkpoint checkpoint = 2;
+}
+
+// Status returned by all responses that read/write to the target system
+message StoreStatus {
+  enum Code {
+    OK = 0;
+    ERROR = 1;
+  }
+  Code code = 1;
+  string error_message = 2;
+}
+
+// Request to retrieve a set of documents from a transactional store.
+message GetDocumentsRequest {
+  bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
+  message Key {
+    repeated Field key = 1;
+  }
+  repeated Key keys = 2;
+}
+
+// TODO: think of a better way to represent missing documents?
+// Response for retrieving documents from a transacional store. Each key from the request
+// must have a corresponding document here and the results must be in the same order as they were in
+// the request. Documents that do not exist must be represented here as Fields that point to a "null" json
+// value within the arena.
+message GetDocumentsResponse {
+  StoreStatus status = 1;
+  bytes arena = 2 [ (gogoproto.casttype) = "Arena" ];
+  repeated Field documents = 3;
+}
+
+// Request to either insert or update documents in a remote system. Each Document contains the
+// complete set of extracted fields corresponding to the projections from the MaterializationSpec.
+// This message is used for both inserts and updates, and the sets of fields will be exactly the
+// same in either case.
+message UpdateDocumentsRequest {
+  bytes arena = 1 [ (gogoproto.casttype) = "Arena" ];
+  message Document {
+    repeated Field fields = 1;
+  }
+  repeated Document documents = 2;
+}
+
+// Request to commit the in-progress transaction for a transactional store.
+message CommitTxRequest {
+  // The checkpoint to persist. This checkpoint must be returned on a call to
+  // StartMaterializationShard.
+  consumer.Checkpoint checkpoint = 1;
+}
+
+// A service that corresponds to the TRANSACTIONAL_STORE materialization type, which covers most
+// database systems. This type of materialization stores the complete flow document in the remote
+// system, which allows it to continuously reduce documents by key and update the store on a per-key
+// basis.
+service TransactionalStore {
+
+  // Called just prior to beginning the work for a materialization shard. This function will be
+  // called each time a materialization shard starts up. If the status indicates the materialization
+  // is ready, then that is considered to go ahead to start transactions to read and write.
+  rpc StartMaterializationShard(MaterializationSpec) returns (MaterializationStartResponse);
+
+  
+  // Below rpcs and messages are speculative, and are here mostly to help inform the design of the
+  // materialization service.
+  
+  // Called only for materializations with MaterializationType TRANSACTIONAL_STORE to retrieve the current document
+  // for a given (possibly composite) key.
+  rpc GetDocuments(GetDocumentsRequest) returns (GetDocumentsResponse);
+
+  // Called to add new documents to the remote system. For a transactional store, this will ONLY be
+  // called with documents for which no existing document exists (GetDocuments returned null). For
+  // STREAM systems, this function will be called for all documents in the source collection,
+  // without any prior call to GetDocuments.
+  rpc InsertDocuments(UpdateDocumentsRequest) returns (StoreStatus);
+
+  rpc UpdateDocuemnts(UpdateDocumentsRequest) returns (StoreStatus);
+
+  rpc Commit(CommitTxRequest) returns (StoreStatus);
+}
+
+// A service corresponding to the STREAM materialization type, which covers things like pub-sub
+// systems that cannot or do not wish to index and retrieve documents by key. All documents will be
+// appended to this store without being reduced first.
+service StreamStore {
+
+  // Called just prior to beginning the work for a materialization shard. This function will be
+  // called each time a materialization shard starts up. If the status indicates the materialization
+  // is ready, then that is considered to go ahead to start transactions to read and write.
+  rpc StartMaterializationShard(MaterializationSpec) returns (MaterializationStartResponse);
+
+  // Called to add new documents to the remote system. For STREAM systems, this function will be
+  // called for all documents in the source collection, without having all reductions applied.
+  // Documents may still be partially reduced.
+  rpc InsertDocuments(UpdateDocumentsRequest) returns (StoreStatus);
+}
+
+
