@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocol"
@@ -104,7 +105,7 @@ func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error 
 		return err
 	}
 
-	var columnPointers = make(map[string]bool)
+	var columnPointers []string
 	for i, header := range headers {
 		var projection = pf.GetProjectionByField(header, collection.Projections)
 		if projection == nil {
@@ -121,7 +122,7 @@ func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error 
 		if projection.Inference.MustExist {
 			csvIngester.lastMustExistIndex = i
 		}
-		columnPointers[projection.Ptr] = true
+		columnPointers = append(columnPointers, projection.Ptr)
 	}
 
 	// Go through the set of projections on this collection and validate that the headers include a
@@ -133,11 +134,21 @@ func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error 
 	// headers and the rest of the data), and with an error message that's hopefully more clear and
 	// explicit than the validation error.
 	for _, projection := range collection.Projections {
-		if projection.Inference.MustExist && !columnPointers[projection.Ptr] {
+		if projection.Inference.MustExist && !isProjectionIncluded(projection, columnPointers) {
 			return fmt.Errorf("Header does not include any field that maps to the location: '%s', which is required to exist by the collection schema", projection.Ptr)
 		}
 	}
 	return nil
+}
+
+func isProjectionIncluded(projection *pf.Projection, columnPointers []string) bool {
+	for _, pointer := range columnPointers {
+		if strings.HasPrefix(pointer, projection.Ptr) {
+			return true
+		}
+
+	}
+	return false
 }
 
 func (csvIngester *wsCsvIngester) onFrame(collection *pf.CollectionSpec, addCh chan<- ingestAdd) error {
