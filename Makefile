@@ -58,7 +58,8 @@ PROTOC_INC_GO_MODULES = \
 	go.gazette.dev/core
 # Targets of Go protobufs which must be compiled.
 GO_PROTO_TARGETS = \
-	./go/protocols/flow/flow.pb.go
+	./go/protocols/flow/flow.pb.go \
+	./go/protocols/materialize/materialize.pb.go
 # GO_MODULE_PATH expands a $(module), like "go.gazette.dev/core", to the local path
 # of its respository as currently specified by go.mod. The `go list` tool
 # is used to map submodules to corresponding go.mod versions and paths.
