@@ -127,6 +127,7 @@ fn main() {
         proto_include[0].join("consumer/protocol/protocol.proto"),
         proto_include[0].join("consumer/recoverylog/recorded_op.proto"),
         proto_include[3].join("go/protocols/flow/flow.proto"),
+        proto_include[3].join("go/protocols/materialize/materialize.proto"),
     ];
 
     let mut builder = tonic_build::configure()

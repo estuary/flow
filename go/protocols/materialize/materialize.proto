@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package materialize;
+option go_package = "github.com/estuary/flow/go/protocols/materialize";
+
+import "go/protocols/flow/flow.proto";
+import "gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+
+// Constraint constrains the use of a flow.Projection within a materialization.
+message Constraint {
+  // Type encodes a constraint type for this flow.Projection.
+  enum Type {
+    // This specific projection must be present.
+    FIELD_REQUIRED = 0;
+    // At least one projection with this location pointer must be present.
+    LOCATION_REQUIRED = 1;
+    // A projection with this location is recommended, and should be included by default.
+    LOCATION_RECOMMENDED = 2;
+    // This projection may be included, but should be omitted by default.
+    FIELD_OPTIONAL = 3;
+    // This projection must not be present in the materialization.
+    FIELD_FORBIDDEN = 4;
+    // This specific projection is required but is also unacceptable (e.x.,
+    // because it uses an incompatible type with a previous applied version).
+    UNSATISFIABLE = 5;
+  }
+  Type type = 2;
+  // Optional human readable reason for the given constraint.
+  // Implementations are strongly encouraged to supply a descriptive message.
+  string reason = 3;
+}
+
+// Driver is the service implemented by a materialization target system.
+service Driver {
+  // Session begins a scoped interaction with the driver from a single process context.
+  // It maps an endpoint URL, target, and caller ID to a returned opaque session handle,
+  // which is to be used with further Driver interactions. Note that at any given time,
+  // there may be *many* concurrent Sessions.
+  rpc StartSession(SessionRequest) returns (SessionResponse);
+  // Validate that a CollectionSpec is compatible with a materialization target,
+  // and return constraints over the projections of the collection.
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+  // Apply a CollectionSpec and selected Projections to a materialization target.
+  rpc Apply(ApplyRequest) returns (ApplyResponse);
+  // Fence inserts a transactional "write fence" boundary by fencing the caller
+  // ID encapsulated within a session, to the session's unique handle. Typically this
+  // is done by tying the caller ID to a unique session nonce in a transaction,
+  // or by increasing a epoch value of the caller ID.
+  //
+  // For example a RDBMS might use a "writers" table holding a caller ID key,
+  // a current session nonce, and a last checkpoint. The Fence RPC would update the
+  // nonce to the current session's unique value -- effectively "poisoning" transactions
+  // of prior sessions -- and return the checkpoint. Store RPCs must in turn verify
+  // their session nonce is still effective before committing a transaction.
+  //
+  // On return, it's guaranteed that no session previously fenced to the caller ID
+  // (now a "zombie" session) can commit transactions as part of Store RPCs which
+  // update documents or checkpoints. Fence returns the checkpoint last committed
+  // by this caller ID in a Store RPC.
+  //
+  // Fence is an *optional* API which is required for materialization targets that
+  // support end-to-end "exactly once" semantics. Stores which support only "at least once"
+  // semantics can implement Fence as a no-op, returning a zero-value FenceResponse.
+  rpc Fence(FenceRequest) returns (FenceResponse);
+  // Load one or more keyed collection documents from the materialization target.
+  // Flow guarantees that independent producers always load and store non-overlapping
+  // subsets of documents.
+  rpc Load(LoadRequest) returns (LoadResponse);
+  // Store one or more collection documents to a materialization target.
+  rpc Store(stream StoreRequest) returns (StoreResponse);
+}
+
+// SessionRequest is the request type of the StartSession RPC.
+message SessionRequest {
+  // Endpoint URL of the materialization system.
+  string endpoint_url = 1;
+  // Target name within the materialization system, where applicable.
+  // This could be a SQL schema & table, or a pub/sub topic, etc.
+  string target = 2;
+  // Stable ID of this caller, to bind to this session.
+  string caller_id = 3;
+}
+
+// SessionResponse is the response type of the StartSession RPC.
+message SessionResponse {
+  // Opaque session handle.
+  bytes handle = 1;
+}
+
+// ValidateRequest is the request type of the Validate RPC.
+message ValidateRequest {
+  // Opaque session handle.
+  bytes handle = 1;
+  // Collection to be materialized.
+  flow.CollectionSpec collection = 2;
+}
+
+// ValidateResponse is the response type of the Validate RPC.
+message ValidateResponse {
+  // Constraints over collection projections imposed by the Driver,
+  // keyed by the projection field name. Projections of the CollectionSpec
+  // which are missing from constraints are implicitly forbidden.
+  map<string, Constraint> constraints = 1;
+}
+
+// ApplyRequest is the request type of the Apply RPC.
+message ApplyRequest {
+  // Opaque session handle.
+  bytes handle = 1;
+  // Collection to be materialized.
+  flow.CollectionSpec collection = 2;
+  // Selected, ordered projection fields to be materialized,
+  // which satisfy the constraints returned by a prior ValidateResponse.
+  repeated string fields = 3;
+  // Is this Apply a dry-run? If so, no action is undertaken and Apply will
+  // report only what would have happened.
+  bool dry_run = 4;
+}
+
+// ApplyResponse is the response type of the Apply RPC.
+message ApplyResponse {
+  // Human-readable description of the action that the Driver took (or, if dry_run, would have taken).
+  // If empty, this Apply is to be considered a "no-op".
+  string action_description = 1;
+}
+
+// FenceRequest is the request type of a Fence RPC.
+message FenceRequest {
+  // Opaque session handle.
+  bytes handle = 1;
+  // Driver checkpoint which was last committed from a Store RPC.
+  // Or empty, if the Driver has never returned a checkpoint.
+  bytes driver_checkpoint = 2;
+}
+
+// FenceResponse is the response type of a Fence RPC.
+message FenceResponse {
+  // Flow checkpoint which was previously committed with this caller ID.
+  // Or nil, if unknown or transactional semantics are not supported.
+  bytes flow_checkpoint = 1;
+}
+
+// LoadRequest is the request type of the Load RPC.
+message LoadRequest {
+  // Opaque session handle.
+  bytes handle = 1;
+  // Byte arena of the request.
+  bytes arena = 2 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+  // Packed tuples of collection keys, enumerating the documents to load.
+  repeated flow.Slice packed_keys = 3;
+}
+
+// LoadRequest is the response type of the Load RPC.
+message LoadResponse {
+  // Byte arena of the request.
+  bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+  // Loaded JSON documents, 1:1 with keys of the LoadRequest.
+  // Documents which don't exist in the target are represented as an empty Slice.
+  repeated flow.Slice docs_json = 2;
+  // Always empty hint which, when set true, hints to Flow that it may skip future
+  // calls of the Load RPC for this handle, as they will always return an empty
+  // LoadResponse.
+  bool always_empty_hint = 3;
+}
+
+// StoreRequest is the request type of the Store RPC.
+message StoreRequest {
+  message Start {
+    // Opaque session handle.
+    bytes handle = 1;
+    // Projection fields to be stored. This repeats the selection and ordering
+    // of the last Apply RPC, but is provided here also as a convenience.
+    repeated string fields = 2;
+    // Checkpoint to write with this Store transaction, to be associated with
+    // the session's caller ID and to be returned by a future Fence RPC.
+    // This may be ignored if the Driver doesn't support exactly-once semantics.
+    bytes flow_checkpoint = 3;
+  }
+  Start start = 1;
+
+  message Continue {
+    // Byte arena of the request.
+    bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    // JSON documents.
+    repeated flow.Slice docs_json = 2;
+    // Packed tuples holding projection values for each document.
+    repeated flow.Slice packed_values = 3;
+    // Exists is true if this document previously been loaded or stored.
+    repeated bool exists = 4;
+  }
+  Continue continue = 2;
+}
+
+// StoreResponse is the response type of the Store RPC.
+message StoreResponse {
+	// Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
+	// within the same internal transaction which triggered this Store RPC,
+	// and will present the latest checkpoint to a future Fence RPC.
+	// This may be ignored if the Driver has no checkpoints.
+	bytes driver_checkpoint = 1;
+}
+
