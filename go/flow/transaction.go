@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"

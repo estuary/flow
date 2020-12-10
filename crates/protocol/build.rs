@@ -126,7 +126,7 @@ fn main() {
         proto_include[0].join("broker/protocol/protocol.proto"),
         proto_include[0].join("consumer/protocol/protocol.proto"),
         proto_include[0].join("consumer/recoverylog/recorded_op.proto"),
-        proto_include[3].join("go/protocol/flow.proto"),
+        proto_include[3].join("go/protocols/flow/flow.proto"),
     ];
 
     let mut builder = tonic_build::configure()

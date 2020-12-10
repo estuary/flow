@@ -9,7 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/golang/protobuf/ptypes/empty"
 	log "github.com/sirupsen/logrus"

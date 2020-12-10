@@ -11,7 +11,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	flowLabels "github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"

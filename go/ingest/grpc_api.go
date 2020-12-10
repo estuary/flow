@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/protocol/ext"
 )
 

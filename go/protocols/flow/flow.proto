@@ -1,14 +1,13 @@
 syntax = "proto3";
 
 package flow;
+option go_package = "github.com/estuary/flow/go/protocols/flow";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
 import "consumer/recoverylog/recorded_op.proto";
 import "ptypes/empty/empty.proto";
 import "gogoproto/gogo.proto";
-
-option go_package = "protocol";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
