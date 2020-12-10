@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"

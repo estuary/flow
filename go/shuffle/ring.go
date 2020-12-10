@@ -8,7 +8,7 @@ import (
 	"io"
 	"sync"
 
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"

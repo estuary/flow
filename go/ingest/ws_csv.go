@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 type fieldMapping struct {

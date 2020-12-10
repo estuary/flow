@@ -1,4 +1,4 @@
-package protocol
+package flow
 
 // GetProjectionByField finds the projection with the given field name, or nil if one does not exist
 func GetProjectionByField(field string, projections []*Projection) *Projection {

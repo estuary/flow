@@ -13,7 +13,7 @@ import (
 
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	pb "go.gazette.dev/core/broker/protocol"
 )

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/mvcc/mvccpb"
 	pb "go.gazette.dev/core/broker/protocol"

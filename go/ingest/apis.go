@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gorilla/mux"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/server"

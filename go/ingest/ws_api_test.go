@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
