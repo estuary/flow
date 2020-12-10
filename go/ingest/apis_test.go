@@ -8,7 +8,7 @@ import (
 	"go.gazette.dev/core/server"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"

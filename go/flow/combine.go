@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // Combine manages the lifecycle of a combine RPC.
