@@ -3,13 +3,17 @@ package bindings
 // #include "../../crates/bindings/flow_bindings.h"
 import "C"
 import (
-	pf "github.com/estuary/flow/go/protocol"
+	"fmt"
+
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
+// Extractor extracts UUIDs and packed field tuples from Documents.
 type Extractor struct {
 	svc    *service
 	uuids  []pf.UUIDParts
-	fields []pf.Field
+	tuples [][]byte
+	docs   int
 }
 
 // NewExtractor returns an instance of the Extractor service.
@@ -29,32 +33,37 @@ func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
 		return nil, err
 	}
 
-	var fields = make([]pf.Field, len(fieldPtrs))
-
 	return &Extractor{
 		svc:    svc,
 		uuids:  make([]pf.UUIDParts, 8),
-		fields: fields,
+		tuples: make([][]byte, 8),
+		docs:   0,
 	}, nil
 }
 
 // Document queues a document for extraction.
-func (e *Extractor) Document(doc []byte) { e.svc.sendBytes(1, doc) }
+func (e *Extractor) Document(doc []byte) {
+	e.svc.sendBytes(1, doc)
+	e.docs++
+}
 
-// Extract UUIDs and Fields from all documents queued since the last Extract.
-// The returned Arena, UUIDParts, and Fields are valid *only* until the next
-// call to Extract -- you *must* copy any []bytes referenced by a Field out
-// of Arena, before calling Extract again.
-func (e *Extractor) Extract() (pf.Arena, []pf.UUIDParts, []pf.Field, error) {
-	var arena, out, err = e.svc.poll()
+// Extract UUIDs and field tuples from all documents queued since the last Extract.
+// The returned UUIDParts and tuples are valid *only* until the next
+// call to Extract -- you *must* copy out before calling Extract again.
+func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
+	var _, out, err = e.svc.poll()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
+
+	// Sanity check we got two output frames per document, as we expect.
+	if len(out) != e.docs*2 {
+		panic(fmt.Sprintf("wrong number of output frames (%d != %d * 2)", len(out), e.docs))
+	}
+	e.docs = 0
 
 	e.uuids = e.uuids[:0]
-	for f := range e.fields {
-		e.fields[f].Values = e.fields[f].Values[:0]
-	}
+	e.tuples = e.tuples[:0]
 
 	for _, o := range out {
 		if o.code == 0 {
@@ -62,12 +71,8 @@ func (e *Extractor) Extract() (pf.Arena, []pf.UUIDParts, []pf.Field, error) {
 			e.svc.arena_decode(o, &uuid)
 			e.uuids = append(e.uuids, uuid)
 		} else {
-			var values = &e.fields[o.code-1].Values
-			var val pf.Field_Value
-			e.svc.arena_decode(o, &val)
-			*values = append(*values, val)
+			e.tuples = append(e.tuples, e.svc.arena_slice(o))
 		}
 	}
-
-	return arena, e.uuids, e.fields, nil
+	return e.uuids, e.tuples, nil
 }

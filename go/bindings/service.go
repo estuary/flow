@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"unsafe"
 
-	pf "github.com/estuary/flow/go/protocol"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // TODO(johnny): Other linker flags we'll probably need when we begin linking
