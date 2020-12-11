@@ -7,9 +7,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -28,11 +27,6 @@ import (
 func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
-
-	// Start a flow-worker to serve the extraction RPC.
-	wh, err := flow.NewWorkerHost("extract")
-	require.Nil(t, err)
-	defer wh.Stop()
 
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 
@@ -68,8 +62,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	}
 	var ranges = pf.RangeSpec{
 		// Observe only messages having {"a": 1}.
-		KeyBegin: encoding.EncodeUvarintAscending(nil, 1),
-		KeyEnd:   encoding.EncodeUvarintAscending(nil, 2),
+		KeyBegin: tuple.Tuple{1}.Pack(),
+		KeyEnd:   tuple.Tuple{2}.Pack(),
 		// Observe only even Clock values.
 		RClockBegin: 0,
 		RClockEnd:   1 << 63,
@@ -79,7 +73,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = NewCoordinator(apiCtx, bk.Client(), pf.NewExtractClient(wh.Conn))
+	var coordinator = NewCoordinator(apiCtx, bk.Client())
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
@@ -121,9 +115,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read from |replayStream| until EOF.
-	var actual = pf.ShuffleResponse{
-		ShuffleKey: make([]pf.Field, len(shuffle.ShuffleKeyPtr)),
-	}
+	var actual pf.ShuffleResponse
 	for {
 		var out, err = replayStream.Recv()
 		if err == io.EOF {
@@ -137,13 +129,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		actual.Begin = append(actual.Begin, out.Begin...)
 		actual.End = append(actual.End, out.End...)
 		actual.UuidParts = append(actual.UuidParts, out.UuidParts...)
-		actual.PackedKey = actual.Arena.AddAll(out.Arena.AllBytes(out.PackedKey...)...)
-
-		for k, kk := range out.ShuffleKey {
-			for _, vv := range kk.Values {
-				actual.ShuffleKey[k].AppendValue(&out.Arena, &actual.Arena, vv)
-			}
-		}
+		actual.PackedKey = append(actual.PackedKey, actual.Arena.AddAll(out.Arena.AllBytes(out.PackedKey...)...)...)
 	}
 
 	for doc, parts := range actual.UuidParts {
@@ -163,9 +149,9 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		require.Equal(t, 0, i%2)
 		require.Equal(t, parts.Pack(), record.Meta.UUID)
 
-		// Composite shuffle key components were extracted and accompany responses.
-		require.Equal(t, uint64(1), actual.ShuffleKey[0].Values[doc].Unsigned)
-		require.Equal(t, "0", string(actual.Arena.Bytes(actual.ShuffleKey[1].Values[doc].Bytes)))
+		// Composite shuffle key components were extracted and packed into response keys.
+		var expect = tuple.Tuple{1, "0"}.Pack()
+		require.Equal(t, expect, actual.Arena.Bytes(actual.PackedKey[doc]))
 	}
 	// We see 1/3 of key values, and a further 1/2 of those clocks.
 	require.Equal(t, 16, len(actual.DocsJson))

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -136,15 +136,8 @@ func TestDocumentExtraction(t *testing.T) {
 	var staged pf.ShuffleResponse
 	staged.DocsJson = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
 
-	require.Equal(t, &pf.ExtractRequest{
-		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n")),
-		DocsJson:  []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
-		UuidPtr:   pf.DocumentUUIDPointer,
-		FieldPtrs: []string{"/foo", "/bar"},
-	}, r.buildExtractRequest(&staged))
-
 	// Case: extraction fails.
-	r.onExtract(&staged, nil, fmt.Errorf("an error"))
+	r.onExtract(&staged, nil, nil, fmt.Errorf("an error"))
 	require.Equal(t, pf.ShuffleResponse{
 		Arena:         pf.Arena([]byte("doc-1\ndoc-2\n")),
 		DocsJson:      []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
@@ -155,67 +148,48 @@ func TestDocumentExtraction(t *testing.T) {
 	// Case: extraction succeeds, with two documents having a single field.
 	// Expect shuffling decisions are made & attached to documents.
 	// The response Arena was extended with field bytes.
-	var fixture = pf.ExtractResponse{
-		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
+	var uuids = []pf.UUIDParts{{Clock: 123}, {Clock: 456}}
+	var fields = [][]byte{
+		tuple.Tuple{uint64(42)}.Pack(),
+		tuple.Tuple{"some-string"}.Pack(),
 	}
-	fixture.Fields = []pf.Field{{Values: []pf.Field_Value{
-		{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-		{Kind: pf.Field_Value_STRING, Bytes: fixture.Arena.Add([]byte("some-string"))},
-	}}}
-	r.onExtract(&staged, &fixture, nil)
+	r.onExtract(&staged, uuids, fields, nil)
 
 	require.Equal(t, pf.ShuffleResponse{
-		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n\262some-string\022some-string\000\001")),
+		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n\025*\002some-string\000")),
 		DocsJson:  []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
-		PackedKey: []pf.Slice{{Begin: 12, End: 13}, {Begin: 24, End: 38}},
-		ShuffleKey: []pf.Field{
-			{Values: []pf.Field_Value{
-				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-				{Kind: pf.Field_Value_STRING, Bytes: pf.Slice{Begin: 13, End: 24}},
-			}}},
+		PackedKey: []pf.Slice{{Begin: 12, End: 14}, {Begin: 14, End: 27}},
 	}, staged)
 
 	// Case: extraction succeeds with a single document having multiple fields,
 	// which also cover all possible field types.
 	staged = pf.ShuffleResponse{}
-	fixture = pf.ExtractResponse{
-		UuidParts: []pf.UUIDParts{{Clock: 123}},
-	}
-	fixture.Fields = []pf.Field{
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_NULL}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_TRUE}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_FALSE}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_SIGNED, Signed: -35}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_DOUBLE, Double: 3.141}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_STRING, Bytes: fixture.Arena.Add([]byte("str"))}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_OBJECT, Bytes: fixture.Arena.Add([]byte("obj"))}}},
-		{Values: []pf.Field_Value{{Kind: pf.Field_Value_ARRAY, Bytes: fixture.Arena.Add([]byte("arr"))}}},
-	}
-	r.onExtract(&staged, &fixture, nil)
+	uuids = []pf.UUIDParts{{Clock: 123}}
 
-	var b []byte
-	b = encoding.EncodeNullAscending(b)
-	b = encoding.EncodeTrueAscending(b)
-	b = encoding.EncodeFalseAscending(b)
-	b = encoding.EncodeUvarintAscending(b, 42)
-	b = encoding.EncodeVarintAscending(b, -35)
-	b = encoding.EncodeFloatAscending(b, 3.141)
-	b = encoding.EncodeBytesAscending(b, []byte("str"))
-	b = encoding.EncodeBytesAscending(b, []byte("obj"))
-	b = encoding.EncodeBytesAscending(b, []byte("arr"))
+	fields = [][]byte{tuple.Tuple{
+		nil,
+		true,
+		false,
+		42,
+		-35,
+		3.141,
+		"str",
+		[]byte(`{"k":"v"}`),
+		[]byte("[null]"),
+	}.Pack()}
+	r.onExtract(&staged, uuids, fields, nil)
 
-	require.Equal(t, b, staged.Arena.Bytes(staged.PackedKey[0]))
+	var expect = []byte("\x00'&\x15*\x13\xdc!\xc0\t ě\xa5\xe3T\x02str\x00\x01{\"k\":\"v\"}\x00\x01[null]\x00")
+	require.Equal(t, expect, staged.Arena.Bytes(staged.PackedKey[0]))
 
 	// Case: again, but this time expect an MD5 is returned.
 	r.shuffle.Hash = pf.Shuffle_MD5
 	staged = pf.ShuffleResponse{}
-	r.onExtract(&staged, &fixture, nil)
+	r.onExtract(&staged, uuids, fields, nil)
 
-	b = encoding.EncodeBytesAscending(nil,
-		[]byte{0x5d, 0x4b, 0xc1, 0x53, 0x5, 0xa5, 0x60, 0x15, 0x6c, 0xa3, 0x96, 0x50, 0xde, 0xd4, 0x4b, 0x2d})
-	require.Equal(t, b, staged.Arena.Bytes(staged.PackedKey[0]))
+	expect = []byte("\x01)@\xb8g蝑D\x13\xe8\r֓b\x1d\xe9\x00")
+	require.Equal(t, expect, staged.Arena.Bytes(staged.PackedKey[0]))
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

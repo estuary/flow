@@ -26,14 +26,6 @@ func simpleResponseFixture() pf.ShuffleResponse {
 	}
 	resp.DocsJson = resp.Arena.AddAll([]byte("content"))
 	resp.PackedKey = resp.Arena.AddAll([]byte("bb-cc-key"))
-	resp.ShuffleKey = []pf.Field{
-		{Values: []pf.Field_Value{
-			{Kind: pf.Field_Value_STRING, Bytes: resp.Arena.Add([]byte("a-str"))},
-		}},
-		{Values: []pf.Field_Value{
-			{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
-		}},
-	}
 	return resp
 }
 

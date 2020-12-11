@@ -8,14 +8,14 @@ import (
 	"io"
 	"sync"
 
+	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
-	"google.golang.org/grpc/status"
 )
 
 // Coordinator collects a set of rings servicing ongoing shuffle reads,
@@ -23,34 +23,36 @@ import (
 type Coordinator struct {
 	ctx context.Context
 	rjc pb.RoutedJournalClient
-	ec  pf.ExtractClient
 
 	rings map[*ring]struct{}
 	mu    sync.Mutex
 }
 
 // NewCoordinator returns a new *Coordinator using the given clients.
-func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, ec pf.ExtractClient) *Coordinator {
+func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient) *Coordinator {
 	return &Coordinator{
 		ctx:   ctx,
 		rjc:   rjc,
-		ec:    ec,
 		rings: make(map[*ring]struct{}),
 	}
 }
 
-func (c *Coordinator) subscribe(sub subscriber) {
+func (c *Coordinator) subscribe(sub subscriber) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for ring := range c.rings {
 		if ring.shuffle.Equal(sub.Shuffle) {
 			ring.subscriberCh <- sub
-			return
+			return nil
 		}
 	}
 
 	// We must create a new ring.
+	var ex, err = bindings.NewExtractor(pf.DocumentUUIDPointer, sub.Shuffle.ShuffleKeyPtr)
+	if err != nil {
+		return fmt.Errorf("failed to start ring extractor: %w", err)
+	}
 	var ctx, cancel = context.WithCancel(c.ctx)
 
 	var ring = &ring{
@@ -63,9 +65,10 @@ func (c *Coordinator) subscribe(sub subscriber) {
 	c.rings[ring] = struct{}{}
 
 	ring.log().Info("starting shuffle ring service")
-	go ring.serve()
+	go ring.serve(ex)
 
 	ring.subscriberCh <- sub
+	return nil
 }
 
 // Ring coordinates a read over a single journal on behalf of a
@@ -104,17 +107,20 @@ func (r *ring) onSubscribe(sub subscriber) {
 	go readDocuments(r.ctx, r.coordinator.rjc, *rr, readCh)
 }
 
-func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
+func (r *ring) onRead(staged pf.ShuffleResponse, ok bool, ex *bindings.Extractor) {
 	if !ok {
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
 		return
 	}
 
-	if l := len(staged.End); l != 0 {
+	if len(staged.DocsJson) != 0 {
 		// Extract from staged documents.
-		var extract, err = r.coordinator.ec.Extract(r.ctx, r.buildExtractRequest(&staged))
-		r.onExtract(&staged, extract, err)
+		for _, d := range staged.DocsJson {
+			ex.Document(staged.Arena.Bytes(d))
+		}
+		var uuids, fields, err = ex.Extract()
+		r.onExtract(&staged, uuids, fields, err)
 	}
 
 	// Stage responses for subscribers, and send.
@@ -127,65 +133,34 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool) {
 	}
 }
 
-func (r *ring) buildExtractRequest(staged *pf.ShuffleResponse) *pf.ExtractRequest {
-	return &pf.ExtractRequest{
-		Arena:     staged.Arena,
-		DocsJson:  staged.DocsJson,
-		UuidPtr:   pf.DocumentUUIDPointer,
-		FieldPtrs: r.shuffle.ShuffleKeyPtr,
-	}
-}
-
-func (r *ring) onExtract(staged *pf.ShuffleResponse, extract *pf.ExtractResponse, err error) {
+func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packedKeys [][]byte, err error) {
 	if err != nil {
-		var description string
-		if s, ok := status.FromError(err); ok {
-			description = fmt.Sprintf("flow-worker: %s: %s", s.Code(), s.Message())
-		} else {
-			description = err.Error()
-		}
-
 		if staged.TerminalError == "" {
-			staged.TerminalError = description
+			staged.TerminalError = err.Error()
 		}
-		log.WithField("err", err).Error("failed to extract hashes")
+		log.WithField("err", err).Error("failed to extract from documents")
 		return
 	}
 
-	staged.PackedKey = make([]pf.Slice, 0, len(extract.UuidParts))
-	var packed []byte
-
-	for doc := range extract.UuidParts {
-		packed = packed[:0]
-
-		for _, v := range extract.Fields {
-			var vv = v.Values[doc]
-			packed = vv.EncodePacked(packed, extract.Arena)
-
-			// Update field Bytes from extract.Arena to staged.Arena|.
-			switch vv.Kind {
-			case pf.Field_Value_STRING, pf.Field_Value_OBJECT, pf.Field_Value_ARRAY:
-				v.Values[doc].Bytes = staged.Arena.Add(extract.Arena.Bytes(vv.Bytes))
-			}
-		}
-
+	staged.PackedKey = make([]pf.Slice, len(packedKeys))
+	for i, packed := range packedKeys {
 		switch r.shuffle.Hash {
 		case pf.Shuffle_NONE:
-			// No-op.
+			staged.PackedKey[i] = staged.Arena.Add(packed)
+
 		case pf.Shuffle_MD5:
 			var h = md5.New()
 			h.Write(packed)
-			packed = encoding.EncodeBytesAscending(packed[:0], h.Sum(nil))
-		}
+			var sum = h.Sum(nil)
 
-		staged.PackedKey = append(staged.PackedKey, staged.Arena.Add(packed))
+			staged.PackedKey[i] = staged.Arena.Add(tuple.Tuple{sum}.Pack())
+		}
 	}
 
-	staged.UuidParts = extract.UuidParts
-	staged.ShuffleKey = extract.Fields
+	staged.UuidParts = uuids
 }
 
-func (r *ring) serve() {
+func (r *ring) serve(ex *bindings.Extractor) {
 loop:
 	for {
 		var readCh chan pf.ShuffleResponse
@@ -197,7 +172,7 @@ loop:
 		case sub := <-r.subscriberCh:
 			r.onSubscribe(sub)
 		case resp, ok := <-readCh:
-			r.onRead(resp, ok)
+			r.onRead(resp, ok, ex)
 		case <-r.ctx.Done():
 			break loop
 		}
