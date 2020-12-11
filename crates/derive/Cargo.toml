@@ -10,6 +10,7 @@ doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 serve = { path = "../serve", version = "0.0.0" }
+tuple = { path = "../tuple", version = "0.0.0" }
 
 futures = "*"
 http = "*"
