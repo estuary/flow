@@ -44,7 +44,6 @@ var _ Application = (*Derive)(nil)
 func NewDeriveApp(
 	service *consumer.Service,
 	journals *keyspace.KeySpace,
-	extractor *flow.WorkerHost,
 	shard consumer.Shard,
 	rec *recoverylog.Recorder,
 ) (*Derive, error) {
@@ -107,8 +106,7 @@ func NewDeriveApp(
 		return nil, fmt.Errorf("starting derive flow-worker: %w", err)
 	}
 
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(),
-		pf.NewExtractClient(extractor.Conn))
+	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient())
 
 	return &Derive{
 		delegate:    delegate,
