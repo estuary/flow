@@ -36,7 +36,6 @@ type config struct {
 type Flow struct {
 	service   *consumer.Service
 	journals  *keyspace.KeySpace
-	extractor *flow.WorkerHost
 	timepoint struct {
 		now *flow.Timepoint
 		mu  sync.Mutex
@@ -59,9 +58,9 @@ func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consum
 	}
 
 	if isMaterialize {
-		return runtime.NewMaterializeApp(f.service, f.journals, f.extractor, shard, rec)
+		return runtime.NewMaterializeApp(f.service, f.journals, shard, rec)
 	}
-	return runtime.NewDeriveApp(f.service, f.journals, f.extractor, shard, rec)
+	return runtime.NewDeriveApp(f.service, f.journals, shard, rec)
 }
 
 // NewMessage panics if called.
@@ -154,11 +153,6 @@ func (f *Flow) ClearRegisters(ctx context.Context, req *pf.ClearRegistersRequest
 func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 	var config = *args.Config.(*config)
 
-	// Start shared extraction worker.
-	var extractor, err = flow.NewWorkerHost("extract")
-	if err != nil {
-		return fmt.Errorf("starting extraction worker: %w", err)
-	}
 	// Load journals keyspace, and queue a task which will watch for updates.
 	journals, err := flow.NewJournalsKeySpace(args.Tasks.Context(), args.Service.Etcd, config.Flow.BrokerRoot)
 	if err != nil {
@@ -181,7 +175,6 @@ func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 
 	f.service = args.Service
 	f.journals = journals
-	f.extractor = extractor
 	f.timepoint.now = flow.NewTimepoint(time.Now())
 
 	// Start a ticker of the shared *Timepoint.
@@ -200,8 +193,4 @@ func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 func main() {
 	var flow = new(Flow)
 	runconsumer.Main(flow)
-
-	if flow.extractor != nil {
-		_ = flow.extractor.Stop()
-	}
 }

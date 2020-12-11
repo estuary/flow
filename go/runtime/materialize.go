@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
-	cache "github.com/hashicorp/golang-lru"
 	log "github.com/sirupsen/logrus"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -24,9 +24,9 @@ import (
 // MaterializeTransaction wraps the transaction from the target system and also holds the Combine
 // stream and the set of keys that have been observed in this transaction.
 type MaterializeTransaction struct {
-	storeTransaction           materialize.TargetTransaction
-	combine                    *flow.Combine
-	observedDocumentPackedKeys map[string]int
+	storeTxn  materialize.TargetTransaction
+	combine   *flow.Combine
+	keyCounts map[string]int
 }
 
 // Materialize is an Application implementation that materializes a view of a collection into a
@@ -34,21 +34,19 @@ type MaterializeTransaction struct {
 // Shard. This delegates to a MaterializationTarget, which implements the consumer.Store interface,
 // for all of the communication with the remote system.
 type Materialize struct {
-	materializationName string
-	delegate            *flow.WorkerHost
-	readBuilder         *shuffle.ReadBuilder
-	coordinator         *shuffle.Coordinator
-	collectionSpec      *pf.CollectionSpec
-	documentCache       *cache.Cache
-	targetStore         materialize.Target
-	transacton          *MaterializeTransaction
+	name           string
+	delegate       *flow.WorkerHost
+	readBuilder    *shuffle.ReadBuilder
+	coordinator    *shuffle.Coordinator
+	collectionSpec *pf.CollectionSpec
+	targetStore    materialize.Target
+	txn            *MaterializeTransaction
 }
 
 // NewMaterializeApp returns a new Materialize, which implements Application
 func NewMaterializeApp(
 	service *consumer.Service,
 	journals *keyspace.KeySpace,
-	extractor *flow.WorkerHost,
 	shard consumer.Shard,
 	_ *recoverylog.Recorder,
 ) (*Materialize, error) {
@@ -129,15 +127,8 @@ func NewMaterializeApp(
 		return nil, fmt.Errorf("starting materialization flow-worker: %w", err)
 	}
 
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(),
-		pf.NewExtractClient(extractor.Conn))
+	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient())
 
-	// There's lots of room to optimize the size/characteristics of the cache, but we're ignoring all
-	// that for now and just using a reasonable limit on the total number of entries.
-	cache, err := cache.New(1)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize materialization document cache: %w", err)
-	}
 	log.WithFields(log.Fields{
 		"collection":            collectionName,
 		"materializationTarget": targetName,
@@ -149,9 +140,8 @@ func NewMaterializeApp(
 		readBuilder:    readBuilder,
 		coordinator:    coordinator,
 		collectionSpec: &collectionSpec,
-		documentCache:  cache,
 		targetStore:    targetStore,
-		transacton:     nil,
+		txn:            nil,
 	}, nil
 }
 
@@ -159,21 +149,21 @@ func NewMaterializeApp(
 var _ consumer.Store = (*Materialize)(nil)
 
 // StartCommit implements consumer.Store.StartCommit
-func (materialize *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	return materialize.targetStore.StartCommit(shard, checkpoint, waitFor)
+func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+	return m.targetStore.StartCommit(shard, checkpoint, waitFor)
 }
 
 // RestoreCheckpoint implements consumer.Store.RestoreCheckpoint
-func (materialize *Materialize) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
-	return materialize.targetStore.RestoreCheckpoint(shard)
+func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
+	return m.targetStore.RestoreCheckpoint(shard)
 }
 
 // Destroy implements consumer.Store.Destroy
-func (materialize *Materialize) Destroy() {
+func (m *Materialize) Destroy() {
 	// `self` will be null if the initialization returned an error, so we check here to avoid
 	// polluting the logs.
-	if materialize != nil {
-		materialize.targetStore.Destroy()
+	if m != nil {
+		m.targetStore.Destroy()
 	}
 }
 
@@ -181,34 +171,34 @@ func (materialize *Materialize) Destroy() {
 var _ shuffle.Store = (*Materialize)(nil)
 
 // Coordinator implements shuffle.Store.Coordinator
-func (materialize *Materialize) Coordinator() *shuffle.Coordinator {
-	return materialize.coordinator
+func (m *Materialize) Coordinator() *shuffle.Coordinator {
+	return m.coordinator
 }
 
 // Implementing runtime.Application for Materialize
 var _ Application = (*Materialize)(nil)
 
 // BuildHints implements Application.BuildHints
-func (materialize *Materialize) BuildHints() (recoverylog.FSMHints, error) {
+func (m *Materialize) BuildHints() (recoverylog.FSMHints, error) {
 	// This is a no-op since we aren't using a recover log
 	return recoverylog.FSMHints{}, nil
 }
 
 // BeginTxn implements Application.BeginTxn
-func (materialize *Materialize) BeginTxn(shard consumer.Shard) error {
-	if materialize.transacton != nil {
+func (m *Materialize) BeginTxn(shard consumer.Shard) error {
+	if m.txn != nil {
 		return fmt.Errorf("BeginTxn called while a transaction was already in progress")
 	}
 	log.WithFields(log.Fields{
-		"collection":      materialize.collectionSpec.Name.String(),
-		"materialization": materialize.materializationName,
+		"collection":      m.collectionSpec.Name.String(),
+		"materialization": m.name,
 	}).Debug("Starting new transaction")
-	tx, err := materialize.targetStore.BeginTxn(shard.Context())
+	tx, err := m.targetStore.BeginTxn(shard.Context())
 	if err != nil {
 		return err
 	}
 
-	combine, err := flow.NewCombine(shard.Context(), pf.NewCombineClient(materialize.delegate.Conn), materialize.collectionSpec)
+	combine, err := flow.NewCombine(shard.Context(), pf.NewCombineClient(m.delegate.Conn), m.collectionSpec)
 	if err != nil {
 		return err
 	}
@@ -217,68 +207,69 @@ func (materialize *Materialize) BeginTxn(shard consumer.Shard) error {
 	// This would *not* carry over to materializations into streams.
 	const prune = true
 
-	if err = combine.Open(materialize.targetStore.ProjectionPointers(), prune); err != nil {
-		return fmt.Errorf("while sending RPC open %q: %w", materialize.collectionSpec.Name, err)
+	if err = combine.Open(m.targetStore.ProjectionPointers(), prune); err != nil {
+		return fmt.Errorf("while sending RPC open %q: %w", m.collectionSpec.Name, err)
 	}
-	materialize.transacton = &MaterializeTransaction{
-		storeTransaction:           tx,
-		combine:                    combine,
-		observedDocumentPackedKeys: make(map[string]int),
+	m.txn = &MaterializeTransaction{
+		storeTxn:  tx,
+		combine:   combine,
+		keyCounts: make(map[string]int),
 	}
 	return nil
 }
 
 // ConsumeMessage implements Application.ConsumeMessage
-func (materialize *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
-	if materialize.transacton == nil {
-		return fmt.Errorf("ConsumeMessage called without any transaction in progress")
+func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
+	if m.txn == nil {
+		panic("ConsumeMessage called with nil transaction")
 	}
 
-	shuffleResponse := envelope.Message.(pf.IndexedShuffleResponse)
-	if len(shuffleResponse.TerminalError) > 0 {
-		return fmt.Errorf("Terminal Error on shuffled read: %s", shuffleResponse.TerminalError)
-	}
+	var doc = envelope.Message.(pf.IndexedShuffleResponse)
 
-	var flags = message.GetFlags(shuffleResponse.GetUUID())
+	var flags = message.GetFlags(doc.GetUUID())
 	if flags == message.Flag_ACK_TXN {
 		return nil // We just ignore the ACK documents.
 	}
 
 	log.WithFields(log.Fields{
-		"collection":      materialize.collectionSpec.Name.String(),
-		"materialization": materialize.materializationName,
+		"collection":      m.collectionSpec.Name.String(),
+		"materialization": m.name,
 		"messageUuid":     envelope.GetUUID(),
 	}).Debug("on ConsumeMessage")
 
-	packedShuffleKey := extractPackedKey(shuffleResponse)
+	var key = doc.Arena.Bytes(doc.PackedKey[doc.Index])
 
 	// We need to check if we've added the existing document to the Combine already. If not,
 	// then we'll fetch the existing document (either from cache or the materialization
-	// database) and add that to the Combine. The "packed" shuffle key, represented as a string,
-	// is used as the key for the cache and the hashmap of ovserved document ids. This is
-	// because go doesn't allow `[]interface{}` to be used as a map key.
-	if _, isPresent := materialize.transacton.observedDocumentPackedKeys[packedShuffleKey]; !isPresent {
-		primaryKeys, err := extractFields(shuffleResponse.Index, shuffleResponse.ShuffleKey, shuffleResponse.Arena)
+	// database) and add that to the Combine. The "packed" shuffle key is used to key the cache
+	// and map of observed documents.
+	// NOTE: use string(key) to avoid allocation if the map key already exists.
+	if _, isPresent := m.txn.keyCounts[string(key)]; !isPresent {
+		var keyTuple, err = tuple.Unpack(key)
 		if err != nil {
-			return fmt.Errorf("Failed to extract primary keys from document: %w", err)
+			return fmt.Errorf("failed to unpack key tuple: %w", err)
 		}
-		existingDocument, err := materialize.fetchExistingDocument(packedShuffleKey, primaryKeys)
+
+		var keyIface = make([]interface{}, len(keyTuple))
+		for i := range keyTuple {
+			keyIface[i] = keyTuple[i]
+		}
+
+		fetched, err := m.txn.storeTxn.FetchExistingDocument(keyIface)
 		if err != nil {
-			return fmt.Errorf("Failed to fetch existing document for keys: %v: %w", primaryKeys, err)
+			return fmt.Errorf("Failed to fetch existing document (key %v): %w", keyTuple, err)
 		}
-		if len(existingDocument) > 0 {
-			err = materialize.transacton.combine.Add(existingDocument)
-			if err != nil {
+
+		if len(fetched) > 0 {
+			if err = m.txn.combine.Add(fetched); err != nil {
 				return fmt.Errorf("Failed to add existing document to combine RPC: %w", err)
 			}
 		}
 	}
-	materialize.transacton.observedDocumentPackedKeys[packedShuffleKey]++
+	m.txn.keyCounts[string(key)]++
 
-	sliceRange := shuffleResponse.DocsJson[shuffleResponse.Index]
-	bytes := shuffleResponse.Arena.Bytes(sliceRange)
-	err := materialize.transacton.combine.Add(json.RawMessage(bytes))
-	if err != nil {
+	var docBytes = json.RawMessage(doc.Arena.Bytes(doc.DocsJson[doc.Index]))
+	if err := m.txn.combine.Add(json.RawMessage(docBytes)); err != nil {
 		return fmt.Errorf("Failed to add new document to combine RPC: %w", err)
 	}
 
@@ -286,13 +277,13 @@ func (materialize *Materialize) ConsumeMessage(shard consumer.Shard, envelope me
 }
 
 // FinalizeTxn implements Application.FinalizeTxn
-func (materialize *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
-	if materialize.transacton == nil {
+func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
+	if m.txn == nil {
 		return fmt.Errorf("FinalizeTxn called without any transaction in progress")
 	}
 	var totalKeys int
 	var totalDocuments int
-	for _, v := range materialize.transacton.observedDocumentPackedKeys {
+	for _, v := range m.txn.keyCounts {
 		totalKeys++
 		totalDocuments += v
 	}
@@ -302,57 +293,57 @@ func (materialize *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.P
 		"observedDocuments": totalDocuments,
 	}).Debug("on FinalizeTxn")
 
-	if err := materialize.transacton.combine.CloseSend(); err != nil {
+	if err := m.txn.combine.CloseSend(); err != nil {
 		return fmt.Errorf("Failed to flush Combine RPC: %w", err)
 	}
-	return materialize.transacton.combine.Finish(materialize.updateDatabase)
+	return m.txn.combine.Finish(m.updateDatabase)
 }
 
 // FinishedTxn implements Application.FinishedTxn
-func (materialize *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
+func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
 	log.WithFields(log.Fields{
 		"shard": shard.Spec().Labels,
 	}).Debug("on FinishedTxn")
 
-	// Block for commit of previous transaction.
+	// TODO(johnny): Block for commit of this transaction, before we start the next.
 	// This is a dirty, dirty hack to avoid issues with the serialization of
 	// otherwise pipelined transactions.
 	<-op.Done()
 
-	materialize.transacton = nil
+	m.txn = nil
 }
 
 // StartReadingMessages implements Application.StartReadingMessages
-func (materialize *Materialize) StartReadingMessages(shard consumer.Shard, checkpoint pc.Checkpoint, tp *flow.Timepoint, channel chan<- consumer.EnvelopeOrError) {
+func (m *Materialize) StartReadingMessages(shard consumer.Shard, checkpoint pc.Checkpoint, tp *flow.Timepoint, channel chan<- consumer.EnvelopeOrError) {
 	log.WithFields(log.Fields{
 		"shard":      shard.Spec().Labels,
 		"checkpoint": checkpoint,
 	}).Debug("Starting to Read Messages")
-	shuffle.StartReadingMessages(shard.Context(), materialize.readBuilder, checkpoint, tp, channel)
+	shuffle.StartReadingMessages(shard.Context(), m.readBuilder, checkpoint, tp, channel)
 }
 
 // ReadThrough delegates to shuffle.ReadThrough
-func (materialize *Materialize) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
-	return materialize.readBuilder.ReadThrough(offsets)
+func (m *Materialize) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
+	return m.readBuilder.ReadThrough(offsets)
 }
 
 // ReplayRange delegates to shuffle's StartReplayRead.
-func (materialize *Materialize) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
-	return materialize.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
+func (m *Materialize) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
+	return m.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
 }
 
 // ClearRegisters returns a "not implemented" error.
-func (materialize *Materialize) ClearRegisters(context.Context, *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
+func (m *Materialize) ClearRegisters(context.Context, *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
 	return new(pf.ClearRegistersResponse), fmt.Errorf("not implemented")
 }
 
 // Called for each document in the Combine RPC response, after all documents have been added for
 // this transaction.
-func (materialize *Materialize) updateDatabase(icr pf.IndexedCombineResponse) error {
+func (m *Materialize) updateDatabase(icr pf.IndexedCombineResponse) error {
 	docIndex := icr.Index
 	log.WithFields(log.Fields{
-		"collection":      materialize.collectionSpec.Name.String(),
-		"materialization": materialize.materializationName,
+		"collection":      m.collectionSpec.Name.String(),
+		"materialization": m.name,
 		"docIndex":        icr.Index,
 	}).Debug("Updating database")
 	extractedFields, err := extractFields(docIndex, icr.Fields, icr.Arena)
@@ -364,45 +355,13 @@ func (materialize *Materialize) updateDatabase(icr pf.IndexedCombineResponse) er
 	// extracted. This is all dependent on the order
 	var documentJSON = icr.Arena.Bytes(icr.DocsJson[docIndex])
 
-	err = materialize.transacton.storeTransaction.Store(extractedFields, documentJSON)
+	err = m.txn.storeTxn.Store(extractedFields, documentJSON)
 	if err != nil {
 		return fmt.Errorf("Failed to store document: %w", err)
 	}
 	log.Debugf("Successfully updated database for document %d", docIndex)
 
-	// TODO(johnny): Disabel cache for now, until we're more certain of it's correctness.
-	//packedKey := self.getPackedKey(icr)
-	//self.documentCache.Add(packedKey, json.RawMessage(documentJson))
 	return nil
-}
-
-func (materialize *Materialize) fetchExistingDocument(packedPrimaryKey string, primaryKeys []interface{}) (json.RawMessage, error) {
-	var documentJSON json.RawMessage
-	var rawDocument, exists = materialize.documentCache.Get(packedPrimaryKey)
-	if exists {
-		documentJSON = rawDocument.(json.RawMessage)
-	} else {
-		var fetched, err = materialize.transacton.storeTransaction.FetchExistingDocument(primaryKeys)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to retrieve existing document: %w", err)
-		}
-		documentJSON = fetched
-	}
-	return documentJSON, nil
-}
-
-func (materialize *Materialize) getPackedKey(icr pf.IndexedCombineResponse) string {
-	var packedBytes []byte
-	for _, i := range materialize.targetStore.PrimaryKeyFieldIndexes() {
-		icr.Fields[i].Values[icr.Index].EncodePacked(packedBytes, icr.Arena)
-	}
-	return string(packedBytes)
-}
-
-func extractPackedKey(shuffleResponse pf.IndexedShuffleResponse) string {
-	byteRange := shuffleResponse.PackedKey[shuffleResponse.Index]
-	keyBytes := shuffleResponse.Arena[byteRange.Begin:byteRange.End]
-	return string(keyBytes)
 }
 
 func extractFields(documentIndex int, fields []pf.Field, arena pf.Arena) ([]interface{}, error) {
