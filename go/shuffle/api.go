@@ -67,7 +67,16 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 		sendCtx: stream.Context(),
 		doneCh:  doneCh,
 	}
-	coordinator.subscribe(sub)
+
+	if err = coordinator.subscribe(sub); err != nil {
+		log.WithFields(log.Fields{
+			"err":     err,
+			"journal": req.Shuffle.Journal,
+			"range":   req.Range,
+		}).Warn("failed to subscribe the shuffle client")
+
+		return err
+	}
 
 	// Block for a long time, while the subscription runs.
 	err = <-doneCh

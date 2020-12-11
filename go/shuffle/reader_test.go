@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -60,11 +60,6 @@ func TestConsumerIntegration(t *testing.T) {
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start a flow-worker to serve the extraction RPC.
-	wh, err := flow.NewWorkerHost("extract")
-	require.Nil(t, err)
-	defer wh.Stop()
-
 	// Start broker, with journal fixtures.
 	var journalSpecs []*pb.JournalSpec
 	for _, name := range sourcePartitions {
@@ -102,6 +97,7 @@ func TestConsumerIntegration(t *testing.T) {
 
 		// Half of published messages are immediately-committed.
 		// Second half are transactional and require an ACK.
+		var err error
 		if i < N/2 {
 			_, err = pub.PublishCommitted(mapping, msg)
 		} else {
@@ -110,9 +106,7 @@ func TestConsumerIntegration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Build expected packed shuffle key.
-		var k = encoding.EncodeStringAscending(
-			encoding.EncodeUvarintAscending(nil, uint64(msg.High)),
-			msg.Low)
+		var k = tuple.Tuple{msg.High, msg.Low}.Pack()
 		expect[hex.EncodeToString(k)]++
 	}
 
@@ -128,7 +122,6 @@ func TestConsumerIntegration(t *testing.T) {
 			Journals: broker.Client(),
 			App: &testApp{
 				journals:   journals,
-				workerHost: wh,
 				transforms: transforms,
 			},
 		})
@@ -154,8 +147,8 @@ func TestConsumerIntegration(t *testing.T) {
 			MaxTxnDuration:    time.Second,
 			LabelSet: pb.MustLabelSet(
 				flowLabels.Derivation, "derived-bar",
-				flowLabels.KeyBegin, hex.EncodeToString(encoding.EncodeUvarintAscending(nil, uint64((i+0)*step))),
-				flowLabels.KeyEnd, hex.EncodeToString(encoding.EncodeUvarintAscending(nil, uint64((i+1)*step))),
+				flowLabels.KeyBegin, hex.EncodeToString(tuple.Tuple{(i + 0) * step}.Pack()),
+				flowLabels.KeyEnd, hex.EncodeToString(tuple.Tuple{(i + 1) * step}.Pack()),
 				flowLabels.RClockBegin, "0000000000000000",
 				flowLabels.RClockEnd, "ffffffffffffffff",
 			),
@@ -238,7 +231,6 @@ func TestConsumerIntegration(t *testing.T) {
 type testApp struct {
 	service    *consumer.Service
 	journals   *keyspace.KeySpace
-	workerHost *flow.WorkerHost
 	transforms []pf.TransformSpec
 }
 
@@ -262,8 +254,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		return nil, err
 	}
 
-	var coordinator = NewCoordinator(shard.Context(), shard.JournalClient(),
-		pf.NewExtractClient(a.workerHost.Conn))
+	var coordinator = NewCoordinator(shard.Context(), shard.JournalClient())
 
 	return &testStore{
 		JSONFileStore: store,

@@ -310,9 +310,6 @@ message ShuffleResponse {
   // Packed, embedded encoding of the shuffle key into a byte string.
   // If the Shuffle specified a Hash to use, it's applied as well.
   repeated Slice packed_key = 11 [ (gogoproto.nullable) = false ];
-  // Extracted shuffle key of each document, with one Field for each
-  // component of the composite shuffle key.
-  repeated Field shuffle_key = 12 [ (gogoproto.nullable) = false ];
 }
 
 service Shuffler {
