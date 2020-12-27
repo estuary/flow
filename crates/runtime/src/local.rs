@@ -1,5 +1,7 @@
-use super::Cluster;
+use crate::cluster::{self, Cluster};
+
 use futures::stream::{Stream, StreamExt, TryStreamExt};
+use protocol::{consumer, protocol as broker};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -23,6 +25,10 @@ pub enum Error {
     IO(#[from] std::io::Error),
     #[error("task join error")]
     Join(#[from] tokio::task::JoinError),
+    #[error("cluster RPC error")]
+    Cluster(#[from] cluster::Error),
+    #[error("system error")]
+    Nix(#[from] nix::Error),
 }
 
 impl Local {
@@ -184,13 +190,47 @@ impl Local {
     pub async fn stop(mut self) -> Result<(), Error> {
         log::info!("stopping local runtime");
 
+        // Remove all ShardSpecs.
+        let shards = self.cluster.list_shards(None).await?;
+        let req = consumer::ApplyRequest {
+            changes: shards
+                .shards
+                .into_iter()
+                .map(|s| consumer::apply_request::Change {
+                    expect_mod_revision: s.mod_revision,
+                    delete: s.spec.map(|s| s.id).unwrap_or_default(),
+                    upsert: None,
+                })
+                .collect::<Vec<_>>(),
+            extension: Vec::new(),
+        };
+        self.cluster.apply_shards(req).await?;
+
+        // Remove all JournalSpecs.
+        let journals = self.cluster.list_journals(None).await?;
+        let req = broker::ApplyRequest {
+            changes: journals
+                .journals
+                .into_iter()
+                .map(|j| broker::apply_request::Change {
+                    expect_mod_revision: j.mod_revision,
+                    delete: j.spec.map(|j| j.name).unwrap_or_default(),
+                    upsert: None,
+                })
+                .collect::<Vec<_>>(),
+        };
+        self.cluster.apply_journals(req).await?;
+
         for (name, child) in &mut [
             ("consumer", &mut self.consumer),
             ("ingester", &mut self.ingester),
             ("gazette", &mut self.gazette),
             ("etcd", &mut self.etcd),
         ] {
-            let _ = child.kill();
+            nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(child.id() as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            )?;
             log::info!("{} exited: {}", name, child.await?);
         }
         Ok(())

@@ -11,6 +11,7 @@ protocol = { path = "../protocol", version = "0.0.0" }
 chrono = { version = "*", features = ["serde"] }
 futures = "*"
 log = "*"
+nix = "*"
 prost-types = "*"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
