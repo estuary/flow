@@ -2265,6 +2265,7 @@ dependencies = [
  "futures",
  "labels",
  "log",
+ "nix",
  "prost-types",
  "protocol",
  "rusqlite",
