@@ -1,12 +1,9 @@
 package flow
 
 import (
-	"bufio"
-	"bytes"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/message"
 )
@@ -39,24 +36,4 @@ func TestUUIDPartsRoundTrip(t *testing.T) {
 	require.Equal(t, message.GetProducerID(uuid), producer)
 	require.Equal(t, message.GetFlags(uuid), message.Flag_ACK_TXN)
 	require.Equal(t, message.GetClock(uuid), clock)
-}
-
-func TestCombineResponseUUIDFlow(t *testing.T) {
-	// IndexedCombineResponse can build acknowledgements.
-	var doc = IndexedCombineResponse{}.NewAcknowledgement("").(IndexedCombineResponse)
-	require.Equal(t, []byte(doc.Arena), []byte(DocumentAckJSONTemplate))
-
-	// We can update the UUID.
-	var testUUID = uuid.MustParse("000001a8-0000-1000-9402-000102030405")
-	doc.SetUUID(testUUID)
-
-	// The updated UUID is seen via serialization.
-	var b bytes.Buffer
-	var bw = bufio.NewWriter(&b)
-	var _, err = doc.MarshalJSONTo(bw)
-	require.NoError(t, err)
-	bw.Flush()
-
-	require.Equal(t, `{"_meta":{"uuid":"000001a8-0000-1000-9402-000102030405","ack":true}}`+"\n",
-		b.String())
 }
