@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/ingest"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -98,12 +99,12 @@ func (cmdServe) Execute(_ []string) error {
 
 	journals, err := flow.NewJournalsKeySpace(context.Background(), etcd, Config.Flow.BrokerRoot)
 	mbp.Must(err, "failed to load Gazette journals")
-	delegate, err := flow.NewWorkerHost("combine", "--catalog", catalog.LocalPath())
-	mbp.Must(err, "failed to start flow-worker")
+	builder, err := bindings.NewCombineBuilder(catalog.LocalPath())
+	mbp.Must(err, "failed to build combine factory")
 
 	var ingester = &flow.Ingester{
-		Collections: collections,
-		Combiner:    pf.NewCombineClient(delegate.Conn),
+		Collections:    collections,
+		CombineBuilder: builder,
 		Mapper: &flow.Mapper{
 			Ctx:           tasks.Context(),
 			JournalClient: rjc,
@@ -140,7 +141,7 @@ func (cmdServe) Execute(_ []string) error {
 
 			tasks.Cancel()
 			srv.BoundedGracefulStop()
-			return delegate.Stop()
+			return nil
 
 		case <-tasks.Context().Done():
 			return nil
