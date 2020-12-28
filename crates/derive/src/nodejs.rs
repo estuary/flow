@@ -88,7 +88,7 @@ impl NodeRuntime {
 
     pub async fn invoke_bootstrap(&self, derivation_id: i32) -> Result<(), lambda::Error> {
         let l = self.new_lambda(format!("/bootstrap/{}", derivation_id));
-        let _ = l.start_invocation().finish().await?;
+        let _ = l.invoke(Some("{}")).await?;
         Ok(())
     }
 
