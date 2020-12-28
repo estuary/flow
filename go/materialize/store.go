@@ -6,49 +6,62 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // SQLTransaction implements TargetTransaction for a generic SQL database
 type SQLTransaction struct {
-	delegate *sql.Tx
-	sql      *materializationSQL
+	tx     *sql.Tx
+	fetch  *sql.Stmt
+	upsert *sql.Stmt
+}
+
+func newSQLTransaction(tx *sql.Tx, sql *materializationSQL) (*SQLTransaction, error) {
+	var fetch, err = tx.Prepare(sql.FullDocumentQuery)
+	if err != nil {
+		return nil, fmt.Errorf("preparing fetch statement: %w", err)
+	}
+	upsert, err := tx.Prepare(sql.InsertStatement)
+	if err != nil {
+		return nil, fmt.Errorf("preparing upsert statement: %w", err)
+	}
+
+	return &SQLTransaction{
+		tx:     tx,
+		fetch:  fetch,
+		upsert: upsert,
+	}, nil
 }
 
 var _ TargetTransaction = (*SQLTransaction)(nil)
 
 // FetchExistingDocument implements TargetTransaction.FetchExistingDocument
-func (transaction *SQLTransaction) FetchExistingDocument(primaryKey []interface{}) (json.RawMessage, error) {
-	var documentJSON json.RawMessage
-	stmt, err := transaction.delegate.Prepare(transaction.sql.FullDocumentQuery)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-	row := stmt.QueryRow(primaryKey...)
-	err = row.Scan(&documentJSON)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("Failed to query existing docuement: %w", err)
-	} else if err == sql.ErrNoRows {
+func (txn *SQLTransaction) FetchExistingDocument(key tuple.Tuple) (json.RawMessage, error) {
+	var row = txn.fetch.QueryRow(key.ToInterface()...)
+	var doc json.RawMessage
+
+	if err := row.Scan(&doc); err == sql.ErrNoRows {
 		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("querying existing document: %w", err)
 	} else {
-		return documentJSON, nil
+		return doc, nil
 	}
 }
 
 // Store implements TargetTransaction.Store
-func (transaction *SQLTransaction) Store(extractedFields []interface{}, fullDocument json.RawMessage) error {
-	stmt, err := transaction.delegate.Prepare(transaction.sql.InsertStatement)
-	if err != nil {
-		return err
+func (txn *SQLTransaction) Store(doc json.RawMessage, packedKey []byte, fields tuple.Tuple) error {
+	// We always put the full document as the last field.
+	var all = make([]interface{}, len(fields)+1)
+	for i, v := range fields {
+		all[i] = v
 	}
-	// We always put the full document as the last field
-	allFields := append(extractedFields, fullDocument)
-	_, err = stmt.Exec(allFields...)
-	stmt.Close()
-	if err != nil {
-		return fmt.Errorf("Failed to execute insert statement: %w", err)
+	all[len(fields)] = doc
+
+	if _, err := txn.upsert.Exec(all...); err != nil {
+		return fmt.Errorf("executing document upsert: %w", err)
 	}
 	return nil
 }
@@ -86,11 +99,7 @@ func (store *MaterializationStore) BeginTxn(ctx context.Context) (TargetTransact
 		return nil, err
 	}
 
-	sqlT := &SQLTransaction{
-		delegate: tx,
-		sql:      store.sqlConfig,
-	}
-	return sqlT, nil
+	return newSQLTransaction(tx, store.sqlConfig)
 }
 
 // StartCommit implements consumer.Store.StartCommit
