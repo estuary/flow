@@ -25,7 +25,6 @@ func serveHTTPJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
 	}
 
 	var ingest = a.ingester.Start()
-	defer ingest.Done()
 
 	for collection, docs := range body {
 		for _, doc := range docs {

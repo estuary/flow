@@ -247,15 +247,9 @@ func (catalog *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, e
 }
 
 func addFieldLabels(set *pb.LabelSet, fields map[string][]interface{}) error {
-	var arena pf.Arena
-
 	for field, values := range fields {
 		for _, value := range values {
-			var vv, err = pf.ValueFromInterface(&arena, value)
-			if err != nil {
-				return fmt.Errorf("building label for field %s value %#v: %w", field, value, err)
-			}
-			set.AddValue(labels.FieldPrefix+field, string(vv.EncodePartition(nil, arena)))
+			set.AddValue(labels.FieldPrefix+field, string(encodePartitionElement(nil, value)))
 		}
 	}
 	return nil

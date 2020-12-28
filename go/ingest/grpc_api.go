@@ -16,7 +16,6 @@ type grpcAPI struct {
 // Ingest implements IngesterServer.
 func (a *grpcAPI) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.IngestResponse, error) {
 	var ingestion = a.ingester.Start()
-	defer ingestion.Done()
 
 	for _, c := range req.Collections {
 		var docs = c.DocsJsonLines

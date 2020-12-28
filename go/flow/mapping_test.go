@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ import (
 )
 
 func TestPartitionPicking(t *testing.T) {
-	var spec, cr = buildMapperCombineResponseFixture()
+	var fixtures = buildCombineFixtures()
 	var logicalPrefix, hexKey, b []byte
 
 	var m = Mapper{
@@ -28,12 +29,11 @@ func TestPartitionPicking(t *testing.T) {
 		expectPrefix string
 		expectKey    string
 	}{
-		{"/items/a/collection/bar=32/foo=A/", "0a"},
-		{"/items/a/collection/bar=32/foo=A/", "0b"},
-		{"/items/a/collection/bar=42/foo=A%2FB/", "0a"},
+		{"/items/a/collection/bar=32/foo=A/", "27"},
+		{"/items/a/collection/bar=32/foo=A/", "26"},
+		{"/items/a/collection/bar=42/foo=A%2FB/", "27"},
 	} {
-		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0],
-			pf.IndexedCombineResponse{CombineResponse: &cr, Index: ind, Collection: &spec})
+		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0], fixtures[ind])
 
 		require.Equal(t, tc.expectPrefix, string(logicalPrefix))
 		require.Equal(t, tc.expectKey, string(hexKey))
@@ -75,7 +75,7 @@ func TestPartitionPicking(t *testing.T) {
 }
 
 func TestBuildingUpsert(t *testing.T) {
-	var spec, cr = buildMapperCombineResponseFixture()
+	var fixtures = buildCombineFixtures()
 	var m = Mapper{
 		Journals: &keyspace.KeySpace{Root: "/items"},
 	}
@@ -93,13 +93,13 @@ func TestBuildingUpsert(t *testing.T) {
 						flowLabels.FieldPrefix+"bar", "32",
 						flowLabels.FieldPrefix+"foo", "A",
 					),
-					Replication: spec.JournalSpec.Replication,
-					Fragment:    spec.JournalSpec.Fragment,
+					Replication: fixtures[0].Spec.JournalSpec.Replication,
+					Fragment:    fixtures[0].Spec.JournalSpec.Fragment,
 				},
 				ExpectModRevision: 0,
 			},
 		},
-	}, m.partitionUpsert(pf.IndexedCombineResponse{CombineResponse: &cr, Index: 0, Collection: &spec}))
+	}, m.partitionUpsert(fixtures[0]))
 }
 
 func TestPublisherMappingIntegration(t *testing.T) {
@@ -117,19 +117,15 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	journals.WatchApplyDelay = 0
 	go journals.Watch(ctx, etcd)
 
-	var spec, cr = buildMapperCombineResponseFixture()
+	var fixtures = buildCombineFixtures()
 	var mapper = &Mapper{
 		Ctx:           ctx,
 		JournalClient: broker.Client(),
 		Journals:      journals,
 	}
 
-	for ind := range cr.DocsJson {
-		var _, err = pub.PublishCommitted(mapper.Map, pf.IndexedCombineResponse{
-			CombineResponse: &cr,
-			Index:           ind,
-			Collection:      &spec,
-		})
+	for _, fixture := range fixtures {
+		var _, err = pub.PublishCommitted(mapper.Map, fixture)
 		require.NoError(t, err)
 	}
 	// Await all appends.
@@ -152,8 +148,8 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	require.NoError(t, broker.Tasks.Wait())
 }
 
-func buildMapperCombineResponseFixture() (pf.CollectionSpec, pf.CombineResponse) {
-	var spec = pf.CollectionSpec{
+func buildCombineFixtures() []Mappable {
+	var spec = &pf.CollectionSpec{
 		Name:            "a/collection",
 		PartitionFields: []string{"bar", "foo"},
 		Projections: []*pf.Projection{
@@ -162,39 +158,27 @@ func buildMapperCombineResponseFixture() (pf.CollectionSpec, pf.CombineResponse)
 		},
 		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}
-	var cr pf.CombineResponse
 
-	cr.DocsJson = cr.Arena.AddAll(
-		[]byte(`{"one":1,"_uuid":"`+string(pf.DocumentUUIDPlaceholder)+`"}`+"\n"),
-		[]byte(`{"two":2,"_uuid":"`+string(pf.DocumentUUIDPlaceholder)+`"}`+"\n"),
-		[]byte(`{"three":3,"_uuid":"`+string(pf.DocumentUUIDPlaceholder)+`"}`+"\n"),
-	)
-	cr.Fields = []pf.Field{
-		// Logical partition portion of fields.
+	return []Mappable{
 		{
-			Values: []pf.Field_Value{
-				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
-				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 32},
-				{Kind: pf.Field_Value_UNSIGNED, Unsigned: 42},
-			},
+			Spec:       spec,
+			Doc:        []byte(`{"one":1,"_uuid":"` + string(pf.DocumentUUIDPlaceholder) + `"}` + "\n"),
+			PackedKey:  tuple.Tuple{true}.Pack(),
+			Partitions: tuple.Tuple{32, "A"},
 		},
 		{
-			Values: []pf.Field_Value{
-				{Kind: pf.Field_Value_STRING, Bytes: cr.Arena.Add([]byte("A"))},
-				{Kind: pf.Field_Value_STRING, Bytes: cr.Arena.Add([]byte("A"))},
-				{Kind: pf.Field_Value_STRING, Bytes: cr.Arena.Add([]byte("A/B"))},
-			},
+			Spec:       spec,
+			Doc:        []byte(`{"two":2,"_uuid":"` + string(pf.DocumentUUIDPlaceholder) + `"}` + "\n"),
+			PackedKey:  tuple.Tuple{false}.Pack(),
+			Partitions: tuple.Tuple{32, "A"},
 		},
-		// Collection key portion of fields.
 		{
-			Values: []pf.Field_Value{
-				{Kind: pf.Field_Value_TRUE},
-				{Kind: pf.Field_Value_FALSE},
-				{Kind: pf.Field_Value_TRUE},
-			},
+			Spec:       spec,
+			Doc:        []byte(`{"three":3,"_uuid":"` + string(pf.DocumentUUIDPlaceholder) + `"}` + "\n"),
+			PackedKey:  tuple.Tuple{true}.Pack(),
+			Partitions: tuple.Tuple{42, "A/B"},
 		},
 	}
-	return spec, cr
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }
