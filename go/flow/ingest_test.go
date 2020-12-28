@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/bindings"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -19,6 +19,8 @@ func TestIngesterLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	collections, err := catalog.LoadCapturedCollections()
 	require.NoError(t, err)
+	builder, err := bindings.NewCombineBuilder(catalog.LocalPath())
+	require.Nil(t, err)
 
 	// Use JournalSpecs suitable for unit-tests.
 	for _, collection := range collections {
@@ -27,10 +29,6 @@ func TestIngesterLifecycle(t *testing.T) {
 
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
-
-	wh, err := NewWorkerHost("combine", "--catalog", catalog.LocalPath())
-	require.Nil(t, err)
-	defer wh.Stop()
 
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
 	var tasks = task.NewGroup(context.Background())
@@ -41,8 +39,8 @@ func TestIngesterLifecycle(t *testing.T) {
 	go journals.Watch(tasks.Context(), etcd)
 
 	var ingester = Ingester{
-		Collections: collections,
-		Combiner:    pf.NewCombineClient(wh.Conn),
+		Collections:    collections,
+		CombineBuilder: builder,
 		Mapper: &Mapper{
 			Ctx:           tasks.Context(),
 			JournalClient: broker.Client(),

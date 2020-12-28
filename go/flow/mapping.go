@@ -1,13 +1,19 @@
 package flow
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -18,6 +24,16 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+// Mappable is the implementation of message.Message which is expected by Mapper.
+type Mappable struct {
+	Spec       *pf.CollectionSpec
+	Doc        json.RawMessage
+	PackedKey  []byte
+	Partitions tuple.Tuple
+}
+
+var _ message.Message = Mappable{}
+
 // Mapper maps IndexedCombineResponse documents into a corresponding logical
 // partition, creating that partition if it doesn't yet exist.
 type Mapper struct {
@@ -26,29 +42,22 @@ type Mapper struct {
 	Journals      *keyspace.KeySpace
 }
 
-// FieldPointersForMapper returns JSON-pointers of fields which should be extracted
-// and included in CombineRespones mapped through a Mapper of this CollectionSpec.
-func FieldPointersForMapper(collection *pf.CollectionSpec) []string {
-	var ptrs []string
-	for _, field := range collection.PartitionFields {
-		// TODO: we should probably not panic when there's a malformed message
-		var projection = pf.GetProjectionByField(field, collection.Projections)
-		if projection == nil {
-			panic("CollectionSpec partitionFields names a field that does not have a projection")
-		}
-		ptrs = append(ptrs, projection.Ptr)
+// PartitionPointers returns JSON-pointers of partitioned fields of the collection.
+func PartitionPointers(spec *pf.CollectionSpec) []string {
+	var ptrs = make([]string, len(spec.PartitionFields))
+	for i, field := range spec.PartitionFields {
+		ptrs[i] = pf.GetProjectionByField(field, spec.Projections).Ptr
 	}
-	ptrs = append(ptrs, collection.KeyPtrs...)
 	return ptrs
 }
 
-// Map the Mappable, which must be an IndexedCombineResponse, into a physical journal partition
+// Map |mappable|, which must be an instance of Mappable, into a physical journal partition
 // of the document's logical partition prefix. If no such journal exists, one is created.
 func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
-	var cr = mappable.(pf.IndexedCombineResponse)
+	var msg = mappable.(Mappable)
 
 	var buf = mappingBufferPool.Get().([]byte)[:0]
-	logicalPrefix, hexKey, buf := m.logicalPrefixAndHexKey(buf, cr)
+	logicalPrefix, hexKey, buf := m.logicalPrefixAndHexKey(buf, msg)
 
 	defer func() {
 		mappingBufferPool.Put(buf)
@@ -65,7 +74,7 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 		}
 
 		// We must create a new partition for this logical prefix.
-		var upsert = m.partitionUpsert(cr)
+		var upsert = m.partitionUpsert(msg)
 		var applyResponse, err = client.ApplyJournals(m.Ctx, m.JournalClient, upsert)
 
 		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED && i == 0 {
@@ -90,20 +99,20 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 	panic("not reached")
 }
 
-func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest {
+func (m *Mapper) partitionUpsert(msg Mappable) *pb.ApplyRequest {
 	var spec = new(pb.JournalSpec)
-	*spec = cr.Collection.JournalSpec
+	*spec = msg.Spec.JournalSpec
 
-	spec.LabelSet.SetValue(flowLabels.Collection, cr.Collection.Name.String())
+	spec.LabelSet.SetValue(flowLabels.Collection, msg.Spec.Name.String())
 	spec.LabelSet.SetValue(flowLabels.KeyBegin, "00")
 	spec.LabelSet.SetValue(flowLabels.KeyEnd, "ffffffff")
 	spec.LabelSet.SetValue(labels.ContentType, labels.ContentType_JSONLines)
 
 	var name strings.Builder
-	name.WriteString(cr.Collection.Name.String())
+	name.WriteString(msg.Spec.Name.String())
 
-	for i, field := range cr.Collection.PartitionFields {
-		var v = cr.Fields[i].Values[cr.Index].EncodePartition(nil, cr.Arena)
+	for i, field := range msg.Spec.PartitionFields {
+		var v = encodePartitionElement(nil, msg.Partitions[i])
 		spec.LabelSet.AddValue(flowLabels.FieldPrefix+field, string(v))
 
 		name.WriteByte('/')
@@ -124,29 +133,25 @@ func (m *Mapper) partitionUpsert(cr pf.IndexedCombineResponse) *pb.ApplyRequest 
 	}
 }
 
-func (m *Mapper) logicalPrefixAndHexKey(b []byte, cr pf.IndexedCombineResponse) (logicalPrefix []byte, hexKey []byte, buf []byte) {
+func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKey []byte, buf []byte) {
 	b = append(b, m.Journals.Root...)
 	b = append(b, '/')
-	b = append(b, cr.Collection.Name...)
+	b = append(b, msg.Spec.Name...)
 	b = append(b, '/')
 
-	for i, field := range cr.Collection.PartitionFields {
+	for i, field := range msg.Spec.PartitionFields {
 		b = append(b, field...)
 		b = append(b, '=')
-		b = cr.Fields[i].Values[cr.Index].EncodePartition(b, cr.Arena)
+		b = encodePartitionElement(b, msg.Partitions[i])
 		b = append(b, '/')
 	}
 	var pivot = len(b)
 
-	// Extract remaining fields _after_ |partitions| -- which are the composite collection key --
-	// into a packed and hex-encoded representation that matches how journals are labeled with key ranges.
+	// Hex-encode the packed key representation into |b|.
 	const hextable = "0123456789abcdef"
-	var scratch [64]byte
 
-	for _, field := range cr.Fields[len(cr.Collection.PartitionFields):] {
-		for _, v := range field.Values[cr.Index].EncodePacked(scratch[:0], cr.Arena) {
-			b = append(b, hextable[v>>4], hextable[v&0x0f])
-		}
+	for _, v := range msg.PackedKey {
+		b = append(b, hextable[v>>4], hextable[v&0x0f])
 	}
 	return b[:pivot], b[pivot:], b
 }
@@ -177,4 +182,59 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 
 var mappingBufferPool = sync.Pool{
 	New: func() interface{} { return make([]byte, 256) },
+}
+
+func encodePartitionElement(b []byte, elem tuple.TupleElement) []byte {
+	switch v := elem.(type) {
+	case nil:
+		return append(b, "null"...)
+	case bool:
+		if v {
+			return append(b, "true"...)
+		} else {
+			return append(b, "false"...)
+		}
+	case uint64:
+		return strconv.AppendUint(b, v, 10)
+	case int64:
+		return strconv.AppendInt(b, v, 10)
+	case int:
+		return strconv.AppendInt(b, int64(v), 10)
+	case string:
+		return append(b, url.PathEscape(v)...)
+	default:
+		panic(fmt.Sprintf("invalid element type: %#v", elem))
+	}
+}
+
+// Implementation of message.Message for Mappable follows:
+
+// GetUUID panics if called.
+func (m Mappable) GetUUID() message.UUID { panic("not implemented") }
+
+// SetUUID replaces the placeholder UUID string, which must exist, with the UUID.
+func (m Mappable) SetUUID(uuid message.UUID) {
+	// Require that the current content has a placeholder UUID.
+	var ind = bytes.Index(m.Doc, pf.DocumentUUIDPlaceholder)
+	if ind == -1 {
+		panic("document UUID placeholder not found")
+	}
+
+	// Replace it with the string-form UUID.
+	var str = uuid.String()
+	copy(m.Doc[ind:ind+36], str[0:36])
+}
+
+// NewAcknowledgement returns an Mappable of the acknowledgement template.
+func (m Mappable) NewAcknowledgement(pb.Journal) message.Message {
+	return Mappable{
+		Spec: m.Spec,
+		Doc:  append(json.RawMessage(nil), m.Spec.AckJsonTemplate...),
+	}
+}
+
+// MarshalJSONTo copies the raw document json into the Writer.
+func (m Mappable) MarshalJSONTo(bw *bufio.Writer) (int, error) {
+	var n, _ = bw.Write(m.Doc)
+	return n + 1, bw.WriteByte('\n')
 }
