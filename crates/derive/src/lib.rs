@@ -8,14 +8,61 @@ pub mod nodejs;
 pub mod pipeline;
 pub mod registers;
 
-pub use extract_api::extract_field;
 pub use extract_api::extract_uuid_parts;
+use std::sync::Once;
+
+// TODO(johnny): Move to a common `instrument` crate?
+/// Setup a global tracing subscriber using the RUST_LOG env variable.
+pub fn setup_env_tracing() {
+    static SUBSCRIBE: Once = Once::new();
+
+    SUBSCRIBE.call_once(|| {
+        let subscriber = tracing_subscriber::FmtSubscriber::builder()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).unwrap();
+    });
+}
+
+/// DebugJson is a new-type wrapper around any Serialize implementation
+/// that wishes to support the Debug trait via JSON encoding itself.
+pub struct DebugJson<S: serde::Serialize>(pub S);
+
+impl<S: serde::Serialize> std::fmt::Debug for DebugJson<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&serde_json::to_string(&self.0).unwrap())
+    }
+}
+
+/// Build a 'static lifetime SchemaIndex from a catalog database.
+pub fn build_schema_index(
+    db: &catalog::DB,
+) -> Result<&'static doc::SchemaIndex<'static>, catalog::Error> {
+    // Compile the bundle of catalog schemas. Then, deliberately "leak" the
+    // immutable Schema bundle for the remainder of program in order to achieve
+    // a 'static lifetime, which is required for use in spawned tokio Tasks (and
+    // therefore in TxnCtx).
+    let schemas = catalog::Schema::compile_all(&db)?;
+    let schemas = Box::leak(Box::new(schemas));
+
+    let mut schema_index = doc::SchemaIndex::<'static>::new();
+    for schema in schemas.iter() {
+        schema_index.add(schema)?;
+    }
+    schema_index.verify_references()?;
+
+    // Also leak a &'static SchemaIndex.
+    let schema_index = Box::leak(Box::new(schema_index));
+
+    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
+
+    Ok(schema_index)
+}
 
 /// Common test utilities used by sub-modules.
 #[cfg(test)]
 pub mod test {
     use doc;
-    use protocol::flow;
     use serde_json::json;
     use url::Url;
 
@@ -47,60 +94,5 @@ pub mod test {
 
         let idx = Box::leak(Box::new(idx));
         (idx, uri)
-    }
-
-    // Builds an empty RocksDB in a temporary directory,
-    // initialized with the "registers" column family.
-    pub fn build_test_rocks() -> (tempfile::TempDir, rocksdb::DB) {
-        let dir = tempfile::TempDir::new().unwrap();
-
-        let mut rocks_opts = rocksdb::Options::default();
-        rocks_opts.create_if_missing(true);
-        rocks_opts.set_error_if_exists(true);
-        rocks_opts.create_missing_column_families(true);
-
-        let db = rocksdb::DB::open_cf(
-            &rocks_opts,
-            dir.path(),
-            [
-                rocksdb::DEFAULT_COLUMN_FAMILY_NAME,
-                super::registers::REGISTERS_CF,
-            ]
-            .iter(),
-        )
-        .unwrap();
-
-        (dir, db)
-    }
-
-    // Maps a flattened Field::Value message back into a JSON Value.
-    pub fn field_to_value(arena: &[u8], field: &flow::field::Value) -> serde_json::Value {
-        use flow::field::value::Kind;
-        use serde_json::Value;
-        let kind = flow::field::value::Kind::from_i32(field.kind).unwrap();
-
-        match kind {
-            Kind::Null => Value::Null,
-            Kind::True => Value::Bool(true),
-            Kind::False => Value::Bool(false),
-            Kind::String => {
-                let s = field.bytes.as_ref().unwrap();
-                let b = arena.get(s.begin as usize..s.end as usize).unwrap();
-
-                Value::String(std::str::from_utf8(b).unwrap().to_owned())
-            }
-            Kind::Unsigned => Value::Number(field.unsigned.into()),
-            Kind::Signed => Value::Number(field.signed.into()),
-            Kind::Double => serde_json::Number::from_f64(field.double)
-                .map(|n| Value::Number(n))
-                .unwrap(),
-            Kind::Object | Kind::Array => {
-                let s = field.bytes.as_ref().unwrap();
-                let b = arena.get(s.begin as usize..s.end as usize).unwrap();
-
-                serde_json::from_slice(b).unwrap()
-            }
-            _ => panic!("invalid field Kind"),
-        }
     }
 }

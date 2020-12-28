@@ -1,10 +1,11 @@
+use crate::DebugJson;
+
 use doc::{reduce, SchemaIndex, Validator};
-use futures::channel::oneshot;
 use json::validator::FullContext;
 use prost::Message;
 use protocol::consumer::Checkpoint;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -28,7 +29,18 @@ pub struct Registers {
 
 impl std::fmt::Debug for Registers {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Registers")
+        f.debug_struct("Registers")
+            .field("schema", &self.schema.as_str())
+            .field("initial", &DebugJson(&self.initial))
+            .field(
+                "cache",
+                &self
+                    .cache
+                    .iter()
+                    .map(|(k, v)| (String::from_utf8_lossy(k), DebugJson(v)))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+            .finish()
     }
 }
 
@@ -127,10 +139,8 @@ impl Registers {
     }
 
     /// Prepare for commit, storing all modified registers with an accompanying Checkpoint.
-    /// Returns a one-shot Sender which is used to signal when to commit.
-    /// After prepare() returns immediate calls to load(), read(), & reduce() are permitted,
-    /// but another call to prepare() may not occur until the Sender is signaled.
-    pub fn prepare(&mut self, checkpoint: Checkpoint) -> Result<oneshot::Sender<()>, Error> {
+    /// After prepare() returns, immediate calls to load(), read(), & reduce() are permitted.
+    pub fn prepare(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {
         let cf = self.rocks_db.cf_handle(REGISTERS_CF).unwrap();
         let mut wb = rocksdb::WriteBatch::default();
 
@@ -147,18 +157,9 @@ impl Registers {
                 wb.put_cf(cf, key, &buffer);
             }
         }
-
-        let (tx_commit, rx_commit) = oneshot::channel();
-
-        // TODO(johnny): We'll want to put a Recorder barrier in place here before
-        // writing the WriteBatch. The barrier should be gated on |rx_commit| being
-        // signalled.
-        //
-        // For now, we have a no-op reader of |rx_commit| which does nothing.
-        tokio::spawn(rx_commit);
-
         self.rocks_db.write(wb)?;
-        Ok(tx_commit)
+
+        Ok(())
     }
 
     /// Clear all registers. May only be called in between commits.
@@ -173,15 +174,13 @@ impl Registers {
     }
 }
 
+// Checkpoint key is the key encoding under which a marshalled checkpoint is stored.
 pub const CHECKPOINT_KEY: &[u8] = b"checkpoint";
 pub const REGISTERS_CF: &str = "registers";
 
 #[cfg(test)]
 mod test {
-    use super::{
-        super::test::{build_min_max_schema, build_test_rocks},
-        *,
-    };
+    use super::{super::test::build_min_max_schema, *};
     use serde_json::{json, Map, Value};
 
     #[tokio::test]
@@ -223,10 +222,7 @@ mod test {
             ack_intents,
             ..Checkpoint::default()
         };
-        let tx_commit = reg.prepare(fixture.clone()).unwrap();
-        // Expect we can send a "commit" signal without error,
-        // though it doesn't do anything (yet).
-        tx_commit.send(()).unwrap();
+        reg.prepare(fixture.clone()).unwrap();
 
         // Expect the local cache was drained, and values flushed to the DB.
         assert!(reg.cache.is_empty());
@@ -262,5 +258,25 @@ mod test {
 
         // However, we can still restore our persisted checkpoint (different column family).
         assert_eq!(reg.last_checkpoint().unwrap(), fixture);
+    }
+
+    // Builds an empty RocksDB in a temporary directory,
+    // initialized with the "registers" column family.
+    pub fn build_test_rocks() -> (tempfile::TempDir, rocksdb::DB) {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        let mut rocks_opts = rocksdb::Options::default();
+        rocks_opts.create_if_missing(true);
+        rocks_opts.set_error_if_exists(true);
+        rocks_opts.create_missing_column_families(true);
+
+        let db = rocksdb::DB::open_cf(
+            &rocks_opts,
+            dir.path(),
+            [rocksdb::DEFAULT_COLUMN_FAMILY_NAME, REGISTERS_CF].iter(),
+        )
+        .unwrap();
+
+        (dir, db)
     }
 }
