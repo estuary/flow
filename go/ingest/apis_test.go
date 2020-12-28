@@ -7,8 +7,8 @@ import (
 
 	"go.gazette.dev/core/server"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -21,6 +21,8 @@ func TestAPIs(t *testing.T) {
 	require.NoError(t, err)
 	collections, err := catalog.LoadCapturedCollections()
 	require.NoError(t, err)
+	builder, err := bindings.NewCombineBuilder(catalog.LocalPath())
+	require.NoError(t, err)
 
 	// Use JournalSpecs suitable for unit-tests.
 	for _, collection := range collections {
@@ -29,10 +31,6 @@ func TestAPIs(t *testing.T) {
 
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
-
-	wh, err := flow.NewWorkerHost("combine", "--catalog", catalog.LocalPath())
-	require.Nil(t, err)
-	defer wh.Stop()
 
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
 	var tasks = task.NewGroup(context.Background())
@@ -43,8 +41,8 @@ func TestAPIs(t *testing.T) {
 	go journals.Watch(tasks.Context(), etcd)
 
 	var ingester = &flow.Ingester{
-		Collections: collections,
-		Combiner:    pf.NewCombineClient(wh.Conn),
+		Collections:    collections,
+		CombineBuilder: builder,
 		Mapper: &flow.Mapper{
 			Ctx:           tasks.Context(),
 			JournalClient: broker.Client(),
