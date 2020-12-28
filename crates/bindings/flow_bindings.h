@@ -77,15 +77,35 @@ typedef struct {
   In4 in3;
 } In16;
 
-Channel *extractor_create(void);
+Channel *combine_create(void);
 
-void extractor_invoke1(Channel *ch, In1 i);
+void combine_invoke1(Channel *ch, In1 i);
 
-void extractor_invoke4(Channel *ch, In4 i);
+void combine_invoke4(Channel *ch, In4 i);
 
-void extractor_invoke16(Channel *ch, In16 i);
+void combine_invoke16(Channel *ch, In16 i);
 
-void extractor_drop(Channel *ch);
+void combine_drop(Channel *ch);
+
+Channel *derive_create(void);
+
+void derive_invoke1(Channel *ch, In1 i);
+
+void derive_invoke4(Channel *ch, In4 i);
+
+void derive_invoke16(Channel *ch, In16 i);
+
+void derive_drop(Channel *ch);
+
+Channel *extract_create(void);
+
+void extract_invoke1(Channel *ch, In1 i);
+
+void extract_invoke4(Channel *ch, In4 i);
+
+void extract_invoke16(Channel *ch, In16 i);
+
+void extract_drop(Channel *ch);
 
 Channel *upper_case_create(void);
 
