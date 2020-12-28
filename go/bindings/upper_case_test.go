@@ -31,8 +31,8 @@ func TestUpperServiceFunctional(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, out, 2)
 	assert.Equal(t, pf.Arena("HELLOWORLD"), arena)
-	assert.Equal(t, []byte("HELLO"), svc.arena_slice(out[0]))
-	assert.Equal(t, []byte("WORLD"), svc.arena_slice(out[1]))
+	assert.Equal(t, []byte("HELLO"), svc.arenaSlice(out[0]))
+	assert.Equal(t, []byte("WORLD"), svc.arenaSlice(out[1]))
 	assert.Equal(t, 5, int(out[0].code))
 	assert.Equal(t, 10, int(out[1].code))
 
@@ -42,13 +42,13 @@ func TestUpperServiceFunctional(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, out, 1)
 	assert.Equal(t, pf.Arena("BYE"), arena)
-	assert.Equal(t, []byte("BYE"), svc.arena_slice(out[0]))
+	assert.Equal(t, []byte("BYE"), svc.arenaSlice(out[0]))
 	assert.Equal(t, 13, int(out[0].code))
 
 	// Trigger an error, and expect it's plumbed through.
-	svc.sendBytes(6, []byte("whoops!"))
+	svc.sendBytes(6, []byte("whoops"))
 	_, _, err = svc.poll()
-	assert.EqualError(t, err, "Custom { kind: Other, error: \"whoops!\" }")
+	assert.EqualError(t, err, "whoops")
 }
 
 func TestNoOpServiceFunctional(t *testing.T) {
@@ -83,7 +83,7 @@ func TestUpperServiceWithStrides(t *testing.T) {
 		}
 		svc.sendBytes(3, nil)
 
-		for b := 0; b != len(given); b += 1 {
+		for b := 0; b != len(given); b++ {
 			svc.sendBytes(4, given[b:b+1])
 		}
 		svc.sendBytes(5, nil)
@@ -93,7 +93,7 @@ func TestUpperServiceWithStrides(t *testing.T) {
 		assert.NoError(t, err)
 
 		for _, o := range out {
-			got = append(got, svc.arena_slice(o)...)
+			got = append(got, svc.arenaSlice(o)...)
 		}
 		assert.Equal(t, expect, got)
 		assert.Equal(t, len(given)*2*(i+1), int(out[len(out)-1].code))
@@ -116,8 +116,8 @@ func TestUpperServiceNaive(t *testing.T) {
 	assert.Equal(t, 5+len(given), int(code))
 	assert.Equal(t, expect, data)
 
-	_, _, err = svc.invoke(789, []byte("whoops!"))
-	assert.EqualError(t, err, "Custom { kind: Other, error: \"whoops!\" }")
+	_, _, err = svc.invoke(789, []byte("whoops"))
+	assert.EqualError(t, err, "Custom { kind: Other, error: \"whoops\" }")
 }
 
 func TestUpperServiceGo(t *testing.T) {
@@ -136,8 +136,8 @@ func TestUpperServiceGo(t *testing.T) {
 	assert.Equal(t, 5+len(given), int(code))
 	assert.Equal(t, expect, data)
 
-	_, _, err = svc.invoke(789, []byte("whoops!"))
-	assert.EqualError(t, err, "whoops!")
+	_, _, err = svc.invoke(789, []byte("whoops"))
+	assert.EqualError(t, err, "whoops")
 }
 
 func BenchmarkUpperService(b *testing.B) {

@@ -18,15 +18,9 @@ type Extractor struct {
 
 // NewExtractor returns an instance of the Extractor service.
 func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
-	var svc = newService(
-		func() *C.Channel { return C.extractor_create() },
-		func(ch *C.Channel, in C.In1) { C.extractor_invoke1(ch, in) },
-		func(ch *C.Channel, in C.In4) { C.extractor_invoke4(ch, in) },
-		func(ch *C.Channel, in C.In16) { C.extractor_invoke16(ch, in) },
-		func(ch *C.Channel) { C.extractor_drop(ch) },
-	)
+	var svc = newExtractSvc()
 
-	var err = svc.sendMessage(0, &pf.ExtractRequest{UuidPtr: uuidPtr, FieldPtrs: fieldPtrs})
+	var err = svc.sendMessage(0, &pf.ExtractAPI_Config{UuidPtr: uuidPtr, FieldPtrs: fieldPtrs})
 	if err != nil {
 		return nil, err
 	} else if _, _, err = svc.poll(); err != nil {
@@ -68,11 +62,21 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 	for _, o := range out {
 		if o.code == 0 {
 			var uuid pf.UUIDParts
-			e.svc.arena_decode(o, &uuid)
+			e.svc.arenaDecode(o, &uuid)
 			e.uuids = append(e.uuids, uuid)
 		} else {
-			e.tuples = append(e.tuples, e.svc.arena_slice(o))
+			e.tuples = append(e.tuples, e.svc.arenaSlice(o))
 		}
 	}
 	return e.uuids, e.tuples, nil
+}
+
+func newExtractSvc() *service {
+	return newService(
+		func() *C.Channel { return C.extract_create() },
+		func(ch *C.Channel, in C.In1) { C.extract_invoke1(ch, in) },
+		func(ch *C.Channel, in C.In4) { C.extract_invoke4(ch, in) },
+		func(ch *C.Channel, in C.In16) { C.extract_invoke16(ch, in) },
+		func(ch *C.Channel) { C.extract_drop(ch) },
+	)
 }

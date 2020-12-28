@@ -1,7 +1,7 @@
 package bindings
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lbindings -lcrypto -lssl -ldl -lm -lstdc++
+#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lbindings -lcrypto -lssl -ldl -lm -lstdc++ -lrocksdb
 
 #include "../../crates/bindings/flow_bindings.h"
 */
@@ -32,6 +32,7 @@ type service struct {
 	invoke1  func(*C.Channel, C.In1)
 	invoke4  func(*C.Channel, C.In4)
 	invoke16 func(*C.Channel, C.In16)
+	drop     func(*C.Channel)
 }
 
 // newService builds a new service instance. This is to be wrapped by concrete,
@@ -54,9 +55,10 @@ func newService(
 		invoke1:  invoke1,
 		invoke4:  invoke4,
 		invoke16: invoke16,
+		drop:     drop,
 	}
 	runtime.SetFinalizer(svc, func(svc *service) {
-		drop(svc.ch)
+		svc.finalize()
 	})
 
 	return svc
@@ -95,6 +97,14 @@ func (s *service) sendMessage(code uint32, m marshaler) error {
 		return fmt.Errorf("MarshalToSizedBuffer left unexpected remainder: %d vs %d", n, len(r))
 	}
 	return nil
+}
+
+// mustSendMessage sends the serialization of Marshaler to the Service,
+// and panics on a serialization error.
+func (s *service) mustSendMessage(code uint32, m marshaler) {
+	if err := s.sendMessage(code, m); err != nil {
+		panic(err)
+	}
 }
 
 // reserveBytes reserves a length-sized []byte slice which will be
@@ -214,10 +224,10 @@ func (s *service) poll() (pf.Arena, []C.Out, error) {
 	return arena, chOut, err
 }
 
-// arena_slice returns a []byte slice of the arena, using trusted offsets.
+// arenaSlice returns a []byte slice of the arena, using trusted offsets.
 // It skips bounds checks which would otherwise be done.
 // Equivalent to `arena()[from:to]`.
-func (s *service) arena_slice(o C.Out) (b []byte) {
+func (s *service) arenaSlice(o C.Out) (b []byte) {
 	var h = (*reflect.SliceHeader)(unsafe.Pointer(&b))
 
 	h.Cap = int(o.end - o.begin)
@@ -227,10 +237,23 @@ func (s *service) arena_slice(o C.Out) (b []byte) {
 	return
 }
 
-// arena_decode decodes the unmarshaler from the given trusted arena offsets.
-func (s *service) arena_decode(o C.Out, m Unmarshaler) Unmarshaler {
-	if err := m.Unmarshal(s.arena_slice(o)); err != nil {
+// arenaDecode decodes the unmarshaler from the given trusted arena offsets.
+func (s *service) arenaDecode(o C.Out, m Unmarshaler) Unmarshaler {
+	if err := m.Unmarshal(s.arenaSlice(o)); err != nil {
 		panic(err)
 	}
 	return m
+}
+
+// finalize the service, dropping its internal CGO channel.
+// Services are automatically finalized by the garbage collector,
+// but may be explicitly finalized as needed. For example, because
+// it has important side effects such as stopping child processes,
+// and the garbage collector cannot be relied upon to always run
+// before the current process exits.
+func (s *service) finalize() {
+	if s.ch != nil {
+		s.drop(s.ch)
+	}
+	s.ch = nil
 }
