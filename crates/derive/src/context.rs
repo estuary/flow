@@ -1,5 +1,6 @@
 use super::lambda;
 use super::nodejs;
+
 use catalog::{self, sql_params};
 use doc::{Pointer, SchemaIndex};
 use std::sync::Arc;
