@@ -1,8 +1,6 @@
 package flow
 
 import (
-	"bufio"
-	bytes "bytes"
 	"encoding/binary"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -109,52 +107,6 @@ func (sd IndexedShuffleResponse) NewAcknowledgement(pb.Journal) message.Message 
 // Tailing returns whether the ShuffleResponse is at the tail of the journal's available content.
 func (m *ShuffleResponse) Tailing() bool {
 	return m != nil && m.ReadThrough == m.WriteHead
-}
-
-// IndexedCombineResponse is an implementation of message.Message which
-// indexes a specific document within a CombineResponse.
-type IndexedCombineResponse struct {
-	*CombineResponse
-	Index int
-	// Collection on whose behalf this document was combined.
-	Collection *CollectionSpec
-}
-
-var _ message.Message = IndexedCombineResponse{}
-
-// GetUUID panics if called.
-func (cd IndexedCombineResponse) GetUUID() message.UUID { panic("not implemented") }
-
-// SetUUID replaces the placeholder UUID string, which must exist, with the UUID.
-func (cd IndexedCombineResponse) SetUUID(uuid message.UUID) {
-	var b = cd.Arena.Bytes(cd.DocsJson[cd.Index])
-
-	// Require that the current content has a placeholder UUID.
-	var ind = bytes.Index(b, DocumentUUIDPlaceholder)
-	if ind == -1 {
-		panic("document UUID placeholder not found")
-	}
-
-	// Replace it with the string-form UUID.
-	var str = uuid.String()
-	copy(b[ind:ind+36], str[0:36])
-}
-
-// NewAcknowledgement returns an IndexedCombineResponse of the acknowledgement template.
-func (cd IndexedCombineResponse) NewAcknowledgement(pb.Journal) message.Message {
-	return IndexedCombineResponse{
-		CombineResponse: &CombineResponse{
-			Arena:    append([]byte(nil), DocumentAckJSONTemplate...),
-			DocsJson: []Slice{{Begin: 0, End: uint32(len(DocumentAckJSONTemplate))}},
-		},
-		Index: 0,
-	}
-}
-
-// MarshalJSONTo copies the raw document json into the Writer.
-func (cd IndexedCombineResponse) MarshalJSONTo(bw *bufio.Writer) (int, error) {
-	var n, _ = bw.Write(cd.Arena.Bytes(cd.DocsJson[cd.Index]))
-	return n + 1, bw.WriteByte('\n')
 }
 
 var (
