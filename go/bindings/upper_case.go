@@ -99,8 +99,8 @@ func newUpperCaseGo() upperCaseGo {
 
 	// Use a closure to force dynamic dispatch / prevent inlining.
 	var fn = func(codeIn uint32, input []byte) (uint32, []byte, error) {
-		if bytes.Equal(input, []byte("whoops!")) {
-			return 0, nil, errors.New("whoops!")
+		if bytes.Equal(input, []byte("whoops")) {
+			return 0, nil, errors.New("whoops")
 		}
 
 		arena = append(arena[:0], input...)
