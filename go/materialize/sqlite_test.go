@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
 )
@@ -65,22 +66,23 @@ func TestSqliteMaterialization(t *testing.T) {
 
 	transaction, err := target.BeginTxn(context.Background())
 
-	shouldBeNil, err := transaction.FetchExistingDocument([]interface{}{"foo", "bar"})
+	shouldBeNil, err := transaction.FetchExistingDocument(tuple.Tuple{"foo", "bar"})
 	require.Nil(t, err, "error fetching missing document")
 	require.Nil(t, shouldBeNil, "expected nil document")
 
 	fullDoc := json.RawMessage("testDocument")
-	err = transaction.Store([]interface{}{"someA", "someB", "someX", "someY", "someZ"}, fullDoc)
+	err = transaction.Store(fullDoc, nil, tuple.Tuple{"someA", "someB", "someX", "someY", "someZ"})
 	require.Nil(t, err, "error storing document")
 
-	returnedDoc, err := transaction.FetchExistingDocument([]interface{}{"someA", "someB"})
+	returnedDoc, err := transaction.FetchExistingDocument(tuple.Tuple{"someA", "someB"})
 	require.Nil(t, err, "failed to fetch existing document")
 	require.Equal(t, fullDoc, returnedDoc, json.RawMessage("invalid flow_document"))
 
-	err = transaction.Store([]interface{}{"someA", "someB", "diffX", "diffY", "diffZ"}, json.RawMessage("differentDoc"))
+	err = transaction.Store(json.RawMessage("differentDoc"), nil,
+		tuple.Tuple{"someA", "someB", "diffX", "diffY", "diffZ"})
 	require.Nil(t, err, "error updating document")
 
-	updated, err := transaction.FetchExistingDocument([]interface{}{"someA", "someB"})
+	updated, err := transaction.FetchExistingDocument(tuple.Tuple{"someA", "someB"})
 	require.Nil(t, err, "failed to fetch updated doc")
 	require.Equal(t, json.RawMessage("differentDoc"), updated, "invalid updated flow_document")
 }
