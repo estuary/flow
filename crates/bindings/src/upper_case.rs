@@ -22,8 +22,8 @@ impl Service for UpperCase {
         arena: &mut Vec<u8>,
         out: &mut Vec<service::Out>,
     ) -> Result<(), Self::Error> {
-        if data == b"whoops!" {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "whoops!"));
+        if data == b"whoops" {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "whoops"));
         }
 
         let begin = arena.len() as u32;
@@ -93,8 +93,8 @@ pub extern "C" fn upper_case_naive(
 
     svc.arena.clear();
 
-    let code = if in_ == b"whoops!" {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "whoops!");
+    let code = if in_ == b"whoops" {
+        let err = std::io::Error::new(std::io::ErrorKind::Other, "whoops");
         write!(svc.arena, "{:?}", err).unwrap();
         std::u32::MAX
     } else {
