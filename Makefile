@@ -29,7 +29,11 @@ PATH := ${TOOLBIN}:${RUSTBIN}:${GOBIN}:${PATH}
 
 # Extra apt packages that we require.
 EXTRA_APT_PACKAGES = \
+	libbz2-dev \
+	liblz4-dev \
 	libprotobuf-dev \
+	libsnappy-dev \
+	libzstd-dev \
 	protobuf-compiler \
 	sqlite3-pcre
 
@@ -48,8 +52,14 @@ ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
 SQLITE_VERSION = 3330000
 SQLITE_SHA256 = b34f4c0c0eefad9a7e515c030c18702e477f4ef7d8ade6142bdab8011b487ac6
 
-# Enable the sqlite3 JSON extension.
-GO_BUILD_TAGS += json1
+# Version of Rocks to build against.
+ROCKSDB_VERSION = 6.11.4
+# Name of built RocksDB library.
+# Must match major & minor of ROCKSDB_VERSION.
+LIBROCKS = librocksdb.so.6.11
+# Location of RocksDB source under $WORKDIR.
+ROCKSDIR = ${WORKDIR}/rocksdb-v${ROCKSDB_VERSION}
+
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
 # with `protoc` invocations
 PROTOC_INC_GO_MODULES = \
@@ -66,15 +76,32 @@ GO_PROTO_TARGETS = \
 GO_MODULE_PATH = $(shell go list -f '{{ .Dir }}' -m $(module))
 
 PACKAGE_TARGETS = \
-	${PKGDIR}/etcd \
-	${PKGDIR}/flow-consumer \
-	${PKGDIR}/flow-ingester \
-	${PKGDIR}/flow-worker \
-	${PKGDIR}/flowctl \
-	${PKGDIR}/gazctl \
-	${PKGDIR}/gazette \
-	${PKGDIR}/sqlite3 \
-	${PKGDIR}/websocat
+	${PKGDIR}/bin/etcd \
+	${PKGDIR}/bin/flow-consumer \
+	${PKGDIR}/bin/flow-ingester \
+	${PKGDIR}/bin/flowctl \
+	${PKGDIR}/bin/gazctl \
+	${PKGDIR}/bin/gazette \
+	${PKGDIR}/bin/sqlite3 \
+	${PKGDIR}/bin/websocat \
+	${PKGDIR}/lib/${LIBROCKS}
+
+##########################################################################
+# Configure Go build & test behaviors.
+
+# Enable the sqlite3 JSON extension.
+GO_BUILD_TAGS += json1
+
+# Configure for building & linking against our vendored RocksDB library.
+export CGO_CFLAGS      = -I${ROCKSDIR}/include
+export CGO_CPPFLAGS    = -I${ROCKSDIR}/include
+export CGO_LDFLAGS     = -L${ROCKSDIR} -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd
+export LD_LIBRARY_PATH =   ${ROCKSDIR}
+
+# Variable used by librocksdb-sys to discover dynamic RocksDB library.
+# TODO(johnny): Ideally this would be specified as cargo configuration:
+#  https://github.com/rust-lang/cargo/pull/8839
+export ROCKSDB_LIB_DIR = ${ROCKSDIR}
 
 ##########################################################################
 # Build rules:
@@ -128,6 +155,29 @@ ${TOOLBIN}/websocat:
 		&& mv /tmp/websocat $@ \
 		&& $@ --version
 
+# librocksdb.so fetches and builds the version of RocksDB identified by
+# the rule stem (eg, 5.17.2). We require a custom rule to build RocksDB as
+# it's necessary to build with run-time type information (USE_RTTI=1), which
+# is not enabled in Debian packaging.
+${WORKDIR}/rocksdb-v%/${LIBROCKS}:
+	# Fetch RocksDB source.
+	mkdir -p ${WORKDIR}/rocksdb-v$*
+	curl -L -o ${WORKDIR}/tmp.tgz https://github.com/facebook/rocksdb/archive/v$*.tar.gz
+	tar xzf ${WORKDIR}/tmp.tgz -C ${WORKDIR}/rocksdb-v$* --strip-components=1
+	rm ${WORKDIR}/tmp.tgz
+	# TODO(johnny): We should remove PORTABLE, and instead restrict CI to compatible hardware.
+	@# PORTABLE=1 prevents rocks from passing `-march=native`. This is important because it will cause gcc
+	@# to automatically use avx512 extensions if they're available, which would cause it to break on CPUs
+	@# that don't support it.
+	PORTABLE=1 USE_SSE=1 DEBUG_LEVEL=0 USE_RTTI=1 \
+		LZ4=1 ZSTD=1 \
+		$(MAKE) -C $(dir $@) shared_lib -j${NPROC}
+	strip --strip-all $@
+
+	# Cleanup for less disk use / faster CI caching.
+	rm -rf $(dir $@)/shared-objects
+	find $(dir $@) -name "*.[oda]" -exec rm -f {} \;
+
 # Run the protobuf compiler to generate message and gRPC service implementations.
 # Invoke protoc with local and third-party include paths set.
 %.pb.go: %.proto ${TOOLBIN}/protoc-gen-gogo
@@ -142,36 +192,37 @@ go-install/%:
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" $*
 
 ${GOBIN}/flow-ingester: go-install/github.com/estuary/flow/go/flow-ingester $(GO_PROTO_TARGETS)
-${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/go/flow-consumer $(GO_PROTO_TARGETS)
+${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/go/flow-consumer $(GO_PROTO_TARGETS) ${ROCKSDIR}/${LIBROCKS}
 ${GOBIN}/gazette:       go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:        go-install/go.gazette.dev/core/cmd/gazctl
 
-${RUSTBIN}:
-	FLOW_VERSION=${VERSION} cargo build --release
+${RUSTBIN}: ${ROCKSDIR}/${LIBROCKS}
+	FLOW_VERSION=${VERSION} cargo build --release --locked
 
 ${ROOTDIR}/catalog.db: ${RUSTBIN}
 	flowctl build -v --source ${ROOTDIR}/examples/flow.yaml
 
 ${PKGDIR}:
-	mkdir -p ${PKGDIR}
-${PKGDIR}/etcd: ${PKGDIR} ${TOOLBIN}/etcd
+	mkdir -p ${PKGDIR}/bin
+	mkdir ${PKGDIR}/lib
+${PKGDIR}/bin/etcd: ${PKGDIR} ${TOOLBIN}/etcd
 	cp ${TOOLBIN}/etcd $@
-${PKGDIR}/sqlite3: ${PKGDIR} ${TOOLBIN}/sqlite3
-	cp ${TOOLBIN}/sqlite3 $@
-${PKGDIR}/websocat: ${PKGDIR} ${TOOLBIN}/websocat
-	cp ${TOOLBIN}/websocat $@
-${PKGDIR}/gazette: ${PKGDIR} ${GOBIN}/gazette
-	cp ${GOBIN}/gazette $@
-${PKGDIR}/gazctl: ${PKGDIR} ${GOBIN}/gazctl
-	cp ${GOBIN}/gazctl $@
-${PKGDIR}/flow-ingester: ${PKGDIR} ${GOBIN}/flow-ingester
-	cp ${GOBIN}/flow-ingester $@
-${PKGDIR}/flow-consumer: ${PKGDIR} ${GOBIN}/flow-consumer
+${PKGDIR}/bin/flow-consumer: ${PKGDIR} ${GOBIN}/flow-consumer
 	cp ${GOBIN}/flow-consumer $@
-${PKGDIR}/flow-worker: ${PKGDIR} ${RUSTBIN}
-	cp ${RUSTBIN}/flow-worker $@
-${PKGDIR}/flowctl:     ${PKGDIR} ${RUSTBIN}
+${PKGDIR}/bin/flow-ingester: ${PKGDIR} ${GOBIN}/flow-ingester
+	cp ${GOBIN}/flow-ingester $@
+${PKGDIR}/bin/flowctl:     ${PKGDIR} ${RUSTBIN}
 	cp ${RUSTBIN}/flowctl $@
+${PKGDIR}/bin/gazctl: ${PKGDIR} ${GOBIN}/gazctl
+	cp ${GOBIN}/gazctl $@
+${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
+	cp ${GOBIN}/gazette $@
+${PKGDIR}/lib/${LIBROCKS}:     ${PKGDIR} ${ROCKSDIR}/${LIBROCKS}
+	cp ${ROCKSDIR}/${LIBROCKS} $@
+${PKGDIR}/bin/sqlite3: ${PKGDIR} ${TOOLBIN}/sqlite3
+	cp ${TOOLBIN}/sqlite3 $@
+${PKGDIR}/bin/websocat: ${PKGDIR} ${TOOLBIN}/websocat
+	cp ${TOOLBIN}/websocat $@
 
 ##########################################################################
 # Make targets used by CI:
@@ -200,19 +251,26 @@ install-tools: ${TOOLBIN}/protoc-gen-gogo ${TOOLBIN}/etcd ${TOOLBIN}/sqlite3
 sql-test: ${TOOLBIN}/sqlite3
 	${ROOTDIR}/crates/catalog/src/test_catalog.sh
 
+.PHONY: rocks-build
+rocks-build: ${ROCKSDIR}/${LIBROCKS}
+
+.PHONY: rust-build
+rust-build: ${ROCKSDIR}/${LIBROCKS}
+	FLOW_VERSION=${VERSION} cargo build --release --locked
+
 .PHONY: rust-test
-rust-test: ${TOOLBIN}/sqlite3
-	FLOW_VERSION=${VERSION} cargo test --locked
+rust-test: ${TOOLBIN}/sqlite3 ${ROCKSDIR}/${LIBROCKS}
+	FLOW_VERSION=${VERSION} cargo test  --release --locked
 
 .PHONY: build-test-catalog
 build-test-catalog: ${ROOTDIR}/catalog.db
 
 .PHONY: go-test-fast
-go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
+go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
+go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
 	GORACE="halt_on_error=1" \
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
 

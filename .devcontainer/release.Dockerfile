@@ -8,11 +8,17 @@ RUN apt-get update -y \
  && apt-get install --no-install-recommends -y \
       ca-certificates \
       curl \
+      liblz4-1 \
       libreadline7 \
+      libsnappy1v5 \
+      libzstd1 \
  && rm -rf /var/lib/apt/lists/*
 
-# Copy binaries to the image.
-COPY * /usr/local/bin/
+# Copy binaries & libraries to the image.
+COPY bin/* /usr/local/bin/
+COPY lib/* /usr/local/lib/
+
+RUN ldconfig
 
 # Run as non-privileged "flow" user.
 RUN useradd flow --create-home --shell /usr/sbin/nologin
