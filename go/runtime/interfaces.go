@@ -9,7 +9,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/message"
 )
 
@@ -18,9 +17,6 @@ import (
 type Application interface {
 	consumer.Store
 	shuffle.Store
-
-	// TODO - move to consumer.Store.
-	BuildHints() (recoverylog.FSMHints, error)
 
 	BeginTxn(consumer.Shard) error
 	ConsumeMessage(consumer.Shard, message.Envelope, *message.Publisher) error

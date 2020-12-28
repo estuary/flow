@@ -3,15 +3,17 @@ package materialize
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/estuary/flow/go/fdb/tuple"
 	"go.gazette.dev/core/consumer"
 )
 
 // TargetTransaction represents the remote store's view of the transaction.
 type TargetTransaction interface {
 	// Retrieves the current document from the remote store, or nil if it doesn't exist.
-	FetchExistingDocument(primaryKey []interface{}) (json.RawMessage, error)
-	// Stores the materialized document and all extractedFields.
-	Store(extractedFields []interface{}, fullDocument json.RawMessage) error
+	FetchExistingDocument(key tuple.Tuple) (json.RawMessage, error)
+	// Stores the materialized document and all extracted |fields|.
+	Store(doc json.RawMessage, packedKey []byte, fields tuple.Tuple) error
 }
 
 // Target represents an external system that may hold a materialized view. This

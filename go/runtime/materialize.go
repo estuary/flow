@@ -2,9 +2,9 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
@@ -25,7 +25,7 @@ import (
 // stream and the set of keys that have been observed in this transaction.
 type MaterializeTransaction struct {
 	storeTxn  materialize.TargetTransaction
-	combine   *flow.Combine
+	combine   *bindings.Combine
 	keyCounts map[string]int
 }
 
@@ -35,12 +35,12 @@ type MaterializeTransaction struct {
 // for all of the communication with the remote system.
 type Materialize struct {
 	name           string
-	delegate       *flow.WorkerHost
 	readBuilder    *shuffle.ReadBuilder
 	coordinator    *shuffle.Coordinator
 	collectionSpec *pf.CollectionSpec
 	targetStore    materialize.Target
 	txn            *MaterializeTransaction
+	builder        *bindings.CombineBuilder
 }
 
 // NewMaterializeApp returns a new Materialize, which implements Application
@@ -77,6 +77,7 @@ func NewMaterializeApp(
 	if err != nil {
 		return nil, fmt.Errorf("opening catalog: %w", err)
 	}
+	defer catalog.Close()
 
 	collectionSpec, err := catalog.LoadCollection(collectionName)
 	if err != nil {
@@ -87,11 +88,6 @@ func NewMaterializeApp(
 		return nil, fmt.Errorf("loading materialization spec: %w", err)
 	}
 	targetSpec.TableName = tableName
-
-	err = catalog.Close()
-	if err != nil {
-		return nil, fmt.Errorf("closing catalog database: %w", err)
-	}
 
 	// Initialize the Store implementation for the target system. This will actually connect to the
 	// target system and initialize the set of projected fields from data stored there.
@@ -118,13 +114,9 @@ func NewMaterializeApp(
 		return nil, fmt.Errorf("NewReadBuilder: %w", err)
 	}
 
-	delegate, err := flow.NewWorkerHost(
-		"combine",
-		"--catalog",
-		catalogURL,
-	)
+	builder, err := bindings.NewCombineBuilder(catalog.LocalPath())
 	if err != nil {
-		return nil, fmt.Errorf("starting materialization flow-worker: %w", err)
+		return nil, fmt.Errorf("combine builder: %w", err)
 	}
 
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient())
@@ -136,12 +128,12 @@ func NewMaterializeApp(
 	}).Info("Successfully initialized materialization")
 
 	return &Materialize{
-		delegate:       delegate,
 		readBuilder:    readBuilder,
 		coordinator:    coordinator,
 		collectionSpec: &collectionSpec,
 		targetStore:    targetStore,
 		txn:            nil,
+		builder:        builder,
 	}, nil
 }
 
@@ -198,18 +190,19 @@ func (m *Materialize) BeginTxn(shard consumer.Shard) error {
 		return err
 	}
 
-	combine, err := flow.NewCombine(shard.Context(), pf.NewCombineClient(m.delegate.Conn), m.collectionSpec)
+	combine, err := m.builder.Open(
+		m.collectionSpec.SchemaUri,
+		m.collectionSpec.KeyPtrs,
+		m.targetStore.ProjectionPointers(),
+		m.collectionSpec.UuidPtr,
+		// Our combine operations prune because, by construction, we ensure the
+		// root-most document (the current DB row) is ordered first in the stream.
+		true,
+	)
 	if err != nil {
 		return err
 	}
-	// Our Combine RPCs should prune because, by construction, we ensure the
-	// root-most document (the current DB row) is ordered first in the RPC.
-	// This would *not* carry over to materializations into streams.
-	const prune = true
 
-	if err = combine.Open(m.targetStore.ProjectionPointers(), prune); err != nil {
-		return fmt.Errorf("while sending RPC open %q: %w", m.collectionSpec.Name, err)
-	}
 	m.txn = &MaterializeTransaction{
 		storeTxn:  tx,
 		combine:   combine,
@@ -225,16 +218,16 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	}
 
 	var doc = envelope.Message.(pf.IndexedShuffleResponse)
+	var uuid = doc.GetUUID()
 
-	var flags = message.GetFlags(doc.GetUUID())
-	if flags == message.Flag_ACK_TXN {
+	if message.GetFlags(uuid) == message.Flag_ACK_TXN {
 		return nil // We just ignore the ACK documents.
 	}
 
 	log.WithFields(log.Fields{
 		"collection":      m.collectionSpec.Name.String(),
 		"materialization": m.name,
-		"messageUuid":     envelope.GetUUID(),
+		"messageUuid":     uuid,
 	}).Debug("on ConsumeMessage")
 
 	var key = doc.Arena.Bytes(doc.PackedKey[doc.Index])
@@ -247,30 +240,24 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	if _, isPresent := m.txn.keyCounts[string(key)]; !isPresent {
 		var keyTuple, err = tuple.Unpack(key)
 		if err != nil {
-			return fmt.Errorf("failed to unpack key tuple: %w", err)
+			return fmt.Errorf("unpacking key: %w", err)
 		}
 
-		var keyIface = make([]interface{}, len(keyTuple))
-		for i := range keyTuple {
-			keyIface[i] = keyTuple[i]
-		}
-
-		fetched, err := m.txn.storeTxn.FetchExistingDocument(keyIface)
+		fetched, err := m.txn.storeTxn.FetchExistingDocument(keyTuple)
 		if err != nil {
-			return fmt.Errorf("Failed to fetch existing document (key %v): %w", keyTuple, err)
+			return fmt.Errorf("fetching existing document (key %s): %w", keyTuple, err)
 		}
 
 		if len(fetched) > 0 {
 			if err = m.txn.combine.Add(fetched); err != nil {
-				return fmt.Errorf("Failed to add existing document to combine RPC: %w", err)
+				return fmt.Errorf("adding store document to combine: %w", err)
 			}
 		}
 	}
 	m.txn.keyCounts[string(key)]++
 
-	var docBytes = json.RawMessage(doc.Arena.Bytes(doc.DocsJson[doc.Index]))
-	if err := m.txn.combine.Add(json.RawMessage(docBytes)); err != nil {
-		return fmt.Errorf("Failed to add new document to combine RPC: %w", err)
+	if err := m.txn.combine.Add(doc.Arena.Bytes(doc.DocsJson[doc.Index])); err != nil {
+		return fmt.Errorf("add collection document to combine: %w", err)
 	}
 
 	return nil
@@ -293,10 +280,7 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 		"observedDocuments": totalDocuments,
 	}).Debug("on FinalizeTxn")
 
-	if err := m.txn.combine.CloseSend(); err != nil {
-		return fmt.Errorf("Failed to flush Combine RPC: %w", err)
-	}
-	return m.txn.combine.Finish(m.updateDatabase)
+	return m.txn.combine.Finish(m.txn.storeTxn.Store)
 }
 
 // FinishedTxn implements Application.FinishedTxn
@@ -335,66 +319,4 @@ func (m *Materialize) ReplayRange(shard consumer.Shard, journal pb.Journal, begi
 // ClearRegisters returns a "not implemented" error.
 func (m *Materialize) ClearRegisters(context.Context, *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
 	return new(pf.ClearRegistersResponse), fmt.Errorf("not implemented")
-}
-
-// Called for each document in the Combine RPC response, after all documents have been added for
-// this transaction.
-func (m *Materialize) updateDatabase(icr pf.IndexedCombineResponse) error {
-	docIndex := icr.Index
-	log.WithFields(log.Fields{
-		"collection":      m.collectionSpec.Name.String(),
-		"materialization": m.name,
-		"docIndex":        icr.Index,
-	}).Debug("Updating database")
-	extractedFields, err := extractFields(docIndex, icr.Fields, icr.Arena)
-	if err != nil {
-		return err
-	}
-
-	// The full document json is always the last column, so we add that to the fields that were
-	// extracted. This is all dependent on the order
-	var documentJSON = icr.Arena.Bytes(icr.DocsJson[docIndex])
-
-	err = m.txn.storeTxn.Store(extractedFields, documentJSON)
-	if err != nil {
-		return fmt.Errorf("Failed to store document: %w", err)
-	}
-	log.Debugf("Successfully updated database for document %d", docIndex)
-
-	return nil
-}
-
-func extractFields(documentIndex int, fields []pf.Field, arena pf.Arena) ([]interface{}, error) {
-	extractedFields := make([]interface{}, len(fields))
-	for i, field := range fields {
-		extractedValue, err := getValue(field.Values[documentIndex], arena)
-		if err != nil {
-			return nil, err
-		}
-		extractedFields[i] = extractedValue
-	}
-	return extractedFields, nil
-}
-
-// Safe version that returns the value of a field. Copies contents out of the arena, if necessary.
-func getValue(field pf.Field_Value, arena pf.Arena) (interface{}, error) {
-	switch field.Kind {
-	case pf.Field_Value_NULL:
-		return nil, nil
-	case pf.Field_Value_TRUE:
-		return true, nil
-	case pf.Field_Value_FALSE:
-		return false, nil
-	case pf.Field_Value_UNSIGNED:
-		return field.Unsigned, nil
-	case pf.Field_Value_SIGNED:
-		return field.Signed, nil
-	case pf.Field_Value_DOUBLE:
-		return field.Double, nil
-	case pf.Field_Value_OBJECT, pf.Field_Value_ARRAY, pf.Field_Value_STRING:
-		bytes := arena[field.Bytes.Begin:field.Bytes.End]
-		return string(bytes), nil
-	default:
-		return nil, fmt.Errorf("invalid field value: %#v", field)
-	}
 }
