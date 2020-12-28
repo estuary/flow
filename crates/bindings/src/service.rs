@@ -157,7 +157,7 @@ pub fn invoke<S: Service, I: InN>(ch: *mut Channel, i: I) {
     let r = i.invoke(svc_impl, &mut arena, &mut out);
     if let Err(err) = r {
         // Set terminal error string.
-        err_str = format!("{:?}", err);
+        err_str = format!("{:?}", anyhow::Error::new(err));
     }
 
     ch.arena_ptr = arena.as_mut_ptr();

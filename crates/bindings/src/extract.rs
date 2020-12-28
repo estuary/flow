@@ -1,23 +1,23 @@
 use crate::service::{self, Channel};
-use derive::extract_api::Extractor;
+use derive::extract_api::API;
 
 #[no_mangle]
-pub extern "C" fn extractor_create() -> *mut Channel {
-    service::create::<Extractor>()
+pub extern "C" fn extract_create() -> *mut Channel {
+    service::create::<API>()
 }
 #[no_mangle]
-pub extern "C" fn extractor_invoke1(ch: *mut Channel, i: service::In1) {
-    service::invoke::<Extractor, _>(ch, i)
+pub extern "C" fn extract_invoke1(ch: *mut Channel, i: service::In1) {
+    service::invoke::<API, _>(ch, i)
 }
 #[no_mangle]
-pub extern "C" fn extractor_invoke4(ch: *mut Channel, i: service::In4) {
-    service::invoke::<Extractor, _>(ch, i)
+pub extern "C" fn extract_invoke4(ch: *mut Channel, i: service::In4) {
+    service::invoke::<API, _>(ch, i)
 }
 #[no_mangle]
-pub extern "C" fn extractor_invoke16(ch: *mut Channel, i: service::In16) {
-    service::invoke::<Extractor, _>(ch, i)
+pub extern "C" fn extract_invoke16(ch: *mut Channel, i: service::In16) {
+    service::invoke::<API, _>(ch, i)
 }
 #[no_mangle]
-pub extern "C" fn extractor_drop(ch: *mut Channel) {
-    service::drop::<Extractor>(ch)
+pub extern "C" fn extract_drop(ch: *mut Channel) {
+    service::drop::<API>(ch)
 }

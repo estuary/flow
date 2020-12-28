@@ -11,5 +11,7 @@ crate_type = ["staticlib"]
 protocol = { path = "../protocol", version = "0.0.0" }
 derive = { path = "../derive", version = "0.0.0" }
 
+anyhow = "*"
+
 [build-dependencies]
 cbindgen = "*"
