@@ -9,9 +9,9 @@ catalog = { path = "../catalog", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
-serve = { path = "../serve", version = "0.0.0" }
 tuple = { path = "../tuple", version = "0.0.0" }
 
+bytes = "*"
 futures = "*"
 http = "*"
 hyper = "*"
@@ -22,17 +22,21 @@ log = "*"
 mime = "*"
 pin-utils = "*"
 prost = "*"
-rocksdb = "*"
+rocksdb = { version = "*", default-features = false }
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 thiserror = "*"
 tokio = { version = "0.2", features = ["full"] }
-tonic = { version = "*" }
+tracing = "*"
+tracing-futures = "*"
+tracing-subscriber = "*"
 url = "*"
 uuid = "*"
 
 [dev-dependencies]
+serve = { path = "../serve", version = "0.0.0" }
+
 insta = "*"
 tempfile = "*"
 tower = "*"

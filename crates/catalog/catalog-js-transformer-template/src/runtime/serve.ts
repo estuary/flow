@@ -67,18 +67,15 @@ class Server {
 
     req.on('end', () => {
       // Join input chunks and parse into an array of invocation rows.
-      const rows: Document[][] = JSON.parse(chunks.join(''));
+      const [sources, registers] : [Document[], Document[][] | undefined] = JSON.parse(chunks.join(''));
 
       // Map each row into a future which will return Document[].
-      const futures = rows.map(async (row) => {
-        const source = row[0];
-
+      const futures = sources.map(async (source, index) => {
         if (update !== undefined) {
           return update(source);
         }
-
-        const previous = row[1];
-        const register = row[2];
+        const previous = registers ? registers[index][0] : undefined;
+        const register = registers ? registers[index][1] : undefined;
 
         if (publish !== undefined) {
           return publish(source, previous, register || previous);

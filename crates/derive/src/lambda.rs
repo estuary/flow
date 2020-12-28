@@ -1,4 +1,3 @@
-use serde::ser::Serialize;
 use serde_json::Value;
 use std::path;
 use std::str::FromStr;
@@ -24,7 +23,7 @@ pub enum Error {
     ExpectedArray,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Lambda {
     // Noop is a Lambda which does nothing. It's provided as an alternative to
     // using Option<Lambda>, and simplifies usages which would otherwise need
@@ -43,116 +42,15 @@ pub enum Lambda {
     },
 }
 
-pub struct Invocation<'l> {
-    lambda: &'l Lambda,
-    buffer: Vec<u8>,
-    row: usize,
-    column: usize,
-}
-
-impl<'l> Invocation<'l> {
-    fn start(&mut self) {
-        match self.lambda {
-            Lambda::Noop => (),
-
-            Lambda::UnixJson { .. } | Lambda::WebJson { .. } => {
-                self.buffer.push(b'[');
+impl std::fmt::Debug for Lambda {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Lambda::Noop => write!(f, "noop://"),
+            Lambda::UnixJson { sock, path, .. } => {
+                write!(f, "uds://{}{}", sock.to_string_lossy(), path)
             }
+            Lambda::WebJson { url, .. } => url.fmt(f),
         }
-    }
-
-    pub fn start_row(&mut self) {
-        match self.lambda {
-            Lambda::Noop => (),
-
-            Lambda::UnixJson { .. } | Lambda::WebJson { .. } => {
-                if self.row != 0 {
-                    self.buffer.push(b',');
-                }
-                self.buffer.push(b'[');
-            }
-        }
-    }
-
-    pub fn add_column(&mut self, c: &Value) -> Result<(), Error> {
-        match self.lambda {
-            Lambda::Noop => Ok(()),
-
-            Lambda::UnixJson { .. } | Lambda::WebJson { .. } => {
-                if self.column != 0 {
-                    self.buffer.push(b',');
-                }
-                self.column += 1;
-
-                let mut ser = serde_json::Serializer::new(&mut self.buffer);
-                Ok(c.serialize(&mut ser)?)
-            }
-        }
-    }
-
-    pub fn finish_row(&mut self) {
-        match self.lambda {
-            Lambda::Noop => (),
-
-            Lambda::UnixJson { .. } | Lambda::WebJson { .. } => {
-                self.buffer.push(b']');
-                self.row += 1;
-                self.column = 0;
-            }
-        }
-    }
-
-    pub async fn finish(self) -> Result<impl Iterator<Item = Result<Vec<Value>, Error>>, Error> {
-        let Self {
-            lambda,
-            mut buffer,
-            row,
-            ..
-        } = self;
-
-        // Buffer "rows" sequence terminator, if needed.
-        match lambda {
-            Lambda::Noop => (),
-
-            Lambda::UnixJson { .. } | Lambda::WebJson { .. } => {
-                buffer.push(b']');
-            }
-        }
-
-        // Invoke the Lambda.
-        let rows: Value = match self.lambda {
-            Lambda::Noop => Value::Array(Vec::new()),
-
-            Lambda::UnixJson { client, sock, path } => {
-                let req = hyper::Request::builder()
-                    .method("PUT")
-                    .uri(hyperlocal::Uri::new(sock, path))
-                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                    .body(hyper::Body::from(buffer))
-                    .unwrap();
-
-                unmarshal(client.request(req)).await?
-            }
-            Lambda::WebJson { client, url } => {
-                let req = hyper::Request::builder()
-                    .method("PUT")
-                    .uri(url.as_str())
-                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                    .body(hyper::Body::from(buffer))
-                    .unwrap();
-
-                unmarshal(client.request(req)).await?
-            }
-        };
-
-        let rows = match rows {
-            Value::Array(v) if v.len() == row => v,
-            _ => return Err(Error::ExpectedArray),
-        };
-        Ok(rows.into_iter().map(|row| match row {
-            Value::Array(columns) => Ok(columns),
-            _ => Err(Error::ExpectedArray),
-        }))
     }
 }
 
@@ -163,15 +61,51 @@ impl Lambda {
         Lambda::WebJson { client, url }
     }
 
-    pub fn start_invocation(&'_ self) -> Invocation<'_> {
-        let mut inv = Invocation {
-            lambda: self,
-            buffer: Vec::new(),
-            row: 0,
-            column: 0,
+    /// Invoke the lambda with the given, encoded `application/json` body.
+    #[tracing::instrument(level = "debug", err, skip(body))]
+    pub async fn invoke<B>(
+        &self,
+        mut body: Option<B>,
+    ) -> Result<impl Iterator<Item = Result<Vec<Value>, Error>>, Error>
+    where
+        B: Into<hyper::Body>,
+    {
+        // Reference |body| to avoid mixing by-ref & by-move in the same pattern.
+        let output: Value = match (self, &mut body) {
+            (Lambda::Noop, _) | (_, None) => Value::Array(Vec::new()),
+
+            (Lambda::UnixJson { client, sock, path }, Some(_)) => {
+                let req = hyper::Request::builder()
+                    .method("PUT")
+                    .uri(hyperlocal::Uri::new(sock, path))
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .body(body.take().unwrap().into())
+                    .unwrap();
+
+                unmarshal(client.request(req)).await?
+            }
+            (Lambda::WebJson { client, url }, Some(_)) => {
+                let req = hyper::Request::builder()
+                    .method("PUT")
+                    .uri(url.as_str())
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .body(body.take().unwrap().into())
+                    .unwrap();
+
+                unmarshal(client.request(req)).await?
+            }
         };
-        inv.start();
-        inv
+
+        tracing::trace!(%output);
+
+        let output = match output {
+            Value::Array(v) => v,
+            _ => return Err(Error::ExpectedArray),
+        };
+        Ok(output.into_iter().map(|row| match row {
+            Value::Array(columns) => Ok(columns),
+            _ => Err(Error::ExpectedArray),
+        }))
     }
 }
 
@@ -226,38 +160,39 @@ pub mod test {
 
     #[tokio::test]
     async fn test_hello_world() {
-        // Start a TestServer which adds "world" to it's arguments.
-        let srv = TestServer::start(|args| {
-            let mut out = Vec::new();
-            out.extend(args.iter().map(|v| v.clone()));
-            out.push(json!("world"));
-            out
+        // Start a TestServer which adds "added" to it's arguments.
+        let srv = TestServer::start_v2(|source, register, previous| {
+            vec![
+                source,
+                register.unwrap_or(&Value::Null),
+                previous.unwrap_or(&Value::Null),
+            ]
+            .into_iter()
+            .cloned()
+            .chain(std::iter::once(json!("added")))
+            .collect::<Vec<_>>()
         });
 
-        let mut inv = srv.lambda.start_invocation();
-        inv.start_row();
-        inv.add_column(&json!("hello")).unwrap();
-        inv.finish_row();
-
-        inv.start_row();
-        inv.add_column(&json!("big")).unwrap();
-        inv.add_column(&json!("wide")).unwrap();
-        inv.finish_row();
-
-        let inv = inv.finish().await.unwrap();
+        let body = json!([
+            ["source", "next"],
+            [["previous", "register"], ["prev-only"]]
+        ])
+        .to_string();
+        let inv = srv.lambda.invoke(Some(body)).await.unwrap();
         let inv = inv.collect::<Result<Vec<_>, _>>().unwrap();
 
         assert_eq!(
-            inv,
-            vec![
-                vec![json!("hello"), json!("world")],
-                vec![json!("big"), json!("wide"), json!("world")],
-            ]
+            serde_json::to_value(&inv).unwrap(),
+            json!([
+                ["source", "register", "previous", "added"],
+                ["next", null, "prev-only", "added"],
+            ]),
         );
 
         // Invoke with no input. The server returns 204: No Content,
         // which we should interpret as an empty output iterator.
-        let inv = srv.lambda.start_invocation().finish().await.unwrap();
+        let body = json!([[]]).to_string();
+        let inv = srv.lambda.invoke(Some(body)).await.unwrap();
         let inv = inv.collect::<Result<Vec<_>, _>>().unwrap();
         assert!(inv.is_empty());
     }
@@ -270,8 +205,8 @@ pub mod test {
     }
 
     impl TestServer {
-        pub fn start(
-            func: impl Fn(&[serde_json::Value]) -> Vec<serde_json::Value> + Send + Clone + 'static,
+        pub fn start_v2(
+            func: impl Fn(&Value, Option<&Value>, Option<&Value>) -> Vec<Value> + Send + Clone + 'static,
         ) -> TestServer {
             let handle = move |req: Request<Body>| {
                 let func = func.clone();
@@ -283,11 +218,17 @@ pub mod test {
                     };
 
                     let b = hyper::body::to_bytes(req.into_body()).await.unwrap();
-                    let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+
+                    let v: Vec<Vec<Value>> = serde_json::from_slice(&b).unwrap();
+                    let sources = v.get(0).unwrap();
+                    let registers = v.get(1);
 
                     let mut out = Vec::new();
-                    for row in v.as_array().unwrap() {
-                        out.push(Value::Array(func(row.as_array().unwrap())));
+                    for (ind, src) in sources.iter().enumerate() {
+                        let previous = registers.and_then(|r| r[ind].get(0));
+                        let register = registers.and_then(|r| r[ind].get(1));
+
+                        out.push(Value::Array(func(src, register, previous)));
                     }
 
                     let resp = match out.is_empty() {
@@ -344,7 +285,8 @@ pub mod test {
 
     impl Drop for TestServer {
         fn drop(&mut self) {
-            self.tx_stop.take().unwrap().send(()).unwrap();
+            // send() may fail if the TestServer already panicked.
+            let _ = self.tx_stop.take().unwrap().send(());
         }
     }
 }

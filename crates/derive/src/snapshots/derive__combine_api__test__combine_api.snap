@@ -1,0 +1,54 @@
+---
+source: crates/derive/src/combine_api.rs
+expression: "(String::from_utf8_lossy(&arena), out)"
+---
+(
+    "{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"one\",\"max\":5.5,\"min\":3}\u{2}one\u{0}\u{15}\u{3}!�\u{16}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"three\",\"max\":6.6,\"min\":6}\u{2}three\u{0}\u{15}\u{6}!�\u{1a}ffffff{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"two\",\"max\":4.4,\"min\":2}\u{2}two\u{0}\u{15}\u{2}!�\u{11}������",
+    [
+        Out {
+            code: 0,
+            begin: 0,
+            end: 76,
+        },
+        Out {
+            code: 1,
+            begin: 76,
+            end: 81,
+        },
+        Out {
+            code: 2,
+            begin: 81,
+            end: 92,
+        },
+        Out {
+            code: 0,
+            begin: 92,
+            end: 170,
+        },
+        Out {
+            code: 1,
+            begin: 170,
+            end: 177,
+        },
+        Out {
+            code: 2,
+            begin: 177,
+            end: 188,
+        },
+        Out {
+            code: 0,
+            begin: 188,
+            end: 264,
+        },
+        Out {
+            code: 1,
+            begin: 264,
+            end: 269,
+        },
+        Out {
+            code: 2,
+            begin: 269,
+            end: 280,
+        },
+    ],
+)

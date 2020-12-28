@@ -1,3 +1,5 @@
+use super::DebugJson;
+
 use doc::{reduce, Pointer, SchemaIndex, Validator};
 use json::validator::FullContext;
 use serde_json::Value;
@@ -83,11 +85,26 @@ impl Combiner {
             kd.doc
         })
     }
+
+    pub fn key(&self) -> &Arc<[Pointer]> {
+        &self.key
+    }
 }
 
-impl<'a> std::fmt::Debug for Combiner {
+impl std::fmt::Debug for Combiner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Combiner")
+        f.debug_struct("Combiner")
+            .field("schema", &self.schema.as_str())
+            .field("key", &self.key)
+            .field(
+                "entries",
+                &self
+                    .entries
+                    .iter()
+                    .map(|k| DebugJson(&k.doc))
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
     }
 }
 

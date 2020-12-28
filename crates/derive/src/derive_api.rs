@@ -1,21 +1,21 @@
-use super::combine_api::docs_to_combine_responses;
 use super::combiner::Combiner;
-use super::context::{Context, Transform};
-use super::lambda;
+use super::context::Context;
+use super::lambda::{self, Lambda};
+use super::nodejs::NodeRuntime;
 use super::pipeline::PendingPipeline;
 use super::registers::{self, Registers};
-use doc::{self, reduce};
+use crate::setup_env_tracing;
+
+use bytes::{buf::BufMutExt, BufMut};
+use doc::{self, reduce, Pointer};
 use futures::channel::mpsc;
 use futures::sink::SinkExt;
-use futures::stream::{Stream, StreamExt, TryStreamExt};
-use futures::TryFutureExt;
-use itertools::izip;
-use json::validator;
-use protocol::{consumer, flow, recoverylog};
-use std::default::Default;
-use std::fmt::Debug;
-use std::future::Future;
+use futures::stream::{StreamExt, TryStreamExt};
+use prost::Message;
+use protocol::{cgo, flow, flow::derive_api, message_flags};
+use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::Instrument;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -27,722 +27,804 @@ pub enum Error {
     SchemaIndex(#[from] json::schema::index::Error),
     #[error("channel send error: {0:?}")]
     SendError(#[from] mpsc::SendError),
-    #[error("recv error from peer: {0}")]
-    RecvError(#[from] tonic::Status),
     #[error("register error: {0}")]
     RegisterErr(#[from] registers::Error),
-
-    #[error("Unexpected collection")]
-    UnexpectedCollection,
-    #[error("Expected Open")]
-    ExpectedOpen,
-    #[error("Expected Continue or Flush")]
-    ExpectedContinueOrFlush,
-    #[error("Expected Prepare")]
-    ExpectedPrepare,
-    #[error("Expected EOF")]
-    ExpectedEOF,
     #[error("Unknown transform ID: {0}")]
     UnknownTransformID(i32),
-    #[error("invalid arena range: {0:?}")]
-    InvalidArenaRange(flow::Slice),
-    #[error("source document validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
-    SourceValidation(doc::FailedValidation),
     #[error("register reduction error: {0}")]
     RegisterReduction(#[source] reduce::Error),
     #[error("derived document reduction error: {0}")]
     DerivedReduction(#[source] reduce::Error),
+    #[error("Protobuf decoding error")]
+    ProtoDecode(#[from] prost::DecodeError),
+    #[error("source document validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
+    SourceValidation(doc::FailedValidation),
+    #[error("parsing URL: {0:?}")]
+    Url(#[from] url::ParseError),
+    #[error(transparent)]
+    CatalogError(#[from] catalog::Error),
+    #[error(transparent)]
+    NodeError(#[from] super::nodejs::Error),
+    #[error(transparent)]
+    RocksError(#[from] rocksdb::Error),
+    #[error("lambda returned fewer rows than expected")]
+    TooFewRows,
+    #[error("lambda returned more rows than expected")]
+    TooManyRows,
+    #[error("protocol error (invalid state or invocation)")]
+    InvalidState,
 }
 
-/// Convert document JSON slices referencing the |arena| into parsed Values,
-/// where each is validated by the associated transform source schema.
-fn extract_validated_sources<C: validator::Context>(
-    validator: &mut doc::Validator<C>,
-    arena: &[u8],
-    docs_json: &[flow::Slice],
-    transforms: &[&Transform],
-) -> Result<Vec<serde_json::Value>, Error> {
-    transforms
-        .iter()
-        .zip(docs_json.iter())
-        .map(move |(tf, s)| {
-            let b = arena
-                .get(s.begin as usize..s.end as usize)
-                .ok_or_else(|| Error::InvalidArenaRange(s.clone()))?;
-            let doc: serde_json::Value = serde_json::from_slice(b)?;
-
-            doc::validate(validator, &tf.source_schema, &doc).map_err(Error::SourceValidation)?;
-
-            Ok(doc)
-        })
-        .collect()
-}
-
-/// Start "update" lambda invocations for each document and associated
-/// transform, returning a future which resolves when all invocations
-/// have completed.
-///
-/// The returned vector has one element per input document, with zero
-/// or more Value columns produced by that document's update transform.
-fn derive_register_deltas<'a>(
-    transforms: &'a [Transform],
-    docs: &'a [serde_json::Value],
-    doc_transforms: &'a [&Transform],
-) -> Result<impl Future<Output = Result<Vec<Vec<serde_json::Value>>, Error>> + 'a, Error> {
-    // Start concurrent "update" Lambda invocations for each transform.
-    let mut updates = transforms
-        .iter()
-        .map(|tf| tf.update.start_invocation())
-        .collect::<Vec<_>>();
-
-    // Scatter documents to their respective update lambdas.
-    for (transform, doc) in doc_transforms.iter().zip(docs.iter()) {
-        let inv = &mut updates[transform.index];
-        inv.start_row();
-        inv.add_column(&doc)?;
-        inv.finish_row();
-    }
-
-    // Dispatch invocations, and collect into a FuturesOrdered so that request Futures
-    // progress in parallel and yield results in transform order. Wait for all to complete.
-    Ok(updates
-        .into_iter()
-        .map(|inv| inv.finish())
-        .collect::<futures::stream::FuturesOrdered<_>>()
-        .try_collect()
-        .err_into()
-        .and_then(move |responses| {
-            futures::future::ready(collect_rows(&doc_transforms, responses))
-        }))
-}
-
-/// Start "publish" lambda invocations for each document and associated transform,
-/// after first applying register deltas to supply a "current" and (where applicable)
-/// "previous" register value with the invocation.
-fn derive_publish_docs<'fut, 'tmp>(
-    transforms: &'fut [Transform],
-    registers: &'tmp mut Registers,
-    register_deltas: Vec<Vec<serde_json::Value>>,
-    doc_values: &'tmp [serde_json::Value],
-    doc_transforms: &'fut [&Transform],
-    doc_keys: &'tmp [&'tmp [u8]],
-) -> Result<impl Future<Output = Result<Vec<Vec<serde_json::Value>>, Error>> + 'fut, Error> {
-    // Load all registers in |keys|, so that we may read them below.
-    registers.load(doc_keys.iter().copied())?;
-
-    // Start concurrent "publish" lambdas for each transform.
-    let mut publishes: Vec<lambda::Invocation> = transforms
-        .iter()
-        .map(|tf| tf.publish.start_invocation())
-        .collect::<Vec<_>>();
-
-    // Scatter documents to their respective "publish" lambdas, updating registers as we go.
-    for (transform, key, doc, register_deltas) in itertools::izip!(
-        doc_transforms,
-        doc_keys,
-        doc_values,
-        register_deltas.into_iter()
-    ) {
-        let inv = &mut publishes[transform.index];
-        inv.start_row();
-
-        // Send the source document itself.
-        inv.add_column(&doc)?;
-        // Send the value of the register from before the document's update, if any.
-        inv.add_column(&registers.read(key))?;
-        // If there are updates, apply them and send the updated register.
-        // If not, send an explicit Null.
-        if !register_deltas.is_empty() {
-            registers
-                .reduce(key, register_deltas.into_iter())
-                .map_err(Error::RegisterReduction)?;
-
-            // Send the updated register value.
-            inv.add_column(&registers.read(key))?;
-        } else {
-            inv.add_column(&serde_json::Value::Null)?;
-        }
-        inv.finish_row();
-    }
-
-    Ok(publishes
-        .into_iter()
-        .map(|inv| inv.finish())
-        .collect::<futures::stream::FuturesOrdered<_>>()
-        .try_collect()
-        .err_into()
-        .and_then(move |responses| {
-            futures::future::ready(collect_rows(&doc_transforms, responses))
-        }))
-}
-
-// Collect document transformations, returned across multiple lambda invocations,
-// and map through each document's transform, arriving at a projected flat array
-// of the transformations obtained from each source document.
-fn collect_rows(
-    transforms: &[&Transform],
-    responses: Vec<impl Iterator<Item = Result<Vec<serde_json::Value>, lambda::Error>>>,
-) -> Result<Vec<Vec<serde_json::Value>>, Error> {
-    let mut out: Vec<Vec<serde_json::Value>> = Vec::new();
-    out.resize_with(transforms.len(), Default::default);
-
-    for (tf_index, rows) in responses.into_iter().enumerate() {
-        let doc_index = transforms.iter().enumerate().filter_map(|(doc_index, tf)| {
-            if tf.index == tf_index {
-                Some(doc_index)
-            } else {
-                None
-            }
-        });
-
-        for (row, doc_index) in rows.zip(doc_index) {
-            out[doc_index] = row?;
-        }
-    }
-    Ok(out)
-}
-
+/// API provides a derivation capability as a cgo::Service.
 pub struct API {
-    ctx: Arc<Context>,
-    registers: std::sync::Mutex<PendingPipeline<Registers>>,
+    pimpl: Option<APIInner<'static>>,
 }
 
-pub type DeriveResponseStream = mpsc::Receiver<Result<flow::DeriveResponse, tonic::Status>>;
+impl cgo::Service for API {
+    type Error = Error;
 
-async fn process_continue(
+    fn create() -> Self {
+        setup_env_tracing();
+        Self { pimpl: None }
+    }
+
+    fn invoke(
+        &mut self,
+        code: u32,
+        data: &[u8],
+        arena: &mut Vec<u8>,
+        out: &mut Vec<cgo::Out>,
+    ) -> Result<(), Self::Error> {
+        match (code, &mut self.pimpl) {
+            // Initialize service.
+            (0, None) => {
+                let cfg = derive_api::Config::decode(data)?;
+
+                // Re-hydrate a &rocksdb::Env from a provided memory address.
+                let env_ptr = cfg.rocksdb_env_memptr as usize;
+                let env: &rocksdb::Env = unsafe { std::mem::transmute(&env_ptr) };
+
+                self.pimpl = Some(APIInner::from_database(
+                    env,
+                    &cfg.catalog_path,
+                    &cfg.local_dir,
+                    &cfg.derivation,
+                )?);
+            }
+            // Restore checkpoint.
+            (1, Some(pimpl)) => {
+                cgo::send_message(0, &pimpl.restore_checkpoint()?, arena, out);
+            }
+            // Begin transaction.
+            (2, Some(pimpl)) => {
+                pimpl.begin_transaction()?;
+            }
+            // Next document header.
+            (3, Some(pimpl)) => {
+                pimpl.doc_header(derive_api::DocHeader::decode(data)?)?;
+            }
+            // Next document body.
+            (4, Some(pimpl)) => {
+                futures::executor::block_on(pimpl.doc_body(data))?;
+            }
+            // Flush transaction.
+            (5, Some(pimpl)) => {
+                let req = derive_api::Flush::decode(data)?;
+                futures::executor::block_on(pimpl.flush_transaction(req, arena, out))?;
+            }
+            // Prepare transaction for commit.
+            (6, Some(pimpl)) => {
+                let req = derive_api::Prepare::decode(data)?;
+                pimpl.prepare_commit(req)?;
+            }
+            // Clear registers (test support only).
+            (7, Some(pimpl)) => {
+                pimpl.clear_registers()?;
+            }
+            _ => return Err(Error::InvalidState),
+        }
+        Ok(())
+    }
+}
+
+struct APIInner<'e> {
+    runtime: tokio::runtime::Runtime,
     ctx: Arc<Context>,
-    cont: flow::derive_request::Continue,
+    node: Option<NodeRuntime>,
+    txn_id: usize,
+    state: State,
+
+    // This instance cannot outlive the RocksDB environment it uses.
+    _env: PhantomData<&'e rocksdb::Env>,
+}
+
+enum State {
+    Invalid,
+    RestoreCheckpoint(Registers),
+    BeginTxn(Registers),
+    DocHeader(Txn),
+    DocBody(derive_api::DocHeader, Txn),
+    Prepare(Registers),
+}
+
+struct Txn {
+    validator: doc::Validator<'static, doc::FullContext>, // TODO(johnny): Remove.
+    next: Block,
+    tx_blocks: mpsc::Sender<Block>,
+    fut: tokio::task::JoinHandle<Result<(Combiner, Registers), Error>>,
+}
+
+impl<'e> APIInner<'e> {
+    fn build_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new()
+            .threaded_scheduler()
+            .core_threads(1)
+            .thread_name("derive-service-worker")
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    fn from_database(
+        env: &'e rocksdb::Env,
+        catalog_path: &str,
+        local_dir: &str,
+        derivation: &str,
+    ) -> Result<APIInner<'e>, Error> {
+        // Open catalog DB & build schema index.
+        let db = catalog::open(catalog_path)?;
+        let schema_index = super::build_schema_index(&db)?;
+
+        // Start NodeJS transform worker.
+        let node = super::nodejs::NodeRuntime::start(&db, &local_dir)?;
+
+        // Build derivation context.
+        let ctx =
+            super::context::Context::build_from_catalog(&db, &derivation, schema_index, &node)?;
+
+        let mut api = Self::from_parts(
+            Self::build_runtime(),
+            schema_index,
+            ctx,
+            env,
+            local_dir,
+            Some(node),
+        )?;
+
+        // Invoke any user-provide runtime bootstraps.
+        api.runtime.block_on(
+            api.node
+                .as_ref()
+                .unwrap()
+                .invoke_bootstrap(api.ctx.derivation_id),
+        )?;
+
+        Ok(api)
+    }
+
+    fn from_parts<P: AsRef<std::path::Path>>(
+        runtime: tokio::runtime::Runtime,
+        schema_index: &'static doc::SchemaIndex,
+        ctx: Context,
+        env: &'e rocksdb::Env,
+        local_dir: P,
+        node: Option<NodeRuntime>,
+    ) -> Result<APIInner<'e>, Error> {
+        let ctx = Arc::new(ctx);
+
+        let mut rocks_opts = rocksdb::Options::default();
+        rocks_opts.create_if_missing(true);
+        rocks_opts.create_missing_column_families(true);
+        rocks_opts.set_env(&env);
+
+        let rocks = rocksdb::DB::open_cf(
+            &rocks_opts,
+            local_dir,
+            [
+                rocksdb::DEFAULT_COLUMN_FAMILY_NAME,
+                super::registers::REGISTERS_CF,
+            ]
+            .iter(),
+        )?;
+
+        let registers = super::registers::Registers::new(
+            rocks,
+            schema_index,
+            &ctx.register_schema,
+            ctx.register_initial.clone(),
+        );
+
+        let state = State::RestoreCheckpoint(registers);
+
+        Ok(APIInner {
+            runtime,
+            ctx,
+            node,
+            txn_id: 0,
+            state,
+            _env: PhantomData,
+        })
+    }
+
+    fn restore_checkpoint(&mut self) -> Result<protocol::consumer::Checkpoint, Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::RestoreCheckpoint(registers) = state {
+            let cp = registers.last_checkpoint()?;
+            self.state = State::BeginTxn(registers);
+            Ok(cp)
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    fn clear_registers(&mut self) -> Result<(), Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::BeginTxn(mut registers) = state {
+            registers.clear()?;
+            self.state = State::BeginTxn(registers);
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    fn begin_transaction(&mut self) -> Result<(), Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::BeginTxn(registers) = state {
+            self.txn_id += 1;
+            let span = tracing::info_span!("txn", id = self.txn_id);
+
+            let (tx_blocks, rx_blocks) = mpsc::channel(0);
+
+            let fut = process_blocks(self.ctx.clone(), registers, rx_blocks).instrument(span);
+            let fut = self.runtime.spawn(fut);
+
+            self.state = State::DocHeader(Txn {
+                validator: doc::Validator::new(self.ctx.schema_index),
+                next: Block::new(self.ctx.clone()),
+                tx_blocks,
+                fut,
+            });
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    fn doc_header(&mut self, hdr: derive_api::DocHeader) -> Result<(), Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::DocHeader(txn) = state {
+            self.state = State::DocBody(hdr, txn);
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    async fn doc_body(&mut self, body: &[u8]) -> Result<(), Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::DocBody(
+            derive_api::DocHeader {
+                transform_id,
+                uuid,
+                packed_key,
+            },
+            Txn {
+                mut validator,
+                mut tx_blocks,
+                mut next,
+                fut,
+            },
+        ) = state
+        {
+            let uuid = uuid.unwrap_or_default();
+            let flags = uuid.producer_and_flags & message_flags::MASK;
+
+            if flags != message_flags::ACK_TXN {
+                next.add_document(&mut validator, transform_id, uuid, packed_key, body)?;
+            }
+
+            // Measure Block size is the sum of each transform buffer.
+            let size = next.buffers.iter().map(|b| b.len()).sum::<usize>();
+
+            let next = if size >= BLOCK_SIZE_CUTOFF {
+                // If we're over the cut-off, we must block to dispatch this Block.
+                tx_blocks
+                    .send(next)
+                    .await
+                    .expect("cannot fail to send block");
+                Block::new(self.ctx.clone())
+            } else if flags != message_flags::CONTINUE_TXN && size > 0 {
+                // If the block is non-empty and this document *isn't* a
+                // continuation of an append transaction (e.x., where we can
+                // expect a future ACK_TXN to be forthcoming), then attempt
+                // to send.
+                match tx_blocks.try_send(next) {
+                    Ok(()) => Block::new(self.ctx.clone()),
+                    Err(err) => err.into_inner(),
+                }
+            } else {
+                next
+            };
+
+            self.state = State::DocHeader(Txn {
+                validator,
+                tx_blocks,
+                next,
+                fut,
+            });
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    async fn flush_transaction(
+        &mut self,
+        req: derive_api::Flush,
+        arena: &mut Vec<u8>,
+        out: &mut Vec<cgo::Out>,
+    ) -> Result<(), Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::DocHeader(Txn {
+            next,
+            mut tx_blocks,
+            fut,
+            ..
+        }) = state
+        {
+            // Dispatch a final, non-empty Block.
+            if !next.tf_inds.is_empty() {
+                tx_blocks.send(next).await?;
+            }
+            tx_blocks.close_channel();
+
+            let (combiner, registers) = fut.await.expect("must not have a JoinError")?;
+
+            super::combine_api::drain_combiner(
+                combiner,
+                &req.uuid_placeholder_ptr,
+                &req.field_ptrs.iter().map(Pointer::from).collect::<Vec<_>>(),
+                arena,
+                out,
+            );
+            self.state = State::Prepare(registers);
+
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    fn prepare_commit(&mut self, req: derive_api::Prepare) -> Result<(), Error> {
+        let state = std::mem::replace(&mut self.state, State::Invalid);
+
+        if let State::Prepare(mut registers) = state {
+            registers.prepare(req.checkpoint.expect("checkpoint cannot be None"))?;
+            self.state = State::BeginTxn(registers);
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+}
+
+// BLOCK_SIZE_CUTOFF is the threshold at which we'll stop adding documents
+// to a current block and cut over to a new one.
+const BLOCK_SIZE_CUTOFF: usize = 8 * (1 << 16) / 10;
+// BLOCK_PARALLELISM is the number of blocks a derivation may process concurrently.
+const BLOCK_PARALLELISM: usize = 5;
+
+struct Block {
+    ctx: Arc<Context>,
+    buffers: Vec<bytes::BytesMut>,
+    tf_inds: Vec<u8>,
+    keys: Vec<Vec<u8>>,
+    uuids: Vec<flow::UuidParts>,
+}
+
+impl Block {
+    fn new(ctx: Arc<Context>) -> Block {
+        let buffers = vec![bytes::BytesMut::new(); ctx.transforms.len()];
+
+        Block {
+            ctx,
+            buffers,
+            tf_inds: Vec::new(),
+            keys: Vec::new(),
+            uuids: Vec::new(),
+        }
+    }
+
+    fn add_document<C: json::validator::Context>(
+        &mut self,
+        val: &mut doc::Validator<C>,
+        tf_id: i32,
+        uuid: flow::UuidParts,
+        packed_key: Vec<u8>,
+        data: &[u8],
+    ) -> Result<(), Error> {
+        let (tf_ind, tf) = self
+            .ctx
+            .transforms
+            .iter()
+            .enumerate()
+            .find(|(_, t)| t.transform_id == tf_id)
+            .ok_or(Error::UnknownTransformID(tf_id))?;
+
+        // Validate.
+        // TODO(johnny): Move source schema validation to read-time, avoiding this parsing.
+        doc::validate(val, &tf.source_schema, &serde_json::from_slice(data)?)
+            .map_err(Error::SourceValidation)?;
+
+        // Accumulate source document into the transform's column buffer.
+        let buf = &mut self.buffers[tf_ind];
+        if !buf.is_empty() {
+            buf.put_u8(b',');
+        }
+        buf.extend_from_slice(data);
+
+        self.tf_inds.push(tf_ind as u8);
+        self.uuids.push(uuid);
+        self.keys.push(packed_key);
+
+        Ok(())
+    }
+}
+
+// Process a continuation block of the derivation's source documents.
+#[tracing::instrument(level = "debug", name = "block", err, skip(block, registers, combiner))]
+async fn process_block(
+    id: usize,
+    mut block: Block,
     registers: PendingPipeline<Registers>,
     combiner: PendingPipeline<Combiner>,
 ) -> Result<(), Error> {
-    // Extract a column of mapped &Transform instances.
-    let doc_transforms =
-        map_transforms(&ctx.transforms, &cont.transform_id).collect::<Result<Vec<_>, _>>()?;
-    // Extract a column of parsed & validated source documents, as Value instances.
-    let mut val = doc::Validator::<validator::FullContext>::new(&ctx.schema_index);
-    let doc_values =
-        extract_validated_sources(&mut val, &cont.arena, &cont.docs_json, &doc_transforms)?;
-    // Extract packed keys as &[u8] slices.
-    let doc_keys = map_slices(&cont.arena, &cont.packed_key).collect::<Result<Vec<_>, _>>()?;
+    tracing::debug!(docs = block.tf_inds.len());
+    tracing::trace!(keys = ?block.keys.iter().map(|k| String::from_utf8_lossy(k)).collect::<Vec<_>>());
+
+    // Split off buffers of source document columns, one for each transform.
+    // Columns hold comma-separated JSON documents, e.x. `{"doc":1},{"doc":2},...`
+    let source_columns = block
+        .buffers
+        .iter_mut()
+        .map(|buffer| buffer.split().freeze())
+        .collect::<Vec<_>>();
+
+    let b_open_open = bytes::Bytes::from("[[");
+    let b_close_close = bytes::Bytes::from("]]");
+    let b_close_comma_open = bytes::Bytes::from("],[");
 
     // Start invocations of update transforms, then gather deltas from all invocations.
-    let register_deltas =
-        derive_register_deltas(&ctx.transforms, &doc_values, &doc_transforms)?.await?;
+    let mut tf_register_deltas = block
+        .ctx
+        .transforms
+        .iter()
+        .zip(source_columns.iter().cloned())
+        .map(|(tf, source_column)| {
+            let span = tracing::debug_span!("update", tf_id = tf.transform_id);
+            tracing::trace!(parent: &span, sources = %String::from_utf8_lossy(&source_column));
+
+            let body = if source_column.is_empty() {
+                None
+            } else {
+                // Stitch "[[" + sources + "]]".
+                let body: Vec<Result<_, std::convert::Infallible>> = vec![
+                    Ok(b_open_open.clone()),
+                    Ok(source_column),
+                    Ok(b_close_close.clone()),
+                ];
+                Some(hyper::Body::wrap_stream(futures::stream::iter(
+                    body.into_iter(),
+                )))
+            };
+            tf.update.invoke(body).instrument(span)
+        })
+        .collect::<futures::stream::FuturesOrdered<_>>()
+        .try_collect::<Vec<_>>()
+        .await?;
 
     // Now that we have deltas in-hand, receive |registers| from the
     // processing task ordered ahead of us.
     let mut registers = registers.await;
-    // Build publish lambda invocations, applying register deltas as we go.
-    // This returns a future response of those invocations, and does not block.
-    let derivations = derive_publish_docs(
-        &ctx.transforms,
-        registers.as_mut(),
-        register_deltas,
-        &doc_values,
-        &doc_transforms,
-        &doc_keys,
-    )?;
+
+    // Load all registers in |keys|, so that we may read them below.
+    registers.as_mut().load(block.keys.iter())?;
+    tracing::trace!(registers = ?registers.as_ref(), "loaded registers");
+
+    // Process documents in sequence, reducing the register updates of each
+    // and accumulating register column buffers for future publish invocations.
+    for (tf_ind, key) in block.tf_inds.iter().zip(block.keys.iter()) {
+        let tf = &block.ctx.transforms[*tf_ind as usize];
+        let buf = &mut block.buffers[*tf_ind as usize];
+
+        // If this transform has a update lambda, expect that we received zero or more
+        // register deltas for this source document. Otherwise behave as if empty.
+        let deltas = if !matches!(tf.update, Lambda::Noop) {
+            tf_register_deltas[*tf_ind as usize]
+                .next()
+                .ok_or(Error::TooFewRows)??
+        } else {
+            Vec::new()
+        };
+
+        // If this transform will invoke a publish lambda, add its "before"
+        // register to the invocation body.
+        if !matches!(tf.publish, Lambda::Noop) {
+            if !buf.is_empty() {
+                buf.put_u8(b','); // Continue column.
+            }
+            buf.put_u8(b'['); // Start a new register row.
+            serde_json::to_writer(buf.writer(), registers.as_ref().read(key)).unwrap();
+        }
+
+        // If we have deltas to apply, reduce them and assemble into
+        // a future publish invocation body.
+        if !deltas.is_empty() {
+            registers
+                .as_mut()
+                .reduce(key, deltas.into_iter())
+                .map_err(Error::RegisterReduction)?;
+
+            // Write "after" register, completing row.
+            if !matches!(tf.publish, Lambda::Noop) {
+                buf.put_u8(b','); // Continue register row.
+                serde_json::to_writer(buf.writer(), registers.as_ref().read(key)).unwrap();
+                buf.put_u8(b']'); // Complete row.
+            }
+        } else if !matches!(tf.publish, Lambda::Noop) {
+            // Complete row without an "after" register (there was no update).
+            buf.put_u8(b']');
+        }
+    }
+    tracing::trace!(registers = ?registers.as_ref(), "reduced registers");
+
     // Release |registers| to the processing task ordered behind us.
     std::mem::drop(registers);
-    // Gather derived documents emitted by publish lambdas.
-    let derivations = derivations.await?;
 
-    // Like register deltas, now that we have derived documents in-hand,
+    // Verify that we precisely consumed expected outputs from each lambda.
+    for mut it in tf_register_deltas {
+        if let Some(_) = it.next() {
+            return Err(Error::TooManyRows);
+        }
+    }
+
+    // Split off buffers of register columns, one for each transform.
+    // Columns hold comma-separated rows of JSON documents,
+    // e.x. `[{"before":1},{"after":2}],[...]`
+    let register_columns = block
+        .buffers
+        .iter_mut()
+        .map(|buffer| buffer.split().freeze())
+        .collect::<Vec<_>>();
+
+    // Start invocations of publish transforms, then gather derivations.
+    let mut tf_derived_docs = block
+        .ctx
+        .transforms
+        .iter()
+        .zip(source_columns.iter().cloned())
+        .zip(register_columns.into_iter())
+        .map(|((tf, source_column), register_column)| {
+            let span = tracing::debug_span!("publish", tf_id = tf.transform_id);
+            tracing::trace!(
+                parent: &span,
+                sources = %String::from_utf8_lossy(&source_column),
+                registers = %String::from_utf8_lossy(&register_column),
+            );
+
+            let body = if register_column.is_empty() {
+                None
+            } else {
+                // Stitch "[[" + source_column + "],[" + register_column + "]]".
+                let body: Vec<Result<_, std::convert::Infallible>> = vec![
+                    Ok(b_open_open.clone()),
+                    Ok(source_column),
+                    Ok(b_close_comma_open.clone()),
+                    Ok(register_column),
+                    Ok(b_close_close.clone()),
+                ];
+                Some(hyper::Body::wrap_stream(futures::stream::iter(
+                    body.into_iter(),
+                )))
+            };
+            tf.publish.invoke(body).instrument(span)
+        })
+        .collect::<futures::stream::FuturesOrdered<_>>()
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    // As with register deltas, now that we have derived documents in-hand,
     // receive |combiner| from the task ordered ahead of us.
     let mut combiner = combiner.await;
-    for doc in derivations.into_iter().flatten() {
-        combiner
-            .as_mut()
-            .combine(doc, false)
-            .map_err(Error::DerivedReduction)?;
+
+    // Process documents in sequence, combining the derived outputs of each.
+    for tf_ind in block.tf_inds {
+        let tf = &block.ctx.transforms[tf_ind as usize];
+
+        // If this transform has a publish lambda, expect that we received zero or more
+        // derived documents for this source document. Otherwise behave as if empty.
+        let derived_docs = if !matches!(tf.publish, Lambda::Noop) {
+            tf_derived_docs[tf_ind as usize]
+                .next()
+                .ok_or(Error::TooFewRows)??
+        } else {
+            Vec::new()
+        };
+
+        for doc in derived_docs {
+            combiner
+                .as_mut()
+                .combine(doc, false)
+                .map_err(Error::DerivedReduction)?;
+        }
     }
+    tracing::trace!(combiner = ?combiner.as_ref(), "reduced documents");
+
     // Release |combiner| to the processing task ordered behind us.
     std::mem::drop(combiner);
+
+    // Verify that we precisely consumed expected outputs from each lambda.
+    for mut it in tf_derived_docs {
+        if let Some(_) = it.next() {
+            return Err(Error::TooManyRows);
+        }
+    }
 
     Ok(())
 }
 
-async fn derive_rpc(
+async fn process_blocks(
     ctx: Arc<Context>,
-    mut registers: PendingPipeline<Registers>,
-    mut rx_request: impl Stream<Item = Result<flow::DeriveRequest, tonic::Status>> + Unpin,
-    mut tx_response: mpsc::Sender<Result<flow::DeriveResponse, tonic::Status>>,
-) -> Result<(), Error> {
-    // Read open request.
-    let open = match rx_request.next().await {
-        Some(Ok(flow::DeriveRequest {
-            kind: Some(flow::derive_request::Kind::Open(open)),
-        })) => open,
-        _ => return Err(Error::ExpectedOpen),
-    };
-    if open.collection != ctx.derivation_name {
-        return Err(Error::UnexpectedCollection);
-    }
-
-    // We'll next read zero or more Continue messages, followed by a closing Flush.
-    // Each Continue will begin a new and concurrent execution task, tracked in |pending|.
+    registers: Registers,
+    rx_block: mpsc::Receiver<Block>,
+) -> Result<(Combiner, Registers), Error> {
+    // We'll read zero or more Blocks, followed by a channel close.
+    // Each Block will begin a new and concurrent execution task tracked in |pending|.
     let mut pending = futures::stream::FuturesUnordered::new();
 
-    // All Continue messages will use a shared Combiner, which is drained and emitted upon flush.
+    // All Blocks will use a shared Combiner, which is drained and returned
+    // when all Blocks have completed.
     let combiner = Combiner::new(
         ctx.schema_index,
         &ctx.derivation_schema,
         ctx.derivation_key.clone(),
     );
+    let mut registers = PendingPipeline::new(registers);
     let mut combiner = PendingPipeline::new(combiner);
 
-    // On a Continue, we start and return a new task Future (which will be added to |pending|).
-    let mut on_continue = |cont: flow::derive_request::Continue| {
-        process_continue(
-            ctx.clone(),
-            cont,
-            registers.chain_before(),
-            combiner.chain_before(),
-        )
-    };
-    // On completing a Continue, we inform the client by sending an ACK Continue back.
-    // The client can apply flow control by bounding the number of in-flight Continue
-    // messages, and this acknowledgement "opens" the window for a next client Continue.
-    let ack = Ok(flow::DeriveResponse {
-        kind: Some(flow::derive_response::Kind::Continue(
-            flow::derive_response::Continue {},
-        )),
-    });
+    let mut rx_block = rx_block.fuse();
+    let mut id: usize = 1;
+    loop {
+        if pending.len() == BLOCK_PARALLELISM {
+            // We must complete a Block before we can pull from |rx_block|.
+            pending.select_next_some().await?;
+        }
 
-    let mut rx_stream = rx_request.fuse();
-    let flush: flow::derive_request::Flush = loop {
-        futures::select! {
-            completion = pending.select_next_some() => match completion {
-                // Case: a |pending| Continue has completed processing.
-                Ok(()) => tx_response.send(ack.clone()).await?,
-                // Error: a |pending| Continue failed.
-                Err(err) => return Err(err),
+        // Read a Block completion, or a new Block to process.
+        futures::select_biased! {
+            completion = pending.select_next_some() => if let Err(err) = completion {
+                return Err(err);
             },
-            rx = rx_stream.next() => match rx {
-                // Case: we read a Continue message.
-                Some(Ok(flow::DeriveRequest {
-                    kind: Some(flow::derive_request::Kind::Continue(cont)),
-                })) => pending.push(on_continue(cont)),
-                // Case: we read a Flush message.
-                Some(Ok(flow::DeriveRequest {
-                    kind: Some(flow::derive_request::Kind::Flush(flush)),
-                })) => break flush,
-                // Case: we read an error from the peer.
-                Some(Err(err)) => return Err(Error::RecvError(err)),
-                // Error: we read an unexpected message.
-                _ => return Err(Error::ExpectedContinueOrFlush),
-            }
+            rx = rx_block.next() => match rx {
+                Some(block) => {
+                    pending.push(
+                        process_block(
+                            id,
+                            block,
+                            registers.chain_before(),
+                            combiner.chain_before(),
+                        )
+                    );
+                    id += 1;
+                }
+                None => break,
+            },
         };
-    };
+    }
 
-    // We've read a Flush. Drain remaining |pending| tasks.
+    // We've read an |rx_block| close. Drain remaining |pending| tasks.
     while let Some(completion) = pending.next().await {
-        match completion {
-            // Case: a |pending| Continue has completed processing.
-            Ok(()) => tx_response.send(ack.clone()).await?,
-            // Error: a |pending| Continue failed.
-            Err(err) => return Err(err),
+        if let Err(err) = completion {
+            return Err(err);
         }
     }
-
-    // Map requested extraction fields to Pointers.
-    let fields = flush
-        .field_ptrs
-        .iter()
-        .map(doc::Pointer::from)
-        .collect::<Vec<_>>();
-
-    // Block to receive and unwrap the Combiner.
-    let combiner = combiner.await.into_inner();
-    // Drain the Combiner, aggregating documents into CombineResponses
-    // and sending each as a Flush DeriveResponse message variant.
-    let responses = docs_to_combine_responses(
-        1 << 14, // Target arenas of 16k.
-        &fields,
-        combiner.into_entries(&flush.uuid_placeholder_ptr),
-    )
-    .map(|cr| {
-        Ok(Ok(flow::DeriveResponse {
-            kind: Some(flow::derive_response::Kind::Flush(cr)),
-        }))
-    })
-    // Send a trailing, empty CombineResponse to indicate that the flush has completed.
-    .chain(std::iter::once(Ok(Ok(flow::DeriveResponse {
-        kind: Some(flow::derive_response::Kind::Flush(
-            flow::CombineResponse::default(),
-        )),
-    }))));
-
-    tx_response
-        .clone()
-        .send_all(&mut futures::stream::iter(responses))
-        .await?;
-
-    // Read Prepare request with a Checkpoint.
-    let checkpoint = match rx_stream.next().await {
-        Some(Ok(flow::DeriveRequest {
-            kind:
-                Some(flow::derive_request::Kind::Prepare(flow::derive_request::Prepare {
-                    checkpoint: Some(checkpoint),
-                })),
-        })) => checkpoint,
-        Some(Err(err)) => return Err(Error::RecvError(err)),
-        _ => return Err(Error::ExpectedPrepare),
-    };
-
-    let mut registers = registers.await;
-    let tx_commit = registers.as_mut().prepare(checkpoint)?;
-
-    // Pass back control of registers to the caller / the next RPC.
-    std::mem::drop(registers);
-
-    // Read (only) a clean EOF to commit the derive transaction.
-    match rx_stream.next().await {
-        None => tx_commit.send(()).expect("failed to signal commit"),
-        Some(Err(err)) => return Err(Error::RecvError(err)),
-        Some(Ok(_)) => return Err(Error::ExpectedEOF),
-    };
-
-    Ok(())
-}
-
-impl API {
-    pub fn new(ctx: Arc<Context>, registers: Registers) -> API {
-        let registers = PendingPipeline::new(registers);
-        let registers = std::sync::Mutex::new(registers);
-
-        API { ctx, registers }
-    }
-
-    fn spawn_derive_handler(
-        &self,
-        rx_request: impl Stream<Item = Result<flow::DeriveRequest, tonic::Status>>
-            + Unpin
-            + Send
-            + 'static,
-    ) -> DeriveResponseStream {
-        let (mut tx_response, rx_response) = mpsc::channel(1);
-
-        // We'll pass registers to this stream via channel, and create a return
-        // channel for it to return registers back to us once the stream has
-        // fully completed. This imposes a total ordering of derive requests,
-        // since a following request must block for registers until the prior
-        // request has completed.
-        let registers = self.registers.lock().unwrap().chain_before();
-        let ctx = self.ctx.clone();
-
-        tokio::spawn(async move {
-            let fut = derive_rpc(ctx, registers, rx_request, tx_response.clone());
-
-            if let Err(err) = fut.await {
-                log::error!("derive RPC failed: {:?}", err);
-
-                // Make a best-effort attempt to send the error to the peer.
-                // We ignore channel disconnect SendErrors.
-                let _ = tx_response
-                    .send(Err(tonic::Status::internal(format!("{}", err))))
-                    .await;
-            }
-        });
-
-        rx_response
-    }
-
-    async fn last_checkpoint(&self) -> Result<consumer::Checkpoint, Error> {
-        let registers = self.registers.lock().unwrap().chain_before();
-        Ok(registers.await.as_ref().last_checkpoint()?)
-    }
-
-    async fn clear_registers(&self) -> Result<(), Error> {
-        let registers = self.registers.lock().unwrap().chain_before();
-        registers.await.as_mut().clear().map_err(Into::into)
-    }
-}
-
-#[tonic::async_trait]
-impl flow::derive_server::Derive for API {
-    type DeriveStream = DeriveResponseStream;
-
-    async fn derive(
-        &self,
-        request: tonic::Request<tonic::Streaming<flow::DeriveRequest>>,
-    ) -> Result<tonic::Response<Self::DeriveStream>, tonic::Status> {
-        let rx_response = self.spawn_derive_handler(request.into_inner());
-        Ok(tonic::Response::new(rx_response))
-    }
-
-    async fn restore_checkpoint(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<consumer::Checkpoint>, tonic::Status> {
-        self.last_checkpoint()
-            .await
-            .map(tonic::Response::new)
-            .map_err(|err| tonic::Status::internal(format!("{}", err)))
-    }
-
-    async fn build_hints(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<recoverylog::FsmHints>, tonic::Status> {
-        // TODO(johnny): Requires wiring up recoverylog recorder.
-        Ok(tonic::Response::new(recoverylog::FsmHints::default()))
-    }
-
-    async fn clear_registers(
-        &self,
-        _request: tonic::Request<()>,
-    ) -> Result<tonic::Response<()>, tonic::Status> {
-        match self.clear_registers().await {
-            Ok(()) => Ok(tonic::Response::new(())),
-            Err(err) => Err(tonic::Status::internal(format!("{}", err))),
-        }
-    }
-}
-
-fn map_transforms<'a>(
-    transforms: &'a [Transform],
-    transform_ids: &'a [i32],
-) -> impl Iterator<Item = Result<&'a Transform, Error>> + 'a {
-    transform_ids.iter().map(move |id| {
-        transforms
-            .iter()
-            .find(|t| t.transform_id == *id)
-            .ok_or_else(|| Error::UnknownTransformID(*id))
-    })
-}
-
-fn map_slices<'a>(
-    arena: &'a [u8],
-    slices: &'a [flow::Slice],
-) -> impl Iterator<Item = Result<&'a [u8], Error>> + 'a {
-    slices.iter().map(move |s| {
-        arena
-            .get(s.begin as usize..s.end as usize)
-            .ok_or_else(|| Error::InvalidArenaRange(s.clone()))
-    })
+    // Unwrap and return the Combiner and Registers.
+    Ok((combiner.await.into_inner(), registers.await.into_inner()))
 }
 
 #[cfg(test)]
-mod test {
-    use super::{
-        super::combiner::UUID_PLACEHOLDER,
-        super::test::{build_test_rocks, LambdaTestServer},
-        *,
-    };
-    use insta::assert_snapshot;
+mod tests {
+    use super::{super::context::Transform, super::test::LambdaTestServer, *};
     use serde_json::{json, Value};
+    use tuple::TuplePack;
     use url::Url;
 
-    #[tokio::test]
-    async fn test_basic_rpc() {
-        let mut api = TestAPI::new().await;
-        let (mut tx_request, mut rx_response) = api.start_derive();
+    #[test]
+    fn test_basic_rpc() {
+        setup_env_tracing();
 
-        send_open(&mut tx_request, "a/derived/collection").await;
+        let env = rocksdb::Env::mem_env().unwrap();
+        let mut api = TestAPI::new(&env);
 
-        send_continue(
-            &mut tx_request,
-            build_continue(vec![
-                (TF_INC, json!({"key": "a"})),  // => 1.
-                (TF_INC, json!({"key": "a"})),  // => 2.
-                (TF_INC, json!({"key": "bb"})), // => 1.
-                (TF_PUB, json!({"key": "bb"})), // Pub 1.
-                (TF_PUB, json!({"key": "a"})),  // Pub 2.
-                (TF_INC, json!({"key": "bb"})), // => 2.
-                (TF_INC, json!({"key": "bb"})), // => 3.
-            ]),
-        )
-        .await;
+        assert_eq!(api.inner.restore_checkpoint().unwrap(), Default::default());
 
-        send_continue(
-            &mut tx_request,
-            build_continue(vec![
-                (TF_PUB, json!({"key": "ccc"})),
-                (TF_INC, json!({"key": "bb"})),              // => 4.
-                (TF_RST, json!({"key": "bb", "reset": 15})), // Pub 4, => 15.
-                (TF_INC, json!({"key": "bb"})),              // => 16.
-                (TF_RST, json!({"key": "a", "reset": 0})),   // Pub 2, => 0.
-                (TF_INC, json!({"key": "a"})),               // => 1.
-                (TF_INC, json!({"key": "a"})),               // => 2.
-                (TF_PUB, json!({"key": "a"})),               // Pub 2.
-                (TF_PUB, json!({"key": "bb"})),              // Pub 16.
-            ]),
-        )
-        .await;
+        api.inner.begin_transaction().unwrap();
+        api.apply_documents(vec![
+            (TF_INC, json!({"key": "a"})),  // => 1.
+            (TF_INC, json!({"key": "a"})),  // => 2.
+            (TF_INC, json!({"key": "bb"})), // => 1.
+            (TF_PUB, json!({"key": "bb"})), // Pub 1.
+            (TF_PUB, json!({"key": "a"})),  // Pub 2.
+            (TF_INC, json!({"key": "bb"})), // => 2.
+            (TF_INC, json!({"key": "bb"})), // => 3.
+        ]);
 
-        send_flush(&mut tx_request).await;
+        api.apply_documents(vec![
+            (TF_PUB, json!({"key": "ccc"})),
+            (TF_INC, json!({"key": "bb"})),              // => 4.
+            (TF_RST, json!({"key": "bb", "reset": 15})), // Pub 4, => 15.
+            (TF_INC, json!({"key": "bb"})),              // => 16.
+            (TF_RST, json!({"key": "a", "reset": 0})),   // Pub 2, => 0.
+            (TF_INC, json!({"key": "a"})),               // => 1.
+            (TF_INC, json!({"key": "a"})),               // => 2.
+            (TF_PUB, json!({"key": "a"})),               // Pub 2.
+            (TF_PUB, json!({"key": "bb"})),              // Pub 16.
+        ]);
 
-        recv_continue(&mut rx_response).await;
-        recv_continue(&mut rx_response).await;
+        let mut arena = Vec::new();
+        let mut out = Vec::new();
 
-        // Expect flush of derived documents.
-        let combined = recv_flush(&mut rx_response).await;
-        assert_eq!(
-            Value::Array(combined),
-            json!([
-                [{"_uuid": UUID_PLACEHOLDER, "key": "a", "reset": 0, "values": [1002, 1002, 2]}, [0, "a"]],
-                [{"_uuid": UUID_PLACEHOLDER, "key": "bb", "reset": 15, "values": [1001, 1004, 16]}, [15, "bb"]],
-                [{"_uuid": UUID_PLACEHOLDER, "key": "ccc", "values": [1000]}, [null, "ccc"]],
-            ])
+        let flush = api.inner.flush_transaction(
+            derive_api::Flush {
+                uuid_placeholder_ptr: "/_uuid".to_owned(),
+                field_ptrs: vec!["/reset".to_owned(), "/key".to_owned()],
+            },
+            &mut arena,
+            &mut out,
         );
-        // Expect an empty Flush, which signals that flush is complete.
-        assert!(recv_flush(&mut rx_response).await.is_empty());
+        futures::executor::block_on(flush).unwrap();
 
-        send_prepare(&mut tx_request).await;
+        api.inner
+            .prepare_commit(derive_api::Prepare {
+                checkpoint: Some(Default::default()),
+            })
+            .unwrap();
 
-        tx_request.close_channel();
-        recv_eof(&mut rx_response).await;
+        // |arena| & |out| hold three documents, with body, keys, fields of:
+        //   {"_uuid": UUID_PLACEHOLDER, "key": "a", "reset": 0, "values": [1002, 1002, 2]}, "a", [0, "a"]
+        //   {"_uuid": UUID_PLACEHOLDER, "key": "bb", "reset": 15, "values": [1001, 1004, 16]}, "bb", [15, "bb"]
+        //   {"_uuid": UUID_PLACEHOLDER, "key": "ccc", "values": [1000]}, "ccc", [null, "ccc"]
+        insta::assert_debug_snapshot!((String::from_utf8_lossy(&arena), out));
 
-        // Expect we can restore the Checkpoint just-written.
-        let _ = api.api.last_checkpoint().await.unwrap();
-        // And that we can clear registers.
-        let _ = api.api.clear_registers().await.unwrap();
+        // Left ready for the next transaction.
+        assert!(matches!(api.inner.state, State::BeginTxn(..)));
     }
 
-    #[tokio::test]
-    async fn test_raced_requests() {
-        let mut api = TestAPI::new().await;
+    #[test]
+    fn test_register_validation_error() {
+        let env = rocksdb::Env::mem_env().unwrap();
+        let mut api = TestAPI::new(&env);
 
-        let (mut tx_one, mut rx_one) = api.start_derive();
-        let (mut tx_two, mut rx_two) = api.start_derive();
+        assert_eq!(api.inner.restore_checkpoint().unwrap(), Default::default());
+        api.inner.begin_transaction().unwrap();
 
-        for tx in &mut [&mut tx_one, &mut tx_two] {
-            send_open(tx, "a/derived/collection").await;
-        }
+        api.apply_documents(vec![
+            (TF_RST, json!({"key": "foobar", "reset": -1})), // => 1.
+        ]);
 
-        // Send and flush to RPC #2, which is processed after RPC #1.
-        send_continue(
-            &mut tx_two,
-            build_continue(vec![
-                (TF_INC, json!({"key": "a"})), // => 45.
-                (TF_PUB, json!({"key": "a"})), // Pub 45.
-            ]),
-        )
-        .await;
+        let (mut arena, mut out) = (Vec::new(), Vec::new());
+        let flush = api
+            .inner
+            .flush_transaction(Default::default(), &mut arena, &mut out);
 
-        send_flush(&mut tx_two).await;
-
-        // Send and flush to RPC #1.
-        send_continue(
-            &mut tx_one,
-            build_continue(vec![
-                (TF_INC, json!({"key": "a"})),              // => 1001.
-                (TF_INC, json!({"key": "bb"})),             // => 1001.
-                (TF_RST, json!({"key": "a", "reset": 42})), // Pub 1001, reset 42.
-                (TF_INC, json!({"key": "bb"})),             // => 1002.
-            ]),
-        )
-        .await;
-
-        send_continue(
-            &mut tx_one,
-            build_continue(vec![
-                (TF_INC, json!({"key": "a"})),  // => 43.
-                (TF_PUB, json!({"key": "a"})),  // Pub 43.
-                (TF_INC, json!({"key": "a"})),  // => 44.
-                (TF_PUB, json!({"key": "bb"})), // Pub 1002.
-            ]),
-        )
-        .await;
-
-        send_flush(&mut tx_one).await;
-
-        // Registers are released to RPC #2 only upon seeing a "prepare".
-        send_prepare(&mut tx_one).await;
-
-        // Read continues and flushed, derived docs from RPC #1.
-        recv_continue(&mut rx_one).await;
-        recv_continue(&mut rx_one).await;
-
-        // Expect flush of derived documents.
-        let combined = recv_flush(&mut rx_one).await;
-        assert_eq!(
-            Value::Array(combined),
-            json!([
-                [{"_uuid": UUID_PLACEHOLDER, "key": "a", "reset": 42, "values": [1001, 43]}, [42, "a"]],
-                [{"_uuid": UUID_PLACEHOLDER, "key": "bb", "values": [1002]}, [null, "bb"]],
-            ])
-        );
-        // Expect an empty Flush, which signals that flush is complete.
-        assert!(recv_flush(&mut rx_one).await.is_empty());
-
-        // Read one continue and flushed docs from RPC #2.
-        recv_continue(&mut rx_two).await;
-
-        // Expect flush of derived documents.
-        let combined = recv_flush(&mut rx_two).await;
-        assert_eq!(
-            Value::Array(combined),
-            json!([
-                [{"_uuid": UUID_PLACEHOLDER, "key": "a", "values": [45]}, [null, "a"]],
-            ])
-        );
-        // Expect an empty Flush, which signals that flush is complete.
-        assert!(recv_flush(&mut rx_two).await.is_empty());
-        send_prepare(&mut tx_two).await;
-
-        // Close to signal commit of both RPCs.
-        tx_one.close_channel();
-        tx_two.close_channel();
-        recv_eof(&mut rx_one).await;
-        recv_eof(&mut rx_two).await;
-    }
-
-    #[tokio::test]
-    async fn test_rpc_error_cases() {
-        let mut api = TestAPI::new().await;
-
-        // Case: malformed open.
-        let (mut tx, mut rx) = api.start_derive();
-        send_open(&mut tx, "the/wrong/collection").await;
-
-        assert_snapshot!(recv_error(&mut rx).await, @"Unexpected collection");
-        recv_eof(&mut rx).await;
-
-        // Case: source document doesn't validate.
-        let (mut tx, mut rx) = api.start_derive();
-
-        send_open(&mut tx, "a/derived/collection").await;
-        send_continue(
-            &mut tx,
-            build_continue(vec![
-                (TF_INC, json!({"missing": "required /key"})), // => 43.
-            ]),
-        )
-        .await;
-
-        assert_snapshot!(recv_error(&mut rx).await, @r###"
-        source document validation error: {
-          "document": {
-            "missing": "required /key"
-          },
-          "basic_output": {
-            "errors": [
-              {
-                "absoluteKeywordLocation": "https://schema/#/$defs/source",
-                "error": "Invalid(Required { props: [\"key\"], props_interned: 1 })",
-                "instanceLocation": "",
-                "keywordLocation": "#"
-              }
-            ],
-            "valid": false
-          }
-        }
-        "###);
-        recv_eof(&mut rx).await;
-
-        // Case: derived register document doesn't validate.
-        let (mut tx, mut rx) = api.start_derive();
-
-        send_open(&mut tx, "a/derived/collection").await;
-        send_continue(
-            &mut tx,
-            build_continue(vec![(TF_RST, json!({"key": "foobar", "reset": -1}))]),
-        )
-        .await;
-
-        assert_snapshot!(recv_error(&mut rx).await, @r###"
+        insta::assert_display_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
         register reduction error: document is invalid: {
           "document": {
             "type": "set",
@@ -761,22 +843,30 @@ mod test {
           }
         }
         "###);
-        recv_eof(&mut rx).await;
 
-        // Case: derived document doesn't validate.
-        let (mut tx, mut rx) = api.start_derive();
+        // Left in an invalid state.
+        assert!(matches!(api.inner.state, State::Invalid));
+    }
 
-        send_open(&mut tx, "a/derived/collection").await;
-        send_continue(
-            &mut tx,
-            build_continue(vec![(
-                TF_PUB,
-                json!({"key": "foobar", "invalid-property": 42}),
-            )]),
-        )
-        .await;
+    #[test]
+    fn test_derived_doc_validation_error() {
+        let env = rocksdb::Env::mem_env().unwrap();
+        let mut api = TestAPI::new(&env);
 
-        assert_snapshot!(recv_error(&mut rx).await, @r###"
+        assert_eq!(api.inner.restore_checkpoint().unwrap(), Default::default());
+        api.inner.begin_transaction().unwrap();
+
+        api.apply_documents(vec![(
+            TF_PUB,
+            json!({"key": "foobar", "invalid-property": 42}),
+        )]);
+
+        let (mut arena, mut out) = (Vec::new(), Vec::new());
+        let flush = api
+            .inner
+            .flush_transaction(Default::default(), &mut arena, &mut out);
+
+        insta::assert_display_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
         derived document reduction error: document is invalid: {
           "document": {
             "invalid-property": 42,
@@ -798,7 +888,9 @@ mod test {
           }
         }
         "###);
-        recv_eof(&mut rx).await;
+
+        // Left in an invalid state.
+        assert!(matches!(api.inner.state, State::Invalid));
     }
 
     // Short-hand constants for transform IDs used in the test fixture.
@@ -806,17 +898,18 @@ mod test {
     const TF_PUB: i32 = 42;
     const TF_RST: i32 = 52;
 
-    struct TestAPI {
-        api: API,
-        // Hold LambdaTestServer & TempDir for drop() side-effects.
-        _do_increment: LambdaTestServer,
-        _do_publish: LambdaTestServer,
-        _do_reset: LambdaTestServer,
-        _db_tmpdir: tempfile::TempDir,
+    struct TestAPI<'e> {
+        inner: APIInner<'e>,
+        // Hold LambdaTestServer & TempDir for side-effects.
+        _do_increment: Option<LambdaTestServer>,
+        _do_publish: Option<LambdaTestServer>,
+        _do_reset: Option<LambdaTestServer>,
+        _tmpdir: tempfile::TempDir,
     }
 
-    impl TestAPI {
-        async fn new() -> TestAPI {
+    impl<'e> TestAPI<'e> {
+        fn new(env: &'e rocksdb::Env) -> TestAPI {
+            // Combined schema used for test fixtures.
             let schema = json!({
                 "$defs": {
                     "source": {
@@ -870,7 +963,7 @@ mod test {
                 }
             });
 
-            // Build and index the schema, leaking for `static lifetime.
+            // Build and index the schema, then leak for `static lifetime.
             let schema_url = Url::parse("https://schema").unwrap();
             let schema: doc::Schema =
                 json::schema::build::build_schema(schema_url.clone(), &schema).unwrap();
@@ -881,57 +974,60 @@ mod test {
             schema_index.verify_references().unwrap();
             let schema_index = Box::leak(Box::new(schema_index));
 
+            let runtime = APIInner::build_runtime();
+
             // Build a lambda which increments the current register value by one.
-            let do_increment = LambdaTestServer::start(|_| {
-                // Return two register updates with an effective increment of 1.
-                vec![
-                    json!({"type": "add", "value": 3}),
-                    json!({"type": "add", "value": -2}),
-                ]
+            let do_increment = runtime.enter(|| {
+                LambdaTestServer::start_v2(|_source, _register, _previous| {
+                    // Return two register updates with an effective increment of 1.
+                    vec![
+                        json!({"type": "add", "value": 3}),
+                        json!({"type": "add", "value": -2}),
+                    ]
+                })
             });
             // Build a lambda which resets the register from a value of the source document.
-            let do_reset = LambdaTestServer::start(|doc| {
-                let to = doc[0].pointer("/reset").unwrap().as_i64().unwrap();
+            let do_reset = runtime.enter(|| {
+                LambdaTestServer::start_v2(|source, _register, _previous| {
+                    let to = source.pointer("/reset").unwrap().as_i64().unwrap();
 
-                // Emit an invalid register document on seeing value -1.
-                if to == -1 {
-                    vec![json!({"type": "set", "value": "negative one!"})]
-                } else {
-                    vec![json!({"type": "set", "value": to})]
-                }
+                    // Emit an invalid register document on seeing value -1.
+                    if to == -1 {
+                        vec![json!({"type": "set", "value": "negative one!"})]
+                    } else {
+                        vec![json!({"type": "set", "value": to})]
+                    }
+                })
             });
-            // Build a lambda which joins the source with its current register.
-            let do_publish = LambdaTestServer::start(|args| {
-                let (src, prev, _next) = (
-                    args.get(0).unwrap(),
-                    args.get(1).unwrap(),
-                    args.get(2).unwrap(),
-                );
+            // Build a lambda which joins the source with its previous register.
+            let do_publish = runtime.enter(|| {
+                LambdaTestServer::start_v2(|source, _register, previous| {
+                    // Join |src| with the register value before its update.
+                    let mut doc = source.as_object().unwrap().clone();
+                    doc.insert(
+                        "values".to_owned(),
+                        json!([previous.unwrap().pointer("/value").unwrap().clone()]),
+                    );
 
-                // Join |src| with the register value before its update.
-                let mut doc = src.as_object().unwrap().clone();
-                doc.insert(
-                    "values".to_owned(),
-                    json!([prev.pointer("/value").unwrap().clone()]),
-                );
-
-                vec![Value::Object(doc)]
+                    vec![Value::Object(doc)]
+                })
             });
 
+            // Assemble transforms for our context.
             let transforms = vec![
                 // Transform which increments the register.
                 Transform {
                     transform_id: TF_INC,
                     source_schema: schema_url.join("#/$defs/source").unwrap(),
                     update: do_increment.lambda.clone(),
-                    publish: lambda::Lambda::Noop,
+                    publish: Lambda::Noop,
                     index: 0,
                 },
                 // Transform which publishes the current register.
                 Transform {
                     transform_id: TF_PUB,
                     source_schema: schema_url.join("#/$defs/source").unwrap(),
-                    update: lambda::Lambda::Noop,
+                    update: Lambda::Noop,
                     publish: do_publish.lambda.clone(),
                     index: 1,
                 },
@@ -945,7 +1041,7 @@ mod test {
                 },
             ];
 
-            let ctx = Arc::new(Context {
+            let ctx = Context {
                 transforms,
                 schema_index,
 
@@ -956,172 +1052,55 @@ mod test {
 
                 register_schema: schema_url.join("#/$defs/register").unwrap(),
                 register_initial: json!({"value": 1000}),
-            });
+            };
 
-            let (db_tmpdir, db) = build_test_rocks();
+            let tmpdir = tempfile::TempDir::new().unwrap();
 
-            let registers = Registers::new(
-                db,
-                schema_index,
-                &schema_url.join("#/$defs/register").unwrap(),
-                ctx.register_initial.clone(),
-            );
+            let inner =
+                APIInner::from_parts(runtime, schema_index, ctx, env, tmpdir.path(), None).unwrap();
 
-            TestAPI {
-                api: API::new(ctx, registers),
-                _do_increment: do_increment,
-                _do_publish: do_publish,
-                _do_reset: do_reset,
-                _db_tmpdir: db_tmpdir,
+            Self {
+                inner,
+                _do_increment: Some(do_increment),
+                _do_publish: Some(do_publish),
+                _do_reset: Some(do_reset),
+                _tmpdir: tmpdir,
             }
         }
 
-        fn start_derive(
-            &mut self,
-        ) -> (
-            mpsc::Sender<Result<flow::DeriveRequest, tonic::Status>>,
-            DeriveResponseStream,
-        ) {
-            let (tx_request, rx_request) = mpsc::channel(1);
-            let rx_response = self.api.spawn_derive_handler(rx_request);
-            (tx_request, rx_response)
-        }
-    }
+        // Apply a sequence of CONTINUE_TXN documents, followed by an ACK_TXN.
+        fn apply_documents(&mut self, documents: Vec<(i32, Value)>) {
+            let mut w = Vec::new();
 
-    async fn send_open(
-        tx_request: &mut mpsc::Sender<Result<flow::DeriveRequest, tonic::Status>>,
-        collection: &str,
-    ) {
-        tx_request
-            .send(Ok(flow::DeriveRequest {
-                kind: Some(flow::derive_request::Kind::Open(
-                    flow::derive_request::Open {
-                        collection: collection.to_owned(),
-                    },
-                )),
-            }))
-            .await
-            .unwrap();
-    }
+            for (tf_id, doc) in documents {
+                self.inner
+                    .doc_header(derive_api::DocHeader {
+                        transform_id: tf_id,
+                        uuid: Some(flow::UuidParts {
+                            clock: 0,
+                            producer_and_flags: message_flags::CONTINUE_TXN,
+                        }),
+                        packed_key: doc.pointer("/key").unwrap_or(&Value::Null).pack_to_vec(),
+                    })
+                    .unwrap();
 
-    async fn send_continue(
-        tx_request: &mut mpsc::Sender<Result<flow::DeriveRequest, tonic::Status>>,
-        cont: flow::derive_request::Continue,
-    ) {
-        tx_request
-            .send(Ok(flow::DeriveRequest {
-                kind: Some(flow::derive_request::Kind::Continue(cont)),
-            }))
-            .await
-            .unwrap();
-    }
+                serde_json::to_writer(&mut w, &doc).unwrap();
+                futures::executor::block_on(self.inner.doc_body(&w)).unwrap();
+                w.clear();
+            }
 
-    async fn recv_continue(rx_response: &mut DeriveResponseStream) {
-        match rx_response.next().await {
-            Some(Ok(flow::DeriveResponse {
-                kind: Some(flow::derive_response::Kind::Continue(_)),
-            })) => (),
-            err @ _ => panic!("expected continue, got: {:?}", err),
-        };
-    }
-
-    async fn send_flush(tx_request: &mut mpsc::Sender<Result<flow::DeriveRequest, tonic::Status>>) {
-        tx_request
-            .send(Ok(flow::DeriveRequest {
-                kind: Some(flow::derive_request::Kind::Flush(
-                    flow::derive_request::Flush {
-                        uuid_placeholder_ptr: "/_uuid".to_owned(),
-                        field_ptrs: vec!["/reset".to_owned(), "/key".to_owned()],
-                    },
-                )),
-            }))
-            .await
-            .unwrap();
-    }
-
-    async fn recv_flush(rx_response: &mut DeriveResponseStream) -> Vec<Value> {
-        let combined = match rx_response.next().await {
-            Some(Ok(flow::DeriveResponse {
-                kind: Some(flow::derive_response::Kind::Flush(combined)),
-            })) => combined,
-            err @ _ => panic!("expected flush CombineResponse, got: {:?}", err),
-        };
-        super::super::combine_api::test::parse_combine_response(&combined)
-    }
-
-    async fn send_prepare(
-        tx_request: &mut mpsc::Sender<Result<flow::DeriveRequest, tonic::Status>>,
-    ) {
-        tx_request
-            .send(Ok(flow::DeriveRequest {
-                kind: Some(flow::derive_request::Kind::Prepare(
-                    flow::derive_request::Prepare {
-                        checkpoint: Some(consumer::Checkpoint::default()),
-                    },
-                )),
-            }))
-            .await
-            .unwrap();
-    }
-
-    async fn recv_eof(rx_response: &mut DeriveResponseStream) {
-        match rx_response.next().await {
-            None => (),
-            err @ _ => panic!("expected EOF, got: {:?}", err),
-        }
-    }
-
-    async fn recv_error(rx_response: &mut DeriveResponseStream) -> String {
-        match rx_response.next().await {
-            Some(Err(err)) => err.message().to_owned(),
-            err @ _ => panic!("expected EOF, got: {:?}", err),
-        }
-    }
-
-    fn build_continue(content: Vec<(i32, Value)>) -> flow::derive_request::Continue {
-        let mut arena = Vec::new();
-
-        let transform_id = content.iter().map(|(id, _)| *id).collect();
-
-        let docs_json = content
-            .iter()
-            .map(|(_, doc)| {
-                let begin = arena.len() as u32;
-                serde_json::to_writer(&mut arena, doc).unwrap();
-
-                flow::Slice {
-                    begin,
-                    end: arena.len() as u32,
-                }
-            })
-            .collect();
-
-        let packed_key = content
-            .iter()
-            .map(|(_, doc)| {
-                let begin = arena.len() as u32;
-
-                if let Some(Value::String(key)) = doc.pointer("/key") {
-                    arena.extend(key.as_bytes().iter());
-                } else {
-                    arena.extend(b"<missing>".iter());
-                }
-
-                flow::Slice {
-                    begin,
-                    end: arena.len() as u32,
-                }
-            })
-            .collect();
-
-        flow::derive_request::Continue {
-            arena,
-            transform_id,
-            docs_json,
-            packed_key,
-            // TODO(johnny): We'll eventually need these for their RClocks,
-            // in order to filter documents to be published. For now we ignore.
-            uuid_parts: Vec::new(),
+            // Send a trailing, empty ACK_TXN.
+            self.inner
+                .doc_header(derive_api::DocHeader {
+                    transform_id: 0,
+                    uuid: Some(flow::UuidParts {
+                        clock: 0,
+                        producer_and_flags: message_flags::ACK_TXN,
+                    }),
+                    packed_key: Value::Null.pack_to_vec(),
+                })
+                .unwrap();
+            futures::executor::block_on(self.inner.doc_body(b"garbage (not used)")).unwrap();
         }
     }
 }

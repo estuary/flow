@@ -5,7 +5,7 @@ use std::str::FromStr;
 use tinyvec::TinyVec;
 
 /// Pointer is a parsed JSON pointer.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub struct Pointer(TinyVec<[u8; 16]>);
 
 /// Token is a parsed token of a JSON pointer.
@@ -282,6 +282,19 @@ impl Pointer {
             };
         }
         Some(v)
+    }
+}
+
+impl std::fmt::Debug for Pointer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for tok in self.iter() {
+            match tok {
+                Token::Index(ind) => write!(f, "/{}", ind)?,
+                Token::Property(p) => write!(f, "/{}", p)?,
+                Token::NextIndex => f.write_str("/-")?,
+            }
+        }
+        Ok(())
     }
 }
 
