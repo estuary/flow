@@ -68,6 +68,25 @@ pub struct ValidateResponse {
     #[prost(map = "string, message", tag = "1")]
     pub constraints: ::std::collections::HashMap<std::string::String, Constraint>,
 }
+/// FieldSelection represents the entire set of fields for a materialization. Projected fields are
+/// separated into keys and values.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FieldSelection {
+    /// The fields that are being used as the primary key for this materialization. Flow will guarantee
+    /// that each location that's part of a collection's key is represented here exactly once, and in
+    /// the same order as the keys are declared in the collection.
+    #[prost(string, repeated, tag = "1")]
+    pub keys: ::std::vec::Vec<std::string::String>,
+    /// All other materialized fields, except for those in keys and the root document field, will be listed here in
+    /// a stable order. Note that not all materializations will have or need any "values" fields (e.g.
+    /// materializing to a key-value store like dynamo)
+    #[prost(string, repeated, tag = "2")]
+    pub values: ::std::vec::Vec<std::string::String>,
+    /// The name of the field holding the root document. This is the field that flow will expect to be
+    /// able to query as part of the Load rpc.
+    #[prost(string, tag = "3")]
+    pub document: std::string::String,
+}
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
@@ -77,10 +96,9 @@ pub struct ApplyRequest {
     /// Collection to be materialized.
     #[prost(message, optional, tag = "2")]
     pub collection: ::std::option::Option<super::flow::CollectionSpec>,
-    /// Selected, ordered projection fields to be materialized,
-    /// which satisfy the constraints returned by a prior ValidateResponse.
-    #[prost(string, repeated, tag = "3")]
-    pub fields: ::std::vec::Vec<std::string::String>,
+    /// Selected fields for materialization
+    #[prost(message, optional, tag = "3")]
+    pub fields: ::std::option::Option<FieldSelection>,
     /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
     /// report only what would have happened.
     #[prost(bool, tag = "4")]
@@ -158,8 +176,8 @@ pub mod store_request {
         pub handle: std::vec::Vec<u8>,
         /// Projection fields to be stored. This repeats the selection and ordering
         /// of the last Apply RPC, but is provided here also as a convenience.
-        #[prost(string, repeated, tag = "2")]
-        pub fields: ::std::vec::Vec<std::string::String>,
+        #[prost(message, optional, tag = "2")]
+        pub fields: ::std::option::Option<super::FieldSelection>,
         /// Checkpoint to write with this Store transaction, to be associated with
         /// the session's caller ID and to be returned by a future Fence RPC.
         /// This may be ignored if the Driver doesn't support exactly-once semantics.
@@ -171,14 +189,18 @@ pub mod store_request {
         /// Byte arena of the request.
         #[prost(bytes, tag = "1")]
         pub arena: std::vec::Vec<u8>,
-        /// JSON documents.
         #[prost(message, repeated, tag = "2")]
-        pub docs_json: ::std::vec::Vec<super::super::flow::Slice>,
+        pub packed_keys: ::std::vec::Vec<super::super::flow::Slice>,
         /// Packed tuples holding projection values for each document.
         #[prost(message, repeated, tag = "3")]
         pub packed_values: ::std::vec::Vec<super::super::flow::Slice>,
+        /// JSON documents.
+        #[prost(message, repeated, tag = "4")]
+        pub docs_json: ::std::vec::Vec<super::super::flow::Slice>,
         /// Exists is true if this document previously been loaded or stored.
-        #[prost(bool, repeated, tag = "4")]
+        ///
+        /// [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
+        #[prost(bool, repeated, tag = "5")]
         pub exists: ::std::vec::Vec<bool>,
     }
 }
