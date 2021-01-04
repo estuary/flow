@@ -12,6 +12,10 @@ collections:
         array: { type: array }
       required: [theKey]
     key: [/theKey]
+    # This is here to temporarily work around the absence of the flow_document projection.
+    # It can be removed once https://github.com/estuary/flow/pull/78 is merged.
+    projections:
+      flow_document: ""
 
   - name: weird-types/required-nullable
     schema:
