@@ -151,7 +151,7 @@ func doTestSqlite(t *testing.T, driver pm.DriverClient) {
 	require.NoError(t, err)
 	require.Equal(t, 3, len(loadResp.DocsJson))
 	for _, doc := range loadResp.DocsJson {
-		require.Empty(t, loadResp.Arena.Bytes(*doc))
+		require.Empty(t, loadResp.Arena.Bytes(doc))
 	}
 
 	// Test Store to add those keys
@@ -198,7 +198,7 @@ func doTestSqlite(t *testing.T, driver pm.DriverClient) {
 
 	var allDocs = []string{doc1, doc2, doc3}
 	for i, slice := range loadResp.DocsJson {
-		var actual = string(loadResp.Arena.Bytes(*slice))
+		var actual = string(loadResp.Arena.Bytes(slice))
 		require.Equal(t, allDocs[i], actual)
 	}
 
@@ -254,7 +254,7 @@ func doTestSqlite(t *testing.T, driver pm.DriverClient) {
 
 	allDocs = []string{newDoc1, doc2, doc3, doc4}
 	for i, slice := range loadResp.DocsJson {
-		var actual = string(loadResp.Arena.Bytes(*slice))
+		var actual = string(loadResp.Arena.Bytes(slice))
 		require.Equal(t, allDocs[i], actual)
 	}
 
@@ -330,11 +330,7 @@ func dumpTables(t *testing.T, uri string, tables ...*Table) string {
 
 func newLoadReq(handle []byte, keys ...[]byte) pm.LoadRequest {
 	var arena pf.Arena
-	var packedKeys = make([]*pf.Slice, len(keys))
-	for i, key := range keys {
-		var slice = arena.Add(key)
-		packedKeys[i] = &slice
-	}
+	var packedKeys = arena.AddAll(keys...)
 	return pm.LoadRequest{
 		Handle:     handle,
 		Arena:      arena,
