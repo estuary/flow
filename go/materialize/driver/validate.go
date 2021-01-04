@@ -68,8 +68,12 @@ func ValidateNewSqlProjections(proposed *pf.CollectionSpec) map[string]*pm.Const
 			constraint.Type = pm.Constraint_FIELD_OPTIONAL
 			constraint.Reason = "This field is able to be materialized"
 		default:
+			// If we got here, then either the field may have multiple types, or the only possible
+			// type is "null". In either case, we're not going to allow it. Technically, we could
+			// allow the null type to be materializaed, but I can't think of a use case where that
+			// would be desirable.
 			constraint.Type = pm.Constraint_FIELD_FORBIDDEN
-			constraint.Reason = "Cannot materialize fields that hold multiple types"
+			constraint.Reason = "Cannot materialize this field"
 		}
 		constraints[projection.Field] = constraint
 	}
