@@ -168,7 +168,7 @@ message LoadRequest {
   // Byte arena of the request.
   bytes arena = 2 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
   // Packed tuples of collection keys, enumerating the documents to load.
-  repeated flow.Slice packed_keys = 3;
+  repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
 }
 
 // LoadRequest is the response type of the Load RPC.
@@ -177,7 +177,7 @@ message LoadResponse {
   bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
   // Loaded JSON documents, 1:1 with keys of the LoadRequest.
   // Documents which don't exist in the target are represented as an empty Slice.
-  repeated flow.Slice docs_json = 2;
+  repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
   // Always empty hint which, when set true, hints to Flow that it may skip future
   // calls of the Load RPC for this handle, as they will always return an empty
   // LoadResponse.

@@ -397,10 +397,8 @@ func (driver *SqlDriver) Load(ctx context.Context, req *pm.LoadRequest) (*pm.Loa
 
 	var response = new(pm.LoadResponse)
 
-	// TODO:change materialize.proto to make doc slices embedded and not pointers
-
 	for _, slice := range req.PackedKeys {
-		var tuple, err = tuple.Unpack(req.Arena.Bytes(*slice))
+		var tuple, err = tuple.Unpack(req.Arena.Bytes(slice))
 		if err != nil {
 			return nil, fmt.Errorf("failed to unpack key tuple: %w", err)
 		}
@@ -426,7 +424,7 @@ func (driver *SqlDriver) Load(ctx context.Context, req *pm.LoadRequest) (*pm.Loa
 		if err != nil {
 			return nil, fmt.Errorf("failed to read results of root document query: %w", err)
 		}
-		response.DocsJson = append(response.DocsJson, &resultSlice)
+		response.DocsJson = append(response.DocsJson, resultSlice)
 	}
 	return response, nil
 }
