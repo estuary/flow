@@ -3,6 +3,7 @@ module github.com/estuary/flow
 go 1.14
 
 require (
+	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/protobuf v1.3.5
