@@ -83,8 +83,9 @@ message SessionRequest {
   // Target name within the materialization system, where applicable.
   // This could be a SQL schema & table, or a pub/sub topic, etc.
   string target = 2;
-  // Stable ID of this caller, to bind to this session.
-  string caller_id = 3;
+  // Stable ID of the flow consumer shard that this session belongs to. A null or empty value
+  // indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
+  string shard_id = 3;
 }
 
 // SessionResponse is the response type of the StartSession RPC.

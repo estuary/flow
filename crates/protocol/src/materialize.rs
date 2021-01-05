@@ -38,9 +38,10 @@ pub struct SessionRequest {
     /// This could be a SQL schema & table, or a pub/sub topic, etc.
     #[prost(string, tag = "2")]
     pub target: std::string::String,
-    /// Stable ID of this caller, to bind to this session.
+    /// Stable ID of the flow consumer shard that this session belongs to. A null or empty value
+    /// indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
     #[prost(string, tag = "3")]
-    pub caller_id: std::string::String,
+    pub shard_id: std::string::String,
 }
 /// SessionResponse is the response type of the StartSession RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]

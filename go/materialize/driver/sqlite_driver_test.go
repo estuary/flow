@@ -65,7 +65,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	var endpoint = path.Join(tempdir, "target.db")
 	var tableName = "test_target"
 	var startSession = pm.SessionRequest{
-		CallerId:    testCaller,
+		ShardId:     testCaller,
 		EndpointUrl: endpoint,
 		Target:      tableName,
 	}
@@ -206,7 +206,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	newSession, err := driver.StartSession(ctx, &pm.SessionRequest{
 		EndpointUrl: endpoint,
 		Target:      tableName,
-		CallerId:    testCaller,
+		ShardId:     testCaller,
 	})
 	require.NoError(t, err)
 
