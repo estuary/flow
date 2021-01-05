@@ -136,8 +136,8 @@ type TypeMapper interface {
 type ConstColumnType string
 
 // GetColumnType implements the TypeMapper interface
-func (columnType ConstColumnType) GetColumnType(col *Column) (string, error) {
-	return string(columnType), nil
+func (c ConstColumnType) GetColumnType(col *Column) (string, error) {
+	return string(c), nil
 }
 
 // TypeLengthPlaceholder is the placeholder string that may appear in the SQL string, which will be
@@ -149,8 +149,8 @@ const TypeLengthPlaceholder = "?"
 type LengthConstrainedColumnType string
 
 // GetColumnType implements the TypeMapper interface
-func (columnType LengthConstrainedColumnType) GetColumnType(col *Column) (string, error) {
-	return strings.Replace(string(columnType), TypeLengthPlaceholder, fmt.Sprint(col.StringType.MaxLength), 1), nil
+func (c LengthConstrainedColumnType) GetColumnType(col *Column) (string, error) {
+	return strings.Replace(string(c), TypeLengthPlaceholder, fmt.Sprint(col.StringType.MaxLength), 1), nil
 }
 
 // MaxLengthableColumnType is a TypeMapper that supports column types that may have a length
@@ -161,11 +161,11 @@ type MaxLengthableColumnType struct {
 }
 
 // GetColumnType implements the TypeMapper interface
-func (columnType MaxLengthableColumnType) GetColumnType(col *Column) (string, error) {
-	if columnType.WithLength != nil && col.StringType != nil && col.StringType.MaxLength > 0 {
-		return columnType.WithLength.GetColumnType(col)
-	} else if columnType.WithoutLength != nil {
-		return columnType.WithoutLength.GetColumnType(col)
+func (c MaxLengthableColumnType) GetColumnType(col *Column) (string, error) {
+	if c.WithLength != nil && col.StringType != nil && col.StringType.MaxLength > 0 {
+		return c.WithLength.GetColumnType(col)
+	} else if c.WithoutLength != nil {
+		return c.WithoutLength.GetColumnType(col)
 	} else {
 		return "", fmt.Errorf("Column type requires a length argument, but no max length is present in the column description")
 	}
