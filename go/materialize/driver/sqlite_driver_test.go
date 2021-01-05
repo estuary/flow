@@ -22,8 +22,8 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func TestSqliteDriver(t *testing.T) {
-	var driver = NewSqliteDriver()
+func TestSQLiteDriver(t *testing.T) {
+	var driver = NewSQLiteDriver()
 
 	var ctx = context.Background()
 
@@ -49,13 +49,13 @@ func TestSqliteDriver(t *testing.T) {
 	defer conn.Close()
 	var client = pm.NewDriverClient(conn)
 
-	doTestSqlite(t, client)
+	doTestSQLite(t, client)
 	s.GracefulStop()
 	err = <-done
 	require.NoError(t, err)
 }
 
-func doTestSqlite(t *testing.T, driver pm.DriverClient) {
+func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	var ctx = context.Background()
 	var tempdir, err = ioutil.TempDir("", "sqlite-driver-test")
 	require.NoError(t, err)
@@ -259,7 +259,7 @@ func doTestSqlite(t *testing.T, driver pm.DriverClient) {
 	}
 
 	// Last thing is to snapshot the database tables we care about
-	var tab = tableForMaterialization(tableName, "", &MaterializationSpec{CollectionSpec: collection, Fields: fields})
+	var tab = tableForMaterialization(tableName, "", &MaterializationSpec{Collection: collection, Fields: fields})
 	var dump = dumpTables(t, endpoint, tab)
 	cupaloy.SnapshotT(t, dump)
 }

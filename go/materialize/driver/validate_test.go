@@ -29,11 +29,11 @@ func TestValidations(t *testing.T) {
 	}
 	for _, name := range collections {
 		var collectionName = fmt.Sprintf("weird-types/%s", name)
-		t.Run(fmt.Sprintf("NewSqlProjections-%s", name), func(t *testing.T) {
+		t.Run(fmt.Sprintf("NewSQLProjections-%s", name), func(t *testing.T) {
 			collection, err := cat.LoadCollection(collectionName)
 			require.NoError(t, err)
 
-			var constraints = ValidateNewSqlProjections(&collection)
+			var constraints = ValidateNewSQLProjections(&collection)
 			cupaloy.SnapshotT(t, constraints)
 		})
 	}
@@ -52,8 +52,8 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 		Document: "flow_document",
 	}
 	var existingSpec = MaterializationSpec{
-		CollectionSpec: existingCollection,
-		Fields:         existingFields,
+		Collection: existingCollection,
+		Fields:     existingFields,
 	}
 
 	// Load a new copy of the same collection, which we'll modify and use as the "proposed"
@@ -83,8 +83,8 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, numConstraint.Type)
 
 	var proposedSpec = MaterializationSpec{
-		CollectionSpec: proposedCollection,
-		Fields:         existingFields,
+		Collection: proposedCollection,
+		Fields:     existingFields,
 	}
 	var constraintsError = ValidateSelectedFields(constraints, &proposedSpec)
 	require.Error(t, constraintsError)
