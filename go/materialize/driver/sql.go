@@ -25,14 +25,21 @@ import (
 )
 
 const (
-	ENDPOINT_TYPE_POSTGRES = "postgres"
-	ENDPOINT_TYPE_SQLITE   = "sqlite"
+	// EndpointTypePostgres is the name of the endpoint type for postgresql, used in the catalog spec.
+	EndpointTypePostgres = "postgres"
+	// EndpointTypeSQLite is the name of the endpoint type for sqlite, used in the catalog spec.
+	EndpointTypeSQLite = "sqlite"
 
-	GAZETTE_CHECKPOINTS_SHARD_ID_COLUMN   = "shard_id"
-	GAZETTE_CHECKPOINTS_NONCE_COLUMN      = "nonce"
-	GAZETTE_CHECKPOINTS_CHECKPOINT_COLUMN = "checkpoint"
+	// GazetteCheckpointsShardIDColumn is the name of the column that holds the shard id in the gazette_checkpoints table.
+	GazetteCheckpointsShardIDColumn = "shard_id"
+	// GazetteCheckpointsNonceColumn is the name of the column that holds the nonce in the gazette_checkpoints table.
+	GazetteCheckpointsNonceColumn = "nonce"
+	// GazetteCheckpointsCheckpointColumn is the name of the column that holds the checkpoint in the gazette_checkpoints table.
+	GazetteCheckpointsCheckpointColumn = "checkpoint"
 
-	FLOW_MATERIALIZATIONS_SPEC_COLUMN = "spec"
+	// FlowMaterializationsSpecColumn is the name of the column that holds the materialization spec in the flow_materializations
+	// table.
+	FlowMaterializationsSpecColumn = "spec"
 )
 
 // GazetteCheckpointsTable returns the Table description for the table that holds the checkpoint
@@ -44,20 +51,20 @@ func GazetteCheckpointsTable() *Table {
 		Comment:     "This table holds journal checkpoints, which Flow manages in order to ensure exactly-once updates for materializations",
 		Columns: []Column{
 			{
-				Name:       GAZETTE_CHECKPOINTS_SHARD_ID_COLUMN,
+				Name:       GazetteCheckpointsShardIDColumn,
 				Comment:    "The id of the consumer shard. Note that a single collection may have multiple consumer shards materializing it, and each will have a separate checkpoint.",
 				PrimaryKey: true,
 				Type:       STRING,
 				NotNull:    true,
 			},
 			{
-				Name:    GAZETTE_CHECKPOINTS_NONCE_COLUMN,
-				Comment: "This nonce is used to uniquely identify instances of a shard and prevent them from conflicting.",
+				Name:    GazetteCheckpointsNonceColumn,
+				Comment: "This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.",
 				Type:    INTEGER,
 				NotNull: true,
 			},
 			{
-				Name:    GAZETTE_CHECKPOINTS_CHECKPOINT_COLUMN,
+				Name:    GazetteCheckpointsCheckpointColumn,
 				Comment: "Opaque checkpoint of the Flow consumer shard",
 				Type:    BINARY,
 			},
@@ -65,7 +72,7 @@ func GazetteCheckpointsTable() *Table {
 	}
 }
 
-// FlowFlowMaterializationsTable returns the Table description for the table that holds the
+// FlowMaterializationsTable returns the Table description for the table that holds the
 // MaterializationSpec that corresponds to each target table. This state is used both for sql
 // generation and for validation.
 func FlowMaterializationsTable() *Table {
@@ -82,7 +89,7 @@ func FlowMaterializationsTable() *Table {
 				NotNull:    true,
 			},
 			{
-				Name:    FLOW_MATERIALIZATIONS_SPEC_COLUMN,
+				Name:    FlowMaterializationsSpecColumn,
 				Comment: "A JSON representation of the materialization.",
 				Type:    OBJECT,
 				NotNull: true,
@@ -91,14 +98,20 @@ func FlowMaterializationsTable() *Table {
 	}
 }
 
+// Handle is the parsed representation of what we return from a StartSession rpc.
 type Handle struct {
-	Nonce    int32  `json:"nonce"`
-	Uri      string `json:"uri"`
-	Table    string `json:"table"`
-	CallerId string `json:"callerId"`
+	// Nonce is a unique number that is randomly generated every time a session is started.
+	Nonce int32 `json:"nonce"`
+	// URI is the connection string for the target system.
+	URI string `json:"uri"`
+	// Table is the name of the table that we'll be materializing into.
+	Table string `json:"table"`
+	// CallerID represents the stable id of the shard or process that this session belongs to.
+	CallerID string `json:"callerId"`
 }
 
-type cachedSql struct {
+// cachedSQL holds all of the sql statements that we cache.
+type cachedSQL struct {
 	nonce           int32
 	loadQuery       string
 	insertStatement string
@@ -106,21 +119,16 @@ type cachedSql struct {
 	primaryKeys     []bool
 }
 
-type Checkpoint struct {
-	Nonce          int32
-	FlowCheckpoint []byte
-}
-
-// A SqlDriver implements the Driver service of the materialize grpc protocol using the generic
-// `database/sql` package. It uses a SqlGenerator to generate sql statements that are executed by
+// A SQLDriver implements the Driver service of the materialize grpc protocol using the generic
+// `database/sql` package. It uses a SQLGenerator to generate sql statements that are executed by
 // the `database/sql` package.
-type SqlDriver struct {
-	// type of the endpoint from the flow.yaml spec
+type SQLDriver struct {
+	// EndpointType is the type of the endpoint from the flow.yaml spec
 	EndpointType string
-	// driver name to use when creating sql connections
-	SqlDriverType string
-	// The SqlGenerator to use for generating statements for use with the go sql package.
-	SqlGen SqlGenerator
+	// SQLDriverType is the driver name to use when creating sql connections
+	SQLDriverType string
+	// The SQLGenerator to use for generating statements for use with the go sql package.
+	SQLGen SQLGenerator
 
 	// map of connection URI to DB for that system. We don't ever remove anythign from this map, so
 	// it'll just keep growing if someone makes a bunch of requests for many distinct endpoints.
@@ -129,29 +137,32 @@ type SqlDriver struct {
 	connections      map[string]*sql.DB
 	connectionsMutex sync.Mutex
 	// map of caller id to the sql that we cache.
-	sqlCache      map[string]*cachedSql
+	sqlCache      map[string]*cachedSQL
 	sqlCacheMutex sync.Mutex
 }
 
-func NewSqliteDriver() pm.DriverServer {
-	var sqlGen = SqliteSqlGenerator()
-	return &SqlDriver{
+// NewSQLiteDriver creates a new DriverServer for sqlite.
+func NewSQLiteDriver() pm.DriverServer {
+	var sqlGen = SQLiteSQLGenerator()
+	return &SQLDriver{
 		EndpointType:  "sqlite",
-		SqlDriverType: "sqlite3",
-		SqlGen:        &sqlGen,
+		SQLDriverType: "sqlite3",
+		SQLGen:        &sqlGen,
 		connections:   map[string]*sql.DB{},
-		sqlCache:      map[string]*cachedSql{},
+		sqlCache:      map[string]*cachedSQL{},
 	}
 }
 
-var _ pm.DriverServer = &SqlDriver{}
+// Assert that SQLDriver implements the DriverServer interface
+var _ pm.DriverServer = &SQLDriver{}
 
-func (driver *SqlDriver) StartSession(ctx context.Context, req *pm.SessionRequest) (*pm.SessionResponse, error) {
+// StartSession is part of the DriverServer implementation.
+func (driver *SQLDriver) StartSession(ctx context.Context, req *pm.SessionRequest) (*pm.SessionResponse, error) {
 	var handle = Handle{
 		Nonce:    rand.Int31(),
-		Uri:      req.EndpointUrl,
+		URI:      req.EndpointUrl,
 		Table:    req.Target,
-		CallerId: req.CallerId,
+		CallerID: req.CallerId,
 	}
 	handleBytes, err := json.Marshal(handle)
 	if err != nil {
@@ -162,7 +173,8 @@ func (driver *SqlDriver) StartSession(ctx context.Context, req *pm.SessionReques
 	return response, nil
 }
 
-func (driver *SqlDriver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {
+// Validate is part of the DriverServer implementation.
+func (driver *SQLDriver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {
 	var handle, err = parseHandle(req.Handle)
 	if err != nil {
 		return nil, err
@@ -183,7 +195,8 @@ func (driver *SqlDriver) Validate(ctx context.Context, req *pm.ValidateRequest) 
 	return response, nil
 }
 
-func (driver *SqlDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+// Apply is part of the DriverServer implementation.
+func (driver *SQLDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
 	var handle, err = parseHandle(req.Handle)
 	if err != nil {
 		return nil, err
@@ -221,8 +234,8 @@ func (driver *SqlDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.A
 		materializationSpec = currentMaterialization
 	} else {
 		materializationSpec = &MaterializationSpec{
-			CollectionSpec: *req.Collection,
-			Fields:         *req.Fields,
+			Collection: *req.Collection,
+			Fields:     *req.Fields,
 		}
 	}
 	// Still validate the selected fields, even if this is just re-validating the existing
@@ -238,26 +251,26 @@ func (driver *SqlDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.A
 	// appended to the actionDescrion to return to the user.
 	var flowMaterializationsTable = FlowMaterializationsTable()
 	var gazetteCheckpointsTable = GazetteCheckpointsTable()
-	createFlowCheckpointsTable, err := driver.SqlGen.CreateTable(gazetteCheckpointsTable)
+	createFlowCheckpointsTable, err := driver.SQLGen.CreateTable(gazetteCheckpointsTable)
 	if err != nil {
 		return nil, err
 	}
-	createFlowMaterializationsTable, err := driver.SqlGen.CreateTable(flowMaterializationsTable)
+	createFlowMaterializationsTable, err := driver.SQLGen.CreateTable(flowMaterializationsTable)
 	if err != nil {
 		return nil, err
 	}
-	specJson, err := json.Marshal(materializationSpec)
+	specJSON, err := json.Marshal(materializationSpec)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to marshal materialization spec: %w", err)
 	}
 
-	insertMaterializationSpec, err := driver.SqlGen.DirectInsertStatement(flowMaterializationsTable, handle.Table, string(specJson))
+	insertMaterializationSpec, err := driver.SQLGen.DirectInsertStatement(flowMaterializationsTable, handle.Table, string(specJSON))
 	if err != nil {
 		return nil, err
 	}
-	var tableComment = fmt.Sprintf("Holds the fully reduced materialization of the Flow collection %s", req.Collection.Name)
+	var tableComment = fmt.Sprintf("Holds the materialization of the Flow collection %s", req.Collection.Name)
 	var targetTable = tableForMaterialization(handle.Table, tableComment, materializationSpec)
-	createTargetTable, err := driver.SqlGen.CreateTable(targetTable)
+	createTargetTable, err := driver.SQLGen.CreateTable(targetTable)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +284,7 @@ func (driver *SqlDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.A
 	if !req.DryRun && currentMaterialization == nil {
 		log.WithFields(log.Fields{
 			"targetTable": handle.Table,
-			"shardId":     handle.CallerId,
+			"shardId":     handle.CallerID,
 			"collection":  req.Collection.Name,
 		}).Infof("Executing DDL to apply materialization")
 		var allStatements = []string{
@@ -287,7 +300,7 @@ func (driver *SqlDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.A
 	}
 	var response = new(pm.ApplyResponse)
 	// Like my grandpappy always told me, "never generate a SQL file without a comment at the top"
-	var comment = driver.SqlGen.Comment(fmt.Sprintf(
+	var comment = driver.SQLGen.Comment(fmt.Sprintf(
 		"Generated by Flow for materializing collection '%s'\nto table: %s",
 		req.Collection.Name,
 		handle.Table,
@@ -300,16 +313,17 @@ func (driver *SqlDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.A
 	return response, nil
 }
 
-func (driver *SqlDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp *pm.FenceResponse, err error) {
+// Fence is part of the DriverServer implementation.
+func (driver *SQLDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp *pm.FenceResponse, err error) {
 	handle, err := parseHandle(req.Handle)
 	if err != nil {
 		return nil, err
 	}
 	var logger = log.WithFields(log.Fields{
-		"shardId": handle.CallerId,
+		"shardId": handle.CallerID,
 		"nonce":   handle.Nonce,
 	})
-	connection, err := driver.connection(handle.Uri)
+	connection, err := driver.connection(handle.URI)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +342,7 @@ func (driver *SqlDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 		}
 	}()
 	var gazCheckpointsTable = GazetteCheckpointsTable()
-	query, err := driver.SqlGen.QueryOnPrimaryKey(gazCheckpointsTable, GAZETTE_CHECKPOINTS_NONCE_COLUMN, GAZETTE_CHECKPOINTS_CHECKPOINT_COLUMN)
+	query, err := driver.SQLGen.QueryOnPrimaryKey(gazCheckpointsTable, GazetteCheckpointsNonceColumn, GazetteCheckpointsCheckpointColumn)
 	if err != nil {
 		return nil, err
 	}
@@ -339,31 +353,31 @@ func (driver *SqlDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 
 	var oldNonce int32
 	var flowCheckpoint []byte
-	var row = queryStatement.QueryRowContext(ctx, handle.CallerId)
+	var row = queryStatement.QueryRowContext(ctx, handle.CallerID)
 	err = row.Scan(&oldNonce, &flowCheckpoint)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to query current flow checkpoint: %w", err)
 	} else if err == sql.ErrNoRows {
 		// There's no current checkpoint value, so we'll initialize a new one
-		var sql, err = driver.SqlGen.InsertStatement(gazCheckpointsTable)
+		var sql, err = driver.SQLGen.InsertStatement(gazCheckpointsTable)
 		if err != nil {
 			return nil, err
 		}
 		// The initial value for the checkpoint is just an empty slice. The nonce will be initialized to
 		// the current nonce, though.
-		_, err = txn.ExecContext(ctx, sql, handle.CallerId, handle.Nonce, make([]byte, 0))
+		_, err = txn.ExecContext(ctx, sql, handle.CallerID, handle.Nonce, make([]byte, 0))
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize flow checkpoint: %w", err)
 		}
 	} else {
 		// There's already a checkpoint present
-		var whereColumns = []string{GAZETTE_CHECKPOINTS_SHARD_ID_COLUMN, GAZETTE_CHECKPOINTS_NONCE_COLUMN}
-		var setColumns = []string{GAZETTE_CHECKPOINTS_NONCE_COLUMN}
-		var updateSql, err = driver.SqlGen.UpdateStatement(gazCheckpointsTable, setColumns, whereColumns)
+		var whereColumns = []string{GazetteCheckpointsShardIDColumn, GazetteCheckpointsNonceColumn}
+		var setColumns = []string{GazetteCheckpointsNonceColumn}
+		var updateSQL, err = driver.SQLGen.UpdateStatement(gazCheckpointsTable, setColumns, whereColumns)
 		if err != nil {
 			return nil, err
 		}
-		_, err = txn.ExecContext(ctx, updateSql, handle.Nonce, handle.CallerId, oldNonce)
+		_, err = txn.ExecContext(ctx, updateSQL, handle.Nonce, handle.CallerID, oldNonce)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update nonce for flow checkpoint: %w", err)
 		}
@@ -378,18 +392,19 @@ func (driver *SqlDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 	}, nil
 }
 
-func (driver *SqlDriver) Load(ctx context.Context, req *pm.LoadRequest) (*pm.LoadResponse, error) {
+// Load is part of the DriverServer implementation.
+func (driver *SQLDriver) Load(ctx context.Context, req *pm.LoadRequest) (*pm.LoadResponse, error) {
 	var handle, err = parseHandle(req.Handle)
 	if err != nil {
 		return nil, err
 	}
 
-	cachedSql, err := driver.getCachedSql(ctx, handle)
+	cachedSQL, err := driver.getCachedSQL(ctx, handle)
 	if err != nil {
 		return nil, err
 	}
-	connection, err := driver.connection(handle.Uri)
-	stmt, err := connection.PrepareContext(ctx, cachedSql.loadQuery)
+	connection, err := driver.connection(handle.URI)
+	stmt, err := connection.PrepareContext(ctx, cachedSQL.loadQuery)
 	defer stmt.Close()
 	if err != nil {
 		return nil, err
@@ -404,7 +419,7 @@ func (driver *SqlDriver) Load(ctx context.Context, req *pm.LoadRequest) (*pm.Loa
 		}
 		// Each tuple should hold the collection keys in the order provided by the Fields. This will
 		// match the order in the generated sql query.
-		var args = tupleToArgSlice(tuple)
+		var args = tuple.ToInterface()
 		rows, err := stmt.QueryContext(ctx, args...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query root document: %w", err)
@@ -429,7 +444,8 @@ func (driver *SqlDriver) Load(ctx context.Context, req *pm.LoadRequest) (*pm.Loa
 	return response, nil
 }
 
-func (driver *SqlDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
+// Store is part of the DriverServer implementation.
+func (driver *SQLDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 	var committed = false
 	var ctx = stream.Context()
 	var req, err = stream.Recv()
@@ -445,19 +461,19 @@ func (driver *SqlDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 		return err
 	}
 	var logger = log.WithFields(log.Fields{
-		"shardId": handle.CallerId,
+		"shardId": handle.CallerID,
 		"nonce":   handle.Nonce,
 	})
 
 	logger.Trace("Starting Store transaction")
 
-	cachedSql, err := driver.getCachedSql(ctx, handle)
+	cachedSQL, err := driver.getCachedSQL(ctx, handle)
 	if err != nil {
 		return err
 	}
 
 	// Open a transaction and prepare all the statements we'll need for processing Continue messages
-	connection, err := driver.connection(handle.Uri)
+	connection, err := driver.connection(handle.URI)
 	if err != nil {
 		return err
 	}
@@ -477,30 +493,30 @@ func (driver *SqlDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 		}
 	}(logger)
 
-	insertStatement, err := transaction.PrepareContext(ctx, cachedSql.insertStatement)
+	insertStatement, err := transaction.PrepareContext(ctx, cachedSQL.insertStatement)
 	if err != nil {
 		return err
 	}
-	updateStatement, err := transaction.PrepareContext(ctx, cachedSql.updateStatement)
+	updateStatement, err := transaction.PrepareContext(ctx, cachedSQL.updateStatement)
 	if err != nil {
 		return err
 	}
 
 	// Update the checkpoint now. This will be part of the transaction, so it will get rolled back
 	// in the event of some other error.
-	updateCheckpointSql, err := driver.SqlGen.UpdateStatement(
+	updateCheckpointSQL, err := driver.SQLGen.UpdateStatement(
 		GazetteCheckpointsTable(),
-		[]string{GAZETTE_CHECKPOINTS_CHECKPOINT_COLUMN},
-		[]string{GAZETTE_CHECKPOINTS_SHARD_ID_COLUMN},
+		[]string{GazetteCheckpointsCheckpointColumn},
+		[]string{GazetteCheckpointsShardIDColumn},
 	)
 	if err != nil {
 		return err
 	}
-	stmt, err := transaction.PrepareContext(ctx, updateCheckpointSql)
+	stmt, err := transaction.PrepareContext(ctx, updateCheckpointSQL)
 	if err != nil {
 		return err
 	}
-	result, err := stmt.ExecContext(ctx, req.Start.FlowCheckpoint, handle.CallerId)
+	result, err := stmt.ExecContext(ctx, req.Start.FlowCheckpoint, handle.CallerID)
 	if err != nil {
 		return err
 	}
@@ -543,8 +559,8 @@ func (driver *SqlDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 				return fmt.Errorf("failed to unpack tuple values for document %d: %w", docIndex, err)
 			}
 
-			var keyArgs = tupleToArgSlice(keysTuple)
-			var valuesArgs = tupleToArgSlice(valuesTuple)
+			var keyArgs = keysTuple.ToInterface()
+			var valuesArgs = valuesTuple.ToInterface()
 			var jsonBytes = req.Continue.Arena.Bytes(rootDocumentSlice)
 
 			// The order of these args will be different for insert and update statements
@@ -580,97 +596,44 @@ func (driver *SqlDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 	}
 }
 
-// SqlDriver implementation details
+// SQLDriver implementation details
 
-type storeTransactionStarted struct {
-	transaction     *sql.Tx
-	insertStatement *sql.Stmt
-	updateStatement *sql.Stmt
-	handle          *Handle
-	primaryKeys     []bool
-}
-
-func (driver *SqlDriver) persistRows(ctx context.Context, req *pm.StoreRequest_Continue, txn *storeTransactionStarted) error {
-	for docIndex, rootDocumentSlice := range req.DocsJson {
-		var packedKeysSlice = req.PackedKeys[docIndex]
-		keysTuple, err := tuple.Unpack(req.Arena.Bytes(packedKeysSlice))
-		if err != nil {
-			return fmt.Errorf("failed to unpack tuple keys for document %d: %w", docIndex, err)
-		}
-
-		var packedValuesSlice = req.PackedValues[docIndex]
-		var isUpdate = req.Exists[docIndex]
-		valuesTuple, err := tuple.Unpack(req.Arena.Bytes(packedValuesSlice))
-		if err != nil {
-			return fmt.Errorf("failed to unpack tuple values for document %d: %w", docIndex, err)
-		}
-
-		// Compose the list of arguments for the sql statement. These will be in the same order for
-		// both insert and update statements because we always put all key columns before all value
-		// columns, with the root document always coming in last.
-		var sqlArgs = tupleToArgSlice(keysTuple)
-		sqlArgs = append(sqlArgs, tupleToArgSlice(valuesTuple)...)
-		sqlArgs = append(sqlArgs, req.Arena.Bytes(rootDocumentSlice))
-
-		var stmtType string // so we can be specific in an error message
-		if isUpdate {
-			stmtType = "update"
-			_, err = txn.updateStatement.ExecContext(ctx, sqlArgs...)
-		} else {
-			stmtType = "insert"
-			_, err = txn.insertStatement.ExecContext(ctx, sqlArgs...)
-		}
-		if err != nil {
-			return fmt.Errorf("Failed to execute %s statement: %w", stmtType, err)
-		}
-	}
-	return nil
-}
-
-func tupleToArgSlice(tuple tuple.Tuple) []interface{} {
-	var args []interface{}
-	for _, elem := range tuple {
-		args = append(args, elem)
-	}
-	return args
-}
-
-func (driver *SqlDriver) getCachedSql(ctx context.Context, handle *Handle) (*cachedSql, error) {
+func (driver *SQLDriver) getCachedSQL(ctx context.Context, handle *Handle) (*cachedSQL, error) {
 	// We could alternatively use a concurrent map and a separate mutex per CallerId, but I decided
 	// to KISS for now since it's doubtful that the simple single mutex will actually cause a
 	// problem.
 	driver.sqlCacheMutex.Lock()
 	defer driver.sqlCacheMutex.Unlock()
-	var cachedSql = driver.sqlCache[handle.CallerId]
+	var cachedSQL = driver.sqlCache[handle.CallerID]
 	// Do we need to re-create the sql queries?
-	if cachedSql == nil || cachedSql.nonce != handle.Nonce {
-		var newSql, err = driver.generateRuntimeSql(ctx, handle)
+	if cachedSQL == nil || cachedSQL.nonce != handle.Nonce {
+		var newSQL, err = driver.generateRuntimeSQL(ctx, handle)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to generate sql statements for '%s': %w", handle.CallerId, err)
+			return nil, fmt.Errorf("Failed to generate sql statements for '%s': %w", handle.CallerID, err)
 		}
 		log.WithFields(log.Fields{
-			"shardId": handle.CallerId,
+			"shardId": handle.CallerID,
 			"nonce":   handle.Nonce,
-		}).Debugf("Generated new sql statements: %+v", newSql)
-		driver.sqlCache[handle.CallerId] = newSql
-		cachedSql = newSql
+		}).Debugf("Generated new sql statements: %+v", newSQL)
+		driver.sqlCache[handle.CallerID] = newSQL
+		cachedSQL = newSQL
 	}
-	return cachedSql, nil
+	return cachedSQL, nil
 }
 
 // Creates the sql used for Load/Store functions.
-func (driver *SqlDriver) generateRuntimeSql(ctx context.Context, handle *Handle) (*cachedSql, error) {
+func (driver *SQLDriver) generateRuntimeSQL(ctx context.Context, handle *Handle) (*cachedSQL, error) {
 	var materializationSpec, err = driver.loadMaterializationSpec(ctx, handle)
 	if err != nil {
 		return nil, err
 	}
 	var targetTable = tableForMaterialization(handle.Table, "", materializationSpec)
 
-	loadQuery, err := driver.SqlGen.QueryOnPrimaryKey(targetTable, materializationSpec.Fields.Document)
+	loadQuery, err := driver.SQLGen.QueryOnPrimaryKey(targetTable, materializationSpec.Fields.Document)
 	if err != nil {
 		return nil, err
 	}
-	insertStatement, err := driver.SqlGen.InsertStatement(targetTable)
+	insertStatement, err := driver.SQLGen.InsertStatement(targetTable)
 	if err != nil {
 		return nil, err
 	}
@@ -679,12 +642,12 @@ func (driver *SqlDriver) generateRuntimeSql(ctx context.Context, handle *Handle)
 	setColumns = append(setColumns, materializationSpec.Fields.Values...)
 	setColumns = append(setColumns, materializationSpec.Fields.Document)
 
-	updateStatement, err := driver.SqlGen.UpdateStatement(targetTable, setColumns, materializationSpec.Fields.Keys)
+	updateStatement, err := driver.SQLGen.UpdateStatement(targetTable, setColumns, materializationSpec.Fields.Keys)
 	if err != nil {
 		return nil, err
 	}
 
-	return &cachedSql{
+	return &cachedSQL{
 		nonce:           handle.Nonce,
 		loadQuery:       loadQuery,
 		insertStatement: insertStatement,
@@ -692,8 +655,10 @@ func (driver *SqlDriver) generateRuntimeSql(ctx context.Context, handle *Handle)
 	}, nil
 }
 
-func (driver *SqlDriver) execTransaction(ctx context.Context, handle *Handle, statements []string) error {
-	var connection, err = driver.connection(handle.Uri)
+// execTransaction is used during Apply to execute a sequence of non-parameterized statements within
+// a single transaction.
+func (driver *SQLDriver) execTransaction(ctx context.Context, handle *Handle, statements []string) error {
+	var connection, err = driver.connection(handle.URI)
 	if err != nil {
 		return err
 	}
@@ -708,7 +673,7 @@ func (driver *SqlDriver) execTransaction(ctx context.Context, handle *Handle, st
 			log.WithFields(log.Fields{
 				"error":        err,
 				"targetTtable": handle.Table,
-				"shardId":      handle.CallerId,
+				"shardId":      handle.CallerID,
 			}).Warnf("Failed to execute SQL for applying materialization")
 			_ = txn.Rollback()
 			return err
@@ -717,7 +682,7 @@ func (driver *SqlDriver) execTransaction(ctx context.Context, handle *Handle, st
 	return txn.Commit()
 }
 
-func (driver *SqlDriver) doValidate(ctx context.Context, handle *Handle, proposed *pf.CollectionSpec, currentSpec *MaterializationSpec) (map[string]*pm.Constraint, error) {
+func (driver *SQLDriver) doValidate(ctx context.Context, handle *Handle, proposed *pf.CollectionSpec, currentSpec *MaterializationSpec) (map[string]*pm.Constraint, error) {
 	var err = proposed.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("The proposed CollectionSpec is invalid: %w", err)
@@ -726,12 +691,12 @@ func (driver *SqlDriver) doValidate(ctx context.Context, handle *Handle, propose
 	var constraints map[string]*pm.Constraint
 	if currentSpec != nil {
 		// Ensure that the existing spec is valid, since it may have been modified manually.
-		if err = currentSpec.CollectionSpec.Validate(); err != nil {
+		if err = currentSpec.Validate(); err != nil {
 			return nil, fmt.Errorf("The existing MaterializationSpec is invalid: %w", err)
 		}
 		constraints = ValidateMatchesExisting(currentSpec, proposed)
 	} else {
-		constraints = ValidateNewSqlProjections(proposed)
+		constraints = ValidateNewSQLProjections(proposed)
 	}
 	return constraints, nil
 }
@@ -746,13 +711,13 @@ func (driver *SqlDriver) doValidate(ctx context.Context, handle *Handle, propose
 // any error encountered there. The idea being that connection issues should not present as a
 // missing materializationSpec. I'm assuming we don't want to create the table unless explicitly
 // requested to, since people can be fussy about tools modifying their schemas.
-func (driver *SqlDriver) loadMaterializationSpec(ctx context.Context, handle *Handle) (*MaterializationSpec, error) {
-	var query, err = driver.SqlGen.QueryOnPrimaryKey(FlowMaterializationsTable(), FLOW_MATERIALIZATIONS_SPEC_COLUMN)
+func (driver *SQLDriver) loadMaterializationSpec(ctx context.Context, handle *Handle) (*MaterializationSpec, error) {
+	var query, err = driver.SQLGen.QueryOnPrimaryKey(FlowMaterializationsTable(), FlowMaterializationsSpecColumn)
 	if err != nil {
 		return nil, err
 	}
 
-	connection, err := driver.connection(handle.Uri)
+	connection, err := driver.connection(handle.URI)
 	if err != nil {
 		return nil, err
 	}
@@ -771,7 +736,7 @@ func (driver *SqlDriver) loadMaterializationSpec(ctx context.Context, handle *Ha
 		return nil, nil
 	} else if err != nil {
 		log.WithFields(log.Fields{
-			"shardId": handle.CallerId,
+			"shardId": handle.CallerID,
 			"nonce":   handle.Nonce,
 			"error":   err,
 		}).Debugf("failed to query materializationSpec. This is possibly due to the table not being initialized")
@@ -783,19 +748,19 @@ func (driver *SqlDriver) loadMaterializationSpec(ctx context.Context, handle *Ha
 	return materializationSpec, err
 }
 
-func (driver *SqlDriver) connection(endpointUri string) (*sql.DB, error) {
+func (driver *SQLDriver) connection(endpointURI string) (*sql.DB, error) {
 	driver.connectionsMutex.Lock()
 	defer driver.connectionsMutex.Unlock()
 
-	if db, ok := driver.connections[endpointUri]; ok {
+	if db, ok := driver.connections[endpointURI]; ok {
 		return db, nil
 	}
 
-	var db, err = sql.Open(driver.SqlDriverType, endpointUri)
+	var db, err = sql.Open(driver.SQLDriverType, endpointURI)
 	if err != nil {
 		return nil, err
 	}
-	driver.connections[endpointUri] = db
+	driver.connections[endpointURI] = db
 	return db, nil
 }
 
@@ -805,6 +770,9 @@ func parseHandle(bytes []byte) (*Handle, error) {
 	return handle, err
 }
 
+// tableForMaterialization converts a MaterializationSpec into the Table representation that's used
+// by the SQLGenerator. This assumes that the MaterializationSpec has already been validated to
+// ensure that each projection has exactly one type besides "null".
 func tableForMaterialization(name string, comment string, spec *MaterializationSpec) *Table {
 	return &Table{
 		Name:    name,
@@ -820,7 +788,7 @@ func columnsForMaterialization(spec *MaterializationSpec) []Column {
 	var allFields = spec.Fields.AllFields()
 	var columns = make([]Column, 0, len(allFields))
 	for _, field := range allFields {
-		var projection = spec.CollectionSpec.GetProjection(field)
+		var projection = spec.Collection.GetProjection(field)
 		columns = append(columns, columnForProjection(projection))
 	}
 	return columns

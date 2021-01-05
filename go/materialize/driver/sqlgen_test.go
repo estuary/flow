@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSqlGenerator(t *testing.T) {
+func TestSQLGenerator(t *testing.T) {
 	var testTable = testTable()
 	var gazetteCheckpoints = GazetteCheckpointsTable()
 	var flowMaterializations = FlowMaterializationsTable()
 	var allTables = []*Table{&testTable, gazetteCheckpoints, flowMaterializations}
 
-	var pgGen = PostgresSqlGenerator()
-	var sqliteGen = SqliteSqlGenerator()
-	var generators = map[string]SqlGenerator{
+	var pgGen = PostgresSQLGenerator()
+	var sqliteGen = SQLiteSQLGenerator()
+	var generators = map[string]SQLGenerator{
 		"postgres": &pgGen,
 		"sqlite":   &sqliteGen,
 	}
@@ -45,14 +45,14 @@ func TestSqlGenerator(t *testing.T) {
 				updateStatement, err := gen.UpdateStatement(table, valueColumns, keyColumns)
 				require.NoError(t, err)
 
-				var allSql = strings.Join([]string{createTable, query, insertStatement, updateStatement}, "\n\n")
-				cupaloy.SnapshotT(t, allSql)
+				var allSQL = strings.Join([]string{createTable, query, insertStatement, updateStatement}, "\n\n")
+				cupaloy.SnapshotT(t, allSQL)
 			})
 		}
 		// Test the DirectInsertStatement function, but only for the flow_materializations table
 		// This doesn't need to be a valid MaterializationSpec for this test, but we do want to test
 		// some json that contains single quotes and newlines.
-		var materializationJson = `{
+		var materializationJSON = `{
             "collectionSpec": {
                 "name": "foo",
                 "schemaUri": "test://schema.test/mySchema.json",
@@ -73,7 +73,7 @@ func TestSqlGenerator(t *testing.T) {
             }
         }`
 		t.Run(fmt.Sprintf("%s_flow_materialization_insert", dialect), func(t *testing.T) {
-			var insertStatement, err = gen.DirectInsertStatement(flowMaterializations, "test_table", materializationJson)
+			var insertStatement, err = gen.DirectInsertStatement(flowMaterializations, "test_table", materializationJSON)
 			require.NoError(t, err)
 			cupaloy.SnapshotT(t, insertStatement)
 		})

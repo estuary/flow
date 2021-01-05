@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS "gazette_checkpoints" (
 	-- The id of the consumer shard. Note that a single collection may have multiple consumer shards materializing it, and each will have a separate checkpoint.
 	"shard_id" TEXT NOT NULL,
-	-- This nonce is used to uniquely identify instances of a shard and prevent them from conflicting.
+	-- This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.
 	"nonce" BIGINT NOT NULL,
 	-- Opaque checkpoint of the Flow consumer shard
 	"checkpoint" BYTEA,

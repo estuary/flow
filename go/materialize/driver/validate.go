@@ -7,11 +7,35 @@ import (
 	pm "github.com/estuary/flow/go/protocols/materialize"
 )
 
+// MaterializationSpec wraps the Collection to be materialized, along with the specific
+// FieldSelection for the materialization. This type is marshalled to JSON and persisted in the
+// database as a record of the current state of the materialization.
 type MaterializationSpec struct {
-	Fields         pm.FieldSelection `json:"fields"`
-	CollectionSpec pf.CollectionSpec `json:"collectionSpec"`
+	// Fields is the current selection of fields that is being materialized. The target table will
+	// have a column for each field here.
+	Fields pm.FieldSelection `json:"fields"`
+	// Collection is the flow collection being materialized.
+	Collection pf.CollectionSpec `json:"collectionSpec"`
 }
 
+// Validate ensures that the MaterializationSpec is valid, and returns an error if not. This also
+// validates the Collection.
+func (spec *MaterializationSpec) Validate() error {
+	var err = spec.Collection.Validate()
+	if err != nil {
+		return err
+	}
+	// Validate that all fields reference extant projections.
+	for _, field := range spec.Fields.AllFields() {
+		if spec.Collection.GetProjection(field) == nil {
+			return fmt.Errorf("the selected field '%s' has no corresponding projection", field)
+		}
+	}
+	return nil
+}
+
+// ValidateSelectedFields validates a proposed MaterializationSpec against a set of constraints. If
+// any constraints would be violated, then an error is returned.
 func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *MaterializationSpec) error {
 	// Track all the location pointers for each included field so that we can verify all the
 	// LOCATION_REQUIRED constraints are met.
@@ -20,7 +44,7 @@ func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *Mat
 	// Does each field in the materialization have an allowable constraint?
 	var allFields = proposed.Fields.AllFields()
 	for _, field := range allFields {
-		var projection = proposed.CollectionSpec.GetProjection(field)
+		var projection = proposed.Collection.GetProjection(field)
 		if projection == nil {
 			return fmt.Errorf("No such projection for field '%s'", field)
 		}
@@ -39,7 +63,7 @@ func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *Mat
 				return fmt.Errorf("Required field '%s' is missing. It is required because: %s", field, constraint.Reason)
 			}
 		case pm.Constraint_LOCATION_REQUIRED:
-			var projection = proposed.CollectionSpec.GetProjection(field)
+			var projection = proposed.Collection.GetProjection(field)
 			if !includedPointers[projection.Ptr] {
 				return fmt.Errorf("The materialization must include a projections of location '%s', but no such projection is included", projection.Ptr)
 			}
@@ -49,7 +73,11 @@ func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *Mat
 	return nil
 }
 
-func ValidateNewSqlProjections(proposed *pf.CollectionSpec) map[string]*pm.Constraint {
+// ValidateNewSQLProjections returns a set of constraints for a proposed flow collection for a
+// **new** materialization (one that is not running and has never been Applied). Note that this will
+// "recommend" all projections of single scalar types, which is what drives the default field
+// selection in flowctl.
+func ValidateNewSQLProjections(proposed *pf.CollectionSpec) map[string]*pm.Constraint {
 	var constraints = make(map[string]*pm.Constraint)
 	for _, projection := range proposed.Projections {
 		var constraint = new(pm.Constraint)
@@ -80,11 +108,15 @@ func ValidateNewSqlProjections(proposed *pf.CollectionSpec) map[string]*pm.Const
 	return constraints
 }
 
+// ValidateMatchesExisting returns a set of constraints to use when there is a new proposed
+// CollectionSpec for a materialization that is already running, or has been Applied. The returned
+// constraints will explicitly require all fields that are currently materialized, as long as they
+// are not unsatisfiable, and forbid any fields that are not currently materialized.
 func ValidateMatchesExisting(existing *MaterializationSpec, proposed *pf.CollectionSpec) map[string]*pm.Constraint {
 	var constraints = make(map[string]*pm.Constraint)
 	for _, field := range existing.Fields.AllFields() {
 		var constraint = new(pm.Constraint)
-		var typeError = checkTypeError(field, &existing.CollectionSpec, proposed)
+		var typeError = checkTypeError(field, &existing.Collection, proposed)
 		if len(typeError) > 0 {
 			constraint.Type = pm.Constraint_UNSATISFIABLE
 			constraint.Reason = typeError
@@ -111,24 +143,19 @@ func ValidateMatchesExisting(existing *MaterializationSpec, proposed *pf.Collect
 }
 
 func checkTypeError(field string, existing *pf.CollectionSpec, proposed *pf.CollectionSpec) string {
-	var e = existing.GetProjection(field)
-	// The projection will always exist in the existing spec unless we've made a grave programming
-	// error or someone has manually modified the database and screwed it up.
-	if e == nil {
-		// TODO: log something
-		return "The materialization spec is invalid. It is missing a projection for this field."
-	}
-
-	var p = proposed.GetProjection(field)
-	if p == nil {
+	// existingProjection is guaranteed to exist since the MaterializationSpec has already been
+	// validated.
+	var existingProjection = existing.GetProjection(field)
+	var proposedProjection = proposed.GetProjection(field)
+	if proposedProjection == nil {
 		return "The proposed materialization is missing the projection, which is required because it's included in the existing materialization"
 	}
 
 	// Ensure that the possible types of the proposed are a subset of the existing possible types.
 	// The new projection is allowed to contain fewer types than the original, though, since that
 	// will always work with the original database schema.
-	for _, pt := range p.Inference.Types {
-		if !sliceContains(pt, e.Inference.Types) {
+	for _, pt := range proposedProjection.Inference.Types {
+		if !sliceContains(pt, existingProjection.Inference.Types) {
 			return fmt.Sprintf("The proposed projection may contain the type '%s', which is not part of the original projection", pt)
 		}
 	}
@@ -138,7 +165,7 @@ func checkTypeError(field string, existing *pf.CollectionSpec, proposed *pf.Coll
 	// contain null, then we can't allow the new projection to possible be null. But if the existing
 	// column is nullable, then it won't matter if the new one is or not since the column will be
 	// unconstrained.
-	if e.Inference.MustExist && !sliceContains("null", e.Inference.Types) && !p.Inference.MustExist {
+	if existingProjection.Inference.MustExist && !sliceContains("null", existingProjection.Inference.Types) && !proposedProjection.Inference.MustExist {
 		return "The existing projection must exist and be non-null, so the new projection must also exist"
 	}
 	return ""

@@ -12,6 +12,7 @@ import (
 // separately.
 type ColumnType string
 
+// ColumnType constants that are used by ColumnTypeMapper
 const (
 	STRING  ColumnType = "string"
 	BOOLEAN ColumnType = "boolean"
@@ -37,8 +38,9 @@ type Column struct {
 	Comment string
 	// PrimaryKey is true if this column is the primary key, or if it is part of a composite key.
 	PrimaryKey bool
-	// Type is the application type of the data. This corresponds closely to JSON types. The
-	// database-specific column type.
+	// Type is the application type of the data. This corresponds closely to JSON types, but
+	// includes "binary" and excludes "null". Unlike Flow Projections, a Column may only have a
+	// single type, and nullability is represented as a separate boolean rather than a type itself.
 	Type ColumnType
 	// StringType is optional additional type information for strings.
 	StringType *StringTypeInfo
@@ -52,18 +54,18 @@ type Table struct {
 	Name string
 	// Optional Comment to add to create table statements.
 	Comment string
-	// The complete list of Columns that are part of this table. More specifically, this is the complete
-	// list of columns that should be created for the table and used in insert statements. This does
-	// not need to include "automatic" columns
+	// The complete list of columns that should be created for the table and used in insert statements. This does
+	// not need to include "automatic" columns (e.g. rowid), but only columns that should be
+	// explicitly created and inserted into.
 	Columns []Column
 	// If IfNotExists is true then the create table statement will include an "IF NOT EXISTS" (or
 	// equivalent).
 	IfNotExists bool
 }
 
-// A SqlGenerator is a type that can generate all the sql required for a Flow materialization using
-// the SqlDriver type.
-type SqlGenerator interface {
+// A SQLGenerator is a type that can generate all the sql required for a Flow materialization using
+// the SQLDriver type.
+type SQLGenerator interface {
 	// Comment returns a new string with a comment containing the given string. The returned string
 	// must always end with a newline. The comment can either be a line or a block comment.
 	Comment(string) string
@@ -74,13 +76,14 @@ type SqlGenerator interface {
 
 	// QueryOnPrimaryKey generates a query that has a placeholder parameter for each primary key in
 	// the order given in the table. Only selectColumns will be selected in the same order as
-	// provided. An error should be returned if selectColumns is empty.
+	// provided.
 	QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, error)
 
 	// InsertStatement returns an insert statement for the given table that includes all columns.
-	// The returns sql will have a parameter placeholder for every column. For most systems, this
-	// can be a plain insert statement, not an upsert, since we only use the insert statement if a
-	// query for this document has already returned no result.
+	// The returned sql will have a parameter placeholder for every column in the order they appear
+	// in the Table. This should generate a plain insert statement, not an upsert, since we'll know
+	// in advance whether each document exists or not, and only use the InsertStatement when we know
+	// the document does not exist.
 	InsertStatement(table *Table) (string, error)
 
 	// DirectInsertStatement returns an insert statement without any bound parameters. Only string
@@ -132,18 +135,22 @@ type TypeMapper interface {
 // just use this.
 type ConstColumnType string
 
+// GetColumnType implements the TypeMapper interface
 func (columnType ConstColumnType) GetColumnType(col *Column) (string, error) {
 	return string(columnType), nil
 }
 
-const TYPE_LENGTH_PLACEHOLDER = "?"
+// TypeLengthPlaceholder is the placeholder string that may appear in the SQL string, which will be
+// replaced by the MaxLength of the string.
+const TypeLengthPlaceholder = "?"
 
-// LenLengthConstrainedColumnType is a TypeMapper that must always have a length argument, e.g.
+// LengthConstrainedColumnType is a TypeMapper that must always have a length argument, e.g.
 // "VARCHAR(42)"
 type LengthConstrainedColumnType string
 
+// GetColumnType implements the TypeMapper interface
 func (columnType LengthConstrainedColumnType) GetColumnType(col *Column) (string, error) {
-	return strings.Replace(string(columnType), TYPE_LENGTH_PLACEHOLDER, fmt.Sprint(col.StringType.MaxLength), 1), nil
+	return strings.Replace(string(columnType), TypeLengthPlaceholder, fmt.Sprint(col.StringType.MaxLength), 1), nil
 }
 
 // MaxLengthableColumnType is a TypeMapper that supports column types that may have a length
@@ -153,6 +160,7 @@ type MaxLengthableColumnType struct {
 	WithLength    *LengthConstrainedColumnType
 }
 
+// GetColumnType implements the TypeMapper interface
 func (columnType MaxLengthableColumnType) GetColumnType(col *Column) (string, error) {
 	if columnType.WithLength != nil && col.StringType != nil && col.StringType.MaxLength > 0 {
 		return columnType.WithLength.GetColumnType(col)
@@ -174,6 +182,7 @@ type NullableTypeMapping struct {
 	Inner        TypeMapper
 }
 
+// GetColumnType implements the TypeMapper interface
 func (mapper NullableTypeMapping) GetColumnType(col *Column) (string, error) {
 	var ty, err = mapper.Inner.GetColumnType(col)
 	if err != nil {
@@ -196,6 +205,7 @@ type StringTypeMapping struct {
 	ByContentType map[string]*TypeMapper
 }
 
+// GetColumnType implements the TypeMapper interface
 func (mapping StringTypeMapping) GetColumnType(col *Column) (string, error) {
 	var stringType = col.StringType
 	var resolvedMapper *TypeMapper
@@ -216,8 +226,11 @@ func (mapping StringTypeMapping) GetColumnType(col *Column) (string, error) {
 	return (*resolvedMapper).GetColumnType(col)
 }
 
+// ColumnTypeMapper selects a specific TypeMapper based on the type of the data that will be passed
+// to as a parameter for inserts or updates to the column.
 type ColumnTypeMapper map[ColumnType]TypeMapper
 
+// GetColumnType implements the TypeMapper interface
 func (amap ColumnTypeMapper) GetColumnType(col *Column) (string, error) {
 	var mapper = amap[col.Type]
 	if mapper == nil {
@@ -226,9 +239,14 @@ func (amap ColumnTypeMapper) GetColumnType(col *Column) (string, error) {
 	return mapper.GetColumnType(col)
 }
 
+// CommentConfig determines how SQL comments are rendered.
 type CommentConfig struct {
+	// Linewise determines whether to render line or block comments. If it is true, then each line
+	// of comment text will be wrapped separately. If false, then the entire multi-line block of
+	// comment text will be wrapped once.
 	Linewise bool
-	Wrap     TokenPair
+	// Wrap holds the strings that will bound the beginning and end of the comment.
+	Wrap TokenPair
 }
 
 // LineComment returns a CommentConfig configured for standard sql line comments that begins
@@ -243,9 +261,9 @@ func LineComment() CommentConfig {
 	}
 }
 
-// A GenericSqlGenerator is able to generate SQL for a large variety of SQL dialects using various
+// A GenericSQLGenerator is able to generate SQL for a large variety of SQL dialects using various
 // configuration parameters.
-type GenericSqlGenerator struct {
+type GenericSQLGenerator struct {
 	CommentConf             CommentConfig
 	IdentifierQuotes        TokenPair
 	GetParameterPlaceholder func(int) string
@@ -253,13 +271,14 @@ type GenericSqlGenerator struct {
 	TypeMappings            TypeMapper
 }
 
-// GetPostgresParameterPlaceholder returns $N style parameters where N is the parameter number
+// PostgresParameterPlaceholder returns $N style parameters where N is the parameter number
 // starting at 1.
-func GetPostgresParameterPlaceholder(parameterIndex int) string {
+func PostgresParameterPlaceholder(parameterIndex int) string {
 	// parameterIndex starts at 0, but postgres parameters start at $1
 	return fmt.Sprintf("$%d", parameterIndex+1)
 }
 
+// QuestionMarkPlaceholder returns the constant string "?"
 func QuestionMarkPlaceholder(_ int) string {
 	return "?"
 }
@@ -287,8 +306,8 @@ func DefaultQuoteStringValue(value string) string {
 	return builder.String()
 }
 
-// SqlitSqliteSqlGenerator returns a SqlGenerator for the sqlite SQL dialect.
-func SqliteSqlGenerator() GenericSqlGenerator {
+// SQLiteSQLGenerator returns a SQLGenerator for the sqlite SQL dialect.
+func SQLiteSQLGenerator() GenericSQLGenerator {
 	var typeMappings = ColumnTypeMapper{
 		INTEGER: ConstColumnType("INTEGER"),
 		NUMBER:  ConstColumnType("REAL"),
@@ -305,7 +324,7 @@ func SqliteSqlGenerator() GenericSqlGenerator {
 		Inner:       typeMappings,
 	}
 
-	return GenericSqlGenerator{
+	return GenericSQLGenerator{
 		CommentConf:             LineComment(),
 		IdentifierQuotes:        DoubleQuotes(),
 		GetParameterPlaceholder: QuestionMarkPlaceholder,
@@ -314,8 +333,8 @@ func SqliteSqlGenerator() GenericSqlGenerator {
 	}
 }
 
-// PostgresSqlGenerator returns a SqlGenerator for the postgresql SQL dialect.
-func PostgresSqlGenerator() GenericSqlGenerator {
+// PostgresSQLGenerator returns a SQLGenerator for the postgresql SQL dialect.
+func PostgresSQLGenerator() GenericSQLGenerator {
 	var typeMappings TypeMapper = NullableTypeMapping{
 		NotNullText: "NOT NULL",
 		Inner: ColumnTypeMapper{
@@ -331,24 +350,24 @@ func PostgresSqlGenerator() GenericSqlGenerator {
 		},
 	}
 
-	return GenericSqlGenerator{
+	return GenericSQLGenerator{
 		CommentConf:             LineComment(),
 		IdentifierQuotes:        DoubleQuotes(),
-		GetParameterPlaceholder: GetPostgresParameterPlaceholder,
+		GetParameterPlaceholder: PostgresParameterPlaceholder,
 		TypeMappings:            typeMappings,
 		QuoteStringValue:        DefaultQuoteStringValue,
 	}
 }
 
-// Comment is part of the SqlGenerator implementation for GenericSqlGenerator
-func (gen *GenericSqlGenerator) Comment(text string) string {
+// Comment is part of the SQLGenerator implementation for GenericSQLGenerator
+func (gen *GenericSQLGenerator) Comment(text string) string {
 	var builder strings.Builder
 	gen.writeComment(&builder, text, "")
 	return builder.String()
 }
 
-// CreateTable is part of the SqlGenerator implementation for GenericSqlGenerator
-func (gen *GenericSqlGenerator) CreateTable(table *Table) (string, error) {
+// CreateTable is part of the SQLGenerator implementation for GenericSQLGenerator
+func (gen *GenericSQLGenerator) CreateTable(table *Table) (string, error) {
 	var builder strings.Builder
 
 	if len(table.Comment) > 0 {
@@ -397,11 +416,8 @@ func (gen *GenericSqlGenerator) CreateTable(table *Table) (string, error) {
 	return builder.String(), nil
 }
 
-// QueryOnPrimaryKey is part of the SqlGenerator implementation for GenericSqlGenerator
-func (gen *GenericSqlGenerator) QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, error) {
-	if len(selectColumns) == 0 {
-		return "", fmt.Errorf("missing columns to solect")
-	}
+// QueryOnPrimaryKey is part of the SQLGenerator implementation for GenericSQLGenerator
+func (gen *GenericSQLGenerator) QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, error) {
 	var builder strings.Builder
 
 	builder.WriteString("SELECT ")
@@ -430,13 +446,13 @@ func (gen *GenericSqlGenerator) QueryOnPrimaryKey(table *Table, selectColumns ..
 	return builder.String(), nil
 }
 
-// InsertStatement is part of the SqlGenerator implementation for GenericSqlGenerator
-func (gen *GenericSqlGenerator) InsertStatement(table *Table) (string, error) {
+// InsertStatement is part of the SQLGenerator implementation for GenericSQLGenerator
+func (gen *GenericSQLGenerator) InsertStatement(table *Table) (string, error) {
 	return gen.genInsertStatement(table, gen.GetParameterPlaceholder)
 }
 
-// DirectInsertStatement is part of the SqlGenerator implementation for GenericSqlGenerator
-func (gen *GenericSqlGenerator) DirectInsertStatement(table *Table, args ...string) (string, error) {
+// DirectInsertStatement is part of the SQLGenerator implementation for GenericSQLGenerator
+func (gen *GenericSQLGenerator) DirectInsertStatement(table *Table, args ...string) (string, error) {
 	if len(args) != len(table.Columns) {
 		return "", fmt.Errorf("The table has %d columns, but only %d arguments were provided", len(table.Columns), len(args))
 	}
@@ -450,7 +466,7 @@ func (gen *GenericSqlGenerator) DirectInsertStatement(table *Table, args ...stri
 	return gen.genInsertStatement(table, genParams)
 }
 
-func (gen *GenericSqlGenerator) genInsertStatement(table *Table, genParams func(int) string) (string, error) {
+func (gen *GenericSQLGenerator) genInsertStatement(table *Table, genParams func(int) string) (string, error) {
 	var builder strings.Builder
 	builder.WriteString("INSERT INTO ")
 	gen.writeIdent(&builder, table.Name)
@@ -472,8 +488,8 @@ func (gen *GenericSqlGenerator) genInsertStatement(table *Table, genParams func(
 	return builder.String(), nil
 }
 
-// UpdateStatement is part of the SqlGenerator implementation for GenericSqlGenerator
-func (gen *GenericSqlGenerator) UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, error) {
+// UpdateStatement is part of the SQLGenerator implementation for GenericSQLGenerator
+func (gen *GenericSQLGenerator) UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, error) {
 	var builder strings.Builder
 	builder.WriteString("UPDATE ")
 	gen.writeIdent(&builder, table.Name)
@@ -502,11 +518,11 @@ func (gen *GenericSqlGenerator) UpdateStatement(table *Table, setColumns []strin
 	return builder.String(), nil
 }
 
-func (gen *GenericSqlGenerator) writeIdent(builder *strings.Builder, ident string) {
+func (gen *GenericSQLGenerator) writeIdent(builder *strings.Builder, ident string) {
 	gen.IdentifierQuotes.writeWrapped(builder, ident)
 }
 
-func (gen *GenericSqlGenerator) writeComment(builder *strings.Builder, text string, indent string) {
+func (gen *GenericSQLGenerator) writeComment(builder *strings.Builder, text string, indent string) {
 	var comment = gen.CommentConf
 	var scanner = bufio.NewScanner(strings.NewReader(text))
 
