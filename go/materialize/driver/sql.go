@@ -107,7 +107,7 @@ type Handle struct {
 	// Table is the name of the table that we'll be materializing into.
 	Table string `json:"table"`
 	// CallerID represents the stable id of the shard or process that this session belongs to.
-	CallerID string `json:"callerId"`
+	ShardID string `json:"callerId"`
 }
 
 // cachedSQL holds all of the sql statements that we cache.
@@ -159,10 +159,10 @@ var _ pm.DriverServer = &SQLDriver{}
 // StartSession is part of the DriverServer implementation.
 func (driver *SQLDriver) StartSession(ctx context.Context, req *pm.SessionRequest) (*pm.SessionResponse, error) {
 	var handle = Handle{
-		Nonce:    rand.Int31(),
-		URI:      req.EndpointUrl,
-		Table:    req.Target,
-		CallerID: req.CallerId,
+		Nonce:   rand.Int31(),
+		URI:     req.EndpointUrl,
+		Table:   req.Target,
+		ShardID: req.ShardId,
 	}
 	handleBytes, err := json.Marshal(handle)
 	if err != nil {
@@ -284,7 +284,7 @@ func (driver *SQLDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.A
 	if !req.DryRun && currentMaterialization == nil {
 		log.WithFields(log.Fields{
 			"targetTable": handle.Table,
-			"shardId":     handle.CallerID,
+			"shardId":     handle.ShardID,
 			"collection":  req.Collection.Name,
 		}).Infof("Executing DDL to apply materialization")
 		var allStatements = []string{
@@ -320,7 +320,7 @@ func (driver *SQLDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 		return nil, err
 	}
 	var logger = log.WithFields(log.Fields{
-		"shardId": handle.CallerID,
+		"shardId": handle.ShardID,
 		"nonce":   handle.Nonce,
 	})
 	connection, err := driver.connection(handle.URI)
@@ -353,7 +353,7 @@ func (driver *SQLDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 
 	var oldNonce int32
 	var flowCheckpoint []byte
-	var row = queryStatement.QueryRowContext(ctx, handle.CallerID)
+	var row = queryStatement.QueryRowContext(ctx, handle.ShardID)
 	err = row.Scan(&oldNonce, &flowCheckpoint)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to query current flow checkpoint: %w", err)
@@ -365,7 +365,7 @@ func (driver *SQLDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 		}
 		// The initial value for the checkpoint is just an empty slice. The nonce will be initialized to
 		// the current nonce, though.
-		_, err = txn.ExecContext(ctx, sql, handle.CallerID, handle.Nonce, make([]byte, 0))
+		_, err = txn.ExecContext(ctx, sql, handle.ShardID, handle.Nonce, make([]byte, 0))
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize flow checkpoint: %w", err)
 		}
@@ -377,7 +377,7 @@ func (driver *SQLDriver) Fence(ctx context.Context, req *pm.FenceRequest) (resp 
 		if err != nil {
 			return nil, err
 		}
-		_, err = txn.ExecContext(ctx, updateSQL, handle.Nonce, handle.CallerID, oldNonce)
+		_, err = txn.ExecContext(ctx, updateSQL, handle.Nonce, handle.ShardID, oldNonce)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update nonce for flow checkpoint: %w", err)
 		}
@@ -461,7 +461,7 @@ func (driver *SQLDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 		return err
 	}
 	var logger = log.WithFields(log.Fields{
-		"shardId": handle.CallerID,
+		"shardId": handle.ShardID,
 		"nonce":   handle.Nonce,
 	})
 
@@ -516,7 +516,7 @@ func (driver *SQLDriver) Store(stream pm.Driver_StoreServer) (retErr error) {
 	if err != nil {
 		return err
 	}
-	result, err := stmt.ExecContext(ctx, req.Start.FlowCheckpoint, handle.CallerID)
+	result, err := stmt.ExecContext(ctx, req.Start.FlowCheckpoint, handle.ShardID)
 	if err != nil {
 		return err
 	}
@@ -604,18 +604,18 @@ func (driver *SQLDriver) getCachedSQL(ctx context.Context, handle *Handle) (*cac
 	// problem.
 	driver.sqlCacheMutex.Lock()
 	defer driver.sqlCacheMutex.Unlock()
-	var cachedSQL = driver.sqlCache[handle.CallerID]
+	var cachedSQL = driver.sqlCache[handle.ShardID]
 	// Do we need to re-create the sql queries?
 	if cachedSQL == nil || cachedSQL.nonce != handle.Nonce {
 		var newSQL, err = driver.generateRuntimeSQL(ctx, handle)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to generate sql statements for '%s': %w", handle.CallerID, err)
+			return nil, fmt.Errorf("Failed to generate sql statements for '%s': %w", handle.ShardID, err)
 		}
 		log.WithFields(log.Fields{
-			"shardId": handle.CallerID,
+			"shardId": handle.ShardID,
 			"nonce":   handle.Nonce,
 		}).Debugf("Generated new sql statements: %+v", newSQL)
-		driver.sqlCache[handle.CallerID] = newSQL
+		driver.sqlCache[handle.ShardID] = newSQL
 		cachedSQL = newSQL
 	}
 	return cachedSQL, nil
@@ -673,7 +673,7 @@ func (driver *SQLDriver) execTransaction(ctx context.Context, handle *Handle, st
 			log.WithFields(log.Fields{
 				"error":        err,
 				"targetTtable": handle.Table,
-				"shardId":      handle.CallerID,
+				"shardId":      handle.ShardID,
 			}).Warnf("Failed to execute SQL for applying materialization")
 			_ = txn.Rollback()
 			return err
@@ -736,7 +736,7 @@ func (driver *SQLDriver) loadMaterializationSpec(ctx context.Context, handle *Ha
 		return nil, nil
 	} else if err != nil {
 		log.WithFields(log.Fields{
-			"shardId": handle.CallerID,
+			"shardId": handle.ShardID,
 			"nonce":   handle.Nonce,
 			"error":   err,
 		}).Debugf("failed to query materializationSpec. This is possibly due to the table not being initialized")
