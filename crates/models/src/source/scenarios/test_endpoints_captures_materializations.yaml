@@ -1,0 +1,37 @@
+test://root:
+  endpoints:
+    "my bucket":
+      s3:
+        bucket: foobar
+        prefix: path/prefix
+
+    "my DB":
+      postgres:
+        host: localhost
+        user: somebody
+        password: whoops
+
+  captures:
+    "my bucket capture":
+      target:
+        name: a/collection
+      endpoint: { name: my bucket }
+    "my table capture":
+      target:
+        name: other/collection
+      endpoint:
+        name: my DB
+        config: { extra: "stuff" }
+
+  materializations:
+    "my materialization":
+      source:
+        name: source/collection
+        schema: true
+      endpoint:
+        name: my DB
+        config: { table: "foobar" }
+      fields:
+        include: [add]
+        exclude: [del]
+        recommended: true

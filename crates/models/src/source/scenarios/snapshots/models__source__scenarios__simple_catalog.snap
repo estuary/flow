@@ -1,0 +1,79 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- nodejs_dependency:
+    package: package-one
+    scope: "test://root#/nodeDependencies/package-one"
+    version: v0.1.2
+- nodejs_dependency:
+    package: pkg-2
+    scope: "test://root#/nodeDependencies/pkg-2"
+    version: ~v2
+- fetch:
+    resource: "test://root/sibling"
+    scope: "test://root#/import/0"
+- fetch:
+    resource: "test://not/found"
+    scope: "test://root#/import/1"
+- projection:
+    collection: a/collection
+    field: baz
+    location: /bing
+    partition: true
+    scope: "test://root#/collections/a~1collection/projections/baz"
+    user_provided: true
+- projection:
+    collection: a/collection
+    field: foo
+    location: /bar
+    partition: false
+    scope: "test://root#/collections/a~1collection/projections/foo"
+    user_provided: true
+- fetch:
+    resource: "test://example/schema"
+    scope: "test://root#/collections/a~1collection/schema"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root/sibling"
+    scope: "test://root#/import/0"
+- catalog:
+    scope: "test://root/sibling"
+- import:
+    child_uri: "test://root/sibling"
+    parent_uri: "test://root"
+    scope: "test://root#/import/0"
+- error:
+    message: "Fetch { uri: \"test://not/found\", detail: \"fixture not found\" }"
+    scope: "test://root#/import/1"
+- import:
+    child_uri: "test://not/found"
+    parent_uri: "test://root"
+    scope: "test://root#/import/1"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://example/schema"
+    scope: "test://root#/collections/a~1collection/schema"
+- schema:
+    scope: "test://example/schema"
+- import:
+    child_uri: "test://example/schema"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/a~1collection/schema"
+- collection:
+    key:
+      - /key
+    name: a/collection
+    patch_config: ~
+    schema: "test://example/schema"
+    scope: "test://root#/collections/a~1collection"
+    store: endpoint
+- catalog:
+    scope: "test://root"

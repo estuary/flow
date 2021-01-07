@@ -1,0 +1,69 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- endpoint:
+    base_config:
+      dbname: ~
+      host: localhost
+      password: whoops
+      port: ~
+      user: somebody
+    endpoint: my DB
+    endpoint_type: postgres
+    scope: "test://root#/endpoints/my%20DB"
+- endpoint:
+    base_config:
+      bucket: foobar
+      prefix: path/prefix
+    endpoint: my bucket
+    endpoint_type: s3
+    scope: "test://root#/endpoints/my%20bucket"
+- capture:
+    allow_push: false
+    capture: my bucket capture
+    endpoint: my bucket
+    patch_config: ~
+    scope: "test://root#/captures/my%20bucket%20capture"
+    target: a/collection
+- capture:
+    allow_push: false
+    capture: my table capture
+    endpoint: my DB
+    patch_config:
+      extra: stuff
+    scope: "test://root#/captures/my%20table%20capture"
+    target: other/collection
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://root?ptr=/materializations/my%20materialization/source/schema"
+    scope: "test://root#/materializations/my%20materialization/source/schema"
+- schema:
+    scope: "test://root?ptr=/materializations/my%20materialization/source/schema"
+- import:
+    child_uri: "test://root?ptr=/materializations/my%20materialization/source/schema"
+    parent_uri: "test://root"
+    scope: "test://root#/materializations/my%20materialization/source/schema"
+- materialization:
+    endpoint: my DB
+    fields:
+      exclude:
+        - del
+      include:
+        - add
+      recommended: true
+    materialization: my materialization
+    patch_config:
+      table: foobar
+    scope: "test://root#/materializations/my%20materialization"
+    source: source/collection
+    source_schema: "test://root?ptr=/materializations/my%20materialization/source/schema"
+- catalog:
+    scope: "test://root"

@@ -1,0 +1,47 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- test_step_ingest:
+    collection: test/collection
+    documents:
+      - ingest: 1
+      - true
+    scope: "test://root#/tests/A%20test%20case/0"
+    step_index: 0
+    test: A test case
+- test_step_verify:
+    collection: test/collection
+    documents:
+      - verify: 2
+      - false
+    partitions: ~
+    scope: "test://root#/tests/A%20test%20case/1"
+    step_index: 1
+    test: A test case
+- test_step_verify:
+    collection: test/collection
+    documents:
+      - verify: 3
+      - fin
+    partitions:
+      exclude: {}
+      include:
+        a_field:
+          - some-val
+    scope: "test://root#/tests/A%20test%20case/2"
+    step_index: 2
+    test: A test case
+- test:
+    scope: "test://root#/tests/A%20test%20case"
+    test: A test case
+    total_steps: 3
+- catalog:
+    scope: "test://root"

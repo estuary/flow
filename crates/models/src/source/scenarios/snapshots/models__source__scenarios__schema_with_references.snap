@@ -1,0 +1,60 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- fetch:
+    resource: "test://external/a"
+    scope: "test://root#/collections/test/schema"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://external/a"
+    scope: "test://root#/collections/test/schema"
+- fetch:
+    resource: "test://external/b"
+    scope: "test://external/a#/$defs/a/$ref"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://external/b"
+    scope: "test://external/a#/$defs/a/$ref"
+- fetch:
+    resource: "test://external/c"
+    scope: "test://external/b#/$defs/c/$ref"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://external/c"
+    scope: "test://external/b#/$defs/c/$ref"
+- schema:
+    scope: "test://external/c"
+- import:
+    child_uri: "test://external/c"
+    parent_uri: "test://external/b"
+    scope: "test://external/b#/$defs/c/$ref"
+- schema:
+    scope: "test://external/b"
+- import:
+    child_uri: "test://external/b"
+    parent_uri: "test://external/a"
+    scope: "test://external/a#/$defs/a/$ref"
+- schema:
+    scope: "test://external/a"
+- import:
+    child_uri: "test://external/a"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/test/schema"
+- collection:
+    key:
+      - /a
+    name: test
+    patch_config: ~
+    schema: "test://external/a#/$defs/a"
+    scope: "test://root#/collections/test"
+    store: endpoint
+- catalog:
+    scope: "test://root"

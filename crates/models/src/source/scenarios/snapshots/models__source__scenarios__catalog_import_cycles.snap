@@ -1,0 +1,72 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- fetch:
+    resource: "test://root/A"
+    scope: "test://root#/import/0"
+- fetch:
+    resource: "test://root/B"
+    scope: "test://root#/import/1"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root/A"
+    scope: "test://root#/import/0"
+- fetch:
+    resource: "test://root/C"
+    scope: "test://root/A#/import/0"
+- import:
+    child_uri: "test://root/B"
+    parent_uri: "test://root/A"
+    scope: "test://root/A#/import/1"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root/B"
+    scope: "test://root#/import/1"
+- import:
+    child_uri: "test://root/C"
+    parent_uri: "test://root/B"
+    scope: "test://root/B#/import/0"
+- import:
+    child_uri: "test://root/A"
+    parent_uri: "test://root/B"
+    scope: "test://root/B#/import/1"
+- catalog:
+    scope: "test://root/B"
+- import:
+    child_uri: "test://root/B"
+    parent_uri: "test://root"
+    scope: "test://root#/import/1"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root/C"
+    scope: "test://root/A#/import/0"
+- import:
+    child_uri: "test://root"
+    parent_uri: "test://root/C"
+    scope: "test://root/C#/import/0"
+- import:
+    child_uri: "test://root/B"
+    parent_uri: "test://root/C"
+    scope: "test://root/C#/import/1"
+- catalog:
+    scope: "test://root/C"
+- import:
+    child_uri: "test://root/C"
+    parent_uri: "test://root/A"
+    scope: "test://root/A#/import/0"
+- catalog:
+    scope: "test://root/A"
+- import:
+    child_uri: "test://root/A"
+    parent_uri: "test://root"
+    scope: "test://root#/import/0"
+- catalog:
+    scope: "test://root"

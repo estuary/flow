@@ -1,0 +1,16 @@
+test://external/a:
+  $defs: { a: { $ref: "b#/$defs/c" } }
+
+test://external/b:
+  $defs: { c: { $ref: "c" } }
+
+test://external/c: true
+
+test://external/d: false
+
+test://root:
+  collections:
+    test:
+      schema: test://external/a#/$defs/a
+      key: [/a]
+      store: {name: endpoint}

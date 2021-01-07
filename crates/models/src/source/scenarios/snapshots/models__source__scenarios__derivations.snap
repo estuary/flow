@@ -1,0 +1,133 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- fetch:
+    resource: "test://root/a-schema.json"
+    scope: "test://root#/collections/d1~1collection/schema"
+- fetch:
+    resource: "test://root/reg-schema.json"
+    scope: "test://root#/collections/d1~1collection/derivation/register/schema"
+- fetch:
+    resource: "test://root/alt-schema.json"
+    scope: "test://root#/collections/d1~1collection/derivation/transform/some-name/source/schema"
+- import:
+    child_uri: "test://root/a-schema.json"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/d2~1collection/schema"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://root?ptr=/collections/d2~1collection/derivation/register/schema"
+    scope: "test://root#/collections/d2~1collection/derivation/register/schema"
+- schema:
+    scope: "test://root?ptr=/collections/d2~1collection/derivation/register/schema"
+- import:
+    child_uri: "test://root?ptr=/collections/d2~1collection/derivation/register/schema"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/d2~1collection/derivation/register/schema"
+- transform:
+    derivation: d2/collection
+    publish:
+      nodeJS: publish two
+    read_delay: ~
+    scope: "test://root#/collections/d2~1collection/derivation/transform/do-the-thing"
+    shuffle_hash: 0
+    shuffle_key: ~
+    shuffle_lambda: ~
+    source: src/collection
+    source_partitions: ~
+    source_schema: ~
+    transform: do-the-thing
+    update: ~
+- derivation:
+    derivation: d2/collection
+    register_initial: ~
+    register_schema: "test://root?ptr=/collections/d2~1collection/derivation/register/schema"
+    scope: "test://root#/collections/d2~1collection/derivation"
+- collection:
+    key:
+      - /d2-key
+    name: d2/collection
+    patch_config: ~
+    schema: "test://root/a-schema.json"
+    scope: "test://root#/collections/d2~1collection"
+    store: endpoint
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://root/a-schema.json"
+    scope: "test://root#/collections/d1~1collection/schema"
+- schema:
+    scope: "test://root/a-schema.json"
+- import:
+    child_uri: "test://root/a-schema.json"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/d1~1collection/schema"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://root/reg-schema.json"
+    scope: "test://root#/collections/d1~1collection/derivation/register/schema"
+- schema:
+    scope: "test://root/reg-schema.json"
+- import:
+    child_uri: "test://root/reg-schema.json"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/d1~1collection/derivation/register/schema"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://root/alt-schema.json"
+    scope: "test://root#/collections/d1~1collection/derivation/transform/some-name/source/schema"
+- schema:
+    scope: "test://root/alt-schema.json"
+- import:
+    child_uri: "test://root/alt-schema.json"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/d1~1collection/derivation/transform/some-name/source/schema"
+- transform:
+    derivation: d1/collection
+    publish:
+      nodeJS: publish one
+    read_delay: 3600
+    scope: "test://root#/collections/d1~1collection/derivation/transform/some-name"
+    shuffle_hash: 0
+    shuffle_key:
+      - /shuffle
+      - /key
+    shuffle_lambda: ~
+    source: src/collection
+    source_partitions:
+      exclude:
+        other_field:
+          - false
+      include:
+        a_field:
+          - foo
+          - 42
+    source_schema: "test://root/alt-schema.json#foobar"
+    transform: some-name
+    update:
+      nodeJS: update one
+- derivation:
+    derivation: d1/collection
+    register_initial:
+      initial:
+        - value
+        - 32
+    register_schema: "test://root/reg-schema.json#/$defs/qib"
+    scope: "test://root#/collections/d1~1collection/derivation"
+- collection:
+    key:
+      - /d1-key
+    name: d1/collection
+    patch_config: ~
+    schema: "test://root/a-schema.json"
+    scope: "test://root#/collections/d1~1collection"
+    store: endpoint
+- catalog:
+    scope: "test://root"

@@ -1,0 +1,29 @@
+test://actual:
+  $defs:
+    wrapper:
+      $id: test://fake/root
+      $defs:
+        a:
+          {
+            $id: test://fake/other/a-doc,
+            items: [true, { $ref: "b-doc#/items/1" }],
+          }
+        b:
+          {
+            $id: test://fake/other/b-doc,
+            items: [{ $ref: "a-doc#/items/0" }, true],
+          }
+        c: true
+      allOf:
+        - $ref: other/a-doc#/items/1
+        - $ref: test://fake/other/b-doc#/items/0
+        - $ref: "#/$defs/c"
+        - $ref: test://fake/root#/$defs/c
+  $ref: test://fake/root
+
+test://root:
+  collections:
+    a/collection:
+      schema: test://actual
+      key: [/key]
+      store: {name: endpoint}

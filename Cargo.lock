@@ -1605,6 +1605,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "models"
+version = "0.0.0"
+dependencies = [
+ "caseless",
+ "doc",
+ "futures",
+ "humantime-serde",
+ "include_dir",
+ "insta",
+ "itertools 0.9.0",
+ "json",
+ "log",
+ "pretty_env_logger",
+ "protocol",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "strsim 0.10.0",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "yaml-merge-keys",
+]
+
+[[package]]
 name = "multimap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

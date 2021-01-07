@@ -1,0 +1,49 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- projection:
+    collection: test/collection
+    field: field_a
+    location: /a/a
+    partition: true
+    scope: "test://root#/collections/test~1collection/projections/field_a"
+    user_provided: true
+- projection:
+    collection: test/collection
+    field: field_b
+    location: /b/b
+    partition: false
+    scope: "test://root#/collections/test~1collection/projections/field_b"
+    user_provided: true
+- fetch:
+    resource: "test://root/schema.json"
+    scope: "test://root#/collections/test~1collection/schema"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://root/schema.json"
+    scope: "test://root#/collections/test~1collection/schema"
+- schema:
+    scope: "test://root/schema.json"
+- import:
+    child_uri: "test://root/schema.json"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/test~1collection/schema"
+- collection:
+    key:
+      - /key/1
+      - /key/0
+    name: test/collection
+    patch_config: ~
+    schema: "test://root/schema.json#foobar"
+    scope: "test://root#/collections/test~1collection"
+    store: endpoint
+- catalog:
+    scope: "test://root"

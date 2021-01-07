@@ -1,0 +1,34 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: output.unwrap().0
+---
+- fetch:
+    resource: "test://root"
+    scope: "test://root"
+- resource:
+    content_type: application/vnd.estuary.dev-catalog-spec+yaml
+    resource: "test://root"
+    scope: "test://root"
+- fetch:
+    resource: "test://actual"
+    scope: "test://root#/collections/a~1collection/schema"
+- resource:
+    content_type: application/schema+yaml
+    resource: "test://actual"
+    scope: "test://root#/collections/a~1collection/schema"
+- schema:
+    scope: "test://actual"
+- import:
+    child_uri: "test://actual"
+    parent_uri: "test://root"
+    scope: "test://root#/collections/a~1collection/schema"
+- collection:
+    key:
+      - /key
+    name: a/collection
+    patch_config: ~
+    schema: "test://actual"
+    scope: "test://root#/collections/a~1collection"
+    store: endpoint
+- catalog:
+    scope: "test://root"

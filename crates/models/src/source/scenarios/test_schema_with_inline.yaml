@@ -1,0 +1,8 @@
+test://root:
+  collections:
+    test:
+      schema:
+        type: object
+        additionalProperties: true
+      key: [/some-key]
+      store: { name: endpoint }
