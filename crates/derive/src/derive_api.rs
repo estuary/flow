@@ -145,9 +145,8 @@ struct Txn {
 
 impl<'e> APIInner<'e> {
     fn build_runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new()
-            .threaded_scheduler()
-            .core_threads(1)
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
             .thread_name("derive-service-worker")
             .enable_all()
             .build()
