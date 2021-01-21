@@ -533,80 +533,83 @@ func (m *FenceResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_FenceResponse proto.InternalMessageInfo
 
-// LoadRequest is the request type of the Load RPC.
-type LoadRequest struct {
-	// Opaque session handle.
-	Handle []byte `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Packed tuples of collection keys, enumerating the documents to load.
-	PackedKeys           []flow.Slice `protobuf:"bytes,3,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
-}
-
-func (m *LoadRequest) Reset()         { *m = LoadRequest{} }
-func (m *LoadRequest) String() string { return proto.CompactTextString(m) }
-func (*LoadRequest) ProtoMessage()    {}
-func (*LoadRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{10}
-}
-func (m *LoadRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *LoadRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_LoadRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *LoadRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_LoadRequest.Merge(m, src)
-}
-func (m *LoadRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *LoadRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_LoadRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_LoadRequest proto.InternalMessageInfo
-
-// LoadRequest is the response type of the Load RPC.
-type LoadResponse struct {
-	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Loaded JSON documents, 1:1 with keys of the LoadRequest.
-	// Documents which don't exist in the target are represented as an empty Slice.
-	DocsJson []flow.Slice `protobuf:"bytes,2,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+// LoadEOF indicates the end of a stream of LoadRequest or LoadResponse messages.
+type LoadEOF struct {
 	// Always empty hint which, when set true, hints to Flow that it may skip future
-	// calls of the Load RPC for this handle, as they will always return an empty
-	// LoadResponse.
-	AlwaysEmptyHint      bool     `protobuf:"varint,3,opt,name=always_empty_hint,json=alwaysEmptyHint,proto3" json:"always_empty_hint,omitempty"`
+	// LoadRequests for this handle, as they will never return any documents.
+	AlwaysEmptyHint      bool     `protobuf:"varint,1,opt,name=always_empty_hint,json=alwaysEmptyHint,proto3" json:"always_empty_hint,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *LoadResponse) Reset()         { *m = LoadResponse{} }
-func (m *LoadResponse) String() string { return proto.CompactTextString(m) }
-func (*LoadResponse) ProtoMessage()    {}
-func (*LoadResponse) Descriptor() ([]byte, []int) {
+func (m *LoadEOF) Reset()         { *m = LoadEOF{} }
+func (m *LoadEOF) String() string { return proto.CompactTextString(m) }
+func (*LoadEOF) ProtoMessage()    {}
+func (*LoadEOF) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{10}
+}
+func (m *LoadEOF) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *LoadEOF) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_LoadEOF.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *LoadEOF) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_LoadEOF.Merge(m, src)
+}
+func (m *LoadEOF) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *LoadEOF) XXX_DiscardUnknown() {
+	xxx_messageInfo_LoadEOF.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_LoadEOF proto.InternalMessageInfo
+
+// TransactionRequest is sent from the client to the driver as part of the Transaction streaming
+// rpc. Each TransactionRequest message will have exactly one non-null top-level field, which
+// represents its message type. The client must always send exactly one Start message as the very first
+// message of a Transaction. This may be followed by 0 or more LoadRequests, followed by exactly one
+// LoadEOF message. Then it will send 0 or more StoreRequests before closing the send stream.
+type TransactionRequest struct {
+	// Start is sent as the first message in a Transaction, and never sent again during the same
+	// transaction.
+	Start *TransactionRequest_Start `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	// Load will only be sent during the Loading phase of the transaction rpc.
+	Load *TransactionRequest_LoadRequest `protobuf:"bytes,2,opt,name=load,proto3" json:"load,omitempty"`
+	// LoadEOF indicates that no more LoadRequests will be sent during this transaction. Upon
+	// receiving a LoadEOF, a driver should return any pending LoadResponse messages before sending
+	// its own LoadEOF.
+	LoadEOF *LoadEOF `protobuf:"bytes,3,opt,name=loadEOF,proto3" json:"loadEOF,omitempty"`
+	// Store will only be sent during the Storing phase fo the transaction rpc.
+	Store                *TransactionRequest_StoreRequest `protobuf:"bytes,4,opt,name=store,proto3" json:"store,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                         `json:"-"`
+	XXX_unrecognized     []byte                           `json:"-"`
+	XXX_sizecache        int32                            `json:"-"`
+}
+
+func (m *TransactionRequest) Reset()         { *m = TransactionRequest{} }
+func (m *TransactionRequest) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest) ProtoMessage()    {}
+func (*TransactionRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{11}
 }
-func (m *LoadResponse) XXX_Unmarshal(b []byte) error {
+func (m *TransactionRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *LoadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_LoadResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -616,64 +619,23 @@ func (m *LoadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return b[:n], nil
 	}
 }
-func (m *LoadResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_LoadResponse.Merge(m, src)
+func (m *TransactionRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest.Merge(m, src)
 }
-func (m *LoadResponse) XXX_Size() int {
+func (m *TransactionRequest) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *LoadResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_LoadResponse.DiscardUnknown(m)
+func (m *TransactionRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_LoadResponse proto.InternalMessageInfo
+var xxx_messageInfo_TransactionRequest proto.InternalMessageInfo
 
-// StoreRequest is the request type of the Store RPC.
-type StoreRequest struct {
-	Start                *StoreRequest_Start    `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
-	Continue             *StoreRequest_Continue `protobuf:"bytes,2,opt,name=continue,proto3" json:"continue,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *StoreRequest) Reset()         { *m = StoreRequest{} }
-func (m *StoreRequest) String() string { return proto.CompactTextString(m) }
-func (*StoreRequest) ProtoMessage()    {}
-func (*StoreRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{12}
-}
-func (m *StoreRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *StoreRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_StoreRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *StoreRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_StoreRequest.Merge(m, src)
-}
-func (m *StoreRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *StoreRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_StoreRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_StoreRequest proto.InternalMessageInfo
-
-type StoreRequest_Start struct {
+// Start represents the initial payload of transaction metadata.
+type TransactionRequest_Start struct {
 	// Opaque session handle.
 	Handle []byte `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	// Projection fields to be stored. This repeats the selection and ordering
+	// Fields represents the projection fields to be stored. This repeats the selection and ordering
 	// of the last Apply RPC, but is provided here also as a convenience.
 	Fields *FieldSelection `protobuf:"bytes,2,opt,name=fields,proto3" json:"fields,omitempty"`
 	// Checkpoint to write with this Store transaction, to be associated with
@@ -685,18 +647,18 @@ type StoreRequest_Start struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *StoreRequest_Start) Reset()         { *m = StoreRequest_Start{} }
-func (m *StoreRequest_Start) String() string { return proto.CompactTextString(m) }
-func (*StoreRequest_Start) ProtoMessage()    {}
-func (*StoreRequest_Start) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{12, 0}
+func (m *TransactionRequest_Start) Reset()         { *m = TransactionRequest_Start{} }
+func (m *TransactionRequest_Start) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest_Start) ProtoMessage()    {}
+func (*TransactionRequest_Start) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{11, 0}
 }
-func (m *StoreRequest_Start) XXX_Unmarshal(b []byte) error {
+func (m *TransactionRequest_Start) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *StoreRequest_Start) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionRequest_Start) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_StoreRequest_Start.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionRequest_Start.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -706,19 +668,66 @@ func (m *StoreRequest_Start) XXX_Marshal(b []byte, deterministic bool) ([]byte, 
 		return b[:n], nil
 	}
 }
-func (m *StoreRequest_Start) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_StoreRequest_Start.Merge(m, src)
+func (m *TransactionRequest_Start) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest_Start.Merge(m, src)
 }
-func (m *StoreRequest_Start) XXX_Size() int {
+func (m *TransactionRequest_Start) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *StoreRequest_Start) XXX_DiscardUnknown() {
-	xxx_messageInfo_StoreRequest_Start.DiscardUnknown(m)
+func (m *TransactionRequest_Start) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest_Start.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_StoreRequest_Start proto.InternalMessageInfo
+var xxx_messageInfo_TransactionRequest_Start proto.InternalMessageInfo
 
-type StoreRequest_Continue struct {
+// LoadRequest represents a request to Load one or more documents.
+type TransactionRequest_LoadRequest struct {
+	// Byte arena of the request.
+	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
+	// Packed tuples of collection keys, enumerating the documents to load.
+	PackedKeys           []flow.Slice `protobuf:"bytes,3,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *TransactionRequest_LoadRequest) Reset()         { *m = TransactionRequest_LoadRequest{} }
+func (m *TransactionRequest_LoadRequest) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest_LoadRequest) ProtoMessage()    {}
+func (*TransactionRequest_LoadRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{11, 1}
+}
+func (m *TransactionRequest_LoadRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TransactionRequest_LoadRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TransactionRequest_LoadRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TransactionRequest_LoadRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest_LoadRequest.Merge(m, src)
+}
+func (m *TransactionRequest_LoadRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *TransactionRequest_LoadRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest_LoadRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TransactionRequest_LoadRequest proto.InternalMessageInfo
+
+// StoreRequest represents a batch of 1 or more documents to store, along with their associated
+// keys and extracted values. Many StoreRequest messages may be sent during the life of a
+// Transaction.
+type TransactionRequest_StoreRequest struct {
 	// Byte arena of the request.
 	Arena      github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
 	PackedKeys []flow.Slice                                    `protobuf:"bytes,2,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
@@ -733,18 +742,18 @@ type StoreRequest_Continue struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *StoreRequest_Continue) Reset()         { *m = StoreRequest_Continue{} }
-func (m *StoreRequest_Continue) String() string { return proto.CompactTextString(m) }
-func (*StoreRequest_Continue) ProtoMessage()    {}
-func (*StoreRequest_Continue) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{12, 1}
+func (m *TransactionRequest_StoreRequest) Reset()         { *m = TransactionRequest_StoreRequest{} }
+func (m *TransactionRequest_StoreRequest) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest_StoreRequest) ProtoMessage()    {}
+func (*TransactionRequest_StoreRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{11, 2}
 }
-func (m *StoreRequest_Continue) XXX_Unmarshal(b []byte) error {
+func (m *TransactionRequest_StoreRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *StoreRequest_Continue) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionRequest_StoreRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_StoreRequest_Continue.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionRequest_StoreRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -754,20 +763,124 @@ func (m *StoreRequest_Continue) XXX_Marshal(b []byte, deterministic bool) ([]byt
 		return b[:n], nil
 	}
 }
-func (m *StoreRequest_Continue) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_StoreRequest_Continue.Merge(m, src)
+func (m *TransactionRequest_StoreRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest_StoreRequest.Merge(m, src)
 }
-func (m *StoreRequest_Continue) XXX_Size() int {
+func (m *TransactionRequest_StoreRequest) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *StoreRequest_Continue) XXX_DiscardUnknown() {
-	xxx_messageInfo_StoreRequest_Continue.DiscardUnknown(m)
+func (m *TransactionRequest_StoreRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest_StoreRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_StoreRequest_Continue proto.InternalMessageInfo
+var xxx_messageInfo_TransactionRequest_StoreRequest proto.InternalMessageInfo
 
-// StoreResponse is the response type of the Store RPC.
-type StoreResponse struct {
+// TransactionResponse is streamed back from a Transaction streaming rpc.
+// Similar to TransactionRequest, each TransactionResponse message must include exactly one non-null top
+// level field. For each Transaction RPC, the driver should send 0 or more LoadResponse messages,
+// followed by exactly one LoadEOF message, followed by exactly one StoreResponse.
+type TransactionResponse struct {
+	// LoadResponse should only be sent during the Loading phase of the transaction rpc.
+	LoadResponse *TransactionResponse_LoadResponse `protobuf:"bytes,1,opt,name=loadResponse,proto3" json:"loadResponse,omitempty"`
+	// LoadEOF is sent after all LoadResponse have been sent. After this is sent, no more LoadResponse
+	// messages may be sent by the driver, and any documents that have not been returned in a
+	// LoadResponse will be presumed to not exist in storage.
+	LoadEOF *LoadEOF `protobuf:"bytes,2,opt,name=loadEOF,proto3" json:"loadEOF,omitempty"`
+	// StoreResponse is sent by the driver as the final message in a Transaction to indicate that it
+	// has committed.
+	StoreResponse        *TransactionResponse_StoreResponse `protobuf:"bytes,3,opt,name=storeResponse,proto3" json:"storeResponse,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                           `json:"-"`
+	XXX_unrecognized     []byte                             `json:"-"`
+	XXX_sizecache        int32                              `json:"-"`
+}
+
+func (m *TransactionResponse) Reset()         { *m = TransactionResponse{} }
+func (m *TransactionResponse) String() string { return proto.CompactTextString(m) }
+func (*TransactionResponse) ProtoMessage()    {}
+func (*TransactionResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{12}
+}
+func (m *TransactionResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TransactionResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TransactionResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TransactionResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionResponse.Merge(m, src)
+}
+func (m *TransactionResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *TransactionResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
+
+// LoadResponse is sent to return documents requested by a LoadRequest. The driver may send
+// LoadResponse messages at any time before it sends a LoadEOF message. This is designed to allow
+// for maximum flexibility to allow all types of drivers to load documents in whatever way is most
+// efficient for each system. For example, a driver could send a LoadResponse after receiving each
+// LoadRequest, or it could wait until it receives a LoadEOF from the client and then send all the
+// documents in a single LoadResponse, or batches of LoadResponses.
+type TransactionResponse_LoadResponse struct {
+	// Byte arena of the request.
+	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
+	// Loaded JSON documents, 1:1 with keys of the LoadRequest.
+	// Documents which don't exist in the target are represented as an empty Slice.
+	DocsJson             []flow.Slice `protobuf:"bytes,2,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *TransactionResponse_LoadResponse) Reset()         { *m = TransactionResponse_LoadResponse{} }
+func (m *TransactionResponse_LoadResponse) String() string { return proto.CompactTextString(m) }
+func (*TransactionResponse_LoadResponse) ProtoMessage()    {}
+func (*TransactionResponse_LoadResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{12, 0}
+}
+func (m *TransactionResponse_LoadResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TransactionResponse_LoadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TransactionResponse_LoadResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TransactionResponse_LoadResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionResponse_LoadResponse.Merge(m, src)
+}
+func (m *TransactionResponse_LoadResponse) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *TransactionResponse_LoadResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionResponse_LoadResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TransactionResponse_LoadResponse proto.InternalMessageInfo
+
+// StoreResponse is sent exactly once at the end of a successful Transaction. Successful Transactions
+// must send a single StoreResponse as their final message, though it is perfectly acceptable to
+// leave the driver_checkpoint undefined.
+type TransactionResponse_StoreResponse struct {
 	// Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
 	// within the same internal transaction which triggered this Store RPC,
 	// and will present the latest checkpoint to a future Fence RPC.
@@ -778,18 +891,18 @@ type StoreResponse struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *StoreResponse) Reset()         { *m = StoreResponse{} }
-func (m *StoreResponse) String() string { return proto.CompactTextString(m) }
-func (*StoreResponse) ProtoMessage()    {}
-func (*StoreResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{13}
+func (m *TransactionResponse_StoreResponse) Reset()         { *m = TransactionResponse_StoreResponse{} }
+func (m *TransactionResponse_StoreResponse) String() string { return proto.CompactTextString(m) }
+func (*TransactionResponse_StoreResponse) ProtoMessage()    {}
+func (*TransactionResponse_StoreResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{12, 1}
 }
-func (m *StoreResponse) XXX_Unmarshal(b []byte) error {
+func (m *TransactionResponse_StoreResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *StoreResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionResponse_StoreResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_StoreResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionResponse_StoreResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -799,17 +912,17 @@ func (m *StoreResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error
 		return b[:n], nil
 	}
 }
-func (m *StoreResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_StoreResponse.Merge(m, src)
+func (m *TransactionResponse_StoreResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionResponse_StoreResponse.Merge(m, src)
 }
-func (m *StoreResponse) XXX_Size() int {
+func (m *TransactionResponse_StoreResponse) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *StoreResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_StoreResponse.DiscardUnknown(m)
+func (m *TransactionResponse_StoreResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionResponse_StoreResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_StoreResponse proto.InternalMessageInfo
+var xxx_messageInfo_TransactionResponse_StoreResponse proto.InternalMessageInfo
 
 func init() {
 	proto.RegisterEnum("materialize.Constraint_Type", Constraint_Type_name, Constraint_Type_value)
@@ -826,12 +939,14 @@ func init() {
 	proto.RegisterType((*ApplyResponse)(nil), "materialize.ApplyResponse")
 	proto.RegisterType((*FenceRequest)(nil), "materialize.FenceRequest")
 	proto.RegisterType((*FenceResponse)(nil), "materialize.FenceResponse")
-	proto.RegisterType((*LoadRequest)(nil), "materialize.LoadRequest")
-	proto.RegisterType((*LoadResponse)(nil), "materialize.LoadResponse")
-	proto.RegisterType((*StoreRequest)(nil), "materialize.StoreRequest")
-	proto.RegisterType((*StoreRequest_Start)(nil), "materialize.StoreRequest.Start")
-	proto.RegisterType((*StoreRequest_Continue)(nil), "materialize.StoreRequest.Continue")
-	proto.RegisterType((*StoreResponse)(nil), "materialize.StoreResponse")
+	proto.RegisterType((*LoadEOF)(nil), "materialize.LoadEOF")
+	proto.RegisterType((*TransactionRequest)(nil), "materialize.TransactionRequest")
+	proto.RegisterType((*TransactionRequest_Start)(nil), "materialize.TransactionRequest.Start")
+	proto.RegisterType((*TransactionRequest_LoadRequest)(nil), "materialize.TransactionRequest.LoadRequest")
+	proto.RegisterType((*TransactionRequest_StoreRequest)(nil), "materialize.TransactionRequest.StoreRequest")
+	proto.RegisterType((*TransactionResponse)(nil), "materialize.TransactionResponse")
+	proto.RegisterType((*TransactionResponse_LoadResponse)(nil), "materialize.TransactionResponse.LoadResponse")
+	proto.RegisterType((*TransactionResponse_StoreResponse)(nil), "materialize.TransactionResponse.StoreResponse")
 }
 
 func init() {
@@ -839,77 +954,82 @@ func init() {
 }
 
 var fileDescriptor_3e8b62b327f34bc6 = []byte{
-	// 1119 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x56, 0xbf, 0x73, 0xe3, 0x44,
-	0x14, 0x8e, 0xfc, 0xeb, 0x9c, 0x27, 0x27, 0x71, 0x96, 0x70, 0xe7, 0x88, 0x90, 0x04, 0x35, 0x84,
-	0x83, 0x38, 0x37, 0x0e, 0x30, 0x37, 0xc0, 0x64, 0xf0, 0xaf, 0x80, 0x21, 0x17, 0x07, 0x39, 0x39,
-	0x66, 0x68, 0x34, 0x3a, 0x69, 0xe3, 0x88, 0x28, 0x5a, 0xa1, 0x5d, 0xdf, 0x21, 0x66, 0xa8, 0x19,
-	0x3a, 0x7a, 0x1a, 0x0a, 0x2a, 0x7a, 0x4a, 0xfa, 0x94, 0xfc, 0x05, 0x37, 0x70, 0x54, 0x94, 0xb4,
-	0x54, 0x8c, 0x76, 0xd7, 0xb6, 0x64, 0xec, 0x24, 0x33, 0x70, 0x8d, 0x47, 0xfb, 0xde, 0xf7, 0x76,
-	0xbf, 0x7d, 0xef, 0x7b, 0x6f, 0x0d, 0x77, 0xfb, 0x64, 0x27, 0x08, 0x09, 0x23, 0x36, 0xf1, 0xe8,
-	0xce, 0x85, 0xc5, 0x70, 0xe8, 0x5a, 0x9e, 0xfb, 0x15, 0x4e, 0x7e, 0x57, 0x39, 0x02, 0xa9, 0x09,
-	0x93, 0xb6, 0x96, 0x0a, 0x3c, 0xf5, 0xc8, 0x13, 0xfe, 0x23, 0xa0, 0xda, 0x4a, 0x9f, 0xf4, 0x09,
-	0xff, 0xdc, 0x89, 0xbf, 0x84, 0x55, 0xff, 0x4d, 0x01, 0x68, 0x12, 0x9f, 0xb2, 0xd0, 0x72, 0x7d,
-	0x86, 0xee, 0x41, 0x8e, 0x45, 0x01, 0xae, 0x64, 0x36, 0x95, 0xad, 0xc5, 0xda, 0x5a, 0x35, 0x79,
-	0xe2, 0x18, 0x56, 0x3d, 0x8e, 0x02, 0x6c, 0x70, 0x24, 0xba, 0x0d, 0x85, 0x10, 0x5b, 0x94, 0xf8,
-	0x95, 0xec, 0xa6, 0xb2, 0x35, 0x6f, 0xc8, 0x95, 0xfe, 0x8d, 0x02, 0xb9, 0x18, 0x86, 0x10, 0x2c,
-	0xee, 0x77, 0xda, 0x07, 0x2d, 0xd3, 0x68, 0x7f, 0x72, 0xd2, 0x31, 0xda, 0xad, 0xf2, 0x1c, 0x7a,
-	0x11, 0x96, 0x0f, 0xba, 0xcd, 0xfa, 0x71, 0xa7, 0x7b, 0x38, 0x36, 0x2b, 0xa8, 0x02, 0x2b, 0x09,
-	0x73, 0xb3, 0xfb, 0xe0, 0x41, 0xfb, 0xb0, 0xd5, 0x6e, 0x95, 0x33, 0xe3, 0x4d, 0xba, 0x47, 0xb1,
-	0xb7, 0x7e, 0x50, 0xce, 0xa2, 0x17, 0x60, 0x49, 0xd8, 0xf6, 0xbb, 0x46, 0xa3, 0xd3, 0x6a, 0xb5,
-	0x0f, 0xcb, 0x39, 0xb4, 0x0c, 0x0b, 0x27, 0x87, 0xbd, 0xfa, 0x71, 0xa7, 0xb7, 0xdf, 0xa9, 0x37,
-	0x0e, 0xda, 0xe5, 0xbc, 0x7e, 0x0a, 0x8b, 0x3d, 0x4c, 0xa9, 0x4b, 0x7c, 0x03, 0x7f, 0x31, 0xc0,
-	0x94, 0xa1, 0x57, 0xa0, 0x84, 0x7d, 0x27, 0x20, 0xae, 0xcf, 0xcc, 0x41, 0xe8, 0x55, 0x14, 0xce,
-	0x5c, 0x1d, 0xda, 0x4e, 0x42, 0x2f, 0xbe, 0x16, 0xb3, 0xc2, 0x3e, 0x66, 0x3c, 0x15, 0xf3, 0x86,
-	0x5c, 0xa1, 0x55, 0x28, 0xd2, 0x33, 0x2b, 0x74, 0x4c, 0xd7, 0x91, 0x17, 0xbe, 0xc5, 0xd7, 0x1d,
-	0x47, 0x7f, 0x0d, 0x96, 0x46, 0xe7, 0xd0, 0x80, 0xf8, 0x94, 0x27, 0xe7, 0xcc, 0xf2, 0x1d, 0x0f,
-	0xf3, 0x23, 0x4a, 0x86, 0x5c, 0xe9, 0x7f, 0x29, 0xb0, 0xf4, 0xd0, 0xf2, 0x5c, 0xc7, 0x62, 0x78,
-	0x48, 0x6a, 0x06, 0x16, 0xbd, 0x09, 0x60, 0x13, 0xcf, 0xc3, 0x36, 0x73, 0x89, 0xcf, 0xd9, 0xa8,
-	0xb5, 0x95, 0x2a, 0x2f, 0x6c, 0x73, 0x64, 0xef, 0x05, 0xd8, 0x36, 0x12, 0x38, 0x74, 0x04, 0xa5,
-	0x53, 0x17, 0x7b, 0x8e, 0x69, 0x13, 0xff, 0xd4, 0xed, 0x57, 0xb2, 0x9b, 0xd9, 0x2d, 0xb5, 0xb6,
-	0x9d, 0x2a, 0xe8, 0x04, 0x83, 0xea, 0x7e, 0x1c, 0xd0, 0xe4, 0xf8, 0xb6, 0xcf, 0xc2, 0xc8, 0x50,
-	0x4f, 0xc7, 0x16, 0x6d, 0x0f, 0xca, 0x93, 0x00, 0x54, 0x86, 0xec, 0x39, 0x8e, 0x64, 0xfe, 0xe2,
-	0x4f, 0xb4, 0x02, 0xf9, 0xc7, 0x96, 0x37, 0xc0, 0x32, 0x6d, 0x62, 0xf1, 0x4e, 0xe6, 0xbe, 0xa2,
-	0xff, 0xa2, 0x40, 0x79, 0x7c, 0xa2, 0x4c, 0xd0, 0x11, 0xa8, 0xf6, 0x48, 0x56, 0xb4, 0xa2, 0x70,
-	0x96, 0xd5, 0x19, 0x2c, 0x45, 0x4c, 0x42, 0x87, 0x54, 0xd2, 0x4c, 0x6c, 0xa1, 0x7d, 0x0a, 0xe5,
-	0x49, 0xc0, 0x14, 0x9a, 0xdb, 0x49, 0x9a, 0x6a, 0xed, 0xce, 0x0c, 0xa1, 0x27, 0xf9, 0xff, 0xa9,
-	0xc0, 0x22, 0x4f, 0x40, 0x0f, 0x0f, 0x93, 0x8c, 0x20, 0x77, 0x8e, 0x23, 0x41, 0x7b, 0xde, 0xe0,
-	0xdf, 0x71, 0x19, 0x79, 0x0c, 0xad, 0x64, 0xb8, 0x55, 0xae, 0x90, 0x06, 0x45, 0x87, 0xd8, 0x83,
-	0x0b, 0xec, 0x33, 0x29, 0x9c, 0xd1, 0x1a, 0x75, 0x27, 0x8a, 0x95, 0xe3, 0x69, 0x78, 0x23, 0x45,
-	0x2a, 0x7d, 0xf4, 0x73, 0xae, 0xd5, 0x4f, 0x0a, 0x94, 0xea, 0x41, 0xe0, 0x45, 0xcf, 0x47, 0x9c,
-	0xbb, 0x50, 0xe0, 0x6c, 0x29, 0xcf, 0x84, 0x5a, 0x7b, 0xe9, 0x8a, 0x9b, 0x1a, 0x12, 0x8a, 0xee,
-	0xc0, 0x2d, 0x27, 0x8c, 0xcc, 0x70, 0xe0, 0x57, 0x72, 0x9b, 0xca, 0x56, 0xd1, 0x28, 0x38, 0x61,
-	0x64, 0x0c, 0x7c, 0x7d, 0x0f, 0x16, 0x24, 0x57, 0x29, 0xaa, 0x6d, 0x40, 0x16, 0x8f, 0x35, 0x1d,
-	0x4c, 0xed, 0xd0, 0x0d, 0x38, 0x39, 0x71, 0xf1, 0x65, 0xe1, 0x69, 0x8d, 0x1d, 0x7a, 0x0f, 0x4a,
-	0xfb, 0xd8, 0xb7, 0xaf, 0x6d, 0xc4, 0xd7, 0x61, 0xd9, 0x09, 0xdd, 0xc7, 0x38, 0x34, 0xed, 0x33,
-	0x6c, 0x9f, 0xf3, 0x51, 0xc1, 0xaf, 0x5c, 0x32, 0xca, 0xc2, 0xd1, 0x1c, 0xd9, 0xf5, 0xfb, 0xb0,
-	0x20, 0x37, 0x95, 0xa4, 0x5e, 0x85, 0xa5, 0x38, 0x2d, 0xc9, 0x58, 0xb1, 0xfd, 0x62, 0x6c, 0x4e,
-	0x44, 0xfe, 0xa8, 0x80, 0x7a, 0x40, 0x2c, 0xe7, 0x3a, 0x3a, 0x1d, 0xc8, 0x5b, 0x21, 0xf6, 0x2d,
-	0x41, 0xa1, 0xb1, 0xfb, 0xf7, 0xd3, 0x8d, 0x9d, 0xbe, 0xcb, 0xce, 0x06, 0x8f, 0xaa, 0x36, 0xb9,
-	0xd8, 0xc1, 0x94, 0x0d, 0xac, 0x30, 0x12, 0xcf, 0xc0, 0xbf, 0x1e, 0x86, 0x6a, 0x3d, 0x0e, 0x35,
-	0xc4, 0x0e, 0xa8, 0x06, 0x6a, 0x60, 0xd9, 0xe7, 0xd8, 0x31, 0xb9, 0x9c, 0xc5, 0xac, 0x50, 0x45,
-	0x19, 0x7b, 0x9e, 0x6b, 0xe3, 0x46, 0xee, 0xf2, 0xe9, 0xc6, 0x9c, 0x01, 0x02, 0xf5, 0x31, 0x8e,
-	0xa8, 0xfe, 0xb3, 0x02, 0x25, 0x41, 0x53, 0x5e, 0x70, 0xc4, 0x47, 0xf9, 0xcf, 0x7c, 0xaa, 0x30,
-	0xef, 0x10, 0x9b, 0x9a, 0x9f, 0x53, 0x2e, 0xaa, 0x19, 0x6c, 0xe2, 0xfe, 0xa1, 0x1f, 0x51, 0xe2,
-	0xa3, 0xbb, 0xb0, 0x6c, 0x79, 0x4f, 0xac, 0x88, 0x9a, 0xf8, 0x22, 0x60, 0x91, 0x79, 0xe6, 0xca,
-	0x26, 0x2b, 0x1a, 0x4b, 0xc2, 0xd1, 0x8e, 0xed, 0x1f, 0xc6, 0xe9, 0xfd, 0x2e, 0x07, 0xa5, 0x1e,
-	0x23, 0xe1, 0xa8, 0xdc, 0x6f, 0x41, 0x9e, 0x32, 0x2b, 0x14, 0xe5, 0x50, 0x6b, 0x1b, 0x29, 0x2d,
-	0x26, 0x91, 0xd5, 0x5e, 0x0c, 0x33, 0x04, 0x1a, 0xed, 0x41, 0xd1, 0x26, 0x3e, 0x73, 0xfd, 0xd1,
-	0x10, 0xd1, 0x67, 0x47, 0x36, 0x25, 0xd2, 0x18, 0xc5, 0x68, 0x5f, 0x43, 0x9e, 0xef, 0x37, 0xb3,
-	0xbe, 0xe3, 0x26, 0xc9, 0xdc, 0xbc, 0x49, 0xa6, 0xa8, 0x2c, 0x3b, 0x4d, 0x65, 0xda, 0xb7, 0x19,
-	0x28, 0x0e, 0x59, 0xfd, 0x9f, 0xa5, 0x9b, 0x90, 0x52, 0xe6, 0x06, 0x52, 0x42, 0x6f, 0xc3, 0x82,
-	0x8c, 0x91, 0x93, 0x73, 0xa6, 0x00, 0x4b, 0x02, 0xf7, 0x50, 0x8c, 0xd4, 0x94, 0x4c, 0x72, 0xd7,
-	0xcb, 0xe4, 0x36, 0x14, 0xf0, 0x97, 0x2e, 0x65, 0xb4, 0x92, 0xdf, 0xcc, 0xc6, 0x03, 0x44, 0xac,
-	0xf4, 0xf7, 0x60, 0x41, 0x56, 0x4b, 0x4a, 0x79, 0x6a, 0xa7, 0x2b, 0xd3, 0x3b, 0xbd, 0xf6, 0x7d,
-	0x16, 0x0a, 0x2d, 0x6e, 0x44, 0x9d, 0x58, 0x5a, 0x56, 0xc8, 0xe4, 0xdf, 0x00, 0x94, 0x2e, 0x59,
-	0xfa, 0x4f, 0x88, 0xb6, 0x36, 0xdd, 0x29, 0x29, 0x7c, 0x00, 0xc5, 0xe1, 0xc3, 0x87, 0xd6, 0xae,
-	0x7a, 0xb5, 0xb5, 0x97, 0xaf, 0x7c, 0x2d, 0xd1, 0x1e, 0xe4, 0xf9, 0x74, 0x44, 0xab, 0x29, 0x5c,
-	0x72, 0xba, 0x6b, 0xda, 0x34, 0xd7, 0x38, 0x9e, 0x0f, 0xb2, 0x89, 0xf8, 0xe4, 0xc4, 0x9c, 0x88,
-	0x4f, 0xcf, 0xbd, 0x77, 0x21, 0x17, 0x8f, 0x09, 0x54, 0x49, 0x61, 0x12, 0x03, 0x4e, 0x5b, 0x9d,
-	0xe2, 0x91, 0xc1, 0xef, 0xc7, 0x4d, 0x42, 0xc2, 0xc9, 0xc3, 0x93, 0xbd, 0x35, 0x71, 0x78, 0xaa,
-	0x90, 0x5b, 0x4a, 0xa3, 0x71, 0xf9, 0xfb, 0xfa, 0xdc, 0xe5, 0xb3, 0x75, 0xe5, 0xd7, 0x67, 0xeb,
-	0xca, 0x0f, 0x7f, 0xac, 0x2b, 0x9f, 0xdd, 0xbb, 0x91, 0xb2, 0x13, 0x7b, 0x3e, 0x2a, 0x70, 0xf3,
-	0xee, 0x3f, 0x01, 0x00, 0x00, 0xff, 0xff, 0xb0, 0x76, 0x4a, 0xa7, 0x99, 0x0b, 0x00, 0x00,
+	// 1197 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x56, 0xcf, 0x6f, 0x1b, 0xc5,
+	0x17, 0xef, 0xfa, 0x57, 0x92, 0xb7, 0x76, 0xe2, 0x4c, 0xf3, 0xfd, 0xd6, 0x5d, 0x42, 0x6a, 0x2c,
+	0x21, 0x42, 0x4b, 0x36, 0x95, 0x03, 0xa8, 0x02, 0x14, 0xe4, 0x9f, 0x60, 0x70, 0xe3, 0x74, 0xec,
+	0x14, 0x89, 0x8b, 0xb5, 0xdd, 0x9d, 0x38, 0x4b, 0x36, 0x3b, 0x66, 0x67, 0xdd, 0xb2, 0x48, 0x9c,
+	0x11, 0x12, 0xfc, 0x0f, 0x1c, 0x38, 0xf1, 0x17, 0x70, 0xe1, 0x9e, 0x23, 0x7f, 0x41, 0x05, 0xe5,
+	0xc4, 0x11, 0x8e, 0x9c, 0xd0, 0xce, 0x8c, 0xe3, 0x5d, 0xd7, 0x8e, 0x73, 0x68, 0x2f, 0xab, 0x99,
+	0x37, 0xef, 0x33, 0xfb, 0x79, 0xef, 0x7d, 0xe6, 0xcd, 0xc0, 0xed, 0x01, 0xdd, 0x1d, 0x7a, 0xd4,
+	0xa7, 0x26, 0x75, 0xd8, 0xee, 0x99, 0xe1, 0x13, 0xcf, 0x36, 0x1c, 0xfb, 0x6b, 0x12, 0x1d, 0xeb,
+	0xdc, 0x03, 0xa9, 0x11, 0x93, 0xb6, 0x19, 0x03, 0x1e, 0x3b, 0xf4, 0x09, 0xff, 0x08, 0x57, 0x6d,
+	0x63, 0x40, 0x07, 0x94, 0x0f, 0x77, 0xc3, 0x91, 0xb0, 0x96, 0x7e, 0x57, 0x00, 0x6a, 0xd4, 0x65,
+	0xbe, 0x67, 0xd8, 0xae, 0x8f, 0xee, 0x42, 0xca, 0x0f, 0x86, 0xa4, 0x90, 0x28, 0x2a, 0xdb, 0xab,
+	0xe5, 0x4d, 0x3d, 0xfa, 0xc7, 0x89, 0x9b, 0xde, 0x0b, 0x86, 0x04, 0x73, 0x4f, 0xf4, 0x7f, 0xc8,
+	0x78, 0xc4, 0x60, 0xd4, 0x2d, 0x24, 0x8b, 0xca, 0xf6, 0x0a, 0x96, 0xb3, 0xd2, 0xb7, 0x0a, 0xa4,
+	0x42, 0x37, 0x84, 0x60, 0xb5, 0xd9, 0x6a, 0xb4, 0xeb, 0x7d, 0xdc, 0x78, 0x70, 0xd4, 0xc2, 0x8d,
+	0x7a, 0xfe, 0x1a, 0xfa, 0x1f, 0xac, 0xb7, 0x3b, 0xb5, 0x4a, 0xaf, 0xd5, 0x39, 0x98, 0x98, 0x15,
+	0x54, 0x80, 0x8d, 0x88, 0xb9, 0xd6, 0xb9, 0x7f, 0xbf, 0x71, 0x50, 0x6f, 0xd4, 0xf3, 0x89, 0xc9,
+	0x26, 0x9d, 0xc3, 0x70, 0xb5, 0xd2, 0xce, 0x27, 0xd1, 0x75, 0x58, 0x13, 0xb6, 0x66, 0x07, 0x57,
+	0x5b, 0xf5, 0x7a, 0xe3, 0x20, 0x9f, 0x42, 0xeb, 0x90, 0x3b, 0x3a, 0xe8, 0x56, 0x7a, 0xad, 0x6e,
+	0xb3, 0x55, 0xa9, 0xb6, 0x1b, 0xf9, 0x74, 0xe9, 0x18, 0x56, 0xbb, 0x84, 0x31, 0x9b, 0xba, 0x98,
+	0x7c, 0x39, 0x22, 0xcc, 0x47, 0xaf, 0x41, 0x96, 0xb8, 0xd6, 0x90, 0xda, 0xae, 0xdf, 0x1f, 0x79,
+	0x4e, 0x41, 0xe1, 0xcc, 0xd5, 0xb1, 0xed, 0xc8, 0x73, 0xc2, 0xb0, 0x7c, 0xc3, 0x1b, 0x10, 0x9f,
+	0xa7, 0x62, 0x05, 0xcb, 0x19, 0xba, 0x09, 0xcb, 0xec, 0xc4, 0xf0, 0xac, 0xbe, 0x6d, 0xc9, 0x80,
+	0x97, 0xf8, 0xbc, 0x65, 0x95, 0xde, 0x84, 0xb5, 0x8b, 0xff, 0xb0, 0x21, 0x75, 0x19, 0x4f, 0xce,
+	0x89, 0xe1, 0x5a, 0x0e, 0xe1, 0xbf, 0xc8, 0x62, 0x39, 0x2b, 0xfd, 0xad, 0xc0, 0xda, 0x43, 0xc3,
+	0xb1, 0x2d, 0xc3, 0x27, 0x63, 0x52, 0x73, 0x7c, 0xd1, 0xdb, 0x00, 0x26, 0x75, 0x1c, 0x62, 0xfa,
+	0x36, 0x75, 0x39, 0x1b, 0xb5, 0xbc, 0xa1, 0xf3, 0xc2, 0xd6, 0x2e, 0xec, 0xdd, 0x21, 0x31, 0x71,
+	0xc4, 0x0f, 0x1d, 0x42, 0xf6, 0xd8, 0x26, 0x8e, 0xd5, 0x37, 0xa9, 0x7b, 0x6c, 0x0f, 0x0a, 0xc9,
+	0x62, 0x72, 0x5b, 0x2d, 0xef, 0xc4, 0x0a, 0x3a, 0xc5, 0x40, 0x6f, 0x86, 0x80, 0x1a, 0xf7, 0x6f,
+	0xb8, 0xbe, 0x17, 0x60, 0xf5, 0x78, 0x62, 0xd1, 0xf6, 0x21, 0x3f, 0xed, 0x80, 0xf2, 0x90, 0x3c,
+	0x25, 0x81, 0xcc, 0x5f, 0x38, 0x44, 0x1b, 0x90, 0x7e, 0x6c, 0x38, 0x23, 0x22, 0xd3, 0x26, 0x26,
+	0xef, 0x25, 0xee, 0x29, 0xa5, 0x5f, 0x15, 0xc8, 0x4f, 0xfe, 0x28, 0x13, 0x74, 0x08, 0xaa, 0x79,
+	0x21, 0x2b, 0x56, 0x50, 0x38, 0x4b, 0x7d, 0x0e, 0x4b, 0x81, 0x89, 0xe8, 0x90, 0x49, 0x9a, 0x91,
+	0x2d, 0xb4, 0xcf, 0x20, 0x3f, 0xed, 0x30, 0x83, 0xe6, 0x4e, 0x94, 0xa6, 0x5a, 0xbe, 0x31, 0x47,
+	0xe8, 0x51, 0xfe, 0x7f, 0x29, 0xb0, 0xca, 0x13, 0xd0, 0x25, 0xe3, 0x24, 0x23, 0x48, 0x9d, 0x92,
+	0x40, 0xd0, 0x5e, 0xc1, 0x7c, 0x1c, 0x96, 0x91, 0x63, 0x58, 0x21, 0xc1, 0xad, 0x72, 0x86, 0x34,
+	0x58, 0xb6, 0xa8, 0x39, 0x3a, 0x23, 0xae, 0x2f, 0x85, 0x73, 0x31, 0x47, 0x9d, 0xa9, 0x62, 0xa5,
+	0x78, 0x1a, 0xde, 0x8a, 0x91, 0x8a, 0xff, 0xfa, 0x25, 0xd7, 0xea, 0x67, 0x05, 0xb2, 0x95, 0xe1,
+	0xd0, 0x09, 0x5e, 0x8e, 0x38, 0xf7, 0x20, 0xc3, 0xd9, 0x32, 0x9e, 0x09, 0xb5, 0xfc, 0xca, 0x25,
+	0x91, 0x62, 0xe9, 0x8a, 0x6e, 0xc0, 0x92, 0xe5, 0x05, 0x7d, 0x6f, 0xe4, 0x16, 0x52, 0x45, 0x65,
+	0x7b, 0x19, 0x67, 0x2c, 0x2f, 0xc0, 0x23, 0xb7, 0xb4, 0x0f, 0x39, 0xc9, 0x55, 0x8a, 0x6a, 0x07,
+	0x90, 0xc1, 0xb1, 0x7d, 0x8b, 0x30, 0xd3, 0xb3, 0x87, 0x9c, 0x9c, 0x08, 0x7c, 0x5d, 0xac, 0xd4,
+	0x27, 0x0b, 0xa5, 0x2e, 0x64, 0x9b, 0xc4, 0x35, 0x17, 0x1e, 0xc4, 0x3b, 0xb0, 0x6e, 0x79, 0xf6,
+	0x63, 0xe2, 0xf5, 0xcd, 0x13, 0x62, 0x9e, 0xf2, 0x56, 0xc1, 0x43, 0xce, 0xe2, 0xbc, 0x58, 0xa8,
+	0x5d, 0xd8, 0x4b, 0xf7, 0x20, 0x27, 0x37, 0x95, 0xa4, 0xde, 0x80, 0xb5, 0x30, 0x2d, 0x51, 0xac,
+	0xd8, 0x7e, 0x35, 0x34, 0x47, 0x90, 0xef, 0xc0, 0x52, 0x9b, 0x1a, 0x56, 0xa3, 0xd3, 0x44, 0xb7,
+	0x61, 0xdd, 0x70, 0x9e, 0x18, 0x01, 0xeb, 0x93, 0xb3, 0xa1, 0x1f, 0xf4, 0x4f, 0xc6, 0xa8, 0x65,
+	0xbc, 0x26, 0x16, 0x1a, 0xa1, 0xfd, 0xe3, 0x10, 0xf6, 0x53, 0x06, 0x50, 0xcf, 0x33, 0x5c, 0x26,
+	0x02, 0x1c, 0x07, 0xf3, 0x3e, 0xa4, 0x99, 0x6f, 0x78, 0x02, 0xa6, 0x96, 0x5f, 0x8f, 0x65, 0xfa,
+	0x79, 0x7f, 0xbd, 0x1b, 0x3a, 0x63, 0x81, 0x41, 0x1f, 0x42, 0xca, 0xa1, 0x86, 0x25, 0xeb, 0x7a,
+	0x67, 0x11, 0x36, 0xa4, 0x2d, 0xc7, 0x98, 0x03, 0x91, 0x0e, 0x4b, 0x8e, 0x88, 0x45, 0x56, 0x7a,
+	0x23, 0xb6, 0x87, 0x8c, 0x13, 0x8f, 0x9d, 0x50, 0x35, 0x64, 0x4b, 0x3d, 0xc2, 0x2b, 0x3c, 0x7d,
+	0x02, 0x66, 0xb2, 0xa5, 0xde, 0xb8, 0x6e, 0x58, 0x40, 0xb5, 0x6f, 0x20, 0xcd, 0x83, 0x98, 0x5b,
+	0xc7, 0x89, 0xfa, 0x12, 0x57, 0x57, 0xdf, 0x8c, 0xf2, 0x25, 0x67, 0x95, 0x4f, 0xfb, 0x5e, 0x01,
+	0x35, 0x92, 0x08, 0xd4, 0x82, 0xb4, 0xe1, 0x11, 0xd7, 0x10, 0x4a, 0xa9, 0xee, 0xfd, 0xfb, 0xf4,
+	0xd6, 0xee, 0xc0, 0xf6, 0x4f, 0x46, 0x8f, 0x74, 0x93, 0x9e, 0xed, 0x12, 0xe6, 0x8f, 0x0c, 0x2f,
+	0x10, 0xb7, 0xf5, 0x73, 0xf7, 0xb7, 0x5e, 0x09, 0xa1, 0x58, 0xec, 0x80, 0xca, 0xa0, 0x0e, 0x0d,
+	0xf3, 0x94, 0x58, 0x7d, 0xde, 0x75, 0x44, 0x4b, 0x57, 0xc5, 0x69, 0xeb, 0x3a, 0xb6, 0x49, 0xaa,
+	0xa9, 0xf3, 0xa7, 0xb7, 0xae, 0x61, 0x10, 0x5e, 0x9f, 0x92, 0x80, 0x69, 0x3f, 0x24, 0x20, 0x1b,
+	0xcd, 0xd2, 0x84, 0x8f, 0xf2, 0xa2, 0xf9, 0x24, 0xae, 0xc0, 0x07, 0xbd, 0x0b, 0x39, 0x89, 0x91,
+	0x5d, 0x72, 0x6e, 0x14, 0x59, 0xe1, 0xf7, 0x50, 0xb4, 0x4f, 0x1d, 0x56, 0x2c, 0x6a, 0xb2, 0xfe,
+	0x17, 0xe1, 0x4b, 0x23, 0x35, 0x0f, 0x13, 0xb6, 0x54, 0xf6, 0x09, 0xa3, 0x6e, 0x58, 0x7c, 0xf2,
+	0x95, 0xcd, 0x7c, 0x56, 0x48, 0x17, 0x93, 0x61, 0xb3, 0x10, 0xb3, 0xd2, 0x2f, 0x49, 0xb8, 0x1e,
+	0x13, 0x92, 0x3c, 0x9e, 0x0f, 0x20, 0xeb, 0xf0, 0xaa, 0x89, 0xb9, 0x3c, 0x2e, 0x3b, 0xf3, 0x05,
+	0x28, 0x2f, 0xa3, 0x76, 0x04, 0x84, 0x63, 0x5b, 0x44, 0xc5, 0x9f, 0xb8, 0x8a, 0xf8, 0x7b, 0x90,
+	0x63, 0xa2, 0x52, 0x92, 0x83, 0x38, 0x32, 0xfa, 0x42, 0x0e, 0xdd, 0x28, 0x0a, 0xc7, 0x37, 0xd1,
+	0xbe, 0x53, 0x20, 0x1b, 0x25, 0xf9, 0x22, 0x05, 0x10, 0x2b, 0x4a, 0x62, 0x61, 0x51, 0xb4, 0x0f,
+	0x20, 0x17, 0xe3, 0x3a, 0xbb, 0xa5, 0x2a, 0xb3, 0x5b, 0x6a, 0xf9, 0x9f, 0x04, 0x64, 0xea, 0xdc,
+	0x88, 0x5a, 0xa1, 0xa8, 0x0d, 0xcf, 0x97, 0xef, 0x2d, 0x14, 0x3f, 0xc2, 0xf1, 0xd7, 0x9e, 0xb6,
+	0x39, 0x7b, 0x51, 0x52, 0xf8, 0x08, 0x96, 0xc7, 0x2f, 0x0c, 0xb4, 0x79, 0xd9, 0xf3, 0x48, 0x7b,
+	0xf5, 0xd2, 0x67, 0x09, 0xda, 0x87, 0x34, 0xbf, 0x86, 0xd0, 0xcd, 0x98, 0x5f, 0xf4, 0x1a, 0xd5,
+	0xb4, 0x59, 0x4b, 0x13, 0x3c, 0xbf, 0x31, 0xa6, 0xf0, 0xd1, 0xab, 0x69, 0x0a, 0x1f, 0xbf, 0x60,
+	0x7a, 0xa0, 0x46, 0xc4, 0x81, 0x6e, 0x2d, 0xe8, 0x9d, 0x5a, 0x71, 0x91, 0xae, 0xb6, 0x95, 0xbb,
+	0x4a, 0xb5, 0x7a, 0xfe, 0xc7, 0xd6, 0xb5, 0xf3, 0x67, 0x5b, 0xca, 0x6f, 0xcf, 0xb6, 0x94, 0x1f,
+	0xff, 0xdc, 0x52, 0x3e, 0xbf, 0x7b, 0x25, 0xb1, 0x44, 0xf6, 0x7e, 0x94, 0xe1, 0xe6, 0xbd, 0xff,
+	0x02, 0x00, 0x00, 0xff, 0xff, 0xa2, 0x76, 0xb5, 0x4e, 0xd9, 0x0c, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -954,12 +1074,29 @@ type DriverClient interface {
 	// support end-to-end "exactly once" semantics. Stores which support only "at least once"
 	// semantics can implement Fence as a no-op, returning a zero-value FenceResponse.
 	Fence(ctx context.Context, in *FenceRequest, opts ...grpc.CallOption) (*FenceResponse, error)
-	// Load one or more keyed collection documents from the materialization target.
-	// Flow guarantees that independent producers always load and store non-overlapping
-	// subsets of documents.
-	Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error)
-	// Store one or more collection documents to a materialization target.
-	Store(ctx context.Context, opts ...grpc.CallOption) (Driver_StoreClient, error)
+	// Transaction is a bi-directional streaming rpc that corresponds to each transaction within the
+	// flow consumer. The Transaction rpc follows a strict lifecycle:
+	//
+	// 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately
+	//    transitions to the Loading state.
+	// 2. Loading:
+	//    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message.
+	//    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These
+	//    responses may be sent asynchronously, and at whatever cadence is most performant for the
+	//    driver. Drivers may wait until they receive the LoadEOF from the client before they send any
+	//    responses, or they may send responses earlier. Any requested document that is missing from
+	//    the set of LoadResponses is presumed to simply not exist.
+	// 3. Storing:
+	//    - The client sends 0 or more StoreRequest messages, and then closes the send side of its
+	//    stream.
+	//    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final
+	//    message sent to the client. The transaction is now complete.
+	// Note that for drivers that do not support loads, they may immediately send a LoadEOF message
+	// after the transaction is started. If the `always_empty_hint` is `true`, then the client
+	// should (but is not required to) send a LoadEOF message immediately after sending
+	// its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of
+	// whether a client supports loads or not.
+	Transaction(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionClient, error)
 }
 
 type driverClient struct {
@@ -1006,43 +1143,31 @@ func (c *driverClient) Fence(ctx context.Context, in *FenceRequest, opts ...grpc
 	return out, nil
 }
 
-func (c *driverClient) Load(ctx context.Context, in *LoadRequest, opts ...grpc.CallOption) (*LoadResponse, error) {
-	out := new(LoadResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/Load", in, out, opts...)
+func (c *driverClient) Transaction(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/materialize.Driver/Transaction", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
-}
-
-func (c *driverClient) Store(ctx context.Context, opts ...grpc.CallOption) (Driver_StoreClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/materialize.Driver/Store", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &driverStoreClient{stream}
+	x := &driverTransactionClient{stream}
 	return x, nil
 }
 
-type Driver_StoreClient interface {
-	Send(*StoreRequest) error
-	CloseAndRecv() (*StoreResponse, error)
+type Driver_TransactionClient interface {
+	Send(*TransactionRequest) error
+	Recv() (*TransactionResponse, error)
 	grpc.ClientStream
 }
 
-type driverStoreClient struct {
+type driverTransactionClient struct {
 	grpc.ClientStream
 }
 
-func (x *driverStoreClient) Send(m *StoreRequest) error {
+func (x *driverTransactionClient) Send(m *TransactionRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *driverStoreClient) CloseAndRecv() (*StoreResponse, error) {
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	m := new(StoreResponse)
+func (x *driverTransactionClient) Recv() (*TransactionResponse, error) {
+	m := new(TransactionResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -1081,12 +1206,29 @@ type DriverServer interface {
 	// support end-to-end "exactly once" semantics. Stores which support only "at least once"
 	// semantics can implement Fence as a no-op, returning a zero-value FenceResponse.
 	Fence(context.Context, *FenceRequest) (*FenceResponse, error)
-	// Load one or more keyed collection documents from the materialization target.
-	// Flow guarantees that independent producers always load and store non-overlapping
-	// subsets of documents.
-	Load(context.Context, *LoadRequest) (*LoadResponse, error)
-	// Store one or more collection documents to a materialization target.
-	Store(Driver_StoreServer) error
+	// Transaction is a bi-directional streaming rpc that corresponds to each transaction within the
+	// flow consumer. The Transaction rpc follows a strict lifecycle:
+	//
+	// 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately
+	//    transitions to the Loading state.
+	// 2. Loading:
+	//    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message.
+	//    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These
+	//    responses may be sent asynchronously, and at whatever cadence is most performant for the
+	//    driver. Drivers may wait until they receive the LoadEOF from the client before they send any
+	//    responses, or they may send responses earlier. Any requested document that is missing from
+	//    the set of LoadResponses is presumed to simply not exist.
+	// 3. Storing:
+	//    - The client sends 0 or more StoreRequest messages, and then closes the send side of its
+	//    stream.
+	//    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final
+	//    message sent to the client. The transaction is now complete.
+	// Note that for drivers that do not support loads, they may immediately send a LoadEOF message
+	// after the transaction is started. If the `always_empty_hint` is `true`, then the client
+	// should (but is not required to) send a LoadEOF message immediately after sending
+	// its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of
+	// whether a client supports loads or not.
+	Transaction(Driver_TransactionServer) error
 }
 
 // UnimplementedDriverServer can be embedded to have forward compatible implementations.
@@ -1105,11 +1247,8 @@ func (*UnimplementedDriverServer) Apply(ctx context.Context, req *ApplyRequest) 
 func (*UnimplementedDriverServer) Fence(ctx context.Context, req *FenceRequest) (*FenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Fence not implemented")
 }
-func (*UnimplementedDriverServer) Load(ctx context.Context, req *LoadRequest) (*LoadResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Load not implemented")
-}
-func (*UnimplementedDriverServer) Store(srv Driver_StoreServer) error {
-	return status.Errorf(codes.Unimplemented, "method Store not implemented")
+func (*UnimplementedDriverServer) Transaction(srv Driver_TransactionServer) error {
+	return status.Errorf(codes.Unimplemented, "method Transaction not implemented")
 }
 
 func RegisterDriverServer(s *grpc.Server, srv DriverServer) {
@@ -1188,44 +1327,26 @@ func _Driver_Fence_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Driver_Load_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(LoadRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Load(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/Load",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Load(ctx, req.(*LoadRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _Driver_Transaction_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(DriverServer).Transaction(&driverTransactionServer{stream})
 }
 
-func _Driver_Store_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(DriverServer).Store(&driverStoreServer{stream})
-}
-
-type Driver_StoreServer interface {
-	SendAndClose(*StoreResponse) error
-	Recv() (*StoreRequest, error)
+type Driver_TransactionServer interface {
+	Send(*TransactionResponse) error
+	Recv() (*TransactionRequest, error)
 	grpc.ServerStream
 }
 
-type driverStoreServer struct {
+type driverTransactionServer struct {
 	grpc.ServerStream
 }
 
-func (x *driverStoreServer) SendAndClose(m *StoreResponse) error {
+func (x *driverTransactionServer) Send(m *TransactionResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *driverStoreServer) Recv() (*StoreRequest, error) {
-	m := new(StoreRequest)
+func (x *driverTransactionServer) Recv() (*TransactionRequest, error) {
+	m := new(TransactionRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -1252,15 +1373,12 @@ var _Driver_serviceDesc = grpc.ServiceDesc{
 			MethodName: "Fence",
 			Handler:    _Driver_Fence_Handler,
 		},
-		{
-			MethodName: "Load",
-			Handler:    _Driver_Load_Handler,
-		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Store",
-			Handler:       _Driver_Store_Handler,
+			StreamName:    "Transaction",
+			Handler:       _Driver_Transaction_Handler,
+			ServerStreams: true,
 			ClientStreams: true,
 		},
 	},
@@ -1754,7 +1872,7 @@ func (m *FenceResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *LoadRequest) Marshal() (dAtA []byte, err error) {
+func (m *LoadEOF) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1764,67 +1882,12 @@ func (m *LoadRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *LoadRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *LoadEOF) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *LoadRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.PackedKeys) > 0 {
-		for iNdEx := len(m.PackedKeys) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.PackedKeys[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x1a
-		}
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.Handle) > 0 {
-		i -= len(m.Handle)
-		copy(dAtA[i:], m.Handle)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Handle)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *LoadResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *LoadResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *LoadResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *LoadEOF) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1841,33 +1904,12 @@ func (m *LoadResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x18
-	}
-	if len(m.DocsJson) > 0 {
-		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x12
-		}
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *StoreRequest) Marshal() (dAtA []byte, err error) {
+func (m *TransactionRequest) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1877,12 +1919,12 @@ func (m *StoreRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *StoreRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *StoreRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1891,9 +1933,33 @@ func (m *StoreRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.Continue != nil {
+	if m.Store != nil {
 		{
-			size, err := m.Continue.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Store.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.LoadEOF != nil {
+		{
+			size, err := m.LoadEOF.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.Load != nil {
+		{
+			size, err := m.Load.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -1918,7 +1984,7 @@ func (m *StoreRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *StoreRequest_Start) Marshal() (dAtA []byte, err error) {
+func (m *TransactionRequest_Start) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1928,12 +1994,12 @@ func (m *StoreRequest_Start) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *StoreRequest_Start) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionRequest_Start) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *StoreRequest_Start) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionRequest_Start) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1971,7 +2037,7 @@ func (m *StoreRequest_Start) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *StoreRequest_Continue) Marshal() (dAtA []byte, err error) {
+func (m *TransactionRequest_LoadRequest) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1981,12 +2047,60 @@ func (m *StoreRequest_Continue) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *StoreRequest_Continue) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionRequest_LoadRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *StoreRequest_Continue) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionRequest_LoadRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.PackedKeys) > 0 {
+		for iNdEx := len(m.PackedKeys) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.PackedKeys[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMaterialize(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0x12
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TransactionRequest_StoreRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TransactionRequest_StoreRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TransactionRequest_StoreRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2060,7 +2174,7 @@ func (m *StoreRequest_Continue) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *StoreResponse) Marshal() (dAtA []byte, err error) {
+func (m *TransactionResponse) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2070,12 +2184,123 @@ func (m *StoreResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *StoreResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *StoreResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.StoreResponse != nil {
+		{
+			size, err := m.StoreResponse.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.LoadEOF != nil {
+		{
+			size, err := m.LoadEOF.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.LoadResponse != nil {
+		{
+			size, err := m.LoadResponse.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TransactionResponse_LoadResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TransactionResponse_LoadResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TransactionResponse_LoadResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.DocsJson) > 0 {
+		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMaterialize(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TransactionResponse_StoreResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TransactionResponse_StoreResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TransactionResponse_StoreResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2332,48 +2557,12 @@ func (m *FenceResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *LoadRequest) ProtoSize() (n int) {
+func (m *LoadEOF) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.Handle)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.PackedKeys) > 0 {
-		for _, e := range m.PackedKeys {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *LoadResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.DocsJson) > 0 {
-		for _, e := range m.DocsJson {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
 	if m.AlwaysEmptyHint {
 		n += 2
 	}
@@ -2383,7 +2572,7 @@ func (m *LoadResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *StoreRequest) ProtoSize() (n int) {
+func (m *TransactionRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2393,8 +2582,16 @@ func (m *StoreRequest) ProtoSize() (n int) {
 		l = m.Start.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.Continue != nil {
-		l = m.Continue.ProtoSize()
+	if m.Load != nil {
+		l = m.Load.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.LoadEOF != nil {
+		l = m.LoadEOF.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Store != nil {
+		l = m.Store.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -2403,7 +2600,7 @@ func (m *StoreRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *StoreRequest_Start) ProtoSize() (n int) {
+func (m *TransactionRequest_Start) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2427,7 +2624,29 @@ func (m *StoreRequest_Start) ProtoSize() (n int) {
 	return n
 }
 
-func (m *StoreRequest_Continue) ProtoSize() (n int) {
+func (m *TransactionRequest_LoadRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if len(m.PackedKeys) > 0 {
+		for _, e := range m.PackedKeys {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *TransactionRequest_StoreRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2464,7 +2683,53 @@ func (m *StoreRequest_Continue) ProtoSize() (n int) {
 	return n
 }
 
-func (m *StoreResponse) ProtoSize() (n int) {
+func (m *TransactionResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.LoadResponse != nil {
+		l = m.LoadResponse.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.LoadEOF != nil {
+		l = m.LoadEOF.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.StoreResponse != nil {
+		l = m.StoreResponse.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *TransactionResponse_LoadResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if len(m.DocsJson) > 0 {
+		for _, e := range m.DocsJson {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *TransactionResponse_StoreResponse) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -4016,7 +4281,7 @@ func (m *FenceResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *LoadRequest) Unmarshal(dAtA []byte) error {
+func (m *LoadEOF) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4039,237 +4304,13 @@ func (m *LoadRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: LoadRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: LoadEOF: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: LoadRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: LoadEOF: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Handle", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Handle = append(m.Handle[:0], dAtA[iNdEx:postIndex]...)
-			if m.Handle == nil {
-				m.Handle = []byte{}
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PackedKeys", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PackedKeys = append(m.PackedKeys, flow.Slice{})
-			if err := m.PackedKeys[len(m.PackedKeys)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *LoadResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: LoadResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: LoadResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DocsJson = append(m.DocsJson, flow.Slice{})
-			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 3:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AlwaysEmptyHint", wireType)
 			}
@@ -4314,7 +4355,7 @@ func (m *LoadResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *StoreRequest) Unmarshal(dAtA []byte) error {
+func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4337,10 +4378,10 @@ func (m *StoreRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: StoreRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: TransactionRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: StoreRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: TransactionRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -4373,7 +4414,7 @@ func (m *StoreRequest) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Start == nil {
-				m.Start = &StoreRequest_Start{}
+				m.Start = &TransactionRequest_Start{}
 			}
 			if err := m.Start.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -4381,7 +4422,7 @@ func (m *StoreRequest) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Continue", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Load", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -4408,10 +4449,82 @@ func (m *StoreRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Continue == nil {
-				m.Continue = &StoreRequest_Continue{}
+			if m.Load == nil {
+				m.Load = &TransactionRequest_LoadRequest{}
 			}
-			if err := m.Continue.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Load.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LoadEOF", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LoadEOF == nil {
+				m.LoadEOF = &LoadEOF{}
+			}
+			if err := m.LoadEOF.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Store", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Store == nil {
+				m.Store = &TransactionRequest_StoreRequest{}
+			}
+			if err := m.Store.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -4440,7 +4553,7 @@ func (m *StoreRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *StoreRequest_Start) Unmarshal(dAtA []byte) error {
+func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4598,7 +4711,7 @@ func (m *StoreRequest_Start) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *StoreRequest_Continue) Unmarshal(dAtA []byte) error {
+func (m *TransactionRequest_LoadRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4621,10 +4734,132 @@ func (m *StoreRequest_Continue) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Continue: wiretype end group for non-group")
+			return fmt.Errorf("proto: LoadRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Continue: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: LoadRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PackedKeys", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PackedKeys = append(m.PackedKeys, flow.Slice{})
+			if err := m.PackedKeys[len(m.PackedKeys)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TransactionRequest_StoreRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: StoreRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: StoreRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -4858,7 +5093,291 @@ func (m *StoreRequest_Continue) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *StoreResponse) Unmarshal(dAtA []byte) error {
+func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TransactionResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TransactionResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LoadResponse", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LoadResponse == nil {
+				m.LoadResponse = &TransactionResponse_LoadResponse{}
+			}
+			if err := m.LoadResponse.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LoadEOF", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LoadEOF == nil {
+				m.LoadEOF = &LoadEOF{}
+			}
+			if err := m.LoadEOF.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StoreResponse", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.StoreResponse == nil {
+				m.StoreResponse = &TransactionResponse_StoreResponse{}
+			}
+			if err := m.StoreResponse.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TransactionResponse_LoadResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: LoadResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: LoadResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DocsJson = append(m.DocsJson, flow.Slice{})
+			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TransactionResponse_StoreResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
