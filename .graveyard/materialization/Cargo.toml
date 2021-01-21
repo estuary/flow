@@ -13,7 +13,7 @@ protocol = { path = "../protocol", version = "0.0.0" }
 
 itertools = "*"
 log = "*"
-prost-types = "*"
+prost-types = "0.7"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}

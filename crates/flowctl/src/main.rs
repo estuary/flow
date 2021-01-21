@@ -127,8 +127,9 @@ fn init_logging(args: &Args) {
     // useful when the cli is being invoked by a script and allows passing additional arguments.
     let verbosity = args.verbose - args.quiet;
 
-    // We use a different variable than RUST_LOG so that we
-    let log_var = ::std::env::var("FLOWCTL_LOG");
+    // We use a different variable than RUST_LOG so we can avoid getting overwhelmed with output
+    // from other tools that happen to stick with the default of RUST_LOG.
+    let log_var = ::std::env::var("FLOW_LOG");
     let log_filters = if let Ok(s) = &log_var {
         s
     } else {
@@ -281,7 +282,7 @@ async fn exec_external_command(command: &[String]) -> Result<(), Error> {
     for arg in command.iter().skip(1) {
         cmd.arg(arg);
     }
-    let exit_status = cmd.spawn()?.await?;
+    let exit_status = cmd.spawn()?.wait().await?;
     if exit_status.success() {
         Ok(())
     } else {
