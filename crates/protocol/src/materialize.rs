@@ -140,50 +140,45 @@ pub struct FenceResponse {
     #[prost(bytes, tag = "1")]
     pub flow_checkpoint: std::vec::Vec<u8>,
 }
-/// LoadRequest is the request type of the Load RPC.
+/// LoadEOF indicates the end of a stream of LoadRequest or LoadResponse messages.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LoadRequest {
-    /// Opaque session handle.
-    #[prost(bytes, tag = "1")]
-    pub handle: std::vec::Vec<u8>,
-    /// Byte arena of the request.
-    #[prost(bytes, tag = "2")]
-    pub arena: std::vec::Vec<u8>,
-    /// Packed tuples of collection keys, enumerating the documents to load.
-    #[prost(message, repeated, tag = "3")]
-    pub packed_keys: ::std::vec::Vec<super::flow::Slice>,
-}
-/// LoadRequest is the response type of the Load RPC.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LoadResponse {
-    /// Byte arena of the request.
-    #[prost(bytes, tag = "1")]
-    pub arena: std::vec::Vec<u8>,
-    /// Loaded JSON documents, 1:1 with keys of the LoadRequest.
-    /// Documents which don't exist in the target are represented as an empty Slice.
-    #[prost(message, repeated, tag = "2")]
-    pub docs_json: ::std::vec::Vec<super::flow::Slice>,
+pub struct LoadEof {
     /// Always empty hint which, when set true, hints to Flow that it may skip future
-    /// calls of the Load RPC for this handle, as they will always return an empty
-    /// LoadResponse.
-    #[prost(bool, tag = "3")]
+    /// LoadRequests for this handle, as they will never return any documents.
+    #[prost(bool, tag = "1")]
     pub always_empty_hint: bool,
 }
-/// StoreRequest is the request type of the Store RPC.
+/// TransactionRequest is sent from the client to the driver as part of the Transaction streaming
+/// rpc. Each TransactionRequest message will have exactly one non-null top-level field, which
+/// represents its message type. The client must always send exactly one Start message as the very first
+/// message of a Transaction. This may be followed by 0 or more LoadRequests, followed by exactly one
+/// LoadEOF message. Then it will send 0 or more StoreRequests before closing the send stream.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StoreRequest {
+pub struct TransactionRequest {
+    /// Start is sent as the first message in a Transaction, and never sent again during the same
+    /// transaction.
     #[prost(message, optional, tag = "1")]
-    pub start: ::std::option::Option<store_request::Start>,
+    pub start: ::std::option::Option<transaction_request::Start>,
+    /// Load will only be sent during the Loading phase of the transaction rpc.
     #[prost(message, optional, tag = "2")]
-    pub r#continue: ::std::option::Option<store_request::Continue>,
+    pub load: ::std::option::Option<transaction_request::LoadRequest>,
+    /// LoadEOF indicates that no more LoadRequests will be sent during this transaction. Upon
+    /// receiving a LoadEOF, a driver should return any pending LoadResponse messages before sending
+    /// its own LoadEOF.
+    #[prost(message, optional, tag = "3")]
+    pub load_eof: ::std::option::Option<LoadEof>,
+    /// Store will only be sent during the Storing phase fo the transaction rpc.
+    #[prost(message, optional, tag = "4")]
+    pub store: ::std::option::Option<transaction_request::StoreRequest>,
 }
-pub mod store_request {
+pub mod transaction_request {
+    /// Start represents the initial payload of transaction metadata.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Start {
         /// Opaque session handle.
         #[prost(bytes, tag = "1")]
         pub handle: std::vec::Vec<u8>,
-        /// Projection fields to be stored. This repeats the selection and ordering
+        /// Fields represents the projection fields to be stored. This repeats the selection and ordering
         /// of the last Apply RPC, but is provided here also as a convenience.
         #[prost(message, optional, tag = "2")]
         pub fields: ::std::option::Option<super::FieldSelection>,
@@ -193,8 +188,21 @@ pub mod store_request {
         #[prost(bytes, tag = "3")]
         pub flow_checkpoint: std::vec::Vec<u8>,
     }
+    /// LoadRequest represents a request to Load one or more documents.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Continue {
+    pub struct LoadRequest {
+        /// Byte arena of the request.
+        #[prost(bytes, tag = "2")]
+        pub arena: std::vec::Vec<u8>,
+        /// Packed tuples of collection keys, enumerating the documents to load.
+        #[prost(message, repeated, tag = "3")]
+        pub packed_keys: ::std::vec::Vec<super::super::flow::Slice>,
+    }
+    /// StoreRequest represents a batch of 1 or more documents to store, along with their associated
+    /// keys and extracted values. Many StoreRequest messages may be sent during the life of a
+    /// Transaction.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StoreRequest {
         /// Byte arena of the request.
         #[prost(bytes, tag = "1")]
         pub arena: std::vec::Vec<u8>,
@@ -213,15 +221,54 @@ pub mod store_request {
         pub exists: ::std::vec::Vec<bool>,
     }
 }
-/// StoreResponse is the response type of the Store RPC.
+/// TransactionResponse is streamed back from a Transaction streaming rpc.
+/// Similar to TransactionRequest, each TransactionResponse message must include exactly one non-null top
+/// level field. For each Transaction RPC, the driver should send 0 or more LoadResponse messages,
+/// followed by exactly one LoadEOF message, followed by exactly one StoreResponse.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StoreResponse {
-    /// Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
-    /// within the same internal transaction which triggered this Store RPC,
-    /// and will present the latest checkpoint to a future Fence RPC.
-    /// This may be ignored if the Driver has no checkpoints.
-    #[prost(bytes, tag = "1")]
-    pub driver_checkpoint: std::vec::Vec<u8>,
+pub struct TransactionResponse {
+    /// LoadResponse should only be sent during the Loading phase of the transaction rpc.
+    #[prost(message, optional, tag = "1")]
+    pub load_response: ::std::option::Option<transaction_response::LoadResponse>,
+    /// LoadEOF is sent after all LoadResponse have been sent. After this is sent, no more LoadResponse
+    /// messages may be sent by the driver, and any documents that have not been returned in a
+    /// LoadResponse will be presumed to not exist in storage.
+    #[prost(message, optional, tag = "2")]
+    pub load_eof: ::std::option::Option<LoadEof>,
+    /// StoreResponse is sent by the driver as the final message in a Transaction to indicate that it
+    /// has committed.
+    #[prost(message, optional, tag = "3")]
+    pub store_response: ::std::option::Option<transaction_response::StoreResponse>,
+}
+pub mod transaction_response {
+    /// LoadResponse is sent to return documents requested by a LoadRequest. The driver may send
+    /// LoadResponse messages at any time before it sends a LoadEOF message. This is designed to allow
+    /// for maximum flexibility to allow all types of drivers to load documents in whatever way is most
+    /// efficient for each system. For example, a driver could send a LoadResponse after receiving each
+    /// LoadRequest, or it could wait until it receives a LoadEOF from the client and then send all the
+    /// documents in a single LoadResponse, or batches of LoadResponses.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct LoadResponse {
+        /// Byte arena of the request.
+        #[prost(bytes, tag = "1")]
+        pub arena: std::vec::Vec<u8>,
+        /// Loaded JSON documents, 1:1 with keys of the LoadRequest.
+        /// Documents which don't exist in the target are represented as an empty Slice.
+        #[prost(message, repeated, tag = "2")]
+        pub docs_json: ::std::vec::Vec<super::super::flow::Slice>,
+    }
+    /// StoreResponse is sent exactly once at the end of a successful Transaction. Successful Transactions
+    /// must send a single StoreResponse as their final message, though it is perfectly acceptable to
+    /// leave the driver_checkpoint undefined.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StoreResponse {
+        /// Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
+        /// within the same internal transaction which triggered this Store RPC,
+        /// and will present the latest checkpoint to a future Fence RPC.
+        /// This may be ignored if the Driver has no checkpoints.
+        #[prost(bytes, tag = "1")]
+        pub driver_checkpoint: std::vec::Vec<u8>,
+    }
 }
 #[doc = r" Generated client implementations."]
 pub mod driver_client {
@@ -339,13 +386,35 @@ pub mod driver_client {
             let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Fence");
             self.inner.unary(request.into_request(), path, codec).await
         }
-        #[doc = " Load one or more keyed collection documents from the materialization target."]
-        #[doc = " Flow guarantees that independent producers always load and store non-overlapping"]
-        #[doc = " subsets of documents."]
-        pub async fn load(
+        #[doc = " Transaction is a bi-directional streaming rpc that corresponds to each transaction within the"]
+        #[doc = " flow consumer. The Transaction rpc follows a strict lifecycle:"]
+        #[doc = ""]
+        #[doc = " 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately"]
+        #[doc = "    transitions to the Loading state."]
+        #[doc = " 2. Loading: "]
+        #[doc = "    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message."]
+        #[doc = "    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These"]
+        #[doc = "    responses may be sent asynchronously, and at whatever cadence is most performant for the"]
+        #[doc = "    driver. Drivers may wait until they receive the LoadEOF from the client before they send any"]
+        #[doc = "    responses, or they may send responses earlier. Any requested document that is missing from"]
+        #[doc = "    the set of LoadResponses is presumed to simply not exist."]
+        #[doc = " 3. Storing:"]
+        #[doc = "    - The client sends 0 or more StoreRequest messages, and then closes the send side of its"]
+        #[doc = "    stream."]
+        #[doc = "    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final"]
+        #[doc = "    message sent to the client. The transaction is now complete."]
+        #[doc = " Note that for drivers that do not support loads, they may immediately send a LoadEOF message"]
+        #[doc = " after the transaction is started. If the `always_empty_hint` is `true`, then the client"]
+        #[doc = " should (but is not required to) send a LoadEOF message immediately after sending"]
+        #[doc = " its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of"]
+        #[doc = " whether a client supports loads or not."]
+        pub async fn transaction(
             &mut self,
-            request: impl tonic::IntoRequest<super::LoadRequest>,
-        ) -> Result<tonic::Response<super::LoadResponse>, tonic::Status> {
+            request: impl tonic::IntoStreamingRequest<Message = super::TransactionRequest>,
+        ) -> Result<
+            tonic::Response<tonic::codec::Streaming<super::TransactionResponse>>,
+            tonic::Status,
+        > {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::new(
                     tonic::Code::Unknown,
@@ -353,24 +422,9 @@ pub mod driver_client {
                 )
             })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Load");
-            self.inner.unary(request.into_request(), path, codec).await
-        }
-        #[doc = " Store one or more collection documents to a materialization target."]
-        pub async fn store(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::StoreRequest>,
-        ) -> Result<tonic::Response<super::StoreResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Store");
+            let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Transaction");
             self.inner
-                .client_streaming(request.into_streaming_request(), path, codec)
+                .streaming(request.into_streaming_request(), path, codec)
                 .await
         }
     }
@@ -436,18 +490,37 @@ pub mod driver_server {
             &self,
             request: tonic::Request<super::FenceRequest>,
         ) -> Result<tonic::Response<super::FenceResponse>, tonic::Status>;
-        #[doc = " Load one or more keyed collection documents from the materialization target."]
-        #[doc = " Flow guarantees that independent producers always load and store non-overlapping"]
-        #[doc = " subsets of documents."]
-        async fn load(
+        #[doc = "Server streaming response type for the Transaction method."]
+        type TransactionStream: Stream<Item = Result<super::TransactionResponse, tonic::Status>>
+            + Send
+            + Sync
+            + 'static;
+        #[doc = " Transaction is a bi-directional streaming rpc that corresponds to each transaction within the"]
+        #[doc = " flow consumer. The Transaction rpc follows a strict lifecycle:"]
+        #[doc = ""]
+        #[doc = " 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately"]
+        #[doc = "    transitions to the Loading state."]
+        #[doc = " 2. Loading: "]
+        #[doc = "    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message."]
+        #[doc = "    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These"]
+        #[doc = "    responses may be sent asynchronously, and at whatever cadence is most performant for the"]
+        #[doc = "    driver. Drivers may wait until they receive the LoadEOF from the client before they send any"]
+        #[doc = "    responses, or they may send responses earlier. Any requested document that is missing from"]
+        #[doc = "    the set of LoadResponses is presumed to simply not exist."]
+        #[doc = " 3. Storing:"]
+        #[doc = "    - The client sends 0 or more StoreRequest messages, and then closes the send side of its"]
+        #[doc = "    stream."]
+        #[doc = "    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final"]
+        #[doc = "    message sent to the client. The transaction is now complete."]
+        #[doc = " Note that for drivers that do not support loads, they may immediately send a LoadEOF message"]
+        #[doc = " after the transaction is started. If the `always_empty_hint` is `true`, then the client"]
+        #[doc = " should (but is not required to) send a LoadEOF message immediately after sending"]
+        #[doc = " its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of"]
+        #[doc = " whether a client supports loads or not."]
+        async fn transaction(
             &self,
-            request: tonic::Request<super::LoadRequest>,
-        ) -> Result<tonic::Response<super::LoadResponse>, tonic::Status>;
-        #[doc = " Store one or more collection documents to a materialization target."]
-        async fn store(
-            &self,
-            request: tonic::Request<tonic::Streaming<super::StoreRequest>>,
-        ) -> Result<tonic::Response<super::StoreResponse>, tonic::Status>;
+            request: tonic::Request<tonic::Streaming<super::TransactionRequest>>,
+        ) -> Result<tonic::Response<Self::TransactionStream>, tonic::Status>;
     }
     #[doc = " Driver is the service implemented by a materialization target system."]
     #[derive(Debug)]
@@ -606,49 +679,20 @@ pub mod driver_server {
                     };
                     Box::pin(fut)
                 }
-                "/materialize.Driver/Load" => {
+                "/materialize.Driver/Transaction" => {
                     #[allow(non_camel_case_types)]
-                    struct LoadSvc<T: Driver>(pub Arc<T>);
-                    impl<T: Driver> tonic::server::UnaryService<super::LoadRequest> for LoadSvc<T> {
-                        type Response = super::LoadResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                    struct TransactionSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::StreamingService<super::TransactionRequest> for TransactionSvc<T> {
+                        type Response = super::TransactionResponse;
+                        type ResponseStream = T::TransactionStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::LoadRequest>,
+                            request: tonic::Request<tonic::Streaming<super::TransactionRequest>>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).load(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let interceptor = inner.1.clone();
-                        let inner = inner.0;
-                        let method = LoadSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = if let Some(interceptor) = interceptor {
-                            tonic::server::Grpc::with_interceptor(codec, interceptor)
-                        } else {
-                            tonic::server::Grpc::new(codec)
-                        };
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/materialize.Driver/Store" => {
-                    #[allow(non_camel_case_types)]
-                    struct StoreSvc<T: Driver>(pub Arc<T>);
-                    impl<T: Driver> tonic::server::ClientStreamingService<super::StoreRequest> for StoreSvc<T> {
-                        type Response = super::StoreResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<tonic::Streaming<super::StoreRequest>>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).store(request).await };
+                            let fut = async move { (*inner).transaction(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -656,14 +700,14 @@ pub mod driver_server {
                     let fut = async move {
                         let interceptor = inner.1;
                         let inner = inner.0;
-                        let method = StoreSvc(inner);
+                        let method = TransactionSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = if let Some(interceptor) = interceptor {
                             tonic::server::Grpc::with_interceptor(codec, interceptor)
                         } else {
                             tonic::server::Grpc::new(codec)
                         };
-                        let res = grpc.client_streaming(method, req).await;
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

@@ -68,12 +68,29 @@ service Driver {
   // support end-to-end "exactly once" semantics. Stores which support only "at least once"
   // semantics can implement Fence as a no-op, returning a zero-value FenceResponse.
   rpc Fence(FenceRequest) returns (FenceResponse);
-  // Load one or more keyed collection documents from the materialization target.
-  // Flow guarantees that independent producers always load and store non-overlapping
-  // subsets of documents.
-  rpc Load(LoadRequest) returns (LoadResponse);
-  // Store one or more collection documents to a materialization target.
-  rpc Store(stream StoreRequest) returns (StoreResponse);
+  // Transaction is a bi-directional streaming rpc that corresponds to each transaction within the
+  // flow consumer. The Transaction rpc follows a strict lifecycle:
+  //
+  // 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately
+  //    transitions to the Loading state.
+  // 2. Loading: 
+  //    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message.
+  //    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These
+  //    responses may be sent asynchronously, and at whatever cadence is most performant for the
+  //    driver. Drivers may wait until they receive the LoadEOF from the client before they send any
+  //    responses, or they may send responses earlier. Any requested document that is missing from
+  //    the set of LoadResponses is presumed to simply not exist.
+  // 3. Storing:
+  //    - The client sends 0 or more StoreRequest messages, and then closes the send side of its
+  //    stream.
+  //    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final
+  //    message sent to the client. The transaction is now complete.
+  // Note that for drivers that do not support loads, they may immediately send a LoadEOF message
+  // after the transaction is started. If the `always_empty_hint` is `true`, then the client
+  // should (but is not required to) send a LoadEOF message immediately after sending
+  // its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of
+  // whether a client supports loads or not.
+  rpc Transaction(stream TransactionRequest) returns (stream TransactionResponse);
 }
 
 // SessionRequest is the request type of the StartSession RPC.
@@ -167,35 +184,25 @@ message FenceResponse {
   bytes flow_checkpoint = 1;
 }
 
-// LoadRequest is the request type of the Load RPC.
-message LoadRequest {
-  // Opaque session handle.
-  bytes handle = 1;
-  // Byte arena of the request.
-  bytes arena = 2 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
-  // Packed tuples of collection keys, enumerating the documents to load.
-  repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
-}
 
-// LoadRequest is the response type of the Load RPC.
-message LoadResponse {
-  // Byte arena of the request.
-  bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
-  // Loaded JSON documents, 1:1 with keys of the LoadRequest.
-  // Documents which don't exist in the target are represented as an empty Slice.
-  repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+// LoadEOF indicates the end of a stream of LoadRequest or LoadResponse messages.
+message LoadEOF {
   // Always empty hint which, when set true, hints to Flow that it may skip future
-  // calls of the Load RPC for this handle, as they will always return an empty
-  // LoadResponse.
-  bool always_empty_hint = 3;
+  // LoadRequests for this handle, as they will never return any documents.
+  bool always_empty_hint = 1;
 }
 
-// StoreRequest is the request type of the Store RPC.
-message StoreRequest {
+// TransactionRequest is sent from the client to the driver as part of the Transaction streaming
+// rpc. Each TransactionRequest message will have exactly one non-null top-level field, which
+// represents its message type. The client must always send exactly one Start message as the very first
+// message of a Transaction. This may be followed by 0 or more LoadRequests, followed by exactly one
+// LoadEOF message. Then it will send 0 or more StoreRequests before closing the send stream.
+message TransactionRequest {
+  // Start represents the initial payload of transaction metadata.
   message Start {
     // Opaque session handle.
     bytes handle = 1;
-    // Projection fields to be stored. This repeats the selection and ordering
+    // Fields represents the projection fields to be stored. This repeats the selection and ordering
     // of the last Apply RPC, but is provided here also as a convenience.
     FieldSelection fields = 2;
     // Checkpoint to write with this Store transaction, to be associated with
@@ -203,9 +210,29 @@ message StoreRequest {
     // This may be ignored if the Driver doesn't support exactly-once semantics.
     bytes flow_checkpoint = 3;
   }
+  // Start is sent as the first message in a Transaction, and never sent again during the same
+  // transaction.
   Start start = 1;
 
-  message Continue {
+  // LoadRequest represents a request to Load one or more documents.
+  message LoadRequest {
+    // Byte arena of the request.
+    bytes arena = 2 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    // Packed tuples of collection keys, enumerating the documents to load.
+    repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
+  }
+  // Load will only be sent during the Loading phase of the transaction rpc.
+  LoadRequest load = 2;
+
+  // LoadEOF indicates that no more LoadRequests will be sent during this transaction. Upon
+  // receiving a LoadEOF, a driver should return any pending LoadResponse messages before sending
+  // its own LoadEOF.
+  LoadEOF loadEOF = 3;
+
+  // StoreRequest represents a batch of 1 or more documents to store, along with their associated
+  // keys and extracted values. Many StoreRequest messages may be sent during the life of a
+  // Transaction.
+  message StoreRequest {
     // Byte arena of the request.
     bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
     repeated flow.Slice packed_keys = 2 [ (gogoproto.nullable) = false ];
@@ -216,15 +243,48 @@ message StoreRequest {
     // Exists is true if this document previously been loaded or stored.
     repeated bool exists = 5; // [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
   }
-  Continue continue = 2;
+  // Store will only be sent during the Storing phase fo the transaction rpc.
+  StoreRequest store = 4;
 }
 
-// StoreResponse is the response type of the Store RPC.
-message StoreResponse {
-	// Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
-	// within the same internal transaction which triggered this Store RPC,
-	// and will present the latest checkpoint to a future Fence RPC.
-	// This may be ignored if the Driver has no checkpoints.
-	bytes driver_checkpoint = 1;
+// TransactionResponse is streamed back from a Transaction streaming rpc.
+// Similar to TransactionRequest, each TransactionResponse message must include exactly one non-null top
+// level field. For each Transaction RPC, the driver should send 0 or more LoadResponse messages,
+// followed by exactly one LoadEOF message, followed by exactly one StoreResponse.
+message TransactionResponse {
+  // LoadResponse is sent to return documents requested by a LoadRequest. The driver may send
+  // LoadResponse messages at any time before it sends a LoadEOF message. This is designed to allow
+  // for maximum flexibility to allow all types of drivers to load documents in whatever way is most
+  // efficient for each system. For example, a driver could send a LoadResponse after receiving each
+  // LoadRequest, or it could wait until it receives a LoadEOF from the client and then send all the
+  // documents in a single LoadResponse, or batches of LoadResponses.
+  message LoadResponse {
+    // Byte arena of the request.
+    bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    // Loaded JSON documents, 1:1 with keys of the LoadRequest.
+    // Documents which don't exist in the target are represented as an empty Slice.
+    repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+  }
+  // LoadResponse should only be sent during the Loading phase of the transaction rpc.
+  LoadResponse loadResponse = 1;
+
+  // LoadEOF is sent after all LoadResponse have been sent. After this is sent, no more LoadResponse
+  // messages may be sent by the driver, and any documents that have not been returned in a
+  // LoadResponse will be presumed to not exist in storage.
+  LoadEOF loadEOF = 2;
+
+  // StoreResponse is sent exactly once at the end of a successful Transaction. Successful Transactions
+  // must send a single StoreResponse as their final message, though it is perfectly acceptable to
+  // leave the driver_checkpoint undefined.
+  message StoreResponse {
+    // Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
+    // within the same internal transaction which triggered this Store RPC,
+    // and will present the latest checkpoint to a future Fence RPC.
+    // This may be ignored if the Driver has no checkpoints.
+    bytes driver_checkpoint = 1;
+  }
+  // StoreResponse is sent by the driver as the final message in a Transaction to indicate that it
+  // has committed.
+  StoreResponse storeResponse = 3;
 }
 

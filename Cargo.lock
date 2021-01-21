@@ -1648,6 +1648,7 @@ dependencies = [
 name = "protocol"
 version = "0.0.0"
 dependencies = [
+ "humantime-serde",
  "insta",
  "prost",
  "prost-types",
