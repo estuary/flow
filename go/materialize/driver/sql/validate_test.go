@@ -1,4 +1,4 @@
-package driver
+package sql
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ func TestValidations(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempdir)
 
-	cat, err := flow.NewCatalog("../../../catalog.db", tempdir)
+	cat, err := flow.NewCatalog("../../../../catalog.db", tempdir)
 	require.NoError(t, err)
 
 	var collections = []string{
@@ -33,7 +33,7 @@ func TestValidations(t *testing.T) {
 			collection, err := cat.LoadCollection(collectionName)
 			require.NoError(t, err)
 
-			var constraints = ValidateNewSQLProjections(&collection)
+			var constraints = ValidateNewSQLProjections(collection)
 			cupaloy.SnapshotT(t, constraints)
 		})
 	}
@@ -52,7 +52,7 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 		Document: "flow_document",
 	}
 	var existingSpec = MaterializationSpec{
-		Collection: existingCollection,
+		Collection: *existingCollection,
 		Fields:     existingFields,
 	}
 
@@ -67,7 +67,7 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	var stringProjection = proposedCollection.GetProjection("string")
 	stringProjection.Inference.MustExist = true
 
-	var constraints = ValidateMatchesExisting(&existingSpec, &proposedCollection)
+	var constraints = ValidateMatchesExisting(&existingSpec, proposedCollection)
 	var req = []string{"theKey", "string", "bool", "flow_document"}
 	for _, field := range req {
 		var constraint, ok = constraints[field]
@@ -83,7 +83,7 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, numConstraint.Type)
 
 	var proposedSpec = MaterializationSpec{
-		Collection: proposedCollection,
+		Collection: *proposedCollection,
 		Fields:     existingFields,
 	}
 	var constraintsError = ValidateSelectedFields(constraints, &proposedSpec)
