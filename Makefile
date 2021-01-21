@@ -78,6 +78,7 @@ GO_MODULE_PATH = $(shell go list -f '{{ .Dir }}' -m $(module))
 PACKAGE_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flow-consumer \
+	${PKGDIR}/bin/sql-driver \
 	${PKGDIR}/bin/flow-ingester \
 	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/gazctl \
@@ -192,6 +193,7 @@ go-install/%:
 		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" $*
 
 ${GOBIN}/flow-ingester: go-install/github.com/estuary/flow/go/flow-ingester $(GO_PROTO_TARGETS)
+${GOBIN}/sql-driver: go-install/github.com/estuary/flow/go/sql-driver $(GO_PROTO_TARGETS)
 ${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/go/flow-consumer $(GO_PROTO_TARGETS) ${ROCKSDIR}/${LIBROCKS}
 ${GOBIN}/gazette:       go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:        go-install/go.gazette.dev/core/cmd/gazctl
@@ -209,6 +211,8 @@ ${PKGDIR}/bin/etcd: ${PKGDIR} ${TOOLBIN}/etcd
 	cp ${TOOLBIN}/etcd $@
 ${PKGDIR}/bin/flow-consumer: ${PKGDIR} ${GOBIN}/flow-consumer
 	cp ${GOBIN}/flow-consumer $@
+${PKGDIR}/bin/sql-driver: ${PKGDIR} ${GOBIN}/sql-driver
+	cp ${GOBIN}/sql-driver $@
 ${PKGDIR}/bin/flow-ingester: ${PKGDIR} ${GOBIN}/flow-ingester
 	cp ${GOBIN}/flow-ingester $@
 ${PKGDIR}/bin/flowctl:     ${PKGDIR} ${RUSTBIN}

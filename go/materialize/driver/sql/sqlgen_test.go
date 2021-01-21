@@ -1,4 +1,4 @@
-package driver
+package sql
 
 import (
 	"fmt"
@@ -38,11 +38,11 @@ func TestSQLGenerator(t *testing.T) {
 						valueColumns = append(valueColumns, col.Name)
 					}
 				}
-				query, err := gen.QueryOnPrimaryKey(table, valueColumns...)
+				query, _, err := gen.QueryOnPrimaryKey(table, valueColumns...)
 				require.NoError(t, err)
-				insertStatement, err := gen.InsertStatement(table)
+				insertStatement, _, err := gen.InsertStatement(table)
 				require.NoError(t, err)
-				updateStatement, err := gen.UpdateStatement(table, valueColumns, keyColumns)
+				updateStatement, _, err := gen.UpdateStatement(table, valueColumns, keyColumns)
 				require.NoError(t, err)
 
 				var allSQL = strings.Join([]string{createTable, query, insertStatement, updateStatement}, "\n\n")
