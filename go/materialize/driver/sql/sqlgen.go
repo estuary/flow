@@ -1,4 +1,4 @@
-package driver
+package sql
 
 import (
 	"bufio"
@@ -63,6 +63,45 @@ type Table struct {
 	IfNotExists bool
 }
 
+func (t Table) GetColumn(name string) *Column {
+	for _, col := range t.Columns {
+		if col.Name == name {
+			return &col
+		}
+	}
+	return nil
+}
+
+type ParametersConverter []func(interface{}) (interface{}, error)
+
+func (c ParametersConverter) Convert(values ...interface{}) ([]interface{}, error) {
+	var results = make([]interface{}, len(values))
+	for i, elem := range values {
+		var v, err = (c[i])(elem)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert value at index %d: %w", i, err)
+		}
+		results[i] = v
+	}
+	return results, nil
+}
+
+func NewParametersConverter(mapper TypeMapper, table *Table, columns []string) (ParametersConverter, error) {
+	var converters = make([]func(interface{}) (interface{}, error), len(columns))
+	for i, name := range columns {
+		var column = table.GetColumn(name)
+		if column == nil {
+			return nil, fmt.Errorf("Table '%s' has no such column '%s'", table.Name, name)
+		}
+		var ty, err = mapper.GetColumnType(column)
+		if err != nil {
+			return nil, err
+		}
+		converters[i] = ty.ValueConverter
+	}
+	return ParametersConverter(converters), nil
+}
+
 // A SQLGenerator is a type that can generate all the sql required for a Flow materialization using
 // the SQLDriver type.
 type SQLGenerator interface {
@@ -77,14 +116,14 @@ type SQLGenerator interface {
 	// QueryOnPrimaryKey generates a query that has a placeholder parameter for each primary key in
 	// the order given in the table. Only selectColumns will be selected in the same order as
 	// provided.
-	QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, error)
+	QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, ParametersConverter, error)
 
 	// InsertStatement returns an insert statement for the given table that includes all columns.
 	// The returned sql will have a parameter placeholder for every column in the order they appear
 	// in the Table. This should generate a plain insert statement, not an upsert, since we'll know
 	// in advance whether each document exists or not, and only use the InsertStatement when we know
 	// the document does not exist.
-	InsertStatement(table *Table) (string, error)
+	InsertStatement(table *Table) (string, ParametersConverter, error)
 
 	// DirectInsertStatement returns an insert statement without any bound parameters. Only string
 	// type parameters are accepted, since that is all we require from this interface. The string
@@ -96,7 +135,7 @@ type SQLGenerator interface {
 	// in setColumns and matches based on the columns in whereColumns. The returned statement will
 	// have a placeholder parameter for each of the setColumns in the order given, followed by a
 	// parameter for each of the whereColumns in the order given.
-	UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, error)
+	UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, ParametersConverter, error)
 }
 
 // TokenPair is a generic way of representing strings that can be used to surround some text for
@@ -121,6 +160,17 @@ func DoubleQuotes() TokenPair {
 	}
 }
 
+// Identity is an identity function for no-op conversions of tuple elements to `interface{}` values
+// that are suitable for use as sql parameters
+func Identity(elem interface{}) (interface{}, error) {
+	return elem, nil
+}
+
+type ResolvedColumnType struct {
+	SQLType        string
+	ValueConverter func(interface{}) (interface{}, error)
+}
+
 // A TypeMapper resolves a Column to a specific base SQL type. For example, for all "string" type
 // Columns, it may return the "TEXT" sql type. We use a decorator pattern to compose TypeMappers.
 type TypeMapper interface {
@@ -128,16 +178,22 @@ type TypeMapper interface {
 	// type Columns, it may return the "TEXT" sql type. An implementation may take into account as
 	// much or as little information as it wants to about a particular column, and some may not
 	// inspect the column at all.
-	GetColumnType(column *Column) (string, error)
+	GetColumnType(column *Column) (*ResolvedColumnType, error)
 }
 
-// ConstColumnType is a TypeMapper that simply returns the raw string value. Most column types can
-// just use this.
-type ConstColumnType string
+type ConstColumnType ResolvedColumnType
+
+func RawConstColumnType(sql string) ConstColumnType {
+	return ConstColumnType{
+		SQLType:        sql,
+		ValueConverter: Identity,
+	}
+}
 
 // GetColumnType implements the TypeMapper interface
-func (c ConstColumnType) GetColumnType(col *Column) (string, error) {
-	return string(c), nil
+func (c ConstColumnType) GetColumnType(col *Column) (*ResolvedColumnType, error) {
+	var res = ResolvedColumnType(c)
+	return &res, nil
 }
 
 // TypeLengthPlaceholder is the placeholder string that may appear in the SQL string, which will be
@@ -146,11 +202,15 @@ const TypeLengthPlaceholder = "?"
 
 // LengthConstrainedColumnType is a TypeMapper that must always have a length argument, e.g.
 // "VARCHAR(42)"
-type LengthConstrainedColumnType string
+type LengthConstrainedColumnType ResolvedColumnType
 
 // GetColumnType implements the TypeMapper interface
-func (c LengthConstrainedColumnType) GetColumnType(col *Column) (string, error) {
-	return strings.Replace(string(c), TypeLengthPlaceholder, fmt.Sprint(col.StringType.MaxLength), 1), nil
+func (c LengthConstrainedColumnType) GetColumnType(col *Column) (*ResolvedColumnType, error) {
+	var resolved = strings.Replace(c.SQLType, TypeLengthPlaceholder, fmt.Sprint(col.StringType.MaxLength), 1)
+	return &ResolvedColumnType{
+		SQLType:        resolved,
+		ValueConverter: c.ValueConverter,
+	}, nil
 }
 
 // MaxLengthableColumnType is a TypeMapper that supports column types that may have a length
@@ -161,13 +221,13 @@ type MaxLengthableColumnType struct {
 }
 
 // GetColumnType implements the TypeMapper interface
-func (c MaxLengthableColumnType) GetColumnType(col *Column) (string, error) {
+func (c MaxLengthableColumnType) GetColumnType(col *Column) (*ResolvedColumnType, error) {
 	if c.WithLength != nil && col.StringType != nil && col.StringType.MaxLength > 0 {
 		return c.WithLength.GetColumnType(col)
 	} else if c.WithoutLength != nil {
 		return c.WithoutLength.GetColumnType(col)
 	} else {
-		return "", fmt.Errorf("Column type requires a length argument, but no max length is present in the column description")
+		return nil, fmt.Errorf("Column type requires a length argument, but no max length is present in the column description")
 	}
 }
 
@@ -183,18 +243,17 @@ type NullableTypeMapping struct {
 }
 
 // GetColumnType implements the TypeMapper interface
-func (mapper NullableTypeMapping) GetColumnType(col *Column) (string, error) {
+func (mapper NullableTypeMapping) GetColumnType(col *Column) (*ResolvedColumnType, error) {
 	var ty, err = mapper.Inner.GetColumnType(col)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if col.NotNull && len(mapper.NotNullText) > 0 {
-		return fmt.Sprintf("%s %s", ty, mapper.NotNullText), nil
+		ty.SQLType = fmt.Sprintf("%s %s", ty.SQLType, mapper.NotNullText)
 	} else if !col.NotNull && len(mapper.NullableText) > 0 {
-		return fmt.Sprintf("%s %s", ty, mapper.NullableText), nil
-	} else {
-		return ty, nil
+		ty.SQLType = fmt.Sprintf("%s %s", ty.SQLType, mapper.NullableText)
 	}
+	return ty, nil
 }
 
 // StringTypeMapping is a special TypeMapper for string type columns, which can take the format
@@ -206,7 +265,7 @@ type StringTypeMapping struct {
 }
 
 // GetColumnType implements the TypeMapper interface
-func (mapping StringTypeMapping) GetColumnType(col *Column) (string, error) {
+func (mapping StringTypeMapping) GetColumnType(col *Column) (*ResolvedColumnType, error) {
 	var stringType = col.StringType
 	var resolvedMapper *TypeMapper
 
@@ -231,10 +290,10 @@ func (mapping StringTypeMapping) GetColumnType(col *Column) (string, error) {
 type ColumnTypeMapper map[ColumnType]TypeMapper
 
 // GetColumnType implements the TypeMapper interface
-func (amap ColumnTypeMapper) GetColumnType(col *Column) (string, error) {
+func (amap ColumnTypeMapper) GetColumnType(col *Column) (*ResolvedColumnType, error) {
 	var mapper = amap[col.Type]
 	if mapper == nil {
-		return "", fmt.Errorf("unsupported type %s", col.Type)
+		return nil, fmt.Errorf("unsupported type %s", col.Type)
 	}
 	return mapper.GetColumnType(col)
 }
@@ -309,14 +368,14 @@ func DefaultQuoteStringValue(value string) string {
 // SQLiteSQLGenerator returns a SQLGenerator for the sqlite SQL dialect.
 func SQLiteSQLGenerator() GenericSQLGenerator {
 	var typeMappings = ColumnTypeMapper{
-		INTEGER: ConstColumnType("INTEGER"),
-		NUMBER:  ConstColumnType("REAL"),
-		BOOLEAN: ConstColumnType("BOOLEAN"),
-		OBJECT:  ConstColumnType("TEXT"),
-		ARRAY:   ConstColumnType("TEXT"),
-		BINARY:  ConstColumnType("BLOB"),
+		INTEGER: RawConstColumnType("INTEGER"),
+		NUMBER:  RawConstColumnType("REAL"),
+		BOOLEAN: RawConstColumnType("BOOLEAN"),
+		OBJECT:  RawConstColumnType("TEXT"),
+		ARRAY:   RawConstColumnType("TEXT"),
+		BINARY:  RawConstColumnType("BLOB"),
 		STRING: StringTypeMapping{
-			Default: ConstColumnType("TEXT"),
+			Default: RawConstColumnType("TEXT"),
 		},
 	}
 	var nullable TypeMapper = NullableTypeMapping{
@@ -338,14 +397,14 @@ func PostgresSQLGenerator() GenericSQLGenerator {
 	var typeMappings TypeMapper = NullableTypeMapping{
 		NotNullText: "NOT NULL",
 		Inner: ColumnTypeMapper{
-			INTEGER: ConstColumnType("BIGINT"),
-			NUMBER:  ConstColumnType("DOUBLE PRECISION"),
-			BOOLEAN: ConstColumnType("BOOLEAN"),
-			OBJECT:  ConstColumnType("JSON"),
-			ARRAY:   ConstColumnType("JSON"),
-			BINARY:  ConstColumnType("BYTEA"),
+			INTEGER: RawConstColumnType("BIGINT"),
+			NUMBER:  RawConstColumnType("DOUBLE PRECISION"),
+			BOOLEAN: RawConstColumnType("BOOLEAN"),
+			OBJECT:  RawConstColumnType("JSON"),
+			ARRAY:   RawConstColumnType("JSON"),
+			BINARY:  RawConstColumnType("BYTEA"),
 			STRING: StringTypeMapping{
-				Default: ConstColumnType("TEXT"),
+				Default: RawConstColumnType("TEXT"),
 			},
 		},
 	}
@@ -394,11 +453,11 @@ func (gen *GenericSQLGenerator) CreateTable(table *Table) (string, error) {
 		gen.writeIdent(&builder, column.Name)
 		builder.WriteRune(' ')
 
-		var sqlType, err = gen.TypeMappings.GetColumnType(&column)
+		var resolved, err = gen.TypeMappings.GetColumnType(&column)
 		if err != nil {
 			return "", err
 		}
-		builder.WriteString(sqlType)
+		builder.WriteString(resolved.SQLType)
 	}
 	builder.WriteString(",\n\n\tPRIMARY KEY(")
 	var firstPk = true
@@ -417,7 +476,7 @@ func (gen *GenericSQLGenerator) CreateTable(table *Table) (string, error) {
 }
 
 // QueryOnPrimaryKey is part of the SQLGenerator implementation for GenericSQLGenerator
-func (gen *GenericSQLGenerator) QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, error) {
+func (gen *GenericSQLGenerator) QueryOnPrimaryKey(table *Table, selectColumns ...string) (string, ParametersConverter, error) {
 	var builder strings.Builder
 
 	builder.WriteString("SELECT ")
@@ -431,6 +490,7 @@ func (gen *GenericSQLGenerator) QueryOnPrimaryKey(table *Table, selectColumns ..
 	gen.writeIdent(&builder, table.Name)
 	builder.WriteString(" WHERE ")
 	var pkIndex = 0
+	var converters []func(interface{}) (interface{}, error)
 	for _, col := range table.Columns {
 		if col.PrimaryKey {
 			if pkIndex > 0 {
@@ -439,15 +499,22 @@ func (gen *GenericSQLGenerator) QueryOnPrimaryKey(table *Table, selectColumns ..
 			gen.writeIdent(&builder, col.Name)
 			builder.WriteString(" = ")
 			builder.WriteString(gen.GetParameterPlaceholder(pkIndex))
+
+			// Lookup the type mapping for this column and add the value converter
+			var ty, err = gen.TypeMappings.GetColumnType(&col)
+			if err != nil {
+				return "", nil, err
+			}
+			converters = append(converters, ty.ValueConverter)
 			pkIndex++
 		}
 	}
 	builder.WriteRune(';')
-	return builder.String(), nil
+	return builder.String(), ParametersConverter(converters), nil
 }
 
 // InsertStatement is part of the SQLGenerator implementation for GenericSQLGenerator
-func (gen *GenericSQLGenerator) InsertStatement(table *Table) (string, error) {
+func (gen *GenericSQLGenerator) InsertStatement(table *Table) (string, ParametersConverter, error) {
 	return gen.genInsertStatement(table, gen.GetParameterPlaceholder)
 }
 
@@ -463,19 +530,27 @@ func (gen *GenericSQLGenerator) DirectInsertStatement(table *Table, args ...stri
 	var genParams = func(i int) string {
 		return escapedArgs[i]
 	}
-	return gen.genInsertStatement(table, genParams)
+	var sql, _, err = gen.genInsertStatement(table, genParams)
+	return sql, err
 }
 
-func (gen *GenericSQLGenerator) genInsertStatement(table *Table, genParams func(int) string) (string, error) {
+func (gen *GenericSQLGenerator) genInsertStatement(table *Table, genParams func(int) string) (string, ParametersConverter, error) {
 	var builder strings.Builder
 	builder.WriteString("INSERT INTO ")
 	gen.writeIdent(&builder, table.Name)
 	builder.WriteString(" (")
+
+	var converters []func(interface{}) (interface{}, error)
 	for i, col := range table.Columns {
 		if i > 0 {
 			builder.WriteString(", ")
 		}
 		gen.writeIdent(&builder, col.Name)
+		var ty, err = gen.TypeMappings.GetColumnType(&col)
+		if err != nil {
+			return "", nil, err
+		}
+		converters = append(converters, ty.ValueConverter)
 	}
 	builder.WriteString(") VALUES (")
 	for i := range table.Columns {
@@ -485,11 +560,11 @@ func (gen *GenericSQLGenerator) genInsertStatement(table *Table, genParams func(
 		builder.WriteString(genParams(i))
 	}
 	builder.WriteString(");")
-	return builder.String(), nil
+	return builder.String(), ParametersConverter(converters), nil
 }
 
 // UpdateStatement is part of the SQLGenerator implementation for GenericSQLGenerator
-func (gen *GenericSQLGenerator) UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, error) {
+func (gen *GenericSQLGenerator) UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, ParametersConverter, error) {
 	var builder strings.Builder
 	builder.WriteString("UPDATE ")
 	gen.writeIdent(&builder, table.Name)
@@ -515,7 +590,18 @@ func (gen *GenericSQLGenerator) UpdateStatement(table *Table, setColumns []strin
 		parameterIndex++
 	}
 	builder.WriteString(";")
-	return builder.String(), nil
+
+	var setConverters, err = NewParametersConverter(gen.TypeMappings, table, setColumns)
+	if err != nil {
+		return "", nil, err
+	}
+	valConverters, err := NewParametersConverter(gen.TypeMappings, table, whereColumns)
+	if err != nil {
+		return "", nil, err
+	}
+	var converters = ParametersConverter(append(setConverters, valConverters...))
+
+	return builder.String(), converters, nil
 }
 
 func (gen *GenericSQLGenerator) writeIdent(builder *strings.Builder, ident string) {
