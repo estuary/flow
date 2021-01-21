@@ -1,0 +1,37 @@
+[package]
+name = "driver-tester"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+build = "../../shared-build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+catalog = { path = "../catalog" }
+protocol = { path = "../protocol" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+tuple = { path = "../tuple" }
+runtime = { path = "../runtime", version = "0.0.0" }
+
+async-trait = "*"
+anyhow = "*"
+tonic = "0.4"
+tracing = "*"
+tracing-subscriber = "*"
+tracing-futures = "*"
+futures = "*"
+itertools = "*"
+log = "*"
+pretty_env_logger = "*"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+schemars = "*"
+serde_json = { version =  "*"}
+structopt = "*"
+tempfile = "*"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+url = "*"
+rand = "*"
+rand_chacha = "*"

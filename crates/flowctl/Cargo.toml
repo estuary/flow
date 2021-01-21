@@ -25,11 +25,11 @@ schemars = "*"
 serde_json = { version =  "*"}
 structopt = "*"
 tempfile = "*"
-tokio = { version = "0.2", features = ["full"] }
 tracing = "*"
 tracing-futures = "*"
 tracing-log = "*"
 tracing-subscriber = "*"
+tokio = { version = "1", features = ["full"] }
 url = "*"
 
 [dev-dependencies]
