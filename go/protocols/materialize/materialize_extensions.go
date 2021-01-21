@@ -1,5 +1,9 @@
 package materialize
 
+import (
+	"reflect"
+)
+
 // IsForbidden returns true if the constraint type forbids inclusion in a materialization. This will
 // return true for FIELD_FORBIDDEN and UNSATISFIABLE, and false for any other constraint type.
 func (m *Constraint_Type) IsForbidden() bool {
@@ -19,4 +23,12 @@ func (fields *FieldSelection) AllFields() []string {
 	allFields = append(allFields, fields.Keys...)
 	allFields = append(allFields, fields.Values...)
 	return append(allFields, fields.Document)
+}
+
+// Equal returns true if the FieldSelections both represent the same selection of fields in the same
+// order.
+func (f FieldSelection) Equal(other *FieldSelection) bool {
+	return reflect.DeepEqual(f.Keys, other.Keys) &&
+		reflect.DeepEqual(f.Values, other.Values) &&
+		f.Document == other.Document
 }

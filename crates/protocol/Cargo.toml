@@ -5,6 +5,7 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+humantime-serde = "*"
 prost = "*"
 prost-types = "*"
 serde = "*"
