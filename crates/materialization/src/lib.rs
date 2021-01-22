@@ -565,7 +565,7 @@ mod test {
             uuid_ptr: String::new(),
             journal_spec: None,
             partition_fields: Vec::new(),
-            ack_json_template: Vec::new(),
+            ack_json_template: String::new(),
         }
     }
 

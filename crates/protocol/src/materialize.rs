@@ -1,5 +1,6 @@
 /// Constraint constrains the use of a flow.Projection within a materialization.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Constraint {
     #[prost(enumeration = "constraint::Type", tag = "2")]
     pub r#type: i32,
@@ -59,6 +60,10 @@ pub struct ValidateRequest {
     /// Collection to be materialized.
     #[prost(message, optional, tag = "2")]
     pub collection: ::std::option::Option<super::flow::CollectionSpec>,
+    /// Projection configuration, keyed by the projection field name,
+    /// with JSON-encoded and driver-defined configuration objects.
+    #[prost(map = "string, string", tag = "3")]
+    pub field_config: ::std::collections::HashMap<std::string::String, std::string::String>,
 }
 /// ValidateResponse is the response type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -71,7 +76,8 @@ pub struct ValidateResponse {
 }
 /// FieldSelection represents the entire set of fields for a materialization. Projected fields are
 /// separated into keys and values.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldSelection {
     /// The fields that are being used as the primary key for this materialization. Flow will guarantee
     /// that each location that's part of a collection's key is represented here exactly once, and in
@@ -83,10 +89,13 @@ pub struct FieldSelection {
     /// materializing to a key-value store like dynamo)
     #[prost(string, repeated, tag = "2")]
     pub values: ::std::vec::Vec<std::string::String>,
-    /// The name of the field holding the root document. This is the field that flow will expect to be
-    /// able to query as part of the Load rpc.
+    /// The name of the field holding the root document.
     #[prost(string, tag = "3")]
     pub document: std::string::String,
+    /// Projection configuration, keyed by the projection field name,
+    /// with JSON-encoded and driver-defined configuration objects.
+    #[prost(map = "string, string", tag = "4")]
+    pub field_config: ::std::collections::HashMap<std::string::String, std::string::String>,
 }
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]

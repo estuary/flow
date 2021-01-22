@@ -7,6 +7,7 @@ pub mod protocol {
 pub mod cgo;
 pub mod consumer;
 pub mod flow;
+pub mod materialize;
 pub mod protocol;
 pub mod recoverylog;
 
@@ -82,7 +83,7 @@ mod test {
             key_ptrs: vec![String::from("/a"), String::from("/b")],
             uuid_ptr: s(""),
             partition_fields: Vec::new(),
-            ack_json_template: Vec::new(),
+            ack_json_template: String::new(),
             journal_spec: None,
             projections: vec![
                 Projection {

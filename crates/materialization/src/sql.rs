@@ -680,7 +680,7 @@ mod test {
             uuid_ptr: String::new(),
             partition_fields: Vec::new(),
             journal_spec: None,
-            ack_json_template: Vec::new(),
+            ack_json_template: String::new(),
         }
     }
 
