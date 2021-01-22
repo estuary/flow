@@ -9,7 +9,7 @@ use crate::test_doc::{self, TestDoc};
 use crate::{DriverClientImpl, Fixture, TestResult};
 use itertools::Itertools;
 use protocol::{
-    flow::CollectionSpec,
+    flow::{CollectionSpec, Inference, Projection},
     materialize::{
         constraint::Type, ApplyRequest, Constraint, FieldSelection, SessionRequest, ValidateRequest,
     },
@@ -108,6 +108,7 @@ impl MaterializationFixture {
         let validate_req = ValidateRequest {
             handle: initial_handle.clone(),
             collection: Some(spec.clone()),
+            field_config: Default::default(),
         };
         let constraints = fixture
             .client
@@ -324,6 +325,7 @@ fn build_field_selection(
         keys: vec![String::from("id_one"), String::from("id_two")],
         values: Vec::new(),
         document: String::from("flow_document"),
+        field_config: Default::default(),
     };
     for field in fields.keys.iter() {
         let constraint = constraints.get(field).ok_or_else(|| {
@@ -375,82 +377,96 @@ fn is_forbidden(constraint: &Constraint) -> bool {
     }
 }
 
-fn test_collection() -> CollectionSpec {
-    let spec_json = json!({
-        "name": "functional-test-materialize",
-        "schema_uri": "test://functional.test/materialize.json",
-        "key_ptrs": ["/id1", "/id2"],
-        "projections": [
-            {
-                "ptr": "/id1",
-                "field": "id_one",
-                "user_provided": true,
-                "is_partition_key": false,
-                "is_primary_key": true,
-                "inference": {
-                    "types": ["integer"],
-                    "must_exist": true,
-                    "title": "title of id_one",
-                    "description": "description of id_one"
-                }
-            },
-            {
-                "ptr": "/id2",
-                "field": "id_two",
-                "user_provided": true,
-                "is_partition_key": false,
-                "is_primary_key": true,
-                "inference": {
-                    "types": ["string"],
-                    "must_exist": true
-                }
-            },
-            {
-                "ptr": "/intValue",
-                "field": "intValue",
-                "user_provided": false,
-                "is_partition_key": false,
-                "is_primary_key": false,
-                "inference": {
-                    "types": ["integer", "null"],
-                    "must_exist": true
-                }
-            },
-            {
-                "ptr": "/numValue",
-                "field": "numValue",
-                "user_provided": false,
-                "is_partition_key": false,
-                "is_primary_key": false,
-                "inference": {
-                    "types": ["number", "null"],
-                    "must_exist": true
-                }
-            },
-            {
-                "ptr": "/boolValue",
-                "field": "boolValue",
-                "user_provided": false,
-                "is_partition_key": false,
-                "is_primary_key": false,
-                "inference": {
-                    "types": ["boolean"],
-                    "must_exist": false
-                }
-            },
-            {
-                "ptr": "",
-                "field": "flow_document",
-                "user_provided": false,
-                "is_partition_key": false,
-                "is_primary_key": false,
-                "inference": {
-                    "types": ["object"],
-                    "must_exist": true
-                }
-            }
-        ]
-    });
+fn inference(types: &[&str], must_exist: bool, title: &str, description: &str) -> Inference {
+    Inference {
+        types: types.into_iter().map(|s| s.to_string()).collect(),
+        must_exist,
+        string: None,
+        title: title.to_string(),
+        description: description.to_string(),
+    }
+}
 
-    serde_json::from_value(spec_json).unwrap()
+fn projection(
+    ptr: &str,
+    field: &str,
+    user_provided: bool,
+    is_partition_key: bool,
+    is_primary_key: bool,
+    inference: Inference,
+) -> Projection {
+    Projection {
+        ptr: ptr.to_string(),
+        field: field.to_string(),
+        user_provided,
+        is_partition_key,
+        is_primary_key,
+        inference: Some(inference),
+    }
+}
+
+fn test_collection() -> CollectionSpec {
+    CollectionSpec {
+        collection: String::from("functional-test-materialize"),
+        schema_uri: String::from("test://functional.test/materialize.json"),
+        key_ptrs: vec!["/id1".to_string(), "/id2".to_string()],
+        partition_fields: Vec::new(),
+        ack_json_template: String::new(),
+        uuid_ptr: String::from("/_meta/uuid"),
+        projections: vec![
+            projection(
+                "/id1",
+                "id_one",
+                true,
+                false,
+                true,
+                inference(
+                    &["integer"],
+                    true,
+                    "title of id_one",
+                    "description of id_one",
+                ),
+            ),
+            projection(
+                "/id2",
+                "id_two",
+                true,
+                false,
+                true,
+                inference(&["string"], true, "", ""),
+            ),
+            projection(
+                "/intValue",
+                "intValue",
+                false,
+                false,
+                false,
+                inference(&["integer", "null"], true, "", ""),
+            ),
+            projection(
+                "/numValue",
+                "numValue",
+                false,
+                false,
+                false,
+                inference(&["number", "null"], true, "", ""),
+            ),
+            projection(
+                "/boolValue",
+                "boolValue",
+                false,
+                false,
+                false,
+                inference(&["boolean"], false, "", ""),
+            ),
+            projection(
+                "",
+                "flow_document",
+                false,
+                false,
+                false,
+                inference(&["object"], true, "", ""),
+            ),
+        ],
+    }
 }
