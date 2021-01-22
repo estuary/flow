@@ -1,0 +1,52 @@
+test://root/a-schema.json: true
+
+test://root/alt-schema.json:
+  $anchor: foobar
+  type: object
+  properties:
+    d1-key: { type: string }
+    shuffle: { type: integer }
+    key:
+      type: integer
+      title: "the key title"
+      description: "the key description"
+    moar: { type: number }
+
+test://root/reg-schema.json:
+  $defs: { qib: true }
+
+test://root:
+  collections:
+    d1/collection:
+      schema: a-schema.json
+      key: [/d1-key]
+      store: {name: endpoint}
+      derivation:
+        register:
+          schema: reg-schema.json#/$defs/qib
+          initial: { "initial": ["value", 32] }
+        transform:
+          some-name:
+            source:
+              name: src/collection
+              partitions:
+                include: { "a_field": ["foo", 42] }
+                exclude: { "other_field": [false] }
+              schema: alt-schema.json#foobar
+            readDelay: "1 hour"
+            priority: 32
+            shuffle:
+              key: ["/shuffle", "/key"]
+            update: { nodeJS: "update one" }
+            publish: { nodeJS: "publish one" }
+
+    d2/collection:
+      schema: a-schema.json
+      key: [/d2-key]
+      store: {name: endpoint}
+      derivation:
+        transform:
+          do-the-thing:
+            source:
+              name: src/collection
+            publish: { nodeJS: "publish two" }

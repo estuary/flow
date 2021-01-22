@@ -1,0 +1,92 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://root#/collections/test,
+            collection: test,
+            schema: test://external/a#/$defs/a,
+            key: ["/a"],
+            store_endpoint: endpoint,
+            store_patch_config: {},
+        },
+    ],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+        Fetch {
+            resource: test://external/a,
+        },
+        Fetch {
+            resource: test://external/b,
+        },
+        Fetch {
+            resource: test://external/c,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://external/b#/$defs/c/$ref,
+            from_resource: test://external/b,
+            to_resource: test://external/c,
+        },
+        Import {
+            scope: test://external/a#/$defs/a/$ref,
+            from_resource: test://external/a,
+            to_resource: test://external/b,
+        },
+        Import {
+            scope: test://root#/collections/test/schema,
+            from_resource: test://root,
+            to_resource: test://external/a,
+        },
+    ],
+    materializations: [],
+    nodejs_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://external/a,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://external/b,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://external/c,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://external/c,
+            dom: true,
+        },
+        SchemaDoc {
+            schema: test://external/b,
+            dom: {"$defs":{"c":{"$ref":"c"}}},
+        },
+        SchemaDoc {
+            schema: test://external/a,
+            dom: {"$defs":{"a":{"$ref":"b#/$defs/c"}}},
+        },
+    ],
+    test_steps: [],
+    transforms: [],
+}

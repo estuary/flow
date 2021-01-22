@@ -1,0 +1,58 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://root#/collections/a~1collection,
+            collection: a/collection,
+            schema: test://actual,
+            key: ["/key"],
+            store_endpoint: endpoint,
+            store_patch_config: {},
+        },
+    ],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+        Fetch {
+            resource: test://actual,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://root#/collections/a~1collection/schema,
+            from_resource: test://root,
+            to_resource: test://actual,
+        },
+    ],
+    materializations: [],
+    nodejs_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://actual,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://actual,
+            dom: {"$defs":{"wrapper":{"$defs":{"a":{"$id":"test://fake/other/a-doc","items":[true,{"$ref":"b-doc#/items/1"}]},"b":{"$id":"test://fake/other/b-doc","items":[{"$ref":"a-doc#/items/0"},true]},"c":true},"$id":"test://fake/root","allOf":[{"$ref":"other/a-doc#/items/1"},{"$ref":"test://fake/other/b-doc#/items/0"},{"$ref":"#/$defs/c"},{"$ref":"test://fake/root#/$defs/c"}]}},"$ref":"test://fake/root"},
+        },
+    ],
+    test_steps: [],
+    transforms: [],
+}
