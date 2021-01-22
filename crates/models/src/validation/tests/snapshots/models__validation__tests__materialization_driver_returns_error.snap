@@ -1,0 +1,13 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-string-materialization#/materializations/testing~1int-string,
+        error: driver error while validating materialization testing/int-string
+        
+        Caused by:
+            A driver error!,
+    },
+]

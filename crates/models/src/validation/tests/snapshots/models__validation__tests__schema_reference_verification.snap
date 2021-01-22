@@ -1,0 +1,46 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://root,
+        error: schema $ref 'test://int-string.schema#/whoops', referenced by 'test://int-string-len.schema', was not found,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve,
+        error: keyed location /int (having type "array", "boolean", "null", "number", "object", "string") must be required to exist by schema test://int-halve#/collections/testing~1int-halve,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/projections/Len,
+        error: keyed location /len (having type "integer") must be required to exist by schema test://int-halve#/collections/testing~1int-halve/projections/Len,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: keyed location /len (having type "integer") must be required to exist by schema test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: keyed location /int (having type "array", "boolean", "null", "number", "object", "string") must be required to exist by schema test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+        error: keyed location /len (having type "integer") must be required to exist by schema test://int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+        error: keyed location /int (having type "array", "boolean", "null", "number", "object", "string") must be required to exist by schema test://int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+    },
+]

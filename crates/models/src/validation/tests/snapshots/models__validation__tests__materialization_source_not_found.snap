@@ -1,0 +1,14 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-string-materialization#/materializations/testing~1int-string,
+        error: collection testiNg/int-strinK, referenced by materialization testing/int-string, is not defined; did you mean testing/int-string defined at test://int-string#/collections/testing~1int-string?,
+    },
+    Error {
+        scope: test://int-halve-materialization#/materializations/testing~1int-halve,
+        error: collection wildly/off/name, referenced by materialization testing/int-halve, is not defined,
+    },
+]

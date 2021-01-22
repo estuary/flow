@@ -1,0 +1,14 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-string-tests#/tests/A%20Test/0,
+        error: collection testinG/Int-strin, referenced by test step A Test, is not defined; did you mean testing/int-string defined at test://int-string#/collections/testing~1int-string?,
+    },
+    Error {
+        scope: test://int-string-tests#/tests/A%20Test/1,
+        error: collection wildly/Off/Name, referenced by test step A Test, is not defined,
+    },
+]
