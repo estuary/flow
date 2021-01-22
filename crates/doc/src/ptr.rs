@@ -25,9 +25,34 @@ pub enum Token<'t> {
 pub struct Iter<'t>(&'t [u8]);
 
 impl Pointer {
-    // Builds an empty Pointer which references the document root.
-    pub fn new() -> Pointer {
+    /// Builds an empty Pointer which references the document root.
+    pub fn empty() -> Pointer {
         Pointer(TinyVec::new())
+    }
+
+    /// Builds a Pointer from the given string, which is an encoded JSON pointer.
+    pub fn from_str(s: &str) -> Pointer {
+        if s.is_empty() {
+            return Pointer(TinyVec::new());
+        }
+        let mut tape = Pointer(TinyVec::new());
+
+        s.split('/')
+            .skip(if s.starts_with('/') { 1 } else { 0 })
+            .map(|t| t.replace("~1", "/").replace("~0", "~"))
+            .for_each(|t| {
+                if t == "-" {
+                    tape.push(Token::NextIndex);
+                } else if t.starts_with('+') || (t.starts_with('0') && t.len() > 1) {
+                    tape.push(Token::Property(&t));
+                } else if let Ok(ind) = usize::from_str(&t) {
+                    tape.push(Token::Index(ind));
+                } else {
+                    tape.push(Token::Property(&t));
+                }
+            });
+
+        tape
     }
 
     /// Builds a `Pointer` from a `Location`. Since both `Location` and `Pointer`
@@ -56,7 +81,7 @@ impl Pointer {
     /// assert_eq!(expected_tokens, actual_tokens);
     /// ```
     pub fn from_location(location: &Location) -> Pointer {
-        location.fold(Pointer::new(), |location, mut ptr| {
+        location.fold(Pointer::empty(), |location, mut ptr| {
             match location {
                 Location::Root => {}
                 Location::Property(prop) => {
@@ -110,34 +135,14 @@ impl Pointer {
 
 impl Default for Pointer {
     fn default() -> Self {
-        Self::new()
+        Self::empty()
     }
 }
 
 impl<S: AsRef<str>> From<S> for Pointer {
     fn from(s: S) -> Self {
         let s = s.as_ref();
-        if s.is_empty() {
-            return Pointer(TinyVec::new());
-        }
-        let mut tape = Pointer(TinyVec::new());
-
-        s.split('/')
-            .skip(if s.starts_with('/') { 1 } else { 0 })
-            .map(|t| t.replace("~1", "/").replace("~0", "~"))
-            .for_each(|t| {
-                if t == "-" {
-                    tape.push(Token::NextIndex);
-                } else if t.starts_with('+') || (t.starts_with('0') && t.len() > 1) {
-                    tape.push(Token::Property(&t));
-                } else if let Ok(ind) = usize::from_str(&t) {
-                    tape.push(Token::Index(ind));
-                } else {
-                    tape.push(Token::Property(&t));
-                }
-            });
-
-        tape
+        Pointer::from_str(s.as_ref())
     }
 }
 
@@ -287,14 +292,7 @@ impl Pointer {
 
 impl std::fmt::Debug for Pointer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for tok in self.iter() {
-            match tok {
-                Token::Index(ind) => write!(f, "/{}", ind)?,
-                Token::Property(p) => write!(f, "/{}", p)?,
-                Token::NextIndex => f.write_str("/-")?,
-            }
-        }
-        Ok(())
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 

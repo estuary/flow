@@ -979,8 +979,11 @@ fn intersect_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Opt
 }
 
 impl Shape {
-    /// Locate the pointer within this Shape. Returns None if the pointed
-    /// Shape (or a parent thereof) does not exist.
+    /// Locate the pointer within this Shape, and return the referenced Shape
+    /// along with an indication of whether the location must always exist (true)
+    /// or is optional (false).
+    ///
+    /// Returns None if the pointed Shape (or a parent thereof) is unknown.
     pub fn locate(&self, ptr: &Pointer) -> Option<(&Shape, bool)> {
         let mut shape = self;
         let mut must_exist = true;
@@ -1029,6 +1032,10 @@ impl Shape {
         } else if let Token::Property(prop) = token {
             prop
         } else {
+            // We deliberately don't handle the "/-" end-of-array case.
+            // It's returned by locations, below, but we don't allow an
+            // explicitly-given pointer to reference this location, since
+            // it's not actually addressable.
             return None;
         };
 
@@ -1048,6 +1055,63 @@ impl Shape {
         } else {
             None
         }
+    }
+
+    /// Produce flattened locations of nested items and properties of this Shape,
+    /// as tuples of the encoded location JSON Pointer, its shape, and a
+    /// "must exist" bool.
+    pub fn locations(&self) -> Vec<(String, &Shape, bool)> {
+        let mut out = Vec::new();
+        self.locations_inner(Location::Root, true, &mut out);
+        out
+    }
+
+    fn locations_inner<'s>(
+        &'s self,
+        location: Location<'_>,
+        must_exist: bool,
+        out: &mut Vec<(String, &'s Shape, bool)>,
+    ) {
+        out.push((location.pointer_str().to_string(), self, must_exist));
+
+        // Traverse sub-locations of this location when it takes an object
+        // or array type. As a rule, children must exist only if their parent
+        // does, the parent can *only* take the applicable type, and it has
+        // validations which require that the child exist.
+
+        for ObjProperty {
+            name,
+            shape: child,
+            is_required,
+        } in &self.object.properties
+        {
+            child.locations_inner(
+                location.push_prop(name),
+                must_exist && self.type_ == types::OBJECT && *is_required,
+                out,
+            );
+        }
+
+        let ArrayShape {
+            tuple,
+            additional: array_additional,
+            min: array_min,
+            ..
+        } = &self.array;
+
+        for (index, child) in tuple.into_iter().enumerate() {
+            child.locations_inner(
+                location.push_item(index),
+                must_exist && self.type_ == types::ARRAY && index < array_min.unwrap_or_default(),
+                out,
+            );
+        }
+
+        // As an aide to documentation of repeated items, produce an inference
+        // using '-' ("after last item" within json-pointer spec).
+        if let Some(child) = array_additional {
+            child.locations_inner(location.push_end_of_array(), false, out);
+        };
     }
 }
 
@@ -1874,6 +1938,7 @@ mod test {
             (&arr, "/3", Some(("addl-item", false))),
             (&arr, "/9", Some(("addl-item", false))),
             (&arr, "/10", None),
+            (&arr, "/-", None),
         ];
 
         for (shape, ptr, expect) in cases {
@@ -1893,11 +1958,53 @@ mod test {
             });
             assert_eq!(expect, &actual, "case {:?}", ptr);
         }
+
+        let obj_locations = obj
+            .locations()
+            .into_iter()
+            .map(|(ptr, shape, must_exist)| (ptr, shape.type_, must_exist))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            obj_locations,
+            vec![
+                ("".to_string(), types::OBJECT, true),
+                (
+                    "/multi-type".to_string(),
+                    types::ARRAY | types::OBJECT,
+                    false
+                ),
+                ("/multi-type/child".to_string(), types::STRING, false),
+                ("/parent".to_string(), types::OBJECT, true),
+                ("/parent/42".to_string(), types::STRING, false),
+                ("/parent/opt-child".to_string(), types::STRING, false),
+                ("/parent/req-child".to_string(), types::STRING, true),
+                ("/prop".to_string(), types::STRING, false),
+            ]
+        );
+
+        let arr_locations = arr
+            .locations()
+            .into_iter()
+            .map(|(ptr, shape, must_exist)| (ptr, shape.type_, must_exist))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            arr_locations,
+            vec![
+                ("".to_string(), types::ARRAY, true),
+                ("/0".to_string(), types::STRING, true),
+                ("/1".to_string(), types::STRING, true),
+                ("/2".to_string(), types::STRING, false),
+                ("/-".to_string(), types::STRING, false),
+            ]
+        );
     }
 
     #[test]
     fn test_union_with_impossible_shape() {
-        let obj = shape_from(r#"
+        let obj = shape_from(
+            r#"
             oneOf:
             - false
             - type: object
@@ -1907,11 +2014,15 @@ mod test {
               additionalProperties:
                 type: integer
                 reduce: {strategy: sum}
-        "#);
+        "#,
+        );
 
         assert_eq!(obj.inspect(), vec![]);
         assert_eq!("testTitle", obj.title.as_deref().unwrap_or_default());
-        assert_eq!("testDescription", obj.description.as_deref().unwrap_or_default());
+        assert_eq!(
+            "testDescription",
+            obj.description.as_deref().unwrap_or_default()
+        );
         assert_eq!(Reduction::Merge, obj.reduction);
         assert!(obj.object.additional.is_some());
     }
