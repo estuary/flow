@@ -117,5 +117,5 @@ var (
 	DocumentUUIDPlaceholder = []byte("DocUUIDPlaceholder-329Bb50aa48EAa9ef")
 	// DocumentAckJSONTemplate is a JSON-encoded document template which serves
 	// as a Gazette consumer transaction acknowledgement.
-	DocumentAckJSONTemplate = []byte(`{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}`)
+	DocumentAckJSONTemplate = `{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}`
 )

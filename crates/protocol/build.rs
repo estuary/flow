@@ -67,7 +67,7 @@ static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
         field_attrs: &[
             ("uuid_ptr", OPTIONAL_STRING_ATTR),
             ("partition_fields", OPTIONAL_VEC_ATTR),
-            ("ack_json_template", OPTIONAL_VEC_ATTR),
+            ("ack_json_template", OPTIONAL_STRING_ATTR),
             ("journal_spec", OPTIONAL_STRUCT_ATTR),
         ],
     },
@@ -93,6 +93,21 @@ static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
             ("format", OPTIONAL_STRING_ATTR),
             ("max_length", OPTIONAL_U32_ATTR),
         ],
+    },
+    TypeAttrs {
+        path: "flow.Shuffle.Hash",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    TypeAttrs {
+        path: "materialize.FieldSelection",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    TypeAttrs {
+        path: "materialize.Constraint",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
     },
 ];
 

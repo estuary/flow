@@ -186,7 +186,7 @@ message CollectionSpec {
   protocol.JournalSpec journal_spec = 7 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  bytes ack_json_template = 8;
+  string ack_json_template = 8;
 }
 
 // Transform describes a specific transform of a derived collection.

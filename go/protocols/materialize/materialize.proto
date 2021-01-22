@@ -100,6 +100,9 @@ message ValidateRequest {
   bytes handle = 1;
   // Collection to be materialized.
   flow.CollectionSpec collection = 2;
+  // Projection configuration, keyed by the projection field name,
+  // with JSON-encoded and driver-defined configuration objects.
+  map<string, string> field_config = 3;
 }
 
 // ValidateResponse is the response type of the Validate RPC.
@@ -115,15 +118,17 @@ message ValidateResponse {
 message FieldSelection {
   // The fields that are being used as the primary key for this materialization. Flow will guarantee
   // that each location that's part of a collection's key is represented here exactly once, and in
-  // the same order as the keys are declared in the collection. 
+  // the same order as the keys are declared in the collection.
   repeated string keys = 1;
   // All other materialized fields, except for those in keys and the root document field, will be listed here in
   // a stable order. Note that not all materializations will have or need any "values" fields (e.g.
   // materializing to a key-value store like dynamo)
   repeated string values = 2;
-  // The name of the field holding the root document. This is the field that flow will expect to be
-  // able to query as part of the Load rpc.
+  // The name of the field holding the root document.
   string document = 3;
+  // Projection configuration, keyed by the projection field name,
+  // with JSON-encoded and driver-defined configuration objects.
+  map<string, string> field_config = 4;
 }
 
 // ApplyRequest is the request type of the Apply RPC.
