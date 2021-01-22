@@ -1,0 +1,34 @@
+[package]
+name = "models"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+json = { path = "../json", version = "0.0.0" }
+doc = { path = "../doc", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+
+anyhow = "*"
+caseless = "*"
+futures = "*"
+humantime-serde = "*"
+itertools = "*"
+json-patch = "*"
+lazy_static = "*"
+pathfinding = "*"
+regex = "*"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+schemars = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = { version =  "*", features = ["raw_value"] }
+serde_yaml = "*"
+strsim = "*"
+superslice = "*"
+thiserror = "*"
+unicode-normalization = "*"
+url = "*"
+yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
+
+[dev-dependencies]
+insta = "*"
