@@ -10,13 +10,11 @@ http-body = "*"
 hyper = "*"
 hyperlocal = "*"
 log = "*"
-tower = "*"
-# At this time, hyper & hyperlocal depend on tokio 0.2 and not 0.3.
-# This crate fails to build with tokio 0.3.
-tokio = { version = "0.2", features = ["full"] }
+tower = "0.4"
+tokio = { version = "*", features = ["full"] }
 
 [dev-dependencies]
 # TODO(johnny): Remove me. It's used for a couple of unit tests only
 # but brings in a lot of dependencies. Replace with a hyper server?
-warp = "*"
+warp = "0.3"
 tempfile = "*"
