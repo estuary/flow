@@ -6,7 +6,7 @@ use super::pipeline::PendingPipeline;
 use super::registers::{self, Registers};
 use crate::setup_env_tracing;
 
-use bytes::{buf::BufMutExt, BufMut};
+use bytes::BufMut;
 use doc::{self, reduce, Pointer};
 use futures::channel::mpsc;
 use futures::sink::SinkExt;
@@ -976,40 +976,35 @@ mod tests {
             let runtime = APIInner::build_runtime();
 
             // Build a lambda which increments the current register value by one.
-            let do_increment = runtime.enter(|| {
-                LambdaTestServer::start_v2(|_source, _register, _previous| {
-                    // Return two register updates with an effective increment of 1.
-                    vec![
-                        json!({"type": "add", "value": 3}),
-                        json!({"type": "add", "value": -2}),
-                    ]
-                })
+            let enter_guard = runtime.enter();
+            let do_increment = LambdaTestServer::start_v2(|_source, _register, _previous| {
+                // Return two register updates with an effective increment of 1.
+                vec![
+                    json!({"type": "add", "value": 3}),
+                    json!({"type": "add", "value": -2}),
+                ]
             });
             // Build a lambda which resets the register from a value of the source document.
-            let do_reset = runtime.enter(|| {
-                LambdaTestServer::start_v2(|source, _register, _previous| {
-                    let to = source.pointer("/reset").unwrap().as_i64().unwrap();
+            let do_reset = LambdaTestServer::start_v2(|source, _register, _previous| {
+                let to = source.pointer("/reset").unwrap().as_i64().unwrap();
 
-                    // Emit an invalid register document on seeing value -1.
-                    if to == -1 {
-                        vec![json!({"type": "set", "value": "negative one!"})]
-                    } else {
-                        vec![json!({"type": "set", "value": to})]
-                    }
-                })
+                // Emit an invalid register document on seeing value -1.
+                if to == -1 {
+                    vec![json!({"type": "set", "value": "negative one!"})]
+                } else {
+                    vec![json!({"type": "set", "value": to})]
+                }
             });
             // Build a lambda which joins the source with its previous register.
-            let do_publish = runtime.enter(|| {
-                LambdaTestServer::start_v2(|source, _register, previous| {
-                    // Join |src| with the register value before its update.
-                    let mut doc = source.as_object().unwrap().clone();
-                    doc.insert(
-                        "values".to_owned(),
-                        json!([previous.unwrap().pointer("/value").unwrap().clone()]),
-                    );
+            let do_publish = LambdaTestServer::start_v2(|source, _register, previous| {
+                // Join |src| with the register value before its update.
+                let mut doc = source.as_object().unwrap().clone();
+                doc.insert(
+                    "values".to_owned(),
+                    json!([previous.unwrap().pointer("/value").unwrap().clone()]),
+                );
 
-                    vec![Value::Object(doc)]
-                })
+                vec![Value::Object(doc)]
             });
 
             // Assemble transforms for our context.
@@ -1054,6 +1049,7 @@ mod tests {
             };
 
             let tmpdir = tempfile::TempDir::new().unwrap();
+            std::mem::drop(enter_guard);
 
             let inner =
                 APIInner::from_parts(runtime, schema_index, ctx, env, tmpdir.path(), None).unwrap();

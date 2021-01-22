@@ -7,16 +7,14 @@ edition = "2018"
 [dependencies]
 http = "*"
 http-body = "*"
-hyper = "*"
-hyperlocal = "*"
+hyper = "0.14"
+hyperlocal = "0.8"
 log = "*"
-tower = "*"
-# At this time, hyper & hyperlocal depend on tokio 0.2 and not 0.3.
-# This crate fails to build with tokio 0.3.
-tokio = { version = "0.2", features = ["full"] }
+tower = "0.4"
+tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 # TODO(johnny): Remove me. It's used for a couple of unit tests only
 # but brings in a lot of dependencies. Replace with a hyper server?
-warp = "*"
+warp = "0.3"
 tempfile = "*"
