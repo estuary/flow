@@ -73,6 +73,8 @@ pub mod shuffle {
     /// depending on thse use case.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
+    #[derive(serde::Deserialize, serde::Serialize)]
+    #[serde(deny_unknown_fields)]
     pub enum Hash {
         /// None performs no hash, returning the original key.
         None = 0,
@@ -216,10 +218,10 @@ pub struct CollectionSpec {
     pub journal_spec: ::std::option::Option<super::protocol::JournalSpec>,
     /// JSON-encoded document template for creating Gazette consumer
     /// transaction acknowledgements of writes into this collection.
-    #[prost(bytes, tag = "8")]
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[doc("This field is optional. An empty Vec represents a missing value.")]
-    pub ack_json_template: std::vec::Vec<u8>,
+    #[prost(string, tag = "8")]
+    #[serde(default, skip_serializing_if = "str::is_empty")]
+    #[doc("This field is optional. An empty String denotes a missing value.")]
+    pub ack_json_template: std::string::String,
 }
 /// Transform describes a specific transform of a derived collection.
 #[derive(Clone, PartialEq, ::prost::Message)]
