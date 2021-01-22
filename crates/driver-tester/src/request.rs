@@ -255,7 +255,7 @@ pub fn new_store_req(fields: &FieldSelectionPointers, documents: &[TestDoc]) -> 
         let mut writer = arena.writer();
         serde_json::to_writer(&mut writer, &doc.json).expect("failed to serialize document json");
         let slice = writer.finish();
-        trace!("Store req document: {}", String::from_utf8_lossy(arena.bytes(slice)));
+        trace!("Store req document: {}", String::from_utf8_lossy(arena.bytes(slice.clone())));
         docs_json.push(slice);
         exists.push(doc.exists);
     }

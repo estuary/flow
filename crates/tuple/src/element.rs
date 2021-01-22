@@ -24,12 +24,6 @@ pub enum Element<'a> {
     Versionstamp(Versionstamp),
 }
 
-impl<'a> Default for Element<'a> {
-    fn default() -> Self {
-        Element::Nil
-    }
-}
-
 struct CmpElement<'a, 'b>(&'a Element<'b>);
 
 impl<'a, 'b> PartialEq for CmpElement<'a, 'b> {

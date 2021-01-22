@@ -29,7 +29,7 @@ tracing = "*"
 tracing-futures = "*"
 tracing-log = "*"
 tracing-subscriber = "*"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "*", features = ["full"] }
 url = "*"
 
 [dev-dependencies]

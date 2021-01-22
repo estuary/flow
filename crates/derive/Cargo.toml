@@ -22,13 +22,13 @@ itertools = "*"
 log = "*"
 mime = "*"
 pin-utils = "*"
-prost = "0.7"
+prost = "*"
 rocksdb = { version = "*", default-features = false }
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 thiserror = "*"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "*", features = ["full"] }
 tracing = "*"
 tracing-futures = "*"
 tracing-subscriber = "*"
