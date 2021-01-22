@@ -1,0 +1,95 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+        Fetch {
+            resource: test://root/A,
+        },
+        Fetch {
+            resource: test://root/B,
+        },
+        Fetch {
+            resource: test://root/C,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://root/A#/import/1,
+            from_resource: test://root/A,
+            to_resource: test://root/B,
+        },
+        Import {
+            scope: test://root/B#/import/0,
+            from_resource: test://root/B,
+            to_resource: test://root/C,
+        },
+        Import {
+            scope: test://root/B#/import/1,
+            from_resource: test://root/B,
+            to_resource: test://root/A,
+        },
+        Import {
+            scope: test://root#/import/1,
+            from_resource: test://root,
+            to_resource: test://root/B,
+        },
+        Import {
+            scope: test://root/C#/import/0,
+            from_resource: test://root/C,
+            to_resource: test://root,
+        },
+        Import {
+            scope: test://root/C#/import/1,
+            from_resource: test://root/C,
+            to_resource: test://root/B,
+        },
+        Import {
+            scope: test://root/A#/import/0,
+            from_resource: test://root/A,
+            to_resource: test://root/C,
+        },
+        Import {
+            scope: test://root#/import/0,
+            from_resource: test://root,
+            to_resource: test://root/A,
+        },
+    ],
+    materializations: [],
+    nodejs_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/A,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/B,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/C,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [],
+    test_steps: [],
+    transforms: [],
+}

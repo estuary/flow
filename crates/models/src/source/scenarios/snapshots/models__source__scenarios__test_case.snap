@@ -1,0 +1,49 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+    ],
+    imports: [],
+    materializations: [],
+    nodejs_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [],
+    test_steps: [
+        TestStep {
+            scope: test://root#/tests/A%20test%20case/0,
+            test: A test case,
+            step_index: 0,
+            step: {"ingest":{"collection":"test/collection","documents":[{"ingest":1},true]}},
+        },
+        TestStep {
+            scope: test://root#/tests/A%20test%20case/1,
+            test: A test case,
+            step_index: 1,
+            step: {"verify":{"collection":"test/collection","documents":[{"verify":2},false],"partitions":null}},
+        },
+        TestStep {
+            scope: test://root#/tests/A%20test%20case/2,
+            test: A test case,
+            step_index: 2,
+            step: {"verify":{"collection":"test/collection","documents":[{"verify":3},"fin"],"partitions":{"include":{"a_field":["some-val"]},"exclude":{}}}},
+        },
+    ],
+    transforms: [],
+}

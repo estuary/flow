@@ -1,0 +1,69 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [
+        Capture {
+            scope: test://root#/captures/my%20bucket%20capture,
+            capture: my bucket capture,
+            collection: a/collection,
+            allow_push: 0,
+            endpoint: my bucket,
+            patch_config: {},
+        },
+        Capture {
+            scope: test://root#/captures/my%20table%20capture,
+            capture: my table capture,
+            collection: other/collection,
+            allow_push: 0,
+            endpoint: my DB,
+            patch_config: {"extra":"stuff"},
+        },
+    ],
+    collections: [],
+    derivations: [],
+    endpoints: [
+        Endpoint {
+            scope: test://root#/endpoints/my%20DB,
+            endpoint: my DB,
+            endpoint_type: "Postgres",
+            base_config: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
+        },
+        Endpoint {
+            scope: test://root#/endpoints/my%20bucket,
+            endpoint: my bucket,
+            endpoint_type: "S3",
+            base_config: {"bucket":"foobar","prefix":"path/prefix"},
+        },
+    ],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+    ],
+    imports: [],
+    materializations: [
+        Materialization {
+            scope: test://root#/materializations/my%20materialization,
+            materialization: my materialization,
+            collection: source/collection,
+            endpoint: my DB,
+            patch_config: {"table":"foobar"},
+            field_selector: {"include":{"add":{}},"exclude":["del"],"recommended":true},
+        },
+    ],
+    nodejs_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [],
+    test_steps: [],
+    transforms: [],
+}

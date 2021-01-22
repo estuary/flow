@@ -1,0 +1,75 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://root#/collections/test~1collection,
+            collection: test/collection,
+            schema: test://root/schema.json#foobar,
+            key: ["/key/1","/key/0"],
+            store_endpoint: endpoint,
+            store_patch_config: {},
+        },
+    ],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+        Fetch {
+            resource: test://root/schema.json,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://root#/collections/test~1collection/schema,
+            from_resource: test://root,
+            to_resource: test://root/schema.json,
+        },
+    ],
+    materializations: [],
+    nodejs_dependencies: [],
+    projections: [
+        Projection {
+            scope: test://root#/collections/test~1collection/projections/field_a,
+            collection: test/collection,
+            field: field_a,
+            location: /a/a,
+            partition: 1,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://root#/collections/test~1collection/projections/field_b,
+            collection: test/collection,
+            field: field_b,
+            location: /b/b,
+            partition: 0,
+            user_provided: 1,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://root/schema.json,
+            dom: {"$anchor":"foobar","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
+        },
+    ],
+    test_steps: [],
+    transforms: [],
+}
