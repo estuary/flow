@@ -18,5 +18,6 @@ serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 tempfile = "*"
 thiserror = "*"
-tokio = { version = "0.2", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["io-util"] }
 tonic = { version = "0.4" }

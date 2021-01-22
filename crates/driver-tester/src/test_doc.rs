@@ -104,7 +104,7 @@ fn rand_test_value(rng: &mut impl Rng, projection: &Projection) -> Option<Value>
         "number" => {
             // the rng will generate a number between 0 and 1, so we multiply it to distribute the
             // range a bit better.
-            let mul = rng.gen_range(1i32, 4000i32);
+            let mul = rng.gen_range(1i32..4000i32);
             let n = rng.gen::<f64>() * mul as f64;
             Some(n.into())
         }
@@ -119,7 +119,7 @@ fn rand_test_value(rng: &mut impl Rng, projection: &Projection) -> Option<Value>
                     max_len = string.max_length as usize;
                 }
             }
-            let len: usize = rng.gen_range(0, max_len);
+            let len: usize = rng.gen_range(0..max_len);
             Some(gen_rand_alphanumeric(len, rng).into())
         }
         "boolean" => Some(rng.gen::<bool>().into()),
@@ -129,7 +129,7 @@ fn rand_test_value(rng: &mut impl Rng, projection: &Projection) -> Option<Value>
 }
 
 fn gen_rand_alphanumeric(len: usize, rng: &mut impl Rng) -> String {
-    std::iter::repeat_with(|| rng.sample(rand::distributions::Alphanumeric))
+    std::iter::repeat_with(|| rng.sample(rand::distributions::Alphanumeric) as char)
         .take(len)
         .collect::<String>()
 }

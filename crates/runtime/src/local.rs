@@ -227,11 +227,18 @@ impl Local {
             ("gazette", &mut self.gazette),
             ("etcd", &mut self.etcd),
         ] {
-            nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(child.id() as i32),
-                nix::sys::signal::Signal::SIGTERM,
-            )?;
-            log::info!("{} exited: {}", name, child.await?);
+            // if id() returns None, then it is because the process has already been awaited.
+            // It is expected that it should always return Some here, but seeing as we're just
+            // trying to stop things, we won't treat it as an error condition.
+            if let Some(pid) = child.id() {
+                nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid as i32),
+                    nix::sys::signal::Signal::SIGTERM,
+                )?;
+                log::info!("{} exited: {}", name, child.wait().await?);
+            } else {
+                log::warn!("unable to obtain PID of child: {}. This is likely because the process has already exited", name);
+            }
         }
         Ok(())
     }
@@ -283,11 +290,10 @@ impl Log {
         name: &str,
         child: &mut tokio::process::Child,
     ) -> impl Stream<Item = std::io::Result<Log>> {
-        let name = format!("runtime::{}<{}>", name, child.id());
+        let name = format!("runtime::{}<{}>", name, child.id().unwrap_or_default());
 
-        BufReader::new(child.stderr.take().unwrap())
-            .lines()
-            .map_ok(move |l| Log::parse(name.clone(), l))
+        let lines = BufReader::new(child.stderr.take().unwrap()).lines();
+        tokio_stream::wrappers::LinesStream::new(lines).map_ok(move |l| Log::parse(name.clone(), l))
     }
 }
 
