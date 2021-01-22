@@ -1,0 +1,10 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        error: transform reverseIntString shuffle key cannot be empty,
+    },
+]

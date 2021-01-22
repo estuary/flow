@@ -1,0 +1,421 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: source_tables
+---
+Tables {
+    captures: [
+        Capture {
+            scope: test://int-string-capture#/captures/testing~1int-string~1pull,
+            capture: testing/int-string/pull,
+            collection: testing/int-string,
+            allow_push: 0,
+            endpoint: captureEndpoint,
+            patch_config: {},
+        },
+        Capture {
+            scope: test://int-string-capture#/captures/testing~1int-string~1push,
+            capture: testing/int-string/push,
+            collection: testing/int-string,
+            allow_push: 1,
+            endpoint: NULL,
+            patch_config: {},
+        },
+    ],
+    collections: [
+        Collection {
+            scope: test://int-reverse#/collections/testing~1int-reverse,
+            collection: testing/int-reverse,
+            schema: test://int-string.schema,
+            key: ["/int"],
+            store_endpoint: storeEndpoint,
+            store_patch_config: {},
+        },
+        Collection {
+            scope: test://int-string#/collections/testing~1int-string,
+            collection: testing/int-string,
+            schema: test://int-string.schema,
+            key: ["/int"],
+            store_endpoint: storeEndpoint,
+            store_patch_config: {},
+        },
+        Collection {
+            scope: test://int-halve#/collections/testing~1int-halve,
+            collection: testing/int-halve,
+            schema: test://int-string-len.schema,
+            key: ["/int"],
+            store_endpoint: storeEndpoint,
+            store_patch_config: {},
+        },
+    ],
+    derivations: [
+        Derivation {
+            scope: test://int-reverse#/collections/testing~1int-reverse/derivation,
+            derivation: testing/int-reverse,
+            register_schema: test://int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+            register_initial: null,
+        },
+        Derivation {
+            scope: test://int-halve#/collections/testing~1int-halve/derivation,
+            derivation: testing/int-halve,
+            register_schema: test://int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
+            register_initial: 42,
+        },
+    ],
+    endpoints: [
+        Endpoint {
+            scope: test://root#/endpoints/captureEndpoint,
+            endpoint: captureEndpoint,
+            endpoint_type: "S3",
+            base_config: {"bucket":"a-bucket","prefix":"and-prefix"},
+        },
+        Endpoint {
+            scope: test://root#/endpoints/materializeEndpoint,
+            endpoint: materializeEndpoint,
+            endpoint_type: "S3",
+            base_config: {"bucket":"a-bucket","prefix":"and-prefix"},
+        },
+        Endpoint {
+            scope: test://root#/endpoints/storeEndpoint,
+            endpoint: storeEndpoint,
+            endpoint_type: "S3",
+            base_config: {"bucket":"a-bucket","prefix":"and-prefix"},
+        },
+    ],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+        Fetch {
+            resource: test://int-string,
+        },
+        Fetch {
+            resource: test://int-reverse,
+        },
+        Fetch {
+            resource: test://int-halve,
+        },
+        Fetch {
+            resource: test://int-string-capture,
+        },
+        Fetch {
+            resource: test://int-string-materialization,
+        },
+        Fetch {
+            resource: test://int-halve-materialization,
+        },
+        Fetch {
+            resource: test://int-string-tests,
+        },
+        Fetch {
+            resource: test://int-string.schema,
+        },
+        Fetch {
+            resource: test://int-string-len.schema,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://int-string#/import/0,
+            from_resource: test://int-string,
+            to_resource: test://int-halve,
+        },
+        Import {
+            scope: test://int-reverse#/import/0,
+            from_resource: test://int-reverse,
+            to_resource: test://int-string,
+        },
+        Import {
+            scope: test://int-reverse#/collections/testing~1int-reverse/schema,
+            from_resource: test://int-reverse,
+            to_resource: test://int-string.schema,
+        },
+        Import {
+            scope: test://int-reverse#/collections/testing~1int-reverse/derivation/register/schema,
+            from_resource: test://int-reverse,
+            to_resource: test://int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+        },
+        Import {
+            scope: test://root#/import/1,
+            from_resource: test://root,
+            to_resource: test://int-reverse,
+        },
+        Import {
+            scope: test://int-halve#/collections/testing~1int-halve/derivation/register/schema,
+            from_resource: test://int-halve,
+            to_resource: test://int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
+        },
+        Import {
+            scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString/source/schema,
+            from_resource: test://int-halve,
+            to_resource: test://int-string-len.schema,
+        },
+        Import {
+            scope: test://int-string-capture#/import/0,
+            from_resource: test://int-string-capture,
+            to_resource: test://int-string,
+        },
+        Import {
+            scope: test://root#/import/3,
+            from_resource: test://root,
+            to_resource: test://int-string-capture,
+        },
+        Import {
+            scope: test://int-string-materialization#/import/0,
+            from_resource: test://int-string-materialization,
+            to_resource: test://int-string,
+        },
+        Import {
+            scope: test://root#/import/4,
+            from_resource: test://root,
+            to_resource: test://int-string-materialization,
+        },
+        Import {
+            scope: test://int-halve-materialization#/import/0,
+            from_resource: test://int-halve-materialization,
+            to_resource: test://int-halve,
+        },
+        Import {
+            scope: test://root#/import/5,
+            from_resource: test://root,
+            to_resource: test://int-halve-materialization,
+        },
+        Import {
+            scope: test://int-string-tests#/import/0,
+            from_resource: test://int-string-tests,
+            to_resource: test://int-string,
+        },
+        Import {
+            scope: test://root#/import/6,
+            from_resource: test://root,
+            to_resource: test://int-string-tests,
+        },
+        Import {
+            scope: test://int-string#/collections/testing~1int-string/schema,
+            from_resource: test://int-string,
+            to_resource: test://int-string.schema,
+        },
+        Import {
+            scope: test://root#/import/0,
+            from_resource: test://root,
+            to_resource: test://int-string,
+        },
+        Import {
+            scope: test://int-string-len.schema#/$ref,
+            from_resource: test://int-string-len.schema,
+            to_resource: test://int-string.schema,
+        },
+        Import {
+            scope: test://int-halve#/collections/testing~1int-halve/schema,
+            from_resource: test://int-halve,
+            to_resource: test://int-string-len.schema,
+        },
+        Import {
+            scope: test://root#/import/2,
+            from_resource: test://root,
+            to_resource: test://int-halve,
+        },
+    ],
+    materializations: [
+        Materialization {
+            scope: test://int-string-materialization#/materializations/testing~1int-string,
+            materialization: testing/int-string,
+            collection: testing/int-string,
+            endpoint: materializeEndpoint,
+            patch_config: {"fixture":"one"},
+            field_selector: {"include":{"str":{"pass":"through"}},"exclude":["bit"],"recommended":true},
+        },
+        Materialization {
+            scope: test://int-halve-materialization#/materializations/testing~1int-halve,
+            materialization: testing/int-halve,
+            collection: testing/int-halve,
+            endpoint: materializeEndpoint,
+            patch_config: {"fixture":"two"},
+            field_selector: {"include":{"Len":{}},"exclude":[],"recommended":false},
+        },
+    ],
+    nodejs_dependencies: [],
+    projections: [
+        Projection {
+            scope: test://int-string#/collections/testing~1int-string/projections/Int,
+            collection: testing/int-string,
+            field: Int,
+            location: /int,
+            partition: 0,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://int-string#/collections/testing~1int-string/projections/bit,
+            collection: testing/int-string,
+            field: bit,
+            location: /bit,
+            partition: 1,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://int-halve#/collections/testing~1int-halve/projections/Extra,
+            collection: testing/int-halve,
+            field: Extra,
+            location: /extra,
+            partition: 0,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://int-halve#/collections/testing~1int-halve/projections/Len,
+            collection: testing/int-halve,
+            field: Len,
+            location: /len,
+            partition: 1,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://int-halve#/collections/testing~1int-halve/projections/Root,
+            collection: testing/int-halve,
+            field: Root,
+            location: ,
+            partition: 0,
+            user_provided: 1,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-string,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-reverse,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-halve,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-string-capture,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-string-materialization,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-halve-materialization,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-string-tests,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-string.schema,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://int-string-len.schema,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+            dom: true,
+        },
+        SchemaDoc {
+            schema: test://int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
+            dom: {"type":"integer"},
+        },
+        SchemaDoc {
+            schema: test://int-string.schema,
+            dom: {"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+        },
+        SchemaDoc {
+            schema: test://int-string-len.schema,
+            dom: {"$ref":"test://int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"bit":{},"int":{},"len":{"type":"integer"},"str":{}},"required":["len"]},
+        },
+    ],
+    test_steps: [
+        TestStep {
+            scope: test://int-string-tests#/tests/A%20Test/0,
+            test: A Test,
+            step_index: 0,
+            step: {"ingest":{"collection":"testing/int-string","documents":[{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}]}},
+        },
+        TestStep {
+            scope: test://int-string-tests#/tests/A%20Test/1,
+            test: A Test,
+            step_index: 1,
+            step: {"verify":{"collection":"testing/int-string","documents":[{"str":"string A"},{"str":"string B"}],"partitions":{"include":{"bit":[true]},"exclude":{}}}},
+        },
+    ],
+    transforms: [
+        Transform {
+            scope: test://int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+            transform: reverseIntString,
+            derivation: testing/int-reverse,
+            source_collection: testing/int-string,
+            source_partitions: NULL,
+            source_schema: NULL,
+            shuffle_key: NULL,
+            shuffle_lambda: NULL,
+            shuffle_hash: "None",
+            read_delay_seconds: NULL,
+            priority: 0,
+            update_lambda: NULL,
+            publish_lambda: {"nodeJS":"return [{\n  int: source.int,\n  str: source.str.reverse(),\n  len: source.str.length,\n}];\n"},
+        },
+        Transform {
+            scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+            transform: halveIntString,
+            derivation: testing/int-halve,
+            source_collection: testing/int-string,
+            source_partitions: {"include":{"bit":[true]},"exclude":{"bit":[false]}},
+            source_schema: test://int-string-len.schema,
+            shuffle_key: ["/len","/int"],
+            shuffle_lambda: NULL,
+            shuffle_hash: "None",
+            read_delay_seconds: NULL,
+            priority: 0,
+            update_lambda: NULL,
+            publish_lambda: {"nodeJS":"... transform int-string ...\n"},
+        },
+        Transform {
+            scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+            transform: halveSelf,
+            derivation: testing/int-halve,
+            source_collection: testing/int-halve,
+            source_partitions: NULL,
+            source_schema: NULL,
+            shuffle_key: ["/len","/int"],
+            shuffle_lambda: NULL,
+            shuffle_hash: "None",
+            read_delay_seconds: NULL,
+            priority: 0,
+            update_lambda: NULL,
+            publish_lambda: {"nodeJS":"... transform self ...\n"},
+        },
+    ],
+}

@@ -1,0 +1,18 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-reverse#/collections/testing~1int-reverse,
+        error: Postgres is not a supported endpoint type for a collection store,
+    },
+    Error {
+        scope: test://int-string#/collections/testing~1int-string,
+        error: Postgres is not a supported endpoint type for a collection store,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve,
+        error: Postgres is not a supported endpoint type for a collection store,
+    },
+]

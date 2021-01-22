@@ -1,0 +1,42 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://root#/materializations/,
+        error: materialization name cannot be empty,
+    },
+    Error {
+        scope: test://root#/materializations/~1bad~1name,
+        error: /bad/name cannot be used as name for materialization ("/" is invalid),
+    },
+    Error {
+        scope: test://root#/materializations/bad%20name,
+        error: bad name cannot be used as name for materialization (" name" is invalid),
+    },
+    Error {
+        scope: test://root#/materializations/bad!name,
+        error: bad!name cannot be used as name for materialization ("!name" is invalid),
+    },
+    Error {
+        scope: test://root#/materializations/bad~1~1name,
+        error: bad//name cannot be used as name for materialization ("//name" is invalid),
+    },
+    Error {
+        scope: test://root#/materializations/bad~1name~1,
+        error: bad/name/ cannot be used as name for materialization ("/" is invalid),
+    },
+    Error {
+        scope: test://root#/materializations/,
+        error: materialization  is a prohibited prefix of /bad/name, defined at test://root#/materializations/~1bad~1name,
+    },
+    Error {
+        scope: test://root#/materializations/testing,
+        error: materialization testing is a prohibited prefix of testing/int-halve, defined at test://int-halve-materialization#/materializations/testing~1int-halve,
+    },
+    Error {
+        scope: test://root#/materializations/testing~1int-sTRinG,
+        error: materialization testing/int-sTRinG has a duplicated definition at test://int-string-materialization#/materializations/testing~1int-string,
+    },
+]

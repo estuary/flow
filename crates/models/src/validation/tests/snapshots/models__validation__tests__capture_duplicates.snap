@@ -1,0 +1,10 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://root#/captures/testing~1int-string~1another~1pull,
+        error: captures testing/int-string/another/pull and testing/int-string/pull (at test://int-string-capture#/captures/testing~1int-string~1pull) both pull from endpoint captureEndpoint into collection testing/int-string,
+    },
+]

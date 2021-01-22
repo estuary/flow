@@ -1,0 +1,18 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-string#/collections/testing~1int-string,
+        error: collection testing/int-string references endpoint s3WithoutImport, defined at test://int-reverse#/endpoints/s3WithoutImport, without importing it or being imported by it,
+    },
+    Error {
+        scope: test://int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        error: transform reverseIntString references collection testing/int-string, defined at test://int-string#/collections/testing~1int-string, without importing it or being imported by it,
+    },
+    Error {
+        scope: test://int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: transform halveIntString references collection testing/int-string, defined at test://int-string#/collections/testing~1int-string, without importing it or being imported by it,
+    },
+]
