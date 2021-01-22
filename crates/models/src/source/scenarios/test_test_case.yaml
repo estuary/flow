@@ -1,0 +1,17 @@
+test://root:
+  tests:
+    "A test case":
+      - ingest:
+          collection: test/collection
+          documents: [{ "ingest": 1 }, true]
+      # No selector.
+      - verify:
+          collection: test/collection
+          documents: [{ "verify": 2 }, false]
+      # With selector.
+      - verify:
+          collection: test/collection
+          partitions:
+            include: { "a_field": ["some-val"] }
+            exclude: {}
+          documents: [{ "verify": 3 }, "fin"]

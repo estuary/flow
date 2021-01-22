@@ -1,0 +1,26 @@
+test://root:
+  collections:
+    test/collection:
+      schema: schema.json#foobar
+      key: [/key/1, /key/0]
+      store: {name: endpoint}
+      projections:
+        field_a: { location: /a/a, partition: true }
+        field_b: { location: /b/b, partition: false }
+
+test://root/schema.json:
+  $anchor: foobar
+  type: object
+  properties:
+    a:
+      type: object
+      properties:
+        a: { type: string }
+    b:
+      type: object
+      properties:
+        b: { type: string }
+    key:
+      type: array
+      items: { type: string }
+      minItems: 2

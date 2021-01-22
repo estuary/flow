@@ -1,0 +1,163 @@
+---
+source: crates/models/src/source/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://root#/collections/d2~1collection,
+            collection: d2/collection,
+            schema: test://root/a-schema.json,
+            key: ["/d2-key"],
+            store_endpoint: endpoint,
+            store_patch_config: {},
+        },
+        Collection {
+            scope: test://root#/collections/d1~1collection,
+            collection: d1/collection,
+            schema: test://root/a-schema.json,
+            key: ["/d1-key"],
+            store_endpoint: endpoint,
+            store_patch_config: {},
+        },
+    ],
+    derivations: [
+        Derivation {
+            scope: test://root#/collections/d2~1collection/derivation,
+            derivation: d2/collection,
+            register_schema: test://root?ptr=/collections/d2~1collection/derivation/register/schema,
+            register_initial: null,
+        },
+        Derivation {
+            scope: test://root#/collections/d1~1collection/derivation,
+            derivation: d1/collection,
+            register_schema: test://root/reg-schema.json#/$defs/qib,
+            register_initial: {"initial":["value",32]},
+        },
+    ],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://root,
+        },
+        Fetch {
+            resource: test://root/a-schema.json,
+        },
+        Fetch {
+            resource: test://root/reg-schema.json,
+        },
+        Fetch {
+            resource: test://root/alt-schema.json,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://root#/collections/d2~1collection/schema,
+            from_resource: test://root,
+            to_resource: test://root/a-schema.json,
+        },
+        Import {
+            scope: test://root#/collections/d2~1collection/derivation/register/schema,
+            from_resource: test://root,
+            to_resource: test://root?ptr=/collections/d2~1collection/derivation/register/schema,
+        },
+        Import {
+            scope: test://root#/collections/d1~1collection/schema,
+            from_resource: test://root,
+            to_resource: test://root/a-schema.json,
+        },
+        Import {
+            scope: test://root#/collections/d1~1collection/derivation/register/schema,
+            from_resource: test://root,
+            to_resource: test://root/reg-schema.json,
+        },
+        Import {
+            scope: test://root#/collections/d1~1collection/derivation/transform/some-name/source/schema,
+            from_resource: test://root,
+            to_resource: test://root/alt-schema.json,
+        },
+    ],
+    materializations: [],
+    nodejs_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://root,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root?ptr=/collections/d2~1collection/derivation/register/schema,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/a-schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/reg-schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://root/alt-schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://root?ptr=/collections/d2~1collection/derivation/register/schema,
+            dom: true,
+        },
+        SchemaDoc {
+            schema: test://root/a-schema.json,
+            dom: true,
+        },
+        SchemaDoc {
+            schema: test://root/reg-schema.json,
+            dom: {"$defs":{"qib":true}},
+        },
+        SchemaDoc {
+            schema: test://root/alt-schema.json,
+            dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
+        },
+    ],
+    test_steps: [],
+    transforms: [
+        Transform {
+            scope: test://root#/collections/d2~1collection/derivation/transform/do-the-thing,
+            transform: do-the-thing,
+            derivation: d2/collection,
+            source_collection: src/collection,
+            source_partitions: NULL,
+            source_schema: NULL,
+            shuffle_key: NULL,
+            shuffle_lambda: NULL,
+            shuffle_hash: "None",
+            read_delay_seconds: NULL,
+            priority: 0,
+            update_lambda: NULL,
+            publish_lambda: {"nodeJS":"publish two"},
+        },
+        Transform {
+            scope: test://root#/collections/d1~1collection/derivation/transform/some-name,
+            transform: some-name,
+            derivation: d1/collection,
+            source_collection: src/collection,
+            source_partitions: {"include":{"a_field":["foo",42]},"exclude":{"other_field":[false]}},
+            source_schema: test://root/alt-schema.json#foobar,
+            shuffle_key: ["/shuffle","/key"],
+            shuffle_lambda: NULL,
+            shuffle_hash: "None",
+            read_delay_seconds: 3600,
+            priority: 32,
+            update_lambda: {"nodeJS":"update one"},
+            publish_lambda: {"nodeJS":"publish one"},
+        },
+    ],
+}
