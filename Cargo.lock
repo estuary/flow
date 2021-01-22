@@ -792,6 +792,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37ab347416e802de484e4d03c7316c48f1ecb56574dfd4a46a80f173ce1de04d"
 
 [[package]]
+name = "fixedbitset"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e08c8bc7575d7e091fe0706963bd22e2a4be6a64da995f03b2a5a57d66ad015"
+
+[[package]]
 name = "flowctl"
 version = "0.0.0"
 dependencies = [
@@ -1374,6 +1380,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-patch"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f995a3c8f2bc3dd52a18a583e90f9ec109c047fa1603a853e46bcda14d2e279d"
+dependencies = [
+ "serde",
+ "serde_json",
+ "treediff",
+]
+
+[[package]]
 name = "kernel32-sys"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1605,6 +1622,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "models"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "caseless",
+ "doc",
+ "futures",
+ "humantime-serde",
+ "insta",
+ "itertools 0.9.0",
+ "json",
+ "json-patch",
+ "lazy_static",
+ "pathfinding",
+ "protocol",
+ "regex",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "strsim 0.10.0",
+ "superslice",
+ "thiserror",
+ "unicode-normalization",
+ "url",
+ "yaml-merge-keys",
+]
+
+[[package]]
 name = "multimap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1761,6 +1808,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pathfinding"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "420892051ecafcc27148ffdca64491dc14f65cfd8b1283df336b04f792c7a6a3"
+dependencies = [
+ "fixedbitset 0.3.1",
+ "indexmap",
+ "itertools 0.9.0",
+ "num-traits",
+]
+
+[[package]]
 name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1778,7 +1837,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "467d164a6de56270bd7c4d070df81d07beace25012d5103ced4e9ff08d6afdb7"
 dependencies = [
- "fixedbitset",
+ "fixedbitset 0.2.0",
  "indexmap",
 ]
 
@@ -2680,6 +2739,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "superslice"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab16ced94dbd8a46c82fd81e3ed9a8727dac2977ea869d217bcc4ea1f122e81f"
+
+[[package]]
 name = "syn"
 version = "1.0.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3223,6 +3288,15 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "treediff"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "761e8d5ad7ce14bb82b7e61ccc0ca961005a275a060b9644a2431aa11553c2ff"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
