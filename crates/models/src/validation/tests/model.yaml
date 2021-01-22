@@ -1,0 +1,221 @@
+test://root:
+  import:
+    - test://int-string
+    - test://int-reverse
+    - test://int-halve
+    - test://int-string-capture
+    - test://int-string-materialization
+    - test://int-halve-materialization
+    - test://int-string-tests
+  endpoints:
+    storeEndpoint:
+      s3:
+        bucket: a-bucket
+        prefix: and-prefix
+
+    captureEndpoint:
+      s3:
+        bucket: a-bucket
+        prefix: and-prefix
+
+    materializeEndpoint:
+      s3:
+        bucket: a-bucket
+        prefix: and-prefix
+
+test://int-string:
+  import:
+    # Backward import.
+    - test://int-halve
+  collections:
+    testing/int-string:
+      schema: test://int-string.schema
+      key: [/int]
+      store: { name: storeEndpoint }
+      projections:
+        Int: /int
+        bit:
+          location: /bit
+          partition: true
+
+test://int-string-capture:
+  import:
+    - test://int-string
+  captures:
+    testing/int-string/pull:
+      target:
+        name: testing/int-string
+      endpoint: { name: captureEndpoint }
+
+    testing/int-string/push:
+      target:
+        name: testing/int-string
+      pushAPI: {}
+
+test://int-string-materialization:
+  import:
+    - test://int-string
+  materializations:
+    testing/int-string:
+      source:
+        name: testing/int-string
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: one }
+      fields:
+        include:
+          str: { pass: through }
+        exclude:
+          - bit
+        recommended: true
+
+test://int-string-tests:
+  import:
+    - test://int-string
+  tests:
+    "A Test":
+      - ingest:
+          collection: testing/int-string
+          documents:
+            - { int: 42, str: "string A", bit: true }
+            - { int: 52, str: "string B", bit: true }
+      - verify:
+          collection: testing/int-string
+          documents:
+            - { str: "string A" }
+            - { str: "string B" }
+          partitions:
+            include:
+              bit: [true]
+
+test://int-reverse:
+  import:
+    # Forward import.
+    - test://int-string
+  collections:
+    testing/int-reverse:
+      schema: test://int-string.schema
+      key: [/int]
+      store: { name: storeEndpoint }
+      derivation:
+        transform:
+          reverseIntString:
+            source:
+              name: testing/int-string
+            publish:
+              nodeJS: |
+                return [{
+                  int: source.int,
+                  str: source.str.reverse(),
+                  len: source.str.length,
+                }];
+
+test://int-halve:
+  collections:
+    testing/int-halve:
+      schema: test://int-string-len.schema
+      key: [/int]
+      store: { name: storeEndpoint }
+      projections:
+        Root: ""
+        Len:
+          location: /len
+          partition: true
+        # Not directly discovered from schema,
+        # and instead inferred via additionalProperties.
+        Extra: /extra
+      derivation:
+        register:
+          schema:
+            type: integer
+          initial: 42
+        transform:
+          halveIntString:
+            source:
+              name: testing/int-string
+              schema: test://int-string-len.schema
+              partitions:
+                include:
+                  bit: [true]
+                exclude:
+                  bit: [false]
+            shuffle:
+              key: [/len, /int]
+            publish:
+              nodeJS: |
+                ... transform int-string ...
+
+          halveSelf:
+            source:
+              name: testing/int-halve
+            shuffle:
+              key: [/len, /int]
+            publish:
+              nodeJS: |
+                ... transform self ...
+
+test://int-halve-materialization:
+  import:
+    - test://int-halve
+  materializations:
+    testing/int-halve:
+      source:
+        name: testing/int-halve
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: two }
+      fields:
+        include:
+          Len: {}
+        recommended: false
+
+test://int-string.schema:
+  type: object
+  properties:
+    int: { type: integer }
+    str: { type: string }
+    bit: { type: boolean }
+  required: [int, str, bit]
+
+test://int-string-len.schema:
+  $ref: test://int-string.schema
+  properties:
+    len: { type: integer }
+    int: {}
+    str: {}
+    bit: {}
+  additionalProperties:
+    type: boolean
+  required: [len]
+
+driver:
+  materializations:
+    one:
+      endpoint: S3
+      config:
+        bucket: a-bucket
+        prefix: and-prefix
+        fixture: one
+      constraints:
+        flow_document: { type: 1, reason: "location required" }
+        # `Int`, as a user-defined projection, would be selected
+        # over `int`. However, `int` is required by the driver,
+        # and chosen instead.
+        Int: { type: 2, reason: "recommended" }
+        int: { type: 0, reason: "field required" }
+        str: { type: 3, reason: "optional" }
+        bit: { type: 4, reason: "field forbidden" }
+
+    two:
+      endpoint: S3
+      config:
+        bucket: a-bucket
+        prefix: and-prefix
+        fixture: two
+      constraints:
+        flow_document: { type: 1, reason: "location required" }
+        # `Root`, as a user-defined projection, is selected over `flow_document`.
+        Root: { type: 1, reason: "location required" }
+        int: { type: 0, reason: "required" }
+        Extra: { type: 1, reason: "location required" }
+        Len: { type: 3, reason: "optional" }

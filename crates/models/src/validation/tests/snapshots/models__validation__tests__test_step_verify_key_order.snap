@@ -1,0 +1,10 @@
+---
+source: crates/models/src/validation/tests/mod.rs
+expression: tables.errors
+---
+[
+    Error {
+        scope: test://int-string-tests#/tests/A%20Test/0,
+        error: documents to verify are not in collection key order,
+    },
+]
