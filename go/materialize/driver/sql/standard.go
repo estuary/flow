@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/estuary/flow/go/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 
@@ -66,6 +68,33 @@ func GazetteCheckpointsTable() *Table {
 	}
 }
 
+func convertStoreArgs(store *StoreDocument, cachedSQL *CachedSQL) ([]interface{}, error) {
+	var args []interface{}
+	// Are we doing an update or an insert?
+	// Note that the order of arguments is different for inserts vs updates.
+	if store.Update {
+		args = append(args, store.Values.ToInterface()...)
+		args = append(args, store.Document)
+		args = append(args, store.Key.ToInterface()...)
+
+		convertedValues, err := cachedSQL.UpdateValuesConverter.Convert(args...)
+		if err != nil {
+			return nil, err
+		}
+		return convertedValues, nil
+	} else {
+		args = append(args, store.Key.ToInterface()...)
+		args = append(args, store.Values.ToInterface()...)
+		args = append(args, store.Document)
+
+		convertedValues, err := cachedSQL.InsertValuesConverter.Convert(args...)
+		if err != nil {
+			return nil, err
+		}
+		return convertedValues, nil
+	}
+}
+
 // FlowMaterializationsTable returns the Table description for the table that holds the
 // MaterializationSpec that corresponds to each target table. This state is used both for sql
 // generation and for validation.
@@ -116,58 +145,119 @@ func (a *ArenaAppender) Scan(src interface{}) error {
 	return nil
 }
 
-type StandardSQLTransaction struct {
-	txn             *sql.Tx
-	updateStatement *sql.Stmt
-	insertStatement *sql.Stmt
-	queryStatement  *sql.Stmt
-	loadKeys        [][]interface{}
+type standardSqlLoadTransaction struct {
+	txn              *sql.Tx
+	ctx              context.Context
+	logEntry         *log.Entry
+	cachedSQL        *CachedSQL
+	loadKeyCh        <-chan tuple.Tuple
+	loadedDocumentCh chan<- LoadedDocument
+	queryStatement   *sql.Stmt
 }
 
-func (t *StandardSQLTransaction) AddLoadKey(ctx context.Context, key []interface{}) error {
-	// To keep things simple and generic, we'll just execute a prepared statement for each key. This
-	// will be much less efficient than batching, but it's easy to implement on top of a "lowest
-	// common denominator" interface.
-	t.loadKeys = append(t.loadKeys, key)
+func (t *standardSqlLoadTransaction) runLoadTransaction() (retErr error) {
+	defer close(t.loadedDocumentCh)
+	for keyTuple := range t.loadKeyCh {
+		var document json.RawMessage
+		var key, err = t.cachedSQL.QueryKeyConverter.Convert(keyTuple.ToInterface()...)
+		if err != nil {
+			err = fmt.Errorf("failed to convert key for load query: %w", err)
+		} else {
+			var row = t.queryStatement.QueryRowContext(t.ctx, key...)
+			err = row.Scan(&document)
+			if err == sql.ErrNoRows {
+				continue
+			}
+		}
+		var loadedDoc = LoadedDocument{
+			Document: document,
+			Error:    err,
+		}
+		select {
+		case t.loadedDocumentCh <- loadedDoc:
+			// ok, we sent the document
+		case <-t.ctx.Done():
+			// something else failed, so just stop what we're doing.
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	t.logEntry.Debug("Finished load portion of transaction")
 	return nil
 }
 
-func (t *StandardSQLTransaction) PollLoadResults(ctx context.Context, arena *pf.Arena) ([]pf.Slice, error) {
-	var appender = ArenaAppender{
-		arena: arena,
-	}
+type standardSqlStoreTransaction struct {
+	txn             *sql.Tx
+	ctx             context.Context
+	logEntry        *log.Entry
+	cachedSQL       *CachedSQL
+	updateStatement *sql.Stmt
+	insertStatement *sql.Stmt
+	storeDocumentCh <-chan StoreDocument
+	commitCh        chan<- error
+}
 
-	for _, key := range t.loadKeys {
-		var row = t.queryStatement.QueryRowContext(ctx, key...)
-		var err = row.Scan(&appender)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, fmt.Errorf("failed to scan results: %w", err)
+func (t *standardSqlStoreTransaction) runStoreTransaction() (retErr error) {
+	var commit = false
+
+	defer func() {
+		if !commit {
+			var rbErr = t.txn.Rollback()
+			t.logEntry.WithField("error", rbErr).Warnf("Rolled back transaction with result: %v", rbErr)
+
+			var commitErr = retErr
+			if commitErr == nil {
+				commitErr = errors.New("StoreDocument channel was closed without receiving an instruction to commit")
+			}
+			select {
+			case t.commitCh <- commitErr:
+				// sent the error response
+			case <-t.ctx.Done():
+				// oh well, at least we tried
+			}
+		}
+		close(t.commitCh)
+	}()
+
+	for doc := range t.storeDocumentCh {
+		// The Commit flag must only be true on the final message.
+		if commit {
+			panic("Attempt to commit transaction twice")
+		}
+		// We'll either store a document or commit the transaction. Commit obviously only happens
+		// once at the end.
+		if doc.Commit {
+			commit = true
+			t.logEntry.Debug("starting to commit transaction")
+			var commitErr = t.txn.Commit()
+			if commitErr != nil {
+				select {
+				case t.commitCh <- commitErr:
+					// sent commit result
+				case <-t.ctx.Done():
+					// It's too late to roll back the transaction, but this prevents deadlocking in
+					// the case that an error aborts the rpc after the instruction to commit has
+					// already been sent
+				}
+			}
+		} else {
+			var args, err = convertStoreArgs(&doc, t.cachedSQL)
+			if err != nil {
+				return err
+			}
+			if doc.Update {
+				_, err = t.updateStatement.ExecContext(t.ctx, args...)
+			} else {
+				_, err = t.insertStatement.ExecContext(t.ctx, args...)
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
-	t.loadKeys = t.loadKeys[:0]
-	return appender.slices, nil
-}
-
-func (t *StandardSQLTransaction) FlushLoadResults(ctx context.Context, arena *pf.Arena) ([]pf.Slice, error) {
-	return t.PollLoadResults(ctx, arena)
-}
-
-func (t *StandardSQLTransaction) Insert(ctx context.Context, args []interface{}) error {
-	var _, err = t.insertStatement.ExecContext(ctx, args...)
-	return err
-}
-
-func (t *StandardSQLTransaction) Update(ctx context.Context, args []interface{}) error {
-	var _, err = t.updateStatement.ExecContext(ctx, args...)
-	return err
-}
-
-func (t *StandardSQLTransaction) Commit(ctx context.Context) error {
-	return t.txn.Commit()
-}
-
-func (t *StandardSQLTransaction) Rollback() error {
-	return t.txn.Rollback()
+	return nil
 }
 
 type StandardSQLConnection struct {
@@ -176,11 +266,15 @@ type StandardSQLConnection struct {
 	SQLGen  SQLGenerator
 }
 
-// StarStartTransaction implements Conn
+// StarStartTransaction implements the Connection interface
 func (c *StandardSQLConnection) StartTransaction(ctx context.Context, handle *Handle, flowCheckpoint []byte, cachedSQL *CachedSQL) (Transaction, error) {
+	var logEntry = log.WithFields(log.Fields{
+		"nonce":   handle.Nonce,
+		"shardId": handle.ShardID,
+	})
 	var txn, err = c.DB.BeginTx(ctx, c.TxnOpts)
 	if err != nil {
-		return nil, err
+		return Transaction{}, err
 	}
 
 	updateCheckpoint, cpConverter, err := c.SQLGen.UpdateStatement(
@@ -189,45 +283,74 @@ func (c *StandardSQLConnection) StartTransaction(ctx context.Context, handle *Ha
 		[]string{GazetteCheckpointsShardIDColumn},
 	)
 	if err != nil {
-		return nil, err
+		return Transaction{}, err
 	}
 	cpUpdate, err := txn.PrepareContext(ctx, updateCheckpoint)
 	if err != nil {
-		return nil, err
+		return Transaction{}, err
 	}
 	args, err := cpConverter.Convert(flowCheckpoint, handle.ShardID)
 	if err != nil {
-		return nil, err
+		return Transaction{}, err
 	}
 	result, err := cpUpdate.ExecContext(ctx, args...)
 	if err != nil {
-		return nil, err
+		return Transaction{}, err
 	}
 	nRows, err := result.RowsAffected()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get number of affected rows for checkpoint update: %w", err)
+		return Transaction{}, fmt.Errorf("failed to get number of affected rows for checkpoint update: %w", err)
 	}
 	if nRows != 1 {
-		return nil, fmt.Errorf("Expected 1 flow checkpoint updated, but was %d", nRows)
+		return Transaction{}, fmt.Errorf("Expected 1 flow checkpoint updated, but was %d", nRows)
 	}
+	logEntry.Debug("updated flow_checkpoint")
 
 	insertStatement, err := txn.PrepareContext(ctx, cachedSQL.insertStatement)
 	if err != nil {
-		return nil, fmt.Errorf("insert statement error: %w", err)
+		return Transaction{}, fmt.Errorf("insert statement error: %w", err)
 	}
 	updateStatement, err := txn.PrepareContext(ctx, cachedSQL.updateStatement)
 	if err != nil {
-		return nil, fmt.Errorf("update statement error: %w", err)
+		return Transaction{}, fmt.Errorf("update statement error: %w", err)
 	}
 	queryStatement, err := txn.PrepareContext(ctx, cachedSQL.loadQuery)
 	if err != nil {
-		return nil, fmt.Errorf("query statement error: %w", err)
+		return Transaction{}, fmt.Errorf("query statement error: %w", err)
 	}
-	return &StandardSQLTransaction{
+
+	var loadedDocumentCh = make(chan LoadedDocument)
+	var loadKeyCh = make(chan tuple.Tuple)
+	var storeDocCh = make(chan StoreDocument)
+	var commitCh = make(chan error)
+
+	var loadTxnRunner = &standardSqlLoadTransaction{
+		txn:              txn,
+		queryStatement:   queryStatement,
+		ctx:              ctx,
+		logEntry:         logEntry,
+		cachedSQL:        cachedSQL,
+		loadKeyCh:        loadKeyCh,
+		loadedDocumentCh: loadedDocumentCh,
+	}
+	go loadTxnRunner.runLoadTransaction()
+	var storeTxnRunner = &standardSqlStoreTransaction{
 		txn:             txn,
+		ctx:             ctx,
+		logEntry:        logEntry,
+		cachedSQL:       cachedSQL,
 		insertStatement: insertStatement,
 		updateStatement: updateStatement,
-		queryStatement:  queryStatement,
+		storeDocumentCh: storeDocCh,
+		commitCh:        commitCh,
+	}
+	go storeTxnRunner.runStoreTransaction()
+
+	return Transaction{
+		LoadKeyCh:        loadKeyCh,
+		LoadedDocumentCh: loadedDocumentCh,
+		StoreDocumentCh:  storeDocCh,
+		CommitCh:         commitCh,
 	}, nil
 }
 
@@ -416,19 +539,22 @@ func (c *StandardSQLConnection) Fence(ctx context.Context, handle *Handle) ([]by
 	return flowCheckpoint, err
 }
 
-type StandardSQLConnectionManager struct {
+// StandardSQLConnectionBuilder builds Connections using the "standard" database/sql package.
+type StandardSQLConnectionBuilder struct {
+	// DriverName is used to open sql connections.
 	DriverName string
-	SQLGen     SQLGenerator
-	TxOptions  sql.TxOptions
+	// SQLGen is the SQLGenerator to use for generating all sql statements.
+	SQLGen SQLGenerator
+	// Options to use whenever beginning a new transaction.
+	TxOptions sql.TxOptions
 }
 
-func (m *StandardSQLConnectionManager) Connection(ctx context.Context, handle *Handle) (Connection, error) {
+// Connection implements ConnectionBuilder
+func (m *StandardSQLConnectionBuilder) Connection(ctx context.Context, uri string) (Connection, error) {
 	log.WithFields(log.Fields{
-		"shardId":   handle.ShardID,
-		"nonce":     handle.Nonce,
 		"sqlDriver": m.DriverName,
 	}).Info("opening new database connection pool")
-	var conn, err = sql.Open(m.DriverName, handle.URI)
+	var conn, err = sql.Open(m.DriverName, uri)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +565,7 @@ func (m *StandardSQLConnectionManager) Connection(ctx context.Context, handle *H
 	}, nil
 }
 
-var _ ConnectionManager = (*StandardSQLConnectionManager)(nil)
+var _ ConnectionBuilder = (*StandardSQLConnectionBuilder)(nil)
 
 // Handle is the parsed representation of what we return from a StartSession rpc.
 type Handle struct {

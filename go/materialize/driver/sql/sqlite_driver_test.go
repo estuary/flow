@@ -189,7 +189,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// Receive Load EOF, which indicates that none of the documents exist
 	resp, err := transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, resp.LoadEOF)
+	require.NotNil(t, resp.LoadEOF, "unexpected message: %v+", resp)
 
 	// Test Store to add those keys
 	require.NoError(t, err)

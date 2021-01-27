@@ -261,8 +261,7 @@ message TransactionResponse {
   message LoadResponse {
     // Byte arena of the request.
     bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
-    // Loaded JSON documents, 1:1 with keys of the LoadRequest.
-    // Documents which don't exist in the target are represented as an empty Slice.
+    // Loaded JSON documents.
     repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
   }
   // LoadResponse should only be sent during the Loading phase of the transaction rpc.
