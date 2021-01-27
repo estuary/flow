@@ -836,8 +836,7 @@ var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
 type TransactionResponse_LoadResponse struct {
 	// Byte arena of the request.
 	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Loaded JSON documents, 1:1 with keys of the LoadRequest.
-	// Documents which don't exist in the target are represented as an empty Slice.
+	// Loaded JSON documents.
 	DocsJson             []flow.Slice `protobuf:"bytes,2,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`

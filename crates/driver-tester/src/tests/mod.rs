@@ -2,8 +2,7 @@ mod functional;
 //mod transactional;
 
 use crate::request::{
-    new_transaction, FieldSelectionPointers, LoadReceiver, LoadSender, StoreResponseReceiver,
-    StoreSender,
+    new_transaction, FieldSelectionPointers, LoadSender, StoreResponseReceiver, StoreSender,
 };
 use crate::test_doc::{self, TestDoc};
 use crate::{DriverClientImpl, Fixture, TestResult};
@@ -16,6 +15,7 @@ use protocol::{
 };
 use rand::Rng;
 use serde_json::{json, Value};
+use tokio::task::JoinHandle;
 use tracing::{debug, trace};
 
 use std::borrow::Borrow;
@@ -158,7 +158,10 @@ impl MaterializationFixture {
         client: &mut DriverClientImpl,
         handle: Vec<u8>,
         flow_checkpoint: Vec<u8>,
-    ) -> anyhow::Result<(LoadSender, LoadReceiver)> {
+    ) -> anyhow::Result<(
+        LoadSender,
+        JoinHandle<anyhow::Result<(StoreResponseReceiver, Vec<Value>, bool)>>,
+    )> {
         let (tx, rx) = new_transaction(client.clone()).await;
         let tx = tx
             .send_start(handle, self.fields.clone(), flow_checkpoint)
@@ -193,7 +196,7 @@ impl MaterializationFixture {
     pub async fn verify_load(
         &self,
         mut tx: LoadSender,
-        rx: LoadReceiver,
+        rx: JoinHandle<anyhow::Result<(StoreResponseReceiver, Vec<Value>, bool)>>,
         prev_always_empty: Option<bool>,
         expected: &[TestDoc],
     ) -> anyhow::Result<(StoreSender, StoreResponseReceiver, bool)> {
@@ -202,7 +205,7 @@ impl MaterializationFixture {
         }
         let tx = tx.finish_loads().await?;
         debug!("sent loadEOF");
-        let (rx, received_docs, always_empty) = rx.recv_all().await?;
+        let (rx, received_docs, always_empty) = rx.await??;
 
         if always_empty {
             debug!("always_empty_hint was true, so assering that no documents were loaded");
