@@ -252,8 +252,7 @@ pub mod transaction_response {
         /// Byte arena of the request.
         #[prost(bytes, tag = "1")]
         pub arena: std::vec::Vec<u8>,
-        /// Loaded JSON documents, 1:1 with keys of the LoadRequest.
-        /// Documents which don't exist in the target are represented as an empty Slice.
+        /// Loaded JSON documents.
         #[prost(message, repeated, tag = "2")]
         pub docs_json: ::std::vec::Vec<super::super::flow::Slice>,
     }
