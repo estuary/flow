@@ -9,9 +9,11 @@ use protocol::{
     materialize::{transaction_request, transaction_response, FieldSelection, LoadEof, TransactionRequest, TransactionResponse },
 };
 use serde_json::Value;
-use tonic::{Response, Streaming, Status};
+use tokio::task::JoinHandle;
+use tonic::Streaming;
 use tuple::{TupleDepth, TuplePack};
 use tracing::{debug, trace};
+
 
 use std::borrow::Borrow;
 use std::fmt::Debug;
@@ -56,81 +58,14 @@ pub fn transaction_start_req(
     }
 }
 
-/// Represents the receive side of a bidirectional streaming request. This wraps the task that
-/// awaits the tonic Response because that task may not complete until the server actually sends
-/// the first message (either a LoadResponse or LoadEOF). The `Streaming` receiver will be dropped
-/// if an error is returned from `recv`, and subsequent calls will simply return a generic error
-/// message.
-#[must_use = "must be used in order to complete transaction"]
-#[derive(Debug)]
-enum TransactionReceiver {
-    Pending(tokio::task::JoinHandle<Result<Response<Streaming<TransactionResponse>>, Status>>),
-    Active(tonic::Streaming<TransactionResponse>),
-    Error,
-}
-
-impl TransactionReceiver {
-    async fn recv(&mut self) -> anyhow::Result<Option<TransactionResponse>> {
-        let tmp = std::mem::replace(self, Self::Error);
-        let mut stream = match tmp {
-            Self::Active(s) => s,
-            Self::Pending(fut) => {
-                debug!("awaiting transaction response headers");
-                // first ? is for the tokio join result, next is for the tonic result
-                let resp = fut.await??;
-                debug!("got transaction response headers");
-                resp.into_inner()
-            }
-            Self::Error => anyhow::bail!("transaction receiver previously returned error"),
-        };
-        let message = stream.message().await?;
-        let _ = std::mem::replace(self, Self::Active(stream));
-        Ok(message)
-    }
-}
-
-/// Represents the client-side receiver of messages during the Loading phase of the transaction.
-#[must_use = "must be used in order to complete transaction"]
-#[derive(Debug)]
-pub struct LoadReceiver(TransactionReceiver);
-
-impl LoadReceiver {
-    /// Receives all LoadResponse messages followed by a single LoadEOF. Returns a result of:
-    /// 0. The `StoreResponseReceiver`, for the next phase in the transaction lifecycle.
-    /// 1. A `Vec<Value>` containing all the parsed documents from all LoadResponses.
-    /// 2. The boolean value of the `always_empty_hint` from the `LoadEOF` message.
-    /// An error is returned if an unexpected message is received, or if any returned document
-    /// cannot be parsed as json.
-    pub async fn recv_all(mut self) -> anyhow::Result<(StoreResponseReceiver, Vec<Value>, bool)> {
-        let mut docs = Vec::with_capacity(4);
-
-        loop {
-            let msg = self.0.recv().await?.ok_or_else(||
-                                                         anyhow::anyhow!("expected a LoadResponse message, but got EOF")
-                                                         )?;
-            if let Some(eof) = msg.load_eof.as_ref() {
-                return Ok((StoreResponseReceiver(self.0), docs, eof.always_empty_hint))
-            }
-            anyhow::ensure!(msg.load_response.is_some() || msg.load_eof.is_some(),
-                "expected a LoadResponse or LoadEOF message, got: {:?}", msg);
-
-            let transaction_response::LoadResponse {arena, docs_json} = msg.load_response.unwrap();
-            for slice in docs_json {
-                let value = serde_json::from_slice(arena.bytes(slice))?;
-                docs.push(value);
-            }
-        }
-    }
-}
-
 /// Represents the client-side receiver of messages during the Storing phase of the transaction.
 #[must_use = "must be used in order to complete transaction"]
 #[derive(Debug)]
-pub struct StoreResponseReceiver(TransactionReceiver);
+pub struct StoreResponseReceiver(Streaming<TransactionResponse>);
 impl StoreResponseReceiver {
     /// Receives the final store response and closed the stream.
     pub async fn recv_store_response(mut self) -> anyhow::Result<transaction_response::StoreResponse> {
-        let msg = self.0.recv()
+        let msg = self.0.message()
             .await?
             .ok_or_else(||
                         anyhow::anyhow!("expected a LoadResponse message, but got EOF")
@@ -141,9 +76,16 @@ impl StoreResponseReceiver {
     }
 }
 
+
 /// Starts a new Transaction bi-directional streaming rpc, and returns a tuple of the sender and
 /// receiver.
-pub async fn new_transaction(mut client: DriverClientImpl) -> (TransactionSender, LoadReceiver) {
+/// Receives all LoadResponse messages followed by a single LoadEOF. Returns a result of:
+/// 0. The `StoreResponseReceiver`, for the next phase in the transaction lifecycle.
+/// 1. A `Vec<Value>` containing all the parsed documents from all LoadResponses.
+/// 2. The boolean value of the `always_empty_hint` from the `LoadEOF` message.
+/// An error is returned if an unexpected message is received, or if any returned document
+/// cannot be parsed as json.
+pub async fn new_transaction(mut client: DriverClientImpl) -> (TransactionSender, JoinHandle<anyhow::Result<(StoreResponseReceiver, Vec<Value>, bool)>>) {
     let (tx, rx) = tokio::sync::mpsc::channel(8);
     let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
     debug!("about to start streaming transaction");
@@ -155,10 +97,28 @@ pub async fn new_transaction(mut client: DriverClientImpl) -> (TransactionSender
     // send messages on the TransactionSender before receiving the first response. Otherwise, this
     // will essentially deadlock, with the client and driver both blocked awaiting receipt of a message.
     let fut = tokio::spawn(async move {
-        client.transaction(rx).await
+        let mut resp = client.transaction(rx).await?.into_inner();
+        let mut docs = Vec::with_capacity(4);
+
+        loop {
+            let msg = resp.message().await?.ok_or_else(|| {
+                anyhow::anyhow!("expected a LoadResponse message, but got EOF")
+            })?;
+            if let Some(eof) = msg.load_eof.as_ref() {
+                return Ok((StoreResponseReceiver(resp), docs, eof.always_empty_hint))
+            }
+            anyhow::ensure!(msg.load_response.is_some() || msg.load_eof.is_some(),
+                "expected a LoadResponse or LoadEOF message, got: {:?}", msg);
+
+            let transaction_response::LoadResponse {arena, docs_json} = msg.load_response.unwrap();
+            for slice in docs_json {
+                let value = serde_json::from_slice(arena.bytes(slice))?;
+                docs.push(value);
+            }
+        }
     });
     debug!("started streaming transaction");
-    (TransactionSender(tx), LoadReceiver(TransactionReceiver::Pending(fut)))
+    (TransactionSender(tx), fut)
 }
 
 /// Represents the client-side sender of messages during the Init phase of the transaction.
@@ -320,7 +280,6 @@ impl FieldSelectionPointers {
 }
 
 fn extract_and_pack(ptrs: &[Pointer], json: &Value, arena: &mut Vec<u8>) -> Slice {
-    let json = json.borrow();
     let mut w = arena.writer();
     for ptr in ptrs {
         let value = ptr.query(json).unwrap_or(&Value::Null);

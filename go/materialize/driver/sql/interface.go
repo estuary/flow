@@ -100,17 +100,17 @@ type Connection interface {
 	ExecApplyStatements(ctx context.Context, handle *Handle, statements []string) error
 }
 
-// ConnectionManager hands out Connections for each Handle.
-type ConnectionManager interface {
+// ConnectionBuilder hands out Connections for each Handle.
+type ConnectionBuilder interface {
 	// Connection returns a Connection for the given Handle.
-	Connection(ctx context.Context, handle *Handle) (Connection, error)
+	Connection(ctx context.Context, uri string) (Connection, error)
 }
 
 // CacheingConnectionManager caches each Connection, using the handle URI as a key. Currently, this
 // cache is never invalidated, as each Connection is assumed to represent a pool of connections for
 // a specific URI.
 type CacheingConnectionManager struct {
-	inner ConnectionManager
+	inner ConnectionBuilder
 	// map of connection URI to DB for that system. We don't ever remove anythign from this map, so
 	// it'll just keep growing if someone makes a bunch of requests for many distinct endpoints.
 	connections      map[string]Connection
@@ -119,7 +119,7 @@ type CacheingConnectionManager struct {
 
 // NewCache returns a CacheingConnectionManager that wraps the given inner connectionManager and
 // caches each returned Connection, using the URI as a key.
-func NewCache(inner ConnectionManager) *CacheingConnectionManager {
+func NewCache(inner ConnectionBuilder) *CacheingConnectionManager {
 	return &CacheingConnectionManager{
 		inner:       inner,
 		connections: make(map[string]Connection),
@@ -127,19 +127,19 @@ func NewCache(inner ConnectionManager) *CacheingConnectionManager {
 }
 
 // Connection implements the ConnectionManager interface
-func (c *CacheingConnectionManager) Connection(ctx context.Context, handle *Handle) (Connection, error) {
+func (c *CacheingConnectionManager) Connection(ctx context.Context, uri string) (Connection, error) {
 	c.connectionsMutex.Lock()
 	defer c.connectionsMutex.Unlock()
 
-	if db, ok := c.connections[handle.URI]; ok {
+	if db, ok := c.connections[uri]; ok {
 		return db, nil
 	}
 
-	var db, err = c.inner.Connection(ctx, handle)
+	var db, err = c.inner.Connection(ctx, uri)
 	if err != nil {
 		return nil, err
 	}
-	c.connections[handle.URI] = db
+	c.connections[uri] = db
 	return db, nil
 }
 
@@ -188,7 +188,7 @@ func (g *GenericDriver) Validate(ctx context.Context, req *pm.ValidateRequest) (
 		return nil, fmt.Errorf("The proposed CollectionSpec is invalid: %w", err)
 	}
 
-	conn, err := g.Connections.Connection(ctx, handle)
+	conn, err := g.Connections.Connection(ctx, handle.URI)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (g *GenericDriver) Fence(ctx context.Context, req *pm.FenceRequest) (*pm.Fe
 	if err != nil {
 		return nil, err
 	}
-	connection, err := g.Connections.Connection(ctx, handle)
+	connection, err := g.Connections.Connection(ctx, handle.URI)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func handleTxnRecvFailable(logEntry *log.Entry, ctx context.Context, stream pm.D
 					// we sent the key
 				case <-ctx.Done():
 					// Something else has failed, so we should return
-					return ContextCancelled
+					return nil
 				}
 			}
 		} else if req.LoadEOF != nil {
@@ -323,7 +323,7 @@ func handleTxnRecvFailable(logEntry *log.Entry, ctx context.Context, stream pm.D
 				// we sent the document
 			case <-ctx.Done():
 				// Something else has failed, so we should return
-				return ContextCancelled
+				return nil
 			}
 		}
 	}
@@ -336,7 +336,7 @@ func handleTxnRecvFailable(logEntry *log.Entry, ctx context.Context, stream pm.D
 		// we sent the document
 	case <-ctx.Done():
 		// Something else has failed, so we should return
-		return ContextCancelled
+		return nil
 	}
 	close(transaction.StoreDocumentCh)
 	transaction.StoreDocumentCh = nil
@@ -445,7 +445,7 @@ func (g *GenericDriver) Transaction(stream pm.Driver_TransactionServer) (retErr 
 	})
 	logEntry.Debug("Starting transaction")
 
-	conn, err := g.Connections.Connection(ctx, handle)
+	conn, err := g.Connections.Connection(ctx, handle.URI)
 	if err != nil {
 		return err
 	}
@@ -502,7 +502,7 @@ func (g *GenericDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.Ap
 	if err != nil {
 		return nil, err
 	}
-	conn, err := g.Connections.Connection(ctx, handle)
+	conn, err := g.Connections.Connection(ctx, handle.URI)
 	if err != nil {
 		return nil, err
 	}

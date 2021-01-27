@@ -577,12 +577,16 @@ var xxx_messageInfo_LoadEOF proto.InternalMessageInfo
 // message of a Transaction. This may be followed by 0 or more LoadRequests, followed by exactly one
 // LoadEOF message. Then it will send 0 or more StoreRequests before closing the send stream.
 type TransactionRequest struct {
-	Start *TransactionRequest_Start       `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
-	Load  *TransactionRequest_LoadRequest `protobuf:"bytes,2,opt,name=load,proto3" json:"load,omitempty"`
+	// Start is sent as the first message in a Transaction, and never sent again during the same
+	// transaction.
+	Start *TransactionRequest_Start `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	// Load will only be sent during the Loading phase of the transaction rpc.
+	Load *TransactionRequest_LoadRequest `protobuf:"bytes,2,opt,name=load,proto3" json:"load,omitempty"`
 	// LoadEOF indicates that no more LoadRequests will be sent during this transaction. Upon
 	// receiving a LoadEOF, a driver should return any pending LoadResponse messages before sending
 	// its own LoadEOF.
-	LoadEOF              *LoadEOF                         `protobuf:"bytes,3,opt,name=loadEOF,proto3" json:"loadEOF,omitempty"`
+	LoadEOF *LoadEOF `protobuf:"bytes,3,opt,name=loadEOF,proto3" json:"loadEOF,omitempty"`
+	// Store will only be sent during the Storing phase fo the transaction rpc.
 	Store                *TransactionRequest_StoreRequest `protobuf:"bytes,4,opt,name=store,proto3" json:"store,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                         `json:"-"`
 	XXX_unrecognized     []byte                           `json:"-"`
@@ -622,12 +626,11 @@ func (m *TransactionRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionRequest proto.InternalMessageInfo
 
-// Always sent as the first message in a Transaction.
+// Start represents the initial payload of transaction metadata.
 type TransactionRequest_Start struct {
 	// Opaque session handle.
 	Handle []byte `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	// TODO: consider moving field selection to the Fence rcp?
-	// Projection fields to be stored. This repeats the selection and ordering
+	// Fields represents the projection fields to be stored. This repeats the selection and ordering
 	// of the last Apply RPC, but is provided here also as a convenience.
 	Fields *FieldSelection `protobuf:"bytes,2,opt,name=fields,proto3" json:"fields,omitempty"`
 	// Checkpoint to write with this Store transaction, to be associated with
@@ -772,9 +775,14 @@ var xxx_messageInfo_TransactionRequest_StoreRequest proto.InternalMessageInfo
 // level field. For each Transaction RPC, the driver should send 0 or more LoadResponse messages,
 // followed by exactly one LoadEOF message, followed by exactly one StoreResponse.
 type TransactionResponse struct {
+	// LoadResponse should only be sent during the Loading phase of the transaction rpc.
 	LoadResponse *TransactionResponse_LoadResponse `protobuf:"bytes,1,opt,name=loadResponse,proto3" json:"loadResponse,omitempty"`
-	// LoadEOF is sent after all LoadResponse have been sent. After this is
-	LoadEOF              *LoadEOF                           `protobuf:"bytes,2,opt,name=loadEOF,proto3" json:"loadEOF,omitempty"`
+	// LoadEOF is sent after all LoadResponse have been sent. After this is sent, no more LoadResponse
+	// messages may be sent by the driver, and any documents that have not been returned in a
+	// LoadResponse will be presumed to not exist in storage.
+	LoadEOF *LoadEOF `protobuf:"bytes,2,opt,name=loadEOF,proto3" json:"loadEOF,omitempty"`
+	// StoreResponse is sent by the driver as the final message in a Transaction to indicate that it
+	// has committed.
 	StoreResponse        *TransactionResponse_StoreResponse `protobuf:"bytes,3,opt,name=storeResponse,proto3" json:"storeResponse,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                           `json:"-"`
 	XXX_unrecognized     []byte                             `json:"-"`
@@ -823,8 +831,7 @@ var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
 type TransactionResponse_LoadResponse struct {
 	// Byte arena of the request.
 	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Loaded JSON documents, 1:1 with keys of the LoadRequest.
-	// Documents which don't exist in the target are represented as an empty Slice.
+	// Loaded JSON documents.
 	DocsJson             []flow.Slice `protobuf:"bytes,2,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`
@@ -1056,6 +1063,28 @@ type DriverClient interface {
 	// support end-to-end "exactly once" semantics. Stores which support only "at least once"
 	// semantics can implement Fence as a no-op, returning a zero-value FenceResponse.
 	Fence(ctx context.Context, in *FenceRequest, opts ...grpc.CallOption) (*FenceResponse, error)
+	// Transaction is a bi-directional streaming rpc that corresponds to each transaction within the
+	// flow consumer. The Transaction rpc follows a strict lifecycle:
+	//
+	// 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately
+	//    transitions to the Loading state.
+	// 2. Loading:
+	//    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message.
+	//    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These
+	//    responses may be sent asynchronously, and at whatever cadence is most performant for the
+	//    driver. Drivers may wait until they receive the LoadEOF from the client before they send any
+	//    responses, or they may send responses earlier. Any requested document that is missing from
+	//    the set of LoadResponses is presumed to simply not exist.
+	// 3. Storing:
+	//    - The client sends 0 or more StoreRequest messages, and then closes the send side of its
+	//    stream.
+	//    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final
+	//    message sent to the client. The transaction is now complete.
+	// Note that for drivers that do not support loads, they may immediately send a LoadEOF message
+	// after the transaction is started. If the `always_empty_hint` is `true`, then the client
+	// should (but is not required to) send a LoadEOF message immediately after sending
+	// its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of
+	// whether a client supports loads or not.
 	Transaction(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionClient, error)
 }
 
@@ -1166,6 +1195,28 @@ type DriverServer interface {
 	// support end-to-end "exactly once" semantics. Stores which support only "at least once"
 	// semantics can implement Fence as a no-op, returning a zero-value FenceResponse.
 	Fence(context.Context, *FenceRequest) (*FenceResponse, error)
+	// Transaction is a bi-directional streaming rpc that corresponds to each transaction within the
+	// flow consumer. The Transaction rpc follows a strict lifecycle:
+	//
+	// 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately
+	//    transitions to the Loading state.
+	// 2. Loading:
+	//    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message.
+	//    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These
+	//    responses may be sent asynchronously, and at whatever cadence is most performant for the
+	//    driver. Drivers may wait until they receive the LoadEOF from the client before they send any
+	//    responses, or they may send responses earlier. Any requested document that is missing from
+	//    the set of LoadResponses is presumed to simply not exist.
+	// 3. Storing:
+	//    - The client sends 0 or more StoreRequest messages, and then closes the send side of its
+	//    stream.
+	//    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final
+	//    message sent to the client. The transaction is now complete.
+	// Note that for drivers that do not support loads, they may immediately send a LoadEOF message
+	// after the transaction is started. If the `always_empty_hint` is `true`, then the client
+	// should (but is not required to) send a LoadEOF message immediately after sending
+	// its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of
+	// whether a client supports loads or not.
 	Transaction(Driver_TransactionServer) error
 }
 

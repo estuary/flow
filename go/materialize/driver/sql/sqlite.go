@@ -9,7 +9,7 @@ import (
 // NewSQLiteDriver creates a new DriverServer for sqlite.
 func NewSQLiteDriver() pm.DriverServer {
 	var sqlGen = SQLiteSQLGenerator()
-	var connectionMan = &StandardSQLConnectionManager{
+	var connectionMan = &StandardSQLConnectionBuilder{
 		DriverName: "sqlite3",
 		SQLGen:     &sqlGen,
 		TxOptions:  sql.TxOptions{},

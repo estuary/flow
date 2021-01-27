@@ -145,8 +145,6 @@ func (a *ArenaAppender) Scan(src interface{}) error {
 	return nil
 }
 
-var ContextCancelled = errors.New("context cancelled")
-
 type standardSqlLoadTransaction struct {
 	txn              *sql.Tx
 	ctx              context.Context
@@ -541,19 +539,22 @@ func (c *StandardSQLConnection) Fence(ctx context.Context, handle *Handle) ([]by
 	return flowCheckpoint, err
 }
 
-type StandardSQLConnectionManager struct {
+// StandardSQLConnectionBuilder builds Connections using the "standard" database/sql package.
+type StandardSQLConnectionBuilder struct {
+	// DriverName is used to open sql connections.
 	DriverName string
-	SQLGen     SQLGenerator
-	TxOptions  sql.TxOptions
+	// SQLGen is the SQLGenerator to use for generating all sql statements.
+	SQLGen SQLGenerator
+	// Options to use whenever beginning a new transaction.
+	TxOptions sql.TxOptions
 }
 
-func (m *StandardSQLConnectionManager) Connection(ctx context.Context, handle *Handle) (Connection, error) {
+// Connection implements ConnectionBuilder
+func (m *StandardSQLConnectionBuilder) Connection(ctx context.Context, uri string) (Connection, error) {
 	log.WithFields(log.Fields{
-		"shardId":   handle.ShardID,
-		"nonce":     handle.Nonce,
 		"sqlDriver": m.DriverName,
 	}).Info("opening new database connection pool")
-	var conn, err = sql.Open(m.DriverName, handle.URI)
+	var conn, err = sql.Open(m.DriverName, uri)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +565,7 @@ func (m *StandardSQLConnectionManager) Connection(ctx context.Context, handle *H
 	}, nil
 }
 
-var _ ConnectionManager = (*StandardSQLConnectionManager)(nil)
+var _ ConnectionBuilder = (*StandardSQLConnectionBuilder)(nil)
 
 // Handle is the parsed representation of what we return from a StartSession rpc.
 type Handle struct {
