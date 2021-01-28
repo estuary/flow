@@ -30,7 +30,7 @@ schemars = "*"
 serde_json = { version =  "*"}
 structopt = "*"
 tempfile = "*"
-tokio = { version = "*", features = [] }
+tokio = { version = "*", features = ["full"] }
 tokio-stream = "*"
 url = "*"
 rand = "*"

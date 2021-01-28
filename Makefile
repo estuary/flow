@@ -198,6 +198,9 @@ ${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/go/flow-consumer $(GO
 ${GOBIN}/gazette:       go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:        go-install/go.gazette.dev/core/cmd/gazctl
 
+${RUSTBIN}/driver-tester: ${ROCKSDIR}/${LIBROCKS}
+	FLOW_VERSION=${VERSION} cargo build --release --locked -p driver-tester
+
 ${RUSTBIN}/flowctl: ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo build --release --locked -p flowctl
 
