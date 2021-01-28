@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // NewSQLiteDriver creates a new DriverServer for sqlite.

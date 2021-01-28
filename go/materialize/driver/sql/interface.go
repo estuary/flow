@@ -482,6 +482,7 @@ func (g *GenericDriver) Transaction(stream pm.Driver_TransactionServer) (retErr 
 		}
 		logEntry.Debug("Transaction completed successfully")
 	case sendErr := <-sendCompleteCh:
+		// TODO: improve this message
 		logEntry.Debugf("send completed before recv with error: %v", sendErr)
 		if sendErr != nil {
 			logEntry.WithField("error", sendErr).Warn("transaction send stream failed")
@@ -584,6 +585,14 @@ func (g *GenericDriver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.Ap
 	}
 
 	return response, nil
+}
+
+// CachedSQL holds all of the sql statements that we cache.
+type CachedSQL struct {
+	nonce               int32
+	spec                *MaterializationSpec
+	statements          map[string]string
+	parameterConverters map[string]ParametersConverter
 }
 
 func (g *GenericDriver) getCachedSQL(ctx context.Context, handle *Handle, conn Connection) (*CachedSQL, error) {

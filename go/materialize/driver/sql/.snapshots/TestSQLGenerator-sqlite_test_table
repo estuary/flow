@@ -16,7 +16,6 @@ CREATE TABLE "test_table" (
 	PRIMARY KEY("key_a", "key_b", "key_c")
 );
 
-
 SELECT "val_x", "val_y", "val_z", "flow_document" FROM "test_table" WHERE "key_a" = ? AND "key_b" = ? AND "key_c" = ?;
 
 INSERT INTO "test_table" ("key_a", "key_b", "key_c", "val_x", "val_y", "val_z", "flow_document") VALUES (?, ?, ?, ?, ?, ?, ?);

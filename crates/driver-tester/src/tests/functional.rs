@@ -75,6 +75,9 @@ pub async fn run(fixture: &mut Fixture, collection: CollectionSpec) -> Result<()
         .start_transaction(&mut client, handle.clone(), first_checkpoint.clone())
         .await?;
     debug!("started transaction");
+    // Sends an immediate LoadEOF without attempting to actually load any documents. Drivers must
+    // support this, since it allows our runtime to skip loading documents that were just stored in
+    // a prior transaction.
     let (mut txn_send, txn_recv, always_empty_hint) = collection_fixture
         .verify_load(txn_send, txn_recv, None, &[])
         .await?;
@@ -149,6 +152,8 @@ pub async fn run(fixture: &mut Fixture, collection: CollectionSpec) -> Result<()
     let (txn_send, txn_recv, _) = collection_fixture
         .verify_load(txn_send, txn_recv, Some(always_empty_hint), &new_docs)
         .await?;
+    // We're intentionally exercising the case where we Load documents without attempting to Store
+    // any.
     txn_send.finish();
     txn_recv.recv_store_response().await?;
     Ok(())

@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"strings"
+
+	"github.com/estuary/flow/go/fdb/tuple"
 )
 
 // ColumnType represents a minimal set of database-agnostic types that we may try to store and
@@ -61,6 +63,11 @@ type Table struct {
 	// If IfNotExists is true then the create table statement will include an "IF NOT EXISTS" (or
 	// equivalent).
 	IfNotExists bool
+	// Whether this is a temporary table. If true, then this will be created with the "TEMP(ORARY)" keyword.
+	Temporary bool
+	// If this is a temporary table, then this may optionally specify the ON COMMIT behavior. If
+	// left blank, then no "ON COMMIT" clause will be added.
+	TempOnCommit string
 }
 
 func (t Table) GetColumn(name string) *Column {
@@ -73,6 +80,18 @@ func (t Table) GetColumn(name string) *Column {
 }
 
 type ParametersConverter []func(interface{}) (interface{}, error)
+
+func (c ParametersConverter) ConvertTuple(values tuple.Tuple) ([]interface{}, error) {
+	var results = make([]interface{}, len(values))
+	for i, elem := range values {
+		var v, err = (c[i])(elem)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert value at index %d: %w", i, err)
+		}
+		results[i] = v
+	}
+	return results, nil
+}
 
 func (c ParametersConverter) Convert(values ...interface{}) ([]interface{}, error) {
 	var results = make([]interface{}, len(values))
@@ -432,8 +451,12 @@ func (gen *GenericSQLGenerator) CreateTable(table *Table) (string, error) {
 	if len(table.Comment) > 0 {
 		gen.writeComment(&builder, table.Comment, "")
 	}
+	builder.WriteString("CREATE ")
+	if table.Temporary {
+		builder.WriteString("TEMPORARY ")
+	}
+	builder.WriteString("TABLE ")
 
-	builder.WriteString("CREATE TABLE ")
 	if table.IfNotExists {
 		builder.WriteString("IF NOT EXISTS ")
 	}
@@ -470,8 +493,13 @@ func (gen *GenericSQLGenerator) CreateTable(table *Table) (string, error) {
 			gen.writeIdent(&builder, column.Name)
 		}
 	}
-	// Close the primary key paren, then newline and close the create table statement
-	builder.WriteString(")\n);\n")
+	// Close the primary key paren, then newline and close the columns paren.
+	builder.WriteString(")\n)")
+	if table.Temporary && len(table.TempOnCommit) > 0 {
+		builder.WriteString(" ON COMMIT ")
+		builder.WriteString(table.TempOnCommit)
+	}
+	builder.WriteRune(';')
 	return builder.String(), nil
 }
 
