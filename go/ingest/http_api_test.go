@@ -11,7 +11,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-func testHTTPSimple(t *testing.T, addr string) {
+func testHTTPMultiSimple(t *testing.T, addr string) {
 	var valid = `
 	{
 		"testing/int-string": [
@@ -34,7 +34,7 @@ func testHTTPSimple(t *testing.T, addr string) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 }
 
-func testHTTPNotFound(t *testing.T, addr string) {
+func testHTTPMultiNotFound(t *testing.T, addr string) {
 	var missing = `
 	{"not/found": [{"i": 32, "s": "hello"}]}
 	`
@@ -47,7 +47,7 @@ func testHTTPNotFound(t *testing.T, addr string) {
 	require.Equal(t, "\"not/found\" is not an ingestable collection\n", string(body))
 }
 
-func testHTTPMalformed(t *testing.T, addr string) {
+func testHTTPMultiMalformed(t *testing.T, addr string) {
 	var malformed = `
 	{"bad": [,{"i": 32,
 	`
@@ -58,4 +58,44 @@ func testHTTPMalformed(t *testing.T, addr string) {
 	require.Equal(t, 400, resp.StatusCode)
 	var body, _ = ioutil.ReadAll(resp.Body)
 	require.Equal(t, "invalid character ',' looking for beginning of value\n", string(body))
+}
+
+func testHTTPSingleSimple(t *testing.T, addr string) {
+	var valid = `{"i": 42, "s": "world"}`
+
+	var resp, err = http.Post("http://"+addr+"/ingest/testing/int-string", "application/json", strings.NewReader(valid))
+	require.NoError(t, err)
+
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "application/json", resp.Header.Get("content-type"))
+
+	var out struct {
+		Offsets pb.Offsets
+		Etcd    pb.Header_Etcd
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+}
+
+func testHTTPSingleNotFound(t *testing.T, addr string) {
+	var theBodySaysYes = `{"i": 42, "s": "world"}`
+
+	var resp, err = http.Post("http://"+addr+"/ingest/the/mind/says/no", "application/json", strings.NewReader(theBodySaysYes))
+	require.NoError(t, err)
+
+	require.Equal(t, 400, resp.StatusCode)
+	var body, _ = ioutil.ReadAll(resp.Body)
+	require.Equal(t, "'the/mind/says/no' is not an ingestable collection\n", string(body))
+}
+
+func testHTTPSingleMalformed(t *testing.T, addr string) {
+	var malformed = `
+	{"bad": [,{"i": 32,
+	`
+
+	var resp, err = http.Post("http://"+addr+"/ingest/testing/int-string", "application/json", strings.NewReader(malformed))
+	require.NoError(t, err)
+
+	require.Equal(t, 400, resp.StatusCode)
+	var body, _ = ioutil.ReadAll(resp.Body)
+	require.Equal(t, "ingestion of collection \"testing/int-string\": JSON error: expected value at line 2 column 11\n\nCaused by:\n    expected value at line 2 column 11\n", string(body))
 }

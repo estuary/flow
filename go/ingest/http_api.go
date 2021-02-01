@@ -2,36 +2,65 @@ package ingest
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net/http"
+	"strings"
 
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/protocol/ext"
 )
 
-func serveHTTPJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
+func serveHTTPTransactionJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
+	return doServeHttpJSON(a, w, r, func(ingest *flow.Ingestion) error {
+		var body map[pf.Collection][]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return err
+		}
+		for collection, docs := range body {
+			for _, doc := range docs {
+				if err := ingest.Add(collection, doc); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func serveHTTPDocumentJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
+	return doServeHttpJSON(a, w, r, func(ingestion *flow.Ingestion) error {
+		var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
+		var collection = pf.Collection(name)
+		if _, ok := a.ingester.Collections[collection]; !ok {
+			return fmt.Errorf("'%v' is not an ingestable collection", name)
+		}
+
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read request body: %w", err)
+		}
+
+		return ingestion.Add(collection, body)
+	})
+}
+
+func doServeHttpJSON(a args, w http.ResponseWriter, r *http.Request, addIngests func(*flow.Ingestion) error) (err error) {
+	var ingest = a.ingester.Start()
 	defer func() {
 		if err != nil {
 			log.WithFields(log.Fields{"err": err, "url": r.URL.String(), "client": r.RemoteAddr}).
-				Warn("ingest via http transaction failed")
+				Warn("ingest via http body failed")
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
 	}()
 
-	var body map[pf.Collection][]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	err = addIngests(ingest)
+	if err != nil {
 		return err
-	}
-
-	var ingest = a.ingester.Start()
-
-	for collection, docs := range body {
-		for _, doc := range docs {
-			if err := ingest.Add(collection, doc); err != nil {
-				return err
-			}
-		}
 	}
 
 	offsets, err := ingest.PrepareAndAwait()
