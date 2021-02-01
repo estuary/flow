@@ -61,9 +61,12 @@ func TestAPIs(t *testing.T) {
 	tasks.GoRun()
 
 	// Actual sub-tests all go here:
-	t.Run("httpSimple", func(t *testing.T) { testHTTPSimple(t, addr) })
-	t.Run("httpNotFound", func(t *testing.T) { testHTTPNotFound(t, addr) })
-	t.Run("httpMalformed", func(t *testing.T) { testHTTPMalformed(t, addr) })
+	t.Run("httpSingleSimple", func(t *testing.T) { testHTTPSingleSimple(t, addr) })
+	t.Run("httpSingleNotFound", func(t *testing.T) { testHTTPSingleNotFound(t, addr) })
+	t.Run("httpSingleMalformed", func(t *testing.T) { testHTTPSingleMalformed(t, addr) })
+	t.Run("httpMultiSimple", func(t *testing.T) { testHTTPMultiSimple(t, addr) })
+	t.Run("httpMultiNotFound", func(t *testing.T) { testHTTPMultiNotFound(t, addr) })
+	t.Run("httpMultiMalformed", func(t *testing.T) { testHTTPMultiMalformed(t, addr) })
 	t.Run("csvSimple", func(t *testing.T) { testCSVSimple(t, addr) })
 	t.Run("csvCollectionNotFound", func(t *testing.T) { testCSVCollectionNotFound(t, addr) })
 	t.Run("csvMalformed", func(t *testing.T) { testCSVMalformed(t, addr) })
