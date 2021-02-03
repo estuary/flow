@@ -5,6 +5,9 @@ pub trait SQLType: Sized {
     fn sql_type() -> &'static str;
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>>;
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self>;
+    fn debug_view<'a>(&'a self) -> SqlDebugView<'a> {
+        SqlDebugView::Primitive(self.to_sql().unwrap())
+    }
 }
 
 /// TableRow is a type which is a row within a Table.
@@ -38,6 +41,13 @@ pub trait TableObj {
     fn persist_all(&self, db: &rusqlite::Connection) -> rusqlite::Result<()>;
     /// Load all rows from the database into this Table.
     fn load_all(&mut self, db: &rusqlite::Connection) -> rusqlite::Result<()>;
+    /// Load rows from the database matching a WHERE clause and parameters.
+    fn load_where(
+        &mut self,
+        db: &rusqlite::Connection,
+        filter: &str,
+        params: &[&dyn rusqlite::types::ToSql],
+    ) -> rusqlite::Result<()>;
 }
 
 /// Trait for accepting arguments which may be owned, or can be cloned.
@@ -75,6 +85,12 @@ impl<T: SQLType> SQLType for Option<T> {
             Ok(None)
         } else {
             T::column_result(value).map(Option::Some)
+        }
+    }
+    fn debug_view<'a>(&'a self) -> SqlDebugView<'a> {
+        match self {
+            Some(inner) => inner.debug_view(),
+            None => SqlDebugView::Primitive(self.to_sql().unwrap()),
         }
     }
 }
@@ -173,6 +189,38 @@ macro_rules! json_sql_types {
     };
 }
 
+/// proto_sql_types establishes SQLType implementations for
+/// ToProto / FromProto types which encode as protobuf.
+macro_rules! proto_sql_types {
+    ($($rust_type:ty,)*) => {
+        $(
+        impl SQLType for $rust_type {
+            fn sql_type() -> &'static str {
+                "BLOB"
+            }
+
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                let mut b = Vec::with_capacity(self.encoded_len());
+                self.encode(&mut b).unwrap();
+                Ok(b.into())
+            }
+
+            fn column_result(
+                value: rusqlite::types::ValueRef<'_>,
+            ) -> rusqlite::types::FromSqlResult<Self> {
+
+                Ok(Self::decode(value.as_blob()?)
+                   .map_err(|err| rusqlite::types::FromSqlError::Other(err.into()))?)
+            }
+
+            fn debug_view<'a>(&'a self) -> SqlDebugView<'a> {
+                SqlDebugView::Debug(self)
+            }
+        }
+        )*
+    };
+}
+
 // Helper for swapping a token tree with another expression.
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
@@ -205,6 +253,9 @@ macro_rules! tables {
                 self.0.push($row {
                     $($field: $field.own_or_clone(),)*
                 });
+            }
+            pub fn into_iter(self) -> impl Iterator<Item=$row> {
+                self.0.into_iter()
             }
         }
 
@@ -269,6 +320,13 @@ macro_rules! tables {
                               .collect::<Result<Vec<_>, _>>()?);
                 Ok(())
             }
+
+            fn load_where(&mut self, db: &rusqlite::Connection, filter: &str, params: &[&dyn rusqlite::types::ToSql]) -> rusqlite::Result<()> {
+                let mut stmt = db.prepare(&format!("{} WHERE {}", Self::select_sql(), filter))?;
+                self.0.extend(stmt.query_map(params, $row::scan)?
+                              .collect::<Result<Vec<_>, _>>()?);
+                Ok(())
+            }
         }
 
         impl std::ops::Deref for $table {
@@ -311,8 +369,8 @@ macro_rules! tables {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let mut f = f.debug_struct(stringify!($row));
                 $(
-                let v = SqlToDebug(<$rust_type as SQLType>::to_sql(&self.$field).unwrap());
-                let f = f.field( stringify!($field), &v);
+                let v = self.$field.debug_view();
+                let f = f.field(stringify!($field), &v);
                 )*
                 f.finish()
             }
@@ -322,28 +380,31 @@ macro_rules! tables {
     }
 }
 
-/// SqlToDebug is a newtype wrapper that provides Debug formatting
-/// support for owned/borrowed SQL encodings produced by SQLType::column_result.
-pub struct SqlToDebug<'a>(pub rusqlite::types::ToSqlOutput<'a>);
+pub enum SqlDebugView<'a> {
+    Primitive(rusqlite::types::ToSqlOutput<'a>),
+    Debug(&'a dyn std::fmt::Debug),
+}
 
-impl<'a> std::fmt::Debug for SqlToDebug<'a> {
+impl<'a> std::fmt::Debug for SqlDebugView<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use rusqlite::types::{ToSqlOutput, Value, ValueRef};
-
-        match &self.0 {
-            ToSqlOutput::Borrowed(ValueRef::Null) => f.write_str("NULL"),
-            ToSqlOutput::Borrowed(ValueRef::Integer(i)) => i.fmt(f),
-            ToSqlOutput::Borrowed(ValueRef::Real(d)) => d.fmt(f),
-            ToSqlOutput::Borrowed(ValueRef::Text(s)) => {
-                f.write_str(std::str::from_utf8(s).unwrap())
-            }
-            ToSqlOutput::Borrowed(ValueRef::Blob(_)) => ".. binary ..".fmt(f),
-            ToSqlOutput::Owned(Value::Null) => f.write_str("NULL"),
-            ToSqlOutput::Owned(Value::Integer(i)) => i.fmt(f),
-            ToSqlOutput::Owned(Value::Real(d)) => d.fmt(f),
-            ToSqlOutput::Owned(Value::Text(s)) => f.write_str(s),
-            ToSqlOutput::Owned(Value::Blob(_)) => f.write_str("... binary ..."),
-            _ => "unsupported type!".fmt(f),
+        match self {
+            SqlDebugView::Primitive(to_sql) => match to_sql {
+                ToSqlOutput::Borrowed(ValueRef::Null) => f.write_str("NULL"),
+                ToSqlOutput::Borrowed(ValueRef::Integer(i)) => i.fmt(f),
+                ToSqlOutput::Borrowed(ValueRef::Real(d)) => d.fmt(f),
+                ToSqlOutput::Borrowed(ValueRef::Text(s)) => {
+                    f.write_str(std::str::from_utf8(s).unwrap())
+                }
+                ToSqlOutput::Borrowed(ValueRef::Blob(_)) => ".. binary ..".fmt(f),
+                ToSqlOutput::Owned(Value::Null) => f.write_str("NULL"),
+                ToSqlOutput::Owned(Value::Integer(i)) => i.fmt(f),
+                ToSqlOutput::Owned(Value::Real(d)) => d.fmt(f),
+                ToSqlOutput::Owned(Value::Text(s)) => f.write_str(s),
+                ToSqlOutput::Owned(Value::Blob(_)) => f.write_str("... binary ..."),
+                _ => "unsupported type!".fmt(f),
+            },
+            SqlDebugView::Debug(dbg) => dbg.fmt(f),
         }
     }
 }
