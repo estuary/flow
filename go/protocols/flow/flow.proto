@@ -48,22 +48,64 @@ message UUIDParts {
       [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
 }
 
+// LambdaSpec describes a Flow transformation lambda and how to invoke it.
+message LambdaSpec {
+  option (gogoproto.equal) = true;
+
+  // If non-empty, this is a TypeScript lambda and the field is its invocation path.
+  // E.x. 'some/derivation/andTransform/Update'.
+  string typescript = 1;
+  // If non-empty, this is a remote lambda and the field is its invocation URL.
+  // E.x. 'https://my/external/api'.
+  string remote = 2;
+}
+
 // Shuffle is a description of a document shuffle, where each document
 // is mapped into:
 //  * An extracted, packed composite key (a "shuffle key").
 //  * A rotated Clock value (an "r-clock").
-// The packed key and r-clock can then be compared to a reader RangeSpec.
+// The packed key and r-clock can then be compared to individual reader
+// RangeSpec's.
+//
+// Shuffle is a complete description of how a group of related readers
+// (e.x. a set of shards collectively processing a single derivation or
+// materialization) are performing their read. It contains all (and only!)
+// stable descriptions of the read's behavior, and is a primary structure
+// across both the shuffle server and client implementations.
+//
+// Shuffles are also compared using deep equality in order to identify and
+// group related reads, placing all reads having equal Shuffles into common
+// "read rings" which consolidate their underlying journal reads.
 message Shuffle {
   option (gogoproto.equal) = true;
 
+  // Group to which this shuffle belongs. It's used to suffix all journal
+  // reads undertaken by this shuffle, and must be stable. Examples:
+  //  `derive/{derivation}/{transform}`
+  //  `materialize/{materialization}`
+  string group_name = 1;
+  // Source collection read by this transform.
+  string source_collection = 2 [ (gogoproto.casttype) = "Collection" ];
+  // Selector of partitions of the collection which this transform reads.
+  protocol.LabelSelector source_partitions = 3 [ (gogoproto.nullable) = false ];
+  // JSON pointer locating the UUID of each source document.
+  string source_uuid_ptr = 4;
   // Composite key over which shuffling occurs, specified as one or more
   // JSON-Pointers indicating a message location to extract.
-  repeated string shuffle_key_ptr = 1;
+  repeated string shuffle_key_ptr = 5;
   // uses_source_key is true if shuffle_key_ptr is the source's native key,
   // and false if it's some other key. When shuffling using the source's key,
   // we can minimize data movement by assigning a shard coordinator for each
   // journal such that the shard's key range overlap that of the journal.
-  bool uses_source_key = 2;
+  bool uses_source_key = 6;
+  // Computed shuffle lambda. If non-nil, then shuffle_key_ptr MUST be empty
+  // and uses_source_key MUST be false.
+  LambdaSpec shuffle_lambda = 7;
+  // Schema against which shuffled documents are to be validated.
+  string source_schema_uri = 8;
+  // uses_source_schema is true iff source_schema_uri is the source collection's
+  // schema, and false if it's a source schema specific to this transform.
+  bool uses_source_schema = 9;
   // filter_r_clocks is true if the shuffle coordinator should filter documents
   // sent to each subscriber based on its covered r-clock ranges and the
   // individual document clocks. If false, the subscriber's r-clock range is
@@ -73,7 +115,7 @@ message Shuffle {
   // a "publish" but not an "update" lambda, as such documents have no
   // side-effects on the reader's state store, and would not be published anyway
   // for falling outside of the reader's r-clock range.
-  bool filter_r_clocks = 3;
+  bool filter_r_clocks = 10;
   // Optional hash applied to extracted, packed shuffle keys. Hashes can:
   // * Mitigate shard skew which might otherwise occur due to key locality
   //   (many co-occurring updates to "nearby" keys).
@@ -81,7 +123,7 @@ message Shuffle {
   // * Allow for joins over sensitive fields, which should not be stored
   //   in-the-clear at rest where possible.
   // Either cryptographic or non-cryptographic functions may be appropriate
-  // depending on thse use case.
+  // depending on the use case.
   enum Hash {
     // None performs no hash, returning the original key.
     NONE = 0;
@@ -90,14 +132,20 @@ message Shuffle {
     // properties.
     MD5 = 1;
   };
-  Hash hash = 4;
+  Hash hash = 11;
   // Number of seconds for which documents of this collection are delayed
   // while reading, relative to other documents (when back-filling) and the
   // present wall-clock time (when tailing).
-  uint32 read_delay_seconds = 5;
+  uint32 read_delay_seconds = 12;
+  // Priority of this shuffle, with respect to other related Shuffle reads
+  // (e.x. Shuffles of a different transformation within the same derivation).
+  // Higher values imply higher priority.
+  uint32 priority = 13;
 }
 
 // JournalShuffle is a Shuffle of a Journal by a Coordinator shard.
+// They're compared using deep equality in order to consolidate groups of
+// related logical reads into a single physical read of the journal.
 message JournalShuffle {
   option (gogoproto.equal) = true;
 
@@ -109,8 +157,7 @@ message JournalShuffle {
       [ (gogoproto.casttype) =
             "go.gazette.dev/core/consumer/protocol.ShardID" ];
   // Shuffle of this JournalShuffle.
-  Shuffle shuffle = 3
-      [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
+  Shuffle shuffle = 3 [ (gogoproto.embed) = true ];
   // Is this a reply of the journal's content?
   // We separate ongoing vs replayed reads of a journal's content into
   // distinct rings, so that ongoing reads cannot deadlock a replay read.
@@ -170,7 +217,7 @@ message Inference {
 
 message CollectionSpec {
   // Name of this collection.
-  string name = 1 [ (gogoproto.casttype) = "Collection" ];
+  string collection = 1 [ (gogoproto.casttype) = "Collection" ];
   // Schema against which collection documents are validated,
   // and which provides reduction annotations.
   string schema_uri = 2;
@@ -182,37 +229,39 @@ message CollectionSpec {
   repeated string partition_fields = 5;
   // Logical projections of this collection
   repeated Projection projections = 6;
-  // JournalSpec used for dynamically-created journals of this collection.
-  protocol.JournalSpec journal_spec = 7 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  string ack_json_template = 8;
+  string ack_json_template = 7;
 }
 
-// Transform describes a specific transform of a derived collection.
+// TransformSpec describes a specific transform of a derivation.
 message TransformSpec {
-  // Stable name of this transform, scoped to it's Derivation.
-  string name = 1 [ (gogoproto.casttype) = "Transform" ];
-  // ID of this transform within the present catalog DB.
-  // This ID is *not* stable /across/ different catalog DBs.
-  // Instead, use |name| for equality testing.
-  int32 catalog_db_id = 2;
-  // Source collection read by this transform.
-  message Source {
-    // Name of the collection.
-    string name = 1 [ (gogoproto.casttype) = "Collection" ];
-    // Selector of partitions of the collection which this transform reads.
-    protocol.LabelSelector partitions = 2 [ (gogoproto.nullable) = false ];
-  }
-  Source source = 3 [ (gogoproto.nullable) = false ];
+  // Derivation this transform belongs to.
+  string derivation = 1 [ (gogoproto.casttype) = "Collection" ];
+  // Name of this transform, scoped to it's derivation.
+  string transform = 2 [ (gogoproto.casttype) = "Transform" ];
   // Shuffle applied to source documents for this transform.
-  // Note that the Shuffle embeds the Transform name.
-  Shuffle shuffle = 4 [ (gogoproto.nullable) = false ];
-  // Derived collection produced by this transform.
-  message Derivation {
-    string name = 1 [ (gogoproto.casttype) = "Collection" ];
-  }
-  Derivation derivation = 5 [ (gogoproto.nullable) = false ];
+  Shuffle shuffle = 3 [ (gogoproto.nullable) = false ];
+  // Update lambda of this transform, if any.
+  LambdaSpec update_lambda = 4;
+  // If an applied update causes the register to be invalid against its
+  // schema, should the document roll back instead of failing processing?
+  bool rollback_on_register_conflict = 5;
+  // Publish lambda of this transform, if any.
+  LambdaSpec publish_lambda = 6;
+}
+
+// DerivationSpec describes a collection, and it's means of derivation.
+message DerivationSpec {
+  // Derivations are collections.
+  CollectionSpec collection = 1;
+  // Schema against which derivation registers are validated,
+  // and which provides reduction annotations.
+  string register_schema_uri = 2;
+  // JSON-encoded initial value of novel document registers.
+  string register_initial_json = 3;
+  // Transforms of this derivation.
+  repeated TransformSpec transforms = 4 [ (gogoproto.nullable) = false ];
 }
 
 // RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
@@ -227,18 +276,57 @@ message RangeSpec {
   uint64 r_clock_end = 5;
 }
 
+// JournalRules are an ordered sequence of Rules which specify a
+// condition -- as a label selector -- and, if matched, a template
+// to apply to the base JournalSpec.
+message JournalRules {
+  message Rule {
+    // Name of the rule.
+    string rule = 1;
+    // Label selector which must pass for the template to be applied.
+    protocol.LabelSelector selector = 2 [ (gogoproto.nullable) = false ];
+    // Template to union into the base JournalSpec.
+    protocol.JournalSpec template = 3 [ (gogoproto.nullable) = false ];
+  }
+  repeated Rule rules = 1 [ (gogoproto.nullable) = false ];
+}
+
+// ShardRules are an ordered sequence of Rules which specify a
+// condition -- as a label selector -- and, if matched, a template
+// to apply to the base ShardSpec.
+message ShardRules {
+  message Rule {
+    // Label selector which must pass for the template to be applied.
+    protocol.LabelSelector selector = 1 [ (gogoproto.nullable) = false ];
+    // Template to union into the base JournalSpec.
+    consumer.ShardSpec template = 2 [ (gogoproto.nullable) = false ];
+  }
+  repeated Rule rules = 1 [ (gogoproto.nullable) = false ];
+}
+
+// SchemaBundle is a bundle of JSON schemas and their base URI.
+message SchemaBundle {
+  // Schemas of the bundle. Keys are the absolute URIs of the schema,
+  // and values are JSON-encoded schema documents.
+  map<string, string> bundle = 1;
+}
+
 // ShuffleRequest is the request message of a Shuffle RPC.
 message ShuffleRequest {
+  // Journal to be shuffled, routed to a coordinator.
   JournalShuffle shuffle = 1 [ (gogoproto.nullable) = false ];
-  RangeSpec range = 2 [ (gogoproto.nullable) = false ];
+  // Resolution header of the |shuffle.coordinator| shard.
+  protocol.Header resolution = 2;
+  // Ranges of responsibility which are unique to this reader,
+  // against which document shuffle outcomes are matched to determine
+  // read eligibility.
+  RangeSpec range = 3 [ (gogoproto.nullable) = false ];
   // Offset to begin reading the journal from.
-  int64 offset = 3
+  int64 offset = 4
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // Offset to stop reading the journal at, or zero if unbounded.
-  int64 end_offset = 4
+  int64 end_offset = 5
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
-  // Resolution header of the |config.coordinator_index| shard.
-  protocol.Header resolution = 5;
 }
 
 // ShuffleResponse is the streamed response message of a Shuffle RPC.
@@ -287,8 +375,24 @@ service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
+message SchemaAPI {
+  // Schema API takes SchemaBundle as its request message with code 1,
+  // and sends back instances of BuiltIndex with code 1.
+
+  message BuiltIndex {
+    fixed64 schema_index_memptr = 1;
+  }
+}
+
 message ExtractAPI {
   message Config {
+    // TODO - pass schema_index_memptr & Shuffle spec here, migrating this
+    // towards a ShuffleAPI which takes over some of the responsibility of
+    // current Go implementation.
+    //
+    // Have ExtractAPI do schema validation so DeriveAPI doesn't have to.
+    // When we introduce computed lambdas, it will be within this API
+
     // JSON pointer of the document UUID to extract.
     // If empty, UUIDParts are not extracted.
     string uuid_ptr = 1;
@@ -300,8 +404,8 @@ message ExtractAPI {
 
 message CombineAPI {
   message Config {
-	// Memory address of a 'static SchemaIndex to use for combining.
-	// Applicable only to the CGO bridged CombinerService.
+    // Memory address of a shared SchemaIndex, which must exist for
+    // the complete lifetime of this API's use.
     fixed64 schema_index_memptr = 1;
     // Schema against which documents are to be validated,
     // and which provides reduction annotations.
@@ -330,32 +434,30 @@ message CombineAPI {
 message DeriveAPI {
   // Config configures an instance of the derive service.
   message Config {
-    // Path to the catalog database.
-    string catalog_path = 1;
-    // Name of the collection to derive.
-    string derivation = 2;
-    // Local directory for ephemeral processing state.
-    string local_dir = 3;
+    // Memory address of a shared SchemaIndex, which must exist for
+    // the complete lifetime of this API's use.
+    fixed64 schema_index_memptr = 1;
+    // Derivation to derive.
+    DerivationSpec derivation = 2;
     // Memory address of an RocksDB Environment to use (as a *rocksdb_env_t).
     // Ownership of the environment is transferred with this message.
-    fixed64 rocksdb_env_memptr = 4;
+    fixed64 rocksdb_env_memptr = 3;
+    // Local directory for ephemeral processing state.
+    string local_dir = 4;
+    // Unix Domain Socket at which the JavaScript transformer may be reached.
+    string typescript_uds_path = 5;
   }
 
-  // DocHeader preceds a JSON-encoded document.
+  // DocHeader precedes a JSON-encoded document.
   message DocHeader {
+    // UUID of this document.
     UUIDParts uuid = 1;
+    // FDB packed shuffle key of the document.
     bytes packed_key = 2;
-    int32 transform_id = 3;
+    // Index of the transformation under which this document is being
+    // processed, within the configured DerivationSpec.
+    uint32 transform_index = 3;
   }
-
-  // Flush the transaction pipeline.
-  message Flush {
-    // JSON-Pointer of the UUID placeholder in returned documents.
-    string uuid_placeholder_ptr = 1;
-    // Field JSON pointers to be extracted from combined documents and returned.
-    // If empty, no fields are extracted.
-    repeated string field_ptrs = 2;
-  };
 
   // Prepare a commit of the transaction.
   message Prepare {

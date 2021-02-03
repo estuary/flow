@@ -9,22 +9,6 @@ use tonic_build;
 static SERDE_ATTR: &str =
     "#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]";
 
-// This is a hack to allow our prost Message types impl De/Serialize. We ought to be able to
-// remove this once: https://github.com/danburkert/prost/issues/277 is merged, as that will
-// allow us to use something like this: https://github.com/fdeantoni/prost-wkt to make the
-// "well known types" implement De/Serialize.
-static DURATION_ATTR: &str =
-    "#[serde(deserialize_with = \"crate::deserialize_duration\", serialize_with = \"crate::serialize_duration\")]";
-
-static OPTIONAL_STRING_ATTR: &str = r##"#[serde(default, skip_serializing_if = "str::is_empty")]
-    #[doc("This field is optional. An empty String denotes a missing value.")]"##;
-static OPTIONAL_VEC_ATTR: &str = r##"#[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[doc("This field is optional. An empty Vec represents a missing value.")]"##;
-static OPTIONAL_STRUCT_ATTR: &str =
-    r##"#[serde(default, skip_serializing_if = "Option::is_none")]"##;
-static OPTIONAL_U32_ATTR: &str = r##"#[serde(default, skip_serializing_if = "crate::u32_is_0")]
-    #[doc("This field is optional. A value of 0 represents a missing value.")]"##;
-
 #[derive(Copy, Clone, Debug)]
 struct TypeAttrs<'a> {
     path: &'a str,
@@ -37,73 +21,13 @@ struct TypeAttrs<'a> {
 /// https://docs.rs/prost-build/0.6.1/prost_build/struct.Config.html#arguments
 /// `field_attrs` holds tuples of field name to field attributes.
 static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
-    TypeAttrs {
-        path: "protocol.Label",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[],
-    },
-    TypeAttrs {
-        path: "protocol.LabelSet",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[],
-    },
-    TypeAttrs {
-        path: "protocol.JournalSpec",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[],
-    },
-    TypeAttrs {
-        path: "protocol.JournalSpec.Fragment",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[
-            ("flush_interval", DURATION_ATTR),
-            ("refresh_interval", DURATION_ATTR),
-            ("retention", DURATION_ATTR),
-        ],
-    },
-    TypeAttrs {
-        path: "flow.CollectionSpec",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[
-            ("uuid_ptr", OPTIONAL_STRING_ATTR),
-            ("partition_fields", OPTIONAL_VEC_ATTR),
-            ("ack_json_template", OPTIONAL_STRING_ATTR),
-            ("journal_spec", OPTIONAL_STRUCT_ATTR),
-        ],
-    },
-    TypeAttrs {
-        path: "flow.Projection",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[("inference", OPTIONAL_STRUCT_ATTR)],
-    },
-    TypeAttrs {
-        path: "flow.Inference",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[
-            ("string", OPTIONAL_STRUCT_ATTR),
-            ("title", OPTIONAL_STRING_ATTR),
-            ("description", OPTIONAL_STRING_ATTR),
-        ],
-    },
-    TypeAttrs {
-        path: "flow.Inference.String",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[
-            ("content_type", OPTIONAL_STRING_ATTR),
-            ("format", OPTIONAL_STRING_ATTR),
-            ("max_length", OPTIONAL_U32_ATTR),
-        ],
-    },
+    // Shuffle.Hash is a JSON-encoded column of models::tables::Transform.
     TypeAttrs {
         path: "flow.Shuffle.Hash",
         type_attrs: SERDE_ATTR,
         field_attrs: &[],
     },
-    TypeAttrs {
-        path: "materialize.FieldSelection",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[],
-    },
+    // materialize.Constraint is used in JSON-encoded fixtures of `validation` crate tests.
     TypeAttrs {
         path: "materialize.Constraint",
         type_attrs: SERDE_ATTR,

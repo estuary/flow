@@ -76,8 +76,7 @@ pub struct ValidateResponse {
 }
 /// FieldSelection represents the entire set of fields for a materialization. Projected fields are
 /// separated into keys and values.
-#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FieldSelection {
     /// The fields that are being used as the primary key for this materialization. Flow will guarantee
     /// that each location that's part of a collection's key is represented here exactly once, and in
