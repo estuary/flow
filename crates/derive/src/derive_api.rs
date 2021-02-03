@@ -7,7 +7,7 @@ use super::registers::{self, Registers};
 use crate::setup_env_tracing;
 
 use bytes::{buf::BufMutExt, BufMut};
-use doc::{self, reduce, Pointer};
+use doc::{self, reduce};
 use futures::channel::mpsc;
 use futures::sink::SinkExt;
 use futures::stream::{StreamExt, TryStreamExt};
@@ -29,8 +29,8 @@ pub enum Error {
     SendError(#[from] mpsc::SendError),
     #[error("register error: {0}")]
     RegisterErr(#[from] registers::Error),
-    #[error("Unknown transform ID: {0}")]
-    UnknownTransformID(i32),
+    #[error("unknown transform index: {0}")]
+    UnknownTransform(u32),
     #[error("register reduction error: {0}")]
     RegisterReduction(#[source] reduce::Error),
     #[error("derived document reduction error: {0}")]
@@ -42,11 +42,11 @@ pub enum Error {
     #[error("parsing URL: {0:?}")]
     Url(#[from] url::ParseError),
     #[error(transparent)]
-    CatalogError(#[from] catalog::Error),
-    #[error(transparent)]
     NodeError(#[from] super::nodejs::Error),
     #[error(transparent)]
     RocksError(#[from] rocksdb::Error),
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
     #[error("lambda returned fewer rows than expected")]
     TooFewRows,
     #[error("lambda returned more rows than expected")]
@@ -78,18 +78,7 @@ impl cgo::Service for API {
         match (code, &mut self.pimpl) {
             // Initialize service.
             (0, None) => {
-                let cfg = derive_api::Config::decode(data)?;
-
-                // Re-hydrate a &rocksdb::Env from a provided memory address.
-                let env_ptr = cfg.rocksdb_env_memptr as usize;
-                let env: &rocksdb::Env = unsafe { std::mem::transmute(&env_ptr) };
-
-                self.pimpl = Some(APIInner::from_database(
-                    env,
-                    &cfg.catalog_path,
-                    &cfg.local_dir,
-                    &cfg.derivation,
-                )?);
+                self.pimpl = Some(APIInner::from_config(derive_api::Config::decode(data)?)?);
             }
             // Restore checkpoint.
             (1, Some(pimpl)) => {
@@ -109,8 +98,7 @@ impl cgo::Service for API {
             }
             // Flush transaction.
             (5, Some(pimpl)) => {
-                let req = derive_api::Flush::decode(data)?;
-                futures::executor::block_on(pimpl.flush_transaction(req, arena, out))?;
+                futures::executor::block_on(pimpl.flush_transaction(arena, out))?;
             }
             // Prepare transaction for commit.
             (6, Some(pimpl)) => {
@@ -130,12 +118,13 @@ impl cgo::Service for API {
 struct APIInner<'e> {
     runtime: tokio::runtime::Runtime,
     ctx: Arc<Context>,
-    node: Option<NodeRuntime>,
     txn_id: usize,
     state: State,
 
     // This instance cannot outlive the RocksDB environment it uses.
     _env: PhantomData<&'e rocksdb::Env>,
+    // Retain for its Drop shutdown behavior.
+    _node: Option<NodeRuntime>,
 }
 
 enum State {
@@ -165,46 +154,49 @@ impl<'e> APIInner<'e> {
             .unwrap()
     }
 
-    fn from_database(
-        env: &'e rocksdb::Env,
-        catalog_path: &str,
-        local_dir: &str,
-        derivation: &str,
-    ) -> Result<APIInner<'e>, Error> {
-        // Open catalog DB & build schema index.
-        let db = catalog::open(catalog_path)?;
-        let schema_index = super::build_schema_index(&db)?;
-
-        // Start NodeJS transform worker.
-        let node = super::nodejs::NodeRuntime::start(&db, &local_dir)?;
-
-        // Build derivation context.
-        let ctx =
-            super::context::Context::build_from_catalog(&db, &derivation, schema_index, &node)?;
-
-        let mut api = Self::from_parts(
-            Self::build_runtime(),
-            schema_index,
-            ctx,
-            env,
+    fn from_config(cfg: derive_api::Config) -> Result<APIInner<'e>, Error> {
+        let derive_api::Config {
+            derivation,
             local_dir,
-            Some(node),
-        )?;
+            rocksdb_env_memptr,
+            schema_index_memptr,
+            typescript_uds_path,
+        } = cfg;
 
-        // Invoke any user-provide runtime bootstraps.
-        api.runtime.block_on(
-            api.node
-                .as_ref()
-                .unwrap()
-                .invoke_bootstrap(api.ctx.derivation_id),
+        tracing::trace!(
+            ?derivation,
+            ?local_dir,
+            ?rocksdb_env_memptr,
+            ?schema_index_memptr,
+            ?typescript_uds_path,
+            "building from config"
+        );
+
+        // Re-hydrate a &rocksdb::Env from a provided memory address.
+        let env_ptr = rocksdb_env_memptr as usize;
+        let env: &rocksdb::Env = unsafe { std::mem::transmute(&env_ptr) };
+
+        // Re-hydrate a &'static SchemaIndex from a provided memory address.
+        let schema_index_memptr = schema_index_memptr as usize;
+        let schema_index: &'static doc::SchemaIndex =
+            unsafe { std::mem::transmute(schema_index_memptr) };
+
+        // Configure or start a NodeJS / TypeScript transform worker.
+        let node = super::nodejs::NodeRuntime::from_uds_path(&typescript_uds_path);
+
+        // Build API context from spec and assemble.
+        let ctx = super::context::Context::build_from_spec(
+            derivation.unwrap_or_default(),
+            &node,
+            schema_index,
         )?;
+        let api = Self::from_parts(Self::build_runtime(), ctx, env, local_dir, Some(node))?;
 
         Ok(api)
     }
 
     fn from_parts<P: AsRef<std::path::Path>>(
         runtime: tokio::runtime::Runtime,
-        schema_index: &'static doc::SchemaIndex,
         ctx: Context,
         env: &'e rocksdb::Env,
         local_dir: P,
@@ -229,7 +221,7 @@ impl<'e> APIInner<'e> {
 
         let registers = super::registers::Registers::new(
             rocks,
-            schema_index,
+            &ctx.schema_index,
             &ctx.register_schema,
             ctx.register_initial.clone(),
         );
@@ -239,10 +231,10 @@ impl<'e> APIInner<'e> {
         Ok(APIInner {
             runtime,
             ctx,
-            node,
             txn_id: 0,
             state,
             _env: PhantomData,
+            _node: node,
         })
     }
 
@@ -310,9 +302,9 @@ impl<'e> APIInner<'e> {
 
         if let State::DocBody(
             derive_api::DocHeader {
-                transform_id,
                 uuid,
                 packed_key,
+                transform_index,
             },
             Txn {
                 mut validator,
@@ -326,7 +318,13 @@ impl<'e> APIInner<'e> {
             let flags = uuid.producer_and_flags & message_flags::MASK;
 
             if flags != message_flags::ACK_TXN {
-                next.add_document(&mut validator, transform_id, uuid, packed_key, body)?;
+                next.add_document(
+                    &mut validator,
+                    transform_index as usize,
+                    uuid,
+                    packed_key,
+                    body,
+                )?;
             }
 
             // Measure Block size is the sum of each transform buffer.
@@ -366,7 +364,6 @@ impl<'e> APIInner<'e> {
 
     async fn flush_transaction(
         &mut self,
-        req: derive_api::Flush,
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Error> {
@@ -389,8 +386,8 @@ impl<'e> APIInner<'e> {
 
             super::combine_api::drain_combiner(
                 combiner,
-                &req.uuid_placeholder_ptr,
-                &req.field_ptrs.iter().map(Pointer::from).collect::<Vec<_>>(),
+                &self.ctx.uuid_placeholder_ptr,
+                &self.ctx.derivation_partitions,
                 arena,
                 out,
             );
@@ -445,32 +442,27 @@ impl Block {
     fn add_document<C: json::validator::Context>(
         &mut self,
         val: &mut doc::Validator<C>,
-        tf_id: i32,
+        tf_index: usize,
         uuid: flow::UuidParts,
         packed_key: Vec<u8>,
         data: &[u8],
     ) -> Result<(), Error> {
-        let (tf_ind, tf) = self
-            .ctx
-            .transforms
-            .iter()
-            .enumerate()
-            .find(|(_, t)| t.transform_id == tf_id)
-            .ok_or(Error::UnknownTransformID(tf_id))?;
-
-        // Validate.
         // TODO(johnny): Move source schema validation to read-time, avoiding this parsing.
-        doc::validate(val, &tf.source_schema, &serde_json::from_slice(data)?)
-            .map_err(Error::SourceValidation)?;
+        doc::validate(
+            val,
+            &self.ctx.transforms[tf_index as usize].source_schema,
+            &serde_json::from_slice(data)?,
+        )
+        .map_err(Error::SourceValidation)?;
 
         // Accumulate source document into the transform's column buffer.
-        let buf = &mut self.buffers[tf_ind];
+        let buf = &mut self.buffers[tf_index];
         if !buf.is_empty() {
             buf.put_u8(b',');
         }
         buf.extend_from_slice(data);
 
-        self.tf_inds.push(tf_ind as u8);
+        self.tf_inds.push(tf_index as u8);
         self.uuids.push(uuid);
         self.keys.push(packed_key);
 
@@ -508,7 +500,7 @@ async fn process_block(
         .iter()
         .zip(source_columns.iter().cloned())
         .map(|(tf, source_column)| {
-            let span = tracing::debug_span!("update", tf_id = tf.transform_id);
+            let span = tracing::debug_span!("update", tf.index);
             tracing::trace!(parent: &span, sources = %String::from_utf8_lossy(&source_column));
 
             let body = if source_column.is_empty() {
@@ -612,7 +604,7 @@ async fn process_block(
         .zip(source_columns.iter().cloned())
         .zip(register_columns.into_iter())
         .map(|((tf, source_column), register_column)| {
-            let span = tracing::debug_span!("publish", tf_id = tf.transform_id);
+            let span = tracing::debug_span!("publish", tf.index);
             tracing::trace!(
                 parent: &span,
                 sources = %String::from_utf8_lossy(&source_column),
@@ -781,14 +773,7 @@ mod tests {
         let mut arena = Vec::new();
         let mut out = Vec::new();
 
-        let flush = api.inner.flush_transaction(
-            derive_api::Flush {
-                uuid_placeholder_ptr: "/_uuid".to_owned(),
-                field_ptrs: vec!["/reset".to_owned(), "/key".to_owned()],
-            },
-            &mut arena,
-            &mut out,
-        );
+        let flush = api.inner.flush_transaction(&mut arena, &mut out);
         futures::executor::block_on(flush).unwrap();
 
         api.inner
@@ -820,9 +805,7 @@ mod tests {
         ]);
 
         let (mut arena, mut out) = (Vec::new(), Vec::new());
-        let flush = api
-            .inner
-            .flush_transaction(Default::default(), &mut arena, &mut out);
+        let flush = api.inner.flush_transaction(&mut arena, &mut out);
 
         insta::assert_display_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
         register reduction error: document is invalid: {
@@ -862,9 +845,7 @@ mod tests {
         )]);
 
         let (mut arena, mut out) = (Vec::new(), Vec::new());
-        let flush = api
-            .inner
-            .flush_transaction(Default::default(), &mut arena, &mut out);
+        let flush = api.inner.flush_transaction(&mut arena, &mut out);
 
         insta::assert_display_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
         derived document reduction error: document is invalid: {
@@ -894,9 +875,9 @@ mod tests {
     }
 
     // Short-hand constants for transform IDs used in the test fixture.
-    const TF_INC: i32 = 32;
-    const TF_PUB: i32 = 42;
-    const TF_RST: i32 = 52;
+    const TF_INC: usize = 0;
+    const TF_PUB: usize = 1;
+    const TF_RST: usize = 2;
 
     struct TestAPI<'e> {
         inner: APIInner<'e>,
@@ -1014,50 +995,40 @@ mod tests {
             });
 
             // Assemble transforms for our context.
-            let transforms = vec![
-                // Transform which increments the register.
-                Transform {
-                    transform_id: TF_INC,
-                    source_schema: schema_url.join("#/$defs/source").unwrap(),
-                    update: do_increment.lambda.clone(),
-                    publish: Lambda::Noop,
-                    index: 0,
-                },
-                // Transform which publishes the current register.
-                Transform {
-                    transform_id: TF_PUB,
+            let mut transforms = (0..3)
+                .map(|index| Transform {
                     source_schema: schema_url.join("#/$defs/source").unwrap(),
                     update: Lambda::Noop,
-                    publish: do_publish.lambda.clone(),
-                    index: 1,
-                },
-                // Transform which resets the register, and publishes its prior value.
-                Transform {
-                    transform_id: TF_RST,
-                    source_schema: schema_url.join("#/$defs/source").unwrap(),
-                    update: do_reset.lambda.clone(),
-                    publish: do_publish.lambda.clone(),
-                    index: 2,
-                },
-            ];
+                    publish: Lambda::Noop,
+                    index,
+                })
+                .collect::<Vec<_>>();
+
+            // Transform which increments the register.
+            transforms[TF_INC].update = do_increment.lambda.clone();
+            // Transform which publishes the current register.
+            transforms[TF_PUB].publish = do_publish.lambda.clone();
+            // Transform which resets the register, and publishes its prior value.
+            transforms[TF_RST].update = do_reset.lambda.clone();
+            transforms[TF_RST].publish = do_publish.lambda.clone();
 
             let ctx = Context {
-                transforms,
-                schema_index,
-
-                derivation_id: 1234,
-                derivation_name: "a/derived/collection".to_owned(),
-                derivation_schema: schema_url.join("#/$defs/derived").unwrap(),
                 derivation_key: vec!["/key".into()].into(),
-
-                register_schema: schema_url.join("#/$defs/register").unwrap(),
+                derivation_partitions: ["/reset", "/key"]
+                    .iter()
+                    .map(|k| doc::Pointer::from(k))
+                    .collect(),
+                derivation_schema: schema_url.join("#/$defs/derived").unwrap(),
                 register_initial: json!({"value": 1000}),
+                register_schema: schema_url.join("#/$defs/register").unwrap(),
+                schema_index,
+                transforms,
+                uuid_placeholder_ptr: "/_uuid".to_owned(),
             };
 
             let tmpdir = tempfile::TempDir::new().unwrap();
 
-            let inner =
-                APIInner::from_parts(runtime, schema_index, ctx, env, tmpdir.path(), None).unwrap();
+            let inner = APIInner::from_parts(runtime, ctx, env, tmpdir.path(), None).unwrap();
 
             Self {
                 inner,
@@ -1069,18 +1040,18 @@ mod tests {
         }
 
         // Apply a sequence of CONTINUE_TXN documents, followed by an ACK_TXN.
-        fn apply_documents(&mut self, documents: Vec<(i32, Value)>) {
+        fn apply_documents(&mut self, documents: Vec<(usize, Value)>) {
             let mut w = Vec::new();
 
-            for (tf_id, doc) in documents {
+            for (index, doc) in documents {
                 self.inner
                     .doc_header(derive_api::DocHeader {
-                        transform_id: tf_id,
                         uuid: Some(flow::UuidParts {
                             clock: 0,
                             producer_and_flags: message_flags::CONTINUE_TXN,
                         }),
                         packed_key: doc.pointer("/key").unwrap_or(&Value::Null).pack_to_vec(),
+                        transform_index: index as u32,
                     })
                     .unwrap();
 
@@ -1092,12 +1063,12 @@ mod tests {
             // Send a trailing, empty ACK_TXN.
             self.inner
                 .doc_header(derive_api::DocHeader {
-                    transform_id: 0,
                     uuid: Some(flow::UuidParts {
                         clock: 0,
                         producer_and_flags: message_flags::ACK_TXN,
                     }),
                     packed_key: Value::Null.pack_to_vec(),
+                    transform_index: 0,
                 })
                 .unwrap();
             futures::executor::block_on(self.inner.doc_body(b"garbage (not used)")).unwrap();

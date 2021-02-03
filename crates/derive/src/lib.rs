@@ -7,6 +7,7 @@ pub mod lambda;
 pub mod nodejs;
 pub mod pipeline;
 pub mod registers;
+pub mod schema_api;
 
 pub use extract_api::extract_uuid_parts;
 use std::sync::Once;
@@ -32,31 +33,6 @@ impl<S: serde::Serialize> std::fmt::Debug for DebugJson<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&serde_json::to_string(&self.0).unwrap())
     }
-}
-
-/// Build a 'static lifetime SchemaIndex from a catalog database.
-pub fn build_schema_index(
-    db: &catalog::DB,
-) -> Result<&'static doc::SchemaIndex<'static>, catalog::Error> {
-    // Compile the bundle of catalog schemas. Then, deliberately "leak" the
-    // immutable Schema bundle for the remainder of program in order to achieve
-    // a 'static lifetime, which is required for use in spawned tokio Tasks (and
-    // therefore in TxnCtx).
-    let schemas = catalog::Schema::compile_all(&db)?;
-    let schemas = Box::leak(Box::new(schemas));
-
-    let mut schema_index = doc::SchemaIndex::<'static>::new();
-    for schema in schemas.iter() {
-        schema_index.add(schema)?;
-    }
-    schema_index.verify_references()?;
-
-    // Also leak a &'static SchemaIndex.
-    let schema_index = Box::leak(Box::new(schema_index));
-
-    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
-
-    Ok(schema_index)
 }
 
 /// Common test utilities used by sub-modules.

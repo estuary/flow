@@ -5,12 +5,13 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-catalog = { path = "../catalog", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 tuple = { path = "../tuple", version = "0.0.0" }
 
+anyhow = "*"
 bytes = "*"
 futures = "*"
 http = "*"
