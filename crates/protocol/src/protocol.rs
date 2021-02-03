@@ -2,8 +2,7 @@
 /// JournalSpecs and BrokerSpecs. Labels may be used to provide identifying
 /// attributes which do not directly imply semantics to the core system, but
 /// are meaningful to users or for higher-level Gazette tools.
-#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Label {
     #[prost(string, tag = "1")]
     pub name: std::string::String,
@@ -11,8 +10,7 @@ pub struct Label {
     pub value: std::string::String,
 }
 /// LabelSet is a collection of labels and their values.
-#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LabelSet {
     /// Labels of the set. Instances must be unique and sorted over (Name, Value).
     #[prost(message, repeated, tag = "1")]
@@ -33,8 +31,7 @@ pub struct LabelSelector {
     pub exclude: ::std::option::Option<LabelSet>,
 }
 /// JournalSpec describes a Journal and its configuration.
-#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalSpec {
     /// Name of the Journal.
     #[prost(string, tag = "1")]
@@ -64,8 +61,7 @@ pub struct JournalSpec {
 pub mod journal_spec {
     /// Fragment is JournalSpec configuration which pertains to the creation,
     /// persistence, and indexing of the Journal's Fragments.
-    #[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
-    #[serde(deny_unknown_fields)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fragment {
         /// Target content length of each Fragment. In normal operation after
         /// Fragments reach at least this length, they will be closed and new ones
@@ -102,19 +98,11 @@ pub mod journal_spec {
         /// Interval of time between refreshes of remote Fragment listings from
         /// configured fragment_stores.
         #[prost(message, optional, tag = "4")]
-        #[serde(
-            deserialize_with = "crate::deserialize_duration",
-            serialize_with = "crate::serialize_duration"
-        )]
         pub refresh_interval: ::std::option::Option<::prost_types::Duration>,
         /// Retention duration for historical Fragments of this Journal within the
         /// Fragment stores. If less than or equal to zero, Fragments are retained
         /// indefinitely.
         #[prost(message, optional, tag = "5")]
-        #[serde(
-            deserialize_with = "crate::deserialize_duration",
-            serialize_with = "crate::serialize_duration"
-        )]
         pub retention: ::std::option::Option<::prost_types::Duration>,
         /// Flush interval defines a uniform UTC time segment which, when passed,
         /// will prompt brokers to close and persist a fragment presently being
@@ -130,10 +118,6 @@ pub mod journal_spec {
         ///
         /// See also "gazctl journals fragments --help" for more discussion.
         #[prost(message, optional, tag = "6")]
-        #[serde(
-            deserialize_with = "crate::deserialize_duration",
-            serialize_with = "crate::serialize_duration"
-        )]
         pub flush_interval: ::std::option::Option<::prost_types::Duration>,
         /// Path postfix template is a Go template which evaluates to a partial
         /// path under which fragments are persisted to the store. A complete
