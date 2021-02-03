@@ -144,4 +144,6 @@ mod test {
     }
 }
 
+// This constant is shared between Rust and Go code.
+// See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";

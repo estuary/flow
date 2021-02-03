@@ -1,5 +1,4 @@
 use super::lambda;
-use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -8,8 +7,6 @@ use std::process;
 pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("database error: {0}")]
-    SQLite(#[from] rusqlite::Error),
     #[error("http error: {0}")]
     Http(#[from] lambda::Error),
     #[error("Failed to install npm package")]
@@ -18,33 +15,36 @@ pub enum Error {
 
 pub struct NodeRuntime {
     sock: PathBuf,
-    proc: process::Child,
+    proc: Option<process::Child>,
 }
 
 impl NodeRuntime {
-    /// Start a NodeJS worker using the NPM package extracted from the catalog database.
-    pub fn start(db: &rusqlite::Connection, dir: impl AsRef<Path>) -> Result<NodeRuntime, Error> {
+    /// Build a NodeRuntime which uses the given Unix Domain Socket path.
+    pub fn from_uds_path(socket: impl AsRef<Path>) -> NodeRuntime {
+        NodeRuntime {
+            sock: socket.as_ref().into(),
+            proc: None,
+        }
+    }
+
+    /// Start a NodeJS worker using the given NPM package tarball.
+    pub fn start(dir: impl AsRef<Path>, package_tgz: &[u8]) -> Result<NodeRuntime, Error> {
         // Extract catalog pack.tgz to a new temp directory.
         let dir = dir.as_ref();
-        let pack_path = dir.join("npm-pack.tgz");
-        let pack_contents: Vec<u8> = db
-            .prepare("SELECT content FROM resources WHERE content_type = ?")?
-            .query_row(rusqlite::params![catalog::ContentType::NpmPack], |r| {
-                r.get(0)
-            })?;
-        fs::write(&pack_path, pack_contents)?;
-        log::info!("wrote catalog npm package to {:?}", pack_path);
+        let package_path = dir.join("npm-package.tgz");
+        std::fs::write(&package_path, package_tgz)?;
+        tracing::info!("wrote catalog NPM package to {:?}", package_path);
 
         let output = process::Command::new("npm")
             .arg("--version")
             .current_dir(dir)
             .output()?;
-        log::info!("running NPM version {:?}", &output.stdout);
+        tracing::info!("running NPM version {:?}", &output.stdout);
 
         // Bootstrap a Node package with the installed pack.
         let cmd = process::Command::new("npm")
             .arg("install")
-            .arg("file://./npm-pack.tgz")
+            .arg("file://./npm-package.tgz")
             .current_dir(dir)
             .output()?;
 
@@ -75,24 +75,13 @@ impl NodeRuntime {
         std::thread::spawn(move || std::io::copy(&mut stdout, &mut std::io::stdout()));
 
         log::info!("nodejs runtime is ready {:?}", proc);
-        Ok(NodeRuntime { proc, sock })
+        Ok(NodeRuntime {
+            proc: Some(proc),
+            sock,
+        })
     }
 
-    pub fn new_update_lambda(&self, transform_id: i32) -> lambda::Lambda {
-        self.new_lambda(format!("/update/{}", transform_id))
-    }
-
-    pub fn new_publish_lambda(&self, transform_id: i32) -> lambda::Lambda {
-        self.new_lambda(format!("/publish/{}", transform_id))
-    }
-
-    pub async fn invoke_bootstrap(&self, derivation_id: i32) -> Result<(), lambda::Error> {
-        let l = self.new_lambda(format!("/bootstrap/{}", derivation_id));
-        let _ = l.invoke(Some("{}")).await?;
-        Ok(())
-    }
-
-    fn new_lambda(&self, path: String) -> lambda::Lambda {
+    pub fn new_lambda(&self, path: impl Into<String>) -> lambda::Lambda {
         let client = hyper::Client::builder()
             .http2_only(true)
             .build::<_, hyper::Body>(hyperlocal::UnixConnector);
@@ -100,14 +89,16 @@ impl NodeRuntime {
         lambda::Lambda::UnixJson {
             client,
             sock: self.sock.clone(),
-            path,
+            path: path.into(),
         }
     }
 }
 
 impl Drop for NodeRuntime {
     fn drop(&mut self) {
-        let _ = self.proc.kill();
-        self.proc.wait().unwrap();
+        if let Some(proc) = &mut self.proc {
+            let _ = proc.kill();
+            proc.wait().unwrap();
+        }
     }
 }

@@ -22,9 +22,11 @@ pub enum Error {
     #[error(transparent)]
     UTF8Error(#[from] std::str::Utf8Error),
     #[error(transparent)]
-    CatalogError(#[from] catalog::Error),
+    Rusqlite(#[from] rusqlite::Error),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
 }
 
 /// API provides a combine capability as a cgo::Service.
@@ -48,21 +50,6 @@ impl cgo::Service for API {
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
         match (code, &mut self.state) {
-            // Open database and build a 'static SchemaIndex, returned by pointer address.
-            (0, None) => {
-                let path = std::path::PathBuf::from(std::str::from_utf8(data)?);
-                let db = catalog::open(path)?;
-                let index = super::build_schema_index(&db)?;
-
-                // Send an encoding of the |index| memory address.
-                let cfg = &combine_api::Config {
-                    schema_index_memptr: index as *const doc::SchemaIndex<'static> as u64,
-                    ..Default::default()
-                };
-                cgo::send_message(0, cfg, arena, out);
-
-                Ok(())
-            }
             // Begin a new, configured combiner.
             (1, None) => {
                 let cfg = combine_api::Config::decode(data)?;
