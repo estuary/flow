@@ -1,24 +1,24 @@
-nodeDependencies:
+npmDependencies:
   moment: "^2.24"
 
 collections:
-  - name: marketing/campaigns
+  marketing/campaigns:
     schema: schema.yaml#/$defs/campaign
     key: [/campaign_id]
 
-  - name: marketing/offer/views
+  marketing/offer/views:
     schema: schema.yaml#/$defs/view
     key: [/view_id]
 
-  - name: marketing/offer/clicks
+  marketing/offer/clicks:
     schema: schema.yaml#/$defs/click
     key: [/click_id]
 
-  - name: marketing/purchases
+  marketing/purchases:
     schema: schema.yaml#/$defs/purchase
     key: [/purchase_id]
 
-  - name: marketing/views-with-campaign
+  marketing/views-with-campaign:
     schema: schema.yaml#/$defs/view-with-campaign
     key: [/view_id]
 
@@ -38,17 +38,18 @@ collections:
           # As we don't specify a "shuffle" key, the source key "/campaign_id" is used by default.
           update:
             # Index the latest campaign.
-            nodeJS: return [source];
+            lambda: typescript
         # Enrich each view event by joining with its present campaign.
         joinViewWithIndexedCampaign:
           source:
             name: marketing/offer/views
-          shuffle: [/campaign_id]
+          shuffle:
+            key: [/campaign_id]
           publish:
             # Join the view with a previously indexed campaign.
-            nodeJS: "return [{ ...source, campaign: register }];"
+            lambda: typescript
 
-  - name: marketing/clicks-with-views
+  marketing/clicks-with-views:
     schema: schema.yaml#/$defs/click-with-view
     key: [/click_id]
 
@@ -63,17 +64,16 @@ collections:
         indexViews:
           source:
             name: marketing/views-with-campaign
-          update:
-            nodeJS: return [source];
+          update: { lambda: typescript }
         # Enrich clicks by adding its indexed `view`.
         joinClickWithIndexedViews:
           source:
             name: marketing/offer/clicks
-          shuffle: [/view_id]
-          publish:
-            nodeJS: "return [{ ...source, view: register }]"
+          shuffle:
+            key: [/view_id]
+          publish: { lambda: typescript }
 
-  - name: marketing/purchase-with-offers
+  marketing/purchase-with-offers:
     # Example of using inline schemas, which can reference external schemas.
     schema:
       description: Purchase event joined with prior offer views and clicks.
@@ -89,6 +89,7 @@ collections:
             $ref: "schema.yaml#/$defs/click-with-view"
       required: [views, clicks]
     key: [/purchase_id]
+
     projections:
       first_view_time: "/views/0/timestamp"
       first_click_time: "/clicks/0/timestamp"
@@ -141,39 +142,22 @@ collections:
         indexViews:
           source:
             name: marketing/views-with-campaign
-          shuffle: [/user_id]
-          update:
-            nodeJS: |
-              let day = moment.utc(source.timestamp).format('YYYY-MM-DD');
-              return [{
-                lastSeen: source.timestamp,
-                views: { [day]: source },
-                clicks: {},
-              }];
+          shuffle:
+            key: [/user_id]
+          update: { lambda: typescript }
 
         # Index clicks of the user. Only the first click of a given hour is retained.
         indexClicks:
           source:
             name: marketing/clicks-with-views
-          shuffle: [/user_id]
-          update:
-            nodeJS: |
-              let hour = moment.utc(source.timestamp).format('YYYY-MM-DD-HH');
-              return [{
-                lastSeen: source.timestamp,
-                views: {},
-                clicks: { [hour]: source },
-              }];
+          shuffle:
+            key: [/user_id]
+          update: { lambda: typescript }
 
         # Enrich purchase events by joining with all indexed views and clicks.
         joinPurchaseWithViewsAndClicks:
           source:
             name: marketing/purchases
-          shuffle: [/user_id]
-          publish:
-            nodeJS: |
-              return [{
-                ...source,
-                views: Object.values(register.views),
-                clicks: Object.values(register.clicks),
-              }]
+          shuffle:
+            key: [/user_id]
+          publish: { lambda: typescript }

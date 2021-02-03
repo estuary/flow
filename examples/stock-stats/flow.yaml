@@ -1,21 +1,19 @@
-nodeDependencies:
+npmDependencies:
   moment: "^2.24"
 
 collections:
-  - name: stock/ticks
+  stock/ticks:
     schema: schemas/L1-tick.schema.yaml
     key: [/security, /time]
-
     projections:
       exchange:
         location: /exchange
         partition: true
       the_bid_price: /bid/price
 
-  - name: stock/daily-stats
+  stock/daily-stats:
     schema: schemas/daily-stat.schema.yaml
     key: [/security, /date]
-
     projections:
       my_special_column: /bid
       exchange:
@@ -23,8 +21,6 @@ collections:
         partition: true
 
     derivation:
-      bootstrap:
-        - nodeJS: console.error("example of a bootstrap!");
       transform:
         fromTicks:
           source:
@@ -36,44 +32,12 @@ collections:
           # awaiting a more wholesale refactoring of `examples` into
           # a proper integration test suite.
           readDelay: 24h
-          publish:
-            nodeJS: |
-              // Alias "source" document to "tick".
-              let tick = source;
-              // Current bid/ask price spread of the tick.
-              let spread = tick.ask.price - tick.bid.price;
-              // Truncate full UTC timestamp to current date.
-              let date = moment.utc(tick.time).format("YYYY-MM-DD");
+          publish: { lambda: typescript }
 
-              return [{
-                  exchange: tick.exchange,
-                  security: tick.security,
-                  date:     date,
-                  // Price stat uses a by-volume weighted average of trades.
-                  price: {
-                      low:  tick.last.price,
-                      high: tick.last.price,
-                      avgN: tick.last.price * tick.last.size,
-                      avgD: tick.last.size,
-                  },
-                  // Bid, ask, and spread stats use equal weighting of observed prices across ticks.
-                  bid: {
-                      low:  tick.bid.price,
-                      high: tick.bid.price,
-                      avgN: tick.bid.price,
-                      avgD: 1,
-                  },
-                  ask: {
-                      low:  tick.ask.price,
-                      high: tick.ask.price,
-                      avgN: tick.ask.price,
-                      avgD: 1,
-                  },
-                  spread: {low: spread, high: spread, avgN: spread, avgD: 1},
-                  volume: tick.last.size,
-                  first:  tick.last,
-                  last:   tick.last,
-              }];
+captures:
+  stock/ticks:
+    target: { name: stock/ticks }
+    pushAPI: {}
 
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around

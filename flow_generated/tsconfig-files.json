@@ -1,0 +1,17 @@
+{
+  "files": [
+    "../examples/int-string-flow.ts",
+    "../examples/marketing/flow.ts",
+    "../examples/soak-tests/set-ops/flow.ts",
+    "../examples/stock-stats/flow.ts",
+    "../flow_generated/flow/anchors.d.ts",
+    "../flow_generated/flow/collections.d.ts",
+    "../flow_generated/flow/interfaces.d.ts",
+    "../flow_generated/flow/main.ts",
+    "../flow_generated/flow/modules.d.ts",
+    "../flow_generated/flow/registers.d.ts",
+    "../flow_generated/flow/routes.ts",
+    "../flow_generated/flow/server.ts",
+    "../flow_generated/flow/transforms.d.ts"
+  ]
+}

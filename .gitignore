@@ -1,16 +1,21 @@
+# Outputs from project build that we don't version.
 target/
 .build/
 .build-ci/
 
-# typical outputs from estctl build
+# Outputs from flowctl build that we don't version.
 /catalog.db
-/catalog-nodejs/
+/node_modules
+/dist
 
+# Ordinarily one *would* version package-lock.json.
+# In our case, though, we want early warning if dependencies of the
+# vanilla package.json produce broken builds.
+package-lock.json
 
-# typical vim stuff
+# Typical IDE stuff.
 .vim
 *.swp
 Session.vim
-
 .idea
 
