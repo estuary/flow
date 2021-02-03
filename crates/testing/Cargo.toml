@@ -5,21 +5,23 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-catalog = { path = "../catalog", version = "0.0.0" }
+derive = { path = "../derive", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
-derive = { path = "../derive", version = "0.0.0" }
-runtime = { path = "../runtime", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
+runtime = { path = "../runtime", version = "0.0.0" }
 
 futures = "*"
 itertools = "*"
-log = "*"
+pathfinding = "*"
 percent-encoding = "*"
 prost = "*"
-rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
+superslice = "*"
+tracing = "*"
+tracing-futures = "*"
 thiserror = "*"
 tonic = { version = "*" }
 url = "*"
