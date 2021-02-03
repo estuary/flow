@@ -1,11 +1,11 @@
 ---
-source: crates/models/src/source/scenarios/mod.rs
+source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Tables {
     captures: [
         Capture {
-            scope: test://root#/captures/my%20bucket%20capture,
+            scope: test://example/catalog.yaml#/captures/my%20bucket%20capture,
             capture: my bucket capture,
             collection: a/collection,
             allow_push: 0,
@@ -13,7 +13,7 @@ Tables {
             patch_config: {},
         },
         Capture {
-            scope: test://root#/captures/my%20table%20capture,
+            scope: test://example/catalog.yaml#/captures/my%20table%20capture,
             capture: my table capture,
             collection: other/collection,
             allow_push: 0,
@@ -25,13 +25,13 @@ Tables {
     derivations: [],
     endpoints: [
         Endpoint {
-            scope: test://root#/endpoints/my%20DB,
+            scope: test://example/catalog.yaml#/endpoints/my%20DB,
             endpoint: my DB,
             endpoint_type: "Postgres",
             base_config: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
         },
         Endpoint {
-            scope: test://root#/endpoints/my%20bucket,
+            scope: test://example/catalog.yaml#/endpoints/my%20bucket,
             endpoint: my bucket,
             endpoint_type: "S3",
             base_config: {"bucket":"foobar","prefix":"path/prefix"},
@@ -40,25 +40,38 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://root,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            resource: test://example/catalog.ts,
         },
     ],
-    imports: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+    ],
+    journal_rules: [],
     materializations: [
         Materialization {
-            scope: test://root#/materializations/my%20materialization,
-            materialization: my materialization,
+            scope: test://example/catalog.yaml#/materializations/my%20materialization,
             collection: source/collection,
             endpoint: my DB,
+            fields_exclude: ["del"],
+            fields_include: {"add":{}},
+            fields_recommended: 1,
+            materialization: my materialization,
             patch_config: {"table":"foobar"},
-            field_selector: {"include":{"add":{}},"exclude":["del"],"recommended":true},
         },
     ],
-    nodejs_dependencies: [],
+    named_schemas: [],
+    npm_dependencies: [],
     projections: [],
     resources: [
         Resource {
-            resource: test://root,
+            resource: test://example/catalog.yaml,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },

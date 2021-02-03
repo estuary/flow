@@ -1,0 +1,29 @@
+[package]
+name = "sources"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+doc = { path = "../doc", version = "0.0.0" }
+json = { path = "../json", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+
+anyhow = "*"
+bytes = "*"
+futures = "*"
+humantime-serde = "*"
+lazy_static = "*"
+regex = "*"
+schemars = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = { version =  "*", features = ["raw_value"] }
+serde_yaml = "*"
+thiserror = "*"
+tracing = "*"
+url = "*"
+yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
+
+[dev-dependencies]
+insta = "*"

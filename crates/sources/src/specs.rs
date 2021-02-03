@@ -1,39 +1,16 @@
-use super::wrappers::*;
-
-use schemars::{schema, JsonSchema};
+use super::proto_serde;
+use models::names;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value as from_json_value, json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
-
-/// Object is an alias for a JSON object.
-pub type Object = serde_json::Map<String, Value>;
-
-/// Ordered JSON-Pointers which define how a composite key may be extracted from
-/// a collection document.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone, Eq, PartialEq)]
-#[schemars(example = "CompositeKey::example")]
-pub struct CompositeKey(Vec<JsonPointer>);
-
-impl CompositeKey {
-    pub fn example() -> Self {
-        CompositeKey(vec![JsonPointer::example()])
-    }
-}
-
-impl std::ops::Deref for CompositeKey {
-    type Target = Vec<JsonPointer>;
-
-    fn deref(&self) -> &Vec<JsonPointer> {
-        &self.0
-    }
-}
 
 /// Each catalog source defines a portion of a Flow Catalog, by defining
 /// collections, derivations, tests, and materializations of the Catalog.
 /// Catalog sources may reference and import other sources, in order to
 /// collections and other entities that source defines.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.
@@ -54,51 +31,31 @@ pub struct Catalog {
     /// See https://docs.npmjs.com/files/package.json#dependencies
     #[serde(default)]
     #[schemars(default = "Catalog::default_node_dependencies")]
-    pub node_dependencies: BTreeMap<String, String>,
+    pub npm_dependencies: BTreeMap<String, String>,
+    /// # Journal rules of the Catalog.
+    /// Rules which template and modify the JournalSpecs managed by Flow.
+    /// Each rule may specify a label selector, which must be matched for the rule to apply.
+    /// Rules are evaluated in ascending global lexical order of their rule name.
+    #[serde(default)]
+    pub journal_rules: BTreeMap<names::Rule, proto_serde::JournalRule>,
     /// # Collections defined by this Catalog.
     #[serde(default)]
     #[schemars(example = "Catalog::example_collections")]
-    pub collections: BTreeMap<CollectionName, Collection>,
+    pub collections: BTreeMap<names::Collection, CollectionDef>,
     /// # Named Endpoints of this Catalog.
     #[serde(default)]
-    pub endpoints: BTreeMap<EndpointName, Endpoint>,
+    pub endpoints: BTreeMap<names::Endpoint, EndpointDef>,
     /// # Materializations of this Catalog.
     #[serde(default)]
-    pub materializations: BTreeMap<MaterializationName, Materialization>,
+    pub materializations: BTreeMap<names::Materialization, MaterializationDef>,
     /// # Captures of this Catalog.
     #[serde(default)]
-    pub captures: BTreeMap<CaptureName, Capture>,
+    pub captures: BTreeMap<names::Capture, CaptureDef>,
     // Tests of the catalog, indexed by name.
     #[serde(default)]
     #[schemars(default = "Catalog::default_test")]
     #[schemars(example = "Catalog::example_test")]
-    pub tests: BTreeMap<TestName, Vec<TestStep>>,
-}
-
-impl Catalog {
-    fn default_node_dependencies() -> BTreeMap<String, String> {
-        from_json_value(json!({"a-npm-package": "^1.2.3"})).unwrap()
-    }
-    fn default_test() -> Value {
-        json!({"Test that fob quips ipsum": []})
-    }
-    fn example_import() -> Vec<RelativeUrl> {
-        vec![
-            RelativeUrl::example_relative(),
-            RelativeUrl::example_absolute(),
-        ]
-    }
-    fn example_collections() -> Vec<Collection> {
-        vec![Collection::example()]
-    }
-    fn example_test() -> Value {
-        json!({
-            "Test that fob quips ipsum": [
-                TestStep::example_ingest(),
-                TestStep::example_verify(),
-            ]
-        })
-    }
+    pub tests: BTreeMap<names::Test, Vec<TestStep>>,
 }
 
 /// Collection describes a set of related documents, where each adheres to a
@@ -111,33 +68,19 @@ impl Catalog {
 /// through the use of annotated reduction strategies of the collection schema.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "Collection::example")]
-pub struct Collection {
+#[schemars(example = "CollectionDef::example")]
+pub struct CollectionDef {
     /// # Schema against which collection documents are validated and reduced.
     #[schemars(example = "Schema::example_relative")]
     pub schema: Schema,
     /// # Composite key of this collection.
-    pub key: CompositeKey,
-    /// # Fragment storage endpoint of this collection.
-    /// This must be a compatible file storage endpoint, such as S3 or GCS.
-    pub store: EndpointRef,
+    pub key: names::CompositeKey,
     /// # Projections and logical partitions of this collection.
     #[serde(default)]
     #[schemars(default = "Projections::example")]
     pub projections: Projections,
     /// # Derivation which builds this collection from others.
     pub derivation: Option<Derivation>,
-}
-
-impl Collection {
-    fn example() -> Self {
-        from_json_value(json!({
-            "name": CollectionName::example(),
-            "schema": RelativeUrl::example_relative(),
-            "key": CompositeKey::example(),
-        }))
-        .unwrap()
-    }
 }
 
 /// Projections are named locations within a collection document which
@@ -151,17 +94,6 @@ impl Projections {
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Projection)> {
         self.0.iter()
     }
-
-    fn example() -> Self {
-        from_json_value(json!({
-            "a_field": JsonPointer::example(),
-            "a_partition": {
-                "location": JsonPointer::example(),
-                "partition": true,
-            }
-        }))
-        .unwrap()
-    }
 }
 
 /// A projection representation that allows projections to be specified either
@@ -170,31 +102,14 @@ impl Projections {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 pub enum Projection {
-    Pointer(JsonPointer),
+    Pointer(names::JsonPointer),
     Object {
         /// # Location of this projection.
-        location: JsonPointer,
+        location: names::JsonPointer,
         /// # Is this projection a logical partition?
         #[serde(default)]
         partition: bool,
     },
-}
-impl Projection {
-    /// Location of the projected field within the document.
-    pub fn location(&self) -> &JsonPointer {
-        match self {
-            Projection::Pointer(location) => location,
-            Projection::Object { location, .. } => location,
-        }
-    }
-
-    /// Is this projection a logical partition?
-    pub fn is_partition(&self) -> bool {
-        match self {
-            Projection::Pointer(_) => false,
-            Projection::Object { partition, .. } => *partition,
-        }
-    }
 }
 
 /// Registers are the internal states of a derivation, which can be read and
@@ -246,78 +161,7 @@ pub struct Derivation {
     pub register: Register,
     /// # Transforms which make up this derivation.
     #[schemars(default = "Derivation::default_transform")]
-    pub transform: BTreeMap<TransformName, Transform>,
-}
-
-impl Derivation {
-    fn example() -> Self {
-        from_json_value(json!({
-            "transform": {
-                "nameOfTransform": Transform::example(),
-            }
-        }))
-        .unwrap()
-    }
-    fn default_transform() -> Value {
-        json!({"nameOfTransform": {"source": {"name": "a/source/collection"}}})
-    }
-}
-
-/// Lambdas are user functions which are invoked by the Flow runtime to
-/// process and transform source collection documents into derived collections.
-/// Flow supports multiple lambda run-times, with a current focus on TypeScript
-/// and remote HTTP APIs.
-///
-/// TypeScript lambdas are invoked within on-demand run-times, which are
-/// automatically started and scaled by Flow's task distribution in order
-/// to best co-locate data and processing, as well as to manage fail-over.
-///
-/// Remote lambdas may be called from many Flow tasks, and are up to the
-/// API provider to provision and scale.
-///
-/// (Note that Sqlite lambdas are not implemented yet).
-///
-/// Lambdas are invoked from a few contexts:
-///
-/// "Update" lambdas take a source document and transform it into one or more
-/// register updates, which are then reduced into the associated register by
-/// the runtime. For example these register updates might update counters,
-/// or update the state of a "join" window.
-///
-/// "Publish" lambdas take a source document, a current register and
-/// (if there is also an "update" lambda) a previous register, and transform
-/// them into one or more documents to be published into a derived collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "Lambda::example_nodejs_publish")]
-#[schemars(example = "Lambda::example_nodejs_update")]
-#[schemars(example = "Lambda::example_remote")]
-pub enum Lambda {
-    NodeJS(String),
-    Sqlite(String),
-    SqliteFile(RelativeUrl),
-    Remote(String),
-}
-
-impl Lambda {
-    fn example_nodejs_publish() -> Self {
-        from_json_value(json!({
-            "nodeJS": "return doPublish(source, register);"
-        }))
-        .unwrap()
-    }
-    fn example_nodejs_update() -> Self {
-        from_json_value(json!({
-            "nodeJS": "return doUpdate(source);"
-        }))
-        .unwrap()
-    }
-    fn example_remote() -> Self {
-        from_json_value(json!({
-            "remote": "http://example/api"
-        }))
-        .unwrap()
-    }
+    pub transform: BTreeMap<names::Transform, Transform>,
 }
 
 /// A Shuffle specifies how a shuffling key is to be extracted from
@@ -327,15 +171,15 @@ impl Lambda {
 #[schemars(example = "Transform::example")]
 pub enum Shuffle {
     /// Shuffle by extracting the given fields.
-    Key(CompositeKey),
+    Key(names::CompositeKey),
     /// Shuffle by taking the MD5 hash of the given fields.
     /// Note this is **not** a cryptographicly strong hash,
     /// but is well suited for mapping large keys into shorter ones,
     /// or for better distributing hot-spots in a key space.
-    MD5(CompositeKey),
+    Md5(names::CompositeKey),
     /// Invoke the lambda for each source document,
     /// and shuffle on its returned key.
-    Lambda(Lambda),
+    Lambda(names::Lambda),
 }
 
 /// A Transform reads and shuffles documents of a source collection,
@@ -365,32 +209,21 @@ pub struct Transform {
     /// up and tailing the source collection, delays also "gate" documents such that
     /// they aren't processed until the current wall-time reflects the delay.
     #[serde(default, with = "humantime_serde")]
-    #[schemars(schema_with = "duration_schema")]
+    #[schemars(schema_with = "Transform::read_delay_schema")]
     pub read_delay: Option<Duration>,
     /// # Shuffle by which source documents are mapped to registers.
     /// If empty, the key of the source collection is used.
     #[serde(default)]
-    #[schemars(default = "CompositeKey::example")]
+    #[schemars(default = "names::CompositeKey::example")]
     pub shuffle: Option<Shuffle>,
-    /// # Update lambda that produces register updates from source documents.
+    /// # Update that maps a source document into register updates.
     #[serde(default)]
-    #[schemars(default = "Lambda::example_nodejs_update")]
-    pub update: Option<Lambda>,
-    /// # Publish lambda that produces documents to publish into the collection.
+    #[schemars(default = "Update::example")]
+    pub update: Option<Update>,
+    /// # Publish that maps a source document and registers into derived documents of the collection.
     #[serde(default)]
-    #[schemars(default = "Lambda::example_nodejs_publish")]
-    pub publish: Option<Lambda>,
-}
-
-impl Transform {
-    fn example() -> Self {
-        from_json_value(json!({
-            "source": TransformSource::example(),
-            "publish": Lambda::example_nodejs_publish(),
-            "update": Lambda::example_nodejs_update(),
-        }))
-        .unwrap()
-    }
+    #[schemars(default = "Publish::example")]
+    pub publish: Option<Publish>,
 }
 
 /// SourcePartitions is optional partitions of a read source collection.
@@ -399,7 +232,7 @@ impl Transform {
 #[schemars(example = "TransformSource::example")]
 pub struct TransformSource {
     /// # Name of the collection to be materialized.
-    pub name: CollectionName,
+    pub name: names::Collection,
     /// # Optional JSON-Schema to validate against the source collection.
     /// All data in the source collection is already validated against the
     /// schema of that collection, so providing a source schema is only used
@@ -415,54 +248,48 @@ pub struct TransformSource {
     pub schema: Option<Schema>,
     /// # Selector over partition of the source collection to read.
     #[serde(default)]
-    #[schemars(default = "PartitionSelector::example")]
-    pub partitions: Option<PartitionSelector>,
+    #[schemars(default = "names::PartitionSelector::example")]
+    pub partitions: Option<names::PartitionSelector>,
 }
 
-impl TransformSource {
-    fn example() -> Self {
-        Self {
-            name: CollectionName::new("source/collection"),
-            schema: None,
-            partitions: None,
-        }
-    }
-}
-
-/// Partition selectors identify a desired subset of the
-/// available logical partitions of a collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
+/// Publish lambdas take a source document, a current register and
+/// (if there is also an "update" lambda) a previous register, and transform
+/// them into one or more documents to be published into a derived collection.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(example = "PartitionSelector::example")]
-pub struct PartitionSelector {
-    /// Partition field names and corresponding values which must be matched
-    /// from the Source collection. Only documents having one of the specified
-    /// values across all specified partition names will be matched. For example,
-    ///   source: [App, Web]
-    ///   region: [APAC]
-    /// would mean only documents of 'App' or 'Web' source and also occurring
-    /// in the 'APAC' region will be processed.
-    #[serde(default)]
-    pub include: BTreeMap<String, Vec<Value>>,
-    /// Partition field names and values which are excluded from the source
-    /// collection. Any documents matching *any one* of the partition values
-    /// will be excluded.
-    #[serde(default)]
-    pub exclude: BTreeMap<String, Vec<Value>>,
+#[schemars(example = "Publish::example")]
+pub struct Publish {
+    /// # Lambda invoked by the publish.
+    pub lambda: names::Lambda,
 }
 
-impl PartitionSelector {
-    fn example() -> Self {
-        from_json_value(json!({
-            "include": {
-                "a_partition": ["A", "B"],
-            },
-            "exclude": {
-                "other_partition": [32, 64],
-            }
-        }))
-        .unwrap()
-    }
+/// Update lambdas take a source document and transform it into one or more
+/// register updates, which are then reduced into the associated register by
+/// the runtime. For example these register updates might update counters,
+/// or update the state of a "join" window.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(example = "Update::example")]
+pub struct Update {
+    /// # Lambda invoked by the update.
+    pub lambda: names::Lambda,
+    /// # Should lambda documents which produce register conflicts be ignored?
+    /// Documents returned by an update lambda are checked against the register
+    /// schema before being reduced into the register, and again after the register
+    /// value has been fully reduced with the update. Ordinarily a failure of
+    /// either check will halt processing of a derivation.
+    ///
+    /// Optionally, the runtime can be asked to "roll back" the reduced register
+    /// value if an update causes it to violate its schema, effectively ignoring
+    /// the document returned by the update lambda -- for example, because a value
+    /// which must be positive would become negative with the update.
+    ///
+    /// This can be paired with a publish lambda which checks whether the register
+    /// was updated to implement transactional workflows with complex constraint
+    /// checks (for example, in a workflow which joins product inventory updates
+    /// with attempted purchases).
+    #[serde(default)]
+    pub rollback_on_conflict: bool,
 }
 
 /// A schema is a draft 2019-09 JSON Schema which validates Flow documents.
@@ -483,133 +310,15 @@ impl PartitionSelector {
 #[schemars(example = "Schema::example_inline_counter")]
 pub enum Schema {
     Url(RelativeUrl),
-    Object(Object),
+    Object(names::Object),
     Bool(bool),
-}
-
-impl Schema {
-    fn example_absolute() -> Self {
-        from_json_value(json!("http://example/schema#/$defs/subPath")).unwrap()
-    }
-    fn example_relative() -> Self {
-        from_json_value(json!("../path/to/schema#/$defs/subPath")).unwrap()
-    }
-    fn example_inline_basic() -> Self {
-        from_json_value(json!({
-            "type": "object",
-            "properties": {
-                "foo": { "type": "integer" },
-                "bar": { "const": 42 }
-            }
-        }))
-        .unwrap()
-    }
-    fn example_inline_counter() -> Self {
-        from_json_value(json!({
-            "type": "object",
-            "reduce": {"strategy": "merge"},
-            "properties": {
-                "foo_count": {
-                    "type": "integer",
-                    "reduce": {"strategy": "sum"},
-                }
-            }
-        }))
-        .unwrap()
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-#[schemars(example = "TestStep::example_ingest")]
-#[schemars(example = "TestStep::example_verify")]
-pub enum TestStep {
-    /// Ingest document fixtures into a collection.
-    Ingest(TestStepIngest),
-    /// Verify the contents of a collection match a set of document fixtures.
-    Verify(TestStepVerify),
-}
-
-impl TestStep {
-    fn example_ingest() -> Self {
-        TestStep::Ingest(TestStepIngest::example())
-    }
-    fn example_verify() -> Self {
-        TestStep::Verify(TestStepVerify::example())
-    }
-}
-
-/// An ingestion test step ingests document fixtures into the named
-/// collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-#[schemars(example = "TestStepIngest::example")]
-pub struct TestStepIngest {
-    /// # Name of the collection into which the test will ingest.
-    pub collection: CollectionName,
-    /// # Documents to ingest.
-    /// Each document must conform to the collection's schema.
-    pub documents: Vec<Value>,
-}
-
-impl TestStepIngest {
-    fn example() -> Self {
-        from_json_value(json!({
-            "collection": CollectionName::example(),
-            "documents": [
-                {"example": "document"},
-                {"another": "document"},
-            ]
-        }))
-        .unwrap()
-    }
-}
-
-/// A verification test step verifies that the contents of the named
-/// collection match the expected fixtures, after fully processing all
-/// preceding ingestion test steps.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-#[schemars(example = "TestStepVerify::example")]
-pub struct TestStepVerify {
-    /// # Collection into which the test will ingest.
-    pub collection: CollectionName,
-    /// # Documents to verify.
-    /// Each document may contain only a portion of the matched document's
-    /// properties, and any properties present in the actual document but
-    /// not in this document fixture are ignored. All other values must
-    /// match or the test will fail.
-    pub documents: Vec<Value>,
-    /// # Selector over partitions to verify.
-    #[serde(default)]
-    #[schemars(default = "PartitionSelector::example")]
-    pub partitions: Option<PartitionSelector>,
-}
-
-impl TestStepVerify {
-    fn example() -> Self {
-        from_json_value(json!({
-            "collection": CollectionName::example(),
-            "documents": [
-                {"expected": "document"},
-            ],
-        }))
-        .unwrap()
-    }
-}
-
-/// Connection configuration that's used for connecting to a variety of sql databases.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct SqlTargetConnection {
-    /// # The connection URI for the target database
-    pub uri: String,
 }
 
 /// An Endpoint is an external system from which a Flow collection may be captured,
 /// or to which a Flow collection may be materialized.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum Endpoint {
+pub enum EndpointDef {
     /// # A PostgreSQL database.
     Postgres(PostgresConfig),
     /// # A SQLite database.
@@ -622,24 +331,26 @@ pub enum Endpoint {
     Remote(RemoteDriverConfig),
 }
 
-impl Endpoint {
-    pub fn endpoint_type(&self) -> EndpointType {
+impl EndpointDef {
+    pub fn endpoint_type(&self) -> names::EndpointType {
+        use names::EndpointType;
+
         match self {
-            Endpoint::Postgres(_) => EndpointType::Postgres,
-            Endpoint::Sqlite(_) => EndpointType::Sqlite,
-            Endpoint::S3(_) => EndpointType::S3,
-            Endpoint::GS(_) => EndpointType::GS,
-            Endpoint::Remote(_) => EndpointType::Remote,
+            EndpointDef::Postgres(_) => EndpointType::Postgres,
+            EndpointDef::Sqlite(_) => EndpointType::Sqlite,
+            EndpointDef::S3(_) => EndpointType::S3,
+            EndpointDef::GS(_) => EndpointType::GS,
+            EndpointDef::Remote(_) => EndpointType::Remote,
         }
     }
 
     pub fn base_config(&self) -> Value {
         match self {
-            Endpoint::Postgres(cfg) => serde_json::to_value(cfg),
-            Endpoint::Sqlite(cfg) => serde_json::to_value(cfg),
-            Endpoint::S3(cfg) => serde_json::to_value(cfg),
-            Endpoint::GS(cfg) => serde_json::to_value(cfg),
-            Endpoint::Remote(cfg) => serde_json::to_value(cfg),
+            EndpointDef::Postgres(cfg) => serde_json::to_value(cfg),
+            EndpointDef::Sqlite(cfg) => serde_json::to_value(cfg),
+            EndpointDef::S3(cfg) => serde_json::to_value(cfg),
+            EndpointDef::GS(cfg) => serde_json::to_value(cfg),
+            EndpointDef::Remote(cfg) => serde_json::to_value(cfg),
         }
         .unwrap()
     }
@@ -652,7 +363,7 @@ pub struct PostgresConfig {
     /// Preserve and pass-through all configuration.
     /// Some fields are explicit below, to benefit from JSON-Schema generation.
     #[serde(flatten)]
-    pub extra: Object,
+    pub extra: names::Object,
 
     /// # Host address of the database.
     pub host: String,
@@ -673,7 +384,7 @@ pub struct SqliteConfig {
     /// Preserve and pass-through all configuration.
     /// Some fields are explicit below, to benefit from JSON-Schema generation.
     #[serde(flatten)]
-    pub extra: Object,
+    pub extra: names::Object,
 
     /// # Filesystem path of the database.
     pub path: String,
@@ -684,7 +395,7 @@ pub struct BucketConfig {
     /// Preserve and pass-through all configuration.
     /// Some fields are explicit below, to benefit from JSON-Schema generation.
     #[serde(flatten)]
-    pub extra: Object,
+    pub extra: names::Object,
     /// # Bucket name.
     pub bucket: String,
     /// # File prefix within the bucket.
@@ -697,7 +408,7 @@ pub struct RemoteDriverConfig {
     /// Preserve and pass-through all configuration.
     /// Some fields are explicit below, to benefit from JSON-Schema generation.
     #[serde(flatten)]
-    pub extra: Object,
+    pub extra: names::Object,
     /// # gRPC address of the driver.
     pub grpc_driver_address: String,
 }
@@ -706,7 +417,7 @@ pub struct RemoteDriverConfig {
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Materialization {
+pub struct MaterializationDef {
     /// # Source collection to materialize.
     pub source: MaterializationSource,
     /// # Endpoint to materialize into.
@@ -721,39 +432,7 @@ pub struct Materialization {
 #[schemars(example = "MaterializationSource::example")]
 pub struct MaterializationSource {
     /// # Name of the collection to be materialized.
-    pub name: CollectionName,
-}
-
-impl MaterializationSource {
-    fn example() -> Self {
-        Self {
-            name: CollectionName::new("source/collection"),
-        }
-    }
-}
-
-/// A reference to an endpoint, with optional additional configuration.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(example = "EndpointRef::example")]
-pub struct EndpointRef {
-    /// # Name of the endpoint to use.
-    pub name: EndpointName,
-    /// # Additional endpoint configuration.
-    /// Configuration is merged into that of the endpoint.
-    #[serde(default)]
-    pub config: Object,
-}
-
-impl EndpointRef {
-    fn example() -> Self {
-        Self {
-            name: EndpointName::example(),
-            config: vec![("table".to_string(), json!("a_sql_table"))]
-                .into_iter()
-                .collect(),
-        }
-    }
+    pub name: names::Collection,
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
@@ -768,7 +447,7 @@ pub struct MaterializationFields {
     /// of the driver's schema generation or runtime behavior with respect
     /// to the field.
     #[serde(default)]
-    pub include: BTreeMap<String, Object>,
+    pub include: BTreeMap<String, names::Object>,
     /// # Fields to exclude.
     /// This removes from recommended projections, where enabled.
     #[serde(default)]
@@ -779,7 +458,7 @@ pub struct MaterializationFields {
 
 impl Default for MaterializationFields {
     fn default() -> Self {
-        MaterializationFields {
+        Self {
             include: BTreeMap::new(),
             exclude: Vec::new(),
             recommended: true,
@@ -787,16 +466,17 @@ impl Default for MaterializationFields {
     }
 }
 
-impl MaterializationFields {
-    fn example() -> Self {
-        MaterializationFields {
-            include: vec![("added".to_string(), Object::new())]
-                .into_iter()
-                .collect(),
-            exclude: vec!["removed".to_string()],
-            recommended: true,
-        }
-    }
+/// A reference to an endpoint, with optional additional configuration.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(example = "EndpointRef::example")]
+pub struct EndpointRef {
+    /// # Name of the endpoint to use.
+    pub name: names::Endpoint,
+    /// # Additional endpoint configuration.
+    /// Configuration is merged into that of the endpoint.
+    #[serde(default)]
+    pub config: names::Object,
 }
 
 /// List of Captures, each binding a source in an external system (e.g. cloud storage prefix)
@@ -806,9 +486,11 @@ impl MaterializationFields {
 /// A Capture binds a source of data to a target collection. The result of this binding
 /// is a process that will continuously add data to the collection as it becomes available from the
 /// source.
+// TODO(johnny): this should be serde(deny_unknown_fields), but this plays poorly
+//  with JsonSchema generation, and I can't think of a good way to fix it right now.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Capture {
+#[serde(rename_all = "camelCase")]
+pub struct CaptureDef {
     /// # Target collection to capture into.
     pub target: CaptureTarget,
     #[serde(flatten)]
@@ -820,15 +502,7 @@ pub struct Capture {
 #[schemars(example = "CaptureTarget::example")]
 pub struct CaptureTarget {
     /// # Name of the collection to be read.
-    pub name: CollectionName,
-}
-
-impl CaptureTarget {
-    fn example() -> Self {
-        Self {
-            name: CollectionName::new("target/collection"),
-        }
-    }
+    pub name: names::Collection,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -837,13 +511,66 @@ pub enum CaptureType {
     Endpoint(EndpointRef),
     // TODO(johnny): I'm expecting we'll introduce more behavior
     // configuration here, but I don't know what it is yet.
-    PushAPI(Object),
+    PushAPI(names::Object),
 }
 
-fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
-    from_json_value(json!({
-        "type": ["string", "null"],
-        "pattern": "^\\d+(s|m|h)$"
-    }))
-    .unwrap()
+/// A URL identifying a resource, which may be a relative local path
+/// with respect to the current resource (i.e, ../path/to/flow.yaml),
+/// or may be an external absolute URL (i.e., http://example/flow.yaml).
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[schemars(example = "RelativeUrl::example_relative")]
+#[schemars(example = "RelativeUrl::example_absolute")]
+pub struct RelativeUrl(pub String);
+
+impl std::ops::Deref for RelativeUrl {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(example = "TestStep::example_ingest")]
+#[schemars(example = "TestStep::example_verify")]
+pub enum TestStep {
+    /// Ingest document fixtures into a collection.
+    Ingest(TestStepIngest),
+    /// Verify the contents of a collection match a set of document fixtures.
+    Verify(TestStepVerify),
+}
+
+/// An ingestion test step ingests document fixtures into the named
+/// collection.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(example = "TestStepIngest::example")]
+pub struct TestStepIngest {
+    /// # Name of the collection into which the test will ingest.
+    pub collection: names::Collection,
+    /// # Documents to ingest.
+    /// Each document must conform to the collection's schema.
+    pub documents: Vec<Value>,
+}
+
+/// A verification test step verifies that the contents of the named
+/// collection match the expected fixtures, after fully processing all
+/// preceding ingestion test steps.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(example = "TestStepVerify::example")]
+pub struct TestStepVerify {
+    /// # Collection into which the test will ingest.
+    pub collection: names::Collection,
+    /// # Documents to verify.
+    /// Each document may contain only a portion of the matched document's
+    /// properties, and any properties present in the actual document but
+    /// not in this document fixture are ignored. All other values must
+    /// match or the test will fail.
+    pub documents: Vec<Value>,
+    /// # Selector over partitions to verify.
+    #[serde(default)]
+    #[schemars(default = "names::PartitionSelector::example")]
+    pub partitions: Option<names::PartitionSelector>,
 }

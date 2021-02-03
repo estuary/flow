@@ -1,4 +1,4 @@
-test://root:
+test://example/catalog.yaml:
   tests:
     "A test case":
       - ingest:

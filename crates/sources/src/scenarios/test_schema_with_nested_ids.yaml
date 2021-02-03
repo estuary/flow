@@ -1,4 +1,4 @@
-test://actual:
+test://example/actual:
   $defs:
     wrapper:
       $id: test://fake/root
@@ -21,9 +21,8 @@ test://actual:
         - $ref: test://fake/root#/$defs/c
   $ref: test://fake/root
 
-test://root:
+test://example/catalog.yaml:
   collections:
     a/collection:
-      schema: test://actual
+      schema: actual
       key: [/key]
-      store: {name: endpoint}

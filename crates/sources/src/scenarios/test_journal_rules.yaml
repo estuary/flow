@@ -1,0 +1,19 @@
+test://example/catalog.yaml:
+  import:
+    - rules_two.yaml
+  journalRules:
+    01 rule one:
+      template:
+        fragment:
+          stores: ["s3://my-bucket"]
+
+test://example/rules_two.yaml:
+  journalRules:
+    02 rule two:
+      selector:
+        include:
+          labels:
+            - name: "estuary.dev/label"
+              value: "a value"
+      template:
+        replication: 3
