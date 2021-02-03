@@ -978,101 +978,133 @@ fn intersect_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Opt
     }
 }
 
+/// Exists captures an existence constraint of an Shape location.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Exists {
+    /// The location must exist within the Shape.
+    Must,
+    /// The location may exist within the Shape, or be undefined.
+    May,
+    /// The location cannot exist. For example, because it includes an
+    /// end-of-array `/-` token, or a property pattern, or some other non-
+    /// literal location token.
+    Cannot,
+}
+
+impl Exists {
+    pub fn join(&self, other: Self) -> Self {
+        match (*self, other) {
+            (Exists::Cannot, _) => Exists::Cannot,
+            (_, Exists::Cannot) => Exists::Cannot,
+            (Exists::May, _) => Exists::May,
+            (_, Exists::May) => Exists::May,
+            (Exists::Must, Exists::Must) => Exists::Must,
+        }
+    }
+    pub fn must(&self) -> bool {
+        matches!(self, Exists::Must)
+    }
+    pub fn cannot(&self) -> bool {
+        matches!(self, Exists::Cannot)
+    }
+}
+
 impl Shape {
     /// Locate the pointer within this Shape, and return the referenced Shape
     /// along with an indication of whether the location must always exist (true)
     /// or is optional (false).
     ///
     /// Returns None if the pointed Shape (or a parent thereof) is unknown.
-    pub fn locate(&self, ptr: &Pointer) -> Option<(&Shape, bool)> {
+    pub fn locate(&self, ptr: &Pointer) -> Option<(&Shape, Exists)> {
         let mut shape = self;
-        let mut must_exist = true;
+        let mut exists = Exists::Must;
 
         for token in ptr.iter() {
-            if let Some((next, exists)) = shape.locate_token(token) {
-                shape = next;
-                must_exist &= exists;
+            if let Some((next_shape, next_exists)) = shape.locate_token(token) {
+                shape = next_shape;
+                exists = exists.join(next_exists);
             } else {
                 return None;
             }
         }
-        Some((shape, must_exist))
+        Some((shape, exists))
     }
 
-    fn locate_token(&self, token: Token) -> Option<(&Shape, bool)> {
-        // If this Shape can take a type other than ARRAY or OBJECT,
-        // then even if we match this token there's no guarantee that
-        // the token must exist (since this location could be another
-        // scalar type).
-        let mut _ind_string = String::new();
+    fn locate_token(&self, token: Token) -> Option<(&Shape, Exists)> {
+        match token {
+            Token::Index(index) if self.type_.overlaps(types::ARRAY) => {
+                let exists = if self.type_ == types::ARRAY && index < self.array.min.unwrap_or(0) {
+                    // A sub-item must exist iff this location can _only_
+                    // be an array, and it's within the minItems bound.
+                    Exists::Must
+                } else if index >= self.array.max.unwrap_or(std::usize::MAX) {
+                    // It cannot exist if outside the maxItems bound.
+                    Exists::Cannot
+                } else {
+                    Exists::May
+                };
 
-        // First try to resolve a Token::Index to an array location.
-        let prop = if let Token::Index(ind) = token {
-            if self.type_.overlaps(types::ARRAY) {
-                // A sub-item must exist iff this location can _only_
-                // be an array, and it's within the minItems bound.
-                let must_exist = self.type_ == types::ARRAY && ind < self.array.min.unwrap_or(ind);
-
-                return if ind >= self.array.max.unwrap_or(ind + 1) {
-                    None // If outside of the maxItems bound, we can't exist.
-                } else if self.array.tuple.len() > ind {
-                    Some((&self.array.tuple[ind], must_exist))
+                if self.array.tuple.len() > index {
+                    Some((&self.array.tuple[index], exists))
                 } else if let Some(addl) = &self.array.additional {
-                    Some((addl.as_ref(), must_exist))
+                    Some((addl.as_ref(), exists))
                 } else {
                     None
-                };
-            } else {
-                // We have a Token::Index, but the present location can never be
-                // an array. Re-interpret as a property having a string-ized
-                // index as property name, and try to resolve that.
-                _ind_string = ind.to_string();
-                &_ind_string
+                }
             }
-        } else if let Token::Property(prop) = token {
-            prop
-        } else {
-            // We deliberately don't handle the "/-" end-of-array case.
-            // It's returned by locations, below, but we don't allow an
-            // explicitly-given pointer to reference this location, since
-            // it's not actually addressable.
-            return None;
-        };
+            Token::NextIndex if self.type_.overlaps(types::ARRAY) => self
+                .array
+                .additional
+                .as_ref()
+                .map(|addl| (addl.as_ref(), Exists::Cannot)),
 
-        // Next try to resolve |prop| to an object location.
-        if !self.type_.overlaps(types::OBJECT) {
-            return None;
-        }
+            Token::Property(property) if self.type_.overlaps(types::OBJECT) => {
+                if let Some(property) = self.object.properties.iter().find(|p| p.name == property) {
+                    let exists = if self.type_ == types::OBJECT && property.is_required {
+                        // A property must exist iff this location can _only_ be an object,
+                        // and it's marked as a required property.
+                        Exists::Must
+                    } else {
+                        Exists::May
+                    };
 
-        if let Some(f) = self.object.properties.iter().find(|p| p.name == prop) {
-            // A property must exist iff this location can _only_ be an object,
-            // and it's marked as a required property.
-            Some((&f.shape, self.type_ == types::OBJECT && f.is_required))
-        } else if let Some(f) = self.object.patterns.iter().find(|p| p.re.is_match(prop)) {
-            Some((&f.shape, false))
-        } else if let Some(addl) = &self.object.additional {
-            Some((addl.as_ref(), false))
-        } else {
-            None
+                    Some((&property.shape, exists))
+                } else if let Some(pattern) = self
+                    .object
+                    .patterns
+                    .iter()
+                    .find(|p| p.re.is_match(property))
+                {
+                    Some((&pattern.shape, Exists::May))
+                } else if let Some(addl) = &self.object.additional {
+                    Some((addl.as_ref(), Exists::May))
+                } else {
+                    None
+                }
+            }
+
+            // Match arms for cases where types don't overlap.
+            Token::Index(_) => None,
+            Token::NextIndex => None,
+            Token::Property(_) => None,
         }
     }
 
     /// Produce flattened locations of nested items and properties of this Shape,
-    /// as tuples of the encoded location JSON Pointer, its shape, and a
-    /// "must exist" bool.
-    pub fn locations(&self) -> Vec<(String, &Shape, bool)> {
+    /// as tuples of the encoded location JSON Pointer, its shape, and Exists constraint.
+    pub fn locations(&self) -> Vec<(String, &Shape, Exists)> {
         let mut out = Vec::new();
-        self.locations_inner(Location::Root, true, &mut out);
+        self.locations_inner(Location::Root, Exists::Must, &mut out);
         out
     }
 
     fn locations_inner<'s>(
         &'s self,
         location: Location<'_>,
-        must_exist: bool,
-        out: &mut Vec<(String, &'s Shape, bool)>,
+        exists: Exists,
+        out: &mut Vec<(String, &'s Shape, Exists)>,
     ) {
-        out.push((location.pointer_str().to_string(), self, must_exist));
+        out.push((location.pointer_str().to_string(), self, exists));
 
         // Traverse sub-locations of this location when it takes an object
         // or array type. As a rule, children must exist only if their parent
@@ -1085,11 +1117,13 @@ impl Shape {
             is_required,
         } in &self.object.properties
         {
-            child.locations_inner(
-                location.push_prop(name),
-                must_exist && self.type_ == types::OBJECT && *is_required,
-                out,
-            );
+            let exists = if self.type_ == types::OBJECT && *is_required {
+                exists.join(Exists::Must)
+            } else {
+                exists.join(Exists::May)
+            };
+
+            child.locations_inner(location.push_prop(name), exists, out);
         }
 
         let ArrayShape {
@@ -1100,17 +1134,23 @@ impl Shape {
         } = &self.array;
 
         for (index, child) in tuple.into_iter().enumerate() {
-            child.locations_inner(
-                location.push_item(index),
-                must_exist && self.type_ == types::ARRAY && index < array_min.unwrap_or_default(),
-                out,
-            );
+            let exists = if self.type_ == types::ARRAY && index < array_min.unwrap_or(0) {
+                exists.join(Exists::Must)
+            } else {
+                exists.join(Exists::May)
+            };
+
+            child.locations_inner(location.push_item(index), exists, out);
         }
 
         // As an aide to documentation of repeated items, produce an inference
         // using '-' ("after last item" within json-pointer spec).
+        //
+        // If it becomes clear this is useful, we may add pattern properties as
+        // well as additional '*' properties, but would have to be careful to ensure
+        // there's no overlap with literal properties (which take precedence).
         if let Some(child) = array_additional {
-            child.locations_inner(location.push_end_of_array(), false, out);
+            child.locations_inner(location.push_end_of_array(), Exists::Cannot, out);
         };
     }
 }
@@ -1898,7 +1938,7 @@ mod test {
                 properties:
                     opt-child: {const: opt-child}
                     req-child: {const: req-child}
-                    42: {const: forty-two}
+                    40two: {const: forty-two}
                 required: [req-child]
             multi-type:
                 type: [object, array]
@@ -1924,21 +1964,21 @@ mod test {
         );
 
         let cases = &[
-            (&obj, "/prop", Some(("prop", false))),
-            (&obj, "/missing", Some(("addl-prop", false))),
-            (&obj, "/parent/opt-child", Some(("opt-child", false))),
-            (&obj, "/parent/req-child", Some(("req-child", true))),
+            (&obj, "/prop", Some(("prop", Exists::May))),
+            (&obj, "/missing", Some(("addl-prop", Exists::May))),
+            (&obj, "/parent/opt-child", Some(("opt-child", Exists::May))),
+            (&obj, "/parent/req-child", Some(("req-child", Exists::Must))),
             (&obj, "/parent/missing", None),
-            (&obj, "/parent/42", Some(("forty-two", false))),
-            (&obj, "/pattern", Some(("pattern", false))),
-            (&obj, "/patternnnnnn", Some(("pattern", false))),
-            (&arr, "/0", Some(("zero", true))),
-            (&arr, "/1", Some(("one", true))),
-            (&arr, "/2", Some(("two", false))),
-            (&arr, "/3", Some(("addl-item", false))),
-            (&arr, "/9", Some(("addl-item", false))),
-            (&arr, "/10", None),
-            (&arr, "/-", None),
+            (&obj, "/parent/40two", Some(("forty-two", Exists::May))),
+            (&obj, "/pattern", Some(("pattern", Exists::May))),
+            (&obj, "/patternnnnnn", Some(("pattern", Exists::May))),
+            (&arr, "/0", Some(("zero", Exists::Must))),
+            (&arr, "/1", Some(("one", Exists::Must))),
+            (&arr, "/2", Some(("two", Exists::May))),
+            (&arr, "/3", Some(("addl-item", Exists::May))),
+            (&arr, "/9", Some(("addl-item", Exists::May))),
+            (&arr, "/10", Some(("addl-item", Exists::Cannot))),
+            (&arr, "/-", Some(("addl-item", Exists::Cannot))),
         ];
 
         for (shape, ptr, expect) in cases {
@@ -1968,18 +2008,18 @@ mod test {
         assert_eq!(
             obj_locations,
             vec![
-                ("".to_string(), types::OBJECT, true),
+                ("".to_string(), types::OBJECT, Exists::Must),
                 (
                     "/multi-type".to_string(),
                     types::ARRAY | types::OBJECT,
-                    false
+                    Exists::May
                 ),
-                ("/multi-type/child".to_string(), types::STRING, false),
-                ("/parent".to_string(), types::OBJECT, true),
-                ("/parent/42".to_string(), types::STRING, false),
-                ("/parent/opt-child".to_string(), types::STRING, false),
-                ("/parent/req-child".to_string(), types::STRING, true),
-                ("/prop".to_string(), types::STRING, false),
+                ("/multi-type/child".to_string(), types::STRING, Exists::May),
+                ("/parent".to_string(), types::OBJECT, Exists::Must),
+                ("/parent/40two".to_string(), types::STRING, Exists::May),
+                ("/parent/opt-child".to_string(), types::STRING, Exists::May),
+                ("/parent/req-child".to_string(), types::STRING, Exists::Must),
+                ("/prop".to_string(), types::STRING, Exists::May),
             ]
         );
 
@@ -1992,11 +2032,11 @@ mod test {
         assert_eq!(
             arr_locations,
             vec![
-                ("".to_string(), types::ARRAY, true),
-                ("/0".to_string(), types::STRING, true),
-                ("/1".to_string(), types::STRING, true),
-                ("/2".to_string(), types::STRING, false),
-                ("/-".to_string(), types::STRING, false),
+                ("".to_string(), types::ARRAY, Exists::Must),
+                ("/0".to_string(), types::STRING, Exists::Must),
+                ("/1".to_string(), types::STRING, Exists::Must),
+                ("/2".to_string(), types::STRING, Exists::May),
+                ("/-".to_string(), types::STRING, Exists::Cannot),
             ]
         );
     }
