@@ -1,7 +1,7 @@
-use crate::source;
-
+use crate::{Fetcher, Loader, Scope, Tables};
 use futures::channel::oneshot;
-use futures::future::FutureExt;
+use futures::future::{FutureExt, LocalBoxFuture};
+use models::names;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -26,15 +26,37 @@ file_tests! {
     test_catalog_import_cycles,
     test_collections,
     test_derivations,
+    test_endpoints_captures_materializations,
+    test_journal_rules,
+    test_schema_with_anchors,
     test_schema_with_inline,
     test_schema_with_nested_ids,
     test_schema_with_references,
     test_simple_catalog,
     test_test_case,
-    test_endpoints_captures_materializations,
 }
 
-pub fn evaluate_fixtures(catalog: source::Tables, fixture: &Value) -> source::Tables {
+// MockFetcher queues and returns oneshot futures for started fetches.
+struct MockFetcher<'f> {
+    fetches: &'f RefCell<BTreeMap<String, oneshot::Sender<Result<bytes::Bytes, anyhow::Error>>>>,
+}
+
+impl<'f> Fetcher for MockFetcher<'f> {
+    fn fetch<'a>(
+        &self,
+        resource: &'a Url,
+        _content_type: &'a names::ContentType,
+    ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
+        let (tx, rx) = oneshot::channel();
+
+        if let Some(_) = self.fetches.borrow_mut().insert(resource.to_string(), tx) {
+            panic!("resource {} has already been fetched", resource);
+        }
+        rx.map(|r| r.unwrap()).boxed_local()
+    }
+}
+
+pub fn evaluate_fixtures(catalog: Tables, fixture: &Value) -> Tables {
     let fixtures = match fixture {
         Value::Object(m) => m,
         _ => panic!("fixtures must be an object having resource properties"),
@@ -43,19 +65,10 @@ pub fn evaluate_fixtures(catalog: source::Tables, fixture: &Value) -> source::Ta
     // Fetches holds started fetches since the last future poll.
     // Use an ordered map so that we signal one-shots in a stable order,
     // making snapshots reliable.
-    let fetches: RefCell<BTreeMap<String, oneshot::Sender<source::FetchResult>>> =
-        RefCell::new(BTreeMap::new());
+    let fetches = RefCell::new(BTreeMap::new());
 
-    // Fetch function which queues oneshot futures for started fetches.
-    let fetch = |url: &Url| {
-        let (tx, rx) = oneshot::channel();
-        if let Some(_) = fetches.borrow_mut().insert(url.to_string(), tx) {
-            panic!("url {} has already been fetched", url);
-        }
-        rx.map(|r| r.unwrap())
-    };
-    let loader = source::Loader::new(catalog, fetch);
-    let root = Url::parse("test://root").unwrap();
+    let loader = Loader::new(catalog, MockFetcher { fetches: &fetches });
+    let root = Url::parse("test://example/catalog.yaml").unwrap();
 
     // What's going on here? Glad you asked.
     //
@@ -86,11 +99,7 @@ pub fn evaluate_fixtures(catalog: source::Tables, fixture: &Value) -> source::Ta
     // whole mess fully deterministic.
 
     let mut fut = loader
-        .load_resource(
-            source::Scope::new(&root),
-            &root,
-            source::ContentType::CatalogSpec,
-        )
+        .load_resource(Scope::new(&root), &root, names::ContentType::CatalogSpec)
         .boxed_local();
 
     let waker = futures::task::noop_waker();
@@ -110,8 +119,8 @@ pub fn evaluate_fixtures(catalog: source::Tables, fixture: &Value) -> source::Ta
             Poll::Pending => {
                 for (url, tx) in fetches.borrow_mut().split_off("") {
                     match fixtures.get(&url) {
-                        Some(value) => tx.send(Ok(value.to_string().as_bytes().into())),
-                        None => tx.send(Err("fixture not found".into())),
+                        Some(value) => tx.send(Ok(serde_json::to_vec(&value).unwrap().into())),
+                        None => tx.send(Err(anyhow::anyhow!("fixture not found"))),
                     }
                     .unwrap();
                 }

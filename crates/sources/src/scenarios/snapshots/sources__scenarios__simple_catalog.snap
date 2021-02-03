@@ -1,24 +1,22 @@
 ---
-source: crates/models/src/source/scenarios/mod.rs
+source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Tables {
     captures: [],
     collections: [
         Collection {
-            scope: test://root#/collections/a~1collection,
+            scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
             schema: test://example/schema,
             key: ["/key"],
-            store_endpoint: endpoint,
-            store_patch_config: {},
         },
     ],
     derivations: [],
     endpoints: [],
     errors: [
         Error {
-            scope: test://root#/import/1,
+            scope: test://example/catalog.yaml#/import/1,
             error: failed to fetch resource test://not/found
             
             Caused by:
@@ -27,51 +25,69 @@ Tables {
     ],
     fetches: [
         Fetch {
-            resource: test://root,
+            resource: test://example/catalog.yaml,
         },
         Fetch {
-            resource: test://root/sibling,
+            resource: test://example/sibling,
         },
         Fetch {
             resource: test://not/found,
         },
         Fetch {
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
             resource: test://example/schema,
+        },
+        Fetch {
+            resource: test://example/sibling.ts,
         },
     ],
     imports: [
         Import {
-            scope: test://root#/import/0,
-            from_resource: test://root,
-            to_resource: test://root/sibling,
-        },
-        Import {
-            scope: test://root#/import/1,
-            from_resource: test://root,
+            scope: test://example/catalog.yaml#/import/1,
+            from_resource: test://example/catalog.yaml,
             to_resource: test://not/found,
         },
         Import {
-            scope: test://root#/collections/a~1collection/schema,
-            from_resource: test://root,
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/a~1collection/schema,
+            from_resource: test://example/catalog.yaml,
             to_resource: test://example/schema,
         },
+        Import {
+            scope: test://example/sibling,
+            from_resource: test://example/sibling,
+            to_resource: test://example/sibling.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/sibling,
+        },
     ],
+    journal_rules: [],
     materializations: [],
-    nodejs_dependencies: [
-        NodeJSDependency {
-            scope: test://root#/nodeDependencies/package-one,
+    named_schemas: [],
+    npm_dependencies: [
+        NPMDependency {
+            scope: test://example/catalog.yaml#/npmDependencies/package-one,
             package: package-one,
             version: v0.1.2,
         },
-        NodeJSDependency {
-            scope: test://root#/nodeDependencies/pkg-2,
+        NPMDependency {
+            scope: test://example/catalog.yaml#/npmDependencies/pkg-2,
             package: pkg-2,
             version: ~v2,
         },
     ],
     projections: [
         Projection {
-            scope: test://root#/collections/a~1collection/projections/baz,
+            scope: test://example/catalog.yaml#/collections/a~1collection/projections/baz,
             collection: a/collection,
             field: baz,
             location: /bing,
@@ -79,7 +95,7 @@ Tables {
             user_provided: 1,
         },
         Projection {
-            scope: test://root#/collections/a~1collection/projections/foo,
+            scope: test://example/catalog.yaml#/collections/a~1collection/projections/foo,
             collection: a/collection,
             field: foo,
             location: /bar,
@@ -89,12 +105,12 @@ Tables {
     ],
     resources: [
         Resource {
-            resource: test://root,
+            resource: test://example/catalog.yaml,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },
         Resource {
-            resource: test://root/sibling,
+            resource: test://example/sibling,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },

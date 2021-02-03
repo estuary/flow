@@ -1,0 +1,21 @@
+test://example/catalog.yaml:
+  collections:
+    test:
+      schema: schema.json
+      key: [/a]
+
+test://example/schema.json:
+  $defs:
+    matches:
+      $anchor: Match_es
+      type: integer
+
+    punctuation:
+      $anchor: "Spa ce"
+      type: integer
+
+    lowercase:
+      $anchor: "lowercase"
+      type: integer
+
+  type: string

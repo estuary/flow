@@ -1,4 +1,4 @@
-test://root:
+test://example/catalog.yaml:
   endpoints:
     "my bucket":
       s3:

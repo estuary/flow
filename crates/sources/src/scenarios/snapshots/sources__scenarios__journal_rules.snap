@@ -1,0 +1,190 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            resource: test://example/rules_two.yaml,
+        },
+        Fetch {
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            resource: test://example/rules_two.ts,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/rules_two.yaml,
+            from_resource: test://example/rules_two.yaml,
+            to_resource: test://example/rules_two.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/rules_two.yaml,
+        },
+    ],
+    journal_rules: [
+        JournalRule {
+            scope: test://example/catalog.yaml#/journal_rules/01%20rule%20one,
+            rule: 01 rule one,
+            spec: Rule {
+                rule: "01 rule one",
+                selector: Some(
+                    LabelSelector {
+                        include: Some(
+                            LabelSet {
+                                labels: [],
+                            },
+                        ),
+                        exclude: Some(
+                            LabelSet {
+                                labels: [],
+                            },
+                        ),
+                    },
+                ),
+                template: Some(
+                    JournalSpec {
+                        name: "",
+                        replication: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 0,
+                                compression_codec: Invalid,
+                                stores: [
+                                    "s3://my-bucket",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 0,
+                        max_append_rate: 0,
+                    },
+                ),
+            },
+        },
+        JournalRule {
+            scope: test://example/rules_two.yaml#/journal_rules/02%20rule%20two,
+            rule: 02 rule two,
+            spec: Rule {
+                rule: "02 rule two",
+                selector: Some(
+                    LabelSelector {
+                        include: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "estuary.dev/label",
+                                        value: "a value",
+                                    },
+                                ],
+                            },
+                        ),
+                        exclude: Some(
+                            LabelSet {
+                                labels: [],
+                            },
+                        ),
+                    },
+                ),
+                template: Some(
+                    JournalSpec {
+                        name: "",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 0,
+                                compression_codec: Invalid,
+                                stores: [],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 0,
+                        max_append_rate: 0,
+                    },
+                ),
+            },
+        },
+    ],
+    materializations: [],
+    named_schemas: [],
+    npm_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/rules_two.yaml,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [],
+    test_steps: [],
+    transforms: [],
+}

@@ -1,6 +1,6 @@
-test://root/a-schema.json: true
+test://example/a-schema.json: true
 
-test://root/alt-schema.json:
+test://example/alt-schema.json:
   $anchor: foobar
   type: object
   properties:
@@ -12,15 +12,14 @@ test://root/alt-schema.json:
       description: "the key description"
     moar: { type: number }
 
-test://root/reg-schema.json:
+test://example/reg-schema.json:
   $defs: { qib: true }
 
-test://root:
+test://example/catalog.yaml:
   collections:
     d1/collection:
       schema: a-schema.json
       key: [/d1-key]
-      store: {name: endpoint}
       derivation:
         register:
           schema: reg-schema.json#/$defs/qib
@@ -36,17 +35,23 @@ test://root:
             readDelay: "1 hour"
             priority: 32
             shuffle:
-              key: ["/shuffle", "/key"]
-            update: { nodeJS: "update one" }
-            publish: { nodeJS: "publish one" }
+              md5: ["/shuffle", "/key"]
+            update:
+              lambda: typescript
+              rollbackOnConflict: true
+            publish: { lambda: typescript }
 
     d2/collection:
       schema: a-schema.json
       key: [/d2-key]
-      store: {name: endpoint}
       derivation:
         transform:
           do-the-thing:
             source:
               name: src/collection
-            publish: { nodeJS: "publish two" }
+            update:
+              lambda:
+                remote: https://example/api
+
+test://example/catalog.ts:
+  typescript: "module placeholder"

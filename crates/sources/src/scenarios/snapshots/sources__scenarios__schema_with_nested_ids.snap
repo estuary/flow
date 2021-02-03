@@ -1,17 +1,15 @@
 ---
-source: crates/models/src/source/scenarios/mod.rs
+source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Tables {
     captures: [],
     collections: [
         Collection {
-            scope: test://root#/collections/a~1collection,
+            scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
-            schema: test://actual,
+            schema: test://example/actual,
             key: ["/key"],
-            store_endpoint: endpoint,
-            store_patch_config: {},
         },
     ],
     derivations: [],
@@ -19,37 +17,47 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://root,
+            resource: test://example/catalog.yaml,
         },
         Fetch {
-            resource: test://actual,
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            resource: test://example/actual,
         },
     ],
     imports: [
         Import {
-            scope: test://root#/collections/a~1collection/schema,
-            from_resource: test://root,
-            to_resource: test://actual,
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/a~1collection/schema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/actual,
         },
     ],
+    journal_rules: [],
     materializations: [],
-    nodejs_dependencies: [],
+    named_schemas: [],
+    npm_dependencies: [],
     projections: [],
     resources: [
         Resource {
-            resource: test://root,
+            resource: test://example/catalog.yaml,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },
         Resource {
-            resource: test://actual,
+            resource: test://example/actual,
             content_type: "JsonSchema",
             content: ".. binary ..",
         },
     ],
     schema_docs: [
         SchemaDoc {
-            schema: test://actual,
+            schema: test://example/actual,
             dom: {"$defs":{"wrapper":{"$defs":{"a":{"$id":"test://fake/other/a-doc","items":[true,{"$ref":"b-doc#/items/1"}]},"b":{"$id":"test://fake/other/b-doc","items":[{"$ref":"a-doc#/items/0"},true]},"c":true},"$id":"test://fake/root","allOf":[{"$ref":"other/a-doc#/items/1"},{"$ref":"test://fake/other/b-doc#/items/0"},{"$ref":"#/$defs/c"},{"$ref":"test://fake/root#/$defs/c"}]}},"$ref":"test://fake/root"},
         },
     ],

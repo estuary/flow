@@ -1,20 +1,19 @@
-test://root:
+test://example/catalog.yaml:
     import:
         - sibling
         - test://not/found
-    nodeDependencies:
+    npmDependencies:
         package-one: "v0.1.2"
         pkg-2: "~v2"
     collections:
         a/collection:
             schema: "test://example/schema"
             key: [/key]
-            store: { name: endpoint }
             projections:
                 foo: "/bar"
                 baz:
                     location: "/bing"
                     partition: true
 
-test://root/sibling: {}
+test://example/sibling: {}
 test://example/schema: true

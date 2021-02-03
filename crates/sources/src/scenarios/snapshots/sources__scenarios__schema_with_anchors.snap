@@ -1,0 +1,72 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Tables {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test,
+            collection: test,
+            schema: test://example/schema.json,
+            key: ["/a"],
+        },
+    ],
+    derivations: [],
+    endpoints: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            resource: test://example/schema.json,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test/schema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/schema.json,
+        },
+    ],
+    journal_rules: [],
+    materializations: [],
+    named_schemas: [
+        NamedSchema {
+            scope: test://example/schema.json#/$defs/matches,
+            anchor: test://example/schema.json#Match_es,
+            anchor_name: Match_es,
+        },
+    ],
+    npm_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://example/schema.json,
+            dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
+        },
+    ],
+    test_steps: [],
+    transforms: [],
+}
