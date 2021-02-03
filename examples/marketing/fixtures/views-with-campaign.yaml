@@ -1,4 +1,0 @@
-- key: [aa]
-  document: {"campaign_id": 1, "timestamp": "2012-03-19T07:22Z", "user_id": "46120bfe-de33-4de2-9709-572faee7c8ee", "view_id": "c65c197f-eab3-42b8-a9e7-0e7a21bf00f1" }
-- key: [bb]
-  document: {"campaign_id": 3, "timestamp": "2012-03-20T09:34Z", "user_id": "b8f6fc16-93eb-4e22-bf7e-9feff3f34ff2", "view_id": "6ac9dd85-9edb-4888-b0de-5481b9acc240" }

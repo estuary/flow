@@ -7,7 +7,7 @@
 #   psql -h localhost --user flow -c 'select * from sets where "DerivedValues"::text != "ExpectValues"::text limit 1;'
 
 collections:
-  - name: soak/set-ops/operations
+  soak/set-ops/operations:
     schema: schema.yaml#/$defs/operation
     key: [/Author, /ID, /Op]
     projections:
@@ -17,7 +17,7 @@ collections:
         location: /Ones
         partition: true
 
-  - name: soak/set-ops/sets
+  soak/set-ops/sets:
     schema: schema.yaml#/$defs/outputWithReductions
     key: [/Author, /ID]
     projections:
@@ -30,38 +30,14 @@ collections:
       transform:
         onOperation:
           source: { name: soak/set-ops/operations }
-          shuffle: [/Author, /ID]
-          publish:
-            nodeJS: &lambda |
-              if (source.Type == "add" || source.Type == "remove") {
-                let mutate = (source as anchors.MutateOp);
+          shuffle:
+            key: [/Author, /ID]
+          publish: { lambda: typescript }
 
-                return [{
-                  Author: mutate.Author,
-                  ID: mutate.ID,
-                  AppliedOps: [mutate.Op],
-                  Derived: {
-                    [mutate.Type]: mutate.Values,
-                  },
-                  [mutate.Type == "add" ? "AppliedAdd" : "AppliedRemove"]: 1,
-                }];
-
-              }
-
-              let verify = (source as anchors.VerifyOp);
-
-              return [{
-                Author: verify.Author,
-                ID: verify.ID,
-                AppliedOps: [verify.Op],
-                ExpectAdd: verify.TotalAdd,
-                ExpectRemove: verify.TotalRemove,
-                ExpectValues: verify.Values,
-              }];
-
-  - name: soak/set-ops/sets-register
+  soak/set-ops/sets-register:
     schema: schema.yaml#/$defs/output
     key: [/Author, /ID]
+
     projections:
       # Project the same non-scalar types as above, for materialization.
       AppliedOps: /AppliedOps
@@ -78,14 +54,15 @@ collections:
       transform:
         onOperation:
           source: { name: soak/set-ops/operations }
-          shuffle: [/Author, /ID]
-          update: { nodeJS: *lambda }
-          publish:
-            nodeJS: |
-              if (source.Type == "verify") {
-                return [register];
-              }
-              return [];
+          shuffle:
+            key: [/Author, /ID]
+          update: { lambda: typescript }
+          publish: { lambda: typescript }
+
+captures:
+  soak/set-ops/operations:
+    target: { name: soak/set-ops/operations }
+    pushAPI: {}
 
 tests:
   "Set soak-test update and verify":

@@ -1,5 +1,5 @@
 collections:
-  - name: testing/int-string
+  testing/int-string:
     schema:
       type: object
       properties:
@@ -8,7 +8,7 @@ collections:
       required: [i, s]
     key: [/i]
 
-  - name: testing/int-strings
+  testing/int-strings:
     schema:
       type: object
       properties:
@@ -22,14 +22,19 @@ collections:
     key: [/i]
     projections:
       eye: /i
+      sOne: /s/1
     derivation:
       transform:
         appendStrings:
           source:
             name: testing/int-string
-          publish:
-            nodeJS: |
-              return [{ i: source.i, s: [source.s] }];
+          publish: { lambda: typescript }
+
+captures:
+  testing/int-string:
+    target:
+      name: testing/int-string
+    pushAPI: {}
 
 tests:
   "int-string ingestion only":

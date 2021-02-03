@@ -1,0 +1,33 @@
+{
+	"compilerOptions": {
+		"allowUnreachableCode": false,
+		"allowUnusedLabels": false,
+		"forceConsistentCasingInFileNames": true,
+		"incremental": true,
+		"lib": [
+			"ES2020"
+		],
+		"module": "commonjs",
+		"noEmitOnError": true,
+		"noFallthroughCasesInSwitch": true,
+		"noImplicitReturns": true,
+		"pretty": true,
+		"sourceMap": true,
+		"strict": true,
+		"target": "ES2020",
+		"rootDir": ".",
+		"outDir": "dist",
+		// Any non-relative modules are resolved against this base directory.
+		"baseUrl": ".",
+		"paths": {
+			// As a bit of sugar, resolve flow/modules to flow_generated/flow/*.
+			// This is a types-only module, and doesn't require runtime loading.
+			// Otherwise, a tool like `tspath` must be used to re-write absolute
+			// imports in TypeScript code into relative imports in produced JavaScript.
+			"flow/modules": [
+				"flow_generated/flow/modules"
+			]
+		}
+	},
+	"extends": "./flow_generated/tsconfig-files"
+}

@@ -1,5 +1,5 @@
 collections:
-  - name: weird-types/optionals
+  weird-types/optionals:
     schema:
       type: object
       properties:
@@ -12,12 +12,8 @@ collections:
         array: { type: array }
       required: [theKey]
     key: [/theKey]
-    # This is here to temporarily work around the absence of the flow_document projection.
-    # It can be removed once https://github.com/estuary/flow/pull/78 is merged.
-    projections:
-      flow_document: ""
 
-  - name: weird-types/required-nullable
+  weird-types/required-nullable:
     schema:
       type: object
       properties:
@@ -38,7 +34,7 @@ collections:
       array: /array
       "null": /null
 
-  - name: weird-types/optional-multi-types
+  weird-types/optional-multi-types:
     schema:
       type: object
       properties:
@@ -86,3 +82,15 @@ collections:
       intDifferentRanges: /intDifferentRanges
       intOrNumOverlappingRanges: /intOrNumOverlappingRanges
       boolOrString: /boolOrString
+
+captures:
+  # These collections are used by `./go/ingest` tests.
+  weird-types/optionals:
+    target: { name: weird-types/optionals }
+    pushAPI: {}
+  weird-types/required-nullable:
+    target: { name: weird-types/required-nullable }
+    pushAPI: {}
+  weird-types/optional-multi-types:
+    target: { name: weird-types/optional-multi-types }
+    pushAPI: {}
