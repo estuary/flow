@@ -1,0 +1,35 @@
+[package]
+name = "build"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+doc = { path = "../doc", version = "0.0.0" }
+json = { path = "../json", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+sources = { path = "../sources", version = "0.0.0" }
+validation = { path = "../validation", version = "0.0.0" }
+
+anyhow = "*"
+bytes = "*"
+futures = "*"
+hyper = "*"
+hyper-tls = "*"
+itertools = "*"
+pathdiff = "*"
+regex = "*"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+serde = { version = "*", features = ["derive"] }
+serde_json = { version =  "*", features = ["raw_value"] }
+thiserror = "*"
+tracing = "*"
+tracing-futures = "*"
+tracing-subscriber = "*"
+url = "*"
+
+[dev-dependencies]
+insta = "*"
+lazy_static = "*"
+serde_yaml = "*"

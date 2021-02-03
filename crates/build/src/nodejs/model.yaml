@@ -1,0 +1,75 @@
+test://example/catalog.yaml:
+  npmDependencies:
+    fooPkg: v1.2.3
+
+  import:
+    - file:///package/sub/module.yaml
+    - test://example/external/module.yaml
+
+  collections:
+    some/input:
+      schema: test://example/int-string.schema
+      key: [/int]
+
+file:///package/sub/module.yaml:
+  collections:
+    local/derivation:
+      schema: test://example/int-number.schema
+      key: [/int]
+
+      derivation:
+        transform:
+          whoot:
+            source: { name: some/input }
+            publish: { lambda: typescript }
+
+          thereItIs:
+            source: { name: local/derivation }
+            update: { lambda: typescript }
+
+file:///package/sub/module.ts:
+  { Local: Content }
+
+test://example/external/module.yaml:
+  npmDependencies:
+    barPkg: v4.5.6
+
+  collections:
+    external/derivation:
+      schema: test://example/int-string.schema
+      key: [/str]
+
+      derivation:
+        register:
+          schema: { type: integer }
+          initial: 42
+        transform:
+          somethingSomething:
+            source: { name: some/input }
+            publish: { lambda: typescript }
+
+test://example/external/module.ts:
+  { Remote: Content }
+
+test://example/int-string.schema:
+  type: object
+  properties:
+    int: { type: integer }
+    str: { type: string }
+  required: [int, str]
+
+  $defs:
+    anAnchor:
+      $anchor: AnAnchor
+      type: object
+      properties:
+        one: { type: string }
+        two: { type: integer }
+      required: [one]
+
+test://example/int-number.schema:
+  type: object
+  properties:
+    int: { type: integer }
+    num: { type: number }
+  required: [int, num]
