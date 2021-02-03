@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/materializations/testing~1int-halve-duplicate,
+        error: materializations testing/int-halve-duplicate and testing/int-halve (at test://example/int-halve-materialization#/materializations/testing~1int-halve) have the same target testing/int-halve, endpoint, and configuration,
+    },
+]

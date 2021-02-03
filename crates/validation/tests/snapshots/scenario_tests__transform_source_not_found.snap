@@ -1,0 +1,14 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: collection testinG/Int-String, referenced by transform halveIntString, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string?,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+        error: collection wildly/off/name, referenced by transform halveSelf, is not defined,
+    },
+]

@@ -1,0 +1,17 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: driver error while validating materialization testing/int-string
+        
+        Caused by:
+            unknown constraint type 99,
+    },
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: materialization testing/int-string field str is not satisfiable (selector includes field, but driver forbids it with reason reason: whoops),
+    },
+]

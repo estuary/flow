@@ -10,25 +10,11 @@ doc = { path = "../doc", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 
 anyhow = "*"
-caseless = "*"
-futures = "*"
-humantime-serde = "*"
-itertools = "*"
-json-patch = "*"
-lazy_static = "*"
-pathfinding = "*"
-regex = "*"
+bytes = "*"
+percent-encoding = "*"
+prost = "*"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*", features = ["raw_value"] }
-serde_yaml = "*"
-strsim = "*"
-superslice = "*"
-thiserror = "*"
-unicode-normalization = "*"
 url = "*"
-yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
-
-[dev-dependencies]
-insta = "*"

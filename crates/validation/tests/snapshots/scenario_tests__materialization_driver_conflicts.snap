@@ -1,0 +1,29 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: materialization testing/int-string field bit is not satisfiable (selector excludes field, but driver requires it with reason: field required),
+    },
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: materialization testing/int-string field str is not satisfiable (selector includes field, but driver forbids it with reason reason: field forbidden),
+    },
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: materialization testing/int-string field int is not satisfiable (driver reports as unsatisfiable with reason: field unsatisfiable),
+    },
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: driver error while validating materialization testing/int-string
+        
+        Caused by:
+            driver sent constraint for unknown field Unknown,
+    },
+    Error {
+        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+        error: materialization testing/int-string has no acceptable field that satisfies required location /int,
+    },
+]

@@ -1,0 +1,241 @@
+test://example/catalog.yaml:
+  import:
+    - test://example/int-string
+    - test://example/int-reverse
+    - test://example/int-halve
+    - test://example/int-string-capture
+    - test://example/int-string-materialization
+    - test://example/int-halve-materialization
+    - test://example/int-string-tests
+  endpoints:
+    captureEndpoint:
+      s3:
+        bucket: a-bucket
+        prefix: and-prefix
+
+    materializeEndpoint:
+      s3:
+        bucket: a-bucket
+        prefix: and-prefix
+
+  journalRules:
+    123 A Rule:
+      selector:
+        include:
+          labels:
+            - name: "estuary.dev/label"
+              value: "a value"
+      template:
+        fragment:
+          stores: ["s3://my-bucket"]
+
+test://example/int-string:
+  import:
+    # Backward import.
+    - test://example/int-halve
+  collections:
+    testing/int-string:
+      schema: test://example/int-string.schema
+      key: [/int]
+      projections:
+        Int: /int
+        bit:
+          location: /bit
+          partition: true
+
+test://example/int-string-capture:
+  import:
+    - test://example/int-string
+  captures:
+    testing/int-string/pull:
+      target:
+        name: testing/int-string
+      endpoint: { name: captureEndpoint }
+
+    testing/int-string/push:
+      target:
+        name: testing/int-string
+      pushAPI: {}
+
+test://example/int-string-materialization:
+  import:
+    - test://example/int-string
+  materializations:
+    testing/int-string:
+      source:
+        name: testing/int-string
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: one }
+      fields:
+        include:
+          str: { pass: through }
+        exclude:
+          - bit
+        recommended: true
+
+test://example/int-string-tests:
+  import:
+    - test://example/int-string
+  tests:
+    "A Test":
+      - ingest:
+          collection: testing/int-string
+          documents:
+            - { int: 42, str: "string A", bit: true }
+            - { int: 52, str: "string B", bit: true }
+      - verify:
+          collection: testing/int-string
+          documents:
+            - { str: "string A" }
+            - { str: "string B" }
+          partitions:
+            include:
+              bit: [true]
+
+test://example/int-reverse:
+  import:
+    # Forward import.
+    - test://example/int-string
+  collections:
+    testing/int-reverse:
+      schema: test://example/int-string.schema
+      key: [/int]
+      derivation:
+        transform:
+          reverseIntString:
+            source:
+              name: testing/int-string
+            publish: { lambda: typescript }
+
+test://example/int-reverse.ts:
+  typescript: "module placeholder"
+
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      schema: test://example/int-string-len.schema
+      key: [/int]
+      projections:
+        Root: ""
+        Len:
+          location: /len
+          partition: true
+        # Not directly discovered from schema,
+        # and instead inferred via additionalProperties.
+        Extra: /extra
+      derivation:
+        register:
+          schema:
+            type: integer
+          initial: 42
+        transform:
+          halveIntString:
+            source:
+              name: testing/int-string
+              schema: test://example/int-string-len.schema
+              partitions:
+                include:
+                  bit: [true]
+                exclude:
+                  bit: [false]
+            shuffle:
+              key: [/len, /int]
+            update:
+              lambda:
+                remote: https://an/api
+              rollbackOnConflict: true
+
+          halveSelf:
+            source:
+              name: testing/int-halve
+            shuffle:
+              key: [/len, /int]
+            publish: { lambda: typescript }
+
+test://example/int-halve.ts:
+  typescript: "module placeholder"
+
+test://example/int-halve-materialization:
+  import:
+    - test://example/int-halve
+  materializations:
+    testing/int-halve:
+      source:
+        name: testing/int-halve
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: two }
+      fields:
+        include:
+          Len: {}
+        recommended: false
+
+test://example/int-string.schema:
+  type: object
+  properties:
+    int: { type: integer }
+    str: { type: string }
+    bit: { type: boolean }
+  required: [int, str, bit]
+
+  $defs:
+    anAnchor:
+      $anchor: AnAnchor
+      type: object
+      properties:
+        one: { type: string }
+        two: { type: integer }
+      required: [one]
+
+test://example/int-string-len.schema:
+  $ref: test://example/int-string.schema
+  properties:
+    len: { type: integer }
+    int: {}
+    str: {}
+    bit: {}
+    arr:
+      type: array
+      additionalItems:
+        $ref: int-string.schema#AnAnchor
+  additionalProperties:
+    type: boolean
+  required: [len]
+
+  $defs:
+    otherAnchor:
+      $anchor: Other
+      type: integer
+
+driver:
+  materializations:
+    one:
+      endpoint: S3
+      config:
+        bucket: a-bucket
+        prefix: and-prefix
+        fixture: one
+      constraints:
+        flow_document: { type: 1, reason: "location required" }
+        # `Int`, as a user-defined projection, would be selected
+        # over `int`. However, `int` is required by the driver,
+        # and chosen instead.
+        Int: { type: 2, reason: "recommended" }
+        int: { type: 0, reason: "field required" }
+        str: { type: 3, reason: "optional" }
+        bit: { type: 4, reason: "field forbidden" }
+
+    two:
+      endpoint: S3
+      config:
+        bucket: a-bucket
+        prefix: and-prefix
+        fixture: two
+      constraints:
+        flow_document: { type: 1, reason: "location required" }
+        # `Root`, as a user-defined projection, is selected over `flow_document`.
+        Root: { type: 1, reason: "location required" }
+        int: { type: 0, reason: "required" }
+        Extra: { type: 1, reason: "location required" }
+        Len: { type: 3, reason: "optional" }

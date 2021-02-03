@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-capture#/captures/testing~1int-string~1pull,
+        error: Postgres is not a supported endpoint type for a capture,
+    },
+]

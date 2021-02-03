@@ -1,0 +1,22 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: location /unknown/key is unknown in schema test://example/int-string.schema,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/projections/Unknown,
+        error: location /unknown/projection is unknown in schema test://example/int-string.schema,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        error: location /unknown/key is unknown in schema test://example/int-string.schema,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: location /unknown/shuffle is unknown in schema test://example/int-string-len.schema,
+    },
+]

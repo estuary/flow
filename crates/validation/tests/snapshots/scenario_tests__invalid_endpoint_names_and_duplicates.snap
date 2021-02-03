@@ -1,0 +1,30 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/more-endpoints#/endpoints/,
+        error: endpoint name cannot be empty,
+    },
+    Error {
+        scope: test://example/more-endpoints#/endpoints/inv%20alid,
+        error: inv alid cannot be used as name for endpoint (" alid" is invalid),
+    },
+    Error {
+        scope: test://example/more-endpoints#/endpoints/inv!alid,
+        error: inv!alid cannot be used as name for endpoint ("!alid" is invalid),
+    },
+    Error {
+        scope: test://example/more-endpoints#/endpoints/inv~1alid,
+        error: inv/alid cannot be used as name for endpoint ("/alid" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/endpoints/captureEndpoint,
+        error: endpoint captureEndpoint has a duplicated definition at test://example/more-endpoints#/endpoints/CAPtUReEndpoINT,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/endpoints/materializeEndpoint,
+        error: endpoint materializeEndpoint has a duplicated definition at test://example/more-endpoints#/endpoints/Materializeendpoint,
+    },
+]

@@ -1,0 +1,46 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/~1bad~1name,
+        error: /bad/name cannot be used as name for collection ("/" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/bad%20name,
+        error: bad name cannot be used as name for collection (" name" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/bad!name,
+        error: bad!name cannot be used as name for collection ("!name" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/bad~1~1name,
+        error: bad//name cannot be used as name for collection ("//name" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/bad~1name~1,
+        error: bad/name/ cannot be used as name for collection ("/" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/,
+        error: collection name cannot be empty,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/,
+        error: collection  is a prohibited prefix of /bad/name, defined at test://example/catalog.yaml#/collections/~1bad~1name,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing,
+        error: collection testing is a prohibited prefix of testing/Int-Halve, defined at test://example/catalog.yaml#/collections/testing~1Int-Halve,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1Int-Halve,
+        error: collection testing/Int-Halve has a duplicated definition at test://example/int-halve#/collections/testing~1int-halve,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1int-sTRinG,
+        error: collection testing/int-sTRinG has a duplicated definition at test://example/int-string#/collections/testing~1int-string,
+    },
+]
