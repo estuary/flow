@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: transform halveIntString shuffled key types ["integer"] don't align with transform halveSelf types ["integer", "integer"],
+    },
+]

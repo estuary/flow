@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string.schema#/$defs/anAnchor,
+        error: named schema AnAnchor has a duplicated definition at test://example/int-string-len.schema#/$defs/anAnchor,
+    },
+]

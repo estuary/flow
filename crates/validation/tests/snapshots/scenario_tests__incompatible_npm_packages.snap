@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/npmDependencies/pkg-2,
+        error: package pkg-2 is repeated with incompatible versions "different" here, vs "differ ent" at test://example/int-string#/npmDependencies/pkg-2,
+    },
+]

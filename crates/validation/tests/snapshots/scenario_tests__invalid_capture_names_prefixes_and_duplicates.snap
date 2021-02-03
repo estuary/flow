@@ -1,0 +1,86 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/captures/,
+        error: capture name cannot be empty,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/~1bad~1name,
+        error: /bad/name cannot be used as name for capture ("/" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad%20name,
+        error: bad name cannot be used as name for capture (" name" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad!name,
+        error: bad!name cannot be used as name for capture ("!name" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad~1~1name,
+        error: bad//name cannot be used as name for capture ("//name" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad~1name~1,
+        error: bad/name/ cannot be used as name for capture ("/" is invalid),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/,
+        error: capture  is a prohibited prefix of /bad/name, defined at test://example/catalog.yaml#/captures/~1bad~1name,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing,
+        error: capture testing is a prohibited prefix of testing/int-sTRinG/pUll, defined at test://example/catalog.yaml#/captures/testing~1int-sTRinG~1pUll,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing~1int-sTRinG~1pUll,
+        error: capture testing/int-sTRinG/pUll has a duplicated definition at test://example/int-string-capture#/captures/testing~1int-string~1pull,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing~1Int-strINg~1PuSH,
+        error: capture testing/Int-strINg/PuSH has a duplicated definition at test://example/int-string-capture#/captures/testing~1int-string~1push,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/,
+        error: captures  and /bad/name (at test://example/catalog.yaml#/captures/~1bad~1name) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/~1bad~1name,
+        error: captures /bad/name and bad name (at test://example/catalog.yaml#/captures/bad%20name) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad%20name,
+        error: captures bad name and bad!name (at test://example/catalog.yaml#/captures/bad!name) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad!name,
+        error: captures bad!name and bad//name (at test://example/catalog.yaml#/captures/bad~1~1name) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad~1~1name,
+        error: captures bad//name and bad/name/ (at test://example/catalog.yaml#/captures/bad~1name~1) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/bad~1name~1,
+        error: captures bad/name/ and good (at test://example/catalog.yaml#/captures/good) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/good,
+        error: captures good and testing (at test://example/catalog.yaml#/captures/testing) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing,
+        error: captures testing and testing/Int-strINg/PuSH (at test://example/catalog.yaml#/captures/testing~1Int-strINg~1PuSH) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing~1Int-strINg~1PuSH,
+        error: captures testing/Int-strINg/PuSH and testing/int-sTRinG/pUll (at test://example/catalog.yaml#/captures/testing~1int-sTRinG~1pUll) have the same target testing/int-string, endpoint, and configuration,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing~1int-sTRinG~1pUll,
+        error: captures testing/int-sTRinG/pUll and testing/int-string/push (at test://example/int-string-capture#/captures/testing~1int-string~1push) have the same target testing/int-string, endpoint, and configuration,
+    },
+]

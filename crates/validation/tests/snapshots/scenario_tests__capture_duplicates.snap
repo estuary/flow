@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/captures/testing~1int-string~1another~1pull,
+        error: captures testing/int-string/another/pull and testing/int-string/pull (at test://example/int-string-capture#/captures/testing~1int-string~1pull) have the same target testing/int-string, endpoint, and configuration,
+    },
+]

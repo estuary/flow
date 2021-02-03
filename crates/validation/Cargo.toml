@@ -1,0 +1,36 @@
+[package]
+name = "validation"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+json = { path = "../json", version = "0.0.0" }
+doc = { path = "../doc", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
+
+anyhow = "*"
+bytes = "*"
+caseless = "*"
+futures = "*"
+itertools = "*"
+json-patch = "*"
+lazy_static = "*"
+pathfinding = "*"
+regex = "*"
+serde_json = { version =  "*", features = ["raw_value"] }
+strsim = "*"
+superslice = "*"
+thiserror = "*"
+tracing = "*"
+unicode-normalization = "*"
+url = "*"
+
+[dev-dependencies]
+sources = { path = "../sources", version = "0.0.0" }
+
+insta = "*"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+serde = "*"
+serde_yaml = "*"

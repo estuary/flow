@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/,
+        error: transform name cannot be empty,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/inv%20alid,
+        error: inv alid cannot be used as name for transform (" alid" is invalid),
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/inv!alid,
+        error: inv!alid cannot be used as name for transform ("!alid" is invalid),
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/inv~1alid,
+        error: inv/alid cannot be used as name for transform ("/alid" is invalid),
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reVeRsEIntString,
+        error: transform reVeRsEIntString has a duplicated definition at test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+    },
+]
