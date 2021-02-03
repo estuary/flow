@@ -1,5 +1,6 @@
-use crate::source;
-use crate::validation;
+use crate::names;
+use prost::Message;
+use std::collections::BTreeMap;
 
 #[macro_use]
 mod macros;
@@ -14,118 +15,232 @@ tables!(
 
     table Resources (row Resource, sql "resources") {
         resource: url::Url,
-        content_type: source::ContentType,
-        content: Vec<u8>,
+        content_type: names::ContentType,
+        content: bytes::Bytes,
     }
 
     table Imports (row Import, sql "imports") {
         scope: url::Url,
+        // Resource which does the importing.
         from_resource: url::Url,
+        // Resource which is imported.
         to_resource: url::Url,
     }
 
-    table NodeJSDependencies (row NodeJSDependency, sql "node_dependencies") {
+    table NPMDependencies (row NPMDependency, sql "npm_dependencies") {
         scope: url::Url,
+        // NPM package name.
         package: String,
+        // NPM package semver.
         version: String,
+    }
+
+    table JournalRules (row JournalRule, sql "journal_rules") {
+        scope: url::Url,
+        // Name of this rule, which also encodes its priority as
+        // lexicographic order determines evaluation and application order.
+        rule: names::Rule,
+        // Rule selector and patch template.
+        spec: protocol::flow::journal_rules::Rule,
     }
 
     table Collections (row Collection, sql "collections") {
         scope: url::Url,
-        collection: source::CollectionName,
+        collection: names::Collection,
+        // JSON Schema against which all collection documents are validated,
+        // and which provides document annotations.
         schema: url::Url,
-        key: source::CompositeKey,
-        store_endpoint: source::EndpointName,
-        store_patch_config: serde_json::Value,
+        // JSON pointers which define the composite key of the collection.
+        key: names::CompositeKey,
     }
 
     table Projections (row Projection, sql "projections") {
         scope: url::Url,
-        collection: source::CollectionName,
+        collection: names::Collection,
         field: String,
-        location: source::JsonPointer,
+        location: names::JsonPointer,
+        // Is this projection a logically partitioned field?
         partition: bool,
+        // Was this projection provided by the user, or inferred
+        // from the collection schema ?
         user_provided: bool,
     }
 
     table Derivations (row Derivation, sql "derivations") {
         scope: url::Url,
-        derivation: source::CollectionName,
+        derivation: names::Collection,
+        // JSON Schema against which register values are validated,
+        // and which provides document annotations.
         register_schema: url::Url,
+        // JSON value taken by registers which have never before been updated.
         register_initial: serde_json::Value,
     }
 
     table Transforms (row Transform, sql "transforms") {
         scope: url::Url,
-        transform: source::TransformName,
-        derivation: source::CollectionName,
-        source_collection: source::CollectionName,
-        source_partitions: Option<source::PartitionSelector>,
-        source_schema: Option<url::Url>,
-        shuffle_key: Option<source::CompositeKey>,
-        shuffle_lambda: Option<source::Lambda>,
-        shuffle_hash: source::ShuffleHash,
-        read_delay_seconds: Option<u32>,
+        derivation: names::Collection,
+        // Read priority applied to documents processed by this transform.
+        // Ready documents of higher priority are processed before those
+        // of lower priority.
         priority: u32,
-        update_lambda: Option<source::Lambda>,
-        publish_lambda: Option<source::Lambda>,
+        // Publish that maps source documents and registers into derived documents.
+        publish_lambda: Option<names::Lambda>,
+        // Relative time delay applied to documents processed by this transform.
+        read_delay_seconds: Option<u32>,
+        // If true, a register update which reduces to an invalid register value
+        // should silently roll back the register, rather than failing processing.
+        rollback_on_register_conflict: bool,
+        // Hash function applied to shuffled keys.
+        shuffle_hash: protocol::flow::shuffle::Hash,
+        // JSON pointers which define the composite shuffle key of the transform.
+        shuffle_key: Option<names::CompositeKey>,
+        // Computed shuffle of this transform. If set, shuffle_hash and shuffle_key
+        // must not be (and vice versa).
+        shuffle_lambda: Option<names::Lambda>,
+        // Collection which is read by this transform.
+        source_collection: names::Collection,
+        // Selector over logical partitions of the source collection.
+        source_partitions: Option<names::PartitionSelector>,
+        // Optional alternative JSON schema against which source documents are
+        // validated prior to transformation. If None, the collection's schema
+        // is used instead.
+        source_schema: Option<url::Url>,
+        // Name of this transform, scoped to the owning derivation.
+        transform: names::Transform,
+        // Update that maps source documents into register updates.
+        update_lambda: Option<names::Lambda>,
     }
 
     table Endpoints (row Endpoint, sql "endpoints") {
         scope: url::Url,
-        endpoint: source::EndpointName,
-        endpoint_type: source::EndpointType,
+        // Name of this endpoint.
+        endpoint: names::Endpoint,
+        // Enumerated type of the endpoint, used to select an appropriate driver.
+        endpoint_type: names::EndpointType,
+        // JSON object which partially configures the endpoint.
         base_config: serde_json::Value,
     }
 
     table Captures (row Capture, sql "captures") {
         scope: url::Url,
-        capture: source::CaptureName,
-        collection: source::CollectionName,
+        // Name of this capture.
+        capture: names::Capture,
+        // Collection into which documents are captured.
+        collection: names::Collection,
+        // Should this capture offer a push API?
+        // If set, endpoint must not be.
         allow_push: bool,
-        endpoint: Option<source::EndpointName>,
+        // Endpoint from which documents are to be captured.
+        endpoint: Option<names::Endpoint>,
+        // JSON object which merges into the endpoint's base_config,
+        // to fully configure this capture with respect to the endpoint driver.
         patch_config: serde_json::Value,
     }
 
     table Materializations (row Materialization, sql "materializations") {
         scope: url::Url,
-        materialization: source::MaterializationName,
-        collection: source::CollectionName,
-        endpoint: source::EndpointName,
+        // Collection from which documents are materialized.
+        collection: names::Collection,
+        // Endpoint into which documents are materialized.
+        endpoint: names::Endpoint,
+        // Fields which must not be included in the materialization.
+        fields_exclude: Vec<String>,
+        // Fields which must be included in the materialization,
+        // and driver-specific field configuration.
+        fields_include: BTreeMap<String, names::Object>,
+        // Should recommended fields be selected ?
+        fields_recommended: bool,
+        // Name of this materialization.
+        materialization: names::Materialization,
+        // JSON object which merges into the endpoint's base_config,
+        // to fully configure this materialization with respect to the
+        // endpoint driver.
         patch_config: serde_json::Value,
-        field_selector: source::MaterializationFields,
     }
 
     table TestSteps (row TestStep, sql "test_steps") {
         scope: url::Url,
-        test: source::TestName,
+        // Collection ingested or verified by this step.
+        collection: names::Collection,
+        // Documents ingested or verified by this step.
+        documents: Vec<serde_json::Value>,
+        // When verifying, selector over logical partitions of the collection.
+        partitions: Option<names::PartitionSelector>,
+        // Enumerated index of this test step.
         step_index: u32,
-        step: source::TestStep,
+        // Step type (e.x., ingest or verify).
+        step_type: names::TestStepType,
+        // Name of the owning test case.
+        test: names::Test,
     }
 
     table SchemaDocs (row SchemaDoc, sql "schema_docs") {
         schema: url::Url,
+        // JSON document model of the schema.
         dom: serde_json::Value,
     }
 
+    table NamedSchemas (row NamedSchema, sql "named_schemas") {
+        // Scope is the canonical non-anchor URI of this schema.
+        scope: url::Url,
+        // Anchor is the alternative anchor'd URI.
+        anchor: url::Url,
+        // Name portion of the anchor.
+        anchor_name: String,
+    }
+
     table Inferences (row Inference, sql "inferences") {
+        // URL of the schema which is inferred, inclusive of any fragment pointer.
         schema: url::Url,
-        location: source::JsonPointer,
+        // A location within a document verified by this schema,
+        // relative to the schema's root.
+        location: names::JsonPointer,
+        // Inference at this schema location.
         spec: protocol::flow::Inference,
     }
 
     table BuiltCollections (row BuiltCollection, sql "built_collections") {
         scope: url::Url,
-        collection: source::CollectionName,
+        // Name of this collection.
+        collection: names::Collection,
+        // Built specification for this collection.
         spec: protocol::flow::CollectionSpec,
     }
 
     table BuiltMaterializations (row BuiltMaterialization, sql "built_materializations") {
         scope: url::Url,
-        materialization: source::MaterializationName,
-        collection: source::CollectionName,
+        // Name of this materialization.
+        materialization: names::Materialization,
+        // Collection from which documents are materialized.
+        collection: names::Collection,
+        // Enumerated type of the endpoint, used to select an appropriate driver.
+        endpoint_type: names::EndpointType,
+        // JSON object which configures this materialization with respect to the
+        // endpoint driver.
         endpoint_config: serde_json::Value,
+        // Resolved fields selected for materialization.
         field_selection: protocol::materialize::FieldSelection,
+    }
+
+    table BuiltTransforms (row BuiltTransform, sql "built_transforms") {
+        scope: url::Url,
+        // Name of the derivation to which this transform belongs.
+        derivation: names::Collection,
+        // Name of this transform, scoped to the owning derivation.
+        transform: names::Transform,
+        // Built specification for this transform.
+        spec: protocol::flow::TransformSpec,
+    }
+
+    table BuiltDerivations (row BuiltDerivation, sql "built_derivations") {
+        scope: url::Url,
+        // Name of this derivation.
+        derivation: names::Collection,
+        // Built specification for this derivation. The collection and transform
+        // fields are not populated. If desired, they should be separately read
+        // from BuiltTransforms and BuiltCollections, and then then merged into
+        // this specification.
+        spec: protocol::flow::DerivationSpec,
     }
 
     table Errors (row Error, sql "errors") {
@@ -134,43 +249,185 @@ tables!(
     }
 );
 
+#[derive(Default, Debug)]
+pub struct All {
+    pub built_collections: BuiltCollections,
+    pub built_derivations: BuiltDerivations,
+    pub built_materializations: BuiltMaterializations,
+    pub built_transforms: BuiltTransforms,
+    pub captures: Captures,
+    pub collections: Collections,
+    pub derivations: Derivations,
+    pub endpoints: Endpoints,
+    pub errors: Errors,
+    pub fetches: Fetches,
+    pub imports: Imports,
+    pub inferences: Inferences,
+    pub journal_rules: JournalRules,
+    pub materializations: Materializations,
+    pub named_schemas: NamedSchemas,
+    pub npm_dependencies: NPMDependencies,
+    pub projections: Projections,
+    pub resources: Resources,
+    pub schema_docs: SchemaDocs,
+    pub test_steps: TestSteps,
+    pub transforms: Transforms,
+}
+
+impl All {
+    // Access all tables as an array of dynamic TableObj instances.
+    pub fn as_tables(&self) -> Vec<&dyn TableObj> {
+        // This de-structure ensures we can't fail to update as tables change.
+        let Self {
+            built_collections,
+            built_derivations,
+            built_materializations,
+            built_transforms,
+            captures,
+            collections,
+            derivations,
+            endpoints,
+            errors,
+            fetches,
+            imports,
+            inferences,
+            journal_rules,
+            materializations,
+            named_schemas,
+            npm_dependencies,
+            projections,
+            resources,
+            schema_docs,
+            test_steps,
+            transforms,
+        } = self;
+
+        vec![
+            built_collections,
+            built_derivations,
+            built_materializations,
+            built_transforms,
+            captures,
+            collections,
+            derivations,
+            endpoints,
+            errors,
+            fetches,
+            imports,
+            inferences,
+            journal_rules,
+            materializations,
+            named_schemas,
+            npm_dependencies,
+            projections,
+            resources,
+            schema_docs,
+            test_steps,
+            transforms,
+        ]
+    }
+
+    // Access all tables as an array of mutable dynamic TableObj instances.
+    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn TableObj> {
+        let Self {
+            built_collections,
+            built_derivations,
+            built_materializations,
+            built_transforms,
+            captures,
+            collections,
+            derivations,
+            endpoints,
+            errors,
+            fetches,
+            imports,
+            inferences,
+            journal_rules,
+            materializations,
+            named_schemas,
+            npm_dependencies,
+            projections,
+            resources,
+            schema_docs,
+            test_steps,
+            transforms,
+        } = self;
+
+        vec![
+            built_collections,
+            built_derivations,
+            built_materializations,
+            built_transforms,
+            captures,
+            collections,
+            derivations,
+            endpoints,
+            errors,
+            fetches,
+            imports,
+            inferences,
+            journal_rules,
+            materializations,
+            named_schemas,
+            npm_dependencies,
+            projections,
+            resources,
+            schema_docs,
+            test_steps,
+            transforms,
+        ]
+    }
+}
+
 // macros::SQLType implementations for table columns.
 
 primitive_sql_types!(
     String => "TEXT",
     url::Url => "TEXT",
-    Vec<u8> => "BLOB",
     bool => "BOOLEAN",
     u32 => "INTEGER",
 );
 
 string_wrapper_types!(
-    source::CaptureName,
-    source::CollectionName,
-    source::EndpointName,
-    source::JsonPointer,
-    source::MaterializationName,
-    source::TestName,
-    source::TransformName,
+    names::Capture,
+    names::Collection,
+    names::Endpoint,
+    names::JsonPointer,
+    names::Materialization,
+    names::Rule,
+    names::Test,
+    names::Transform,
 );
 
 json_sql_types!(
-    protocol::flow::CollectionSpec,
-    protocol::flow::Inference,
+    BTreeMap<String, names::Object>,
+    Vec<String>,
+    Vec<serde_json::Value>,
+    names::CompositeKey,
+    names::ContentType,
+    names::EndpointType,
+    names::Lambda,
+    names::PartitionSelector,
+    names::TestStepType,
     protocol::flow::shuffle::Hash,
-    protocol::materialize::FieldSelection,
     serde_json::Value,
-    source::CompositeKey,
-    source::ContentType,
-    source::EndpointType,
-    source::Lambda,
-    source::MaterializationFields,
-    source::PartitionSelector,
-    source::TestStep,
 );
 
-// Additional bespoke SQLType implementations for types that require extra help.
+proto_sql_types!(
+    protocol::protocol::JournalSpec,
+    protocol::consumer::ShardSpec,
+    protocol::flow::CollectionSpec,
+    protocol::flow::DerivationSpec,
+    protocol::flow::Inference,
+    protocol::flow::journal_rules::Rule,
+    protocol::flow::TransformSpec,
+    protocol::materialize::FieldSelection,
+);
 
+// Modules that extend tables with additional implementations.
+mod behaviors;
+
+// Additional bespoke SQLType implementations for types that require extra help.
 impl SQLType for anyhow::Error {
     fn sql_type() -> &'static str {
         "TEXT"
@@ -183,8 +440,15 @@ impl SQLType for anyhow::Error {
     }
 }
 
-impl Errors {
-    pub fn push_validation(&mut self, scope: &url::Url, err: validation::Error) {
-        self.push_row(scope, anyhow::anyhow!(err))
+impl SQLType for bytes::Bytes {
+    fn sql_type() -> &'static str {
+        "BLOB"
+    }
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(self.as_ref().into())
+    }
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        use rusqlite::types::FromSql;
+        Ok(<Vec<u8>>::column_result(value)?.into())
     }
 }
