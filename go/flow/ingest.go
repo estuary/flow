@@ -27,7 +27,10 @@ type Ingester struct {
 	// published documents, with respect to real time.
 	PublishClockDelta time.Duration
 
+	// Un-buffered channel through which the single ingestPublisher is passed.
 	pubCh chan ingestPublisher
+	// Channel which is closed upon the exit of the Ingester commit loop.
+	exitCh chan struct{}
 }
 
 // Ingestion manages the lifetime of a single ingest transaction.
@@ -55,6 +58,8 @@ type ingestPublisher struct {
 	clock *message.Clock
 	// Next ingestCommit, which will be used by one or more Ingestions.
 	nextCommit *ingestCommit
+	// Terminal error.
+	failed error
 }
 
 // ingestCommit represents a Ingester transaction, and is shared by
@@ -79,8 +84,12 @@ func (i *Ingester) QueueTasks(tasks *task.Group, jc pb.RoutedJournalClient) {
 	// It's important that this not be buffered. The task loop below
 	// uses channel sends to determine when to drive a commits.
 	i.pubCh = make(chan ingestPublisher)
+	i.exitCh = make(chan struct{})
 
 	tasks.Queue("ingesterCommitLoop", func() error {
+		// Awaken blocked concurrent Prepare calls on our exit.
+		defer close(i.exitCh)
+
 		// Very first send of |ingestPublisher| into |pubCh|.
 		select {
 		case i.pubCh <- ingestPublisher{
@@ -100,9 +109,14 @@ func (i *Ingester) QueueTasks(tasks *task.Group, jc pb.RoutedJournalClient) {
 			// Wait for a prepared Ingestion to pass |pub| back to us.
 			var pub ingestPublisher
 			select {
-			case pub = <-i.pubCh: // Pass.
+			case pub = <-i.pubCh:
+				// We're now the sole owner.
 			case <-tasks.Context().Done():
 				return nil
+			}
+
+			if pub.failed != nil {
+				return fmt.Errorf("ingest publisher had terminal error: %w", pub.failed)
 			}
 
 			var (
@@ -112,7 +126,7 @@ func (i *Ingester) QueueTasks(tasks *task.Group, jc pb.RoutedJournalClient) {
 			)
 
 			if err != nil {
-				panic(err) // Marshalling cannot fail.
+				return fmt.Errorf("failed to marshal ACK intents: %w", err)
 			} else if next.acks == nil {
 				panic("expected next.appends != nil")
 			}
@@ -194,13 +208,20 @@ func (i *Ingestion) Prepare() error {
 		}
 	}
 
-	// Acquire the (singular) ingestPublisher.
-	var pub = <-i.ingester.pubCh
-	i.txn = pub.nextCommit
+	// Blocking acquire of the (single) ingestPublisher.
+	var pub ingestPublisher
+	select {
+	case pub = <-i.ingester.pubCh:
+		// We're now the sole owner.
+	case <-i.ingester.exitCh:
+		return ErrIngesterExiting
+	}
+	// Always return ingestPublisher on exit.
+	defer func() { i.ingester.pubCh <- pub }()
 
 	// Is this the first queued Ingestion of this ingestCommit?
-	if i.txn.acks == nil {
-		i.txn.acks = make(map[pb.Journal]*client.AsyncAppend)
+	if pub.nextCommit.acks == nil {
+		pub.nextCommit.acks = make(map[pb.Journal]*client.AsyncAppend)
 
 		// Update adjusted publisher Clock.
 		var delta = atomic.LoadInt64((*int64)(&i.ingester.PublishClockDelta))
@@ -225,6 +246,7 @@ func (i *Ingestion) Prepare() error {
 		})
 
 		if err != nil {
+			pub.failed = err // Invalidate the ingestPublisher.
 			return err
 		}
 
@@ -232,7 +254,7 @@ func (i *Ingestion) Prepare() error {
 		i.ingester.CombineBuilder.Release(rpc)
 	}
 
-	i.ingester.pubCh <- pub
+	i.txn = pub.nextCommit
 	return nil
 }
 
@@ -261,3 +283,7 @@ func (i *Ingestion) PrepareAndAwait() (pb.Offsets, error) {
 	}
 	return i.Await()
 }
+
+// ErrIngesterExiting is returned by Ingestion Prepare() invocations
+// when the Ingester is shutting down.
+var ErrIngesterExiting = fmt.Errorf("this ingester is exiting")

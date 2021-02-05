@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -82,6 +83,30 @@ func TestIngesterLifecycle(t *testing.T) {
 
 	tasks.Cancel()
 	require.NoError(t, tasks.Wait())
+
+	// After |tasks| exits, an attempt to prepare an ingestion fails.
+	require.Equal(t, ErrIngesterExiting, ingester.Start().Prepare())
+
+	// Case: if the Ingester's ingestPublish is failed, it aborts
+	// the Ingester loop and bubbles up as a task failure & cancellation.
+	tasks = task.NewGroup(context.Background())
+	ingester = &Ingester{
+		Collections:       collections,
+		CombineBuilder:    bindings.NewCombineBuilder(schemaIndex),
+		Mapper:            mapper,
+		PublishClockDelta: 0,
+	}
+	ingester.QueueTasks(tasks, broker.Client())
+	tasks.GoRun()
+
+	var pub = <-ingester.pubCh
+	pub.failed = fmt.Errorf("an error")
+	ingester.pubCh <- pub
+
+	// Concurrent prepares are notified of the failure.
+	require.Equal(t, ErrIngesterExiting, ingester.Start().Prepare())
+	// Error bubbles up to cancel the task group, which exits with an error.
+	require.EqualError(t, tasks.Wait(), "ingesterCommitLoop: ingest publisher had terminal error: an error")
 
 	broker.Tasks.Cancel()
 	require.NoError(t, broker.Tasks.Wait())
