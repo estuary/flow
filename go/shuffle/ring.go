@@ -49,7 +49,7 @@ func (c *Coordinator) subscribe(sub subscriber) error {
 	}
 
 	// We must create a new ring.
-	var ex, err = bindings.NewExtractor(pf.DocumentUUIDPointer, sub.Shuffle.ShuffleKeyPtr)
+	var ex, err = bindings.NewExtractor(sub.Shuffle.SourceUuidPtr, sub.Shuffle.ShuffleKeyPtr)
 	if err != nil {
 		return fmt.Errorf("failed to start ring extractor: %w", err)
 	}

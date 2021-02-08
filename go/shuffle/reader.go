@@ -101,7 +101,7 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 		// If this *read adjusts document clocks, and the adjusted clock runs
 		// ahead of effective wall-clock time, then we must gate the document
 		// until wall-time catches up with its adjusted clock.
-		if a := r.resp.UuidParts[r.resp.Index].Clock + r.pollAdjust; r.pollAdjust != 0 && a > g.wallTime {
+		if a := r.resp.UuidParts[r.resp.Index].Clock + r.readDelay; r.readDelay != 0 && a > g.wallTime {
 
 			// TODO(johnny): Leaving for now until we have more testing of this feature.
 			log.WithFields(log.Fields{
