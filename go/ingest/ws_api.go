@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -66,7 +65,7 @@ func (jsonIngester *wsJSONIngester) onFrame(collection *pf.CollectionSpec, addCh
 		}
 
 		addCh <- ingestAdd{
-			collection: collection.Name,
+			collection: collection.Collection,
 			doc:        doc,
 		}
 	}
@@ -266,7 +265,7 @@ type ingestProgress struct {
 	Err       error
 }
 
-func newIngestPump(ctx context.Context, ingester *flow.Ingester) (chan<- ingestAdd, <-chan ingestProgress) {
+func newIngestPump(ctx context.Context, ingester *Ingester) (chan<- ingestAdd, <-chan ingestProgress) {
 	var chIn = make(chan ingestAdd, 1024)
 	var chOut = make(chan ingestProgress, 1)
 

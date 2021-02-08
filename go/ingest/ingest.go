@@ -1,4 +1,4 @@
-package flow
+package ingest
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -22,7 +23,7 @@ type Ingester struct {
 	// CombineBuilder builds Combine instances for Ingester use.
 	CombineBuilder *bindings.CombineBuilder
 	// Mapper is a flow.Mapper for Ingester use.
-	Mapper *Mapper
+	Mapper *flow.Mapper
 	// Delta to apply to message.Clocks used by Ingestion RPCs to sequence
 	// published documents, with respect to real time.
 	PublishClockDelta time.Duration
@@ -185,7 +186,7 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	} else if stream, err := i.ingester.CombineBuilder.Open(
 		spec.SchemaUri,
 		spec.KeyPtrs,
-		PartitionPointers(spec),
+		flow.PartitionPointers(spec),
 		spec.UuidPtr,
 		prune,
 	); err != nil {
@@ -232,7 +233,7 @@ func (i *Ingestion) Prepare() error {
 		var spec = i.ingester.Collections[c]
 
 		var err = rpc.Finish(func(raw json.RawMessage, key []byte, partitions tuple.Tuple) error {
-			var aa, err = pub.PublishUncommitted(i.ingester.Mapper.Map, Mappable{
+			var aa, err = pub.PublishUncommitted(i.ingester.Mapper.Map, flow.Mappable{
 				Spec:       spec,
 				Doc:        raw,
 				PackedKey:  key,

@@ -6,10 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"unsafe"
 
@@ -39,6 +36,7 @@ var _ message.Message = Mappable{}
 type Mapper struct {
 	Ctx           context.Context
 	JournalClient pb.JournalClient
+	JournalRules  []pf.JournalRules_Rule
 	Journals      *keyspace.KeySpace
 }
 
@@ -63,80 +61,86 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 		mappingBufferPool.Put(buf)
 	}()
 
-	for i := 0; true; i++ {
+	for attempt := 0; true; attempt++ {
+		// Pick a partition at the current Etcd |revision|.
 		m.Journals.Mu.RLock()
-		var p = m.pickPartition(logicalPrefix, hexKey)
+		var revision = m.Journals.Header.Revision
+		var picked = m.pickPartition(logicalPrefix, hexKey)
 		m.Journals.Mu.RUnlock()
 
-		if p != nil {
+		if picked != nil {
 			// Partition already exists (the common case).
-			return p.Name, p.LabelSet.ValueOf(labels.ContentType), nil
+			return picked.Name, picked.LabelSet.ValueOf(labels.ContentType), nil
 		}
 
-		// We must create a new partition for this logical prefix.
-		var upsert = m.partitionUpsert(msg)
-		var applyResponse, err = client.ApplyJournals(m.Ctx, m.JournalClient, upsert)
+		// Build and attempt to apply a new physical partition for this logical partition.
+		var applySpec = BuildPartitionSpec(msg.Spec, msg.Partitions, m.JournalRules)
+		var applyResponse, err = client.ApplyJournals(m.Ctx, m.JournalClient, &pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{
+				{
+					Upsert:            &applySpec,
+					ExpectModRevision: 0,
+				},
+			},
+		})
+		var readThrough int64
 
-		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED && i == 0 {
+		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED {
 			// We lost a race to create this journal, and |err| is "ETCD_TRANSACTION_FAILED".
-			// Ignore on the first attempt (only). If we see failures beyond that,
-			// there's likely a mis-configuration of the Etcd broker keyspace prefix.
-			continue
+			// This is expected to happen very infrequently, when we race
+			// another process to create the journal. If it happens repeatedly
+			// in a tight loop, it's likely that there's a mis-configuration of
+			// the Etcd broker keyspace prefix.
+
+			// We know that |revision| is behind and that we must await a future
+			// journal revision, but we don't know which one. We *cannot* use the
+			// Etcd revision of |applyResponse| because we're only watching a
+			// portion of the broker's keyspace, and revisions it returns may
+			// reflect members or assignments we're not watching. Were we to await
+			// them, we could block indefinitely.
+
+			// So, we simply await the next revision, which is near certain to
+			// include it but isn't guaranteed to do so. It's possible that we'll
+			// loop again.
+			readThrough = revision + 1
+
+			log.WithFields(log.Fields{
+				"err":         err,
+				"attempt":     attempt,
+				"journal":     applySpec.Name,
+				"readThrough": readThrough,
+			}).Warn("failed to create partition (will retry)")
+
 		} else if err != nil {
-			return "", "", fmt.Errorf("creating journal '%s': %w", upsert.Changes[0].Upsert.Name, err)
+			return "", "", fmt.Errorf("creating journal '%s': %w", applySpec.Name, err)
+		} else {
+			// On success, |applyResponse| always reference the revision of the
+			// applied Etcd transaction, which is guaranteed to produce an update
+			// into |m.Journals|.
+			readThrough = applyResponse.Header.Etcd.Revision
+
+			log.WithFields(log.Fields{
+				"attempt":     attempt,
+				"journal":     applySpec.Name,
+				"readThrough": readThrough,
+			}).Info("created partition")
 		}
 
-		// We applied the journal creation. Now wait to read it's Etcd watch update.
 		m.Journals.Mu.RLock()
-		err = m.Journals.WaitForRevision(m.Ctx, applyResponse.Header.Etcd.Revision)
+		err = m.Journals.WaitForRevision(m.Ctx, readThrough)
 		m.Journals.Mu.RUnlock()
 
 		if err != nil {
-			return "", "", fmt.Errorf("awaiting applied revision '%d': %w", applyResponse.Header.Etcd.Revision, err)
+			return "", "", fmt.Errorf("awaiting journal revision '%d': %w", readThrough, err)
 		}
-		log.WithField("journal", upsert.Changes[0].Upsert.Name).Info("created partition")
 	}
 	panic("not reached")
-}
-
-func (m *Mapper) partitionUpsert(msg Mappable) *pb.ApplyRequest {
-	var spec = new(pb.JournalSpec)
-	*spec = msg.Spec.JournalSpec
-
-	spec.LabelSet.SetValue(flowLabels.Collection, msg.Spec.Name.String())
-	spec.LabelSet.SetValue(flowLabels.KeyBegin, "00")
-	spec.LabelSet.SetValue(flowLabels.KeyEnd, "ffffffff")
-	spec.LabelSet.SetValue(labels.ContentType, labels.ContentType_JSONLines)
-
-	var name strings.Builder
-	name.WriteString(msg.Spec.Name.String())
-
-	for i, field := range msg.Spec.PartitionFields {
-		var v = encodePartitionElement(nil, msg.Partitions[i])
-		spec.LabelSet.AddValue(flowLabels.FieldPrefix+field, string(v))
-
-		name.WriteByte('/')
-		name.WriteString(field)
-		name.WriteByte('=')
-		name.Write(v)
-	}
-	name.WriteString("/pivot=00")
-	spec.Name = pb.Journal(name.String())
-
-	return &pb.ApplyRequest{
-		Changes: []pb.ApplyRequest_Change{
-			{
-				Upsert:            spec,
-				ExpectModRevision: 0,
-			},
-		},
-	}
 }
 
 func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKey []byte, buf []byte) {
 	b = append(b, m.Journals.Root...)
 	b = append(b, '/')
-	b = append(b, msg.Spec.Name...)
+	b = append(b, msg.Spec.Collection...)
 	b = append(b, '/')
 
 	for i, field := range msg.Spec.PartitionFields {
@@ -182,29 +186,6 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 
 var mappingBufferPool = sync.Pool{
 	New: func() interface{} { return make([]byte, 256) },
-}
-
-func encodePartitionElement(b []byte, elem tuple.TupleElement) []byte {
-	switch v := elem.(type) {
-	case nil:
-		return append(b, "null"...)
-	case bool:
-		if v {
-			return append(b, "true"...)
-		} else {
-			return append(b, "false"...)
-		}
-	case uint64:
-		return strconv.AppendUint(b, v, 10)
-	case int64:
-		return strconv.AppendInt(b, v, 10)
-	case int:
-		return strconv.AppendInt(b, int64(v), 10)
-	case string:
-		return append(b, url.PathEscape(v)...)
-	default:
-		panic(fmt.Sprintf("invalid element type: %#v", elem))
-	}
 }
 
 // Implementation of message.Message for Mappable follows:

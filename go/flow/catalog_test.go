@@ -1,50 +1,21 @@
 package flow
 
 import (
+	"strings"
 	"testing"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/bradleyjkemp/cupaloy"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
-func TestLoadDerivedCollection(t *testing.T) {
+func TestLoadCollection(t *testing.T) {
 	var catalog, err = NewCatalog("../../catalog.db", "")
 	require.NoError(t, err)
-	spec, err := catalog.LoadDerivedCollection("testing/int-strings")
+	spec, err := catalog.LoadCollection("testing/int-strings")
 	require.NoError(t, err)
 
-	require.Equal(t, pf.CollectionSpec{
-		Name:            "testing/int-strings",
-		SchemaUri:       spec.SchemaUri,
-		KeyPtrs:         []string{"/i"},
-		PartitionFields: []string{},
-		Projections: []*pf.Projection{
-			{
-				Field:        "eye",
-				Ptr:          "/i",
-				UserProvided: true,
-				IsPrimaryKey: true,
-				Inference: &pf.Inference{
-					Types:     []string{"integer"},
-					MustExist: true,
-				},
-			},
-			{
-				Field:        "i",
-				Ptr:          "/i",
-				UserProvided: false,
-				IsPrimaryKey: true,
-				Inference: &pf.Inference{
-					Types:     []string{"integer"},
-					MustExist: true,
-				},
-			},
-		},
-		JournalSpec:     spec.JournalSpec,
-		UuidPtr:         spec.UuidPtr,
-		AckJsonTemplate: spec.AckJsonTemplate,
-	}, spec)
+	stripPrefix(&spec.SchemaUri)
+	cupaloy.SnapshotT(t, spec)
 }
 
 func TestLoadCapturedCollections(t *testing.T) {
@@ -55,65 +26,52 @@ func TestLoadCapturedCollections(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, specs)
 
-	var spec = specs["testing/int-string"]
-
-	require.Equal(t, &pf.CollectionSpec{
-		Name:            "testing/int-string",
-		SchemaUri:       spec.SchemaUri,
-		KeyPtrs:         []string{"/i"},
-		PartitionFields: []string{},
-		Projections: []*pf.Projection{
-			{
-				Field:        "i",
-				IsPrimaryKey: true,
-				Ptr:          "/i",
-				Inference: &pf.Inference{
-					Types:     []string{"integer"},
-					MustExist: true,
-				},
-			},
-			{
-				Field: "s",
-				Ptr:   "/s",
-				Inference: &pf.Inference{
-					Types:     []string{"string"},
-					MustExist: true,
-					String_:   &pf.Inference_String{MaxLength: 128},
-				},
-			},
-		},
-		JournalSpec:     spec.JournalSpec,
-		UuidPtr:         spec.UuidPtr,
-		AckJsonTemplate: spec.AckJsonTemplate,
-	}, spec)
+	for i := range specs {
+		stripPrefix(&specs[i].SchemaUri)
+	}
+	cupaloy.SnapshotT(t, specs)
 }
 
-func TestLoadTransforms(t *testing.T) {
+func TestLoadDerivedCollection(t *testing.T) {
 	var catalog, err = NewCatalog("../../catalog.db", "")
 	require.NoError(t, err)
-
-	specs, err := catalog.LoadTransforms("testing/int-strings")
+	spec, err := catalog.LoadDerivedCollection("testing/int-strings")
 	require.NoError(t, err)
-	require.NotEmpty(t, specs)
 
-	require.Equal(t, []pf.TransformSpec{
-		{
-			Name:        "appendStrings",
-			CatalogDbId: specs[0].CatalogDbId,
-			Derivation: pf.TransformSpec_Derivation{
-				Name: "testing/int-strings",
-			},
-			Source: pf.TransformSpec_Source{
-				Name: "testing/int-string",
-				Partitions: pb.LabelSelector{
-					Include: pb.MustLabelSet("estuary.dev/collection", "testing/int-string"),
-				},
-			},
-			Shuffle: pf.Shuffle{
-				ShuffleKeyPtr: []string{"/i"},
-				UsesSourceKey: true,
-				FilterRClocks: true,
-			},
-		},
-	}, specs)
+	stripPrefix(&spec.Collection.SchemaUri)
+	stripPrefix(&spec.RegisterSchemaUri)
+	for i := range spec.Transforms {
+		stripPrefix(&spec.Transforms[i].Shuffle.SourceSchemaUri)
+	}
+	cupaloy.SnapshotT(t, spec)
+}
+
+func TestLoadJournalRules(t *testing.T) {
+	var catalog, err = NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	rules, err := catalog.LoadJournalRules()
+	require.NoError(t, err)
+
+	cupaloy.SnapshotT(t, rules)
+}
+
+func TestLoadSchemaBundle(t *testing.T) {
+	var catalog, err = NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	bundle, err := catalog.LoadSchemaBundle()
+	require.NoError(t, err)
+	require.NotEmpty(t, bundle.Bundle)
+}
+
+func TestLoadNPMPackage(t *testing.T) {
+	var catalog, err = NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	data, err := catalog.LoadNPMPackage()
+	require.NoError(t, err)
+
+	require.True(t, len(data) > 0)
+}
+
+func stripPrefix(s *string) {
+	(*s) = (*s)[strings.Index(*s, "/examples/"):]
 }

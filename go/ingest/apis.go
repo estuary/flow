@@ -3,7 +3,6 @@ package ingest
 import (
 	"net/http"
 
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gorilla/mux"
 	"go.gazette.dev/core/keyspace"
@@ -11,12 +10,12 @@ import (
 )
 
 type args struct {
-	ingester *flow.Ingester
+	ingester *Ingester
 	journals *keyspace.KeySpace
 }
 
 // RegisterAPIs registers all ingestion APIs with the *Server instance.
-func RegisterAPIs(srv *server.Server, ingester *flow.Ingester, journals *keyspace.KeySpace) {
+func RegisterAPIs(srv *server.Server, ingester *Ingester, journals *keyspace.KeySpace) {
 	var args = args{ingester, journals}
 
 	var router = mux.NewRouter()
