@@ -11,7 +11,7 @@ func TestJournalShuffle(t *testing.T) {
 	var m = &JournalShuffle{
 		Journal:     "bad journal",
 		Coordinator: "bad shard",
-		Shuffle: Shuffle{
+		Shuffle: &Shuffle{
 			ShuffleKeyPtr: nil,
 			Hash:          99999,
 		},
@@ -22,8 +22,18 @@ func TestJournalShuffle(t *testing.T) {
 	require.EqualError(t, m.Validate(), "Coordinator: not a valid token (bad shard)")
 	m.Coordinator = "some-shard"
 
-	require.EqualError(t, m.Validate(), "Shuffle: expected at least one ShuffleKeyPtr")
+	require.EqualError(t, m.Validate(), "Shuffle: missing GroupName")
+	m.GroupName = "group/name"
+	require.EqualError(t, m.Validate(), "Shuffle: missing SourceCollection")
+	m.SourceCollection = "source/collection"
+	require.EqualError(t, m.Validate(), "Shuffle: missing SourceUuidPtr")
+	m.SourceUuidPtr = "/uuid"
+	require.EqualError(t, m.Validate(), "Shuffle: missing SourceSchemaUri")
+	m.SourceSchemaUri = "test://schema"
+
+	require.EqualError(t, m.Validate(), "Shuffle: expected one of ShuffleKeyPtr or ShuffleLambda")
 	m.Shuffle.ShuffleKeyPtr = []string{"/foo"}
+
 	require.EqualError(t, m.Validate(), "Shuffle: unknown Hash (99999)")
 	m.Shuffle.Hash = Shuffle_MD5
 
@@ -36,8 +46,12 @@ func TestShuffleRequest(t *testing.T) {
 		Shuffle: JournalShuffle{
 			Journal:     "a/journal",
 			Coordinator: "bad coordinator",
-			Shuffle: Shuffle{
-				ShuffleKeyPtr: []string{"/foo"},
+			Shuffle: &Shuffle{
+				GroupName:        "group/name",
+				ShuffleKeyPtr:    []string{"/foo"},
+				SourceCollection: "source",
+				SourceUuidPtr:    "/uuid",
+				SourceSchemaUri:  "test://schema",
 			},
 		},
 		Range: RangeSpec{

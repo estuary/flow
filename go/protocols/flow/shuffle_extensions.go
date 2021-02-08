@@ -43,9 +43,30 @@ func (m RangeSpec) Validate() error {
 
 // Validate returns a validation error of the Shuffle.
 func (m *Shuffle) Validate() error {
-	if len(m.ShuffleKeyPtr) == 0 {
-		return pb.NewValidationError("expected at least one ShuffleKeyPtr")
-	} else if _, ok := Shuffle_Hash_name[int32(m.Hash)]; !ok {
+	if m.GroupName == "" {
+		return pb.NewValidationError("missing GroupName")
+	}
+	if m.SourceCollection == "" {
+		return pb.NewValidationError("missing SourceCollection")
+	}
+	if err := m.SourcePartitions.Validate(); err != nil {
+		return pb.ExtendContext(err, "SourcePartitions")
+	}
+	if m.SourceUuidPtr == "" {
+		return pb.NewValidationError("missing SourceUuidPtr")
+	}
+	if m.SourceSchemaUri == "" {
+		return pb.NewValidationError("missing SourceSchemaUri")
+	}
+	if (len(m.ShuffleKeyPtr) == 0) == (m.ShuffleLambda == nil) {
+		return pb.NewValidationError("expected one of ShuffleKeyPtr or ShuffleLambda")
+	}
+	if m.ShuffleLambda != nil {
+		if err := m.ShuffleLambda.Validate(); err != nil {
+			return pb.ExtendContext(err, "ShuffleLambda")
+		}
+	}
+	if _, ok := Shuffle_Hash_name[int32(m.Hash)]; !ok {
 		return pb.NewValidationError("unknown Hash (%v)", m.Hash)
 	}
 	return nil
@@ -68,5 +89,42 @@ func (m *ShuffleRequest) Validate() error {
 		return pb.NewValidationError("invalid EndOffset (%d; expected 0 or Offset <= EndOffset)", m.EndOffset)
 	}
 
+	return nil
+}
+
+func (m *LambdaSpec) Validate() error {
+	var cnt int
+	if m.Remote != "" {
+		cnt++
+	}
+	if m.Typescript != "" {
+		cnt++
+	}
+	if cnt != 1 {
+		return pb.NewValidationError("expected exactly one lambda type")
+	}
+	return nil
+}
+
+func (m *TransformSpec) Validate() error {
+	if m.Derivation == "" {
+		return pb.NewValidationError("missing Derivation")
+	}
+	if m.Transform == "" {
+		return pb.NewValidationError("missing Transform")
+	}
+	if err := m.Shuffle.Validate(); err != nil {
+		return pb.ExtendContext(err, "Shuffle")
+	}
+	if m.UpdateLambda != nil {
+		if err := m.UpdateLambda.Validate(); err != nil {
+			return pb.ExtendContext(err, "UpdateLambda")
+		}
+	}
+	if m.PublishLambda != nil {
+		if err := m.PublishLambda.Validate(); err != nil {
+			return pb.ExtendContext(err, "PublishLambda")
+		}
+	}
 	return nil
 }

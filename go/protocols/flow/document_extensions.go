@@ -66,29 +66,13 @@ func (parts *UUIDParts) Pack() message.UUID {
 	)
 }
 
-// ReaderLabel is generic label that describes a reader.
-type ReaderLabel struct {
-	Key   string
-	Value string
-}
-
-// ReadSpec is a generic descriptor of a thing that will perform a shuffled read
-type ReadSpec struct {
-	SourceName        string
-	SourcePartitions  pb.LabelSelector
-	Shuffle           Shuffle
-	ReaderType        string
-	ReaderNames       []string
-	ReaderCatalogDBID int32
-}
-
 // IndexedShuffleResponse is an implementation of message.Message which
 // indexes a specific document within a ShuffleResponse.
 type IndexedShuffleResponse struct {
 	*ShuffleResponse
 	Index int
-	// Transform on whose behalf this document was read.
-	Transform *ReadSpec
+	// Shuffle on whose behalf this document was read.
+	Shuffle *Shuffle
 }
 
 var _ message.Message = IndexedShuffleResponse{}
@@ -110,12 +94,11 @@ func (m *ShuffleResponse) Tailing() bool {
 }
 
 var (
-	// DocumentUUIDPointer is a JSON pointer of the location of the document UUID.
-	DocumentUUIDPointer = "/_meta/uuid"
 	// DocumentUUIDPlaceholder is a unique 36-byte sequence which is used to mark
 	// the location within a document serialization which holds the document UUID.
+	// This "magic" value is defined here, and also in crates/derive/src/combiner.rs.
+	// We never write this value anywhere; it's a temporary placeholder generated
+	// within combined documents returned by Rust, that's then immediately replaced
+	// with a properly sequenced UUID by flow.Mapper prior to publishing.
 	DocumentUUIDPlaceholder = []byte("DocUUIDPlaceholder-329Bb50aa48EAa9ef")
-	// DocumentAckJSONTemplate is a JSON-encoded document template which serves
-	// as a Gazette consumer transaction acknowledgement.
-	DocumentAckJSONTemplate = `{"_meta":{"uuid":"` + string(DocumentUUIDPlaceholder) + `","ack":true}}`
 )

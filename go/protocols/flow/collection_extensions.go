@@ -1,6 +1,8 @@
 package flow
 
-import "fmt"
+import (
+	pb "go.gazette.dev/core/broker/protocol"
+)
 
 // TODO: change references to this to use GetProjection instead
 // GetProjectionByField finds the projection with the given field name, or nil if one does not exist
@@ -14,44 +16,89 @@ func GetProjectionByField(field string, projections []*Projection) *Projection {
 }
 
 // GetProjection finds the projection with the given field name, or nil if one does not exist
-func (spec *CollectionSpec) GetProjection(field string) *Projection {
-	return GetProjectionByField(field, spec.Projections)
+func (m *CollectionSpec) GetProjection(field string) *Projection {
+	return GetProjectionByField(field, m.Projections)
 }
 
-// Validates the CollectionSpec and returns an error if it is invalid. If this returns nil, then the
-// spec is valid.
-// TODO: this validation could be a lot more thorough. It's just hitting what seems like the most
-// likely suspects now.
-func (spec *CollectionSpec) Validate() error {
-	if len(spec.KeyPtrs) == 0 {
-		return fmt.Errorf("collection '%s' has no key pointers", spec.Name)
-	}
-	var keyPointers = make(map[string]int)
-	for _, ptr := range spec.KeyPtrs {
-		keyPointers[ptr] = 0
-	}
-	for _, proj := range spec.Projections {
-		if len(proj.Field) == 0 {
-			return fmt.Errorf("projection has no field")
+// Validates the CollectionSpec and returns an error if it is invalid.
+func (m *CollectionSpec) Validate() error {
+	var keyPointers = make(map[string]struct{})
+
+	for i, proj := range m.Projections {
+		var err error
+		if proj.Field == "" {
+			err = pb.NewValidationError("missing field")
 		}
 		if proj.Inference == nil {
-			return fmt.Errorf("projection '%s' is missing inference", proj.Field)
+			return pb.NewValidationError("missing inferences")
 		}
 		if len(proj.Inference.Types) == 0 {
-			return fmt.Errorf("projection '%s' is missing type information", proj.Field)
+			return pb.NewValidationError("missing inference types")
 		}
+		if err != nil {
+			return pb.ExtendContext(err, "Projections[%d]", i)
+		}
+
 		if proj.IsPrimaryKey {
-			keyPointers[proj.Ptr]++
-		}
-	}
-	// ensure that the key information is consistent
-	for ptr, n := range keyPointers {
-		if n == 0 {
-			return fmt.Errorf("collection key '%s' has no projections", ptr)
+			keyPointers[proj.Ptr] = struct{}{}
 		}
 	}
 
-	return nil // gudenuf
+	if m.SchemaUri == "" {
+		return pb.NewValidationError("missing schema URI")
+	}
+	if len(m.KeyPtrs) == 0 {
+		return pb.NewValidationError("key pointers are empty")
+	}
+	for _, p := range m.KeyPtrs {
+		if _, ok := keyPointers[p]; !ok {
+			return pb.NewValidationError("no keyed projection for key pointer %q", p)
+		}
+	}
+
+	return nil
+}
+
+func (m *DerivationSpec) Validate() error {
+	if err := m.Collection.Validate(); err != nil {
+		return pb.ExtendContext(err, "Collection")
+	}
+	if m.RegisterSchemaUri == "" {
+		return pb.NewValidationError("missing RegisterSchemaUri")
+	}
+	if m.RegisterInitialJson == "" {
+		return pb.NewValidationError("missing RegisterInitialJson")
+	}
+	for i, tf := range m.Transforms {
+		if err := tf.Validate(); err != nil {
+			return pb.ExtendContext(err, "Transform[%d]", i)
+		}
+	}
+
+	return nil
+}
+
+func (m *JournalRules_Rule) Validate() error {
+	if m.Rule == "" {
+		return pb.NewValidationError("missing Rule")
+	}
+	if err := m.Selector.Validate(); err != nil {
+		return pb.ExtendContext(err, "Selector")
+	}
+
+	// We cannot validate templates because, by design,
+	// they are only partial specifications.
+
+	return nil
+}
+
+func (m *JournalRules) Validate() error {
+	for i, r := range m.Rules {
+		if err := r.Validate(); err != nil {
+			return pb.ExtendContext(err, "Rules[%d]", i)
+		}
+	}
+	return nil
 }
 
 // IsSingleType returns true if this projection may only hold a single type besides null For
