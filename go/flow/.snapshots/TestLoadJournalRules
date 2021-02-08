@@ -1,0 +1,1 @@
+(*flow.JournalRules)(rules:<rule:"00_fragment_store" selector:<include:<> exclude:<> > template:<labels:<> fragment:<compression_codec:GZIP_OFFLOAD_DECOMPRESSION stores:"s3://example-bucket/prefix" > > > )

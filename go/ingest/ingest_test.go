@@ -1,4 +1,4 @@
-package flow
+package ingest
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -16,17 +18,14 @@ import (
 )
 
 func TestIngesterLifecycle(t *testing.T) {
-	var catalog, err = NewCatalog("../../catalog.db", "")
+	var catalog, err = flow.NewCatalog("../../catalog.db", "")
 	require.NoError(t, err)
 	collections, err := catalog.LoadCapturedCollections()
 	require.NoError(t, err)
-	builder, err := bindings.NewCombineBuilder(catalog.LocalPath())
-	require.Nil(t, err)
-
-	// Use JournalSpecs suitable for unit-tests.
-	for _, collection := range collections {
-		collection.JournalSpec = *brokertest.Journal(pb.JournalSpec{})
-	}
+	bundle, err := catalog.LoadSchemaBundle()
+	require.NoError(t, err)
+	schemaIndex, err := bindings.NewSchemaIndex(bundle)
+	require.NoError(t, err)
 
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
@@ -34,19 +33,24 @@ func TestIngesterLifecycle(t *testing.T) {
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
 	var tasks = task.NewGroup(context.Background())
 
-	journals, err := NewJournalsKeySpace(tasks.Context(), etcd, "/broker.test")
+	journals, err := flow.NewJournalsKeySpace(tasks.Context(), etcd, "/broker.test")
 	require.NoError(t, err)
 	journals.WatchApplyDelay = 0
 	go journals.Watch(tasks.Context(), etcd)
 
-	var ingester = Ingester{
-		Collections:    collections,
-		CombineBuilder: builder,
-		Mapper: &Mapper{
-			Ctx:           tasks.Context(),
-			JournalClient: broker.Client(),
-			Journals:      journals,
+	var mapper = &flow.Mapper{
+		Ctx:           tasks.Context(),
+		JournalClient: broker.Client(),
+		Journals:      journals,
+		JournalRules: []pf.JournalRules_Rule{
+			// Override for single `brokertest` broker.
+			{Template: pb.JournalSpec{Replication: 1}},
 		},
+	}
+	var ingester = &Ingester{
+		Collections:       collections,
+		CombineBuilder:    bindings.NewCombineBuilder(schemaIndex),
+		Mapper:            mapper,
 		PublishClockDelta: 0,
 	}
 	ingester.QueueTasks(tasks, broker.Client())

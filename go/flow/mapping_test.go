@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
@@ -13,7 +14,6 @@ import (
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
-	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
 
@@ -74,34 +74,6 @@ func TestPartitionPicking(t *testing.T) {
 	)
 }
 
-func TestBuildingUpsert(t *testing.T) {
-	var fixtures = buildCombineFixtures()
-	var m = Mapper{
-		Journals: &keyspace.KeySpace{Root: "/items"},
-	}
-
-	require.Equal(t, &pb.ApplyRequest{
-		Changes: []pb.ApplyRequest_Change{
-			{
-				Upsert: &pb.JournalSpec{
-					Name: "a/collection/bar=32/foo=A/pivot=00",
-					LabelSet: pb.MustLabelSet(
-						flowLabels.Collection, "a/collection",
-						labels.ContentType, labels.ContentType_JSONLines,
-						flowLabels.KeyBegin, "00",
-						flowLabels.KeyEnd, "ffffffff",
-						flowLabels.FieldPrefix+"bar", "32",
-						flowLabels.FieldPrefix+"foo", "A",
-					),
-					Replication: fixtures[0].Spec.JournalSpec.Replication,
-					Fragment:    fixtures[0].Spec.JournalSpec.Fragment,
-				},
-				ExpectModRevision: 0,
-			},
-		},
-	}, m.partitionUpsert(fixtures[0]))
-}
-
 func TestPublisherMappingIntegration(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
@@ -114,7 +86,8 @@ func TestPublisherMappingIntegration(t *testing.T) {
 
 	var journals, err = NewJournalsKeySpace(ctx, etcd, "/broker.test")
 	require.NoError(t, err)
-	journals.WatchApplyDelay = 0
+	// Use a small delay, to exercise a race with the out-of-band fixture created below.
+	journals.WatchApplyDelay = time.Millisecond * 10
 	go journals.Watch(ctx, etcd)
 
 	var fixtures = buildCombineFixtures()
@@ -122,8 +95,27 @@ func TestPublisherMappingIntegration(t *testing.T) {
 		Ctx:           ctx,
 		JournalClient: broker.Client(),
 		Journals:      journals,
+		JournalRules: []pf.JournalRules_Rule{
+			// Override for single `brokertest` broker.
+			{Template: pb.JournalSpec{Replication: 1}},
+		},
 	}
 
+	// Apply one of the fixture partitions out-of-band. The Mapper initially
+	// will not see this partition, will attempt to create it, and will then
+	// conflict. We expect that it gracefully handles this conflict.
+	var applySpec = BuildPartitionSpec(fixtures[0].Spec, fixtures[0].Partitions, mapper.JournalRules)
+	_, err = client.ApplyJournals(ctx, ajc, &pb.ApplyRequest{
+		Changes: []pb.ApplyRequest_Change{
+			{
+				Upsert:            &applySpec,
+				ExpectModRevision: 0,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Publish all fixtures, causing the Mapper to create partitions as required.
 	for _, fixture := range fixtures {
 		var _, err = pub.PublishCommitted(mapper.Map, fixture)
 		require.NoError(t, err)
@@ -150,13 +142,12 @@ func TestPublisherMappingIntegration(t *testing.T) {
 
 func buildCombineFixtures() []Mappable {
 	var spec = &pf.CollectionSpec{
-		Name:            "a/collection",
+		Collection:      "a/collection",
 		PartitionFields: []string{"bar", "foo"},
 		Projections: []*pf.Projection{
 			{Ptr: "/ptr"},
 			{Ptr: "/ptr"},
 		},
-		JournalSpec: *brokertest.Journal(pb.JournalSpec{}),
 	}
 
 	return []Mappable{

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -15,7 +14,7 @@ import (
 )
 
 func serveHTTPTransactionJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
-	return doServeHttpJSON(a, w, r, func(ingest *flow.Ingestion) error {
+	return doServeHTTPJSON(a, w, r, func(ingest *Ingestion) error {
 		var body map[pf.Collection][]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			return err
@@ -32,7 +31,7 @@ func serveHTTPTransactionJSON(a args, w http.ResponseWriter, r *http.Request) (e
 }
 
 func serveHTTPDocumentJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
-	return doServeHttpJSON(a, w, r, func(ingestion *flow.Ingestion) error {
+	return doServeHTTPJSON(a, w, r, func(ingestion *Ingestion) error {
 		var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
 		var collection = pf.Collection(name)
 		if _, ok := a.ingester.Collections[collection]; !ok {
@@ -48,7 +47,7 @@ func serveHTTPDocumentJSON(a args, w http.ResponseWriter, r *http.Request) (err 
 	})
 }
 
-func doServeHttpJSON(a args, w http.ResponseWriter, r *http.Request, addIngests func(*flow.Ingestion) error) (err error) {
+func doServeHTTPJSON(a args, w http.ResponseWriter, r *http.Request, addIngests func(*Ingestion) error) (err error) {
 	var ingest = a.ingester.Start()
 	defer func() {
 		if err != nil {

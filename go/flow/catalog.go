@@ -2,20 +2,15 @@ package flow
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
-	"time"
 
-	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/materialize"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
-	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Catalog is a Catalog database which has been fetched to a local file.
@@ -69,19 +64,6 @@ func fetchRemote(url *url.URL, tempDir string) (string, error) {
 // LocalPath returns the local path of the catalog.
 func (catalog *Catalog) LocalPath() string { return catalog.dbPath }
 
-// LoadDerivedCollection loads the named derived collection from the catalog.
-func (catalog *Catalog) LoadDerivedCollection(derivation string) (pf.CollectionSpec, error) {
-	var collections, err = scanCollections(catalog.db.Query(
-		selectCollection+"WHERE is_derivation AND collection_name = ?", derivation))
-
-	if err != nil {
-		return pf.CollectionSpec{}, err
-	} else if len(collections) != 1 {
-		return pf.CollectionSpec{}, fmt.Errorf("no such derived collection %q", derivation)
-	}
-	return collections[0], nil
-}
-
 // Close the Catalog database, rendering it unusable.
 func (catalog *Catalog) Close() error {
 	return catalog.db.Close()
@@ -89,185 +71,159 @@ func (catalog *Catalog) Close() error {
 
 // LoadCollection loads the collection with the given name from the catalog, or returns an error if
 // one is not found
-func (catalog *Catalog) LoadCollection(name string) (pf.CollectionSpec, error) {
-	var collections, err = scanCollections(catalog.db.Query(
-		selectCollection+"WHERE collection_name = ?", name))
+func (catalog *Catalog) LoadCollection(name string) (*pf.CollectionSpec, error) {
+	var row = catalog.db.QueryRow(`
+		SELECT spec FROM built_collections WHERE collection = ?;
+		`, name)
 
-	if err != nil {
-		return pf.CollectionSpec{}, err
-	} else if len(collections) != 1 {
-		return pf.CollectionSpec{}, fmt.Errorf("no such collection %q", name)
+	var b []byte
+	var collection = new(pf.CollectionSpec)
+
+	if err := row.Scan(&b); err != nil {
+		return nil, fmt.Errorf("failed to load collection: %w", err)
+	} else if err = collection.Unmarshal(b); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal collection: %w", err)
+	} else if err = collection.Validate(); err != nil {
+		return nil, fmt.Errorf("collection %q is invalid: %w", name, err)
 	}
-	return collections[0], nil
+	return collection, nil
 }
 
 // LoadCapturedCollections loads all captured collections from the catalog.
 func (catalog *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
-	var specs, err = scanCollections(catalog.db.Query(selectCollection + "WHERE NOT is_derivation"))
+	var rows, err = catalog.db.Query(`
+		SELECT DISTINCT collection FROM captures WHERE allow_push;
+	`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read captured collections: %w", err)
 	}
 
 	var out = make(map[pf.Collection]*pf.CollectionSpec)
-	for i := range specs {
-		out[specs[i].Name] = &specs[i]
+
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err = rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("failed to scan collection name: %w", err)
+		} else if collection, err := catalog.LoadCollection(name); err != nil {
+			return nil, err
+		} else if err = collection.Validate(); err != nil {
+			return nil, fmt.Errorf("collection %q is invalid: %w", name, err)
+		} else {
+			out[collection.Collection] = collection
+		}
 	}
 	return out, nil
 }
 
-// LoadMaterializationTarget load the target with the given name from the catalog, or returns an
-// error if the target is not found
-func (catalog *Catalog) LoadMaterializationTarget(targetName string) (*materialize.Materialization, error) {
-	stmt, err := catalog.db.Prepare(queryMaterialization)
-	if err != nil {
-		return nil, err
+// LoadDerivedCollection loads the named derived collection from the catalog.
+func (catalog *Catalog) LoadDerivedCollection(name string) (*pf.DerivationSpec, error) {
+	var row = catalog.db.QueryRow(`
+		SELECT d.spec, c.spec
+			FROM built_collections AS c
+			JOIN built_derivations AS d
+			ON c.collection = d.derivation
+			WHERE d.derivation = ?;
+		`, name)
+
+	var b1, b2 []byte
+	if err := row.Scan(&b1, &b2); err != nil {
+		return nil, fmt.Errorf("failed to load derivation: %w", err)
 	}
-
-	materialization := new(materialize.Materialization)
-	materialization.TargetName = targetName
-	row := stmt.QueryRow(targetName)
-
-	err = row.Scan(
-		&materialization.CatalogDBID,
-		&materialization.TargetURI,
-		&materialization.TargetType,
-	)
-	if err != nil {
-		return nil, err
+	var derivation = new(pf.DerivationSpec)
+	if err := derivation.Unmarshal(b1); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal derivation: %w", err)
 	}
-	return materialization, nil
-}
-
-const queryMaterialization = `
-    SELECT
-        target_id, target_uri, target_type
-    FROM
-        materialization_targets
-    WHERE
-        materialization_targets.target_name = ?;
-`
-
-const selectCollection = `SELECT spec_json FROM collections_json `
-
-func scanCollections(rows *sql.Rows, err error) ([]pf.CollectionSpec, error) {
-	if err != nil {
-		return nil, fmt.Errorf("failed to read collections from catalog: %w", err)
+	derivation.Collection = new(pf.CollectionSpec)
+	if err := derivation.Collection.Unmarshal(b2); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal collection: %w", err)
 	}
-	defer rows.Close()
-
-	var collections []pf.CollectionSpec
-	for rows.Next() {
-		var collection pf.CollectionSpec
-
-		if err = rows.Scan(scanJSON{&collection}); err != nil {
-			return nil, fmt.Errorf("failed to scan collection from catalog: %w", err)
-		}
-
-		// TODO(johnny): Draw these from the catalog DB.
-		collection.JournalSpec = pb.JournalSpec{
-			Replication: 1,
-			Fragment: pb.JournalSpec_Fragment{
-				Length:              1 << 28, // 256MB.
-				Stores:              []pb.FragmentStore{"file:///"},
-				CompressionCodec:    pb.CompressionCodec_SNAPPY,
-				RefreshInterval:     5 * time.Minute,
-				PathPostfixTemplate: `utc_date={{.Spool.FirstAppendTime.Format "2006-01-02"}}/utc_hour={{.Spool.FirstAppendTime.Format "15"}}`,
-				FlushInterval:       time.Hour,
-			},
-		}
-		collection.UuidPtr = pf.DocumentUUIDPointer
-		collection.AckJsonTemplate = pf.DocumentAckJSONTemplate
-
-		collections = append(collections, collection)
-	}
-	return collections, nil
-}
-
-// LoadTransforms returns []TransformSpecs of all transforms of the given derivation.
-func (catalog *Catalog) LoadTransforms(derivation string) ([]pf.TransformSpec, error) {
-	var transforms []pf.TransformSpec
 
 	var rows, err = catalog.db.Query(`
-	SELECT
-		transform_name,
-		transform_id,
-		source_name,
-		derivation_name,
-		uses_source_key,
-		update_id IS NULL, -- Filter R-Clocks,
-		NULL,              -- Hash.
-		source_selector_json,
-		shuffle_key_json,
-		IFNULL(read_delay_seconds, 0)
-	FROM transform_details
-		WHERE derivation_name = ?`,
-		derivation,
-	)
+		SELECT spec FROM built_transforms
+		WHERE derivation = ?
+		ORDER BY transform asc;
+	`, name)
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to read transforms from catalog: %w", err)
+		return nil, fmt.Errorf("failed to load transforms: %w", err)
 	}
+
 	defer rows.Close()
-
 	for rows.Next() {
-		var tf pf.TransformSpec
+		var transform pf.TransformSpec
 
-		var selector struct {
-			Include map[string][]interface{}
-			Exclude map[string][]interface{}
+		if err = rows.Scan(&b1); err != nil {
+			return nil, fmt.Errorf("failed to load transform: %w", err)
+		} else if err = transform.Unmarshal(b1); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal transform: %w", err)
 		}
-		if err = rows.Scan(
-			&tf.Name,
-			&tf.CatalogDbId,
-			&tf.Source.Name,
-			&tf.Derivation.Name,
-			&tf.Shuffle.UsesSourceKey,
-			&tf.Shuffle.FilterRClocks,
-			scanJSON{&tf.Shuffle.Hash},
-			scanJSON{&selector},
-			scanJSON{&tf.Shuffle.ShuffleKeyPtr},
-			&tf.Shuffle.ReadDelaySeconds,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan tranform from catalog: %w", err)
-		}
-
-		tf.Source.Partitions.Include.AddValue(labels.Collection, tf.Source.Name.String())
-		if err = addFieldLabels(&tf.Source.Partitions.Include, selector.Include); err != nil {
-			return nil, err
-		}
-		if err = addFieldLabels(&tf.Source.Partitions.Exclude, selector.Exclude); err != nil {
-			return nil, err
-		}
-		transforms = append(transforms, tf)
+		derivation.Transforms = append(derivation.Transforms, transform)
 	}
 
-	if len(transforms) == 0 {
-		return nil, fmt.Errorf("read no transforms for derivation %v", derivation)
+	if err = derivation.Validate(); err != nil {
+		return nil, fmt.Errorf("derivation %q is invalid: %w", name, err)
 	}
-	return transforms, nil
+
+	return derivation, nil
 }
 
-func addFieldLabels(set *pb.LabelSet, fields map[string][]interface{}) error {
-	for field, values := range fields {
-		for _, value := range values {
-			set.AddValue(labels.FieldPrefix+field, string(encodePartitionElement(nil, value)))
+// LoadJournalRules loads the set of journal rules from the catalog.
+func (catalog *Catalog) LoadJournalRules() (*pf.JournalRules, error) {
+	var rows, err = catalog.db.Query(`SELECT spec FROM journal_rules ORDER BY rule ASC;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rules: %w", err)
+	}
+	var rules = new(pf.JournalRules)
+
+	defer rows.Close()
+	for rows.Next() {
+		var b []byte
+		var rule pf.JournalRules_Rule
+
+		if err = rows.Scan(&b); err != nil {
+			return nil, fmt.Errorf("failed to load rule: %w", err)
+		} else if err = rule.Unmarshal(b); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal rule: %w", err)
 		}
+		rules.Rules = append(rules.Rules, rule)
 	}
-	return nil
+
+	if err = rules.Validate(); err != nil {
+		return nil, fmt.Errorf("rules are invalid: %w", err)
+	}
+	return rules, nil
 }
 
-type scanJSON struct {
-	v interface{}
+// LoadSchemaBundle loads the bundle of JSON schemas from the catalog.
+func (catalog *Catalog) LoadSchemaBundle() (*pf.SchemaBundle, error) {
+	var rows, err = catalog.db.Query(`SELECT schema, dom FROM schema_docs;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rules: %w", err)
+	}
+	var bundle = &pf.SchemaBundle{
+		Bundle: make(map[string]string),
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		var url, dom string
+
+		if err = rows.Scan(&url, &dom); err != nil {
+			return nil, fmt.Errorf("failed to load schema document: %w", err)
+		}
+		bundle.Bundle[url] = dom
+	}
+	return bundle, nil
 }
 
-func (j scanJSON) Scan(value interface{}) error {
-	switch v := value.(type) {
-	case string:
-		return json.Unmarshal([]byte(v), j.v)
-	case []byte:
-		return json.Unmarshal(v, j.v)
-	case nil:
-		return nil
-	default:
-		return fmt.Errorf("scanning json: %v is invalid type", value)
+// LoadNPMPackage loads the NPM package from a catalog.
+func (catalog *Catalog) LoadNPMPackage() ([]byte, error) {
+	var row = catalog.db.QueryRow(`SELECT content FROM resources WHERE content_type = '"NpmPack"';`)
+	var b []byte
+
+	if err := row.Scan(&b); err != nil {
+		return nil, fmt.Errorf("failed to query NPM package: %w", err)
 	}
+	return b, nil
 }

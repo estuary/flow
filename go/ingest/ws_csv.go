@@ -109,7 +109,7 @@ func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error 
 	for i, header := range headers {
 		var projection = pf.GetProjectionByField(header, collection.Projections)
 		if projection == nil {
-			return fmt.Errorf("collection %q has no projection %q", collection.Name, header)
+			return fmt.Errorf("collection %q has no projection %q", collection.Collection, header)
 		}
 		csvIngester.projections = append(csvIngester.projections, newFieldMapping(projection))
 
@@ -191,7 +191,7 @@ func (csvIngester *wsCsvIngester) onFrame(collection *pf.CollectionSpec, addCh c
 		}
 
 		addCh <- ingestAdd{
-			collection: collection.Name,
+			collection: collection.Collection,
 			doc:        json.RawMessage(docBytes),
 		}
 	}
