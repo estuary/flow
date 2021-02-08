@@ -41,14 +41,17 @@ func TestConsumerIntegration(t *testing.T) {
 		}
 		transforms = []pf.TransformSpec{
 			{
-				Name:   "highAndLow",
-				Source: pf.TransformSpec_Source{Name: "source/foo"},
+				Transform: "highAndLow",
 				Shuffle: pf.Shuffle{
-					ShuffleKeyPtr: []string{"/High", "/Low"},
-					UsesSourceKey: false,
-					FilterRClocks: false,
+					GroupName:        "transform/derive/bar/highAndLow",
+					SourceCollection: "source/foo",
+					SourceSchemaUri:  "test://schema",
+					SourceUuidPtr:    "/_meta/uuid",
+					ShuffleKeyPtr:    []string{"/High", "/Low"},
+					UsesSourceKey:    false,
+					FilterRClocks:    false,
 				},
-				Derivation: pf.TransformSpec_Derivation{Name: "derive/bar"},
+				Derivation: "derive/bar",
 			},
 		}
 		N = 200 // Publish each combination of High & Low values two times.
@@ -249,7 +252,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		return nil, err
 	}
 
-	readBuilder, err := NewReadBuilder(a.service, a.journals, shard, ReadSpecsFromTransforms(a.transforms))
+	readBuilder, err := NewReadBuilder(a.service, a.journals, shard, TransformShuffles(a.transforms))
 	if err != nil {
 		return nil, err
 	}
@@ -292,8 +295,8 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
 	state[hex.EncodeToString(key)]++
 
-	if msg.Transform.ReaderNames[1] != "highAndLow" {
-		return fmt.Errorf("expected TransformSpec fixture to be passed-through")
+	if msg.Shuffle.GroupName != "transform/derive/bar/highAndLow" {
+		return fmt.Errorf("expected Shuffle fixture to be passed-through")
 	}
 	return nil
 }

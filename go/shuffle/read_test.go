@@ -19,13 +19,13 @@ func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, allTransforms = buildReadTestJournalsAndTransforms()
 		ranges                                = labels.MustParseRangeSpec(allShards[0].LabelSet)
-		readerSpecs                           = ReadSpecsFromTransforms(allTransforms)
+		shuffles                              = TransformShuffles(allTransforms)
 		rb                                    = &ReadBuilder{
-			service:    nil, // Not used in this test.
-			ranges:     ranges,
-			transforms: readerSpecs,
-			members:    func() []*pc.ShardSpec { return allShards },
-			journals:   &keyspace.KeySpace{Root: allJournals.Root},
+			service:  nil, // Not used in this test.
+			ranges:   ranges,
+			shuffles: shuffles,
+			members:  func() []*pc.ShardSpec { return allShards },
+			journals: &keyspace.KeySpace{Root: allJournals.Root},
 		}
 		existing = map[pb.Journal]*read{}
 	)
@@ -47,7 +47,7 @@ func TestReadBuilding(t *testing.T) {
 	require.Empty(t, added)
 
 	// Case: one journal & one transform => one read.
-	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[:1], readerSpecs[:1]
+	rb.journals.KeyValues, rb.shuffles = allJournals.KeyValues[:1], shuffles[:1]
 	const aJournal = "foo/bar=1/baz=abc/part=00;transform/der/bar-one"
 
 	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
@@ -63,14 +63,14 @@ func TestReadBuilding(t *testing.T) {
 				Shuffle: pf.JournalShuffle{
 					Journal:     aJournal,
 					Coordinator: "shard/0",
-					Shuffle:     allTransforms[0].Shuffle,
+					Shuffle:     shuffles[0],
 					Replay:      false,
 				},
 				Range:  ranges,
 				Offset: 1122,
 			},
-			resp:       pf.IndexedShuffleResponse{Transform: &readerSpecs[0]},
-			pollAdjust: 60e7 << 4, // 60 seconds as a message.Clock.
+			resp:      pf.IndexedShuffleResponse{Shuffle: shuffles[0]},
+			readDelay: 60e7 << 4, // 60 seconds as a message.Clock.
 		},
 	}, added)
 
@@ -93,29 +93,35 @@ func TestReadBuilding(t *testing.T) {
 			Shuffle: pf.JournalShuffle{
 				Journal:     aJournal,
 				Coordinator: "shard/0",
-				Shuffle:     allTransforms[0].Shuffle,
+				Shuffle:     shuffles[0],
 				Replay:      true,
 			},
 			Range:     ranges,
 			Offset:    1000,
 			EndOffset: 2000,
 		},
-		resp:       pf.IndexedShuffleResponse{Transform: &readerSpecs[0]},
-		pollAdjust: 0,
+		resp:      pf.IndexedShuffleResponse{Shuffle: shuffles[0]},
+		readDelay: 0,
 	}, r)
 
 	// Case: if the configuration changes, the existing *read
 	// is drained so that it may be restarted.
-	readerSpecs[0].Shuffle.ReadDelaySeconds++
+	// This is a functional test of the implementation details:
+	// we don't currently allow ShuffleSpecs to change dynamically
+	// at runtime (but could).
+	var copied = *shuffles[0]
+	copied.ReadDelaySeconds++
+	rb.shuffles[0] = &copied
+
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
 	require.Empty(t, added)
 
-	readerSpecs[0].Shuffle.ReadDelaySeconds-- // Reset.
+	rb.shuffles[0] = shuffles[0] // Reset.
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
-	rb.journals.KeyValues, rb.transforms = allJournals.KeyValues[1:], readerSpecs
+	rb.journals.KeyValues, rb.shuffles = allJournals.KeyValues[1:], shuffles
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{aJournal}, toKeys(drain))
@@ -188,24 +194,46 @@ func TestReadHeaping(t *testing.T) {
 			{Clock: 2003},
 			{Clock: 1004},
 			{Clock: 1005},
+			{Clock: 1},
+			{Clock: 2},
 		},
 	}
 	var h readHeap
 
+	// |p1| reads have earlier clocks, which would ordinarily be preferred,
+	// but are withheld due to their lower priority.
+	var p1 = pf.ShuffleRequest{
+		Shuffle: pf.JournalShuffle{
+			Shuffle: &pf.Shuffle{
+				Priority: 1,
+			},
+		},
+	}
+	// |p2| reads have later clocks but are read first due to their higher priority.
+	var p2 = pf.ShuffleRequest{
+		Shuffle: pf.JournalShuffle{
+			Shuffle: &pf.Shuffle{
+				Priority: 2,
+			},
+		},
+	}
+
 	// Push reads in a mixed order.
 	for _, r := range []*read{
-		{resp: pf.IndexedShuffleResponse{Index: 3, ShuffleResponse: resp}, pollAdjust: 1000},
-		{resp: pf.IndexedShuffleResponse{Index: 1, ShuffleResponse: resp}, pollAdjust: 2000},
-		{resp: pf.IndexedShuffleResponse{Index: 0, ShuffleResponse: resp}, pollAdjust: 1000},
-		{resp: pf.IndexedShuffleResponse{Index: 5, ShuffleResponse: resp}, pollAdjust: 2000},
-		{resp: pf.IndexedShuffleResponse{Index: 2, ShuffleResponse: resp}, pollAdjust: 2000},
-		{resp: pf.IndexedShuffleResponse{Index: 4, ShuffleResponse: resp}, pollAdjust: 2000},
+		{req: p2, resp: pf.IndexedShuffleResponse{Index: 3, ShuffleResponse: resp}, readDelay: 1000},
+		{req: p1, resp: pf.IndexedShuffleResponse{Index: 7, ShuffleResponse: resp}, readDelay: 0},
+		{req: p2, resp: pf.IndexedShuffleResponse{Index: 1, ShuffleResponse: resp}, readDelay: 2000},
+		{req: p2, resp: pf.IndexedShuffleResponse{Index: 0, ShuffleResponse: resp}, readDelay: 1000},
+		{req: p1, resp: pf.IndexedShuffleResponse{Index: 6, ShuffleResponse: resp}, readDelay: 0},
+		{req: p2, resp: pf.IndexedShuffleResponse{Index: 5, ShuffleResponse: resp}, readDelay: 2000},
+		{req: p2, resp: pf.IndexedShuffleResponse{Index: 2, ShuffleResponse: resp}, readDelay: 2000},
+		{req: p2, resp: pf.IndexedShuffleResponse{Index: 4, ShuffleResponse: resp}, readDelay: 2000},
 	} {
 		heap.Push(&h, r)
 	}
 
-	// Expect to pop reads in Index order, after adjusting for |pollAdjust|.
-	for ind := 0; ind != 6; ind++ {
+	// Expect to pop reads in Index order, after adjusting for priority & readDelay.
+	for ind := 0; ind != 8; ind++ {
 		require.Equal(t, ind, heap.Pop(&h).(*read).resp.Index)
 	}
 	require.Empty(t, h)
@@ -213,26 +241,25 @@ func TestReadHeaping(t *testing.T) {
 
 func TestCoordinatorAssignment(t *testing.T) {
 	var journals, shards, transforms = buildReadTestJournalsAndTransforms()
-	readerSpecs := ReadSpecsFromTransforms(transforms)
+	shuffles := TransformShuffles(transforms)
 
 	// Expect coordinators align with physical partitions of logical groups.
 	var expect = []struct {
 		journal     string
-		transform   string
+		source      string
 		coordinator pc.ShardID
 	}{
-		{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "bar-one", "shard/0"},
-		{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "bar-one", "shard/2"},
-		{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "bar-one", "shard/0"},
-		{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "baz-def", "shard/2"},
-		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "baz-def", "shard/0"},
-		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "baz-def", "shard/1"},
+		{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/0"},
+		{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/2"},
+		{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0"},
+		{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/2"},
+		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/0"},
+		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/1"},
 	}
-	var err = walkReads(shards, journals, readerSpecs,
-		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
+	var err = walkReads(shards, journals, shuffles,
+		func(spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
 			require.Equal(t, expect[0].journal, spec.Name.String())
-			// TODO: Do something cleaner than just indexing into the ReaderLabels
-			require.Equal(t, expect[0].transform, transform.ReaderNames[1])
+			require.Equal(t, expect[0].source, shuffle.SourceCollection.String())
 			require.Equal(t, expect[0].coordinator, coordinator)
 			expect = expect[1:]
 		})
@@ -316,42 +343,40 @@ func buildReadTestJournalsAndTransforms() (*keyspace.KeySpace, []*pc.ShardSpec, 
 	// Transforms reading partitions of "foo" into derivation "der".
 	var transforms = []pf.TransformSpec{
 		{
-			Name: "bar-one",
+			Transform: "bar-one",
 			Shuffle: pf.Shuffle{
+				GroupName:        "transform/der/bar-one",
 				UsesSourceKey:    true,
 				ReadDelaySeconds: 60,
-			},
-			Source: pf.TransformSpec_Source{
-				Name: "foo",
-				Partitions: pb.LabelSelector{
+				SourceCollection: "foo",
+				SourcePartitions: pb.LabelSelector{
 					Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
 				},
 			},
-			Derivation: pf.TransformSpec_Derivation{Name: "der"},
+			Derivation: "der",
 		},
 		{
-			Name: "baz-def",
+			Transform: "baz-def",
 			Shuffle: pf.Shuffle{
-				UsesSourceKey: false,
-			},
-			Source: pf.TransformSpec_Source{
-				Name: "foo",
-				Partitions: pb.LabelSelector{
+				GroupName:        "transform/der/baz-def",
+				UsesSourceKey:    false,
+				SourceCollection: "foo",
+				SourcePartitions: pb.LabelSelector{
 					Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
 				},
 			},
-			Derivation: pf.TransformSpec_Derivation{Name: "der"},
+			Derivation: "der",
 		},
 		{
-			Name:    "unmatched",
-			Shuffle: pf.Shuffle{},
-			Source: pf.TransformSpec_Source{
-				Name: "foo",
-				Partitions: pb.LabelSelector{
+			Transform: "unmatched",
+			Shuffle: pf.Shuffle{
+				GroupName:        "transform/der/unmatched",
+				SourceCollection: "foo",
+				SourcePartitions: pb.LabelSelector{
 					Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
 				},
 			},
-			Derivation: pf.TransformSpec_Derivation{Name: "der"},
+			Derivation: "der",
 		},
 	}
 	return journals, shards, transforms

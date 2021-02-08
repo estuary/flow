@@ -20,28 +20,21 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// ReadSpecsFromTransforms converts a slice of TransformSpecs to a slice of the more generic ReadSpecs.
-func ReadSpecsFromTransforms(transforms []pf.TransformSpec) []pf.ReadSpec {
-	rs := make([]pf.ReadSpec, len(transforms))
-	for i, t := range transforms {
-		rs[i] = pf.ReadSpec{
-			SourceName:        t.Source.Name.String(),
-			SourcePartitions:  t.Source.Partitions,
-			Shuffle:           t.Shuffle,
-			ReaderType:        "transform",
-			ReaderNames:       []string{t.Derivation.Name.String(), t.Name.String()},
-			ReaderCatalogDBID: t.CatalogDbId,
-		}
+// TransformShuffles converts a slice of TransformSpecs to a slice of contained *Shuffles.
+func TransformShuffles(transforms []pf.TransformSpec) []*pf.Shuffle {
+	var shuffles = make([]*pf.Shuffle, len(transforms))
+	for i := range transforms {
+		shuffles[i] = &transforms[i].Shuffle
 	}
-	return rs
+	return shuffles
 }
 
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
-	service    *consumer.Service
-	journals   *keyspace.KeySpace
-	ranges     pf.RangeSpec
-	transforms []pf.ReadSpec
+	service  *consumer.Service
+	journals *keyspace.KeySpace
+	ranges   pf.RangeSpec
+	shuffles []*pf.Shuffle
 
 	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
@@ -56,7 +49,7 @@ func NewReadBuilder(
 	service *consumer.Service,
 	journals *keyspace.KeySpace,
 	shard consumer.Shard,
-	transforms []pf.ReadSpec,
+	shuffles []*pf.Shuffle,
 ) (*ReadBuilder, error) {
 
 	// Build a RangeSpec from shard labels.
@@ -81,11 +74,11 @@ func NewReadBuilder(
 	}
 
 	return &ReadBuilder{
-		service:    service,
-		journals:   journals,
-		ranges:     ranges,
-		transforms: transforms,
-		members:    members,
+		service:  service,
+		journals: journals,
+		ranges:   ranges,
+		shuffles: shuffles,
+		members:  members,
 	}, nil
 }
 
@@ -136,11 +129,11 @@ func (rb *ReadBuilder) StartReplayRead(ctx context.Context, journal pb.Journal, 
 }
 
 // ReadThrough filters the input |offsets| to those journals and offsets which are
-// read by this ReadBuilder.
+// actually read by this ReadBuilder. It powers the shard Stat RPC.
 func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 	var out = make(pb.Offsets, len(offsets))
-	var err = walkReads(rb.members(), rb.journals, rb.transforms,
-		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
+	var err = walkReads(rb.members(), rb.journals, rb.shuffles,
+		func(spec pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {
 			if offset := offsets[spec.Name]; offset != 0 {
 				// Prefer an offset that exactly matches our journal + metadata extension.
 				out[spec.Name] = offset
@@ -163,8 +156,8 @@ type read struct {
 
 	// Positive delta by which documents are effectively delayed w.r.t. other
 	// documents, as well as literally delayed (by gating) w.r.t current wall-time.
-	pollAdjust message.Clock
-	pollCh     chan readResult
+	readDelay message.Clock
+	pollCh    chan readResult
 }
 
 type readResult struct {
@@ -174,28 +167,28 @@ type readResult struct {
 
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var out *read
-	var err = walkReads(rb.members(), rb.journals, rb.transforms,
-		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
+	var err = walkReads(rb.members(), rb.journals, rb.shuffles,
+		func(spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
 			if spec.Name != journal {
 				return
 			}
 
-			var shuffle = pf.JournalShuffle{
+			var journalShuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
 				Coordinator: coordinator,
-				Shuffle:     transform.Shuffle,
+				Shuffle:     shuffle,
 				Replay:      true,
 			}
 			out = &read{
 				spec: spec,
 				req: pf.ShuffleRequest{
-					Shuffle:   shuffle,
+					Shuffle:   journalShuffle,
 					Range:     rb.ranges,
 					Offset:    begin,
 					EndOffset: end,
 				},
-				resp:       pf.IndexedShuffleResponse{Transform: &transform},
-				pollAdjust: 0, // Not used during replay.
+				resp:      pf.IndexedShuffleResponse{Shuffle: shuffle},
+				readDelay: 0, // Not used during replay.
 			}
 		})
 
@@ -218,13 +211,13 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 		drain[j] = r
 	}
 
-	err = walkReads(rb.members(), rb.journals, rb.transforms,
-		func(spec pb.JournalSpec, transform pf.ReadSpec, coordinator pc.ShardID) {
+	err = walkReads(rb.members(), rb.journals, rb.shuffles,
+		func(spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
 			// Build the configuration under which we'll read.
-			var shuffle = pf.JournalShuffle{
+			var journalShuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
 				Coordinator: coordinator,
-				Shuffle:     transform.Shuffle,
+				Shuffle:     shuffle,
 				Replay:      false,
 			}
 
@@ -232,25 +225,25 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 			if ok {
 				// A *read for this journal & transform already exists. If it's
 				// JournalShuffle hasn't changed, keep it active (i.e., don't drain).
-				if r.req.Shuffle.Equal(&shuffle) {
+				if r.req.Shuffle.Equal(&journalShuffle) {
 					delete(drain, spec.Name)
 				}
 				return
 			}
 
 			// A *read of this journal doesn't exist. Start one.
-			var adjust = message.NewClock(time.Unix(int64(shuffle.ReadDelaySeconds), 0)) -
+			var readDelay = message.NewClock(time.Unix(int64(shuffle.ReadDelaySeconds), 0)) -
 				message.NewClock(time.Unix(0, 0))
 
 			added[spec.Name] = &read{
 				spec: spec,
 				req: pf.ShuffleRequest{
-					Shuffle: shuffle,
+					Shuffle: journalShuffle,
 					Range:   rb.ranges,
 					Offset:  offsets[spec.Name],
 				},
-				resp:       pf.IndexedShuffleResponse{Transform: &transform},
-				pollAdjust: adjust,
+				resp:      pf.IndexedShuffleResponse{Shuffle: shuffle},
+				readDelay: readDelay,
 			}
 		})
 
@@ -368,12 +361,18 @@ func (h *readHeap) Len() int { return len(*h) }
 // Swap swaps the elements with indexes i and j.
 func (h *readHeap) Swap(i, j int) { (*h)[i], (*h)[j] = (*h)[j], (*h)[i] }
 
-// Less orders *reads with respect to the adjusted Clocks of their next Document.
+// Less orders *reads by their relative priorities,
+// then by the adjusted Clocks of their next Document.
 func (h *readHeap) Less(i, j int) bool {
 	var lhs, rhs = (*h)[i], (*h)[j]
 
-	var lc = lhs.resp.UuidParts[lhs.resp.Index].Clock + lhs.pollAdjust
-	var rc = rhs.resp.UuidParts[rhs.resp.Index].Clock + rhs.pollAdjust
+	// Prefer a read with higher priority.
+	if lhs.req.Shuffle.Priority != rhs.req.Shuffle.Priority {
+		return lhs.req.Shuffle.Priority > rhs.req.Shuffle.Priority
+	}
+	// Then prefer a document with an earlier adjusted clock.
+	var lc = lhs.resp.UuidParts[lhs.resp.Index].Clock + lhs.readDelay
+	var rc = rhs.resp.UuidParts[rhs.resp.Index].Clock + rhs.readDelay
 	return lc < rc
 }
 
@@ -394,12 +393,8 @@ func (s shardsByKey) len() int                 { return len(s) }
 func (s shardsByKey) getKeyBegin(i int) []byte { return []byte(s[i].LabelSet.ValueOf(labels.KeyBegin)) }
 func (s shardsByKey) getKeyEnd(i int) []byte   { return []byte(s[i].LabelSet.ValueOf(labels.KeyEnd)) }
 
-func addQueryParameters(readSpec *pf.ReadSpec, journalName string) string {
-	return fmt.Sprintf("%s;%s/%s", journalName, readSpec.ReaderType, strings.Join(readSpec.ReaderNames, "/"))
-}
-
-func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transforms []pf.ReadSpec,
-	cb func(_ pb.JournalSpec, _ pf.ReadSpec, coordinator pc.ShardID)) error {
+func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, shuffles []*pf.Shuffle,
+	cb func(_ pb.JournalSpec, _ *pf.Shuffle, coordinator pc.ShardID)) error {
 
 	// Generate hashes for each of |members| derived from IDs.
 	var memberHashes = make([]uint32, len(members))
@@ -410,18 +405,18 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 	allJournals.Mu.RLock()
 	defer allJournals.Mu.RUnlock()
 
-	for _, transform := range transforms {
-		var sources = allJournals.Prefixed(allJournals.Root + "/" + transform.SourceName + "/")
+	for _, shuffle := range shuffles {
+		var sources = allJournals.Prefixed(allJournals.Root + "/" + shuffle.SourceCollection.String() + "/")
 
 		for _, kv := range sources {
 			var source = kv.Decoded.(*pb.JournalSpec)
 
-			if !transform.SourcePartitions.Matches(source.LabelSet) {
+			if !shuffle.SourcePartitions.Matches(source.LabelSet) {
 				continue
 			}
 
 			var start, stop int
-			if transform.Shuffle.UsesSourceKey {
+			if shuffle.UsesSourceKey {
 				// This tranform uses the source's natural key, which means that the key ranges
 				// present on JournalSpecs refer to the same keys as ShardSpecs. As an optimization
 				// to reduce data movement, select only from ShardSpecs which overlap the journal.
@@ -434,17 +429,15 @@ func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, transfor
 				start, stop = 0, len(members)
 			}
 
-			// Augment JournalSpec to capture the derivation and transform name on
-			// whose behalf the read is being done, as a Journal metadata path segment.
+			// Augment JournalSpec to capture the shuffle group name, as a Journal metadata path segment.
 			var copied = *source
-			newName := addQueryParameters(&transform, source.Name.String())
-			copied.Name = pb.Journal(newName)
+			copied.Name = pb.Journal(fmt.Sprintf("%s;%s", source.Name.String(), shuffle.GroupName))
 
 			if start == stop {
 				return fmt.Errorf("none of %d shards cover journal %s", len(members), copied.Name)
 			}
 			var m = pickHRW(hashString(copied.Name.String()), memberHashes, start, stop)
-			cb(copied, transform, members[m].Id)
+			cb(copied, shuffle, members[m].Id)
 		}
 	}
 	return nil

@@ -55,9 +55,13 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var shuffle = pf.JournalShuffle{
 		Journal:     "a/journal",
 		Coordinator: "the-coordinator",
-		Shuffle: pf.Shuffle{
-			ShuffleKeyPtr: []string{"/a", "/b"},
-			FilterRClocks: true,
+		Shuffle: &pf.Shuffle{
+			GroupName:        "shuffle/group",
+			SourceCollection: "a/source",
+			SourceSchemaUri:  "test://schema",
+			SourceUuidPtr:    "/_meta/uuid",
+			ShuffleKeyPtr:    []string{"/a", "/b"},
+			FilterRClocks:    true,
 		},
 	}
 	var ranges = pf.RangeSpec{
@@ -100,6 +104,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Expect we read a ShuffleResponse which tells us we're currently tailing.
 	out, err := tailStream.Recv()
+	require.NoError(t, err)
 	require.Equal(t, &pf.ShuffleResponse{
 		ReadThrough: app.Response.Commit.End,
 		WriteHead:   app.Response.Commit.End,

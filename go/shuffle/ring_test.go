@@ -127,7 +127,8 @@ func TestReadingDocuments(t *testing.T) {
 func TestDocumentExtraction(t *testing.T) {
 	var r = ring{
 		shuffle: pf.JournalShuffle{
-			Shuffle: pf.Shuffle{
+			Shuffle: &pf.Shuffle{
+				SourceUuidPtr: "/_meta/uuid",
 				ShuffleKeyPtr: []string{"/foo", "/bar"},
 			},
 		},

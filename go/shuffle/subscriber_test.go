@@ -220,7 +220,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 
 	var requests = []pf.ShuffleRequest{
 		{
-			Shuffle: pf.JournalShuffle{Shuffle: pf.Shuffle{FilterRClocks: true}},
+			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
 			Range: pf.RangeSpec{
 				KeyBegin:    []byte("a"),
 				KeyEnd:      []byte("g"),
@@ -229,7 +229,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 			},
 		},
 		{
-			Shuffle: pf.JournalShuffle{Shuffle: pf.Shuffle{FilterRClocks: true}},
+			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
 			Range: pf.RangeSpec{
 				KeyBegin:    []byte("a"),
 				KeyEnd:      []byte("g"),
@@ -238,7 +238,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 			},
 		},
 		{
-			Shuffle: pf.JournalShuffle{Shuffle: pf.Shuffle{FilterRClocks: false}},
+			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: false}},
 			Range: pf.RangeSpec{
 				KeyBegin: []byte("l"),
 				KeyEnd:   []byte("p"),
