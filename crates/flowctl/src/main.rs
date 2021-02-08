@@ -1,9 +1,10 @@
 use anyhow::{Context, Error};
 use futures::FutureExt;
 use itertools::Itertools;
+use models::tables;
 use std::convert::TryFrom;
 use std::fs;
-use std::path::Path;
+use std::path;
 use structopt::StructOpt;
 use tokio::signal::unix;
 use url::Url;
@@ -29,14 +30,13 @@ enum Command {
     /// Builds a Catalog spec into a catalog database that can be deployed or inspected.
     Build(BuildArgs),
     /// Run a local development environment for the catalog.
-    Develop(DevelopArgs),
+    Develop(BuildArgs),
     /// Runs catalog tests.
-    Test(TestArgs),
+    Test(BuildArgs),
     /// Print the catalog JSON schema.
     JsonSchema,
-
-    /// Materialize a view of a Collection into a target database.
-    Materialize(MaterializeArgs),
+    // Materialize a view of a Collection into a target database.
+    // Materialize(MaterializeArgs),
 }
 
 #[derive(StructOpt, Debug)]
@@ -48,36 +48,12 @@ struct BuildArgs {
     /// catalog will be used to build a new catalog from scratch.
     #[structopt(long, conflicts_with("source"))]
     source_catalog: Option<String>,
-    /// Path to output catalog database.
-    #[structopt(long, default_value = "catalog.db")]
-    catalog: String,
-    /// Path to NodeJS package which will hold JavaScript lambdas. If this directory
-    /// doesn't exist, it will be automatically created from a template. The package
-    /// is used temporarily during the catalog build process -- it's compiled and
-    /// then packed into the output catalog database -- but re-using the same directory
-    /// across invocations will save time otherwise spent fetching npm packages.
-    #[structopt(
-        long = "nodejs-dir",
-        default_value = "catalog-nodejs",
-        env("FLOW_NODEJS_DIR")
-    )]
-    nodejs_package_path: String,
+    /// Path to the base build directory.
+    #[structopt(long, default_value = ".")]
+    base_directory: String,
 }
 
-#[derive(StructOpt, Debug)]
-struct DevelopArgs {
-    /// Path to input catalog database.
-    #[structopt(long, default_value = "catalog.db")]
-    catalog: String,
-}
-
-#[derive(StructOpt, Debug)]
-struct TestArgs {
-    /// Path to input catalog database.
-    #[structopt(long, default_value = "catalog.db")]
-    catalog: String,
-}
-
+/*
 #[derive(StructOpt, Debug)]
 struct MaterializeArgs {
     /// Path to input catalog database.
@@ -124,30 +100,29 @@ struct MaterializeArgs {
     #[structopt(long)]
     dry_run: bool,
 }
+*/
 
 #[tokio::main]
 async fn main() {
     let args = Args::from_args();
     init_logging(&args);
-    log::debug!("{:?}", args);
+    tracing::trace!("{:?}", args);
 
     let result = match args.command {
-        Command::Build(build) => do_build(build),
+        Command::Build(build) => do_build(build).await,
         Command::Develop(develop) => do_develop(develop).await,
         Command::Test(test) => do_test(test).await,
         Command::JsonSchema => do_dump_schema(),
-        Command::Materialize(materialize) => do_materialize(materialize).await,
+        // Command::Materialize(materialize) => do_materialize(materialize).await,
     };
 
     if let Err(err) = result {
-        log::error!("{:?}", err);
+        tracing::error!("{:?}", err);
         std::process::exit(1);
     };
 }
 
 fn init_logging(args: &Args) {
-    let mut builder = pretty_env_logger::formatted_timed_builder();
-
     // We subtract these so that each will cancel out occurrences of one another. This is sometimes
     // useful when the cli is being invoked by a script and allows passing additional arguments.
     let verbosity = args.verbose - args.quiet;
@@ -161,20 +136,27 @@ fn init_logging(args: &Args) {
             i32::MIN..=-2 => "off",
             -1 => "off,warn,flowctl=warn",
             0 => "warn,flowctl=info",
-            1 => "info",
+            1 => "info,flowctl=debug",
             2 => "debug",
             3..=i32::MAX => "trace",
         }
     };
-    builder.parse_filters(log_filters);
 
-    let _ = builder.try_init();
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(log_filters))
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("failed to set global tracing logger");
+
+    // Pass `log` crate logs through as tracing events.
+    tracing_log::LogTracer::init().expect("failed to set log => tracing shim");
 
     if log_var.is_ok() && verbosity != 0 {
-        log::warn!("The --quiet and --verbose arguments are being ignored since the `FLOWCTL_LOG` env variable is set");
+        tracing::warn!("The --quiet and --verbose arguments are being ignored since the `FLOWCTL_LOG` env variable is set");
     }
 }
 
+/*
 async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     use materialization::{CollectionSelection, FieldSelection};
 
@@ -221,7 +203,7 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
         "apply the materialization ddl to the target database",
         &args,
     ) {
-        log::info!("Skipping application of materialization");
+        tracing::info!("Skipping application of materialization");
         return Ok(());
     }
     // Ok, we're go for launch, but we need to do things in a sensible order so that we don't leave
@@ -240,7 +222,7 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
         .list_shards(None)
         .await
         .context("connecting to flow-consumer")?;
-    log::debug!(
+    tracing::debug!(
         "Successfully connected to the consumer and listed {} existing shards",
         response.shards.len()
     );
@@ -261,14 +243,14 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
     // will be double quoted and internal quote characters will be escaped. This is helpful
     // since individual arguments may contain spaces, which would otherwise make this output
     // impossible to parse correctly.
-    log::info!(
+    tracing::info!(
         "Materialization target apply command:\n{}",
         apply_command.iter().map(|s| format!("{:?}", s)).join(" ")
     );
     exec_external_command(apply_command.as_slice())
         .await
         .context("Failed to apply payload to materialization target")?;
-    log::info!(
+    tracing::info!(
         "Successfully applied materialization DDL to the target '{}'",
         args.target.as_str()
     );
@@ -282,19 +264,19 @@ async fn do_materialize(args: MaterializeArgs) -> Result<(), Error> {
         args.table_name.as_str(),
     );
 
-    log::debug!("Gazette Shard Spec: {:#?}", apply_shards_request);
+    tracing::debug!("Gazette Shard Spec: {:#?}", apply_shards_request);
     let response = cluster
         .apply_shards(apply_shards_request)
         .await
         .context("updating shard specs")?;
-    log::debug!("Successfully applied shards: {:?}", response);
+    tracing::debug!("Successfully applied shards: {:?}", response);
 
     // TODO: consider polling the shard status until it indicates that it's running
     Ok(())
 }
 
 async fn exec_external_command(command: &[String]) -> Result<(), Error> {
-    log::info!("Executing command: {}", command.iter().join(" "));
+    tracing::info!("Executing command: {}", command.iter().join(" "));
     let mut cmd = tokio::process::Command::new(&command[0]);
     for arg in command.iter().skip(1) {
         cmd.arg(arg);
@@ -343,60 +325,124 @@ fn get_user_confirmation(message: &str) -> bool {
         .expect("failed to write to stdout");
     let mut text = String::new();
     if let Err(err) = std::io::stdin().read_line(&mut text) {
-        log::debug!("io error reading user input: {}", err);
-        log::error!("Failed to read user input, cancelling action");
+        tracing::debug!("io error reading user input: {}", err);
+        tracing::error!("Failed to read user input, cancelling action");
         false
     } else {
         text.as_str().trim().eq_ignore_ascii_case("y")
     }
 }
+*/
 
-fn do_build(args: BuildArgs) -> Result<(), Error> {
-    let nodejs_dir = Path::new(args.nodejs_package_path.as_str());
+/// Common build steps which load and validate all tables, and generate & compile
+/// the TypeScript package.
+async fn build_common(args: BuildArgs) -> Result<(path::PathBuf, tables::All), Error> {
+    let source_url = resolve_extant_url_or_file_arg("--source", &args.source)?;
 
-    // Try to ensure that the source catalog is not the same as the destination. We do this before
-    // calling `catalog::create` so that we don't truncate the `--source-catalog` if they are the
-    // same. This check is not at all fool proof, since we're only checking the values of the
-    // arguments, but it should be good enough to prevent someone from accidentally passing
-    // `--source=catalog.db`.
-    if args
-        .source_catalog
-        .as_deref()
-        .map(|p| p.trim_start_matches("./"))
-        == Some(args.catalog.as_str().trim_start_matches("./"))
-    {
-        anyhow::bail!(
-            "invalid --source-catalog is the same as --catalog '{}'",
-            args.catalog
-        );
+    // TODO(johnny): args.source_path mode should use an existing catalog DB
+    // to back a source::Fetcher, rather that using WebFetcher.
+
+    let dir = &args.base_directory;
+    std::fs::create_dir_all(&dir).context("failed to create package directory")?;
+    let dir = std::fs::canonicalize(dir)?;
+
+    let all_tables =
+        build::load_and_validate(&source_url, build::WebFetcher::new(), build::Drivers::new())
+            .await
+            .context("build failed")?;
+
+    if !all_tables.errors.is_empty() {
+        for tables::Error { scope, error } in all_tables.errors.iter() {
+            tracing::error!("{:?}\n    At: {}", error, scope);
+        }
+        return Ok((dir, all_tables));
     }
 
-    let db = catalog::create(&args.catalog)
-        .context(format!("creating --catalog {:?}", &args.catalog))?;
+    build::generate_typescript_package(&all_tables, &dir)?;
+    build::compile_typescript_package(&dir)?;
 
-    // Are we using an existing catalog or yaml as the source?
-    if let Some(source_path) = args.source_catalog.as_deref() {
-        let source = catalog::open_unchecked(source_path)
-            .context(format!("opening --source-catalog {:?}", source_path))?;
-        log::info!(
-            "Building --source-catalog {:?} into --catalog {:?}",
-            source_path,
-            args.catalog
-        );
-        catalog::build_from_catalog(&db, &source, nodejs_dir)?;
+    Ok((dir, all_tables))
+}
+
+fn persist_database(
+    all_tables: &tables::All,
+    path: &path::Path,
+) -> Result<rusqlite::Connection, anyhow::Error> {
+    tracing::info!(?path, "writing catalog database");
+    // Create or truncate the database at |path|.
+    std::fs::write(&path, &[])?;
+    let db = rusqlite::Connection::open(&path)?;
+
+    tables::persist_tables(&db, &all_tables.as_tables())?;
+    Ok(db)
+}
+
+async fn local_stack(
+    args: BuildArgs,
+    dynamic_ports: bool,
+) -> Result<(runtime::Local, tables::All), anyhow::Error> {
+    let temp_dir = tempfile::TempDir::new()?;
+    let (package_dir, mut all_tables) = build_common(args).await?;
+
+    // Install a testing JournalRule which orders after all other rules.
+    let rule = models::names::Rule::new("\u{FFFF}\u{FFFF}-testing-overrides");
+    all_tables.journal_rules.push_row(
+        url::Url::parse("test://journal-rule")?,
+        rule.clone(),
+        protocol::flow::journal_rules::Rule {
+            rule: rule.to_string(),
+            selector: None, // Match all journals.
+            template: Some(protocol::protocol::JournalSpec {
+                replication: 1,
+                fragment: Some(protocol::protocol::journal_spec::Fragment {
+                    stores: vec!["file:///".to_string()],
+                    compression_codec: protocol::protocol::CompressionCodec::None as i32,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        },
+    );
+
+    let db_path = temp_dir.path().join("catalog.db");
+    persist_database(&all_tables, &db_path)?;
+    // Path is already absolute, so it's always safe to convert to Url.
+    let db_url = Url::from_file_path(db_path.canonicalize()?).unwrap();
+
+    if !all_tables.errors.is_empty() {
+        anyhow::bail!("errors occurred while building catalog");
+    }
+
+    let (gazette_port, ingester_port, consumer_port) = if dynamic_ports {
+        (0, 0, 0)
     } else {
-        // We're building from yaml
-        let source_url = resolve_extant_url_or_file_arg("--source", &args.source)?;
-        log::info!(
-            "Building --source {:?} into --catalog {:?}",
-            source_url,
-            fs::canonicalize(&args.catalog)?
-        );
-        catalog::build(&db, source_url, nodejs_dir).context("building catalog")?;
-    }
+        (8080, 8081, 9000)
+    };
 
-    log::info!("Successfully built catalog");
-    Ok(())
+    let local = runtime::Local::start(
+        temp_dir,
+        &package_dir,
+        &db_url,
+        gazette_port,
+        ingester_port,
+        consumer_port,
+    )
+    .await?;
+
+    // Upsert shards for all derivations.
+    let shards = local.cluster.list_shards(None).await?;
+    let mut shards = runtime::DerivationSet::try_from(shards).unwrap();
+    shards.update_from_catalog(&all_tables.built_derivations);
+
+    // TODO -- we must switch responsibility such that flow-consumer
+    // creates recovery logs as needed, using journal rules.
+    let apply = shards.build_recovery_log_apply_request();
+    local.cluster.apply_journals(apply).await?;
+
+    let apply = shards.build_shard_apply_request(db_url.path());
+    local.cluster.apply_shards(apply).await?;
+
+    Ok((local, all_tables))
 }
 
 fn resolve_extant_url_or_file_arg(arg_name: &str, value: impl AsRef<str>) -> Result<Url, Error> {
@@ -404,7 +450,7 @@ fn resolve_extant_url_or_file_arg(arg_name: &str, value: impl AsRef<str>) -> Res
     let url = match url::Url::parse(value) {
         Ok(url) => url,
         Err(err) => {
-            log::debug!(
+            tracing::debug!(
                 "{} {:?} is not a URL; assuming it's a filesystem path (parse error: {})",
                 arg_name,
                 value,
@@ -421,92 +467,56 @@ fn resolve_extant_url_or_file_arg(arg_name: &str, value: impl AsRef<str>) -> Res
     Ok(url)
 }
 
-async fn install_shards(
-    catalog_path: &str,
-    db: &rusqlite::Connection,
-    cluster: &runtime::Cluster,
-) -> Result<(), Error> {
-    // Upsert shards for all derivations.
-    let shards = cluster.list_shards(None).await?;
-    let mut derivations = runtime::DerivationSet::try_from(shards).unwrap();
-    derivations.update_from_catalog(&db)?;
+async fn do_build(args: BuildArgs) -> Result<(), Error> {
+    let (package_dir, mut all_tables) = build_common(args).await?;
 
-    let apply = derivations.build_recovery_log_apply_request();
-    cluster.apply_journals(apply).await?;
-
-    let apply = derivations.build_shard_apply_request(&catalog_path);
-    cluster.apply_shards(apply).await?;
-
+    if all_tables.errors.is_empty() {
+        let npm_resources = build::pack_typescript_package(&package_dir)?;
+        all_tables.resources.extend(npm_resources.into_iter());
+    }
+    persist_database(&all_tables, &package_dir.join("catalog.db"))?;
     Ok(())
 }
 
-async fn start_local_runtime(
-    gazette_port: u16,
-    ingester_port: u16,
-    consumer_port: u16,
-    catalog_path: &str,
-) -> Result<(runtime::Local, rusqlite::Connection), Error> {
-    let catalog_path = std::fs::canonicalize(&catalog_path).context("opening --catalog")?;
-    let catalog_path = catalog_path.to_string_lossy().to_string();
-    let db = catalog::open(&catalog_path).context("opening --catalog")?;
+async fn do_develop(args: BuildArgs) -> Result<(), Error> {
+    let (local, _) = local_stack(args, false).await?;
 
-    let local =
-        runtime::Local::start(gazette_port, ingester_port, consumer_port, &catalog_path).await?;
-    install_shards(&catalog_path, &db, &local.cluster)
-        .await
-        .context("failed to install specifications")?;
-
-    Ok((local, db))
-}
-
-async fn do_develop(args: DevelopArgs) -> Result<(), Error> {
     let mut sigterm = unix::signal(unix::SignalKind::terminate())?;
     let mut sigint = unix::signal(unix::SignalKind::interrupt())?;
 
-    let (local, _db) = start_local_runtime(8080, 8081, 9000, &args.catalog).await?;
-
     futures::select!(
-        _ = sigterm.recv().fuse() => log::info!("caught SIGTERM; stopping"),
-        _ = sigint.recv().fuse() => log::info!("caught SIGINT; stopping"),
+        _ = sigterm.recv().fuse() => tracing::info!("caught SIGTERM; stopping"),
+        _ = sigint.recv().fuse() => tracing::info!("caught SIGINT; stopping"),
     );
     local.stop().await.context("failed to stop local runtime")?;
     Ok(())
 }
 
-async fn do_test(args: TestArgs) -> Result<(), Error> {
-    let (local, db) = start_local_runtime(0, 0, 0, &args.catalog).await?;
+async fn do_test(args: BuildArgs) -> Result<(), Error> {
+    let (local, all_tables) = local_stack(args, true).await?;
 
-    let collections =
-        testing::Collection::load_all(&db).context("failed to load catalog collections")?;
-    let collection_dependencies = testing::Collection::load_transitive_dependencies(&db)
-        .context("failed to load collection dependencies")?;
-    let transforms =
-        testing::Transform::load_all(&db).context("failed to load catalog transforms")?;
-    let schema_index = build_schema_index(&db).context("failed to build schema index")?;
+    let mut graph = testing::Graph::new(&all_tables.transforms);
+    let schema_index = tables::SchemaDoc::leak_index(&all_tables.schema_docs)?;
 
-    let ctx = testing::Context {
-        cluster: local.cluster.clone(),
-        collections,
-        collection_dependencies,
-        schema_index,
-        transforms,
-    };
+    for (test_name, steps) in all_tables
+        .test_steps
+        .iter()
+        .sorted_by_key(|s| (s.test.to_string(), s.step_index))
+        .group_by(|s| s.test.to_string())
+        .into_iter()
+    {
+        tracing::info!(?test_name, "starting test case");
+        let steps_vec: Vec<_> = steps.collect();
 
-    // Load test case IDs. We may want to support regex, etc here.
-    let mut stmt = db.prepare("SELECT test_case_id FROM test_cases;")?;
-    let case_ids = stmt
-        .query_map(rusqlite::NO_PARAMS, |row| row.get(0))?
-        .collect::<Result<Vec<i64>, _>>()
-        .context("failed to load test cases")?;
-
-    for id in case_ids {
-        let case = catalog::TestCase { id };
-        let (name, steps) = case.load(&db)?;
-        log::info!("starting test case {:?}", name);
-
-        ctx.run_test_case(&steps)
-            .await
-            .context(format!("test case {} failed", name))?;
+        testing::run_test_case(
+            testing::Case(&steps_vec),
+            &local.cluster,
+            &all_tables.built_collections,
+            &mut graph,
+            schema_index,
+        )
+        .await
+        .context(format!("test case {} failed", test_name))?;
     }
 
     local.stop().await.context("failed to stop local runtime")?;
@@ -516,33 +526,8 @@ async fn do_test(args: TestArgs) -> Result<(), Error> {
 fn do_dump_schema() -> Result<(), Error> {
     let settings = schemars::gen::SchemaSettings::draft07();
     let gen = schemars::gen::SchemaGenerator::new(settings);
-    let schema = gen.into_root_schema_for::<catalog::specs::Catalog>();
+    let schema = gen.into_root_schema_for::<sources::Catalog>();
 
     serde_json::to_writer_pretty(std::io::stdout(), &schema)?;
     Ok(())
-}
-
-// TODO -- copy/paste from flow-worker.
-fn build_schema_index(
-    db: &rusqlite::Connection,
-) -> Result<&'static doc::SchemaIndex<'static>, Error> {
-    // Compile the bundle of catalog schemas. Then, deliberately "leak" the
-    // immutable Schema bundle for the remainder of program in order to achieve
-    // a 'static lifetime, which is required for use in spawned tokio Tasks (and
-    // therefore in TxnCtx).
-    let schemas = catalog::Schema::compile_all(&db)?;
-    let schemas = Box::leak(Box::new(schemas));
-
-    let mut schema_index = doc::SchemaIndex::<'static>::new();
-    for schema in schemas.iter() {
-        schema_index.add(schema)?;
-    }
-    schema_index.verify_references()?;
-
-    // Also leak a &'static SchemaIndex.
-    let schema_index = Box::leak(Box::new(schema_index));
-
-    log::info!("loaded {} JSON-Schemas from catalog", schemas.len());
-
-    Ok(schema_index)
 }
