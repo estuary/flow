@@ -29,6 +29,7 @@ type config struct {
 	Flow struct {
 		BrokerRoot   string        `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
 		TickInterval time.Duration `long:"tick-interval" env:"TICK_INTERVAL" default:"1s" description:"Interval between clock ticks"`
+		LambdaJS     string        `long:"lambda-uds-js" env:"LAMBDA_UDS_JS" default:"" description:"Path to JavaScript lambda Unix Domain Socket, or empty to start workers as needed"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
@@ -36,6 +37,7 @@ type config struct {
 type Flow struct {
 	service   *consumer.Service
 	journals  *keyspace.KeySpace
+	lambdaJS  string
 	timepoint struct {
 		now *flow.Timepoint
 		mu  sync.Mutex
@@ -58,9 +60,11 @@ func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consum
 	}
 
 	if isMaterialize {
-		return runtime.NewMaterializeApp(f.service, f.journals, shard, rec)
+		// runtime.NewMaterializeApp(f.service, f.journals, shard, rec)
+		return nil, fmt.Errorf("not supported")
+	} else {
+		return runtime.NewDeriveApp(f.service, f.journals, shard, rec, f.lambdaJS)
 	}
-	return runtime.NewDeriveApp(f.service, f.journals, shard, rec)
 }
 
 // NewMessage panics if called.
@@ -175,6 +179,7 @@ func (f *Flow) InitApplication(args runconsumer.InitArgs) error {
 
 	f.service = args.Service
 	f.journals = journals
+	f.lambdaJS = config.Flow.LambdaJS
 	f.timepoint.now = flow.NewTimepoint(time.Now())
 
 	// Start a ticker of the shared *Timepoint.

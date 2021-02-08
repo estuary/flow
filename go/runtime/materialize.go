@@ -1,5 +1,6 @@
 package runtime
 
+/*
 import (
 	"context"
 	"fmt"
@@ -182,7 +183,7 @@ func (m *Materialize) BeginTxn(shard consumer.Shard) error {
 		return fmt.Errorf("BeginTxn called while a transaction was already in progress")
 	}
 	log.WithFields(log.Fields{
-		"collection":      m.collectionSpec.Name.String(),
+		"collection":      m.collectionSpec.Collection.String(),
 		"materialization": m.name,
 	}).Debug("Starting new transaction")
 	tx, err := m.targetStore.BeginTxn(shard.Context())
@@ -225,7 +226,7 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	}
 
 	log.WithFields(log.Fields{
-		"collection":      m.collectionSpec.Name.String(),
+		"collection":      m.collectionSpec.Collection.String(),
 		"materialization": m.name,
 		"messageUuid":     uuid,
 	}).Debug("on ConsumeMessage")
@@ -320,3 +321,5 @@ func (m *Materialize) ReplayRange(shard consumer.Shard, journal pb.Journal, begi
 func (m *Materialize) ClearRegisters(context.Context, *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
 	return new(pf.ClearRegistersResponse), fmt.Errorf("not implemented")
 }
+
+*/
