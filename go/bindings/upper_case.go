@@ -38,7 +38,7 @@ func newNoOpService() *service {
 		},
 		// Increment output cursors, so that we build Frames for each input,
 		// but don't actually invoke CGO.
-		func(ch *C.Channel, in C.In1) { ch.out_len += 1 },
+		func(ch *C.Channel, in C.In1) { ch.out_len++ },
 		func(ch *C.Channel, in C.In4) { ch.out_len += 4 },
 		func(ch *C.Channel, in C.In16) { ch.out_len += 16 },
 		func(ch *C.Channel) {
@@ -64,22 +64,22 @@ func newUpperCaseNaive() upperCaseNaive {
 
 func (s *upperCaseNaive) invoke(codeIn uint32, input []byte) (uint32, []byte, error) {
 	var h = (*reflect.SliceHeader)(unsafe.Pointer(&input))
-	var out_len C.uint32_t
-	var out_ptr *C.uint8_t
+	var outLen C.uint32_t
+	var outPtr *C.uint8_t
 
 	var codeOut = C.upper_case_naive(
 		s.svc,
 		C.uint32_t(codeIn),
 		(*C.uint8_t)(unsafe.Pointer(h.Data)),
 		C.uint32_t(h.Len),
-		&out_ptr,
-		&out_len)
+		&outPtr,
+		&outLen)
 
 	var output []byte
 	h = (*reflect.SliceHeader)(unsafe.Pointer(&output))
-	h.Cap = int(out_len)
-	h.Len = int(out_len)
-	h.Data = uintptr(unsafe.Pointer(out_ptr))
+	h.Cap = int(outLen)
+	h.Len = int(outLen)
+	h.Data = uintptr(unsafe.Pointer(outPtr))
 
 	var err error
 	if codeOut == math.MaxUint32 {

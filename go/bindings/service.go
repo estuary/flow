@@ -71,7 +71,7 @@ type marshaler interface {
 }
 
 // unmarshaler is a message that knows how to unframe itself.
-type Unmarshaler interface {
+type unmarshaler interface {
 	Unmarshal([]byte) error
 }
 
@@ -238,7 +238,7 @@ func (s *service) arenaSlice(o C.Out) (b []byte) {
 }
 
 // arenaDecode decodes the unmarshaler from the given trusted arena offsets.
-func (s *service) arenaDecode(o C.Out, m Unmarshaler) Unmarshaler {
+func (s *service) arenaDecode(o C.Out, m unmarshaler) unmarshaler {
 	if err := m.Unmarshal(s.arenaSlice(o)); err != nil {
 		panic(err)
 	}

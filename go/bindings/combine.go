@@ -13,42 +13,28 @@ import (
 
 // CombineBuilder builds Combine instances.
 type CombineBuilder struct {
-	// indexMemPtr is a pointer to a Rust allocated, leaked,
-	// &'static SchemaIndex of a catalog.
-	indexMemPtr uint64
+	index *SchemaIndex
 	// pool holds initialized but available Combine instances.
 	pool sync.Pool
 }
 
 // NewCombineBuilder initializes a new CombineBuilder,
 // for building Combine instances using the given catalog.
-func NewCombineBuilder(catalogPath string) (*CombineBuilder, error) {
-	// Intern the |catalogPath| and receive a 'static SchemaIndex pointer.
-	// We'll pass this to future Combiner instances.
-	var svc = newCombineSvc()
-	svc.sendBytes(0, []byte(catalogPath))
-
-	var _, out, err = svc.poll()
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg pf.CombineAPI_Config
-	svc.arenaDecode(out[0], &cfg)
-
+func NewCombineBuilder(index *SchemaIndex) *CombineBuilder {
 	return &CombineBuilder{
-		indexMemPtr: cfg.SchemaIndexMemptr,
+		index: index,
 		pool: sync.Pool{
 			New: func() interface{} { return newCombineSvc() },
 		},
-	}, nil
+	}
 }
 
 // Combine manages the lifecycle of a combine operation.
 type Combine struct {
-	svc  *service
-	docs int
-	out  []C.Out
+	svc         *service
+	docs        int
+	out         []C.Out
+	pinnedIndex *SchemaIndex
 }
 
 // Open a new Combiner RPC, returning a ready Combiner instance to which documents may be Added.
@@ -62,7 +48,7 @@ func (f *CombineBuilder) Open(
 	var svc = f.pool.Get().(*service)
 
 	svc.mustSendMessage(1, &pf.CombineAPI_Config{
-		SchemaIndexMemptr:  f.indexMemPtr,
+		SchemaIndexMemptr:  f.index.indexMemPtr,
 		SchemaUri:          schemaURI,
 		KeyPtr:             keyPtrs,
 		FieldPtrs:          fieldPtrs,
@@ -75,8 +61,9 @@ func (f *CombineBuilder) Open(
 	}
 
 	return &Combine{
-		svc:  svc,
-		docs: 0,
+		svc:         svc,
+		docs:        0,
+		pinnedIndex: f.index,
 	}, nil
 }
 

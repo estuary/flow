@@ -1,36 +1,33 @@
 package bindings
 
 import (
-	"database/sql"
 	"encoding/json"
 	"testing"
 
 	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
 )
 
 func TestCombineBindings(t *testing.T) {
-	const dbPath = "../../catalog.db"
-	const collection = "testing/int-strings"
-
-	var db, err = sql.Open("sqlite3", "file:"+dbPath+"?immutable=true&mode=ro")
+	var catalog, err = flow.NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	collection, err := catalog.LoadCollection("testing/int-strings")
+	require.NoError(t, err)
+	bundle, err := catalog.LoadSchemaBundle()
+	require.NoError(t, err)
+	schemaIndex, err := NewSchemaIndex(bundle)
 	require.NoError(t, err)
 
-	var schemaURI string
-	var row = db.QueryRow("SELECT schema_uri FROM collections "+
-		"WHERE collection_name = ?", collection)
-	require.NoError(t, row.Scan(&schemaURI))
-
-	builder, err := NewCombineBuilder(dbPath)
-	require.NoError(t, err)
+	var builder = NewCombineBuilder(schemaIndex)
 
 	combiner, err := builder.Open(
-		schemaURI,
-		[]string{"/i"},
+		collection.SchemaUri,
+		collection.KeyPtrs,
 		[]string{"/s/1", "/i"},
-		"/meta/_uuid",
+		collection.UuidPtr,
 		false)
 	require.NoError(t, err)
 
@@ -67,8 +64,8 @@ func expectCombineFixture(t *testing.T, finish func(callback) error) {
 			I    int64
 			S    []string
 			Meta struct {
-				UUID string `json:"_uuid"`
-			}
+				UUID string
+			} `json:"_meta"`
 		}
 
 		require.NoError(t, json.Unmarshal(raw, &doc))
