@@ -1,13 +1,13 @@
 package bindings
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io/ioutil"
 	"os"
 	"testing"
 
 	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
@@ -17,31 +17,36 @@ import (
 )
 
 func TestDeriveBindings(t *testing.T) {
-	const dbPath = "../../catalog.db"
-	const collection = "testing/int-strings"
-	const transform = "appendStrings"
-
-	var db, err = sql.Open("sqlite3", "file:"+dbPath+"?immutable=true&mode=ro")
+	var catalog, err = flow.NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	derivation, err := catalog.LoadDerivedCollection("testing/int-strings")
+	require.NoError(t, err)
+	bundle, err := catalog.LoadSchemaBundle()
+	require.NoError(t, err)
+	schemaIndex, err := NewSchemaIndex(bundle)
 	require.NoError(t, err)
 
-	var transformID int32
-	var row = db.QueryRow("SELECT transform_id FROM transform_details "+
-		"WHERE derivation_name = ? and transform_name = ?", collection, transform)
-	require.NoError(t, row.Scan(&transformID))
-
-	tmpdir, err := ioutil.TempDir("", "derive-test")
+	localDir, err := ioutil.TempDir("", "derive-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpdir)
+	defer os.RemoveAll(localDir)
 
-	var dbEnv = gorocksdb.NewDefaultEnv()
+	jsWorker, err := flow.NewJSWorker(catalog, "")
+	require.NoError(t, err)
+	defer jsWorker.Stop()
+
+	var rocksEnv = gorocksdb.NewDefaultEnv()
+
+	// Tweak fixture so that the derive API produces partition fields.
+	// These aren't actually valid partitions, as they're not required to exist.
+	derivation.Collection.PartitionFields = []string{"sOne", "eye"}
 
 	der, err := NewDerive(
-		"../../catalog.db",
-		"testing/int-strings",
-		tmpdir,
-		"/meta/_uuid",
-		[]string{"/s/1", "/i"},
-		dbEnv)
+		schemaIndex,
+		derivation,
+		rocksEnv,
+		jsWorker,
+		localDir,
+	)
 	require.NoError(t, err)
 	defer der.Stop()
 
@@ -66,7 +71,7 @@ func TestDeriveBindings(t *testing.T) {
 		require.NoError(t, der.Add(
 			pf.UUIDParts{ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 			tuple.Tuple{fixture.key}.Pack(),
-			transformID,
+			0,
 			json.RawMessage(fixture.doc),
 		))
 	}

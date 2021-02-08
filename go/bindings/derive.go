@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/tecbot/gorocksdb"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -18,23 +19,21 @@ import (
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
-	svc       *service
-	frames    int
-	uuidPtr   string
-	fieldPtrs []string
-	env       *gorocksdb.Env
+	svc         *service
+	frames      int
+	pinnedEnv   *gorocksdb.Env
+	pinnedIndex *SchemaIndex
 }
 
 // NewDerive instantiates the derivation workflow around the given catalog
 // and derivation collection name, using the local directory & RocksDB
 // environment.
 func NewDerive(
-	catalogPath string,
-	derivation string,
+	index *SchemaIndex,
+	derivation *pf.DerivationSpec,
+	rocksEnv *gorocksdb.Env,
+	jsWorker *flow.JSWorker,
 	localDir string,
-	uuidPtr string,
-	fieldPtrs []string,
-	env *gorocksdb.Env,
 ) (*Derive, error) {
 	var svc = newDeriveSvc()
 
@@ -43,13 +42,14 @@ func NewDerive(
 		unsafe.Alignof(&gorocksdb.Env{}) != unsafe.Alignof(&gorocksdbEnv{}) {
 		panic("did gorocksdb.Env change? cannot safely reinterpret-cast")
 	}
-	var innerPtr = uintptr(unsafe.Pointer(((*gorocksdbEnv)(unsafe.Pointer(env))).c))
+	var innerPtr = uintptr(unsafe.Pointer(((*gorocksdbEnv)(unsafe.Pointer(rocksEnv))).c))
 
 	svc.mustSendMessage(0, &pf.DeriveAPI_Config{
-		CatalogPath:      catalogPath,
-		Derivation:       derivation,
-		LocalDir:         localDir,
-		RocksdbEnvMemptr: uint64(innerPtr),
+		SchemaIndexMemptr: index.indexMemPtr,
+		Derivation:        derivation,
+		RocksdbEnvMemptr:  uint64(innerPtr),
+		LocalDir:          localDir,
+		TypescriptUdsPath: jsWorker.SocketPath,
 	})
 
 	if _, _, err := svc.poll(); err != nil {
@@ -57,11 +57,10 @@ func NewDerive(
 	}
 
 	return &Derive{
-		svc:       svc,
-		frames:    0,
-		uuidPtr:   uuidPtr,
-		fieldPtrs: fieldPtrs,
-		env:       env,
+		svc:         svc,
+		frames:      0,
+		pinnedEnv:   rocksEnv,
+		pinnedIndex: index,
 	}, nil
 }
 
@@ -91,12 +90,12 @@ func (d *Derive) BeginTxn() {
 }
 
 // Add a document to the current transaction.
-func (d *Derive) Add(uuid pf.UUIDParts, key []byte, transformID int32, doc json.RawMessage) error {
+func (d *Derive) Add(uuid pf.UUIDParts, key []byte, transformIndex uint32, doc json.RawMessage) error {
 	// Send separate "header" vs "body" frames.
 	d.svc.mustSendMessage(3, &pf.DeriveAPI_DocHeader{
-		Uuid:        &uuid,
-		PackedKey:   key,
-		TransformId: transformID,
+		Uuid:           &uuid,
+		PackedKey:      key,
+		TransformIndex: transformIndex,
 	})
 	d.svc.sendBytes(4, doc)
 	d.frames += 2
@@ -121,10 +120,7 @@ func (d *Derive) Flush() error {
 
 // Finish deriving documents, invoking the callback for derived document.
 func (d *Derive) Finish(cb func(json.RawMessage, []byte, tuple.Tuple) error) error {
-	d.svc.mustSendMessage(5, &pf.DeriveAPI_Flush{
-		UuidPlaceholderPtr: d.uuidPtr,
-		FieldPtrs:          d.fieldPtrs,
-	})
+	d.svc.sendBytes(5, nil)
 
 	var _, out, err = d.svc.poll()
 	if err != nil {
@@ -158,7 +154,7 @@ func (d *Derive) ClearRegisters() error {
 func (d *Derive) Stop() {
 	d.svc.finalize()
 	d.svc = nil
-	d.env.Destroy()
+	d.pinnedEnv.Destroy()
 }
 
 func newDeriveSvc() *service {
