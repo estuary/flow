@@ -275,8 +275,8 @@ go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN} ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBRO
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
 
 .PHONY: catalog-test
-catalog-test: ${RUSTBIN} ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
-	flowctl test -v
+catalog-test: ${RUSTBIN} ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd
+	RUST_BACKTRACE=full flowctl -v test --source ${ROOTDIR}/examples/flow.yaml
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
@@ -302,5 +302,5 @@ docker-push-to-quay: docker-image
 # Make targets used for development:
 
 .PHONY: catalog-test
-develop: ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd ${ROOTDIR}/catalog.db
-	RUST_BACKTRACE=full flowctl -v develop
+develop: ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd
+	RUST_BACKTRACE=full flowctl -v develop --source ${ROOTDIR}/examples/flow.yaml

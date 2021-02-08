@@ -5,10 +5,12 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-catalog = { path = "../catalog", version = "0.0.0" }
+build = { path = "../build", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
-materialization = { path = "../materialization", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
 runtime = { path = "../runtime", version = "0.0.0" }
+sources = { path = "../sources", version = "0.0.0" }
 testing = { path = "../testing", version = "0.0.0" }
 
 anyhow = "*"
@@ -23,8 +25,11 @@ serde_json = { version =  "*"}
 structopt = "*"
 tempfile = "*"
 tokio = { version = "0.2", features = ["full"] }
+tracing = "*"
+tracing-futures = "*"
+tracing-log = "*"
+tracing-subscriber = "*"
 url = "*"
 
 [dev-dependencies]
 lazy_static = "*"
-tempfile = "*"

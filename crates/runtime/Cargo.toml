@@ -7,16 +7,18 @@ edition = "2018"
 [dependencies]
 labels = { path = "../labels", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
 
 chrono = { version = "*", features = ["serde"] }
 futures = "*"
 log = "*"
 nix = "*"
 prost-types = "*"
-rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 tempfile = "*"
 thiserror = "*"
 tokio = { version = "0.2", features = ["full"] }
 tonic = { version = "*" }
+tracing = "*"
+url  = "*"

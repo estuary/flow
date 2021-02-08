@@ -1,6 +1,6 @@
 use labels::{keys as label_keys, label_set, values as label_values};
+use models::tables;
 use protocol::{consumer, protocol as broker};
-use rusqlite::Connection as DB;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 
@@ -30,17 +30,13 @@ fn derivation_shard_id(
 }
 
 impl DerivationSet {
-    pub fn update_from_catalog(&mut self, db: &DB) -> rusqlite::Result<()> {
-        let mut stmt =
-            db.prepare("SELECT collection_name FROM collections_json WHERE is_derivation")?;
-        let mut rows = stmt.query(rusqlite::NO_PARAMS)?;
-
-        while let Some(row) = rows.next()? {
-            self.0.insert(row.get(0)?, ());
-        }
-        Ok(())
+    pub fn update_from_catalog(&mut self, derivations: &[tables::BuiltDerivation]) {
+        self.0
+            .extend(derivations.iter().map(|d| (d.derivation.to_string(), ())));
     }
 
+    // TODO(johnny): Rip this out, and have shards create their own recovery
+    // logs using journal rules if the shard doesn't exist.
     pub fn build_recovery_log_apply_request(&self) -> broker::ApplyRequest {
         let changes = self
             .0

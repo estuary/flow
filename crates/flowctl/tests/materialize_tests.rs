@@ -1,3 +1,4 @@
+/*
 use std::process::{Command, Output, Stdio};
 
 const FLOWCTL: &str = env!("CARGO_BIN_EXE_flowctl");
@@ -203,3 +204,5 @@ fn run_flowctl(catalog_path: &str, args: &[&str]) -> CommandResult {
         stderr,
     }
 }
+
+*/

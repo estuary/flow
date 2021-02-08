@@ -5,18 +5,20 @@ use protocol::{consumer, protocol as broker};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 pub struct Local {
     pub cluster: Cluster,
-    _dir: tempfile::TempDir,
-
+    consumer: tokio::process::Child,
     etcd: tokio::process::Child,
     gazette: tokio::process::Child,
     ingester: tokio::process::Child,
-    consumer: tokio::process::Child,
+    lambda_js: tokio::process::Child,
+
+    _dir: tempfile::TempDir, // Held for Drop side-effects.
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -33,18 +35,18 @@ pub enum Error {
 
 impl Local {
     pub async fn start(
+        temp_dir: tempfile::TempDir,
+        package_dir: &Path,
+        catalog_url: &url::Url,
         gazette_port: u16,
         ingester_port: u16,
         consumer_port: u16,
-        catalog_path: &str,
     ) -> Result<Local, Error> {
-        let dir = tempfile::TempDir::new()?;
-        std::fs::create_dir(dir.path().join("fragments"))?;
-        log::info!("using local runtime directory: {:?}", &dir);
+        std::fs::create_dir(temp_dir.path().join("fragments"))?;
 
         // Start `etcd`.
-        let i_dir = dir.path().to_owned();
-        let (etcd, logs) = Local::spawn("etcd", move |cmd| {
+        let i_dir = temp_dir.path().to_owned();
+        let (etcd, etcd_logs) = Local::spawn("etcd", move |cmd| {
             cmd.args(&[
                 "--listen-peer-urls",
                 "unix://peer.sock:0",
@@ -57,11 +59,11 @@ impl Local {
             .env("ETCD_LOGGER", "zap")
             .current_dir(i_dir);
         })?;
-        tokio::spawn(logs.for_each(|_| async {}));
+        tokio::spawn(etcd_logs.for_each(|_| async {}));
 
         // Start `gazette`.
-        let i_dir = dir.path().to_owned();
-        let (gazette, logs) = Local::spawn("gazette", move |cmd| {
+        let i_dir = temp_dir.path().to_owned();
+        let (gazette, gazette_logs) = Local::spawn("gazette", move |cmd| {
             cmd.args(&[
                 "--etcd.address",
                 "unix://client.sock:0",
@@ -76,16 +78,29 @@ impl Local {
             .current_dir(i_dir);
         })?;
 
-        let (broker_address, logs) = Self::extract_endpoint(logs, "starting broker").await;
-        tokio::spawn(logs.for_each(|_| async {}));
+        // Start `npm run develop`.
+        let (i_dir, i_uds) = (
+            package_dir.to_owned(),
+            temp_dir.path().join("lambda-uds-js"),
+        );
+        let (lambda_js, lambda_js_logs) = Local::spawn("npm", move |cmd| {
+            cmd.args(&["run", "develop"])
+                .env("SOCKET_PATH", i_uds)
+                .current_dir(i_dir);
+        })?;
+
+        // We must block for the broker address before we may continue.
+        let (broker_address, gazette_logs) =
+            Self::extract_endpoint(gazette_logs, "starting broker").await;
+        tokio::spawn(gazette_logs.for_each(|_| async {}));
 
         // Start `flow-ingester`.
-        let (i_dir, i_broker_address, i_catalog_path) = (
-            dir.path().to_owned(),
+        let (i_dir, i_broker_address, i_catalog_url) = (
+            temp_dir.path().to_owned(),
             broker_address.clone(),
-            catalog_path.to_owned(),
+            catalog_url.clone(),
         );
-        let (ingester, logs) = Local::spawn("flow-ingester", move |cmd| {
+        let (ingester, ingester_logs) = Local::spawn("flow-ingester", move |cmd| {
             cmd.args(&[
                 "--broker.address",
                 &i_broker_address,
@@ -94,7 +109,8 @@ impl Local {
                 "--etcd.address",
                 "unix://client.sock:0",
                 "--ingest.catalog",
-                &i_catalog_path,
+                // TODO(johnny): Pass as URL ?
+                i_catalog_url.path(),
                 "--ingest.port",
                 &format!("{}", ingester_port),
                 "--log.format",
@@ -104,11 +120,8 @@ impl Local {
             .current_dir(i_dir);
         })?;
 
-        let (ingester_address, logs) = Self::extract_endpoint(logs, "starting flow-ingester").await;
-        tokio::spawn(logs.for_each(|_| async {}));
-
         // Start `flow-consumer`.
-        let (i_dir, i_broker_address) = (dir.path().to_owned(), broker_address.clone());
+        let (i_dir, i_broker_address) = (temp_dir.path().to_owned(), broker_address.clone());
         let (consumer, logs) = Local::spawn("flow-consumer", move |cmd| {
             cmd.args(&[
                 "--broker.address",
@@ -121,6 +134,8 @@ impl Local {
                 &format!("{}", consumer_port),
                 "--etcd.address",
                 "unix://client.sock:0",
+                "--flow.lambda-uds-js",
+                "lambda-uds-js",
                 "--log.format",
                 "json",
                 "serve",
@@ -128,8 +143,16 @@ impl Local {
             .current_dir(i_dir);
         })?;
 
-        let (consumer_address, logs) = Self::extract_endpoint(logs, "starting consumer").await;
-        tokio::spawn(logs.for_each(|_| async {}));
+        // Block for ready notifications from remaining components.
+        let lambda_js_logs = Self::extract_ready(lambda_js_logs).await;
+        let (consumer_address, consumer_logs) =
+            Self::extract_endpoint(logs, "starting consumer").await;
+        let (ingester_address, ingester_logs) =
+            Self::extract_endpoint(ingester_logs, "starting flow-ingester").await;
+
+        tokio::spawn(lambda_js_logs.for_each(|_| async {}));
+        tokio::spawn(ingester_logs.for_each(|_| async {}));
+        tokio::spawn(consumer_logs.for_each(|_| async {}));
 
         Ok(Local {
             cluster: Cluster {
@@ -137,11 +160,12 @@ impl Local {
                 consumer_address,
                 ingester_address,
             },
-            _dir: dir,
+            _dir: temp_dir,
             etcd,
             gazette,
             ingester,
             consumer,
+            lambda_js,
         })
     }
 
@@ -167,6 +191,23 @@ impl Local {
 
         let logs = Log::stream(target, &mut child).inspect(proxy_log);
         Ok((child, logs))
+    }
+
+    async fn extract_ready<S>(mut s: S) -> S
+    where
+        S: Stream<Item = std::io::Result<Log>> + Unpin,
+    {
+        while let Some(l) = s.next().await {
+            tracing::info!(?l, "HERE");
+            match &l {
+                Ok(Log::Unstructured(_, log)) if log == "READY" => {
+                    tracing::info!("found needle");
+                    return s;
+                }
+                _ => {}
+            }
+        }
+        s
     }
 
     async fn extract_endpoint<S>(mut s: S, needle: &str) -> (String, S)
@@ -226,6 +267,7 @@ impl Local {
             ("ingester", &mut self.ingester),
             ("gazette", &mut self.gazette),
             ("etcd", &mut self.etcd),
+            ("npm", &mut self.lambda_js),
         ] {
             nix::sys::signal::kill(
                 nix::unistd::Pid::from_raw(child.id() as i32),
