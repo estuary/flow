@@ -40,23 +40,23 @@ var Config = new(struct {
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 })
 
-type ingesterTesting flow.Ingester
+type ingesterTestAPI ingest.Ingester
 
 // AdvanceTime advances the current test time.
-func (i *ingesterTesting) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest) (*pf.AdvanceTimeResponse, error) {
+func (i *ingesterTestAPI) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest) (*pf.AdvanceTimeResponse, error) {
 	var add = uint64(time.Second) * req.AddClockDeltaSeconds
 	var out = time.Duration(atomic.AddInt64((*int64)(&i.PublishClockDelta), int64(add)))
 
 	// Block until a current transaction (if any) commits, ensuring
 	// the next transaction will see and apply the updated time delta.
-	var ingest = (*flow.Ingester)(i).Start()
+	var ingest = (*ingest.Ingester)(i).Start()
 	var _, err = ingest.PrepareAndAwait()
 
 	return &pf.AdvanceTimeResponse{ClockDeltaSeconds: uint64(out / time.Second)}, err
 }
 
 // ClearRegisters returns a "not implemented" error.
-func (i *ingesterTesting) ClearRegisters(_ context.Context, req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
+func (i *ingesterTestAPI) ClearRegisters(_ context.Context, req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
 	return new(pf.ClearRegistersResponse), fmt.Errorf("not implemented")
 }
 
@@ -77,9 +77,15 @@ func (cmdServe) Execute(_ []string) error {
 	mbp.Must(err, "opening catalog")
 	collections, err := catalog.LoadCapturedCollections()
 	mbp.Must(err, "loading captured collection specifications")
+	bundle, err := catalog.LoadSchemaBundle()
+	mbp.Must(err, "loading schema bundle")
+	schemaIndex, err := bindings.NewSchemaIndex(bundle)
+	mbp.Must(err, "building schema index")
+	journalRules, err := catalog.LoadJournalRules()
+	mbp.Must(err, "loading journal rules")
 
 	for _, collection := range collections {
-		log.WithField("name", collection.Name).Info("serving captured collection")
+		log.WithField("name", collection.Collection).Info("serving captured collection")
 	}
 	// Bind our server listener, grabbing a random available port if Port is zero.
 	srv, err := server.New("", Config.Ingest.Port)
@@ -99,23 +105,24 @@ func (cmdServe) Execute(_ []string) error {
 
 	journals, err := flow.NewJournalsKeySpace(context.Background(), etcd, Config.Flow.BrokerRoot)
 	mbp.Must(err, "failed to load Gazette journals")
-	builder, err := bindings.NewCombineBuilder(catalog.LocalPath())
-	mbp.Must(err, "failed to build combine factory")
 
-	var ingester = &flow.Ingester{
-		Collections:    collections,
-		CombineBuilder: builder,
-		Mapper: &flow.Mapper{
-			Ctx:           tasks.Context(),
-			JournalClient: rjc,
-			Journals:      journals,
-		},
+	var mapper = &flow.Mapper{
+		Ctx:           tasks.Context(),
+		JournalClient: rjc,
+		Journals:      journals,
+		JournalRules:  journalRules.Rules,
+	}
+	var ingester = &ingest.Ingester{
+		Collections:       collections,
+		CombineBuilder:    bindings.NewCombineBuilder(schemaIndex),
+		Mapper:            mapper,
+		PublishClockDelta: 0,
 	}
 	ingester.QueueTasks(tasks, rjc)
 
 	ingest.RegisterAPIs(srv, ingester, journals)
 
-	pf.RegisterTestingServer(srv.GRPCServer, (*ingesterTesting)(ingester))
+	pf.RegisterTestingServer(srv.GRPCServer, (*ingesterTestAPI)(ingester))
 	srv.QueueTasks(tasks)
 
 	tasks.Queue("journals.Watch", func() error {

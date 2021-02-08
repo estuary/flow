@@ -11,6 +11,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -23,11 +24,12 @@ import (
 
 // Derive wires the high-level runtime of the derive consumer flow.
 type Derive struct {
-	readBuilder *shuffle.ReadBuilder
-	mapper      flow.Mapper
-	derivation  pf.CollectionSpec
+	binding     *bindings.Derive
 	coordinator *shuffle.Coordinator
-	worker      *bindings.Derive
+	derivation  *pf.DerivationSpec
+	jsWorker    *flow.JSWorker
+	mapper      flow.Mapper
+	readBuilder *shuffle.ReadBuilder
 	recorder    *recoverylog.Recorder
 }
 
@@ -39,48 +41,64 @@ func NewDeriveApp(
 	journals *keyspace.KeySpace,
 	shard consumer.Shard,
 	recorder *recoverylog.Recorder,
+	lambdaJSOverride string,
 ) (*Derive, error) {
-	var catalogURL, err = shardLabel(shard, labels.CatalogURL)
+	catalogURL, err := shardLabel(shard, labels.CatalogURL)
 	if err != nil {
 		return nil, err
 	}
+	derivationName, err := shardLabel(shard, labels.Derivation)
+	if err != nil {
+		return nil, err
+	}
+
+	// Open catalog and load required specs.
 	catalog, err := flow.NewCatalog(catalogURL, recorder.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("opening catalog: %w", err)
 	}
 	defer catalog.Close()
 
-	derivation, err := shardLabel(shard, labels.Derivation)
-	if err != nil {
-		return nil, err
-	}
-	spec, err := catalog.LoadDerivedCollection(derivation)
+	derivation, err := catalog.LoadDerivedCollection(derivationName)
 	if err != nil {
 		return nil, fmt.Errorf("loading collection spec: %w", err)
 	}
-	transforms, err := catalog.LoadTransforms(derivation)
+	schemaBundle, err := catalog.LoadSchemaBundle()
 	if err != nil {
-		return nil, fmt.Errorf("loading transform specs: %w", err)
+		return nil, fmt.Errorf("loading schema bundle: %w", err)
 	}
-	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard,
-		shuffle.ReadSpecsFromTransforms(transforms))
+	journalRules, err := catalog.LoadJournalRules()
 	if err != nil {
-		return nil, fmt.Errorf("NewReadBuilder: %w", err)
+		return nil, fmt.Errorf("loading journal rules: %w", err)
+	}
+	schemaIndex, err := bindings.NewSchemaIndex(schemaBundle)
+	if err != nil {
+		return nil, fmt.Errorf("building schema index: %w", err)
 	}
 
 	var mapper = flow.Mapper{
 		Ctx:           shard.Context(),
 		JournalClient: shard.JournalClient(),
 		Journals:      journals,
+		JournalRules:  journalRules.Rules,
 	}
 
-	worker, err := bindings.NewDerive(
-		catalog.LocalPath(),
-		spec.Name.String(),
-		recorder.Dir,
-		spec.UuidPtr,
-		flow.PartitionPointers(&spec),
+	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard,
+		shuffle.TransformShuffles(derivation.Transforms))
+	if err != nil {
+		return nil, fmt.Errorf("NewReadBuilder: %w", err)
+	}
+	jsWorker, err := flow.NewJSWorker(catalog, lambdaJSOverride)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start JS worker: %w", err)
+	}
+
+	binding, err := bindings.NewDerive(
+		schemaIndex,
+		derivation,
 		store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder)),
+		jsWorker,
+		recorder.Dir,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building derive worker: %w", err)
@@ -89,28 +107,33 @@ func NewDeriveApp(
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient())
 
 	return &Derive{
-		readBuilder: readBuilder,
-		mapper:      mapper,
-		derivation:  spec,
+		binding:     binding,
 		coordinator: coordinator,
-		worker:      worker,
+		derivation:  derivation,
+		jsWorker:    jsWorker,
+		mapper:      mapper,
+		readBuilder: readBuilder,
 		recorder:    recorder,
 	}, nil
 }
 
 // RestoreCheckpoint implements the Store interface, delegating to the worker.
 func (a *Derive) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
-	return a.worker.RestoreCheckpoint()
+	return a.binding.RestoreCheckpoint()
 }
 
 // Destroy implements the Store interface. It gracefully stops the flow-worker.
 func (a *Derive) Destroy() {
-	a.worker.Stop()
+	a.binding.Stop()
+
+	if err := a.jsWorker.Stop(); err != nil {
+		log.WithField("err", err).Error("failed to stop JavaScript worker")
+	}
 }
 
 // BeginTxn begins a derive transaction.
 func (a *Derive) BeginTxn(shard consumer.Shard) error {
-	a.worker.BeginTxn()
+	a.binding.BeginTxn()
 	return nil
 }
 
@@ -119,17 +142,23 @@ func (a *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 	var doc = env.Message.(pf.IndexedShuffleResponse)
 	var uuid = doc.UuidParts[doc.Index]
 
-	if err := a.worker.Add(
-		uuid,
-		doc.Arena.Bytes(doc.PackedKey[doc.Index]),
-		doc.Transform.ReaderCatalogDBID,
-		doc.Arena.Bytes(doc.DocsJson[doc.Index]),
-	); err != nil {
-		return err
+	for index := range a.derivation.Transforms {
+		// Find *Shuffle with equal pointer.
+		if &a.derivation.Transforms[index].Shuffle == doc.Shuffle {
+			if err := a.binding.Add(
+				uuid,
+				doc.Arena.Bytes(doc.PackedKey[doc.Index]),
+				uint32(index),
+				doc.Arena.Bytes(doc.DocsJson[doc.Index]),
+			); err != nil {
+				return err
+			}
+			break
+		}
 	}
 
 	if message.Flags(uuid.ProducerAndFlags)&message.Flag_ACK_TXN != 0 {
-		return a.worker.Flush()
+		return a.binding.Flush()
 	}
 	return nil
 }
@@ -137,9 +166,9 @@ func (a *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 // FinalizeTxn finishes and drains the derive worker transaction,
 // and publishes each combined document to the derived collection.
 func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
-	return a.worker.Finish(func(doc json.RawMessage, packedKey []byte, partitions tuple.Tuple) error {
+	return a.binding.Finish(func(doc json.RawMessage, packedKey []byte, partitions tuple.Tuple) error {
 		var _, err = pub.PublishUncommitted(a.mapper.Map, flow.Mappable{
-			Spec:       &a.derivation,
+			Spec:       a.derivation.Collection,
 			Doc:        doc,
 			PackedKey:  packedKey,
 			Partitions: partitions,
@@ -155,7 +184,7 @@ func (a *Derive) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.
 	_ = a.recorder.Barrier(waitFor)
 
 	// Ask the worker to apply its rocks WriteBatch, with our marshalled Checkpoint.
-	if err := a.worker.PrepareCommit(cp); err != nil {
+	if err := a.binding.PrepareCommit(cp); err != nil {
 		return client.FinishedOperation(err)
 	}
 	// Another barrier which notifies when the WriteBatch
@@ -194,7 +223,7 @@ func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
 func (a *Derive) ClearRegisters(ctx context.Context,
 	req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
 
-	var err = a.worker.ClearRegisters()
+	var err = a.binding.ClearRegisters()
 	return new(pf.ClearRegistersResponse), err
 }
 
