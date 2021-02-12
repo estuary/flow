@@ -15,13 +15,8 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 	defer cleanup()
 
 	var fsm, _ = recoverylog.NewFSM(recoverylog.FSMHints{Log: aRecoveryLog})
-	var rep = NewTestReplica(t, bk)
-	var recorder = &recoverylog.Recorder{
-		FSM:    fsm,
-		Author: rep.author,
-		Dir:    rep.tmpdir,
-		Client: rep.client,
-	}
+	var rep = newTestReplica(t, bk)
+	var recorder = recoverylog.NewRecorder(aRecoveryLog, fsm, rep.author, rep.tmpdir, rep.client)
 	var store = NewStore(recorder)
 	require.NoError(t, store.Open())
 
@@ -56,6 +51,6 @@ func TestStoreWriteAndReadKeysAndOffsets(t *testing.T) {
 	store.Destroy()
 
 	// Assert the store directory was removed.
-	_, err = os.Stat(recorder.Dir)
+	_, err = os.Stat(recorder.Dir())
 	require.True(t, os.IsNotExist(err))
 }

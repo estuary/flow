@@ -88,10 +88,11 @@ func (s *Store) Open() (err error) {
 	// to encourage more frequent compactions into new files.
 	s.Options.SetMaxManifestFileSize(1 << 17) // 131072 bytes.
 
-	s.DB, err = rocks.OpenDb(s.Options, s.recorder.Dir)
+	s.DB, err = rocks.OpenDb(s.Options, s.recorder.Dir())
 	return
 }
 
+// RestoreCheckpoint implements consumer.Store.
 func (s *Store) RestoreCheckpoint(_ consumer.Shard) (pc.Checkpoint, error) {
 	var cp pc.Checkpoint
 
@@ -147,6 +148,7 @@ func (s *Store) RestoreCheckpoint(_ consumer.Shard) (pc.Checkpoint, error) {
 	return cp, nil
 }
 
+// StartCommit implements consumer.Store.
 func (s *Store) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.OpFutures) client.OpFuture {
 	_ = s.recorder.Barrier(waitFor)
 
@@ -171,7 +173,7 @@ func (s *Store) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.O
 	return s.recorder.Barrier(nil)
 }
 
-// Destroy the Store.
+// Destroy implements consumer.Store.
 func (s *Store) Destroy() {
 	if s.DB != nil {
 		s.DB.Close() // Blocks until all background compaction has completed.
@@ -183,9 +185,9 @@ func (s *Store) Destroy() {
 	s.WriteBatch.Destroy()
 	s.WriteOptions.Destroy()
 
-	if err := os.RemoveAll(s.recorder.Dir); err != nil {
+	if err := os.RemoveAll(s.recorder.Dir()); err != nil {
 		log.WithFields(log.Fields{
-			"dir": s.recorder.Dir,
+			"dir": s.recorder.Dir(),
 			"err": err,
 		}).Error("failed to remove RocksDB directory")
 	}

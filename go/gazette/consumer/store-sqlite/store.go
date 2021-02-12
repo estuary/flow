@@ -148,7 +148,7 @@ func NewStore(recorder *recoverylog.Recorder) (*Store, error) {
 	// Wire this Store instance to be wrapped by a registered SQLite shim VFS,
 	s.vfs = C.newRecFS(
 		C.CString(s.SQLiteURIValues.Get("vfs")),
-		C.CString(s.recorder.Dir+string(filepath.Separator)),
+		C.CString(s.recorder.Dir()+string(filepath.Separator)),
 	)
 	if rc := sqlite3.ErrNo(C.sqlite3_vfs_register(s.vfs, 0)); rc != 0 {
 		C.recFSFree(s.vfs)
@@ -324,7 +324,7 @@ func (s *Store) Destroy() {
 	if s.SQLiteDB != nil {
 		if err := s.SQLiteDB.Close(); err != nil {
 			log.WithFields(log.Fields{
-				"dir": s.recorder.Dir,
+				"dir": s.recorder.Dir(),
 				"err": err,
 			}).Error("failed to close SQLite DB")
 		}
@@ -332,7 +332,7 @@ func (s *Store) Destroy() {
 	if s.vfs != nil {
 		if rc := sqlite3.ErrNo(C.sqlite3_vfs_unregister(s.vfs)); rc != 0 {
 			log.WithFields(log.Fields{
-				"dir": s.recorder.Dir,
+				"dir": s.recorder.Dir(),
 				"err": rc.Error(),
 			}).Error("failed to unregister VFS shim")
 		}
@@ -346,16 +346,16 @@ func (s *Store) Destroy() {
 	s.PageDBOptions.Destroy()
 	s.PageDBEnv.Destroy()
 
-	if err := os.RemoveAll(s.recorder.Dir); err != nil {
+	if err := os.RemoveAll(s.recorder.Dir()); err != nil {
 		log.WithFields(log.Fields{
-			"dir": s.recorder.Dir,
+			"dir": s.recorder.Dir(),
 			"err": err,
 		}).Error("failed to remove store directory")
 	}
 }
 
 func (s *Store) pageDBPath() string {
-	return filepath.Join(s.recorder.Dir, "pageDB")
+	return filepath.Join(s.recorder.Dir(), "pageDB")
 }
 
 // SQLiteCompiledOptions returns the set of compile-time options that
@@ -398,14 +398,14 @@ func cgoOpenPageFile(vfs *C.sqlite3_vfs, cPath *C.char, f *C.sqlite3_file) C.int
 	var store = vfsToStore(vfs)
 
 	var name = C.GoString(cPath)
-	if !strings.HasPrefix(name, store.recorder.Dir) {
+	if !strings.HasPrefix(name, store.recorder.Dir()) {
 		log.WithFields(log.Fields{
-			"dir":  store.recorder.Dir,
+			"dir":  store.recorder.Dir(),
 			"path": name,
 		}).Error("DB path is not rooted by recorder.Dir")
 		return C.int(sqlite3.ErrCantOpen)
 	}
-	name = path.Clean(filepath.ToSlash(name[len(store.recorder.Dir):]))
+	name = path.Clean(filepath.ToSlash(name[len(store.recorder.Dir()):]))
 
 	// Find a column family corresponding to |name|. If one doesn't exist, create it.
 	var handle, ok = store.PageDBColumns[name]

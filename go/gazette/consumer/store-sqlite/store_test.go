@@ -62,12 +62,13 @@ func TestStoreCommitAndRecover(t *testing.T) {
 	var tmpdir, err = ioutil.TempDir("", "store-sqlite")
 	require.NoError(t, err)
 
-	var recorder = &recoverylog.Recorder{
-		FSM:    fsm,
-		Author: recoverylog.NewRandomAuthor(),
-		Dir:    tmpdir,
-		Client: ajc,
-	}
+	var recorder = recoverylog.NewRecorder(
+		aRecoveryLog,
+		fsm,
+		recoverylog.NewRandomAuthor(),
+		tmpdir,
+		ajc,
+	)
 	store, err := NewStore(recorder)
 	require.NoError(t, err)
 	require.NoError(t, store.Open(""))
@@ -171,12 +172,13 @@ func TestFileBindingCases(t *testing.T) {
 	var tmpdir, err = ioutil.TempDir("", "store-sqlite")
 	require.NoError(t, err)
 
-	var recorder = &recoverylog.Recorder{
-		FSM:    fsm,
-		Author: recoverylog.NewRandomAuthor(),
-		Dir:    tmpdir,
-		Client: ajc,
-	}
+	var recorder = recoverylog.NewRecorder(
+		aRecoveryLog,
+		fsm,
+		recoverylog.NewRandomAuthor(),
+		tmpdir,
+		ajc,
+	)
 	store, err := NewStore(recorder)
 	require.NoError(t, err)
 	require.NoError(t, store.Open(""))
@@ -350,19 +352,19 @@ func TestFileBindingCases(t *testing.T) {
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
 		require.Equal(t, 0, rc)
 
-		var fnode = store.recorder.FSM.Links["/log-rw.file"]
-		var seqNo = store.recorder.FSM.LiveNodes[fnode].Segments[0].FirstSeqNo
+		var fnode = fsm.Links["/log-rw.file"]
+		var seqNo = fsm.LiveNodes[fnode].Segments[0].FirstSeqNo
 
 		// Issue a write. Expect it's delegated: a file was created on-disk with our write.
 		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
-		var b, err = ioutil.ReadFile(filepath.Join(store.recorder.Dir, "/log-rw.file"))
+		var b, err = ioutil.ReadFile(filepath.Join(tmpdir, "/log-rw.file"))
 		require.NoError(t, err)
 		require.Equal(t, makeU32(kHotJournalHeader), b)
 
 		// However, the write is buffered / not delivered over CGO until the file is synced.
-		require.Equal(t, seqNo, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 		require.Equal(t, 0, testLogFileSync(f))
-		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo+1, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 	})
 
 	t.Run("logBufferAndFlush", func(t *testing.T) {
@@ -370,35 +372,35 @@ func TestFileBindingCases(t *testing.T) {
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
 		require.Equal(t, 0, rc)
 
-		var fnode = store.recorder.FSM.Links["/log-flush.file"]
-		var seqNo = store.recorder.FSM.LiveNodes[fnode].Segments[0].FirstSeqNo
+		var fnode = fsm.Links["/log-flush.file"]
+		var seqNo = fsm.LiveNodes[fnode].Segments[0].FirstSeqNo
 
 		// Fill file buffer, but don't yet flush.
 		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 		var b = bytes.Repeat([]byte("a"), int(fileBufferSize-4))
 		require.Equal(t, 0, testLogFileWrite(f, b, 4))
-		require.Equal(t, seqNo, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 
 		// Expect next write causes a buffer flush.
 		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), int64(fileBufferSize)))
-		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo+1, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 
 		// A small write at a non-continuous offset also flushes the buffer.
 		require.Equal(t, 0, testLogFileWrite(f, []byte("hello"), 123))
-		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo+1, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 		require.Equal(t, 0, testLogFileSync(f))
-		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo+1, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 
 		// A very large write results in multiple buffer-size flushes.
 		b = bytes.Repeat([]byte("b"), int(2*fileBufferSize+10))
 		require.Equal(t, 0, testLogFileWrite(f, b, 456))
-		require.Equal(t, seqNo+2, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo+2, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo += 2
 		require.Equal(t, 0, testLogFileSync(f))
-		require.Equal(t, seqNo+1, store.recorder.FSM.LiveNodes[fnode].Segments[0].LastSeqNo)
+		require.Equal(t, seqNo+1, fsm.LiveNodes[fnode].Segments[0].LastSeqNo)
 		seqNo++
 	})
 
@@ -408,7 +410,7 @@ func TestFileBindingCases(t *testing.T) {
 		require.Equal(t, 0, rc)
 
 		// Write some initial content.
-		var fnode = store.recorder.FSM.Links["/log-trunc.file"]
+		var fnode = fsm.Links["/log-trunc.file"]
 		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 
 		// Not an error to truncate to the implied file length (though we haven't flushed).
@@ -420,14 +422,14 @@ func TestFileBindingCases(t *testing.T) {
 
 		// Truncate to non-zero offset is a recorder no-op.
 		require.Equal(t, 0, testLogFileTruncate(f, 3))
-		require.Equal(t, fnode, store.recorder.FSM.Links["/log-trunc.file"])
+		require.Equal(t, fnode, fsm.Links["/log-trunc.file"])
 
 		// Truncating to zero, however, records as a delete-and-create with a new empty FNode.
 		require.Equal(t, 0, testLogFileTruncate(f, 0))
-		require.NotEqual(t, fnode, store.recorder.FSM.Links["/log-trunc.file"])
+		require.NotEqual(t, fnode, fsm.Links["/log-trunc.file"])
 
-		fnode = store.recorder.FSM.Links["/log-trunc.file"]
-		var segment = store.recorder.FSM.LiveNodes[fnode].Segments[0]
+		fnode = fsm.Links["/log-trunc.file"]
+		var segment = fsm.LiveNodes[fnode].Segments[0]
 		require.Equal(t, segment.FirstSeqNo, segment.LastSeqNo)
 	})
 
@@ -436,7 +438,7 @@ func TestFileBindingCases(t *testing.T) {
 			kSqliteOpenCreate|kSqliteOpenReadwrite|kSqliteOpenMainJournal)
 		require.Equal(t, 0, rc)
 
-		var fnode = store.recorder.FSM.Links["/log-restart.file"]
+		var fnode = fsm.Links["/log-restart.file"]
 		require.Equal(t, 0, testLogFileWrite(f, makeU32(kHotJournalHeader), 0))
 		require.Equal(t, 0, testLogFileSync(f))
 
@@ -444,14 +446,14 @@ func TestFileBindingCases(t *testing.T) {
 		for _, hdr := range []uint32{kHotJournalHeader, 12345678} {
 			require.Equal(t, 0, testLogFileWrite(f, makeU32(hdr), 0))
 			require.Equal(t, 0, testLogFileSync(f))
-			require.Equal(t, fnode, store.recorder.FSM.Links["/log-restart.file"])
+			require.Equal(t, fnode, fsm.Links["/log-restart.file"])
 		}
 		// Re-writes of zero or WAL headers _do_ restart the log.
 		for _, hdr := range []uint32{0, kWALHeaderBigEndian, kWALHeaderLittleEndian} {
 			require.Equal(t, 0, testLogFileWrite(f, makeU32(hdr), 0))
 			require.Equal(t, 0, testLogFileSync(f))
 
-			var next = store.recorder.FSM.Links["/log-restart.file"]
+			var next = fsm.Links["/log-restart.file"]
 			require.NotEqual(t, fnode, next)
 			fnode = next
 		}
@@ -546,19 +548,19 @@ func runSequenceTest(t *testing.T, path string, uriArgs map[string]string) {
 		}()
 		player.InjectHandoff(author)
 		<-player.Done()
-		require.NotNil(t, player.FSM)
+		require.NotNil(t, player.Resolved.FSM)
 
 		if store != nil {
 			prevCancel()
 			store.Destroy()
 		}
-		var recorder = &recoverylog.Recorder{
-			FSM:            player.FSM,
-			Author:         author,
-			Dir:            tmpdir,
-			Client:         ajc,
-			CheckRegisters: &pb.LabelSelector{Include: *author.Fence()},
-		}
+		var recorder = recoverylog.NewRecorder(
+			aRecoveryLog,
+			player.Resolved.FSM,
+			author,
+			tmpdir,
+			ajc,
+		)
 
 		store, err = NewStore(recorder)
 		require.NoError(t, err)

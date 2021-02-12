@@ -114,13 +114,13 @@ func (s *JSONFileStore) StartCommit(_ Shard, cp pc.Checkpoint, waitFor OpFutures
 
 // Destroy the JSONFileStore directory and state file.
 func (s *JSONFileStore) Destroy() {
-	if err := os.RemoveAll(s.recorder.Dir); err != nil {
+	if err := os.RemoveAll(s.recorder.Dir()); err != nil {
 		log.WithFields(log.Fields{
-			"dir": s.recorder.Dir,
+			"dir": s.recorder.Dir(),
 			"err": err,
 		}).Error("failed to remove JSON store directory")
 	}
 }
 
-func (s *JSONFileStore) currentPath() string { return filepath.Join(s.recorder.Dir, "state.json") }
-func (s *JSONFileStore) nextPath() string    { return filepath.Join(s.recorder.Dir, "next.json") }
+func (s *JSONFileStore) currentPath() string { return filepath.Join(s.recorder.Dir(), "state.json") }
+func (s *JSONFileStore) nextPath() string    { return filepath.Join(s.recorder.Dir(), "next.json") }

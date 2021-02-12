@@ -21,7 +21,7 @@ func TestSimpleStopAndStart(t *testing.T) {
 	var bk, cleanup = newBrokerAndLog(t)
 	defer cleanup()
 
-	var replica1 = NewTestReplica(t, bk)
+	var replica1 = newTestReplica(t, bk)
 	defer replica1.teardown()
 
 	replica1.startWriting(aRecoveryLog)
@@ -41,7 +41,7 @@ func TestSimpleStopAndStart(t *testing.T) {
 		}
 	}
 
-	var replica2 = NewTestReplica(t, bk)
+	var replica2 = newTestReplica(t, bk)
 	defer replica2.teardown()
 
 	replica2.startReading(hints)
@@ -71,11 +71,11 @@ func TestWarmStandbyHandoff(t *testing.T) {
 	fo.SetWait(true) // Sync to log before returning.
 	defer fo.Destroy()
 
-	var replica1 = NewTestReplica(t, bk)
+	var replica1 = newTestReplica(t, bk)
 	defer replica1.teardown()
-	var replica2 = NewTestReplica(t, bk)
+	var replica2 = newTestReplica(t, bk)
 	defer replica2.teardown()
-	var replica3 = NewTestReplica(t, bk)
+	var replica3 = newTestReplica(t, bk)
 	defer replica3.teardown()
 
 	replica1.startWriting(aRecoveryLog)
@@ -125,9 +125,9 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 	defer cleanup()
 
 	// Begin with two replicas.
-	var replica1 = NewTestReplica(t, bk)
+	var replica1 = newTestReplica(t, bk)
 	defer replica1.teardown()
-	var replica2 = NewTestReplica(t, bk)
+	var replica2 = newTestReplica(t, bk)
 	defer replica2.teardown()
 
 	// |replica1| begins as primary.
@@ -151,9 +151,9 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 	require.NoError(t, replica2.db.Flush(fo))
 
 	// New |replica3| is hinted from |replica1|, and |replica4| from |replica2|.
-	var replica3 = NewTestReplica(t, bk)
+	var replica3 = newTestReplica(t, bk)
 	defer replica3.teardown()
-	var replica4 = NewTestReplica(t, bk)
+	var replica4 = newTestReplica(t, bk)
 	defer replica4.teardown()
 
 	hints, _ = replica1.recorder.BuildHints()
@@ -182,7 +182,7 @@ func TestPlayThenCancel(t *testing.T) {
 	var bk, cleanup = newBrokerAndLog(t)
 	defer cleanup()
 
-	var r = NewTestReplica(t, bk)
+	var r = newTestReplica(t, bk)
 	defer r.teardown()
 
 	// Create a Context which will cancel itself after a delay.
@@ -203,7 +203,7 @@ func TestCancelThenPlay(t *testing.T) {
 	var bk, cleanup = newBrokerAndLog(t)
 	defer cleanup()
 
-	var r = NewTestReplica(t, bk)
+	var r = newTestReplica(t, bk)
 	defer r.teardown()
 
 	// Create a Context which is cancelled immediately.
@@ -235,7 +235,7 @@ type testReplica struct {
 	t        require.TestingT
 }
 
-func NewTestReplica(t require.TestingT, client client.AsyncJournalClient) *testReplica {
+func newTestReplica(t require.TestingT, client client.AsyncJournalClient) *testReplica {
 	var r = &testReplica{
 		client: client,
 		player: recoverylog.NewPlayer(),
@@ -259,7 +259,7 @@ func (r *testReplica) startReading(hints recoverylog.FSMHints) {
 func (r *testReplica) startWriting(log pb.Journal) {
 	var fsm, err = recoverylog.NewFSM(recoverylog.FSMHints{Log: log})
 	require.NoError(r.t, err)
-	r.initDB(fsm)
+	r.initDB(log, fsm)
 }
 
 // Finish playback, build a new recorder, and open an observed database.
@@ -267,14 +267,16 @@ func (r *testReplica) makeLive() {
 	r.player.InjectHandoff(r.author)
 	<-r.player.Done()
 
-	require.NotNil(r.t, r.player.FSM)
-
-	r.initDB(r.player.FSM)
+	require.NotNil(r.t, r.player.Resolved.FSM)
+	r.initDB(r.player.Resolved.Log, r.player.Resolved.FSM)
 }
 
-func (r *testReplica) initDB(fsm *recoverylog.FSM) {
-	r.recorder = &recoverylog.Recorder{
-		FSM: fsm, Author: r.author, Dir: r.tmpdir, Client: r.client}
+func (r *testReplica) initDB(log pb.Journal, fsm *recoverylog.FSM) {
+	r.recorder = recoverylog.NewRecorder(log, fsm, r.author, r.tmpdir, r.client)
+
+	// Tests in this package predate register checks, and deliberately
+	// exercise recovery log sequencing and conflict handling.
+	r.recorder.DisableRegisterChecks()
 
 	r.dbO = rocks.NewDefaultOptions()
 	r.dbO.SetCreateIfMissing(true)

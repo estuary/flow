@@ -2,25 +2,25 @@ package store_rocksdb
 
 import (
 	"io/ioutil"
+	"os"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tecbot/gorocksdb"
-	"go.gazette.dev/core/consumer/recoverylog"
+	rocks "github.com/tecbot/gorocksdb"
 )
 
 func TestArenaIterator(t *testing.T) {
-	var store = newTestStore(t)
-	defer store.Destroy()
+	var db, wo, ro, cleanup = newTestDB(t)
+	defer cleanup()
 
 	var expect = [][]byte{[]byte("key1"), []byte("key2"), []byte("key3")}
 	for _, k := range expect {
-		require.NoError(t, store.DB.Put(store.WriteOptions, k, []byte("val")))
+		require.NoError(t, db.Put(wo, k, []byte("val")))
 	}
 
 	for _, size := range []int{0, 2, 20, 200, 32 * 1024} {
-		var it = AsArenaIterator(store.DB.NewIterator(store.ReadOptions), make([]byte, size))
+		var it = AsArenaIterator(db.NewIterator(ro), make([]byte, size))
 
 		var actual [][]byte
 		for it.SeekToFirst(); it.Valid(); it.Next() {
@@ -34,16 +34,16 @@ func TestArenaIterator(t *testing.T) {
 }
 
 func TestArenaIteratorSeeking(t *testing.T) {
-	var store = newTestStore(t)
-	defer store.Destroy()
+	var db, wo, ro, cleanup = newTestDB(t)
+	defer cleanup()
 
 	for i := int64(100); i != 200; i++ {
 		var key, val = []byte(strconv.FormatInt(i, 10)), []byte(strconv.FormatInt(i, 16))
-		require.NoError(t, store.DB.Put(store.WriteOptions, key, val))
+		require.NoError(t, db.Put(wo, key, val))
 	}
 
 	for _, size := range []int{0, 2, 20 /*200, 32 * 1024*/} {
-		var iter = AsArenaIterator(store.DB.NewIterator(store.ReadOptions), make([]byte, size))
+		var iter = AsArenaIterator(db.NewIterator(ro), make([]byte, size))
 
 		var expect = func(i int64) {
 			require.True(t, iter.Valid())
@@ -113,19 +113,19 @@ func TestLenPrefixParsing(t *testing.T) {
 }
 
 func BenchmarkIterator(b *testing.B) {
-	var store = newTestStore(b)
-	defer store.Destroy()
+	var db, wo, ro, cleanup = newTestDB(b)
+	defer cleanup()
 
 	for i := int64(0); i != 1000; i++ {
 		var key, val = []byte(strconv.FormatInt(i, 10)), []byte(strconv.FormatInt(i, 16))
-		require.NoError(b, store.DB.Put(store.WriteOptions, key, val))
+		require.NoError(b, db.Put(wo, key, val))
 	}
 	var arena = make([]byte, 32*1024)
 
 	b.Run("direct-iterator", func(b *testing.B) {
 		for i := 0; i != b.N; i++ {
 			var sum int
-			var it = store.DB.NewIterator(store.ReadOptions)
+			var it = db.NewIterator(ro)
 
 			for it.SeekToFirst(); it.Valid(); it.Next() {
 				sum += len(it.Key().Data())
@@ -138,7 +138,7 @@ func BenchmarkIterator(b *testing.B) {
 	b.Run("arena-iterator", func(b *testing.B) {
 		for i := 0; i != b.N; i++ {
 			var sum int
-			var it = AsArenaIterator(store.DB.NewIterator(store.ReadOptions), arena)
+			var it = AsArenaIterator(db.NewIterator(ro), arena)
 
 			for it.SeekToFirst(); it.Valid(); it.Next() {
 				sum += len(it.Key())
@@ -150,14 +150,25 @@ func BenchmarkIterator(b *testing.B) {
 	})
 }
 
-func newTestStore(t require.TestingT) *Store {
+func newTestDB(t require.TestingT) (*rocks.DB, *rocks.WriteOptions, *rocks.ReadOptions, func()) {
 	var dir, err = ioutil.TempDir("", "rocksdb")
 	require.NoError(t, err)
 
-	var store = NewStore(&recoverylog.Recorder{Dir: dir})
-	// Replace observed Env with regular one.
-	store.Env = gorocksdb.NewDefaultEnv()
-	require.NoError(t, store.Open())
+	var options = rocks.NewDefaultOptions()
+	options.SetCreateIfMissing(true)
+	var ro = rocks.NewDefaultReadOptions()
+	var wo = rocks.NewDefaultWriteOptions()
 
-	return store
+	db, err := rocks.OpenDb(options, dir)
+	require.NoError(t, err)
+
+	var cleanup = func() {
+		db.Close()
+		ro.Destroy()
+		wo.Destroy()
+
+		require.NoError(t, os.RemoveAll(dir))
+	}
+
+	return db, wo, ro, cleanup
 }

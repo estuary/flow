@@ -243,7 +243,8 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 			return
 		}
 
-		if s.recovery.player.FSM == nil {
+		var recovered = s.recovery.player.Resolved
+		if recovered.FSM == nil {
 			err = errors.Errorf("completeRecovery aborting due to log playback failure")
 			return
 		}
@@ -252,18 +253,13 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 		// primary to do so. Snapshot our recovered hints. We'll sanity-check that
 		// we can open the recovered store & restore its Checkpoint, and only then
 		// persist these |recoveredHints|.
-		recoveredHints = s.recovery.player.FSM.BuildHints()
+		recoveredHints = recovered.FSM.BuildHints(s.recovery.log)
 
-		// Initilize a *Recorder around the recovered file-system. Fence its
-		// append operations around |author| so that another process completing
-		// InjectHandoff will cause appends of this Recorder to fail.
-		s.recovery.recorder = &recoverylog.Recorder{
-			FSM:            s.recovery.player.FSM,
-			Author:         author,
-			Dir:            s.recovery.player.Dir,
-			Client:         s.ajc,
-			CheckRegisters: &pb.LabelSelector{Include: *author.Fence()},
-		}
+		// Initialize a *Recorder around the recovered file-system. Recorder
+		// fences its append operations around |author| so that another process
+		// completing InjectHandoff will cause appends of this Recorder to fail.
+		s.recovery.recorder = recoverylog.NewRecorder(
+			s.recovery.log, recovered.FSM, author, recovered.Dir, s.ajc)
 	}
 
 	if s.store, err = s.svc.App.NewStore(s, s.recovery.recorder); err != nil {
