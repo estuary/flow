@@ -82,7 +82,7 @@ func (s *PlaybackSuite) TestPlayerReader(c *gc.C) {
 	c.Check(err, gc.Equals, client.ErrOffsetNotYetAvailable)
 
 	// Switch back to blocking reads, and seek backwards in the log.
-	pr.seek(3)
+	pr.seek(aRecoveryLog, 3)
 	pr.setBlocking(true)
 
 	c.Check(<-pr.peek(), gc.IsNil)
@@ -324,7 +324,7 @@ func (s *PlaybackSuite) TestOperationDecode(c *gc.C) {
 
 	var offset int
 	for i, exp := range expect {
-		var op, frame, err = decodeOperation(br, int64(offset))
+		var op, frame, err = decodeOperation(br, aRecoveryLog, int64(offset))
 		c.Check(frame, gc.DeepEquals, parts[i])
 		c.Check(err, gc.Equals, exp.err)
 
@@ -335,6 +335,7 @@ func (s *PlaybackSuite) TestOperationDecode(c *gc.C) {
 
 		exp.op.FirstOffset = int64(offset)
 		exp.op.LastOffset = int64(offset+len(parts[i])) + wlen
+		exp.op.Log = aRecoveryLog
 		c.Check(op, gc.DeepEquals, exp.op)
 
 		offset += len(parts[i])
@@ -393,7 +394,7 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and produce a set of initial hints.
-	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, recFSM, anAuthor, "/strip", ajc)
 	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo/bar")}
 	var hints, _ = rec.BuildHints()
 
@@ -418,7 +419,7 @@ func (s *PlaybackSuite) TestPlayWithFinishAtWriteHead(c *gc.C) {
 	player.FinishAtWriteHead()
 	<-player.Done()
 
-	c.Check(player.FSM, gc.NotNil)
+	c.Check(player.Resolved.FSM, gc.NotNil)
 
 	expectFileContent(c, dir+"/foo/bar", "hello world!")
 	expectFileContent(c, dir+"/baz", "bing")
@@ -445,7 +446,7 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Start a Recorder, and two Players from initial Recorder hints.
-	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, recFSM, anAuthor, "/strip", ajc)
 	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo/bar")}
 	var hints, _ = rec.BuildHints()
 
@@ -466,6 +467,11 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 		RecordWrite([]byte("bing"))
 	<-rec.Barrier(nil).Done() // Flush.
 
+	// Clear checked Recorder registers to deliberately break the journal register
+	// fencing mechanism, allowing |rec| to continue writes even after |handoffPlayer|
+	// has injected it's no-op.
+	rec.DisableRegisterChecks()
+
 	// Begin a write which will race |handoffPlayer|'s first attempt to inject a no-op.
 	var txn = ajc.StartAppend(pb.AppendRequest{Journal: aRecoveryLog}, nil)
 	txn.Writer().WriteString("... more garbage ...")
@@ -482,25 +488,28 @@ func (s *PlaybackSuite) TestPlayWithInjectHandoff(c *gc.C) {
 
 	handoffPlayer.InjectHandoff(1337)
 	<-handoffPlayer.Done()
-	c.Check(handoffPlayer.FSM, gc.NotNil)
+	c.Check(handoffPlayer.Resolved.FSM, gc.NotNil)
 
 	f.RecordWrite([]byte("final write of |rec|, ignored because |handoffPlayer| injected a handoff"))
 	<-rec.Barrier(nil).Done() // Flush all recorded ops.
 
 	tailPlayer.FinishAtWriteHead()
 	<-tailPlayer.Done()
-	c.Check(tailPlayer.FSM, gc.NotNil)
+	c.Check(tailPlayer.Resolved.FSM, gc.NotNil)
 
 	// Expect both players saw the same version of events, and recovered the same content.
-	expectFileContent(c, handoffPlayer.Dir+"/foo/bar", "hello world")
-	expectFileContent(c, handoffPlayer.Dir+"/baz", "bing")
-	expectFileContent(c, tailPlayer.Dir+"/foo/bar", "hello world")
-	expectFileContent(c, tailPlayer.Dir+"/baz", "bing")
-	c.Check(handoffPlayer.FSM.BuildHints(), gc.DeepEquals, tailPlayer.FSM.BuildHints())
+	expectFileContent(c, handoffPlayer.Resolved.Dir+"/foo/bar", "hello world")
+	expectFileContent(c, handoffPlayer.Resolved.Dir+"/baz", "bing")
+	expectFileContent(c, tailPlayer.Resolved.Dir+"/foo/bar", "hello world")
+	expectFileContent(c, tailPlayer.Resolved.Dir+"/baz", "bing")
+
+	c.Check(handoffPlayer.Resolved.FSM.BuildHints(aRecoveryLog),
+		gc.DeepEquals, tailPlayer.Resolved.FSM.BuildHints(aRecoveryLog))
 
 	// Expect players have branched from |rec|'s view of history.
 	hints, err = rec.BuildHints()
-	c.Check(hints, gc.Not(gc.DeepEquals), tailPlayer.FSM.BuildHints())
+	c.Check(hints, gc.Not(gc.DeepEquals),
+		tailPlayer.Resolved.FSM.BuildHints(aRecoveryLog))
 	c.Check(err, gc.IsNil)
 
 	// Expect that |handoffPlayer| updated the log's registers to place a
@@ -528,7 +537,7 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 
 	// Record some writes of valid files. Build hints, and tweak them by adding
 	// an Fnode at an offset which was not actually recorded.
-	var rec = &Recorder{FSM: recFSM, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, recFSM, anAuthor, "/strip", ajc)
 	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/foo")}).
 		RecordWrite([]byte("bar"))
 	(&FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/baz")}).
@@ -572,6 +581,65 @@ func (s *PlaybackSuite) TestPlayWithUnusedHints(c *gc.C) {
 	player = NewPlayer()
 	c.Check(player.Play(context.Background(), hints, dir, ajc), gc.ErrorMatches,
 		`offset examples/.*:\d+ >= readThrough \d+, but FSM has unused hints; possible data loss`)
+}
+
+func (s *PlaybackSuite) TestPlayWithMultipleLogs(c *gc.C) {
+	var broker, cleanup = newBrokerAndLog(c)
+	defer cleanup()
+
+	var oldLog pb.Journal = "examples/integration-tests/other-recovery-log"
+	var authorA Author = 123
+	var authorB Author = 456
+	var authorC Author = 789
+
+	brokertest.CreateJournals(c, broker,
+		brokertest.Journal(pb.JournalSpec{Name: oldLog}))
+
+	var ctx = context.Background()
+	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+	var ajc = client.NewAppendService(ctx, rjc)
+
+	// Record initial segments into |oldLog|.
+	recFSM, err := NewFSM(FSMHints{Log: oldLog})
+	c.Assert(err, gc.IsNil)
+
+	var rec = NewRecorder(oldLog, recFSM, authorA, "/strip", ajc)
+	var f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/old/file")}
+	f.RecordWrite([]byte("old data"))
+	<-rec.Barrier(nil).Done() // Flush all recorded ops.
+	hints, err := rec.BuildHints()
+	c.Check(err, gc.IsNil)
+
+	// Run Player which recovers from |oldLog| hints
+	dir1, err := ioutil.TempDir("", "playback-suite")
+	c.Assert(err, gc.IsNil)
+	defer os.RemoveAll(dir1)
+
+	var player = NewPlayer()
+	player.InjectHandoff(authorB)
+	c.Check(player.Play(context.Background(), hints, dir1, ajc), gc.IsNil)
+	c.Check(player.Resolved.Log, gc.Equals, oldLog)
+
+	// Record more segments into |aRecoveryLog|.
+	rec = NewRecorder(aRecoveryLog, player.Resolved.FSM, authorB, "/strip", ajc)
+	f = FileRecorder{Recorder: rec, Fnode: rec.RecordCreate("/strip/new/file")}
+	f.RecordWrite([]byte("new data"))
+	<-rec.Barrier(nil).Done() // Flush all recorded ops.
+	hints, err = rec.BuildHints()
+	c.Check(err, gc.IsNil)
+
+	// Run Player which recovers from both |oldLog| and |aRecoveryLog|.
+	dir2, err := ioutil.TempDir("", "playback-suite")
+	c.Assert(err, gc.IsNil)
+	defer os.RemoveAll(dir2)
+
+	player = NewPlayer()
+	player.InjectHandoff(authorC)
+	c.Check(player.Play(context.Background(), hints, dir2, ajc), gc.IsNil)
+	c.Check(player.Resolved.Log, gc.Equals, aRecoveryLog)
+
+	expectFileContent(c, dir2+"/old/file", "old data")
+	expectFileContent(c, dir2+"/new/file", "new data")
 }
 
 func expectFileContent(c *gc.C, path, content string) {
@@ -642,7 +710,7 @@ func (poh playOperationHelper) skips(c *gc.C, b []byte) error {
 func (poh playOperationHelper) playOp(c *gc.C, b []byte, expectAuthor Author, expectApply bool) error {
 	var br = bufio.NewReader(bytes.NewReader(b))
 
-	var op, applied, err = playOperation(br, 1234, poh.fsm, poh.dir, poh.files)
+	var op, applied, err = playOperation(br, aRecoveryLog, 1234, poh.fsm, poh.dir, poh.files)
 
 	c.Check(op.Author, gc.Equals, expectAuthor)
 	c.Check(applied, gc.Equals, expectApply)

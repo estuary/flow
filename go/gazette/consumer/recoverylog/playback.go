@@ -19,9 +19,16 @@ import (
 )
 
 // Player reads from a log to rebuild encoded file operations onto the local filesystem.
+// Player is a future: on completion of a successful Play (or equivalently, upon
+// Done selecting) |Resolved| may be inspected for recovered playback state.
+// |Resolved| is not valid before Play completes, or if Play returns an error.
 type Player struct {
-	FSM *FSM   // FSM recovered at Play completion. Nil if an error was encountered.
-	Dir string // Local directory into which the log is recovered.
+	// Resolved outputs which may be read once the Play completes.
+	Resolved struct {
+		Log pb.Journal // Primary Log which was played back (i.e., FSMHints.Log).
+		FSM *FSM       // FSM recovered at Play completion.
+		Dir string     // Local directory into which the log is recovered.
+	}
 
 	handoffCh chan Author   // Coordinates Player completion (& hand-off to a new Recorder).
 	tailingCh chan struct{} // Closed when Player reaches (and is tailing) the live log.
@@ -46,7 +53,9 @@ func (p *Player) Play(ctx context.Context, hints FSMHints, dir string, ajc clien
 	if fsm, err := playLog(ctx, hints, dir, ajc, p.tailingCh, p.handoffCh); err != nil {
 		return err
 	} else {
-		p.Dir, p.FSM = dir, fsm
+		p.Resolved.Log = hints.Log
+		p.Resolved.FSM = fsm
+		p.Resolved.Dir = dir
 		return nil
 	}
 }
@@ -78,8 +87,8 @@ func (p *Player) Tailing() <-chan struct{} {
 }
 
 // Done returns a channel which selects when Play has completed. If Play
-// returned no error, then Player.FSM & Dir will hold the recovered FSM and
-// its local directory. Otherwise, both will be zero-valued.
+// returned no error, then Player.Resolved will hold the recovered playback
+// state. Otherwise, Player.Resolved will be zero-valued.
 func (p *Player) Done() <-chan struct{} {
 	return p.doneCh
 }
@@ -138,9 +147,20 @@ func (pr *playerReader) peek() <-chan error {
 	return pr.peekRespCh
 }
 
-func (pr *playerReader) seek(offset int64) int64 {
+func (pr *playerReader) seek(name pb.Journal, offset int64) int64 {
 	if pr.pendingPeek {
 		panic("expected !pendingPeek") // Cannot concurrently access |pr.rr|.
+	} else if name != pr.rr.Journal() {
+		pr.rr.Cancel()
+		pr.rr.Restart(pb.ReadRequest{
+			Journal:    name,
+			Offset:     offset,
+			Block:      pr.block,
+			DoNotProxy: pr.rr.Reader.Request.DoNotProxy,
+		})
+		pr.br.Reset(pr.rr)
+
+		return offset
 	} else if offset, err := pr.rr.AdjustedSeek(offset, io.SeekStart, pr.br); err != nil {
 		panic(err) // The contract for RetryReader.Seek is that it never return an error.
 	} else {
@@ -230,46 +250,74 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 		return
 	}
 
-	// Issue a write barrier to determine the transactional, current log head.
-	var barrier = ajc.StartAppend(pb.AppendRequest{Journal: hints.Log}, nil)
-	if err = barrier.Release(); err == nil {
-		err = barrier.Err() // Block until barrier completes.
-	}
-	if err != nil {
-		err = extendErr(err, "determining log head")
-		return
+	// Issue write barriers to determine the transactional,
+	// current write heads of every log named by hints.
+	var barriers = make(map[pb.Journal]*client.AsyncAppend)
+	var queueBarrier = func(log pb.Journal) {
+		if _, ok := barriers[log]; ok {
+			return
+		}
+		var aa = ajc.StartAppend(pb.AppendRequest{Journal: log}, nil)
+		if err := aa.Release(); err != nil {
+			panic(err) // client.AsyncAppend contract prohibits this.
+		}
+		barriers[log] = aa
 	}
 
-	// Next offset to read, and minimum offset we must readThrough during playback.
-	var offset, readThrough int64 = 0, barrier.Response().Commit.End
+	queueBarrier(hints.Log)
+	for _, segment := range fsm.hintedSegments {
+		// Add other logs named by hinted segments (which could be empty).
+		queueBarrier(segment.Log)
+	}
 
-	// Sanity-check: all hinted segment offsets should be less than |readThrough|.
-	for _, seg := range fsm.hintedSegments {
-		if seg.FirstOffset >= readThrough || seg.LastOffset > readThrough {
-			err = errors.Errorf(
-				"max write-head of %v is %d, vs hinted segment %#v; possible data loss",
-				hints.Log, readThrough, seg)
+	// Block until all barriers resolve.
+	for log, aa := range barriers {
+		if err = aa.Err(); err != nil {
+			err = extendErr(err, "determining head of %q", log)
 			return
 		}
 	}
 
-	var reader = newPlayerReader(ctx, hints.Log, ajc)
+	// Sanity-check: all hinted segment offsets should be less than |readThrough|.
+	for _, segment := range fsm.hintedSegments {
+		if e := barriers[segment.Log].Response().Commit.End; segment.FirstOffset >= e || segment.LastOffset > e {
+			err = errors.Errorf(
+				"max write-head of %v is %d, vs hinted segment %#v; possible data loss",
+				segment.Log, e, segment)
+			return
+		}
+	}
+
+	var readLog pb.Journal // Log currently being read.
+	var offset int64       // Next offset to read.
+	var readThrough int64  // Write head of the current |log|.
+
+	var reader = newPlayerReader(ctx, readLog, ajc)
 	defer reader.close()
 
 	for {
 
-		if s := fsm.hintedSegments; len(s) != 0 {
-			// There are unread, remaining hinted segments of the log.
-			if offset < s[0].FirstOffset {
+		if len(fsm.hintedSegments) != 0 {
+			var segment = fsm.hintedSegments[0] // Next unread, hinted segment of the log.
+
+			if readLog != segment.Log || offset < segment.FirstOffset {
 				// Use hinted offset to opportunistically skip through dead chunks of the log.
 				// Note that FSM is responsible for updating |hintedSegments| as they're applied.
-				offset = reader.seek(s[0].FirstOffset)
+				readLog = segment.Log
+				offset = reader.seek(segment.Log, segment.FirstOffset)
+				readThrough = barriers[segment.Log].Response().Commit.End
 			} else if offset >= readThrough {
 				// We've read through |readThrough|, but still have not read all hinted log segments.
 				err = errors.Errorf("offset %v:%d >= readThrough %d, but FSM has unused hints; possible data loss",
-					hints.Log, offset, readThrough)
+					readLog, offset, readThrough)
 				return
 			}
+		} else if readLog != hints.Log {
+			// All hints are consumed, but we haven't started a read of the primary hints.Log.
+			// That Log has no hinted segments, but it may still have operations to recover.
+			readLog = hints.Log
+			offset = reader.seek(hints.Log, 0)
+			readThrough = barriers[hints.Log].Response().Commit.End
 		}
 
 		switch state {
@@ -310,8 +358,13 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 			if offset < readThrough {
 				// This error is returned only by a non-blocking reader, and we should have used
 				// a non-blocking reader only if we were already at |readThrough|.
-				log.WithFields(log.Fields{"log": hints.Log, "offset": offset, "readThrough": readThrough}).
+				log.WithFields(log.Fields{"log": readLog, "offset": offset, "readThrough": readThrough}).
 					Panic("unexpected ErrNotYetAvailable")
+			} else if readLog != hints.Log {
+				// Similarly, for hinted logs *other* than the primary hints.Log, we must have already
+				// returned an error rather than continue to read beyond |readThrough|.
+				log.WithFields(log.Fields{"log": readLog, "hints.Log": hints.Log}).
+					Panic("offset >= readThrough, but read log != hints.Log")
 			}
 
 			if tailingCh != nil {
@@ -375,11 +428,11 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 			// Did the offset jump over a hinted portion of the log? We cannot recover from this error.
 			if s := fsm.hintedSegments; len(s) != 0 && s[0].LastOffset != 0 && s[0].LastOffset < jumpTo {
 				err = errors.Errorf("offset jumps over hinted segment of %v (from: %d, to: %d, hinted range: %d-%d); possible data loss",
-					fsm.Log, offset, jumpTo, s[0].FirstOffset, s[0].LastOffset)
+					readLog, offset, jumpTo, s[0].FirstOffset, s[0].LastOffset)
 				return
 			}
 			// Otherwise, we can continue playing the log from the jumped-to offset.
-			log.WithFields(log.Fields{"log": hints.Log, "from": offset, "to": jumpTo}).
+			log.WithFields(log.Fields{"log": readLog, "from": offset, "to": jumpTo}).
 				Warn("recoverylog offset jump")
 
 			offset = jumpTo
@@ -395,15 +448,15 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 
 		// Sanity check: the requested offset and adjusted offsets must match.
 		if ao := reader.rr.AdjustedOffset(reader.br); offset != ao {
-			log.WithFields(log.Fields{"ao": ao, "offset": offset, "log": hints.Log}).
+			log.WithFields(log.Fields{"ao": ao, "offset": offset, "log": readLog}).
 				Panic("unexpected AdjustedOffset")
 		}
 
 		var op RecordedOp
 		var applied bool
 
-		if op, applied, err = playOperation(reader.br, offset, fsm, dir, files); err != nil {
-			err = extendErr(err, "playOperation(%d)", offset)
+		if op, applied, err = playOperation(reader.br, readLog, offset, fsm, dir, files); err != nil {
+			err = extendErr(err, "playOperation(%q, %d)", readLog, offset)
 			return // playOperation returns only unrecoverable errors.
 		}
 
@@ -457,12 +510,14 @@ func cleanupOnAbort(dir string, files fnodeFileMap) {
 }
 
 // decodeOperation unpacks, unmarshals, and sets offsets of a RecordedOp from Reader |br| at |offset|.
-func decodeOperation(br *bufio.Reader, offset int64) (op RecordedOp, frame []byte, err error) {
+func decodeOperation(br *bufio.Reader, readLog pb.Journal, offset int64) (op RecordedOp, frame []byte, err error) {
 	if frame, err = message.UnpackFixedFrame(br); err == nil {
 		err = op.Unmarshal(frame[message.FixedFrameHeaderLength:])
 	}
 	// First and last offsets are meta-fields never populated by Recorder, and known only upon playback.
-	op.FirstOffset, op.LastOffset = offset, offset+int64(len(frame))
+	op.FirstOffset = offset
+	op.LastOffset = offset + int64(len(frame))
+	op.Log = readLog
 
 	if op.Write != nil {
 		op.LastOffset += op.Write.Length
@@ -491,7 +546,7 @@ func applyOperation(op RecordedOp, frame []byte, fsm *FSM) bool {
 		// We expect remaining FSM errors to be rare, but they can happen under
 		// normal operation (eg, during hand-off, or if multiple Recorders briefly
 		// run concurrently, creating branched log histories).
-		log.WithFields(log.Fields{"log": fsm.Log, "err": err, "op": op.String()}).
+		log.WithFields(log.Fields{"log": op.Log, "err": err, "op": op.String()}).
 			Info("did not apply FSM operation")
 	}
 	return false
@@ -513,15 +568,23 @@ func reenactOperation(op RecordedOp, fsm *FSM, br *bufio.Reader, dir string, fil
 
 // playOperation composes operation decode, application, and re-enactment. It logs warnings on recoverable
 // errors, and surfaces only those which should abort playback.
-func playOperation(br *bufio.Reader, offset int64, fsm *FSM, dir string,
-	files fnodeFileMap) (op RecordedOp, applied bool, err error) {
+func playOperation(br *bufio.Reader, readLog pb.Journal, offset int64, fsm *FSM,
+	dir string, files fnodeFileMap) (op RecordedOp, applied bool, err error) {
 
 	// Unpack the next frame and its unmarshaled RecordedOp.
 	var frame []byte
-	if op, frame, err = decodeOperation(br, offset); err != nil {
+	if op, frame, err = decodeOperation(br, readLog, offset); err != nil {
 		if err == message.ErrDesyncDetected {
-			// ErrDesyncDetected is returned by UnpackFixedFrame. We can attempt further reads.
-			log.WithFields(log.Fields{"offset": offset, "log": fsm.Log}).
+			// ErrDesyncDetected is returned by UnpackFixedFrame.
+			// This is pretty bad. It means a *significant* data corruption occurred,
+			// such as a loss of Etcd consistency *plus* an operational recovery error
+			// that resulted in a double-write of a journal offset. Or, a bug in
+			// recordering, or some other means by which journal data was scribbled.
+			//
+			// Likely we're not going to be able to apply further operations beyond
+			// this point, but we *can* still attempt further reads of the log,
+			// and at least recover to a consistent albeit older state.
+			log.WithFields(log.Fields{"offset": offset, "log": readLog}).
 				Warn("detected de-synchronization")
 			err = nil
 		} else if err != nil {

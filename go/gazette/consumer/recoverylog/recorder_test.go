@@ -21,18 +21,12 @@ func (s *RecorderSuite) TestNewFile(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{
-		FSM:            fsm,
-		Author:         anAuthor,
-		Dir:            "/strip",
-		Client:         ajc,
-		CheckRegisters: &pb.LabelSelector{Exclude: pb.MustLabelSet("exclude", "")},
-	}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/path/to/file")
 	var aa = rec.Barrier(nil)
-	c.Check(aa.Request().CheckRegisters, gc.Equals, rec.CheckRegisters) // CheckRegisters passed through.
+	c.Check(aa.Request().CheckRegisters, gc.Equals, rec.checkRegisters) // CheckRegisters passed through.
 	<-aa.Done()                                                         // |rec| observes operation commit.
 	rec.RecordCreate("/strip/other/file")
 
@@ -64,7 +58,7 @@ func (s *RecorderSuite) TestDeleteFile(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 
 	rec.RecordCreate("/strip/path/to/file")
 	rec.RecordRemove("/strip/path/to/file")
@@ -87,7 +81,7 @@ func (s *RecorderSuite) TestOverwriteExistingFile(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/path/to/file")
@@ -123,7 +117,7 @@ func (s *RecorderSuite) TestLinkFile(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/path/to/file")
@@ -153,7 +147,7 @@ func (s *RecorderSuite) TestRenameTargetExists(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/target/path")
@@ -200,7 +194,7 @@ func (s *RecorderSuite) TestRenameTargetIsNew(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	rec.RecordCreate("/strip/source/path")
@@ -236,7 +230,7 @@ func (s *RecorderSuite) TestFileAppends(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	var f = FileRecorder{
@@ -289,7 +283,7 @@ func (s *RecorderSuite) TestPropertyUpdate(c *gc.C) {
 	defer os.RemoveAll(dir)
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: dir, Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, dir, ajc)
 
 	// Properties are updated when a file is renamed to a property path.
 	// Recorder extracts content directly from the target path.
@@ -330,7 +324,7 @@ func (s *RecorderSuite) TestMixedNewFileWriteAndDelete(c *gc.C) {
 	defer cleanup()
 
 	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
-	var rec = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	var offset = r.AdjustedOffset(br)
 
 	// The first Fnode is unlinked prior to log end, and is not tracked in hints.
@@ -363,7 +357,7 @@ func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
 		rjc             = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 		ajc             = client.NewAppendService(ctx, rjc)
 		fsm, _          = NewFSM(FSMHints{Log: aRecoveryLog})
-		rec             = &Recorder{FSM: fsm, Author: anAuthor, Dir: "/strip", Client: ajc}
+		rec             = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
 	)
 	defer cleanup()
 	cancel()

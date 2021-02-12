@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -46,23 +45,24 @@ var propertyFiles = map[string]struct{}{
 // crash-only in its handling of inconsistent file operations (eg, an attempt
 // to remove a path that isn't already known to the Recorder).
 type Recorder struct {
+	// Journal into which we record.
+	log pb.Journal
 	// State machine managing RecordedOp transitions.
-	FSM *FSM
+	fsm *FSM
 	// Generated unique ID of this Recorder.
-	Author Author
+	author Author
 	// Directory which roots local files. It must be an absolute & clean path,
 	// and must prefix all recorded files, or Recorder panics. It's stripped from
-	// recorded file names, making the log invariant to the choice of Dir.
-	Dir string
-	// Client for Recorder's use.
-	Client client.AsyncJournalClient
-	// CheckRegisters preconditions each operation appended to the recovery log.
+	// recorded file names, making the log invariant to the choice of dir.
+	dir string
+	// client for Recorder's use.
+	client client.AsyncJournalClient
+	// checkRegisters preconditions each operation appended to the recovery log.
 	// Typically it should be:
 	//   &pb.LabelSelector{Include: author.Fence()}
 	// Which ensures that this Recorder's operations will immediately stop
 	// appending to the log if another future Player injects a hand-off.
-	CheckRegisters *pb.LabelSelector
-
+	checkRegisters *pb.LabelSelector
 	// |recentTxn| is a recent append, which we monitor for completion and,
 	// when Done, use to update |writeHead| to the new maximum observed offset
 	// of the recovery log.
@@ -76,10 +76,30 @@ type Recorder struct {
 	recentTxn *client.AsyncAppend
 	// Last observed write head of the recovery log journal.
 	writeHead int64
-	// Synchronization over lazy initialization.
-	lazyInit sync.Once
 	// Scratch buffer for framing RecordedOps.
 	buf []byte
+}
+
+// NewRecorder builds and returns a new *Recorder.
+// |dir| must be a clean, absolute path or NewRecorder panics.
+func NewRecorder(journal pb.Journal, fsm *FSM, author Author, dir string, ajc client.AsyncJournalClient) *Recorder {
+	if dir != path.Clean(dir) || !path.IsAbs(dir) {
+		log.WithFields(log.Fields{"dir": dir, "cleaned": path.Clean(dir)}).
+			Panic("recorder.Dir is not an absolute, clean path")
+	}
+	var r = &Recorder{
+		log:            journal,
+		fsm:            fsm,
+		author:         author,
+		dir:            dir,
+		client:         ajc,
+		checkRegisters: &pb.LabelSelector{Include: *author.Fence()},
+	}
+
+	// Issue a write barrier to determine the current write head, which will
+	// lower-bound the offset for all subsequent recorded operations.
+	<-r.Barrier(nil).Done()
+	return r
 }
 
 // RecordCreate records the creation or truncation of file |path|,
@@ -92,7 +112,6 @@ func (r *Recorder) RecordCreate(path string) Fnode {
 // and returns its FNode. Flags values must match os.OpenFile()
 // semantics or RecordOpenFile panics.
 func (r *Recorder) RecordOpenFile(path string, flags int) Fnode {
-	r.init()
 	path = r.normalizePath(path)
 
 	if _, isProperty := propertyFiles[path]; isProperty {
@@ -103,7 +122,7 @@ func (r *Recorder) RecordOpenFile(path string, flags int) Fnode {
 	var txn = r.lockAndBeginTxn(nil)
 	defer r.unlockAndReleaseTxn(txn)
 
-	var fnode, exists = r.FSM.Links[path]
+	var fnode, exists = r.fsm.Links[path]
 
 	if !exists && flags&os.O_CREATE == 0 {
 		log.WithField("path", path).Panic("open of unknown file without O_CREATE")
@@ -119,12 +138,12 @@ func (r *Recorder) RecordOpenFile(path string, flags int) Fnode {
 	if !exists {
 		// Create a new |fnode| backing |path|.
 		r.process(newCreateOp(path), txn.Writer())
-		fnode = r.FSM.Links[path]
+		fnode = r.fsm.Links[path]
 	}
 	return fnode
 }
 
-// RecordWrite records |data| written at |offset| to the file identified by |fnode|.
+// RecordWriteAt records |data| written at |offset| to the file identified by |fnode|.
 func (r *Recorder) RecordWriteAt(fnode Fnode, data []byte, offset int64) {
 	var txn = r.lockAndBeginTxn(nil)
 	r.process(newWriteOp(fnode, offset, int64(len(data))), txn.Writer())
@@ -134,7 +153,6 @@ func (r *Recorder) RecordWriteAt(fnode Fnode, data []byte, offset int64) {
 
 // RecordRemove records the removal of the file at |path|.
 func (r *Recorder) RecordRemove(path string) {
-	r.init()
 	path = r.normalizePath(path)
 
 	if _, isProperty := propertyFiles[path]; isProperty {
@@ -142,7 +160,7 @@ func (r *Recorder) RecordRemove(path string) {
 	}
 	var txn = r.lockAndBeginTxn(nil)
 
-	var fnode, ok = r.FSM.Links[path]
+	var fnode, ok = r.fsm.Links[path]
 	if !ok {
 		log.WithFields(log.Fields{"path": path}).Panic("delete of unknown path")
 	}
@@ -152,7 +170,6 @@ func (r *Recorder) RecordRemove(path string) {
 
 // RecordLink records the creation of a hard link from |src| to |target|.
 func (r *Recorder) RecordLink(src, target string) {
-	r.init()
 	src, target = r.normalizePath(src), r.normalizePath(target)
 
 	if _, isProperty := propertyFiles[target]; isProperty {
@@ -161,7 +178,7 @@ func (r *Recorder) RecordLink(src, target string) {
 	}
 	var txn = r.lockAndBeginTxn(nil)
 
-	var fnode, ok = r.FSM.Links[src]
+	var fnode, ok = r.fsm.Links[src]
 	if !ok {
 		log.WithFields(log.Fields{"path": src}).Panic("link of unknown path")
 	}
@@ -171,12 +188,11 @@ func (r *Recorder) RecordLink(src, target string) {
 
 // RecordRename records the rename of |src| to |target|.
 func (r *Recorder) RecordRename(src, target string) {
-	r.init()
 	var origTarget = target
 	src, target = r.normalizePath(src), r.normalizePath(target)
 	var txn = r.lockAndBeginTxn(nil)
 
-	var fnode, ok = r.FSM.Links[src]
+	var fnode, ok = r.fsm.Links[src]
 	if !ok {
 		log.WithFields(log.Fields{"path": src}).Panic("rename of unknown path")
 	}
@@ -186,7 +202,7 @@ func (r *Recorder) RecordRename(src, target string) {
 	//  * If |target| is a property, recording a property update.
 	//  * If |target| is not a property, linking the |fnode| to |target|.
 	//  * Unlinking the |fnode| from |src|.
-	if prevFnode, prevExists := r.FSM.Links[target]; prevExists {
+	if prevFnode, prevExists := r.fsm.Links[target]; prevExists {
 		r.process(newUnlinkOp(prevFnode, target), txn.Writer())
 	}
 
@@ -213,7 +229,7 @@ func (r *Recorder) BuildHints() (FSMHints, error) {
 	// ensure we don't return constructed hints until all operations involved
 	// in their construction have already committed.
 	var txn = r.lockAndBeginTxn(nil)
-	var hints = r.FSM.BuildHints()
+	var hints = r.fsm.BuildHints(r.log)
 	r.unlockAndReleaseTxn(txn)
 
 	<-txn.Done()
@@ -229,28 +245,30 @@ func (r *Recorder) Barrier(waitFor client.OpFutures) *client.AsyncAppend {
 	return txn
 }
 
-func (r *Recorder) init() {
-	r.lazyInit.Do(func() {
-		if r.Dir != path.Clean(r.Dir) || !path.IsAbs(r.Dir) {
-			log.WithFields(log.Fields{"dir": r.Dir, "cleaned": path.Clean(r.Dir)}).
-				Panic("recorder.Dir is not an absolute, clean path")
-		}
-		// Issue a write barrier to determine the current write head, which will
-		// lower-bound the offset for all subsequent recorded operations.
-		<-r.Barrier(nil).Done()
-	})
+// Dir returns the directory in which this Recorder is recording.
+func (r *Recorder) Dir() string {
+	return r.dir
+}
+
+// DisableRegisterChecks disables the register checks which Recorder normally
+// does with each and every append operation. The only practical reason for
+// wanting to do this is for testing recovery log operation recording lineage
+// and conflict handling -- handling which predates register checks, but is
+// still useful as a supplemental integrity check of recovery log correctness.
+func (r *Recorder) DisableRegisterChecks() {
+	r.checkRegisters = nil
 }
 
 func (r *Recorder) normalizePath(fpath string) string {
-	return path.Clean(filepath.ToSlash(fpath[len(r.Dir):]))
+	return path.Clean(filepath.ToSlash(fpath[len(r.dir):]))
 }
 
 func (r *Recorder) lockAndBeginTxn(waitFor client.OpFutures) *client.AsyncAppend {
 	// Locking is implied by StartAppend, which allows just one writer per journal.
 	// The lock is held until Release is called by unlockAndReleaseTxn.
-	var txn = r.Client.StartAppend(pb.AppendRequest{
-		Journal:        r.FSM.Log,
-		CheckRegisters: r.CheckRegisters,
+	var txn = r.client.StartAppend(pb.AppendRequest{
+		Journal:        r.log,
+		CheckRegisters: r.checkRegisters,
 	}, waitFor)
 
 	if r.recentTxn == nil {
@@ -263,7 +281,7 @@ func (r *Recorder) lockAndBeginTxn(waitFor client.OpFutures) *client.AsyncAppend
 		if r.recentTxn.Err() != nil {
 			// Aborted. Ignore.
 		} else if end := r.recentTxn.Response().Commit.End; end < r.writeHead {
-			log.WithFields(log.Fields{"writeHead": r.writeHead, "end": end, "log": r.FSM.Log}).
+			log.WithFields(log.Fields{"writeHead": r.writeHead, "end": end, "log": r.log}).
 				Panic("invalid writeHead at lockAndBeginTxn")
 		} else {
 			r.writeHead = end
@@ -283,9 +301,9 @@ func (r *Recorder) unlockAndReleaseTxn(txn *client.AsyncAppend) {
 }
 
 func (r *Recorder) process(op RecordedOp, bw *bufio.Writer) {
-	op.Author = r.Author
-	op.SeqNo = r.FSM.NextSeqNo
-	op.Checksum = r.FSM.NextChecksum
+	op.Author = r.author
+	op.SeqNo = r.fsm.NextSeqNo
+	op.Checksum = r.fsm.NextChecksum
 
 	var err error
 	r.buf, err = message.EncodeFixedProtoFrame(&op, r.buf[:0])
@@ -296,9 +314,11 @@ func (r *Recorder) process(op RecordedOp, bw *bufio.Writer) {
 
 	// Use writeHead as a lower-bound for FirstOffset. As a meta-field, it's not
 	// stored in the written frame, but is used by FSM in the production of hints.
+	// LastOffset is left as zero (unbounded).
 	op.FirstOffset = r.writeHead
+	op.Log = r.log
 
-	if err = r.FSM.Apply(&op, r.buf[message.FixedFrameHeaderLength:]); err != nil {
+	if err = r.fsm.Apply(&op, r.buf[message.FixedFrameHeaderLength:]); err != nil {
 		log.WithFields(log.Fields{"op": op, "err": err}).Panic("recorder FSM error")
 	}
 }

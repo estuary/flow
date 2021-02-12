@@ -4,20 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Validate returns an error if the Segment is inconsistent.
 func (s Segment) Validate() error {
 	if s.Author == 0 {
-		return errors.New("segment.Author is zero")
+		return pb.NewValidationError("Author is zero")
 	} else if s.FirstSeqNo <= 0 {
-		return errors.New("segment.FirstSeqNo <= 0")
+		return pb.NewValidationError("FirstSeqNo <= 0")
 	} else if s.FirstOffset < 0 {
-		return errors.New("segment.FirstOffset < 0")
+		return pb.NewValidationError("FirstOffset < 0")
 	} else if s.LastSeqNo < s.FirstSeqNo {
-		return errors.New("segment.LastSeqNo < segment.FirstSeqNo")
+		return pb.NewValidationError("LastSeqNo < segment.FirstSeqNo")
 	} else if s.LastOffset != 0 && s.LastOffset <= s.FirstOffset {
-		return errors.New("segment.LastOffset <= segment.FirstOffset")
+		return pb.NewValidationError("LastOffset <= segment.FirstOffset")
+	} else if err := s.Log.Validate(); err != nil {
+		return pb.ExtendContext(err, "Log")
 	}
 	return nil
 }
@@ -26,8 +30,8 @@ func (s Segment) Validate() error {
 //  * Entries have strictly increasing SeqNo, and are non-overlapping
 //    (s[i].LastSeqNo < s[i+1].SeqNo; note this implies a single author
 //     for any covered SeqNo).
-//  * Entries have monotonically increasing FirstOffset.
-//  * Entries have monotonically increasing LastOffset, however a strict
+//  * Entries of the same Log have monotonically increasing FirstOffset.
+//  * Entries of the same Log have monotonically increasing LastOffset, however a strict
 //    suffix of entries are permitted to have a LastOffset of zero (implied
 //    infinite LastOffset).
 type SegmentSet []Segment
@@ -80,7 +84,9 @@ func (s *SegmentSet) Add(segment Segment) error {
 
 // Intersect returns a slice of this SegmentSet which overlaps with
 // the provided [firstOffset, lastOffset) range.
-func (s SegmentSet) Intersect(firstOffset, lastOffset int64) SegmentSet {
+// All Segments of this set MUST have the provided |log|, or Intersect panics.
+// Intersect also panics if the first/lastOffset range is mis-ordered.
+func (s SegmentSet) Intersect(log pb.Journal, firstOffset, lastOffset int64) SegmentSet {
 	if lastOffset < firstOffset {
 		panic("invalid range")
 	}
@@ -88,6 +94,9 @@ func (s SegmentSet) Intersect(firstOffset, lastOffset int64) SegmentSet {
 	// Find the first Segment which has a FirstOffset >= |lastOffset|, if one exists.
 	// This is the (exclusive) end of our range.
 	var j = sort.Search(len(s), func(i int) bool {
+		if s[i].Log != log {
+			panic("segment.Log != log")
+		}
 		return s[i].FirstOffset >= lastOffset
 	})
 
@@ -130,14 +139,17 @@ func reduceSegment(a, b Segment) (Segment, error) {
 	switch {
 
 	// Offset ordering constraint checks.
-	case a.FirstSeqNo < b.FirstSeqNo && a.FirstOffset > b.FirstOffset:
+	case a.FirstSeqNo < b.FirstSeqNo && a.Log == b.Log && a.FirstOffset > b.FirstOffset:
 		return a, fmt.Errorf("expected monotonic FirstOffset: %#v vs %#v", a, b)
 	case a.FirstSeqNo < b.FirstSeqNo && a.LastOffset == 0 && b.LastOffset != 0:
 		return a, fmt.Errorf("expected preceding Segment to also include LastOffset: %#v vs %#v", a, b)
 
-	case a.LastSeqNo <= b.LastSeqNo && nonZeroAndLess(b.LastOffset, a.LastOffset):
+	case a.LastOffset == 0 && a.Log != b.Log:
+		return a, fmt.Errorf("Segment cannot use a different log where preceding Segment.LastOffset is zero: %#v vs %#v", a, b)
+
+	case a.LastSeqNo <= b.LastSeqNo && a.Log == b.Log && nonZeroAndLess(b.LastOffset, a.LastOffset):
 		fallthrough
-	case a.LastSeqNo >= b.LastSeqNo && nonZeroAndLess(a.LastOffset, b.LastOffset):
+	case a.LastSeqNo >= b.LastSeqNo && a.Log == b.Log && nonZeroAndLess(a.LastOffset, b.LastOffset):
 		return a, fmt.Errorf("expected monotonic LastOffset: %#v vs %#v", a, b)
 
 	// Checksum constraint check.
@@ -149,13 +161,20 @@ func reduceSegment(a, b Segment) (Segment, error) {
 		return a, errNotReducible
 	case a.LastSeqNo+1 == b.FirstSeqNo && a.Author != b.Author: // Adjacent, but of different authors.
 		return a, errNotReducible
+	case a.LastSeqNo+1 == b.FirstSeqNo && a.Log != b.Log: // Adjacent, but of different logs.
+		return a, errNotReducible
 
-	// Remaining cases have overlap, and therefor must have been written by the same Author.
+	// Remaining cases have overlap, and therefor must have the same Author & Log.
 	case a.Author != b.Author:
 		return a, fmt.Errorf("expected Segment Author equality: %#v vs %#v", a, b)
+	case a.Log != b.Log:
+		return a, fmt.Errorf("expected Segment Log equality: %#v vs %#v", a, b)
 
-	case a.FirstSeqNo <= b.FirstSeqNo:
-		// FirstOffset is a lower-bound. Prefer the tighter bound.
+	default:
+		// |a| & |b| overlap and we're reducing into a single Segment.
+		// Invariant: a.FirstSeqNo <= b.FirstSeqNo
+
+		// FirstOffset is a lower-bound. Prefer the tighter (larger) bound.
 		if a.FirstSeqNo == b.FirstSeqNo && a.FirstOffset < b.FirstOffset {
 			a.FirstOffset = b.FirstOffset
 		}
@@ -168,9 +187,6 @@ func reduceSegment(a, b Segment) (Segment, error) {
 			a.LastSeqNo, a.LastOffset = b.LastSeqNo, b.LastOffset
 		}
 		return a, nil
-
-	default:
-		panic("not reached")
 	}
 }
 

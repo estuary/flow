@@ -68,9 +68,6 @@ type fnodeState struct {
 // operation. This ensures that only operations which are linear and
 // consistent are applied.
 type FSM struct {
-	// Recovery log which this FSM tracks operations of.
-	Log pb.Journal
-
 	// Expected sequence number and checksum of next operation.
 	NextSeqNo    int64
 	NextChecksum uint32
@@ -111,8 +108,12 @@ func (m FSMHints) LiveLogSegments() ([]Fnode, SegmentSet, error) {
 		}
 		fnodes = append(fnodes, n.Fnode)
 
-		for _, s := range n.Segments {
-			if err := set.Add(s); err != nil {
+		for _, segment := range n.Segments {
+			// FSMHints defines zeroed Segment.Log as FSMHints.Log.
+			if segment.Log == "" {
+				segment.Log = m.Log
+			}
+			if err := set.Add(segment); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -132,7 +133,6 @@ func NewFSM(hints FSMHints) (*FSM, error) {
 	}
 
 	var fsm = &FSM{
-		Log:          hints.Log,
 		NextSeqNo:    1,
 		NextChecksum: 0,
 		Properties:   make(map[string]string),
@@ -199,7 +199,7 @@ func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 	}
 
 	// Step the FSM to the next state.
-	m.NextSeqNo += 1
+	m.NextSeqNo++
 	m.NextChecksum = crc32.Update(m.NextChecksum, crcTable, frame)
 
 	// If we've exhausted the current hinted Segment, pop and skip to the next.
@@ -302,14 +302,23 @@ func (m *FSM) applyProperty(op *Property) error {
 }
 
 // BuildHints constructs FSMHints which enable a future FSM to rebuild this FSM's state.
-func (m *FSM) BuildHints() FSMHints {
-	var hints = FSMHints{Log: m.Log}
+func (m *FSM) BuildHints(log pb.Journal) FSMHints {
+	var hints = FSMHints{Log: log}
 
 	// Flatten LiveNodes into deep-copied FnodeSegments.
 	for fnode, state := range m.LiveNodes {
+		var segments = append([]Segment(nil), state.Segments...)
+
+		// Remove explicit Segment.Logs which overlap with FSMHints.Log.
+		for s := range segments {
+			if segments[s].Log == hints.Log {
+				segments[s].Log = ""
+			}
+		}
+
 		hints.LiveNodes = append(hints.LiveNodes, FnodeSegments{
 			Fnode:    fnode,
-			Segments: append([]Segment(nil), state.Segments...),
+			Segments: segments,
 		})
 	}
 	// Order LiveNodes on ascending Fnode ID, which is also the order LiveNodes will appear in the log.
@@ -328,7 +337,7 @@ func (m *FSM) hasRemainingHints() bool {
 }
 
 func (m *FSM) extendSegments(s []Segment, op *RecordedOp) []Segment {
-	if l := len(s) - 1; l >= 0 && s[l].Author == op.Author {
+	if l := len(s) - 1; l >= 0 && s[l].Author == op.Author && s[l].Log == op.Log {
 		s[l].LastSeqNo = op.SeqNo
 		s[l].LastOffset = op.LastOffset
 		return s
@@ -340,5 +349,6 @@ func (m *FSM) extendSegments(s []Segment, op *RecordedOp) []Segment {
 		FirstChecksum: op.Checksum,
 		LastSeqNo:     op.SeqNo,
 		LastOffset:    op.LastOffset,
+		Log:           op.Log,
 	})
 }

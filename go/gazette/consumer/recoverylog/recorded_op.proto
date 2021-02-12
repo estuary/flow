@@ -15,7 +15,7 @@ option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 
 // RecordedOp records states changes occuring within a local file-system.
-// Next tag: 11.
+// Next tag: 12.
 message RecordedOp {
   option (gogoproto.goproto_unrecognized) = false;
 
@@ -28,12 +28,19 @@ message RecordedOp {
   // Each Recorder randomly generates an Author ID at startup, and thereafter
   // applies it to all operations it records.
   fixed32 author = 3 [(gogoproto.casttype) = "Author"];
-  // First and last byte offset (exclusive) of this RecordedOp. These are meta-
-  // fields which are not populated in the recorded log (as Recorders cannot
-  // know at what offsets their writes will land in the log). Instead, Players
-  // attach offsets as they deserialize RecordedOps from the committed log.
+  // First and last byte offset (exclusive) of this RecordedOp, and the journal
+  // addressed by those offsets.
+  //
+  // These are meta-fields: they're not literally serialized into written messages.
+  // The offsets of a particular message will also vary over its lifetime:
+  // * When first recorded, the offsets at which the write will land within the journal
+  //   cannot be known ahead of time, and Recorders use an approximate lower bound
+  //   as |first_offset|.
+  // * During playback, players have the benefit of inspecting the committed log and
+  //   attach exact byte offsets as they deserialized RecordedOps.
   int64 first_offset = 9;
   int64 last_offset = 10;
+  string log = 11 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
 
   // RecordedOp is a union-type over the remaining fields.
 
@@ -95,6 +102,8 @@ message RecordedOp {
   Write write = 7;
 
   // Property indicates a property file has been created or updated.
+  // DEPRECATED. Properties are no longer created,
+  // but will still be applied from a written log.
   Property property = 8;
 };
 
@@ -118,7 +127,7 @@ message Property {
 // limitations, and use Segments to resolve conflicts of possible interpretation
 // of the log. Segments produced by a Player are exact, since Players observe all
 // recorded operations at their exact offsets.
-// Next tag: 7.
+// Next tag: 8.
 message Segment {
   option (gogoproto.goproto_unrecognized) = false;
 
@@ -140,6 +149,8 @@ message Segment {
   // Last offset (exclusive) of the Segment. Zero means the offset is not known
   // (eg, because the Segment was produced by a Recorder).
   int64 last_offset = 6;
+  // Log is the Journal holding this Segment's data, and to which offsets are relative.
+  string log = 7 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
 };
 
 // FnodeSegments captures log Segments containing all RecordedOps of the Fnode.
@@ -149,7 +160,7 @@ message FnodeSegments {
   // Fnode being hinted.
   int64 fnode = 1 [(gogoproto.casttype) = "Fnode"];
   // Segments of the Fnode in the log. Currently, FSM tracks only a single
-  // Segment per Fnode per Author. A specific implication of this is that Fnodes
+  // Segment per Fnode per Author & Log. A specific implication of this is that Fnodes
   // modified over long periods of time will result in Segments spanning large
   // chunks of the log. For best performance, Fnodes should be opened & written
   // once, and then never be modified again (this is RocksDB's behavior).
@@ -171,9 +182,12 @@ message FnodeSegments {
 message FSMHints {
   option (gogoproto.goproto_unrecognized) = false;
 
-  // Log is the Journal name holding recorded log content.
+  // Log is the implied recovery log of any contained |live_nodes| Segments
+  // which omit a |log| value. This implied behavior is both for backward-
+  // compatibility (Segments didn't always have a |log| field) and also for
+  // compacting the representation in the common case of Segments mostly or
+  // entirely addressing a single log.
   string log = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
-
   // Live Fnodes and their Segments as-of the generation of these FSMHints.
   repeated FnodeSegments live_nodes = 2 [(gogoproto.nullable) = false];
   // Property files and contents as-of the generation of these FSMHints.
