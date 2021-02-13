@@ -1,5 +1,5 @@
 /// RecordedOp records states changes occuring within a local file-system.
-/// Next tag: 11.
+/// Next tag: 12.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RecordedOp {
     /// Monotonically-increasing sequence number of this operation.
@@ -14,14 +14,22 @@ pub struct RecordedOp {
     /// applies it to all operations it records.
     #[prost(fixed32, tag = "3")]
     pub author: u32,
-    /// First and last byte offset (exclusive) of this RecordedOp. These are meta-
-    /// fields which are not populated in the recorded log (as Recorders cannot
-    /// know at what offsets their writes will land in the log). Instead, Players
-    /// attach offsets as they deserialize RecordedOps from the committed log.
+    /// First and last byte offset (exclusive) of this RecordedOp, and the journal
+    /// addressed by those offsets.
+    ///
+    /// These are meta-fields: they're not literally serialized into written messages.
+    /// The offsets of a particular message will also vary over its lifetime:
+    /// * When first recorded, the offsets at which the write will land within the journal
+    ///   cannot be known ahead of time, and Recorders use an approximate lower bound
+    ///   as |first_offset|.
+    /// * During playback, players have the benefit of inspecting the committed log and
+    ///   attach exact byte offsets as they deserialized RecordedOps.
     #[prost(int64, tag = "9")]
     pub first_offset: i64,
     #[prost(int64, tag = "10")]
     pub last_offset: i64,
+    #[prost(string, tag = "11")]
+    pub log: std::string::String,
     #[prost(message, optional, tag = "4")]
     pub create: ::std::option::Option<recorded_op::Create>,
     #[prost(message, optional, tag = "5")]
@@ -31,6 +39,8 @@ pub struct RecordedOp {
     #[prost(message, optional, tag = "7")]
     pub write: ::std::option::Option<recorded_op::Write>,
     /// Property indicates a property file has been created or updated.
+    /// DEPRECATED. Properties are no longer created,
+    /// but will still be applied from a written log.
     #[prost(message, optional, tag = "8")]
     pub property: ::std::option::Option<Property>,
 }
@@ -111,7 +121,7 @@ pub struct Property {
 /// limitations, and use Segments to resolve conflicts of possible interpretation
 /// of the log. Segments produced by a Player are exact, since Players observe all
 /// recorded operations at their exact offsets.
-/// Next tag: 7.
+/// Next tag: 8.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Segment {
     /// Author which wrote RecordedOps of this Segment.
@@ -138,6 +148,9 @@ pub struct Segment {
     /// (eg, because the Segment was produced by a Recorder).
     #[prost(int64, tag = "6")]
     pub last_offset: i64,
+    /// Log is the Journal holding this Segment's data, and to which offsets are relative.
+    #[prost(string, tag = "7")]
+    pub log: std::string::String,
 }
 /// FnodeSegments captures log Segments containing all RecordedOps of the Fnode.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -146,7 +159,7 @@ pub struct FnodeSegments {
     #[prost(int64, tag = "1")]
     pub fnode: i64,
     /// Segments of the Fnode in the log. Currently, FSM tracks only a single
-    /// Segment per Fnode per Author. A specific implication of this is that Fnodes
+    /// Segment per Fnode per Author & Log. A specific implication of this is that Fnodes
     /// modified over long periods of time will result in Segments spanning large
     /// chunks of the log. For best performance, Fnodes should be opened & written
     /// once, and then never be modified again (this is RocksDB's behavior).
@@ -167,7 +180,11 @@ pub struct FnodeSegments {
 /// Next tag: 4.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FsmHints {
-    /// Log is the Journal name holding recorded log content.
+    /// Log is the implied recovery log of any contained |live_nodes| Segments
+    /// which omit a |log| value. This implied behavior is both for backward-
+    /// compatibility (Segments didn't always have a |log| field) and also for
+    /// compacting the representation in the common case of Segments mostly or
+    /// entirely addressing a single log.
     #[prost(string, tag = "1")]
     pub log: std::string::String,
     /// Live Fnodes and their Segments as-of the generation of these FSMHints.

@@ -1,6 +1,6 @@
 use labels::{keys as label_keys, label_set, values as label_values};
 use models::tables;
-use protocol::{consumer, protocol as broker};
+use protocol::consumer;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 
@@ -33,53 +33,6 @@ impl DerivationSet {
     pub fn update_from_catalog(&mut self, derivations: &[tables::BuiltDerivation]) {
         self.0
             .extend(derivations.iter().map(|d| (d.derivation.to_string(), ())));
-    }
-
-    // TODO(johnny): Rip this out, and have shards create their own recovery
-    // logs using journal rules if the shard doesn't exist.
-    pub fn build_recovery_log_apply_request(&self) -> broker::ApplyRequest {
-        let changes = self
-            .0
-            .iter()
-            .map(|(collection, _)| {
-                let labels = Some(label_set! {
-                    label_keys::MANAGED_BY => label_values::FLOW,
-                    "content-type" => "application/x-gazette-recoverylog",
-                });
-
-                let fragment = Some(broker::journal_spec::Fragment {
-                    length: 1 << 28, // 256MB.
-                    compression_codec: (broker::CompressionCodec::None as i32),
-                    stores: vec!["file:///".to_owned()],
-                    refresh_interval: Some(std::time::Duration::from_secs(5 * 60).into()),
-                    retention: None,
-                    flush_interval: None,
-                    path_postfix_template: String::new(),
-                });
-
-                broker::apply_request::Change {
-                    upsert: Some(broker::JournalSpec {
-                        name: format!(
-                            "recovery/{}",
-                            derivation_shard_id(
-                                collection,
-                                label_values::DEFAULT_KEY_BEGIN,
-                                label_values::DEFAULT_RCLOCK_BEGIN
-                            )
-                        ),
-                        replication: 1,
-                        labels,
-                        fragment,
-                        flags: 0,
-                        max_append_rate: 0,
-                    }),
-                    expect_mod_revision: -1, // TODO (always update).
-                    delete: String::new(),
-                }
-            })
-            .collect::<Vec<_>>();
-
-        broker::ApplyRequest { changes }
     }
 
     pub fn build_shard_apply_request(&self, catalog_url: &str) -> consumer::ApplyRequest {
