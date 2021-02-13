@@ -3,13 +3,14 @@ package consumer
 import (
 	"context"
 	"encoding/json"
-	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+	"fmt"
 	"io/ioutil"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -77,16 +78,20 @@ func fetchHints(ctx context.Context, spec *pc.ShardSpec, etcd *clientv3.Client) 
 	return
 }
 
-// pickFirstHints retrieves the first hints from |f|. If there are no primary
-// hints available the most recent backup hints will be returned. If there are
-// no hints available an empty set of hints is returned.
-func pickFirstHints(f fetchedHints) recoverylog.FSMHints {
-	for _, h := range f.hints {
-		if h != nil {
-			return *h
+// pickFirstHints retrieves the first hints from |hints|.
+// If there are no primary hints available the most recent backup hints will be returned.
+// If there are no hints available an empty set of hints is returned.
+func pickFirstHints(hints *pc.GetHintsResponse, log pb.Journal) recoverylog.FSMHints {
+	if hints.PrimaryHints.Hints != nil {
+		return *hints.PrimaryHints.Hints
+	}
+
+	for _, h := range hints.BackupHints {
+		if h.Hints != nil {
+			return *h.Hints
 		}
 	}
-	return recoverylog.FSMHints{Log: f.log}
+	return recoverylog.FSMHints{Log: log}
 }
 
 // storeRecordedHints writes FSMHints into the primary hint key of the spec.
@@ -189,34 +194,43 @@ func storeRecoveredHints(s *shard, hints recoverylog.FSMHints) error {
 	return err
 }
 
-// beginRecovery fetches and recovers shard FSMHints into a temporary directory.
+// beginRecovery fetches FSMHints and recovers them into a temporary directory.
 func beginRecovery(s *shard) error {
-	var (
-		spec    = s.Spec()
-		dir     string
-		h       fetchedHints
-		logSpec *pb.JournalSpec
-		err     error
-	)
+	var spec = s.Spec()
+	var allHints, err = s.svc.GetHints(s.ctx, &pc.GetHintsRequest{
+		Shard: spec.Id,
+	})
 
-	if dir, err = ioutil.TempDir("", strings.ReplaceAll(spec.Id.String(), "/", "_")+"-"); err != nil {
-		return errors.WithMessage(err, "creating shard working directory")
-	} else if h, err = fetchHints(s.ctx, spec, s.svc.Etcd); err != nil {
-		return errors.WithMessage(err, "fetchHints")
-	} else if logSpec, err = client.GetJournal(s.ctx, s.ajc, pickFirstHints(h).Log); err != nil {
+	if err == nil && allHints.Status != pc.Status_OK {
+		err = fmt.Errorf(allHints.Status.String())
+	}
+	if err != nil {
+		return fmt.Errorf("GetHints: %w", err)
+	}
+	var pickedHints = pickFirstHints(allHints, s.recovery.log)
+
+	// Verify the |pickedHints| recovery log exists, and is of the correct Content-Type.
+	if logSpec, err := client.GetJournal(s.ctx, s.ajc, pickedHints.Log); err != nil {
 		return errors.WithMessage(err, "fetching log spec")
 	} else if ct := logSpec.LabelSet.ValueOf(labels.ContentType); ct != labels.ContentType_RecoveryLog {
 		return errors.Errorf("expected label %s value %s (got %v)", labels.ContentType, labels.ContentType_RecoveryLog, ct)
 	}
 
+	// Create local temporary directory into which we recover.
+	var dir string
+	if dir, err = ioutil.TempDir("", strings.ReplaceAll(spec.Id.String(), "/", "_")+"-"); err != nil {
+		return errors.WithMessage(err, "creating shard working directory")
+	}
+
 	log.WithFields(log.Fields{
 		"dir": dir,
-		"log": logSpec.Name,
+		"log": pickedHints.Log,
 		"id":  spec.Id,
 	}).Info("began recovering shard store from log")
 
-	if err = s.recovery.player.Play(s.ctx, pickFirstHints(h), dir, s.ajc); err != nil {
-		return errors.WithMessagef(err, "playing log %s", pickFirstHints(h).Log)
+	// Finally, play back the log.
+	if err = s.recovery.player.Play(s.ctx, pickedHints, dir, s.ajc); err != nil {
+		return errors.WithMessagef(err, "playing log %s", pickedHints.Log)
 	}
 	return nil
 }

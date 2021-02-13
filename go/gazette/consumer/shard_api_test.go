@@ -256,7 +256,24 @@ func TestAPIHintsCases(t *testing.T) {
 	var tf, cleanup = newTestFixture(t)
 	defer cleanup()
 
+	// Install but don't allocate the shard (as recovery will insert hints,
+	// and we don't want any yet).
 	var spec = makeShard(shardA)
+	tf.allocateShard(spec)
+
+	// Case: No hints exist.
+	var resp, err = tf.service.GetHints(context.Background(), &pc.GetHintsRequest{Shard: shardA})
+	require.NoError(t, err)
+	require.Equal(t, &pc.GetHintsResponse{
+		Status:       pc.Status_OK,
+		Header:       resp.Header,
+		PrimaryHints: pc.GetHintsResponse_ResponseHints{},
+		BackupHints:  []pc.GetHintsResponse_ResponseHints{{}, {}},
+	}, resp)
+	// Picking hints passes through the supplied shard recovery log.
+	require.Equal(t, recoverylog.FSMHints{Log: "a/log"}, pickFirstHints(resp, "a/log"))
+
+	// Now allocate the shard, and then install hint fixtures.
 	tf.allocateShard(spec, localID)
 	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
 
@@ -285,7 +302,7 @@ func TestAPIHintsCases(t *testing.T) {
 	require.NoError(t, storeRecoveredHints(shard, mkHints(333)))
 
 	// Case: Correctly fetch hints
-	var resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
@@ -293,16 +310,19 @@ func TestAPIHintsCases(t *testing.T) {
 		PrimaryHints: expected[0],
 		BackupHints:  expected[1:],
 	}, resp)
+	require.Equal(t, *expected[0].Hints, pickFirstHints(resp, "a/log"))
 
 	// Case: No primary hints
 	_, _ = tf.etcd.Delete(shard.ctx, spec.HintPrimaryKey())
 	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
 		Header:       resp.Header,
 		PrimaryHints: pc.GetHintsResponse_ResponseHints{},
 		BackupHints:  expected[1:],
 	}, resp)
+	require.Equal(t, *expected[1].Hints, pickFirstHints(resp, "a/log"))
 
 	// Case: Hint key has not yet been written to
 	require.NoError(t, storeRecordedHints(shard, mkHints(111)))
@@ -343,7 +363,7 @@ func TestAPIHintsCases(t *testing.T) {
 	hints = mkHints(555)
 	hints.Log = ""
 	require.NoError(t, storeRecordedHints(shard, hints))
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	_, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
 	require.EqualError(t, err, "validating FSMHints: hinted log not provided")
 
 	tf.allocateShard(spec) // Cleanup.

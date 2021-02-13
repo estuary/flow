@@ -104,8 +104,6 @@ func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.Ap
 	}
 	if err := req.Validate(); err != nil {
 		return resp, err
-	} else if err = VerifyReferencedJournals(ctx, srv.Journals, req); err != nil {
-		return resp, err
 	}
 
 	var cmp []clientv3.Cmp
