@@ -28,14 +28,14 @@ func TestCombineBindings(t *testing.T) {
 		collection.KeyPtrs,
 		[]string{"/s/1", "/i"},
 		collection.UuidPtr,
-		false)
+	)
 	require.NoError(t, err)
 
-	require.NoError(t, combiner.Add(json.RawMessage(`{"i": 32, "s": ["one"]}`)))
-	require.NoError(t, combiner.Add(json.RawMessage(`{"i": 42, "s": ["two"]}`)))
+	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["one"]}`)))
+	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 42, "s": ["three"]}`)))
 	require.NoError(t, combiner.Flush())
-	require.NoError(t, combiner.Add(json.RawMessage(`{"i": 42, "s": ["three"]}`)))
-	require.NoError(t, combiner.Add(json.RawMessage(`{"i": 32, "s": ["four"]}`)))
+	require.NoError(t, combiner.ReduceLeft(json.RawMessage(`{"i": 42, "s": ["two"]}`)))
+	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["four"]}`)))
 
 	// Expect duplicate calls aren't a problem.
 	require.NoError(t, combiner.CloseSend())

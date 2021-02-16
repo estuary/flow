@@ -4,9 +4,9 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{reduce, FullContext, Schema, SchemaIndex, Validator};
+use doc::{reduce, Schema, SchemaIndex, Validation, Validator};
 use itertools::{EitherOrBoth, Itertools};
-use json::{schema::build::build_schema, validator::Context};
+use json::schema::build::build_schema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -59,7 +59,7 @@ fn test_validate_then_reduce() {
     let mut index = SchemaIndex::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
-    let mut validator = Validator::<FullContext>::new(&index);
+    let mut validator = Validator::new(&index);
 
     let cases = vec![
         (json!({"lww": "one"}), json!({"lww": "one"})),
@@ -135,7 +135,11 @@ fn test_validate_then_reduce() {
 
     let mut lhs: Option<Value> = None;
     for (rhs, expect) in cases {
-        let reduced = reduce::reduce(&mut validator, &curi, lhs, rhs, true).unwrap();
+        let rhs = Validation::validate(&mut validator, &curi, rhs)
+            .unwrap()
+            .ok()
+            .unwrap();
+        let reduced = reduce::reduce(lhs, rhs, true).unwrap();
         assert_eq!(&reduced, &expect);
         lhs = Some(reduced);
     }
@@ -224,7 +228,7 @@ fn test_qc_set_array(mut seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
     let mut index = SchemaIndex::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
-    let mut validator = Validator::<FullContext>::new(&index);
+    let mut validator = Validator::new(&index);
 
     let actual: TestArray =
         serde_json::from_value(reduce_tree(&mut validator, &curi, docs)).unwrap();
@@ -324,7 +328,7 @@ fn test_qc_set_map(seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
     let mut index = SchemaIndex::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
-    let mut validator = Validator::<FullContext>::new(&index);
+    let mut validator = Validator::new(&index);
 
     let actual: TestMap = serde_json::from_value(reduce_tree(&mut validator, &curi, docs)).unwrap();
     actual.add == expect
@@ -336,11 +340,7 @@ struct TestMap {
     add: BTreeMap<String, u32>,
 }
 
-fn reduce_tree<C: Context>(
-    validator: &mut Validator<C>,
-    curi: &Url,
-    mut docs: Vec<Value>,
-) -> Value {
+fn reduce_tree(validator: &mut Validator, curi: &Url, mut docs: Vec<Value>) -> Value {
     // Iteratively reduce |docs| by walking it in chunked windows, producing
     // a new Value for each chunk. Intuitively, we're reducing |docs| by
     // interpreting it as a tree and ascending from leaf to root (as opposed
@@ -357,7 +357,11 @@ fn reduce_tree<C: Context>(
                 let mut lhs: Option<Value> = None;
 
                 for rhs in chunk {
-                    lhs = Some(reduce::reduce(validator, curi, lhs, rhs, n == 0).unwrap());
+                    let rhs = Validation::validate(validator, curi, rhs)
+                        .unwrap()
+                        .ok()
+                        .unwrap();
+                    lhs = Some(reduce::reduce(lhs, rhs, n == 0).unwrap());
                 }
                 lhs.unwrap()
             })

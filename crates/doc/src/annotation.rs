@@ -1,5 +1,5 @@
 use super::reduce;
-use json::{schema, validator, Span};
+use json::{schema, validator, validator::Context};
 use std::convert::TryFrom;
 
 /// Enumeration of JSON-Schema associated annotations understood by Estuary.
@@ -47,26 +47,21 @@ impl schema::build::AnnotationBuilder for Annotation {
     }
 }
 
-/// Given outcomes of a successful validation, extract reduce annotations & hashes.
-pub fn extract_reduce_annotations<'a, C>(
-    span: Span,
-    outcomes: &[(validator::Outcome<'a, Annotation>, C)],
-) -> Vec<(&'a reduce::Strategy, u64)>
-where
-    C: validator::Context,
-{
-    let mut idx = std::iter::repeat((DEFAULT_STRATEGY, 0))
-        .take(span.end)
-        .collect::<Vec<_>>();
+impl<'sm, 'v> super::Valid<'sm, 'v> {
+    pub fn extract_reduce_annotations(&self) -> Vec<(&'sm reduce::Strategy, u64)> {
+        let mut idx = std::iter::repeat((DEFAULT_STRATEGY, 0))
+            .take(self.0.span.end)
+            .collect::<Vec<_>>();
 
-    for (outcome, ctx) in outcomes {
-        let subspan = ctx.span();
+        for (outcome, ctx) in self.0.validator.outcomes() {
+            let subspan = ctx.span();
 
-        if let validator::Outcome::Annotation(Annotation::Reduce(strategy)) = outcome {
-            idx[subspan.begin] = (strategy, subspan.hashed);
+            if let validator::Outcome::Annotation(Annotation::Reduce(strategy)) = outcome {
+                idx[subspan.begin] = (strategy, subspan.hashed);
+            }
         }
+        idx
     }
-    idx
 }
 
 static DEFAULT_STRATEGY: &reduce::Strategy = &reduce::Strategy::LastWriteWins;

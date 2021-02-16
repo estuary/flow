@@ -1,5 +1,6 @@
 use super::{Action, Case, Clock, Graph, PendingStat};
-use doc::{reduce, Diff, SchemaIndex};
+use derive::combiner;
+use doc::{Diff, SchemaIndex};
 use futures::StreamExt;
 use itertools::Itertools;
 use json::Location;
@@ -27,8 +28,8 @@ pub enum Error {
 
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
-    #[error("failed to reduce over documents to be verified")]
-    Reduce(#[from] reduce::Error),
+    #[error("failed to combine over documents to be verified")]
+    Combine(#[from] combiner::Error),
     #[error("detected differences while verifying collection {:?}: {}",
         .collection, serde_json::to_string_pretty(.diffs).unwrap())]
     Verify {
@@ -179,7 +180,7 @@ async fn do_verify<'a>(
         .unwrap();
     let uuid_ptr: doc::Pointer = build_collection.spec.uuid_ptr.as_str().into();
 
-    let mut combiner = derive::combiner::Combiner::new(
+    let mut combiner = combiner::Combiner::new(
         schema_index,
         &url::Url::parse(&build_collection.spec.schema_uri).unwrap(),
         build_collection
@@ -219,7 +220,7 @@ async fn do_verify<'a>(
             if uuid.producer_and_flags & protocol::message_flags::ACK_TXN != 0 {
                 continue;
             }
-            combiner.combine(doc, true)?;
+            combiner.combine_right(doc)?;
         }
     }
 

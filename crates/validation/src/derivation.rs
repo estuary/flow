@@ -8,8 +8,8 @@ pub fn walk_all_derivations(
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     imports: &[&tables::Import],
-    index: &doc::SchemaIndex<'_>,
     projections: &[tables::Projection],
+    schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     transforms: &[tables::Transform],
     errors: &mut tables::Errors,
@@ -30,8 +30,8 @@ pub fn walk_all_derivations(
                 collections,
                 derivation,
                 imports,
-                index,
                 projections,
+                schema_index,
                 schema_shapes,
                 &transforms,
                 &mut built_transforms,
@@ -47,8 +47,8 @@ fn walk_derivation(
     collections: &[tables::Collection],
     derivation: &tables::Derivation,
     imports: &[&tables::Import],
-    index: &doc::SchemaIndex<'_>,
     projections: &[tables::Projection],
+    schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     transforms: &[&tables::Transform],
     built_transforms: &mut tables::BuiltTransforms,
@@ -62,11 +62,16 @@ fn walk_derivation(
     } = derivation;
 
     // Verify that the register's initial value conforms to its schema.
-    if let Err(err) = doc::validate(
-        &mut doc::Validator::<doc::FullContext>::new(index),
+    if schema_index.fetch(&register_schema).is_none() {
+        // Referential integrity error, which we've already reported.
+    } else if let Err(err) = doc::Validation::validate(
+        &mut doc::Validator::new(schema_index),
         register_schema,
-        register_initial,
-    ) {
+        register_initial.clone(),
+    )
+    .unwrap()
+    .ok()
+    {
         Error::RegisterInitialInvalid(err).push(scope, errors);
     }
 
