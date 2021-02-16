@@ -174,11 +174,8 @@ func (i *Ingester) Start() *Ingestion {
 // Add a document to the Collection within this Ingestion's transaction scope.
 func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	if rpc, ok := i.streams[collection]; ok {
-		return rpc.Add(doc)
+		return rpc.CombineRight(doc)
 	}
-	// Ingestion never prunes, since we're combining over a limited window
-	// of all documents ingested into the collection.
-	const prune = false
 
 	// Must start a new stream.
 	if spec, ok := i.ingester.Collections[collection]; !ok {
@@ -188,12 +185,11 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 		spec.KeyPtrs,
 		flow.PartitionPointers(spec),
 		spec.UuidPtr,
-		prune,
 	); err != nil {
 		return fmt.Errorf("while starting combiner stream for %q: %w", collection, err)
 	} else {
 		i.streams[collection] = stream
-		return stream.Add(doc)
+		return stream.CombineRight(doc)
 	}
 }
 

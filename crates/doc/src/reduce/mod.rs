@@ -1,8 +1,7 @@
-pub use super::{extract_reduce_annotations, validate, FailedValidation, FullContext, Validator};
+pub use super::Valid;
 use itertools::EitherOrBoth;
 pub use json::{schema::types, validator::Context, LocatedItem, LocatedProperty, Location};
 use serde_json::Value;
-use url::Url;
 
 mod set;
 mod strategy;
@@ -13,8 +12,6 @@ type Index<'a> = &'a [(&'a Strategy, u64)];
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("document is invalid: {}", serde_json::to_string_pretty(.0).unwrap())]
-    FailedValidation(FailedValidation),
     #[error("'append' strategy expects arrays")]
     AppendWrongType,
     #[error("`sum` resulted in numeric overflow")]
@@ -43,22 +40,14 @@ pub enum Error {
     },
 }
 
-/// Reduce a RHS document into a preceding LHS document. The RHS document must
-/// validate against the provided Validator and schema URI, which will also
-/// provide reduction annotations.
+/// Reduce a RHS document validation into a preceding LHS document.
+/// The RHS validation provides reduction annotation outcomes used in the reduction.
 /// If |prune|, then LHS is the root-most (or left-most) document in the reduction
 /// sequence. Depending on the reduction strategy, additional pruning can be done
 /// in this case (i.e., removing tombstones) that isn't possible in a partial
 /// non-root reduction.
-pub fn reduce<C: Context>(
-    mut validator: &mut Validator<C>,
-    schema_curi: &Url,
-    lhs: Option<Value>,
-    rhs: Value,
-    prune: bool,
-) -> Result<Value> {
-    let span = validate(&mut validator, &schema_curi, &rhs).map_err(Error::FailedValidation)?;
-    let tape = extract_reduce_annotations(span, validator.outcomes());
+pub fn reduce<'sm, 'v>(lhs: Option<Value>, rhs: Valid<'sm, 'v>, prune: bool) -> Result<Value> {
+    let tape = rhs.extract_reduce_annotations();
     let tape = &mut tape.as_slice();
 
     let reduced = match lhs {
@@ -67,17 +56,16 @@ pub fn reduce<C: Context>(
             loc: Location::Root,
             prune,
             lhs,
-            rhs,
+            rhs: rhs.0.document,
         },
         None => Cursor::Right {
             tape,
             loc: Location::Root,
             prune,
-            rhs,
+            rhs: rhs.0.document,
         },
     }
     .reduce()?;
-
     assert!(tape.is_empty());
     Ok(reduced)
 }
@@ -219,7 +207,7 @@ fn count_nodes(v: &Value) -> usize {
 pub mod test {
     use super::*;
 
-    use crate::{FullContext, Schema, SchemaIndex, Validator};
+    use crate::{Schema, SchemaIndex, Validation, Validator};
     use json::schema::build::build_schema;
     pub use serde_json::{json, Value};
     use std::error::Error as StdError;
@@ -262,7 +250,7 @@ pub mod test {
         index.add(&schema).unwrap();
         index.verify_references().unwrap();
 
-        let mut validator = Validator::<FullContext>::new(&index);
+        let mut validator = Validator::new(&index);
         let mut lhs: Option<Value> = None;
 
         for case in cases {
@@ -270,7 +258,11 @@ pub mod test {
                 Partial { rhs, expect } => (rhs, expect, false),
                 Full { rhs, expect } => (rhs, expect, true),
             };
-            let reduced = reduce(&mut validator, &curi, lhs.clone(), rhs, prune);
+            let rhs = Validation::validate(&mut validator, &curi, rhs)
+                .unwrap()
+                .ok()
+                .unwrap();
+            let reduced = reduce(lhs.clone(), rhs, prune);
 
             match expect {
                 Ok(expect) => {

@@ -43,7 +43,6 @@ func (f *CombineBuilder) Open(
 	keyPtrs []string,
 	fieldPtrs []string,
 	uuidPtr string,
-	prune bool,
 ) (*Combine, error) {
 	var svc = f.pool.Get().(*service)
 
@@ -53,7 +52,6 @@ func (f *CombineBuilder) Open(
 		KeyPtr:             keyPtrs,
 		FieldPtrs:          fieldPtrs,
 		UuidPlaceholderPtr: uuidPtr,
-		Prune:              prune,
 	})
 	var _, _, err = svc.poll()
 	if err != nil {
@@ -67,9 +65,21 @@ func (f *CombineBuilder) Open(
 	}, nil
 }
 
-// Add |doc| to the Combine over the argument document.
-func (c *Combine) Add(doc json.RawMessage) error {
+// ReduceLeft reduces |doc| as a fully reduced, left-hand document.
+func (c *Combine) ReduceLeft(doc json.RawMessage) error {
 	c.svc.sendBytes(2, doc)
+	c.docs++
+
+	var err error
+	if c.docs%128 == 0 {
+		err = c.Flush()
+	}
+	return err
+}
+
+// CombineRight combines |doc| as a partially reduced, right-hand document.
+func (c *Combine) CombineRight(doc json.RawMessage) error {
+	c.svc.sendBytes(3, doc)
 	c.docs++
 
 	var err error
@@ -96,7 +106,7 @@ func (c *Combine) CloseSend() error {
 		return nil // Already called.
 	}
 
-	c.svc.sendBytes(3, nil)
+	c.svc.sendBytes(4, nil)
 	var _, out, err = c.svc.poll()
 	if err != nil {
 		return err

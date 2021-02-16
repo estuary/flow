@@ -1,7 +1,6 @@
 use crate::DebugJson;
 
-use doc::{reduce, SchemaIndex, Validator};
-use json::validator::FullContext;
+use doc::{reduce, FailedValidation, SchemaIndex, Validation, Validator};
 use prost::Message;
 use protocol::consumer::Checkpoint;
 use serde_json::Value;
@@ -11,17 +10,23 @@ use url::Url;
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("RocksDB error: {0}")]
-    Lambda(#[from] rocksdb::Error),
+    Rocks(#[from] rocksdb::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("protobuf error: {0}")]
     Proto(#[from] prost::DecodeError),
+    #[error("failed to reduce register documents")]
+    Reduce(#[from] reduce::Error),
+    #[error("document is invalid: {0:#}")]
+    FailedValidation(#[from] FailedValidation),
+    #[error(transparent)]
+    SchemaIndex(#[from] json::schema::index::Error),
 }
 
 pub struct Registers {
     // Backing database of all registers.
     rocks_db: rocksdb::DB,
-    validator: Validator<'static, FullContext>,
+    validator: Validator<'static>,
     schema: Url,
     initial: serde_json::Value,
     cache: HashMap<Box<[u8]>, Option<Value>>,
@@ -113,12 +118,19 @@ impl Registers {
         &mut self,
         key: &[u8],
         deltas: impl IntoIterator<Item = Value>,
-    ) -> Result<(), reduce::Error> {
+        rollback_on_conflict: bool,
+    ) -> Result<bool, Error> {
         // Obtain a &mut to the pre-loaded Value into which we'll reduce.
         let lhs = self
             .cache
             .get_mut(key)
             .expect("key must be loaded before reduce");
+
+        let rollback = if rollback_on_conflict {
+            Some(lhs.clone())
+        } else {
+            None
+        };
 
         // If the register doesn't exist, initialize it now.
         if !matches!(lhs, Some(_)) {
@@ -127,15 +139,29 @@ impl Registers {
 
         // Apply all register deltas, in order.
         for rhs in deltas.into_iter() {
-            *lhs = Some(reduce::reduce(
-                &mut self.validator,
-                &self.schema,
-                lhs.take(),
-                rhs,
-                true,
-            )?);
+            // Validate the RHS delta, reduce, and then validate the result.
+            let rhs = Validation::validate(&mut self.validator, &self.schema, rhs)?.ok()?;
+            let reduced = reduce::reduce(lhs.take(), rhs, true)?;
+
+            let reduced = Validation::validate(&mut self.validator, &self.schema, reduced)?;
+            if !reduced.validator.invalid() {
+                *lhs = Some(reduced.document);
+                continue;
+            }
+
+            // Reduction is invalid.
+            match rollback {
+                Some(rollback) => {
+                    *lhs = rollback;
+                    return Ok(false);
+                }
+                None => {
+                    reduced.ok()?;
+                    unreachable!("reduced.ok() must error");
+                }
+            }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Prepare for commit, storing all modified registers with an accompanying Checkpoint.
@@ -180,13 +206,13 @@ pub const REGISTERS_CF: &str = "registers";
 
 #[cfg(test)]
 mod test {
-    use super::{super::test::build_min_max_schema, *};
+    use super::{super::test::build_min_max_sum_schema, *};
     use serde_json::{json, Map, Value};
 
-    #[tokio::test]
-    async fn test_lifecycle() {
+    #[test]
+    fn test_lifecycle() {
         let (_db_dir, db) = build_test_rocks();
-        let (schema_index, schema) = build_min_max_schema();
+        let (schema_index, schema) = build_min_max_sum_schema();
         let mut reg = Registers::new(db, schema_index, &schema, Value::Object(Map::new()));
 
         assert_eq!(Checkpoint::default(), reg.last_checkpoint().unwrap());
@@ -201,12 +227,13 @@ mod test {
         reg.reduce(
             b"foo",
             vec![json!({"min": 3, "max": 3.3}), json!({"min": 4, "max": 4.4})],
+            false,
         )
         .unwrap();
 
-        reg.reduce(b"baz", vec![json!({"min": 1, "max": 1.1})])
+        reg.reduce(b"baz", vec![json!({"min": 1, "max": 1.1})], false)
             .unwrap();
-        reg.reduce(b"baz", vec![json!({"min": 2, "max": 2.2})])
+        reg.reduce(b"baz", vec![json!({"min": 2, "max": 2.2})], false)
             .unwrap();
 
         // Expect registers were updated to reflect reductions.
@@ -258,6 +285,60 @@ mod test {
 
         // However, we can still restore our persisted checkpoint (different column family).
         assert_eq!(reg.last_checkpoint().unwrap(), fixture);
+    }
+
+    #[test]
+    fn test_rollback() {
+        let (_db_dir, db) = build_test_rocks();
+        let (schema_index, schema) = build_min_max_sum_schema();
+        let schema_initial = json!({
+            "positive": true, // Causes schema to require that reduced sum >= 0.
+            "sum": 0,
+        });
+        let mut reg = Registers::new(db, schema_index, &schema, schema_initial);
+
+        reg.load(&[b"key"]).unwrap();
+
+        // Reduce in updates which validate successfully.
+        let applied = reg
+            .reduce(
+                b"key",
+                vec![json!({"sum": 1}), json!({"sum": -0.1}), json!({"sum": 1.2})],
+                false,
+            )
+            .unwrap();
+        assert!(applied);
+
+        assert_eq!(reg.read(b"key"), &json!({"positive": true, "sum": 2.1}));
+
+        // Reduce values such that an intermediate reduction doesn't validate,
+        // with rollback enabled.
+        let applied = reg
+            .reduce(
+                b"key",
+                vec![json!({"sum": 1}), json!({"sum": -4}), json!({"sum": 5})],
+                true,
+            )
+            .unwrap();
+
+        // Expect the register wasn't modified.
+        assert!(!applied);
+        assert_eq!(reg.read(b"key"), &json!({"positive": true, "sum": 2.1}));
+
+        // Try again. This time, apply without rollback.
+        let err = reg
+            .reduce(
+                b"key",
+                vec![json!({"sum": 1}), json!({"sum": -4}), json!({"sum": 5})],
+                false,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, Error::FailedValidation(_)));
+
+        // Expect register was replaced to an initial state
+        // (although the caller has likely bailed out by now).
+        assert_eq!(reg.read(b"key"), &json!({"positive": true, "sum": 0}));
     }
 
     // Builds an empty RocksDB in a temporary directory,

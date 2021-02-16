@@ -1,7 +1,7 @@
-use super::combiner::Combiner;
+use super::combiner::{self, Combiner};
 use crate::setup_env_tracing;
 
-use doc::{reduce, Pointer, SchemaIndex};
+use doc::{Pointer, SchemaIndex};
 use prost::Message;
 use protocol::{cgo, flow::combine_api};
 use serde_json::Value;
@@ -16,7 +16,7 @@ pub enum Error {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    ReduceError(#[from] reduce::Error),
+    CombineError(#[from] combiner::Error),
     #[error("Protobuf decoding error")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
@@ -67,14 +67,20 @@ impl cgo::Service for API {
                 self.state = Some((cfg, combiner));
                 Ok(())
             }
-            // Combine from JSON document.
-            (2, Some((req, combiner))) => {
+            // Left-hand combine of JSON document.
+            (2, Some((_, combiner))) => {
                 let doc: Value = serde_json::from_slice(data)?;
-                combiner.combine(doc, req.prune)?;
+                combiner.reduce_left(doc)?;
+                Ok(())
+            }
+            // Right-hand combine of JSON document.
+            (3, Some((_, combiner))) => {
+                let doc: Value = serde_json::from_slice(data)?;
+                combiner.combine_right(doc)?;
                 Ok(())
             }
             // Drain the combiner, emitting combined documents.
-            (3, Some(_)) => {
+            (4, Some(_)) => {
                 let (req, combiner) = self.state.take().unwrap();
 
                 drain_combiner(
@@ -128,7 +134,7 @@ pub fn drain_combiner(
 
 #[cfg(test)]
 pub mod test {
-    use super::{super::test::build_min_max_schema, API};
+    use super::{super::test::build_min_max_sum_schema, API};
     use protocol::{cgo::Service, flow::combine_api};
     use serde_json::json;
 
@@ -138,7 +144,7 @@ pub mod test {
 
         // Not covered: opening the database and building a schema index.
         // Rather, we install a fixture here.
-        let (index, schema_url) = build_min_max_schema();
+        let (index, schema_url) = build_min_max_sum_schema();
 
         let mut arena = Vec::new();
         let mut out = Vec::new();
@@ -152,7 +158,6 @@ pub mod test {
                 key_ptr: vec!["/key".to_owned()],
                 field_ptrs: vec!["/min".to_owned(), "/max".to_owned()],
                 uuid_placeholder_ptr: "/foo".to_owned(),
-                prune: true,
             },
             &mut arena,
             &mut out,
@@ -160,15 +165,15 @@ pub mod test {
         .unwrap();
 
         // Send documents to combine.
-        for doc in &[
-            json!({"key": "one", "min": 3, "max": 3.3}),
-            json!({"key": "two", "min": 4, "max": 4.4}),
-            json!({"key": "two", "min": 2, "max": 2.2}),
-            json!({"key": "one", "min": 5, "max": 5.5}),
-            json!({"key": "three", "min": 6, "max": 6.6}),
+        for (left, doc) in &[
+            (true, json!({"key": "one", "min": 3, "max": 3.3})),
+            (false, json!({"key": "two", "min": 4, "max": 4.4})),
+            (true, json!({"key": "two", "min": 2, "max": 2.2})),
+            (false, json!({"key": "one", "min": 5, "max": 5.5})),
+            (false, json!({"key": "three", "min": 6, "max": 6.6})),
         ] {
             svc.invoke(
-                2,
+                if *left { 2 } else { 3 }, // reduce-left vs combine-right.
                 serde_json::to_vec(doc).unwrap().as_ref(),
                 &mut arena,
                 &mut out,
@@ -181,7 +186,7 @@ pub mod test {
         assert!(out.is_empty());
 
         // Drain the combiner.
-        svc.invoke(3, &[], &mut arena, &mut out).unwrap();
+        svc.invoke(4, &[], &mut arena, &mut out).unwrap();
 
         insta::assert_debug_snapshot!((String::from_utf8_lossy(&arena), out));
     }
