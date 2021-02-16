@@ -495,13 +495,6 @@ pub mod combine_api {
         /// returned documents. If empty, no placeholder is inserted.
         #[prost(string, tag = "5")]
         pub uuid_placeholder_ptr: ::prost::alloc::string::String,
-        /// Prune is true if this CombineRequest includes the root-most
-        /// (equivalently, left-most) document of each key. Depending on the
-        /// reduction strategy, additional pruning can be done in this case
-        /// (i.e., removing tombstones) that isn't possible in a partial
-        /// non-root reduction.
-        #[prost(bool, tag = "6")]
-        pub prune: bool,
     }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.

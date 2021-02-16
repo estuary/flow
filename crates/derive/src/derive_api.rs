@@ -1,4 +1,4 @@
-use super::combiner::Combiner;
+use super::combiner::{self, Combiner};
 use super::context::Context;
 use super::lambda::{self, Lambda};
 use super::nodejs::NodeRuntime;
@@ -7,7 +7,6 @@ use super::registers::{self, Registers};
 use crate::setup_env_tracing;
 
 use bytes::BufMut;
-use doc::{self, reduce};
 use futures::channel::mpsc;
 use futures::sink::SinkExt;
 use futures::stream::{StreamExt, TryStreamExt};
@@ -31,13 +30,11 @@ pub enum Error {
     RegisterErr(#[from] registers::Error),
     #[error("unknown transform index: {0}")]
     UnknownTransform(u32),
-    #[error("register reduction error: {0}")]
-    RegisterReduction(#[source] reduce::Error),
     #[error("derived document reduction error: {0}")]
-    DerivedReduction(#[source] reduce::Error),
+    Combiner(#[from] combiner::Error),
     #[error("Protobuf decoding error")]
     ProtoDecode(#[from] prost::DecodeError),
-    #[error("source document validation error: {}", serde_json::to_string_pretty(.0).unwrap())]
+    #[error("source document validation error: {0:#}")]
     SourceValidation(doc::FailedValidation),
     #[error("parsing URL: {0:?}")]
     Url(#[from] url::ParseError),
@@ -137,7 +134,7 @@ enum State {
 }
 
 struct Txn {
-    validator: doc::Validator<'static, doc::FullContext>, // TODO(johnny): Remove.
+    validator: doc::Validator<'static>, // TODO(johnny): Remove.
     next: Block,
     tx_blocks: mpsc::Sender<Block>,
     fut: tokio::task::JoinHandle<Result<(Combiner, Registers), Error>>,
@@ -438,20 +435,21 @@ impl Block {
         }
     }
 
-    fn add_document<C: json::validator::Context>(
+    fn add_document(
         &mut self,
-        val: &mut doc::Validator<C>,
+        val: &mut doc::Validator,
         tf_index: usize,
         uuid: flow::UuidParts,
         packed_key: Vec<u8>,
         data: &[u8],
     ) -> Result<(), Error> {
         // TODO(johnny): Move source schema validation to read-time, avoiding this parsing.
-        doc::validate(
+        doc::Validation::validate(
             val,
             &self.ctx.transforms[tf_index as usize].source_schema,
-            &serde_json::from_slice(data)?,
-        )
+            serde_json::from_slice(data)?,
+        )?
+        .ok()
         .map_err(Error::SourceValidation)?;
 
         // Accumulate source document into the transform's column buffer.
@@ -560,8 +558,7 @@ async fn process_block(
         if !deltas.is_empty() {
             registers
                 .as_mut()
-                .reduce(key, deltas.into_iter())
-                .map_err(Error::RegisterReduction)?;
+                .reduce(key, deltas.into_iter(), tf.rollback_on_register_conflict)?;
 
             // Write "after" register, completing row.
             if !matches!(tf.publish, Lambda::Noop) {
@@ -650,10 +647,7 @@ async fn process_block(
         };
 
         for doc in derived_docs {
-            combiner
-                .as_mut()
-                .combine(doc, false)
-                .map_err(Error::DerivedReduction)?;
+            combiner.as_mut().combine_right(doc)?;
         }
     }
     tracing::trace!(combiner = ?combiner.as_ref(), "reduced documents");
@@ -806,24 +800,42 @@ mod tests {
         let (mut arena, mut out) = (Vec::new(), Vec::new());
         let flush = api.inner.flush_transaction(&mut arena, &mut out);
 
-        insta::assert_display_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
-        register reduction error: document is invalid: {
-          "document": {
-            "type": "set",
-            "value": "negative one!"
-          },
-          "basic_output": {
-            "errors": [
-              {
-                "absoluteKeywordLocation": "https://schema/#/$defs/register",
-                "error": "OneOfNotMatched",
-                "instanceLocation": "",
-                "keywordLocation": "#"
-              }
-            ],
-            "valid": false
-          }
-        }
+        insta::assert_debug_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
+        RegisterErr(
+            FailedValidation(
+                FailedValidation {
+                    document: Object({
+                        "type": String(
+                            "set",
+                        ),
+                        "value": String(
+                            "negative one!",
+                        ),
+                    }),
+                    basic_output: Object({
+                        "errors": Array([
+                            Object({
+                                "absoluteKeywordLocation": String(
+                                    "https://schema/#/$defs/register",
+                                ),
+                                "error": String(
+                                    "OneOfNotMatched",
+                                ),
+                                "instanceLocation": String(
+                                    "",
+                                ),
+                                "keywordLocation": String(
+                                    "#",
+                                ),
+                            }),
+                        ]),
+                        "valid": Bool(
+                            false,
+                        ),
+                    }),
+                },
+            ),
+        )
         "###);
 
         // Left in an invalid state.
@@ -846,27 +858,47 @@ mod tests {
         let (mut arena, mut out) = (Vec::new(), Vec::new());
         let flush = api.inner.flush_transaction(&mut arena, &mut out);
 
-        insta::assert_display_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
-        derived document reduction error: document is invalid: {
-          "document": {
-            "invalid-property": 42,
-            "key": "foobar",
-            "values": [
-              1000
-            ]
-          },
-          "basic_output": {
-            "errors": [
-              {
-                "absoluteKeywordLocation": "https://schema/#/$defs/derived/properties/invalid-property",
-                "error": "Invalid(False)",
-                "instanceLocation": "/invalid-property",
-                "keywordLocation": "#/properties/invalid-property"
-              }
-            ],
-            "valid": false
-          }
-        }
+        insta::assert_debug_snapshot!(futures::executor::block_on(flush).unwrap_err(), @r###"
+        Combiner(
+            PreReduceValidation(
+                FailedValidation {
+                    document: Object({
+                        "invalid-property": Number(
+                            42,
+                        ),
+                        "key": String(
+                            "foobar",
+                        ),
+                        "values": Array([
+                            Number(
+                                1000,
+                            ),
+                        ]),
+                    }),
+                    basic_output: Object({
+                        "errors": Array([
+                            Object({
+                                "absoluteKeywordLocation": String(
+                                    "https://schema/#/$defs/derived/properties/invalid-property",
+                                ),
+                                "error": String(
+                                    "Invalid(False)",
+                                ),
+                                "instanceLocation": String(
+                                    "/invalid-property",
+                                ),
+                                "keywordLocation": String(
+                                    "#/properties/invalid-property",
+                                ),
+                            }),
+                        ]),
+                        "valid": Bool(
+                            false,
+                        ),
+                    }),
+                },
+            ),
+        )
         "###);
 
         // Left in an invalid state.
@@ -994,6 +1026,7 @@ mod tests {
                     source_schema: schema_url.join("#/$defs/source").unwrap(),
                     update: Lambda::Noop,
                     publish: Lambda::Noop,
+                    rollback_on_register_conflict: false,
                     index,
                 })
                 .collect::<Vec<_>>();

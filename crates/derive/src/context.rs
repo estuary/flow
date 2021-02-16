@@ -11,6 +11,7 @@ pub struct Transform {
     // Prepared lambdas for invocation.
     pub update: lambda::Lambda,
     pub publish: lambda::Lambda,
+    pub rollback_on_register_conflict: bool,
     // Index of this Transform within its owning array.
     // This makes it easy to map back to an index from a &Transform.
     pub index: usize,
@@ -68,6 +69,7 @@ impl Context {
                 update_lambda,
                 publish_lambda,
                 shuffle,
+                rollback_on_register_conflict,
                 ..
             },
         ) in transform_specs.into_iter().enumerate()
@@ -82,6 +84,7 @@ impl Context {
             transforms.push(Transform {
                 index,
                 publish,
+                rollback_on_register_conflict,
                 source_schema: Url::parse(&source_schema_uri)?,
                 update,
             });

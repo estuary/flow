@@ -21,6 +21,9 @@ pub trait Context: Sized + Default + std::fmt::Debug {
     fn basic_output_entry(&self, error: String) -> serde_json::Value;
 }
 
+/// FullContext tracks full detail about a schema location and is able to produce
+/// comprehensive validation errors for the user, albeit with commensurately more
+/// expensive up-front tracking work.
 #[derive(Debug)]
 pub struct FullContext {
     pub instance_ptr: String,
@@ -75,6 +78,59 @@ impl Context for FullContext {
             "keywordLocation": self.keyword_location,
             "instanceLocation": self.instance_ptr,
             "absoluteKeywordLocation": self.canonical_uri,
+            "error": error,
+        })
+    }
+}
+
+/// SpanContext is a minimal Context which tracks only spans over the input.
+/// It does much less work than FullContext, but produces more inscrutable errors.
+#[derive(Debug)]
+pub struct SpanContext {
+    pub span: Span,
+}
+
+impl Default for SpanContext {
+    fn default() -> Self {
+        Self {
+            span: Span {
+                begin: 0,
+                end: 0,
+                hashed: 0,
+            },
+        }
+    }
+}
+
+impl Context for SpanContext {
+    fn with_details<'sm, 'a, A>(
+        _loc: &'a Location<'a>,
+        span: &'a Span,
+        _scope: &Scope<'sm, A, Self>,
+        _parents: &[Scope<'sm, A, Self>],
+    ) -> Self
+    where
+        A: Annotation,
+    {
+        Self {
+            span: Span {
+                begin: span.begin,
+                end: span.end,
+                hashed: span.hashed,
+            },
+        }
+    }
+
+    fn span(&self) -> &Span {
+        &self.span
+    }
+
+    fn basic_output_entry(&self, error: String) -> serde_json::Value {
+        serde_json::json!({
+            "span": {
+                "begin": self.span.begin,
+                "end": self.span.begin,
+            },
             "error": error,
         })
     }
@@ -533,6 +589,11 @@ where
         }
     }
 
+    /// Index of the Validator.
+    pub fn schema_index(&self) -> &'sm index::Index<'sm, A> {
+        self.index
+    }
+
     /// Prepare the Validator to begin validation of the indexed schema |uri|.
     /// May be called more than once on a Validator, to re-use it for multiple validations.
     pub fn prepare(&mut self, uri: &url::Url) -> Result<(), index::Error> {
@@ -558,6 +619,7 @@ where
     pub fn invalid(&self) -> bool {
         self.scopes[0].invalid
     }
+
     /// Outcomes returns validation errors, if any, as well as collected annotations.
     pub fn outcomes(&self) -> &[(Outcome<'sm, A>, C)] {
         &self.scopes[0].outcomes

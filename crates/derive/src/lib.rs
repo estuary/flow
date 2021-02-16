@@ -45,7 +45,7 @@ pub mod test {
     pub use super::lambda::test::TestServer as LambdaTestServer;
 
     // Build a test schema fixture. Use gross Box::leak to coerce a 'static lifetime.
-    pub fn build_min_max_schema() -> (&'static doc::SchemaIndex<'static>, Url) {
+    pub fn build_min_max_sum_schema() -> (&'static doc::SchemaIndex<'static>, Url) {
         let schema = json!({
             "properties": {
                 "min": {
@@ -56,8 +56,21 @@ pub mod test {
                     "type": "number",
                     "reduce": {"strategy": "maximize"}
                 },
+                "sum": {
+                    "type": "number",
+                    "reduce": {"strategy": "sum"},
+                },
             },
             "reduce": {"strategy": "merge"},
+
+            // If "positive" property is present, then "sum" must be >= 0.
+            "dependentSchemas": {
+                "positive": {
+                    "properties": {
+                        "sum": { "minimum": 0 }
+                    }
+                }
+            }
         });
 
         let uri = Url::parse("https://example/schema").unwrap();

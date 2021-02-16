@@ -29,7 +29,7 @@ pub struct RecordedOp {
     #[prost(int64, tag = "10")]
     pub last_offset: i64,
     #[prost(string, tag = "11")]
-    pub log: std::string::String,
+    pub log: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "4")]
     pub create: ::core::option::Option<recorded_op::Create>,
     #[prost(message, optional, tag = "5")]
@@ -151,7 +151,7 @@ pub struct Segment {
     pub last_offset: i64,
     /// Log is the Journal holding this Segment's data, and to which offsets are relative.
     #[prost(string, tag = "7")]
-    pub log: std::string::String,
+    pub log: ::prost::alloc::string::String,
 }
 /// FnodeSegments captures log Segments containing all RecordedOps of the Fnode.
 #[derive(Clone, PartialEq, ::prost::Message)]

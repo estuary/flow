@@ -75,13 +75,18 @@ pub fn walk_test_step(
     };
 
     // Verify that any ingest documents conform to the collection schema.
-    let mut validator = doc::Validator::<doc::FullContext>::new(schema_index);
-    for doc in ingest {
-        if schema_index.fetch(&collection.schema).is_none() {
-            // Referential integrity error, which we've already reported.
-            continue;
-        } else if let Err(err) = doc::validate(&mut validator, &collection.schema, doc) {
-            Error::IngestDocInvalid(err).push(scope, errors);
+    if schema_index.fetch(&collection.schema).is_none() {
+        // Referential integrity error, which we've already reported.
+    } else {
+        let mut validator = doc::Validator::new(schema_index);
+        for doc in ingest {
+            if let Err(err) =
+                doc::Validation::validate(&mut validator, &collection.schema, doc.clone())
+                    .unwrap()
+                    .ok()
+            {
+                Error::IngestDocInvalid(err).push(scope, errors);
+            }
         }
     }
 
