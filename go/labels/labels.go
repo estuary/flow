@@ -23,6 +23,8 @@ const (
 	// KeyEnd is a hexadecimal encoding of the ending key range (exclusive)
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyEnd = "estuary.dev/key-end"
+	// ManagedBy_Flow is a value for the Gazette labels.ManagedBy label.
+	ManagedBy_Flow = "estuary.dev/flow"
 )
 
 // ShardSpec labels.
