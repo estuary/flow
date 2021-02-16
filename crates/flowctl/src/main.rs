@@ -434,11 +434,6 @@ async fn local_stack(
     let mut shards = runtime::DerivationSet::try_from(shards).unwrap();
     shards.update_from_catalog(&all_tables.built_derivations);
 
-    // TODO -- we must switch responsibility such that flow-consumer
-    // creates recovery logs as needed, using journal rules.
-    let apply = shards.build_recovery_log_apply_request();
-    local.cluster.apply_journals(apply).await?;
-
     let apply = shards.build_shard_apply_request(db_url.path());
     local.cluster.apply_shards(apply).await?;
 

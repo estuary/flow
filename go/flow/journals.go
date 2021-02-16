@@ -61,6 +61,7 @@ func BuildPartitionSpec(collection *pf.CollectionSpec, partitions tuple.Tuple, r
 	journal.LabelSet.SetValue(flowLabels.KeyBegin, "00")
 	journal.LabelSet.SetValue(flowLabels.KeyEnd, "ffffffff")
 	journal.LabelSet.SetValue(labels.ContentType, labels.ContentType_JSONLines)
+	journal.LabelSet.SetValue(labels.ManagedBy, flowLabels.ManagedBy_Flow)
 
 	var name strings.Builder
 	name.WriteString(collection.Collection.String())
@@ -101,6 +102,7 @@ func BuildRecoveryLogSpec(shard *pc.ShardSpec, rules []pf.JournalRules_Rule) pb.
 		},
 	}
 	journal.LabelSet.SetValue(labels.ContentType, labels.ContentType_RecoveryLog)
+	journal.LabelSet.SetValue(labels.ManagedBy, flowLabels.ManagedBy_Flow)
 
 	for _, rule := range rules {
 		if rule.Selector.Matches(journal.LabelSet) {

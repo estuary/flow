@@ -12,6 +12,9 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/runtime"
 	"github.com/estuary/flow/go/shuffle"
+	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -44,11 +47,62 @@ type Flow struct {
 	}
 }
 
-var _ runconsumer.Application = (*Flow)(nil)
 var _ consumer.Application = (*Flow)(nil)
 var _ consumer.BeginFinisher = (*Flow)(nil)
+var _ consumer.BeginRecoverer = (*Flow)(nil)
 var _ consumer.MessageProducer = (*Flow)(nil)
 var _ pf.TestingServer = (*Flow)(nil)
+var _ runconsumer.Application = (*Flow)(nil)
+
+// BeginRecovery implements the BeginRecoverer interface, and creates a recovery log
+// for the Shard if one doesn't already exists.
+func (f *Flow) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
+	var shardSpec = shard.Spec()
+
+	// Does the shard's recovery log already exist?
+	f.journals.Mu.RLock()
+	var _, exists = allocator.LookupItem(f.journals, shardSpec.RecoveryLog().String())
+	f.journals.Mu.RUnlock()
+
+	if exists {
+		return shardSpec.Id, nil // Nothing to do.
+	}
+	// We must attempt to create the recovery log.
+
+	// Grab labeled catalog, and load journal rules.
+	var catalog, err = flow.NewCatalog(shardSpec.LabelSet.ValueOf(labels.CatalogURL), "")
+	if err != nil {
+		return "", fmt.Errorf("opening catalog: %w", err)
+	}
+	defer catalog.Close()
+
+	journalRules, err := catalog.LoadJournalRules()
+	if err != nil {
+		return "", fmt.Errorf("loading journal rules: %w", err)
+	}
+
+	// Construct the desired recovery log spec.
+	var desired = flow.BuildRecoveryLogSpec(shardSpec, journalRules.Rules)
+	_, err = client.ApplyJournals(shard.Context(), shard.JournalClient(), &pb.ApplyRequest{
+		Changes: []pb.ApplyRequest_Change{
+			{
+				Upsert:            &desired,
+				ExpectModRevision: 0,
+			},
+		},
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to create recovery log %q: %w", desired.Name, err)
+	}
+
+	log.WithFields(log.Fields{
+		"name":  desired.Name,
+		"shard": shardSpec.Id,
+	}).Info("created recovery log")
+
+	return shardSpec.Id, nil
+}
 
 // NewStore selects an implementing runtime.Application for the shard, and returns a new instance.
 func (f *Flow) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {

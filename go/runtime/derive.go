@@ -53,7 +53,7 @@ func NewDeriveApp(
 	}
 
 	// Open catalog and load required specs.
-	catalog, err := flow.NewCatalog(catalogURL, recorder.Dir)
+	catalog, err := flow.NewCatalog(catalogURL, recorder.Dir())
 	if err != nil {
 		return nil, fmt.Errorf("opening catalog: %w", err)
 	}
@@ -98,7 +98,7 @@ func NewDeriveApp(
 		derivation,
 		store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder)),
 		jsWorker,
-		recorder.Dir,
+		recorder.Dir(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building derive worker: %w", err)
