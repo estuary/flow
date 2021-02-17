@@ -195,15 +195,6 @@ impl std::ops::Deref for CompositeKey {
     }
 }
 
-/// ContentType enumerates resource content types understood by Flow.
-#[derive(Copy, Debug, Clone, Serialize, Deserialize)]
-pub enum ContentType {
-    CatalogSpec,
-    JsonSchema,
-    NpmPack,
-    TypescriptModule,
-}
-
 /// Object is an alias for a JSON object.
 pub type Object = serde_json::Map<String, Value>;
 

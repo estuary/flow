@@ -219,7 +219,7 @@ func (catalog *Catalog) LoadSchemaBundle() (*pf.SchemaBundle, error) {
 
 // LoadNPMPackage loads the NPM package from a catalog.
 func (catalog *Catalog) LoadNPMPackage() ([]byte, error) {
-	var row = catalog.db.QueryRow(`SELECT content FROM resources WHERE content_type = '"NpmPack"';`)
+	var row = catalog.db.QueryRow(`SELECT content FROM resources WHERE content_type = '"NpmPackage"';`)
 	var b []byte
 
 	if err := row.Scan(&b); err != nil {

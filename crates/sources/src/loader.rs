@@ -3,7 +3,7 @@ use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
 use models::{names, tables};
-use protocol::flow::shuffle::Hash as ShuffleHash;
+use protocol::flow::{shuffle::Hash as ShuffleHash, ContentType};
 use regex::Regex;
 use std::cell::RefCell;
 use url::Url;
@@ -53,7 +53,7 @@ pub trait Fetcher {
     fn fetch<'a>(
         &'a self,
         resource: &'a Url,
-        content_type: &'a names::ContentType,
+        content_type: &'a ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>>;
 }
 
@@ -85,7 +85,7 @@ impl<F: Fetcher> Loader<F> {
         &'a self,
         scope: Scope<'a>,
         resource: &'a Url,
-        content_type: names::ContentType,
+        content_type: ContentType,
     ) {
         // Mark as visited, so that recursively-loaded imports don't re-visit.
         self.tables.borrow_mut().fetches.push_row(resource);
@@ -97,7 +97,7 @@ impl<F: Fetcher> Loader<F> {
                 self.load_resource_content(scope, resource, content, content_type)
                     .await
             }
-            Err(err) if matches!(content_type, names::ContentType::TypescriptModule) => {
+            Err(err) if matches!(content_type, ContentType::TypescriptModule) => {
                 // Not every catalog spec need have an accompanying TypescriptModule.
                 // We optimistically load them, but do not consider it an error if
                 // it doesn't exist. We'll do more handling of this condition within
@@ -125,7 +125,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'a>,
         resource: &'a Url,
         content: bytes::Bytes,
-        content_type: names::ContentType,
+        content_type: ContentType,
     ) -> LocalBoxFuture<'a, ()> {
         async move {
             self.tables
@@ -135,10 +135,8 @@ impl<F: Fetcher> Loader<F> {
             let scope = scope.push_resource(&resource);
 
             match content_type {
-                names::ContentType::CatalogSpec => self.load_catalog(scope, content.as_ref()).await,
-                names::ContentType::JsonSchema => {
-                    self.load_schema_document(scope, content.as_ref()).await
-                }
+                ContentType::CatalogSpec => self.load_catalog(scope, content.as_ref()).await,
+                ContentType::JsonSchema => self.load_schema_document(scope, content.as_ref()).await,
                 _ => None,
             };
             ()
@@ -223,7 +221,7 @@ impl<F: Fetcher> Loader<F> {
                             // Concurrently fetch |uri| while continuing to walk the schema.
                             let ((), ()) = futures::join!(
                                 recurse,
-                                self.load_import(scope, &uri, names::ContentType::JsonSchema)
+                                self.load_import(scope, &uri, ContentType::JsonSchema)
                             );
                         } else {
                             let () = recurse.await;
@@ -253,7 +251,7 @@ impl<F: Fetcher> Loader<F> {
             let fragment = import.fragment().map(str::to_string);
             import.set_fragment(None);
 
-            self.load_import(scope, &import, names::ContentType::JsonSchema)
+            self.load_import(scope, &import, ContentType::JsonSchema)
                 .await;
 
             import.set_fragment(fragment.as_deref());
@@ -268,7 +266,7 @@ impl<F: Fetcher> Loader<F> {
                 scope,
                 &import,
                 serde_json::to_vec(&schema).unwrap().into(),
-                names::ContentType::JsonSchema,
+                ContentType::JsonSchema,
             )
             .await;
 
@@ -285,7 +283,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         import: &'s Url,
-        content_type: names::ContentType,
+        content_type: ContentType,
     ) {
         // Recursively process the import if it's not already visited.
         if !self
@@ -354,7 +352,7 @@ impl<F: Fetcher> Loader<F> {
 
                 // Map from relative to absolute URL.
                 if let Some(import) = self.fallible(scope, scope.resource().join(import.as_ref())) {
-                    self.load_import(scope, &import, names::ContentType::CatalogSpec)
+                    self.load_import(scope, &import, ContentType::CatalogSpec)
                         .await;
                 }
             }
@@ -369,7 +367,7 @@ impl<F: Fetcher> Loader<F> {
             path.set_extension("ts");
 
             module.set_path(path.to_str().expect("should still be valid utf8"));
-            self.load_import(scope, &module, names::ContentType::TypescriptModule)
+            self.load_import(scope, &module, ContentType::TypescriptModule)
                 .await;
         };
 

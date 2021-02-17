@@ -657,6 +657,17 @@ pub enum EndpointType {
     S3 = 3,
     Gs = 4,
 }
+/// ContentType enumerates the content types understood by Flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum ContentType {
+    CatalogSpec = 0,
+    JsonSchema = 1,
+    TypescriptModule = 2,
+    NpmPackage = 3,
+}
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {
     #![allow(unused_variables, dead_code, missing_docs)]
