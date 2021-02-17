@@ -1,5 +1,5 @@
 use futures::future::{FutureExt, LocalBoxFuture};
-use models::names;
+use protocol::flow;
 use url::Url;
 
 pub struct WebFetcher {
@@ -17,7 +17,7 @@ impl WebFetcher {
     async fn fetch(
         &self,
         resource: &Url,
-        _content_type: &names::ContentType,
+        _content_type: &flow::ContentType,
     ) -> Result<bytes::Bytes, anyhow::Error> {
         tracing::info!("{} resource", resource.scheme());
 
@@ -54,7 +54,7 @@ impl sources::Fetcher for WebFetcher {
     fn fetch<'a>(
         &'a self,
         resource: &'a Url,
-        content_type: &'a names::ContentType,
+        content_type: &'a flow::ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
         self.fetch(resource, content_type).boxed_local()
     }

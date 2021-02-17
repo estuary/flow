@@ -1,4 +1,5 @@
-use models::{names, tables};
+use models::tables;
+use protocol::flow;
 use std::path::Path;
 use url::Url;
 
@@ -24,7 +25,7 @@ where
         .load_resource(
             sources::Scope::new(root),
             root,
-            names::ContentType::CatalogSpec,
+            flow::ContentType::CatalogSpec,
         )
         .await;
 

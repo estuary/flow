@@ -21,15 +21,21 @@ struct TypeAttrs<'a> {
 /// https://docs.rs/prost-build/0.6.1/prost_build/struct.Config.html#arguments
 /// `field_attrs` holds tuples of field name to field attributes.
 static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
-    // Shuffle.Hash is a JSON-encoded column of models::tables::Transform.
+    // ContentType is a JSON-encoded column of models::tables::Resources.
     TypeAttrs {
-        path: "flow.Shuffle.Hash",
+        path: "flow.ContentType",
         type_attrs: SERDE_ATTR,
         field_attrs: &[],
     },
     // EndpointType is a JSON-encoded column of models::tables::Endpoints & BuiltMaterializations.
     TypeAttrs {
         path: "flow.EndpointType",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    // Shuffle.Hash is a JSON-encoded column of models::tables::Transform.
+    TypeAttrs {
+        path: "flow.Shuffle.Hash",
         type_attrs: SERDE_ATTR,
         field_attrs: &[],
     },
