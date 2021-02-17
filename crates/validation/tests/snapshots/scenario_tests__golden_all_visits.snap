@@ -449,17 +449,25 @@ All {
             collection: testing/int-string,
             endpoint_type: "S3",
             endpoint_config: {"bucket":"a-bucket","fixture":"one","prefix":"and-prefix"},
-            field_selection: FieldSelection {
-                keys: [
-                    "int",
-                ],
-                values: [
-                    "str",
-                ],
-                document: "flow_document",
-                field_config: {
-                    "str": "{\"pass\":\"through\"}",
-                },
+            spec: MaterializationSpec {
+                materialization: "testing/int-string",
+                collection: None,
+                endpoint_type: S3,
+                endpoint_config: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
+                field_selection: Some(
+                    FieldSelection {
+                        keys: [
+                            "int",
+                        ],
+                        values: [
+                            "str",
+                        ],
+                        document: "flow_document",
+                        field_config: {
+                            "str": "{\"pass\":\"through\"}",
+                        },
+                    },
+                ),
             },
         },
         BuiltMaterialization {
@@ -468,18 +476,26 @@ All {
             collection: testing/int-halve,
             endpoint_type: "S3",
             endpoint_config: {"bucket":"a-bucket","fixture":"two","prefix":"and-prefix"},
-            field_selection: FieldSelection {
-                keys: [
-                    "int",
-                ],
-                values: [
-                    "Len",
-                    "Extra",
-                ],
-                document: "Root",
-                field_config: {
-                    "Len": "{}",
-                },
+            spec: MaterializationSpec {
+                materialization: "testing/int-halve",
+                collection: None,
+                endpoint_type: S3,
+                endpoint_config: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
+                field_selection: Some(
+                    FieldSelection {
+                        keys: [
+                            "int",
+                        ],
+                        values: [
+                            "Len",
+                            "Extra",
+                        ],
+                        document: "Root",
+                        field_config: {
+                            "Len": "{}",
+                        },
+                    },
+                ),
             },
         },
     ],

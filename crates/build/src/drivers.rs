@@ -1,6 +1,5 @@
 use futures::future::{FutureExt, LocalBoxFuture};
-use models::names;
-use protocol::materialize;
+use protocol::{flow, materialize};
 
 #[derive(Debug)]
 pub struct Drivers {}
@@ -13,7 +12,7 @@ impl Drivers {
     #[tracing::instrument(skip(self))]
     async fn validate_materialization(
         &self,
-        _endpoint_type: names::EndpointType,
+        _endpoint_type: flow::EndpointType,
         _endpoint_config: serde_json::Value,
         _request: materialize::ValidateRequest,
     ) -> Result<materialize::ValidateResponse, anyhow::Error> {
@@ -24,7 +23,7 @@ impl Drivers {
 impl validation::Drivers for Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        endpoint_type: names::EndpointType,
+        endpoint_type: flow::EndpointType,
         endpoint_config: serde_json::Value,
         request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {

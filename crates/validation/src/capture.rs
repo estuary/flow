@@ -1,6 +1,6 @@
 use super::{indexed, reference, Error};
 use itertools::Itertools;
-use models::{names, tables};
+use models::tables;
 
 pub fn walk_all_captures(
     captures: &[tables::Capture],
@@ -111,7 +111,7 @@ fn walk_capture(
             errors,
         ) {
             // Ensure it's of a compatible endpoint type.
-            if !matches!(endpoint.endpoint_type, names::EndpointType::S3) {
+            if !matches!(endpoint.endpoint_type, protocol::flow::EndpointType::S3) {
                 Error::CaptureEndpointType {
                     type_: endpoint.endpoint_type,
                 }

@@ -264,6 +264,47 @@ message DerivationSpec {
   repeated TransformSpec transforms = 4 [ (gogoproto.nullable) = false ];
 }
 
+// EndpointType enumerates the endpoint types understood by Flow.
+enum EndpointType {
+    // Remote is an arbitrary gRPC materialization protocol server.
+    REMOTE = 0;
+    POSTGRESQL = 1;
+    SQLITE = 2;
+    S3 = 3;
+    GS = 4;
+}
+
+// FieldSelection is a selection of a collection's projection fields.
+message FieldSelection {
+  // Fields for each key component of the collection. Keys have the same length
+  // as the collection's key, and the document pointer of the field at each index
+  // matches the pointer identified by the corresponding index of the collection key.
+  repeated string keys = 1;
+  // All other selected fields, other than those in keys and the document field.
+  // Entries are in ascending sorted order, and may be empty.
+  repeated string values = 2;
+  // Field having a document pointer located at the document root.
+  string document = 3;
+  // Additional configuration, keyed by fields included in |keys|, |values|, or |document|.
+  // Values are arbitrary JSON-encoded objects.
+  map<string, string> field_config = 4;
+}
+
+// MaterializationSpec describes a collection and its materialization to an endpoint.
+message MaterializationSpec {
+  // Name of this materialization.
+  string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
+  // Collection to be materialized.
+  CollectionSpec collection = 2;
+  // Type of the materialization's endpoint.
+  EndpointType endpoint_type = 3;
+  // JSON-encoded object which configures this materialization with
+  // respect to the endpoint type driver.
+  string endpoint_config = 4;
+  // Resolved fields selected for materialization.
+  FieldSelection field_selection = 5;
+}
+
 // RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 // is responsible for.
 message RangeSpec {

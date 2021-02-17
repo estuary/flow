@@ -332,14 +332,14 @@ pub enum EndpointDef {
 }
 
 impl EndpointDef {
-    pub fn endpoint_type(&self) -> names::EndpointType {
-        use names::EndpointType;
+    pub fn endpoint_type(&self) -> protocol::flow::EndpointType {
+        use protocol::flow::EndpointType;
 
         match self {
-            EndpointDef::Postgres(_) => EndpointType::Postgres,
+            EndpointDef::Postgres(_) => EndpointType::Postgresql,
             EndpointDef::Sqlite(_) => EndpointType::Sqlite,
             EndpointDef::S3(_) => EndpointType::S3,
-            EndpointDef::GS(_) => EndpointType::GS,
+            EndpointDef::GS(_) => EndpointType::Gs,
             EndpointDef::Remote(_) => EndpointType::Remote,
         }
     }

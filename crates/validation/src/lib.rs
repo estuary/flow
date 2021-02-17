@@ -1,6 +1,6 @@
 use futures::future::LocalBoxFuture;
 use itertools::Itertools;
-use models::{names, tables};
+use models::tables;
 use protocol::materialize;
 
 mod capture;
@@ -23,7 +23,7 @@ use errors::Error;
 pub trait Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        endpoint_type: names::EndpointType,
+        endpoint_type: protocol::flow::EndpointType,
         endpoint_config: serde_json::Value,
         request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>>;

@@ -1,5 +1,5 @@
 use json::schema::types;
-use models::{names, tables};
+use models::tables;
 use url::Url;
 
 #[must_use]
@@ -115,7 +115,7 @@ pub enum Error {
     #[error("transform {transform} shuffle key cannot be empty")]
     ShuffleKeyEmpty { transform: String },
     #[error("{type_:?} is not a supported endpoint type for a capture")]
-    CaptureEndpointType { type_: names::EndpointType },
+    CaptureEndpointType { type_: protocol::flow::EndpointType },
     #[error("must set at least one of 'update' or 'publish' lambdas")]
     NoUpdateOrPublish { transform: String },
     #[error("capture {capture} cannot capture into derived collection {derivation}")]

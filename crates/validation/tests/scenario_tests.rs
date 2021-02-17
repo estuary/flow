@@ -1,7 +1,7 @@
 use futures::{future::LocalBoxFuture, FutureExt};
 use lazy_static::lazy_static;
-use models::{names, tables};
-use protocol::materialize;
+use models::tables;
+use protocol::{flow, materialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -814,7 +814,7 @@ struct MockDriverCalls {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockMaterializationValidateCall {
-    endpoint: names::EndpointType,
+    endpoint: flow::EndpointType,
     config: serde_json::Value,
     #[serde(default)]
     constraints: HashMap<String, materialize::Constraint>,
@@ -825,7 +825,7 @@ struct MockMaterializationValidateCall {
 impl validation::Drivers for MockDriverCalls {
     fn validate_materialization<'a>(
         &'a self,
-        endpoint_type: names::EndpointType,
+        endpoint_type: flow::EndpointType,
         endpoint_config: serde_json::Value,
         _request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
