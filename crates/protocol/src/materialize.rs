@@ -77,6 +77,7 @@ pub struct ValidateResponse {
     #[prost(map = "string, message", tag = "1")]
     pub constraints: ::std::collections::HashMap<::prost::alloc::string::String, Constraint>,
 }
+<<<<<<< HEAD
 /// FieldSelection represents the entire set of fields for a materialization. Projected fields are
 /// separated into keys and values.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -100,6 +101,8 @@ pub struct FieldSelection {
     pub field_config:
         ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
+=======
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
@@ -111,7 +114,11 @@ pub struct ApplyRequest {
     pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Selected fields for materialization
     #[prost(message, optional, tag = "3")]
+<<<<<<< HEAD
     pub fields: ::core::option::Option<FieldSelection>,
+=======
+    pub fields: ::std::option::Option<super::flow::FieldSelection>,
+>>>>>>> protocol: add MaterializationSpec & EndpointType
     /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
     /// report only what would have happened.
     #[prost(bool, tag = "4")]
@@ -186,7 +193,11 @@ pub mod transaction_request {
         /// Fields represents the projection fields to be stored. This repeats the selection and ordering
         /// of the last Apply RPC, but is provided here also as a convenience.
         #[prost(message, optional, tag = "2")]
+<<<<<<< HEAD
         pub fields: ::core::option::Option<super::FieldSelection>,
+=======
+        pub fields: ::std::option::Option<super::super::flow::FieldSelection>,
+>>>>>>> protocol: add MaterializationSpec & EndpointType
         /// Checkpoint to write with this Store transaction, to be associated with
         /// the session's caller ID and to be returned by a future Fence RPC.
         /// This may be ignored if the Driver doesn't support exactly-once semantics.

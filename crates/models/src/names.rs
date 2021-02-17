@@ -195,28 +195,6 @@ impl std::ops::Deref for CompositeKey {
     }
 }
 
-/// EndpointType enumerates the endpoint types understood by Flow.
-#[derive(Copy, Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
-pub enum EndpointType {
-    Postgres,
-    Sqlite,
-    S3,
-    GS,
-    Remote,
-}
-
-impl EndpointType {
-    pub fn as_scheme(&self) -> &str {
-        match self {
-            Self::Postgres => "postgres",
-            Self::Sqlite => "sqlite",
-            Self::S3 => "s3",
-            Self::GS => "gs",
-            Self::Remote => "remote",
-        }
-    }
-}
-
 /// ContentType enumerates resource content types understood by Flow.
 #[derive(Copy, Debug, Clone, Serialize, Deserialize)]
 pub enum ContentType {

@@ -1,9 +1,8 @@
-package materialize
+package flow
 
 import (
 	"testing"
 
-	//pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
 
