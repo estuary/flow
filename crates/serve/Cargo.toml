@@ -11,7 +11,7 @@ hyper = "*"
 hyperlocal = "*"
 log = "*"
 tower = "0.4"
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "*", features = [] }
 
 [dev-dependencies]
 # TODO(johnny): Remove me. It's used for a couple of unit tests only

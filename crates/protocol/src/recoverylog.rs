@@ -31,19 +31,20 @@ pub struct RecordedOp {
     #[prost(string, tag = "11")]
     pub log: std::string::String,
     #[prost(message, optional, tag = "4")]
-    pub create: ::std::option::Option<recorded_op::Create>,
+    pub create: ::core::option::Option<recorded_op::Create>,
     #[prost(message, optional, tag = "5")]
-    pub link: ::std::option::Option<recorded_op::Link>,
+    pub link: ::core::option::Option<recorded_op::Link>,
     #[prost(message, optional, tag = "6")]
-    pub unlink: ::std::option::Option<recorded_op::Link>,
+    pub unlink: ::core::option::Option<recorded_op::Link>,
     #[prost(message, optional, tag = "7")]
-    pub write: ::std::option::Option<recorded_op::Write>,
+    pub write: ::core::option::Option<recorded_op::Write>,
     /// Property indicates a property file has been created or updated.
     /// DEPRECATED. Properties are no longer created,
     /// but will still be applied from a written log.
     #[prost(message, optional, tag = "8")]
-    pub property: ::std::option::Option<Property>,
+    pub property: ::core::option::Option<Property>,
 }
+/// Nested message and enum types in `RecordedOp`.
 pub mod recorded_op {
     // RecordedOp is a union-type over the remaining fields.
 
@@ -73,7 +74,7 @@ pub mod recorded_op {
     pub struct Create {
         /// Filesystem path of this file, relative to the common base directory.
         #[prost(string, tag = "1")]
-        pub path: std::string::String,
+        pub path: ::prost::alloc::string::String,
     }
     /// Link or unlink an Fnode to a filesystem path.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -83,7 +84,7 @@ pub mod recorded_op {
         pub fnode: i64,
         /// Filesystem path being un/linked, relative to the common base directory.
         #[prost(string, tag = "2")]
-        pub path: std::string::String,
+        pub path: ::prost::alloc::string::String,
     }
     /// Write indicates |length| bytes should be written at |offset| to |fnode|.
     /// In a serialization stream, we expect |length| raw bytes of content to
@@ -107,10 +108,10 @@ pub mod recorded_op {
 pub struct Property {
     /// Filesystem path of this property, relative to the common base directory.
     #[prost(string, tag = "1")]
-    pub path: std::string::String,
+    pub path: ::prost::alloc::string::String,
     /// Complete file content of this property.
     #[prost(string, tag = "2")]
-    pub content: std::string::String,
+    pub content: ::prost::alloc::string::String,
 }
 /// Segment is a contiguous chunk of recovery log written by a single Author.
 /// Recorders track Segments they have written, for use in providing hints to
@@ -168,7 +169,7 @@ pub struct FnodeSegments {
     /// (eg, there's a trade-off to make over size of the hinted manifest, vs
     /// savings incurred on playback by being able to skip portions of the log).
     #[prost(message, repeated, tag = "2")]
-    pub segments: ::std::vec::Vec<Segment>,
+    pub segments: ::prost::alloc::vec::Vec<Segment>,
 }
 /// FSMHints represents a manifest of Fnodes which were still live (eg, having
 /// remaining links) at the time the FSMHints were produced, as well as any
@@ -186,11 +187,11 @@ pub struct FsmHints {
     /// compacting the representation in the common case of Segments mostly or
     /// entirely addressing a single log.
     #[prost(string, tag = "1")]
-    pub log: std::string::String,
+    pub log: ::prost::alloc::string::String,
     /// Live Fnodes and their Segments as-of the generation of these FSMHints.
     #[prost(message, repeated, tag = "2")]
-    pub live_nodes: ::std::vec::Vec<FnodeSegments>,
+    pub live_nodes: ::prost::alloc::vec::Vec<FnodeSegments>,
     /// Property files and contents as-of the generation of these FSMHints.
     #[prost(message, repeated, tag = "3")]
-    pub properties: ::std::vec::Vec<Property>,
+    pub properties: ::prost::alloc::vec::Vec<Property>,
 }

@@ -12,15 +12,15 @@
 pub struct ShardSpec {
     /// ID of the shard.
     #[prost(string, tag = "1")]
-    pub id: std::string::String,
+    pub id: ::prost::alloc::string::String,
     /// Sources of the shard, uniquely ordered on Source journal.
     #[prost(message, repeated, tag = "2")]
-    pub sources: ::std::vec::Vec<shard_spec::Source>,
+    pub sources: ::prost::alloc::vec::Vec<shard_spec::Source>,
     /// Prefix of the Journal into which the shard's recovery log will be recorded.
     /// The complete Journal name is built as "{recovery_log_prefix}/{shard_id}".
     /// If empty, the shard does not use a recovery log.
     #[prost(string, tag = "3")]
-    pub recovery_log_prefix: std::string::String,
+    pub recovery_log_prefix: ::prost::alloc::string::String,
     /// Prefix of Etcd keys into which recovery log FSMHints are written to and
     /// read from. FSMHints allow readers of the recovery log to efficiently
     /// determine the minimum fragments of log which must be read to fully recover
@@ -32,7 +32,7 @@ pub struct ShardSpec {
     /// players of the log will similarly utilize hints from this key.
     /// If |recovery_log_prefix| is set, |hint_prefix| must be also.
     #[prost(string, tag = "4")]
-    pub hint_prefix: std::string::String,
+    pub hint_prefix: ::prost::alloc::string::String,
     /// Backups of verified recovery log FSMHints, retained as a disaster-recovery
     /// mechanism. On completing playback, a player will write recovered hints to:
     ///
@@ -61,7 +61,7 @@ pub struct ShardSpec {
     /// message streams exhibiting locality of "hot" keys may benefit from larger
     /// values.
     #[prost(message, optional, tag = "6")]
-    pub max_txn_duration: ::std::option::Option<::prost_types::Duration>,
+    pub max_txn_duration: ::core::option::Option<::prost_types::Duration>,
     /// Min duration of shard transactions. This duration lower-bounds the amount
     /// of time during which a transaction must process messages before it may
     /// flush and commit. It may run for more time if additional messages are
@@ -74,7 +74,7 @@ pub struct ShardSpec {
     /// writes. A typical value of would be `0s`: applications which perform
     /// extensive aggregation may benefit from larger values.
     #[prost(message, optional, tag = "7")]
-    pub min_txn_duration: ::std::option::Option<::prost_types::Duration>,
+    pub min_txn_duration: ::core::option::Option<::prost_types::Duration>,
     /// Disable processing of the shard.
     #[prost(bool, tag = "8")]
     pub disable: bool,
@@ -96,7 +96,7 @@ pub struct ShardSpec {
     /// User-defined Labels of this ShardSpec. The label "id" is reserved and may
     /// not be used with a ShardSpec's labels.
     #[prost(message, optional, tag = "10")]
-    pub labels: ::std::option::Option<super::protocol::LabelSet>,
+    pub labels: ::core::option::Option<super::protocol::LabelSet>,
     /// Disable waiting for acknowledgements of pending message(s).
     ///
     /// If a consumer transaction reads uncommitted messages, it will by default
@@ -113,6 +113,7 @@ pub struct ShardSpec {
     #[prost(bool, tag = "11")]
     pub disable_wait_for_ack: bool,
 }
+/// Nested message and enum types in `ShardSpec`.
 pub mod shard_spec {
     /// Sources define the set of journals which this shard consumes. At least one
     /// Source must be specified, and in many use cases only one will be needed.
@@ -133,7 +134,7 @@ pub mod shard_spec {
     pub struct Source {
         /// Journal which this shard is consuming.
         #[prost(string, tag = "1")]
-        pub journal: std::string::String,
+        pub journal: ::prost::alloc::string::String,
         /// Minimum journal byte offset the shard should begin reading from.
         /// Typically this should be zero, as read offsets are check-pointed and
         /// restored from the shard's Store as it processes. |min_offset| can be
@@ -149,7 +150,7 @@ pub mod shard_spec {
 pub struct ConsumerSpec {
     /// ProcessSpec of the consumer.
     #[prost(message, optional, tag = "1")]
-    pub process_spec: ::std::option::Option<super::protocol::ProcessSpec>,
+    pub process_spec: ::core::option::Option<super::protocol::ProcessSpec>,
     /// Maximum number of assigned Shards.
     #[prost(uint32, tag = "2")]
     pub shard_limit: u32,
@@ -166,8 +167,9 @@ pub struct ReplicaStatus {
     pub code: i32,
     /// Errors encountered during replica processing. Set iff |code| is FAILED.
     #[prost(string, repeated, tag = "2")]
-    pub errors: ::std::vec::Vec<std::string::String>,
+    pub errors: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+/// Nested message and enum types in `ReplicaStatus`.
 pub mod replica_status {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -193,13 +195,15 @@ pub mod replica_status {
 pub struct Checkpoint {
     /// Sources is metadata of journals consumed by the shard.
     #[prost(map = "string, message", tag = "1")]
-    pub sources: ::std::collections::HashMap<std::string::String, checkpoint::Source>,
+    pub sources: ::std::collections::HashMap<::prost::alloc::string::String, checkpoint::Source>,
     /// AckIntents is acknowledgement intents to be written to journals to which
     /// uncommitted messages were published during the transaction which produced
     /// this Checkpoint.
     #[prost(map = "string, bytes", tag = "2")]
-    pub ack_intents: ::std::collections::HashMap<std::string::String, std::vec::Vec<u8>>,
+    pub ack_intents:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::vec::Vec<u8>>,
 }
+/// Nested message and enum types in `Checkpoint`.
 pub mod checkpoint {
     /// Source is metadata of a consumed source journal.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -208,17 +212,18 @@ pub mod checkpoint {
         #[prost(int64, tag = "1")]
         pub read_through: i64,
         #[prost(message, repeated, tag = "2")]
-        pub producers: ::std::vec::Vec<source::ProducerEntry>,
+        pub producers: ::prost::alloc::vec::Vec<source::ProducerEntry>,
     }
+    /// Nested message and enum types in `Source`.
     pub mod source {
         /// States of journal producers. Producer keys are 6-byte,
         /// RFC 4122 v1 node identifiers (see message.ProducerID).
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ProducerEntry {
-            #[prost(bytes, tag = "1")]
-            pub id: std::vec::Vec<u8>,
+            #[prost(bytes = "vec", tag = "1")]
+            pub id: ::prost::alloc::vec::Vec<u8>,
             #[prost(message, optional, tag = "2")]
-            pub state: ::std::option::Option<super::ProducerState>,
+            pub state: ::core::option::Option<super::ProducerState>,
         }
     }
     /// ProducerState is metadata of a producer as-of a read-through journal
@@ -243,10 +248,10 @@ pub struct ListRequest {
     /// additionally supported by the selector, where "id=example-shard-ID"
     /// will match a ShardSpec with ID "example-shard-ID".
     #[prost(message, optional, tag = "1")]
-    pub selector: ::std::option::Option<super::protocol::LabelSelector>,
+    pub selector: ::core::option::Option<super::protocol::LabelSelector>,
     /// Optional extension of the ListRequest.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListResponse {
@@ -255,38 +260,40 @@ pub struct ListResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     #[prost(message, repeated, tag = "3")]
-    pub shards: ::std::vec::Vec<list_response::Shard>,
+    pub shards: ::prost::alloc::vec::Vec<list_response::Shard>,
     /// Optional extension of the ListResponse.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
+/// Nested message and enum types in `ListResponse`.
 pub mod list_response {
     /// Shards of the response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Shard {
         #[prost(message, optional, tag = "1")]
-        pub spec: ::std::option::Option<super::ShardSpec>,
+        pub spec: ::core::option::Option<super::ShardSpec>,
         /// Current ModRevision of the ShardSpec.
         #[prost(int64, tag = "2")]
         pub mod_revision: i64,
         /// Route of the shard, including endpoints.
         #[prost(message, optional, tag = "3")]
-        pub route: ::std::option::Option<super::super::protocol::Route>,
+        pub route: ::core::option::Option<super::super::protocol::Route>,
         /// Status of each replica. Cardinality and ordering matches |route|.
         #[prost(message, repeated, tag = "4")]
-        pub status: ::std::vec::Vec<super::ReplicaStatus>,
+        pub status: ::prost::alloc::vec::Vec<super::ReplicaStatus>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
     #[prost(message, repeated, tag = "1")]
-    pub changes: ::std::vec::Vec<apply_request::Change>,
+    pub changes: ::prost::alloc::vec::Vec<apply_request::Change>,
     /// Optional extension of the ApplyRequest.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
+/// Nested message and enum types in `ApplyRequest`.
 pub mod apply_request {
     /// Change defines an insertion, update, or deletion to be applied to the set
     /// of ShardSpecs. Exactly one of |upsert| or |delete| must be set.
@@ -299,10 +306,10 @@ pub mod apply_request {
         /// ShardSpec to be updated (if expect_mod_revision > 0) or created
         /// (if expect_mod_revision == 0).
         #[prost(message, optional, tag = "2")]
-        pub upsert: ::std::option::Option<super::ShardSpec>,
+        pub upsert: ::core::option::Option<super::ShardSpec>,
         /// Shard to be deleted. expect_mod_revision must not be zero.
         #[prost(string, tag = "3")]
-        pub delete: std::string::String,
+        pub delete: ::prost::alloc::string::String,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -312,27 +319,27 @@ pub struct ApplyResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     /// Optional extension of the ApplyResponse.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatRequest {
     /// Header may be attached by a proxying consumer peer.
     #[prost(message, optional, tag = "1")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     /// Shard to Stat.
     #[prost(string, tag = "2")]
-    pub shard: std::string::String,
+    pub shard: ::prost::alloc::string::String,
     /// Journals and offsets which must be reflected in a completed consumer
     /// transaction before Stat returns, blocking if required. Offsets of journals
     /// not read by this shard are ignored.
     #[prost(map = "string, int64", tag = "3")]
-    pub read_through: ::std::collections::HashMap<std::string::String, i64>,
+    pub read_through: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
     /// Optional extension of the StatRequest.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StatResponse {
@@ -341,11 +348,11 @@ pub struct StatResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     /// Journals and offsets read through by the most recent completed consumer
     /// transaction.
     #[prost(map = "string, int64", tag = "3")]
-    pub read_through: ::std::collections::HashMap<std::string::String, i64>,
+    pub read_through: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
     /// Journals and offsets this shard has published through, including
     /// acknowledgements, as-of the most recent completed consumer transaction.
     ///
@@ -358,19 +365,19 @@ pub struct StatResponse {
     /// through multiple intermediate consumers and arbitrary transformations
     /// before arriving at the materialized view which is ultimately queried.
     #[prost(map = "string, int64", tag = "4")]
-    pub publish_at: ::std::collections::HashMap<std::string::String, i64>,
+    pub publish_at: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
     /// Optional extension of the StatResponse.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetHintsRequest {
     /// Shard to fetch hints for.
     #[prost(string, tag = "1")]
-    pub shard: std::string::String,
+    pub shard: ::prost::alloc::string::String,
     /// Optional extension of the GetHintsRequest.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetHintsResponse {
@@ -379,25 +386,26 @@ pub struct GetHintsResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     /// Primary hints for the shard.
     #[prost(message, optional, tag = "3")]
-    pub primary_hints: ::std::option::Option<get_hints_response::ResponseHints>,
+    pub primary_hints: ::core::option::Option<get_hints_response::ResponseHints>,
     /// List of backup hints for a shard. The most recent recovery log hints will
     /// be first, any subsequent hints are for historical backup. If there is no
     /// value for a hint key the value corresponding hints will be nil.
     #[prost(message, repeated, tag = "4")]
-    pub backup_hints: ::std::vec::Vec<get_hints_response::ResponseHints>,
+    pub backup_hints: ::prost::alloc::vec::Vec<get_hints_response::ResponseHints>,
     /// Optional extension of the GetHintsResponse.
-    #[prost(bytes, tag = "100")]
-    pub extension: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "100")]
+    pub extension: ::prost::alloc::vec::Vec<u8>,
 }
+/// Nested message and enum types in `GetHintsResponse`.
 pub mod get_hints_response {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ResponseHints {
         /// If the hints value does not exist Hints will be nil.
         #[prost(message, optional, tag = "1")]
-        pub hints: ::std::option::Option<super::super::recoverylog::FsmHints>,
+        pub hints: ::core::option::Option<super::super::recoverylog::FsmHints>,
     }
 }
 /// Status is a response status code, used across Gazette Consumer RPC APIs.
@@ -722,6 +730,7 @@ pub mod shard_server {
                     Ok(http::Response::builder()
                         .status(200)
                         .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
                         .body(tonic::body::BoxBody::empty())
                         .unwrap())
                 }),
