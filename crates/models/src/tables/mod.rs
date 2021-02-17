@@ -15,7 +15,7 @@ tables!(
 
     table Resources (row Resource, sql "resources") {
         resource: url::Url,
-        content_type: names::ContentType,
+        content_type: protocol::flow::ContentType,
         content: bytes::Bytes,
     }
 
@@ -406,10 +406,10 @@ json_sql_types!(
     Vec<String>,
     Vec<serde_json::Value>,
     names::CompositeKey,
-    names::ContentType,
     names::Lambda,
     names::PartitionSelector,
     names::TestStepType,
+    protocol::flow::ContentType,
     protocol::flow::EndpointType,
     protocol::flow::shuffle::Hash,
     serde_json::Value,
