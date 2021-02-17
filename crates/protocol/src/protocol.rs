@@ -5,16 +5,16 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Label {
     #[prost(string, tag = "1")]
-    pub name: std::string::String,
+    pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub value: std::string::String,
+    pub value: ::prost::alloc::string::String,
 }
 /// LabelSet is a collection of labels and their values.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LabelSet {
     /// Labels of the set. Instances must be unique and sorted over (Name, Value).
     #[prost(message, repeated, tag = "1")]
-    pub labels: ::std::vec::Vec<Label>,
+    pub labels: ::prost::alloc::vec::Vec<Label>,
 }
 /// LabelSelector defines a filter over LabelSets.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -23,19 +23,19 @@ pub struct LabelSelector {
     /// empty, all Labels are included. An include Label with empty ("") value is
     /// matched by a Label of the same name having any value.
     #[prost(message, optional, tag = "1")]
-    pub include: ::std::option::Option<LabelSet>,
+    pub include: ::core::option::Option<LabelSet>,
     /// Exclude is Labels which cannot be matched for a LabelSet to be selected. If
     /// empty, no Labels are excluded. An exclude Label with empty ("") value
     /// excludes a Label of the same name having any value.
     #[prost(message, optional, tag = "2")]
-    pub exclude: ::std::option::Option<LabelSet>,
+    pub exclude: ::core::option::Option<LabelSet>,
 }
 /// JournalSpec describes a Journal and its configuration.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalSpec {
     /// Name of the Journal.
     #[prost(string, tag = "1")]
-    pub name: std::string::String,
+    pub name: ::prost::alloc::string::String,
     /// Desired replication of this Journal. This defines the Journal's tolerance
     /// to broker failures before data loss can occur (eg, a replication factor
     /// of three means two failures are tolerated).
@@ -44,9 +44,9 @@ pub struct JournalSpec {
     /// User-defined Labels of this JournalSpec. Two label names are reserved
     /// and may not be used within a JournalSpec's Labels: "name" and "prefix".
     #[prost(message, optional, tag = "3")]
-    pub labels: ::std::option::Option<LabelSet>,
+    pub labels: ::core::option::Option<LabelSet>,
     #[prost(message, optional, tag = "4")]
-    pub fragment: ::std::option::Option<journal_spec::Fragment>,
+    pub fragment: ::core::option::Option<journal_spec::Fragment>,
     /// Flags of the Journal, as a combination of Flag enum values. The Flag enum
     /// is not used directly, as protobuf enums do not allow for or'ed bitfields.
     #[prost(uint32, tag = "6")]
@@ -58,6 +58,7 @@ pub struct JournalSpec {
     #[prost(int64, tag = "7")]
     pub max_append_rate: i64,
 }
+/// Nested message and enum types in `JournalSpec`.
 pub mod journal_spec {
     /// Fragment is JournalSpec configuration which pertains to the creation,
     /// persistence, and indexing of the Journal's Fragments.
@@ -94,16 +95,16 @@ pub mod journal_spec {
         /// real-time streaming use cases where reads of historical data are not
         /// needed.
         #[prost(string, repeated, tag = "3")]
-        pub stores: ::std::vec::Vec<std::string::String>,
+        pub stores: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Interval of time between refreshes of remote Fragment listings from
         /// configured fragment_stores.
         #[prost(message, optional, tag = "4")]
-        pub refresh_interval: ::std::option::Option<::prost_types::Duration>,
+        pub refresh_interval: ::core::option::Option<::prost_types::Duration>,
         /// Retention duration for historical Fragments of this Journal within the
         /// Fragment stores. If less than or equal to zero, Fragments are retained
         /// indefinitely.
         #[prost(message, optional, tag = "5")]
-        pub retention: ::std::option::Option<::prost_types::Duration>,
+        pub retention: ::core::option::Option<::prost_types::Duration>,
         /// Flush interval defines a uniform UTC time segment which, when passed,
         /// will prompt brokers to close and persist a fragment presently being
         /// written.
@@ -118,7 +119,7 @@ pub mod journal_spec {
         ///
         /// See also "gazctl journals fragments --help" for more discussion.
         #[prost(message, optional, tag = "6")]
-        pub flush_interval: ::std::option::Option<::prost_types::Duration>,
+        pub flush_interval: ::core::option::Option<::prost_types::Duration>,
         /// Path postfix template is a Go template which evaluates to a partial
         /// path under which fragments are persisted to the store. A complete
         /// fragment path is constructed by appending path components from the
@@ -133,7 +134,7 @@ pub mod journal_spec {
         ///
         /// Which will produce a path postfix like "date=2019-11-19/hour=22".
         #[prost(string, tag = "7")]
-        pub path_postfix_template: std::string::String,
+        pub path_postfix_template: ::prost::alloc::string::String,
     }
     /// Flags define Journal IO control behaviors. Where possible, flags are named
     /// after an equivalent POSIX flag.
@@ -158,11 +159,12 @@ pub mod journal_spec {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProcessSpec {
     #[prost(message, optional, tag = "1")]
-    pub id: ::std::option::Option<process_spec::Id>,
+    pub id: ::core::option::Option<process_spec::Id>,
     /// Advertised URL of the process.
     #[prost(string, tag = "2")]
-    pub endpoint: std::string::String,
+    pub endpoint: ::prost::alloc::string::String,
 }
+/// Nested message and enum types in `ProcessSpec`.
 pub mod process_spec {
     /// ID composes a zone and a suffix to uniquely identify a ProcessSpec.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -173,13 +175,13 @@ pub mod process_spec {
         /// multiple zones, and seeks to minimize traffic which must cross zones (for
         /// example, by proxying reads to a broker in the current zone).
         #[prost(string, tag = "1")]
-        pub zone: std::string::String,
+        pub zone: ::prost::alloc::string::String,
         /// Unique suffix of the process within |zone|. It is permissible for a
         /// suffix value to repeat across zones, but never within zones. In practice,
         /// it's recommended to use a FQDN, Kubernetes Pod name, or comparable unique
         /// and self-describing value as the ID suffix.
         #[prost(string, tag = "2")]
-        pub suffix: std::string::String,
+        pub suffix: ::prost::alloc::string::String,
     }
 }
 /// BrokerSpec describes a Gazette broker and its configuration.
@@ -187,7 +189,7 @@ pub mod process_spec {
 pub struct BrokerSpec {
     /// ProcessSpec of the broker.
     #[prost(message, optional, tag = "1")]
-    pub process_spec: ::std::option::Option<ProcessSpec>,
+    pub process_spec: ::core::option::Option<ProcessSpec>,
     /// Maximum number of assigned Journal replicas.
     #[prost(uint32, tag = "2")]
     pub journal_limit: u32,
@@ -199,7 +201,7 @@ pub struct BrokerSpec {
 pub struct Fragment {
     /// Journal of the Fragment.
     #[prost(string, tag = "1")]
-    pub journal: std::string::String,
+    pub journal: ::prost::alloc::string::String,
     /// Begin (inclusive) and end (exclusive) offset of the Fragment within the
     /// Journal.
     #[prost(int64, tag = "2")]
@@ -208,14 +210,14 @@ pub struct Fragment {
     pub end: i64,
     /// SHA1 sum of the Fragment's content.
     #[prost(message, optional, tag = "4")]
-    pub sum: ::std::option::Option<Sha1Sum>,
+    pub sum: ::core::option::Option<Sha1Sum>,
     /// Codec with which the Fragment's content is compressed.
     #[prost(enumeration = "CompressionCodec", tag = "5")]
     pub compression_codec: i32,
     /// Fragment store which backs the Fragment. Empty if the Fragment has yet to
     /// be persisted and is still local to a Broker.
     #[prost(string, tag = "6")]
-    pub backing_store: std::string::String,
+    pub backing_store: ::prost::alloc::string::String,
     /// Modification timestamp of the Fragment within the backing store,
     /// represented as seconds since the epoch.
     #[prost(int64, tag = "7")]
@@ -224,7 +226,7 @@ pub struct Fragment {
     /// The complete Fragment store path is built from any path components of the
     /// backing store, followed by the journal name, followed by the path postfix.
     #[prost(string, tag = "8")]
-    pub path_postfix: std::string::String,
+    pub path_postfix: ::prost::alloc::string::String,
 }
 /// SHA1Sum is a 160-bit SHA1 digest.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -241,10 +243,10 @@ pub struct Sha1Sum {
 pub struct ReadRequest {
     /// Header is attached by a proxying broker peer.
     #[prost(message, optional, tag = "1")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// Journal to be read.
     #[prost(string, tag = "2")]
-    pub journal: std::string::String,
+    pub journal: ::prost::alloc::string::String,
     /// Desired offset to begin reading from. Value -1 has special handling, where
     /// the read is performed from the current write head. All other positive
     /// values specify a desired exact byte offset to read from. If the offset is
@@ -291,7 +293,7 @@ pub struct ReadResponse {
     /// Header of the response. Accompanies the first ReadResponse of the response
     /// stream.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// The effective offset of the read. See ReadRequest offset.
     #[prost(int64, tag = "3")]
     pub offset: i64,
@@ -304,13 +306,13 @@ pub struct ReadResponse {
     /// Fragment to which the offset was mapped. This is a metadata field and will
     /// not be returned with a content response.
     #[prost(message, optional, tag = "5")]
-    pub fragment: ::std::option::Option<Fragment>,
+    pub fragment: ::core::option::Option<Fragment>,
     /// If Fragment is remote, a URL from which it may be directly read.
     #[prost(string, tag = "6")]
-    pub fragment_url: std::string::String,
+    pub fragment_url: ::prost::alloc::string::String,
     /// Content chunks of the read.
-    #[prost(bytes, tag = "7")]
-    pub content: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "7")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
 }
 /// AppendRequest is the streamed request message of the broker Append RPC.
 /// Append request streams consist of an initial message having all parameters
@@ -349,10 +351,10 @@ pub struct AppendRequest {
     /// Header is attached by a proxying broker peer to the first AppendRequest
     /// message.
     #[prost(message, optional, tag = "1")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// Journal to be appended to.
     #[prost(string, tag = "2")]
-    pub journal: std::string::String,
+    pub journal: ::prost::alloc::string::String,
     /// If do_not_proxy is true, the broker will not proxy the append if it is
     /// not the current primary.
     #[prost(bool, tag = "3")]
@@ -376,21 +378,21 @@ pub struct AppendRequest {
     /// existing process holding a prior lock can continue to write -- at least
     /// until another process updates registers once again.
     #[prost(message, optional, tag = "6")]
-    pub check_registers: ::std::option::Option<LabelSelector>,
+    pub check_registers: ::core::option::Option<LabelSelector>,
     /// Labels to union with current registers if the RPC succeeds and appended
     /// at least one byte.
     #[prost(message, optional, tag = "7")]
-    pub union_registers: ::std::option::Option<LabelSet>,
+    pub union_registers: ::core::option::Option<LabelSet>,
     /// Labels to subtract from current registers if the RPC succeeds and appended
     /// at least one byte.
     #[prost(message, optional, tag = "8")]
-    pub subtract_registers: ::std::option::Option<LabelSet>,
+    pub subtract_registers: ::core::option::Option<LabelSet>,
     /// Content chunks to be appended. Immediately prior to closing the stream,
     /// the client must send an empty chunk (eg, zero-valued AppendRequest) to
     /// indicate the Append should be committed. Absence of this empty chunk
     /// prior to EOF is interpreted by the broker as a rollback of the Append.
-    #[prost(bytes, tag = "4")]
-    pub content: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
 }
 /// AppendResponse is the unary response message of the broker Append RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -400,14 +402,14 @@ pub struct AppendResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// If status is OK, then |commit| is the Fragment which places the
     /// committed Append content within the Journal.
     #[prost(message, optional, tag = "3")]
-    pub commit: ::std::option::Option<Fragment>,
+    pub commit: ::core::option::Option<Fragment>,
     /// Current registers of the journal.
     #[prost(message, optional, tag = "4")]
-    pub registers: ::std::option::Option<LabelSet>,
+    pub registers: ::core::option::Option<LabelSet>,
     /// Total number of RPC content chunks processed in this append.
     #[prost(int64, tag = "5")]
     pub total_chunks: i64,
@@ -424,13 +426,13 @@ pub struct ReplicateRequest {
     /// this Replicate stream is being established. Each replication peer
     /// independently inspects and verifies the current Journal Route topology.
     #[prost(message, optional, tag = "1")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// Proposed Fragment to commit, which is verified by each replica.
     #[prost(message, optional, tag = "3")]
-    pub proposal: ::std::option::Option<Fragment>,
+    pub proposal: ::core::option::Option<Fragment>,
     /// Registers proposed to apply, which are also verified by each replica.
     #[prost(message, optional, tag = "7")]
-    pub registers: ::std::option::Option<LabelSet>,
+    pub registers: ::core::option::Option<LabelSet>,
     /// Acknowledge requests that the peer send an acknowledging ReplicateResponse
     /// on successful application of the ReplicateRequest.
     #[prost(bool, tag = "6")]
@@ -438,10 +440,10 @@ pub struct ReplicateRequest {
     /// Journal to be replicated to, which is also captured by |proposal|.
     /// Deprecated.
     #[prost(string, tag = "2")]
-    pub deprecated_journal: std::string::String,
+    pub deprecated_journal: ::prost::alloc::string::String,
     /// Content to be replicated.
-    #[prost(bytes, tag = "4")]
-    pub content: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
     /// Delta offset of |content| relative to current Fragment |end|.
     #[prost(int64, tag = "5")]
     pub content_delta: i64,
@@ -457,16 +459,16 @@ pub struct ReplicateResponse {
     /// Header of the response. Accompanies the first ReplicateResponse of the
     /// response stream.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// If status is PROPOSAL_MISMATCH, then |fragment| is the replica's current
     /// journal Fragment, and either it or |registers| will differ from the
     /// primary's proposal.
     #[prost(message, optional, tag = "3")]
-    pub fragment: ::std::option::Option<Fragment>,
+    pub fragment: ::core::option::Option<Fragment>,
     /// If status is PROPOSAL_MISMATCH, then |registers| are the replica's current
     /// journal registers.
     #[prost(message, optional, tag = "4")]
-    pub registers: ::std::option::Option<LabelSet>,
+    pub registers: ::core::option::Option<LabelSet>,
 }
 /// ListRequest is the unary request message of the broker List RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -480,7 +482,7 @@ pub struct ListRequest {
     ///   * prefix=examples/ will match any JournalSpec having prefix "examples/".
     ///     The prefix Label value must end in '/'.
     #[prost(message, optional, tag = "1")]
-    pub selector: ::std::option::Option<LabelSelector>,
+    pub selector: ::core::option::Option<LabelSelector>,
 }
 /// ListResponse is the unary response message of the broker List RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -490,30 +492,32 @@ pub struct ListResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     #[prost(message, repeated, tag = "3")]
-    pub journals: ::std::vec::Vec<list_response::Journal>,
+    pub journals: ::prost::alloc::vec::Vec<list_response::Journal>,
 }
+/// Nested message and enum types in `ListResponse`.
 pub mod list_response {
     /// Journals of the response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Journal {
         #[prost(message, optional, tag = "1")]
-        pub spec: ::std::option::Option<super::JournalSpec>,
+        pub spec: ::core::option::Option<super::JournalSpec>,
         /// Current ModRevision of the JournalSpec.
         #[prost(int64, tag = "2")]
         pub mod_revision: i64,
         /// Route of the journal, including endpoints.
         #[prost(message, optional, tag = "3")]
-        pub route: ::std::option::Option<super::Route>,
+        pub route: ::core::option::Option<super::Route>,
     }
 }
 /// ApplyRequest is the unary request message of the broker Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
     #[prost(message, repeated, tag = "1")]
-    pub changes: ::std::vec::Vec<apply_request::Change>,
+    pub changes: ::prost::alloc::vec::Vec<apply_request::Change>,
 }
+/// Nested message and enum types in `ApplyRequest`.
 pub mod apply_request {
     /// Change defines an insertion, update, or deletion to be applied to the set
     /// of JournalSpecs. Exactly one of |upsert| or |delete| must be set.
@@ -526,10 +530,10 @@ pub mod apply_request {
         /// JournalSpec to be updated (if expect_mod_revision > 0) or created
         /// (if expect_mod_revision == 0).
         #[prost(message, optional, tag = "2")]
-        pub upsert: ::std::option::Option<super::JournalSpec>,
+        pub upsert: ::core::option::Option<super::JournalSpec>,
         /// Journal to be deleted. expect_mod_revision must not be zero.
         #[prost(string, tag = "3")]
-        pub delete: std::string::String,
+        pub delete: ::prost::alloc::string::String,
     }
 }
 /// ApplyResponse is the unary response message of the broker Apply RPC.
@@ -540,7 +544,7 @@ pub struct ApplyResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
 }
 /// FragmentsRequest is the unary request message of the broker ListFragments
 /// RPC.
@@ -548,10 +552,10 @@ pub struct ApplyResponse {
 pub struct FragmentsRequest {
     /// Header is attached by a proxying broker peer.
     #[prost(message, optional, tag = "1")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     /// Journal to be read.
     #[prost(string, tag = "2")]
-    pub journal: std::string::String,
+    pub journal: ::prost::alloc::string::String,
     /// BeginModTime is an optional field specifying an inclusive lower bound on
     /// the modification timestamp for a fragment to be returned. The timestamp is
     /// represented as seconds since the epoch.
@@ -573,7 +577,7 @@ pub struct FragmentsRequest {
     /// SignatureTTL indicates that a temporary signed GET URL should be returned
     /// with each response Fragment, valid for |signatureTTL|.
     #[prost(message, optional, tag = "7")]
-    pub signature_ttl: ::std::option::Option<::prost_types::Duration>,
+    pub signature_ttl: ::core::option::Option<::prost_types::Duration>,
     /// If do_not_proxy is true, the broker will not proxy the request to another
     /// broker on the client's behalf.
     #[prost(bool, tag = "8")]
@@ -588,26 +592,27 @@ pub struct FragmentsResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<Header>,
+    pub header: ::core::option::Option<Header>,
     #[prost(message, repeated, tag = "3")]
-    pub fragments: ::std::vec::Vec<fragments_response::Fragment>,
+    pub fragments: ::prost::alloc::vec::Vec<fragments_response::Fragment>,
     /// The NextPageToke value to be returned on subsequent Fragments requests. If
     /// the value is zero then there are no more fragments to be returned for this
     /// page.
     #[prost(int64, tag = "4")]
     pub next_page_token: i64,
 }
+/// Nested message and enum types in `FragmentsResponse`.
 pub mod fragments_response {
     /// Fragments of the Response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fragment {
         #[prost(message, optional, tag = "1")]
-        pub spec: ::std::option::Option<super::Fragment>,
+        pub spec: ::core::option::Option<super::Fragment>,
         /// SignedURL is a temporary URL at which a direct GET of the Fragment may
         /// be issued, signed by the broker's credentials. Set only if the request
         /// specified a SignatureTTL.
         #[prost(string, tag = "2")]
-        pub signed_url: std::string::String,
+        pub signed_url: ::prost::alloc::string::String,
     }
 }
 /// Route captures the current topology of an item and the processes serving it.
@@ -615,7 +620,7 @@ pub mod fragments_response {
 pub struct Route {
     /// Members of the Route, ordered on ascending ProcessSpec.ID (zone, suffix).
     #[prost(message, repeated, tag = "1")]
-    pub members: ::std::vec::Vec<process_spec::Id>,
+    pub members: ::prost::alloc::vec::Vec<process_spec::Id>,
     /// Index of the ProcessSpec serving as primary within |members|,
     /// or -1 of no member is currently primary.
     #[prost(int32, tag = "2")]
@@ -623,7 +628,7 @@ pub struct Route {
     /// Endpoints of each Route member. If not empty, |endpoints| has the same
     /// length and order as |members|, and captures the endpoint of each one.
     #[prost(string, repeated, tag = "3")]
-    pub endpoints: ::std::vec::Vec<std::string::String>,
+    pub endpoints: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// Header captures metadata such as the process responsible for processing
 /// an RPC, and its effective Etcd state.
@@ -633,14 +638,15 @@ pub struct Header {
     /// Header is being used within a proxied request, and that request may be
     /// dispatched to any member of the Route.
     #[prost(message, optional, tag = "1")]
-    pub process_id: ::std::option::Option<process_spec::Id>,
+    pub process_id: ::core::option::Option<process_spec::Id>,
     /// Route of processes specifically responsible for this RPC, or an empty Route
     /// if any process is capable of serving the RPC.
     #[prost(message, optional, tag = "2")]
-    pub route: ::std::option::Option<Route>,
+    pub route: ::core::option::Option<Route>,
     #[prost(message, optional, tag = "3")]
-    pub etcd: ::std::option::Option<header::Etcd>,
+    pub etcd: ::core::option::Option<header::Etcd>,
 }
+/// Nested message and enum types in `Header`.
 pub mod header {
     /// Etcd represents the effective Etcd MVCC state under which a Gazette broker
     /// is operating in its processing of requests and responses. Its inclusion
@@ -1168,6 +1174,7 @@ pub mod journal_server {
                     Ok(http::Response::builder()
                         .status(200)
                         .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
                         .body(tonic::body::BoxBody::empty())
                         .unwrap())
                 }),

@@ -20,6 +20,6 @@ tempfile = "*"
 thiserror = "*"
 tracing = "*"
 url  = "*"
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "*", features = ["process", "signal"] }
 tokio-stream = { version = "*", features = ["io-util"] }
 tonic = { version = "*" }

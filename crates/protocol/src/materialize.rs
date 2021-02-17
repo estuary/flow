@@ -1,14 +1,16 @@
 /// Constraint constrains the use of a flow.Projection within a materialization.
-#[derive(Clone, PartialEq, ::prost::Message, serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Constraint {
     #[prost(enumeration = "constraint::Type", tag = "2")]
     pub r#type: i32,
     /// Optional human readable reason for the given constraint.
     /// Implementations are strongly encouraged to supply a descriptive message.
     #[prost(string, tag = "3")]
-    pub reason: std::string::String,
+    pub reason: ::prost::alloc::string::String,
 }
+/// Nested message and enum types in `Constraint`.
 pub mod constraint {
     /// Type encodes a constraint type for this flow.Projection.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -34,36 +36,37 @@ pub mod constraint {
 pub struct SessionRequest {
     /// Endpoint URL of the materialization system.
     #[prost(string, tag = "1")]
-    pub endpoint_url: std::string::String,
+    pub endpoint_url: ::prost::alloc::string::String,
     /// Target name within the materialization system, where applicable.
     /// This could be a SQL schema & table, or a pub/sub topic, etc.
     #[prost(string, tag = "2")]
-    pub target: std::string::String,
+    pub target: ::prost::alloc::string::String,
     /// Stable ID of the flow consumer shard that this session belongs to. A null or empty value
     /// indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
     #[prost(string, tag = "3")]
-    pub shard_id: std::string::String,
+    pub shard_id: ::prost::alloc::string::String,
 }
 /// SessionResponse is the response type of the StartSession RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SessionResponse {
     /// Opaque session handle.
-    #[prost(bytes, tag = "1")]
-    pub handle: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub handle: ::prost::alloc::vec::Vec<u8>,
 }
 /// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateRequest {
     /// Opaque session handle.
-    #[prost(bytes, tag = "1")]
-    pub handle: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub handle: ::prost::alloc::vec::Vec<u8>,
     /// Collection to be materialized.
     #[prost(message, optional, tag = "2")]
-    pub collection: ::std::option::Option<super::flow::CollectionSpec>,
+    pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Projection configuration, keyed by the projection field name,
     /// with JSON-encoded and driver-defined configuration objects.
     #[prost(map = "string, string", tag = "3")]
-    pub field_config: ::std::collections::HashMap<std::string::String, std::string::String>,
+    pub field_config:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// ValidateResponse is the response type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -72,7 +75,7 @@ pub struct ValidateResponse {
     /// keyed by the projection field name. Projections of the CollectionSpec
     /// which are missing from constraints are implicitly forbidden.
     #[prost(map = "string, message", tag = "1")]
-    pub constraints: ::std::collections::HashMap<std::string::String, Constraint>,
+    pub constraints: ::std::collections::HashMap<::prost::alloc::string::String, Constraint>,
 }
 /// FieldSelection represents the entire set of fields for a materialization. Projected fields are
 /// separated into keys and values.
@@ -82,32 +85,33 @@ pub struct FieldSelection {
     /// that each location that's part of a collection's key is represented here exactly once, and in
     /// the same order as the keys are declared in the collection.
     #[prost(string, repeated, tag = "1")]
-    pub keys: ::std::vec::Vec<std::string::String>,
+    pub keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// All other materialized fields, except for those in keys and the root document field, will be listed here in
     /// a stable order. Note that not all materializations will have or need any "values" fields (e.g.
     /// materializing to a key-value store like dynamo)
     #[prost(string, repeated, tag = "2")]
-    pub values: ::std::vec::Vec<std::string::String>,
+    pub values: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// The name of the field holding the root document.
     #[prost(string, tag = "3")]
-    pub document: std::string::String,
+    pub document: ::prost::alloc::string::String,
     /// Projection configuration, keyed by the projection field name,
     /// with JSON-encoded and driver-defined configuration objects.
     #[prost(map = "string, string", tag = "4")]
-    pub field_config: ::std::collections::HashMap<std::string::String, std::string::String>,
+    pub field_config:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
     /// Opaque session handle.
-    #[prost(bytes, tag = "1")]
-    pub handle: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub handle: ::prost::alloc::vec::Vec<u8>,
     /// Collection to be materialized.
     #[prost(message, optional, tag = "2")]
-    pub collection: ::std::option::Option<super::flow::CollectionSpec>,
+    pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Selected fields for materialization
     #[prost(message, optional, tag = "3")]
-    pub fields: ::std::option::Option<FieldSelection>,
+    pub fields: ::core::option::Option<FieldSelection>,
     /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
     /// report only what would have happened.
     #[prost(bool, tag = "4")]
@@ -119,26 +123,26 @@ pub struct ApplyResponse {
     /// Human-readable description of the action that the Driver took (or, if dry_run, would have taken).
     /// If empty, this Apply is to be considered a "no-op".
     #[prost(string, tag = "1")]
-    pub action_description: std::string::String,
+    pub action_description: ::prost::alloc::string::String,
 }
 /// FenceRequest is the request type of a Fence RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FenceRequest {
     /// Opaque session handle.
-    #[prost(bytes, tag = "1")]
-    pub handle: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub handle: ::prost::alloc::vec::Vec<u8>,
     /// Driver checkpoint which was last committed from a Store RPC.
     /// Or empty, if the Driver has never returned a checkpoint.
-    #[prost(bytes, tag = "2")]
-    pub driver_checkpoint: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
 }
 /// FenceResponse is the response type of a Fence RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FenceResponse {
     /// Flow checkpoint which was previously committed with this caller ID.
     /// Or nil, if unknown or transactional semantics are not supported.
-    #[prost(bytes, tag = "1")]
-    pub flow_checkpoint: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
 }
 /// LoadEOF indicates the end of a stream of LoadRequest or LoadResponse messages.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -158,45 +162,46 @@ pub struct TransactionRequest {
     /// Start is sent as the first message in a Transaction, and never sent again during the same
     /// transaction.
     #[prost(message, optional, tag = "1")]
-    pub start: ::std::option::Option<transaction_request::Start>,
+    pub start: ::core::option::Option<transaction_request::Start>,
     /// Load will only be sent during the Loading phase of the transaction rpc.
     #[prost(message, optional, tag = "2")]
-    pub load: ::std::option::Option<transaction_request::LoadRequest>,
+    pub load: ::core::option::Option<transaction_request::LoadRequest>,
     /// LoadEOF indicates that no more LoadRequests will be sent during this transaction. Upon
     /// receiving a LoadEOF, a driver should return any pending LoadResponse messages before sending
     /// its own LoadEOF.
     #[prost(message, optional, tag = "3")]
-    pub load_eof: ::std::option::Option<LoadEof>,
+    pub load_eof: ::core::option::Option<LoadEof>,
     /// Store will only be sent during the Storing phase fo the transaction rpc.
     #[prost(message, optional, tag = "4")]
-    pub store: ::std::option::Option<transaction_request::StoreRequest>,
+    pub store: ::core::option::Option<transaction_request::StoreRequest>,
 }
+/// Nested message and enum types in `TransactionRequest`.
 pub mod transaction_request {
     /// Start represents the initial payload of transaction metadata.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Start {
         /// Opaque session handle.
-        #[prost(bytes, tag = "1")]
-        pub handle: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "1")]
+        pub handle: ::prost::alloc::vec::Vec<u8>,
         /// Fields represents the projection fields to be stored. This repeats the selection and ordering
         /// of the last Apply RPC, but is provided here also as a convenience.
         #[prost(message, optional, tag = "2")]
-        pub fields: ::std::option::Option<super::FieldSelection>,
+        pub fields: ::core::option::Option<super::FieldSelection>,
         /// Checkpoint to write with this Store transaction, to be associated with
         /// the session's caller ID and to be returned by a future Fence RPC.
         /// This may be ignored if the Driver doesn't support exactly-once semantics.
-        #[prost(bytes, tag = "3")]
-        pub flow_checkpoint: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "3")]
+        pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
     /// LoadRequest represents a request to Load one or more documents.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct LoadRequest {
         /// Byte arena of the request.
-        #[prost(bytes, tag = "2")]
-        pub arena: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "2")]
+        pub arena: ::prost::alloc::vec::Vec<u8>,
         /// Packed tuples of collection keys, enumerating the documents to load.
         #[prost(message, repeated, tag = "3")]
-        pub packed_keys: ::std::vec::Vec<super::super::flow::Slice>,
+        pub packed_keys: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
     /// StoreRequest represents a batch of 1 or more documents to store, along with their associated
     /// keys and extracted values. Many StoreRequest messages may be sent during the life of a
@@ -204,21 +209,21 @@ pub mod transaction_request {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct StoreRequest {
         /// Byte arena of the request.
-        #[prost(bytes, tag = "1")]
-        pub arena: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "1")]
+        pub arena: ::prost::alloc::vec::Vec<u8>,
         #[prost(message, repeated, tag = "2")]
-        pub packed_keys: ::std::vec::Vec<super::super::flow::Slice>,
+        pub packed_keys: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
         /// Packed tuples holding projection values for each document.
         #[prost(message, repeated, tag = "3")]
-        pub packed_values: ::std::vec::Vec<super::super::flow::Slice>,
+        pub packed_values: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
         /// JSON documents.
         #[prost(message, repeated, tag = "4")]
-        pub docs_json: ::std::vec::Vec<super::super::flow::Slice>,
+        pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
         /// Exists is true if this document previously been loaded or stored.
         ///
         /// [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
         #[prost(bool, repeated, tag = "5")]
-        pub exists: ::std::vec::Vec<bool>,
+        pub exists: ::prost::alloc::vec::Vec<bool>,
     }
 }
 /// TransactionResponse is streamed back from a Transaction streaming rpc.
@@ -229,17 +234,18 @@ pub mod transaction_request {
 pub struct TransactionResponse {
     /// LoadResponse should only be sent during the Loading phase of the transaction rpc.
     #[prost(message, optional, tag = "1")]
-    pub load_response: ::std::option::Option<transaction_response::LoadResponse>,
+    pub load_response: ::core::option::Option<transaction_response::LoadResponse>,
     /// LoadEOF is sent after all LoadResponse have been sent. After this is sent, no more LoadResponse
     /// messages may be sent by the driver, and any documents that have not been returned in a
     /// LoadResponse will be presumed to not exist in storage.
     #[prost(message, optional, tag = "2")]
-    pub load_eof: ::std::option::Option<LoadEof>,
+    pub load_eof: ::core::option::Option<LoadEof>,
     /// StoreResponse is sent by the driver as the final message in a Transaction to indicate that it
     /// has committed.
     #[prost(message, optional, tag = "3")]
-    pub store_response: ::std::option::Option<transaction_response::StoreResponse>,
+    pub store_response: ::core::option::Option<transaction_response::StoreResponse>,
 }
+/// Nested message and enum types in `TransactionResponse`.
 pub mod transaction_response {
     /// LoadResponse is sent to return documents requested by a LoadRequest. The driver may send
     /// LoadResponse messages at any time before it sends a LoadEOF message. This is designed to allow
@@ -250,11 +256,11 @@ pub mod transaction_response {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct LoadResponse {
         /// Byte arena of the request.
-        #[prost(bytes, tag = "1")]
-        pub arena: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "1")]
+        pub arena: ::prost::alloc::vec::Vec<u8>,
         /// Loaded JSON documents.
         #[prost(message, repeated, tag = "2")]
-        pub docs_json: ::std::vec::Vec<super::super::flow::Slice>,
+        pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
     /// StoreResponse is sent exactly once at the end of a successful Transaction. Successful Transactions
     /// must send a single StoreResponse as their final message, though it is perfectly acceptable to
@@ -265,8 +271,8 @@ pub mod transaction_response {
         /// within the same internal transaction which triggered this Store RPC,
         /// and will present the latest checkpoint to a future Fence RPC.
         /// This may be ignored if the Driver has no checkpoints.
-        #[prost(bytes, tag = "1")]
-        pub driver_checkpoint: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "1")]
+        pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
 }
 #[doc = r" Generated client implementations."]
@@ -715,6 +721,7 @@ pub mod driver_server {
                     Ok(http::Response::builder()
                         .status(200)
                         .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
                         .body(tonic::body::BoxBody::empty())
                         .unwrap())
                 }),

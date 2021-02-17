@@ -28,7 +28,7 @@ rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 thiserror = "*"
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "*", features = [] }
 tracing = "*"
 tracing-futures = "*"
 tracing-subscriber = "*"

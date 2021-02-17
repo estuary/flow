@@ -32,11 +32,11 @@ pub struct LambdaSpec {
     /// If non-empty, this is a TypeScript lambda and the field is its invocation path.
     /// E.x. 'some/derivation/andTransform/Update'.
     #[prost(string, tag = "1")]
-    pub typescript: std::string::String,
+    pub typescript: ::prost::alloc::string::String,
     /// If non-empty, this is a remote lambda and the field is its invocation URL.
     /// E.x. 'https://my/external/api'.
     #[prost(string, tag = "2")]
-    pub remote: std::string::String,
+    pub remote: ::prost::alloc::string::String,
 }
 /// Shuffle is a description of a document shuffle, where each document
 /// is mapped into:
@@ -61,20 +61,20 @@ pub struct Shuffle {
     ///  `derive/{derivation}/{transform}`
     ///  `materialize/{materialization}`
     #[prost(string, tag = "1")]
-    pub group_name: std::string::String,
+    pub group_name: ::prost::alloc::string::String,
     /// Source collection read by this transform.
     #[prost(string, tag = "2")]
-    pub source_collection: std::string::String,
+    pub source_collection: ::prost::alloc::string::String,
     /// Selector of partitions of the collection which this transform reads.
     #[prost(message, optional, tag = "3")]
-    pub source_partitions: ::std::option::Option<super::protocol::LabelSelector>,
+    pub source_partitions: ::core::option::Option<super::protocol::LabelSelector>,
     /// JSON pointer locating the UUID of each source document.
     #[prost(string, tag = "4")]
-    pub source_uuid_ptr: std::string::String,
+    pub source_uuid_ptr: ::prost::alloc::string::String,
     /// Composite key over which shuffling occurs, specified as one or more
     /// JSON-Pointers indicating a message location to extract.
     #[prost(string, repeated, tag = "5")]
-    pub shuffle_key_ptr: ::std::vec::Vec<std::string::String>,
+    pub shuffle_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// uses_source_key is true if shuffle_key_ptr is the source's native key,
     /// and false if it's some other key. When shuffling using the source's key,
     /// we can minimize data movement by assigning a shard coordinator for each
@@ -84,10 +84,10 @@ pub struct Shuffle {
     /// Computed shuffle lambda. If non-nil, then shuffle_key_ptr MUST be empty
     /// and uses_source_key MUST be false.
     #[prost(message, optional, tag = "7")]
-    pub shuffle_lambda: ::std::option::Option<LambdaSpec>,
+    pub shuffle_lambda: ::core::option::Option<LambdaSpec>,
     /// Schema against which shuffled documents are to be validated.
     #[prost(string, tag = "8")]
-    pub source_schema_uri: std::string::String,
+    pub source_schema_uri: ::prost::alloc::string::String,
     /// uses_source_schema is true iff source_schema_uri is the source collection's
     /// schema, and false if it's a source schema specific to this transform.
     #[prost(bool, tag = "9")]
@@ -116,6 +116,7 @@ pub struct Shuffle {
     #[prost(uint32, tag = "13")]
     pub priority: u32,
 }
+/// Nested message and enum types in `Shuffle`.
 pub mod shuffle {
     /// Optional hash applied to extracted, packed shuffle keys. Hashes can:
     /// * Mitigate shard skew which might otherwise occur due to key locality
@@ -125,10 +126,10 @@ pub mod shuffle {
     ///   in-the-clear at rest where possible.
     /// Either cryptographic or non-cryptographic functions may be appropriate
     /// depending on the use case.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
     #[derive(serde::Deserialize, serde::Serialize)]
     #[serde(deny_unknown_fields)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
     pub enum Hash {
         /// None performs no hash, returning the original key.
         None = 0,
@@ -145,13 +146,13 @@ pub mod shuffle {
 pub struct JournalShuffle {
     /// Journal to be shuffled.
     #[prost(string, tag = "1")]
-    pub journal: std::string::String,
+    pub journal: ::prost::alloc::string::String,
     /// Coordinator is the Shard ID which is responsible for reads of this journal.
     #[prost(string, tag = "2")]
-    pub coordinator: std::string::String,
+    pub coordinator: ::prost::alloc::string::String,
     /// Shuffle of this JournalShuffle.
     #[prost(message, optional, tag = "3")]
-    pub shuffle: ::std::option::Option<Shuffle>,
+    pub shuffle: ::core::option::Option<Shuffle>,
     /// Is this a reply of the journal's content?
     /// We separate ongoing vs replayed reads of a journal's content into
     /// distinct rings, so that ongoing reads cannot deadlock a replay read.
@@ -171,10 +172,10 @@ pub struct JournalShuffle {
 pub struct Projection {
     /// Document location of this projection, as a JSON-Pointer.
     #[prost(string, tag = "1")]
-    pub ptr: std::string::String,
+    pub ptr: ::prost::alloc::string::String,
     /// Field is the flattened, tabular alias of this projection.
     #[prost(string, tag = "2")]
-    pub field: std::string::String,
+    pub field: ::prost::alloc::string::String,
     /// Was this projection user provided ?
     #[prost(bool, tag = "3")]
     pub user_provided: bool,
@@ -186,7 +187,7 @@ pub struct Projection {
     pub is_primary_key: bool,
     /// Inference of this projection.
     #[prost(message, optional, tag = "6")]
-    pub inference: ::std::option::Option<Inference>,
+    pub inference: ::core::option::Option<Inference>,
 }
 /// Inference details type information which is statically known
 /// about a given document location.
@@ -195,30 +196,31 @@ pub struct Inference {
     /// The possible types for this location.
     /// Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
     #[prost(string, repeated, tag = "1")]
-    pub types: ::std::vec::Vec<std::string::String>,
+    pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Whether the projection must always exist (either as a location within)
     /// the source document, or as a null-able column in the database.
     #[prost(bool, tag = "2")]
     pub must_exist: bool,
     #[prost(message, optional, tag = "3")]
-    pub string: ::std::option::Option<inference::String>,
+    pub string: ::core::option::Option<inference::String>,
     /// The title from the schema, if provided
     #[prost(string, tag = "4")]
-    pub title: std::string::String,
+    pub title: ::prost::alloc::string::String,
     /// The description from the schema, if provided
     #[prost(string, tag = "5")]
-    pub description: std::string::String,
+    pub description: ::prost::alloc::string::String,
 }
+/// Nested message and enum types in `Inference`.
 pub mod inference {
     /// String type-specific inferences.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct String {
         /// Annotated Content-Type when the projection is of "string" type.
         #[prost(string, tag = "3")]
-        pub content_type: std::string::String,
+        pub content_type: ::prost::alloc::string::String,
         /// Annotated format when the projection is of "string" type.
         #[prost(string, tag = "4")]
-        pub format: std::string::String,
+        pub format: ::prost::alloc::string::String,
         /// Whether the value is base64-encoded when the projection is of "string" type.
         #[prost(bool, tag = "5")]
         pub is_base64: bool,
@@ -231,77 +233,77 @@ pub mod inference {
 pub struct CollectionSpec {
     /// Name of this collection.
     #[prost(string, tag = "1")]
-    pub collection: std::string::String,
+    pub collection: ::prost::alloc::string::String,
     /// Schema against which collection documents are validated,
     /// and which provides reduction annotations.
     #[prost(string, tag = "2")]
-    pub schema_uri: std::string::String,
+    pub schema_uri: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
     #[prost(string, repeated, tag = "3")]
-    pub key_ptrs: ::std::vec::Vec<std::string::String>,
+    pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// JSON pointer locating the UUID of each collection document.
     #[prost(string, tag = "4")]
-    pub uuid_ptr: std::string::String,
+    pub uuid_ptr: ::prost::alloc::string::String,
     /// Logical partition fields of this collection.
     #[prost(string, repeated, tag = "5")]
-    pub partition_fields: ::std::vec::Vec<std::string::String>,
+    pub partition_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Logical projections of this collection
     #[prost(message, repeated, tag = "6")]
-    pub projections: ::std::vec::Vec<Projection>,
+    pub projections: ::prost::alloc::vec::Vec<Projection>,
     /// JSON-encoded document template for creating Gazette consumer
     /// transaction acknowledgements of writes into this collection.
     #[prost(string, tag = "7")]
-    pub ack_json_template: std::string::String,
+    pub ack_json_template: ::prost::alloc::string::String,
 }
 /// TransformSpec describes a specific transform of a derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransformSpec {
     /// Derivation this transform belongs to.
     #[prost(string, tag = "1")]
-    pub derivation: std::string::String,
+    pub derivation: ::prost::alloc::string::String,
     /// Name of this transform, scoped to it's derivation.
     #[prost(string, tag = "2")]
-    pub transform: std::string::String,
+    pub transform: ::prost::alloc::string::String,
     /// Shuffle applied to source documents for this transform.
     #[prost(message, optional, tag = "3")]
-    pub shuffle: ::std::option::Option<Shuffle>,
+    pub shuffle: ::core::option::Option<Shuffle>,
     /// Update lambda of this transform, if any.
     #[prost(message, optional, tag = "4")]
-    pub update_lambda: ::std::option::Option<LambdaSpec>,
+    pub update_lambda: ::core::option::Option<LambdaSpec>,
     /// If an applied update causes the register to be invalid against its
     /// schema, should the document roll back instead of failing processing?
     #[prost(bool, tag = "5")]
     pub rollback_on_register_conflict: bool,
     /// Publish lambda of this transform, if any.
     #[prost(message, optional, tag = "6")]
-    pub publish_lambda: ::std::option::Option<LambdaSpec>,
+    pub publish_lambda: ::core::option::Option<LambdaSpec>,
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DerivationSpec {
     /// Derivations are collections.
     #[prost(message, optional, tag = "1")]
-    pub collection: ::std::option::Option<CollectionSpec>,
+    pub collection: ::core::option::Option<CollectionSpec>,
     /// Schema against which derivation registers are validated,
     /// and which provides reduction annotations.
     #[prost(string, tag = "2")]
-    pub register_schema_uri: std::string::String,
+    pub register_schema_uri: ::prost::alloc::string::String,
     /// JSON-encoded initial value of novel document registers.
     #[prost(string, tag = "3")]
-    pub register_initial_json: std::string::String,
+    pub register_initial_json: ::prost::alloc::string::String,
     /// Transforms of this derivation.
     #[prost(message, repeated, tag = "4")]
-    pub transforms: ::std::vec::Vec<TransformSpec>,
+    pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,
 }
 /// RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 /// is responsible for.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RangeSpec {
     /// Byte [begin, end) exclusive range of keys to be shuffled to this reader.
-    #[prost(bytes, tag = "2")]
-    pub key_begin: std::vec::Vec<u8>,
-    #[prost(bytes, tag = "3")]
-    pub key_end: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub key_begin: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub key_end: ::prost::alloc::vec::Vec<u8>,
     /// Rotated [begin, end) exclusive ranges of Clocks to be shuffled to this
     /// reader.
     #[prost(uint64, tag = "4")]
@@ -315,20 +317,21 @@ pub struct RangeSpec {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalRules {
     #[prost(message, repeated, tag = "1")]
-    pub rules: ::std::vec::Vec<journal_rules::Rule>,
+    pub rules: ::prost::alloc::vec::Vec<journal_rules::Rule>,
 }
+/// Nested message and enum types in `JournalRules`.
 pub mod journal_rules {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Rule {
         /// Name of the rule.
         #[prost(string, tag = "1")]
-        pub rule: std::string::String,
+        pub rule: ::prost::alloc::string::String,
         /// Label selector which must pass for the template to be applied.
         #[prost(message, optional, tag = "2")]
-        pub selector: ::std::option::Option<super::super::protocol::LabelSelector>,
+        pub selector: ::core::option::Option<super::super::protocol::LabelSelector>,
         /// Template to union into the base JournalSpec.
         #[prost(message, optional, tag = "3")]
-        pub template: ::std::option::Option<super::super::protocol::JournalSpec>,
+        pub template: ::core::option::Option<super::super::protocol::JournalSpec>,
     }
 }
 /// ShardRules are an ordered sequence of Rules which specify a
@@ -337,17 +340,18 @@ pub mod journal_rules {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShardRules {
     #[prost(message, repeated, tag = "1")]
-    pub rules: ::std::vec::Vec<shard_rules::Rule>,
+    pub rules: ::prost::alloc::vec::Vec<shard_rules::Rule>,
 }
+/// Nested message and enum types in `ShardRules`.
 pub mod shard_rules {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Rule {
         /// Label selector which must pass for the template to be applied.
         #[prost(message, optional, tag = "1")]
-        pub selector: ::std::option::Option<super::super::protocol::LabelSelector>,
+        pub selector: ::core::option::Option<super::super::protocol::LabelSelector>,
         /// Template to union into the base JournalSpec.
         #[prost(message, optional, tag = "2")]
-        pub template: ::std::option::Option<super::super::consumer::ShardSpec>,
+        pub template: ::core::option::Option<super::super::consumer::ShardSpec>,
     }
 }
 /// SchemaBundle is a bundle of JSON schemas and their base URI.
@@ -356,22 +360,23 @@ pub struct SchemaBundle {
     /// Schemas of the bundle. Keys are the absolute URIs of the schema,
     /// and values are JSON-encoded schema documents.
     #[prost(map = "string, string", tag = "1")]
-    pub bundle: ::std::collections::HashMap<std::string::String, std::string::String>,
+    pub bundle:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleRequest {
     /// Journal to be shuffled, routed to a coordinator.
     #[prost(message, optional, tag = "1")]
-    pub shuffle: ::std::option::Option<JournalShuffle>,
+    pub shuffle: ::core::option::Option<JournalShuffle>,
     /// Resolution header of the |shuffle.coordinator| shard.
     #[prost(message, optional, tag = "2")]
-    pub resolution: ::std::option::Option<super::protocol::Header>,
+    pub resolution: ::core::option::Option<super::protocol::Header>,
     /// Ranges of responsibility which are unique to this reader,
     /// against which document shuffle outcomes are matched to determine
     /// read eligibility.
     #[prost(message, optional, tag = "3")]
-    pub range: ::std::option::Option<RangeSpec>,
+    pub range: ::core::option::Option<RangeSpec>,
     /// Offset to begin reading the journal from.
     #[prost(int64, tag = "4")]
     pub offset: i64,
@@ -387,7 +392,7 @@ pub struct ShuffleResponse {
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     /// Terminal error encountered while serving this ShuffleRequest. A terminal
     /// error is only sent if a future ShuffleRequest of this same configuration
     /// and offset will fail in the exact same way, and operator intervention is
@@ -399,7 +404,7 @@ pub struct ShuffleResponse {
     /// network errors, process failures, and other conditions which can be
     /// retried.
     #[prost(string, tag = "3")]
-    pub terminal_error: std::string::String,
+    pub terminal_error: ::prost::alloc::string::String,
     /// Offset which was read through to produce this ShuffleResponse.
     #[prost(int64, tag = "4")]
     pub read_through: i64,
@@ -408,30 +413,31 @@ pub struct ShuffleResponse {
     #[prost(int64, tag = "5")]
     pub write_head: i64,
     /// Memory arena of this message.
-    #[prost(bytes, tag = "6")]
-    pub arena: std::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "6")]
+    pub arena: ::prost::alloc::vec::Vec<u8>,
     /// Shuffled documents, each encoded in the 'application/json'
     /// media-type.
     #[prost(message, repeated, tag = "7")]
-    pub docs_json: ::std::vec::Vec<Slice>,
+    pub docs_json: ::prost::alloc::vec::Vec<Slice>,
     /// The begin offset of each document within the requested journal.
     #[prost(int64, repeated, packed = "false", tag = "8")]
-    pub begin: ::std::vec::Vec<i64>,
+    pub begin: ::prost::alloc::vec::Vec<i64>,
     /// The end offset of each document within the journal.
     #[prost(int64, repeated, packed = "false", tag = "9")]
-    pub end: ::std::vec::Vec<i64>,
+    pub end: ::prost::alloc::vec::Vec<i64>,
     /// UUIDParts of each document.
     #[prost(message, repeated, tag = "10")]
-    pub uuid_parts: ::std::vec::Vec<UuidParts>,
+    pub uuid_parts: ::prost::alloc::vec::Vec<UuidParts>,
     /// Packed, embedded encoding of the shuffle key into a byte string.
     /// If the Shuffle specified a Hash to use, it's applied as well.
     #[prost(message, repeated, tag = "11")]
-    pub packed_key: ::std::vec::Vec<Slice>,
+    pub packed_key: ::prost::alloc::vec::Vec<Slice>,
 }
 /// Schema API takes SchemaBundle as its request message with code 1,
 /// and sends back instances of BuiltIndex with code 1.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchemaApi {}
+/// Nested message and enum types in `SchemaAPI`.
 pub mod schema_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct BuiltIndex {
@@ -441,6 +447,7 @@ pub mod schema_api {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractApi {}
+/// Nested message and enum types in `ExtractAPI`.
 pub mod extract_api {
     /// TODO - pass schema_index_memptr & Shuffle spec here, migrating this
     /// towards a ShuffleAPI which takes over some of the responsibility of
@@ -453,15 +460,16 @@ pub mod extract_api {
         /// JSON pointer of the document UUID to extract.
         /// If empty, UUIDParts are not extracted.
         #[prost(string, tag = "1")]
-        pub uuid_ptr: std::string::String,
+        pub uuid_ptr: ::prost::alloc::string::String,
         /// Field JSON pointers to extract from documents and return.
         /// If empty, no fields are extracted.
         #[prost(string, repeated, tag = "2")]
-        pub field_ptrs: ::std::vec::Vec<std::string::String>,
+        pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CombineApi {}
+/// Nested message and enum types in `CombineAPI`.
 pub mod combine_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
@@ -472,21 +480,21 @@ pub mod combine_api {
         /// Schema against which documents are to be validated,
         /// and which provides reduction annotations.
         #[prost(string, tag = "2")]
-        pub schema_uri: std::string::String,
+        pub schema_uri: ::prost::alloc::string::String,
         /// Composite key used to group documents to be combined, specified as one or
         /// more JSON-Pointers indicating a message location to extract.
         /// If empty, all request documents are combined into a single response
         /// document.
         #[prost(string, repeated, tag = "3")]
-        pub key_ptr: ::std::vec::Vec<std::string::String>,
+        pub key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Field JSON pointers to be extracted from combined documents and returned.
         /// If empty, no fields are extracted.
         #[prost(string, repeated, tag = "4")]
-        pub field_ptrs: ::std::vec::Vec<std::string::String>,
+        pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// JSON-Pointer at which a placeholder UUID should be inserted into
         /// returned documents. If empty, no placeholder is inserted.
         #[prost(string, tag = "5")]
-        pub uuid_placeholder_ptr: std::string::String,
+        pub uuid_placeholder_ptr: ::prost::alloc::string::String,
         /// Prune is true if this CombineRequest includes the root-most
         /// (equivalently, left-most) document of each key. Depending on the
         /// reduction strategy, additional pruning can be done in this case
@@ -499,6 +507,7 @@ pub mod combine_api {
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveApi {}
+/// Nested message and enum types in `DeriveAPI`.
 pub mod derive_api {
     /// Config configures an instance of the derive service.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -509,27 +518,27 @@ pub mod derive_api {
         pub schema_index_memptr: u64,
         /// Derivation to derive.
         #[prost(message, optional, tag = "2")]
-        pub derivation: ::std::option::Option<super::DerivationSpec>,
+        pub derivation: ::core::option::Option<super::DerivationSpec>,
         /// Memory address of an RocksDB Environment to use (as a *rocksdb_env_t).
         /// Ownership of the environment is transferred with this message.
         #[prost(fixed64, tag = "3")]
         pub rocksdb_env_memptr: u64,
         /// Local directory for ephemeral processing state.
         #[prost(string, tag = "4")]
-        pub local_dir: std::string::String,
+        pub local_dir: ::prost::alloc::string::String,
         /// Unix Domain Socket at which the JavaScript transformer may be reached.
         #[prost(string, tag = "5")]
-        pub typescript_uds_path: std::string::String,
+        pub typescript_uds_path: ::prost::alloc::string::String,
     }
     /// DocHeader precedes a JSON-encoded document.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct DocHeader {
         /// UUID of this document.
         #[prost(message, optional, tag = "1")]
-        pub uuid: ::std::option::Option<super::UuidParts>,
+        pub uuid: ::core::option::Option<super::UuidParts>,
         /// FDB packed shuffle key of the document.
-        #[prost(bytes, tag = "2")]
-        pub packed_key: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "2")]
+        pub packed_key: ::prost::alloc::vec::Vec<u8>,
         /// Index of the transformation under which this document is being
         /// processed, within the configured DerivationSpec.
         #[prost(uint32, tag = "3")]
@@ -540,25 +549,26 @@ pub mod derive_api {
     pub struct Prepare {
         /// Checkpoint to commit.
         #[prost(message, optional, tag = "1")]
-        pub checkpoint: ::std::option::Option<super::super::consumer::Checkpoint>,
+        pub checkpoint: ::core::option::Option<super::super::consumer::Checkpoint>,
     }
 }
 /// IngestRequest describes documents to ingest into collections.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {
     #[prost(message, repeated, tag = "1")]
-    pub collections: ::std::vec::Vec<ingest_request::Collection>,
+    pub collections: ::prost::alloc::vec::Vec<ingest_request::Collection>,
 }
+/// Nested message and enum types in `IngestRequest`.
 pub mod ingest_request {
     /// Collection describes an ingest into a collection.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Collection {
         /// Name of the collection into which to ingest.
         #[prost(string, tag = "1")]
-        pub name: std::string::String,
+        pub name: ::prost::alloc::string::String,
         /// Newline-separated JSON documents to ingest.
-        #[prost(bytes, tag = "2")]
-        pub docs_json_lines: std::vec::Vec<u8>,
+        #[prost(bytes = "vec", tag = "2")]
+        pub docs_json_lines: ::prost::alloc::vec::Vec<u8>,
     }
 }
 /// IngestResponse is the result of an Ingest RPC.
@@ -566,10 +576,10 @@ pub mod ingest_request {
 pub struct IngestResponse {
     /// Journals appended to by this ingestion, and their maximum offset on commit.
     #[prost(map = "string, int64", tag = "1")]
-    pub journal_write_heads: ::std::collections::HashMap<std::string::String, i64>,
+    pub journal_write_heads: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
     /// Etcd header which describes current journal partitions.
     #[prost(message, optional, tag = "2")]
-    pub journal_etcd: ::std::option::Option<super::protocol::header::Etcd>,
+    pub journal_etcd: ::core::option::Option<super::protocol::header::Etcd>,
 }
 /// AdvanceTimeRequest is a testing-only request to modify effective test time.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -589,9 +599,9 @@ pub struct AdvanceTimeResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClearRegistersRequest {
     #[prost(message, optional, tag = "1")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
     #[prost(string, tag = "2")]
-    pub shard_id: std::string::String,
+    pub shard_id: ::prost::alloc::string::String,
 }
 /// ClearRegistersResponse is a testing-only response to remove all registers of a shard.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -599,7 +609,7 @@ pub struct ClearRegistersResponse {
     #[prost(enumeration = "super::consumer::Status", tag = "1")]
     pub status: i32,
     #[prost(message, optional, tag = "2")]
-    pub header: ::std::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<super::protocol::Header>,
 }
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {
@@ -888,6 +898,7 @@ pub mod shuffler_server {
                     Ok(http::Response::builder()
                         .status(200)
                         .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
                         .body(tonic::body::BoxBody::empty())
                         .unwrap())
                 }),
@@ -994,6 +1005,7 @@ pub mod ingester_server {
                     Ok(http::Response::builder()
                         .status(200)
                         .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
                         .body(tonic::body::BoxBody::empty())
                         .unwrap())
                 }),
@@ -1136,6 +1148,7 @@ pub mod testing_server {
                     Ok(http::Response::builder()
                         .status(200)
                         .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
                         .body(tonic::body::BoxBody::empty())
                         .unwrap())
                 }),
