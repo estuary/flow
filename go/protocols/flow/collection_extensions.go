@@ -4,8 +4,8 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-// TODO: change references to this to use GetProjection instead
 // GetProjectionByField finds the projection with the given field name, or nil if one does not exist
+// TODO: change references to this to use GetProjection instead
 func GetProjectionByField(field string, projections []*Projection) *Projection {
 	for _, proj := range projections {
 		if proj.Field == field {
@@ -20,7 +20,7 @@ func (m *CollectionSpec) GetProjection(field string) *Projection {
 	return GetProjectionByField(field, m.Projections)
 }
 
-// Validates the CollectionSpec and returns an error if it is invalid.
+// Validate returns an error if the CollectionSpec is invalid.
 func (m *CollectionSpec) Validate() error {
 	var keyPointers = make(map[string]struct{})
 
@@ -59,6 +59,7 @@ func (m *CollectionSpec) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the DerivationSpec is invalid.
 func (m *DerivationSpec) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
@@ -78,6 +79,7 @@ func (m *DerivationSpec) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the Rule is invalid.
 func (m *JournalRules_Rule) Validate() error {
 	if m.Rule == "" {
 		return pb.NewValidationError("missing Rule")
@@ -92,6 +94,7 @@ func (m *JournalRules_Rule) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the Rules are invalid.
 func (m *JournalRules) Validate() error {
 	for i, r := range m.Rules {
 		if err := r.Validate(); err != nil {

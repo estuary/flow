@@ -299,60 +299,6 @@ func (m *ValidateResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidateResponse proto.InternalMessageInfo
 
-// FieldSelection represents the entire set of fields for a materialization. Projected fields are
-// separated into keys and values.
-type FieldSelection struct {
-	// The fields that are being used as the primary key for this materialization. Flow will guarantee
-	// that each location that's part of a collection's key is represented here exactly once, and in
-	// the same order as the keys are declared in the collection.
-	Keys []string `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
-	// All other materialized fields, except for those in keys and the root document field, will be listed here in
-	// a stable order. Note that not all materializations will have or need any "values" fields (e.g.
-	// materializing to a key-value store like dynamo)
-	Values []string `protobuf:"bytes,2,rep,name=values,proto3" json:"values,omitempty"`
-	// The name of the field holding the root document.
-	Document string `protobuf:"bytes,3,opt,name=document,proto3" json:"document,omitempty"`
-	// Projection configuration, keyed by the projection field name,
-	// with JSON-encoded and driver-defined configuration objects.
-	FieldConfig          map[string]string `protobuf:"bytes,4,rep,name=field_config,json=fieldConfig,proto3" json:"field_config,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
-	XXX_unrecognized     []byte            `json:"-"`
-	XXX_sizecache        int32             `json:"-"`
-}
-
-func (m *FieldSelection) Reset()         { *m = FieldSelection{} }
-func (m *FieldSelection) String() string { return proto.CompactTextString(m) }
-func (*FieldSelection) ProtoMessage()    {}
-func (*FieldSelection) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{5}
-}
-func (m *FieldSelection) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *FieldSelection) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_FieldSelection.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *FieldSelection) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_FieldSelection.Merge(m, src)
-}
-func (m *FieldSelection) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *FieldSelection) XXX_DiscardUnknown() {
-	xxx_messageInfo_FieldSelection.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_FieldSelection proto.InternalMessageInfo
-
 // ApplyRequest is the request type of the Apply RPC.
 type ApplyRequest struct {
 	// Opaque session handle.
@@ -360,7 +306,7 @@ type ApplyRequest struct {
 	// Collection to be materialized.
 	Collection *flow.CollectionSpec `protobuf:"bytes,2,opt,name=collection,proto3" json:"collection,omitempty"`
 	// Selected fields for materialization
-	Fields *FieldSelection `protobuf:"bytes,3,opt,name=fields,proto3" json:"fields,omitempty"`
+	Fields *flow.FieldSelection `protobuf:"bytes,3,opt,name=fields,proto3" json:"fields,omitempty"`
 	// Is this Apply a dry-run? If so, no action is undertaken and Apply will
 	// report only what would have happened.
 	DryRun               bool     `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
@@ -373,7 +319,7 @@ func (m *ApplyRequest) Reset()         { *m = ApplyRequest{} }
 func (m *ApplyRequest) String() string { return proto.CompactTextString(m) }
 func (*ApplyRequest) ProtoMessage()    {}
 func (*ApplyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{6}
+	return fileDescriptor_3e8b62b327f34bc6, []int{5}
 }
 func (m *ApplyRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -416,7 +362,7 @@ func (m *ApplyResponse) Reset()         { *m = ApplyResponse{} }
 func (m *ApplyResponse) String() string { return proto.CompactTextString(m) }
 func (*ApplyResponse) ProtoMessage()    {}
 func (*ApplyResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7}
+	return fileDescriptor_3e8b62b327f34bc6, []int{6}
 }
 func (m *ApplyResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -461,7 +407,7 @@ func (m *FenceRequest) Reset()         { *m = FenceRequest{} }
 func (m *FenceRequest) String() string { return proto.CompactTextString(m) }
 func (*FenceRequest) ProtoMessage()    {}
 func (*FenceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8}
+	return fileDescriptor_3e8b62b327f34bc6, []int{7}
 }
 func (m *FenceRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -504,7 +450,7 @@ func (m *FenceResponse) Reset()         { *m = FenceResponse{} }
 func (m *FenceResponse) String() string { return proto.CompactTextString(m) }
 func (*FenceResponse) ProtoMessage()    {}
 func (*FenceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9}
+	return fileDescriptor_3e8b62b327f34bc6, []int{8}
 }
 func (m *FenceResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -543,11 +489,19 @@ type LoadEOF struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
+<<<<<<< HEAD
 func (m *LoadEOF) Reset()         { *m = LoadEOF{} }
 func (m *LoadEOF) String() string { return proto.CompactTextString(m) }
 func (*LoadEOF) ProtoMessage()    {}
 func (*LoadEOF) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{10}
+=======
+func (m *LoadRequest) Reset()         { *m = LoadRequest{} }
+func (m *LoadRequest) String() string { return proto.CompactTextString(m) }
+func (*LoadRequest) ProtoMessage()    {}
+func (*LoadRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{9}
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 func (m *LoadEOF) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -570,6 +524,7 @@ func (m *LoadEOF) XXX_Merge(src proto.Message) {
 func (m *LoadEOF) XXX_Size() int {
 	return m.ProtoSize()
 }
+<<<<<<< HEAD
 func (m *LoadEOF) XXX_DiscardUnknown() {
 	xxx_messageInfo_LoadEOF.DiscardUnknown(m)
 }
@@ -603,6 +558,35 @@ func (m *TransactionRequest) String() string { return proto.CompactTextString(m)
 func (*TransactionRequest) ProtoMessage()    {}
 func (*TransactionRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{11}
+=======
+func (m *LoadRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_LoadRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_LoadRequest proto.InternalMessageInfo
+
+// LoadRequest is the response type of the Load RPC.
+type LoadResponse struct {
+	// Byte arena of the request.
+	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
+	// Loaded JSON documents, 1:1 with keys of the LoadRequest.
+	// Documents which don't exist in the target are represented as an empty Slice.
+	DocsJson []flow.Slice `protobuf:"bytes,2,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+	// Always empty hint which, when set true, hints to Flow that it may skip future
+	// calls of the Load RPC for this handle, as they will always return an empty
+	// LoadResponse.
+	AlwaysEmptyHint      bool     `protobuf:"varint,3,opt,name=always_empty_hint,json=alwaysEmptyHint,proto3" json:"always_empty_hint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *LoadResponse) Reset()         { *m = LoadResponse{} }
+func (m *LoadResponse) String() string { return proto.CompactTextString(m) }
+func (*LoadResponse) ProtoMessage()    {}
+func (*LoadResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{10}
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 func (m *TransactionRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -647,11 +631,19 @@ type TransactionRequest_Start struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
+<<<<<<< HEAD
 func (m *TransactionRequest_Start) Reset()         { *m = TransactionRequest_Start{} }
 func (m *TransactionRequest_Start) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest_Start) ProtoMessage()    {}
 func (*TransactionRequest_Start) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{11, 0}
+=======
+func (m *StoreRequest) Reset()         { *m = StoreRequest{} }
+func (m *StoreRequest) String() string { return proto.CompactTextString(m) }
+func (*StoreRequest) ProtoMessage()    {}
+func (*StoreRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{11}
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 func (m *TransactionRequest_Start) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -680,6 +672,7 @@ func (m *TransactionRequest_Start) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionRequest_Start proto.InternalMessageInfo
 
+<<<<<<< HEAD
 // LoadRequest represents a request to Load one or more documents.
 type TransactionRequest_LoadRequest struct {
 	// Byte arena of the request.
@@ -696,6 +689,28 @@ func (m *TransactionRequest_LoadRequest) String() string { return proto.CompactT
 func (*TransactionRequest_LoadRequest) ProtoMessage()    {}
 func (*TransactionRequest_LoadRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{11, 1}
+=======
+type StoreRequest_Start struct {
+	// Opaque session handle.
+	Handle []byte `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
+	// Projection fields to be stored. This repeats the selection and ordering
+	// of the last Apply RPC, but is provided here also as a convenience.
+	Fields *flow.FieldSelection `protobuf:"bytes,2,opt,name=fields,proto3" json:"fields,omitempty"`
+	// Checkpoint to write with this Store transaction, to be associated with
+	// the session's caller ID and to be returned by a future Fence RPC.
+	// This may be ignored if the Driver doesn't support exactly-once semantics.
+	FlowCheckpoint       []byte   `protobuf:"bytes,3,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *StoreRequest_Start) Reset()         { *m = StoreRequest_Start{} }
+func (m *StoreRequest_Start) String() string { return proto.CompactTextString(m) }
+func (*StoreRequest_Start) ProtoMessage()    {}
+func (*StoreRequest_Start) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{11, 0}
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 func (m *TransactionRequest_LoadRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -742,6 +757,7 @@ type TransactionRequest_StoreRequest struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
+<<<<<<< HEAD
 func (m *TransactionRequest_StoreRequest) Reset()         { *m = TransactionRequest_StoreRequest{} }
 func (m *TransactionRequest_StoreRequest) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest_StoreRequest) ProtoMessage()    {}
@@ -841,6 +857,13 @@ type TransactionResponse_LoadResponse struct {
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`
 	XXX_sizecache        int32        `json:"-"`
+=======
+func (m *StoreRequest_Continue) Reset()         { *m = StoreRequest_Continue{} }
+func (m *StoreRequest_Continue) String() string { return proto.CompactTextString(m) }
+func (*StoreRequest_Continue) ProtoMessage()    {}
+func (*StoreRequest_Continue) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{11, 1}
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 
 func (m *TransactionResponse_LoadResponse) Reset()         { *m = TransactionResponse_LoadResponse{} }
@@ -890,11 +913,19 @@ type TransactionResponse_StoreResponse struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
+<<<<<<< HEAD
 func (m *TransactionResponse_StoreResponse) Reset()         { *m = TransactionResponse_StoreResponse{} }
 func (m *TransactionResponse_StoreResponse) String() string { return proto.CompactTextString(m) }
 func (*TransactionResponse_StoreResponse) ProtoMessage()    {}
 func (*TransactionResponse_StoreResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{12, 1}
+=======
+func (m *StoreResponse) Reset()         { *m = StoreResponse{} }
+func (m *StoreResponse) String() string { return proto.CompactTextString(m) }
+func (*StoreResponse) ProtoMessage()    {}
+func (*StoreResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{12}
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 func (m *TransactionResponse_StoreResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -932,8 +963,6 @@ func init() {
 	proto.RegisterMapType((map[string]string)(nil), "materialize.ValidateRequest.FieldConfigEntry")
 	proto.RegisterType((*ValidateResponse)(nil), "materialize.ValidateResponse")
 	proto.RegisterMapType((map[string]*Constraint)(nil), "materialize.ValidateResponse.ConstraintsEntry")
-	proto.RegisterType((*FieldSelection)(nil), "materialize.FieldSelection")
-	proto.RegisterMapType((map[string]string)(nil), "materialize.FieldSelection.FieldConfigEntry")
 	proto.RegisterType((*ApplyRequest)(nil), "materialize.ApplyRequest")
 	proto.RegisterType((*ApplyResponse)(nil), "materialize.ApplyResponse")
 	proto.RegisterType((*FenceRequest)(nil), "materialize.FenceRequest")
@@ -953,6 +982,7 @@ func init() {
 }
 
 var fileDescriptor_3e8b62b327f34bc6 = []byte{
+<<<<<<< HEAD
 	// 1197 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x56, 0xcf, 0x6f, 0x1b, 0xc5,
 	0x17, 0xef, 0xfa, 0x57, 0x92, 0xb7, 0x76, 0xe2, 0x4c, 0xf3, 0xfd, 0xd6, 0x5d, 0x42, 0x6a, 0x2c,
@@ -1029,6 +1059,76 @@ var fileDescriptor_3e8b62b327f34bc6 = []byte{
 	0x4a, 0xb5, 0x7a, 0xfe, 0xc7, 0xd6, 0xb5, 0xf3, 0x67, 0x5b, 0xca, 0x6f, 0xcf, 0xb6, 0x94, 0x1f,
 	0xff, 0xdc, 0x52, 0x3e, 0xbf, 0x7b, 0x25, 0xb1, 0x44, 0xf6, 0x7e, 0x94, 0xe1, 0xe6, 0xbd, 0xff,
 	0x02, 0x00, 0x00, 0xff, 0xff, 0xa2, 0x76, 0xb5, 0x4e, 0xd9, 0x0c, 0x00, 0x00,
+=======
+	// 1064 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x55, 0xcf, 0x72, 0xe3, 0xc4,
+	0x13, 0x8e, 0xfc, 0x6f, 0x9d, 0x96, 0x93, 0x38, 0xf3, 0xcb, 0x6f, 0xd7, 0x11, 0x21, 0x09, 0xba,
+	0x10, 0x16, 0xe2, 0x6c, 0x79, 0x81, 0xda, 0x02, 0x2a, 0x85, 0xff, 0x05, 0x0c, 0xd9, 0x24, 0xc8,
+	0xc9, 0x52, 0xc5, 0x45, 0xa5, 0x95, 0x26, 0xb6, 0x88, 0xa2, 0x11, 0x33, 0xe3, 0x2c, 0xe2, 0x05,
+	0xa8, 0x7d, 0x06, 0x2e, 0x54, 0xc1, 0x2b, 0x70, 0xe4, 0x9e, 0x23, 0x4f, 0xb0, 0x05, 0xcb, 0x13,
+	0x70, 0xe5, 0x44, 0x69, 0x66, 0x62, 0xcb, 0xc6, 0x4e, 0x52, 0x05, 0x5c, 0x54, 0x9a, 0xee, 0xaf,
+	0x67, 0xbe, 0xe9, 0xfe, 0xba, 0x07, 0xee, 0xf7, 0xc8, 0x4e, 0x44, 0x09, 0x27, 0x2e, 0x09, 0xd8,
+	0xce, 0xb9, 0xc3, 0x31, 0xf5, 0x9d, 0xc0, 0xff, 0x06, 0xa7, 0xff, 0xab, 0x02, 0x81, 0xf4, 0x94,
+	0xc9, 0x58, 0x1b, 0x0b, 0x3c, 0x0d, 0xc8, 0x33, 0xf1, 0x91, 0x50, 0x63, 0xa5, 0x47, 0x7a, 0x44,
+	0xfc, 0xee, 0x24, 0x7f, 0xd2, 0x6a, 0xfe, 0xaa, 0x01, 0x34, 0x49, 0xc8, 0x38, 0x75, 0xfc, 0x90,
+	0xa3, 0x07, 0x90, 0xe3, 0x71, 0x84, 0x2b, 0x99, 0x4d, 0x6d, 0x6b, 0xb1, 0xb6, 0x56, 0x4d, 0x9f,
+	0x38, 0x82, 0x55, 0x8f, 0xe3, 0x08, 0x5b, 0x02, 0x89, 0xee, 0x42, 0x81, 0x62, 0x87, 0x91, 0xb0,
+	0x92, 0xdd, 0xd4, 0xb6, 0xe6, 0x2d, 0xb5, 0x32, 0xbf, 0xd5, 0x20, 0x97, 0xc0, 0x10, 0x82, 0xc5,
+	0xbd, 0x4e, 0x7b, 0xbf, 0x65, 0x5b, 0xed, 0xcf, 0x4e, 0x3a, 0x56, 0xbb, 0x55, 0x9e, 0x43, 0xff,
+	0x87, 0xe5, 0xfd, 0xc3, 0x66, 0xfd, 0xb8, 0x73, 0x78, 0x30, 0x32, 0x6b, 0xa8, 0x02, 0x2b, 0x29,
+	0x73, 0xf3, 0xf0, 0xf1, 0xe3, 0xf6, 0x41, 0xab, 0xdd, 0x2a, 0x67, 0x46, 0x9b, 0x1c, 0x1e, 0x25,
+	0xde, 0xfa, 0x7e, 0x39, 0x8b, 0xfe, 0x07, 0x4b, 0xd2, 0xb6, 0x77, 0x68, 0x35, 0x3a, 0xad, 0x56,
+	0xfb, 0xa0, 0x9c, 0x43, 0xcb, 0xb0, 0x70, 0x72, 0xd0, 0xad, 0x1f, 0x77, 0xba, 0x7b, 0x9d, 0x7a,
+	0x63, 0xbf, 0x5d, 0xce, 0x9b, 0xa7, 0xb0, 0xd8, 0xc5, 0x8c, 0xf9, 0x24, 0xb4, 0xf0, 0x57, 0x03,
+	0xcc, 0x38, 0x7a, 0x0d, 0x4a, 0x38, 0xf4, 0x22, 0xe2, 0x87, 0xdc, 0x1e, 0xd0, 0xa0, 0xa2, 0x09,
+	0xe6, 0xfa, 0x95, 0xed, 0x84, 0x06, 0xc9, 0xb5, 0xb8, 0x43, 0x7b, 0x98, 0x8b, 0x54, 0xcc, 0x5b,
+	0x6a, 0x85, 0x56, 0xa1, 0xc8, 0xfa, 0x0e, 0xf5, 0x6c, 0xdf, 0x53, 0x17, 0xbe, 0x23, 0xd6, 0x1d,
+	0xcf, 0x7c, 0x03, 0x96, 0x86, 0xe7, 0xb0, 0x88, 0x84, 0x4c, 0x24, 0xa7, 0xef, 0x84, 0x5e, 0x80,
+	0xc5, 0x11, 0x25, 0x4b, 0xad, 0xcc, 0x3f, 0x34, 0x58, 0x7a, 0xe2, 0x04, 0xbe, 0xe7, 0x70, 0x7c,
+	0x45, 0x6a, 0x06, 0x16, 0xbd, 0x0d, 0xe0, 0x92, 0x20, 0xc0, 0x2e, 0xf7, 0x49, 0x28, 0xd8, 0xe8,
+	0xb5, 0x95, 0xaa, 0x28, 0x6c, 0x73, 0x68, 0xef, 0x46, 0xd8, 0xb5, 0x52, 0x38, 0x74, 0x04, 0xa5,
+	0x53, 0x1f, 0x07, 0x9e, 0xed, 0x92, 0xf0, 0xd4, 0xef, 0x55, 0xb2, 0x9b, 0xd9, 0x2d, 0xbd, 0xb6,
+	0x3d, 0x56, 0xd0, 0x09, 0x06, 0xd5, 0xbd, 0x24, 0xa0, 0x29, 0xf0, 0xed, 0x90, 0xd3, 0xd8, 0xd2,
+	0x4f, 0x47, 0x16, 0x63, 0x17, 0xca, 0x93, 0x00, 0x54, 0x86, 0xec, 0x19, 0x8e, 0x55, 0xfe, 0x92,
+	0x5f, 0xb4, 0x02, 0xf9, 0x0b, 0x27, 0x18, 0x60, 0x95, 0x36, 0xb9, 0x78, 0x2f, 0xf3, 0x48, 0x33,
+	0x7f, 0xd6, 0xa0, 0x3c, 0x3a, 0x51, 0x25, 0xe8, 0x08, 0x74, 0x77, 0x28, 0x2b, 0x56, 0xd1, 0x04,
+	0xcb, 0xea, 0x0c, 0x96, 0x32, 0x26, 0xa5, 0x43, 0xa6, 0x68, 0xa6, 0xb6, 0x30, 0x3e, 0x87, 0xf2,
+	0x24, 0x60, 0x0a, 0xcd, 0xed, 0x34, 0x4d, 0xbd, 0x76, 0x6f, 0x86, 0xd0, 0xd3, 0xfc, 0x7f, 0xd0,
+	0xa0, 0x54, 0x8f, 0xa2, 0x20, 0xfe, 0x6f, 0x0a, 0xf6, 0x16, 0x14, 0x44, 0xb6, 0x99, 0x90, 0xd5,
+	0x30, 0x42, 0xa4, 0xbc, 0x8b, 0x15, 0xca, 0x52, 0x18, 0x74, 0x0f, 0xee, 0x78, 0x34, 0xb6, 0xe9,
+	0x20, 0xac, 0xe4, 0x36, 0xb5, 0xad, 0xa2, 0x55, 0xf0, 0x68, 0x6c, 0x0d, 0x42, 0x73, 0x17, 0x16,
+	0x14, 0x49, 0x95, 0xe1, 0x6d, 0x40, 0x8e, 0x88, 0xb5, 0x3d, 0xcc, 0x5c, 0xea, 0x47, 0x82, 0x95,
+	0x4c, 0xc5, 0xb2, 0xf4, 0xb4, 0x46, 0x0e, 0xb3, 0x0b, 0xa5, 0x3d, 0x1c, 0xba, 0x37, 0xaa, 0xf2,
+	0x4d, 0x58, 0xf6, 0xa8, 0x7f, 0x81, 0xa9, 0xed, 0xf6, 0xb1, 0x7b, 0x26, 0xfa, 0x46, 0xdc, 0xb5,
+	0x64, 0x95, 0xa5, 0xa3, 0x39, 0xb4, 0x9b, 0x8f, 0x60, 0x41, 0x6d, 0xaa, 0x48, 0xbd, 0x0e, 0x4b,
+	0xc9, 0xed, 0xd2, 0xb1, 0x72, 0xfb, 0xc5, 0xc4, 0x9c, 0x8a, 0xfc, 0x51, 0x03, 0x7d, 0x9f, 0x38,
+	0xde, 0x4d, 0x74, 0x3a, 0x90, 0x77, 0x28, 0x0e, 0x1d, 0x49, 0xa1, 0xf1, 0xf0, 0xcf, 0x17, 0x1b,
+	0x3b, 0x3d, 0x9f, 0xf7, 0x07, 0x4f, 0xab, 0x2e, 0x39, 0xdf, 0xc1, 0x8c, 0x0f, 0x1c, 0x1a, 0xcb,
+	0x99, 0xf8, 0xb7, 0x29, 0x59, 0xad, 0x27, 0xa1, 0x96, 0xdc, 0x01, 0xd5, 0x40, 0x8f, 0x1c, 0xf7,
+	0x0c, 0x7b, 0xf6, 0x19, 0x8e, 0x99, 0x6a, 0x1c, 0x5d, 0x56, 0xa3, 0x1b, 0xf8, 0x2e, 0x6e, 0xe4,
+	0x2e, 0x5f, 0x6c, 0xcc, 0x59, 0x20, 0x51, 0x9f, 0xe2, 0x98, 0x99, 0x3f, 0x69, 0x50, 0x92, 0x34,
+	0xd5, 0x05, 0x87, 0x7c, 0xb4, 0x7f, 0xcc, 0xa7, 0x0a, 0xf3, 0x1e, 0x71, 0x99, 0xfd, 0x25, 0x13,
+	0x6a, 0x9a, 0xc1, 0xa6, 0x98, 0x60, 0x3e, 0x61, 0x24, 0x44, 0xf7, 0x61, 0xd9, 0x09, 0x9e, 0x39,
+	0x31, 0xb3, 0xf1, 0x79, 0xc4, 0x63, 0xbb, 0x9f, 0x64, 0x37, 0x2b, 0x44, 0xb2, 0x24, 0x1d, 0xed,
+	0xc4, 0xfe, 0x71, 0x92, 0xde, 0xe7, 0x39, 0x28, 0x75, 0x39, 0xa1, 0xc3, 0x72, 0xbf, 0x03, 0x79,
+	0xc6, 0x1d, 0x2a, 0xcb, 0xa1, 0xd7, 0x36, 0xc6, 0xfa, 0x22, 0x8d, 0xac, 0x76, 0x13, 0x98, 0x25,
+	0xd1, 0x68, 0x17, 0x8a, 0x2e, 0x09, 0xb9, 0x1f, 0x0e, 0x3b, 0xca, 0x9c, 0x1d, 0xd9, 0x54, 0x48,
+	0x6b, 0x18, 0x63, 0x5c, 0x40, 0x5e, 0xec, 0x37, 0xb3, 0xbe, 0xa3, 0xee, 0xc8, 0xdc, 0xa2, 0x3b,
+	0xa6, 0xc8, 0x2b, 0x3b, 0x4d, 0x5e, 0xc6, 0xf3, 0x0c, 0x14, 0xaf, 0xe8, 0xfc, 0x9b, 0x35, 0x9b,
+	0xd0, 0x50, 0xe6, 0x16, 0x1a, 0x42, 0xef, 0xc2, 0x82, 0x8a, 0x11, 0x33, 0xe7, 0x1a, 0xe5, 0x95,
+	0x24, 0xee, 0x89, 0x80, 0x8d, 0xeb, 0x23, 0x77, 0xb3, 0x3e, 0xee, 0x42, 0x01, 0x7f, 0xed, 0x33,
+	0xce, 0x2a, 0xf9, 0xcd, 0x6c, 0x32, 0x39, 0xe4, 0xca, 0xfc, 0x00, 0x16, 0x54, 0x99, 0x94, 0x86,
+	0xa7, 0xb6, 0xb8, 0x36, 0xbd, 0xc5, 0x6b, 0xdf, 0x65, 0xa1, 0xd0, 0x12, 0x46, 0xd4, 0x49, 0x34,
+	0xe5, 0x50, 0xae, 0x1e, 0x43, 0xf4, 0xca, 0xb8, 0x14, 0xc6, 0x9e, 0x62, 0x63, 0x6d, 0xba, 0x53,
+	0x51, 0xf8, 0x08, 0x8a, 0x57, 0xe3, 0x1f, 0xad, 0x5d, 0xf7, 0x76, 0x19, 0xaf, 0x5e, 0xfb, 0x66,
+	0xa0, 0x5d, 0xc8, 0x8b, 0xb1, 0x88, 0x56, 0xc7, 0x70, 0xe9, 0x79, 0x6e, 0x18, 0xd3, 0x5c, 0xa3,
+	0x78, 0x31, 0xc1, 0x26, 0xe2, 0xd3, 0xa3, 0x72, 0x22, 0x7e, 0x7c, 0xe0, 0xbd, 0x0f, 0xb9, 0x64,
+	0x3e, 0xa0, 0xca, 0x18, 0x26, 0x35, 0xd9, 0x8c, 0xd5, 0x29, 0x1e, 0x15, 0xfc, 0x61, 0xd2, 0x1d,
+	0x84, 0x4e, 0x1e, 0x9e, 0x6e, 0xaa, 0x89, 0xc3, 0xc7, 0x0a, 0xb9, 0xa5, 0x35, 0x1a, 0x97, 0xbf,
+	0xad, 0xcf, 0x5d, 0xbe, 0x5c, 0xd7, 0x7e, 0x79, 0xb9, 0xae, 0x7d, 0xff, 0xfb, 0xba, 0xf6, 0xc5,
+	0x83, 0x5b, 0x29, 0x3b, 0xb5, 0xe7, 0xd3, 0x82, 0x30, 0x3f, 0xfc, 0x2b, 0x00, 0x00, 0xff, 0xff,
+	0x52, 0x77, 0x90, 0x47, 0x9f, 0x0a, 0x00, 0x00,
+>>>>>>> protocol: add MaterializationSpec & EndpointType
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1616,77 +1716,6 @@ func (m *ValidateResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i--
 			dAtA[i] = 0xa
 			i = encodeVarintMaterialize(dAtA, i, uint64(baseI-i))
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *FieldSelection) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *FieldSelection) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *FieldSelection) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.FieldConfig) > 0 {
-		for k := range m.FieldConfig {
-			v := m.FieldConfig[k]
-			baseI := i
-			i -= len(v)
-			copy(dAtA[i:], v)
-			i = encodeVarintMaterialize(dAtA, i, uint64(len(v)))
-			i--
-			dAtA[i] = 0x12
-			i -= len(k)
-			copy(dAtA[i:], k)
-			i = encodeVarintMaterialize(dAtA, i, uint64(len(k)))
-			i--
-			dAtA[i] = 0xa
-			i = encodeVarintMaterialize(dAtA, i, uint64(baseI-i))
-			i--
-			dAtA[i] = 0x22
-		}
-	}
-	if len(m.Document) > 0 {
-		i -= len(m.Document)
-		copy(dAtA[i:], m.Document)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Document)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.Values) > 0 {
-		for iNdEx := len(m.Values) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.Values[iNdEx])
-			copy(dAtA[i:], m.Values[iNdEx])
-			i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Values[iNdEx])))
-			i--
-			dAtA[i] = 0x12
-		}
-	}
-	if len(m.Keys) > 0 {
-		for iNdEx := len(m.Keys) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.Keys[iNdEx])
-			copy(dAtA[i:], m.Keys[iNdEx])
-			i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Keys[iNdEx])))
 			i--
 			dAtA[i] = 0xa
 		}
@@ -2432,42 +2461,6 @@ func (m *ValidateResponse) ProtoSize() (n int) {
 				l += 1 + sovMaterialize(uint64(l))
 			}
 			mapEntrySize := 1 + len(k) + sovMaterialize(uint64(len(k))) + l
-			n += mapEntrySize + 1 + sovMaterialize(uint64(mapEntrySize))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *FieldSelection) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.Keys) > 0 {
-		for _, s := range m.Keys {
-			l = len(s)
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if len(m.Values) > 0 {
-		for _, s := range m.Values {
-			l = len(s)
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	l = len(m.Document)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.FieldConfig) > 0 {
-		for k, v := range m.FieldConfig {
-			_ = k
-			_ = v
-			mapEntrySize := 1 + len(k) + sovMaterialize(uint64(len(k))) + 1 + len(v) + sovMaterialize(uint64(len(v)))
 			n += mapEntrySize + 1 + sovMaterialize(uint64(mapEntrySize))
 		}
 	}
@@ -3527,283 +3520,6 @@ func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *FieldSelection) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: FieldSelection: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: FieldSelection: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Keys", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Keys = append(m.Keys, string(dAtA[iNdEx:postIndex]))
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Values", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Values = append(m.Values, string(dAtA[iNdEx:postIndex]))
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Document", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Document = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FieldConfig", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.FieldConfig == nil {
-				m.FieldConfig = make(map[string]string)
-			}
-			var mapkey string
-			var mapvalue string
-			for iNdEx < postIndex {
-				entryPreIndex := iNdEx
-				var wire uint64
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowMaterialize
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					wire |= uint64(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				fieldNum := int32(wire >> 3)
-				if fieldNum == 1 {
-					var stringLenmapkey uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowMaterialize
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapkey |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapkey := int(stringLenmapkey)
-					if intStringLenmapkey < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					postStringIndexmapkey := iNdEx + intStringLenmapkey
-					if postStringIndexmapkey < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					if postStringIndexmapkey > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
-					iNdEx = postStringIndexmapkey
-				} else if fieldNum == 2 {
-					var stringLenmapvalue uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowMaterialize
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapvalue |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapvalue := int(stringLenmapvalue)
-					if intStringLenmapvalue < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					postStringIndexmapvalue := iNdEx + intStringLenmapvalue
-					if postStringIndexmapvalue < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					if postStringIndexmapvalue > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapvalue = string(dAtA[iNdEx:postStringIndexmapvalue])
-					iNdEx = postStringIndexmapvalue
-				} else {
-					iNdEx = entryPreIndex
-					skippy, err := skipMaterialize(dAtA[iNdEx:])
-					if err != nil {
-						return err
-					}
-					if skippy < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					if (iNdEx + skippy) > postIndex {
-						return io.ErrUnexpectedEOF
-					}
-					iNdEx += skippy
-				}
-			}
-			m.FieldConfig[mapkey] = mapvalue
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
 func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3933,7 +3649,7 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Fields == nil {
-				m.Fields = &FieldSelection{}
+				m.Fields = &flow.FieldSelection{}
 			}
 			if err := m.Fields.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -4645,7 +4361,7 @@ func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Fields == nil {
-				m.Fields = &FieldSelection{}
+				m.Fields = &flow.FieldSelection{}
 			}
 			if err := m.Fields.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err

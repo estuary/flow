@@ -27,6 +27,12 @@ static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
         type_attrs: SERDE_ATTR,
         field_attrs: &[],
     },
+    // EndpointType is a JSON-encoded column of models::tables::Endpoints & BuiltMaterializations.
+    TypeAttrs {
+        path: "flow.EndpointType",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
     // materialize.Constraint is used in JSON-encoded fixtures of `validation` crate tests.
     TypeAttrs {
         path: "materialize.Constraint",

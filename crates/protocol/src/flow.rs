@@ -295,6 +295,46 @@ pub struct DerivationSpec {
     #[prost(message, repeated, tag = "4")]
     pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,
 }
+/// FieldSelection is a selection of a collection's projection fields.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FieldSelection {
+    /// Fields for each key component of the collection. Keys have the same length
+    /// as the collection's key, and the document pointer of the field at each index
+    /// matches the pointer identified by the corresponding index of the collection key.
+    #[prost(string, repeated, tag = "1")]
+    pub keys: ::std::vec::Vec<std::string::String>,
+    /// All other selected fields, other than those in keys and the document field.
+    /// Entries are in ascending sorted order, and may be empty.
+    #[prost(string, repeated, tag = "2")]
+    pub values: ::std::vec::Vec<std::string::String>,
+    /// Field having a document pointer located at the document root.
+    #[prost(string, tag = "3")]
+    pub document: std::string::String,
+    /// Additional configuration, keyed by fields included in |keys|, |values|, or |document|.
+    /// Values are arbitrary JSON-encoded objects.
+    #[prost(map = "string, string", tag = "4")]
+    pub field_config: ::std::collections::HashMap<std::string::String, std::string::String>,
+}
+/// MaterializationSpec describes a collection and its materialization to an endpoint.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializationSpec {
+    /// Name of this materialization.
+    #[prost(string, tag = "1")]
+    pub materialization: std::string::String,
+    /// Collection to be materialized.
+    #[prost(message, optional, tag = "2")]
+    pub collection: ::std::option::Option<CollectionSpec>,
+    /// Type of the materialization's endpoint.
+    #[prost(enumeration = "EndpointType", tag = "3")]
+    pub endpoint_type: i32,
+    /// JSON-encoded object which configures this materialization with
+    /// respect to the endpoint type driver.
+    #[prost(string, tag = "4")]
+    pub endpoint_config: std::string::String,
+    /// Resolved fields selected for materialization.
+    #[prost(message, optional, tag = "5")]
+    pub field_selection: ::std::option::Option<FieldSelection>,
+}
 /// RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 /// is responsible for.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -603,6 +643,19 @@ pub struct ClearRegistersResponse {
     pub status: i32,
     #[prost(message, optional, tag = "2")]
     pub header: ::core::option::Option<super::protocol::Header>,
+}
+/// EndpointType enumerates the endpoint types understood by Flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum EndpointType {
+    /// Remote is an arbitrary gRPC materialization protocol server.
+    Remote = 0,
+    Postgresql = 1,
+    Sqlite = 2,
+    S3 = 3,
+    Gs = 4,
 }
 #[doc = r" Generated client implementations."]
 pub mod shuffler_client {

@@ -70,6 +70,7 @@ pub fn walk_all_materializations<D: Drivers>(
                     response,
                     errors,
                 );
+                let ep_config_str = ep_config.to_string();
 
                 built_materializations.push_row(
                     &materialization.scope,
@@ -77,7 +78,13 @@ pub fn walk_all_materializations<D: Drivers>(
                     &materialization.collection,
                     ep_type,
                     ep_config,
-                    fields,
+                    flow::MaterializationSpec {
+                        collection: None, // See tables::BuiltMaterialization.
+                        endpoint_config: ep_config_str,
+                        endpoint_type: ep_type as i32,
+                        field_selection: Some(fields),
+                        materialization: materialization.materialization.to_string(),
+                    },
                 );
             }
             Err(err) => {
@@ -119,7 +126,7 @@ fn walk_materialization_request<'a>(
     materialization: &'a tables::Materialization,
     errors: &mut tables::Errors,
 ) -> Option<(
-    names::EndpointType,
+    flow::EndpointType,
     serde_json::Value,
     &'a tables::BuiltCollection,
     &'a tables::Materialization,
@@ -252,7 +259,7 @@ fn walk_materialization_response(
     materialization: &tables::Materialization,
     response: materialize::ValidateResponse,
     errors: &mut tables::Errors,
-) -> materialize::FieldSelection {
+) -> flow::FieldSelection {
     let tables::Materialization {
         scope,
         materialization: name,
@@ -433,7 +440,7 @@ fn walk_materialization_response(
         }
     }
 
-    materialize::FieldSelection {
+    flow::FieldSelection {
         keys: keys.into_iter().filter_map(|k| k).collect(),
         values,
         document,

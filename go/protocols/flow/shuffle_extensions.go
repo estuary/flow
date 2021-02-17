@@ -92,6 +92,7 @@ func (m *ShuffleRequest) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the LambdaSpec is invalid.
 func (m *LambdaSpec) Validate() error {
 	var cnt int
 	if m.Remote != "" {
@@ -106,6 +107,7 @@ func (m *LambdaSpec) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the TransformSpec is invalid.
 func (m *TransformSpec) Validate() error {
 	if m.Derivation == "" {
 		return pb.NewValidationError("missing Derivation")

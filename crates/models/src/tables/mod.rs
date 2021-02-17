@@ -116,7 +116,7 @@ tables!(
         // Name of this endpoint.
         endpoint: names::Endpoint,
         // Enumerated type of the endpoint, used to select an appropriate driver.
-        endpoint_type: names::EndpointType,
+        endpoint_type: protocol::flow::EndpointType,
         // JSON object which partially configures the endpoint.
         base_config: serde_json::Value,
     }
@@ -214,12 +214,14 @@ tables!(
         // Collection from which documents are materialized.
         collection: names::Collection,
         // Enumerated type of the endpoint, used to select an appropriate driver.
-        endpoint_type: names::EndpointType,
+        endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures this materialization with respect to the
         // endpoint driver.
         endpoint_config: serde_json::Value,
-        // Resolved fields selected for materialization.
-        field_selection: protocol::materialize::FieldSelection,
+        // Built specification for this materialization.
+        // The collection field is not populated, and should be separately read
+        // from BuiltCollections and merged into this specification.
+        spec: protocol::flow::MaterializationSpec,
     }
 
     table BuiltTransforms (row BuiltTransform, sql "built_transforms") {
@@ -405,23 +407,23 @@ json_sql_types!(
     Vec<serde_json::Value>,
     names::CompositeKey,
     names::ContentType,
-    names::EndpointType,
     names::Lambda,
     names::PartitionSelector,
     names::TestStepType,
+    protocol::flow::EndpointType,
     protocol::flow::shuffle::Hash,
     serde_json::Value,
 );
 
 proto_sql_types!(
-    protocol::protocol::JournalSpec,
     protocol::consumer::ShardSpec,
     protocol::flow::CollectionSpec,
     protocol::flow::DerivationSpec,
     protocol::flow::Inference,
-    protocol::flow::journal_rules::Rule,
+    protocol::flow::MaterializationSpec,
     protocol::flow::TransformSpec,
-    protocol::materialize::FieldSelection,
+    protocol::flow::journal_rules::Rule,
+    protocol::protocol::JournalSpec,
 );
 
 // Modules that extend tables with additional implementations.

@@ -27,7 +27,7 @@ Tables {
         Endpoint {
             scope: test://example/catalog.yaml#/endpoints/my%20DB,
             endpoint: my DB,
-            endpoint_type: "Postgres",
+            endpoint_type: "Postgresql",
             base_config: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
         },
         Endpoint {

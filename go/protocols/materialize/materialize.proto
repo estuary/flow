@@ -130,24 +130,6 @@ message ValidateResponse {
   map<string, Constraint> constraints = 1;
 }
 
-// FieldSelection represents the entire set of fields for a materialization. Projected fields are
-// separated into keys and values.
-message FieldSelection {
-  // The fields that are being used as the primary key for this materialization. Flow will guarantee
-  // that each location that's part of a collection's key is represented here exactly once, and in
-  // the same order as the keys are declared in the collection.
-  repeated string keys = 1;
-  // All other materialized fields, except for those in keys and the root document field, will be listed here in
-  // a stable order. Note that not all materializations will have or need any "values" fields (e.g.
-  // materializing to a key-value store like dynamo)
-  repeated string values = 2;
-  // The name of the field holding the root document.
-  string document = 3;
-  // Projection configuration, keyed by the projection field name,
-  // with JSON-encoded and driver-defined configuration objects.
-  map<string, string> field_config = 4;
-}
-
 // ApplyRequest is the request type of the Apply RPC.
 message ApplyRequest {
   // Opaque session handle.
@@ -155,7 +137,7 @@ message ApplyRequest {
   // Collection to be materialized.
   flow.CollectionSpec collection = 2;
   // Selected fields for materialization
-  FieldSelection fields = 3;
+  flow.FieldSelection fields = 3;
   // Is this Apply a dry-run? If so, no action is undertaken and Apply will
   // report only what would have happened.
   bool dry_run = 4;
@@ -204,7 +186,7 @@ message TransactionRequest {
     bytes handle = 1;
     // Fields represents the projection fields to be stored. This repeats the selection and ordering
     // of the last Apply RPC, but is provided here also as a convenience.
-    FieldSelection fields = 2;
+    flow.FieldSelection fields = 2;
     // Checkpoint to write with this Store transaction, to be associated with
     // the session's caller ID and to be returned by a future Fence RPC.
     // This may be ignored if the Driver doesn't support exactly-once semantics.
