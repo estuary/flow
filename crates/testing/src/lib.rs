@@ -13,6 +13,7 @@ pub use run::run_test_case;
 mod tests {
     use super::{Clock, PendingStat};
     use models::{names, tables};
+    use protocol::flow::test_spec::step::Type as TestStepType;
     use protocol::protocol::header::Etcd;
 
     pub fn transform_fixture(
@@ -52,7 +53,7 @@ mod tests {
         )
     }
 
-    pub fn step_fixture(step_type: names::TestStepType, collection: &str) -> tables::TestStep {
+    pub fn step_fixture(step_type: TestStepType, collection: &str) -> tables::TestStep {
         tables::TestStep {
             scope: url::Url::parse("http://scope").unwrap(),
             step_type,

@@ -1,5 +1,6 @@
 use super::{Clock, Graph, PendingStat};
-use models::{names, tables};
+use models::tables;
+use protocol::flow::test_spec::step::Type as TestStepType;
 
 /// Action atom returned by Driver to progress the test.
 #[derive(Debug)]
@@ -38,7 +39,7 @@ impl<'a> Action<'a> {
                     ingest
                     @
                     tables::TestStep {
-                        step_type: names::TestStepType::Ingest,
+                        step_type: TestStepType::Ingest,
                         ..
                     },
                     tail,
@@ -57,7 +58,7 @@ impl<'a> Action<'a> {
                     verify
                     @
                     tables::TestStep {
-                        step_type: names::TestStepType::Verify,
+                        step_type: TestStepType::Verify,
                         ..
                     },
                     tail,
@@ -79,8 +80,7 @@ impl<'a> Action<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::tests::{clock_fixture, step_fixture, transform_fixture};
-    use super::{Action, Case, Graph};
-    use models::names;
+    use super::{Action, Case, Graph, TestStepType};
 
     #[test]
     fn test_action_simulation() {
@@ -91,8 +91,8 @@ mod tests {
             transform_fixture("A", "A-to-Z", "Z", 5),
         ];
         let steps = vec![
-            step_fixture(names::TestStepType::Ingest, "A"),
-            step_fixture(names::TestStepType::Verify, "B"),
+            step_fixture(TestStepType::Ingest, "A"),
+            step_fixture(TestStepType::Verify, "B"),
         ];
         let steps: Vec<_> = steps.iter().collect();
 

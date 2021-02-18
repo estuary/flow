@@ -239,10 +239,3 @@ pub struct PartitionSelector {
     #[serde(default)]
     pub exclude: BTreeMap<String, Vec<Value>>,
 }
-
-/// TestStepType enumerates the types of test steps understood by Flow.
-#[derive(Copy, Debug, Clone, Serialize, Deserialize)]
-pub enum TestStepType {
-    Ingest,
-    Verify,
-}

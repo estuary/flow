@@ -1,6 +1,7 @@
 use super::{collection, errors::Error, indexed, reference, schema};
 use itertools::Itertools;
-use models::{names, tables};
+use models::tables;
+use protocol::flow::{self, test_spec::step::Type as TestStepType};
 
 pub fn walk_all_test_steps(
     collections: &[tables::Collection],
@@ -10,16 +11,34 @@ pub fn walk_all_test_steps(
     schemas: &[schema::Shape],
     test_steps: &[tables::TestStep],
     errors: &mut tables::Errors,
-) {
-    for test_step in test_steps {
-        walk_test_step(
-            collections,
-            imports,
-            projections,
-            schema_index,
-            schemas,
-            test_step,
-            errors,
+) -> tables::BuiltTests {
+    let mut built_tests = tables::BuiltTests::new();
+
+    for (test, steps) in &test_steps
+        .iter()
+        .sorted_by_key(|s| (&s.test, s.step_index))
+        .group_by(|s| &s.test)
+    {
+        let steps: Vec<_> = steps
+            .map(|test_step| {
+                walk_test_step(
+                    collections,
+                    imports,
+                    projections,
+                    schema_index,
+                    schemas,
+                    test_step,
+                    errors,
+                )
+            })
+            .collect();
+
+        built_tests.push_row(
+            test,
+            flow::TestSpec {
+                test: test.to_string(),
+                steps,
+            },
         );
     }
 
@@ -31,6 +50,8 @@ pub fn walk_all_test_steps(
             .map(|s| (&s.test, &s.scope)),
         errors,
     );
+
+    built_tests
 }
 
 pub fn walk_test_step(
@@ -41,7 +62,7 @@ pub fn walk_test_step(
     schema_shapes: &[schema::Shape],
     test_step: &tables::TestStep,
     errors: &mut tables::Errors,
-) {
+) -> flow::test_spec::Step {
     let tables::TestStep {
         scope,
         collection,
@@ -52,10 +73,17 @@ pub fn walk_test_step(
         test,
     } = test_step;
 
+    let spec = flow::test_spec::Step {
+        step_type: *step_type as i32,
+        collection: collection.to_string(),
+        documents_json: serde_json::to_string(documents).unwrap(),
+        partitions: Some(models::build::journal_selector(collection, partitions)),
+    };
+
     // Map to slices of documents which are ingested or verified by this step.
     let (ingest, verify) = match step_type {
-        names::TestStepType::Ingest => (documents.as_slice(), &[] as &[_]),
-        names::TestStepType::Verify => (&[] as &[_], documents.as_slice()),
+        TestStepType::Ingest => (documents.as_slice(), &[] as &[_]),
+        TestStepType::Verify => (&[] as &[_], documents.as_slice()),
     };
 
     // Dereference test collection, returning early if not found.
@@ -71,7 +99,7 @@ pub fn walk_test_step(
         errors,
     ) {
         Some(s) => s,
-        None => return,
+        None => return spec,
     };
 
     // Verify that any ingest documents conform to the collection schema.
@@ -121,4 +149,6 @@ pub fn walk_test_step(
             errors,
         );
     }
+
+    spec
 }

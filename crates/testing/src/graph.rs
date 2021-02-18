@@ -178,6 +178,7 @@ mod tests {
     use super::super::tests::{clock_fixture, stat_fixture, step_fixture, transform_fixture};
     use super::{Clock, Graph};
     use models::names;
+    use protocol::flow::test_spec::step::Type as TestStepType;
 
     #[test]
     fn test_antecedents() {
@@ -226,11 +227,11 @@ mod tests {
 
         // Two ingests into "A" complete, with raced Clocks.
         graph.completed_ingest(
-            &step_fixture(names::TestStepType::Ingest, "A"),
+            &step_fixture(TestStepType::Ingest, "A"),
             clock_fixture(10, &[("A/foo", 2)]),
         );
         graph.completed_ingest(
-            &step_fixture(names::TestStepType::Ingest, "A"),
+            &step_fixture(TestStepType::Ingest, "A"),
             clock_fixture(11, &[("A/foo", 1), ("A/bar", 1)]),
         );
 
@@ -327,7 +328,7 @@ mod tests {
 
         // Ingest of "A" completes.
         graph.completed_ingest(
-            &step_fixture(names::TestStepType::Ingest, "A"),
+            &step_fixture(TestStepType::Ingest, "A"),
             clock_fixture(4, &[("A/data", 5)]), // Contained by |progress_fixture|.
         );
 
@@ -341,7 +342,7 @@ mod tests {
 
         // Completed ingest & stat which *do* require a new stat.
         graph.completed_ingest(
-            &step_fixture(names::TestStepType::Ingest, "A"),
+            &step_fixture(TestStepType::Ingest, "A"),
             clock_fixture(4, &[("A/data", 50)]),
         );
         graph.completed_stat(

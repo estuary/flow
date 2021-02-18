@@ -12,11 +12,21 @@ type Collection string
 // String returns the Collection name as a string.
 func (c Collection) String() string { return string(c) }
 
+// Validate returns an error if the Collection is malformed.
+func (c Collection) Validate() error {
+	return pb.ValidateToken(c.String(), pb.TokenSymbols, 1, 512)
+}
+
 // Transform names a specified catalog transformation.
 type Transform string
 
 // String returns the Tranform name as a string.
 func (t Transform) String() string { return string(t) }
+
+// Validate returns an error if the Collection is malformed.
+func (t Transform) Validate() error {
+	return pb.ValidateToken(t.String(), pb.TokenSymbols, 1, 512)
+}
 
 // Validate returns a validation error of the JournalShuffle.
 func (m *JournalShuffle) Validate() error {
@@ -46,8 +56,8 @@ func (m *Shuffle) Validate() error {
 	if m.GroupName == "" {
 		return pb.NewValidationError("missing GroupName")
 	}
-	if m.SourceCollection == "" {
-		return pb.NewValidationError("missing SourceCollection")
+	if err := m.SourceCollection.Validate(); err != nil {
+		return pb.ExtendContext(err, "SourceCollection")
 	}
 	if err := m.SourcePartitions.Validate(); err != nil {
 		return pb.ExtendContext(err, "SourcePartitions")
@@ -109,11 +119,11 @@ func (m *LambdaSpec) Validate() error {
 
 // Validate returns an error if the TransformSpec is invalid.
 func (m *TransformSpec) Validate() error {
-	if m.Derivation == "" {
-		return pb.NewValidationError("missing Derivation")
+	if err := m.Derivation.Validate(); err != nil {
+		return pb.ExtendContext(err, "Derivation")
 	}
-	if m.Transform == "" {
-		return pb.NewValidationError("missing Transform")
+	if err := m.Transform.Validate(); err != nil {
+		return pb.ExtendContext(err, "Transform")
 	}
 	if err := m.Shuffle.Validate(); err != nil {
 		return pb.ExtendContext(err, "Shuffle")

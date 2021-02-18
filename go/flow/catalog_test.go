@@ -55,6 +55,15 @@ func TestLoadJournalRules(t *testing.T) {
 	cupaloy.SnapshotT(t, rules)
 }
 
+func TestLoadTests(t *testing.T) {
+	var catalog, err = NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	tests, err := catalog.LoadTests()
+	require.NoError(t, err)
+
+	cupaloy.SnapshotT(t, tests[0])
+}
+
 func TestLoadSchemaBundle(t *testing.T) {
 	var catalog, err = NewCatalog("../../catalog.db", "")
 	require.NoError(t, err)

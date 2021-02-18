@@ -35,6 +35,7 @@ pub struct Tables {
     pub built_collections: tables::BuiltCollections,
     pub built_derivations: tables::BuiltDerivations,
     pub built_materializations: tables::BuiltMaterializations,
+    pub built_tests: tables::BuiltTests,
     pub built_transforms: tables::BuiltTransforms,
     pub errors: tables::Errors,
     pub implicit_projections: tables::Projections,
@@ -123,7 +124,7 @@ pub fn validate<D: Drivers>(
         &mut errors,
     );
 
-    test_step::walk_all_test_steps(
+    let built_tests = test_step::walk_all_test_steps(
         collections,
         &imports,
         projections,
@@ -137,6 +138,7 @@ pub fn validate<D: Drivers>(
         built_collections,
         built_derivations,
         built_materializations,
+        built_tests,
         built_transforms,
         errors,
         implicit_projections,

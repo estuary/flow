@@ -24,7 +24,7 @@ func TestJournalShuffle(t *testing.T) {
 
 	require.EqualError(t, m.Validate(), "Shuffle: missing GroupName")
 	m.GroupName = "group/name"
-	require.EqualError(t, m.Validate(), "Shuffle: missing SourceCollection")
+	require.EqualError(t, m.Validate(), "Shuffle.SourceCollection: invalid length (0; expected 1 <= length <= 512)")
 	m.SourceCollection = "source/collection"
 	require.EqualError(t, m.Validate(), "Shuffle: missing SourceUuidPtr")
 	m.SourceUuidPtr = "/uuid"
