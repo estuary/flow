@@ -101,18 +101,18 @@ expression: intents
         str: string;
     };
     
-    // Generated from test://example/int-string.schema.
-    // Referenced as schema of test://example/catalog.yaml#/collections/some~1input.
-    export type SomeInput = {
-        int: number;
-        str: string;
-    };
-    
     // Generated from test://example/int-number.schema.
     // Referenced as schema of sub/module.yaml#/collections/local~1derivation.
     export type LocalDerivation = {
         int: number;
         num: number;
+    };
+    
+    // Generated from test://example/int-string.schema.
+    // Referenced as schema of test://example/catalog.yaml#/collections/some~1input.
+    export type SomeInput = {
+        int: number;
+        str: string;
     };
     ,
     "flow_generated/flow/interfaces.d.ts": Always:
@@ -179,13 +179,13 @@ expression: intents
     export type __module = null;
     export type __anchors_module = anchors.__module;
     
-    // Generated from sub/module.yaml?ptr=/collections/local~1derivation/derivation/register/schema.
-    // Referenced as register_schema of sub/module.yaml#/collections/local~1derivation/derivation.
-    export type LocalDerivation = unknown;
-    
     // Generated from test://example/external/module.yaml?ptr=/collections/external~1derivation/derivation/register/schema.
     // Referenced as register_schema of test://example/external/module.yaml#/collections/external~1derivation/derivation.
     export type ExternalDerivation = number;
+    
+    // Generated from sub/module.yaml?ptr=/collections/local~1derivation/derivation/register/schema.
+    // Referenced as register_schema of sub/module.yaml#/collections/local~1derivation/derivation.
+    export type LocalDerivation = unknown;
     ,
     "flow_generated/flow/routes.ts": Always:
     import * as interfaces from './interfaces';

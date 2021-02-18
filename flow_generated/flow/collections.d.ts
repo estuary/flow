@@ -96,54 +96,6 @@ export type MarketingViewsWithCampaign = /* View event joined with it's campaign
     view_id: string;
 };
 
-// Generated from examples/stock-stats/schemas/daily-stat.schema.yaml.
-// Referenced as schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats.
-export type StockDailyStats = /* Daily statistics of a market security. */ {
-    ask?: /* Low, high, and average ask price. */ anchors.PriceStats;
-    bid?: /* Low, high, and average bid price. */ anchors.PriceStats;
-    date: string;
-    exchange: /* Enum of market exchange codes. */ anchors.Exchange;
-    first?: /* First trade of the day. */ {
-        price: /* Dollar price. */ number;
-        size: /* Number of shares. */ number;
-    };
-    last?: /* Last trade of the day. */ {
-        price: /* Dollar price. */ number;
-        size: /* Number of shares. */ number;
-    };
-    price?: /* Low, high, and average transaction price (weighted by shares). */ anchors.PriceStats;
-    security: /* Market security ticker name. */ anchors.Security;
-    spread?: /* Low, high, and average spread of bid vs ask. */ anchors.PriceStats;
-    volume?: /* Total number of shares transacted. */ number;
-};
-
-// Generated from examples/stock-stats/schemas/L1-tick.schema.yaml.
-// Referenced as schema of examples/stock-stats/flow.yaml#/collections/stock~1ticks.
-export type StockTicks = /* Level-one market tick of a security. */ {
-    _meta?: Record<string, unknown>;
-    ask?: /* Lowest current offer to sell security. */ anchors.PriceAndSize;
-    bid?: /* Highest current offer to buy security. */ anchors.PriceAndSize;
-    exchange: /* Enum of market exchange codes. */ anchors.Exchange;
-    last?: /* Completed transaction which generated this tick. */ anchors.PriceAndSize;
-    security: /* Market security ticker name. */ anchors.Security;
-    time: string;
-    [k: string]: Record<string, unknown> | boolean | string | null | undefined;
-};
-
-// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-string/schema.
-// Referenced as schema of examples/int-string-flow.yaml#/collections/testing~1int-string.
-export type TestingIntString = {
-    i: number;
-    s: string;
-};
-
-// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-strings/schema.
-// Referenced as schema of examples/int-string-flow.yaml#/collections/testing~1int-strings.
-export type TestingIntStrings = {
-    i: number;
-    s?: string[];
-};
-
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
 // Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
 export type SoakSetOpsOperations = /* Union type over MutateOp and VerifyOp */ {
@@ -195,6 +147,54 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
         [k: string]: number;
     };
     ID: number;
+};
+
+// Generated from examples/stock-stats/schemas/daily-stat.schema.yaml.
+// Referenced as schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats.
+export type StockDailyStats = /* Daily statistics of a market security. */ {
+    ask?: /* Low, high, and average ask price. */ anchors.PriceStats;
+    bid?: /* Low, high, and average bid price. */ anchors.PriceStats;
+    date: string;
+    exchange: /* Enum of market exchange codes. */ anchors.Exchange;
+    first?: /* First trade of the day. */ {
+        price: /* Dollar price. */ number;
+        size: /* Number of shares. */ number;
+    };
+    last?: /* Last trade of the day. */ {
+        price: /* Dollar price. */ number;
+        size: /* Number of shares. */ number;
+    };
+    price?: /* Low, high, and average transaction price (weighted by shares). */ anchors.PriceStats;
+    security: /* Market security ticker name. */ anchors.Security;
+    spread?: /* Low, high, and average spread of bid vs ask. */ anchors.PriceStats;
+    volume?: /* Total number of shares transacted. */ number;
+};
+
+// Generated from examples/stock-stats/schemas/L1-tick.schema.yaml.
+// Referenced as schema of examples/stock-stats/flow.yaml#/collections/stock~1ticks.
+export type StockTicks = /* Level-one market tick of a security. */ {
+    _meta?: Record<string, unknown>;
+    ask?: /* Lowest current offer to sell security. */ anchors.PriceAndSize;
+    bid?: /* Highest current offer to buy security. */ anchors.PriceAndSize;
+    exchange: /* Enum of market exchange codes. */ anchors.Exchange;
+    last?: /* Completed transaction which generated this tick. */ anchors.PriceAndSize;
+    security: /* Market security ticker name. */ anchors.Security;
+    time: string;
+    [k: string]: Record<string, unknown> | boolean | string | null | undefined;
+};
+
+// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-string/schema.
+// Referenced as schema of examples/int-string-flow.yaml#/collections/testing~1int-string.
+export type TestingIntString = {
+    i: number;
+    s: string;
+};
+
+// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-strings/schema.
+// Referenced as schema of examples/int-string-flow.yaml#/collections/testing~1int-strings.
+export type TestingIntStrings = {
+    i: number;
+    s?: string[];
 };
 
 // Generated from examples/weird-types-flow.yaml?ptr=/collections/weird-types~1optional-multi-types/schema.
