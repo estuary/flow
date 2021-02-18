@@ -56,14 +56,6 @@ export type MarketingViewsWithCampaign = {
     campaign_id: number;
 } | null;
 
-// Generated from examples/stock-stats/flow.yaml?ptr=/collections/stock~1daily-stats/derivation/register/schema.
-// Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
-export type StockDailyStats = unknown;
-
-// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-strings/derivation/register/schema.
-// Referenced as register_schema of examples/int-string-flow.yaml#/collections/testing~1int-strings/derivation.
-export type TestingIntStrings = unknown;
-
 // Generated from examples/soak-tests/set-ops/flow.yaml?ptr=/collections/soak~1set-ops~1sets/derivation/register/schema.
 // Referenced as register_schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets/derivation.
 export type SoakSetOpsSets = unknown;
@@ -87,3 +79,11 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
     };
     ID: number;
 };
+
+// Generated from examples/stock-stats/flow.yaml?ptr=/collections/stock~1daily-stats/derivation/register/schema.
+// Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
+export type StockDailyStats = unknown;
+
+// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-strings/derivation/register/schema.
+// Referenced as register_schema of examples/int-string-flow.yaml#/collections/testing~1int-strings/derivation.
+export type TestingIntStrings = unknown;
