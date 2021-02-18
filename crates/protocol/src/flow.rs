@@ -336,6 +336,45 @@ pub struct MaterializationSpec {
     #[prost(message, optional, tag = "5")]
     pub field_selection: ::core::option::Option<FieldSelection>,
 }
+/// TestSpec describes a catalog test.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TestSpec {
+    /// Name of this test.
+    #[prost(string, tag = "1")]
+    pub test: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub steps: ::prost::alloc::vec::Vec<test_spec::Step>,
+}
+/// Nested message and enum types in `TestSpec`.
+pub mod test_spec {
+    /// Steps of the test.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Step {
+        #[prost(enumeration = "step::Type", tag = "1")]
+        pub step_type: i32,
+        /// Collection ingested or verified by this step.
+        #[prost(string, tag = "2")]
+        pub collection: ::prost::alloc::string::String,
+        /// Documents ingested or verified by this step, as a JSON-encoded array.
+        #[prost(string, tag = "3")]
+        pub documents_json: ::prost::alloc::string::String,
+        /// When verifying, selector over logical partitions of the collection.
+        #[prost(message, optional, tag = "4")]
+        pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
+    }
+    /// Nested message and enum types in `Step`.
+    pub mod step {
+        /// Type of this step.
+        #[derive(serde::Deserialize, serde::Serialize)]
+        #[serde(deny_unknown_fields)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum Type {
+            Ingest = 0,
+            Verify = 1,
+        }
+    }
+}
 /// RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 /// is responsible for.
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -39,6 +39,12 @@ static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
         type_attrs: SERDE_ATTR,
         field_attrs: &[],
     },
+    // TestSpec.Step.Type is a JSON-encoded column of models::tables::TestSteps.
+    TypeAttrs {
+        path: "flow.TestSpec.Step.Type",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
     // materialize.Constraint is used in JSON-encoded fixtures of `validation` crate tests.
     TypeAttrs {
         path: "materialize.Constraint",

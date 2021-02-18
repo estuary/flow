@@ -499,6 +499,68 @@ All {
             },
         },
     ],
+    built_tests: [
+        BuiltTest {
+            test: A Test,
+            spec: TestSpec {
+                test: "A Test",
+                steps: [
+                    Step {
+                        step_type: Ingest,
+                        collection: "testing/int-string",
+                        documents_json: "[{\"bit\":true,\"int\":42,\"str\":\"string A\"},{\"bit\":true,\"int\":52,\"str\":\"string B\"}]",
+                        partitions: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/int-string",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                    },
+                    Step {
+                        step_type: Verify,
+                        collection: "testing/int-string",
+                        documents_json: "[{\"str\":\"string A\"},{\"str\":\"string B\"}]",
+                        partitions: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/int-string",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/field/bit",
+                                                value: "true",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                    },
+                ],
+            },
+        },
+    ],
     built_transforms: [
         BuiltTransform {
             scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,

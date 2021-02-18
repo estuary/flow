@@ -217,6 +217,31 @@ func (catalog *Catalog) LoadSchemaBundle() (*pf.SchemaBundle, error) {
 	return bundle, nil
 }
 
+// LoadTests loads the set of catalog tests from the catalog.
+func (catalog *Catalog) LoadTests() ([]pf.TestSpec, error) {
+	var rows, err = catalog.db.Query(`SELECT spec FROM built_tests ORDER BY test ASC;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tests: %w", err)
+	}
+	var tests []pf.TestSpec
+
+	defer rows.Close()
+	for rows.Next() {
+		var b []byte
+		var test pf.TestSpec
+
+		if err = rows.Scan(&b); err != nil {
+			return nil, fmt.Errorf("failed to load rule: %w", err)
+		} else if err = test.Unmarshal(b); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal rule: %w", err)
+		} else if err = test.Validate(); err != nil {
+			return nil, fmt.Errorf("test validation failed: %w", err)
+		}
+		tests = append(tests, test)
+	}
+	return tests, nil
+}
+
 // LoadNPMPackage loads the NPM package from a catalog.
 func (catalog *Catalog) LoadNPMPackage() ([]byte, error) {
 	var row = catalog.db.QueryRow(`SELECT content FROM resources WHERE content_type = '"NpmPackage"';`)
