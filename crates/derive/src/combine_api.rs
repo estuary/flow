@@ -1,5 +1,4 @@
 use super::combiner::{self, Combiner};
-use crate::setup_env_tracing;
 
 use doc::{Pointer, SchemaIndex};
 use prost::Message;
@@ -38,7 +37,6 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        setup_env_tracing();
         Self { state: None }
     }
 

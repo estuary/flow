@@ -69,6 +69,15 @@ pub fn send_bytes(code: u32, begin: usize, arena: &mut Vec<u8>, out: &mut Vec<Ou
     });
 }
 
+/// Send a code to the caller without any data.
+pub fn send_code(code: u32, out: &mut Vec<Out>) {
+    out.push(Out {
+        code,
+        begin: 0,
+        end: 0,
+    });
+}
+
 /// Output frame produced by a Service.
 #[repr(C)]
 #[derive(Debug)]

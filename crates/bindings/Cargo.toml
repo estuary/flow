@@ -8,9 +8,12 @@ edition = "2018"
 crate_type = ["staticlib"]
 
 [dependencies]
-protocol = { path = "../protocol", version = "0.0.0" }
+build = { path = "../build", version = "0.0.0" }
 derive = { path = "../derive", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
 
+tracing = "*"
+tracing-subscriber = "*"
 anyhow = "*"
 
 [build-dependencies]

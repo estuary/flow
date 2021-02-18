@@ -586,6 +586,56 @@ pub mod derive_api {
         pub checkpoint: ::core::option::Option<super::super::consumer::Checkpoint>,
     }
 }
+/// BuildAPI is a meta-message which name spaces messages of the Build API bridge.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BuildApi {}
+/// Nested message and enum types in `BuildAPI`.
+pub mod build_api {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Config {
+        /// Path to the base build directory.
+        #[prost(string, tag = "1")]
+        pub directory: ::prost::alloc::string::String,
+        /// Root catalog source specification. This may be either a local path
+        /// relative to the current working directory, or an absolute URL.
+        #[prost(string, tag = "2")]
+        pub source: ::prost::alloc::string::String,
+        /// Path of the catalog database to write.
+        #[prost(string, tag = "3")]
+        pub catalog_path: ::prost::alloc::string::String,
+        /// Should the TypeScript package be built?
+        #[prost(bool, tag = "4")]
+        pub typescript_compile: bool,
+        /// Should the TypeScript package be packaged into the catalog?
+        #[prost(bool, tag = "5")]
+        pub typescript_package: bool,
+        /// Should local development rules be added ?
+        #[prost(bool, tag = "6")]
+        pub add_development_rules: bool,
+    }
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Fetch {
+        #[prost(string, tag = "1")]
+        pub resource_url: ::prost::alloc::string::String,
+        #[prost(enumeration = "super::ContentType", tag = "2")]
+        pub content_type: i32,
+    }
+    /// Code labels message codes passed over the CGO bridge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Code {
+        Begin = 0,
+        Poll = 1,
+        FetchRequest = 2,
+        FetchSuccess = 3,
+        FetchFailed = 4,
+        ValidateRequest = 5,
+        ValidateResponse = 6,
+        Done = 7,
+        DoneWithErrors = 8,
+        CatalogSchema = 100,
+    }
+}
 /// IngestRequest describes documents to ingest into collections.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {

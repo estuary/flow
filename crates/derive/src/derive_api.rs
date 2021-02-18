@@ -4,7 +4,6 @@ use super::lambda::{self, Lambda};
 use super::nodejs::NodeRuntime;
 use super::pipeline::PendingPipeline;
 use super::registers::{self, Registers};
-use crate::setup_env_tracing;
 
 use bytes::BufMut;
 use futures::channel::mpsc;
@@ -61,7 +60,6 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        setup_env_tracing();
         Self { pimpl: None }
     }
 
@@ -733,8 +731,6 @@ mod tests {
 
     #[test]
     fn test_basic_rpc() {
-        setup_env_tracing();
-
         let env = rocksdb::Env::mem_env().unwrap();
         let mut api = TestAPI::new(&env);
 

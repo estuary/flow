@@ -120,6 +120,10 @@ pub struct Channel {
 /// and exposed via cbindgen.  See the UpperCase service for an example.
 #[inline]
 pub fn create<S: Service>() -> *mut Channel {
+    // Use service creation as a common entry hook through which we can
+    // install global tracing and logging.
+    crate::setup_env_tracing();
+
     let svc_impl = Box::new(S::create());
     let svc_impl = Box::leak(svc_impl) as *mut S as *mut ServiceImpl;
 

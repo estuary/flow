@@ -199,13 +199,13 @@ pub fn write_package<'a>(
         }
     }
 
-    if !package_dir.join("node_modules").exists() {
-        npm_cmd(package_dir, &["install", "--no-audit", "--no-fund"])?;
-    }
     Ok(())
 }
 
 pub fn compile_package(package_dir: &path::Path) -> Result<(), anyhow::Error> {
+    if !package_dir.join("node_modules").exists() {
+        npm_cmd(package_dir, &["install", "--no-audit", "--no-fund"])?;
+    }
     npm_cmd(package_dir, &["run", "compile"])?;
     Ok(())
 }
