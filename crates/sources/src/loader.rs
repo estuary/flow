@@ -3,7 +3,9 @@ use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
 use models::{names, tables};
-use protocol::flow::{shuffle::Hash as ShuffleHash, ContentType};
+use protocol::flow::{
+    shuffle::Hash as ShuffleHash, test_spec::step::Type as TestStepType, ContentType,
+};
 use regex::Regex;
 use std::cell::RefCell;
 use url::Url;
@@ -471,18 +473,13 @@ impl<F: Fetcher> Loader<F> {
                     specs::TestStep::Ingest(specs::TestStepIngest {
                         collection,
                         documents,
-                    }) => (collection, documents, None, names::TestStepType::Ingest),
+                    }) => (collection, documents, None, TestStepType::Ingest),
 
                     specs::TestStep::Verify(specs::TestStepVerify {
                         collection,
                         documents,
                         partitions,
-                    }) => (
-                        collection,
-                        documents,
-                        partitions,
-                        names::TestStepType::Verify,
-                    ),
+                    }) => (collection, documents, partitions, TestStepType::Verify),
                 };
 
                 self.tables.borrow_mut().test_steps.push_row(

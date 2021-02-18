@@ -169,7 +169,7 @@ tables!(
         // Enumerated index of this test step.
         step_index: u32,
         // Step type (e.x., ingest or verify).
-        step_type: names::TestStepType,
+        step_type: protocol::flow::test_spec::step::Type,
         // Name of the owning test case.
         test: names::Test,
     }
@@ -245,6 +245,13 @@ tables!(
         spec: protocol::flow::DerivationSpec,
     }
 
+    table BuiltTests (row BuiltTest, sql "built_tests") {
+        // Name of the test case.
+        test: names::Test,
+        // Built specification for this test case.
+        spec: protocol::flow::TestSpec,
+    }
+
     table Errors (row Error, sql "errors") {
         scope: url::Url,
         error: anyhow::Error,
@@ -256,6 +263,7 @@ pub struct All {
     pub built_collections: BuiltCollections,
     pub built_derivations: BuiltDerivations,
     pub built_materializations: BuiltMaterializations,
+    pub built_tests: BuiltTests,
     pub built_transforms: BuiltTransforms,
     pub captures: Captures,
     pub collections: Collections,
@@ -284,6 +292,7 @@ impl All {
             built_collections,
             built_derivations,
             built_materializations,
+            built_tests,
             built_transforms,
             captures,
             collections,
@@ -308,6 +317,7 @@ impl All {
             built_collections,
             built_derivations,
             built_materializations,
+            built_tests,
             built_transforms,
             captures,
             collections,
@@ -335,6 +345,7 @@ impl All {
             built_collections,
             built_derivations,
             built_materializations,
+            built_tests,
             built_transforms,
             captures,
             collections,
@@ -359,6 +370,7 @@ impl All {
             built_collections,
             built_derivations,
             built_materializations,
+            built_tests,
             built_transforms,
             captures,
             collections,
@@ -408,10 +420,10 @@ json_sql_types!(
     names::CompositeKey,
     names::Lambda,
     names::PartitionSelector,
-    names::TestStepType,
     protocol::flow::ContentType,
     protocol::flow::EndpointType,
     protocol::flow::shuffle::Hash,
+    protocol::flow::test_spec::step::Type,
     serde_json::Value,
 );
 
@@ -421,6 +433,7 @@ proto_sql_types!(
     protocol::flow::DerivationSpec,
     protocol::flow::Inference,
     protocol::flow::MaterializationSpec,
+    protocol::flow::TestSpec,
     protocol::flow::TransformSpec,
     protocol::flow::journal_rules::Rule,
     protocol::protocol::JournalSpec,

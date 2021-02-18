@@ -307,6 +307,28 @@ message MaterializationSpec {
   FieldSelection field_selection = 5;
 }
 
+// TestSpec describes a catalog test.
+message TestSpec {
+  // Name of this test.
+  string test = 1;
+  // Steps of the test.
+  message Step {
+    // Type of this step.
+    enum Type {
+        INGEST = 0;
+        VERIFY = 1;
+    }
+    Type step_type = 1;
+    // Collection ingested or verified by this step.
+    string collection = 2 [ (gogoproto.casttype) = "Collection" ];
+    // Documents ingested or verified by this step, as a JSON-encoded array.
+    string documents_json = 3;
+    // When verifying, selector over logical partitions of the collection.
+    protocol.LabelSelector partitions = 4 [ (gogoproto.nullable) = false ];
+  }
+  repeated Step steps = 2 [ (gogoproto.nullable) = false ];
+}
+
 // RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 // is responsible for.
 message RangeSpec {
