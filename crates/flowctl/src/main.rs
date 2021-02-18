@@ -348,9 +348,7 @@ async fn build_common(args: BuildArgs) -> Result<(path::PathBuf, tables::All), E
     let dir = std::fs::canonicalize(dir)?;
 
     let all_tables =
-        build::load_and_validate(&source_url, build::WebFetcher::new(), build::Drivers::new())
-            .await
-            .context("build failed")?;
+        build::load_and_validate(source_url, build::WebFetcher::new(), build::Drivers::new()).await;
 
     if !all_tables.errors.is_empty() {
         for tables::Error { scope, error } in all_tables.errors.iter() {

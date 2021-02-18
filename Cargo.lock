@@ -135,9 +135,12 @@ name = "bindings"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "build",
  "cbindgen",
  "derive",
  "protocol",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -202,9 +205,11 @@ dependencies = [
  "lazy_static",
  "models",
  "pathdiff",
+ "prost",
  "protocol",
  "regex",
  "rusqlite",
+ "schemars",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -212,7 +217,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-futures",
- "tracing-subscriber",
  "url",
  "validation",
 ]
@@ -417,7 +421,6 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-futures",
- "tracing-subscriber",
  "tuple",
  "url",
  "uuid",

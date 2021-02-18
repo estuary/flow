@@ -511,6 +511,44 @@ enum ContentType {
     NPM_PACKAGE = 3;
 }
 
+// BuildAPI is a meta-message which name spaces messages of the Build API bridge.
+message BuildAPI {
+  // Code labels message codes passed over the CGO bridge.
+  enum Code {
+    BEGIN = 0;
+    POLL = 1;
+    FETCH_REQUEST = 2;
+    FETCH_SUCCESS = 3;
+    FETCH_FAILED = 4;
+    VALIDATE_REQUEST = 5;
+    VALIDATE_RESPONSE = 6;
+    DONE = 7;
+    DONE_WITH_ERRORS = 8;
+    CATALOG_SCHEMA = 100;
+  };
+
+  message Config {
+    // Path to the base build directory.
+    string directory = 1;
+    // Root catalog source specification. This may be either a local path
+    // relative to the current working directory, or an absolute URL.
+    string source = 2;
+    // Path of the catalog database to write.
+    string catalog_path = 3;
+    // Should the TypeScript package be built?
+    bool typescript_compile = 4;
+    // Should the TypeScript package be packaged into the catalog?
+    bool typescript_package = 5;
+    // Should local development rules be added ?
+    bool add_development_rules = 6;
+  }
+
+  message Fetch {
+    string resource_url = 1;
+    ContentType content_type = 2;
+  }
+}
+
 // IngestRequest describes documents to ingest into collections.
 message IngestRequest {
   // Collection describes an ingest into a collection.

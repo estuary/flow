@@ -227,3 +227,34 @@ func (catalog *Catalog) LoadNPMPackage() ([]byte, error) {
 	}
 	return b, nil
 }
+
+// BuildError is a user error, encountered during catalog builds.
+type BuildError struct {
+	// Scope is the resource URL and JSON fragment pointer at which the error occurred.
+	Scope string
+	// Error is a user-facing description of the build error.
+	Error string
+}
+
+// LoadBuildErrors loads build errors from a catalog.
+func (catalog *Catalog) LoadBuildErrors() ([]BuildError, error) {
+	var rows, err = catalog.db.Query(`
+		SELECT scope, error FROM errors;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load errors: %w", err)
+	}
+
+	var out []BuildError
+
+	defer rows.Close()
+	for rows.Next() {
+		var be BuildError
+
+		if err = rows.Scan(&be.Scope, &be.Error); err != nil {
+			return nil, fmt.Errorf("failed to load build error: %w", err)
+		}
+		out = append(out, be)
+	}
+	return out, nil
+}

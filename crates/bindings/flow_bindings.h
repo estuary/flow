@@ -77,6 +77,16 @@ typedef struct {
   In4 in3;
 } In16;
 
+Channel *build_create(void);
+
+void build_invoke1(Channel *ch, In1 i);
+
+void build_invoke4(Channel *ch, In4 i);
+
+void build_invoke16(Channel *ch, In16 i);
+
+void build_drop(Channel *ch);
+
 Channel *combine_create(void);
 
 void combine_invoke1(Channel *ch, In1 i);

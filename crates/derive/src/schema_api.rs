@@ -1,5 +1,3 @@
-use crate::setup_env_tracing;
-
 use models::tables;
 use prost::Message;
 use protocol::{cgo, flow};
@@ -27,7 +25,6 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        setup_env_tracing();
         Self {}
     }
 
