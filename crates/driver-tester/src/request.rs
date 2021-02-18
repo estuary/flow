@@ -1,19 +1,20 @@
 //! The request module contains helpers for creating requests used for testing drivers.
-use crate::DriverClientImpl;
 use crate::test_doc::TestDoc;
+use crate::DriverClientImpl;
 use doc::Pointer;
 use protocol::{
     arena::ArenaExt,
     collection::CollectionExt,
-    flow::{CollectionSpec, Slice},
-    materialize::{transaction_request, transaction_response, FieldSelection, LoadEof, TransactionRequest, TransactionResponse },
+    flow::{CollectionSpec, FieldSelection, Slice},
+    materialize::{
+        transaction_request, transaction_response, LoadEof, TransactionRequest, TransactionResponse,
+    },
 };
 use serde_json::Value;
 use tokio::task::JoinHandle;
 use tonic::Streaming;
-use tuple::{TupleDepth, TuplePack};
 use tracing::{debug, trace};
-
+use tuple::{TupleDepth, TuplePack};
 
 use std::borrow::Borrow;
 use std::fmt::Debug;
@@ -64,18 +65,23 @@ pub fn transaction_start_req(
 pub struct StoreResponseReceiver(Streaming<TransactionResponse>);
 impl StoreResponseReceiver {
     /// Receives the final store response and closed the stream.
-    pub async fn recv_store_response(mut self) -> anyhow::Result<transaction_response::StoreResponse> {
-        let msg = self.0.message()
+    pub async fn recv_store_response(
+        mut self,
+    ) -> anyhow::Result<transaction_response::StoreResponse> {
+        let msg = self
+            .0
+            .message()
             .await?
-            .ok_or_else(||
-                        anyhow::anyhow!("expected a LoadResponse message, but got EOF")
-                       )?;
+            .ok_or_else(|| anyhow::anyhow!("expected a LoadResponse message, but got EOF"))?;
 
-        anyhow::ensure!(msg.store_response.is_some(), "expected a StoreResponse, got: {:?}", msg);
+        anyhow::ensure!(
+            msg.store_response.is_some(),
+            "expected a StoreResponse, got: {:?}",
+            msg
+        );
         Ok(msg.store_response.unwrap())
     }
 }
-
 
 /// Starts a new Transaction bi-directional streaming rpc, and returns a tuple of the sender and
 /// receiver.
@@ -85,7 +91,12 @@ impl StoreResponseReceiver {
 /// 2. The boolean value of the `always_empty_hint` from the `LoadEOF` message.
 /// An error is returned if an unexpected message is received, or if any returned document
 /// cannot be parsed as json.
-pub async fn new_transaction(mut client: DriverClientImpl) -> (TransactionSender, JoinHandle<anyhow::Result<(StoreResponseReceiver, Vec<Value>, bool)>>) {
+pub async fn new_transaction(
+    mut client: DriverClientImpl,
+) -> (
+    TransactionSender,
+    JoinHandle<anyhow::Result<(StoreResponseReceiver, Vec<Value>, bool)>>,
+) {
     let (tx, rx) = tokio::sync::mpsc::channel(8);
     let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
     debug!("about to start streaming transaction");
@@ -101,16 +112,21 @@ pub async fn new_transaction(mut client: DriverClientImpl) -> (TransactionSender
         let mut docs = Vec::with_capacity(4);
 
         loop {
-            let msg = resp.message().await?.ok_or_else(|| {
-                anyhow::anyhow!("expected a LoadResponse message, but got EOF")
-            })?;
+            let msg = resp
+                .message()
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("expected a LoadResponse message, but got EOF"))?;
             if let Some(eof) = msg.load_eof.as_ref() {
-                return Ok((StoreResponseReceiver(resp), docs, eof.always_empty_hint))
+                return Ok((StoreResponseReceiver(resp), docs, eof.always_empty_hint));
             }
-            anyhow::ensure!(msg.load_response.is_some() || msg.load_eof.is_some(),
-                "expected a LoadResponse or LoadEOF message, got: {:?}", msg);
+            anyhow::ensure!(
+                msg.load_response.is_some() || msg.load_eof.is_some(),
+                "expected a LoadResponse or LoadEOF message, got: {:?}",
+                msg
+            );
 
-            let transaction_response::LoadResponse {arena, docs_json} = msg.load_response.unwrap();
+            let transaction_response::LoadResponse { arena, docs_json } =
+                msg.load_response.unwrap();
             for slice in docs_json {
                 let value = serde_json::from_slice(arena.bytes(slice))?;
                 docs.push(value);
@@ -154,7 +170,7 @@ impl LoadSender {
         docs: &[impl Borrow<Value>],
     ) -> anyhow::Result<()> {
         let req = load_request(collection, docs);
-        self.0.0.send(req).await?;
+        self.0 .0.send(req).await?;
         Ok(())
     }
 
@@ -163,7 +179,7 @@ impl LoadSender {
             load_eof: Some(LoadEof::default()),
             ..Default::default()
         };
-        self.0.0.send(req).await?;
+        self.0 .0.send(req).await?;
         Ok(StoreSender(self.0))
     }
 }
@@ -178,7 +194,8 @@ impl StoreSender {
         &mut self,
         req: transaction_request::StoreRequest,
     ) -> anyhow::Result<()> {
-        self.0.0
+        self.0
+             .0
             .send(TransactionRequest {
                 store: Some(req),
                 ..Default::default()
@@ -189,7 +206,11 @@ impl StoreSender {
 
     /// Sends a StoreRequest that includes the given TestDocs. The keys and values will be
     /// extracted by the given `FieldSelectionPointers`.
-    pub async fn send_store(&mut self, fields: &FieldSelectionPointers, documents: &[TestDoc]) -> anyhow::Result<()> {
+    pub async fn send_store(
+        &mut self,
+        fields: &FieldSelectionPointers,
+        documents: &[TestDoc],
+    ) -> anyhow::Result<()> {
         let req = new_store_req(fields, documents);
         self.send_store_req(req).await
     }
@@ -202,7 +223,10 @@ impl StoreSender {
 
 /// Constructs a StoreRequest from the given TestDocs, using the provided `FieldSelectionPointers`
 /// to extract the keys and values.
-pub fn new_store_req(fields: &FieldSelectionPointers, documents: &[TestDoc]) -> transaction_request::StoreRequest {
+pub fn new_store_req(
+    fields: &FieldSelectionPointers,
+    documents: &[TestDoc],
+) -> transaction_request::StoreRequest {
     let mut packed_keys = Vec::with_capacity(documents.len());
     let mut packed_values = Vec::with_capacity(documents.len());
     let mut docs_json = Vec::with_capacity(documents.len());
@@ -215,12 +239,19 @@ pub fn new_store_req(fields: &FieldSelectionPointers, documents: &[TestDoc]) -> 
         let mut writer = arena.writer();
         serde_json::to_writer(&mut writer, &doc.json).expect("failed to serialize document json");
         let slice = writer.finish();
-        trace!("Store req document: {}", String::from_utf8_lossy(arena.bytes(slice.clone())));
+        trace!(
+            "Store req document: {}",
+            String::from_utf8_lossy(arena.bytes(slice.clone()))
+        );
         docs_json.push(slice);
         exists.push(doc.exists);
     }
     transaction_request::StoreRequest {
-        arena, packed_keys, packed_values, docs_json, exists,
+        arena,
+        packed_keys,
+        packed_values,
+        docs_json,
+        exists,
     }
 }
 

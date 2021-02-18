@@ -8,13 +8,11 @@ use crate::test_doc::{self, TestDoc};
 use crate::{DriverClientImpl, Fixture, TestResult};
 use itertools::Itertools;
 use protocol::{
-    flow::{CollectionSpec, Inference, Projection},
-    materialize::{
-        constraint::Type, ApplyRequest, Constraint, FieldSelection, SessionRequest, ValidateRequest,
-    },
+    flow::{CollectionSpec, FieldSelection, Inference, Projection},
+    materialize::{constraint::Type, ApplyRequest, Constraint, SessionRequest, ValidateRequest},
 };
 use rand::Rng;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::task::JoinHandle;
 use tracing::{debug, trace};
 
