@@ -77,32 +77,6 @@ pub struct ValidateResponse {
     #[prost(map = "string, message", tag = "1")]
     pub constraints: ::std::collections::HashMap<::prost::alloc::string::String, Constraint>,
 }
-<<<<<<< HEAD
-/// FieldSelection represents the entire set of fields for a materialization. Projected fields are
-/// separated into keys and values.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FieldSelection {
-    /// The fields that are being used as the primary key for this materialization. Flow will guarantee
-    /// that each location that's part of a collection's key is represented here exactly once, and in
-    /// the same order as the keys are declared in the collection.
-    #[prost(string, repeated, tag = "1")]
-    pub keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// All other materialized fields, except for those in keys and the root document field, will be listed here in
-    /// a stable order. Note that not all materializations will have or need any "values" fields (e.g.
-    /// materializing to a key-value store like dynamo)
-    #[prost(string, repeated, tag = "2")]
-    pub values: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// The name of the field holding the root document.
-    #[prost(string, tag = "3")]
-    pub document: ::prost::alloc::string::String,
-    /// Projection configuration, keyed by the projection field name,
-    /// with JSON-encoded and driver-defined configuration objects.
-    #[prost(map = "string, string", tag = "4")]
-    pub field_config:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-}
-=======
->>>>>>> protocol: add MaterializationSpec & EndpointType
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
@@ -114,11 +88,7 @@ pub struct ApplyRequest {
     pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Selected fields for materialization
     #[prost(message, optional, tag = "3")]
-<<<<<<< HEAD
-    pub fields: ::core::option::Option<FieldSelection>,
-=======
-    pub fields: ::std::option::Option<super::flow::FieldSelection>,
->>>>>>> protocol: add MaterializationSpec & EndpointType
+    pub fields: ::core::option::Option<super::flow::FieldSelection>,
     /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
     /// report only what would have happened.
     #[prost(bool, tag = "4")]
@@ -193,11 +163,7 @@ pub mod transaction_request {
         /// Fields represents the projection fields to be stored. This repeats the selection and ordering
         /// of the last Apply RPC, but is provided here also as a convenience.
         #[prost(message, optional, tag = "2")]
-<<<<<<< HEAD
-        pub fields: ::core::option::Option<super::FieldSelection>,
-=======
-        pub fields: ::std::option::Option<super::super::flow::FieldSelection>,
->>>>>>> protocol: add MaterializationSpec & EndpointType
+        pub fields: ::core::option::Option<super::super::flow::FieldSelection>,
         /// Checkpoint to write with this Store transaction, to be associated with
         /// the session's caller ID and to be returned by a future Fence RPC.
         /// This may be ignored if the Driver doesn't support exactly-once semantics.
@@ -407,7 +373,7 @@ pub mod driver_client {
         #[doc = ""]
         #[doc = " 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately"]
         #[doc = "    transitions to the Loading state."]
-        #[doc = " 2. Loading: "]
+        #[doc = " 2. Loading:"]
         #[doc = "    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message."]
         #[doc = "    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These"]
         #[doc = "    responses may be sent asynchronously, and at whatever cadence is most performant for the"]
@@ -516,7 +482,7 @@ pub mod driver_server {
         #[doc = ""]
         #[doc = " 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately"]
         #[doc = "    transitions to the Loading state."]
-        #[doc = " 2. Loading: "]
+        #[doc = " 2. Loading:"]
         #[doc = "    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message."]
         #[doc = "    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These"]
         #[doc = "    responses may be sent asynchronously, and at whatever cadence is most performant for the"]

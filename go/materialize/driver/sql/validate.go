@@ -13,7 +13,7 @@ import (
 type MaterializationSpec struct {
 	// Fields is the current selection of fields that is being materialized. The target table will
 	// have a column for each field here.
-	Fields pm.FieldSelection `json:"fields"`
+	Fields pf.FieldSelection `json:"fields"`
 	// Collection is the flow collection being materialized.
 	Collection pf.CollectionSpec `json:"collectionSpec"`
 }

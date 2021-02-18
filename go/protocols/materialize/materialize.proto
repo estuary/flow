@@ -73,7 +73,7 @@ service Driver {
   //
   // 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately
   //    transitions to the Loading state.
-  // 2. Loading: 
+  // 2. Loading:
   //    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message.
   //    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These
   //    responses may be sent asynchronously, and at whatever cadence is most performant for the

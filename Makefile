@@ -263,6 +263,11 @@ sql-test: ${TOOLBIN}/sqlite3
 .PHONY: rocks-build
 rocks-build: ${ROCKSDIR}/${LIBROCKS}
 
+.PHONY: rust-build
+rust-build: ${ROCKSDIR}/${LIBROCKS}
+	FLOW_VERSION=${VERSION} cargo build --release --locked -p flowctl
+	FLOW_VERSION=${VERSION} cargo build --release --locked -p bindings
+
 .PHONY: rust-test
 rust-test: ${TOOLBIN}/sqlite3 ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo test --release --locked

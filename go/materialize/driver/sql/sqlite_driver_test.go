@@ -106,7 +106,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	//require.Equal(t, pm.Constraint_FIELD_OPTIONAL, validateResp.Constraints["array"].Type)
 
 	// Select some fields and Apply the materialization
-	var fields = pm.FieldSelection{
+	var fields = pf.FieldSelection{
 		Keys:     []string{"theKey"},
 		Values:   []string{"string", "bool", "int"}, // intentionally missing "number" field
 		Document: "flow_document",

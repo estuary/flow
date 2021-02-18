@@ -276,6 +276,8 @@ enum EndpointType {
 
 // FieldSelection is a selection of a collection's projection fields.
 message FieldSelection {
+  option (gogoproto.equal) = true;
+
   // Fields for each key component of the collection. Keys have the same length
   // as the collection's key, and the document pointer of the field at each index
   // matches the pointer identified by the corresponding index of the collection key.

@@ -9,7 +9,7 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/flow"
 
-	//pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +46,7 @@ func TestValidations(t *testing.T) {
 func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	existingCollection, err := catalog.LoadCollection("weird-types/optionals")
 	require.NoError(t, err)
-	var existingFields = pm.FieldSelection{
+	var existingFields = pf.FieldSelection{
 		Keys:     []string{"theKey"},
 		Values:   []string{"string", "bool", "int"},
 		Document: "flow_document",
