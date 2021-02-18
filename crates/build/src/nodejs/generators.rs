@@ -22,7 +22,7 @@ pub fn anchors_ts(
         scope: schema,
         anchor: _,
         anchor_name,
-    } in named_schemas.iter()
+    } in named_schemas.iter().sorted_by_key(|n| &n.anchor_name)
     {
         let schema = Module::new(schema, package_dir);
 
@@ -48,7 +48,7 @@ pub fn collections_ts(
         schema,
         scope,
         ..
-    } in collections.iter()
+    } in collections.iter().sorted_by_key(|c| &c.collection)
     {
         let schema = Module::new(schema, package_dir);
         let scope = Module::new(scope, package_dir);
@@ -77,7 +77,7 @@ pub fn registers_ts(
         derivation,
         register_schema: schema,
         ..
-    } in derivations.iter()
+    } in derivations.iter().sorted_by_key(|d| &d.derivation)
     {
         let schema = Module::new(schema, package_dir);
         let scope = Module::new(scope, package_dir);
