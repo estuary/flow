@@ -10,20 +10,6 @@ pub mod registers;
 pub mod schema_api;
 
 pub use extract_api::extract_uuid_parts;
-use std::sync::Once;
-
-// TODO(johnny): Move to a common `instrument` crate?
-/// Setup a global tracing subscriber using the RUST_LOG env variable.
-pub fn setup_env_tracing() {
-    static SUBSCRIBE: Once = Once::new();
-
-    SUBSCRIBE.call_once(|| {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish();
-        tracing::subscriber::set_global_default(subscriber).unwrap();
-    });
-}
 
 /// DebugJson is a new-type wrapper around any Serialize implementation
 /// that wishes to support the Debug trait via JSON encoding itself.

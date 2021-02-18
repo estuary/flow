@@ -31,7 +31,6 @@ thiserror = "*"
 tokio = { version = "*", features = [] }
 tracing = "*"
 tracing-futures = "*"
-tracing-subscriber = "*"
 url = "*"
 uuid = "*"
 
