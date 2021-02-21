@@ -68,6 +68,13 @@ func TestMainWithEtcd(m *testing.M) {
 	_cmd.Stdout = os.Stdout
 	_cmd.Stderr = os.Stderr
 
+	// If this process dies (e.x, due to an uncaught panic from a
+	// test timeout), deliver a SIGTERM to the `etcd` process).
+	// This ensures a wrapping `go test` doesn't hang forever awaiting
+	// the `etcd` child to exit.
+	_cmd.SysProcAttr = new(syscall.SysProcAttr)
+	_cmd.SysProcAttr.Pdeathsig = syscall.SIGTERM
+
 	if err = _cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
