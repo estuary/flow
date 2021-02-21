@@ -1,10 +1,7 @@
 package runtime
 
 import (
-	"context"
-
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -26,7 +23,4 @@ type Application interface {
 	StartReadingMessages(consumer.Shard, pc.Checkpoint, *flow.Timepoint, chan<- consumer.EnvelopeOrError)
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
 	ReadThrough(pb.Offsets) (pb.Offsets, error)
-
-	// ClearRegisters is a testing-only API.
-	ClearRegisters(context.Context, *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error)
 }
