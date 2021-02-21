@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"path/filepath"
 
@@ -20,6 +21,12 @@ func (cmd cmdBuild) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
 	mbp.InitLog(Config.Log)
 
+	log.WithFields(log.Fields{
+		"config":    Config,
+		"version":   mbp.Version,
+		"buildDate": mbp.BuildDate,
+	}).Info("flowctl configuration")
+
 	var config = pf.BuildAPI_Config{
 		Source:            cmd.Source,
 		Directory:         cmd.Directory,
@@ -27,31 +34,36 @@ func (cmd cmdBuild) Execute(_ []string) error {
 		TypescriptCompile: true,
 		TypescriptPackage: true,
 	}
-	var _ = build(config)
 
-	return nil
+	var _, err = build(config)
+	return err
 }
 
-func build(config pf.BuildAPI_Config) *flow.Catalog {
+func build(config pf.BuildAPI_Config) (*flow.Catalog, error) {
 	var transport = new(http.Transport)
 	*transport = *http.DefaultTransport.(*http.Transport) // Clone.
 	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
 	var httpClient = &http.Client{Transport: transport}
 
-	var _, err = bindings.BuildCatalog(config, httpClient)
-	mbp.Must(err, "failed to build catalog")
+	if _, err := bindings.BuildCatalog(config, httpClient); err != nil {
+		return nil, fmt.Errorf("building catalog: %w", err)
+	}
 	catalog, err := flow.NewCatalog(config.CatalogPath, "")
-	mbp.Must(err, "failed to open catalog")
+	if err != nil {
+		return nil, fmt.Errorf("opening built catalog: %w", err)
+	}
 
 	// If there were build errors, present them and bail out.
 	buildErrors, err := catalog.LoadBuildErrors()
-	mbp.Must(err, "failed to load build errors")
+	if err != nil {
+		return nil, fmt.Errorf("loading build errors: %w", err)
+	}
 	for _, be := range buildErrors {
 		log.WithField("scope", be.Scope).Error(be.Error)
 	}
 
 	if len(buildErrors) != 0 {
-		log.Fatal("catalog build failed")
+		return nil, fmt.Errorf("one or more catalog errors")
 	}
-	return catalog
+	return catalog, nil
 }
