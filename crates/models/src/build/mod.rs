@@ -202,3 +202,33 @@ pub fn derivation_spec(derivation: &tables::Derivation) -> flow::DerivationSpec 
         register_initial_json: register_initial.to_string(),
     }
 }
+
+pub fn test_step_spec(
+    test_step: &tables::TestStep,
+    collection: &tables::Collection,
+) -> flow::test_spec::Step {
+    let tables::TestStep {
+        scope: _,
+        collection: _,
+        documents,
+        partitions,
+        step_index,
+        step_type,
+        test: _,
+    } = test_step;
+
+    flow::test_spec::Step {
+        step_type: *step_type as i32,
+        step_index: *step_index,
+        collection: collection.collection.to_string(),
+        collection_schema_uri: collection.schema.to_string(),
+        collection_key_ptr: collection.key.iter().map(|p| p.to_string()).collect(),
+        collection_uuid_ptr: collection.uuid_ptr(),
+        docs_json_lines: documents
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        partitions: Some(journal_selector(&collection.collection, partitions)),
+    }
+}

@@ -197,6 +197,7 @@ ${GOBIN}/sql-driver: go-install/github.com/estuary/flow/go/sql-driver $(GO_PROTO
 ${GOBIN}/flow-consumer: go-install/github.com/estuary/flow/go/flow-consumer $(GO_PROTO_TARGETS) ${ROCKSDIR}/${LIBROCKS}
 ${GOBIN}/gazette:       go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:        go-install/go.gazette.dev/core/cmd/gazctl
+${GOBIN}/flowctl-go:    go-install/github.com/estuary/flow/go/flowctl-go $(GO_PROTO_TARGETS) ${ROCKSDIR}/${LIBROCKS}
 
 ${RUSTBIN}/flowctl: ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo build --release --locked -p flowctl
@@ -285,8 +286,8 @@ go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
 
 .PHONY: catalog-test
-catalog-test: ${RUSTBIN}/flowctl ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd
-	RUST_BACKTRACE=full flowctl -v test --source ${ROOTDIR}/examples/flow.yaml
+catalog-test: ${GOBIN}/flowctl-go ${TOOLBIN}/etcd ${RUSTBIN}/libbindings.a
+	${GOBIN}/flowctl-go test --source ${ROOTDIR}/examples/flow.yaml
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
@@ -311,6 +312,6 @@ docker-push-to-quay: docker-image
 ##########################################################################
 # Make targets used for development:
 
-.PHONY: catalog-test
-develop: ${GOBIN}/flow-ingester ${GOBIN}/flow-consumer ${GOBIN}/gazette ${TOOLBIN}/etcd
-	RUST_BACKTRACE=full flowctl -v develop --source ${ROOTDIR}/examples/flow.yaml
+.PHONY: develop
+develop: ${GOBIN}/flowctl-go ${TOOLBIN}/etcd ${RUSTBIN}/libbindings.a
+	${GOBIN}/flowctl-go develop --source ${ROOTDIR}/examples/flow.yaml

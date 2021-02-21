@@ -61,7 +61,11 @@ func TestLoadTests(t *testing.T) {
 	tests, err := catalog.LoadTests()
 	require.NoError(t, err)
 
-	cupaloy.SnapshotT(t, tests[0])
+	var test = tests[0]
+	for s := range test.Steps {
+		stripPrefix(&test.Steps[s].CollectionSchemaUri)
+	}
+	cupaloy.SnapshotT(t, test)
 }
 
 func TestLoadSchemaBundle(t *testing.T) {

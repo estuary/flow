@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -219,12 +218,9 @@ func (a *Derive) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 // Coordinator returns the App's shared *shuffle.Coordinator.
 func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
 
-// ClearRegisters delegates the request to its worker.
-func (a *Derive) ClearRegisters(ctx context.Context,
-	req *pf.ClearRegistersRequest) (*pf.ClearRegistersResponse, error) {
-
-	var err = a.binding.ClearRegisters()
-	return new(pf.ClearRegistersResponse), err
+// ClearRegistersForTest delegates the request to its worker.
+func (a *Derive) ClearRegistersForTest() error {
+	return a.binding.ClearRegisters()
 }
 
 func shardLabel(shard consumer.Shard, label string) (string, error) {

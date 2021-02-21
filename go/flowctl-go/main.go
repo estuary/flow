@@ -21,6 +21,14 @@ func main() {
 Build a Flow catalog into a build directory and catalog database.
 `, &cmdBuild{})
 
+	_, _ = parser.AddCommand("test", "Test a Flow catalog", `
+Build and test a Flow catalog.
+`, &cmdTest{})
+
+	_, _ = parser.AddCommand("develop", "Develop a Flow catalog", `
+Build and develop a Flow catalog.
+`, &cmdDevelop{})
+
 	_, _ = parser.AddCommand("json-schema", "Print the catalog JSON schema", `
 Print the JSON schema specification of Flow catalogs, as understood by this
 specific build of Flow. This JSON schema can be used to enable IDE support

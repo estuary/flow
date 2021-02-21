@@ -352,14 +352,26 @@ pub mod test_spec {
     pub struct Step {
         #[prost(enumeration = "step::Type", tag = "1")]
         pub step_type: i32,
+        /// Index of this step within the test.
+        #[prost(uint32, tag = "2")]
+        pub step_index: u32,
         /// Collection ingested or verified by this step.
-        #[prost(string, tag = "2")]
-        pub collection: ::prost::alloc::string::String,
-        /// Documents ingested or verified by this step, as a JSON-encoded array.
         #[prost(string, tag = "3")]
-        pub documents_json: ::prost::alloc::string::String,
+        pub collection: ::prost::alloc::string::String,
+        /// Schema of this collection.
+        #[prost(string, tag = "4")]
+        pub collection_schema_uri: ::prost::alloc::string::String,
+        /// Grouped key pointers of the collection.
+        #[prost(string, repeated, tag = "5")]
+        pub collection_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// JSON pointer locating the UUID of each collection document.
+        #[prost(string, tag = "6")]
+        pub collection_uuid_ptr: ::prost::alloc::string::String,
+        /// Newline-separated JSON documents to ingest.
+        #[prost(string, tag = "7")]
+        pub docs_json_lines: ::prost::alloc::string::String,
         /// When verifying, selector over logical partitions of the collection.
-        #[prost(message, optional, tag = "4")]
+        #[prost(message, optional, tag = "8")]
         pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
     }
     /// Nested message and enum types in `Step`.
@@ -648,9 +660,10 @@ pub mod build_api {
         /// Should the TypeScript package be packaged into the catalog?
         #[prost(bool, tag = "5")]
         pub typescript_package: bool,
-        /// Should local development rules be added ?
-        #[prost(bool, tag = "6")]
-        pub add_development_rules: bool,
+        /// Optional supplamental journal rules to add, beyond those already in the catalog.
+        /// This is used to add development & testing overrides.
+        #[prost(message, optional, tag = "6")]
+        pub extra_journal_rules: ::core::option::Option<super::JournalRules>,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fetch {
@@ -690,6 +703,7 @@ pub mod ingest_request {
         #[prost(string, tag = "1")]
         pub name: ::prost::alloc::string::String,
         /// Newline-separated JSON documents to ingest.
+        /// TODO(johnny): this must be UTF-8, and can be "string" type.
         #[prost(bytes = "vec", tag = "2")]
         pub docs_json_lines: ::prost::alloc::vec::Vec<u8>,
     }

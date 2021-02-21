@@ -20,11 +20,15 @@ const (
 	// KeyBegin is a hexadecimal encoding of the beginning key range (inclusive)
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyBegin = "estuary.dev/key-begin"
+	// KeyBeginMin is the minimum possible key.
+	KeyBeginMin = "00"
 	// KeyEnd is a hexadecimal encoding of the ending key range (exclusive)
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyEnd = "estuary.dev/key-end"
-	// ManagedBy_Flow is a value for the Gazette labels.ManagedBy label.
-	ManagedBy_Flow = "estuary.dev/flow"
+	// KeyEndMax is the maximum possible key.
+	KeyEndMax = "ffffffffffffffff"
+	// ManagedByFlow is a value for the Gazette labels.ManagedBy label.
+	ManagedByFlow = "estuary.dev/flow"
 )
 
 // ShardSpec labels.
@@ -45,9 +49,13 @@ const (
 	// RClockBegin is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
+	// RClockBeginMin is the minimum possible RClock.
+	RClockBeginMin = "0000000000000000"
 	// RClockEnd is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the ending rotated clock range (exclusive) managed by this shard.
 	RClockEnd = "estuary.dev/rclock-end"
+	// RClockEndMax is the maximum possible RClock.
+	RClockEndMax = "ffffffffffffffff"
 )
 
 // ParseRangeSpec extracts a RangeSpec from its associated labels.
