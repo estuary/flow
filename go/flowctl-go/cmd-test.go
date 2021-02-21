@@ -202,6 +202,7 @@ func startTempEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 	cmd.Dir = tmpdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 
 	log.WithFields(log.Fields{"args": cmd.Args, "dir": cmd.Dir}).Info("starting etcd")
 	if err := cmd.Start(); err != nil {
@@ -244,11 +245,12 @@ func startNpmWorker(socketPath string) (*exec.Cmd, error) {
 	cmd.Env = append(cmd.Env, fmt.Sprintf("SOCKET_PATH=%s", socketPath))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 
 	log.WithField("args", cmd.Args).Info("starting npm develop")
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting npm: %w", err)
+	if err := flow.StartCmdAndReadReady(cmd); err != nil {
+		return nil, fmt.Errorf("failed to start npm develop: %w", err)
 	}
 	return cmd, nil
 }
