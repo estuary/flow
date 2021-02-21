@@ -116,6 +116,28 @@ func (catalog *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.Collect
 	return out, nil
 }
 
+// LoadDerivationNames loads names of derivations.
+func (catalog *Catalog) LoadDerivationNames() ([]string, error) {
+	var rows, err = catalog.db.Query(`
+		SELECT derivation FROM derivations;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load derivation names: %w", err)
+	}
+	var out []string
+
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+
+		if err = rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("failed to load derivation name: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, err
+}
+
 // LoadDerivedCollection loads the named derived collection from the catalog.
 func (catalog *Catalog) LoadDerivedCollection(name string) (*pf.DerivationSpec, error) {
 	var row = catalog.db.QueryRow(`
@@ -168,6 +190,33 @@ func (catalog *Catalog) LoadDerivedCollection(name string) (*pf.DerivationSpec, 
 	return derivation, nil
 }
 
+// LoadTransforms loads all derivation transforms from the catalog.
+func (catalog *Catalog) LoadTransforms() ([]pf.TransformSpec, error) {
+	var rows, err = catalog.db.Query(`
+		SELECT spec FROM built_transforms;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load transforms: %w", err)
+	}
+	var out []pf.TransformSpec
+
+	defer rows.Close()
+	for rows.Next() {
+		var b []byte
+		var transform pf.TransformSpec
+
+		if err = rows.Scan(&b); err != nil {
+			return nil, fmt.Errorf("failed to load transform: %w", err)
+		} else if err = transform.Unmarshal(b); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal transform: %w", err)
+		} else if err = transform.Validate(); err != nil {
+			return nil, fmt.Errorf("transform failed to validate: %w", err)
+		}
+		out = append(out, transform)
+	}
+	return out, nil
+}
+
 // LoadJournalRules loads the set of journal rules from the catalog.
 func (catalog *Catalog) LoadJournalRules() (*pf.JournalRules, error) {
 	var rows, err = catalog.db.Query(`SELECT spec FROM journal_rules ORDER BY rule ASC;`)
@@ -199,7 +248,7 @@ func (catalog *Catalog) LoadJournalRules() (*pf.JournalRules, error) {
 func (catalog *Catalog) LoadSchemaBundle() (*pf.SchemaBundle, error) {
 	var rows, err = catalog.db.Query(`SELECT schema, dom FROM schema_docs;`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query rules: %w", err)
+		return nil, fmt.Errorf("failed to query schema documents: %w", err)
 	}
 	var bundle = &pf.SchemaBundle{
 		Bundle: make(map[string]string),

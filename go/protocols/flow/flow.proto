@@ -319,12 +319,20 @@ message TestSpec {
         VERIFY = 1;
     }
     Type step_type = 1;
+    // Index of this step within the test.
+    uint32 step_index = 2;
     // Collection ingested or verified by this step.
-    string collection = 2 [ (gogoproto.casttype) = "Collection" ];
-    // Documents ingested or verified by this step, as a JSON-encoded array.
-    string documents_json = 3;
+    string collection = 3 [ (gogoproto.casttype) = "Collection" ];
+    // Schema of this collection.
+    string collection_schema_uri = 4;
+    // Grouped key pointers of the collection.
+    repeated string collection_key_ptr = 5;
+    // JSON pointer locating the UUID of each collection document.
+    string collection_uuid_ptr = 6;
+    // Newline-separated JSON documents to ingest.
+    string docs_json_lines = 7;
     // When verifying, selector over logical partitions of the collection.
-    protocol.LabelSelector partitions = 4 [ (gogoproto.nullable) = false ];
+    protocol.LabelSelector partitions = 8 [ (gogoproto.nullable) = false ];
   }
   repeated Step steps = 2 [ (gogoproto.nullable) = false ];
 }
@@ -561,8 +569,9 @@ message BuildAPI {
     bool typescript_compile = 4;
     // Should the TypeScript package be packaged into the catalog?
     bool typescript_package = 5;
-    // Should local development rules be added ?
-    bool add_development_rules = 6;
+    // Optional supplamental journal rules to add, beyond those already in the catalog.
+    // This is used to add development & testing overrides.
+    JournalRules extra_journal_rules = 6;
   }
 
   message Fetch {
@@ -578,6 +587,7 @@ message IngestRequest {
     // Name of the collection into which to ingest.
     string name = 1 [ (gogoproto.casttype) = "Collection" ];
     // Newline-separated JSON documents to ingest.
+    // TODO(johnny): this must be UTF-8, and can be "string" type.
     bytes docs_json_lines = 2;
   };
   repeated Collection collections = 1 [ (gogoproto.nullable) = false ];
