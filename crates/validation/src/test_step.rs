@@ -30,7 +30,9 @@ pub fn walk_all_test_steps(
                     test_step,
                     errors,
                 )
+                .into_iter()
             })
+            .flatten()
             .collect();
 
         built_tests.push_row(
@@ -62,7 +64,7 @@ pub fn walk_test_step(
     schema_shapes: &[schema::Shape],
     test_step: &tables::TestStep,
     errors: &mut tables::Errors,
-) -> flow::test_spec::Step {
+) -> Option<flow::test_spec::Step> {
     let tables::TestStep {
         scope,
         collection,
@@ -72,13 +74,6 @@ pub fn walk_test_step(
         step_type,
         test,
     } = test_step;
-
-    let spec = flow::test_spec::Step {
-        step_type: *step_type as i32,
-        collection: collection.to_string(),
-        documents_json: serde_json::to_string(documents).unwrap(),
-        partitions: Some(models::build::journal_selector(collection, partitions)),
-    };
 
     // Map to slices of documents which are ingested or verified by this step.
     let (ingest, verify) = match step_type {
@@ -99,7 +94,7 @@ pub fn walk_test_step(
         errors,
     ) {
         Some(s) => s,
-        None => return spec,
+        None => return None,
     };
 
     // Verify that any ingest documents conform to the collection schema.
@@ -150,5 +145,5 @@ pub fn walk_test_step(
         );
     }
 
-    spec
+    Some(models::build::test_step_spec(test_step, collection))
 }
