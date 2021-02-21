@@ -50,25 +50,18 @@ where
 
     let mut all_tables = load_and_validate(root_url, fetcher, drivers).await;
 
-    if config.add_development_rules {
-        // Install a local development JournalRule which orders after all other rules.
-        let rule = models::names::Rule::new("\u{FFFF}\u{FFFF}-testing-overrides");
+    // Apply any extra journal rules of the configuration.
+    for (index, rule) in config
+        .extra_journal_rules
+        .unwrap_or_default()
+        .rules
+        .into_iter()
+        .enumerate()
+    {
         all_tables.journal_rules.push_row(
-            url::Url::parse("test://journal-rule")?,
-            rule.clone(),
-            protocol::flow::journal_rules::Rule {
-                rule: rule.to_string(),
-                selector: None, // Match all journals.
-                template: Some(protocol::protocol::JournalSpec {
-                    replication: 1,
-                    fragment: Some(protocol::protocol::journal_spec::Fragment {
-                        stores: vec!["file:///".to_string()],
-                        compression_codec: protocol::protocol::CompressionCodec::None as i32,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }),
-            },
+            url::Url::parse(&format!("build://extra_journal_rules/{}", index)).unwrap(),
+            models::names::Rule::new(&rule.rule),
+            rule,
         );
     }
 

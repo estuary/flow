@@ -507,8 +507,14 @@ All {
                 steps: [
                     Step {
                         step_type: Ingest,
+                        step_index: 0,
                         collection: "testing/int-string",
-                        documents_json: "[{\"bit\":true,\"int\":42,\"str\":\"string A\"},{\"bit\":true,\"int\":52,\"str\":\"string B\"}]",
+                        collection_schema_uri: "test://example/int-string.schema",
+                        collection_key_ptr: [
+                            "/int",
+                        ],
+                        collection_uuid_ptr: "/_meta/uuid",
+                        docs_json_lines: "{\"bit\":true,\"int\":42,\"str\":\"string A\"}\n{\"bit\":true,\"int\":52,\"str\":\"string B\"}",
                         partitions: Some(
                             LabelSelector {
                                 include: Some(
@@ -531,8 +537,14 @@ All {
                     },
                     Step {
                         step_type: Verify,
+                        step_index: 1,
                         collection: "testing/int-string",
-                        documents_json: "[{\"str\":\"string A\"},{\"str\":\"string B\"}]",
+                        collection_schema_uri: "test://example/int-string.schema",
+                        collection_key_ptr: [
+                            "/int",
+                        ],
+                        collection_uuid_ptr: "/_meta/uuid",
+                        docs_json_lines: "{\"str\":\"string A\"}\n{\"str\":\"string B\"}",
                         partitions: Some(
                             LabelSelector {
                                 include: Some(
