@@ -34,17 +34,25 @@ pub mod constraint {
 /// SessionRequest is the request type of the StartSession RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SessionRequest {
-    /// Endpoint URL of the materialization system.
-    #[prost(string, tag = "1")]
-    pub endpoint_url: ::prost::alloc::string::String,
-    /// Target name within the materialization system, where applicable.
-    /// This could be a SQL schema & table, or a pub/sub topic, etc.
+    /// Endpoint type addressed by this request.
+    #[prost(enumeration = "super::flow::EndpointType", tag = "1")]
+    pub endpoint_type: i32,
+    /// Driver-specific configuration, as an encoded JSON object.
     #[prost(string, tag = "2")]
-    pub target: ::prost::alloc::string::String,
+    pub endpoint_config_json: ::prost::alloc::string::String,
     /// Stable ID of the flow consumer shard that this session belongs to. A null or empty value
     /// indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
     #[prost(string, tag = "3")]
     pub shard_id: ::prost::alloc::string::String,
+    // DEPRECATED - this will be removed.
+    // Their semantics are instead carried by endpoint_config_json.
+    /// Endpoint URL of the materialization system.
+    #[prost(string, tag = "99")]
+    pub endpoint_url: ::prost::alloc::string::String,
+    /// Target name within the materialization system, where applicable.
+    /// This could be a SQL schema & table, or a pub/sub topic, etc.
+    #[prost(string, tag = "100")]
+    pub target: ::prost::alloc::string::String,
 }
 /// SessionResponse is the response type of the StartSession RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -56,16 +64,19 @@ pub struct SessionResponse {
 /// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateRequest {
+    /// Endpoint type addressed by this request.
+    #[prost(enumeration = "super::flow::EndpointType", tag = "1")]
+    pub endpoint_type: i32,
     /// Opaque session handle.
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes = "vec", tag = "2")]
     pub handle: ::prost::alloc::vec::Vec<u8>,
     /// Collection to be materialized.
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "3")]
     pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Projection configuration, keyed by the projection field name,
     /// with JSON-encoded and driver-defined configuration objects.
-    #[prost(map = "string, string", tag = "3")]
-    pub field_config:
+    #[prost(map = "string, string", tag = "4")]
+    pub field_config_json:
         ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// ValidateResponse is the response type of the Validate RPC.
@@ -80,18 +91,21 @@ pub struct ValidateResponse {
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
+    /// Endpoint type addressed by this request.
+    #[prost(enumeration = "super::flow::EndpointType", tag = "1")]
+    pub endpoint_type: i32,
     /// Opaque session handle.
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes = "vec", tag = "2")]
     pub handle: ::prost::alloc::vec::Vec<u8>,
     /// Collection to be materialized.
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "3")]
     pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Selected fields for materialization
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "4")]
     pub fields: ::core::option::Option<super::flow::FieldSelection>,
     /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
     /// report only what would have happened.
-    #[prost(bool, tag = "4")]
+    #[prost(bool, tag = "5")]
     pub dry_run: bool,
 }
 /// ApplyResponse is the response type of the Apply RPC.
@@ -105,12 +119,15 @@ pub struct ApplyResponse {
 /// FenceRequest is the request type of a Fence RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FenceRequest {
+    /// Endpoint type addressed by this request.
+    #[prost(enumeration = "super::flow::EndpointType", tag = "1")]
+    pub endpoint_type: i32,
     /// Opaque session handle.
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes = "vec", tag = "2")]
     pub handle: ::prost::alloc::vec::Vec<u8>,
     /// Driver checkpoint which was last committed from a Store RPC.
     /// Or empty, if the Driver has never returned a checkpoint.
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "3")]
     pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
 }
 /// FenceResponse is the response type of a Fence RPC.
@@ -157,17 +174,20 @@ pub mod transaction_request {
     /// Start represents the initial payload of transaction metadata.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Start {
+        /// Endpoint type addressed by this request.
+        #[prost(enumeration = "super::super::flow::EndpointType", tag = "1")]
+        pub endpoint_type: i32,
         /// Opaque session handle.
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes = "vec", tag = "2")]
         pub handle: ::prost::alloc::vec::Vec<u8>,
         /// Fields represents the projection fields to be stored. This repeats the selection and ordering
         /// of the last Apply RPC, but is provided here also as a convenience.
-        #[prost(message, optional, tag = "2")]
+        #[prost(message, optional, tag = "3")]
         pub fields: ::core::option::Option<super::super::flow::FieldSelection>,
         /// Checkpoint to write with this Store transaction, to be associated with
         /// the session's caller ID and to be returned by a future Fence RPC.
         /// This may be ignored if the Driver doesn't support exactly-once semantics.
-        #[prost(bytes = "vec", tag = "3")]
+        #[prost(bytes = "vec", tag = "4")]
         pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
     /// LoadRequest represents a request to Load one or more documents.

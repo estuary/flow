@@ -1,5 +1,5 @@
 use futures::future::{FutureExt, LocalBoxFuture};
-use protocol::{flow, materialize};
+use protocol::materialize;
 
 #[derive(Debug)]
 pub struct Drivers {}
@@ -12,9 +12,8 @@ impl Drivers {
     #[tracing::instrument(skip(self))]
     async fn validate_materialization(
         &self,
-        _endpoint_type: flow::EndpointType,
-        _endpoint_config: serde_json::Value,
-        _request: materialize::ValidateRequest,
+        request: materialize::ValidateRequest,
+        endpoint_config: serde_json::Value,
     ) -> Result<materialize::ValidateResponse, anyhow::Error> {
         anyhow::bail!("not implemented yet")
     }
@@ -23,11 +22,10 @@ impl Drivers {
 impl validation::Drivers for Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        endpoint_type: flow::EndpointType,
-        endpoint_config: serde_json::Value,
         request: materialize::ValidateRequest,
+        endpoint_config: serde_json::Value,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
-        self.validate_materialization(endpoint_type, endpoint_config, request)
+        self.validate_materialization(request, endpoint_config)
             .boxed_local()
     }
 }

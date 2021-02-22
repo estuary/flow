@@ -9,6 +9,9 @@ endpoints:
   fragments:
     s3:
       bucket: my-bucket
+  mySqlite:
+    sqlite:
+      path: myTest.db
 
 journalRules:
   00_fragment_store:
@@ -16,3 +19,13 @@ journalRules:
       fragment:
         compression_codec: GZIP_OFFLOAD_DECOMPRESSION
         stores: [ s3://example-bucket/prefix ]
+
+# TODO(johnny): Still working on this.
+#materializations:
+#  foo/the/bar:
+#    endpoint:
+#      name: mySqlite
+#    fields:
+#      recommended: true
+#    source:
+#      name: testing/int-string

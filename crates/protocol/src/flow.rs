@@ -678,13 +678,11 @@ pub mod build_api {
     pub enum Code {
         Begin = 0,
         Poll = 1,
-        FetchRequest = 2,
-        FetchSuccess = 3,
-        FetchFailed = 4,
-        ValidateRequest = 5,
-        ValidateResponse = 6,
-        Done = 7,
-        DoneWithErrors = 8,
+        Trampoline = 2,
+        TrampolineFetch = 3,
+        TrampolineValidateMaterialization = 4,
+        Done = 5,
+        DoneWithErrors = 6,
         CatalogSchema = 100,
     }
 }

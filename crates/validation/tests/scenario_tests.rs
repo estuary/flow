@@ -825,13 +825,13 @@ struct MockMaterializationValidateCall {
 impl validation::Drivers for MockDriverCalls {
     fn validate_materialization<'a>(
         &'a self,
-        endpoint_type: flow::EndpointType,
+        request: materialize::ValidateRequest,
         endpoint_config: serde_json::Value,
-        _request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
         async move {
             for (_key, call) in &self.materializations {
-                if (call.endpoint, &call.config) != (endpoint_type, &endpoint_config) {
+                if (call.endpoint as i32, &call.config) != (request.endpoint_type, &endpoint_config)
+                {
                     continue;
                 }
 
@@ -885,7 +885,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         errors: validation_errors,
         implicit_projections,
         inferences,
-    } = validation::validate(
+    } = futures::executor::block_on(validation::validate(
         &mock_calls,
         &captures,
         &collections,
@@ -901,7 +901,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         &schema_docs,
         &test_steps,
         &transforms,
-    );
+    ));
 
     errors.extend(validation_errors.into_iter());
     projections.extend(implicit_projections.into_iter());

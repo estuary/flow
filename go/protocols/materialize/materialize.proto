@@ -95,14 +95,23 @@ service Driver {
 
 // SessionRequest is the request type of the StartSession RPC.
 message SessionRequest {
-  // Endpoint URL of the materialization system.
-  string endpoint_url = 1;
-  // Target name within the materialization system, where applicable.
-  // This could be a SQL schema & table, or a pub/sub topic, etc.
-  string target = 2;
+  // Endpoint type addressed by this request.
+  flow.EndpointType endpoint_type = 1;
+  // Driver-specific configuration, as an encoded JSON object.
+  string endpoint_config_json = 2;
   // Stable ID of the flow consumer shard that this session belongs to. A null or empty value
   // indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
   string shard_id = 3;
+
+
+  // DEPRECATED - this will be removed.
+  // Their semantics are instead carried by endpoint_config_json.
+
+  // Endpoint URL of the materialization system.
+  string endpoint_url = 99;
+  // Target name within the materialization system, where applicable.
+  // This could be a SQL schema & table, or a pub/sub topic, etc.
+  string target = 100;
 }
 
 // SessionResponse is the response type of the StartSession RPC.
@@ -113,13 +122,15 @@ message SessionResponse {
 
 // ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
+  // Endpoint type addressed by this request.
+  flow.EndpointType endpoint_type = 1;
   // Opaque session handle.
-  bytes handle = 1;
+  bytes handle = 2;
   // Collection to be materialized.
-  flow.CollectionSpec collection = 2;
+  flow.CollectionSpec collection = 3;
   // Projection configuration, keyed by the projection field name,
   // with JSON-encoded and driver-defined configuration objects.
-  map<string, string> field_config = 3;
+  map<string, string> field_config_json = 4;
 }
 
 // ValidateResponse is the response type of the Validate RPC.
@@ -132,15 +143,17 @@ message ValidateResponse {
 
 // ApplyRequest is the request type of the Apply RPC.
 message ApplyRequest {
+  // Endpoint type addressed by this request.
+  flow.EndpointType endpoint_type = 1;
   // Opaque session handle.
-  bytes handle = 1;
+  bytes handle = 2;
   // Collection to be materialized.
-  flow.CollectionSpec collection = 2;
+  flow.CollectionSpec collection = 3;
   // Selected fields for materialization
-  flow.FieldSelection fields = 3;
+  flow.FieldSelection fields = 4;
   // Is this Apply a dry-run? If so, no action is undertaken and Apply will
   // report only what would have happened.
-  bool dry_run = 4;
+  bool dry_run = 5;
 }
 
 // ApplyResponse is the response type of the Apply RPC.
@@ -152,11 +165,13 @@ message ApplyResponse {
 
 // FenceRequest is the request type of a Fence RPC.
 message FenceRequest {
+  // Endpoint type addressed by this request.
+  flow.EndpointType endpoint_type = 1;
   // Opaque session handle.
-  bytes handle = 1;
+  bytes handle = 2;
   // Driver checkpoint which was last committed from a Store RPC.
   // Or empty, if the Driver has never returned a checkpoint.
-  bytes driver_checkpoint = 2;
+  bytes driver_checkpoint = 3;
 }
 
 // FenceResponse is the response type of a Fence RPC.
@@ -182,15 +197,17 @@ message LoadEOF {
 message TransactionRequest {
   // Start represents the initial payload of transaction metadata.
   message Start {
+    // Endpoint type addressed by this request.
+    flow.EndpointType endpoint_type = 1;
     // Opaque session handle.
-    bytes handle = 1;
+    bytes handle = 2;
     // Fields represents the projection fields to be stored. This repeats the selection and ordering
     // of the last Apply RPC, but is provided here also as a convenience.
-    flow.FieldSelection fields = 2;
+    flow.FieldSelection fields = 3;
     // Checkpoint to write with this Store transaction, to be associated with
     // the session's caller ID and to be returned by a future Fence RPC.
     // This may be ignored if the Driver doesn't support exactly-once semantics.
-    bytes flow_checkpoint = 3;
+    bytes flow_checkpoint = 4;
   }
   // Start is sent as the first message in a Transaction, and never sent again during the same
   // transaction.

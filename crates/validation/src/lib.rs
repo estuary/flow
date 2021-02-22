@@ -23,9 +23,8 @@ use errors::Error;
 pub trait Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        endpoint_type: protocol::flow::EndpointType,
-        endpoint_config: serde_json::Value,
         request: materialize::ValidateRequest,
+        endpoint_config: serde_json::Value,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>>;
 }
 
@@ -42,7 +41,7 @@ pub struct Tables {
     pub inferences: tables::Inferences,
 }
 
-pub fn validate<D: Drivers>(
+pub async fn validate<D: Drivers>(
     drivers: &D,
     captures: &[tables::Capture],
     collections: &[tables::Collection],
@@ -122,7 +121,8 @@ pub fn validate<D: Drivers>(
         &imports,
         materializations,
         &mut errors,
-    );
+    )
+    .await;
 
     let built_tests = test_step::walk_all_test_steps(
         collections,

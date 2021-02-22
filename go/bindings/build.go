@@ -3,11 +3,14 @@ package bindings
 // #include "../../crates/bindings/flow_bindings.h"
 import "C"
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -37,27 +40,69 @@ func BuildCatalog(config pf.BuildAPI_Config, client *http.Client) (hadUserErrors
 		panic(err) // Cannot fail to marshal.
 	}
 
-	// resolvedCh coordinates resolved work being sent back to the service,
-	// in the form of function closures which are executed in serial order
-	// against the *service instance.
-	var resolvedCh = make(chan func(*service), 8)
-	// mayPoll tracks whether we've completed work since our last poll.
+	var trampoline = trampolineServer{
+		handlers: []trampolineHandler{
+			{
+				taskCode: uint32(pf.BuildAPI_TRAMPOLINE_FETCH),
+				decode: func(request []byte) (interface{}, error) {
+					var fetch = new(pf.BuildAPI_Fetch)
+					var err = fetch.Unmarshal(request)
+					return fetch, err
+				},
+				exec: func(i interface{}) ([]byte, error) {
+					var fetch = i.(*pf.BuildAPI_Fetch)
+					log.WithField("url", fetch.ResourceUrl).Debug("fetch requested")
+
+					var resp, err = client.Get(fetch.ResourceUrl)
+					var body = bytes.NewBuffer(make([]byte, 4096))
+					body.Truncate(taskResponseHeader) // Reserve.
+
+					if err == nil {
+						_, err = io.Copy(body, resp.Body)
+					}
+					if err == nil && resp.StatusCode != 200 && resp.StatusCode != 204 {
+						err = fmt.Errorf("unexpected status %d: %s",
+							resp.StatusCode,
+							body.String()[taskResponseHeader:],
+						)
+					}
+					return body.Bytes(), err
+				},
+			},
+			{
+				taskCode: uint32(pf.BuildAPI_TRAMPOLINE_VALIDATE_MATERIALIZATION),
+				decode: func(request []byte) (interface{}, error) {
+					var fetch = new(materialize.ValidateRequest)
+					var err = fetch.Unmarshal(request)
+					return fetch, err
+				},
+				exec: func(i interface{}) ([]byte, error) {
+					var request = i.(*materialize.ValidateRequest)
+					log.WithField("request", request).Info("materialize validation requested")
+					return nil, fmt.Errorf("not yet implemented")
+				},
+			},
+		},
+		// resolvedCh is resolved trampoline tasks being sent back to the service.
+		resolvedCh: make(chan []byte, 8),
+	}
+	// mayPoll tracks whether we've resolved tasks since our last poll.
 	var mayPoll = true
 
 	for {
-		var resolveFn func(*service)
+		var resolved []byte
 
 		if !mayPoll {
-			resolveFn = <-resolvedCh // Must block.
+			resolved = <-trampoline.resolvedCh // Must block.
 		} else {
 			select {
-			case resolveFn = <-resolvedCh:
+			case resolved = <-trampoline.resolvedCh:
 			default: // Don't block.
 			}
 		}
 
-		if resolveFn != nil {
-			resolveFn(svc)
+		if resolved != nil {
+			svc.sendBytes(uint32(pf.BuildAPI_TRAMPOLINE), resolved)
 			mayPoll = true
 			continue
 		}
@@ -80,32 +125,8 @@ func BuildCatalog(config pf.BuildAPI_Config, client *http.Client) (hadUserErrors
 			case pf.BuildAPI_DONE_WITH_ERRORS:
 				return true, nil
 
-			case pf.BuildAPI_FETCH_REQUEST:
-				var fetch pf.BuildAPI_Fetch
-				svc.arenaDecode(o, &fetch)
-
-				log.WithField("url", fetch.ResourceUrl).Debug("fetch requested")
-				go func() {
-					var resp, err = client.Get(fetch.ResourceUrl)
-					var data []byte
-
-					if err == nil {
-						data, err = ioutil.ReadAll(resp.Body)
-					}
-					if err == nil && resp.StatusCode != 200 {
-						err = fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(data))
-					}
-
-					resolvedCh <- func(svc *service) {
-						// Write resolution header, followed by result (body or error).
-						svc.sendBytes(uint32(pf.BuildAPI_FETCH_REQUEST), []byte(fetch.ResourceUrl))
-						if err == nil {
-							svc.sendBytes(uint32(pf.BuildAPI_FETCH_SUCCESS), data)
-						} else {
-							svc.sendBytes(uint32(pf.BuildAPI_FETCH_FAILED), []byte(err.Error()))
-						}
-					}
-				}()
+			case pf.BuildAPI_TRAMPOLINE:
+				trampoline.startTask(svc.arenaSlice(o))
 
 			default:
 				log.WithField("code", o.code).Panic("unexpected code from Rust bindings")
@@ -123,3 +144,78 @@ func newBuildSvc() *service {
 		func(ch *C.Channel) { C.build_drop(ch) },
 	)
 }
+
+type trampolineServer struct {
+	handlers   []trampolineHandler
+	resolvedCh chan []byte
+}
+
+type trampolineHandler struct {
+	// Task code handled by this handler.
+	taskCode uint32
+	// Decode request into a parsed form, which no longer references |request|.
+	decode func(request []byte) (interface{}, error)
+	// Execute a task, eventually returning a []byte response or error.
+	// The []byte response must pre-allocate |taskResponseHeader| bytes of header
+	// prefix, which will be filled by the trampolineServer.
+	exec func(interface{}) ([]byte, error)
+}
+
+func (s trampolineServer) startTask(request []byte) {
+	// Task requests are 8 bytes of task ID, followed by 4 bytes of LE task code.
+	var taskCode = binary.LittleEndian.Uint32(request[8:12])
+	var taskID = binary.LittleEndian.Uint64(request[0:8])
+	request = request[12:]
+
+	var decoded interface{}
+	var err error
+	var exec func(interface{}) ([]byte, error)
+
+	for _, h := range s.handlers {
+		if h.taskCode != taskCode {
+			continue
+		}
+		if decoded, err = h.decode(request); err != nil {
+			err = fmt.Errorf("decoding trampoline task: %w", err)
+		}
+		exec = h.exec
+		break
+	}
+	if exec == nil {
+		exec = func(interface{}) ([]byte, error) {
+			return nil, fmt.Errorf("no handler for task code %d", taskCode)
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"id":      taskID,
+		"code":    taskCode,
+		"decoded": decoded,
+	}).Debug("spawning trampoline task")
+
+	go func() {
+		var response []byte
+		if err == nil {
+			response, err = exec(decoded)
+		}
+		if err == nil {
+			response[8] = 1 // Mark OK.
+		} else {
+			response = append(make([]byte, taskResponseHeader), err.Error()...)
+			response[8] = 0 // Mark !OK.
+		}
+		binary.LittleEndian.PutUint64(response[:8], taskID)
+
+		log.WithFields(log.Fields{
+			"id":   taskID,
+			"code": taskCode,
+			"err":  err,
+		}).Debug("resolving trampoline task")
+
+		s.resolvedCh <- response
+	}()
+}
+
+// Tasks responses are 8 bytes of task ID, followed by one byte of
+// "success" (1) or "failed" (0).
+const taskResponseHeader = 9

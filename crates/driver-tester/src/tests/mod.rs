@@ -89,6 +89,8 @@ impl MaterializationFixture {
         apply_dry_run: bool,
     ) -> anyhow::Result<MaterializationFixture> {
         let start_session = SessionRequest {
+            endpoint_type: 0,                    // TODO
+            endpoint_config_json: String::new(), // TODO,
             endpoint_url: fixture.endpoint.clone(),
             target: fixture.target.clone(),
             shard_id: String::new(),
@@ -104,9 +106,10 @@ impl MaterializationFixture {
             .handle;
 
         let validate_req = ValidateRequest {
+            endpoint_type: 0, // TODO
             handle: initial_handle.clone(),
             collection: Some(spec.clone()),
-            field_config: Default::default(),
+            field_config_json: Default::default(),
         };
         let constraints = fixture
             .client
@@ -170,6 +173,7 @@ impl MaterializationFixture {
     /// Returns an ApplyRequest for applying this materialization.
     pub fn new_apply_req(&self, handle: Vec<u8>, dry_run: bool) -> ApplyRequest {
         ApplyRequest {
+            endpoint_type: 0, // TODO
             handle,
             collection: Some(self.spec.clone()),
             fields: Some(self.fields.clone()),
