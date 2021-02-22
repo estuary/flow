@@ -51,6 +51,7 @@ pub fn transaction_start_req(
 ) -> TransactionRequest {
     TransactionRequest {
         start: Some(transaction_request::Start {
+            endpoint_type: 0, // TODO
             handle,
             fields: Some(fields),
             flow_checkpoint: checkpoint,
