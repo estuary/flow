@@ -34,6 +34,8 @@ pub async fn run(fixture: &mut Fixture, collection: CollectionSpec) -> Result<()
     let collection_fixture = MaterializationFixture::exec_setup(fixture, collection, false).await?;
 
     let start_session = SessionRequest {
+        endpoint_type: 0,                    // TODO
+        endpoint_config_json: String::new(), // TODO,
         endpoint_url: fixture.endpoint.clone(),
         target: fixture.target.clone(),
         shard_id: String::from(shard_id),
@@ -53,6 +55,7 @@ pub async fn run(fixture: &mut Fixture, collection: CollectionSpec) -> Result<()
     // here, since it may either be empty or have come from some prior test run.
     let flow_checkpoint = client
         .fence(FenceRequest {
+            endpoint_type: 0, // TODO
             handle: handle.clone(),
             driver_checkpoint: Vec::new(),
         })
@@ -115,6 +118,8 @@ pub async fn run(fixture: &mut Fixture, collection: CollectionSpec) -> Result<()
 
     // Start a new session and ensure that the previous checkpoint is returned
     let start_session = SessionRequest {
+        endpoint_type: 0,                    // TODO
+        endpoint_config_json: String::new(), // TODO,
         endpoint_url: fixture.endpoint.clone(),
         target: fixture.target.clone(),
         shard_id: String::from(shard_id),
@@ -128,6 +133,7 @@ pub async fn run(fixture: &mut Fixture, collection: CollectionSpec) -> Result<()
 
     let flow_checkpoint = client
         .fence(FenceRequest {
+            endpoint_type: 0, // TODO
             handle: handle.clone(),
             driver_checkpoint: store_resp.driver_checkpoint,
         })

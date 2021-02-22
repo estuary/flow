@@ -149,7 +149,8 @@ where
         &schema_docs,
         &test_steps,
         &transforms,
-    );
+    )
+    .await;
 
     errors.extend(validation_errors.into_iter());
     projections.extend(implicit_projections.into_iter());

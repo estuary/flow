@@ -6,7 +6,7 @@ use protocol::{flow, materialize};
 use std::collections::{BTreeMap, HashMap};
 use url::Url;
 
-pub fn walk_all_materializations<D: Drivers>(
+pub async fn walk_all_materializations<D: Drivers>(
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
@@ -43,7 +43,7 @@ pub fn walk_all_materializations<D: Drivers>(
     let validations = validations.into_iter().map(
         |(ep_type, ep_config, built_collection, materialization, request)| async move {
             drivers
-                .validate_materialization(ep_type, ep_config.clone(), request)
+                .validate_materialization(request, ep_config.clone())
                 // Pass-through the materialization & CollectionSpec for future verification.
                 .map(|response| {
                     (
@@ -57,7 +57,7 @@ pub fn walk_all_materializations<D: Drivers>(
                 .await
         },
     );
-    let validations = futures::executor::block_on(futures::future::join_all(validations));
+    let validations = futures::future::join_all(validations).await;
 
     let mut built_materializations = tables::BuiltMaterializations::new();
 
@@ -198,9 +198,10 @@ fn walk_materialization_request<'a>(
     );
 
     let request = materialize::ValidateRequest {
+        endpoint_type: endpoint.endpoint_type as i32,
         handle: Vec::new(),
         collection: Some(built_collection.spec.clone()),
-        field_config: field_config.into_iter().collect(),
+        field_config_json: field_config.into_iter().collect(),
     };
 
     Some((

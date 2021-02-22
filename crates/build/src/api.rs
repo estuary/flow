@@ -1,3 +1,4 @@
+use bytes::{Buf, BufMut};
 use futures::future::LocalBoxFuture;
 use futures::{channel::oneshot, FutureExt};
 use models::tables;
@@ -7,9 +8,9 @@ use protocol::{
     flow::build_api::{self, Code},
     materialize,
 };
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::task::Poll;
+use std::{cell::RefCell, collections::HashMap};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -24,14 +25,101 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
 }
 
-// Fetcher implements sources::Fetcher, delegated to Go via the CGO bridge.
-struct Fetcher(Rc<RefCell<Vec<Fetch>>>);
-
-// Fetch represents an outstanding fetch() of Fetcher.
-struct Fetch {
-    request: build_api::Fetch,
-    response: oneshot::Sender<Result<bytes::Bytes, anyhow::Error>>,
+/// Trampoline manages tasks which are "bounced" to Go for execution
+/// over a CGO bridge, with resolved results eventually sent back.
+// NOTE(johnny): This will move to the `cgo` module, but I'm letting it bake here.
+struct Trampoline {
+    // Queue of tasks to be dispatched across the CGO bridge.
+    dispatch_queue: RefCell<(u64, Vec<TrampolineTask>)>,
+    // Callback handlers for tasks we've dispatched, and are awaiting responses for.
+    awaiting: RefCell<HashMap<u64, Box<dyn FnOnce(Result<&[u8], anyhow::Error>)>>>,
 }
+
+impl Trampoline {
+    fn new() -> Trampoline {
+        Trampoline {
+            dispatch_queue: Default::default(),
+            awaiting: Default::default(),
+        }
+    }
+
+    // True if there no queued or awaiting tasks remain.
+    fn is_empty(&self) -> bool {
+        self.dispatch_queue.borrow().1.is_empty() && self.awaiting.borrow().is_empty()
+    }
+
+    // Start a new task which is queued for dispatch and execution over the bridge.
+    fn start_task<D, C>(&self, code: u32, dispatch: D, callback: C)
+    where
+        D: for<'a> FnOnce(&'a mut Vec<u8>) + 'static,
+        C: for<'a> FnOnce(Result<&'a [u8], anyhow::Error>) + 'static,
+    {
+        let mut queue = self.dispatch_queue.borrow_mut();
+
+        // Assign monotonic sequence number.
+        let id = queue.0;
+        queue.0 += 1;
+
+        queue.1.push({
+            TrampolineTask {
+                id,
+                code,
+                dispatch: Box::new(dispatch),
+                callback: Box::new(callback),
+            }
+        });
+
+        tracing::debug!(?id, ?code, "starting task");
+    }
+
+    // Dispatch all queued tasks over the bridge.
+    fn dispatch_tasks(&self, code: u32, arena: &mut Vec<u8>, out: &mut Vec<cgo::Out>) {
+        let mut awaiting = self.awaiting.borrow_mut();
+
+        for task in self.dispatch_queue.borrow_mut().1.drain(..) {
+            let begin = arena.len();
+
+            arena.put_u64_le(task.id);
+            arena.put_u32_le(task.code);
+            (task.dispatch)(arena);
+
+            cgo::send_bytes(code, begin, arena, out);
+            awaiting.insert(task.id, task.callback);
+        }
+    }
+
+    // Resolve a task for which we've received the response |data|.
+    fn resolve_task(&self, mut data: &[u8]) {
+        let id = data.get_u64_le();
+        let ok = data.get_u8();
+
+        let result = if ok != 0 {
+            Ok(data)
+        } else {
+            Err(anyhow::anyhow!("{}", String::from_utf8_lossy(data)))
+        };
+
+        let n_remain = self.awaiting.borrow().len();
+        tracing::debug!(?id, ?n_remain, "resolving task");
+
+        let callback = self
+            .awaiting
+            .borrow_mut()
+            .remove(&id)
+            .expect("unknown task ID");
+        (callback)(result);
+    }
+}
+
+struct TrampolineTask {
+    id: u64,
+    code: u32,
+    dispatch: Box<dyn FnOnce(&mut Vec<u8>)>,
+    callback: Box<dyn FnOnce(Result<&[u8], anyhow::Error>)>,
+}
+
+// Fetcher implements sources::Fetcher, and delegates to Go via Trampoline.
+struct Fetcher(Rc<Trampoline>);
 
 impl sources::Fetcher for Fetcher {
     fn fetch<'a>(
@@ -39,85 +127,81 @@ impl sources::Fetcher for Fetcher {
         resource: &'a Url,
         content_type: &'a flow::ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
+        let request = build_api::Fetch {
+            resource_url: resource.to_string(),
+            content_type: *content_type as i32,
+        };
         let (tx, rx) = oneshot::channel();
 
-        self.0.borrow_mut().push(Fetch {
-            request: build_api::Fetch {
-                resource_url: resource.to_string(),
-                content_type: *content_type as i32,
+        self.0.start_task(
+            build_api::Code::TrampolineFetch as u32,
+            move |arena: &mut Vec<u8>| request.encode_raw(arena),
+            move |result: Result<&[u8], anyhow::Error>| {
+                let result = result.map(|data| bytes::Bytes::copy_from_slice(data));
+                tx.send(result).unwrap();
             },
-            response: tx,
-        });
-
+        );
         rx.map(|r| r.unwrap()).boxed_local()
     }
 }
 
-// Drivers implements validation::Drivers, delegated to Go via the CGO bridge.
-#[derive(Default)]
-pub struct Drivers {}
+// Drivers implements validation::Drivers, and delegates to Go via Trampoline.
+struct Drivers(Rc<Trampoline>);
 
 impl validation::Drivers for Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        _endpoint_type: flow::EndpointType,
-        _endpoint_config: serde_json::Value,
-        _request: materialize::ValidateRequest,
+        mut request: materialize::ValidateRequest,
+        endpoint_config: serde_json::Value,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
-        async { anyhow::bail!("not implemented yet") }.boxed_local()
+        // To actually perform a validation, the caller first creates a session (using
+        // |endpoint_config|) to obtain a handle, and *then* validates the |request|.
+        // We must pass the (request, endpoint_config) tuple to the Go side to do this workflow.
+        //
+        // We _could_ represent this as a new protobuf message, but we already have a ValidateRequest
+        // that, by construction, has an empty and unused |handle| field. As an implementation detail
+        // of the bridge API binding, we thus simply pack |endpoint_config| into |handle|.
+        request.handle = endpoint_config.to_string().into();
+
+        let (tx, rx) = oneshot::channel();
+
+        self.0.start_task(
+            build_api::Code::TrampolineValidateMaterialization as u32,
+            move |arena: &mut Vec<u8>| request.encode_raw(arena),
+            move |result: Result<&[u8], anyhow::Error>| {
+                let result = result.and_then(|data| {
+                    materialize::ValidateResponse::decode(data).map_err(Into::into)
+                });
+                tx.send(result).unwrap();
+            },
+        );
+        rx.map(|r| r.unwrap()).boxed_local()
     }
 }
 
 // BuildFuture is a polled future which builds a catalog.
 struct BuildFuture {
     boxed: LocalBoxFuture<'static, Result<tables::All, anyhow::Error>>,
-    fetch_dispatch: Rc<RefCell<Vec<Fetch>>>,
-    fetch_awaiting: Vec<Fetch>,
+    trampoline: Rc<Trampoline>,
 }
 
 impl BuildFuture {
     fn new(config: build_api::Config) -> Result<Self, Error> {
-        let fetch_dispatch = Rc::new(RefCell::new(Vec::new()));
-        let fetcher = Fetcher(fetch_dispatch.clone());
-        let drivers = Drivers::default(); // TODO.
-
+        let trampoline = Rc::new(Trampoline::new());
+        let fetcher = Fetcher(trampoline.clone());
+        let drivers = Drivers(trampoline.clone());
         let future = crate::configured_build(config, fetcher, drivers);
 
         Ok(BuildFuture {
             boxed: future.boxed_local(),
-            fetch_dispatch,
-            fetch_awaiting: Vec::new(),
+            trampoline,
         })
     }
 
     // Dispatch all queued work to the Go side of the CGO bridge.
     fn dispatch_work(&mut self, arena: &mut Vec<u8>, out: &mut Vec<cgo::Out>) {
-        for fetch in self.fetch_dispatch.borrow_mut().drain(..) {
-            cgo::send_message(Code::FetchRequest as u32, &fetch.request, arena, out);
-            self.fetch_awaiting.push(fetch);
-        }
-    }
-
-    // Resolve an awaiting fetch of the given resource, with the given result.
-    fn resolve_fetch(&mut self, resource_url: String, result: Result<bytes::Bytes, anyhow::Error>) {
-        let index = self
-            .fetch_awaiting
-            .iter()
-            .enumerate()
-            .find_map(|(index, fetch)| {
-                if fetch.request.resource_url == resource_url {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .expect("resource_url must be an awaiting fetch");
-
-        self.fetch_awaiting
-            .swap_remove(index)
-            .response
-            .send(result)
-            .unwrap();
+        self.trampoline
+            .dispatch_tasks(build_api::Code::Trampoline as u32, arena, out);
     }
 }
 
@@ -130,20 +214,10 @@ pub struct API {
 enum State {
     Init,
     // We're ready to be immediately polled.
-    PollReady {
-        future: BuildFuture,
-    },
+    PollReady { future: BuildFuture },
     // We've polled to Pending and have dispatched work, but it must
     // resolve before we may continue.
-    PollIdle {
-        future: BuildFuture,
-    },
-    // We're loading catalog sources, and have been notified that a
-    // fetched resource is about to resolve.
-    ResolvingFetch {
-        future: BuildFuture,
-        resource_url: String,
-    },
+    PollIdle { future: BuildFuture },
     // Build is completed.
     Done,
 }
@@ -190,8 +264,7 @@ impl cgo::Service for API {
                         let tables = result?;
 
                         // We must have drained all outstanding fetches.
-                        assert!(future.fetch_dispatch.borrow().is_empty());
-                        assert!(future.fetch_awaiting.is_empty());
+                        assert!(future.trampoline.is_empty());
 
                         if tables.errors.is_empty() {
                             cgo::send_code(Code::Done as u32, out);
@@ -210,42 +283,10 @@ impl cgo::Service for API {
                     }
                 }
             }
-            // Fetch is resolving.
-            (Code::FetchRequest, State::PollIdle { future })
-            | (Code::FetchRequest, State::PollReady { future }) => {
-                let resource_url = std::str::from_utf8(data)?.to_string();
-
-                self.state = State::ResolvingFetch {
-                    future,
-                    resource_url,
-                };
-                Ok(())
-            }
-            // Fetch has resolved successfully.
-            (
-                Code::FetchSuccess,
-                State::ResolvingFetch {
-                    mut future,
-                    resource_url,
-                },
-            ) => {
-                future.resolve_fetch(resource_url, Ok(bytes::Bytes::copy_from_slice(data)));
-
-                self.state = State::PollReady { future };
-                Ok(())
-            }
-            // Fetch has resolved with an error.
-            (
-                Code::FetchFailed,
-                State::ResolvingFetch {
-                    mut future,
-                    resource_url,
-                },
-            ) => {
-                future.resolve_fetch(
-                    resource_url,
-                    Err(anyhow::anyhow!("{}", String::from_utf8_lossy(data))),
-                );
+            // Trampoline task has resolved.
+            (Code::Trampoline, State::PollIdle { future })
+            | (Code::Trampoline, State::PollReady { future }) => {
+                future.trampoline.resolve_task(data);
 
                 self.state = State::PollReady { future };
                 Ok(())
