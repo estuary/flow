@@ -4,13 +4,16 @@ package bindings
 import "C"
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 
+	"github.com/estuary/flow/go/materialize/driver"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/estuary/flow/go/protocols/materialize"
+	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -72,14 +75,47 @@ func BuildCatalog(config pf.BuildAPI_Config, client *http.Client) (hadUserErrors
 			{
 				taskCode: uint32(pf.BuildAPI_TRAMPOLINE_VALIDATE_MATERIALIZATION),
 				decode: func(request []byte) (interface{}, error) {
-					var fetch = new(materialize.ValidateRequest)
+					var fetch = new(pm.ValidateRequest)
 					var err = fetch.Unmarshal(request)
 					return fetch, err
 				},
 				exec: func(i interface{}) ([]byte, error) {
-					var request = i.(*materialize.ValidateRequest)
-					log.WithField("request", request).Info("materialize validation requested")
-					return nil, fmt.Errorf("not yet implemented")
+					var request = i.(*pm.ValidateRequest)
+					log.WithField("request", request).Debug("materialize validation requested")
+
+					// The build API stuffs JSON-encoded configuration into the Handle field.
+					var endpointConfig = json.RawMessage(request.Handle)
+					request.Handle = nil
+
+					var ctx = context.Background()
+
+					var driver, err = driver.NewDriver(ctx, request.EndpointType, endpointConfig)
+					if err != nil {
+						return nil, fmt.Errorf("driver.NewDriver: %w", err)
+					}
+
+					session, err := driver.StartSession(ctx, &pm.SessionRequest{
+						EndpointType:       request.EndpointType,
+						EndpointConfigJson: string(endpointConfig),
+						ShardId:            "",
+					})
+					if err != nil {
+						return nil, fmt.Errorf("driver.StartSession: %w", err)
+					}
+
+					request.Handle = session.Handle
+					response, err := driver.Validate(ctx, request)
+					if err != nil {
+						return nil, fmt.Errorf("driver.Validate: %w", err)
+					}
+					log.WithField("response", response).Debug("materialize validation response")
+
+					// Return marshaled response with a |taskResponseHeader| prefix.
+					var out = make([]byte, taskResponseHeader+response.ProtoSize())
+					if _, err = response.MarshalTo(out[taskResponseHeader:]); err != nil {
+						return nil, fmt.Errorf("marshal response: %w", err)
+					}
+					return out, err
 				},
 			},
 		},
