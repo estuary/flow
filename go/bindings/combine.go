@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/estuary/flow/go/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
@@ -117,7 +116,7 @@ func (c *Combine) CloseSend() error {
 }
 
 // Finish combining documents, invoking the callback for each distinct group-by document.
-func (c *Combine) Finish(cb func(json.RawMessage, []byte, tuple.Tuple) error) error {
+func (c *Combine) Finish(cb func(doc json.RawMessage, packedKey, packedFields []byte) error) error {
 	if err := c.CloseSend(); err != nil {
 		return err
 	} else if err := drainCombineToCallback(c.svc, &c.out, cb); err != nil {
@@ -131,7 +130,7 @@ func (c *Combine) Finish(cb func(json.RawMessage, []byte, tuple.Tuple) error) er
 func drainCombineToCallback(
 	svc *service,
 	out *[]C.Out,
-	cb func(json.RawMessage, []byte, tuple.Tuple) error,
+	cb func(doc json.RawMessage, packedKey, packedFields []byte) error,
 ) error {
 	// Sanity check we got triples of output frames.
 	if len(*out)%3 != 0 {
@@ -139,13 +138,11 @@ func drainCombineToCallback(
 	}
 
 	for len(*out) >= 3 {
-		var doc = svc.arenaSlice((*out)[0])
-		var key = svc.arenaSlice((*out)[1])
-		var fields, err = tuple.Unpack(svc.arenaSlice((*out)[2]))
-
-		if err != nil {
-			panic(err) // Unexpected Rust <=> Go protocol error.
-		} else if err = cb(doc, key, fields); err != nil {
+		if err := cb(
+			svc.arenaSlice((*out)[0]), // Doc.
+			svc.arenaSlice((*out)[1]), // Packed key.
+			svc.arenaSlice((*out)[2]), // Packed fields.
+		); err != nil {
 			return err
 		}
 		*out = (*out)[3:]
