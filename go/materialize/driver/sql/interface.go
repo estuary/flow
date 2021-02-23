@@ -146,14 +146,11 @@ func (c *CacheingConnectionManager) Connection(ctx context.Context, uri string) 
 // A GenericDriver implements the DriverServer interface using the Connection, Transaction,
 // ConnectionManager, and SQLGen interfaces.
 type GenericDriver struct {
-	// EndpointType is the type of the endpoint from the flow.yaml spec
-	EndpointType string
+	ParseConfig func(json.RawMessage) (uri string, table string, err error)
 	// The SQLGenerator to use for generating statements for use with the go sql package.
 	SQLGen SQLGenerator
-
 	// Connections creates and caches all connections.
 	Connections *CacheingConnectionManager
-
 	// SQLCache is a map of caller id to the sql that we cache.
 	SQLCache      map[string]*CachedSQL
 	sqlCacheMutex sync.Mutex
@@ -161,10 +158,14 @@ type GenericDriver struct {
 
 // StartSession is part of the DriverServer implementation.
 func (g *GenericDriver) StartSession(ctx context.Context, req *pm.SessionRequest) (*pm.SessionResponse, error) {
+	var uri, table, err = g.ParseConfig(json.RawMessage(req.EndpointConfigJson))
+	if err != nil {
+		return new(pm.SessionResponse), err
+	}
 	var handle = Handle{
 		Nonce:   rand.Int31(),
-		URI:     req.EndpointUrl,
-		Table:   req.Target,
+		URI:     uri,
+		Table:   table,
 		ShardID: req.ShardId,
 	}
 	handleBytes, err := json.Marshal(handle)

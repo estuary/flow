@@ -452,6 +452,43 @@ All {
             spec: MaterializationSpec {
                 materialization: "testing/int-string",
                 collection: None,
+                shuffle: Some(
+                    Shuffle {
+                        group_name: "materialize/testing/int-string",
+                        source_collection: "testing/int-string",
+                        source_partitions: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/int-string",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                        source_uuid_ptr: "/_meta/uuid",
+                        shuffle_key_ptr: [
+                            "/int",
+                        ],
+                        uses_source_key: true,
+                        shuffle_lambda: None,
+                        source_schema_uri: "test://example/int-string.schema",
+                        uses_source_schema: true,
+                        filter_r_clocks: false,
+                        hash: None,
+                        read_delay_seconds: 0,
+                        priority: 0,
+                    },
+                ),
                 endpoint_type: S3,
                 endpoint_config: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
                 field_selection: Some(
@@ -479,6 +516,43 @@ All {
             spec: MaterializationSpec {
                 materialization: "testing/int-halve",
                 collection: None,
+                shuffle: Some(
+                    Shuffle {
+                        group_name: "materialize/testing/int-halve",
+                        source_collection: "testing/int-halve",
+                        source_partitions: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/int-halve",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                        source_uuid_ptr: "/_meta/uuid",
+                        shuffle_key_ptr: [
+                            "/int",
+                        ],
+                        uses_source_key: true,
+                        shuffle_lambda: None,
+                        source_schema_uri: "test://example/int-string-len.schema",
+                        uses_source_schema: true,
+                        filter_r_clocks: false,
+                        hash: None,
+                        read_delay_seconds: 0,
+                        priority: 0,
+                    },
+                ),
                 endpoint_type: S3,
                 endpoint_config: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
                 field_selection: Some(

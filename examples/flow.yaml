@@ -21,11 +21,14 @@ journalRules:
         stores: [ s3://example-bucket/prefix ]
 
 # TODO(johnny): Still working on this.
-#materializations:
-#  foo/the/bar:
-#    endpoint:
-#      name: mySqlite
-#    fields:
-#      recommended: true
-#    source:
-#      name: testing/int-string
+materializations:
+
+  soak/set-ops/operations/toSqlite:
+    endpoint:
+      name: mySqlite
+      config:
+        table: set_ops
+    fields:
+      recommended: true
+    source:
+      name: soak/set-ops/operations

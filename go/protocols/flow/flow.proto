@@ -298,13 +298,15 @@ message MaterializationSpec {
   string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
   // Collection to be materialized.
   CollectionSpec collection = 2;
+  // Shuffle applied to collection documents for this materialization.
+  Shuffle shuffle = 3 [ (gogoproto.nullable) = false ];
   // Type of the materialization's endpoint.
-  EndpointType endpoint_type = 3;
+  EndpointType endpoint_type = 4;
   // JSON-encoded object which configures this materialization with
   // respect to the endpoint type driver.
-  string endpoint_config = 4;
+  string endpoint_config = 5;
   // Resolved fields selected for materialization.
-  FieldSelection field_selection = 5;
+  FieldSelection field_selection = 6;
 }
 
 // TestSpec describes a catalog test.
