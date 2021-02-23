@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/nsf/jsondiff"
@@ -210,7 +209,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 
 	// Drain actual documents from the combiner.
 	var actual [][]byte
-	err = combiner.Finish(func(doc json.RawMessage, _ []byte, _fields tuple.Tuple) error {
+	err = combiner.Finish(func(doc json.RawMessage, _, _ []byte) error {
 		actual = append(actual, doc)
 		return nil
 	})

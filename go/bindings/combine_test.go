@@ -46,7 +46,7 @@ func TestCombineBindings(t *testing.T) {
 	builder.Release(combiner)
 }
 
-type callback = func(raw json.RawMessage, key []byte, fields tuple.Tuple) error
+type callback = func(doc json.RawMessage, packedKey, packedFields []byte) error
 
 func expectCombineFixture(t *testing.T, finish func(callback) error) {
 	var expect = []struct {
@@ -57,8 +57,8 @@ func expectCombineFixture(t *testing.T, finish func(callback) error) {
 		{42, []string{"two", "three"}},
 	}
 
-	require.NoError(t, finish(func(raw json.RawMessage, key []byte, fields tuple.Tuple) error {
-		t.Log("doc", string(raw), "fields", fields)
+	require.NoError(t, finish(func(raw json.RawMessage, packedKey, packedFields []byte) error {
+		t.Log("doc", string(raw))
 
 		var doc struct {
 			I    int64
@@ -73,8 +73,8 @@ func expectCombineFixture(t *testing.T, finish func(callback) error) {
 		require.Equal(t, expect[0].s, doc.S)
 		require.Equal(t, string(pf.DocumentUUIDPlaceholder), doc.Meta.UUID)
 
-		require.Equal(t, tuple.Tuple{doc.I}.Pack(), key)
-		require.Equal(t, tuple.Tuple{doc.S[1], doc.I}, fields)
+		require.Equal(t, tuple.Tuple{doc.I}.Pack(), packedKey)
+		require.Equal(t, tuple.Tuple{doc.S[1], doc.I}.Pack(), packedFields)
 
 		expect = expect[1:]
 		return nil

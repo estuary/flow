@@ -228,11 +228,15 @@ func (i *Ingestion) Prepare() error {
 	for c, rpc := range i.streams {
 		var spec = i.ingester.Collections[c]
 
-		var err = rpc.Finish(func(raw json.RawMessage, key []byte, partitions tuple.Tuple) error {
-			var aa, err = pub.PublishUncommitted(i.ingester.Mapper.Map, flow.Mappable{
+		var err = rpc.Finish(func(doc json.RawMessage, packedKey, packedPartitions []byte) error {
+			partitions, err := tuple.Unpack(packedPartitions)
+			if err != nil {
+				return fmt.Errorf("unpacking partitions: %w", err)
+			}
+			aa, err := pub.PublishUncommitted(i.ingester.Mapper.Map, flow.Mappable{
 				Spec:       spec,
-				Doc:        raw,
-				PackedKey:  key,
+				Doc:        doc,
+				PackedKey:  packedKey,
 				Partitions: partitions,
 			})
 			if err != nil {

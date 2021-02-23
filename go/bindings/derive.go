@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"unsafe"
 
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/tecbot/gorocksdb"
@@ -119,7 +118,7 @@ func (d *Derive) Flush() error {
 }
 
 // Finish deriving documents, invoking the callback for derived document.
-func (d *Derive) Finish(cb func(json.RawMessage, []byte, tuple.Tuple) error) error {
+func (d *Derive) Finish(cb func(doc json.RawMessage, packedKey, packedPartitions []byte) error) error {
 	d.svc.sendBytes(5, nil)
 
 	var _, out, err = d.svc.poll()
