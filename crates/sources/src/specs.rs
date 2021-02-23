@@ -410,7 +410,7 @@ pub struct RemoteDriverConfig {
     #[serde(flatten)]
     pub extra: names::Object,
     /// # gRPC address of the driver.
-    pub grpc_driver_address: String,
+    pub address: String,
 }
 
 /// A Materialization binds a Flow collection with an external system & target

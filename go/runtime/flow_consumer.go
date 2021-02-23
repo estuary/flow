@@ -110,17 +110,12 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	isMaterialize := false
-	for _, label := range shard.Spec().Labels {
-		if label.Name == labels.MaterializationTarget {
-			isMaterialize = true
-		}
-	}
-
-	if isMaterialize {
+	if shard.Spec().LabelSet.ValuesOf(labels.Materialization) != nil {
 		return nil, fmt.Errorf("not supported")
+	} else if shard.Spec().LabelSet.ValuesOf(labels.Derivation) != nil {
+		return NewDeriveApp(f.Service, f.Journals, shard, rec, f.Config.Flow.LambdaJS)
 	}
-	return NewDeriveApp(f.Service, f.Journals, shard, rec, f.Config.Flow.LambdaJS)
+	return nil, fmt.Errorf("unknown shard type")
 }
 
 // NewMessage panics if called.

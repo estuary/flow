@@ -89,6 +89,25 @@ func (catalog *Catalog) LoadCollection(name string) (*pf.CollectionSpec, error) 
 	return collection, nil
 }
 
+// LoadMaterialization loads the materialization with the given name from the catalog.
+func (catalog *Catalog) LoadMaterialization(name string) (*pf.MaterializationSpec, error) {
+	var row = catalog.db.QueryRow(`
+		SELECT spec FROM built_materializations WHERE materialization = ?;
+		`, name)
+
+	var b []byte
+	var materialization = new(pf.MaterializationSpec)
+
+	if err := row.Scan(&b); err != nil {
+		return nil, fmt.Errorf("failed to load materialization: %w", err)
+	} else if err = materialization.Unmarshal(b); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal materialization: %w", err)
+	} else if err = materialization.Validate(); err != nil {
+		return nil, fmt.Errorf("collection %q is invalid: %w", name, err)
+	}
+	return materialization, nil
+}
+
 // LoadCapturedCollections loads all captured collections from the catalog.
 func (catalog *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
 	var rows, err = catalog.db.Query(`

@@ -70,7 +70,13 @@ pub async fn walk_all_materializations<D: Drivers>(
                     response,
                     errors,
                 );
-                let ep_config_str = ep_config.to_string();
+                let spec = models::build::materialization_spec(
+                    materialization,
+                    built_collection,
+                    ep_type,
+                    &ep_config,
+                    fields,
+                );
 
                 built_materializations.push_row(
                     &materialization.scope,
@@ -78,13 +84,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                     &materialization.collection,
                     ep_type,
                     ep_config,
-                    flow::MaterializationSpec {
-                        collection: None, // See tables::BuiltMaterialization.
-                        endpoint_config: ep_config_str,
-                        endpoint_type: ep_type as i32,
-                        field_selection: Some(fields),
-                        materialization: materialization.materialization.to_string(),
-                    },
+                    spec,
                 );
             }
             Err(err) => {

@@ -196,10 +196,50 @@ pub fn derivation_spec(derivation: &tables::Derivation) -> flow::DerivationSpec 
     } = derivation;
 
     flow::DerivationSpec {
-        collection: None,
+        collection: None, // See tables::BuiltDerivations.
         transforms: Default::default(),
         register_schema_uri: register_schema.to_string(),
         register_initial_json: register_initial.to_string(),
+    }
+}
+
+pub fn materialization_spec(
+    materialization: &tables::Materialization,
+    source: &tables::BuiltCollection,
+    endpoint_type: flow::EndpointType,
+    endpoint_config: &Value,
+    fields: flow::FieldSelection,
+) -> flow::MaterializationSpec {
+    flow::MaterializationSpec {
+        collection: None, // See tables::BuiltMaterialization.
+        endpoint_config: endpoint_config.to_string(),
+        endpoint_type: endpoint_type as i32,
+        field_selection: Some(fields),
+        materialization: materialization.materialization.to_string(),
+        shuffle: Some(flow::Shuffle {
+            group_name: materialization.group_name(),
+            source_collection: source.collection.to_string(),
+            // Materializations always read all logical partitions.
+            source_partitions: Some(journal_selector(&source.collection, &None)),
+            source_uuid_ptr: source.spec.uuid_ptr.clone(),
+            // Materializations always group by the collection's key.
+            shuffle_key_ptr: source.spec.key_ptrs.clone(),
+            uses_source_key: true,
+            shuffle_lambda: None,
+            source_schema_uri: source.spec.schema_uri.clone(),
+            uses_source_schema: true,
+            // At all times, a given collection key must be exclusively owned by
+            // a single materialization shard. Therefore we can subdivide shards
+            // on key.
+            filter_r_clocks: false,
+            // Deprecated.
+            hash: flow::shuffle::Hash::None as i32,
+            // Never delay materializations.
+            read_delay_seconds: 0,
+            // Priority has no meaning since there's just one shuffle
+            // (we're not joining across collections as transforms do).
+            priority: 0,
+        }),
     }
 }
 

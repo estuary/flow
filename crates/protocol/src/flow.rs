@@ -325,15 +325,18 @@ pub struct MaterializationSpec {
     /// Collection to be materialized.
     #[prost(message, optional, tag = "2")]
     pub collection: ::core::option::Option<CollectionSpec>,
+    /// Shuffle applied to collection documents for this materialization.
+    #[prost(message, optional, tag = "3")]
+    pub shuffle: ::core::option::Option<Shuffle>,
     /// Type of the materialization's endpoint.
-    #[prost(enumeration = "EndpointType", tag = "3")]
+    #[prost(enumeration = "EndpointType", tag = "4")]
     pub endpoint_type: i32,
     /// JSON-encoded object which configures this materialization with
     /// respect to the endpoint type driver.
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "5")]
     pub endpoint_config: ::prost::alloc::string::String,
     /// Resolved fields selected for materialization.
-    #[prost(message, optional, tag = "5")]
+    #[prost(message, optional, tag = "6")]
     pub field_selection: ::core::option::Option<FieldSelection>,
 }
 /// TestSpec describes a catalog test.

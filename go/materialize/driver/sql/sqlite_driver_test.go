@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -64,16 +65,21 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempdir)
 
-	var testCaller = "canary"
-	var endpoint = path.Join(tempdir, "target.db")
-	var tableName = "test_target"
-	var startSession = pm.SessionRequest{
-		ShardId:     testCaller,
-		EndpointUrl: endpoint,
-		Target:      tableName,
+	// Config fixture which matches schema of ParseConfig.
+	var cfg = struct {
+		Path  string
+		Table string
+	}{
+		Path:  path.Join(tempdir, "target.db"),
+		Table: "test_target",
 	}
+	var cfgJSON, _ = json.Marshal(cfg)
 
-	sessionResponse, err := driver.StartSession(ctx, &startSession)
+	var sessionRequest = pm.SessionRequest{
+		ShardId:            "canary",
+		EndpointConfigJson: string(cfgJSON),
+	}
+	sessionResponse, err := driver.StartSession(ctx, &sessionRequest)
 	require.NoError(t, err)
 
 	cat, err := flow.NewCatalog("../../../../catalog.db", tempdir)
@@ -235,11 +241,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// Now we start a new session and go through the whole thing again
 
 	// Start a new Session and assert that a new call to Fence returns the expected checkpoint
-	newSession, err := driver.StartSession(ctx, &pm.SessionRequest{
-		EndpointUrl: endpoint,
-		Target:      tableName,
-		ShardId:     testCaller,
-	})
+	newSession, err := driver.StartSession(ctx, &sessionRequest)
 	require.NoError(t, err)
 
 	newFence, err := driver.Fence(ctx, &pm.FenceRequest{
@@ -368,8 +370,8 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.Equal(t, io.EOF, err)
 
 	// Last thing is to snapshot the database tables we care about
-	var tab = tableForMaterialization(tableName, "", &MaterializationSpec{Collection: *collection, Fields: fields})
-	var dump = dumpTables(t, endpoint, tab)
+	var tab = tableForMaterialization(cfg.Table, "", &MaterializationSpec{Collection: *collection, Fields: fields})
+	var dump = dumpTables(t, cfg.Path, tab)
 	cupaloy.SnapshotT(t, dump)
 }
 

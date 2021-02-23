@@ -80,6 +80,9 @@ impl Materialization {
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::ops::Deref for Materialization {
