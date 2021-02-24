@@ -49,5 +49,12 @@ func (m *MaterializationSpec) Validate() error {
 		return pb.ExtendContext(err, "FieldSelection")
 	}
 
+	// Validate that all fields reference extant projections.
+	for _, field := range m.FieldSelection.AllFields() {
+		if m.Collection.GetProjection(field) == nil {
+			return pb.NewValidationError("the selected field '%s' has no corresponding projection", field)
+		}
+	}
+
 	return nil
 }
