@@ -118,119 +118,12 @@ func (m *Constraint) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Constraint proto.InternalMessageInfo
 
-// SessionRequest is the request type of the StartSession RPC.
-type SessionRequest struct {
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Driver-specific configuration, as an encoded JSON object.
-	EndpointConfigJson string `protobuf:"bytes,2,opt,name=endpoint_config_json,json=endpointConfigJson,proto3" json:"endpoint_config_json,omitempty"`
-	// Stable ID of the flow consumer shard that this session belongs to. A null or empty value
-	// indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
-	ShardId string `protobuf:"bytes,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
-	// Endpoint URL of the materialization system.
-	EndpointUrl string `protobuf:"bytes,99,opt,name=endpoint_url,json=endpointUrl,proto3" json:"endpoint_url,omitempty"`
-	// Target name within the materialization system, where applicable.
-	// This could be a SQL schema & table, or a pub/sub topic, etc.
-	Target               string   `protobuf:"bytes,100,opt,name=target,proto3" json:"target,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *SessionRequest) Reset()         { *m = SessionRequest{} }
-func (m *SessionRequest) String() string { return proto.CompactTextString(m) }
-func (*SessionRequest) ProtoMessage()    {}
-func (*SessionRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{1}
-}
-func (m *SessionRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *SessionRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SessionRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *SessionRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SessionRequest.Merge(m, src)
-}
-func (m *SessionRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *SessionRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_SessionRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SessionRequest proto.InternalMessageInfo
-
-// SessionResponse is the response type of the StartSession RPC.
-type SessionResponse struct {
-	// Opaque session handle.
-	Handle []byte `protobuf:"bytes,1,opt,name=handle,proto3" json:"handle,omitempty"`
-	// Materialize combined delta updates of documents rather than full reductions.
-	//
-	// When set, the Flow runtime will not attempt to load documents via
-	// TransactionRequest.Load, and disables internal re-use of documents
-	// stored in prior transactions. Each stored document is exclusively combined
-	// from updates processed by the runtime within the current transaction only.
-	//
-	// This is appropriate for drivers over streams, WebHooks, and append-only files.
-	//
-	// For example, given a collection which reduces a sum count for each key,
-	// its materialization will produce a stream of delta updates to the count,
-	// such that a reader of the stream will arrive at the correct total count.
-	DeltaUpdates         bool     `protobuf:"varint,2,opt,name=delta_updates,json=deltaUpdates,proto3" json:"delta_updates,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *SessionResponse) Reset()         { *m = SessionResponse{} }
-func (m *SessionResponse) String() string { return proto.CompactTextString(m) }
-func (*SessionResponse) ProtoMessage()    {}
-func (*SessionResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{2}
-}
-func (m *SessionResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *SessionResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SessionResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *SessionResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SessionResponse.Merge(m, src)
-}
-func (m *SessionResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *SessionResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_SessionResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SessionResponse proto.InternalMessageInfo
-
 // ValidateRequest is the request type of the Validate RPC.
 type ValidateRequest struct {
 	// Endpoint type addressed by this request.
 	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Opaque session handle.
-	Handle []byte `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
+	// Driver-specific configuration, as an encoded JSON object.
+	EndpointConfigJson string `protobuf:"bytes,2,opt,name=endpoint_config_json,json=endpointConfigJson,proto3" json:"endpoint_config_json,omitempty"`
 	// Collection to be materialized.
 	Collection *flow.CollectionSpec `protobuf:"bytes,3,opt,name=collection,proto3" json:"collection,omitempty"`
 	// Projection configuration, keyed by the projection field name,
@@ -245,7 +138,7 @@ func (m *ValidateRequest) Reset()         { *m = ValidateRequest{} }
 func (m *ValidateRequest) String() string { return proto.CompactTextString(m) }
 func (*ValidateRequest) ProtoMessage()    {}
 func (*ValidateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{3}
+	return fileDescriptor_3e8b62b327f34bc6, []int{1}
 }
 func (m *ValidateRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -289,7 +182,7 @@ func (m *ValidateResponse) Reset()         { *m = ValidateResponse{} }
 func (m *ValidateResponse) String() string { return proto.CompactTextString(m) }
 func (*ValidateResponse) ProtoMessage()    {}
 func (*ValidateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{4}
+	return fileDescriptor_3e8b62b327f34bc6, []int{2}
 }
 func (m *ValidateResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -322,8 +215,8 @@ var xxx_messageInfo_ValidateResponse proto.InternalMessageInfo
 type ApplyRequest struct {
 	// Endpoint type addressed by this request.
 	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Opaque session handle.
-	Handle []byte `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
+	// Driver-specific configuration, as an encoded JSON object.
+	EndpointConfigJson string `protobuf:"bytes,2,opt,name=endpoint_config_json,json=endpointConfigJson,proto3" json:"endpoint_config_json,omitempty"`
 	// Collection to be materialized.
 	Collection *flow.CollectionSpec `protobuf:"bytes,3,opt,name=collection,proto3" json:"collection,omitempty"`
 	// Selected fields for materialization
@@ -340,7 +233,7 @@ func (m *ApplyRequest) Reset()         { *m = ApplyRequest{} }
 func (m *ApplyRequest) String() string { return proto.CompactTextString(m) }
 func (*ApplyRequest) ProtoMessage()    {}
 func (*ApplyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{5}
+	return fileDescriptor_3e8b62b327f34bc6, []int{3}
 }
 func (m *ApplyRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -383,7 +276,7 @@ func (m *ApplyResponse) Reset()         { *m = ApplyResponse{} }
 func (m *ApplyResponse) String() string { return proto.CompactTextString(m) }
 func (*ApplyResponse) ProtoMessage()    {}
 func (*ApplyResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{6}
+	return fileDescriptor_3e8b62b327f34bc6, []int{4}
 }
 func (m *ApplyResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -412,101 +305,10 @@ func (m *ApplyResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ApplyResponse proto.InternalMessageInfo
 
-// FenceRequest is the request type of a Fence RPC.
-type FenceRequest struct {
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Opaque session handle.
-	Handle []byte `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
-	// Driver checkpoint which was last committed from a Store RPC.
-	// Or empty, if the Driver has never returned a checkpoint.
-	DriverCheckpoint     []byte   `protobuf:"bytes,3,opt,name=driver_checkpoint,json=driverCheckpoint,proto3" json:"driver_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *FenceRequest) Reset()         { *m = FenceRequest{} }
-func (m *FenceRequest) String() string { return proto.CompactTextString(m) }
-func (*FenceRequest) ProtoMessage()    {}
-func (*FenceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7}
-}
-func (m *FenceRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *FenceRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_FenceRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *FenceRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_FenceRequest.Merge(m, src)
-}
-func (m *FenceRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *FenceRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_FenceRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_FenceRequest proto.InternalMessageInfo
-
-// FenceResponse is the response type of a Fence RPC.
-type FenceResponse struct {
-	// Flow checkpoint which was previously committed with this caller ID.
-	// Or nil, if unknown or transactional semantics are not supported.
-	FlowCheckpoint       []byte   `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *FenceResponse) Reset()         { *m = FenceResponse{} }
-func (m *FenceResponse) String() string { return proto.CompactTextString(m) }
-func (*FenceResponse) ProtoMessage()    {}
-func (*FenceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8}
-}
-func (m *FenceResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *FenceResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_FenceResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *FenceResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_FenceResponse.Merge(m, src)
-}
-func (m *FenceResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *FenceResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_FenceResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_FenceResponse proto.InternalMessageInfo
-
 // TransactionRequest is the request type of a Transaction RPC.
 // It will have exactly one top-level field set, which represents its message type.
 type TransactionRequest struct {
-	Start *TransactionRequest_Start `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
-	// Load will only be sent during the Loading phase of the transaction rpc.
+	Open                 *TransactionRequest_Open    `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
 	Load                 *TransactionRequest_Load    `protobuf:"bytes,2,opt,name=load,proto3" json:"load,omitempty"`
 	Prepare              *TransactionRequest_Prepare `protobuf:"bytes,3,opt,name=prepare,proto3" json:"prepare,omitempty"`
 	Store                *TransactionRequest_Store   `protobuf:"bytes,4,opt,name=store,proto3" json:"store,omitempty"`
@@ -520,7 +322,7 @@ func (m *TransactionRequest) Reset()         { *m = TransactionRequest{} }
 func (m *TransactionRequest) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest) ProtoMessage()    {}
 func (*TransactionRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9}
+	return fileDescriptor_3e8b62b327f34bc6, []int{5}
 }
 func (m *TransactionRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -549,32 +351,45 @@ func (m *TransactionRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionRequest proto.InternalMessageInfo
 
-// Start a Transaction.
-type TransactionRequest_Start struct {
+// Open a transaction stream and, where supported, fence off other
+// streams having this same |fence_id| from issuing further commits.
+//
+// Fencing semantics are optional, but required for exactly-once semantics.
+// Non-transactional stores can ignore this aspect and achieve at-least-once.
+//
+// Where implemented, servers must guarantee that no other streams of this
+// |fence_id| (now "zombie" streams) can commit transactions, and must then
+// return the final checkpoint committed by this |fence_id| in its response.
+type TransactionRequest_Open struct {
 	// Endpoint type addressed by this request.
 	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Opaque session handle.
-	Handle []byte `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
+	// Driver-specific configuration, as an encoded JSON object.
+	EndpointConfigJson string `protobuf:"bytes,2,opt,name=endpoint_config_json,json=endpointConfigJson,proto3" json:"endpoint_config_json,omitempty"`
 	// Fields represents the projection fields to be stored. This repeats the selection and ordering
 	// of the last Apply RPC, but is provided here also as a convenience.
-	Fields               *flow.FieldSelection `protobuf:"bytes,3,opt,name=fields,proto3" json:"fields,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	Fields *flow.FieldSelection `protobuf:"bytes,3,opt,name=fields,proto3" json:"fields,omitempty"`
+	// Stable producer ID (aka Flow runtime shard ID) to fence.
+	FenceId string `protobuf:"bytes,4,opt,name=fence_id,json=fenceId,proto3" json:"fence_id,omitempty"`
+	// Last-persisted driver checkpoint from a previous transaction stream.
+	// Or empty, if the driver hasn't returned a checkpoint.
+	DriverCheckpoint     []byte   `protobuf:"bytes,5,opt,name=driver_checkpoint,json=driverCheckpoint,proto3" json:"driver_checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TransactionRequest_Start) Reset()         { *m = TransactionRequest_Start{} }
-func (m *TransactionRequest_Start) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Start) ProtoMessage()    {}
-func (*TransactionRequest_Start) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 0}
+func (m *TransactionRequest_Open) Reset()         { *m = TransactionRequest_Open{} }
+func (m *TransactionRequest_Open) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest_Open) ProtoMessage()    {}
+func (*TransactionRequest_Open) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{5, 0}
 }
-func (m *TransactionRequest_Start) XXX_Unmarshal(b []byte) error {
+func (m *TransactionRequest_Open) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionRequest_Start) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Start.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionRequest_Open.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -584,17 +399,17 @@ func (m *TransactionRequest_Start) XXX_Marshal(b []byte, deterministic bool) ([]
 		return b[:n], nil
 	}
 }
-func (m *TransactionRequest_Start) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Start.Merge(m, src)
+func (m *TransactionRequest_Open) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest_Open.Merge(m, src)
 }
-func (m *TransactionRequest_Start) XXX_Size() int {
+func (m *TransactionRequest_Open) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionRequest_Start) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Start.DiscardUnknown(m)
+func (m *TransactionRequest_Open) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest_Open.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionRequest_Start proto.InternalMessageInfo
+var xxx_messageInfo_TransactionRequest_Open proto.InternalMessageInfo
 
 // Load one or more documents identified by key.
 // Keys may included documents which have never before been stored,
@@ -613,7 +428,7 @@ func (m *TransactionRequest_Load) Reset()         { *m = TransactionRequest_Load
 func (m *TransactionRequest_Load) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest_Load) ProtoMessage()    {}
 func (*TransactionRequest_Load) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 1}
+	return fileDescriptor_3e8b62b327f34bc6, []int{5, 1}
 }
 func (m *TransactionRequest_Load) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -642,7 +457,7 @@ func (m *TransactionRequest_Load) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionRequest_Load proto.InternalMessageInfo
 
-// Prepare to commit. No further Loads will be sent.
+// Prepare to commit. No further Loads will be sent in this transaction.
 type TransactionRequest_Prepare struct {
 	// Flow checkpoint to commit with this transaction.
 	FlowCheckpoint       []byte   `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
@@ -655,7 +470,7 @@ func (m *TransactionRequest_Prepare) Reset()         { *m = TransactionRequest_P
 func (m *TransactionRequest_Prepare) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest_Prepare) ProtoMessage()    {}
 func (*TransactionRequest_Prepare) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 2}
+	return fileDescriptor_3e8b62b327f34bc6, []int{5, 2}
 }
 func (m *TransactionRequest_Prepare) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -684,7 +499,7 @@ func (m *TransactionRequest_Prepare) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionRequest_Prepare proto.InternalMessageInfo
 
-// Store documents of this transaction.
+// Store documents of this transaction commit.
 type TransactionRequest_Store struct {
 	// Byte arena of the request.
 	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
@@ -705,7 +520,7 @@ func (m *TransactionRequest_Store) Reset()         { *m = TransactionRequest_Sto
 func (m *TransactionRequest_Store) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest_Store) ProtoMessage()    {}
 func (*TransactionRequest_Store) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 3}
+	return fileDescriptor_3e8b62b327f34bc6, []int{5, 3}
 }
 func (m *TransactionRequest_Store) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -745,7 +560,7 @@ func (m *TransactionRequest_Commit) Reset()         { *m = TransactionRequest_Co
 func (m *TransactionRequest_Commit) String() string { return proto.CompactTextString(m) }
 func (*TransactionRequest_Commit) ProtoMessage()    {}
 func (*TransactionRequest_Commit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 4}
+	return fileDescriptor_3e8b62b327f34bc6, []int{5, 4}
 }
 func (m *TransactionRequest_Commit) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -777,9 +592,10 @@ var xxx_messageInfo_TransactionRequest_Commit proto.InternalMessageInfo
 // TransactionResponse is the response type of a Transaction RPC.
 // It will have exactly one top-level field set, which represents its message type.
 type TransactionResponse struct {
-	Loaded               *TransactionResponse_Loaded    `protobuf:"bytes,1,opt,name=loaded,proto3" json:"loaded,omitempty"`
-	Prepared             *TransactionResponse_Prepared  `protobuf:"bytes,2,opt,name=prepared,proto3" json:"prepared,omitempty"`
-	Committed            *TransactionResponse_Committed `protobuf:"bytes,3,opt,name=committed,proto3" json:"committed,omitempty"`
+	Opened               *TransactionResponse_Opened    `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
+	Loaded               *TransactionResponse_Loaded    `protobuf:"bytes,2,opt,name=loaded,proto3" json:"loaded,omitempty"`
+	Prepared             *TransactionResponse_Prepared  `protobuf:"bytes,3,opt,name=prepared,proto3" json:"prepared,omitempty"`
+	Committed            *TransactionResponse_Committed `protobuf:"bytes,4,opt,name=committed,proto3" json:"committed,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                       `json:"-"`
 	XXX_unrecognized     []byte                         `json:"-"`
 	XXX_sizecache        int32                          `json:"-"`
@@ -789,7 +605,7 @@ func (m *TransactionResponse) Reset()         { *m = TransactionResponse{} }
 func (m *TransactionResponse) String() string { return proto.CompactTextString(m) }
 func (*TransactionResponse) ProtoMessage()    {}
 func (*TransactionResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{10}
+	return fileDescriptor_3e8b62b327f34bc6, []int{6}
 }
 func (m *TransactionResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -818,6 +634,63 @@ func (m *TransactionResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
 
+// Opened responds to TransactionRequest.Open of the client.
+type TransactionResponse_Opened struct {
+	// Flow checkpoint which was previously committed with this |fence_id|.
+	// May be nil, if unknown or if transactional semantics are not supported,
+	// in which case the Flow runtime will use its most-recent persisted checkpoint.
+	FlowCheckpoint []byte `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
+	// Materialize combined delta updates of documents rather than full reductions.
+	//
+	// When set, the Flow runtime will not attempt to load documents via
+	// TransactionRequest.Load, and also disables re-use of cached documents
+	// stored in prior transactions. Each stored document is exclusively combined
+	// from updates processed by the runtime within the current transaction only.
+	//
+	// This is appropriate for drivers over streams, WebHooks, and append-only files.
+	//
+	// For example, given a collection which reduces a sum count for each key,
+	// its materialization will produce a stream of delta updates to the count,
+	// such that a reader of the stream will arrive at the correct total count.
+	DeltaUpdates         bool     `protobuf:"varint,2,opt,name=delta_updates,json=deltaUpdates,proto3" json:"delta_updates,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *TransactionResponse_Opened) Reset()         { *m = TransactionResponse_Opened{} }
+func (m *TransactionResponse_Opened) String() string { return proto.CompactTextString(m) }
+func (*TransactionResponse_Opened) ProtoMessage()    {}
+func (*TransactionResponse_Opened) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{6, 0}
+}
+func (m *TransactionResponse_Opened) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TransactionResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TransactionResponse_Opened.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TransactionResponse_Opened) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionResponse_Opened.Merge(m, src)
+}
+func (m *TransactionResponse_Opened) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *TransactionResponse_Opened) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionResponse_Opened.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TransactionResponse_Opened proto.InternalMessageInfo
+
 // Loaded responds to TransactionRequest.Loads of the client.
 // It returns documents of requested keys which have previously been stored.
 // Keys not found in the store MUST be omitted. Documents may be in any order,
@@ -837,7 +710,7 @@ func (m *TransactionResponse_Loaded) Reset()         { *m = TransactionResponse_
 func (m *TransactionResponse_Loaded) String() string { return proto.CompactTextString(m) }
 func (*TransactionResponse_Loaded) ProtoMessage()    {}
 func (*TransactionResponse_Loaded) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{10, 0}
+	return fileDescriptor_3e8b62b327f34bc6, []int{6, 1}
 }
 func (m *TransactionResponse_Loaded) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -882,7 +755,7 @@ func (m *TransactionResponse_Prepared) Reset()         { *m = TransactionRespons
 func (m *TransactionResponse_Prepared) String() string { return proto.CompactTextString(m) }
 func (*TransactionResponse_Prepared) ProtoMessage()    {}
 func (*TransactionResponse_Prepared) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{10, 1}
+	return fileDescriptor_3e8b62b327f34bc6, []int{6, 2}
 }
 func (m *TransactionResponse_Prepared) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -922,7 +795,7 @@ func (m *TransactionResponse_Committed) Reset()         { *m = TransactionRespon
 func (m *TransactionResponse_Committed) String() string { return proto.CompactTextString(m) }
 func (*TransactionResponse_Committed) ProtoMessage()    {}
 func (*TransactionResponse_Committed) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{10, 2}
+	return fileDescriptor_3e8b62b327f34bc6, []int{6, 3}
 }
 func (m *TransactionResponse_Committed) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -954,23 +827,20 @@ var xxx_messageInfo_TransactionResponse_Committed proto.InternalMessageInfo
 func init() {
 	proto.RegisterEnum("materialize.Constraint_Type", Constraint_Type_name, Constraint_Type_value)
 	proto.RegisterType((*Constraint)(nil), "materialize.Constraint")
-	proto.RegisterType((*SessionRequest)(nil), "materialize.SessionRequest")
-	proto.RegisterType((*SessionResponse)(nil), "materialize.SessionResponse")
 	proto.RegisterType((*ValidateRequest)(nil), "materialize.ValidateRequest")
 	proto.RegisterMapType((map[string]string)(nil), "materialize.ValidateRequest.FieldConfigJsonEntry")
 	proto.RegisterType((*ValidateResponse)(nil), "materialize.ValidateResponse")
 	proto.RegisterMapType((map[string]*Constraint)(nil), "materialize.ValidateResponse.ConstraintsEntry")
 	proto.RegisterType((*ApplyRequest)(nil), "materialize.ApplyRequest")
 	proto.RegisterType((*ApplyResponse)(nil), "materialize.ApplyResponse")
-	proto.RegisterType((*FenceRequest)(nil), "materialize.FenceRequest")
-	proto.RegisterType((*FenceResponse)(nil), "materialize.FenceResponse")
 	proto.RegisterType((*TransactionRequest)(nil), "materialize.TransactionRequest")
-	proto.RegisterType((*TransactionRequest_Start)(nil), "materialize.TransactionRequest.Start")
+	proto.RegisterType((*TransactionRequest_Open)(nil), "materialize.TransactionRequest.Open")
 	proto.RegisterType((*TransactionRequest_Load)(nil), "materialize.TransactionRequest.Load")
 	proto.RegisterType((*TransactionRequest_Prepare)(nil), "materialize.TransactionRequest.Prepare")
 	proto.RegisterType((*TransactionRequest_Store)(nil), "materialize.TransactionRequest.Store")
 	proto.RegisterType((*TransactionRequest_Commit)(nil), "materialize.TransactionRequest.Commit")
 	proto.RegisterType((*TransactionResponse)(nil), "materialize.TransactionResponse")
+	proto.RegisterType((*TransactionResponse_Opened)(nil), "materialize.TransactionResponse.Opened")
 	proto.RegisterType((*TransactionResponse_Loaded)(nil), "materialize.TransactionResponse.Loaded")
 	proto.RegisterType((*TransactionResponse_Prepared)(nil), "materialize.TransactionResponse.Prepared")
 	proto.RegisterType((*TransactionResponse_Committed)(nil), "materialize.TransactionResponse.Committed")
@@ -981,83 +851,78 @@ func init() {
 }
 
 var fileDescriptor_3e8b62b327f34bc6 = []byte{
-	// 1210 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x56, 0x4d, 0x6f, 0x1b, 0xc5,
-	0x1b, 0xef, 0xfa, 0x2d, 0xce, 0xb3, 0x76, 0xe2, 0x4c, 0xfd, 0x6f, 0xdd, 0xfd, 0x87, 0x34, 0x98,
-	0x97, 0x86, 0x42, 0x9d, 0xe0, 0x22, 0x5a, 0x81, 0x14, 0xe4, 0xb7, 0x80, 0xc1, 0x4d, 0xc2, 0x38,
-	0x29, 0x12, 0x12, 0xb2, 0xb6, 0xbb, 0x13, 0x67, 0xc9, 0x66, 0x67, 0x99, 0x59, 0x17, 0xcc, 0x15,
-	0x51, 0x2e, 0x7c, 0x08, 0x24, 0x3e, 0x02, 0x47, 0xc4, 0x3d, 0x47, 0xb8, 0xa3, 0x0a, 0xca, 0x37,
-	0xe0, 0xc8, 0x09, 0xed, 0xcc, 0xd8, 0xde, 0x4d, 0xdd, 0x38, 0x12, 0x41, 0xe2, 0x62, 0xed, 0x3c,
-	0xcf, 0xef, 0x37, 0xfe, 0x3d, 0x6f, 0x33, 0x03, 0x37, 0xfb, 0x74, 0xdd, 0x67, 0x34, 0xa0, 0x16,
-	0x75, 0xf9, 0xfa, 0xb1, 0x19, 0x10, 0xe6, 0x98, 0xae, 0xf3, 0x25, 0x89, 0x7e, 0x57, 0x04, 0x02,
-	0xe9, 0x11, 0x93, 0xb1, 0x1c, 0x23, 0x1e, 0xb8, 0xf4, 0x73, 0xf1, 0x23, 0xa1, 0x46, 0xb1, 0x4f,
-	0xfb, 0x54, 0x7c, 0xae, 0x87, 0x5f, 0xd2, 0x5a, 0xfe, 0x4d, 0x03, 0x68, 0x50, 0x8f, 0x07, 0xcc,
-	0x74, 0xbc, 0x00, 0x6d, 0x40, 0x2a, 0x18, 0xfa, 0xa4, 0x94, 0x58, 0xd5, 0xd6, 0x16, 0xaa, 0xcb,
-	0x95, 0xe8, 0x3f, 0x4e, 0x60, 0x95, 0xbd, 0xa1, 0x4f, 0xb0, 0x40, 0xa2, 0x2b, 0x90, 0x61, 0xc4,
-	0xe4, 0xd4, 0x2b, 0x25, 0x57, 0xb5, 0xb5, 0x79, 0xac, 0x56, 0xe5, 0x6f, 0x34, 0x48, 0x85, 0x30,
-	0x84, 0x60, 0x61, 0xab, 0xdd, 0xea, 0x34, 0x7b, 0xb8, 0xf5, 0xe1, 0x7e, 0x1b, 0xb7, 0x9a, 0x85,
-	0x4b, 0xe8, 0x7f, 0xb0, 0xd4, 0xd9, 0x69, 0xd4, 0xf6, 0xda, 0x3b, 0xdb, 0x13, 0xb3, 0x86, 0x4a,
-	0x50, 0x8c, 0x98, 0x1b, 0x3b, 0xf7, 0xee, 0xb5, 0xb6, 0x9b, 0xad, 0x66, 0x21, 0x31, 0xd9, 0x64,
-	0x67, 0x37, 0xf4, 0xd6, 0x3a, 0x85, 0x24, 0xba, 0x0c, 0x8b, 0xd2, 0xb6, 0xb5, 0x83, 0xeb, 0xed,
-	0x66, 0xb3, 0xb5, 0x5d, 0x48, 0xa1, 0x25, 0xc8, 0xef, 0x6f, 0x77, 0x6b, 0x7b, 0xed, 0xee, 0x56,
-	0xbb, 0x56, 0xef, 0xb4, 0x0a, 0xe9, 0xf2, 0x2f, 0x1a, 0x2c, 0x74, 0x09, 0xe7, 0x0e, 0xf5, 0x30,
-	0xf9, 0x6c, 0x40, 0x78, 0x80, 0xee, 0x40, 0x9e, 0x78, 0xb6, 0x4f, 0x1d, 0x2f, 0xe8, 0x89, 0x78,
-	0x35, 0x11, 0x2f, 0xaa, 0x88, 0x7c, 0xb5, 0x94, 0x4b, 0x44, 0x99, 0x23, 0x91, 0x15, 0xda, 0x80,
-	0xe2, 0x98, 0x68, 0x51, 0xef, 0xc0, 0xe9, 0xf7, 0x3e, 0x0d, 0x63, 0x4f, 0x88, 0xd8, 0xd1, 0xc8,
-	0xd7, 0x10, 0xae, 0xf7, 0x39, 0xf5, 0xd0, 0x35, 0xc8, 0xf2, 0x43, 0x93, 0xd9, 0x3d, 0xc7, 0x56,
-	0x19, 0x9a, 0x13, 0xeb, 0xb6, 0x8d, 0x9e, 0x87, 0xf1, 0xe6, 0xbd, 0x01, 0x73, 0x4b, 0x96, 0x70,
-	0xeb, 0x23, 0xdb, 0x3e, 0x73, 0xc3, 0xec, 0x06, 0x26, 0xeb, 0x93, 0xa0, 0x64, 0xcb, 0xec, 0xca,
-	0x55, 0x79, 0x1b, 0x16, 0xc7, 0x21, 0x71, 0x9f, 0x7a, 0x5c, 0x14, 0xe2, 0xd0, 0xf4, 0x6c, 0x57,
-	0x06, 0x93, 0xc3, 0x6a, 0x85, 0x5e, 0x80, 0xbc, 0x4d, 0xdc, 0xc0, 0xec, 0x0d, 0x7c, 0xdb, 0x0c,
-	0x08, 0x17, 0x5a, 0xb3, 0x38, 0x27, 0x8c, 0xfb, 0xd2, 0x56, 0xfe, 0x31, 0x01, 0x8b, 0xf7, 0x4d,
-	0xd7, 0x09, 0x57, 0xff, 0x38, 0x49, 0x13, 0x25, 0x89, 0x98, 0x92, 0x37, 0x00, 0x2c, 0xea, 0xba,
-	0xc4, 0x0a, 0x1c, 0xd5, 0x2e, 0x7a, 0xb5, 0x28, 0x77, 0x6b, 0x8c, 0xed, 0x5d, 0x9f, 0x58, 0x38,
-	0x82, 0x43, 0x9f, 0xc0, 0xd2, 0x81, 0x43, 0x5c, 0x3b, 0x96, 0xef, 0xd4, 0x6a, 0x72, 0x4d, 0xaf,
-	0xbe, 0x1e, 0xeb, 0xcf, 0x53, 0xfa, 0x2b, 0x5b, 0x21, 0x6b, 0x52, 0x89, 0x96, 0x17, 0xb0, 0x21,
-	0x5e, 0x3c, 0x88, 0x5b, 0x8d, 0x3a, 0x14, 0xa7, 0x01, 0x51, 0x01, 0x92, 0x47, 0x64, 0x28, 0x62,
-	0x9e, 0xc7, 0xe1, 0x27, 0x2a, 0x42, 0xfa, 0xa1, 0xe9, 0x0e, 0x88, 0x2a, 0xb6, 0x5c, 0xbc, 0x95,
-	0xb8, 0xab, 0x95, 0x7f, 0xd2, 0xa0, 0x30, 0xf9, 0x77, 0x55, 0x8f, 0x5d, 0xd0, 0xad, 0xf1, 0xc4,
-	0xf0, 0x92, 0x26, 0x14, 0x57, 0x9e, 0xa1, 0x58, 0x72, 0x22, 0x23, 0xc6, 0xa5, 0xdc, 0xe8, 0x16,
-	0xc6, 0x47, 0x50, 0x38, 0x0d, 0x98, 0x22, 0xf3, 0x56, 0x54, 0xa6, 0x5e, 0xbd, 0xfa, 0x8c, 0x19,
-	0x8e, 0xea, 0xff, 0x55, 0x83, 0x5c, 0xcd, 0xf7, 0xdd, 0xe1, 0x7f, 0xac, 0xf4, 0xaf, 0x41, 0x46,
-	0x94, 0x8b, 0x97, 0x52, 0x51, 0x86, 0xa8, 0x57, 0x97, 0x28, 0x14, 0x56, 0x18, 0x74, 0x15, 0xe6,
-	0x6c, 0x36, 0xec, 0xb1, 0x81, 0x57, 0x4a, 0x8b, 0x16, 0xcf, 0xd8, 0x6c, 0x88, 0x07, 0x5e, 0x79,
-	0x13, 0xf2, 0x2a, 0x3a, 0x55, 0x9a, 0x5b, 0x80, 0x4c, 0xc1, 0xed, 0xd9, 0x84, 0x5b, 0xcc, 0xf1,
-	0x85, 0x2a, 0x99, 0xc3, 0x25, 0xe9, 0x69, 0x4e, 0x1c, 0xe5, 0x6f, 0x35, 0xc8, 0x6d, 0x11, 0xcf,
-	0xfa, 0xf7, 0x26, 0xe3, 0x55, 0x58, 0xb2, 0x99, 0xf3, 0x90, 0xb0, 0x9e, 0x75, 0x48, 0xac, 0x23,
-	0x41, 0x10, 0x59, 0xca, 0xe1, 0x82, 0x74, 0x34, 0xc6, 0xf6, 0xf2, 0x5d, 0xc8, 0x2b, 0x35, 0x2a,
-	0x9c, 0x1b, 0xb0, 0x18, 0xfe, 0x71, 0x94, 0x2b, 0x8f, 0x80, 0x85, 0xd0, 0x1c, 0x61, 0x7e, 0x3f,
-	0x07, 0x68, 0x8f, 0x99, 0x1e, 0x97, 0x31, 0x8e, 0xc2, 0x79, 0x1b, 0xd2, 0x3c, 0x30, 0x99, 0x64,
-	0xe9, 0xd5, 0x97, 0x62, 0x1d, 0xf3, 0x34, 0xbe, 0xd2, 0x0d, 0xc1, 0x58, 0x72, 0xd0, 0x5d, 0x48,
-	0xb9, 0xd4, 0xb4, 0x55, 0xb7, 0xbd, 0x38, 0x8b, 0xdb, 0xa1, 0xa6, 0x8d, 0x05, 0x03, 0xd5, 0x60,
-	0xce, 0x67, 0xc4, 0x37, 0x19, 0x51, 0x0d, 0x71, 0x63, 0x16, 0x79, 0x57, 0xc2, 0xf1, 0x88, 0x27,
-	0x95, 0x53, 0x46, 0x54, 0x7f, 0x9c, 0x43, 0x39, 0x65, 0x04, 0x4b, 0x0e, 0xda, 0x84, 0x8c, 0x45,
-	0x8f, 0x8f, 0x9d, 0x40, 0xb4, 0x8b, 0x5e, 0x7d, 0x79, 0x16, 0xbb, 0x21, 0xd0, 0x58, 0xb1, 0x8c,
-	0x47, 0x1a, 0xa4, 0x45, 0x2a, 0x2e, 0xbe, 0x1f, 0x26, 0x8d, 0x9f, 0x9c, 0xdd, 0xf8, 0xc6, 0xd7,
-	0x1a, 0xa4, 0xc2, 0xbc, 0xa2, 0x36, 0xa4, 0x4d, 0x46, 0x3c, 0x53, 0xee, 0x56, 0xbf, 0xfd, 0xd7,
-	0xe3, 0xeb, 0xeb, 0x7d, 0x27, 0x38, 0x1c, 0x3c, 0xa8, 0x58, 0xf4, 0x78, 0x9d, 0xf0, 0x60, 0x60,
-	0xb2, 0xa1, 0x7c, 0x19, 0x3c, 0xf5, 0x56, 0xa8, 0xd4, 0x42, 0x2a, 0x96, 0x3b, 0xa0, 0x2a, 0xe8,
-	0xbe, 0x69, 0x1d, 0x11, 0xbb, 0x77, 0x44, 0x86, 0xa1, 0x8c, 0xf0, 0xf4, 0xd2, 0xa5, 0x8c, 0xae,
-	0xeb, 0x58, 0xa4, 0x9e, 0x3a, 0x79, 0x7c, 0xfd, 0x12, 0x06, 0x89, 0xfa, 0x80, 0x0c, 0xb9, 0x51,
-	0x85, 0x39, 0x55, 0xa1, 0x73, 0xb7, 0xa4, 0xf1, 0x28, 0x11, 0x26, 0x31, 0x2c, 0xc7, 0x58, 0xbc,
-	0x76, 0xd1, 0xe2, 0x13, 0xe7, 0x10, 0x8f, 0xde, 0x84, 0xbc, 0xe2, 0x88, 0x73, 0xf1, 0x8c, 0x90,
-	0x73, 0x12, 0x77, 0x5f, 0xc0, 0x50, 0x05, 0xe6, 0x6d, 0x6a, 0xf1, 0xe8, 0xb5, 0x34, 0x85, 0x93,
-	0x0d, 0x31, 0xe2, 0x3d, 0x70, 0x05, 0x32, 0xe4, 0x0b, 0x87, 0x07, 0xbc, 0x94, 0x5e, 0x4d, 0x86,
-	0x87, 0x94, 0x5c, 0x19, 0x59, 0xc8, 0xc8, 0xfe, 0x2a, 0xff, 0x90, 0x84, 0xcb, 0xb1, 0xee, 0x53,
-	0x63, 0xfe, 0x0e, 0x64, 0xc2, 0xb9, 0x21, 0xb6, 0x9a, 0xd3, 0x33, 0xc6, 0x45, 0x5d, 0x27, 0x1d,
-	0x01, 0xc7, 0x8a, 0x86, 0x5a, 0x90, 0x55, 0x83, 0x33, 0x1a, 0xd7, 0x57, 0x66, 0x6e, 0xa1, 0x0a,
-	0x6a, 0xe3, 0x31, 0x15, 0xbd, 0x07, 0xf3, 0x72, 0x02, 0x02, 0x62, 0xab, 0xfe, 0xbc, 0x39, 0x73,
-	0x9f, 0xc6, 0x88, 0x81, 0x27, 0x64, 0xe3, 0x2b, 0x0d, 0x32, 0x52, 0xe3, 0x45, 0x56, 0x3f, 0x56,
-	0x91, 0xc4, 0xcc, 0x8a, 0x18, 0x77, 0x20, 0x3b, 0x8a, 0x72, 0xfa, 0x41, 0xac, 0x4d, 0x3f, 0x88,
-	0x0d, 0x1d, 0xe6, 0xc7, 0x61, 0x55, 0xff, 0x4c, 0x40, 0xa6, 0x29, 0x10, 0xa8, 0x0d, 0x39, 0x71,
-	0x2e, 0xa8, 0x17, 0x1a, 0xfa, 0x7f, 0x2c, 0x3b, 0xf1, 0xa7, 0xa8, 0xb1, 0x3c, 0xdd, 0xa9, 0x6a,
-	0xfe, 0x2e, 0x64, 0x47, 0x8f, 0x04, 0xb4, 0x7c, 0xd6, 0x6b, 0xc7, 0x78, 0xee, 0xcc, 0x97, 0x05,
-	0xda, 0x84, 0xb4, 0xb8, 0x03, 0xd1, 0xb5, 0x18, 0x2e, 0x7a, 0xeb, 0x1b, 0xc6, 0x34, 0xd7, 0x84,
-	0x2f, 0x2e, 0x9d, 0x53, 0xfc, 0xe8, 0xb5, 0x78, 0x8a, 0x1f, 0xbf, 0xa3, 0xf6, 0x40, 0x8f, 0xb4,
-	0x05, 0xba, 0x3e, 0xe3, 0xac, 0x35, 0x56, 0x67, 0x75, 0xd4, 0x9a, 0xb6, 0xa1, 0xd5, 0xeb, 0x27,
-	0xbf, 0xaf, 0x5c, 0x3a, 0x79, 0xb2, 0xa2, 0xfd, 0xfc, 0x64, 0x45, 0xfb, 0xee, 0x8f, 0x15, 0xed,
-	0xe3, 0x8d, 0x73, 0x35, 0x4d, 0x64, 0xef, 0x07, 0x19, 0x61, 0xbe, 0xfd, 0x77, 0x00, 0x00, 0x00,
-	0xff, 0xff, 0xb5, 0x18, 0xb8, 0x02, 0x77, 0x0d, 0x00, 0x00,
+	// 1123 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xd4, 0x56, 0x4d, 0x6f, 0x1b, 0x45,
+	0x18, 0xee, 0xf8, 0x63, 0x63, 0xbf, 0x76, 0x12, 0x67, 0x6a, 0x5a, 0x77, 0x15, 0x12, 0xcb, 0x7c,
+	0x34, 0x14, 0xea, 0x04, 0x17, 0xd1, 0x0a, 0xa4, 0x20, 0x7f, 0x05, 0x0c, 0x6e, 0x1c, 0xc6, 0x49,
+	0x90, 0x90, 0x90, 0xb5, 0xdd, 0x9d, 0xa4, 0x4b, 0x36, 0x3b, 0xcb, 0xee, 0xba, 0x60, 0x6e, 0x08,
+	0x01, 0x7f, 0x83, 0x3f, 0xc2, 0x3d, 0x07, 0x0e, 0x5c, 0xb8, 0x56, 0x50, 0x0e, 0xf0, 0x0b, 0x38,
+	0x70, 0x42, 0xf3, 0x61, 0x7b, 0xdd, 0x3a, 0xd9, 0x1c, 0x2a, 0x24, 0x2e, 0xd6, 0xce, 0x3b, 0xcf,
+	0xf3, 0xce, 0xfb, 0xf1, 0xcc, 0x3b, 0x86, 0x5b, 0xc7, 0x6c, 0xd3, 0xf3, 0x59, 0xc8, 0x4c, 0xe6,
+	0x04, 0x9b, 0xa7, 0x46, 0x48, 0x7d, 0xdb, 0x70, 0xec, 0xaf, 0x69, 0xf4, 0xbb, 0x2a, 0x10, 0x38,
+	0x17, 0x31, 0xe9, 0xab, 0x33, 0xc4, 0x23, 0x87, 0x7d, 0x29, 0x7e, 0x24, 0x54, 0x2f, 0x1e, 0xb3,
+	0x63, 0x26, 0x3e, 0x37, 0xf9, 0x97, 0xb4, 0x56, 0x7e, 0x43, 0x00, 0x4d, 0xe6, 0x06, 0xa1, 0x6f,
+	0xd8, 0x6e, 0x88, 0xb7, 0x20, 0x15, 0x8e, 0x3c, 0x5a, 0x4a, 0x94, 0xd1, 0xc6, 0x52, 0x6d, 0xb5,
+	0x1a, 0x3d, 0x71, 0x0a, 0xab, 0xee, 0x8f, 0x3c, 0x4a, 0x04, 0x12, 0x5f, 0x03, 0xcd, 0xa7, 0x46,
+	0xc0, 0xdc, 0x52, 0xb2, 0x8c, 0x36, 0xb2, 0x44, 0xad, 0x2a, 0x3f, 0x20, 0x48, 0x71, 0x18, 0xc6,
+	0xb0, 0xb4, 0xd3, 0x69, 0x77, 0x5b, 0x03, 0xd2, 0xfe, 0xf8, 0xa0, 0x43, 0xda, 0xad, 0xc2, 0x15,
+	0xfc, 0x02, 0xac, 0x74, 0x7b, 0xcd, 0xfa, 0x7e, 0xa7, 0xb7, 0x3b, 0x35, 0x23, 0x5c, 0x82, 0x62,
+	0xc4, 0xdc, 0xec, 0xdd, 0xbf, 0xdf, 0xde, 0x6d, 0xb5, 0x5b, 0x85, 0xc4, 0xd4, 0x49, 0x6f, 0x8f,
+	0xef, 0xd6, 0xbb, 0x85, 0x24, 0xbe, 0x0a, 0xcb, 0xd2, 0xb6, 0xd3, 0x23, 0x8d, 0x4e, 0xab, 0xd5,
+	0xde, 0x2d, 0xa4, 0xf0, 0x0a, 0x2c, 0x1e, 0xec, 0xf6, 0xeb, 0xfb, 0x9d, 0xfe, 0x4e, 0xa7, 0xde,
+	0xe8, 0xb6, 0x0b, 0xe9, 0xca, 0xaf, 0x09, 0x58, 0x3e, 0x34, 0x1c, 0xdb, 0x32, 0x42, 0x4a, 0xe8,
+	0x17, 0x43, 0x1a, 0x84, 0xf8, 0x2e, 0x2c, 0x52, 0xd7, 0xf2, 0x98, 0xed, 0x86, 0x03, 0x91, 0x30,
+	0x12, 0x09, 0xe3, 0xaa, 0x28, 0x58, 0x5b, 0x6d, 0x89, 0x34, 0xf3, 0x34, 0xb2, 0xc2, 0x5b, 0x50,
+	0x9c, 0x10, 0x4d, 0xe6, 0x1e, 0xd9, 0xc7, 0x83, 0xcf, 0x79, 0xf2, 0x09, 0x91, 0x3c, 0x1e, 0xef,
+	0x35, 0xc5, 0xd6, 0x87, 0x01, 0x73, 0xf1, 0x5b, 0x00, 0x26, 0x73, 0x1c, 0x6a, 0x86, 0xb6, 0x2a,
+	0x52, 0xae, 0x56, 0x94, 0xe7, 0x34, 0x27, 0xf6, 0xbe, 0x47, 0x4d, 0x12, 0xc1, 0xe1, 0xcf, 0x60,
+	0xe5, 0xc8, 0xa6, 0x8e, 0x35, 0x73, 0x48, 0xaa, 0x9c, 0xdc, 0xc8, 0xd5, 0xde, 0x9c, 0xe9, 0xca,
+	0x53, 0x99, 0x55, 0x77, 0x38, 0x6b, 0x7a, 0x7c, 0xdb, 0x0d, 0xfd, 0x11, 0x59, 0x3e, 0x9a, 0xb5,
+	0xea, 0x0d, 0x28, 0xce, 0x03, 0xe2, 0x02, 0x24, 0x4f, 0xe8, 0x48, 0x54, 0x23, 0x4b, 0xf8, 0x27,
+	0x2e, 0x42, 0xfa, 0x91, 0xe1, 0x0c, 0xa9, 0xca, 0x50, 0x2e, 0xde, 0x49, 0xdc, 0x43, 0x95, 0x9f,
+	0x10, 0x14, 0xa6, 0xa7, 0x07, 0x1e, 0x73, 0x03, 0x8a, 0xf7, 0x20, 0x67, 0x4e, 0x74, 0x12, 0x94,
+	0x90, 0x88, 0xb8, 0x7a, 0x4e, 0xc4, 0x92, 0x13, 0x11, 0x56, 0x20, 0xc3, 0x8d, 0xba, 0xd0, 0x3f,
+	0x81, 0xc2, 0xd3, 0x80, 0x39, 0x61, 0xde, 0x8e, 0x86, 0x99, 0xab, 0x5d, 0x3f, 0x47, 0xb9, 0xd1,
+	0xf8, 0xff, 0x46, 0x90, 0xaf, 0x7b, 0x9e, 0x33, 0xfa, 0xdf, 0x88, 0xe2, 0x0d, 0xd0, 0x44, 0x23,
+	0x83, 0x52, 0x2a, 0xca, 0x10, 0x9d, 0xec, 0x53, 0x85, 0x22, 0x0a, 0x83, 0xaf, 0xc3, 0x82, 0xe5,
+	0x8f, 0x06, 0xfe, 0xd0, 0x2d, 0xa5, 0xcb, 0x68, 0x23, 0x43, 0x34, 0xcb, 0x1f, 0x91, 0xa1, 0x5b,
+	0xd9, 0x86, 0x45, 0x95, 0xb7, 0x6a, 0xda, 0x6d, 0xc0, 0x86, 0xe0, 0x0e, 0x2c, 0x1a, 0x98, 0xbe,
+	0xed, 0x89, 0xa8, 0x64, 0x75, 0x57, 0xe4, 0x4e, 0x6b, 0xba, 0x51, 0xf9, 0x26, 0x03, 0x78, 0xdf,
+	0x37, 0xdc, 0x40, 0x6e, 0x8d, 0xcb, 0x77, 0x0f, 0x52, 0xcc, 0xa3, 0x92, 0x97, 0xab, 0xbd, 0x3c,
+	0xd3, 0x81, 0x67, 0xe1, 0xd5, 0x9e, 0x47, 0x5d, 0x22, 0x18, 0x9c, 0xe9, 0x30, 0xc3, 0x52, 0xbd,
+	0x8b, 0x65, 0x76, 0x99, 0x61, 0x11, 0xc1, 0xc0, 0x75, 0x58, 0xf0, 0x7c, 0xea, 0x19, 0x3e, 0x55,
+	0x45, 0xbc, 0x19, 0x47, 0xde, 0x93, 0x70, 0x32, 0xe6, 0xe1, 0x77, 0x21, 0x1d, 0x84, 0xcc, 0xa7,
+	0xaa, 0xa6, 0xaf, 0xc4, 0x39, 0xe8, 0x73, 0x30, 0x91, 0x1c, 0xbc, 0x0d, 0x9a, 0xc9, 0x4e, 0x4f,
+	0xed, 0x50, 0x94, 0x38, 0x57, 0x7b, 0x35, 0x8e, 0xdd, 0x14, 0x68, 0xa2, 0x58, 0xfa, 0x9f, 0x08,
+	0x52, 0xbc, 0x10, 0xff, 0xa5, 0xf6, 0xa6, 0x2a, 0x4a, 0x5e, 0x42, 0x45, 0x37, 0x20, 0x73, 0x44,
+	0x5d, 0x93, 0x0e, 0x6c, 0x4b, 0x54, 0x28, 0x4b, 0x16, 0xc4, 0xba, 0x63, 0xe1, 0xd7, 0x61, 0xc5,
+	0xf2, 0xed, 0x47, 0xd4, 0x1f, 0x98, 0x0f, 0xa9, 0x79, 0x22, 0xce, 0x11, 0x75, 0xc8, 0x93, 0x82,
+	0xdc, 0x68, 0x4e, 0xec, 0xfa, 0x77, 0x08, 0x52, 0xbc, 0x71, 0xb8, 0x03, 0x69, 0xc3, 0xa7, 0xae,
+	0x21, 0x22, 0xcc, 0x37, 0xee, 0xfc, 0xf3, 0x78, 0x7d, 0xf3, 0xd8, 0x0e, 0x1f, 0x0e, 0x1f, 0x54,
+	0x4d, 0x76, 0xba, 0x49, 0x83, 0x70, 0x68, 0xf8, 0x23, 0xf9, 0x7c, 0x3d, 0xf3, 0xa0, 0x55, 0xeb,
+	0x9c, 0x4a, 0xa4, 0x07, 0x5c, 0x83, 0x9c, 0x67, 0x98, 0x27, 0xd4, 0x1a, 0x9c, 0xd0, 0x11, 0x4f,
+	0x87, 0x0f, 0x9b, 0x9c, 0x4c, 0xa7, 0xef, 0xd8, 0x26, 0x6d, 0xa4, 0xce, 0x1e, 0xaf, 0x5f, 0x21,
+	0x20, 0x51, 0x1f, 0xd1, 0x51, 0xa0, 0xd7, 0x60, 0x41, 0x49, 0x00, 0xdf, 0x84, 0x65, 0x0e, 0x8d,
+	0x46, 0x8f, 0x44, 0xf4, 0x4b, 0xdc, 0x1c, 0x89, 0xfd, 0xfb, 0x04, 0xa4, 0x45, 0xdb, 0xa7, 0xc1,
+	0xa3, 0xe7, 0x1d, 0x7c, 0xe2, 0x12, 0xc1, 0xe3, 0xb7, 0x61, 0x51, 0x71, 0xc4, 0x18, 0xbb, 0x20,
+	0xe5, 0xbc, 0xc4, 0x1d, 0x0a, 0x18, 0xae, 0x42, 0xd6, 0x62, 0x66, 0x10, 0x7d, 0x45, 0xe6, 0x70,
+	0x32, 0x1c, 0x23, 0x24, 0x72, 0x0d, 0x34, 0xfa, 0x95, 0x1d, 0x84, 0x41, 0x29, 0x5d, 0x4e, 0xf2,
+	0xc9, 0x21, 0x57, 0x7a, 0x06, 0x34, 0x29, 0xe0, 0xca, 0xcf, 0x29, 0xb8, 0x3a, 0x23, 0x6f, 0x35,
+	0x4a, 0xde, 0x03, 0x8d, 0x5f, 0x69, 0x6a, 0xa9, 0x31, 0x70, 0xc1, 0x7d, 0x54, 0xd3, 0xbf, 0x27,
+	0xe0, 0x44, 0xd1, 0xb8, 0x03, 0x7e, 0xb3, 0xe9, 0x78, 0x1a, 0xc4, 0x3b, 0xe8, 0x0a, 0x38, 0x51,
+	0x34, 0xdc, 0x86, 0x8c, 0xba, 0xda, 0x96, 0x12, 0xf8, 0x6b, 0xb1, 0x2e, 0x94, 0x22, 0x2c, 0x32,
+	0xa1, 0xe2, 0x0f, 0x20, 0x2b, 0xef, 0x68, 0x48, 0x2d, 0x35, 0x1a, 0x6e, 0xc5, 0xfa, 0x69, 0x8e,
+	0x19, 0x64, 0x4a, 0xd6, 0x0f, 0x41, 0x93, 0x39, 0x5e, 0x5a, 0x70, 0xf8, 0x25, 0x58, 0xb4, 0xa8,
+	0x13, 0x1a, 0x83, 0xa1, 0xc7, 0x5f, 0xca, 0x40, 0xd4, 0x22, 0x43, 0xf2, 0xc2, 0x78, 0x20, 0x6d,
+	0xfa, 0xb7, 0x08, 0x34, 0x99, 0xfb, 0xf3, 0x94, 0xe5, 0x8c, 0x54, 0x12, 0xb1, 0x52, 0xd1, 0xef,
+	0x42, 0x66, 0x5c, 0xbd, 0xf9, 0x03, 0x01, 0x9d, 0x33, 0x10, 0x72, 0x90, 0x9d, 0x94, 0xab, 0xf6,
+	0x17, 0x02, 0xad, 0x25, 0x10, 0xf8, 0x7d, 0xc8, 0x8c, 0xff, 0x21, 0xe0, 0xd5, 0x8b, 0xfe, 0xea,
+	0xe8, 0x2f, 0x5e, 0xf8, 0xb7, 0x02, 0x6f, 0x43, 0x5a, 0x3c, 0x73, 0xf8, 0xc6, 0x0c, 0x2e, 0xfa,
+	0xe4, 0xeb, 0xfa, 0xbc, 0x2d, 0xc5, 0x3f, 0x80, 0x7c, 0xa4, 0xc7, 0x01, 0x5e, 0x8f, 0x99, 0xed,
+	0x7a, 0x39, 0x4e, 0x1f, 0x1b, 0x68, 0x0b, 0x35, 0x1a, 0x67, 0xbf, 0xaf, 0x5d, 0x39, 0x7b, 0xb2,
+	0x86, 0x7e, 0x79, 0xb2, 0x86, 0x7e, 0xfc, 0x63, 0x0d, 0x7d, 0xba, 0x75, 0xa9, 0x56, 0x45, 0x7c,
+	0x3f, 0xd0, 0x84, 0xf9, 0xce, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0x32, 0x6e, 0x4b, 0xd3, 0x2b,
+	0x0c, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1072,47 +937,47 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type DriverClient interface {
-	// Session begins a scoped interaction with the driver from a single process context.
-	// It maps SessionRequest to a handle used with further Driver interactions.
-	// Note that at any given time there may be *many* concurrent sessions.
-	StartSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error)
 	// Validate that a CollectionSpec is compatible with a materialization target,
 	// and return constraints over the projections of the collection.
 	Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error)
 	// Apply a CollectionSpec and FieldSelections to a materialization target.
 	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
-	// Fence off other sessions of this shard ID from committing transactions
-	// against this driver and endpoint.
+	// Transactions is a very long lived RPC through which the Flow runtime and a
+	// materialization endpoint cooperatively execute an unbounded number of
+	// transactions. The RPC follows the following lifecycle:
 	//
-	// Fence is an *optional* API which is required for materializations that
-	// support end-to-end "exactly once" semantics. Stores which support only
-	// "at least once" semantics can implement Fence as a no-op, returning a
-	// zero-value FenceResponse.
+	// :Open:
+	//    - The Flow runtime client sends TransactionRequest.Open,
+	//      opening the stream and requesting it be fenced from other streams.
+	// :Opened:
+	//    - The driver server sends TransactionResponse.Opened after,
+	//      where supported, ensuring other stream clients are fenced.
 	//
-	// Where implemented, drivers  must guarantee that no previous sessions of
-	// this shard ID (now a "zombie" session) can commit Transactions. Fence
-	// returns the final checkpoint committed by this shard ID in a Transaction.
-	Fence(ctx context.Context, in *FenceRequest, opts ...grpc.CallOption) (*FenceResponse, error)
-	// Transaction protocol of a store, following the lifecycle:
+	// TransactionRequest.Open and TransactionResponse.Opened are sent only
+	// once, at the commencement of the stream. Thereafter the protocol loops:
 	//
-	// 1. The Flow runtime client sends TransactionRequest.Start.
-	// 2. The client sends zero or more TransactionRequest.Load.
-	//    - The driver server may immediately send any number of TransactionResponse.Load
-	//      in response.
+	// :Load:
+	//    - The client sends zero or more TransactionRequest.Load.
+	//    - The driver server may immediately send any number of
+	//      TransactionResponse.Loaded in response.
 	//    - Or, it may defer responding with some or all loads until later.
-	// 3. The client sends TransactionRequest.Prepare.
-	//    - At this time, the server must flush remaining TransactionResponse.Loads.
-	// 4. The server sends TransactionResponse.Prepare.
-	// 5. The client sends zero or more TransactionRequest.Store.
-	// 6. The client sends TransactionRequest.Commit, followed by EOF.
+	// :Prepare:
+	//    - The client sends TransactionRequest.Prepare.
+	//    - At this time, the server must flush remaining TransactionResponse.Loaded.
+	// :Prepared:
+	//    - The server sends TransactionResponse.Prepared.
+	// :Store:
+	//    - The client sends zero or more TransactionRequest.Store.
+	// :Commit:
+	//    - The client sends TransactionRequest.Commit.
 	//    - The server commits the prepared Flow checkpoint and all stores.
-	// 7. The server sends TransactionResponse.Commit.
+	// :Committed:
+	//    - The server sends TransactionResponse.Committed.
 	//    - The Flow runtime persists the prepared driver checkpoint.
+	//    - Client and server begin a new transaction and loop to "Load".
 	//
-	// An error of any kind prior to Commit -- including EOF -- is treated as a rollback.
-	// Intermediaries / proxies may map a broken transport on one side into a clean shutdown
-	// of the other, and explicit Commits distinguish this case.
-	Transaction(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionClient, error)
+	// An error of any kind rolls back the transaction in progress and terminates the stream.
+	Transactions(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionsClient, error)
 }
 
 type driverClient struct {
@@ -1121,15 +986,6 @@ type driverClient struct {
 
 func NewDriverClient(cc *grpc.ClientConn) DriverClient {
 	return &driverClient{cc}
-}
-
-func (c *driverClient) StartSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error) {
-	out := new(SessionResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/StartSession", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *driverClient) Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error) {
@@ -1150,39 +1006,30 @@ func (c *driverClient) Apply(ctx context.Context, in *ApplyRequest, opts ...grpc
 	return out, nil
 }
 
-func (c *driverClient) Fence(ctx context.Context, in *FenceRequest, opts ...grpc.CallOption) (*FenceResponse, error) {
-	out := new(FenceResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/Fence", in, out, opts...)
+func (c *driverClient) Transactions(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/materialize.Driver/Transactions", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
-}
-
-func (c *driverClient) Transaction(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/materialize.Driver/Transaction", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &driverTransactionClient{stream}
+	x := &driverTransactionsClient{stream}
 	return x, nil
 }
 
-type Driver_TransactionClient interface {
+type Driver_TransactionsClient interface {
 	Send(*TransactionRequest) error
 	Recv() (*TransactionResponse, error)
 	grpc.ClientStream
 }
 
-type driverTransactionClient struct {
+type driverTransactionsClient struct {
 	grpc.ClientStream
 }
 
-func (x *driverTransactionClient) Send(m *TransactionRequest) error {
+func (x *driverTransactionsClient) Send(m *TransactionRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *driverTransactionClient) Recv() (*TransactionResponse, error) {
+func (x *driverTransactionsClient) Recv() (*TransactionResponse, error) {
 	m := new(TransactionResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -1192,89 +1039,65 @@ func (x *driverTransactionClient) Recv() (*TransactionResponse, error) {
 
 // DriverServer is the server API for Driver service.
 type DriverServer interface {
-	// Session begins a scoped interaction with the driver from a single process context.
-	// It maps SessionRequest to a handle used with further Driver interactions.
-	// Note that at any given time there may be *many* concurrent sessions.
-	StartSession(context.Context, *SessionRequest) (*SessionResponse, error)
 	// Validate that a CollectionSpec is compatible with a materialization target,
 	// and return constraints over the projections of the collection.
 	Validate(context.Context, *ValidateRequest) (*ValidateResponse, error)
 	// Apply a CollectionSpec and FieldSelections to a materialization target.
 	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
-	// Fence off other sessions of this shard ID from committing transactions
-	// against this driver and endpoint.
+	// Transactions is a very long lived RPC through which the Flow runtime and a
+	// materialization endpoint cooperatively execute an unbounded number of
+	// transactions. The RPC follows the following lifecycle:
 	//
-	// Fence is an *optional* API which is required for materializations that
-	// support end-to-end "exactly once" semantics. Stores which support only
-	// "at least once" semantics can implement Fence as a no-op, returning a
-	// zero-value FenceResponse.
+	// :Open:
+	//    - The Flow runtime client sends TransactionRequest.Open,
+	//      opening the stream and requesting it be fenced from other streams.
+	// :Opened:
+	//    - The driver server sends TransactionResponse.Opened after,
+	//      where supported, ensuring other stream clients are fenced.
 	//
-	// Where implemented, drivers  must guarantee that no previous sessions of
-	// this shard ID (now a "zombie" session) can commit Transactions. Fence
-	// returns the final checkpoint committed by this shard ID in a Transaction.
-	Fence(context.Context, *FenceRequest) (*FenceResponse, error)
-	// Transaction protocol of a store, following the lifecycle:
+	// TransactionRequest.Open and TransactionResponse.Opened are sent only
+	// once, at the commencement of the stream. Thereafter the protocol loops:
 	//
-	// 1. The Flow runtime client sends TransactionRequest.Start.
-	// 2. The client sends zero or more TransactionRequest.Load.
-	//    - The driver server may immediately send any number of TransactionResponse.Load
-	//      in response.
+	// :Load:
+	//    - The client sends zero or more TransactionRequest.Load.
+	//    - The driver server may immediately send any number of
+	//      TransactionResponse.Loaded in response.
 	//    - Or, it may defer responding with some or all loads until later.
-	// 3. The client sends TransactionRequest.Prepare.
-	//    - At this time, the server must flush remaining TransactionResponse.Loads.
-	// 4. The server sends TransactionResponse.Prepare.
-	// 5. The client sends zero or more TransactionRequest.Store.
-	// 6. The client sends TransactionRequest.Commit, followed by EOF.
+	// :Prepare:
+	//    - The client sends TransactionRequest.Prepare.
+	//    - At this time, the server must flush remaining TransactionResponse.Loaded.
+	// :Prepared:
+	//    - The server sends TransactionResponse.Prepared.
+	// :Store:
+	//    - The client sends zero or more TransactionRequest.Store.
+	// :Commit:
+	//    - The client sends TransactionRequest.Commit.
 	//    - The server commits the prepared Flow checkpoint and all stores.
-	// 7. The server sends TransactionResponse.Commit.
+	// :Committed:
+	//    - The server sends TransactionResponse.Committed.
 	//    - The Flow runtime persists the prepared driver checkpoint.
+	//    - Client and server begin a new transaction and loop to "Load".
 	//
-	// An error of any kind prior to Commit -- including EOF -- is treated as a rollback.
-	// Intermediaries / proxies may map a broken transport on one side into a clean shutdown
-	// of the other, and explicit Commits distinguish this case.
-	Transaction(Driver_TransactionServer) error
+	// An error of any kind rolls back the transaction in progress and terminates the stream.
+	Transactions(Driver_TransactionsServer) error
 }
 
 // UnimplementedDriverServer can be embedded to have forward compatible implementations.
 type UnimplementedDriverServer struct {
 }
 
-func (*UnimplementedDriverServer) StartSession(ctx context.Context, req *SessionRequest) (*SessionResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StartSession not implemented")
-}
 func (*UnimplementedDriverServer) Validate(ctx context.Context, req *ValidateRequest) (*ValidateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Validate not implemented")
 }
 func (*UnimplementedDriverServer) Apply(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Apply not implemented")
 }
-func (*UnimplementedDriverServer) Fence(ctx context.Context, req *FenceRequest) (*FenceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Fence not implemented")
-}
-func (*UnimplementedDriverServer) Transaction(srv Driver_TransactionServer) error {
-	return status.Errorf(codes.Unimplemented, "method Transaction not implemented")
+func (*UnimplementedDriverServer) Transactions(srv Driver_TransactionsServer) error {
+	return status.Errorf(codes.Unimplemented, "method Transactions not implemented")
 }
 
 func RegisterDriverServer(s *grpc.Server, srv DriverServer) {
 	s.RegisterService(&_Driver_serviceDesc, srv)
-}
-
-func _Driver_StartSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SessionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).StartSession(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/StartSession",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).StartSession(ctx, req.(*SessionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _Driver_Validate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1313,43 +1136,25 @@ func _Driver_Apply_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Driver_Fence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(FenceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Fence(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/Fence",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Fence(ctx, req.(*FenceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _Driver_Transactions_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(DriverServer).Transactions(&driverTransactionsServer{stream})
 }
 
-func _Driver_Transaction_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(DriverServer).Transaction(&driverTransactionServer{stream})
-}
-
-type Driver_TransactionServer interface {
+type Driver_TransactionsServer interface {
 	Send(*TransactionResponse) error
 	Recv() (*TransactionRequest, error)
 	grpc.ServerStream
 }
 
-type driverTransactionServer struct {
+type driverTransactionsServer struct {
 	grpc.ServerStream
 }
 
-func (x *driverTransactionServer) Send(m *TransactionResponse) error {
+func (x *driverTransactionsServer) Send(m *TransactionResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *driverTransactionServer) Recv() (*TransactionRequest, error) {
+func (x *driverTransactionsServer) Recv() (*TransactionRequest, error) {
 	m := new(TransactionRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -1362,10 +1167,6 @@ var _Driver_serviceDesc = grpc.ServiceDesc{
 	HandlerType: (*DriverServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "StartSession",
-			Handler:    _Driver_StartSession_Handler,
-		},
-		{
 			MethodName: "Validate",
 			Handler:    _Driver_Validate_Handler,
 		},
@@ -1373,15 +1174,11 @@ var _Driver_serviceDesc = grpc.ServiceDesc{
 			MethodName: "Apply",
 			Handler:    _Driver_Apply_Handler,
 		},
-		{
-			MethodName: "Fence",
-			Handler:    _Driver_Fence_Handler,
-		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Transaction",
-			Handler:       _Driver_Transaction_Handler,
+			StreamName:    "Transactions",
+			Handler:       _Driver_Transactions_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
@@ -1424,114 +1221,6 @@ func (m *Constraint) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintMaterialize(dAtA, i, uint64(m.Type))
 		i--
 		dAtA[i] = 0x10
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SessionRequest) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SessionRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SessionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.Target) > 0 {
-		i -= len(m.Target)
-		copy(dAtA[i:], m.Target)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Target)))
-		i--
-		dAtA[i] = 0x6
-		i--
-		dAtA[i] = 0xa2
-	}
-	if len(m.EndpointUrl) > 0 {
-		i -= len(m.EndpointUrl)
-		copy(dAtA[i:], m.EndpointUrl)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointUrl)))
-		i--
-		dAtA[i] = 0x6
-		i--
-		dAtA[i] = 0x9a
-	}
-	if len(m.ShardId) > 0 {
-		i -= len(m.ShardId)
-		copy(dAtA[i:], m.ShardId)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ShardId)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.EndpointConfigJson) > 0 {
-		i -= len(m.EndpointConfigJson)
-		copy(dAtA[i:], m.EndpointConfigJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointConfigJson)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.EndpointType != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.EndpointType))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SessionResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SessionResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SessionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.DeltaUpdates {
-		i--
-		if m.DeltaUpdates {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x10
-	}
-	if len(m.Handle) > 0 {
-		i -= len(m.Handle)
-		copy(dAtA[i:], m.Handle)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Handle)))
-		i--
-		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -1591,10 +1280,10 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.Handle) > 0 {
-		i -= len(m.Handle)
-		copy(dAtA[i:], m.Handle)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Handle)))
+	if len(m.EndpointConfigJson) > 0 {
+		i -= len(m.EndpointConfigJson)
+		copy(dAtA[i:], m.EndpointConfigJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointConfigJson)))
 		i--
 		dAtA[i] = 0x12
 	}
@@ -1717,10 +1406,10 @@ func (m *ApplyRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.Handle) > 0 {
-		i -= len(m.Handle)
-		copy(dAtA[i:], m.Handle)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Handle)))
+	if len(m.EndpointConfigJson) > 0 {
+		i -= len(m.EndpointConfigJson)
+		copy(dAtA[i:], m.EndpointConfigJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointConfigJson)))
 		i--
 		dAtA[i] = 0x12
 	}
@@ -1760,86 +1449,6 @@ func (m *ApplyResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.ActionDescription)
 		copy(dAtA[i:], m.ActionDescription)
 		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ActionDescription)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *FenceRequest) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *FenceRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *FenceRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.DriverCheckpoint) > 0 {
-		i -= len(m.DriverCheckpoint)
-		copy(dAtA[i:], m.DriverCheckpoint)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DriverCheckpoint)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.Handle) > 0 {
-		i -= len(m.Handle)
-		copy(dAtA[i:], m.Handle)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Handle)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.EndpointType != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.EndpointType))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *FenceResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *FenceResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *FenceResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.FlowCheckpoint) > 0 {
-		i -= len(m.FlowCheckpoint)
-		copy(dAtA[i:], m.FlowCheckpoint)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.FlowCheckpoint)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -1918,9 +1527,9 @@ func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Start != nil {
+	if m.Open != nil {
 		{
-			size, err := m.Start.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -1933,7 +1542,7 @@ func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest_Start) Marshal() (dAtA []byte, err error) {
+func (m *TransactionRequest_Open) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1943,12 +1552,12 @@ func (m *TransactionRequest_Start) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest_Start) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionRequest_Open) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest_Start) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1956,6 +1565,20 @@ func (m *TransactionRequest_Start) MarshalToSizedBuffer(dAtA []byte) (int, error
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.DriverCheckpoint) > 0 {
+		i -= len(m.DriverCheckpoint)
+		copy(dAtA[i:], m.DriverCheckpoint)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DriverCheckpoint)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.FenceId) > 0 {
+		i -= len(m.FenceId)
+		copy(dAtA[i:], m.FenceId)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.FenceId)))
+		i--
+		dAtA[i] = 0x22
 	}
 	if m.Fields != nil {
 		{
@@ -1969,10 +1592,10 @@ func (m *TransactionRequest_Start) MarshalToSizedBuffer(dAtA []byte) (int, error
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.Handle) > 0 {
-		i -= len(m.Handle)
-		copy(dAtA[i:], m.Handle)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Handle)))
+	if len(m.EndpointConfigJson) > 0 {
+		i -= len(m.EndpointConfigJson)
+		copy(dAtA[i:], m.EndpointConfigJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointConfigJson)))
 		i--
 		dAtA[i] = 0x12
 	}
@@ -2216,7 +1839,7 @@ func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i = encodeVarintMaterialize(dAtA, i, uint64(size))
 		}
 		i--
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x22
 	}
 	if m.Prepared != nil {
 		{
@@ -2228,7 +1851,7 @@ func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i = encodeVarintMaterialize(dAtA, i, uint64(size))
 		}
 		i--
-		dAtA[i] = 0x12
+		dAtA[i] = 0x1a
 	}
 	if m.Loaded != nil {
 		{
@@ -2239,6 +1862,62 @@ func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i -= size
 			i = encodeVarintMaterialize(dAtA, i, uint64(size))
 		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Opened != nil {
+		{
+			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TransactionResponse_Opened) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TransactionResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TransactionResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.DeltaUpdates {
+		i--
+		if m.DeltaUpdates {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.FlowCheckpoint) > 0 {
+		i -= len(m.FlowCheckpoint)
+		copy(dAtA[i:], m.FlowCheckpoint)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.FlowCheckpoint)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -2384,56 +2063,6 @@ func (m *Constraint) ProtoSize() (n int) {
 	return n
 }
 
-func (m *SessionRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.EndpointType != 0 {
-		n += 1 + sovMaterialize(uint64(m.EndpointType))
-	}
-	l = len(m.EndpointConfigJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.ShardId)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.EndpointUrl)
-	if l > 0 {
-		n += 2 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.Target)
-	if l > 0 {
-		n += 2 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *SessionResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Handle)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.DeltaUpdates {
-		n += 2
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
 func (m *ValidateRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
@@ -2443,7 +2072,7 @@ func (m *ValidateRequest) ProtoSize() (n int) {
 	if m.EndpointType != 0 {
 		n += 1 + sovMaterialize(uint64(m.EndpointType))
 	}
-	l = len(m.Handle)
+	l = len(m.EndpointConfigJson)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
@@ -2499,7 +2128,7 @@ func (m *ApplyRequest) ProtoSize() (n int) {
 	if m.EndpointType != 0 {
 		n += 1 + sovMaterialize(uint64(m.EndpointType))
 	}
-	l = len(m.Handle)
+	l = len(m.EndpointConfigJson)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
@@ -2536,53 +2165,14 @@ func (m *ApplyResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *FenceRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.EndpointType != 0 {
-		n += 1 + sovMaterialize(uint64(m.EndpointType))
-	}
-	l = len(m.Handle)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.DriverCheckpoint)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *FenceResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.FlowCheckpoint)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
 func (m *TransactionRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Start != nil {
-		l = m.Start.ProtoSize()
+	if m.Open != nil {
+		l = m.Open.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.Load != nil {
@@ -2607,7 +2197,7 @@ func (m *TransactionRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionRequest_Start) ProtoSize() (n int) {
+func (m *TransactionRequest_Open) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2616,12 +2206,20 @@ func (m *TransactionRequest_Start) ProtoSize() (n int) {
 	if m.EndpointType != 0 {
 		n += 1 + sovMaterialize(uint64(m.EndpointType))
 	}
-	l = len(m.Handle)
+	l = len(m.EndpointConfigJson)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.Fields != nil {
 		l = m.Fields.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.FenceId)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.DriverCheckpoint)
+	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -2723,6 +2321,10 @@ func (m *TransactionResponse) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
+	if m.Opened != nil {
+		l = m.Opened.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
 	if m.Loaded != nil {
 		l = m.Loaded.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
@@ -2734,6 +2336,25 @@ func (m *TransactionResponse) ProtoSize() (n int) {
 	if m.Committed != nil {
 		l = m.Committed.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *TransactionResponse_Opened) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.FlowCheckpoint)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.DeltaUpdates {
+		n += 2
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -2902,7 +2523,7 @@ func (m *Constraint) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *SessionRequest) Unmarshal(dAtA []byte) error {
+func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -2925,10 +2546,10 @@ func (m *SessionRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: SessionRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: ValidateRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SessionRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ValidateRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -2981,317 +2602,6 @@ func (m *SessionRequest) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.EndpointConfigJson = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ShardId", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ShardId = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 99:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointUrl", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.EndpointUrl = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 100:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Target", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Target = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *SessionResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: SessionResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SessionResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Handle", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Handle = append(m.Handle[:0], dAtA[iNdEx:postIndex]...)
-			if m.Handle == nil {
-				m.Handle = []byte{}
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DeltaUpdates", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.DeltaUpdates = bool(v != 0)
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ValidateRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidateRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
-			}
-			m.EndpointType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Handle", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Handle = append(m.Handle[:0], dAtA[iNdEx:postIndex]...)
-			if m.Handle == nil {
-				m.Handle = []byte{}
-			}
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
@@ -3714,9 +3024,9 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Handle", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EndpointConfigJson", wireType)
 			}
-			var byteLen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -3726,25 +3036,23 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Handle = append(m.Handle[:0], dAtA[iNdEx:postIndex]...)
-			if m.Handle == nil {
-				m.Handle = []byte{}
-			}
+			m.EndpointConfigJson = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
@@ -3949,235 +3257,6 @@ func (m *ApplyResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *FenceRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: FenceRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: FenceRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
-			}
-			m.EndpointType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Handle", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Handle = append(m.Handle[:0], dAtA[iNdEx:postIndex]...)
-			if m.Handle == nil {
-				m.Handle = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpoint", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DriverCheckpoint = append(m.DriverCheckpoint[:0], dAtA[iNdEx:postIndex]...)
-			if m.DriverCheckpoint == nil {
-				m.DriverCheckpoint = []byte{}
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *FenceResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: FenceResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: FenceResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FlowCheckpoint", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.FlowCheckpoint = append(m.FlowCheckpoint[:0], dAtA[iNdEx:postIndex]...)
-			if m.FlowCheckpoint == nil {
-				m.FlowCheckpoint = []byte{}
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
 func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -4209,7 +3288,7 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Start", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -4236,10 +3315,10 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Start == nil {
-				m.Start = &TransactionRequest_Start{}
+			if m.Open == nil {
+				m.Open = &TransactionRequest_Open{}
 			}
-			if err := m.Start.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -4412,7 +3491,7 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
+func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4435,10 +3514,10 @@ func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Start: wiretype end group for non-group")
+			return fmt.Errorf("proto: Open: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Start: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Open: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -4462,9 +3541,9 @@ func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Handle", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field EndpointConfigJson", wireType)
 			}
-			var byteLen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -4474,25 +3553,23 @@ func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Handle = append(m.Handle[:0], dAtA[iNdEx:postIndex]...)
-			if m.Handle == nil {
-				m.Handle = []byte{}
-			}
+			m.EndpointConfigJson = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
@@ -4528,6 +3605,72 @@ func (m *TransactionRequest_Start) Unmarshal(dAtA []byte) error {
 			}
 			if err := m.Fields.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FenceId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FenceId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpoint", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DriverCheckpoint = append(m.DriverCheckpoint[:0], dAtA[iNdEx:postIndex]...)
+			if m.DriverCheckpoint == nil {
+				m.DriverCheckpoint = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -5110,6 +4253,42 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Opened", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Opened == nil {
+				m.Opened = &TransactionResponse_Opened{}
+			}
+			if err := m.Opened.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Loaded", wireType)
 			}
 			var msglen int
@@ -5144,7 +4323,7 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 2:
+		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Prepared", wireType)
 			}
@@ -5180,7 +4359,7 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 3:
+		case 4:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Committed", wireType)
 			}
@@ -5216,6 +4395,114 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Opened: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Opened: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FlowCheckpoint", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FlowCheckpoint = append(m.FlowCheckpoint[:0], dAtA[iNdEx:postIndex]...)
+			if m.FlowCheckpoint == nil {
+				m.FlowCheckpoint = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeltaUpdates", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DeltaUpdates = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMaterialize(dAtA[iNdEx:])
