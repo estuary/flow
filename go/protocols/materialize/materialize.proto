@@ -38,95 +38,55 @@ message Constraint {
 
 // Driver is the service implemented by a materialization target system.
 service Driver {
-  // Session begins a scoped interaction with the driver from a single process context.
-  // It maps SessionRequest to a handle used with further Driver interactions.
-  // Note that at any given time there may be *many* concurrent sessions.
-  rpc StartSession(SessionRequest) returns (SessionResponse);
   // Validate that a CollectionSpec is compatible with a materialization target,
   // and return constraints over the projections of the collection.
   rpc Validate(ValidateRequest) returns (ValidateResponse);
   // Apply a CollectionSpec and FieldSelections to a materialization target.
   rpc Apply(ApplyRequest) returns (ApplyResponse);
-  // Fence off other sessions of this shard ID from committing transactions
-  // against this driver and endpoint.
+  // Transactions is a very long lived RPC through which the Flow runtime and a
+  // materialization endpoint cooperatively execute an unbounded number of
+  // transactions. The RPC follows the following lifecycle:
   //
-  // Fence is an *optional* API which is required for materializations that
-  // support end-to-end "exactly once" semantics. Stores which support only
-  // "at least once" semantics can implement Fence as a no-op, returning a
-  // zero-value FenceResponse.
+  // :Open:
+  //    - The Flow runtime client sends TransactionRequest.Open,
+  //      opening the stream and requesting it be fenced from other streams.
+  // :Opened:
+  //    - The driver server sends TransactionResponse.Opened after,
+  //      where supported, ensuring other stream clients are fenced.
   //
-  // Where implemented, drivers  must guarantee that no previous sessions of
-  // this shard ID (now a "zombie" session) can commit Transactions. Fence
-  // returns the final checkpoint committed by this shard ID in a Transaction.
-  rpc Fence(FenceRequest) returns (FenceResponse);
-  // Transaction protocol of a store, following the lifecycle:
+  // TransactionRequest.Open and TransactionResponse.Opened are sent only
+  // once, at the commencement of the stream. Thereafter the protocol loops:
   //
-  // 1. The Flow runtime client sends TransactionRequest.Start.
-  // 2. The client sends zero or more TransactionRequest.Load.
-  //    - The driver server may immediately send any number of TransactionResponse.Load
-  //      in response.
+  // :Load:
+  //    - The client sends zero or more TransactionRequest.Load.
+  //    - The driver server may immediately send any number of
+  //      TransactionResponse.Loaded in response.
   //    - Or, it may defer responding with some or all loads until later.
-  // 3. The client sends TransactionRequest.Prepare.
-  //    - At this time, the server must flush remaining TransactionResponse.Loads.
-  // 4. The server sends TransactionResponse.Prepare.
-  // 5. The client sends zero or more TransactionRequest.Store.
-  // 6. The client sends TransactionRequest.Commit, followed by EOF.
+  // :Prepare:
+  //    - The client sends TransactionRequest.Prepare.
+  //    - At this time, the server must flush remaining TransactionResponse.Loaded.
+  // :Prepared:
+  //    - The server sends TransactionResponse.Prepared.
+  // :Store:
+  //    - The client sends zero or more TransactionRequest.Store.
+  // :Commit:
+  //    - The client sends TransactionRequest.Commit.
   //    - The server commits the prepared Flow checkpoint and all stores.
-  // 7. The server sends TransactionResponse.Commit.
+  // :Committed:
+  //    - The server sends TransactionResponse.Committed.
   //    - The Flow runtime persists the prepared driver checkpoint.
+  //    - Client and server begin a new transaction and loop to "Load".
   //
-  // An error of any kind prior to Commit -- including EOF -- is treated as a rollback.
-  // Intermediaries / proxies may map a broken transport on one side into a clean shutdown
-  // of the other, and explicit Commits distinguish this case.
-  rpc Transaction(stream TransactionRequest) returns (stream TransactionResponse);
-}
-
-// SessionRequest is the request type of the StartSession RPC.
-message SessionRequest {
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
-  // Driver-specific configuration, as an encoded JSON object.
-  string endpoint_config_json = 2;
-  // Stable ID of the flow consumer shard that this session belongs to. A null or empty value
-  // indicates that the caller is not a flow consumer shard, but some other process (e.g. flowctl).
-  string shard_id = 3;
-
-
-  // DEPRECATED - this will be removed.
-  // Their semantics are instead carried by endpoint_config_json.
-
-  // Endpoint URL of the materialization system.
-  string endpoint_url = 99;
-  // Target name within the materialization system, where applicable.
-  // This could be a SQL schema & table, or a pub/sub topic, etc.
-  string target = 100;
-}
-
-// SessionResponse is the response type of the StartSession RPC.
-message SessionResponse {
-  // Opaque session handle.
-  bytes handle = 1;
-  // Materialize combined delta updates of documents rather than full reductions.
-  //
-  // When set, the Flow runtime will not attempt to load documents via
-  // TransactionRequest.Load, and disables internal re-use of documents
-  // stored in prior transactions. Each stored document is exclusively combined
-  // from updates processed by the runtime within the current transaction only.
-  //
-  // This is appropriate for drivers over streams, WebHooks, and append-only files.
-  //
-  // For example, given a collection which reduces a sum count for each key,
-  // its materialization will produce a stream of delta updates to the count,
-  // such that a reader of the stream will arrive at the correct total count.
-  bool delta_updates = 2;
+  // An error of any kind rolls back the transaction in progress and terminates the stream.
+  rpc Transactions(stream TransactionRequest) returns (stream TransactionResponse);
 }
 
 // ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 1;
-  // Opaque session handle.
-  bytes handle = 2;
+  // Driver-specific configuration, as an encoded JSON object.
+  string endpoint_config_json = 2;
   // Collection to be materialized.
   flow.CollectionSpec collection = 3;
   // Projection configuration, keyed by the projection field name,
@@ -146,8 +106,8 @@ message ValidateResponse {
 message ApplyRequest {
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 1;
-  // Opaque session handle.
-  bytes handle = 2;
+  // Driver-specific configuration, as an encoded JSON object.
+  string endpoint_config_json = 2;
   // Collection to be materialized.
   flow.CollectionSpec collection = 3;
   // Selected fields for materialization
@@ -164,38 +124,33 @@ message ApplyResponse {
   string action_description = 1;
 }
 
-// FenceRequest is the request type of a Fence RPC.
-message FenceRequest {
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
-  // Opaque session handle.
-  bytes handle = 2;
-  // Driver checkpoint which was last committed from a Store RPC.
-  // Or empty, if the Driver has never returned a checkpoint.
-  bytes driver_checkpoint = 3;
-}
-
-// FenceResponse is the response type of a Fence RPC.
-message FenceResponse {
-  // Flow checkpoint which was previously committed with this caller ID.
-  // Or nil, if unknown or transactional semantics are not supported.
-  bytes flow_checkpoint = 1;
-}
-
 // TransactionRequest is the request type of a Transaction RPC.
 // It will have exactly one top-level field set, which represents its message type.
 message TransactionRequest {
-  // Start a Transaction.
-  message Start {
+  // Open a transaction stream and, where supported, fence off other
+  // streams having this same |fence_id| from issuing further commits.
+  //
+  // Fencing semantics are optional, but required for exactly-once semantics.
+  // Non-transactional stores can ignore this aspect and achieve at-least-once.
+  //
+  // Where implemented, servers must guarantee that no other streams of this
+  // |fence_id| (now "zombie" streams) can commit transactions, and must then
+  // return the final checkpoint committed by this |fence_id| in its response.
+  message Open {
     // Endpoint type addressed by this request.
     flow.EndpointType endpoint_type = 1;
-    // Opaque session handle.
-    bytes handle = 2;
+    // Driver-specific configuration, as an encoded JSON object.
+    string endpoint_config_json = 2;
     // Fields represents the projection fields to be stored. This repeats the selection and ordering
     // of the last Apply RPC, but is provided here also as a convenience.
     flow.FieldSelection fields = 3;
+    // Stable producer ID (aka Flow runtime shard ID) to fence.
+    string fence_id = 4;
+    // Last-persisted driver checkpoint from a previous transaction stream.
+    // Or empty, if the driver hasn't returned a checkpoint.
+    bytes driver_checkpoint = 5;
   }
-  Start start = 1;
+  Open open = 1;
 
   // Load one or more documents identified by key.
   // Keys may included documents which have never before been stored,
@@ -206,17 +161,16 @@ message TransactionRequest {
     // Packed tuples of collection keys, enumerating the documents to load.
     repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
   }
-  // Load will only be sent during the Loading phase of the transaction rpc.
   Load load = 2;
 
-  // Prepare to commit. No further Loads will be sent.
+  // Prepare to commit. No further Loads will be sent in this transaction.
   message Prepare {
     // Flow checkpoint to commit with this transaction.
     bytes flow_checkpoint = 1;
   }
   Prepare prepare = 3;
 
-  // Store documents of this transaction.
+  // Store documents of this transaction commit.
   message Store {
     // Byte arena of the request.
     bytes arena = 1 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
@@ -239,6 +193,28 @@ message TransactionRequest {
 // TransactionResponse is the response type of a Transaction RPC.
 // It will have exactly one top-level field set, which represents its message type.
 message TransactionResponse {
+  // Opened responds to TransactionRequest.Open of the client.
+  message Opened {
+    // Flow checkpoint which was previously committed with this |fence_id|.
+    // May be nil, if unknown or if transactional semantics are not supported,
+    // in which case the Flow runtime will use its most-recent persisted checkpoint.
+    bytes flow_checkpoint = 1;
+    // Materialize combined delta updates of documents rather than full reductions.
+    //
+    // When set, the Flow runtime will not attempt to load documents via
+    // TransactionRequest.Load, and also disables re-use of cached documents
+    // stored in prior transactions. Each stored document is exclusively combined
+    // from updates processed by the runtime within the current transaction only.
+    //
+    // This is appropriate for drivers over streams, WebHooks, and append-only files.
+    //
+    // For example, given a collection which reduces a sum count for each key,
+    // its materialization will produce a stream of delta updates to the count,
+    // such that a reader of the stream will arrive at the correct total count.
+    bool delta_updates = 2;
+  }
+  Opened opened = 1;
+
   // Loaded responds to TransactionRequest.Loads of the client.
   // It returns documents of requested keys which have previously been stored.
   // Keys not found in the store MUST be omitted. Documents may be in any order,
@@ -250,7 +226,7 @@ message TransactionResponse {
     // Loaded JSON documents.
     repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
   }
-  Loaded loaded = 1;
+  Loaded loaded = 2;
 
   // Prepared responds to a TransactionRequest.Prepare of the client.
   // No further Loaded responses will be sent.
@@ -260,9 +236,9 @@ message TransactionResponse {
     // Flow runtime and returned in a future Fence request.
     bytes driver_checkpoint = 1;
   }
-  Prepared prepared = 2;
+  Prepared prepared = 3;
 
   // Acknowledge the transaction as committed.
   message Committed {}
-  Committed committed = 3;
+  Committed committed = 4;
 }
