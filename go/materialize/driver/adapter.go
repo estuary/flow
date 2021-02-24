@@ -11,10 +11,6 @@ import (
 // adapter is pm.DriverClient that wraps an in-process pm.DriverServer.
 type adapter struct{ pm.DriverServer }
 
-func (a adapter) StartSession(ctx context.Context, in *pm.SessionRequest, opts ...grpc.CallOption) (*pm.SessionResponse, error) {
-	return a.DriverServer.StartSession(ctx, in)
-}
-
 func (a adapter) Validate(ctx context.Context, in *pm.ValidateRequest, opts ...grpc.CallOption) (*pm.ValidateResponse, error) {
 	return a.DriverServer.Validate(ctx, in)
 }
@@ -23,11 +19,7 @@ func (a adapter) Apply(ctx context.Context, in *pm.ApplyRequest, opts ...grpc.Ca
 	return a.DriverServer.Apply(ctx, in)
 }
 
-func (a adapter) Fence(ctx context.Context, in *pm.FenceRequest, opts ...grpc.CallOption) (*pm.FenceResponse, error) {
-	return a.DriverServer.Fence(ctx, in)
-}
-
-func (a adapter) Transaction(ctx context.Context, opts ...grpc.CallOption) (pm.Driver_TransactionClient, error) {
+func (a adapter) Transactions(ctx context.Context, opts ...grpc.CallOption) (pm.Driver_TransactionsClient, error) {
 	var reqCh = make(chan *pm.TransactionRequest, 4)
 	var respCh = make(chan *pm.TransactionResponse, 4)
 	var clientCloseCh = make(chan struct{})
@@ -56,7 +48,7 @@ func (a adapter) Transaction(ctx context.Context, opts ...grpc.CallOption) (pm.D
 			*serverErr = err
 			close(serverCloseCh)
 		}()
-		return a.DriverServer.Transaction(serverStream)
+		return a.DriverServer.Transactions(serverStream)
 	}()
 
 	return clientStream, nil
@@ -117,7 +109,7 @@ type adapterStreamServer struct {
 	grpc.ServerStream
 }
 
-var _ pm.Driver_TransactionServer = new(adapterStreamServer)
+var _ pm.Driver_TransactionsServer = new(adapterStreamServer)
 
 func (a *adapterStreamServer) Context() context.Context {
 	return a.ctx

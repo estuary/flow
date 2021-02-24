@@ -1,0 +1,6 @@
+test_target:
+theKey, bool, int, string, flow_document
+key1Value, totally different, 0, 33, { "theKey": "key1Value", "string": "notthesame", "bool": false, "int": 33, "number": 2 }
+key2Value, bar, 0, 88, { "theKey": "key2Value", "string": "bar", "bool": false, "int": 88, "number": 56.78 }
+key3Value, baz, 0, 99, { "theKey": "key3Value", "string": "baz", "bool": false, "int": 99, "number": 0 }
+key4Value, <nil>, <nil>, <nil>, { "theKey": "key4Value" }

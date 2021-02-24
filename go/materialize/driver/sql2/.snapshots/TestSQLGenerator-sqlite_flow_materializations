@@ -1,0 +1,16 @@
+-- This table is the source of truth for all materializations into this system.
+CREATE TABLE IF NOT EXISTS "flow_materializations" (
+	-- The name of the target table of the materialization, which may or may not include a schema and catalog prefix
+	"table_name" TEXT NOT NULL,
+	-- Specification of the materialization, encoded as protobuf.
+	"spec" TEXT NOT NULL,
+
+	PRIMARY KEY("table_name")
+);
+
+
+SELECT "spec" FROM "flow_materializations" WHERE "table_name" = ?;
+
+INSERT INTO "flow_materializations" ("table_name", "spec") VALUES (?, ?);
+
+UPDATE "flow_materializations" SET "spec" = ? WHERE "table_name" = ?;

@@ -104,17 +104,11 @@ message ValidateResponse {
 
 // ApplyRequest is the request type of the Apply RPC.
 message ApplyRequest {
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
-  // Driver-specific configuration, as an encoded JSON object.
-  string endpoint_config_json = 2;
-  // Collection to be materialized.
-  flow.CollectionSpec collection = 3;
-  // Selected fields for materialization
-  flow.FieldSelection fields = 4;
+  // Materialization to be applied.
+  flow.MaterializationSpec materialization = 1;
   // Is this Apply a dry-run? If so, no action is undertaken and Apply will
   // report only what would have happened.
-  bool dry_run = 5;
+  bool dry_run = 2;
 }
 
 // ApplyResponse is the response type of the Apply RPC.
@@ -128,14 +122,14 @@ message ApplyResponse {
 // It will have exactly one top-level field set, which represents its message type.
 message TransactionRequest {
   // Open a transaction stream and, where supported, fence off other
-  // streams having this same |fence_id| from issuing further commits.
+  // streams having this same |shard_fqn| from issuing further commits.
   //
   // Fencing semantics are optional, but required for exactly-once semantics.
   // Non-transactional stores can ignore this aspect and achieve at-least-once.
   //
   // Where implemented, servers must guarantee that no other streams of this
-  // |fence_id| (now "zombie" streams) can commit transactions, and must then
-  // return the final checkpoint committed by this |fence_id| in its response.
+  // |shard_fqn| (now "zombie" streams) can commit transactions, and must then
+  // return the final checkpoint committed by this |shard_fqn| in its response.
   message Open {
     // Endpoint type addressed by this request.
     flow.EndpointType endpoint_type = 1;
@@ -144,8 +138,10 @@ message TransactionRequest {
     // Fields represents the projection fields to be stored. This repeats the selection and ordering
     // of the last Apply RPC, but is provided here also as a convenience.
     flow.FieldSelection fields = 3;
-    // Stable producer ID (aka Flow runtime shard ID) to fence.
-    string fence_id = 4;
+    // Stable ID to which transactions are fenced. The Flow runtime uses
+    // fully-qualified shard names to provide stable identifiers.
+    // Driver implementations may treat these as opaque values.
+    string shard_fqn = 4;
     // Last-persisted driver checkpoint from a previous transaction stream.
     // Or empty, if the driver hasn't returned a checkpoint.
     bytes driver_checkpoint = 5;
@@ -195,7 +191,7 @@ message TransactionRequest {
 message TransactionResponse {
   // Opened responds to TransactionRequest.Open of the client.
   message Opened {
-    // Flow checkpoint which was previously committed with this |fence_id|.
+    // Flow checkpoint which was previously committed with this |shard_fqn|.
     // May be nil, if unknown or if transactional semantics are not supported,
     // in which case the Flow runtime will use its most-recent persisted checkpoint.
     bytes flow_checkpoint = 1;
