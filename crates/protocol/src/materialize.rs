@@ -60,6 +60,20 @@ pub struct SessionResponse {
     /// Opaque session handle.
     #[prost(bytes = "vec", tag = "1")]
     pub handle: ::prost::alloc::vec::Vec<u8>,
+    /// Materialize combined delta updates of documents rather than full reductions.
+    ///
+    /// When set, the Flow runtime will not attempt to load documents via
+    /// TransactionRequest.Load, and disables internal re-use of documents
+    /// stored in prior transactions. Each stored document is exclusively combined
+    /// from updates processed by the runtime within the current transaction only.
+    ///
+    /// This is appropriate for drivers over streams, WebHooks, and append-only files.
+    ///
+    /// For example, given a collection which reduces a sum count for each key,
+    /// its materialization will produce a stream of delta updates to the count,
+    /// such that a reader of the stream will arrive at the correct total count.
+    #[prost(bool, tag = "2")]
+    pub delta_updates: bool,
 }
 /// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -138,40 +152,25 @@ pub struct FenceResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
 }
-/// LoadEOF indicates the end of a stream of LoadRequest or LoadResponse messages.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LoadEof {
-    /// Always empty hint which, when set true, hints to Flow that it may skip future
-    /// LoadRequests for this handle, as they will never return any documents.
-    #[prost(bool, tag = "1")]
-    pub always_empty_hint: bool,
-}
-/// TransactionRequest is sent from the client to the driver as part of the Transaction streaming
-/// rpc. Each TransactionRequest message will have exactly one non-null top-level field, which
-/// represents its message type. The client must always send exactly one Start message as the very first
-/// message of a Transaction. This may be followed by 0 or more LoadRequests, followed by exactly one
-/// LoadEOF message. Then it will send 0 or more StoreRequests before closing the send stream.
+/// TransactionRequest is the request type of a Transaction RPC.
+/// It will have exactly one top-level field set, which represents its message type.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransactionRequest {
-    /// Start is sent as the first message in a Transaction, and never sent again during the same
-    /// transaction.
     #[prost(message, optional, tag = "1")]
     pub start: ::core::option::Option<transaction_request::Start>,
     /// Load will only be sent during the Loading phase of the transaction rpc.
     #[prost(message, optional, tag = "2")]
-    pub load: ::core::option::Option<transaction_request::LoadRequest>,
-    /// LoadEOF indicates that no more LoadRequests will be sent during this transaction. Upon
-    /// receiving a LoadEOF, a driver should return any pending LoadResponse messages before sending
-    /// its own LoadEOF.
+    pub load: ::core::option::Option<transaction_request::Load>,
     #[prost(message, optional, tag = "3")]
-    pub load_eof: ::core::option::Option<LoadEof>,
-    /// Store will only be sent during the Storing phase fo the transaction rpc.
+    pub prepare: ::core::option::Option<transaction_request::Prepare>,
     #[prost(message, optional, tag = "4")]
-    pub store: ::core::option::Option<transaction_request::StoreRequest>,
+    pub store: ::core::option::Option<transaction_request::Store>,
+    #[prost(message, optional, tag = "5")]
+    pub commit: ::core::option::Option<transaction_request::Commit>,
 }
 /// Nested message and enum types in `TransactionRequest`.
 pub mod transaction_request {
-    /// Start represents the initial payload of transaction metadata.
+    /// Start a Transaction.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Start {
         /// Endpoint type addressed by this request.
@@ -184,15 +183,12 @@ pub mod transaction_request {
         /// of the last Apply RPC, but is provided here also as a convenience.
         #[prost(message, optional, tag = "3")]
         pub fields: ::core::option::Option<super::super::flow::FieldSelection>,
-        /// Checkpoint to write with this Store transaction, to be associated with
-        /// the session's caller ID and to be returned by a future Fence RPC.
-        /// This may be ignored if the Driver doesn't support exactly-once semantics.
-        #[prost(bytes = "vec", tag = "4")]
-        pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
-    /// LoadRequest represents a request to Load one or more documents.
+    /// Load one or more documents identified by key.
+    /// Keys may included documents which have never before been stored,
+    /// but a given key will be sent in a transaction Load just one time.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct LoadRequest {
+    pub struct Load {
         /// Byte arena of the request.
         #[prost(bytes = "vec", tag = "2")]
         pub arena: ::prost::alloc::vec::Vec<u8>,
@@ -200,58 +196,56 @@ pub mod transaction_request {
         #[prost(message, repeated, tag = "3")]
         pub packed_keys: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
-    /// StoreRequest represents a batch of 1 or more documents to store, along with their associated
-    /// keys and extracted values. Many StoreRequest messages may be sent during the life of a
-    /// Transaction.
+    /// Prepare to commit. No further Loads will be sent.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct StoreRequest {
+    pub struct Prepare {
+        /// Flow checkpoint to commit with this transaction.
+        #[prost(bytes = "vec", tag = "1")]
+        pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
+    }
+    /// Store documents of this transaction.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Store {
         /// Byte arena of the request.
         #[prost(bytes = "vec", tag = "1")]
         pub arena: ::prost::alloc::vec::Vec<u8>,
+        /// Packed tuples holding keys of each document.
         #[prost(message, repeated, tag = "2")]
         pub packed_keys: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
-        /// Packed tuples holding projection values for each document.
+        /// Packed tuples holding values for each document.
         #[prost(message, repeated, tag = "3")]
         pub packed_values: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
         /// JSON documents.
         #[prost(message, repeated, tag = "4")]
         pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
-        /// Exists is true if this document previously been loaded or stored.
-        ///
-        /// [ (gogoproto.nullable) = false, (gogoproto.embed) = true ];
+        /// Exists is true if this document as previously been loaded or stored.
         #[prost(bool, repeated, tag = "5")]
         pub exists: ::prost::alloc::vec::Vec<bool>,
     }
+    /// Commit the transaction.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Commit {}
 }
-/// TransactionResponse is streamed back from a Transaction streaming rpc.
-/// Similar to TransactionRequest, each TransactionResponse message must include exactly one non-null top
-/// level field. For each Transaction RPC, the driver should send 0 or more LoadResponse messages,
-/// followed by exactly one LoadEOF message, followed by exactly one StoreResponse.
+/// TransactionResponse is the response type of a Transaction RPC.
+/// It will have exactly one top-level field set, which represents its message type.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransactionResponse {
-    /// LoadResponse should only be sent during the Loading phase of the transaction rpc.
     #[prost(message, optional, tag = "1")]
-    pub load_response: ::core::option::Option<transaction_response::LoadResponse>,
-    /// LoadEOF is sent after all LoadResponse have been sent. After this is sent, no more LoadResponse
-    /// messages may be sent by the driver, and any documents that have not been returned in a
-    /// LoadResponse will be presumed to not exist in storage.
+    pub loaded: ::core::option::Option<transaction_response::Loaded>,
     #[prost(message, optional, tag = "2")]
-    pub load_eof: ::core::option::Option<LoadEof>,
-    /// StoreResponse is sent by the driver as the final message in a Transaction to indicate that it
-    /// has committed.
+    pub prepared: ::core::option::Option<transaction_response::Prepared>,
     #[prost(message, optional, tag = "3")]
-    pub store_response: ::core::option::Option<transaction_response::StoreResponse>,
+    pub committed: ::core::option::Option<transaction_response::Committed>,
 }
 /// Nested message and enum types in `TransactionResponse`.
 pub mod transaction_response {
-    /// LoadResponse is sent to return documents requested by a LoadRequest. The driver may send
-    /// LoadResponse messages at any time before it sends a LoadEOF message. This is designed to allow
-    /// for maximum flexibility to allow all types of drivers to load documents in whatever way is most
-    /// efficient for each system. For example, a driver could send a LoadResponse after receiving each
-    /// LoadRequest, or it could wait until it receives a LoadEOF from the client and then send all the
-    /// documents in a single LoadResponse, or batches of LoadResponses.
+    /// Loaded responds to TransactionRequest.Loads of the client.
+    /// It returns documents of requested keys which have previously been stored.
+    /// Keys not found in the store MUST be omitted. Documents may be in any order,
+    /// both within and across Loaded response messages, but a document of a given
+    /// key MUST be sent at most one time in a Transaction.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct LoadResponse {
+    pub struct Loaded {
         /// Byte arena of the request.
         #[prost(bytes = "vec", tag = "1")]
         pub arena: ::prost::alloc::vec::Vec<u8>,
@@ -259,18 +253,19 @@ pub mod transaction_response {
         #[prost(message, repeated, tag = "2")]
         pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
-    /// StoreResponse is sent exactly once at the end of a successful Transaction. Successful Transactions
-    /// must send a single StoreResponse as their final message, though it is perfectly acceptable to
-    /// leave the driver_checkpoint undefined.
+    /// Prepared responds to a TransactionRequest.Prepare of the client.
+    /// No further Loaded responses will be sent.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct StoreResponse {
-        /// Arbitrary driver defined checkpoint. Flow persists the provided checkpoint
-        /// within the same internal transaction which triggered this Store RPC,
-        /// and will present the latest checkpoint to a future Fence RPC.
-        /// This may be ignored if the Driver has no checkpoints.
+    pub struct Prepared {
+        /// Optional driver checkpoint of this transaction.
+        /// If provided, the most recent checkpoint will be persisted by the
+        /// Flow runtime and returned in a future Fence request.
         #[prost(bytes = "vec", tag = "1")]
         pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
+    /// Acknowledge the transaction as committed.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Committed {}
 }
 #[doc = r" Generated client implementations."]
 pub mod driver_client {
@@ -307,9 +302,8 @@ pub mod driver_client {
             Self { inner }
         }
         #[doc = " Session begins a scoped interaction with the driver from a single process context."]
-        #[doc = " It maps an endpoint URL, target, and caller ID to a returned opaque session handle,"]
-        #[doc = " which is to be used with further Driver interactions. Note that at any given time,"]
-        #[doc = " there may be *many* concurrent Sessions."]
+        #[doc = " It maps SessionRequest to a handle used with further Driver interactions."]
+        #[doc = " Note that at any given time there may be *many* concurrent sessions."]
         pub async fn start_session(
             &mut self,
             request: impl tonic::IntoRequest<super::SessionRequest>,
@@ -340,7 +334,7 @@ pub mod driver_client {
             let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Validate");
             self.inner.unary(request.into_request(), path, codec).await
         }
-        #[doc = " Apply a CollectionSpec and selected Projections to a materialization target."]
+        #[doc = " Apply a CollectionSpec and FieldSelections to a materialization target."]
         pub async fn apply(
             &mut self,
             request: impl tonic::IntoRequest<super::ApplyRequest>,
@@ -355,25 +349,17 @@ pub mod driver_client {
             let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Apply");
             self.inner.unary(request.into_request(), path, codec).await
         }
-        #[doc = " Fence inserts a transactional \"write fence\" boundary by fencing the caller"]
-        #[doc = " ID encapsulated within a session, to the session's unique handle. Typically this"]
-        #[doc = " is done by tying the caller ID to a unique session nonce in a transaction,"]
-        #[doc = " or by increasing a epoch value of the caller ID."]
+        #[doc = " Fence off other sessions of this shard ID from committing transactions"]
+        #[doc = " against this driver and endpoint."]
         #[doc = ""]
-        #[doc = " For example a RDBMS might use a \"writers\" table holding a caller ID key,"]
-        #[doc = " a current session nonce, and a last checkpoint. The Fence RPC would update the"]
-        #[doc = " nonce to the current session's unique value -- effectively \"poisoning\" transactions"]
-        #[doc = " of prior sessions -- and return the checkpoint. Store RPCs must in turn verify"]
-        #[doc = " their session nonce is still effective before committing a transaction."]
+        #[doc = " Fence is an *optional* API which is required for materializations that"]
+        #[doc = " support end-to-end \"exactly once\" semantics. Stores which support only"]
+        #[doc = " \"at least once\" semantics can implement Fence as a no-op, returning a"]
+        #[doc = " zero-value FenceResponse."]
         #[doc = ""]
-        #[doc = " On return, it's guaranteed that no session previously fenced to the caller ID"]
-        #[doc = " (now a \"zombie\" session) can commit transactions as part of Store RPCs which"]
-        #[doc = " update documents or checkpoints. Fence returns the checkpoint last committed"]
-        #[doc = " by this caller ID in a Store RPC."]
-        #[doc = ""]
-        #[doc = " Fence is an *optional* API which is required for materialization targets that"]
-        #[doc = " support end-to-end \"exactly once\" semantics. Stores which support only \"at least once\""]
-        #[doc = " semantics can implement Fence as a no-op, returning a zero-value FenceResponse."]
+        #[doc = " Where implemented, drivers  must guarantee that no previous sessions of"]
+        #[doc = " this shard ID (now a \"zombie\" session) can commit Transactions. Fence"]
+        #[doc = " returns the final checkpoint committed by this shard ID in a Transaction."]
         pub async fn fence(
             &mut self,
             request: impl tonic::IntoRequest<super::FenceRequest>,
@@ -388,28 +374,25 @@ pub mod driver_client {
             let path = http::uri::PathAndQuery::from_static("/materialize.Driver/Fence");
             self.inner.unary(request.into_request(), path, codec).await
         }
-        #[doc = " Transaction is a bi-directional streaming rpc that corresponds to each transaction within the"]
-        #[doc = " flow consumer. The Transaction rpc follows a strict lifecycle:"]
+        #[doc = " Transaction protocol of a store, following the lifecycle:"]
         #[doc = ""]
-        #[doc = " 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately"]
-        #[doc = "    transitions to the Loading state."]
-        #[doc = " 2. Loading:"]
-        #[doc = "    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message."]
-        #[doc = "    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These"]
-        #[doc = "    responses may be sent asynchronously, and at whatever cadence is most performant for the"]
-        #[doc = "    driver. Drivers may wait until they receive the LoadEOF from the client before they send any"]
-        #[doc = "    responses, or they may send responses earlier. Any requested document that is missing from"]
-        #[doc = "    the set of LoadResponses is presumed to simply not exist."]
-        #[doc = " 3. Storing:"]
-        #[doc = "    - The client sends 0 or more StoreRequest messages, and then closes the send side of its"]
-        #[doc = "    stream."]
-        #[doc = "    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final"]
-        #[doc = "    message sent to the client. The transaction is now complete."]
-        #[doc = " Note that for drivers that do not support loads, they may immediately send a LoadEOF message"]
-        #[doc = " after the transaction is started. If the `always_empty_hint` is `true`, then the client"]
-        #[doc = " should (but is not required to) send a LoadEOF message immediately after sending"]
-        #[doc = " its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of"]
-        #[doc = " whether a client supports loads or not."]
+        #[doc = " 1. The Flow runtime client sends TransactionRequest.Start."]
+        #[doc = " 2. The client sends zero or more TransactionRequest.Load."]
+        #[doc = "    - The driver server may immediately send any number of TransactionResponse.Load"]
+        #[doc = "      in response."]
+        #[doc = "    - Or, it may defer responding with some or all loads until later."]
+        #[doc = " 3. The client sends TransactionRequest.Prepare."]
+        #[doc = "    - At this time, the server must flush remaining TransactionResponse.Loads."]
+        #[doc = " 4. The server sends TransactionResponse.Prepare."]
+        #[doc = " 5. The client sends zero or more TransactionRequest.Store."]
+        #[doc = " 6. The client sends TransactionRequest.Commit, followed by EOF."]
+        #[doc = "    - The server commits the prepared Flow checkpoint and all stores."]
+        #[doc = " 7. The server sends TransactionResponse.Commit."]
+        #[doc = "    - The Flow runtime persists the prepared driver checkpoint."]
+        #[doc = ""]
+        #[doc = " An error of any kind prior to Commit -- including EOF -- is treated as a rollback."]
+        #[doc = " Intermediaries / proxies may map a broken transport on one side into a clean shutdown"]
+        #[doc = " of the other, and explicit Commits distinguish this case."]
         pub async fn transaction(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::TransactionRequest>,
@@ -451,9 +434,8 @@ pub mod driver_server {
     #[async_trait]
     pub trait Driver: Send + Sync + 'static {
         #[doc = " Session begins a scoped interaction with the driver from a single process context."]
-        #[doc = " It maps an endpoint URL, target, and caller ID to a returned opaque session handle,"]
-        #[doc = " which is to be used with further Driver interactions. Note that at any given time,"]
-        #[doc = " there may be *many* concurrent Sessions."]
+        #[doc = " It maps SessionRequest to a handle used with further Driver interactions."]
+        #[doc = " Note that at any given time there may be *many* concurrent sessions."]
         async fn start_session(
             &self,
             request: tonic::Request<super::SessionRequest>,
@@ -464,30 +446,22 @@ pub mod driver_server {
             &self,
             request: tonic::Request<super::ValidateRequest>,
         ) -> Result<tonic::Response<super::ValidateResponse>, tonic::Status>;
-        #[doc = " Apply a CollectionSpec and selected Projections to a materialization target."]
+        #[doc = " Apply a CollectionSpec and FieldSelections to a materialization target."]
         async fn apply(
             &self,
             request: tonic::Request<super::ApplyRequest>,
         ) -> Result<tonic::Response<super::ApplyResponse>, tonic::Status>;
-        #[doc = " Fence inserts a transactional \"write fence\" boundary by fencing the caller"]
-        #[doc = " ID encapsulated within a session, to the session's unique handle. Typically this"]
-        #[doc = " is done by tying the caller ID to a unique session nonce in a transaction,"]
-        #[doc = " or by increasing a epoch value of the caller ID."]
+        #[doc = " Fence off other sessions of this shard ID from committing transactions"]
+        #[doc = " against this driver and endpoint."]
         #[doc = ""]
-        #[doc = " For example a RDBMS might use a \"writers\" table holding a caller ID key,"]
-        #[doc = " a current session nonce, and a last checkpoint. The Fence RPC would update the"]
-        #[doc = " nonce to the current session's unique value -- effectively \"poisoning\" transactions"]
-        #[doc = " of prior sessions -- and return the checkpoint. Store RPCs must in turn verify"]
-        #[doc = " their session nonce is still effective before committing a transaction."]
+        #[doc = " Fence is an *optional* API which is required for materializations that"]
+        #[doc = " support end-to-end \"exactly once\" semantics. Stores which support only"]
+        #[doc = " \"at least once\" semantics can implement Fence as a no-op, returning a"]
+        #[doc = " zero-value FenceResponse."]
         #[doc = ""]
-        #[doc = " On return, it's guaranteed that no session previously fenced to the caller ID"]
-        #[doc = " (now a \"zombie\" session) can commit transactions as part of Store RPCs which"]
-        #[doc = " update documents or checkpoints. Fence returns the checkpoint last committed"]
-        #[doc = " by this caller ID in a Store RPC."]
-        #[doc = ""]
-        #[doc = " Fence is an *optional* API which is required for materialization targets that"]
-        #[doc = " support end-to-end \"exactly once\" semantics. Stores which support only \"at least once\""]
-        #[doc = " semantics can implement Fence as a no-op, returning a zero-value FenceResponse."]
+        #[doc = " Where implemented, drivers  must guarantee that no previous sessions of"]
+        #[doc = " this shard ID (now a \"zombie\" session) can commit Transactions. Fence"]
+        #[doc = " returns the final checkpoint committed by this shard ID in a Transaction."]
         async fn fence(
             &self,
             request: tonic::Request<super::FenceRequest>,
@@ -497,28 +471,25 @@ pub mod driver_server {
             + Send
             + Sync
             + 'static;
-        #[doc = " Transaction is a bi-directional streaming rpc that corresponds to each transaction within the"]
-        #[doc = " flow consumer. The Transaction rpc follows a strict lifecycle:"]
+        #[doc = " Transaction protocol of a store, following the lifecycle:"]
         #[doc = ""]
-        #[doc = " 1. Init: The client (flow-consumer) sends a Start message, and then the client immediately"]
-        #[doc = "    transitions to the Loading state."]
-        #[doc = " 2. Loading:"]
-        #[doc = "    - The client sends 0 or more LoadRequest messages, terminated by a LoadEOF message."]
-        #[doc = "    - The driver may send 0 or more LoadResponse messages, followed by a LoadEOF message. These"]
-        #[doc = "    responses may be sent asynchronously, and at whatever cadence is most performant for the"]
-        #[doc = "    driver. Drivers may wait until they receive the LoadEOF from the client before they send any"]
-        #[doc = "    responses, or they may send responses earlier. Any requested document that is missing from"]
-        #[doc = "    the set of LoadResponses is presumed to simply not exist."]
-        #[doc = " 3. Storing:"]
-        #[doc = "    - The client sends 0 or more StoreRequest messages, and then closes the send side of its"]
-        #[doc = "    stream."]
-        #[doc = "    - The driver processes each StoreRequest and returns exactly one StoreResponse as the final"]
-        #[doc = "    message sent to the client. The transaction is now complete."]
-        #[doc = " Note that for drivers that do not support loads, they may immediately send a LoadEOF message"]
-        #[doc = " after the transaction is started. If the `always_empty_hint` is `true`, then the client"]
-        #[doc = " should (but is not required to) send a LoadEOF message immediately after sending"]
-        #[doc = " its Start message. Thus, the lifecycle of a Transaction RPC is always the same, regardless of"]
-        #[doc = " whether a client supports loads or not."]
+        #[doc = " 1. The Flow runtime client sends TransactionRequest.Start."]
+        #[doc = " 2. The client sends zero or more TransactionRequest.Load."]
+        #[doc = "    - The driver server may immediately send any number of TransactionResponse.Load"]
+        #[doc = "      in response."]
+        #[doc = "    - Or, it may defer responding with some or all loads until later."]
+        #[doc = " 3. The client sends TransactionRequest.Prepare."]
+        #[doc = "    - At this time, the server must flush remaining TransactionResponse.Loads."]
+        #[doc = " 4. The server sends TransactionResponse.Prepare."]
+        #[doc = " 5. The client sends zero or more TransactionRequest.Store."]
+        #[doc = " 6. The client sends TransactionRequest.Commit, followed by EOF."]
+        #[doc = "    - The server commits the prepared Flow checkpoint and all stores."]
+        #[doc = " 7. The server sends TransactionResponse.Commit."]
+        #[doc = "    - The Flow runtime persists the prepared driver checkpoint."]
+        #[doc = ""]
+        #[doc = " An error of any kind prior to Commit -- including EOF -- is treated as a rollback."]
+        #[doc = " Intermediaries / proxies may map a broken transport on one side into a clean shutdown"]
+        #[doc = " of the other, and explicit Commits distinguish this case."]
         async fn transaction(
             &self,
             request: tonic::Request<tonic::Streaming<super::TransactionRequest>>,
