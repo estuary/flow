@@ -41,7 +41,7 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		fmt.Sprintf(
 			"UPDATE %s SET fence=fence+1 WHERE shard_fqn=%s;",
 			e.Tables.Checkpoints,
-			e.Generator.Placeholder(1),
+			e.Generator.Placeholder(0),
 		),
 		shardFqn,
 	); err != nil {
@@ -57,8 +57,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		fmt.Sprintf(
 			"INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (%s, %s, 1);",
 			e.Tables.Checkpoints,
+			e.Generator.Placeholder(0),
 			e.Generator.Placeholder(1),
-			e.Generator.Placeholder(2),
 		),
 		shardFqn,
 		[]byte{},
@@ -74,7 +74,7 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		fmt.Sprintf(
 			"SELECT fence, checkpoint FROM %s WHERE shard_fqn=%s;",
 			e.Tables.Checkpoints,
-			e.Generator.Placeholder(1),
+			e.Generator.Placeholder(0),
 		),
 		shardFqn,
 	).Scan(&fence, &checkpoint); err != nil {
@@ -92,9 +92,9 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 	var updateSQL = fmt.Sprintf(
 		"UPDATE %s SET checkpoint=%s WHERE shard_fqn=%s AND fence=%s;",
 		e.Tables.Checkpoints,
+		e.Generator.Placeholder(0),
 		e.Generator.Placeholder(1),
 		e.Generator.Placeholder(2),
-		e.Generator.Placeholder(3),
 	)
 
 	return &Fence{
