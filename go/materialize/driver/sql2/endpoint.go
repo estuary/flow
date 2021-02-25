@@ -23,9 +23,16 @@ type Endpoint struct {
 	}
 }
 
-// LoadSpec loads the MaterializationSpec for this endpoint.
-// If it doesn't exist, sql.ErrNoRows is returned.
+// LoadSpec loads the MaterializationSpec for this Endpoint. If |mustExist|,
+// an error is returned if the spec doesn't exist. Otherwise, a query error
+// is logged and mapped to a nil result (e.x., because the table doesn't exist
+// or doesn't yet contain the specified row).
 func (e *Endpoint) LoadSpec(mustExist bool) (*pf.MaterializationSpec, error) {
+	// Surface connection issues regardless of |mustExist|.
+	if err := e.DB.PingContext(e.Context); err != nil {
+		return nil, fmt.Errorf("connecting to DB: %w", err)
+	}
+
 	var specB64 string
 	var spec = new(pf.MaterializationSpec)
 
