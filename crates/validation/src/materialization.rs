@@ -43,7 +43,7 @@ pub async fn walk_all_materializations<D: Drivers>(
     let validations = validations.into_iter().map(
         |(ep_type, ep_config, built_collection, materialization, request)| async move {
             drivers
-                .validate_materialization(request, ep_config.clone())
+                .validate_materialization(request)
                 // Pass-through the materialization & CollectionSpec for future verification.
                 .map(|response| {
                     (
@@ -199,7 +199,7 @@ fn walk_materialization_request<'a>(
 
     let request = materialize::ValidateRequest {
         endpoint_type: endpoint.endpoint_type as i32,
-        handle: Vec::new(),
+        endpoint_config_json: endpoint_config.to_string(),
         collection: Some(built_collection.spec.clone()),
         field_config_json: field_config.into_iter().collect(),
     };

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/estuary/flow/go/materialize/driver/sql"
+	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"google.golang.org/grpc"
@@ -15,7 +15,7 @@ import (
 func NewDriver(ctx context.Context, endpointType pf.EndpointType, config json.RawMessage) (pm.DriverClient, error) {
 	switch endpointType {
 	case pf.EndpointType_SQLITE:
-		return adapter{sql.NewSQLiteDriver()}, nil
+		return adapter{sqlite.NewSQLiteDriver()}, nil
 	case pf.EndpointType_REMOTE:
 		var endpoint struct {
 			Address string

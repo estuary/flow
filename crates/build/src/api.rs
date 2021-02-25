@@ -151,18 +151,8 @@ struct Drivers(Rc<Trampoline>);
 impl validation::Drivers for Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        mut request: materialize::ValidateRequest,
-        endpoint_config: serde_json::Value,
+        request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
-        // To actually perform a validation, the caller first creates a session (using
-        // |endpoint_config|) to obtain a handle, and *then* validates the |request|.
-        // We must pass the (request, endpoint_config) tuple to the Go side to do this workflow.
-        //
-        // We _could_ represent this as a new protobuf message, but we already have a ValidateRequest
-        // that, by construction, has an empty and unused |handle| field. As an implementation detail
-        // of the bridge API binding, we thus simply pack |endpoint_config| into |handle|.
-        request.handle = endpoint_config.to_string().into();
-
         let (tx, rx) = oneshot::channel();
 
         self.0.start_task(

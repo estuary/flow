@@ -5,7 +5,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/estuary/flow/go/materialize/driver/sql"
+	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	"github.com/estuary/flow/go/protocols/materialize"
 	flags "github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
@@ -34,7 +34,7 @@ func main() {
 	var server materialize.DriverServer
 	switch opts.Positional.Driver {
 	case "sqlite":
-		server = sql.NewSQLiteDriver()
+		server = sqlite.NewSQLiteDriver()
 	default:
 		fmt.Printf("Invalid driver argument: '%s'", opts.Positional.Driver)
 		os.Exit(1)
