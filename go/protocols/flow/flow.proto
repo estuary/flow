@@ -478,6 +478,23 @@ message ExtractAPI {
 };
 
 message CombineAPI {
+  // Code labels message codes passed over the CGO bridge.
+  enum Code {
+    INVALID = 0;
+
+    // Sent from Go => Rust.
+    CONFIGURE = 1;
+    REDUCE_LEFT = 2;
+    COMBINE_RIGHT = 3;
+    DRAIN = 4;
+
+    // Sent from Rust => Go.
+    DRAINED_COMBINED_DOCUMENT = 5;
+    DRAINED_REDUCED_DOCUMENT = 6;
+    DRAINED_KEY = 7;
+    DRAINED_FIELDS = 8;
+  };
+
   message Config {
     // Memory address of a shared SchemaIndex, which must exist for
     // the complete lifetime of this API's use.

@@ -2,7 +2,10 @@ use super::combiner::{self, Combiner};
 
 use doc::{Pointer, SchemaIndex};
 use prost::Message;
-use protocol::{cgo, flow::combine_api};
+use protocol::{
+    cgo,
+    flow::combine_api::{self, Code},
+};
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
 
@@ -47,9 +50,15 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
+        tracing::trace!(?code, "invoke");
+
+        let code = match Code::from_i32(code as i32) {
+            Some(c) => c,
+            None => return Err(Error::InvalidState),
+        };
+
         match (code, &mut self.state) {
-            // Begin a new, configured combiner.
-            (1, None) => {
+            (Code::Configure, None) => {
                 let cfg = combine_api::Config::decode(data)?;
 
                 // Re-hydrate a &'static SchemaIndex from a provided memory address.
@@ -65,20 +74,17 @@ impl cgo::Service for API {
                 self.state = Some((cfg, combiner));
                 Ok(())
             }
-            // Left-hand combine of JSON document.
-            (2, Some((_, combiner))) => {
+            (Code::ReduceLeft, Some((_, combiner))) => {
                 let doc: Value = serde_json::from_slice(data)?;
                 combiner.reduce_left(doc)?;
                 Ok(())
             }
-            // Right-hand combine of JSON document.
-            (3, Some((_, combiner))) => {
+            (Code::CombineRight, Some((_, combiner))) => {
                 let doc: Value = serde_json::from_slice(data)?;
                 combiner.combine_right(doc)?;
                 Ok(())
             }
-            // Drain the combiner, emitting combined documents.
-            (4, Some(_)) => {
+            (Code::Drain, Some(_)) => {
                 let (req, combiner) = self.state.take().unwrap();
 
                 drain_combiner(
@@ -104,12 +110,17 @@ pub fn drain_combiner(
 ) {
     let key_ptrs = combiner.key().clone();
 
-    for doc in combiner.into_entries(uuid_placeholder_ptr) {
+    for (doc, fully_reduced) in combiner.into_entries(uuid_placeholder_ptr) {
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
         serde_json::to_writer(w, &doc).expect("encoding cannot fail");
-        cgo::send_bytes(0, begin, arena, out);
+
+        if fully_reduced {
+            cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
+        } else {
+            cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
+        }
 
         // Send packed key.
         let begin = arena.len();
@@ -118,7 +129,7 @@ pub fn drain_combiner(
             // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
             let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
         }
-        cgo::send_bytes(1, begin, arena, out);
+        cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
 
         // Send packed additional fields.
         let begin = arena.len();
@@ -126,13 +137,13 @@ pub fn drain_combiner(
             let v = p.query(&doc).unwrap_or(&Value::Null);
             let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
         }
-        cgo::send_bytes(2, begin, arena, out);
+        cgo::send_bytes(Code::DrainedFields as u32, begin, arena, out);
     }
 }
 
 #[cfg(test)]
 pub mod test {
-    use super::{super::test::build_min_max_sum_schema, API};
+    use super::{super::test::build_min_max_sum_schema, Code, API};
     use protocol::{cgo::Service, flow::combine_api};
     use serde_json::json;
 
@@ -149,7 +160,7 @@ pub mod test {
 
         // Configure the service.
         svc.invoke_message(
-            1,
+            Code::Configure as u32,
             combine_api::Config {
                 schema_index_memptr: index as *const doc::SchemaIndex<'static> as u64,
                 schema_uri: schema_url.as_str().to_owned(),
@@ -171,7 +182,11 @@ pub mod test {
             (false, json!({"key": "three", "min": 6, "max": 6.6})),
         ] {
             svc.invoke(
-                if *left { 2 } else { 3 }, // reduce-left vs combine-right.
+                if *left {
+                    Code::ReduceLeft
+                } else {
+                    Code::CombineRight
+                } as u32,
                 serde_json::to_vec(doc).unwrap().as_ref(),
                 &mut arena,
                 &mut out,
@@ -184,7 +199,8 @@ pub mod test {
         assert!(out.is_empty());
 
         // Drain the combiner.
-        svc.invoke(4, &[], &mut arena, &mut out).unwrap();
+        svc.invoke(Code::Drain as u32, &[], &mut arena, &mut out)
+            .unwrap();
 
         insta::assert_debug_snapshot!((String::from_utf8_lossy(&arena), out));
     }

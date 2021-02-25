@@ -165,7 +165,11 @@ func (a *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 // FinalizeTxn finishes and drains the derive worker transaction,
 // and publishes each combined document to the derived collection.
 func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
-	return a.binding.Finish(func(doc json.RawMessage, packedKey, packedPartitions []byte) error {
+	return a.binding.Finish(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+		if full {
+			panic("derivation produces only partially combined documents")
+		}
+
 		partitions, err := tuple.Unpack(packedPartitions)
 		if err != nil {
 			return fmt.Errorf("unpacking partitions: %w", err)

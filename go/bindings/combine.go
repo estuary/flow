@@ -10,6 +10,19 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
+// CombineCallback is the callback accepted by Combine.Finish and Derive.Finish.
+type CombineCallback = func(
+	// Is this document fully reduced (it included a ReduceLeft operation),
+	// or only partially reduced (from CombineRight operations only)?
+	full bool,
+	// Encoded JSON document, with a UUID placeholder if that was requested.
+	doc json.RawMessage,
+	// Packed tuple.Tuple of the document key.
+	packedKey []byte,
+	// Packed tuple.Tuple of requested location pointers.
+	packedFields []byte,
+) error
+
 // CombineBuilder builds Combine instances.
 type CombineBuilder struct {
 	index *SchemaIndex
@@ -116,7 +129,7 @@ func (c *Combine) CloseSend() error {
 }
 
 // Finish combining documents, invoking the callback for each distinct group-by document.
-func (c *Combine) Finish(cb func(doc json.RawMessage, packedKey, packedFields []byte) error) error {
+func (c *Combine) Finish(cb CombineCallback) error {
 	if err := c.CloseSend(); err != nil {
 		return err
 	} else if err := drainCombineToCallback(c.svc, &c.out, cb); err != nil {
@@ -130,7 +143,7 @@ func (c *Combine) Finish(cb func(doc json.RawMessage, packedKey, packedFields []
 func drainCombineToCallback(
 	svc *service,
 	out *[]C.Out,
-	cb func(doc json.RawMessage, packedKey, packedFields []byte) error,
+	cb CombineCallback,
 ) error {
 	// Sanity check we got triples of output frames.
 	if len(*out)%3 != 0 {
@@ -139,6 +152,7 @@ func drainCombineToCallback(
 
 	for len(*out) >= 3 {
 		if err := cb(
+			pf.CombineAPI_Code((*out)[0].code) == pf.CombineAPI_DRAINED_REDUCED_DOCUMENT,
 			svc.arenaSlice((*out)[0]), // Doc.
 			svc.arenaSlice((*out)[1]), // Packed key.
 			svc.arenaSlice((*out)[2]), // Packed fields.

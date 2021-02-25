@@ -118,7 +118,7 @@ func (d *Derive) Flush() error {
 }
 
 // Finish deriving documents, invoking the callback for derived document.
-func (d *Derive) Finish(cb func(doc json.RawMessage, packedKey, packedPartitions []byte) error) error {
+func (d *Derive) Finish(cb CombineCallback) error {
 	d.svc.sendBytes(5, nil)
 
 	var _, out, err = d.svc.poll()
