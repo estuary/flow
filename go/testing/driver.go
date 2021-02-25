@@ -209,7 +209,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 
 	// Drain actual documents from the combiner.
 	var actual [][]byte
-	err = combiner.Finish(func(doc json.RawMessage, _, _ []byte) error {
+	err = combiner.Finish(func(_ bool, doc json.RawMessage, _, _ []byte) error {
 		actual = append(actual, doc)
 		return nil
 	})
