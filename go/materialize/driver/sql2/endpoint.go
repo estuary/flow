@@ -41,7 +41,7 @@ func (e *Endpoint) LoadSpec(mustExist bool) (*pf.MaterializationSpec, error) {
 		fmt.Sprintf(
 			"SELECT spec FROM %s WHERE table_name=%s;",
 			e.Tables.Specs,
-			e.Generator.Placeholder(1),
+			e.Generator.Placeholder(0),
 		),
 		e.Tables.Target,
 	).Scan(&specB64)
