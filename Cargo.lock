@@ -470,37 +470,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "driver-tester"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "doc",
- "futures",
- "itertools",
- "json",
- "log",
- "pretty_env_logger",
- "protocol",
- "rand 0.8.2",
- "rand_chacha 0.3.0",
- "runtime",
- "rusqlite",
- "schemars",
- "serde_json",
- "structopt",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tonic",
- "tracing",
- "tracing-futures",
- "tracing-subscriber",
- "tuple",
- "url",
-]
-
-[[package]]
 name = "dtoa"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
