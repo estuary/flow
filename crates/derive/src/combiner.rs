@@ -156,7 +156,7 @@ impl Combiner {
     // Return all entries of the Combiner. If the UUID placeholder JSON pointer is non-empty,
     // then UUID_PLACEHOLDER is inserted into returned documents at the specified location.
     // Iff the document shape is incompatible with the pointer, it's returned unmodified.
-    pub fn into_entries(self, uuid_placeholder_ptr: &str) -> impl Iterator<Item = Value> {
+    pub fn into_entries(self, uuid_placeholder_ptr: &str) -> impl Iterator<Item = (Value, bool)> {
         let uuid_placeholder = match uuid_placeholder_ptr {
             "" => None,
             s => Some(Pointer::from(s)),
@@ -168,7 +168,7 @@ impl Combiner {
                     *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
                 }
             }
-            kd.doc
+            (kd.doc, kd.fully_reduced)
         })
     }
 
@@ -244,9 +244,18 @@ mod test {
         assert_eq!(
             combiner.into_entries("/foo").collect::<Vec<_>>(),
             vec![
-                json!({"foo": UUID_PLACEHOLDER, "key": ["key", "one"], "min": 3, "max": 5.5, "lww": 1}),
-                json!({"foo": UUID_PLACEHOLDER, "key": ["key", "three"], "min": 6, "max": 6.6, "lww": 5}),
-                json!({"foo": UUID_PLACEHOLDER, "key": ["key", "two"], "min": 2, "max": 4.4, "lww": 3}),
+                (
+                    json!({"foo": UUID_PLACEHOLDER, "key": ["key", "one"], "min": 3, "max": 5.5, "lww": 1}),
+                    true
+                ),
+                (
+                    json!({"foo": UUID_PLACEHOLDER, "key": ["key", "three"], "min": 6, "max": 6.6, "lww": 5}),
+                    false
+                ),
+                (
+                    json!({"foo": UUID_PLACEHOLDER, "key": ["key", "two"], "min": 2, "max": 4.4, "lww": 3}),
+                    true
+                ),
             ]
         );
     }

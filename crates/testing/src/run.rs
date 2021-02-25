@@ -235,7 +235,7 @@ async fn do_verify<'a>(
         .enumerate()
     {
         Diff::diff(
-            eob.as_ref().left(),
+            eob.as_ref().left().map(|(d, _)| d),
             eob.as_ref().right().cloned(),
             &root.push_item(index),
             &mut diffs,

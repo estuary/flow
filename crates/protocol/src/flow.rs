@@ -591,6 +591,22 @@ pub mod combine_api {
         #[prost(string, tag = "5")]
         pub uuid_placeholder_ptr: ::prost::alloc::string::String,
     }
+    /// Code labels message codes passed over the CGO bridge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Code {
+        Invalid = 0,
+        /// Sent from Go => Rust.
+        Configure = 1,
+        ReduceLeft = 2,
+        CombineRight = 3,
+        Drain = 4,
+        /// Sent from Rust => Go.
+        DrainedCombinedDocument = 5,
+        DrainedReducedDocument = 6,
+        DrainedKey = 7,
+        DrainedFields = 8,
+    }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.
 #[derive(Clone, PartialEq, ::prost::Message)]

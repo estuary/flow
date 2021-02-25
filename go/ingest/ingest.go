@@ -228,7 +228,11 @@ func (i *Ingestion) Prepare() error {
 	for c, rpc := range i.streams {
 		var spec = i.ingester.Collections[c]
 
-		var err = rpc.Finish(func(doc json.RawMessage, packedKey, packedPartitions []byte) error {
+		var err = rpc.Finish(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+			if full {
+				panic("ingestion produces only partially combined documents")
+			}
+
 			partitions, err := tuple.Unpack(packedPartitions)
 			if err != nil {
 				return fmt.Errorf("unpacking partitions: %w", err)
