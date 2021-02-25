@@ -1,4 +1,4 @@
-package sql
+package sqlite
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 )
 
 // NewSQLiteDriver creates a new Driver for sqlite.
-func NewSQLiteDriver() sqlDriver.Driver {
-	return sqlDriver.Driver{
+func NewSQLiteDriver() *sqlDriver.Driver {
+	return &sqlDriver.Driver{
 		NewEndpoint: func(ctx context.Context, et flow.EndpointType, config json.RawMessage) (*sqlDriver.Endpoint, error) {
 			var parsed struct {
 				Path  string

@@ -826,9 +826,11 @@ impl validation::Drivers for MockDriverCalls {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::ValidateRequest,
-        endpoint_config: serde_json::Value,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
         async move {
+            let endpoint_config: serde_json::Value =
+                serde_json::from_str(&request.endpoint_config_json)?;
+
             for (_key, call) in &self.materializations {
                 if (call.endpoint as i32, &call.config) != (request.endpoint_type, &endpoint_config)
                 {

@@ -24,7 +24,6 @@ pub trait Drivers {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::ValidateRequest,
-        endpoint_config: serde_json::Value,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>>;
 }
 

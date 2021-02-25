@@ -1,4 +1,4 @@
-package sql
+package sqlite
 
 import (
 	"context"
@@ -28,10 +28,8 @@ import (
 
 func TestSQLiteDriver(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
-	var driver = NewSQLiteDriver()
 
 	var ctx = context.Background()
-
 	const bufSize = 1024 * 1024
 
 	var lis *bufconn.Listener
@@ -41,7 +39,7 @@ func TestSQLiteDriver(t *testing.T) {
 
 	lis = bufconn.Listen(bufSize)
 	s := grpc.NewServer()
-	pm.RegisterDriverServer(s, &driver)
+	pm.RegisterDriverServer(s, NewSQLiteDriver())
 	var done = make(chan error, 1)
 	go func() {
 		var e = s.Serve(lis)

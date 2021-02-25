@@ -83,27 +83,12 @@ func BuildCatalog(config pf.BuildAPI_Config, client *http.Client) (hadUserErrors
 					var request = i.(*pm.ValidateRequest)
 					log.WithField("request", request).Debug("materialize validation requested")
 
-					// The build API stuffs JSON-encoded configuration into the Handle field.
-					var endpointConfig = json.RawMessage(request.Handle)
-					request.Handle = nil
-
 					var ctx = context.Background()
-
-					var driver, err = driver.NewDriver(ctx, request.EndpointType, endpointConfig)
+					var driver, err = driver.NewDriver(ctx, request.EndpointType, json.RawMessage(request.EndpointConfigJson))
 					if err != nil {
 						return nil, fmt.Errorf("driver.NewDriver: %w", err)
 					}
 
-					session, err := driver.StartSession(ctx, &pm.SessionRequest{
-						EndpointType:       request.EndpointType,
-						EndpointConfigJson: string(endpointConfig),
-						ShardId:            "",
-					})
-					if err != nil {
-						return nil, fmt.Errorf("driver.StartSession: %w", err)
-					}
-
-					request.Handle = session.Handle
 					response, err := driver.Validate(ctx, request)
 					if err != nil {
 						return nil, fmt.Errorf("driver.Validate: %w", err)

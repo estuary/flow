@@ -61,21 +61,12 @@ pub struct ValidateResponse {
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
-    /// Endpoint type addressed by this request.
-    #[prost(enumeration = "super::flow::EndpointType", tag = "1")]
-    pub endpoint_type: i32,
-    /// Driver-specific configuration, as an encoded JSON object.
-    #[prost(string, tag = "2")]
-    pub endpoint_config_json: ::prost::alloc::string::String,
-    /// Collection to be materialized.
-    #[prost(message, optional, tag = "3")]
-    pub collection: ::core::option::Option<super::flow::CollectionSpec>,
-    /// Selected fields for materialization
-    #[prost(message, optional, tag = "4")]
-    pub fields: ::core::option::Option<super::flow::FieldSelection>,
+    /// Materialization to be applied.
+    #[prost(message, optional, tag = "1")]
+    pub materialization: ::core::option::Option<super::flow::MaterializationSpec>,
     /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
     /// report only what would have happened.
-    #[prost(bool, tag = "5")]
+    #[prost(bool, tag = "2")]
     pub dry_run: bool,
 }
 /// ApplyResponse is the response type of the Apply RPC.
@@ -104,14 +95,14 @@ pub struct TransactionRequest {
 /// Nested message and enum types in `TransactionRequest`.
 pub mod transaction_request {
     /// Open a transaction stream and, where supported, fence off other
-    /// streams having this same |fence_id| from issuing further commits.
+    /// streams having this same |shard_fqn| from issuing further commits.
     ///
     /// Fencing semantics are optional, but required for exactly-once semantics.
     /// Non-transactional stores can ignore this aspect and achieve at-least-once.
     ///
     /// Where implemented, servers must guarantee that no other streams of this
-    /// |fence_id| (now "zombie" streams) can commit transactions, and must then
-    /// return the final checkpoint committed by this |fence_id| in its response.
+    /// |shard_fqn| (now "zombie" streams) can commit transactions, and must then
+    /// return the final checkpoint committed by this |shard_fqn| in its response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Endpoint type addressed by this request.
@@ -124,9 +115,11 @@ pub mod transaction_request {
         /// of the last Apply RPC, but is provided here also as a convenience.
         #[prost(message, optional, tag = "3")]
         pub fields: ::core::option::Option<super::super::flow::FieldSelection>,
-        /// Stable producer ID (aka Flow runtime shard ID) to fence.
+        /// Stable ID to which transactions are fenced. The Flow runtime uses
+        /// fully-qualified shard names to provide stable identifiers.
+        /// Driver implementations may treat these as opaque values.
         #[prost(string, tag = "4")]
-        pub fence_id: ::prost::alloc::string::String,
+        pub shard_fqn: ::prost::alloc::string::String,
         /// Last-persisted driver checkpoint from a previous transaction stream.
         /// Or empty, if the driver hasn't returned a checkpoint.
         #[prost(bytes = "vec", tag = "5")]
@@ -192,7 +185,7 @@ pub mod transaction_response {
     /// Opened responds to TransactionRequest.Open of the client.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
-        /// Flow checkpoint which was previously committed with this |fence_id|.
+        /// Flow checkpoint which was previously committed with this |shard_fqn|.
         /// May be nil, if unknown or if transactional semantics are not supported,
         /// in which case the Flow runtime will use its most-recent persisted checkpoint.
         #[prost(bytes = "vec", tag = "1")]
