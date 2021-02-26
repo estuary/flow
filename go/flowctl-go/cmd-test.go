@@ -122,7 +122,7 @@ func (cmd cmdTest) Execute(_ []string) error {
 	}
 
 	// Apply derivation shard specs.
-	if err = todoHackedShardApply(catalog, cluster.Shards); err != nil {
+	if err = todoHackedDeriveApply(catalog, cluster.Shards); err != nil {
 		return fmt.Errorf("applying shards: %w", err)
 	}
 
@@ -143,7 +143,7 @@ func (cmd cmdTest) Execute(_ []string) error {
 	return nil
 }
 
-func todoHackedShardApply(catalog *flow.Catalog, shards pc.ShardClient) error {
+func todoHackedDeriveApply(catalog *flow.Catalog, shards pc.ShardClient) error {
 	names, err := catalog.LoadDerivationNames()
 	if err != nil {
 		return fmt.Errorf("loading derivation names: %w", err)

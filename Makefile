@@ -314,4 +314,4 @@ docker-push-to-quay: docker-image
 
 .PHONY: develop
 develop: ${GOBIN}/flowctl-go ${TOOLBIN}/etcd
-	${GOBIN}/flowctl-go develop --source ${ROOTDIR}/examples/flow.yaml
+	${GOBIN}/flowctl-go develop --source ${ROOTDIR}/examples/flow.yaml --port 8080
