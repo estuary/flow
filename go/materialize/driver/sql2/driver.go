@@ -181,6 +181,7 @@ func RunSQLTransactions(
 	spec *pf.MaterializationSpec,
 	fence *Fence,
 ) error {
+	var ctx = endpoint.Context
 	var target = TableForMaterialization(endpoint.Tables.Target, "", spec)
 
 	loadSQL, loadParams, err := endpoint.Generator.QueryOnPrimaryKey(target, spec.FieldSelection.Document)
@@ -199,8 +200,21 @@ func RunSQLTransactions(
 		return fmt.Errorf("building update SQL: %w", err)
 	}
 
+	// Obtain a long-lived connection, used for the function remainder.
+	conn, err := endpoint.DB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("load-phase DB.Conn: %w", err)
+	}
+	defer conn.Close() // Return to pool.
+
+	loadStmt, err := conn.PrepareContext(ctx, loadSQL)
+	if err != nil {
+		return fmt.Errorf("conn.PrepareContext(loadSQL): %w", err)
+	}
+	defer loadStmt.Close()
+
 	var response *pm.TransactionResponse // In-progress response.
-	var txn *sql.Tx                      // Current transaction.
+	var txn *sql.Tx                      // Active transaction, or nil.
 
 	defer func() {
 		if txn != nil {
@@ -209,16 +223,8 @@ func RunSQLTransactions(
 	}()
 
 	for {
-		if txn, err = endpoint.DB.BeginTx(endpoint.Context, nil); err != nil {
-			return fmt.Errorf("DB.BeginTx: %w", err)
-		}
-
-		loadStmt, err := txn.Prepare(loadSQL)
-		if err != nil {
-			return fmt.Errorf("txn.Prepare(loadSQL): %w", err)
-		}
-
 		// Process all Load requests until Prepare is read.
+		// Query outside of a transaction. We need only read-committed isolation.
 		var loadIt = lifecycle.NewLoadIterator(stream)
 		for loadIt.Next() {
 			converted, err := loadParams.Convert(loadIt.Key)
@@ -248,6 +254,19 @@ func RunSQLTransactions(
 			return err
 		}
 
+		// Start a transaction for our Store phase.
+		if txn, err = conn.BeginTx(ctx, nil); err != nil {
+			return fmt.Errorf("conn.BeginTx: %w", err)
+		}
+		insertStmt, err := txn.Prepare(insertSQL)
+		if err != nil {
+			return fmt.Errorf("txn.Prepare(insertSQL): %w", err)
+		}
+		updateStmt, err := txn.Prepare(updateSQL)
+		if err != nil {
+			return fmt.Errorf("txn.Prepare(updateSQL): %w", err)
+		}
+
 		// Apply the client's prepared checkpoint to our fence.
 		fence.Checkpoint = loadIt.Prepare().FlowCheckpoint
 		if err = fence.Update(
@@ -266,15 +285,6 @@ func RunSQLTransactions(
 		// Respond with our Prepared. Pass `nil` because we don't use driver checkpoints.
 		if err = lifecycle.WritePrepared(stream, &response, nil); err != nil {
 			return err
-		}
-
-		insertStmt, err := txn.Prepare(insertSQL)
-		if err != nil {
-			return fmt.Errorf("txn.Prepare(insertSQL): %w", err)
-		}
-		updateStmt, err := txn.Prepare(updateSQL)
-		if err != nil {
-			return fmt.Errorf("txn.Prepare(updateSQL): %w", err)
 		}
 
 		// Process all Store requests until Commit is read.
@@ -317,6 +327,7 @@ func RunSQLTransactions(
 		if err = txn.Commit(); err != nil {
 			return fmt.Errorf("txn.Commit: %w", err)
 		}
+		txn = nil
 
 		// Acknowledge our commit.
 		if err = lifecycle.WriteCommitted(stream, &response); err != nil {

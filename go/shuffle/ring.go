@@ -64,7 +64,7 @@ func (c *Coordinator) subscribe(sub subscriber) error {
 	}
 	c.rings[ring] = struct{}{}
 
-	ring.log().Info("starting shuffle ring service")
+	ring.log().Debug("starting shuffle ring service")
 	go ring.serve(ex)
 
 	ring.subscriberCh <- sub
@@ -91,7 +91,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 		"offset":      sub.Offset,
 		"endOffset":   sub.EndOffset,
 		"subscribers": len(r.subscribers),
-	}).Info("adding shuffle ring subscriber")
+	}).Debug("adding shuffle ring subscriber")
 
 	var rr = r.subscribers.add(sub)
 	if rr == nil {
@@ -196,7 +196,7 @@ loop:
 		sub.doneCh <- r.ctx.Err()
 	}
 
-	r.log().Info("shuffle ring service exiting")
+	r.log().Debug("shuffle ring service exiting")
 }
 
 func (r *ring) log() *log.Entry {

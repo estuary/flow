@@ -269,7 +269,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range drain {
-		r.log().Info("read is no longer active; draining")
+		r.log().Debug("read is no longer active; draining")
 		r.cancel()
 	}
 

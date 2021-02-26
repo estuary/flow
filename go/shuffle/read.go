@@ -251,7 +251,7 @@ func (rb *ReadBuilder) buildReads(existing map[pb.Journal]*read, offsets pb.Offs
 }
 
 func (rb *ReadBuilder) start(ctx context.Context, r *read) error {
-	r.log().Info("starting shuffled journal read")
+	r.log().Debug("starting shuffled journal read")
 	r.ctx, r.cancel = context.WithCancel(ctx)
 
 	// Resolve coordinator shard to a current member process.

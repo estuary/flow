@@ -561,8 +561,8 @@ All {
                             "int",
                         ],
                         values: [
-                            "Len",
                             "Extra",
+                            "Len",
                         ],
                         document: "Root",
                         field_config: {
