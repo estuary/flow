@@ -5,11 +5,15 @@ test://example/catalog.yaml:
         bucket: foobar
         prefix: path/prefix
 
-    "my DB":
+    "my Postgres":
       postgres:
         host: localhost
         user: somebody
         password: whoops
+
+    "my sqlite":
+      sqlite:
+        path: relative/to/scope.db
 
   captures:
     "my bucket capture":

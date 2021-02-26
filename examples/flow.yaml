@@ -6,12 +6,9 @@ import:
   - weird-types-flow.yaml
 
 endpoints:
-  fragments:
-    s3:
-      bucket: my-bucket
-  mySqlite:
+  examples:
     sqlite:
-      path: myTest.db
+      path: examples.db?_journal=WAL
 
 journalRules:
   00_fragment_store:
@@ -25,7 +22,7 @@ materializations:
 
   soak/set-ops/operations/toSqlite:
     endpoint:
-      name: mySqlite
+      name: examples
       config:
         table: set_ops
     fields:
