@@ -319,16 +319,16 @@ pub enum Schema {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum EndpointDef {
-    /// # A PostgreSQL database.
-    Postgres(PostgresConfig),
-    /// # A SQLite database.
-    Sqlite(SqliteConfig),
-    /// # An S3 bucket and prefix.
-    S3(BucketConfig),
     /// # A GCS bucket and prefix.
     GS(BucketConfig),
+    /// # A PostgreSQL database.
+    Postgres(PostgresConfig),
     /// # A remote implementation of an endpoint gRPC driver.
     Remote(RemoteDriverConfig),
+    /// # An S3 bucket and prefix.
+    S3(BucketConfig),
+    /// # A SQLite database.
+    Sqlite(SqliteConfig),
 }
 
 impl EndpointDef {
@@ -336,23 +336,12 @@ impl EndpointDef {
         use protocol::flow::EndpointType;
 
         match self {
-            EndpointDef::Postgres(_) => EndpointType::Postgresql,
-            EndpointDef::Sqlite(_) => EndpointType::Sqlite,
-            EndpointDef::S3(_) => EndpointType::S3,
             EndpointDef::GS(_) => EndpointType::Gs,
+            EndpointDef::Postgres(_) => EndpointType::Postgresql,
             EndpointDef::Remote(_) => EndpointType::Remote,
+            EndpointDef::S3(_) => EndpointType::S3,
+            EndpointDef::Sqlite(_) => EndpointType::Sqlite,
         }
-    }
-
-    pub fn base_config(&self) -> Value {
-        match self {
-            EndpointDef::Postgres(cfg) => serde_json::to_value(cfg),
-            EndpointDef::Sqlite(cfg) => serde_json::to_value(cfg),
-            EndpointDef::S3(cfg) => serde_json::to_value(cfg),
-            EndpointDef::GS(cfg) => serde_json::to_value(cfg),
-            EndpointDef::Remote(cfg) => serde_json::to_value(cfg),
-        }
-        .unwrap()
     }
 }
 
@@ -385,9 +374,8 @@ pub struct SqliteConfig {
     /// Some fields are explicit below, to benefit from JSON-Schema generation.
     #[serde(flatten)]
     pub extra: names::Object,
-
-    /// # Filesystem path of the database.
-    pub path: String,
+    /// # Path of the database, relative to this catalog source.
+    pub path: RelativeUrl,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]

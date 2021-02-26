@@ -25,8 +25,8 @@ Tables {
     derivations: [],
     endpoints: [
         Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/my%20DB,
-            endpoint: my DB,
+            scope: test://example/catalog.yaml#/endpoints/my%20Postgres,
+            endpoint: my Postgres,
             endpoint_type: "Postgresql",
             base_config: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
         },
@@ -35,6 +35,12 @@ Tables {
             endpoint: my bucket,
             endpoint_type: "S3",
             base_config: {"bucket":"foobar","prefix":"path/prefix"},
+        },
+        Endpoint {
+            scope: test://example/catalog.yaml#/endpoints/my%20sqlite,
+            endpoint: my sqlite,
+            endpoint_type: "Sqlite",
+            base_config: {"path":"test://example/relative/to/scope.db"},
         },
     ],
     errors: [],

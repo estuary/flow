@@ -388,17 +388,18 @@ impl<F: Fetcher> Loader<F> {
 
         // Collect endpoints.
         for (name, endpoint) in endpoints {
-            let scope = scope
-                .push_prop("endpoints")
-                .push_prop(name.as_ref())
-                .flatten();
+            let scope = scope.push_prop("endpoints");
+            let scope = scope.push_prop(name.as_ref());
+            let endpoint_type = endpoint.endpoint_type();
 
-            self.tables.borrow_mut().endpoints.push_row(
-                scope,
-                name,
-                endpoint.endpoint_type(),
-                endpoint.base_config(),
-            );
+            if let Some(base_config) = self.load_endpoint_config(scope, endpoint) {
+                self.tables.borrow_mut().endpoints.push_row(
+                    scope.flatten(),
+                    name,
+                    endpoint_type,
+                    base_config,
+                );
+            }
         }
 
         // Collect captures.
@@ -674,6 +675,28 @@ impl<F: Fetcher> Loader<F> {
             transform_name,
             update_lambda,
         );
+    }
+
+    fn load_endpoint_config<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        endpoint: specs::EndpointDef,
+    ) -> Option<serde_json::Value> {
+        match endpoint {
+            specs::EndpointDef::GS(cfg) => Some(serde_json::to_value(cfg).unwrap()),
+            specs::EndpointDef::Postgres(cfg) => Some(serde_json::to_value(cfg).unwrap()),
+            specs::EndpointDef::Remote(cfg) => Some(serde_json::to_value(cfg).unwrap()),
+            specs::EndpointDef::S3(cfg) => Some(serde_json::to_value(cfg).unwrap()),
+            specs::EndpointDef::Sqlite(mut cfg) => {
+                // Resolve relative database path relative to current scope.
+                if let Some(path) = self.fallible(scope, scope.resource().join(cfg.path.as_ref())) {
+                    cfg.path = specs::RelativeUrl(path.to_string());
+                    Some(serde_json::to_value(cfg).unwrap())
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     // Consume a result capable of producing a LoadError.

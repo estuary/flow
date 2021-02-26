@@ -3,10 +3,11 @@ target/
 .build/
 .build-ci/
 
-# Outputs from flowctl build that we don't version.
+# Outputs from catalog build & test that we don't version.
 /catalog.db
-/node_modules
 /dist
+/examples/examples.db*
+/node_modules
 
 # Ordinarily one *would* version package-lock.json.
 # In our case, though, we want early warning if dependencies of the
