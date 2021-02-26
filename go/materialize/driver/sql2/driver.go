@@ -8,7 +8,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -219,39 +218,38 @@ func RunSQLTransactions(
 			return fmt.Errorf("txn.Prepare(loadSQL): %w", err)
 		}
 
-		// Callback invoked for each document key to load.
-		var loadFn = func(key tuple.Tuple) error {
-			converted, err := loadParams.Convert(key)
+		// Process all Load requests until Prepare is read.
+		var loadIt = lifecycle.NewLoadIterator(stream)
+		for loadIt.Next() {
+			converted, err := loadParams.Convert(loadIt.Key)
 			if err != nil {
-				return fmt.Errorf("converting key %v: %w", key, err)
+				return fmt.Errorf("converting Load key %v: %w", loadIt.Key, err)
 			}
 
 			var document json.RawMessage
 			err = loadStmt.QueryRow(converted...).Scan(&document)
 
 			log.WithFields(log.Fields{
-				"key": key,
+				"key": loadIt.Key,
 				"err": err,
 			}).Trace("loaded")
 
 			if err == sql.ErrNoRows {
-				return nil // Lookup miss (not an error).
+				// Lookup miss (not an error).
 			} else if err != nil {
-				return fmt.Errorf("querying document: %w", err)
+				return fmt.Errorf("querying Load key %v: %w", loadIt.Key, err)
+			} else if err = lifecycle.StageLoaded(stream, &response, document); err != nil {
+				return err
 			}
-			return lifecycle.StageLoaded(stream, &response, document)
 		}
-
-		// Process all TransactionRequest.Load, returning a Prepare.
-		prepare, err := lifecycle.ReadAllLoads(stream, loadFn)
-		if err == io.EOF {
+		if loadIt.Err() == io.EOF {
 			return nil // Clean shutdown.
-		} else if err != nil {
-			return fmt.Errorf("loading keys: %w", err)
+		} else if loadIt.Err() != nil {
+			return err
 		}
 
 		// Apply the client's prepared checkpoint to our fence.
-		fence.Checkpoint = prepare.FlowCheckpoint
+		fence.Checkpoint = loadIt.Prepare().FlowCheckpoint
 		if err = fence.Update(
 			func(_ context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 				if result, err := txn.Exec(sql, arguments...); err != nil {
@@ -279,45 +277,41 @@ func RunSQLTransactions(
 			return fmt.Errorf("txn.Prepare(updateSQL): %w", err)
 		}
 
-		// Callback invoked for each document to insert.
-		var insertFn = func(key, values tuple.Tuple, doc json.RawMessage) error {
-			converted, err := insertParams.Convert(append(append(key, values...), doc))
-			if err != nil {
-				return fmt.Errorf("converting insert parameters: %w", err)
-			}
-			if _, err = insertStmt.Exec(converted...); err != nil {
-				return fmt.Errorf("inserting document: %w", err)
-			}
+		// Process all Store requests until Commit is read.
+		var storeIt = lifecycle.NewStoreIterator(stream)
+		for storeIt.Next() {
+			if storeIt.Exists {
+				converted, err := updateParams.Convert(append(append(
+					storeIt.Values, storeIt.RawJSON), storeIt.Key...))
+				if err != nil {
+					return fmt.Errorf("converting update parameters: %w", err)
+				}
+				if _, err = updateStmt.Exec(converted...); err != nil {
+					return fmt.Errorf("updating document: %w", err)
+				}
 
-			log.WithFields(log.Fields{
-				"key":    key,
-				"values": values,
-			}).Trace("inserted")
+				log.WithFields(log.Fields{
+					"key":    storeIt.Key,
+					"values": storeIt.Values,
+				}).Trace("updated")
+			} else {
+				converted, err := insertParams.Convert(append(append(
+					storeIt.Key, storeIt.Values...), storeIt.RawJSON))
+				if err != nil {
+					return fmt.Errorf("converting insert parameters: %w", err)
+				}
+				if _, err = insertStmt.Exec(converted...); err != nil {
+					return fmt.Errorf("inserting document: %w", err)
+				}
 
-			return nil
+				log.WithFields(log.Fields{
+					"key":    storeIt.Key,
+					"values": storeIt.Values,
+				}).Trace("inserted")
+			}
 		}
-
-		// Callback invoked for each document to update.
-		var updateFn = func(key, values tuple.Tuple, doc json.RawMessage) error {
-			converted, err := updateParams.Convert(append(append(values, doc), key...))
-			if err != nil {
-				return fmt.Errorf("converting update parameters: %w", err)
-			}
-			if _, err = updateStmt.Exec(converted...); err != nil {
-				return fmt.Errorf("updating document: %w", err)
-			}
-
-			log.WithFields(log.Fields{
-				"key":    key,
-				"values": values,
-			}).Trace("updated")
-
-			return nil
-		}
-
-		// Process stored documents from the client.
-		if _, err = lifecycle.ReadAllStores(stream, insertFn, updateFn); err != nil {
-			return fmt.Errorf("storing documents: %w", err)
+		if storeIt.Err() != nil {
+			return err
 		}
 
 		if err = txn.Commit(); err != nil {
