@@ -163,6 +163,11 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	})
 	require.NoError(t, err)
 
+	// Receive Opened.
+	opened, err := transaction.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, opened.Opened, opened)
+
 	// Test Load with keys that don't exist yet
 	var key1 = tuple.Tuple{"key1Value"}
 	var key2 = tuple.Tuple{"key2Value"}

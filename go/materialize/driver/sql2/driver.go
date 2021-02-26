@@ -92,11 +92,13 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 	// We don't handle any form of schema migrations, so we require that the list of
 	// fields in the request is identical to the current fields. doValidate doesn't handle that
 	// because the list of fields isn't known until Apply is called.
-	if current != nil && !req.Materialization.FieldSelection.Equal(&current.FieldSelection) {
+	if current != nil && !req.Materialization.FieldSelection.Equal(current.FieldSelection) {
 		return nil, fmt.Errorf(
-			"The set of fields in the request differs from the existing fields, which is disallowed because this driver does not perform schema migrations. Request fields: [%s], existing fields: [%s]",
-			strings.Join(req.Materialization.FieldSelection.AllFields(), ", "),
-			strings.Join(current.FieldSelection.AllFields(), ", "),
+			"The set of fields in the request differs from the existing fields,"+
+				"which is disallowed because this driver does not perform schema migrations. "+
+				"Request fields: %s , Existing fields: %s",
+			req.Materialization.FieldSelection.String(),
+			current.FieldSelection.String(),
 		)
 	}
 
@@ -134,17 +136,17 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 
 // Transactions implements the DriverServer interface.
 func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
-	var request, err = stream.Recv()
+	var open, err = stream.Recv()
 	if err != nil {
-		return fmt.Errorf("read open: %w", err)
-	} else if request.Open == nil {
-		return fmt.Errorf("expected Open, got %#v", request)
+		return fmt.Errorf("read Open: %w", err)
+	} else if open.Open == nil {
+		return fmt.Errorf("expected Open, got %#v", open)
 	}
 
 	endpoint, err := d.NewEndpoint(
 		stream.Context(),
-		request.Open.EndpointType,
-		json.RawMessage(request.Open.EndpointConfigJson),
+		open.Open.EndpointType,
+		json.RawMessage(open.Open.EndpointConfigJson),
 	)
 	if err != nil {
 		return fmt.Errorf("building endpoint: %w", err)
@@ -154,9 +156,18 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	if err != nil {
 		return fmt.Errorf("loading materialization spec: %w", err)
 	}
-	fence, err := endpoint.NewFence(request.Open.ShardFqn)
+	fence, err := endpoint.NewFence(open.Open.ShardFqn)
 	if err != nil {
 		return fmt.Errorf("installing fence: %w", err)
+	}
+
+	if err = stream.Send(&pm.TransactionResponse{
+		Opened: &pm.TransactionResponse_Opened{
+			FlowCheckpoint: fence.Checkpoint,
+			DeltaUpdates:   false,
+		},
+	}); err != nil {
+		return fmt.Errorf("sending Opened: %w", err)
 	}
 
 	return d.RunTransactions(stream, endpoint, spec, fence)
@@ -221,14 +232,14 @@ func RunSQLTransactions(
 			log.WithFields(log.Fields{
 				"key": key,
 				"err": err,
-			}).Debug("loaded")
+			}).Trace("loaded")
 
 			if err == sql.ErrNoRows {
 				return nil // Lookup miss (not an error).
 			} else if err != nil {
 				return fmt.Errorf("querying document: %w", err)
 			}
-			return lifecycle.WriteLoaded(stream, &response, document)
+			return lifecycle.StageLoaded(stream, &response, document)
 		}
 
 		// Process all TransactionRequest.Load, returning a Prepare.
@@ -281,7 +292,7 @@ func RunSQLTransactions(
 			log.WithFields(log.Fields{
 				"key":    key,
 				"values": values,
-			}).Info("inserted")
+			}).Trace("inserted")
 
 			return nil
 		}
@@ -299,7 +310,7 @@ func RunSQLTransactions(
 			log.WithFields(log.Fields{
 				"key":    key,
 				"values": values,
-			}).Info("updated")
+			}).Trace("updated")
 
 			return nil
 		}

@@ -111,7 +111,7 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
 	if shard.Spec().LabelSet.ValuesOf(labels.Materialization) != nil {
-		return nil, fmt.Errorf("not supported")
+		return NewMaterializeApp(f.Service, f.Journals, shard, rec)
 	} else if shard.Spec().LabelSet.ValuesOf(labels.Derivation) != nil {
 		return NewDeriveApp(f.Service, f.Journals, shard, rec, f.Config.Flow.LambdaJS)
 	}

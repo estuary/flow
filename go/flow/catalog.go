@@ -102,8 +102,11 @@ func (catalog *Catalog) LoadMaterialization(name string) (*pf.MaterializationSpe
 		return nil, fmt.Errorf("failed to load materialization: %w", err)
 	} else if err = materialization.Unmarshal(b); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal materialization: %w", err)
-	} else if err = materialization.Validate(); err != nil {
-		return nil, fmt.Errorf("collection %q is invalid: %w", name, err)
+	} else if materialization.Collection, err = catalog.LoadCollection(
+		materialization.Shuffle.SourceCollection.String()); err != nil {
+		return nil, fmt.Errorf("failed to load collection: %w", err)
+	} else if err := materialization.Validate(); err != nil {
+		return nil, fmt.Errorf("materialization %q is invalid: %w", name, err)
 	}
 	return materialization, nil
 }
@@ -151,6 +154,28 @@ func (catalog *Catalog) LoadDerivationNames() ([]string, error) {
 
 		if err = rows.Scan(&name); err != nil {
 			return nil, fmt.Errorf("failed to load derivation name: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, err
+}
+
+// LoadMaterializationNames loads names of materializations.
+func (catalog *Catalog) LoadMaterializationNames() ([]string, error) {
+	var rows, err = catalog.db.Query(`
+		SELECT materialization FROM materializations;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load materialization names: %w", err)
+	}
+	var out []string
+
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+
+		if err = rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("failed to load materialization name: %w", err)
 		}
 		out = append(out, name)
 	}
