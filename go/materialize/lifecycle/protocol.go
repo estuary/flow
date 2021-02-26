@@ -278,75 +278,148 @@ func WriteCommitted(
 	return nil
 }
 
-// ReadAllLoads reads Load requests from the stream, invoking the callback for
-// each contained document key, until it reads and returns a Prepare request.
-func ReadAllLoads(
-	stream pm.Driver_TransactionsServer,
-	loadFn func(key tuple.Tuple) error,
-) (*pm.TransactionRequest_Prepare, error) {
-	for i := 0; ; i++ {
-		var request, err = stream.Recv()
-		if i == 0 && err == io.EOF {
-			return nil, io.EOF // Clean shutdown of the stream.
-		} else if err != nil {
-			return nil, fmt.Errorf("stream.Recv: %w", err)
-		} else if request.Prepare != nil {
-			return request.Prepare, nil
-		} else if request.Load == nil {
-			return nil, fmt.Errorf("expected Load, got %#v", request)
-		}
-		var l = request.Load
+// LoadIterator is an iterator over Load requests.
+type LoadIterator struct {
+	Key tuple.Tuple // Key of the next document to load.
 
-		for _, slice := range l.PackedKeys {
-			if key, err := tuple.Unpack(l.Arena.Bytes(slice)); err != nil {
-				return nil, fmt.Errorf("unpacking key: %w", err)
-			} else if err = loadFn(key); err != nil {
-				return nil, err
-			}
-		}
+	stream interface {
+		Recv() (*pm.TransactionRequest, error)
 	}
+	req   pm.TransactionRequest
+	index int
+	err   error
 }
 
-// ReadAllStores reads Store requests from the stream, invoking the insert
-// or update callback for each contained document, until it reads and returns
-// a Commit request.
-func ReadAllStores(
-	stream pm.Driver_TransactionsServer,
-	insertFn, updateFn func(key, values tuple.Tuple, doc json.RawMessage) error,
-) (*pm.TransactionRequest_Commit, error) {
-	for {
-		var request, err = stream.Recv()
-		if err != nil {
-			return nil, fmt.Errorf("stream.Recv: %w", err)
-		} else if request.Commit != nil {
-			return request.Commit, nil
-		} else if request.Store == nil {
-			return nil, fmt.Errorf("expected Store, got %#v", request)
-		}
-		var s = request.Store
+// NewLoadIterator returns a *LoadIterator of the stream.
+func NewLoadIterator(stream pm.Driver_TransactionsServer) *LoadIterator {
+	return &LoadIterator{stream: stream}
+}
 
-		for i := range s.PackedKeys {
-			key, err := tuple.Unpack(s.Arena.Bytes(s.PackedKeys[i]))
-			if err != nil {
-				return nil, fmt.Errorf("unpacking key: %w", err)
-			}
-			values, err := tuple.Unpack(s.Arena.Bytes(s.PackedValues[i]))
-			if err != nil {
-				return nil, fmt.Errorf("unpacking value: %w", err)
-			}
-			var doc = s.Arena.Bytes(s.DocsJson[i])
-
-			if s.Exists[i] {
-				if err = updateFn(key, values, doc); err != nil {
-					return nil, fmt.Errorf("update: %w", err)
-				}
-			} else {
-				if err = insertFn(key, values, doc); err != nil {
-					return nil, fmt.Errorf("insert: %w", err)
-				}
-			}
-		}
+// Next returns true if there is another Load and makes it available via Key.
+// When a Prepare is read, or if an error is encountered, it returns false
+// and must not be called again.
+func (it *LoadIterator) Next() bool {
+	if it.err != nil || it.req.Prepare != nil {
+		panic("Next called again after having returned false")
 	}
+
+	// Must we read another request?
+	if it.req.Load == nil || it.index == len(it.req.Load.PackedKeys) {
+		if next, err := it.stream.Recv(); err != nil {
+			if err == io.EOF && it.req.Load == nil {
+				it.err = io.EOF // Clean shutdown before first Load.
+			} else {
+				it.err = fmt.Errorf("reading Load: %w", err)
+			}
+			return false
+		} else {
+			it.req = *next
+		}
+
+		if it.req.Prepare != nil {
+			return false // Prepare ends the Load phase.
+		} else if it.req.Load == nil || len(it.req.Load.PackedKeys) == 0 {
+			it.err = fmt.Errorf("expected non-empty Load, got %#v", it.req)
+			return false
+		}
+		it.index = 0
+	}
+
+	var slice = it.req.Load.PackedKeys[it.index]
+	it.Key, it.err = tuple.Unpack(it.req.Load.Arena.Bytes(slice))
+
+	if it.err != nil {
+		it.err = fmt.Errorf("unpacking Load key: %w", it.err)
+		return false
+	}
+
+	it.index++
+	return true
+}
+
+// Err returns an encountered error.
+func (it *LoadIterator) Err() error {
+	return it.err
+}
+
+// Prepare returns the Prepare request which caused iteration to terminate.
+func (it *LoadIterator) Prepare() *pm.TransactionRequest_Prepare {
+	return it.req.Prepare
+}
+
+// StoreIterator is an iterator over Store requests.
+type StoreIterator struct {
+	Key     tuple.Tuple     // Key of the next document to store.
+	Values  tuple.Tuple     // Values of the next document to store.
+	RawJSON json.RawMessage // Document to store.
+	Exists  bool            // Does this document exist in the store already?
+
+	stream interface {
+		Recv() (*pm.TransactionRequest, error)
+	}
+	req   pm.TransactionRequest
+	index int
+	err   error
+}
+
+// NewStoreIterator returns a *StoreIterator of the stream.
+func NewStoreIterator(stream pm.Driver_TransactionsServer) *StoreIterator {
+	return &StoreIterator{stream: stream}
+}
+
+// Next returns true if there is another Store and makes it available.
+// When a Commit is read, or if an error is encountered, it returns false
+// and must not be called again.
+func (it *StoreIterator) Next() bool {
+	if it.err != nil || it.req.Commit != nil {
+		panic("Next called again after having returned false")
+	}
+
+	// Must we read another request?
+	if it.req.Store == nil || it.index == len(it.req.Store.PackedKeys) {
+		if next, err := it.stream.Recv(); err != nil {
+			it.err = fmt.Errorf("reading Store: %w", err)
+			return false
+		} else {
+			it.req = *next
+		}
+
+		if it.req.Commit != nil {
+			return false // Prepare ends the Store phase.
+		} else if it.req.Store == nil || len(it.req.Store.PackedKeys) == 0 {
+			it.err = fmt.Errorf("expected non-empty Store, got %#v", it.req)
+			return false
+		}
+		it.index = 0
+	}
+
+	var s = it.req.Store
+
+	it.Key, it.err = tuple.Unpack(s.Arena.Bytes(s.PackedKeys[it.index]))
+	if it.err != nil {
+		it.err = fmt.Errorf("unpacking Store key: %w", it.err)
+		return false
+	}
+	it.Values, it.err = tuple.Unpack(s.Arena.Bytes(s.PackedValues[it.index]))
+	if it.err != nil {
+		it.err = fmt.Errorf("unpacking Store values: %w", it.err)
+		return false
+	}
+	it.RawJSON = s.Arena.Bytes(s.DocsJson[it.index])
+	it.Exists = s.Exists[it.index]
+
+	it.index++
+	return true
+}
+
+// Err returns an encountered error.
+func (it *StoreIterator) Err() error {
+	return it.err
+}
+
+// Commit returns the Commit request which caused iteration to terminate.
+func (it *StoreIterator) Commit() *pm.TransactionRequest_Commit {
+	return it.req.Commit
 }
 
 const (
