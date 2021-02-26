@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/estuary/flow/go/materialize/driver/postgres"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -16,6 +17,8 @@ func NewDriver(ctx context.Context, endpointType pf.EndpointType, config json.Ra
 	switch endpointType {
 	case pf.EndpointType_SQLITE:
 		return adapter{sqlite.NewSQLiteDriver()}, nil
+	case pf.EndpointType_POSTGRESQL:
+		return adapter{postgres.NewPostgresDriver()}, nil
 	case pf.EndpointType_REMOTE:
 		var endpoint struct {
 			Address string

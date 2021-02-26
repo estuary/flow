@@ -27,12 +27,12 @@ func columnsForMaterialization(spec *pf.MaterializationSpec) []Column {
 	var columns = make([]Column, 0, len(allFields))
 	for _, field := range allFields {
 		var projection = spec.Collection.GetProjection(field)
-		columns = append(columns, columnForProjection(projection))
+		columns = append(columns, ColumnForProjection(projection))
 	}
 	return columns
 }
 
-func columnForProjection(projection *pf.Projection) Column {
+func ColumnForProjection(projection *pf.Projection) Column {
 	var column = Column{
 		Name:       projection.Field,
 		Comment:    commentForProjection(projection),
