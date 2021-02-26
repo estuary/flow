@@ -8,6 +8,8 @@ import:
 endpoints:
   examples:
     sqlite:
+      # Use WAL mode so that Flow-external reads (e.x. from `sqlite3`)
+      # don't fail with "database is locked" errors.
       path: examples.db?_journal=WAL
 
 journalRules:
@@ -16,16 +18,3 @@ journalRules:
       fragment:
         compression_codec: GZIP_OFFLOAD_DECOMPRESSION
         stores: [ s3://example-bucket/prefix ]
-
-# TODO(johnny): Still working on this.
-materializations:
-
-  soak/set-ops/operations/toSqlite:
-    endpoint:
-      name: examples
-      config:
-        table: set_ops
-    fields:
-      recommended: true
-    source:
-      name: soak/set-ops/operations

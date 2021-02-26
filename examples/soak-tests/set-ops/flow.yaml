@@ -1,10 +1,11 @@
 # Run soak-test as:
-# go run /workspace/examples/soak-tests/set-ops/generator.go | \
-#   pv --rate-limit 100 --line-mode --quiet | \
-#   /workspace/.build/tools/websocat --protocol json/v1 ws://localhost:8081/ingest/soak/set-ops/operations
+# go run examples/soak-tests/set-ops/generator.go | \
+#  pv --rate-limit 10000 --line-mode --quiet | \
+#  .build/package/bin/websocat --protocol json/v1 ws://localhost:8080/ingest/soak/set-ops/operations
 #
 # Verify that all documents were processed correctly so far (should return no rows):
-#   psql -h localhost --user flow -c 'select * from sets where "DerivedValues"::text != "ExpectValues"::text limit 1;'
+#   sqlite3 examples/examples.db 'SELECT * FROM sets WHERE ExpectValues != DerivedValues;'
+#   sqlite3 examples/examples.db 'SELECT * FROM sets_register WHERE ExpectValues != DerivedValues;'
 
 collections:
   soak/set-ops/operations:
@@ -63,6 +64,31 @@ captures:
   soak/set-ops/operations:
     target: { name: soak/set-ops/operations }
     pushAPI: {}
+
+materializations:
+  soak/set-ops/sets/toExamples:
+    endpoint:
+      name: examples
+      config: { table: sets }
+    fields:
+      recommended: true
+      include:
+        DerivedValues: {}
+        ExpectValues: {}
+    source:
+      name: soak/set-ops/sets
+
+  soak/set-ops/sets-register/toExamples:
+    endpoint:
+      name: examples
+      config: { table: sets_register }
+    fields:
+      recommended: true
+      include:
+        DerivedValues: {}
+        ExpectValues: {}
+    source:
+      name: soak/set-ops/sets-register
 
 tests:
   "Set soak-test update and verify":

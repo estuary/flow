@@ -69,7 +69,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 		Path  string
 		Table string
 	}{
-		Path:  path.Join(tempdir, "target.db"),
+		Path:  "file://" + path.Join(tempdir, "target.db"),
 		Table: "test_target",
 	}
 	var cfgJSON, _ = json.Marshal(cfg)

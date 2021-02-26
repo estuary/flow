@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	"github.com/estuary/flow/go/protocols/flow"
+	log "github.com/sirupsen/logrus"
 )
 
 // NewSQLiteDriver creates a new Driver for sqlite.
@@ -44,10 +46,21 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				parsed.Path = strings.Join(parts, "_")
 			}
 
+			log.WithFields(log.Fields{
+				"path":  parsed.Path,
+				"table": parsed.Table,
+			}).Info("opening database")
+
+			// SQLite / go-sqlite3 is a bit fickle about raced opens of a newly created database,
+			// often returning "database is locked" errors. We can resolve by ensuring one sql.Open
+			// completes before the next starts. This is only required for SQLite, not other drivers.
+			sqliteOpenMu.Lock()
 			db, err := sql.Open("sqlite3", parsed.Path)
 			if err == nil {
 				err = db.PingContext(ctx)
 			}
+			sqliteOpenMu.Unlock()
+
 			if err != nil {
 				return nil, fmt.Errorf("opening SQLite database %q: %w", parsed.Path, err)
 			}
@@ -67,3 +80,5 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 		RunTransactions: sqlDriver.RunSQLTransactions,
 	}
 }
+
+var sqliteOpenMu sync.Mutex
