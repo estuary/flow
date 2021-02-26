@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS "gazette_checkpoints" (
 	PRIMARY KEY("shard_fqn")
 );
 
-
 SELECT "fence", "checkpoint" FROM "gazette_checkpoints" WHERE "shard_fqn" = ?;
 
 INSERT INTO "gazette_checkpoints" ("shard_fqn", "fence", "checkpoint") VALUES (?, ?, ?);

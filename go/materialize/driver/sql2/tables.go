@@ -56,7 +56,7 @@ func FlowMaterializationsTable(name string) *Table {
 			{
 				Name:    "spec",
 				Comment: "Specification of the materialization, encoded as protobuf.",
-				Type:    OBJECT,
+				Type:    STRING,
 				NotNull: true,
 			},
 		},

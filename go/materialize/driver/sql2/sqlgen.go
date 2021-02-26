@@ -63,6 +63,12 @@ type Table struct {
 	// If IfNotExists is true then the create table statement will include an "IF NOT EXISTS" (or
 	// equivalent).
 	IfNotExists bool
+
+	// Whether this is a temporary table. If true, then this will be created with the "TEMP(ORARY)" keyword.
+	Temporary bool
+	// If this is a temporary table, then this may optionally specify the ON COMMIT behavior. If
+	// left blank, then no "ON COMMIT" clause will be added.
+	TempOnCommit string
 }
 
 func (t Table) GetColumn(name string) *Column {
@@ -401,7 +407,11 @@ func (gen *Generator) CreateTable(table *Table) (string, error) {
 		gen.writeComment(&builder, table.Comment, "")
 	}
 
-	builder.WriteString("CREATE TABLE ")
+	builder.WriteString("CREATE ")
+	if table.Temporary {
+		builder.WriteString("TEMPORARY ")
+	}
+	builder.WriteString("TABLE ")
 	if table.IfNotExists {
 		builder.WriteString("IF NOT EXISTS ")
 	}
@@ -439,7 +449,12 @@ func (gen *Generator) CreateTable(table *Table) (string, error) {
 		}
 	}
 	// Close the primary key paren, then newline and close the create table statement
-	builder.WriteString(")\n);\n")
+	builder.WriteString(")\n)")
+	if table.Temporary && table.TempOnCommit != "" {
+		builder.WriteString(" ON COMMIT ")
+		builder.WriteString(table.TempOnCommit)
+	}
+	builder.WriteRune(';')
 	return builder.String(), nil
 }
 

@@ -14,10 +14,13 @@ import (
 type Fence struct {
 	// Checkpoint associated with this Fence.
 	Checkpoint []byte
+	// Fence is the current value of the monotonically increasing integer used to identify unique
+	// instances of transactions rpcs.
+	Fence int64
+	// ShardFqn is the fully qualified id of the materialization shard.
+	ShardFqn string
 
 	ctx       context.Context
-	fence     int64
-	shardFqn  string
 	updateSQL string
 }
 
@@ -100,8 +103,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 	return &Fence{
 		Checkpoint: checkpoint,
 		ctx:        e.Context,
-		fence:      fence,
-		shardFqn:   shardFqn,
+		Fence:      fence,
+		ShardFqn:   shardFqn,
 		updateSQL:  updateSQL,
 	}, nil
 }
@@ -115,8 +118,8 @@ func (f *Fence) Update(execFn ExecFn) error {
 		f.ctx,
 		f.updateSQL,
 		f.Checkpoint,
-		f.shardFqn,
-		f.fence,
+		f.ShardFqn,
+		f.Fence,
 	)
 	if err == nil && rowsAffected == 0 {
 		err = errors.Errorf("this transactions session was fenced off by another")
