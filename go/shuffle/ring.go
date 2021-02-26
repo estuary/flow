@@ -138,7 +138,11 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 		if staged.TerminalError == "" {
 			staged.TerminalError = err.Error()
 		}
-		log.WithField("err", err).Error("failed to extract from documents")
+		r.log().WithFields(log.Fields{
+			"err":         err,
+			"readThrough": staged.ReadThrough,
+			"writeHead":   staged.WriteHead,
+		}).Error("failed to extract from documents")
 		return
 	}
 
@@ -199,6 +203,7 @@ func (r *ring) log() *log.Entry {
 	return log.WithFields(log.Fields{
 		"journal":     r.shuffle.Journal,
 		"coordinator": r.shuffle.Coordinator,
+		"replay":      r.shuffle.Replay,
 	})
 }
 
