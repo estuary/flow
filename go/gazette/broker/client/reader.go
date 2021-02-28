@@ -337,8 +337,7 @@ func (fr *FragmentReader) Close() error {
 //      // rr.Read will read Fragments directly from NAS.
 //
 func InstallFileTransport(root string) (remove func()) {
-	var transport = new(http.Transport)
-	*transport = *http.DefaultTransport.(*http.Transport) // Clone.
+	var transport = http.DefaultTransport.(*http.Transport).Clone()
 	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(root)))
 
 	var prevClient = httpClient
