@@ -7,11 +7,11 @@
     "yaml.schemas": {
         "https://json-schema.org/draft/2019-09/schema": [
             "schema.yaml",
-            "*-schema.yaml"
+            "*.schema.yaml"
         ],
         "./flow.schema.json": [
             "flow.yaml",
-            "*-flow.yaml"
+            "*.flow.yaml"
         ]
     },
     "sqltools.format": {

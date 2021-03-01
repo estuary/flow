@@ -1,6 +1,6 @@
 {
   "files": [
-    "../examples/int-string-flow.ts",
+    "../examples/int-string.flow.ts",
     "../examples/marketing/flow.ts",
     "../examples/soak-tests/set-ops/flow.ts",
     "../examples/stock-stats/flow.ts",
