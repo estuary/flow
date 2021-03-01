@@ -8,7 +8,7 @@ export type Lambda = (source: Document, register?: Document, previous?: Document
 // Import derivation classes from their implementation modules.
 import {
     TestingIntStrings,
-} from '../../examples/int-string-flow';
+} from '../../examples/int-string.flow';
 
 import {
     MarketingClicksWithViews,

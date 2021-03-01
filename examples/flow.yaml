@@ -1,9 +1,9 @@
 import:
   - marketing/flow.yaml
   - stock-stats/flow.yaml
-  - int-string-flow.yaml
+  - int-string.flow.yaml
   - soak-tests/set-ops/flow.yaml
-  - weird-types-flow.yaml
+  - weird-types.flow.yaml
 
 endpoints:
   examples:
