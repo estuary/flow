@@ -405,6 +405,18 @@
       "description": "An Endpoint is an external system from which a Flow collection may be captured, or to which a Flow collection may be materialized.",
       "anyOf": [
         {
+          "title": "A GCS bucket and prefix.",
+          "type": "object",
+          "required": [
+            "gS"
+          ],
+          "properties": {
+            "gS": {
+              "$ref": "#/definitions/BucketConfig"
+            }
+          }
+        },
+        {
           "title": "A PostgreSQL database.",
           "type": "object",
           "required": [
@@ -417,14 +429,14 @@
           }
         },
         {
-          "title": "A SQLite database.",
+          "title": "A remote implementation of an endpoint gRPC driver.",
           "type": "object",
           "required": [
-            "sqlite"
+            "remote"
           ],
           "properties": {
-            "sqlite": {
-              "$ref": "#/definitions/SqliteConfig"
+            "remote": {
+              "$ref": "#/definitions/RemoteDriverConfig"
             }
           }
         },
@@ -441,26 +453,14 @@
           }
         },
         {
-          "title": "A GCS bucket and prefix.",
+          "title": "A SQLite database.",
           "type": "object",
           "required": [
-            "gS"
+            "sqlite"
           ],
           "properties": {
-            "gS": {
-              "$ref": "#/definitions/BucketConfig"
-            }
-          }
-        },
-        {
-          "title": "A remote implementation of an endpoint gRPC driver.",
-          "type": "object",
-          "required": [
-            "remote"
-          ],
-          "properties": {
-            "remote": {
-              "$ref": "#/definitions/RemoteDriverConfig"
+            "sqlite": {
+              "$ref": "#/definitions/SqliteConfig"
             }
           }
         }
@@ -1183,10 +1183,10 @@
     "RemoteDriverConfig": {
       "type": "object",
       "required": [
-        "grpc_driver_address"
+        "address"
       ],
       "properties": {
-        "grpc_driver_address": {
+        "address": {
           "title": "gRPC address of the driver.",
           "type": "string"
         }
@@ -1302,8 +1302,12 @@
       ],
       "properties": {
         "path": {
-          "title": "Filesystem path of the database.",
-          "type": "string"
+          "title": "Path of the database, relative to this catalog source.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RelativeUrl"
+            }
+          ]
         }
       },
       "additionalProperties": true
