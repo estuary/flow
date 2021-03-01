@@ -254,6 +254,56 @@ pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> Str
     w
 }
 
+pub fn stubs_ts(
+    package_dir: &path::Path,
+    interfaces: &[Interface<'_>],
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+
+    for (relative_path, interfaces) in interfaces
+        .iter()
+        .filter(|i| i.module.is_relative())
+        .sorted_by_key(|i| i.module.relative_path())
+        .group_by(|i| i.module.relative_path())
+        .into_iter()
+    {
+        let mut w = String::with_capacity(4096);
+        w.push_str(STUBS_HEADER);
+
+        for Interface {
+            derivation: tables::Derivation {
+                derivation, scope, ..
+            },
+            module: _,
+            methods,
+        } in interfaces
+        {
+            let scope = Module::new(scope, package_dir);
+
+            write!(
+                w,
+                r#"
+// Implementation for derivation {scope}.
+export class {name} implements interfaces.{name} {{
+"#,
+                name = camel_case(derivation, true),
+                scope = scope.relative_url(),
+            )
+            .unwrap();
+
+            for method in methods {
+                let signature = method.signature().into_iter().join("\n    ");
+                writeln!(w, "    {} {{", signature).unwrap();
+                w.push_str("        throw new Error(\"Not implemented\");\n    }\n");
+            }
+            w.push_str("}\n");
+        }
+
+        out.insert(relative_path, w);
+    }
+    out
+}
+
 pub fn tsconfig_files<I, S>(files: I) -> String
 where
     I: Iterator<Item = S>,
@@ -299,3 +349,5 @@ export type Document = unknown;
 export type Lambda = (source: Document, register?: Document, previous?: Document) => Document[];
 
 "#;
+
+const STUBS_HEADER: &str = "import { collections, interfaces, registers } from 'flow/modules';\n";

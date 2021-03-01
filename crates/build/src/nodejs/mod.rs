@@ -103,6 +103,13 @@ pub fn generate_package<'a>(
         WriteIntent::Always(generators::routes_ts(package_dir, &interfaces)),
     );
 
+    // Generate implementation stubs for required relative modules that don't exist.
+    files.extend(
+        generators::stubs_ts(package_dir, &interfaces)
+            .into_iter()
+            .map(|(k, v)| (k, WriteIntent::IfNotExists(v))),
+    );
+
     // We use the literal files of this repository as ground-truth
     // templates which are packaged and scaffolded by built binaries.
     let template_files = vec![

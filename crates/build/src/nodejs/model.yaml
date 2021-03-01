@@ -27,9 +27,6 @@ file:///package/sub/module.yaml:
             source: { name: local/derivation }
             update: { lambda: typescript }
 
-file:///package/sub/module.ts:
-  { Local: Content }
-
 test://example/external/module.yaml:
   npmDependencies:
     barPkg: v4.5.6
