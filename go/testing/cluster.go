@@ -15,6 +15,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
+	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
 	"go.gazette.dev/core/broker/http_gateway"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -30,24 +31,24 @@ import (
 // ClusterConfig configures a single-process Flow cluster member.
 type ClusterConfig struct {
 	mbp.ServiceConfig
-	Context           context.Context
-	Catalog           *flow.Catalog
-	DisableClockTicks bool
-	Etcd              *clientv3.Client
-	LambdaJSUDS       string
+	Catalog            *flow.Catalog
+	Context            context.Context
+	DisableClockTicks  bool
+	Etcd               *clientv3.Client
+	EtcdBrokerPrefix   string
+	EtcdConsumerPrefix string
+	LambdaJSUDS        string
 }
 
 // Cluster is an in-process Flow cluster environment.
 type Cluster struct {
-	Tasks    *task.Group
-	Server   *server.Server
-	Journals pb.RoutedJournalClient
-	Shards   pc.ShardClient
-	Ingester *ingest.Ingester
-	Consumer *runtime.FlowConsumer
-
-	// TODO remove me when we load specs into Etcd.
-	SchemaIndex *bindings.SchemaIndex
+	Consumer    *runtime.FlowConsumer
+	Ingester    *ingest.Ingester
+	Journals    pb.RoutedJournalClient
+	SchemaIndex *bindings.SchemaIndex // Remove when we load specs into Etcd.
+	Server      *server.Server
+	Shards      pc.ShardClient
+	Tasks       *task.Group
 }
 
 // NewCluster builds and returns a new, running flow Cluster.
@@ -81,7 +82,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 				ProcessSpec:  processSpec,
 			}
 			lo         = pb.NewJournalClient(server.GRPCLoopback)
-			ks         = broker.NewKeySpace(etcdBrokerPrefix)
+			ks         = broker.NewKeySpace(c.EtcdBrokerPrefix)
 			allocState = allocator.NewObservedState(ks,
 				allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix),
 				broker.JournalIsConsistent)
@@ -101,6 +102,13 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 		})
 		service.QueueTasks(tasks, server, persister.Finish)
 
+		ks.Observers = append(ks.Observers, func() {
+			for _, item := range allocState.LocalItems {
+				var name = item.Item.Decoded.(allocator.Item).ID
+				go resetJournalHead(tasks.Context(), rjc, pb.Journal(name))
+			}
+		})
+
 		err = allocator.StartSession(allocator.SessionArgs{
 			Etcd:     c.Etcd,
 			LeaseTTL: etcdLease,
@@ -118,7 +126,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 	var flowConsumer = new(runtime.FlowConsumer)
 	{
 		var appConfig = new(runtime.FlowConsumerConfig)
-		appConfig.Flow.BrokerRoot = etcdBrokerPrefix
+		appConfig.Flow.BrokerRoot = c.EtcdBrokerPrefix
 		appConfig.DisableClockTicks = c.DisableClockTicks
 		appConfig.Flow.LambdaJS = c.LambdaJSUDS
 
@@ -127,7 +135,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 				ShardLimit:  consumerLimit,
 				ProcessSpec: processSpec,
 			}
-			ks    = consumer.NewKeySpace(etcdConsumerPrefix)
+			ks    = consumer.NewKeySpace(c.EtcdConsumerPrefix)
 			state = allocator.NewObservedState(ks,
 				allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix),
 				consumer.ShardIsConsistent)
@@ -165,7 +173,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 	// Start Flow ingester.
 	ingester, err := runtime.StartIngesterService(runtime.FlowIngesterArgs{
 		Catalog:    c.Catalog,
-		BrokerRoot: etcdBrokerPrefix,
+		BrokerRoot: c.EtcdBrokerPrefix,
 		Server:     server,
 		Tasks:      tasks,
 		Journals:   rjc,
@@ -186,13 +194,13 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 	tasks.GoRun()
 
 	return &Cluster{
-		Tasks:       tasks,
-		Server:      server,
-		Journals:    rjc,
-		Shards:      pc.NewShardClient(server.GRPCLoopback),
-		Ingester:    ingester,
 		Consumer:    flowConsumer,
+		Ingester:    ingester,
+		Journals:    rjc,
 		SchemaIndex: schemaIndex,
+		Server:      server,
+		Shards:      pc.NewShardClient(server.GRPCLoopback),
+		Tasks:       tasks,
 	}, nil
 }
 
@@ -210,8 +218,34 @@ func (c *Cluster) Stop() error {
 }
 
 // "Reasonable defaults" for which we're not bothering to wire up configuration.
-const etcdBrokerPrefix = "/gazette/cluster"
-const etcdConsumerPrefix = "/gazette/consumers/runtime.Flow"
 const brokerLimit = 1024
 const consumerLimit = 1024
-const etcdLease = time.Second * 20
+const etcdLease = time.Second * 10
+
+// resetJournalHead queries the largest written offset of the journal,
+// and issues an empty append with that explicit offset.
+func resetJournalHead(ctx context.Context, rjc pb.RoutedJournalClient, name pb.Journal) error {
+	var r = client.NewReader(ctx, rjc, pb.ReadRequest{
+		Journal:      name,
+		Offset:       -1,
+		Block:        false,
+		MetadataOnly: true,
+	})
+	if _, err := r.Read(nil); err != client.ErrOffsetNotYetAvailable {
+		return fmt.Errorf("reading head of journal %q: %w", name, err)
+	}
+	// Issue a zero-byte write at the indexed head.
+	var a = client.NewAppender(ctx, rjc, pb.AppendRequest{
+		Journal: name,
+		Offset:  r.Response.Offset,
+	})
+	var err = a.Close()
+
+	if err == nil || err == client.ErrWrongAppendOffset {
+		// Success, or raced write (indicating reset wasn't needed).
+	} else {
+		return fmt.Errorf("setting offset of %q: %w", name, err)
+	}
+
+	return nil
+}

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"path"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,7 +13,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -64,8 +64,9 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 	var shardSpec = shard.Spec()
 
 	// Does the shard's recovery log already exist?
+	var itemKey = path.Join(f.Journals.Root, shardSpec.RecoveryLog().String())
 	f.Journals.Mu.RLock()
-	var _, exists = allocator.LookupItem(f.Journals, shardSpec.RecoveryLog().String())
+	var _, exists = f.Journals.Search(itemKey)
 	f.Journals.Mu.RUnlock()
 
 	if exists {
