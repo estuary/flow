@@ -69,7 +69,7 @@ func (parts *UUIDParts) Pack() message.UUID {
 // IndexedShuffleResponse is an implementation of message.Message which
 // indexes a specific document within a ShuffleResponse.
 type IndexedShuffleResponse struct {
-	*ShuffleResponse
+	ShuffleResponse
 	Index int
 	// Shuffle on whose behalf this document was read.
 	Shuffle *Shuffle
