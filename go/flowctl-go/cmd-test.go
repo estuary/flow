@@ -16,6 +16,7 @@ import (
 	"github.com/estuary/flow/go/testing"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
+	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -39,6 +40,11 @@ func (cmd cmdTest) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+
+	var err error
+	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
+		return fmt.Errorf("filepath.Abs: %w", err)
+	}
 
 	// Create a temp directory, used for:
 	// * Storing our built catalog database.
@@ -91,29 +97,32 @@ func (cmd cmdTest) Execute(_ []string) error {
 	}
 
 	// Spawn Etcd and NPM worker processes for cluster use.
-	etcd, etcdClient, err := startTempEtcd(tempdir)
+	etcd, etcdClient, err := startEtcd(tempdir)
 	if err != nil {
 		return err
 	}
 	defer stopWorker(etcd)
 
 	var lambdaJSUDS = filepath.Join(tempdir, "lambda-js")
-	npmWorker, err := startNpmWorker(lambdaJSUDS)
+	jsWorker, err := startJSWorker(cmd.Directory, lambdaJSUDS)
 	if err != nil {
 		return err
 	}
-	defer stopWorker(npmWorker)
+	defer stopWorker(jsWorker)
 
 	// Configure and start the cluster.
 	var config = testing.ClusterConfig{
-		Context:           context.Background(),
-		Catalog:           catalog,
-		DisableClockTicks: true,
-		Etcd:              etcdClient,
-		LambdaJSUDS:       lambdaJSUDS,
+		Catalog:            catalog,
+		Context:            context.Background(),
+		DisableClockTicks:  true,
+		Etcd:               etcdClient,
+		EtcdBrokerPrefix:   "/flowctl-test/broker",
+		EtcdConsumerPrefix: "/flowctl-test/runtime",
+		LambdaJSUDS:        lambdaJSUDS,
 	}
 	config.ZoneConfig.Zone = "local"
 	fragment.FileSystemStoreRoot = tempdir
+	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
 	pb.RegisterGRPCDispatcher(Config.Zone)
 
 	cluster, err := testing.NewCluster(config)
@@ -176,7 +185,7 @@ func todoHackedDeriveApply(catalog *flow.Catalog, shards pc.ShardClient) error {
 				HotStandbys:       0,
 				LabelSet:          labels,
 			},
-			ExpectModRevision: 0,
+			ExpectModRevision: -1, // Ignore current revision.
 		})
 	}
 
@@ -188,7 +197,7 @@ func todoHackedDeriveApply(catalog *flow.Catalog, shards pc.ShardClient) error {
 	return nil
 }
 
-func startTempEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
+func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 	var cmd = exec.Command("etcd",
 		"--listen-peer-urls", "unix://peer.sock:0",
 		"--listen-client-urls", "unix://client.sock:0",
@@ -202,7 +211,12 @@ func startTempEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 	cmd.Dir = tmpdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Deliver a SIGTERM to the process if this thread should die uncleanly.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	// Place child its own process group, so that terminal SIGINT isn't delivered
+	// from the terminal and so that we may close leases properly.
+	cmd.SysProcAttr.Setpgid = true
 
 	log.WithFields(log.Fields{"args": cmd.Args, "dir": cmd.Dir}).Info("starting etcd")
 	if err := cmd.Start(); err != nil {
@@ -238,19 +252,21 @@ func startTempEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 	return cmd, etcdClient, nil
 }
 
-func startNpmWorker(socketPath string) (*exec.Cmd, error) {
-	var cmd = exec.Command("npm", "run", "develop")
+func startJSWorker(dir, socketPath string) (*exec.Cmd, error) {
+	var cmd = exec.Command("node", "dist/flow_generated/flow/main.js")
+	_ = os.Remove(socketPath)
 
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, fmt.Sprintf("SOCKET_PATH=%s", socketPath))
+
+	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 
-	log.WithField("args", cmd.Args).Info("starting npm develop")
+	log.WithField("args", cmd.Args).Info("starting node")
 
 	if err := flow.StartCmdAndReadReady(cmd); err != nil {
-		return nil, fmt.Errorf("failed to start npm develop: %w", err)
+		return nil, fmt.Errorf("failed to start JS worker: %w", err)
 	}
 	return cmd, nil
 }

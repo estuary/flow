@@ -40,8 +40,7 @@ func (cmd cmdBuild) Execute(_ []string) error {
 }
 
 func build(config pf.BuildAPI_Config) (*flow.Catalog, error) {
-	var transport = new(http.Transport)
-	*transport = *http.DefaultTransport.(*http.Transport) // Clone.
+	var transport = http.DefaultTransport.(*http.Transport).Clone()
 	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
 	var httpClient = &http.Client{Transport: transport}
 
