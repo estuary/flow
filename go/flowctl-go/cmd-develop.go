@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/testing"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -28,7 +28,7 @@ import (
 
 type cmdDevelop struct {
 	Source    string `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Directory string `long:"directory" default:"." description:"Build directory"`
+	Directory string `long:"directory" default:"flowctl-develop" description:"Build and runtime directory."`
 	mbp.ServiceConfig
 }
 
@@ -42,20 +42,19 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
 
-	// Create a temp directory, used for:
+	var err error
+	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
+		return fmt.Errorf("filepath.Abs: %w", err)
+	}
+
+	// Directory is used for:
 	// * Storing our built catalog database.
 	// * Etcd storage and UDS sockets.
 	// * NPM worker UDS socket.
-	// * "Persisted" fragment files.
-
-	tempdir, err := ioutil.TempDir("", "flow-test")
-	if err != nil {
-		return fmt.Errorf("creating temp directory: %w", err)
-	}
-	defer os.RemoveAll(tempdir)
+	// * Backing persisted file:/// fragments.
 
 	var buildConfig = pf.BuildAPI_Config{
-		CatalogPath:       filepath.Join(tempdir, "catalog.db"),
+		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
 		TypescriptCompile: true,
@@ -67,13 +66,11 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 			Rules: []pf.JournalRules_Rule{
 				{
 					// Order after other rules.
-					Rule: "\uFFFF\uFFFF-testing-overrides",
+					Rule: "\uFFFF\uFFFF-develop-overrides",
 					Template: pb.JournalSpec{
+						// We're running in single-process development mode.
+						// Override replication (which defaults to 3).
 						Replication: 1,
-						Fragment: pb.JournalSpec_Fragment{
-							Stores:           []pb.FragmentStore{"file:///"},
-							CompressionCodec: pb.CompressionCodec_SNAPPY,
-						},
 					},
 				},
 			},
@@ -85,29 +82,32 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	}
 
 	// Spawn Etcd and NPM worker processes for cluster use.
-	etcd, etcdClient, err := startTempEtcd(tempdir)
+	etcd, etcdClient, err := startEtcd(cmd.Directory)
 	if err != nil {
 		return err
 	}
 	defer stopWorker(etcd)
 
-	var lambdaJSUDS = filepath.Join(tempdir, "lambda-js")
-	npmWorker, err := startNpmWorker(lambdaJSUDS)
+	var lambdaJSUDS = filepath.Join(cmd.Directory, "lambda-js")
+	jsWorker, err := startJSWorker(cmd.Directory, lambdaJSUDS)
 	if err != nil {
 		return err
 	}
-	defer stopWorker(npmWorker)
+	defer stopWorker(jsWorker)
 
 	// Configure and start the cluster.
 	var config = testing.ClusterConfig{
-		Context:           context.Background(),
-		Catalog:           catalog,
-		DisableClockTicks: true,
-		Etcd:              etcdClient,
-		LambdaJSUDS:       lambdaJSUDS,
-		ServiceConfig:     cmd.ServiceConfig,
+		Catalog:            catalog,
+		Context:            context.Background(),
+		DisableClockTicks:  true,
+		Etcd:               etcdClient,
+		EtcdBrokerPrefix:   "/flowctl-develop/broker",
+		EtcdConsumerPrefix: "/flowctl-develop/runtime",
+		LambdaJSUDS:        lambdaJSUDS,
+		ServiceConfig:      cmd.ServiceConfig,
 	}
-	fragment.FileSystemStoreRoot = tempdir
+	fragment.FileSystemStoreRoot = filepath.Join(cmd.Directory, "fragments")
+	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
 	pb.RegisterGRPCDispatcher(Config.Zone)
 
 	cluster, err := testing.NewCluster(config)
@@ -191,7 +191,7 @@ func todoHackedMaterializeApply(catalog *flow.Catalog, shards pc.ShardClient) er
 				HotStandbys:       0,
 				LabelSet:          labels,
 			},
-			ExpectModRevision: 0,
+			ExpectModRevision: -1, // Ignore current revision.
 		})
 	}
 

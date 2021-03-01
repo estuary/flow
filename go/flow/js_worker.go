@@ -91,6 +91,12 @@ func (worker *JSWorker) Stop() error {
 
 // StartCmdAndReadReady starts the Cmd blocks until it prints "READY\n" to stderr.
 func StartCmdAndReadReady(cmd *exec.Cmd) error {
+	// Deliver a SIGTERM to the process if this thread should die uncleanly.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	// Place child its own process group so that terminal SIGINT isn't
+	// delivered from the terminal.
+	cmd.SysProcAttr.Setpgid = true
+
 	var realStdErr io.Writer
 	realStdErr, cmd.Stderr = cmd.Stderr, nil
 
