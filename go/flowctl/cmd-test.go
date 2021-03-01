@@ -143,6 +143,7 @@ func (cmd cmdTest) Execute(_ []string) error {
 		if err = testing.RunTestCase(graph, cluster, &testCase); err != nil {
 			return fmt.Errorf("test case `%s` failed: %w", testCase.Test, err)
 		}
+		cluster.Consumer.ClearRegistersForTest(config.Context)
 	}
 
 	if err := cluster.Stop(); err != nil {
