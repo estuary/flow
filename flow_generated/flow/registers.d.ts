@@ -84,6 +84,6 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
 // Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 export type StockDailyStats = unknown;
 
-// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-strings/derivation/register/schema.
-// Referenced as register_schema of examples/int-string-flow.yaml#/collections/testing~1int-strings/derivation.
+// Generated from examples/int-string.flow.yaml?ptr=/collections/testing~1int-strings/derivation/register/schema.
+// Referenced as register_schema of examples/int-string.flow.yaml#/collections/testing~1int-strings/derivation.
 export type TestingIntStrings = unknown;

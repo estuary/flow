@@ -83,8 +83,8 @@ export interface StockDailyStats {
     ): collections.StockDailyStats[];
 }
 
-// Generated from derivation examples/int-string-flow.yaml#/collections/testing~1int-strings/derivation.
-// Required to be implemented by examples/int-string-flow.ts.
+// Generated from derivation examples/int-string.flow.yaml#/collections/testing~1int-strings/derivation.
+// Required to be implemented by examples/int-string.flow.ts.
 export interface TestingIntStrings {
     appendStringsPublish(
         source: collections.TestingIntString,

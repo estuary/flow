@@ -183,22 +183,22 @@ export type StockTicks = /* Level-one market tick of a security. */ {
     [k: string]: Record<string, unknown> | boolean | string | null | undefined;
 };
 
-// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-string/schema.
-// Referenced as schema of examples/int-string-flow.yaml#/collections/testing~1int-string.
+// Generated from examples/int-string.flow.yaml?ptr=/collections/testing~1int-string/schema.
+// Referenced as schema of examples/int-string.flow.yaml#/collections/testing~1int-string.
 export type TestingIntString = {
     i: number;
     s: string;
 };
 
-// Generated from examples/int-string-flow.yaml?ptr=/collections/testing~1int-strings/schema.
-// Referenced as schema of examples/int-string-flow.yaml#/collections/testing~1int-strings.
+// Generated from examples/int-string.flow.yaml?ptr=/collections/testing~1int-strings/schema.
+// Referenced as schema of examples/int-string.flow.yaml#/collections/testing~1int-strings.
 export type TestingIntStrings = {
     i: number;
     s?: string[];
 };
 
-// Generated from examples/weird-types-flow.yaml?ptr=/collections/weird-types~1optional-multi-types/schema.
-// Referenced as schema of examples/weird-types-flow.yaml#/collections/weird-types~1optional-multi-types.
+// Generated from examples/weird-types.flow.yaml?ptr=/collections/weird-types~1optional-multi-types/schema.
+// Referenced as schema of examples/weird-types.flow.yaml#/collections/weird-types~1optional-multi-types.
 export type WeirdTypesOptionalMultiTypes = {
     any?: unknown;
     boolOrArrayOrNull?: unknown[] | boolean | null;
@@ -212,8 +212,8 @@ export type WeirdTypesOptionalMultiTypes = {
     theKey: string;
 };
 
-// Generated from examples/weird-types-flow.yaml?ptr=/collections/weird-types~1optionals/schema.
-// Referenced as schema of examples/weird-types-flow.yaml#/collections/weird-types~1optionals.
+// Generated from examples/weird-types.flow.yaml?ptr=/collections/weird-types~1optionals/schema.
+// Referenced as schema of examples/weird-types.flow.yaml#/collections/weird-types~1optionals.
 export type WeirdTypesOptionals = {
     array?: unknown[];
     bool?: boolean;
@@ -224,8 +224,8 @@ export type WeirdTypesOptionals = {
     theKey: string;
 };
 
-// Generated from examples/weird-types-flow.yaml?ptr=/collections/weird-types~1required-nullable/schema.
-// Referenced as schema of examples/weird-types-flow.yaml#/collections/weird-types~1required-nullable.
+// Generated from examples/weird-types.flow.yaml?ptr=/collections/weird-types~1required-nullable/schema.
+// Referenced as schema of examples/weird-types.flow.yaml#/collections/weird-types~1required-nullable.
 export type WeirdTypesRequiredNullable = {
     array: unknown[] | null;
     boolean: boolean | null;
