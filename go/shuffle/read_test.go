@@ -159,7 +159,7 @@ func TestReadIteration(t *testing.T) {
 		},
 		resp: pf.IndexedShuffleResponse{
 			Index: 0,
-			ShuffleResponse: &pf.ShuffleResponse{
+			ShuffleResponse: pf.ShuffleResponse{
 				Begin: []int64{0, 200, 400},
 				End:   []int64{100, 300, 500},
 			},
@@ -186,7 +186,7 @@ func TestReadIteration(t *testing.T) {
 }
 
 func TestReadHeaping(t *testing.T) {
-	var resp = &pf.ShuffleResponse{
+	var resp = pf.ShuffleResponse{
 		UuidParts: []pf.UUIDParts{
 			{Clock: 2000},
 			{Clock: 1001},

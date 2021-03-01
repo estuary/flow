@@ -147,7 +147,7 @@ func (g *governor) poll(ctx context.Context) error {
 		var result readResult
 		var ok bool
 
-		if r.resp.ShuffleResponse != nil && r.resp.Tailing() {
+		if r.resp.Tailing() {
 			// Reader is tailing the journal. Poll without blocking,
 			// as we may wait an unbounded amount of time for more
 			// data to be written to the journal.

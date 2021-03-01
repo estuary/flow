@@ -97,7 +97,7 @@ func (rb *ReadBuilder) StartReplayRead(ctx context.Context, journal pb.Journal, 
 				return message.Envelope{}, err
 			}
 
-			if sr := r.resp.ShuffleResponse; sr != nil && r.resp.Index != len(sr.DocsJson) {
+			if sr := r.resp.ShuffleResponse; r.resp.Index != len(sr.DocsJson) {
 				return r.dequeue(), nil
 			}
 
@@ -294,7 +294,11 @@ func (r *read) onRead(p readResult) error {
 		return p.err
 	}
 
-	r.resp.ShuffleResponse = p.resp
+	if p.resp != nil {
+		r.resp.ShuffleResponse = *p.resp
+	} else {
+		r.resp.ShuffleResponse = pf.ShuffleResponse{}
+	}
 	r.resp.Index = 0 // Reset.
 
 	// Update Offset as responses are read, so that a retry
