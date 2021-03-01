@@ -114,7 +114,10 @@ func (catalog *Catalog) LoadMaterialization(name string) (*pf.MaterializationSpe
 // LoadCapturedCollections loads all captured collections from the catalog.
 func (catalog *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
 	var rows, err = catalog.db.Query(`
-		SELECT DISTINCT collection FROM captures WHERE allow_push;
+		SELECT collection FROM collections
+			WHERE collection NOT IN (
+				SELECT derivation FROM derivations
+			);
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read captured collections: %w", err)
