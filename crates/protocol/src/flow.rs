@@ -779,6 +779,7 @@ pub enum EndpointType {
     Sqlite = 2,
     S3 = 3,
     Gs = 4,
+    Snowflake = 5,
 }
 /// ContentType enumerates the content types understood by Flow.
 #[derive(serde::Deserialize, serde::Serialize)]

@@ -463,6 +463,18 @@
               "$ref": "#/definitions/SqliteConfig"
             }
           }
+        },
+        {
+          "title": "A Snowflake database.",
+          "type": "object",
+          "required": [
+            "snowflake"
+          ],
+          "properties": {
+            "snowflake": {
+              "$ref": "#/definitions/SnowflakeConfig"
+            }
+          }
         }
       ]
     },
@@ -1293,6 +1305,47 @@
           }
         }
       ]
+    },
+    "SnowflakeConfig": {
+      "description": "Snowflake endpoint configuration. Compare to https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config",
+      "type": "object",
+      "required": [
+        "account",
+        "database",
+        "password",
+        "region",
+        "role",
+        "schema",
+        "user",
+        "warehouse"
+      ],
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "database": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "warehouse": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
     },
     "SqliteConfig": {
       "description": "Sqlite endpoint configuration. Compare to https://github.com/mattn/go-sqlite3#connection-string",

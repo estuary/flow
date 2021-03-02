@@ -329,6 +329,8 @@ pub enum EndpointDef {
     S3(BucketConfig),
     /// # A SQLite database.
     Sqlite(SqliteConfig),
+    /// # A Snowflake database.
+    Snowflake(SnowflakeConfig),
 }
 
 impl EndpointDef {
@@ -341,6 +343,7 @@ impl EndpointDef {
             EndpointDef::Remote(_) => EndpointType::Remote,
             EndpointDef::S3(_) => EndpointType::S3,
             EndpointDef::Sqlite(_) => EndpointType::Sqlite,
+            EndpointDef::Snowflake(_) => EndpointType::Snowflake,
         }
     }
 }
@@ -376,6 +379,24 @@ pub struct SqliteConfig {
     pub extra: names::Object,
     /// # Path of the database, relative to this catalog source.
     pub path: RelativeUrl,
+}
+
+/// Snowflake endpoint configuration.
+/// Compare to https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct SnowflakeConfig {
+    /// Preserve and pass-through all configuration.
+    /// Some fields are explicit below, to benefit from JSON-Schema generation.
+    #[serde(flatten)]
+    pub extra: names::Object,
+
+    pub account: String,   // Account name
+    pub user: String,      // Username
+    pub password: String,  // Password (requires User)
+    pub database: String,  // Database name
+    pub schema: String,    // Schema
+    pub warehouse: String, // Warehouse
+    pub role: String,      // Role
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
