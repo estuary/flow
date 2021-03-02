@@ -272,6 +272,7 @@ enum EndpointType {
     SQLITE = 2;
     S3 = 3;
     GS = 4;
+    SNOWFLAKE = 5;
 }
 
 // FieldSelection is a selection of a collection's projection fields.
