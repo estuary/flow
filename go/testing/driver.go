@@ -161,22 +161,27 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		}
 		log.WithField("req", req).Debug("reading journal content")
 
-		_, err = io.Copy(&content, client.NewReader(ctx, c.Journals, req))
-		if err != nil {
+		if req.Offset == req.EndOffset {
+			// A read at the journal head blocks until the offset is written,
+			// despite EndOffset, so don't issue the read.
+		} else if _, err = io.Copy(&content, client.NewReader(ctx, c.Journals, req)); err != nil {
 			return fmt.Errorf("failed to read journal: %w", err)
 		}
 	}
 
 	// Split |content| into newline-separated documents.
 	var documents = bytes.Split(bytes.TrimRight(content.Bytes(), "\n"), []byte{'\n'})
+	if len(documents) == 1 && len(documents[0]) == 0 {
+		documents = nil // Split([]byte{nil}) => [][]byte{{}} ; map to nil.
+	}
 
 	// Feed documents into an extractor, to extract UUIDs.
 	extractor, err := bindings.NewExtractor(step.CollectionUuidPtr, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build extractor: %w", err)
 	}
-	for _, document := range documents {
-		extractor.Document(document)
+	for _, d := range documents {
+		extractor.Document(d)
 	}
 	uuids, _, err := extractor.Extract()
 	if err != nil {
@@ -218,6 +223,10 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	var expected = strings.Split(step.DocsJsonLines, "\n")
+	if len(expected) == 1 && len(expected[0]) == 0 {
+		expected = nil // Split("") => [][]string{""} ; map to nil.
+	}
+
 	var diffOptions = jsondiff.DefaultConsoleOptions()
 	var failed bool
 	var index int
@@ -252,7 +261,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		}).Error("expected document not seen")
 
 		if err = prettyEnc.Encode(json.RawMessage(expected[index])); err != nil {
-			return err
+			return fmt.Errorf("encoding extra expected document: %w", err)
 		}
 		failed = true
 	}
@@ -265,7 +274,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		}).Error("actual document not expected")
 
 		if err = prettyEnc.Encode(json.RawMessage(actual[index])); err != nil {
-			return err
+			return fmt.Errorf("encoding extra actual document: %w", err)
 		}
 		failed = true
 	}
