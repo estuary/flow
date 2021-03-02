@@ -295,12 +295,15 @@ func NewLoadIterator(stream pm.Driver_TransactionsServer) *LoadIterator {
 	return &LoadIterator{stream: stream}
 }
 
-// Next returns true if there is another Load and makes it available via Key.
-// When a Prepare is read, or if an error is encountered, it returns false
-// and must not be called again.
-func (it *LoadIterator) Next() bool {
+// PollLoadRequest returns true if there is at least one LoadRequest message with at least one key
+// remaining to be read. This will read the next message from the stream if required. This will not
+// advance the iterator, so it can be used to check whether the LoadIterator contains at least one
+// key to load without actually consuming the next key. If false is returned, then there are no
+// remaining keys and PollLoadRequest must not be called again. Note that if PollLoadRequest returns
+// true, then Next may still return false if the LoadRequest message is malformed.
+func (it *LoadIterator) PollLoadRequest() bool {
 	if it.err != nil || it.req.Prepare != nil {
-		panic("Next called again after having returned false")
+		panic("PollLoadRequest called again after having returned false")
 	}
 
 	// Must we read another request?
@@ -324,7 +327,19 @@ func (it *LoadIterator) Next() bool {
 		}
 		it.index = 0
 	}
+	return true
+}
 
+// Next returns true if there is another Load and makes it available via Key.
+// When a Prepare is read, or if an error is encountered, it returns false
+// and must not be called again.
+func (it *LoadIterator) Next() bool {
+	if it.err != nil || it.req.Prepare != nil {
+		panic("Next called again after having returned false")
+	}
+	if !it.PollLoadRequest() {
+		return false
+	}
 	var slice = it.req.Load.PackedKeys[it.index]
 	it.Key, it.err = tuple.Unpack(it.req.Load.Arena.Bytes(slice))
 
@@ -367,14 +382,17 @@ func NewStoreIterator(stream pm.Driver_TransactionsServer) *StoreIterator {
 	return &StoreIterator{stream: stream}
 }
 
-// Next returns true if there is another Store and makes it available.
-// When a Commit is read, or if an error is encountered, it returns false
-// and must not be called again.
-func (it *StoreIterator) Next() bool {
+// PollStoreRequest returns true if there is at least one StoreRequest message with at least one
+// document remaining to be read. This will read the next message from the stream if required. This
+// will not advance the iterator, so it can be used to check whether the StoreIterator contains at
+// least one document to store without actually consuming the next document. If false is returned,
+// then there are no remaining documents and PollStoreRequest must not be called again. Note that if
+// PollStoreRequest returns true, then Next may still return false if the StoreRequest message is
+// malformed.
+func (it *StoreIterator) PollStoreRequest() bool {
 	if it.err != nil || it.req.Commit != nil {
-		panic("Next called again after having returned false")
+		panic("PollStoreRequest called again after having returned false")
 	}
-
 	// Must we read another request?
 	if it.req.Store == nil || it.index == len(it.req.Store.PackedKeys) {
 		if next, err := it.stream.Recv(); err != nil {
@@ -391,6 +409,20 @@ func (it *StoreIterator) Next() bool {
 			return false
 		}
 		it.index = 0
+	}
+	return true
+}
+
+// Next returns true if there is another Store and makes it available.
+// When a Commit is read, or if an error is encountered, it returns false
+// and must not be called again.
+func (it *StoreIterator) Next() bool {
+	if it.err != nil || it.req.Commit != nil {
+		panic("Next called again after having returned false")
+	}
+
+	if !it.PollStoreRequest() {
+		return false
 	}
 
 	var s = it.req.Store
