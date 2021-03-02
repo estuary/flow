@@ -96,8 +96,11 @@ func (svc *Service) Route(ctx context.Context, item string) pb.Route {
 		journal:  pb.Journal(item),
 		mayProxy: true,
 	})
-	if err != nil {
-		panic(err) // Cannot err because we use neither minEtcdRevision nor proxyHeader.
+	if err == errResolverStopped {
+		return pb.Route{Primary: -1} // We're shutting down.
+	} else if err != nil {
+		// Otherwise cannot err because we use neither minEtcdRevision nor proxyHeader.
+		panic(err)
 	}
 	// If Status != OK, Route will be zero-valued, which directs dispatcher
 	// to use the default service address (localhost), which will then re-run
