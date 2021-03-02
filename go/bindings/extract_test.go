@@ -74,3 +74,13 @@ func TestExtractorIntegerBoundaryCases(t *testing.T) {
 		[]tuple.TupleElement{uint64(math.MaxUint64)},
 	}, tuples)
 }
+
+func TestExtractorEmpty(t *testing.T) {
+	var ex, err = NewExtractor("/0", []string{"/1"})
+	assert.NoError(t, err)
+
+	uuids, packed, err := ex.Extract()
+	assert.NoError(t, err)
+	assert.Empty(t, uuids)
+	assert.Empty(t, packed)
+}
