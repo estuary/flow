@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -219,6 +220,11 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 
 	var expected = strings.Split(step.DocsJsonLines, "\n")
 	var diffOptions = jsondiff.DefaultConsoleOptions()
+	// The default behavior of jsondiff is to compare the exact string representations of numbers.
+	// This isn't what we want here, since the numbers in the "actual" documents may be produced by
+	// mathematical operations on floats, which can result in some loss of precision. Additionally,
+	// we want to accept cases like `1.0` and `1` by treating them as equal.
+	diffOptions.CompareNumbers = compareNumbers
 	var failed bool
 	var index int
 
@@ -279,4 +285,33 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		"testStep": testStep,
 	}).Debug("verify complete")
 	return nil
+}
+
+// epsilon is used when comparing floating point numbers. This is the same value as FLT_EPSILON
+// from C, also known as the "machine epsilon".
+var epsilon = math.Nextafter(1.0, 2.0) - 1.0
+
+func compareNumbers(a, b json.Number) bool {
+	// If the string representations are the same, then we always return true. This allows
+	// for a somewhat meaningful comparison if the two numbers are out of range for a float64, and
+	// is also a fast path for numbers that happen to match exactly.
+	if a == b {
+		return true
+	}
+	var aFloat, aErr = a.Float64()
+	var bFloat, bErr = b.Float64()
+	if aErr != nil || bErr != nil {
+		// Parsing the numbers as floats can fail if they're out of range. In this case, we return
+		// false because we already know that their string representations are different.
+		return false
+	}
+
+	// Scale the epsilon based on the relative size of the numbers being compared.
+	// For numbers greater than 2.0, EPSILON will be smaller than the difference between two
+	// adjacent floats, so it needs to be scaled up. For numbers smaller than 1.0, EPSILON could
+	// easily be larger than the numbers we're comparing and thus needs scaled down. This method
+	// could still break down for numbers that are very near 0, but it's the best we can do
+	// without knowing the relative scale of such numbers ahead of time.
+	var scaledEpsilon = epsilon * math.Max(math.Abs(aFloat), math.Abs(bFloat))
+	return math.Abs(aFloat-bFloat) < scaledEpsilon
 }
