@@ -14,7 +14,7 @@ require (
 	github.com/jgraettinger/cockroach-encoding v1.1.0
 	github.com/lib/pq v1.3.0
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
-	github.com/nsf/jsondiff v0.0.0-20200515183724-f29ed568f4ce
+	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
 	github.com/pkg/errors v0.9.1
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/sirupsen/logrus v1.5.0
