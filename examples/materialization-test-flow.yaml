@@ -1,0 +1,30 @@
+collections:
+  materialization/test:
+    schema:
+      type: object
+      properties:
+        key1: { type: integer }
+        key2: { type: string }
+        string: { type: string }
+        bool: { type: boolean }
+        int: { type: integer }
+        number: { type: number }
+        object: { type: object }
+        array: { type: array }
+      required: [key1, key2]
+    key: [/key1, /key2]
+
+endpoints:
+  testEndpoint:
+    sqlite:
+      path: materialization-test.db
+      table: materailization_test
+
+materializations:
+  materialization/test/sqlite:
+    endpoint:
+      name: testEndpoint
+    fields:
+      recommended: true
+    source:
+      name: materialization/test
