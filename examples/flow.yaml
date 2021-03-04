@@ -4,6 +4,7 @@ import:
   - int-string.flow.yaml
   - soak-tests/set-ops/flow.yaml
   - weird-types.flow.yaml
+  - materialization-test.flow.yaml
 
 endpoints:
   examples:
