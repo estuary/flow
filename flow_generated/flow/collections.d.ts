@@ -96,6 +96,19 @@ export type MarketingViewsWithCampaign = /* View event joined with it's campaign
     view_id: string;
 };
 
+// Generated from examples/materialization-test-flow.yaml?ptr=/collections/materialization~1test/schema.
+// Referenced as schema of examples/materialization-test-flow.yaml#/collections/materialization~1test.
+export type MaterializationTest = {
+    array?: unknown[];
+    bool?: boolean;
+    int?: number;
+    key1: number;
+    key2: string;
+    number?: number;
+    object?: Record<string, unknown>;
+    string?: string;
+};
+
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
 // Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
 export type SoakSetOpsOperations = /* Union type over MutateOp and VerifyOp */ {
