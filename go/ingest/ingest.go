@@ -90,6 +90,9 @@ func (i *Ingester) QueueTasks(tasks *task.Group, jc pb.RoutedJournalClient) {
 	tasks.Queue("ingesterCommitLoop", func() error {
 		// Awaken blocked concurrent Prepare calls on our exit.
 		defer close(i.exitCh)
+		// We only exit before tasks.Context().Done() if there's an error,
+		// in which case we Cancel() for a controlled shutdown.
+		defer tasks.Cancel()
 
 		// Very first send of |ingestPublisher| into |pubCh|.
 		select {
