@@ -227,10 +227,8 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 
 		fence.Checkpoint = prepare.FlowCheckpoint
 		err = fence.Update(func(ctx context.Context, sql string, args ...interface{}) (int64, error) {
-			if _, err = txn.Prepare(endpoint.Context, "updateFence", sql); err != nil {
-				return 0, fmt.Errorf("preparing flow checkpoint update: %w", err)
-			}
-			batch.Queue("updateFence", args...)
+			// Add the update to the fence as the last statement in the batch
+			batch.Queue(sql, args...)
 
 			logEntry.WithField("nDocs", stored).Debug("Sending batch")
 			var batchResults = txn.SendBatch(endpoint.Context, batch)
