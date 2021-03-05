@@ -31,7 +31,7 @@ type Fixture struct {
 // NewFixture creates a new fixture for a given endpoint and endpoint configuration.
 func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, error) {
 	var ctx = context.Background()
-	var spec = NewTestMaterialization(endpointType, endpointConfig)
+	var spec = NewMaterialization(endpointType, endpointConfig)
 	driverClient, err := driver.NewDriver(ctx, endpointType, json.RawMessage(endpointConfig))
 	if err != nil {
 		return nil, fmt.Errorf("creating driver client: %w", err)
@@ -191,9 +191,9 @@ func newCheckpoint(id int64) pc.Checkpoint {
 	return pc.BuildCheckpoint(args)
 }
 
-// NewTestMaterialization returns a MaterializationSpec for use by tests. This is a hard coded
+// NewMaterialization returns a MaterializationSpec for use by tests. This is a hard coded
 // materialization that includes a field of each type.
-func NewTestMaterialization(endpointType pf.EndpointType, endpointConfigJson string) *pf.MaterializationSpec {
+func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string) *pf.MaterializationSpec {
 	var inf = func(mustExist bool, types ...string) *pf.Inference {
 		return &pf.Inference{
 			Types:     types,
