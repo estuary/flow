@@ -13,15 +13,14 @@ import (
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
-
 	"github.com/jackc/pgx/v4"
 	pgxStd "github.com/jackc/pgx/v4/stdlib"
 	log "github.com/sirupsen/logrus"
 )
 
-// PostgresConfig represents the merged endpoint configuration for connections to postgres.
+// Config represents the merged endpoint configuration for connections to postgres.
 // This struct definition must match the one defined for the source specs (flow.yaml) in Rust.
-type PostgresConfig struct {
+type Config struct {
 	Host     string
 	Port     uint16
 	User     string
@@ -30,7 +29,7 @@ type PostgresConfig struct {
 	Table    string
 }
 
-func (c *PostgresConfig) Validate() error {
+func (c *Config) Validate() error {
 	var requiredProperties = [][]string{
 		{"host", c.Host},
 		{"table", c.Table},
@@ -45,7 +44,7 @@ func (c *PostgresConfig) Validate() error {
 	return nil
 }
 
-func (c *PostgresConfig) ToUri() string {
+func (c *Config) ToUri() string {
 	var host = c.Host
 	if c.Port != 0 {
 		host = fmt.Sprintf("%s:%d", host, c.Port)
@@ -65,7 +64,7 @@ func (c *PostgresConfig) ToUri() string {
 func NewPostgresDriver() *sqlDriver.Driver {
 	return &sqlDriver.Driver{
 		NewEndpoint: func(ctx context.Context, et pf.EndpointType, config json.RawMessage) (*sqlDriver.Endpoint, error) {
-			var parsed PostgresConfig
+			var parsed Config
 
 			if err := json.Unmarshal(config, &parsed); err != nil {
 				return nil, fmt.Errorf("parsing Postgresql configuration: %w", err)
@@ -96,17 +95,14 @@ func NewPostgresDriver() *sqlDriver.Driver {
 }
 
 func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlDriver.Endpoint, spec *pf.MaterializationSpec, fence *sqlDriver.Fence) error {
-	var logEntry = log.WithFields(log.Fields{
-		"shardId": fence.ShardFqn,
-		"fence":   fence.Fence,
-	})
+	var logEntry = fence.LogEntry()
 
-	var targetTable = sqlDriver.TableForMaterialization(endpoint.Tables.Target, "", spec)
-	var _, keyParamsConverter, err = endpoint.Generator.QueryOnPrimaryKey(targetTable, spec.FieldSelection.Document)
+	var target = sqlDriver.TableForMaterialization(endpoint.Tables.Target, "", spec)
+	var _, keyParams, err = endpoint.Generator.QueryOnPrimaryKey(target, spec.FieldSelection.Document)
 	if err != nil {
 		return fmt.Errorf("generating key parameter converter: %w", err)
 	}
-	var loadJoinQuery = strings.Join([]string{
+	var loadSQL = strings.Join([]string{
 		"SELECT",
 		spec.FieldSelection.Document,
 		"FROM",
@@ -115,13 +111,11 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 		endpoint.Tables.Target,
 		";",
 	}, " ")
-	insertSql, insertParamConverter, err := endpoint.Generator.InsertStatement(targetTable)
+	insertSQL, insertParams, err := endpoint.Generator.InsertStatement(target)
 	if err != nil {
 		return fmt.Errorf("generating insert statement: %w", err)
 	}
-	var updateFields = spec.FieldSelection.Values
-	updateFields = append(updateFields, spec.FieldSelection.Document)
-	updateSql, updateParamConverter, err := endpoint.Generator.UpdateStatement(targetTable, updateFields, spec.FieldSelection.Keys)
+	updateSql, updateParams, err := endpoint.Generator.UpdateStatement(target, append(spec.FieldSelection.Values, spec.FieldSelection.Document), spec.FieldSelection.Keys)
 
 	conn, err := pgxStd.AcquireConn(endpoint.DB)
 	if err != nil {
@@ -129,8 +123,8 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 	}
 	defer pgxStd.ReleaseConn(endpoint.DB, conn)
 
-	var tempKeyTable = loadKeyTempTable(spec)
-	createTemp, err := endpoint.Generator.CreateTable(tempKeyTable)
+	var tempTable = loadKeyTempTable(spec)
+	createTemp, err := endpoint.Generator.CreateTable(tempTable)
 	if err != nil {
 		return fmt.Errorf("generating temp table sql: %w", err)
 	}
@@ -151,12 +145,12 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 		if txn, err = conn.BeginTx(endpoint.Context, pgx.TxOptions{}); err != nil {
 			return fmt.Errorf("DB.BeginTx: %w", err)
 		}
-		var loadIterator = lifecycle.NewLoadIterator(stream)
+		var loadIt = lifecycle.NewLoadIterator(stream)
 		// Did the client send at least one Load request?
-		if loadIterator.Poll() {
-			var loadKeys = pgKeyLoader{
-				paramConverter: keyParamsConverter,
-				LoadIterator:   loadIterator,
+		if loadIt.Poll() {
+			var loadKeys = keyCopySource{
+				params:       keyParams,
+				LoadIterator: loadIt,
 			}
 			numKeys, err := txn.CopyFrom(endpoint.Context, pgx.Identifier{tempKeyTableName}, spec.FieldSelection.Keys, &loadKeys)
 			if err != nil {
@@ -165,7 +159,7 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 
 			// Query the documents, joining with the temp table
 			var foundDocs int
-			rows, err := txn.Query(endpoint.Context, loadJoinQuery)
+			rows, err := txn.Query(endpoint.Context, loadSQL)
 			if err != nil {
 				return fmt.Errorf("querying documents: %w", err)
 			}
@@ -173,8 +167,7 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 			for rows.Next() {
 				foundDocs++
 				var json json.RawMessage
-				err = rows.Scan(&json)
-				if err != nil {
+				if err = rows.Scan(&json); err != nil {
 					return fmt.Errorf("reading query result row %d: %w", foundDocs, err)
 				}
 				lifecycle.StageLoaded(stream, &response, json)
@@ -185,7 +178,7 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 				"loadedDocs":    foundDocs,
 			}).Debug("finished loading documents")
 		}
-		err = loadIterator.Err()
+		err = loadIt.Err()
 		if err == io.EOF {
 			logEntry.Debug("End of fenced transactions")
 			// If there's an in-progress transaction, then it will be rolled back
@@ -193,102 +186,102 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 		} else if err != nil {
 			return fmt.Errorf("reading Load requests: %w", err)
 		}
-		var prepare = loadIterator.Prepare()
-		fence.Checkpoint = prepare.FlowCheckpoint
-		fence.Update(func(ctx context.Context, sql string, args ...interface{}) (int64, error) {
-			if result, fenceErr := txn.Exec(ctx, sql, args...); fenceErr != nil {
-				return 0, fmt.Errorf("updating flow checkpoint: %w", fenceErr)
-			} else {
-				return result.RowsAffected(), nil
-			}
-		})
-
-		logEntry.Debug("Writing Prepared")
-		err = lifecycle.WritePrepared(stream, &response, nil)
-		if err != nil {
+		var prepare = loadIt.Prepare()
+		if err = lifecycle.WritePrepared(stream, &response, nil); err != nil {
 			return err
 		}
 
 		// Prepare our insert and update statements. These must be referenced by name when
 		// operations are queued to the batch.
-		_, err := txn.Prepare(endpoint.Context, "insert", insertSql)
-		if err != nil {
+		if _, err := txn.Prepare(endpoint.Context, "insert", insertSQL); err != nil {
 			return fmt.Errorf("preparing insert statement: %w", err)
 		}
-		_, err = txn.Prepare(endpoint.Context, "update", updateSql)
-		if err != nil {
+
+		if _, err = txn.Prepare(endpoint.Context, "update", updateSql); err != nil {
 			return fmt.Errorf("preparing update statement: %w", err)
 		}
 		var batch = &pgx.Batch{}
-		var storeIter = lifecycle.NewStoreIterator(stream)
-		var storedDocs = 0
-		for storeIter.Next() {
-			storedDocs++
+		var storeIt = lifecycle.NewStoreIterator(stream)
+		var stored = 0
+		for storeIt.Next() {
+			stored++
 			// Will this be an update or an insert?
-			if storeIter.Exists {
-				updateParams, err := updateParamConverter.Convert(append(append(storeIter.Values, storeIter.RawJSON), storeIter.Key...))
+			if storeIt.Exists {
+				updateArgs, err := updateParams.Convert(append(append(storeIt.Values, storeIt.RawJSON), storeIt.Key...))
 				if err != nil {
 					return fmt.Errorf("converting update parameters: %w", err)
 				}
-				batch.Queue("update", updateParams...)
+				batch.Queue("update", updateArgs...)
 			} else {
-				insertParams, err := insertParamConverter.Convert(append(append(
-					storeIter.Key, storeIter.Values...), storeIter.RawJSON))
+				insertArgs, err := insertParams.Convert(append(append(
+					storeIt.Key, storeIt.Values...), storeIt.RawJSON))
 				if err != nil {
 					return fmt.Errorf("converting insert parameters: %w", err)
 				}
-				batch.Queue("insert", insertParams...)
+				batch.Queue("insert", insertArgs...)
 			}
 		}
-		if storeIter.Err() != nil {
-			return fmt.Errorf("reading store requests: %w", storeIter.Err())
+		if storeIt.Err() != nil {
+			return fmt.Errorf("reading store requests: %w", storeIt.Err())
 		}
 
-		// Skip sending the batch if the client didn't send any Store requests
-		if storedDocs > 0 {
-			logEntry.WithField("nDocs", storedDocs).Debug("Sending batch")
+		fence.Checkpoint = prepare.FlowCheckpoint
+		err = fence.Update(func(ctx context.Context, sql string, args ...interface{}) (int64, error) {
+			if _, err = txn.Prepare(endpoint.Context, "updateFence", sql); err != nil {
+				return 0, fmt.Errorf("preparing flow checkpoint update: %w", err)
+			}
+			batch.Queue("updateFence", args...)
+
+			logEntry.WithField("nDocs", stored).Debug("Sending batch")
 			var batchResults = txn.SendBatch(endpoint.Context, batch)
 			if err != nil {
-				return fmt.Errorf("sending batch: %w", err)
+				return 0, fmt.Errorf("sending batch: %w", err)
 			}
-			for i := 0; i < storedDocs; i++ {
+			// Return an error if any of the insert or update operations failed
+			for i := 0; i < stored; i++ {
 				_, err := batchResults.Exec()
 				if err != nil {
-					return fmt.Errorf("executing store at index %d: %w", i, err)
+					return 0, fmt.Errorf("executing store at index %d: %w", i, err)
 				}
+			}
+			// The fence update is always the last operation in the batch
+			fenceResult, err := batchResults.Exec()
+			if err != nil {
+				return 0, fmt.Errorf("updating flow checkpoint: %w", err)
 			}
 			err = batchResults.Close()
 			if err != nil {
-				return fmt.Errorf("closing batch results: %w", err)
+				return 0, fmt.Errorf("closing batch results: %w", err)
 			}
+
+			return fenceResult.RowsAffected(), nil
+		})
+		if err != nil {
+			return err
 		}
 
 		logEntry.Debug("Committing transaction")
 		err = txn.Commit(endpoint.Context)
-		txn = nil
+		txn = nil // So that we don't try to rollback the transaction
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
-		err = lifecycle.WriteCommitted(stream, &response)
-		if err != nil {
-			// This isn't really a problem since we will return the proper flow_checkpoint on the
-			// next call to the Transactions rpc, but it seems worth logging.
-			logEntry.Warnf("failed to send WriteCommitted response after a successful commit")
-			return err
+		if err = lifecycle.WriteCommitted(stream, &response); err != nil {
+			return fmt.Errorf("sending WriteCommitted response after successful commit: %w", err)
 		}
 	}
 }
 
-// pgKeyLoader adapts a LoadIterator to the pgx.CopyFromSource interface, which allows copying keys
-// into the temp table
-type pgKeyLoader struct {
+// keyCopySource adapts a LoadIterator to the pgx.CopyFromSource interface, which allows copying
+// keys into the temp table. The Next and Err functions are provided by LoadIterator.
+type keyCopySource struct {
 	*lifecycle.LoadIterator
-	paramConverter sqlDriver.ParametersConverter
+	params sqlDriver.ParametersConverter
 }
 
 // Values is part of the pgx.CopyFromSource implementation
-func (t *pgKeyLoader) Values() ([]interface{}, error) {
-	return t.paramConverter.Convert(t.Key)
+func (t *keyCopySource) Values() ([]interface{}, error) {
+	return t.params.Convert(t.Key)
 }
 
 const tempKeyTableName = "flow_load_key_tmp"

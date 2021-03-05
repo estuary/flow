@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/materialize/driver"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -17,23 +15,23 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
+// Fixture encapsulates the data that's needed to test materializations, along with common
+// functionality for executing tests.
 type Fixture struct {
-	ShardId         string
-	Ctx             context.Context
-	Driver          pm.DriverClient
-	Materialization *pf.MaterializationSpec
-	KeyExtractor    *bindings.Extractor
+	ShardId string
+	Ctx     context.Context
+	Driver  pm.DriverClient
 
-	DocGenerator *testDocGenerator
-	DeltaUpdates bool
+	materialization *pf.MaterializationSpec
+	keyExtractor    *bindings.Extractor
+	generator       *generator
+	deltaUpdates    bool
 }
 
+// NewFixture creates a new fixture for a given endpoint and endpoint configuration.
 func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, error) {
 	var ctx = context.Background()
-	var spec, err = NewTestMaterialization(endpointType, endpointConfig)
-	if err != nil {
-		return nil, err
-	}
+	var spec = NewTestMaterialization(endpointType, endpointConfig)
 	driverClient, err := driver.NewDriver(ctx, endpointType, json.RawMessage(endpointConfig))
 	if err != nil {
 		return nil, fmt.Errorf("creating driver client: %w", err)
@@ -42,7 +40,7 @@ func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, 
 	if err != nil {
 		return nil, fmt.Errorf("creating extractor: %w", err)
 	}
-	docGenerator, err := newTestDocGenerator(spec)
+	docGenerator, err := newGenerator(spec)
 	if err != nil {
 		return nil, fmt.Errorf("creating test document generator: %w", err)
 	}
@@ -50,9 +48,9 @@ func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, 
 		ShardId:         "materialization-test",
 		Ctx:             ctx,
 		Driver:          driverClient,
-		Materialization: spec,
-		KeyExtractor:    extractor,
-		DocGenerator:    docGenerator,
+		materialization: spec,
+		keyExtractor:    extractor,
+		generator:       docGenerator,
 	}, nil
 }
 
@@ -61,7 +59,7 @@ func (f *Fixture) OpenTransactions(req **pm.TransactionRequest, driverCheckpoint
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting transactions rpc: %w", err)
 	}
-	err = lifecycle.WriteOpen(stream, req, f.Materialization.EndpointType, f.Materialization.EndpointConfig, f.Materialization.FieldSelection, f.ShardId, driverCheckpoint)
+	err = lifecycle.WriteOpen(stream, req, f.materialization.EndpointType, f.materialization.EndpointConfig, f.materialization.FieldSelection, f.ShardId, driverCheckpoint)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening transactions: %w", err)
 	}
@@ -72,20 +70,20 @@ func (f *Fixture) OpenTransactions(req **pm.TransactionRequest, driverCheckpoint
 	if resp.Opened == nil {
 		return nil, nil, fmt.Errorf("Expected Opened message, got: %+v", resp)
 	}
-	f.DeltaUpdates = resp.Opened.DeltaUpdates
+	f.deltaUpdates = resp.Opened.DeltaUpdates
 	return stream, resp.Opened, nil
 }
 
-func (f *Fixture) LoadDocuments(stream pm.Driver_TransactionsClient, req **pm.TransactionRequest, flowCheckpoint int64, toLoad []*TestDoc) (*pm.TransactionResponse_Prepared, error) {
-	var expected = make(map[string]*TestDoc)
-	if !f.DeltaUpdates {
+func (f *Fixture) LoadDocuments(stream pm.Driver_TransactionsClient, req **pm.TransactionRequest, flowCheckpoint int64, toLoad []*document) (*pm.TransactionResponse_Prepared, error) {
+	var expected = make(map[string]*document)
+	if !f.deltaUpdates {
 		for _, doc := range toLoad {
-			var key = doc.Key.Pack()
+			var key = doc.key.Pack()
 			var err = lifecycle.StageLoad(stream, req, key)
 			if err != nil {
 				return nil, err
 			}
-			if doc.Exists {
+			if doc.exists {
 				expected[string(key)] = doc
 			}
 		}
@@ -104,9 +102,9 @@ func (f *Fixture) LoadDocuments(stream pm.Driver_TransactionsClient, req **pm.Tr
 		if response.Loaded != nil {
 			for _, slice := range response.Loaded.DocsJson {
 				var loadedBytes = response.Loaded.Arena.Bytes(slice)
-				f.KeyExtractor.Document(loadedBytes)
+				f.keyExtractor.Document(loadedBytes)
 			}
-			_, loadedKeys, err := f.KeyExtractor.Extract()
+			_, loadedKeys, err := f.keyExtractor.Extract()
 			if err != nil {
 				return nil, fmt.Errorf("extracting keys of loaded documents: %w", err)
 			}
@@ -133,9 +131,9 @@ func (f *Fixture) LoadDocuments(stream pm.Driver_TransactionsClient, req **pm.Tr
 	return response.Prepared, nil
 }
 
-func (f *Fixture) StoreDocuments(stream pm.Driver_TransactionsClient, req **pm.TransactionRequest, toStore []*TestDoc) error {
+func (f *Fixture) StoreDocuments(stream pm.Driver_TransactionsClient, req **pm.TransactionRequest, toStore []*document) error {
 	for _, doc := range toStore {
-		var err = lifecycle.StageStore(stream, req, doc.Key.Pack(), doc.Values.Pack(), doc.docJson(), doc.Exists)
+		var err = lifecycle.StageStore(stream, req, doc.key.Pack(), doc.values.Pack(), doc.docJson(), doc.exists)
 		if err != nil {
 			return fmt.Errorf("staging store: %w", err)
 		}
@@ -154,23 +152,23 @@ func (f *Fixture) StoreDocuments(stream pm.Driver_TransactionsClient, req **pm.T
 	// Now that we've confirmed that the documents have been stored, set Exists to true so we handle
 	// future Loads and Stores correctly.
 	for _, doc := range toStore {
-		doc.Exists = true
+		doc.exists = true
 	}
 	return nil
 }
 
 func (f *Fixture) Validate() (*pm.ValidateResponse, error) {
 	var validateRequest = pm.ValidateRequest{
-		EndpointType:       f.Materialization.EndpointType,
-		EndpointConfigJson: f.Materialization.EndpointConfig,
-		Collection:         f.Materialization.Collection,
+		EndpointType:       f.materialization.EndpointType,
+		EndpointConfigJson: f.materialization.EndpointConfig,
+		Collection:         f.materialization.Collection,
 	}
 	return f.Driver.Validate(f.Ctx, &validateRequest)
 }
 
 func (f *Fixture) Apply(dryRun bool) (*pm.ApplyResponse, error) {
 	var applyRequest = pm.ApplyRequest{
-		Materialization: f.Materialization,
+		Materialization: f.materialization,
 		DryRun:          dryRun,
 	}
 	return f.Driver.Apply(f.Ctx, &applyRequest)
@@ -193,31 +191,70 @@ func newCheckpoint(id int64) pc.Checkpoint {
 	return pc.BuildCheckpoint(args)
 }
 
-// NewTestMaterialization returns a MaterializationSpec for use by tests. The collection spec and
-// field selection are taken from `materialization-test-flow.yaml`, which uses a sqlite endpoint
-// during builds. The endpoint type and configuration json will be replaced by those provided. Note
-// that this function may require modification if we want to re-use it in a binary for testing
-// arbitrary remote drivers because it currently expects the built catalog to exist at runtime. A
-// better approach might be to have the tester binary require `--source` and `--materialization`
-// flags, and go through the normal build process as part of testing the materialization.
-func NewTestMaterialization(endpointType pf.EndpointType, endpointConfigJson string) (*pf.MaterializationSpec, error) {
-	// TODO: consider factoring out a flow.OpenTestCatalog function that does this.
-	var catPath, _ = os.LookupEnv("FLOW_TEST_CATALOG")
-	if catPath == "" {
-		panic("Expected FLOW_TEST_CATALOG env variable with path to catalog")
+// NewTestMaterialization returns a MaterializationSpec for use by tests. This is a hard coded
+// materialization that includes a field of each type.
+func NewTestMaterialization(endpointType pf.EndpointType, endpointConfigJson string) *pf.MaterializationSpec {
+	var inf = func(mustExist bool, types ...string) *pf.Inference {
+		return &pf.Inference{
+			Types:     types,
+			MustExist: mustExist,
+		}
 	}
-	var cat, err = flow.NewCatalog(catPath, "")
-	if err != nil {
-		return nil, fmt.Errorf("reading catalog: %w", err)
+	var proj = func(prt, field string, isKey bool, inference *pf.Inference) *pf.Projection {
+		return &pf.Projection{
+			Ptr:          "/" + field,
+			Field:        field,
+			IsPrimaryKey: isKey,
+			Inference:    inference,
+		}
 	}
 
-	materialization, err := cat.LoadMaterialization("materialization/test/sqlite")
-	if err != nil {
-		return nil, fmt.Errorf("loading materialization: %w", err)
+	var valueProj = func(ty string) *pf.Projection {
+		return proj("/"+ty, ty, false, inf(false, ty))
 	}
-	materialization.EndpointType = endpointType
-	materialization.EndpointConfig = endpointConfigJson
-	return materialization, nil
+
+	return &pf.MaterializationSpec{
+		Collection: &pf.CollectionSpec{
+			Collection: "materialization/test",
+			SchemaUri:  "http://test.test/schema.json",
+			KeyPtrs:    []string{"/key1", "/key2"},
+			UuidPtr:    "/_meta/uuid",
+			Projections: []*pf.Projection{
+				proj("/key1", "key1", true, inf(true, "integer")),
+				proj("/key2", "key2", true, inf(true, "string")),
+				proj("", "flow_document", false, inf(true, "object")),
+				valueProj("string"),
+				valueProj("integer"),
+				valueProj("number"),
+				valueProj("boolean"),
+				valueProj("array"),
+				valueProj("object"),
+			},
+		},
+		FieldSelection: &pf.FieldSelection{
+			Keys:     []string{"key1", "key2"},
+			Values:   []string{"boolean", "integer", "number", "string"},
+			Document: "flow_document",
+		},
+		Shuffle: pf.Shuffle{
+			GroupName:        "materialize/materialization/test/driver_test",
+			SourceCollection: "materialization/test",
+			SourcePartitions: pb.LabelSelector{
+				Include: pb.LabelSet{
+					Labels: []pb.Label{
+						{Name: "estuary.dev/collection", Value: "materialization/test"},
+					},
+				},
+			},
+			SourceUuidPtr:    "/_meta/uuid",
+			ShuffleKeyPtr:    []string{"/key1", "/key2"},
+			UsesSourceKey:    true,
+			SourceSchemaUri:  "http://test.test/schema.json",
+			UsesSourceSchema: true,
+		},
+		EndpointType:   endpointType,
+		EndpointConfig: endpointConfigJson,
+	}
 }
 
 var jsonDiffOptions = jsondiff.DefaultJSONOptions()

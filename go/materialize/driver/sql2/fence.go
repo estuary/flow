@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 // Fence is an installed barrier in a shared checkpoints table which prevents
@@ -14,14 +15,22 @@ import (
 type Fence struct {
 	// Checkpoint associated with this Fence.
 	Checkpoint []byte
-	// Fence is the current value of the monotonically increasing integer used to identify unique
-	// instances of transactions rpcs.
-	Fence int64
-	// ShardFqn is the fully qualified id of the materialization shard.
-	ShardFqn string
 
+	// fence is the current value of the monotonically increasing integer used to identify unique
+	// instances of transactions rpcs.
+	fence int64
+	// shardFQN is the fully qualified id of the materialization shard.
+	shardFQN  string
 	ctx       context.Context
 	updateSQL string
+}
+
+// LogEntry returns a log.Entry with pre-set fields that identify the Shard ID and Fence
+func (f *Fence) LogEntry() *log.Entry {
+	return log.WithFields(log.Fields{
+		"shardID": f.shardFQN,
+		"fence":   f.fence,
+	})
 }
 
 // NewFence installs and returns a new *Fence. On return, all older fences of
@@ -103,8 +112,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 	return &Fence{
 		Checkpoint: checkpoint,
 		ctx:        e.Context,
-		Fence:      fence,
-		ShardFqn:   shardFqn,
+		fence:      fence,
+		shardFQN:   shardFqn,
 		updateSQL:  updateSQL,
 	}, nil
 }
@@ -118,8 +127,8 @@ func (f *Fence) Update(execFn ExecFn) error {
 		f.ctx,
 		f.updateSQL,
 		f.Checkpoint,
-		f.ShardFqn,
-		f.Fence,
+		f.shardFQN,
+		f.fence,
 	)
 	if err == nil && rowsAffected == 0 {
 		err = errors.Errorf("this transactions session was fenced off by another")
