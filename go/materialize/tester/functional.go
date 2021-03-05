@@ -1,11 +1,9 @@
 package tester
 
 import (
-	//"github.com/estuary/flow/go/materialize/lifecycle"
 	"testing"
-	//pf "github.com/estuary/flow/go/protocols/flow"
+
 	pm "github.com/estuary/flow/go/protocols/materialize"
-	//log "github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -13,12 +11,11 @@ import (
 // RunFunctionalTest executes a basic functional test of a materialization driver.
 func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 	TestSetup(t, fixture)
-
 	var request *pm.TransactionRequest = nil
 	var stream, _, err = fixture.OpenTransactions(&request, nil)
 	require.NoError(t, err, "starting transactions")
 
-	var testDocs = fixture.DocGenerator.GenerateTestDocs(3)
+	var testDocs = fixture.generator.generateDocs(3)
 	prepared, err := fixture.LoadDocuments(stream, &request, 1, testDocs)
 	require.NoError(t, err, "loading initial documents")
 	log.WithField("driverCheckpoint", prepared.DriverCheckpoint).Debug("verified first loads")
@@ -27,7 +24,7 @@ func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 	require.NoError(t, err, "storing initial documents")
 	log.Debug("Store committed")
 
-	for _, newDoc := range fixture.DocGenerator.GenerateTestDocs(3) {
+	for _, newDoc := range fixture.generator.generateDocs(3) {
 		testDocs = append(testDocs, newDoc)
 	}
 	prepared, err = fixture.LoadDocuments(stream, &request, 2, testDocs)
@@ -35,7 +32,7 @@ func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 	log.WithField("driverCheckpoint", prepared.DriverCheckpoint).Debug("verified second loads")
 
 	for _, doc := range testDocs[:3] {
-		fixture.DocGenerator.UpdateValues(doc)
+		fixture.generator.updateValues(doc)
 	}
 	err = fixture.StoreDocuments(stream, &request, testDocs)
 	require.NoError(t, err, "storing secong batch of documents")

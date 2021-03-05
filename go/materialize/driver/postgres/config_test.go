@@ -1,12 +1,13 @@
 package postgres
 
 import (
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPostgresConfig(t *testing.T) {
-	var validConfig = PostgresConfig{
+	var validConfig = Config{
 		Host:     "post.toast",
 		Port:     1234,
 		Table:    "testTable",
