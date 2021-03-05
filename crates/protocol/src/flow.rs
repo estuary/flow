@@ -382,7 +382,9 @@ pub mod test_spec {
         /// Type of this step.
         #[derive(serde::Deserialize, serde::Serialize)]
         #[serde(deny_unknown_fields)]
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[derive(
+            Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
+        )]
         #[repr(i32)]
         pub enum Type {
             Ingest = 0,

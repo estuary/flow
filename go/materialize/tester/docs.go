@@ -11,7 +11,7 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-type testDocGenerator struct {
+type generator struct {
 	docIndex   int
 	valueIndex int
 	spec       *pf.MaterializationSpec
@@ -21,7 +21,7 @@ type testDocGenerator struct {
 	producerID message.ProducerID
 }
 
-func newTestDocGenerator(spec *pf.MaterializationSpec) (*testDocGenerator, error) {
+func newGenerator(spec *pf.MaterializationSpec) (*generator, error) {
 	var keys []field
 	for _, keyField := range spec.FieldSelection.Keys {
 		var projection = spec.Collection.GetProjection(keyField)
@@ -51,7 +51,7 @@ func newTestDocGenerator(spec *pf.MaterializationSpec) (*testDocGenerator, error
 		return nil, fmt.Errorf("creating uuid pointer: %w", err)
 	}
 
-	return &testDocGenerator{
+	return &generator{
 		spec:       spec,
 		keys:       keys,
 		values:     values,
@@ -61,22 +61,22 @@ func newTestDocGenerator(spec *pf.MaterializationSpec) (*testDocGenerator, error
 	}, nil
 }
 
-type TestDoc struct {
-	Key      tuple.Tuple
-	Values   tuple.Tuple
-	Document interface{}
-	Exists   bool
+type document struct {
+	key    tuple.Tuple
+	values tuple.Tuple
+	json   interface{}
+	exists bool
 }
 
-func (d *TestDoc) docJson() json.RawMessage {
-	var bytes, err = json.Marshal(d.Document)
+func (d *document) docJson() json.RawMessage {
+	var bytes, err = json.Marshal(d.json)
 	if err != nil {
 		panic(fmt.Sprintf("marshalling test document json cannot fail: %v", err))
 	}
 	return bytes
 }
 
-func (g *testDocGenerator) setUUID(doc *interface{}) {
+func (g *generator) setUUID(doc *interface{}) {
 	var uuid = message.BuildUUID(g.producerID, message.NewClock(time.Now()), message.Flag_CONTINUE_TXN)
 	var loc, err = g.uuidPtr.Create(doc)
 	if err != nil {
@@ -85,7 +85,8 @@ func (g *testDocGenerator) setUUID(doc *interface{}) {
 	*loc = uuid.String()
 }
 
-func (g *testDocGenerator) GenerateTestDoc() *TestDoc {
+// Next returns a new generated Doc
+func (g *generator) Next() *document {
 	g.docIndex++
 	var doc interface{}
 	var docKey tuple.Tuple
@@ -101,30 +102,35 @@ func (g *testDocGenerator) GenerateTestDoc() *TestDoc {
 		var v = field.genValue(&doc, g.valueIndex)
 		docValues = append(docValues, v)
 	}
-	return &TestDoc{
-		Key:      docKey,
-		Values:   docValues,
-		Document: doc,
+	return &document{
+		key:    docKey,
+		values: docValues,
+		json:   doc,
 	}
 }
 
-func (g *testDocGenerator) GenerateTestDocs(count int) []*TestDoc {
-	var testDocs = make([]*TestDoc, count)
+// generateDocs generates the given number of documents and returns them as a slice
+func (g *generator) generateDocs(count int) []*document {
+	var testDocs = make([]*document, count)
 	for i := 0; i < count; i++ {
-		testDocs[i] = g.GenerateTestDoc()
+		testDocs[i] = g.Next()
 	}
 	return testDocs
 }
 
-func (g *testDocGenerator) UpdateValues(doc *TestDoc) {
-	g.setUUID(&doc.Document)
+// updateValues updates the given document by generating new values for all of the projected values,
+// as well as a new UUID. The key will always remain untouched. This allows for verification of
+// subsequent Stores with the same key.
+func (g *generator) updateValues(doc *document) {
+	g.setUUID(&doc.json)
 	for i, field := range g.values {
 		g.valueIndex++
-		var v = field.genValue(&doc.Document, g.valueIndex)
-		doc.Values[i] = v
+		var v = field.genValue(&doc.json, g.valueIndex)
+		doc.values[i] = v
 	}
 }
 
+// field is a helper that wraps a Pointer and Inference and aid in generating new dummy values.
 type field struct {
 	ptr       *flow.Pointer
 	inference *pf.Inference

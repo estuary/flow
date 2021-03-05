@@ -282,8 +282,8 @@ go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
 
 .PHONY: test-pg-driver
-test-pg-driver: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
-	FLOW_TEST_CATALOG=${ROOTDIR}/catalog.db go test -v --tags pgdrivertest,${GO_BUILD_TAGS} ./go/materialize/driver/postgres/test
+test-pg-driver: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
+	go test -v --tags pgdrivertest,${GO_BUILD_TAGS} ./go/materialize/driver/postgres/test
 
 .PHONY: catalog-test
 catalog-test: ${GOBIN}/flowctl ${TOOLBIN}/etcd

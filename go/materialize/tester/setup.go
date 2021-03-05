@@ -21,17 +21,17 @@ func TestSetup(t *testing.T, fixture *Fixture) {
 	}
 
 	// Ensure all the selected projections are allowed
-	for _, field := range fixture.Materialization.FieldSelection.Keys {
+	for _, field := range fixture.materialization.FieldSelection.Keys {
 		requireConstraintAllowed(field, "key")
 	}
-	for _, field := range fixture.Materialization.FieldSelection.Values {
+	for _, field := range fixture.materialization.FieldSelection.Values {
 		requireConstraintAllowed(field, "value")
 	}
-	requireConstraintAllowed(fixture.Materialization.FieldSelection.Document, "flow document")
+	requireConstraintAllowed(fixture.materialization.FieldSelection.Document, "flow document")
 
 	// Ensure there's no extra constraints that aren't part of the collection.
 	for field, constraint := range validateResp.Constraints {
-		var projection = fixture.Materialization.Collection.GetProjection(field)
+		var projection = fixture.materialization.Collection.GetProjection(field)
 		if projection == nil {
 			t.Errorf("unexpected validation constraint for field '%s': %v", field, constraint)
 		}
