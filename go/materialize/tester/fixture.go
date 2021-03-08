@@ -32,7 +32,7 @@ type Fixture struct {
 func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, error) {
 	var ctx = context.Background()
 	var spec = NewMaterialization(endpointType, endpointConfig)
-	driverClient, err := driver.NewDriver(ctx, endpointType, json.RawMessage(endpointConfig))
+	driverClient, err := driver.NewDriver(ctx, endpointType, json.RawMessage(endpointConfig), "")
 	if err != nil {
 		return nil, fmt.Errorf("creating driver client: %w", err)
 	}

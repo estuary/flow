@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -28,8 +29,8 @@ type Fence struct {
 // LogEntry returns a log.Entry with pre-set fields that identify the Shard ID and Fence
 func (f *Fence) LogEntry() *log.Entry {
 	return log.WithFields(log.Fields{
-		"shardID": f.shardFQN,
-		"fence":   f.fence,
+		"fqn":   f.shardFQN,
+		"fence": f.fence,
 	})
 }
 
@@ -51,7 +52,7 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 	var rowsAffected int64
 	if result, err := txn.Exec(
 		fmt.Sprintf(
-			"UPDATE %s SET fence=fence+1 WHERE shard_fqn=%s;",
+			`UPDATE "%s" SET "fence"="fence"+1 WHERE "shard_fqn"=%s;`,
 			e.Tables.Checkpoints,
 			e.Generator.Placeholder(0),
 		),
@@ -67,30 +68,33 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		// Exists; no-op.
 	} else if _, err = txn.Exec(
 		fmt.Sprintf(
-			"INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (%s, %s, 1);",
+			`INSERT INTO "%s" ("shard_fqn", "checkpoint", "fence") VALUES (%s, '', 1);`,
 			e.Tables.Checkpoints,
 			e.Generator.Placeholder(0),
-			e.Generator.Placeholder(1),
 		),
 		shardFqn,
-		[]byte{},
 	); err != nil {
 		return nil, fmt.Errorf("inserting fence: %w", err)
 	}
 
 	// Read the just-incremented fence value, and the last-committed checkpoint.
 	var fence int64
-	var checkpoint []byte
+	var checkpointB64 string
 
 	if err = txn.QueryRow(
 		fmt.Sprintf(
-			"SELECT fence, checkpoint FROM %s WHERE shard_fqn=%s;",
+			`SELECT "fence", "checkpoint" FROM "%s" WHERE "shard_fqn"=%s;`,
 			e.Tables.Checkpoints,
 			e.Generator.Placeholder(0),
 		),
 		shardFqn,
-	).Scan(&fence, &checkpoint); err != nil {
+	).Scan(&fence, &checkpointB64); err != nil {
 		return nil, fmt.Errorf("scanning fence and checkpoint: %w", err)
+	}
+
+	checkpoint, err := base64.StdEncoding.DecodeString(checkpointB64)
+	if err != nil {
+		return nil, fmt.Errorf("base64.Decode(checkpoint): %w", err)
 	}
 
 	err = txn.Commit()
@@ -102,7 +106,7 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 
 	// Craft SQL which is used for future commits under this fence.
 	var updateSQL = fmt.Sprintf(
-		"UPDATE %s SET checkpoint=%s WHERE shard_fqn=%s AND fence=%s;",
+		`UPDATE "%s" SET "checkpoint"=%s WHERE "shard_fqn"=%s AND "fence"=%s;`,
 		e.Tables.Checkpoints,
 		e.Generator.Placeholder(0),
 		e.Generator.Placeholder(1),
@@ -126,7 +130,7 @@ func (f *Fence) Update(execFn ExecFn) error {
 	rowsAffected, err := execFn(
 		f.ctx,
 		f.updateSQL,
-		f.Checkpoint,
+		base64.StdEncoding.EncodeToString(f.Checkpoint),
 		f.shardFQN,
 		f.fence,
 	)

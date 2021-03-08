@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS "gazette_checkpoints" (
 	"shard_fqn" TEXT NOT NULL,
 	-- This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.
 	"fence" INTEGER NOT NULL,
-	-- Opaque checkpoint of the Flow consumer shard
-	"checkpoint" BLOB,
+	-- Checkpoint of the Flow consumer shard, encoded as base64 protobuf.
+	"checkpoint" TEXT,
 
 	PRIMARY KEY("shard_fqn")
 );

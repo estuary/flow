@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS "flow_materializations" (
 	-- The name of the target table of the materialization, which may or may not include a schema and catalog prefix
 	"table_name" TEXT NOT NULL,
-	-- Specification of the materialization, encoded as protobuf.
+	-- Specification of the materialization, encoded as base64 protobuf.
 	"spec" TEXT NOT NULL,
 
 	PRIMARY KEY("table_name")

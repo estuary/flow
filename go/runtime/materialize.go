@@ -102,7 +102,11 @@ func NewMaterializeApp(
 	if err != nil {
 		return nil, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
 	}
-	conn, err := driver.NewDriver(shard.Context(), spec.EndpointType, json.RawMessage(spec.EndpointConfig))
+	conn, err := driver.NewDriver(shard.Context(),
+		spec.EndpointType,
+		json.RawMessage(spec.EndpointConfig),
+		recorder.Dir(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint driver: %w", err)
 	}
@@ -311,6 +315,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (checkpoint pc.Che
 
 // Destroy implements consumer.Store.Destroy
 func (m *Materialize) Destroy() {
+	_ = m.driverTx.CloseSend()
 	m.store.Destroy()
 }
 

@@ -30,8 +30,8 @@ func GazetteCheckpointsTable(name string) *Table {
 			},
 			{
 				Name:    "checkpoint",
-				Comment: "Opaque checkpoint of the Flow consumer shard",
-				Type:    BINARY,
+				Comment: "Checkpoint of the Flow consumer shard, encoded as base64 protobuf.",
+				Type:    STRING,
 			},
 		},
 	}
@@ -55,7 +55,7 @@ func FlowMaterializationsTable(name string) *Table {
 			},
 			{
 				Name:    "spec",
-				Comment: "Specification of the materialization, encoded as protobuf.",
+				Comment: "Specification of the materialization, encoded as base64 protobuf.",
 				Type:    STRING,
 				NotNull: true,
 			},

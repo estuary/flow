@@ -1,13 +1,14 @@
-package postgres
+package test
 
 import (
 	"testing"
 
+	"github.com/estuary/flow/go/materialize/driver/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPostgresConfig(t *testing.T) {
-	var validConfig = Config{
+	var validConfig = postgres.Config{
 		Host:     "post.toast",
 		Port:     1234,
 		Table:    "testTable",
@@ -16,14 +17,14 @@ func TestPostgresConfig(t *testing.T) {
 		DBName:   "namegame",
 	}
 	require.NoError(t, validConfig.Validate())
-	var uri = validConfig.ToUri()
+	var uri = validConfig.ToURI()
 	require.Equal(t, "postgres://youser:shmassword@post.toast:1234/namegame", uri)
 
 	var minimal = validConfig
 	minimal.Port = 0
 	minimal.DBName = ""
 	require.NoError(t, minimal.Validate())
-	uri = minimal.ToUri()
+	uri = minimal.ToURI()
 	require.Equal(t, "postgres://youser:shmassword@post.toast", uri)
 
 	var noHost = validConfig

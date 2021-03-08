@@ -2,30 +2,21 @@ package sql
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
-	log "github.com/sirupsen/logrus"
 )
 
 // Driver implements the pm.DriverServer interface.
 type Driver struct {
-	// NewEndpoint func(endpointType pf.EndpointType, endpointConfig json.RawMessage) (*Endpoint, err error)
-	// The SQLGenerator to use for generating statements for use with the go sql package.
+	// NewEndpoint returns an *Endpoint for this Driver.
 	NewEndpoint func(context.Context, pf.EndpointType, json.RawMessage) (*Endpoint, error)
-
-	RunTransactions func(
-		stream pm.Driver_TransactionsServer,
-		endpoint *Endpoint,
-		spec *pf.MaterializationSpec,
-		fence *Fence,
-	) error
+	// NewTransactor returns a Transactor ready for lifecycle.RunTransactions.
+	NewTransactor func(*Endpoint, *pf.MaterializationSpec, *Fence) (lifecycle.Transactor, error)
 }
 
 var _ pm.DriverServer = &Driver{}
@@ -159,6 +150,10 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	if err != nil {
 		return fmt.Errorf("installing fence: %w", err)
 	}
+	transactor, err := d.NewTransactor(endpoint, spec, fence)
+	if err != nil {
+		return err
+	}
 
 	if err = stream.Send(&pm.TransactionResponse{
 		Opened: &pm.TransactionResponse_Opened{
@@ -169,169 +164,5 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
-	return d.RunTransactions(stream, endpoint, spec, fence)
-}
-
-// RunSQLTransactions runs transactions against the standard `database/sql`
-// interface using point lookups and insertions. It's SLOW because it must
-// round-trip each statement. Use this only for testing & SQLite.
-func RunSQLTransactions(
-	stream pm.Driver_TransactionsServer,
-	endpoint *Endpoint,
-	spec *pf.MaterializationSpec,
-	fence *Fence,
-) error {
-	var ctx = endpoint.Context
-	var target = TableForMaterialization(endpoint.Tables.Target, "", spec)
-
-	loadSQL, loadParams, err := endpoint.Generator.QueryOnPrimaryKey(target, spec.FieldSelection.Document)
-	if err != nil {
-		return fmt.Errorf("building load SQL: %w", err)
-	}
-	insertSQL, insertParams, err := endpoint.Generator.InsertStatement(target)
-	if err != nil {
-		return fmt.Errorf("building insert SQL: %w", err)
-	}
-	updateSQL, updateParams, err := endpoint.Generator.UpdateStatement(
-		target,
-		append(append([]string{}, spec.FieldSelection.Values...), spec.FieldSelection.Document),
-		spec.FieldSelection.Keys)
-	if err != nil {
-		return fmt.Errorf("building update SQL: %w", err)
-	}
-
-	// Obtain a long-lived connection, used for the function remainder.
-	conn, err := endpoint.DB.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("load-phase DB.Conn: %w", err)
-	}
-	defer conn.Close() // Return to pool.
-
-	loadStmt, err := conn.PrepareContext(ctx, loadSQL)
-	if err != nil {
-		return fmt.Errorf("conn.PrepareContext(loadSQL): %w", err)
-	}
-	defer loadStmt.Close()
-
-	var response *pm.TransactionResponse // In-progress response.
-	var txn *sql.Tx                      // Active transaction, or nil.
-
-	defer func() {
-		if txn != nil {
-			_ = txn.Rollback() // Best-effort rollback.
-		}
-	}()
-
-	for {
-		// Process all Load requests until Prepare is read.
-		// Query outside of a transaction. We need only read-committed isolation.
-		var loadIt = lifecycle.NewLoadIterator(stream)
-		for loadIt.Next() {
-			converted, err := loadParams.Convert(loadIt.Key)
-			if err != nil {
-				return fmt.Errorf("converting Load key %v: %w", loadIt.Key, err)
-			}
-
-			var document json.RawMessage
-			err = loadStmt.QueryRow(converted...).Scan(&document)
-
-			log.WithFields(log.Fields{
-				"key": loadIt.Key,
-				"err": err,
-			}).Trace("loaded")
-
-			if err == sql.ErrNoRows {
-				// Lookup miss (not an error).
-			} else if err != nil {
-				return fmt.Errorf("querying Load key %v: %w", loadIt.Key, err)
-			} else if err = lifecycle.StageLoaded(stream, &response, document); err != nil {
-				return err
-			}
-		}
-		if loadIt.Err() == io.EOF {
-			return nil // Clean shutdown.
-		} else if loadIt.Err() != nil {
-			return err
-		}
-
-		// Start a transaction for our Store phase.
-		if txn, err = conn.BeginTx(ctx, nil); err != nil {
-			return fmt.Errorf("conn.BeginTx: %w", err)
-		}
-		insertStmt, err := txn.Prepare(insertSQL)
-		if err != nil {
-			return fmt.Errorf("txn.Prepare(insertSQL): %w", err)
-		}
-		updateStmt, err := txn.Prepare(updateSQL)
-		if err != nil {
-			return fmt.Errorf("txn.Prepare(updateSQL): %w", err)
-		}
-
-		// Apply the client's prepared checkpoint to our fence.
-		fence.Checkpoint = loadIt.Prepare().FlowCheckpoint
-		if err = fence.Update(
-			func(_ context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
-				if result, err := txn.Exec(sql, arguments...); err != nil {
-					return 0, fmt.Errorf("txn.Exec: %w", err)
-				} else if rowsAffected, err = result.RowsAffected(); err != nil {
-					return 0, fmt.Errorf("result.RowsAffected: %w", err)
-				}
-				return
-			},
-		); err != nil {
-			return fmt.Errorf("fence.Update: %w", err)
-		}
-
-		// Respond with our Prepared. Pass `nil` because we don't use driver checkpoints.
-		if err = lifecycle.WritePrepared(stream, &response, nil); err != nil {
-			return err
-		}
-
-		// Process all Store requests until Commit is read.
-		var storeIt = lifecycle.NewStoreIterator(stream)
-		for storeIt.Next() {
-			if storeIt.Exists {
-				converted, err := updateParams.Convert(append(append(
-					storeIt.Values, storeIt.RawJSON), storeIt.Key...))
-				if err != nil {
-					return fmt.Errorf("converting update parameters: %w", err)
-				}
-				if _, err = updateStmt.Exec(converted...); err != nil {
-					return fmt.Errorf("updating document: %w", err)
-				}
-
-				log.WithFields(log.Fields{
-					"key":    storeIt.Key,
-					"values": storeIt.Values,
-				}).Trace("updated")
-			} else {
-				converted, err := insertParams.Convert(append(append(
-					storeIt.Key, storeIt.Values...), storeIt.RawJSON))
-				if err != nil {
-					return fmt.Errorf("converting insert parameters: %w", err)
-				}
-				if _, err = insertStmt.Exec(converted...); err != nil {
-					return fmt.Errorf("inserting document: %w", err)
-				}
-
-				log.WithFields(log.Fields{
-					"key":    storeIt.Key,
-					"values": storeIt.Values,
-				}).Trace("inserted")
-			}
-		}
-		if storeIt.Err() != nil {
-			return err
-		}
-
-		if err = txn.Commit(); err != nil {
-			return fmt.Errorf("txn.Commit: %w", err)
-		}
-		txn = nil
-
-		// Acknowledge our commit.
-		if err = lifecycle.WriteCommitted(stream, &response); err != nil {
-			return err
-		}
-	}
+	return lifecycle.RunTransactions(stream, transactor, fence.LogEntry())
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/sirupsen/logrus"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
@@ -172,7 +173,7 @@ func WritePrepare(
 func WritePrepared(
 	stream pm.Driver_TransactionsServer,
 	response **pm.TransactionResponse,
-	driverCheckpoint []byte,
+	prepared *pm.TransactionResponse_Prepared,
 ) error {
 	// Flush partial Loaded response, if required.
 	if *response != nil {
@@ -183,9 +184,7 @@ func WritePrepared(
 	}
 
 	if err := stream.Send(&pm.TransactionResponse{
-		Prepared: &pm.TransactionResponse_Prepared{
-			DriverCheckpoint: driverCheckpoint,
-		},
+		Prepared: prepared,
 	}); err != nil {
 		return fmt.Errorf("sending Prepared response: %w", err)
 	}
@@ -287,6 +286,7 @@ type LoadIterator struct {
 	}
 	req   pm.TransactionRequest
 	index int
+	total int
 	err   error
 }
 
@@ -295,13 +295,13 @@ func NewLoadIterator(stream pm.Driver_TransactionsServer) *LoadIterator {
 	return &LoadIterator{stream: stream}
 }
 
-// Poll returns true if there is at least one LoadRequest message with at least one key
+// poll returns true if there is at least one LoadRequest message with at least one key
 // remaining to be read. This will read the next message from the stream if required. This will not
 // advance the iterator, so it can be used to check whether the LoadIterator contains at least one
 // key to load without actually consuming the next key. If false is returned, then there are no
-// remaining keys and Poll must not be called again. Note that if Poll returns
+// remaining keys and poll must not be called again. Note that if poll returns
 // true, then Next may still return false if the LoadRequest message is malformed.
-func (it *LoadIterator) Poll() bool {
+func (it *LoadIterator) poll() bool {
 	if it.err != nil || it.req.Prepare != nil {
 		panic("Poll called again after having returned false")
 	}
@@ -334,7 +334,7 @@ func (it *LoadIterator) Poll() bool {
 // When a Prepare is read, or if an error is encountered, it returns false
 // and must not be called again.
 func (it *LoadIterator) Next() bool {
-	if !it.Poll() {
+	if !it.poll() {
 		return false
 	}
 	var slice = it.req.Load.PackedKeys[it.index]
@@ -346,17 +346,16 @@ func (it *LoadIterator) Next() bool {
 	}
 
 	it.index++
+	it.total++
 	return true
 }
 
 // Err returns an encountered error.
 func (it *LoadIterator) Err() error {
-	return it.err
-}
-
-// Prepare returns the Prepare request which caused iteration to terminate.
-func (it *LoadIterator) Prepare() *pm.TransactionRequest_Prepare {
-	return it.req.Prepare
+	if it.err != io.EOF {
+		return it.err // Graceful shutdown is not a public Err.
+	}
+	return nil
 }
 
 // StoreIterator is an iterator over Store requests.
@@ -371,6 +370,7 @@ type StoreIterator struct {
 	}
 	req   pm.TransactionRequest
 	index int
+	total int
 	err   error
 }
 
@@ -379,13 +379,13 @@ func NewStoreIterator(stream pm.Driver_TransactionsServer) *StoreIterator {
 	return &StoreIterator{stream: stream}
 }
 
-// Poll returns true if there is at least one StoreRequest message with at least one document
+// poll returns true if there is at least one StoreRequest message with at least one document
 // remaining to be read. This will read the next message from the stream if required. This will not
 // advance the iterator, so it can be used to check whether the StoreIterator contains at least one
 // document to store without actually consuming the next document. If false is returned, then there
-// are no remaining documents and Poll must not be called again. Note that if Poll returns true,
+// are no remaining documents and poll must not be called again. Note that if poll returns true,
 // then Next may still return false if the StoreRequest message is malformed.
-func (it *StoreIterator) Poll() bool {
+func (it *StoreIterator) poll() bool {
 	if it.err != nil || it.req.Commit != nil {
 		panic("Poll called again after having returned false")
 	}
@@ -413,7 +413,7 @@ func (it *StoreIterator) Poll() bool {
 // When a Commit is read, or if an error is encountered, it returns false
 // and must not be called again.
 func (it *StoreIterator) Next() bool {
-	if !it.Poll() {
+	if !it.poll() {
 		return false
 	}
 
@@ -433,6 +433,7 @@ func (it *StoreIterator) Next() bool {
 	it.Exists = s.Exists[it.index]
 
 	it.index++
+	it.total++
 	return true
 }
 
@@ -441,9 +442,166 @@ func (it *StoreIterator) Err() error {
 	return it.err
 }
 
-// Commit returns the Commit request which caused iteration to terminate.
-func (it *StoreIterator) Commit() *pm.TransactionRequest_Commit {
-	return it.req.Commit
+// Transactor is a store-agnostic interface for a materialization driver
+// that implements Flow materialization protocol transactions.
+type Transactor interface {
+	// Load implements the transaction "load" phase by:
+	// * Consuming Load requests from the LoadIterator.
+	// * Awaiting |commitCh| before reading from the store.
+	// * Invoking loaded() with loaded documents.
+	//
+	// Loads of transaction T+1 will be invoked after Store of T+0, but
+	// concurrently with Commit of T+0. This is an important optimization that
+	// allows the driver to immediately begin the work of T+1, for instance by
+	// staging Load keys into a temporary table which will later be joined and
+	// queried upon a future Prepare.
+	//
+	// But, the driver contract is that documents loaded in T+1 must reflect
+	// stores of T+0 (a.k.a. "read committed"). The driver must therefore await
+	// |commitCh| before reading from the store to ensure this contract is met.
+	Load(_ *LoadIterator, commitCh <-chan struct{}, loaded func(json.RawMessage) error) error
+	// Prepare begins the transaction "store" phase.
+	Prepare(*pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error)
+	// Store consumes Store requests from the StoreIterator.
+	Store(*StoreIterator) error
+	// Commit the transaction.
+	Commit() error
+	// Destroy the Driver.
+	Destroy()
+}
+
+// RunTransactions processes materialization protocol transactions
+// over the established stream against a Driver.
+func RunTransactions(
+	stream pm.Driver_TransactionsServer,
+	transactor Transactor,
+	log *logrus.Entry,
+) (err error) {
+
+	defer func() {
+		if err != nil {
+			log.WithField("err", err).Error("RunTransactions failed")
+		} else {
+			log.Debug("RunTransactions finished")
+		}
+		transactor.Destroy()
+	}()
+
+	var (
+		response  *pm.TransactionResponse // In-progress response.
+		loadCh    chan struct{}           // Signals Load() is done.
+		loadErr   error                   // Readable on |<-commitCh|.
+		commitCh  = make(chan struct{})   // Signals Commit() is done.
+		commitErr error                   // Readable on |<-commitCh|.
+	)
+	close(commitCh) // Initialize as already committed.
+
+	for round := 0; true; round++ {
+		var log = log.WithField("round", round)
+
+		loadCh = make(chan struct{})
+		var loadIt = NewLoadIterator(stream)
+
+		go func(commitCh <-chan struct{}) (err error) {
+			var loaded int
+			defer func() {
+				var log = log.WithFields(logrus.Fields{
+					"load":   loadIt.total,
+					"loaded": loaded,
+				})
+				if err != nil {
+					log.WithField("err", err).Error("Load failed")
+				} else {
+					log.Debug("Load finished")
+				}
+
+				loadErr = err
+				close(loadCh)
+			}()
+
+			if !loadIt.poll() {
+				return nil
+			}
+
+			// Process all Load requests until Prepare is read.
+			return transactor.Load(loadIt, commitCh, func(document json.RawMessage) error {
+				if commitCh != nil {
+					select {
+					case <-commitCh:
+						commitCh = nil
+					default:
+						panic("loaded called before commitCh is ready")
+					}
+				}
+				loaded++
+				return StageLoaded(stream, &response, document)
+			})
+		}(commitCh)
+
+		// Join over current transaction Load and prior transaction Commit.
+		for commitCh != nil || loadCh != nil {
+			select {
+			case <-commitCh:
+				if commitErr != nil {
+					return commitErr // Bail now, to cancel ongoing load.
+				}
+				commitCh = nil
+			case <-loadCh:
+				loadCh = nil
+			}
+		}
+
+		if loadErr != nil {
+			return loadErr
+		} else if loadIt.Err() != nil {
+			return loadIt.Err()
+		} else if loadIt.err == io.EOF {
+			return nil // Graceful shutdown.
+		}
+
+		// Prepare, then respond with Prepared.
+		if prepared, err := transactor.Prepare(loadIt.req.Prepare); err != nil {
+			return err
+		} else if err = WritePrepared(stream, &response, prepared); err != nil {
+			return err
+		}
+		log.Debug("wrote Prepared")
+
+		// Process all Store requests until Commit is read.
+		var storeIt = NewStoreIterator(stream)
+		if storeIt.poll() {
+			if err := transactor.Store(storeIt); err != nil {
+				return err
+			}
+		}
+		log.WithField("store", storeIt.total).Debug("Store finished")
+
+		if storeIt.Err() != nil {
+			return storeIt.Err()
+		}
+
+		// Begin async commit.
+		commitCh = make(chan struct{})
+		go func() (err error) {
+			defer func() {
+				if err != nil {
+					log.WithField("err", err).Error("Commit failed")
+				} else {
+					log.Debug("Commit finished")
+				}
+
+				commitErr = err
+				close(commitCh)
+			}()
+
+			// Commit, then acknowledge our commit.
+			if err := transactor.Commit(); err != nil {
+				return fmt.Errorf("store.Commit: %w", err)
+			}
+			return WriteCommitted(stream, &response)
+		}()
+	}
+	panic("not reached")
 }
 
 const (
