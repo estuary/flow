@@ -331,6 +331,8 @@ pub enum EndpointDef {
     Sqlite(SqliteConfig),
     /// # A Snowflake database.
     Snowflake(SnowflakeConfig),
+    /// # A Webhook.
+    Webhook(WebhookConfig),
 }
 
 impl EndpointDef {
@@ -344,6 +346,7 @@ impl EndpointDef {
             EndpointDef::S3(_) => EndpointType::S3,
             EndpointDef::Sqlite(_) => EndpointType::Sqlite,
             EndpointDef::Snowflake(_) => EndpointType::Snowflake,
+            EndpointDef::Webhook(_) => EndpointType::Webhook,
         }
     }
 }
@@ -399,6 +402,17 @@ pub struct SnowflakeConfig {
     pub role: String,      // Role
 }
 
+/// Webhook configuration.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct WebhookConfig {
+    /// Preserve and pass-through all configuration.
+    /// Some fields are explicit below, to benefit from JSON-Schema generation.
+    #[serde(flatten)]
+    pub extra: names::Object,
+    /// # URL endpoint of the Webhook.
+    pub endpoint: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct BucketConfig {
     /// Preserve and pass-through all configuration.
@@ -419,7 +433,7 @@ pub struct RemoteDriverConfig {
     #[serde(flatten)]
     pub extra: names::Object,
     /// # gRPC address of the driver.
-    pub address: String,
+    pub endpoint: String,
 }
 
 /// A Materialization binds a Flow collection with an external system & target

@@ -298,9 +298,9 @@ pub struct DerivationSpec {
 /// FieldSelection is a selection of a collection's projection fields.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FieldSelection {
-    /// Fields for each key component of the collection. Keys have the same length
-    /// as the collection's key, and the document pointer of the field at each index
-    /// matches the pointer identified by the corresponding index of the collection key.
+    /// Fields for each key component of the collection. Included key fields appear
+    /// in the collection's key component order, and a given key pointer will be
+    /// included at most once.
     #[prost(string, repeated, tag = "1")]
     pub keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// All other selected fields, other than those in keys and the document field.
@@ -382,9 +382,7 @@ pub mod test_spec {
         /// Type of this step.
         #[derive(serde::Deserialize, serde::Serialize)]
         #[serde(deny_unknown_fields)]
-        #[derive(
-            Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
-        )]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
         #[repr(i32)]
         pub enum Type {
             Ingest = 0,
@@ -780,6 +778,7 @@ pub enum EndpointType {
     S3 = 3,
     Gs = 4,
     Snowflake = 5,
+    Webhook = 6,
 }
 /// ContentType enumerates the content types understood by Flow.
 #[derive(serde::Deserialize, serde::Serialize)]

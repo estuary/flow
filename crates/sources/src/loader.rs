@@ -688,6 +688,7 @@ impl<F: Fetcher> Loader<F> {
             specs::EndpointDef::Remote(cfg) => Some(serde_json::to_value(cfg).unwrap()),
             specs::EndpointDef::S3(cfg) => Some(serde_json::to_value(cfg).unwrap()),
             specs::EndpointDef::Snowflake(cfg) => Some(serde_json::to_value(cfg).unwrap()),
+            specs::EndpointDef::Webhook(cfg) => Some(serde_json::to_value(cfg).unwrap()),
             specs::EndpointDef::Sqlite(mut cfg) => {
                 // Resolve relative database path relative to current scope.
                 if let Some(path) = self.fallible(scope, scope.resource().join(cfg.path.as_ref())) {
