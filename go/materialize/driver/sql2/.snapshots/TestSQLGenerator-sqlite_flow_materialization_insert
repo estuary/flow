@@ -1,4 +1,4 @@
-INSERT INTO "flow_materializations" ("table_name", "spec") VALUES ('test_table', '{
+INSERT INTO flow_materializations (table_name, spec) VALUES ('test_table', '{
             "collectionSpec": {
                 "name": "foo",
                 "schemaUri": "test://schema.test/mySchema.json",
