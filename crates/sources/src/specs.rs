@@ -16,13 +16,18 @@ pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.
     #[serde(default, rename = "$schema")]
     pub _schema: Option<String>,
-    /// # Import other Flow catalog sources.
-    /// By importing another Flow catalog source, the collections, schemas, and derivations
-    /// it defines become usable within this Catalog source. Each import is an absolute URI,
-    /// or a URI which is relative to this source location.
+    /// # Include other Flow catalog sources.
+    /// By including another Flow catalog source, the collections, schemas, and derivations
+    /// it defines become usable within this Catalog source, and are included in a future
+    /// apply of this Catalog.
+    /// Each include is an absolute URI, or a URI which is relative to this source location.
+    //
+    // In the future, we will support a `reference` directive which parallels the behavior
+    // of `import`, but does not mark the referenced resource as being applied by this catalog.
+    // See https://github.com/estuary/flow/issues/104
     #[serde(default)]
     #[schemars(example = "Catalog::example_import")]
-    pub import: Vec<RelativeUrl>,
+    pub include: Vec<RelativeUrl>,
     /// # NPM package dependencies of the Catalog.
     /// Dependencies are included when building the catalog's build NodeJS
     /// package, as {"package-name": "version"}. I.e. {"moment": "^2.24"}.

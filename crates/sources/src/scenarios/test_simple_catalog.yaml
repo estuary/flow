@@ -1,5 +1,5 @@
 test://example/catalog.yaml:
-    import:
+    include:
         - sibling
         - test://not/found
     npmDependencies:
