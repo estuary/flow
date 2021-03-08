@@ -525,14 +525,9 @@ func RunTransactions(
 
 			// Process all Load requests until Prepare is read.
 			return transactor.Load(loadIt, commitCh, func(document json.RawMessage) error {
-				if commitCh != nil {
-					select {
-					case <-commitCh:
-						commitCh = nil
-					default:
-						panic("loaded called before commitCh is ready")
-					}
-				}
+				// If a buggy driver implementation calls Loaded before |commitCh| is ready,
+				// it's detectable by runtime.Materialize, which will observe / fail on a
+				// Loaded response received before an expected Committed response.
 				loaded++
 				return StageLoaded(stream, &response, document)
 			})
