@@ -12,9 +12,11 @@ import (
 
 // Endpoint is a parsed and connected endpoint configuration
 type Endpoint struct {
+	Config       interface{}
 	Context      context.Context
-	EndpointType pf.EndpointType
 	DB           *sql.DB
+	DeltaUpdates bool
+	EndpointType pf.EndpointType
 	Generator    Generator
 	Tables       struct {
 		Target      string
@@ -39,7 +41,7 @@ func (e *Endpoint) LoadSpec(mustExist bool) (*pf.MaterializationSpec, error) {
 	var err = e.DB.QueryRowContext(
 		e.Context,
 		fmt.Sprintf(
-			"SELECT spec FROM %s WHERE table_name=%s;",
+			`SELECT "spec" FROM "%s" WHERE "table_name"=%s;`,
 			e.Tables.Specs,
 			e.Generator.Placeholder(0),
 		),

@@ -19,7 +19,6 @@ import (
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
-	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -426,4 +425,54 @@ func newLoadReq(keys ...[]byte) pm.TransactionRequest_Load {
 		Arena:      arena,
 		PackedKeys: packedKeys,
 	}
+}
+
+func testTable() (sqlDriver.Table, *pf.FieldSelection) {
+	return sqlDriver.Table{
+			Name:        "test_table",
+			Comment:     "this is a test\nmultiline\ncomment",
+			IfNotExists: false,
+			Columns: []sqlDriver.Column{
+				{
+					Name:       "key_a",
+					Comment:    "key_a\nmultiline\ncomment",
+					PrimaryKey: true,
+					Type:       sqlDriver.INTEGER,
+					NotNull:    true,
+				},
+				{
+					Name:       "key_b",
+					PrimaryKey: true,
+					Type:       sqlDriver.STRING,
+					NotNull:    true,
+				},
+				{
+					Name:       "key_c",
+					PrimaryKey: true,
+					Type:       sqlDriver.BOOLEAN,
+					NotNull:    true,
+				},
+				{
+					Name: "val_x",
+					Type: sqlDriver.BINARY,
+				},
+				{
+					Name: "val_y",
+					Type: sqlDriver.NUMBER,
+				},
+				{
+					Name: "val_z",
+					Type: sqlDriver.ARRAY,
+				},
+				{
+					Name:    "flow_document",
+					Type:    sqlDriver.OBJECT,
+					NotNull: true,
+				},
+			},
+		}, &pf.FieldSelection{
+			Keys:     []string{"key_a", "key_b", "key_c"},
+			Values:   []string{"val_x", "val_y", "val_z"},
+			Document: "flow_document",
+		}
 }

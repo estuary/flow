@@ -35,7 +35,7 @@ func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 		fixture.generator.updateValues(doc)
 	}
 	err = fixture.StoreDocuments(stream, &request, testDocs)
-	require.NoError(t, err, "storing secong batch of documents")
+	require.NoError(t, err, "storing second batch of documents")
 	err = stream.CloseSend()
 	require.NoError(t, err, "closing stream send")
 

@@ -84,7 +84,8 @@ func BuildCatalog(config pf.BuildAPI_Config, client *http.Client) (hadUserErrors
 					log.WithField("request", request).Debug("materialize validation requested")
 
 					var ctx = context.Background()
-					var driver, err = driver.NewDriver(ctx, request.EndpointType, json.RawMessage(request.EndpointConfigJson))
+					var driver, err = driver.NewDriver(ctx, request.EndpointType,
+						json.RawMessage(request.EndpointConfigJson), "")
 					if err != nil {
 						return nil, fmt.Errorf("driver.NewDriver: %w", err)
 					}
