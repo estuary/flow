@@ -24,23 +24,14 @@ func (fields *FieldSelection) AllFields() []string {
 
 // Validate returns an error if the FieldSelection is malformed.
 func (fields *FieldSelection) Validate() error {
-
-	if len(fields.Keys) == 0 {
-		return pb.NewValidationError("missing Keys")
-	}
 	if !sort.StringsAreSorted(fields.Values) {
 		return pb.NewValidationError("Values must be sorted")
 	}
-	if fields.Document == "" {
-		return pb.NewValidationError("missing Document")
-	}
-
 	return nil
 }
 
 // Validate returns an error if the MaterializationSpec is malformed.
 func (m *MaterializationSpec) Validate() error {
-
 	if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
 	} else if _, ok := EndpointType_name[int32(m.EndpointType)]; !ok {
@@ -55,7 +46,6 @@ func (m *MaterializationSpec) Validate() error {
 			return pb.NewValidationError("the selected field '%s' has no corresponding projection", field)
 		}
 	}
-
 	return nil
 }
 

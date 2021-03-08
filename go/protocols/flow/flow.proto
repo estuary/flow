@@ -273,15 +273,16 @@ enum EndpointType {
     S3 = 3;
     GS = 4;
     SNOWFLAKE = 5;
+    WEBHOOK = 6;
 }
 
 // FieldSelection is a selection of a collection's projection fields.
 message FieldSelection {
   option (gogoproto.equal) = true;
 
-  // Fields for each key component of the collection. Keys have the same length
-  // as the collection's key, and the document pointer of the field at each index
-  // matches the pointer identified by the corresponding index of the collection key.
+  // Fields for each key component of the collection. Included key fields appear
+  // in the collection's key component order, and a given key pointer will be
+  // included at most once.
   repeated string keys = 1;
   // All other selected fields, other than those in keys and the document field.
   // Entries are in ascending sorted order, and may be empty.

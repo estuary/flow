@@ -444,7 +444,7 @@ fn walk_materialization_response(
     values.sort(); // Must be sorted within FieldSelection.
 
     flow::FieldSelection {
-        keys: keys.into_iter().map(|k| k.unwrap_or_default()).collect(),
+        keys: keys.into_iter().filter_map(|k| k).collect(),
         values,
         document,
         field_config,
