@@ -84,9 +84,9 @@ func NewPostgresDriver() *sqlDriver.Driver {
 				DB:           db,
 				Generator:    sqlDriver.PostgresSQLGenerator(),
 			}
-			endpoint.Tables.Target = parsed.Table
-			endpoint.Tables.Checkpoints = sqlDriver.DefaultGazetteCheckpoints
-			endpoint.Tables.Specs = sqlDriver.DefaultFlowMaterializations
+			endpoint.Tables.TargetName = parsed.Table
+			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
+			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
@@ -97,7 +97,7 @@ func NewPostgresDriver() *sqlDriver.Driver {
 func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlDriver.Endpoint, spec *pf.MaterializationSpec, fence *sqlDriver.Fence) error {
 	var logEntry = fence.LogEntry()
 
-	var target = sqlDriver.TableForMaterialization(endpoint.Tables.Target, "", spec)
+	var target = sqlDriver.TableForMaterialization(endpoint.Tables.TargetName, "", &endpoint.Generator.IdentifierQuotes, spec)
 	var _, keyParams, err = endpoint.Generator.QueryOnPrimaryKey(target, spec.FieldSelection.Document)
 	if err != nil {
 		return fmt.Errorf("generating key parameter converter: %w", err)
@@ -108,7 +108,7 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 		"FROM",
 		tempKeyTableName,
 		"NATURAL JOIN",
-		endpoint.Tables.Target,
+		target.Identifier,
 		";",
 	}, " ")
 	insertSQL, insertParams, err := endpoint.Generator.InsertStatement(target)
@@ -123,7 +123,7 @@ func runPostgresTransactions(stream pm.Driver_TransactionsServer, endpoint *sqlD
 	}
 	defer pgxStd.ReleaseConn(endpoint.DB, conn)
 
-	var tempTable = loadKeyTempTable(spec)
+	var tempTable = loadKeyTempTable(spec, &endpoint.Generator.IdentifierQuotes)
 	createTemp, err := endpoint.Generator.CreateTable(tempTable)
 	if err != nil {
 		return fmt.Errorf("generating temp table sql: %w", err)
@@ -284,14 +284,14 @@ func (t *keyCopySource) Values() ([]interface{}, error) {
 
 const tempKeyTableName = "flow_load_key_tmp"
 
-func loadKeyTempTable(spec *pf.MaterializationSpec) *sqlDriver.Table {
+func loadKeyTempTable(spec *pf.MaterializationSpec, identQuotes *sqlDriver.TokenPair) *sqlDriver.Table {
 	var columns = make([]sqlDriver.Column, len(spec.FieldSelection.Keys))
 	for i, keyField := range spec.FieldSelection.Keys {
 		var projection = spec.Collection.GetProjection(keyField)
-		columns[i] = sqlDriver.ColumnForProjection(projection)
+		columns[i] = sqlDriver.ColumnForProjection(projection, identQuotes)
 	}
 	return &sqlDriver.Table{
-		Name:         tempKeyTableName,
+		Identifier:   tempKeyTableName,
 		Columns:      columns,
 		IfNotExists:  true,
 		Temporary:    true,

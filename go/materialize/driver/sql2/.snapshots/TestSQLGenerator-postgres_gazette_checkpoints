@@ -1,17 +1,17 @@
 -- This table holds journal checkpoints, which Flow manages in order to ensure exactly-once updates for materializations
 CREATE TABLE IF NOT EXISTS "gazette_checkpoints" (
 	-- The id of the consumer shard. Note that a single collection may have multiple consumer shards materializing it, and each will have a separate checkpoint.
-	"shard_fqn" TEXT NOT NULL,
+	shard_fqn TEXT NOT NULL,
 	-- This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.
-	"fence" BIGINT NOT NULL,
+	fence BIGINT NOT NULL,
 	-- Opaque checkpoint of the Flow consumer shard
-	"checkpoint" BYTEA,
+	checkpoint BYTEA,
 
-	PRIMARY KEY("shard_fqn")
+	PRIMARY KEY(shard_fqn)
 );
 
-SELECT "fence", "checkpoint" FROM "gazette_checkpoints" WHERE "shard_fqn" = $1;
+SELECT fence, checkpoint FROM gazette_checkpoints WHERE shard_fqn = $1;
 
-INSERT INTO "gazette_checkpoints" ("shard_fqn", "fence", "checkpoint") VALUES ($1, $2, $3);
+INSERT INTO gazette_checkpoints (shard_fqn, fence, checkpoint) VALUES ($1, $2, $3);
 
-UPDATE "gazette_checkpoints" SET "fence" = $1, "checkpoint" = $2 WHERE "shard_fqn" = $3;
+UPDATE gazette_checkpoints SET fence = $1, checkpoint = $2 WHERE shard_fqn = $3;
