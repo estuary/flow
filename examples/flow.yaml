@@ -12,8 +12,28 @@ endpoints:
       # don't fail with "database is locked" errors.
       path: examples.db?_journal=WAL
 
+    #postgres:
+    #  host: localhost
+    #  password: testpgpass
+    #  dbname: postgres
+    #  user: postgres
+    #  port: 5432
+
+    #webhook:
+    #  endpoint: http://localhost:9000
+
+    #snowflake:
+    #  account: am42432.us-central1.gcp
+    #  database: ESTUARY
+    #  role: SYSADMIN
+    #  schema: PUBLIC
+    #  user: jgraettinger
+    #  warehouse: COMPUTE_WH
+    #  password: XYZ
+
 journalRules:
   00_fragment_store:
     template:
       fragment:
+        compression_codec: GZIP
         stores: [ file:/// ]

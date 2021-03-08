@@ -274,7 +274,7 @@ build-test-catalog: ${ROOTDIR}/catalog.db
 
 .PHONY: go-test-fast
 go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
-	go test -v -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./...
+	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./...
 
 .PHONY: go-test-ci
 go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
