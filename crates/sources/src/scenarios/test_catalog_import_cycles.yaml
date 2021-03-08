@@ -1,11 +1,11 @@
 test://example/catalog.yaml:
-    import: [A, B]
+    include: [A, B]
 
 test://example/A:
-    import: [C, B]
+    include: [C, B]
 
 test://example/B:
-    import: [C, A]
+    include: [C, A]
 
 test://example/C:
-    import: [catalog.yaml, B]
+    include: [catalog.yaml, B]
