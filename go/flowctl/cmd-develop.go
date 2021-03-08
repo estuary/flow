@@ -149,7 +149,7 @@ func todoHackedMaterializeApply(catalog *flow.Catalog, shards pc.ShardClient) er
 		}
 
 		driver, err := driver.NewDriver(context.Background(),
-			spec.EndpointType, json.RawMessage(spec.EndpointConfig))
+			spec.EndpointType, json.RawMessage(spec.EndpointConfig), "")
 		if err != nil {
 			return fmt.Errorf("driver.NewDriver: %w", err)
 		}
@@ -186,7 +186,7 @@ func todoHackedMaterializeApply(catalog *flow.Catalog, shards pc.ShardClient) er
 				RecoveryLogPrefix: "recovery",
 				HintPrefix:        "/estuary/flow/hints",
 				HintBackups:       2,
-				MaxTxnDuration:    time.Second,
+				MaxTxnDuration:    time.Minute,
 				MinTxnDuration:    0,
 				HotStandbys:       0,
 				LabelSet:          labels,

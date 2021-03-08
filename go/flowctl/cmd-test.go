@@ -181,7 +181,7 @@ func todoHackedDeriveApply(catalog *flow.Catalog, shards pc.ShardClient) error {
 				RecoveryLogPrefix: "recovery",
 				HintPrefix:        "/estuary/flow/hints",
 				HintBackups:       2,
-				MaxTxnDuration:    time.Second,
+				MaxTxnDuration:    time.Minute,
 				MinTxnDuration:    0,
 				HotStandbys:       0,
 				LabelSet:          labels,
