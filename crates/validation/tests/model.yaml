@@ -1,5 +1,5 @@
 test://example/catalog.yaml:
-  import:
+  include:
     - test://example/int-string
     - test://example/int-reverse
     - test://example/int-halve
@@ -30,8 +30,8 @@ test://example/catalog.yaml:
           stores: ["s3://my-bucket"]
 
 test://example/int-string:
-  import:
-    # Backward import.
+  include:
+    # Backward include.
     - test://example/int-halve
   collections:
     testing/int-string:
@@ -44,7 +44,7 @@ test://example/int-string:
           partition: true
 
 test://example/int-string-capture:
-  import:
+  include:
     - test://example/int-string
   captures:
     testing/int-string/pull:
@@ -58,7 +58,7 @@ test://example/int-string-capture:
       pushAPI: {}
 
 test://example/int-string-materialization:
-  import:
+  include:
     - test://example/int-string
   materializations:
     testing/int-string:
@@ -75,7 +75,7 @@ test://example/int-string-materialization:
         recommended: true
 
 test://example/int-string-tests:
-  import:
+  include:
     - test://example/int-string
   tests:
     "A Test":
@@ -94,8 +94,8 @@ test://example/int-string-tests:
               bit: [true]
 
 test://example/int-reverse:
-  import:
-    # Forward import.
+  include:
+    # Forward include.
     - test://example/int-string
   collections:
     testing/int-reverse:
@@ -157,7 +157,7 @@ test://example/int-halve.ts:
   typescript: "module placeholder"
 
 test://example/int-halve-materialization:
-  import:
+  include:
     - test://example/int-halve
   materializations:
     testing/int-halve:

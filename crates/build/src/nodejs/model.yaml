@@ -2,7 +2,7 @@ test://example/catalog.yaml:
   npmDependencies:
     fooPkg: v1.2.3
 
-  import:
+  include:
     - file:///package/sub/module.yaml
     - test://example/external/module.yaml
 

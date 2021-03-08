@@ -27,16 +27,19 @@ Tables {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
+            include: 1,
         },
         Import {
             scope: test://example/rules_two.yaml,
             from_resource: test://example/rules_two.yaml,
             to_resource: test://example/rules_two.ts,
+            include: 1,
         },
         Import {
-            scope: test://example/catalog.yaml#/import/0,
+            scope: test://example/catalog.yaml#/include/0,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/rules_two.yaml,
+            include: 1,
         },
     ],
     journal_rules: [

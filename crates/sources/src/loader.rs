@@ -223,7 +223,7 @@ impl<F: Fetcher> Loader<F> {
                             // Concurrently fetch |uri| while continuing to walk the schema.
                             let ((), ()) = futures::join!(
                                 recurse,
-                                self.load_import(scope, &uri, ContentType::JsonSchema)
+                                self.load_import(scope, &uri, ContentType::JsonSchema, true)
                             );
                         } else {
                             let () = recurse.await;
@@ -253,7 +253,7 @@ impl<F: Fetcher> Loader<F> {
             let fragment = import.fragment().map(str::to_string);
             import.set_fragment(None);
 
-            self.load_import(scope, &import, ContentType::JsonSchema)
+            self.load_import(scope, &import, ContentType::JsonSchema, true)
                 .await;
 
             import.set_fragment(fragment.as_deref());
@@ -272,10 +272,12 @@ impl<F: Fetcher> Loader<F> {
             )
             .await;
 
-            self.tables
-                .borrow_mut()
-                .imports
-                .push_row(scope.flatten(), scope.resource(), &import);
+            self.tables.borrow_mut().imports.push_row(
+                scope.flatten(),
+                scope.resource(),
+                &import,
+                true,
+            );
             Some(import)
         }
     }
@@ -286,6 +288,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         import: &'s Url,
         content_type: ContentType,
+        include: bool,
     ) {
         // Recursively process the import if it's not already visited.
         if !self
@@ -298,10 +301,12 @@ impl<F: Fetcher> Loader<F> {
             self.load_resource(scope, &import, content_type).await;
         }
 
-        self.tables
-            .borrow_mut()
-            .imports
-            .push_row(scope.flatten(), scope.resource(), import);
+        self.tables.borrow_mut().imports.push_row(
+            scope.flatten(),
+            scope.resource(),
+            import,
+            include,
+        );
     }
 
     // Load a top-level catalog specification.
@@ -312,7 +317,7 @@ impl<F: Fetcher> Loader<F> {
 
         let specs::Catalog {
             _schema,
-            import,
+            include,
             npm_dependencies,
             journal_rules,
             collections,
@@ -347,14 +352,14 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Task which loads all imports.
-        let import = import.into_iter().enumerate().map(|(index, import)| {
+        let import = include.into_iter().enumerate().map(|(index, import)| {
             async move {
-                let scope = scope.push_prop("import");
+                let scope = scope.push_prop("include");
                 let scope = scope.push_item(index);
 
                 // Map from relative to absolute URL.
                 if let Some(import) = self.fallible(scope, scope.resource().join(import.as_ref())) {
-                    self.load_import(scope, &import, ContentType::CatalogSpec)
+                    self.load_import(scope, &import, ContentType::CatalogSpec, true)
                         .await;
                 }
             }
@@ -369,7 +374,7 @@ impl<F: Fetcher> Loader<F> {
             path.set_extension("ts");
 
             module.set_path(path.to_str().expect("should still be valid utf8"));
-            self.load_import(scope, &module, ContentType::TypescriptModule)
+            self.load_import(scope, &module, ContentType::TypescriptModule, true)
                 .await;
         };
 
