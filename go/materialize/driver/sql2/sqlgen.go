@@ -34,8 +34,12 @@ type StringTypeInfo struct {
 
 // Column describes a SQL table column that will hold JSON values
 type Column struct {
-	// The Name of the column
+	// The Name of the column, which is used when referencing columns by name when calling SQL
+	// generation functions. This value should not include any quotes or escape characters.
 	Name string
+	// Identifier is the final form of the column name, exactly as it should be represented in SQL
+	// statements. If quoting is necessary, then the quotes must be included here.
+	Identifier string
 	// Comment is optional text that will be used only on CREATE TABLE statements
 	Comment string
 	// PrimaryKey is true if this column is the primary key, or if it is part of a composite key.
@@ -52,8 +56,11 @@ type Column struct {
 
 // Table describes a database table, which can be used to generate various types of SQL statements.
 type Table struct {
-	// The Name of the table
-	Name string
+	// Identifier is the final form of the table name, exactly as it should be represented in SQL
+	// statements. If quoting is necessary, then the quotes must be included here. Unlike Columns,
+	// Tables do not have a separate Name field, as we have no need to reference them by name during
+	// SQL generation.
+	Identifier string
 	// Optional Comment to add to create table statements.
 	Comment string
 	// The complete list of columns that should be created for the table and used in insert statements. This does
@@ -71,6 +78,8 @@ type Table struct {
 	TempOnCommit string
 }
 
+// GetColumn returns the Column with the given Name (not to be confused with Identifier). This can
+// be used, for example, to map from the Name to the Identifier for a column.
 func (t Table) GetColumn(name string) *Column {
 	for _, col := range t.Columns {
 		if col.Name == name {
@@ -80,8 +89,14 @@ func (t Table) GetColumn(name string) *Column {
 	return nil
 }
 
+// ParametersConverter is a slice of functions that can be used to convert a Tuple into an
+// []interface{} that can be passed to the database driver. This conversion may be different
+// depending on the specific driver, so instances of ParametersConverter should be obtained from the
+// Generator when generating a sql statement.
 type ParametersConverter []func(interface{}) (interface{}, error)
 
+// Convert transforms the given Tuple into an []interface{} that can be used to execute SQL
+// statements.
 func (c ParametersConverter) Convert(tup tuple.Tuple) ([]interface{}, error) {
 	var results = make([]interface{}, len(tup))
 	for i, elem := range tup {
@@ -94,12 +109,12 @@ func (c ParametersConverter) Convert(tup tuple.Tuple) ([]interface{}, error) {
 	return results, nil
 }
 
-func NewParametersConverter(mapper TypeMapper, table *Table, columns []string) (ParametersConverter, error) {
+func newParametersConverter(mapper TypeMapper, table *Table, columns []string) (ParametersConverter, error) {
 	var converters = make([]func(interface{}) (interface{}, error), len(columns))
 	for i, name := range columns {
 		var column = table.GetColumn(name)
 		if column == nil {
-			return nil, fmt.Errorf("Table '%s' has no such column '%s'", table.Name, name)
+			return nil, fmt.Errorf("Table '%s' has no such column '%s'", table.Identifier, name)
 		}
 		var ty, err = mapper.GetColumnType(column)
 		if err != nil {
@@ -117,10 +132,17 @@ type TokenPair struct {
 	Right string
 }
 
-func (pair *TokenPair) writeWrapped(builder *strings.Builder, text string) {
-	builder.WriteString(pair.Left)
+// Wrap returns the given string surrounded by the strings in this TokenPair.
+func (p *TokenPair) Wrap(text string) string {
+	var b strings.Builder
+	p.writeWrapped(&b, text)
+	return b.String()
+}
+
+func (p *TokenPair) writeWrapped(builder *strings.Builder, text string) {
+	builder.WriteString(p.Left)
 	builder.WriteString(text)
-	builder.WriteString(pair.Right)
+	builder.WriteString(p.Right)
 }
 
 // DoubleQuotes returns a TokenPair with a single double quote character on the both the Left and
@@ -138,6 +160,9 @@ func Identity(elem interface{}) (interface{}, error) {
 	return elem, nil
 }
 
+// ResolvedColumnType represents the result of successfully mapping a Column to SQL DDL and a
+// function that can be used to convert a Tuple element into a type that is appropriate for the
+// driver.
 type ResolvedColumnType struct {
 	SQLType        string
 	ValueConverter func(interface{}) (interface{}, error)
@@ -153,8 +178,11 @@ type TypeMapper interface {
 	GetColumnType(column *Column) (*ResolvedColumnType, error)
 }
 
+// ConstColumnType is a ResolvedColumnType that is known statically at compile time.
 type ConstColumnType ResolvedColumnType
 
+// RawConstColumnType returns a ConstColumnType that always uses the given sql string as DDL and
+// performs a no-op value conversion.
 func RawConstColumnType(sql string) ConstColumnType {
 	return ConstColumnType{
 		SQLType:        sql,
@@ -398,8 +426,8 @@ func (gen *Generator) Comment(text string) string {
 	return builder.String()
 }
 
-// Generates a CREATE TABLE statement for the given table. The returned statement must not
-// contain any parameter placeholders.
+// CreateTable generates a CREATE TABLE statement for the given table. The returned statement must
+// not contain any parameter placeholders.
 func (gen *Generator) CreateTable(table *Table) (string, error) {
 	var builder strings.Builder
 
@@ -415,7 +443,7 @@ func (gen *Generator) CreateTable(table *Table) (string, error) {
 	if table.IfNotExists {
 		builder.WriteString("IF NOT EXISTS ")
 	}
-	gen.IdentifierQuotes.writeWrapped(&builder, table.Name)
+	gen.IdentifierQuotes.writeWrapped(&builder, table.Identifier)
 	builder.WriteString(" (\n\t")
 
 	for i, column := range table.Columns {
@@ -428,7 +456,7 @@ func (gen *Generator) CreateTable(table *Table) (string, error) {
 			// for the next line. If there's no comment, then the indentation will aready be there.
 			builder.WriteRune('\t')
 		}
-		gen.writeIdent(&builder, column.Name)
+		builder.WriteString(column.Identifier)
 		builder.WriteRune(' ')
 
 		var resolved, err = gen.TypeMappings.GetColumnType(&column)
@@ -445,7 +473,7 @@ func (gen *Generator) CreateTable(table *Table) (string, error) {
 				builder.WriteString(", ")
 			}
 			firstPk = false
-			gen.writeIdent(&builder, column.Name)
+			builder.WriteString(column.Identifier)
 		}
 	}
 	// Close the primary key paren, then newline and close the create table statement
@@ -469,10 +497,10 @@ func (gen *Generator) QueryOnPrimaryKey(table *Table, selectColumns ...string) (
 		if i > 0 {
 			builder.WriteString(", ")
 		}
-		gen.writeIdent(&builder, colName)
+		builder.WriteString(table.GetColumn(colName).Identifier)
 	}
 	builder.WriteString(" FROM ")
-	gen.writeIdent(&builder, table.Name)
+	builder.WriteString(table.Identifier)
 	builder.WriteString(" WHERE ")
 	var pkIndex = 0
 	var converters []func(interface{}) (interface{}, error)
@@ -481,7 +509,7 @@ func (gen *Generator) QueryOnPrimaryKey(table *Table, selectColumns ...string) (
 			if pkIndex > 0 {
 				builder.WriteString(" AND ")
 			}
-			gen.writeIdent(&builder, col.Name)
+			builder.WriteString(col.Identifier)
 			builder.WriteString(" = ")
 			builder.WriteString(gen.Placeholder(pkIndex))
 
@@ -529,7 +557,7 @@ func (gen *Generator) DirectInsertStatement(table *Table, args ...string) (strin
 func (gen *Generator) genInsertStatement(table *Table, genParams func(int) string) (string, ParametersConverter, error) {
 	var builder strings.Builder
 	builder.WriteString("INSERT INTO ")
-	gen.writeIdent(&builder, table.Name)
+	builder.WriteString(table.Identifier)
 	builder.WriteString(" (")
 
 	var converters []func(interface{}) (interface{}, error)
@@ -537,7 +565,7 @@ func (gen *Generator) genInsertStatement(table *Table, genParams func(int) strin
 		if i > 0 {
 			builder.WriteString(", ")
 		}
-		gen.writeIdent(&builder, col.Name)
+		builder.WriteString(col.Identifier)
 		var ty, err = gen.TypeMappings.GetColumnType(&col)
 		if err != nil {
 			return "", nil, err
@@ -562,14 +590,14 @@ func (gen *Generator) genInsertStatement(table *Table, genParams func(int) strin
 func (gen *Generator) UpdateStatement(table *Table, setColumns []string, whereColumns []string) (string, ParametersConverter, error) {
 	var builder strings.Builder
 	builder.WriteString("UPDATE ")
-	gen.writeIdent(&builder, table.Name)
+	builder.WriteString(table.Identifier)
 	builder.WriteString(" SET ")
 	var parameterIndex = 0
 	for i, colName := range setColumns {
 		if i > 0 {
 			builder.WriteString(", ")
 		}
-		gen.writeIdent(&builder, colName)
+		builder.WriteString(table.GetColumn(colName).Identifier)
 		builder.WriteString(" = ")
 		builder.WriteString(gen.Placeholder(parameterIndex))
 		parameterIndex++
@@ -579,28 +607,24 @@ func (gen *Generator) UpdateStatement(table *Table, setColumns []string, whereCo
 		if i > 0 {
 			builder.WriteString(" AND ")
 		}
-		gen.writeIdent(&builder, colName)
+		builder.WriteString(table.GetColumn(colName).Identifier)
 		builder.WriteString(" = ")
 		builder.WriteString(gen.Placeholder(parameterIndex))
 		parameterIndex++
 	}
 	builder.WriteString(";")
 
-	var setConverters, err = NewParametersConverter(gen.TypeMappings, table, setColumns)
+	var setConverters, err = newParametersConverter(gen.TypeMappings, table, setColumns)
 	if err != nil {
 		return "", nil, err
 	}
-	valConverters, err := NewParametersConverter(gen.TypeMappings, table, whereColumns)
+	valConverters, err := newParametersConverter(gen.TypeMappings, table, whereColumns)
 	if err != nil {
 		return "", nil, err
 	}
 	var converters = ParametersConverter(append(setConverters, valConverters...))
 
 	return builder.String(), converters, nil
-}
-
-func (gen *Generator) writeIdent(builder *strings.Builder, ident string) {
-	gen.IdentifierQuotes.writeWrapped(builder, ident)
 }
 
 func (gen *Generator) writeComment(builder *strings.Builder, text string, indent string) {
