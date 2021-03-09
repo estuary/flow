@@ -4,11 +4,11 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
-        error: endpoint MaterializeEndpoit, referenced by materialization testing/int-string, is not defined; did you mean materializeEndpoint defined at test://example/catalog.yaml#/endpoints/materializeEndpoint?,
+        scope: test://example/int-string-materialization#/materializations/0,
+        error: endpoint MaterializeEndpoit, referenced by materialization, is not defined; did you mean materializeEndpoint defined at test://example/catalog.yaml#/endpoints/materializeEndpoint?,
     },
     Error {
-        scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
-        error: endpoint wildlyOffName, referenced by materialization testing/int-halve, is not defined,
+        scope: test://example/int-halve-materialization#/materializations/0,
+        error: endpoint wildlyOffName, referenced by materialization, is not defined,
     },
 ]

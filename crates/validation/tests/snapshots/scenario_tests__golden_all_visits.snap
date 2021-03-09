@@ -444,17 +444,37 @@ All {
     ],
     built_materializations: [
         BuiltMaterialization {
-            scope: test://example/int-string-materialization#/materializations/testing~1int-string,
-            materialization: testing/int-string,
+            scope: test://example/int-string-materialization#/materializations/0,
+            materialization: materializeEndpoint/table/The%20One,
             collection: testing/int-string,
             endpoint_type: "S3",
-            endpoint_config: {"bucket":"a-bucket","fixture":"one","prefix":"and-prefix"},
             spec: MaterializationSpec {
-                materialization: "testing/int-string",
+                materialization: "materializeEndpoint/table/The%20One",
                 collection: None,
+                endpoint_name: "materializeEndpoint",
+                endpoint_type: S3,
+                endpoint_config_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
+                endpoint_resource_path: [
+                    "table",
+                    "The One",
+                ],
+                field_selection: Some(
+                    FieldSelection {
+                        keys: [
+                            "int",
+                        ],
+                        values: [
+                            "str",
+                        ],
+                        document: "flow_document",
+                        field_config: {
+                            "str": "{\"pass\":\"through\"}",
+                        },
+                    },
+                ),
                 shuffle: Some(
                     Shuffle {
-                        group_name: "materialize/testing/int-string",
+                        group_name: "materialize/materializeEndpoint/table/The%20One",
                         source_collection: "testing/int-string",
                         source_partitions: Some(
                             LabelSelector {
@@ -489,36 +509,41 @@ All {
                         priority: 0,
                     },
                 ),
+            },
+        },
+        BuiltMaterialization {
+            scope: test://example/int-halve-materialization#/materializations/0,
+            materialization: materializeEndpoint/tab%21e/two,
+            collection: testing/int-halve,
+            endpoint_type: "S3",
+            spec: MaterializationSpec {
+                materialization: "materializeEndpoint/tab%21e/two",
+                collection: None,
+                endpoint_name: "materializeEndpoint",
                 endpoint_type: S3,
-                endpoint_config: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
+                endpoint_config_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
+                endpoint_resource_path: [
+                    "tab!e",
+                    "two",
+                ],
                 field_selection: Some(
                     FieldSelection {
                         keys: [
                             "int",
                         ],
                         values: [
-                            "str",
+                            "Extra",
+                            "Len",
                         ],
-                        document: "flow_document",
+                        document: "Root",
                         field_config: {
-                            "str": "{\"pass\":\"through\"}",
+                            "Len": "{}",
                         },
                     },
                 ),
-            },
-        },
-        BuiltMaterialization {
-            scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
-            materialization: testing/int-halve,
-            collection: testing/int-halve,
-            endpoint_type: "S3",
-            endpoint_config: {"bucket":"a-bucket","fixture":"two","prefix":"and-prefix"},
-            spec: MaterializationSpec {
-                materialization: "testing/int-halve",
-                collection: None,
                 shuffle: Some(
                     Shuffle {
-                        group_name: "materialize/testing/int-halve",
+                        group_name: "materialize/materializeEndpoint/tab%21e/two",
                         source_collection: "testing/int-halve",
                         source_partitions: Some(
                             LabelSelector {
@@ -551,23 +576,6 @@ All {
                         hash: None,
                         read_delay_seconds: 0,
                         priority: 0,
-                    },
-                ),
-                endpoint_type: S3,
-                endpoint_config: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
-                field_selection: Some(
-                    FieldSelection {
-                        keys: [
-                            "int",
-                        ],
-                        values: [
-                            "Extra",
-                            "Len",
-                        ],
-                        document: "Root",
-                        field_config: {
-                            "Len": "{}",
-                        },
                     },
                 ),
             },
@@ -824,16 +832,14 @@ All {
     ],
     captures: [
         Capture {
-            scope: test://example/int-string-capture#/captures/testing~1int-string~1pull,
-            capture: testing/int-string/pull,
+            scope: test://example/int-string-capture#/captures/0,
             collection: testing/int-string,
             allow_push: 0,
             endpoint: captureEndpoint,
             patch_config: {},
         },
         Capture {
-            scope: test://example/int-string-capture#/captures/testing~1int-string~1push,
-            capture: testing/int-string/push,
+            scope: test://example/int-string-capture#/captures/1,
             collection: testing/int-string,
             allow_push: 1,
             endpoint: NULL,
@@ -1494,23 +1500,21 @@ All {
     ],
     materializations: [
         Materialization {
-            scope: test://example/int-string-materialization#/materializations/testing~1int-string,
+            scope: test://example/int-string-materialization#/materializations/0,
             collection: testing/int-string,
             endpoint: materializeEndpoint,
             fields_exclude: ["bit"],
             fields_include: {"str":{"pass":"through"}},
             fields_recommended: 1,
-            materialization: testing/int-string,
             patch_config: {"fixture":"one"},
         },
         Materialization {
-            scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
+            scope: test://example/int-halve-materialization#/materializations/0,
             collection: testing/int-halve,
             endpoint: materializeEndpoint,
             fields_exclude: [],
             fields_include: {"Len":{}},
             fields_recommended: 0,
-            materialization: testing/int-halve,
             patch_config: {"fixture":"two"},
         },
     ],

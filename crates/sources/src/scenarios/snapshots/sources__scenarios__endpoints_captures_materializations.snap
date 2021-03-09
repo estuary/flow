@@ -5,16 +5,14 @@ expression: tables
 Tables {
     captures: [
         Capture {
-            scope: test://example/catalog.yaml#/captures/my%20bucket%20capture,
-            capture: my bucket capture,
+            scope: test://example/catalog.yaml#/captures/0,
             collection: a/collection,
             allow_push: 0,
             endpoint: my bucket,
             patch_config: {},
         },
         Capture {
-            scope: test://example/catalog.yaml#/captures/my%20table%20capture,
-            capture: my table capture,
+            scope: test://example/catalog.yaml#/captures/1,
             collection: other/collection,
             allow_push: 0,
             endpoint: my DB,
@@ -63,13 +61,12 @@ Tables {
     journal_rules: [],
     materializations: [
         Materialization {
-            scope: test://example/catalog.yaml#/materializations/my%20materialization,
+            scope: test://example/catalog.yaml#/materializations/0,
             collection: source/collection,
             endpoint: my DB,
             fields_exclude: ["del"],
             fields_include: {"add":{}},
             fields_recommended: 1,
-            materialization: my materialization,
             patch_config: {"table":"foobar"},
         },
     ],

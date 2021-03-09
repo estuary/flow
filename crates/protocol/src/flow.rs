@@ -212,7 +212,7 @@ pub struct Inference {
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
-    /// String type-specific inferences.
+    /// String type-specific inferences, or nil iff types doesn't include "string".
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct String {
         /// Annotated Content-Type when the projection is of "string" type.
@@ -319,25 +319,37 @@ pub struct FieldSelection {
 /// MaterializationSpec describes a collection and its materialization to an endpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializationSpec {
-    /// Name of this materialization.
+    /// Name of this materialization, derived from
+    /// "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
+    /// For example, {
+    ///    endpoint_name: "company/team/database",
+    ///    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
+    /// } would have materialization name:
+    /// "company/team/database/logical-db/and-schema/tab%21e"
     #[prost(string, tag = "1")]
     pub materialization: ::prost::alloc::string::String,
     /// Collection to be materialized.
     #[prost(message, optional, tag = "2")]
     pub collection: ::core::option::Option<CollectionSpec>,
-    /// Shuffle applied to collection documents for this materialization.
-    #[prost(message, optional, tag = "3")]
-    pub shuffle: ::core::option::Option<Shuffle>,
+    /// Endpoint to which we materialize.
+    #[prost(string, tag = "3")]
+    pub endpoint_name: ::prost::alloc::string::String,
     /// Type of the materialization's endpoint.
     #[prost(enumeration = "EndpointType", tag = "4")]
     pub endpoint_type: i32,
     /// JSON-encoded object which configures this materialization with
     /// respect to the endpoint type driver.
     #[prost(string, tag = "5")]
-    pub endpoint_config: ::prost::alloc::string::String,
+    pub endpoint_config_json: ::prost::alloc::string::String,
+    /// Endpoint path components which fully qualify the subresource being materialized.
+    #[prost(string, repeated, tag = "6")]
+    pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Resolved fields selected for materialization.
-    #[prost(message, optional, tag = "6")]
+    #[prost(message, optional, tag = "7")]
     pub field_selection: ::core::option::Option<FieldSelection>,
+    /// Shuffle applied to collection documents for this materialization.
+    #[prost(message, optional, tag = "8")]
+    pub shuffle: ::core::option::Option<Shuffle>,
 }
 /// TestSpec describes a catalog test.
 #[derive(Clone, PartialEq, ::prost::Message)]

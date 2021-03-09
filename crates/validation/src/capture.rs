@@ -1,4 +1,4 @@
-use super::{indexed, reference, Error};
+use super::{reference, Error};
 use itertools::Itertools;
 use models::tables;
 
@@ -20,11 +20,6 @@ pub fn walk_all_captures(
             errors,
         );
     }
-    indexed::walk_duplicates(
-        "capture",
-        captures.iter().map(|c| (&c.capture, &c.scope)),
-        errors,
-    );
 
     // TODO: derive a built_captures table, in line with built_materializations.
     // It should represent the collection, Option<EndpointType> (where None means "push"),
@@ -39,9 +34,7 @@ pub fn walk_all_captures(
     };
     for (lhs, rhs) in captures.iter().sorted_by(cmp).tuple_windows() {
         if cmp(&lhs, &rhs) == std::cmp::Ordering::Equal {
-            Error::CaptureMultiplePulls {
-                lhs_name: lhs.capture.to_string(),
-                rhs_name: rhs.capture.to_string(),
+            Error::CaptureDuplicate {
                 rhs_scope: rhs.scope.clone(),
                 target: lhs.collection.to_string(),
             }
@@ -60,26 +53,16 @@ fn walk_capture(
 ) {
     let tables::Capture {
         scope,
-        capture: name,
         collection: target,
         endpoint,
         allow_push: _,
         patch_config: _,
     } = capture;
 
-    indexed::walk_name(
-        scope,
-        "capture",
-        name.as_ref(),
-        &indexed::CAPTURE_RE,
-        errors,
-    );
-
     // Ensure we can dereference the capture's target.
     let _ = reference::walk_reference(
         scope,
         "capture",
-        name.as_ref(),
         "collection",
         target,
         collections,
@@ -91,7 +74,6 @@ fn walk_capture(
     // But it must not be a derivation.
     if let Some(_) = derivations.iter().find(|d| d.derivation == *target) {
         Error::CaptureOfDerivation {
-            capture: name.to_string(),
             derivation: target.to_string(),
         }
         .push(scope, errors);
@@ -102,7 +84,6 @@ fn walk_capture(
         if let Some(endpoint) = reference::walk_reference(
             scope,
             "capture",
-            name.as_ref(),
             "endpoint",
             endpoint,
             endpoints,

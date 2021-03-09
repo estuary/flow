@@ -26,26 +26,23 @@ pub enum Error {
         rhs: String,
         rhs_scope: Url,
     },
-    #[error("{ref_entity} {ref_name}, referenced by {this_entity} {this_name}, is not defined")]
+    #[error("{ref_entity} {ref_name}, referenced by {this_thing}, is not defined")]
     NoSuchEntity {
-        this_entity: &'static str,
-        this_name: String,
+        this_thing: String,
         ref_entity: &'static str,
         ref_name: String,
     },
-    #[error("{ref_entity} {ref_name}, referenced by {this_entity} {this_name}, is not defined; did you mean {suggest_name} defined at {suggest_scope}?")]
+    #[error("{ref_entity} {ref_name}, referenced by {this_thing}, is not defined; did you mean {suggest_name} defined at {suggest_scope}?")]
     NoSuchEntitySuggest {
-        this_entity: &'static str,
-        this_name: String,
+        this_thing: String,
         ref_entity: &'static str,
         ref_name: String,
         suggest_name: String,
         suggest_scope: Url,
     },
-    #[error("{this_entity} {this_name} references {ref_entity} {ref_name}, defined at {ref_scope}, without importing it or being imported by it")]
+    #[error("{this_thing} references {ref_entity} {ref_name}, defined at {ref_scope}, without importing it or being imported by it")]
     MissingImport {
-        this_entity: &'static str,
-        this_name: String,
+        this_thing: String,
         ref_entity: &'static str,
         ref_name: String,
         ref_scope: Url,
@@ -118,41 +115,26 @@ pub enum Error {
     CaptureEndpointType { type_: protocol::flow::EndpointType },
     #[error("must set at least one of 'update' or 'publish' lambdas")]
     NoUpdateOrPublish { transform: String },
-    #[error("capture {capture} cannot capture into derived collection {derivation}")]
-    CaptureOfDerivation { capture: String, derivation: String },
-    #[error("captures {lhs_name} and {rhs_name} (at {rhs_scope}) have the same target {target}, endpoint, and configuration")]
-    CaptureMultiplePulls {
-        lhs_name: String,
-        rhs_name: String,
-        rhs_scope: Url,
-        target: String,
-    },
-    #[error("materializations {lhs_name} and {rhs_name} (at {rhs_scope}) have the same target {target}, endpoint, and configuration")]
-    MaterializationMultiplePushes {
-        lhs_name: String,
-        rhs_name: String,
-        rhs_scope: Url,
-        target: String,
-    },
+    #[error("cannot capture into derived collection {derivation}")]
+    CaptureOfDerivation { derivation: String },
+    #[error("capture duplicates the target collection {target}, endpoint, and configuration of {rhs_scope}")]
+    CaptureDuplicate { rhs_scope: Url, target: String },
     #[error("driver error while validating materialization {name}")]
     MaterializationDriver {
         name: String,
         #[source]
         detail: anyhow::Error,
     },
-    #[error("materialization {materialization} field {field} is not satisfiable ({reason})")]
+    #[error("materialization {name} field {field} is not satisfiable ({reason})")]
     FieldUnsatisfiable {
-        materialization: String,
+        name: String,
         field: String,
         reason: String,
     },
     #[error(
-        "materialization {materialization} has no acceptable field that satisfies required location {location}"
+        "materialization {name} has no acceptable field that satisfies required location {location}"
     )]
-    LocationUnsatisfiable {
-        materialization: String,
-        location: String,
-    },
+    LocationUnsatisfiable { name: String, location: String },
     #[error("documents to verify are not in collection key order")]
     TestVerifyOrder,
     #[error("package {package} is repeated with incompatible versions {lhs_version:?} here, vs {rhs_version:?} at {rhs_scope}")]

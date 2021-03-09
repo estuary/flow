@@ -52,10 +52,10 @@ pub struct Catalog {
     pub endpoints: BTreeMap<names::Endpoint, EndpointDef>,
     /// # Materializations of this Catalog.
     #[serde(default)]
-    pub materializations: BTreeMap<names::Materialization, MaterializationDef>,
+    pub materializations: Vec<MaterializationDef>,
     /// # Captures of this Catalog.
     #[serde(default)]
-    pub captures: BTreeMap<names::Capture, CaptureDef>,
+    pub captures: Vec<CaptureDef>,
     // Tests of the catalog, indexed by name.
     #[serde(default)]
     #[schemars(default = "Catalog::default_test")]

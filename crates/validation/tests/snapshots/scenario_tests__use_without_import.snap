@@ -12,11 +12,11 @@ expression: errors
         error: transform halveIntString references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
     },
     Error {
-        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
-        error: materialization testing/int-string references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
+        scope: test://example/int-string-materialization#/materializations/0,
+        error: materialization references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
     },
     Error {
-        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
-        error: materialization testing/int-string references endpoint s3WithoutImport, defined at test://example/int-reverse#/endpoints/s3WithoutImport, without importing it or being imported by it,
+        scope: test://example/int-string-materialization#/materializations/0,
+        error: materialization references endpoint s3WithoutImport, defined at test://example/int-reverse#/endpoints/s3WithoutImport, without importing it or being imported by it,
     },
 ]

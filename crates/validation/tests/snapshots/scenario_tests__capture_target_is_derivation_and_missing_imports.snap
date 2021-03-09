@@ -4,15 +4,15 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-capture#/captures/testing~1int-string~1pull,
-        error: capture testing/int-string/pull references collection testing/int-reverse, defined at test://example/int-reverse#/collections/testing~1int-reverse, without importing it or being imported by it,
+        scope: test://example/int-string-capture#/captures/0,
+        error: capture references collection testing/int-reverse, defined at test://example/int-reverse#/collections/testing~1int-reverse, without importing it or being imported by it,
     },
     Error {
-        scope: test://example/int-string-capture#/captures/testing~1int-string~1pull,
-        error: capture testing/int-string/pull cannot capture into derived collection testing/int-reverse,
+        scope: test://example/int-string-capture#/captures/0,
+        error: cannot capture into derived collection testing/int-reverse,
     },
     Error {
-        scope: test://example/int-string-capture#/captures/testing~1int-string~1push,
-        error: capture testing/int-string/push references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
+        scope: test://example/int-string-capture#/captures/1,
+        error: capture references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
     },
 ]

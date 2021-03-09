@@ -4,8 +4,8 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-materialization#/materializations/testing~1int-string,
-        error: driver error while validating materialization testing/int-string
+        scope: test://example/int-string-materialization#/materializations/0,
+        error: driver error while validating materialization materializeEndpoint
         
         Caused by:
             A driver error!,

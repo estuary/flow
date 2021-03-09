@@ -16,20 +16,17 @@ test://example/catalog.yaml:
         path: relative/to/scope.db
 
   captures:
-    "my bucket capture":
-      target:
+    - target:
         name: a/collection
       endpoint: { name: my bucket }
-    "my table capture":
-      target:
+    - target:
         name: other/collection
       endpoint:
         name: my DB
         config: { extra: "stuff" }
 
   materializations:
-    "my materialization":
-      source:
+    - source:
         name: source/collection
       endpoint:
         name: my DB
