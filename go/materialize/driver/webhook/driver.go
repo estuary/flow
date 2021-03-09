@@ -154,7 +154,7 @@ func (d *transactor) Commit() error {
 		if err == nil {
 			err = response.Body.Close()
 		}
-		if err == nil && response.StatusCode != 200 && response.StatusCode != 204 {
+		if err == nil && (response.StatusCode < 200 || response.StatusCode >= 300) {
 			err = fmt.Errorf("unexpected webhook response code %d from %s",
 				response.StatusCode, d.Endpoint)
 		}
