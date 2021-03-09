@@ -154,8 +154,6 @@ func (g *governor) poll(ctx context.Context) error {
 			select {
 			case result, ok = <-r.pollCh:
 				// Fall through.
-			case <-ctx.Done():
-				return ctx.Err()
 			case <-g.journalsUpdateCh:
 				return g.onConverge(ctx)
 			case <-g.tp.Ready():
@@ -175,18 +173,16 @@ func (g *governor) poll(ctx context.Context) error {
 			}
 		}
 
-		// We've polled a new result for this *read instance.
+		// This *read polled as ready: we now evaluate its outcome.
 
 		if err := r.onRead(result); err != nil {
-			// If an error occurred, the response wasn't updated and we'll return
-			// errPollAgain below, because there are no ready documents.
-			// We expect the read pump will close it's channel after this error.
-			// Log the error now, and fall through to poll again, which will remove
-			// and then re-start this read.
+			// If an error occurred, there are no ready documents and we expect
+			// the read pump will close it's channel after this error.
+			// Return errPollAgain to read that close, which will go on to remove
+			// and possibly restart this failed *read.
 			r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
-		}
-
-		if !ok {
+			return errPollAgain
+		} else if !ok {
 			// This *read was cancelled and its channel has now drained.
 			delete(g.pending, r)
 			delete(g.active, r.req.Shuffle.Journal)
