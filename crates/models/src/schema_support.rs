@@ -28,18 +28,6 @@ impl Endpoint {
     }
 }
 
-impl Materialization {
-    pub fn example() -> Self {
-        Self::new("a materialization")
-    }
-}
-
-impl Capture {
-    pub fn example() -> Self {
-        Self::new("a capture")
-    }
-}
-
 impl Test {
     pub fn example() -> Self {
         Self::new("a test")

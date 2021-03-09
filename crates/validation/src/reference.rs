@@ -5,8 +5,7 @@ use url::Url;
 
 pub fn walk_reference<'a, T, F, N>(
     this_scope: &Url,
-    this_entity: &'static str,
-    this_name: &str,
+    this_thing: &str,
     ref_entity: &'static str,
     ref_name: &N,
     entities: &'a [T],
@@ -22,8 +21,7 @@ where
         let ref_scope = entity_fn(entity).1;
         if !import_path(imports, this_scope, ref_scope) {
             Error::MissingImport {
-                this_entity,
-                this_name: this_name.to_string(),
+                this_thing: this_thing.to_string(),
                 ref_entity,
                 ref_name: ref_name.to_string(),
                 ref_scope: ref_scope.clone(),
@@ -49,8 +47,7 @@ where
 
     if let Some((_, suggest_name, suggest_scope)) = closest {
         Error::NoSuchEntitySuggest {
-            this_entity,
-            this_name: this_name.to_string(),
+            this_thing: this_thing.to_string(),
             ref_entity,
             ref_name: ref_name.to_string(),
             suggest_name: suggest_name.to_string(),
@@ -59,8 +56,7 @@ where
         .push(this_scope, errors);
     } else {
         Error::NoSuchEntity {
-            this_entity,
-            this_name: this_name.to_string(),
+            this_thing: this_thing.to_string(),
             ref_entity,
             ref_name: ref_name.to_string(),
         }

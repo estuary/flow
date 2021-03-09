@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1int-halve-duplicate,
-        error: materializations testing/int-halve-duplicate and testing/int-halve (at test://example/int-halve-materialization#/materializations/testing~1int-halve) have the same target testing/int-halve, endpoint, and configuration,
+        scope: test://example/catalog.yaml#/materializations/0,
+        error: materialization materializeEndpoint/tab%21e/two has a duplicated definition at test://example/int-halve-materialization#/materializations/0,
     },
 ]

@@ -408,11 +408,8 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Collect captures.
-        for (name, capture) in captures {
-            let scope = scope
-                .push_prop("captures")
-                .push_prop(name.as_ref())
-                .flatten();
+        for (index, capture) in captures.into_iter().enumerate() {
+            let scope = scope.push_prop("captures").push_item(index).flatten();
 
             let (allow_push, endpoint, patch_config) = match capture.inner {
                 specs::CaptureType::PushAPI(config) => (true, None, config),
@@ -423,7 +420,6 @@ impl<F: Fetcher> Loader<F> {
 
             self.tables.borrow_mut().captures.push_row(
                 scope,
-                name,
                 &capture.target.name,
                 allow_push,
                 endpoint,
@@ -432,10 +428,10 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Collect materializations.
-        for (materialization, spec) in materializations {
+        for (index, materialization) in materializations.into_iter().enumerate() {
             let scope = scope
                 .push_prop("materializations")
-                .push_prop(materialization.as_ref())
+                .push_item(index)
                 .flatten();
 
             let specs::MaterializationDef {
@@ -451,7 +447,7 @@ impl<F: Fetcher> Loader<F> {
                         exclude: fields_exclude,
                         recommended: fields_recommended,
                     },
-            } = spec;
+            } = materialization;
 
             self.tables.borrow_mut().materializations.push_row(
                 scope,
@@ -460,7 +456,6 @@ impl<F: Fetcher> Loader<F> {
                 fields_exclude,
                 fields_include,
                 fields_recommended,
-                materialization,
                 serde_json::Value::Object(patch_config),
             );
         }

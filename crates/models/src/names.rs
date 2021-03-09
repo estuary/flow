@@ -71,47 +71,6 @@ impl std::ops::Deref for Endpoint {
     }
 }
 
-/// Materialization names a Flow materialization.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Materialization::example")]
-pub struct Materialization(String);
-
-impl Materialization {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Materialization {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Capture names a Flow capture.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Capture::example")]
-pub struct Capture(String);
-
-impl Capture {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-}
-
-impl std::ops::Deref for Capture {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
 /// Test names a Flow catalog test.
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
 #[schemars(example = "Test::example")]
@@ -120,6 +79,9 @@ pub struct Test(String);
 impl Test {
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

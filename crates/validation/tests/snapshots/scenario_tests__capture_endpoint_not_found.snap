@@ -4,11 +4,11 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-capture#/captures/testing~1int-string~1pull,
-        error: endpoint CaptureEndpoit, referenced by capture testing/int-string/pull, is not defined; did you mean captureEndpoint defined at test://example/catalog.yaml#/endpoints/captureEndpoint?,
+        scope: test://example/int-string-capture#/captures/0,
+        error: endpoint CaptureEndpoit, referenced by capture, is not defined; did you mean captureEndpoint defined at test://example/catalog.yaml#/endpoints/captureEndpoint?,
     },
     Error {
-        scope: test://example/int-string-capture#/captures/testing~1int-string~1push,
-        error: endpoint wildlyOffName, referenced by capture testing/int-string/push, is not defined,
+        scope: test://example/int-string-capture#/captures/1,
+        error: endpoint wildlyOffName, referenced by capture, is not defined,
     },
 ]

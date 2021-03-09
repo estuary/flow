@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-capture#/captures/testing~1int-string~1pull,
+        scope: test://example/int-string-capture#/captures/0,
         error: Postgresql is not a supported endpoint type for a capture,
     },
 ]

@@ -83,15 +83,17 @@ service Driver {
 
 // ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
+  // Endpoint which this request is addressing.
+  string endpoint_name = 1;
   // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
+  flow.EndpointType endpoint_type = 2;
   // Driver-specific configuration, as an encoded JSON object.
-  string endpoint_config_json = 2;
+  string endpoint_config_json = 3;
   // Collection to be materialized.
-  flow.CollectionSpec collection = 3;
+  flow.CollectionSpec collection = 4;
   // Projection configuration, keyed by the projection field name,
   // with JSON-encoded and driver-defined configuration objects.
-  map<string, string> field_config_json = 4;
+  map<string, string> field_config_json = 5;
 }
 
 // ValidateResponse is the response type of the Validate RPC.
@@ -100,6 +102,14 @@ message ValidateResponse {
   // keyed by the projection field name. Projections of the CollectionSpec
   // which are missing from constraints are implicitly forbidden.
   map<string, Constraint> constraints = 1;
+  // Components of the resource path identified by this endpoint configuration.
+  // Resource paths fully qualify the resource identified by the request.
+  // - For an RDBMS, this would be []{dbname, schema, table}.
+  // - For Kafka, this would be []{topic}.
+  // - For Redis, this would be []{key_prefix}.
+  // Some drivers may not have any path components. Semantically, this means
+  // the endpoint already represents a granular and indivisible resource.
+  repeated string resource_path = 2;
 }
 
 // ApplyRequest is the request type of the Apply RPC.
@@ -131,20 +141,16 @@ message TransactionRequest {
   // |shard_fqn| (now "zombie" streams) can commit transactions, and must then
   // return the final checkpoint committed by this |shard_fqn| in its response.
   message Open {
-    // Endpoint type addressed by this request.
-    flow.EndpointType endpoint_type = 1;
-    // Driver-specific configuration, as an encoded JSON object.
-    string endpoint_config_json = 2;
-    // Fields represents the projection fields to be stored. This repeats the selection and ordering
-    // of the last Apply RPC, but is provided here also as a convenience.
-    flow.FieldSelection fields = 3;
+    // Materialization to be transacted, which is the MaterializationSpec
+    // last provided to a successful Apply RPC.
+    flow.MaterializationSpec materialization = 1;
     // Stable ID to which transactions are fenced. The Flow runtime uses
     // fully-qualified shard names to provide stable identifiers.
     // Driver implementations may treat these as opaque values.
-    string shard_fqn = 4;
+    string shard_fqn = 2;
     // Last-persisted driver checkpoint from a previous transaction stream.
     // Or empty, if the driver hasn't returned a checkpoint.
-    bytes driver_checkpoint = 5;
+    bytes driver_checkpoint = 3;
   }
   Open open = 1;
 

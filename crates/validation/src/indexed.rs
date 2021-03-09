@@ -7,11 +7,8 @@ use url::Url;
 const TOKEN: &'static str = r"[\pL\pN\-_.]+";
 
 lazy_static::lazy_static! {
-    pub static ref CAPTURE_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
     pub static ref COLLECTION_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
-    pub static ref MATERIALIZATION_RE: Regex =
-        Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
-    pub static ref ENDPOINT_RE: Regex = Regex::new(TOKEN).unwrap();
+    pub static ref ENDPOINT_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
     pub static ref PARTITION_RE: Regex = Regex::new(TOKEN).unwrap();
     pub static ref TRANSFORM_RE: Regex = Regex::new(TOKEN).unwrap();
 }

@@ -47,13 +47,11 @@ test://example/int-string-capture:
   include:
     - test://example/int-string
   captures:
-    testing/int-string/pull:
-      target:
+    - target:
         name: testing/int-string
       endpoint: { name: captureEndpoint }
 
-    testing/int-string/push:
-      target:
+    - target:
         name: testing/int-string
       pushAPI: {}
 
@@ -61,8 +59,7 @@ test://example/int-string-materialization:
   include:
     - test://example/int-string
   materializations:
-    testing/int-string:
-      source:
+    - source:
         name: testing/int-string
       endpoint:
         name: materializeEndpoint
@@ -160,8 +157,7 @@ test://example/int-halve-materialization:
   include:
     - test://example/int-halve
   materializations:
-    testing/int-halve:
-      source:
+    - source:
         name: testing/int-halve
       endpoint:
         name: materializeEndpoint
@@ -225,6 +221,7 @@ driver:
         int: { type: 0, reason: "field required" }
         str: { type: 3, reason: "optional" }
         bit: { type: 4, reason: "field forbidden" }
+      resourcePath: [table, "The One"]
 
     two:
       endpoint: S3
@@ -239,3 +236,4 @@ driver:
         int: { type: 0, reason: "required" }
         Extra: { type: 1, reason: "location required" }
         Len: { type: 3, reason: "optional" }
+      resourcePath: [tab!e, two]
