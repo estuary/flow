@@ -447,7 +447,7 @@ func (it *StoreIterator) Err() error {
 type Transactor interface {
 	// Load implements the transaction "load" phase by:
 	// * Consuming Load requests from the LoadIterator.
-	// * Awaiting |commitCh| before reading from the store.
+	// * Awaiting a Prepare request or |commitCh| before reading from the store.
 	// * Invoking loaded() with loaded documents.
 	//
 	// Loads of transaction T+1 will be invoked after Store of T+0, but
@@ -458,7 +458,8 @@ type Transactor interface {
 	//
 	// But, the driver contract is that documents loaded in T+1 must reflect
 	// stores of T+0 (a.k.a. "read committed"). The driver must therefore await
-	// |commitCh| before reading from the store to ensure this contract is met.
+	// either a Prepare or |commitCh| before reading from the store to ensure
+	// this contract is met.
 	Load(_ *LoadIterator, commitCh <-chan struct{}, loaded func(json.RawMessage) error) error
 	// Prepare begins the transaction "store" phase.
 	Prepare(*pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error)
