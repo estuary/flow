@@ -4,19 +4,19 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
+        scope: test://example/int-halve-materialization#/materializations/0,
         error: include projection biT does not exist in collection testing/int-halve,
     },
     Error {
-        scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
+        scope: test://example/int-halve-materialization#/materializations/0,
         error: exclude projection BiTT does not exist in collection testing/int-halve,
     },
     Error {
-        scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
+        scope: test://example/int-halve-materialization#/materializations/0,
         error: exclude projection WildlyOffName does not exist in collection testing/int-halve,
     },
     Error {
-        scope: test://example/int-halve-materialization#/materializations/testing~1int-halve,
-        error: materialization testing/int-halve field int is not satisfiable (field is both included and excluded by selector),
+        scope: test://example/int-halve-materialization#/materializations/0,
+        error: materialization materializeEndpoint/tab%21e/two field int is not satisfiable (field is both included and excluded by selector),
     },
 ]

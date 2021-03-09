@@ -203,21 +203,66 @@ pub fn derivation_spec(derivation: &tables::Derivation) -> flow::DerivationSpec 
     }
 }
 
+pub fn materialization_name(endpoint_name: &str, endpoint_resource_path: &[String]) -> String {
+    let mut parts = vec![endpoint_name.to_string()];
+    parts.extend(endpoint_resource_path.iter().cloned());
+
+    // We must produce a name for this materialization which is suitable for use as a shard ID.
+    // That restricts us to unicode letters and numbers, plus the symbols `-_+/.=%`.
+    let mut name = String::new();
+    name.extend(parts.join("/").chars().map(|c| {
+        match c {
+            // Note that '%' is not included (it must be escaped).
+            '-' | '_' | '+' | '/' | '.' | '=' => c.to_string(),
+            _ if c.is_alphanumeric() => c.to_string(),
+            c => percent_encoding::utf8_percent_encode(
+                &c.to_string(),
+                percent_encoding::NON_ALPHANUMERIC,
+            )
+            .to_string(),
+        }
+    }));
+
+    name
+}
+
+#[cfg(test)]
+mod test {
+    use super::materialization_name;
+
+    #[test]
+    fn test_name_escapes() {
+        let out = materialization_name(
+            "endpoint name",
+            &vec![
+                "he!lo".to_string(),
+                "a/part%".to_string(),
+                "_the-=res+.".to_string(),
+            ],
+        );
+        assert_eq!(&out, "endpoint%20name/he%21lo/a/part%25/_the-=res+.");
+    }
+}
+
 pub fn materialization_spec(
     materialization: &tables::Materialization,
     source: &tables::BuiltCollection,
+    name: &str,
     endpoint_type: flow::EndpointType,
-    endpoint_config: &Value,
+    endpoint_config_json: String,
+    endpoint_resource_path: Vec<String>,
     fields: flow::FieldSelection,
 ) -> flow::MaterializationSpec {
     flow::MaterializationSpec {
+        materialization: name.to_string(),
         collection: None, // See tables::BuiltMaterialization.
-        endpoint_config: endpoint_config.to_string(),
+        endpoint_name: materialization.endpoint.to_string(),
         endpoint_type: endpoint_type as i32,
+        endpoint_config_json,
+        endpoint_resource_path,
         field_selection: Some(fields),
-        materialization: materialization.materialization.to_string(),
         shuffle: Some(flow::Shuffle {
-            group_name: materialization.group_name(),
+            group_name: format!("materialize/{}", name),
             source_collection: source.collection.to_string(),
             // Materializations always read all logical partitions.
             source_partitions: Some(journal_selector(&source.collection, &None)),

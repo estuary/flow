@@ -19,14 +19,6 @@ impl super::Transform {
     }
 }
 
-impl super::Materialization {
-    /// Group name of this materialization, used to group shards & shuffled reads
-    /// which collectively process the transformation.
-    pub fn group_name(&self) -> String {
-        format!("materialize/{}", self.materialization.as_str())
-    }
-}
-
 impl super::SchemaDoc {
     pub fn compile(&self) -> Result<CompiledSchema, json::schema::build::Error> {
         json::schema::build::build_schema(self.schema.clone(), &self.dom)

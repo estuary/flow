@@ -34,18 +34,21 @@ pub mod constraint {
 /// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateRequest {
+    /// Endpoint which this request is addressing.
+    #[prost(string, tag = "1")]
+    pub endpoint_name: ::prost::alloc::string::String,
     /// Endpoint type addressed by this request.
-    #[prost(enumeration = "super::flow::EndpointType", tag = "1")]
+    #[prost(enumeration = "super::flow::EndpointType", tag = "2")]
     pub endpoint_type: i32,
     /// Driver-specific configuration, as an encoded JSON object.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag = "3")]
     pub endpoint_config_json: ::prost::alloc::string::String,
     /// Collection to be materialized.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "4")]
     pub collection: ::core::option::Option<super::flow::CollectionSpec>,
     /// Projection configuration, keyed by the projection field name,
     /// with JSON-encoded and driver-defined configuration objects.
-    #[prost(map = "string, string", tag = "4")]
+    #[prost(map = "string, string", tag = "5")]
     pub field_config_json:
         ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
@@ -57,6 +60,15 @@ pub struct ValidateResponse {
     /// which are missing from constraints are implicitly forbidden.
     #[prost(map = "string, message", tag = "1")]
     pub constraints: ::std::collections::HashMap<::prost::alloc::string::String, Constraint>,
+    /// Components of the resource path identified by this endpoint configuration.
+    /// Resource paths fully qualify the resource identified by the request.
+    /// - For an RDBMS, this would be []{dbname, schema, table}.
+    /// - For Kafka, this would be []{topic}.
+    /// - For Redis, this would be []{key_prefix}.
+    /// Some drivers may not have any path components. Semantically, this means
+    /// the endpoint already represents a granular and indivisible resource.
+    #[prost(string, repeated, tag = "2")]
+    pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// ApplyRequest is the request type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -105,24 +117,18 @@ pub mod transaction_request {
     /// return the final checkpoint committed by this |shard_fqn| in its response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
-        /// Endpoint type addressed by this request.
-        #[prost(enumeration = "super::super::flow::EndpointType", tag = "1")]
-        pub endpoint_type: i32,
-        /// Driver-specific configuration, as an encoded JSON object.
-        #[prost(string, tag = "2")]
-        pub endpoint_config_json: ::prost::alloc::string::String,
-        /// Fields represents the projection fields to be stored. This repeats the selection and ordering
-        /// of the last Apply RPC, but is provided here also as a convenience.
-        #[prost(message, optional, tag = "3")]
-        pub fields: ::core::option::Option<super::super::flow::FieldSelection>,
+        /// Materialization to be transacted, which is the MaterializationSpec
+        /// last provided to a successful Apply RPC.
+        #[prost(message, optional, tag = "1")]
+        pub materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
         /// Stable ID to which transactions are fenced. The Flow runtime uses
         /// fully-qualified shard names to provide stable identifiers.
         /// Driver implementations may treat these as opaque values.
-        #[prost(string, tag = "4")]
+        #[prost(string, tag = "2")]
         pub shard_fqn: ::prost::alloc::string::String,
         /// Last-persisted driver checkpoint from a previous transaction stream.
         /// Or empty, if the driver hasn't returned a checkpoint.
-        #[prost(bytes = "vec", tag = "5")]
+        #[prost(bytes = "vec", tag = "3")]
         pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
     /// Load one or more documents identified by key.

@@ -125,8 +125,6 @@ tables!(
 
     table Captures (row Capture, sql "captures") {
         scope: url::Url,
-        // Name of this capture.
-        capture: names::Capture,
         // Collection into which documents are captured.
         collection: names::Collection,
         // Should this capture offer a push API?
@@ -152,8 +150,6 @@ tables!(
         fields_include: BTreeMap<String, names::Object>,
         // Should recommended fields be selected ?
         fields_recommended: bool,
-        // Name of this materialization.
-        materialization: names::Materialization,
         // JSON object which merges into the endpoint's base_config,
         // to fully configure this materialization with respect to the
         // endpoint driver.
@@ -212,14 +208,14 @@ tables!(
     table BuiltMaterializations (row BuiltMaterialization, sql "built_materializations") {
         scope: url::Url,
         // Name of this materialization.
-        materialization: names::Materialization,
+        materialization: String,
         // Collection from which documents are materialized.
         collection: names::Collection,
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures this materialization with respect to the
         // endpoint driver.
-        endpoint_config: serde_json::Value,
+        // endpoint_config: serde_json::Value,
         // Built specification for this materialization.
         // The collection field is not populated, and should be separately read
         // from BuiltCollections and merged into this specification.
@@ -405,11 +401,9 @@ primitive_sql_types!(
 );
 
 string_wrapper_types!(
-    names::Capture,
     names::Collection,
     names::Endpoint,
     names::JsonPointer,
-    names::Materialization,
     names::Rule,
     names::Test,
     names::Transform,

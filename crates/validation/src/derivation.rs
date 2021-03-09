@@ -159,8 +159,7 @@ pub fn walk_transform(
     // Dereference the transform's source. We can't continue without it.
     let source = match reference::walk_reference(
         scope,
-        "transform",
-        name,
+        &format!("transform {}", name.as_str()),
         "collection",
         source,
         collections,

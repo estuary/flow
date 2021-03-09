@@ -185,7 +185,7 @@ message Projection {
   // Does this location form (part of) the collection key?
   bool is_primary_key = 5;
   // Inference of this projection.
-  Inference inference = 6;
+  Inference inference = 6 [ (gogoproto.nullable) = false ];
 }
 
 // Inference details type information which is statically known
@@ -197,7 +197,7 @@ message Inference {
   // Whether the projection must always exist (either as a location within)
   // the source document, or as a null-able column in the database.
   bool must_exist = 2;
-  // String type-specific inferences.
+  // String type-specific inferences, or nil iff types doesn't include "string".
   message String {
     // Annotated Content-Type when the projection is of "string" type.
     string content_type = 3;
@@ -228,7 +228,7 @@ message CollectionSpec {
   // Logical partition fields of this collection.
   repeated string partition_fields = 5;
   // Logical projections of this collection
-  repeated Projection projections = 6;
+  repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
   string ack_json_template = 7;
@@ -254,7 +254,7 @@ message TransformSpec {
 // DerivationSpec describes a collection, and it's means of derivation.
 message DerivationSpec {
   // Derivations are collections.
-  CollectionSpec collection = 1;
+  CollectionSpec collection = 1 [ (gogoproto.nullable) = false ];
   // Schema against which derivation registers are validated,
   // and which provides reduction annotations.
   string register_schema_uri = 2;
@@ -296,19 +296,29 @@ message FieldSelection {
 
 // MaterializationSpec describes a collection and its materialization to an endpoint.
 message MaterializationSpec {
-  // Name of this materialization.
-  string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
+  // Name of this materialization, derived from
+  // "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
+  // For example, {
+  //    endpoint_name: "company/team/database",
+  //    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
+  // } would have materialization name:
+  // "company/team/database/logical-db/and-schema/tab%21e"
+  string materialization = 1;
   // Collection to be materialized.
-  CollectionSpec collection = 2;
-  // Shuffle applied to collection documents for this materialization.
-  Shuffle shuffle = 3 [ (gogoproto.nullable) = false ];
+  CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+  // Endpoint to which we materialize.
+  string endpoint_name = 3;
   // Type of the materialization's endpoint.
   EndpointType endpoint_type = 4;
   // JSON-encoded object which configures this materialization with
   // respect to the endpoint type driver.
-  string endpoint_config = 5;
+  string endpoint_config_json = 5;
+  // Endpoint path components which fully qualify the subresource being materialized.
+  repeated string endpoint_resource_path = 6;
   // Resolved fields selected for materialization.
-  FieldSelection field_selection = 6;
+  FieldSelection field_selection = 7 [ (gogoproto.nullable) = false ];
+  // Shuffle applied to collection documents for this materialization.
+  Shuffle shuffle = 8 [ (gogoproto.nullable) = false ];
 }
 
 // TestSpec describes a catalog test.

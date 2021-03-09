@@ -143,70 +143,10 @@ test://example/more-endpoints:
     "": *spec
     inv alid: *spec
     inv!alid: *spec
-    inv/alid: *spec
 
     # Illegal duplicates under collation.
     CAPtUReEndpoINT: *spec
     Materializeendpoint: *spec
-"#,
-    );
-}
-
-#[test]
-fn test_invalid_capture_names_prefixes_and_duplicates() {
-    run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/catalog.yaml:
-  captures:
-    good: &spec
-      target:
-        name: testing/int-string
-      pushAPI: {}
-
-    "": *spec
-    bad name: *spec
-    bad!name: *spec
-    bad//name: *spec
-    bad/name/: *spec
-    /bad/name: *spec
-
-    # Invalid prefix of testing/int-string/pull & push.
-    testing: *spec
-
-    # Illegal duplicates under naming collation.
-    testing/int-sTRinG/pUll: *spec
-    testing/Int-strINg/PuSH: *spec
-"#,
-    );
-}
-
-#[test]
-fn test_invalid_materialization_names_prefixes_and_duplicates() {
-    run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/catalog.yaml:
-  materializations:
-    good: &spec
-      source:
-        name: testing/int-string
-      endpoint:
-        name: materializeEndpoint
-        config: { fixture: one }
-
-    "": *spec
-    bad name: *spec
-    bad!name: *spec
-    bad//name: *spec
-    bad/name/: *spec
-    /bad/name: *spec
-
-    # Invalid prefix of testing/int-string.
-    testing: *spec
-
-    # Illegal duplicate under naming collation.
-    testing/int-sTRinG: *spec
 "#,
     );
 }
@@ -236,10 +176,10 @@ fn test_capture_target_not_found() {
         r#"
 test://example/int-string-capture:
   captures:
-    testing/int-string/pull:
-      target: { name: testiNg/int-strinK }
-    testing/int-string/push:
-      target: { name: wildly/off/name }
+    - target: { name: testiNg/int-strinK }
+      endpoint: { name: captureEndpoint }
+    - target: { name: wildly/off/name }
+      endpoint: { name: captureEndpoint }
 "#,
     );
 }
@@ -251,11 +191,10 @@ fn test_capture_endpoint_not_found() {
         r#"
 test://example/int-string-capture:
   captures:
-    testing/int-string/pull:
+    - target: { name: testing/int-string }
       endpoint: { name: CaptureEndpoit }
-    testing/int-string/push:
+    - target: { name: testing/int-string }
       endpoint: { name: wildlyOffName }
-      pushAPI: null
 "#,
     );
 }
@@ -285,8 +224,10 @@ fn test_capture_target_is_derivation_and_missing_imports() {
 test://example/int-string-capture:
   include: null
   captures:
-    testing/int-string/pull:
-      target: { name: testing/int-reverse }
+    - target: { name: testing/int-reverse }
+      endpoint: { name: captureEndpoint }
+    - target: { name: testing/int-string }
+      pushAPI: {}
 "#,
     );
 }
@@ -298,9 +239,7 @@ fn test_capture_duplicates() {
         r#"
 test://example/catalog.yaml:
   captures:
-    testing/int-string/another/pull:
-      target:
-        name: testing/int-string
+    - target: { name: testing/int-string }
       endpoint: { name: captureEndpoint }
 "#,
     );
@@ -313,8 +252,7 @@ fn test_materialization_duplicates() {
         r#"
 test://example/catalog.yaml:
   materializations:
-    testing/int-halve-duplicate:
-      source:
+    - source:
         name: testing/int-halve
       endpoint:
         name: materializeEndpoint
@@ -342,9 +280,11 @@ test://example/int-reverse:
 test://example/int-string-materialization:
   include: [] # Clear.
   materializations:
-    testing/int-string:
+    - source:
+        name: testing/int-string
       endpoint:
         name: s3WithoutImport
+        config: { fixture: one }
 "#,
     );
 }
@@ -360,8 +300,7 @@ test://example/int-string:
       schema: test://example/int-string.schema#/not/found
 
 test://example/int-string-materialization:
-  materializations:
-    testing/int-string: null # Omit downstream errors.
+  materializations: [] # Omit downstream errors.
 
 test://example/int-halve:
   collections:
@@ -577,13 +516,13 @@ fn test_materialization_source_not_found() {
         r#"
 test://example/int-string-materialization:
   materializations:
-    testing/int-string:
-      source: { name: testiNg/int-strinK }
+    - source: { name: testiNg/int-strinK }
+      endpoint: { name: materializeEndpoint }
 
 test://example/int-halve-materialization:
   materializations:
-    testing/int-halve:
-      source: { name: wildly/off/name }
+    - source: { name: wildly/off/name }
+      endpoint: { name: materializeEndpoint }
 "#,
     );
 }
@@ -595,12 +534,12 @@ fn test_materialization_endpoint_not_found() {
         r#"
 test://example/int-string-materialization:
   materializations:
-    testing/int-string:
+    - source: { name: testing/int-string }
       endpoint: { name: MaterializeEndpoit }
 
 test://example/int-halve-materialization:
   materializations:
-    testing/int-halve:
+    - source: { name: testing/int-halve }
       endpoint: { name: wildlyOffName }
 "#,
     );
@@ -613,15 +552,20 @@ fn test_materialization_field_errors() {
         r#"
 test://example/int-halve-materialization:
   materializations:
-    testing/int-halve:
+    - source: { name: testing/int-halve }
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: two }
       fields:
         include:
           int: {} # Include and exclude.
           biT: {} # Unknown.
+          Len: {} # OK.
         exclude:
           - BiTT # Unknown.
           - WildlyOffName # Also unknown.
           - int
+        recommended: false
 "#,
     );
 }
@@ -661,13 +605,17 @@ fn test_materialization_driver_conflicts() {
         r#"
 test://example/int-string-materialization:
   materializations:
-    testing/int-string:
+    - source: { name: testing/int-string }
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: one }
       fields:
         include:
           str: {}
         exclude:
           - bit
           - Int
+        recommended: true
 driver:
   materializations:
     one:
@@ -819,6 +767,8 @@ struct MockMaterializationValidateCall {
     #[serde(default)]
     constraints: HashMap<String, materialize::Constraint>,
     #[serde(default)]
+    resource_path: Vec<String>,
+    #[serde(default)]
     error: Option<String>,
 }
 
@@ -842,6 +792,7 @@ impl validation::Drivers for MockDriverCalls {
                 } else {
                     return Ok(materialize::ValidateResponse {
                         constraints: call.constraints.clone(),
+                        resource_path: call.resource_path.clone(),
                     });
                 }
             }

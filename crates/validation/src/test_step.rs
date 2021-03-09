@@ -84,8 +84,7 @@ pub fn walk_test_step(
     // Dereference test collection, returning early if not found.
     let collection = match reference::walk_reference(
         scope,
-        "test step",
-        test,
+        &format!("test step {}", test.as_str()),
         "collection",
         collection,
         collections,
