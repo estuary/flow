@@ -346,7 +346,8 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.Equal(t, io.EOF, err)
 
 	// Last thing is to snapshot the database tables we care about
-	var tab = sqlDriver.TableForMaterialization(cfg.Table, "", &pf.MaterializationSpec{
+	var quotes = sqlDriver.DoubleQuotes()
+	var tab = sqlDriver.TableForMaterialization(cfg.Table, "", &quotes, &pf.MaterializationSpec{
 		Collection:     collection,
 		FieldSelection: &fields,
 	})
@@ -386,15 +387,15 @@ func dumpTables(t *testing.T, uri string, tables ...*sqlDriver.Table) string {
 			if i > 0 {
 				colNames.WriteString(", ")
 			}
-			colNames.WriteString(col.Name)
+			colNames.WriteString(col.Identifier)
 		}
 
-		var sql = fmt.Sprintf("SELECT %s FROM %s;", colNames.String(), table.Name)
+		var sql = fmt.Sprintf("SELECT %s FROM %s;", colNames.String(), table.Identifier)
 		rows, err := db.Query(sql)
 		require.NoError(t, err)
 		defer rows.Close()
 
-		fmt.Fprintf(&builder, "%s:\n", table.Name)
+		fmt.Fprintf(&builder, "%s:\n", table.Identifier)
 		builder.WriteString(colNames.String())
 
 		for rows.Next() {
@@ -425,54 +426,4 @@ func newLoadReq(keys ...[]byte) pm.TransactionRequest_Load {
 		Arena:      arena,
 		PackedKeys: packedKeys,
 	}
-}
-
-func testTable() (sqlDriver.Table, *pf.FieldSelection) {
-	return sqlDriver.Table{
-			Name:        "test_table",
-			Comment:     "this is a test\nmultiline\ncomment",
-			IfNotExists: false,
-			Columns: []sqlDriver.Column{
-				{
-					Name:       "key_a",
-					Comment:    "key_a\nmultiline\ncomment",
-					PrimaryKey: true,
-					Type:       sqlDriver.INTEGER,
-					NotNull:    true,
-				},
-				{
-					Name:       "key_b",
-					PrimaryKey: true,
-					Type:       sqlDriver.STRING,
-					NotNull:    true,
-				},
-				{
-					Name:       "key_c",
-					PrimaryKey: true,
-					Type:       sqlDriver.BOOLEAN,
-					NotNull:    true,
-				},
-				{
-					Name: "val_x",
-					Type: sqlDriver.BINARY,
-				},
-				{
-					Name: "val_y",
-					Type: sqlDriver.NUMBER,
-				},
-				{
-					Name: "val_z",
-					Type: sqlDriver.ARRAY,
-				},
-				{
-					Name:    "flow_document",
-					Type:    sqlDriver.OBJECT,
-					NotNull: true,
-				},
-			},
-		}, &pf.FieldSelection{
-			Keys:     []string{"key_a", "key_b", "key_c"},
-			Values:   []string{"val_x", "val_y", "val_z"},
-			Document: "flow_document",
-		}
 }

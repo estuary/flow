@@ -52,8 +52,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 	var rowsAffected int64
 	if result, err := txn.Exec(
 		fmt.Sprintf(
-			`UPDATE "%s" SET "fence"="fence"+1 WHERE "shard_fqn"=%s;`,
-			e.Tables.Checkpoints,
+			"UPDATE %s SET fence=fence+1 WHERE shard_fqn=%s;",
+			e.Tables.Checkpoints.Identifier,
 			e.Generator.Placeholder(0),
 		),
 		shardFqn,
@@ -68,8 +68,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		// Exists; no-op.
 	} else if _, err = txn.Exec(
 		fmt.Sprintf(
-			`INSERT INTO "%s" ("shard_fqn", "checkpoint", "fence") VALUES (%s, '', 1);`,
-			e.Tables.Checkpoints,
+			"INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (%s, '', 1);",
+			e.Tables.Checkpoints.Identifier,
 			e.Generator.Placeholder(0),
 		),
 		shardFqn,
@@ -83,8 +83,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 
 	if err = txn.QueryRow(
 		fmt.Sprintf(
-			`SELECT "fence", "checkpoint" FROM "%s" WHERE "shard_fqn"=%s;`,
-			e.Tables.Checkpoints,
+			"SELECT fence, checkpoint FROM %s WHERE shard_fqn=%s;",
+			e.Tables.Checkpoints.Identifier,
 			e.Generator.Placeholder(0),
 		),
 		shardFqn,
@@ -106,8 +106,8 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 
 	// Craft SQL which is used for future commits under this fence.
 	var updateSQL = fmt.Sprintf(
-		`UPDATE "%s" SET "checkpoint"=%s WHERE "shard_fqn"=%s AND "fence"=%s;`,
-		e.Tables.Checkpoints,
+		"UPDATE %s SET checkpoint=%s WHERE shard_fqn=%s AND fence=%s;",
+		e.Tables.Checkpoints.Identifier,
 		e.Generator.Placeholder(0),
 		e.Generator.Placeholder(1),
 		e.Generator.Placeholder(2),
