@@ -19,9 +19,9 @@ type Endpoint struct {
 	EndpointType pf.EndpointType
 	Generator    Generator
 	Tables       struct {
-		Target      string
-		Checkpoints string
-		Specs       string
+		TargetName  string
+		Checkpoints *Table
+		Specs       *Table
 	}
 }
 
@@ -41,16 +41,16 @@ func (e *Endpoint) LoadSpec(mustExist bool) (*pf.MaterializationSpec, error) {
 	var err = e.DB.QueryRowContext(
 		e.Context,
 		fmt.Sprintf(
-			`SELECT "spec" FROM "%s" WHERE "table_name"=%s;`,
-			e.Tables.Specs,
+			"SELECT spec FROM %s WHERE table_name=%s;",
+			e.Tables.Specs.Identifier,
 			e.Generator.Placeholder(0),
 		),
-		e.Tables.Target,
+		e.Tables.TargetName,
 	).Scan(&specB64)
 
 	if err != nil && !mustExist {
 		log.WithFields(log.Fields{
-			"table": e.Tables.Specs,
+			"table": e.Tables.Specs.Identifier,
 			"err":   err,
 		}).Warn("failed to query materialization spec (the table may not be initialized?)")
 

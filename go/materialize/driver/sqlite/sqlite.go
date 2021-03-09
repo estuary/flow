@@ -75,15 +75,15 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				DB:           db,
 				Generator:    sqlDriver.SQLiteSQLGenerator(),
 			}
-			endpoint.Tables.Target = parsed.Table
-			endpoint.Tables.Checkpoints = sqlDriver.DefaultGazetteCheckpoints
-			endpoint.Tables.Specs = sqlDriver.DefaultFlowMaterializations
+			endpoint.Tables.TargetName = parsed.Table
+			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
+			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
 		NewTransactor: func(ep *sqlDriver.Endpoint, spec *pf.MaterializationSpec, fence *sqlDriver.Fence) (lifecycle.Transactor, error) {
 			var err error
-			var target = sqlDriver.TableForMaterialization(ep.Tables.Target, "", spec)
+			var target = sqlDriver.TableForMaterialization(ep.Tables.TargetName, "", &ep.Generator.IdentifierQuotes, spec)
 			var d = &transactor{ctx: ep.Context}
 
 			// Build all SQL statements and parameter converters.
@@ -330,17 +330,17 @@ func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields *pf.Field
 
 		// CREATE TABLE column definitions.
 		defs = append(defs,
-			fmt.Sprintf("%q %s",
-				col.Name,
+			fmt.Sprintf("%s %s",
+				col.Identifier,
 				resolved.SQLType,
 			),
 		)
 		// INSERT key columns.
-		keys = append(keys, fmt.Sprintf("%q", col.Name))
+		keys = append(keys, col.Identifier)
 		keyPH = append(keyPH, gen.Placeholder(idx))
 
 		// JOIN constraint.
-		joins = append(joins, fmt.Sprintf("l.%q = r.%q", col.Name, col.Name))
+		joins = append(joins, fmt.Sprintf("l.%s = r.%s", col.Identifier, col.Identifier))
 	}
 
 	// We attach a connection-scoped temporary DB to host our "keys to load" temp table.
@@ -369,13 +369,13 @@ func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields *pf.Field
 
 	// SELECT documents included in keys to load.
 	keyJoin = fmt.Sprintf(`
-		SELECT l.%q
-			FROM %q AS l
+		SELECT l.%s
+			FROM %s AS l
 			JOIN load.keys AS r
 			ON %s
 		;`,
-		fields.Document,
-		table.Name,
+		table.GetColumn(fields.Document).Identifier,
+		table.Identifier,
 		strings.Join(joins, " AND "),
 	)
 

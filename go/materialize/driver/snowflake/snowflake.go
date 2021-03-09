@@ -78,15 +78,15 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 				EndpointType: et,
 				Generator:    SQLGenerator(),
 			}
-			endpoint.Tables.Target = parsed.Table
-			endpoint.Tables.Checkpoints = sqlDriver.DefaultGazetteCheckpoints
-			endpoint.Tables.Specs = sqlDriver.DefaultFlowMaterializations
+			endpoint.Tables.TargetName = parsed.Table
+			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
+			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
 		NewTransactor: func(ep *sqlDriver.Endpoint, spec *pf.MaterializationSpec, fence *sqlDriver.Fence) (lifecycle.Transactor, error) {
 			var err error
-			var target = sqlDriver.TableForMaterialization(ep.Tables.Target, "", spec)
+			var target = sqlDriver.TableForMaterialization(ep.Tables.TargetName, "", &ep.Generator.IdentifierQuotes, spec)
 			var d = &transactor{
 				ctx: ep.Context,
 				cfg: ep.Config.(*snowflakeConfig),
@@ -406,18 +406,21 @@ func BuildSQL(table *sqlDriver.Table, fields *pf.FieldSelection, loadUUID, store
 
 	var exStore, names, rValues []string
 	for idx, name := range fields.AllFields() {
-		exStore = append(exStore, fmt.Sprintf("$1[%d] AS %q", idx, name))
-		names = append(names, fmt.Sprintf("%q", name))
-		rValues = append(rValues, fmt.Sprintf("r.%q", name))
+		var col = table.GetColumn(name)
+		exStore = append(exStore, fmt.Sprintf("$1[%d] AS %s", idx, col.Identifier))
+		names = append(names, col.Identifier)
+		rValues = append(rValues, fmt.Sprintf("r.%s", col.Identifier))
 	}
 	var exLoad, joins []string
 	for idx, name := range fields.Keys {
-		exLoad = append(exLoad, fmt.Sprintf("$1[%d] AS %q", idx, name))
-		joins = append(joins, fmt.Sprintf("%q.%q = r.%q", table.Name, name, name))
+		var col = table.GetColumn(name)
+		exLoad = append(exLoad, fmt.Sprintf("$1[%d] AS %s", idx, col.Identifier))
+		joins = append(joins, fmt.Sprintf("%s.%s = r.%s", table.Identifier, col.Identifier, col.Identifier))
 	}
 	var updates []string
 	for _, name := range append(fields.Values, fields.Document) {
-		updates = append(updates, fmt.Sprintf("%q.%q = r.%q", table.Name, name, name))
+		var col = table.GetColumn(name)
+		updates = append(updates, fmt.Sprintf("%s.%s = r.%s", table.Identifier, col.Identifier, col.Identifier))
 	}
 
 	createStage = `
@@ -430,17 +433,17 @@ func BuildSQL(table *sqlDriver.Table, fields *pf.FieldSelection, loadUUID, store
 		;`
 
 	keyJoin = fmt.Sprintf(`
-		SELECT %q.%q
-		FROM %q
+		SELECT %s.%s
+		FROM %s
 		JOIN (
 			SELECT %s
 			FROM @flow_v1/%s
 		) AS r
 		ON %s
 		;`,
-		table.Name,
-		fields.Document,
-		table.Name,
+		table.Identifier,
+		table.GetColumn(fields.Document).Identifier,
+		table.Identifier,
 		strings.Join(exLoad, ", "),
 		loadUUID.String(),
 		strings.Join(joins, " AND "),
@@ -455,20 +458,20 @@ func BuildSQL(table *sqlDriver.Table, fields *pf.FieldSelection, loadUUID, store
 	)
 
 	copyInto = fmt.Sprintf(`
-		COPY INTO %q (
+		COPY INTO %s (
 			%s
 		) FROM (%s)
 		;`,
-		table.Name,
+		table.Identifier,
 		strings.Join(names, ", "),
 		storeSubquery,
 	)
 
 	mergeInto = fmt.Sprintf(`
-		MERGE INTO %q
+		MERGE INTO %s
 		USING (%s) AS r
 		ON %s
-		WHEN MATCHED AND IS_NULL_VALUE(r.%q) THEN
+		WHEN MATCHED AND IS_NULL_VALUE(r.%s) THEN
 			DELETE
 		WHEN MATCHED THEN
 			UPDATE SET %s
@@ -476,10 +479,10 @@ func BuildSQL(table *sqlDriver.Table, fields *pf.FieldSelection, loadUUID, store
 			INSERT (%s)
 			VALUES (%s)
 		;`,
-		table.Name,
+		table.Identifier,
 		storeSubquery,
 		strings.Join(joins, " AND "),
-		fields.Document,
+		table.GetColumn(fields.Document).Identifier,
 		strings.Join(updates, ", "),
 		strings.Join(names, ", "),
 		strings.Join(rValues, ", "),

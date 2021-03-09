@@ -9,6 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIdentifierQuoting(t *testing.T) {
+	var quotes = &TokenPair{
+		Left:  "L",
+		Right: "R",
+	}
+	var quote = []string{
+		"f o o",
+		"3two_one",
+		"wello$horld",
+		"a/b",
+	}
+	for _, name := range quote {
+		require.Equal(t, "L"+name+"R", toIdentifier(name, quotes))
+	}
+
+	var noQuote = []string{
+		"FOO",
+		"foo",
+		"没有双引号",
+		"_bar",
+		"one_2_3",
+	}
+	for _, name := range noQuote {
+		require.Equal(t, name, toIdentifier(name, quotes))
+	}
+}
+
 func TestSQLGenerator(t *testing.T) {
 	var testTable = testTable()
 	var gazetteCheckpoints = GazetteCheckpointsTable(DefaultGazetteCheckpoints)
@@ -25,10 +52,12 @@ func TestSQLGenerator(t *testing.T) {
 	for dialect, gen := range generators {
 		for _, table := range allTables {
 			// Test all the generic sql generation functions for each table
-			t.Run(fmt.Sprintf("%s_%s", dialect, table.Name), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s_%s", dialect, table.Identifier), func(t *testing.T) {
 				var createTable, err = gen.CreateTable(table)
 				require.NoError(t, err)
 
+				// Store the Names of the key and value columns so we can reference them when
+				// generating statements.
 				var keyColumns []string
 				var valueColumns []string
 				for _, col := range table.Columns {
@@ -95,12 +124,13 @@ func TestDefaultQuoteStringValue(t *testing.T) {
 
 func testTable() Table {
 	return Table{
-		Name:        "test_table",
+		Identifier:  "test_table",
 		Comment:     "this is a test\nmultiline\ncomment",
 		IfNotExists: false,
 		Columns: []Column{
 			{
 				Name:       "key_a",
+				Identifier: "\"key_a\"",
 				Comment:    "key_a\nmultiline\ncomment",
 				PrimaryKey: true,
 				Type:       INTEGER,
@@ -108,32 +138,38 @@ func testTable() Table {
 			},
 			{
 				Name:       "key_b",
+				Identifier: "key_b",
 				PrimaryKey: true,
 				Type:       STRING,
 				NotNull:    true,
 			},
 			{
 				Name:       "key_c",
+				Identifier: "key_c",
 				PrimaryKey: true,
 				Type:       BOOLEAN,
 				NotNull:    true,
 			},
 			{
-				Name: "val_x",
-				Type: BINARY,
+				Name:       "val_x",
+				Identifier: "val_x",
+				Type:       BINARY,
 			},
 			{
-				Name: "val_y",
-				Type: NUMBER,
+				Name:       "val_y",
+				Identifier: "val_y",
+				Type:       NUMBER,
 			},
 			{
-				Name: "val_z",
-				Type: ARRAY,
+				Name:       "val_z",
+				Identifier: "val_z",
+				Type:       ARRAY,
 			},
 			{
-				Name:    "flow_document",
-				Type:    OBJECT,
-				NotNull: true,
+				Name:       "flow_document",
+				Identifier: "flow_document",
+				Type:       OBJECT,
+				NotNull:    true,
 			},
 		},
 	}
