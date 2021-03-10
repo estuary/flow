@@ -5,11 +5,10 @@ import (
 )
 
 // GetProjectionByField finds the projection with the given field name, or nil if one does not exist
-// TODO: change references to this to use GetProjection instead
-func GetProjectionByField(field string, projections []*Projection) *Projection {
-	for _, proj := range projections {
-		if proj.Field == field {
-			return proj
+func GetProjectionByField(field string, projections []Projection) *Projection {
+	for p := range projections {
+		if projections[p].Field == field {
+			return &projections[p]
 		}
 	}
 	return nil
@@ -28,9 +27,6 @@ func (m *CollectionSpec) Validate() error {
 		var err error
 		if proj.Field == "" {
 			err = pb.NewValidationError("missing field")
-		}
-		if proj.Inference == nil {
-			return pb.NewValidationError("missing inferences")
 		}
 		if len(proj.Inference.Types) == 0 {
 			return pb.NewValidationError("missing inference types")

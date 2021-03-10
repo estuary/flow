@@ -175,7 +175,7 @@ func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 			return fmt.Errorf("unpacking partitions: %w", err)
 		}
 		_, err = pub.PublishUncommitted(a.mapper.Map, flow.Mappable{
-			Spec:       a.derivation.Collection,
+			Spec:       &a.derivation.Collection,
 			Doc:        doc,
 			PackedKey:  packedKey,
 			Partitions: partitions,

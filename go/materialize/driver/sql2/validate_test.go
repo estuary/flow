@@ -51,8 +51,8 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 		Document: "flow_document",
 	}
 	var existingSpec = pf.MaterializationSpec{
-		Collection:     existingCollection,
-		FieldSelection: existingFields,
+		Collection:     *existingCollection,
+		FieldSelection: *existingFields,
 	}
 
 	// Load a new copy of the same collection, which we'll modify and use as the "proposed"
@@ -62,7 +62,7 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	// constraint
 	var intProjection = proposedCollection.GetProjection("int")
 	intProjection.Inference.Types = []string{"string"}
-	// string projection is going from optional to requried, which should be allowed
+	// string projection is going from optional to required, which should be allowed
 	var stringProjection = proposedCollection.GetProjection("string")
 	stringProjection.Inference.MustExist = true
 
@@ -82,8 +82,8 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, numConstraint.Type)
 
 	var proposedSpec = pf.MaterializationSpec{
-		Collection:     proposedCollection,
-		FieldSelection: existingFields,
+		Collection:     *proposedCollection,
+		FieldSelection: *existingFields,
 	}
 	var constraintsError = ValidateSelectedFields(constraints, &proposedSpec)
 	require.Error(t, constraintsError)

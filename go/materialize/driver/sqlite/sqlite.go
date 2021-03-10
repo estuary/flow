@@ -11,7 +11,6 @@ import (
 
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	"github.com/estuary/flow/go/materialize/lifecycle"
-	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
@@ -21,13 +20,13 @@ import (
 // NewSQLiteDriver creates a new Driver for sqlite.
 func NewSQLiteDriver() *sqlDriver.Driver {
 	return &sqlDriver.Driver{
-		NewEndpoint: func(ctx context.Context, et flow.EndpointType, config json.RawMessage) (*sqlDriver.Endpoint, error) {
-			var parsed struct {
+		NewEndpoint: func(ctx context.Context, name string, config json.RawMessage) (*sqlDriver.Endpoint, error) {
+			var parsed = new(struct {
 				Path  string
 				Table string
-			}
+			})
 
-			if err := json.Unmarshal(config, &parsed); err != nil {
+			if err := json.Unmarshal(config, parsed); err != nil {
 				return nil, fmt.Errorf("parsing SQLite configuration: %w", err)
 			}
 			if parsed.Path == "" {
@@ -70,9 +69,12 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 			}
 
 			var endpoint = &sqlDriver.Endpoint{
+				Config:       parsed,
 				Context:      ctx,
-				EndpointType: et,
+				Name:         name,
 				DB:           db,
+				DeltaUpdates: false, // TODO: supporting deltas requires relaxing CREATE TABLE generation.
+				TablePath:    []string{parsed.Table},
 				Generator:    sqlDriver.SQLiteSQLGenerator(),
 			}
 			endpoint.Tables.TargetName = parsed.Table
@@ -316,7 +318,7 @@ func (d *transactor) Destroy() {
 var sqliteOpenMu sync.Mutex
 
 // BuildSQL builds SQL statements used for SQLite materialization.
-func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields *pf.FieldSelection) (
+func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields pf.FieldSelection) (
 	attach, keyCreate, keyInsert, keyJoin, keyTruncate string, err error) {
 
 	var defs, keys, keyPH, joins []string

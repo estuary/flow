@@ -59,7 +59,7 @@ func (f *Fixture) OpenTransactions(req **pm.TransactionRequest, driverCheckpoint
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting transactions rpc: %w", err)
 	}
-	err = lifecycle.WriteOpen(stream, req, f.materialization.EndpointType, f.materialization.EndpointConfig, f.materialization.FieldSelection, f.ShardId, driverCheckpoint)
+	err = lifecycle.WriteOpen(stream, req, f.materialization, f.ShardId, driverCheckpoint)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening transactions: %w", err)
 	}
@@ -160,8 +160,8 @@ func (f *Fixture) StoreDocuments(stream pm.Driver_TransactionsClient, req **pm.T
 func (f *Fixture) Validate() (*pm.ValidateResponse, error) {
 	var validateRequest = pm.ValidateRequest{
 		EndpointType:       f.materialization.EndpointType,
-		EndpointConfigJson: f.materialization.EndpointConfig,
-		Collection:         f.materialization.Collection,
+		EndpointConfigJson: f.materialization.EndpointConfigJson,
+		Collection:         &f.materialization.Collection,
 	}
 	return f.Driver.Validate(f.Ctx, &validateRequest)
 }
@@ -194,14 +194,14 @@ func newCheckpoint(id int64) pc.Checkpoint {
 // NewMaterialization returns a MaterializationSpec for use by tests. This is a hard coded
 // materialization that includes a field of each type.
 func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string) *pf.MaterializationSpec {
-	var inf = func(mustExist bool, types ...string) *pf.Inference {
-		return &pf.Inference{
+	var inf = func(mustExist bool, types ...string) pf.Inference {
+		return pf.Inference{
 			Types:     types,
 			MustExist: mustExist,
 		}
 	}
-	var proj = func(prt, field string, isKey bool, inference *pf.Inference) *pf.Projection {
-		return &pf.Projection{
+	var proj = func(prt, field string, isKey bool, inference pf.Inference) pf.Projection {
+		return pf.Projection{
 			Ptr:          "/" + field,
 			Field:        field,
 			IsPrimaryKey: isKey,
@@ -209,17 +209,17 @@ func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string)
 		}
 	}
 
-	var valueProj = func(ty string) *pf.Projection {
+	var valueProj = func(ty string) pf.Projection {
 		return proj("/"+ty, ty, false, inf(false, ty))
 	}
 
 	return &pf.MaterializationSpec{
-		Collection: &pf.CollectionSpec{
+		Collection: pf.CollectionSpec{
 			Collection: "materialization/test",
 			SchemaUri:  "http://test.test/schema.json",
 			KeyPtrs:    []string{"/key1", "/key2"},
 			UuidPtr:    "/_meta/uuid",
-			Projections: []*pf.Projection{
+			Projections: []pf.Projection{
 				proj("/key1", "key1", true, inf(true, "integer")),
 				proj("/key2", "key2", true, inf(true, "string")),
 				proj("", "flow_document", false, inf(true, "object")),
@@ -231,7 +231,7 @@ func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string)
 				valueProj("object"),
 			},
 		},
-		FieldSelection: &pf.FieldSelection{
+		FieldSelection: pf.FieldSelection{
 			Keys:     []string{"key1", "key2"},
 			Values:   []string{"boolean", "integer", "number", "string"},
 			Document: "flow_document",
@@ -252,8 +252,8 @@ func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string)
 			SourceSchemaUri:  "http://test.test/schema.json",
 			UsesSourceSchema: true,
 		},
-		EndpointType:   endpointType,
-		EndpointConfig: endpointConfigJson,
+		EndpointType:       endpointType,
+		EndpointConfigJson: endpointConfigJson,
 	}
 }
 

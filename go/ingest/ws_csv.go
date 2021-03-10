@@ -134,7 +134,7 @@ func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error 
 	// headers and the rest of the data), and with an error message that's hopefully more clear and
 	// explicit than the validation error.
 	for _, projection := range collection.Projections {
-		if projection.Inference.MustExist && !isProjectionIncluded(projection, columnPointers) {
+		if projection.Inference.MustExist && !isProjectionIncluded(&projection, columnPointers) {
 			return fmt.Errorf("Header does not include any field that maps to the location: '%s', which is required to exist by the collection schema", projection.Ptr)
 		}
 	}

@@ -305,7 +305,7 @@ func testCSVTypeConversions(t *testing.T) {
 		var projection = pf.Projection{
 			Ptr:   "/the/ptr",
 			Field: "theField",
-			Inference: &pf.Inference{
+			Inference: pf.Inference{
 				Types: types,
 			},
 		}

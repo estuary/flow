@@ -89,7 +89,7 @@ func ValidateMatchesExisting(existing *pf.MaterializationSpec, proposed *pf.Coll
 	var constraints = make(map[string]*pm.Constraint)
 	for _, field := range existing.FieldSelection.AllFields() {
 		var constraint = new(pm.Constraint)
-		var typeError = checkTypeError(field, existing.Collection, proposed)
+		var typeError = checkTypeError(field, &existing.Collection, proposed)
 		if len(typeError) > 0 {
 			constraint.Type = pm.Constraint_UNSATISFIABLE
 			constraint.Reason = typeError
