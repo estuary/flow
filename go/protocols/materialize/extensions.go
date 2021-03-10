@@ -10,3 +10,8 @@ func (m *Constraint_Type) IsForbidden() bool {
 		return false
 	}
 }
+
+// ExplicitZeroCheckpoint is a zero-valued message encoding,
+// implemented as a trivial encoding of the max-value 2^29-1 protobuf
+// tag with boolean true. See TransactionResponse_Opened.FlowCheckpoint.
+var ExplicitZeroCheckpoint = []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}

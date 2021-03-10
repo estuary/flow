@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -68,11 +69,15 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		// Exists; no-op.
 	} else if _, err = txn.Exec(
 		fmt.Sprintf(
-			"INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (%s, '', 1);",
+			"INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (%s, %s, 1);",
 			e.Tables.Checkpoints.Identifier,
 			e.Generator.Placeholder(0),
+			e.Generator.Placeholder(1),
 		),
 		shardFqn,
+		// Initialize a checkpoint such that the materialization starts from
+		// scratch, regardless of the runtime's internal checkpoint.
+		base64.StdEncoding.EncodeToString(pm.ExplicitZeroCheckpoint),
 	); err != nil {
 		return nil, fmt.Errorf("inserting fence: %w", err)
 	}
