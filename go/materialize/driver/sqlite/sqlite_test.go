@@ -168,7 +168,10 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// Receive Opened.
 	opened, err := transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, opened.Opened, opened)
+	require.Equal(t, &pm.TransactionResponse_Opened{
+		DeltaUpdates:   false,
+		FlowCheckpoint: pm.ExplicitZeroCheckpoint,
+	}, opened.Opened)
 
 	// Test Load with keys that don't exist yet
 	var key1 = tuple.Tuple{"key1Value"}

@@ -639,8 +639,15 @@ var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
 // Opened responds to TransactionRequest.Open of the client.
 type TransactionResponse_Opened struct {
 	// Flow checkpoint which was previously committed with this |shard_fqn|.
-	// May be nil, if unknown or if transactional semantics are not supported,
-	// in which case the Flow runtime will use its most-recent persisted checkpoint.
+	// May be nil if the Driver is not stateful, in which case the Flow runtime
+	// will use its most-recent internal checkpoint. Note this internal checkpoint
+	// is at-least-once (at most one following transaction may have been partially
+	// or even fully committed since it was recorded).
+	//
+	// A driver may also send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+	// to instruct the Flow runtime to disregard its internal checkpoint and
+	// fully rebuild the materialization from scratch. This sentinel is a
+	// trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
 	FlowCheckpoint []byte `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
 	// Materialize combined delta updates of documents rather than full reductions.
 	//
