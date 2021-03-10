@@ -192,8 +192,15 @@ pub mod transaction_response {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
         /// Flow checkpoint which was previously committed with this |shard_fqn|.
-        /// May be nil, if unknown or if transactional semantics are not supported,
-        /// in which case the Flow runtime will use its most-recent persisted checkpoint.
+        /// May be nil if the Driver is not stateful, in which case the Flow runtime
+        /// will use its most-recent internal checkpoint. Note this internal checkpoint
+        /// is at-least-once (at most one following transaction may have been partially
+        /// or even fully committed since it was recorded).
+        ///
+        /// A driver may also send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+        /// to instruct the Flow runtime to disregard its internal checkpoint and
+        /// fully rebuild the materialization from scratch. This sentinel is a
+        /// trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
         #[prost(bytes = "vec", tag = "1")]
         pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
         /// Materialize combined delta updates of documents rather than full reductions.
