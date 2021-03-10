@@ -25,6 +25,8 @@ tables!(
         from_resource: url::Url,
         // Resource which is imported.
         to_resource: url::Url,
+        // Resource is included, as opposed to merely referenced.
+        include: bool,
     }
 
     table NPMDependencies (row NPMDependency, sql "npm_dependencies") {
