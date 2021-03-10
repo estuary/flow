@@ -60,35 +60,28 @@ collections:
           update: { lambda: typescript }
           publish: { lambda: typescript }
 
-captures:
-  soak/set-ops/operations:
-    target: { name: soak/set-ops/operations }
-    pushAPI: {}
-
 materializations:
-  soak/set-ops/sets/toExamples:
+  - source:
+      name: soak/set-ops/sets
     endpoint:
-      name: examples
+      name: examples/examples.db
       config: { table: sets }
     fields:
       recommended: true
       include:
         DerivedValues: {}
         ExpectValues: {}
-    source:
-      name: soak/set-ops/sets
 
-  soak/set-ops/sets-register/toExamples:
+  - source:
+      name: soak/set-ops/sets-register
     endpoint:
-      name: examples
+      name: examples/examples.db
       config: { table: sets_register }
     fields:
       recommended: true
       include:
         DerivedValues: {}
         ExpectValues: {}
-    source:
-      name: soak/set-ops/sets-register
 
 tests:
   "Set soak-test update and verify":

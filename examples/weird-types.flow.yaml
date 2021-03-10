@@ -82,15 +82,3 @@ collections:
       intDifferentRanges: /intDifferentRanges
       intOrNumOverlappingRanges: /intOrNumOverlappingRanges
       boolOrString: /boolOrString
-
-captures:
-  # These collections are used by `./go/ingest` tests.
-  weird-types/optionals:
-    target: { name: weird-types/optionals }
-    pushAPI: {}
-  weird-types/required-nullable:
-    target: { name: weird-types/required-nullable }
-    pushAPI: {}
-  weird-types/optional-multi-types:
-    target: { name: weird-types/optional-multi-types }
-    pushAPI: {}
