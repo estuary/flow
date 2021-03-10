@@ -1,5 +1,5 @@
 test://example/catalog.yaml:
-  import:
+  include:
     - rules_two.yaml
   journalRules:
     01 rule one:
