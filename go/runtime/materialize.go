@@ -104,7 +104,7 @@ func NewMaterializeApp(
 	}
 	conn, err := driver.NewDriver(shard.Context(),
 		spec.EndpointType,
-		json.RawMessage(spec.EndpointConfig),
+		json.RawMessage(spec.EndpointConfigJson),
 		recorder.Dir(),
 	)
 	if err != nil {
@@ -280,9 +280,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (checkpoint pc.Che
 	if err = lifecycle.WriteOpen(
 		m.driverTx,
 		&m.request,
-		m.spec.EndpointType,
-		m.spec.EndpointConfig,
-		m.spec.FieldSelection,
+		m.spec,
 		shard.FQN(),
 		m.store.State.(*storeState).DriverCheckpoint,
 	); err != nil {

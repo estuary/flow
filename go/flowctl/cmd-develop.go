@@ -149,7 +149,7 @@ func todoHackedMaterializeApply(catalog *flow.Catalog, shards pc.ShardClient) er
 		}
 
 		driver, err := driver.NewDriver(context.Background(),
-			spec.EndpointType, json.RawMessage(spec.EndpointConfig), "")
+			spec.EndpointType, json.RawMessage(spec.EndpointConfigJson), "")
 		if err != nil {
 			return fmt.Errorf("driver.NewDriver: %w", err)
 		}

@@ -97,17 +97,22 @@ func (catalog *Catalog) LoadMaterialization(name string) (*pf.MaterializationSpe
 
 	var b []byte
 	var materialization = new(pf.MaterializationSpec)
+	var collection *pf.CollectionSpec
 
 	if err := row.Scan(&b); err != nil {
 		return nil, fmt.Errorf("failed to load materialization: %w", err)
 	} else if err = materialization.Unmarshal(b); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal materialization: %w", err)
-	} else if materialization.Collection, err = catalog.LoadCollection(
+	} else if collection, err = catalog.LoadCollection(
 		materialization.Shuffle.SourceCollection.String()); err != nil {
 		return nil, fmt.Errorf("failed to load collection: %w", err)
-	} else if err := materialization.Validate(); err != nil {
+	}
+	materialization.Collection = *collection
+
+	if err := materialization.Validate(); err != nil {
 		return nil, fmt.Errorf("materialization %q is invalid: %w", name, err)
 	}
+
 	return materialization, nil
 }
 
@@ -166,7 +171,7 @@ func (catalog *Catalog) LoadDerivationNames() ([]string, error) {
 // LoadMaterializationNames loads names of materializations.
 func (catalog *Catalog) LoadMaterializationNames() ([]string, error) {
 	var rows, err = catalog.db.Query(`
-		SELECT materialization FROM materializations;
+		SELECT materialization FROM built_materializations;
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load materialization names: %w", err)
@@ -203,7 +208,6 @@ func (catalog *Catalog) LoadDerivedCollection(name string) (*pf.DerivationSpec, 
 	if err := derivation.Unmarshal(b1); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal derivation: %w", err)
 	}
-	derivation.Collection = new(pf.CollectionSpec)
 	if err := derivation.Collection.Unmarshal(b2); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal collection: %w", err)
 	}

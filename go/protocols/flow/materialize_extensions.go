@@ -6,12 +6,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-// Materialization names a specified catalog materialization.
-type Materialization string
-
-// String returns the Materialization name as a string.
-func (m Materialization) String() string { return string(m) }
-
 // AllFields returns the complete set of all the fields as a single string slice. All the keys
 // fields will be ordered first, in the same order as they appear in Keys, followed by all the
 // Values fields in the same order, with the root document field coming last.

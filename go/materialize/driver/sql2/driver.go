@@ -14,7 +14,7 @@ import (
 // Driver implements the pm.DriverServer interface.
 type Driver struct {
 	// NewEndpoint returns an Endpoint, which will be used to handle interactions with the database.
-	NewEndpoint func(context.Context, pf.EndpointType, json.RawMessage) (*Endpoint, error)
+	NewEndpoint func(_ context.Context, name string, config json.RawMessage) (*Endpoint, error)
 	// NewTransactor returns a Transactor ready for lifecycle.RunTransactions.
 	NewTransactor func(*Endpoint, *pf.MaterializationSpec, *Fence) (lifecycle.Transactor, error)
 }
@@ -25,7 +25,7 @@ var _ pm.DriverServer = &Driver{}
 func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {
 	endpoint, err := d.NewEndpoint(
 		ctx,
-		req.EndpointType,
+		req.EndpointName,
 		json.RawMessage(req.EndpointConfigJson),
 	)
 	if err != nil {
@@ -46,15 +46,18 @@ func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Val
 		constraints = ValidateNewSQLProjections(req.Collection)
 	}
 
-	return &pm.ValidateResponse{Constraints: constraints}, nil
+	return &pm.ValidateResponse{
+		Constraints:  constraints,
+		ResourcePath: endpoint.TablePath,
+	}, nil
 }
 
 // Apply implements the DriverServer interface.
 func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
 	endpoint, err := d.NewEndpoint(
 		ctx,
-		req.Materialization.EndpointType,
-		json.RawMessage(req.Materialization.EndpointConfig),
+		req.Materialization.EndpointName,
+		json.RawMessage(req.Materialization.EndpointConfigJson),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint: %w", err)
@@ -69,9 +72,9 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 
 	var constraints map[string]*pm.Constraint
 	if current != nil {
-		constraints = ValidateMatchesExisting(current, req.Materialization.Collection)
+		constraints = ValidateMatchesExisting(current, &req.Materialization.Collection)
 	} else {
-		constraints = ValidateNewSQLProjections(req.Materialization.Collection)
+		constraints = ValidateNewSQLProjections(&req.Materialization.Collection)
 	}
 
 	// Validate the request materialization is a valid solution for its own constraints.
@@ -135,8 +138,8 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 
 	endpoint, err := d.NewEndpoint(
 		stream.Context(),
-		open.Open.EndpointType,
-		json.RawMessage(open.Open.EndpointConfigJson),
+		open.Open.Materialization.EndpointName,
+		json.RawMessage(open.Open.Materialization.EndpointConfigJson),
 	)
 	if err != nil {
 		return fmt.Errorf("building endpoint: %w", err)

@@ -89,19 +89,19 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	validateResp, err := driver.Validate(ctx, &validateReq)
 	require.NoError(t, err)
 	// There should be a constraint for every projection
-	require.Equal(t, len(collection.Projections), len(validateResp.Constraints))
-
-	require.Equal(t, pm.Constraint_LOCATION_REQUIRED, validateResp.Constraints["theKey"].Type)
-	require.Equal(t, pm.Constraint_LOCATION_REQUIRED, validateResp.Constraints["flow_document"].Type)
-
-	require.Equal(t, pm.Constraint_LOCATION_RECOMMENDED, validateResp.Constraints["string"].Type)
-	require.Equal(t, pm.Constraint_LOCATION_RECOMMENDED, validateResp.Constraints["bool"].Type)
-	require.Equal(t, pm.Constraint_LOCATION_RECOMMENDED, validateResp.Constraints["int"].Type)
-	require.Equal(t, pm.Constraint_LOCATION_RECOMMENDED, validateResp.Constraints["number"].Type)
-	// TODO: we can add these assertions once this is integrated with the catalog spec changes,
-	// since that PR also generates projections for object and array fields.
-	//require.Equal(t, pm.Constraint_FIELD_OPTIONAL, validateResp.Constraints["object"].Type)
-	//require.Equal(t, pm.Constraint_FIELD_OPTIONAL, validateResp.Constraints["array"].Type)
+	require.Equal(t, &pm.ValidateResponse{
+		Constraints: map[string]*pm.Constraint{
+			"array":         {Type: pm.Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
+			"bool":          {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"flow_document": {Type: pm.Constraint_LOCATION_REQUIRED, Reason: "The root document must be materialized"},
+			"int":           {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"number":        {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"object":        {Type: pm.Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
+			"string":        {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"theKey":        {Type: pm.Constraint_LOCATION_REQUIRED, Reason: "All Locations that are part of the collections key are required"},
+		},
+		ResourcePath: []string{"test_target"},
+	}, validateResp)
 
 	// Select some fields and Apply the materialization
 	var fields = pf.FieldSelection{
@@ -111,10 +111,11 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	}
 	var applyReq = pm.ApplyRequest{
 		Materialization: &pf.MaterializationSpec{
-			Collection:     collection,
-			FieldSelection: &fields,
-			EndpointType:   pf.EndpointType_SQLITE,
-			EndpointConfig: string(cfgJSON),
+			Collection:           *collection,
+			FieldSelection:       fields,
+			EndpointType:         pf.EndpointType_SQLITE,
+			EndpointConfigJson:   string(cfgJSON),
+			EndpointResourcePath: []string{"test_target"},
 		},
 		DryRun: true,
 	}
@@ -153,11 +154,13 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// Send open.
 	err = transaction.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
-			EndpointType:       pf.EndpointType_SQLITE,
-			EndpointConfigJson: string(cfgJSON),
-			Fields:             &fields,
-			DriverCheckpoint:   nil,
-			ShardFqn:           "canary",
+			Materialization: &pf.MaterializationSpec{
+				EndpointType:       pf.EndpointType_SQLITE,
+				EndpointConfigJson: string(cfgJSON),
+				FieldSelection:     fields,
+			},
+			DriverCheckpoint: nil,
+			ShardFqn:         "canary",
 		},
 	})
 	require.NoError(t, err)
@@ -347,10 +350,11 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 
 	// Last thing is to snapshot the database tables we care about
 	var quotes = sqlDriver.DoubleQuotes()
-	var tab = sqlDriver.TableForMaterialization(cfg.Table, "", &quotes, &pf.MaterializationSpec{
-		Collection:     collection,
-		FieldSelection: &fields,
-	})
+	var tab = sqlDriver.TableForMaterialization(cfg.Table, "", &quotes,
+		&pf.MaterializationSpec{
+			Collection:     *collection,
+			FieldSelection: fields,
+		})
 	var dump = dumpTables(t, cfg.Path, tab)
 	cupaloy.SnapshotT(t, dump)
 }
