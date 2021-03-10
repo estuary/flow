@@ -14,9 +14,9 @@
     },
     "captures": {
       "title": "Captures of this Catalog.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
+      "default": [],
+      "type": "array",
+      "items": {
         "$ref": "#/definitions/CaptureDef"
       }
     },
@@ -74,9 +74,9 @@
     },
     "materializations": {
       "title": "Materializations of this Catalog.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
+      "default": [],
+      "type": "array",
+      "items": {
         "$ref": "#/definitions/MaterializationDef"
       }
     },
@@ -473,6 +473,18 @@
           "properties": {
             "snowflake": {
               "$ref": "#/definitions/SnowflakeConfig"
+            }
+          }
+        },
+        {
+          "title": "A Webhook.",
+          "type": "object",
+          "required": [
+            "webhook"
+          ],
+          "properties": {
+            "webhook": {
+              "$ref": "#/definitions/WebhookConfig"
             }
           }
         }
@@ -1195,10 +1207,10 @@
     "RemoteDriverConfig": {
       "type": "object",
       "required": [
-        "address"
+        "endpoint"
       ],
       "properties": {
-        "address": {
+        "endpoint": {
           "title": "gRPC address of the driver.",
           "type": "string"
         }
@@ -1313,7 +1325,6 @@
         "account",
         "database",
         "password",
-        "region",
         "role",
         "schema",
         "user",
@@ -1327,9 +1338,6 @@
           "type": "string"
         },
         "password": {
-          "type": "string"
-        },
-        "region": {
           "type": "string"
         },
         "role": {
@@ -1706,6 +1714,20 @@
         }
       },
       "additionalProperties": false
+    },
+    "WebhookConfig": {
+      "description": "Webhook configuration.",
+      "type": "object",
+      "required": [
+        "endpoint"
+      ],
+      "properties": {
+        "endpoint": {
+          "title": "URL endpoint of the Webhook.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
     }
   }
 }

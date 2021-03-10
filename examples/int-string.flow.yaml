@@ -30,12 +30,6 @@ collections:
             name: testing/int-string
           publish: { lambda: typescript }
 
-captures:
-  testing/int-string:
-    target:
-      name: testing/int-string
-    pushAPI: {}
-
 tests:
   "int-string ingestion only":
     - ingest:
