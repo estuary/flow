@@ -56,7 +56,10 @@ func (driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Valida
 		constraints[projection.Field] = constraint
 	}
 
-	return &pm.ValidateResponse{Constraints: constraints}, nil
+	return &pm.ValidateResponse{
+		Constraints:  constraints,
+		ResourcePath: []string{},
+	}, nil
 }
 
 // Apply is a no-op.
@@ -75,7 +78,8 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 
 	var cfg config
 
-	if err := json.Unmarshal([]byte(open.Open.EndpointConfigJson), &cfg); err != nil {
+	err = json.Unmarshal([]byte(open.Open.Materialization.EndpointConfigJson), &cfg)
+	if err != nil {
 		return fmt.Errorf("parsing config: %w", err)
 	} else if err = cfg.Validate(); err != nil {
 		return err

@@ -13,7 +13,6 @@ import (
 
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	"github.com/estuary/flow/go/materialize/lifecycle"
-	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/google/uuid"
@@ -33,7 +32,7 @@ type snowflakeConfig struct {
 // NewDriver creates a new Driver for Snowflake.
 func NewDriver(tempdir string) *sqlDriver.Driver {
 	return &sqlDriver.Driver{
-		NewEndpoint: func(ctx context.Context, et flow.EndpointType, config json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewEndpoint: func(ctx context.Context, name string, config json.RawMessage) (*sqlDriver.Endpoint, error) {
 			var parsed = new(snowflakeConfig)
 
 			if err := json.Unmarshal(config, &parsed); err != nil {
@@ -73,9 +72,10 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 			var endpoint = &sqlDriver.Endpoint{
 				Config:       parsed,
 				Context:      ctx,
+				Name:         name,
 				DB:           db,
 				DeltaUpdates: parsed.DeltaUpdates,
-				EndpointType: et,
+				TablePath:    []string{parsed.Database, parsed.Schema, parsed.Table},
 				Generator:    SQLGenerator(),
 			}
 			endpoint.Tables.TargetName = parsed.Table
@@ -401,7 +401,7 @@ func (f *scratchFile) put(cfg *snowflakeConfig) error {
 }
 
 // BuildSQL generates SQL used by Snowflake.
-func BuildSQL(table *sqlDriver.Table, fields *pf.FieldSelection, loadUUID, storeUUID uuid.UUID) (
+func BuildSQL(table *sqlDriver.Table, fields pf.FieldSelection, loadUUID, storeUUID uuid.UUID) (
 	createStage, keyJoin, copyInto, mergeInto string) {
 
 	var exStore, names, rValues []string

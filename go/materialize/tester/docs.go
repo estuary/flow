@@ -133,7 +133,7 @@ func (g *generator) updateValues(doc *document) {
 // field is a helper that wraps a Pointer and Inference and aid in generating new dummy values.
 type field struct {
 	ptr       *flow.Pointer
-	inference *pf.Inference
+	inference pf.Inference
 }
 
 func (f field) genValue(doc *interface{}, index int) interface{} {

@@ -144,7 +144,7 @@ func buildCombineFixtures() []Mappable {
 	var spec = &pf.CollectionSpec{
 		Collection:      "a/collection",
 		PartitionFields: []string{"bar", "foo"},
-		Projections: []*pf.Projection{
+		Projections: []pf.Projection{
 			{Ptr: "/ptr"},
 			{Ptr: "/ptr"},
 		},

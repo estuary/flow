@@ -17,9 +17,7 @@ import (
 func WriteOpen(
 	stream pm.Driver_TransactionsClient,
 	request **pm.TransactionRequest,
-	endpointType pf.EndpointType,
-	endpointConfigJSON string,
-	fields *pf.FieldSelection,
+	spec *pf.MaterializationSpec,
 	shardFQN string,
 	driverCheckpoint []byte,
 ) error {
@@ -29,11 +27,9 @@ func WriteOpen(
 
 	if err := stream.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
-			EndpointType:       endpointType,
-			EndpointConfigJson: endpointConfigJSON,
-			Fields:             fields,
-			ShardFqn:           shardFQN,
-			DriverCheckpoint:   driverCheckpoint,
+			Materialization:  spec,
+			ShardFqn:         shardFQN,
+			DriverCheckpoint: driverCheckpoint,
 		},
 	}); err != nil {
 		return fmt.Errorf("sending Open request: %w", err)

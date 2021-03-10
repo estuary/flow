@@ -64,10 +64,10 @@ func (c *Config) ToURI() string {
 // NewPostgresDriver creates a new Driver for postgresql.
 func NewPostgresDriver() *sqlDriver.Driver {
 	return &sqlDriver.Driver{
-		NewEndpoint: func(ctx context.Context, et pf.EndpointType, config json.RawMessage) (*sqlDriver.Endpoint, error) {
-			var parsed Config
+		NewEndpoint: func(ctx context.Context, name string, config json.RawMessage) (*sqlDriver.Endpoint, error) {
+			var parsed = new(Config)
 
-			if err := json.Unmarshal(config, &parsed); err != nil {
+			if err := json.Unmarshal(config, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Postgresql configuration: %w", err)
 			}
 			if err := parsed.Validate(); err != nil {
@@ -80,9 +80,12 @@ func NewPostgresDriver() *sqlDriver.Driver {
 			}
 
 			var endpoint = &sqlDriver.Endpoint{
+				Config:       parsed,
 				Context:      ctx,
-				EndpointType: et,
+				Name:         name,
 				DB:           db,
+				DeltaUpdates: false, // TODO: supporting deltas requires relaxing CREATE TABLE generation.
+				TablePath:    []string{parsed.DBName, parsed.User, parsed.Table},
 				Generator:    sqlDriver.PostgresSQLGenerator(),
 			}
 			endpoint.Tables.TargetName = parsed.Table
@@ -320,7 +323,7 @@ func (t *keyCopySource) Values() ([]interface{}, error) {
 }
 
 // BuildSQL builds SQL statements use for PostgreSQL materializations.
-func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields *pf.FieldSelection) (
+func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields pf.FieldSelection) (
 	keyCreate, keyJoin string, err error) {
 
 	var defs, joins []string

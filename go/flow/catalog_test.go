@@ -46,6 +46,21 @@ func TestLoadDerivedCollection(t *testing.T) {
 	cupaloy.SnapshotT(t, spec)
 }
 
+func TestLoadMaterializationNames(t *testing.T) {
+	var catalog, err = NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	names, err := catalog.LoadMaterializationNames()
+	require.NoError(t, err)
+	require.Equal(t, []string{"examples/examples.db/sets", "examples/examples.db/sets_register"}, names)
+}
+
+func TestLoadMaterialization(t *testing.T) {
+	var catalog, err = NewCatalog("../../catalog.db", "")
+	require.NoError(t, err)
+	_, err = catalog.LoadMaterialization("examples/examples.db/sets")
+	require.NoError(t, err)
+}
+
 func TestLoadJournalRules(t *testing.T) {
 	var catalog, err = NewCatalog("../../catalog.db", "")
 	require.NoError(t, err)
