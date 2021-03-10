@@ -6,7 +6,7 @@ include:
   - weird-types.flow.yaml
 
 endpoints:
-  examples:
+  examples/examples.db:
     sqlite:
       # Use WAL mode so that Flow-external reads (e.x. from `sqlite3`)
       # don't fail with "database is locked" errors.

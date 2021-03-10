@@ -34,11 +34,6 @@ collections:
           readDelay: 24h
           publish: { lambda: typescript }
 
-captures:
-  stock/ticks:
-    target: { name: stock/ticks }
-    pushAPI: {}
-
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around
   # to exercise various code paths. This should be removed and covered by novel tests
