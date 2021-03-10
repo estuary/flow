@@ -639,34 +639,3 @@ service Ingester {
   // rpc IngestMany(stream IngestRequest) returns (IngestResponse);
   // rpc IngestStream(stream IngestRequest) returns (stream IngestResponse);
 }
-
-// AdvanceTimeRequest is a testing-only request to modify effective test time.
-message AdvanceTimeRequest {
-  // Number of seconds to add to the current clock delta.
-  uint64 add_clock_delta_seconds = 1;
-}
-
-// AdvanceTimeRequest is a testing-only response to modify effective test time.
-message AdvanceTimeResponse {
-  // Current effective delta from wall-clock time, in seconds.
-  uint64 clock_delta_seconds = 1;
-}
-
-// ClearRegistersRequest is a testing-only request to remove all registers of a shard.
-message ClearRegistersRequest {
-  protocol.Header header = 1;
-  string shard_id = 2
-      [ (gogoproto.casttype) =
-            "go.gazette.dev/core/consumer/protocol.ShardID" ];
-}
-
-// ClearRegistersResponse is a testing-only response to remove all registers of a shard.
-message ClearRegistersResponse {
-  consumer.Status status = 1;
-  protocol.Header header = 2 [ (gogoproto.nullable) = false ];
-}
-
-service Testing {
-  rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
-  rpc ClearRegisters(ClearRegistersRequest) returns (ClearRegistersResponse);
-}
