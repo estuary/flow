@@ -203,25 +203,28 @@ pub fn derivation_spec(derivation: &tables::Derivation) -> flow::DerivationSpec 
     }
 }
 
-pub fn materialization_name(endpoint_name: &str, endpoint_resource_path: &[String]) -> String {
-    let mut parts = vec![endpoint_name.to_string()];
-    parts.extend(endpoint_resource_path.iter().cloned());
+pub fn materialization_name(
+    endpoint_name: &str,
+    endpoint_resource_path: &[impl AsRef<str>],
+) -> String {
+    let mut parts = vec![endpoint_name];
+    parts.extend(endpoint_resource_path.iter().map(AsRef::as_ref));
 
     // We must produce a name for this materialization which is suitable for use as a shard ID.
     // That restricts us to unicode letters and numbers, plus the symbols `-_+/.=%`.
     let mut name = String::new();
-    name.extend(parts.join("/").chars().map(|c| {
+
+    for c in parts.join("/").chars() {
         match c {
             // Note that '%' is not included (it must be escaped).
-            '-' | '_' | '+' | '/' | '.' | '=' => c.to_string(),
-            _ if c.is_alphanumeric() => c.to_string(),
-            c => percent_encoding::utf8_percent_encode(
+            '-' | '_' | '+' | '/' | '.' | '=' => name.push(c),
+            _ if c.is_alphanumeric() => name.push(c),
+            c => name.extend(percent_encoding::utf8_percent_encode(
                 &c.to_string(),
                 percent_encoding::NON_ALPHANUMERIC,
-            )
-            .to_string(),
+            )),
         }
-    }));
+    }
 
     name
 }
@@ -235,12 +238,12 @@ mod test {
         let out = materialization_name(
             "endpoint name",
             &vec![
-                "he!lo".to_string(),
+                "he!lo৬".to_string(),
                 "a/part%".to_string(),
-                "_the-=res+.".to_string(),
+                "_¾the-=res+.".to_string(),
             ],
         );
-        assert_eq!(&out, "endpoint%20name/he%21lo/a/part%25/_the-=res+.");
+        assert_eq!(&out, "endpoint%20name/he%21lo৬/a/part%25/_¾the-=res+.");
     }
 }
 
