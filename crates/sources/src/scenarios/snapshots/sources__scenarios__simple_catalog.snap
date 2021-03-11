@@ -16,7 +16,7 @@ Tables {
     endpoints: [],
     errors: [
         Error {
-            scope: test://example/catalog.yaml#/include/1,
+            scope: test://example/catalog.yaml#/import/1,
             error: failed to fetch resource test://not/found
             
             Caused by:
@@ -45,34 +45,29 @@ Tables {
     ],
     imports: [
         Import {
-            scope: test://example/catalog.yaml#/include/1,
+            scope: test://example/catalog.yaml#/import/1,
             from_resource: test://example/catalog.yaml,
             to_resource: test://not/found,
-            include: 1,
         },
         Import {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
-            include: 1,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/schema,
-            include: 1,
         },
         Import {
             scope: test://example/sibling,
             from_resource: test://example/sibling,
             to_resource: test://example/sibling.ts,
-            include: 1,
         },
         Import {
-            scope: test://example/catalog.yaml#/include/0,
+            scope: test://example/catalog.yaml#/import/0,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/sibling,
-            include: 1,
         },
     ],
     journal_rules: [],

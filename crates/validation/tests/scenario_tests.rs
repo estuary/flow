@@ -131,7 +131,7 @@ fn test_invalid_endpoint_names_and_duplicates() {
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
-  include:
+  import:
     - test://example/more-endpoints
 test://example/more-endpoints:
   endpoints:
@@ -222,7 +222,7 @@ fn test_capture_target_is_derivation_and_missing_imports() {
         &GOLDEN,
         r#"
 test://example/int-string-capture:
-  include: null
+  import: null
   captures:
     - target: { name: testing/int-reverse }
       endpoint: { name: captureEndpoint }
@@ -267,10 +267,10 @@ fn test_use_without_import() {
         &GOLDEN,
         r#"
 test://example/int-string:
-  include: [] # Clear.
+  import: [] # Clear.
 
 test://example/int-reverse:
-  include: [] # Clear.
+  import: [] # Clear.
   endpoints:
     s3WithoutImport:
       s3:
@@ -278,7 +278,7 @@ test://example/int-reverse:
         prefix: and-prefix
 
 test://example/int-string-materialization:
-  include: [] # Clear.
+  import: [] # Clear.
   materializations:
     - source:
         name: testing/int-string
