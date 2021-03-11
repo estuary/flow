@@ -21,7 +21,6 @@ Tables {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
-            include: 1,
         },
     ],
     journal_rules: [],

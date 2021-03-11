@@ -31,13 +31,11 @@ Tables {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
-            include: 1,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection/schema,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/schema.json,
-            include: 1,
         },
     ],
     journal_rules: [],
