@@ -11,7 +11,7 @@ type cmdJSONSchema struct{}
 
 func (cmdJSONSchema) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	mbp.InitLog(Config.Log)
+	initLog(Config.Log)
 
 	var _, err = os.Stdout.WriteString(bindings.CatalogJSONSchema())
 	return err

@@ -19,7 +19,7 @@ type cmdBuild struct {
 
 func (cmd cmdBuild) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	mbp.InitLog(Config.Log)
+	initLog(Config.Log)
 
 	log.WithFields(log.Fields{
 		"config":    Config,
@@ -36,6 +36,9 @@ func (cmd cmdBuild) Execute(_ []string) error {
 	}
 
 	var _, err = build(config)
+	if err == nil {
+		fmt.Println("Build Success")
+	}
 	return err
 }
 

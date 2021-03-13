@@ -234,8 +234,8 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	// mathematical operations on floats, which can result in some loss of precision. Additionally,
 	// we want to accept cases like `1.0` and `1` by treating them as equal.
 	diffOptions.CompareNumbers = compareNumbers
-	var failed bool
 	var index int
+	var failures testFailures
 
 	// Compare matched |expected| and |actual| documents.
 	for index = 0; index != len(expected) && index != len(actual); index++ {
@@ -245,48 +245,33 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		case jsondiff.FullMatch, jsondiff.SupersetMatch:
 			// Pass.
 		default:
-			log.WithFields(log.Fields{
-				"test":          test.Test,
-				"testStep":      testStep,
-				"documentIndex": index,
-			}).Error("actual and expected documents don't match")
-			fmt.Fprintln(os.Stderr, diffs)
-			failed = true
+			failures = append(failures, failure{
+				docIndex: index,
+				diff:     diffs,
+			})
 		}
 	}
 
 	// Error on remaining |expected| or |actual| documents.
-	var prettyEnc = json.NewEncoder(os.Stderr)
+	var prettyEnc = json.NewEncoder(os.Stdout)
 	prettyEnc.SetIndent("", "    ")
 
 	for ; index < len(expected); index++ {
-		log.WithFields(log.Fields{
-			"test":          test.Test,
-			"testStep":      testStep,
-			"documentIndex": index,
-		}).Error("expected document not seen")
-
-		if err = prettyEnc.Encode(json.RawMessage(expected[index])); err != nil {
-			return fmt.Errorf("encoding extra expected document: %w", err)
-		}
-		failed = true
+		failures = append(failures, failure{
+			docIndex: index,
+			expected: json.RawMessage(expected[index]),
+		})
 	}
 
 	for ; index < len(actual); index++ {
-		log.WithFields(log.Fields{
-			"test":          test.Test,
-			"testStep":      testStep,
-			"documentIndex": index,
-		}).Error("actual document not expected")
-
-		if err = prettyEnc.Encode(json.RawMessage(actual[index])); err != nil {
-			return fmt.Errorf("encoding extra actual document: %w", err)
-		}
-		failed = true
+		failures = append(failures, failure{
+			docIndex: index,
+			actual:   json.RawMessage(actual[index]),
+		})
 	}
 
-	if failed {
-		return fmt.Errorf("actual and expected documents don't match")
+	if failures != nil {
+		return failures
 	}
 
 	log.WithFields(log.Fields{
@@ -295,6 +280,14 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}).Debug("verify complete")
 	return nil
 }
+
+func newDiffOptions() jsondiff.Options {
+	var opts = jsondiff.DefaultConsoleOptions()
+	opts.CompareNumbers = compareNumbers
+	return opts
+}
+
+var diffOptions = newDiffOptions()
 
 // epsilon is used when comparing floating point numbers. This is the same value as FLT_EPSILON
 // from C, also known as the "machine epsilon".
@@ -323,4 +316,38 @@ func compareNumbers(a, b json.Number) bool {
 	// without knowing the relative scale of such numbers ahead of time.
 	var scaledEpsilon = epsilon * math.Max(math.Abs(aFloat), math.Abs(bFloat))
 	return math.Abs(aFloat-bFloat) < scaledEpsilon
+}
+
+type testFailures []failure
+
+type failure struct {
+	docIndex int
+	actual   json.RawMessage
+	expected json.RawMessage
+	diff     string
+}
+
+func (f failure) describe(b *strings.Builder) {
+	var encoder = json.NewEncoder(b)
+	encoder.SetIndent("", "    ")
+	if len(f.actual) > 0 {
+		b.WriteString("Unexpected actual document:\n")
+		encoder.Encode(f.actual)
+	} else if len(f.expected) > 0 {
+		fmt.Fprintf(b, "Missing expected document at index %d:\n", f.docIndex)
+		encoder.Encode(f.expected)
+	} else {
+		fmt.Fprintf(b, "mismatched document at index %d:\n", f.docIndex)
+		b.WriteString(f.diff)
+	}
+}
+
+func (r testFailures) Error() string {
+	var b strings.Builder
+	b.WriteString("actual and expected document(s) did not match:\n")
+	for _, f := range r {
+		f.describe(&b)
+		b.WriteRune('\n')
+	}
+	return b.String()
 }

@@ -7,12 +7,16 @@ import (
 
 const iniFilename = "flow.ini"
 
-// Config is the top-level configuration object of flowctl.
-var Config = new(struct {
+// GlobalArgs is the set of CLI arguments that apply to all subcommands
+type GlobalArgs struct {
 	mbp.ZoneConfig
-	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	// Log is _not_ the same LogConfig from mainboilerplate, but our own version.
+	Log         LogConfig             `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
-})
+}
+
+// Config is the top-level configuration object of flowctl.
+var Config = new(GlobalArgs)
 
 func main() {
 	var parser = flags.NewParser(Config, flags.Default)
