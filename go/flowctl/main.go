@@ -10,7 +10,7 @@ const iniFilename = "flow.ini"
 // Config is the top-level configuration object of flowctl.
 var Config = new(struct {
 	mbp.ZoneConfig
-	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Log         LogConfig             `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 })
 

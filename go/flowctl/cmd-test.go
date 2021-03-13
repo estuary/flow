@@ -14,6 +14,7 @@ import (
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/testing"
+	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/clientv3"
 	"go.gazette.dev/core/broker/client"
@@ -33,7 +34,7 @@ type cmdTest struct {
 
 func (cmd cmdTest) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	mbp.InitLog(Config.Log)
+	initLog(Config.Log)
 
 	log.WithFields(log.Fields{
 		"config":    Config,
@@ -137,21 +138,31 @@ func (cmd cmdTest) Execute(_ []string) error {
 
 	// Run all test cases.
 	var graph = testing.NewGraph(transforms)
+	fmt.Println("Running ", len(testCases), " tests...")
 	for _, testCase := range testCases {
-		log.WithField("test", testCase.Test).Info("running test case")
+		fmt.Print(testCase.Test, " : ")
 
 		if err = testing.RunTestCase(graph, cluster, &testCase); err != nil {
-			return fmt.Errorf("test case `%s` failed: %w", testCase.Test, err)
+			fmt.Print(red("FAILED"), "\n")
+			fmt.Println(red("ERROR: "), err)
+			// TODO: This causes the runtime to panic and print a rather noisy error message.
+			// We should instead figure out a way to just exit non-zero (and still run defers)
+			return fmt.Errorf("test case `%s` failed", testCase.Test)
+		} else {
+			fmt.Print(green("PASSED"), "\n")
 		}
 		cluster.Consumer.ClearRegistersForTest(config.Context)
 	}
+	fmt.Println("All tests passed")
 
 	if err := cluster.Stop(); err != nil {
 		return fmt.Errorf("stopping cluster: %w", err)
 	}
-	log.Info("goodbye")
 	return nil
 }
+
+var green = color.New(color.FgGreen).SprintFunc()
+var red = color.New(color.FgRed).SprintFunc()
 
 func todoHackedDeriveApply(catalog *flow.Catalog, shards pc.ShardClient) error {
 	names, err := catalog.LoadDerivationNames()
