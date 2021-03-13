@@ -34,7 +34,7 @@ type cmdDevelop struct {
 
 func (cmd cmdDevelop) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	mbp.InitLog(Config.Log)
+	initLog(Config.Log)
 
 	log.WithFields(log.Fields{
 		"config":    Config,
@@ -123,6 +123,10 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	if err = todoHackedMaterializeApply(catalog, cluster.Shards); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
+
+	// Print the URL so that it's handy for people to use flow-ingester, even if we used a random
+	// port.
+	fmt.Println("Listening at: ", cluster.Server.Endpoint().URL())
 
 	// Install and await signal handler.
 	var signalCh = make(chan os.Signal, 1)
