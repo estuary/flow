@@ -32,7 +32,25 @@ type cmdTest struct {
 	Directory string `long:"directory" default:"." description:"Build directory"`
 }
 
-func (cmd cmdTest) Execute(_ []string) error {
+func (cmd cmdTest) Execute(_ []string) (retErr error) {
+	var failed []string
+	// This is temporary (...pause for groans) until we modify the gazette mainboilerplate package
+	// to stop printing stacktraces and panicing on errors. The goal is to be able to simply return
+	// a "tests failed" error in the future.
+	defer func() {
+		if retErr == nil { // Failing tests are expected, so we don't return an error in that case.
+			// Exit code will be the number of failed tests
+			var nFailed = len(failed)
+			// Just in case someone has a huge number of failed tests, this will prevent us from
+			// accidentally setting the exit code to 0 (all but the low 8 bits are ignored, and values
+			// in the range 128-256 are given special meaning).
+			if nFailed > 127 {
+				nFailed = 127
+			}
+			os.Exit(nFailed)
+		}
+	}()
+
 	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
 	initLog(Config.Log)
 
@@ -140,20 +158,27 @@ func (cmd cmdTest) Execute(_ []string) error {
 	var graph = testing.NewGraph(transforms)
 	fmt.Println("Running ", len(testCases), " tests...")
 	for _, testCase := range testCases {
-		fmt.Print(testCase.Test, " : ")
+		fmt.Print(testCase.Test, ": ")
 
 		if err = testing.RunTestCase(graph, cluster, &testCase); err != nil {
-			fmt.Print(red("FAILED"), "\n")
-			fmt.Println(red("ERROR: "), err)
-			// TODO: This causes the runtime to panic and print a rather noisy error message.
-			// We should instead figure out a way to just exit non-zero (and still run defers)
-			return fmt.Errorf("test case `%s` failed", testCase.Test)
+			fmt.Printf("%s\n", red("FAILED"))
+			fmt.Println(red("ERROR:"), err)
+			failed = append(failed, testCase.Test)
 		} else {
 			fmt.Print(green("PASSED"), "\n")
 		}
 		cluster.Consumer.ClearRegistersForTest(config.Context)
 	}
-	fmt.Println("All tests passed")
+
+	// Summarize the failed tests at the end so that it's easier to see in case there's a lot of
+	// error output above.
+	if len(failed) > 0 {
+		fmt.Printf("\n%s\n", red("Failed:"))
+		for _, t := range failed {
+			fmt.Println(t)
+		}
+	}
+	fmt.Printf("\nRan %d tests, %d passed, %d failed\n", len(testCases), len(testCases)-len(failed), len(failed))
 
 	if err := cluster.Stop(); err != nil {
 		return fmt.Errorf("stopping cluster: %w", err)
