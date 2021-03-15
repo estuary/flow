@@ -6,6 +6,7 @@ import (
 
 // LogConfig configures handling of application log events. This was copied from mainboilerplate so
 // that we could modify it to have a different default and accept a broader range of level options.
+// TODO: Upstream these LogConfig changes into gazette.
 type LogConfig struct {
 	Level  string `long:"level" env:"LEVEL" default:"error" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" description:"Logging level"`
 	Format string `long:"format" env:"FORMAT" default:"text" choice:"json" choice:"text" choice:"color" description:"Logging output format"`
