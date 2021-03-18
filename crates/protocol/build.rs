@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::process::{self, Command};
 use std::str;
-use tonic_build;
 
 // This section defines the attributes that we'd like to add to various types that are generated from
 // the protobuf files.
@@ -87,22 +86,20 @@ fn main() {
         proto_include[3].join("go/protocols/materialize/materialize.proto"),
     ];
 
-    let mut builder = tonic_build::configure()
-        .build_server(true)
-        .build_client(true)
-        .out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"));
+    let mut builder = prost_build::Config::new();
+    builder.out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"));
 
     for attrs in TYPE_ATTRS {
         if !attrs.type_attrs.is_empty() {
-            builder = builder.type_attribute(attrs.path, attrs.type_attrs);
+            builder.type_attribute(attrs.path, attrs.type_attrs);
         }
         for &(field, field_attrs) in attrs.field_attrs {
             let path = format!("{}.{}", attrs.path, field);
-            builder = builder.field_attribute(&path, field_attrs);
+            builder.field_attribute(&path, field_attrs);
         }
     }
 
     builder
-        .compile(&proto_build, &proto_include)
+        .compile_protos(&proto_build, &proto_include)
         .expect("failed to compile protobuf");
 }

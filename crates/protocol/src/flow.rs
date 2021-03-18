@@ -1,9 +1,9 @@
 /// Slice represents a contiguous slice of bytes within an associated Arena.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Slice {
-    #[prost(uint32, tag = "1")]
+    #[prost(uint32, tag="1")]
     pub begin: u32,
-    #[prost(uint32, tag = "2")]
+    #[prost(uint32, tag="2")]
     pub end: u32,
 }
 /// UUIDParts is a deconstructed, RFC 4122 v1 variant Universally Unique
@@ -19,11 +19,11 @@ pub struct UuidParts {
     /// The low 10 bits are the 10 least-significant bits of the v1 UUID clock
     /// sequence, used by Gazette to represent flags over message transaction
     /// semantics.
-    #[prost(fixed64, tag = "1")]
+    #[prost(fixed64, tag="1")]
     pub producer_and_flags: u64,
     /// Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of
     /// sequence counter.
-    #[prost(fixed64, tag = "2")]
+    #[prost(fixed64, tag="2")]
     pub clock: u64,
 }
 /// LambdaSpec describes a Flow transformation lambda and how to invoke it.
@@ -31,11 +31,11 @@ pub struct UuidParts {
 pub struct LambdaSpec {
     /// If non-empty, this is a TypeScript lambda and the field is its invocation path.
     /// E.x. 'some/derivation/andTransform/Update'.
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub typescript: ::prost::alloc::string::String,
     /// If non-empty, this is a remote lambda and the field is its invocation URL.
     /// E.x. 'https://my/external/api'.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub remote: ::prost::alloc::string::String,
 }
 /// Shuffle is a description of a document shuffle, where each document
@@ -60,37 +60,37 @@ pub struct Shuffle {
     /// reads undertaken by this shuffle, and must be stable. Examples:
     ///  `derive/{derivation}/{transform}`
     ///  `materialize/{materialization}`
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub group_name: ::prost::alloc::string::String,
     /// Source collection read by this transform.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub source_collection: ::prost::alloc::string::String,
     /// Selector of partitions of the collection which this transform reads.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub source_partitions: ::core::option::Option<super::protocol::LabelSelector>,
     /// JSON pointer locating the UUID of each source document.
-    #[prost(string, tag = "4")]
+    #[prost(string, tag="4")]
     pub source_uuid_ptr: ::prost::alloc::string::String,
     /// Composite key over which shuffling occurs, specified as one or more
     /// JSON-Pointers indicating a message location to extract.
-    #[prost(string, repeated, tag = "5")]
+    #[prost(string, repeated, tag="5")]
     pub shuffle_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// uses_source_key is true if shuffle_key_ptr is the source's native key,
     /// and false if it's some other key. When shuffling using the source's key,
     /// we can minimize data movement by assigning a shard coordinator for each
     /// journal such that the shard's key range overlap that of the journal.
-    #[prost(bool, tag = "6")]
+    #[prost(bool, tag="6")]
     pub uses_source_key: bool,
     /// Computed shuffle lambda. If non-nil, then shuffle_key_ptr MUST be empty
     /// and uses_source_key MUST be false.
-    #[prost(message, optional, tag = "7")]
+    #[prost(message, optional, tag="7")]
     pub shuffle_lambda: ::core::option::Option<LambdaSpec>,
     /// Schema against which shuffled documents are to be validated.
-    #[prost(string, tag = "8")]
+    #[prost(string, tag="8")]
     pub source_schema_uri: ::prost::alloc::string::String,
     /// uses_source_schema is true iff source_schema_uri is the source collection's
     /// schema, and false if it's a source schema specific to this transform.
-    #[prost(bool, tag = "9")]
+    #[prost(bool, tag="9")]
     pub uses_source_schema: bool,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
@@ -101,19 +101,19 @@ pub struct Shuffle {
     /// a "publish" but not an "update" lambda, as such documents have no
     /// side-effects on the reader's state store, and would not be published anyway
     /// for falling outside of the reader's r-clock range.
-    #[prost(bool, tag = "10")]
+    #[prost(bool, tag="10")]
     pub filter_r_clocks: bool,
-    #[prost(enumeration = "shuffle::Hash", tag = "11")]
+    #[prost(enumeration="shuffle::Hash", tag="11")]
     pub hash: i32,
     /// Number of seconds for which documents of this collection are delayed
     /// while reading, relative to other documents (when back-filling) and the
     /// present wall-clock time (when tailing).
-    #[prost(uint32, tag = "12")]
+    #[prost(uint32, tag="12")]
     pub read_delay_seconds: u32,
     /// Priority of this shuffle, with respect to other related Shuffle reads
     /// (e.x. Shuffles of a different transformation within the same derivation).
     /// Higher values imply higher priority.
-    #[prost(uint32, tag = "13")]
+    #[prost(uint32, tag="13")]
     pub priority: u32,
 }
 /// Nested message and enum types in `Shuffle`.
@@ -126,8 +126,7 @@ pub mod shuffle {
     ///   in-the-clear at rest where possible.
     /// Either cryptographic or non-cryptographic functions may be appropriate
     /// depending on the use case.
-    #[derive(serde::Deserialize, serde::Serialize)]
-    #[serde(deny_unknown_fields)]
+    #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Hash {
@@ -145,13 +144,13 @@ pub mod shuffle {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalShuffle {
     /// Journal to be shuffled.
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub journal: ::prost::alloc::string::String,
     /// Coordinator is the Shard ID which is responsible for reads of this journal.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub coordinator: ::prost::alloc::string::String,
     /// Shuffle of this JournalShuffle.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub shuffle: ::core::option::Option<Shuffle>,
     /// Is this a reply of the journal's content?
     /// We separate ongoing vs replayed reads of a journal's content into
@@ -162,7 +161,7 @@ pub struct JournalShuffle {
     /// the server would on sending yet another ongoing read, such that
     /// it's unable to service the replay read that would ultimately
     /// unblock the shard / allow it to drain new ongoing reads.
-    #[prost(bool, tag = "4")]
+    #[prost(bool, tag="4")]
     pub replay: bool,
 }
 /// Projection is a mapping between a document location, specified as a
@@ -171,22 +170,22 @@ pub struct JournalShuffle {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Projection {
     /// Document location of this projection, as a JSON-Pointer.
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub ptr: ::prost::alloc::string::String,
     /// Field is the flattened, tabular alias of this projection.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub field: ::prost::alloc::string::String,
     /// Was this projection user provided ?
-    #[prost(bool, tag = "3")]
+    #[prost(bool, tag="3")]
     pub user_provided: bool,
     /// Does this projection constitute a logical partitioning of the collection?
-    #[prost(bool, tag = "4")]
+    #[prost(bool, tag="4")]
     pub is_partition_key: bool,
     /// Does this location form (part of) the collection key?
-    #[prost(bool, tag = "5")]
+    #[prost(bool, tag="5")]
     pub is_primary_key: bool,
     /// Inference of this projection.
-    #[prost(message, optional, tag = "6")]
+    #[prost(message, optional, tag="6")]
     pub inference: ::core::option::Option<Inference>,
 }
 /// Inference details type information which is statically known
@@ -195,19 +194,19 @@ pub struct Projection {
 pub struct Inference {
     /// The possible types for this location.
     /// Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
-    #[prost(string, repeated, tag = "1")]
+    #[prost(string, repeated, tag="1")]
     pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Whether the projection must always exist (either as a location within)
     /// the source document, or as a null-able column in the database.
-    #[prost(bool, tag = "2")]
+    #[prost(bool, tag="2")]
     pub must_exist: bool,
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub string: ::core::option::Option<inference::String>,
     /// The title from the schema, if provided
-    #[prost(string, tag = "4")]
+    #[prost(string, tag="4")]
     pub title: ::prost::alloc::string::String,
     /// The description from the schema, if provided
-    #[prost(string, tag = "5")]
+    #[prost(string, tag="5")]
     pub description: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `Inference`.
@@ -216,83 +215,83 @@ pub mod inference {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct String {
         /// Annotated Content-Type when the projection is of "string" type.
-        #[prost(string, tag = "3")]
+        #[prost(string, tag="3")]
         pub content_type: ::prost::alloc::string::String,
         /// Annotated format when the projection is of "string" type.
-        #[prost(string, tag = "4")]
+        #[prost(string, tag="4")]
         pub format: ::prost::alloc::string::String,
         /// Whether the value is base64-encoded when the projection is of "string" type.
-        #[prost(bool, tag = "5")]
+        #[prost(bool, tag="5")]
         pub is_base64: bool,
         /// Maximum length when the projection is of "string" type. Zero for no limit.
-        #[prost(uint32, tag = "6")]
+        #[prost(uint32, tag="6")]
         pub max_length: u32,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
     /// Name of this collection.
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub collection: ::prost::alloc::string::String,
     /// Schema against which collection documents are validated,
     /// and which provides reduction annotations.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub schema_uri: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
-    #[prost(string, repeated, tag = "3")]
+    #[prost(string, repeated, tag="3")]
     pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// JSON pointer locating the UUID of each collection document.
-    #[prost(string, tag = "4")]
+    #[prost(string, tag="4")]
     pub uuid_ptr: ::prost::alloc::string::String,
     /// Logical partition fields of this collection.
-    #[prost(string, repeated, tag = "5")]
+    #[prost(string, repeated, tag="5")]
     pub partition_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Logical projections of this collection
-    #[prost(message, repeated, tag = "6")]
+    #[prost(message, repeated, tag="6")]
     pub projections: ::prost::alloc::vec::Vec<Projection>,
     /// JSON-encoded document template for creating Gazette consumer
     /// transaction acknowledgements of writes into this collection.
-    #[prost(string, tag = "7")]
+    #[prost(string, tag="7")]
     pub ack_json_template: ::prost::alloc::string::String,
 }
 /// TransformSpec describes a specific transform of a derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransformSpec {
     /// Derivation this transform belongs to.
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub derivation: ::prost::alloc::string::String,
     /// Name of this transform, scoped to it's derivation.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub transform: ::prost::alloc::string::String,
     /// Shuffle applied to source documents for this transform.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub shuffle: ::core::option::Option<Shuffle>,
     /// Update lambda of this transform, if any.
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag="4")]
     pub update_lambda: ::core::option::Option<LambdaSpec>,
     /// If an applied update causes the register to be invalid against its
     /// schema, should the document roll back instead of failing processing?
-    #[prost(bool, tag = "5")]
+    #[prost(bool, tag="5")]
     pub rollback_on_register_conflict: bool,
     /// Publish lambda of this transform, if any.
-    #[prost(message, optional, tag = "6")]
+    #[prost(message, optional, tag="6")]
     pub publish_lambda: ::core::option::Option<LambdaSpec>,
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DerivationSpec {
     /// Derivations are collections.
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub collection: ::core::option::Option<CollectionSpec>,
     /// Schema against which derivation registers are validated,
     /// and which provides reduction annotations.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag="2")]
     pub register_schema_uri: ::prost::alloc::string::String,
     /// JSON-encoded initial value of novel document registers.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub register_initial_json: ::prost::alloc::string::String,
     /// Transforms of this derivation.
-    #[prost(message, repeated, tag = "4")]
+    #[prost(message, repeated, tag="4")]
     pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,
 }
 /// FieldSelection is a selection of a collection's projection fields.
@@ -301,20 +300,46 @@ pub struct FieldSelection {
     /// Fields for each key component of the collection. Included key fields appear
     /// in the collection's key component order, and a given key pointer will be
     /// included at most once.
-    #[prost(string, repeated, tag = "1")]
+    #[prost(string, repeated, tag="1")]
     pub keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// All other selected fields, other than those in keys and the document field.
     /// Entries are in ascending sorted order, and may be empty.
-    #[prost(string, repeated, tag = "2")]
+    #[prost(string, repeated, tag="2")]
     pub values: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Field having a document pointer located at the document root.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub document: ::prost::alloc::string::String,
     /// Additional configuration, keyed by fields included in |keys|, |values|, or |document|.
     /// Values are arbitrary JSON-encoded objects.
-    #[prost(map = "string, string", tag = "4")]
-    pub field_config:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(map="string, string", tag="4")]
+    pub field_config: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+/// CaptureSpec describes a collection and its capture from an endpoint.
+/// At the moment, we don't build or do anything with these.
+/// This spec is a bit of a working placeholder until we can tackle
+/// captures more broadly.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CaptureSpec {
+    /// Name of this capture, derived from the endpoint name and the
+    /// driver-provided endpoint resource path.
+    #[prost(string, tag="1")]
+    pub capture: ::prost::alloc::string::String,
+    /// Collection to be captured into.
+    #[prost(message, optional, tag="2")]
+    pub collection: ::core::option::Option<CollectionSpec>,
+    /// Endpoint to which we materialize.
+    #[prost(string, tag="3")]
+    pub endpoint_name: ::prost::alloc::string::String,
+    /// Type of the materialization's endpoint.
+    #[prost(enumeration="EndpointType", tag="4")]
+    pub endpoint_type: i32,
+    /// JSON-encoded object which configures this materialization with
+    /// respect to the endpoint type driver.
+    #[prost(string, tag="5")]
+    pub endpoint_config_json: ::prost::alloc::string::String,
+    /// Endpoint path components which fully qualify the subresource being materialized.
+    #[prost(string, repeated, tag="6")]
+    pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// MaterializationSpec describes a collection and its materialization to an endpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -326,38 +351,38 @@ pub struct MaterializationSpec {
     ///    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
     /// } would have materialization name:
     /// "company/team/database/logical-db/and-schema/tab%21e"
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub materialization: ::prost::alloc::string::String,
     /// Collection to be materialized.
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub collection: ::core::option::Option<CollectionSpec>,
     /// Endpoint to which we materialize.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub endpoint_name: ::prost::alloc::string::String,
     /// Type of the materialization's endpoint.
-    #[prost(enumeration = "EndpointType", tag = "4")]
+    #[prost(enumeration="EndpointType", tag="4")]
     pub endpoint_type: i32,
     /// JSON-encoded object which configures this materialization with
     /// respect to the endpoint type driver.
-    #[prost(string, tag = "5")]
+    #[prost(string, tag="5")]
     pub endpoint_config_json: ::prost::alloc::string::String,
     /// Endpoint path components which fully qualify the subresource being materialized.
-    #[prost(string, repeated, tag = "6")]
+    #[prost(string, repeated, tag="6")]
     pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Resolved fields selected for materialization.
-    #[prost(message, optional, tag = "7")]
+    #[prost(message, optional, tag="7")]
     pub field_selection: ::core::option::Option<FieldSelection>,
     /// Shuffle applied to collection documents for this materialization.
-    #[prost(message, optional, tag = "8")]
+    #[prost(message, optional, tag="8")]
     pub shuffle: ::core::option::Option<Shuffle>,
 }
 /// TestSpec describes a catalog test.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TestSpec {
     /// Name of this test.
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub test: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(message, repeated, tag="2")]
     pub steps: ::prost::alloc::vec::Vec<test_spec::Step>,
 }
 /// Nested message and enum types in `TestSpec`.
@@ -365,35 +390,34 @@ pub mod test_spec {
     /// Steps of the test.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Step {
-        #[prost(enumeration = "step::Type", tag = "1")]
+        #[prost(enumeration="step::Type", tag="1")]
         pub step_type: i32,
         /// Index of this step within the test.
-        #[prost(uint32, tag = "2")]
+        #[prost(uint32, tag="2")]
         pub step_index: u32,
         /// Collection ingested or verified by this step.
-        #[prost(string, tag = "3")]
+        #[prost(string, tag="3")]
         pub collection: ::prost::alloc::string::String,
         /// Schema of this collection.
-        #[prost(string, tag = "4")]
+        #[prost(string, tag="4")]
         pub collection_schema_uri: ::prost::alloc::string::String,
         /// Grouped key pointers of the collection.
-        #[prost(string, repeated, tag = "5")]
+        #[prost(string, repeated, tag="5")]
         pub collection_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// JSON pointer locating the UUID of each collection document.
-        #[prost(string, tag = "6")]
+        #[prost(string, tag="6")]
         pub collection_uuid_ptr: ::prost::alloc::string::String,
         /// Newline-separated JSON documents to ingest.
-        #[prost(string, tag = "7")]
+        #[prost(string, tag="7")]
         pub docs_json_lines: ::prost::alloc::string::String,
         /// When verifying, selector over logical partitions of the collection.
-        #[prost(message, optional, tag = "8")]
+        #[prost(message, optional, tag="8")]
         pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
     }
     /// Nested message and enum types in `Step`.
     pub mod step {
         /// Type of this step.
-        #[derive(serde::Deserialize, serde::Serialize)]
-        #[serde(deny_unknown_fields)]
+        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
         #[repr(i32)]
         pub enum Type {
@@ -407,15 +431,15 @@ pub mod test_spec {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RangeSpec {
     /// Byte [begin, end) exclusive range of keys to be shuffled to this reader.
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes="vec", tag="2")]
     pub key_begin: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes = "vec", tag = "3")]
+    #[prost(bytes="vec", tag="3")]
     pub key_end: ::prost::alloc::vec::Vec<u8>,
     /// Rotated [begin, end) exclusive ranges of Clocks to be shuffled to this
     /// reader.
-    #[prost(uint64, tag = "4")]
+    #[prost(uint64, tag="4")]
     pub r_clock_begin: u64,
-    #[prost(uint64, tag = "5")]
+    #[prost(uint64, tag="5")]
     pub r_clock_end: u64,
 }
 /// JournalRules are an ordered sequence of Rules which specify a
@@ -423,7 +447,7 @@ pub struct RangeSpec {
 /// to apply to the base JournalSpec.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalRules {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub rules: ::prost::alloc::vec::Vec<journal_rules::Rule>,
 }
 /// Nested message and enum types in `JournalRules`.
@@ -431,13 +455,13 @@ pub mod journal_rules {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Rule {
         /// Name of the rule.
-        #[prost(string, tag = "1")]
+        #[prost(string, tag="1")]
         pub rule: ::prost::alloc::string::String,
         /// Label selector which must pass for the template to be applied.
-        #[prost(message, optional, tag = "2")]
+        #[prost(message, optional, tag="2")]
         pub selector: ::core::option::Option<super::super::protocol::LabelSelector>,
         /// Template to union into the base JournalSpec.
-        #[prost(message, optional, tag = "3")]
+        #[prost(message, optional, tag="3")]
         pub template: ::core::option::Option<super::super::protocol::JournalSpec>,
     }
 }
@@ -446,18 +470,21 @@ pub mod journal_rules {
 /// to apply to the base ShardSpec.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShardRules {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub rules: ::prost::alloc::vec::Vec<shard_rules::Rule>,
 }
 /// Nested message and enum types in `ShardRules`.
 pub mod shard_rules {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Rule {
+        /// Name of the rule.
+        #[prost(string, tag="1")]
+        pub rule: ::prost::alloc::string::String,
         /// Label selector which must pass for the template to be applied.
-        #[prost(message, optional, tag = "1")]
+        #[prost(message, optional, tag="2")]
         pub selector: ::core::option::Option<super::super::protocol::LabelSelector>,
-        /// Template to union into the base JournalSpec.
-        #[prost(message, optional, tag = "2")]
+        /// Template to union into the base ShardSpec.
+        #[prost(message, optional, tag="3")]
         pub template: ::core::option::Option<super::super::consumer::ShardSpec>,
     }
 }
@@ -466,39 +493,38 @@ pub mod shard_rules {
 pub struct SchemaBundle {
     /// Schemas of the bundle. Keys are the absolute URIs of the schema,
     /// and values are JSON-encoded schema documents.
-    #[prost(map = "string, string", tag = "1")]
-    pub bundle:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(map="string, string", tag="1")]
+    pub bundle: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleRequest {
     /// Journal to be shuffled, routed to a coordinator.
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub shuffle: ::core::option::Option<JournalShuffle>,
     /// Resolution header of the |shuffle.coordinator| shard.
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub resolution: ::core::option::Option<super::protocol::Header>,
     /// Ranges of responsibility which are unique to this reader,
     /// against which document shuffle outcomes are matched to determine
     /// read eligibility.
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag="3")]
     pub range: ::core::option::Option<RangeSpec>,
     /// Offset to begin reading the journal from.
-    #[prost(int64, tag = "4")]
+    #[prost(int64, tag="4")]
     pub offset: i64,
     /// Offset to stop reading the journal at, or zero if unbounded.
-    #[prost(int64, tag = "5")]
+    #[prost(int64, tag="5")]
     pub end_offset: i64,
 }
 /// ShuffleResponse is the streamed response message of a Shuffle RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleResponse {
     /// Status of the Shuffle RPC.
-    #[prost(enumeration = "super::consumer::Status", tag = "1")]
+    #[prost(enumeration="super::consumer::Status", tag="1")]
     pub status: i32,
     /// Header of the response.
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub header: ::core::option::Option<super::protocol::Header>,
     /// Terminal error encountered while serving this ShuffleRequest. A terminal
     /// error is only sent if a future ShuffleRequest of this same configuration
@@ -510,50 +536,111 @@ pub struct ShuffleResponse {
     /// or data corruption. Errors *not* returned as |terminal_error| include
     /// network errors, process failures, and other conditions which can be
     /// retried.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub terminal_error: ::prost::alloc::string::String,
     /// Offset which was read through to produce this ShuffleResponse.
-    #[prost(int64, tag = "4")]
+    #[prost(int64, tag="4")]
     pub read_through: i64,
     /// WriteHead of the journal as reported by the broker, as of the creation of
     /// this ShuffleResponse.
-    #[prost(int64, tag = "5")]
+    #[prost(int64, tag="5")]
     pub write_head: i64,
     /// Memory arena of this message.
-    #[prost(bytes = "vec", tag = "6")]
+    #[prost(bytes="vec", tag="6")]
     pub arena: ::prost::alloc::vec::Vec<u8>,
     /// Shuffled documents, each encoded in the 'application/json'
     /// media-type.
-    #[prost(message, repeated, tag = "7")]
+    #[prost(message, repeated, tag="7")]
     pub docs_json: ::prost::alloc::vec::Vec<Slice>,
     /// The begin offset of each document within the requested journal.
-    #[prost(int64, repeated, packed = "false", tag = "8")]
+    #[prost(int64, repeated, packed="false", tag="8")]
     pub begin: ::prost::alloc::vec::Vec<i64>,
     /// The end offset of each document within the journal.
-    #[prost(int64, repeated, packed = "false", tag = "9")]
+    #[prost(int64, repeated, packed="false", tag="9")]
     pub end: ::prost::alloc::vec::Vec<i64>,
     /// UUIDParts of each document.
-    #[prost(message, repeated, tag = "10")]
+    #[prost(message, repeated, tag="10")]
     pub uuid_parts: ::prost::alloc::vec::Vec<UuidParts>,
     /// Packed, embedded encoding of the shuffle key into a byte string.
     /// If the Shuffle specified a Hash to use, it's applied as well.
-    #[prost(message, repeated, tag = "11")]
+    #[prost(message, repeated, tag="11")]
     pub packed_key: ::prost::alloc::vec::Vec<Slice>,
+}
+/// CatalogTask is a self-contained, long lived specification executed
+/// by the Flow runtime. Tasks have stable names which coexist in a shared
+/// global namespace, with a specification that evolves over time.
+///
+/// A CatalogTask is associated with a CatalogCommons, which provides all
+/// resources required by the current specification that may be shared
+/// with other CatalogTasks.
+///
+/// Tags 1-10 are available for future use.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CatalogTask {
+    /// Catalog commons used by this task.
+    #[prost(string, tag="10")]
+    pub commons_id: ::prost::alloc::string::String,
+    /// A capture of a data source into a collection.
+    /// These don't do anything quite yet.
+    #[prost(message, optional, tag="11")]
+    pub capture: ::core::option::Option<CaptureSpec>,
+    /// An ingested collection.
+    #[prost(message, optional, tag="12")]
+    pub ingestion: ::core::option::Option<CollectionSpec>,
+    /// A derived collection.
+    #[prost(message, optional, tag="13")]
+    pub derivation: ::core::option::Option<DerivationSpec>,
+    /// A materialization of a collection.
+    #[prost(message, optional, tag="14")]
+    pub materialization: ::core::option::Option<MaterializationSpec>,
+}
+/// CatalogCommons describes a "commons" of shared resources utilized by multiple
+/// CatalogTasks. It's indexed and referenced on its |commons_id|, which is an
+/// opaque and unique identifier. A commons is garbage-collected when it's
+/// no longer referred to by any CatalogTasks.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CatalogCommons {
+    /// ID of this commons.
+    #[prost(string, tag="1")]
+    pub commons_id: ::prost::alloc::string::String,
+    // Tags 2-9 are available for future use.
+
+    /// Journal rules applied to create and update JournalSpecs.
+    #[prost(message, optional, tag="10")]
+    pub journal_rules: ::core::option::Option<JournalRules>,
+    /// Shard rules applied to create and update ShardSpecs.
+    #[prost(message, optional, tag="11")]
+    pub shard_rules: ::core::option::Option<ShardRules>,
+    /// Schema definitions, against which registers and sourced or derived documents are validated.
+    #[prost(message, optional, tag="12")]
+    pub schemas: ::core::option::Option<SchemaBundle>,
+    /// Unix domain socket on which a local TypeScript runtime is already listening.
+    /// This is set by `flowctl test` and `flowctl develop`, and is empty otherwise.
+    #[prost(string, tag="13")]
+    pub typescript_local_socket: ::prost::alloc::string::String,
+    /// TypeScript NPM package, as a stand-alone gzipped tarball with bundled dependencies.
+    /// At present we expect only etcd:// schemes with no host, and map paths to fetched
+    /// Etcd values. This is a handy short term representation that will evolve over time.
+    /// Empty if |typescript_local_socket| is set.
+    #[prost(string, tag="14")]
+    pub typescript_package_url: ::prost::alloc::string::String,
 }
 /// Schema API takes SchemaBundle as its request message with code 1,
 /// and sends back instances of BuiltIndex with code 1.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SchemaApi {}
+pub struct SchemaApi {
+}
 /// Nested message and enum types in `SchemaAPI`.
 pub mod schema_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct BuiltIndex {
-        #[prost(fixed64, tag = "1")]
+        #[prost(fixed64, tag="1")]
         pub schema_index_memptr: u64,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExtractApi {}
+pub struct ExtractApi {
+}
 /// Nested message and enum types in `ExtractAPI`.
 pub mod extract_api {
     /// TODO - pass schema_index_memptr & Shuffle spec here, migrating this
@@ -566,41 +653,42 @@ pub mod extract_api {
     pub struct Config {
         /// JSON pointer of the document UUID to extract.
         /// If empty, UUIDParts are not extracted.
-        #[prost(string, tag = "1")]
+        #[prost(string, tag="1")]
         pub uuid_ptr: ::prost::alloc::string::String,
         /// Field JSON pointers to extract from documents and return.
         /// If empty, no fields are extracted.
-        #[prost(string, repeated, tag = "2")]
+        #[prost(string, repeated, tag="2")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CombineApi {}
+pub struct CombineApi {
+}
 /// Nested message and enum types in `CombineAPI`.
 pub mod combine_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
         /// Memory address of a shared SchemaIndex, which must exist for
         /// the complete lifetime of this API's use.
-        #[prost(fixed64, tag = "1")]
+        #[prost(fixed64, tag="1")]
         pub schema_index_memptr: u64,
         /// Schema against which documents are to be validated,
         /// and which provides reduction annotations.
-        #[prost(string, tag = "2")]
+        #[prost(string, tag="2")]
         pub schema_uri: ::prost::alloc::string::String,
         /// Composite key used to group documents to be combined, specified as one or
         /// more JSON-Pointers indicating a message location to extract.
         /// If empty, all request documents are combined into a single response
         /// document.
-        #[prost(string, repeated, tag = "3")]
+        #[prost(string, repeated, tag="3")]
         pub key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Field JSON pointers to be extracted from combined documents and returned.
         /// If empty, no fields are extracted.
-        #[prost(string, repeated, tag = "4")]
+        #[prost(string, repeated, tag="4")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// JSON-Pointer at which a placeholder UUID should be inserted into
         /// returned documents. If empty, no placeholder is inserted.
-        #[prost(string, tag = "5")]
+        #[prost(string, tag="5")]
         pub uuid_placeholder_ptr: ::prost::alloc::string::String,
     }
     /// Code labels message codes passed over the CGO bridge.
@@ -608,21 +696,28 @@ pub mod combine_api {
     #[repr(i32)]
     pub enum Code {
         Invalid = 0,
-        /// Sent from Go => Rust.
+        /// Configure an empty combiner (Go -> Rust).
         Configure = 1,
+        /// Reduce a left-hand side document (Go -> Rust).
         ReduceLeft = 2,
+        /// Combine a right-hand side document (Go -> Rust).
         CombineRight = 3,
+        /// Drain the combiner (Go -> Rust).
         Drain = 4,
-        /// Sent from Rust => Go.
+        /// Next drained document is partially combined (Rust -> Go).
         DrainedCombinedDocument = 5,
+        /// Next drained document is fully reduced (Rust -> Go).
         DrainedReducedDocument = 6,
+        /// Next drained key (follows drained document; Rust -> Go).
         DrainedKey = 7,
+        /// Next drained fields (follows key; Rust -> Go).
         DrainedFields = 8,
     }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DeriveApi {}
+pub struct DeriveApi {
+}
 /// Nested message and enum types in `DeriveAPI`.
 pub mod derive_api {
     /// Config configures an instance of the derive service.
@@ -630,97 +725,168 @@ pub mod derive_api {
     pub struct Config {
         /// Memory address of a shared SchemaIndex, which must exist for
         /// the complete lifetime of this API's use.
-        #[prost(fixed64, tag = "1")]
+        #[prost(fixed64, tag="1")]
         pub schema_index_memptr: u64,
         /// Derivation to derive.
-        #[prost(message, optional, tag = "2")]
+        #[prost(message, optional, tag="2")]
         pub derivation: ::core::option::Option<super::DerivationSpec>,
         /// Memory address of an RocksDB Environment to use (as a *rocksdb_env_t).
         /// Ownership of the environment is transferred with this message.
-        #[prost(fixed64, tag = "3")]
+        #[prost(fixed64, tag="3")]
         pub rocksdb_env_memptr: u64,
         /// Local directory for ephemeral processing state.
-        #[prost(string, tag = "4")]
+        #[prost(string, tag="4")]
         pub local_dir: ::prost::alloc::string::String,
-        /// Unix Domain Socket at which the JavaScript transformer may be reached.
-        #[prost(string, tag = "5")]
-        pub typescript_uds_path: ::prost::alloc::string::String,
     }
     /// DocHeader precedes a JSON-encoded document.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct DocHeader {
         /// UUID of this document.
-        #[prost(message, optional, tag = "1")]
+        #[prost(message, optional, tag="1")]
         pub uuid: ::core::option::Option<super::UuidParts>,
         /// FDB packed shuffle key of the document.
-        #[prost(bytes = "vec", tag = "2")]
+        #[prost(bytes="vec", tag="2")]
         pub packed_key: ::prost::alloc::vec::Vec<u8>,
         /// Index of the transformation under which this document is being
         /// processed, within the configured DerivationSpec.
-        #[prost(uint32, tag = "3")]
+        #[prost(uint32, tag="3")]
         pub transform_index: u32,
+    }
+    /// Invoke a lambda, using Rust-owned memory buffers of invocation content.
+    /// Memory will remain pinned until the trampoline task completion.
+    /// |sources_length| will never be zero. If |registers_length| is zero,
+    /// this invocation is of the update lambda. Otherwise, it's the publish lambda.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Invoke {
+        /// Index of the transformation to be invoked within DerivationSpec.
+        #[prost(uint32, tag="1")]
+        pub transform_index: u32,
+        /// Memory pointer and length of comma-separated source documents.
+        #[prost(fixed64, tag="2")]
+        pub sources_memptr: u64,
+        #[prost(uint64, tag="3")]
+        pub sources_length: u64,
+        /// Memory pointer and length of comma-separated register documents.
+        #[prost(fixed64, tag="4")]
+        pub registers_memptr: u64,
+        #[prost(uint64, tag="5")]
+        pub registers_length: u64,
     }
     /// Prepare a commit of the transaction.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Prepare {
         /// Checkpoint to commit.
-        #[prost(message, optional, tag = "1")]
+        #[prost(message, optional, tag="1")]
         pub checkpoint: ::core::option::Option<super::super::consumer::Checkpoint>,
+    }
+    /// Codes passed over the CGO bridge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Code {
+        /// Configure a new derivation service (Go -> Rust).
+        Configure = 0,
+        /// Restore a checkoint (Go -> Rust).
+        RestoreCheckpoint = 1,
+        /// Begin a new transaction (Go -> Rust).
+        BeginTransaction = 2,
+        /// Next source document header (Go -> Rust).
+        NextDocumentHeader = 3,
+        /// Next source document body (Go -> Rust).
+        NextDocumentBody = 4,
+        /// Next drained document is partially combined (Rust -> Go).
+        /// Must match CombineAPI.Code.
+        DrainedCombinedDocument = 5,
+        /// Next drained document is fully reduced (Rust -> Go).
+        /// Must match CombineAPI.Code.
+        DrainedReducedDocument = 6,
+        /// Next drained key (follows drained document; Rust -> Go).
+        /// Must match CombineAPI.Code.
+        DrainedKey = 7,
+        /// Next drained fields (follows key; Rust -> Go).
+        /// Must match CombineAPI.Code.
+        DrainedFields = 8,
+        /// Trampoline task start or completion (Rust <-> Go).
+        Trampoline = 9,
+        /// Trampoline sub-type: invoke transform lambda.
+        TrampolineInvoke = 10,
+        /// Flush transaction (Go -> Rust).
+        FlushTransaction = 12,
+        /// Prepare transaction to commit (Go -> Rust).
+        PrepareToCommit = 13,
+        /// Clear registers values (test support only; Go -> Rust).
+        ClearRegisters = 14,
     }
 }
 /// BuildAPI is a meta-message which name spaces messages of the Build API bridge.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BuildApi {}
+pub struct BuildApi {
+}
 /// Nested message and enum types in `BuildAPI`.
 pub mod build_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
         /// Path to the base build directory.
-        #[prost(string, tag = "1")]
+        #[prost(string, tag="1")]
         pub directory: ::prost::alloc::string::String,
         /// Root catalog source specification. This may be either a local path
         /// relative to the current working directory, or an absolute URL.
-        #[prost(string, tag = "2")]
+        #[prost(string, tag="2")]
         pub source: ::prost::alloc::string::String,
         /// Path of the catalog database to write.
-        #[prost(string, tag = "3")]
+        #[prost(string, tag="3")]
         pub catalog_path: ::prost::alloc::string::String,
-        /// Should the TypeScript package be built?
-        #[prost(bool, tag = "4")]
+        /// Optional supplemental journal rules to add, beyond those already in the catalog.
+        /// This is used to add development & testing overrides.
+        #[prost(message, optional, tag="4")]
+        pub extra_journal_rules: ::core::option::Option<super::JournalRules>,
+        /// Optional supplemental shard rules to add, beyond those already in the catalog.
+        /// This is used to add development & testing overrides.
+        #[prost(message, optional, tag="5")]
+        pub extra_shard_rules: ::core::option::Option<super::ShardRules>,
+        /// Should the TypeScript package be generated?
+        #[prost(bool, tag="6")]
+        pub typescript_generate: bool,
+        /// Should the TypeScript package be built? Implies generation.
+        #[prost(bool, tag="7")]
         pub typescript_compile: bool,
         /// Should the TypeScript package be packaged into the catalog?
-        #[prost(bool, tag = "5")]
+        /// Implies generation and compilation.
+        #[prost(bool, tag="8")]
         pub typescript_package: bool,
-        /// Optional supplamental journal rules to add, beyond those already in the catalog.
-        /// This is used to add development & testing overrides.
-        #[prost(message, optional, tag = "6")]
-        pub extra_journal_rules: ::core::option::Option<super::JournalRules>,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fetch {
-        #[prost(string, tag = "1")]
+        #[prost(string, tag="1")]
         pub resource_url: ::prost::alloc::string::String,
-        #[prost(enumeration = "super::ContentType", tag = "2")]
+        #[prost(enumeration="super::ContentType", tag="2")]
         pub content_type: i32,
     }
     /// Code labels message codes passed over the CGO bridge.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Code {
+        /// Begin a build with a Config (Go -> Rust).
         Begin = 0,
+        /// Poll the build after completing one or more trampoline tasks (Go -> Rust).
         Poll = 1,
+        /// Trampoline task start or completion (Rust <-> Go).
         Trampoline = 2,
+        /// Trampoline sub-type: Start fetch of a resource.
         TrampolineFetch = 3,
+        /// Trampoline sub-type: Start validation of a materialization.
         TrampolineValidateMaterialization = 4,
+        /// Build completed successfully (Rust -> Go).
         Done = 5,
+        /// Build completed with errors (Rust -> Go).
         DoneWithErrors = 6,
+        /// Generate catalog specification JSON schema (Go <-> Rust)
         CatalogSchema = 100,
     }
 }
 /// IngestRequest describes documents to ingest into collections.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub collections: ::prost::alloc::vec::Vec<ingest_request::Collection>,
 }
 /// Nested message and enum types in `IngestRequest`.
@@ -729,11 +895,11 @@ pub mod ingest_request {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Collection {
         /// Name of the collection into which to ingest.
-        #[prost(string, tag = "1")]
+        #[prost(string, tag="1")]
         pub name: ::prost::alloc::string::String,
         /// Newline-separated JSON documents to ingest.
         /// TODO(johnny): this must be UTF-8, and can be "string" type.
-        #[prost(bytes = "vec", tag = "2")]
+        #[prost(bytes="vec", tag="2")]
         pub docs_json_lines: ::prost::alloc::vec::Vec<u8>,
     }
 }
@@ -741,15 +907,14 @@ pub mod ingest_request {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestResponse {
     /// Journals appended to by this ingestion, and their maximum offset on commit.
-    #[prost(map = "string, int64", tag = "1")]
+    #[prost(map="string, int64", tag="1")]
     pub journal_write_heads: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
     /// Etcd header which describes current journal partitions.
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub journal_etcd: ::core::option::Option<super::protocol::header::Etcd>,
 }
 /// EndpointType enumerates the endpoint types understood by Flow.
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum EndpointType {
@@ -763,8 +928,7 @@ pub enum EndpointType {
     Webhook = 6,
 }
 /// ContentType enumerates the content types understood by Flow.
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ContentType {
@@ -772,350 +936,4 @@ pub enum ContentType {
     JsonSchema = 1,
     TypescriptModule = 2,
     NpmPackage = 3,
-}
-#[doc = r" Generated client implementations."]
-pub mod shuffler_client {
-    #![allow(unused_variables, dead_code, missing_docs)]
-    use tonic::codegen::*;
-    pub struct ShufflerClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl ShufflerClient<tonic::transport::Channel> {
-        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> ShufflerClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::ResponseBody: Body + HttpBody + Send + 'static,
-        T::Error: Into<StdError>,
-        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
-            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
-            Self { inner }
-        }
-        pub async fn shuffle(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ShuffleRequest>,
-        ) -> Result<tonic::Response<tonic::codec::Streaming<super::ShuffleResponse>>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Shuffler/Shuffle");
-            self.inner
-                .server_streaming(request.into_request(), path, codec)
-                .await
-        }
-    }
-    impl<T: Clone> Clone for ShufflerClient<T> {
-        fn clone(&self) -> Self {
-            Self {
-                inner: self.inner.clone(),
-            }
-        }
-    }
-    impl<T> std::fmt::Debug for ShufflerClient<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "ShufflerClient {{ ... }}")
-        }
-    }
-}
-#[doc = r" Generated client implementations."]
-pub mod ingester_client {
-    #![allow(unused_variables, dead_code, missing_docs)]
-    use tonic::codegen::*;
-    #[doc = " Ingester offers transactional ingest of documents into collections."]
-    pub struct IngesterClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl IngesterClient<tonic::transport::Channel> {
-        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> IngesterClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::ResponseBody: Body + HttpBody + Send + 'static,
-        T::Error: Into<StdError>,
-        <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
-            let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
-            Self { inner }
-        }
-        pub async fn ingest(
-            &mut self,
-            request: impl tonic::IntoRequest<super::IngestRequest>,
-        ) -> Result<tonic::Response<super::IngestResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Ingester/Ingest");
-            self.inner.unary(request.into_request(), path, codec).await
-        }
-    }
-    impl<T: Clone> Clone for IngesterClient<T> {
-        fn clone(&self) -> Self {
-            Self {
-                inner: self.inner.clone(),
-            }
-        }
-    }
-    impl<T> std::fmt::Debug for IngesterClient<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "IngesterClient {{ ... }}")
-        }
-    }
-}
-#[doc = r" Generated server implementations."]
-pub mod shuffler_server {
-    #![allow(unused_variables, dead_code, missing_docs)]
-    use tonic::codegen::*;
-    #[doc = "Generated trait containing gRPC methods that should be implemented for use with ShufflerServer."]
-    #[async_trait]
-    pub trait Shuffler: Send + Sync + 'static {
-        #[doc = "Server streaming response type for the Shuffle method."]
-        type ShuffleStream: Stream<Item = Result<super::ShuffleResponse, tonic::Status>>
-            + Send
-            + Sync
-            + 'static;
-        async fn shuffle(
-            &self,
-            request: tonic::Request<super::ShuffleRequest>,
-        ) -> Result<tonic::Response<Self::ShuffleStream>, tonic::Status>;
-    }
-    #[derive(Debug)]
-    pub struct ShufflerServer<T: Shuffler> {
-        inner: _Inner<T>,
-    }
-    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
-    impl<T: Shuffler> ShufflerServer<T> {
-        pub fn new(inner: T) -> Self {
-            let inner = Arc::new(inner);
-            let inner = _Inner(inner, None);
-            Self { inner }
-        }
-        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
-            let inner = Arc::new(inner);
-            let inner = _Inner(inner, Some(interceptor.into()));
-            Self { inner }
-        }
-    }
-    impl<T, B> Service<http::Request<B>> for ShufflerServer<T>
-    where
-        T: Shuffler,
-        B: HttpBody + Send + Sync + 'static,
-        B::Error: Into<StdError> + Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = Never;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
-            match req.uri().path() {
-                "/flow.Shuffler/Shuffle" => {
-                    #[allow(non_camel_case_types)]
-                    struct ShuffleSvc<T: Shuffler>(pub Arc<T>);
-                    impl<T: Shuffler> tonic::server::ServerStreamingService<super::ShuffleRequest> for ShuffleSvc<T> {
-                        type Response = super::ShuffleResponse;
-                        type ResponseStream = T::ShuffleStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ShuffleRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).shuffle(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let interceptor = inner.1;
-                        let inner = inner.0;
-                        let method = ShuffleSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = if let Some(interceptor) = interceptor {
-                            tonic::server::Grpc::with_interceptor(codec, interceptor)
-                        } else {
-                            tonic::server::Grpc::new(codec)
-                        };
-                        let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(tonic::body::BoxBody::empty())
-                        .unwrap())
-                }),
-            }
-        }
-    }
-    impl<T: Shuffler> Clone for ShufflerServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self { inner }
-        }
-    }
-    impl<T: Shuffler> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone(), self.1.clone())
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
-        }
-    }
-    impl<T: Shuffler> tonic::transport::NamedService for ShufflerServer<T> {
-        const NAME: &'static str = "flow.Shuffler";
-    }
-}
-#[doc = r" Generated server implementations."]
-pub mod ingester_server {
-    #![allow(unused_variables, dead_code, missing_docs)]
-    use tonic::codegen::*;
-    #[doc = "Generated trait containing gRPC methods that should be implemented for use with IngesterServer."]
-    #[async_trait]
-    pub trait Ingester: Send + Sync + 'static {
-        async fn ingest(
-            &self,
-            request: tonic::Request<super::IngestRequest>,
-        ) -> Result<tonic::Response<super::IngestResponse>, tonic::Status>;
-    }
-    #[doc = " Ingester offers transactional ingest of documents into collections."]
-    #[derive(Debug)]
-    pub struct IngesterServer<T: Ingester> {
-        inner: _Inner<T>,
-    }
-    struct _Inner<T>(Arc<T>, Option<tonic::Interceptor>);
-    impl<T: Ingester> IngesterServer<T> {
-        pub fn new(inner: T) -> Self {
-            let inner = Arc::new(inner);
-            let inner = _Inner(inner, None);
-            Self { inner }
-        }
-        pub fn with_interceptor(inner: T, interceptor: impl Into<tonic::Interceptor>) -> Self {
-            let inner = Arc::new(inner);
-            let inner = _Inner(inner, Some(interceptor.into()));
-            Self { inner }
-        }
-    }
-    impl<T, B> Service<http::Request<B>> for IngesterServer<T>
-    where
-        T: Ingester,
-        B: HttpBody + Send + Sync + 'static,
-        B::Error: Into<StdError> + Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = Never;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
-            match req.uri().path() {
-                "/flow.Ingester/Ingest" => {
-                    #[allow(non_camel_case_types)]
-                    struct IngestSvc<T: Ingester>(pub Arc<T>);
-                    impl<T: Ingester> tonic::server::UnaryService<super::IngestRequest> for IngestSvc<T> {
-                        type Response = super::IngestResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::IngestRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).ingest(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let interceptor = inner.1.clone();
-                        let inner = inner.0;
-                        let method = IngestSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = if let Some(interceptor) = interceptor {
-                            tonic::server::Grpc::with_interceptor(codec, interceptor)
-                        } else {
-                            tonic::server::Grpc::new(codec)
-                        };
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(tonic::body::BoxBody::empty())
-                        .unwrap())
-                }),
-            }
-        }
-    }
-    impl<T: Ingester> Clone for IngesterServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self { inner }
-        }
-    }
-    impl<T: Ingester> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone(), self.1.clone())
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
-        }
-    }
-    impl<T: Ingester> tonic::transport::NamedService for IngesterServer<T> {
-        const NAME: &'static str = "flow.Ingester";
-    }
 }
