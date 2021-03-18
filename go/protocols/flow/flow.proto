@@ -5,8 +5,6 @@ option go_package = "github.com/estuary/flow/go/protocols/flow";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
-import "consumer/recoverylog/recorded_op.proto";
-import "ptypes/empty/empty.proto";
 import "gogoproto/gogo.proto";
 
 option (gogoproto.marshaler_all) = true;
@@ -294,6 +292,27 @@ message FieldSelection {
   map<string, string> field_config = 4;
 }
 
+// CaptureSpec describes a collection and its capture from an endpoint.
+// At the moment, we don't build or do anything with these.
+// This spec is a bit of a working placeholder until we can tackle
+// captures more broadly.
+message CaptureSpec {
+  // Name of this capture, derived from the endpoint name and the
+  // driver-provided endpoint resource path.
+  string capture = 1;
+  // Collection to be captured into.
+  CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+  // Endpoint to which we materialize.
+  string endpoint_name = 3;
+  // Type of the materialization's endpoint.
+  EndpointType endpoint_type = 4;
+  // JSON-encoded object which configures this materialization with
+  // respect to the endpoint type driver.
+  string endpoint_config_json = 5;
+  // Endpoint path components which fully qualify the subresource being materialized.
+  repeated string endpoint_resource_path = 6;
+}
+
 // MaterializationSpec describes a collection and its materialization to an endpoint.
 message MaterializationSpec {
   // Name of this materialization, derived from
@@ -383,10 +402,12 @@ message JournalRules {
 // to apply to the base ShardSpec.
 message ShardRules {
   message Rule {
+    // Name of the rule.
+    string rule = 1;
     // Label selector which must pass for the template to be applied.
-    protocol.LabelSelector selector = 1 [ (gogoproto.nullable) = false ];
-    // Template to union into the base JournalSpec.
-    consumer.ShardSpec template = 2 [ (gogoproto.nullable) = false ];
+    protocol.LabelSelector selector = 2 [ (gogoproto.nullable) = false ];
+    // Template to union into the base ShardSpec.
+    consumer.ShardSpec template = 3 [ (gogoproto.nullable) = false ];
   }
   repeated Rule rules = 1 [ (gogoproto.nullable) = false ];
 }
@@ -462,6 +483,55 @@ service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
+// CatalogTask is a self-contained, long lived specification executed
+// by the Flow runtime. Tasks have stable names which coexist in a shared
+// global namespace, with a specification that evolves over time.
+//
+// A CatalogTask is associated with a CatalogCommons, which provides all
+// resources required by the current specification that may be shared
+// with other CatalogTasks.
+message CatalogTask {
+  // Tags 1-10 are available for future use.
+
+  // Catalog commons used by this task.
+  string commons_id = 10;
+  // A capture of a data source into a collection.
+  // These don't do anything quite yet.
+  CaptureSpec capture = 11;
+  // An ingested collection.
+  CollectionSpec ingestion = 12;
+  // A derived collection.
+  DerivationSpec derivation = 13;
+  // A materialization of a collection.
+  MaterializationSpec materialization = 14;
+}
+
+// CatalogCommons describes a "commons" of shared resources utilized by multiple
+// CatalogTasks. It's indexed and referenced on its |commons_id|, which is an
+// opaque and unique identifier. A commons is garbage-collected when it's
+// no longer referred to by any CatalogTasks.
+message CatalogCommons {
+  // ID of this commons.
+  string commons_id = 1;
+
+  // Tags 2-9 are available for future use.
+
+  // Journal rules applied to create and update JournalSpecs.
+  JournalRules journal_rules = 10 [ (gogoproto.nullable) = false ];
+  // Shard rules applied to create and update ShardSpecs.
+  ShardRules shard_rules = 11 [ (gogoproto.nullable) = false ];
+  // Schema definitions, against which registers and sourced or derived documents are validated.
+  SchemaBundle schemas = 12 [ (gogoproto.nullable) = false];
+  // Unix domain socket on which a local TypeScript runtime is already listening.
+  // This is set by `flowctl test` and `flowctl develop`, and is empty otherwise.
+  string typescript_local_socket = 13;
+  // TypeScript NPM package, as a stand-alone gzipped tarball with bundled dependencies.
+  // At present we expect only etcd:// schemes with no host, and map paths to fetched
+  // Etcd values. This is a handy short term representation that will evolve over time.
+  // Empty if |typescript_local_socket| is set.
+  string typescript_package_url = 14;
+}
+
 message SchemaAPI {
   // Schema API takes SchemaBundle as its request message with code 1,
   // and sends back instances of BuiltIndex with code 1.
@@ -493,17 +563,21 @@ message CombineAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
     INVALID = 0;
-
-    // Sent from Go => Rust.
+    // Configure an empty combiner (Go -> Rust).
     CONFIGURE = 1;
+    // Reduce a left-hand side document (Go -> Rust).
     REDUCE_LEFT = 2;
+    // Combine a right-hand side document (Go -> Rust).
     COMBINE_RIGHT = 3;
+    // Drain the combiner (Go -> Rust).
     DRAIN = 4;
-
-    // Sent from Rust => Go.
+    // Next drained document is partially combined (Rust -> Go).
     DRAINED_COMBINED_DOCUMENT = 5;
+    // Next drained document is fully reduced (Rust -> Go).
     DRAINED_REDUCED_DOCUMENT = 6;
+    // Next drained key (follows drained document; Rust -> Go).
     DRAINED_KEY = 7;
+    // Next drained fields (follows key; Rust -> Go).
     DRAINED_FIELDS = 8;
   };
 
@@ -530,6 +604,42 @@ message CombineAPI {
 
 // DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.
 message DeriveAPI {
+  // Codes passed over the CGO bridge.
+  enum Code {
+    // Configure a new derivation service (Go -> Rust).
+    CONFIGURE = 0;
+    // Restore a checkoint (Go -> Rust).
+    RESTORE_CHECKPOINT = 1;
+    // Begin a new transaction (Go -> Rust).
+    BEGIN_TRANSACTION = 2;
+    // Next source document header (Go -> Rust).
+    NEXT_DOCUMENT_HEADER = 3;
+    // Next source document body (Go -> Rust).
+    NEXT_DOCUMENT_BODY = 4;
+    // Next drained document is partially combined (Rust -> Go).
+    // Must match CombineAPI.Code.
+    DRAINED_COMBINED_DOCUMENT = 5;
+    // Next drained document is fully reduced (Rust -> Go).
+    // Must match CombineAPI.Code.
+    DRAINED_REDUCED_DOCUMENT = 6;
+    // Next drained key (follows drained document; Rust -> Go).
+    // Must match CombineAPI.Code.
+    DRAINED_KEY = 7;
+    // Next drained fields (follows key; Rust -> Go).
+    // Must match CombineAPI.Code.
+    DRAINED_FIELDS = 8;
+    // Trampoline task start or completion (Rust <-> Go).
+    TRAMPOLINE = 9;
+    // Trampoline sub-type: invoke transform lambda.
+    TRAMPOLINE_INVOKE = 10;
+    // Flush transaction (Go -> Rust).
+    FLUSH_TRANSACTION = 12;
+    // Prepare transaction to commit (Go -> Rust).
+    PREPARE_TO_COMMIT = 13;
+    // Clear registers values (test support only; Go -> Rust).
+    CLEAR_REGISTERS = 14;
+  };
+
   // Config configures an instance of the derive service.
   message Config {
     // Memory address of a shared SchemaIndex, which must exist for
@@ -542,8 +652,6 @@ message DeriveAPI {
     fixed64 rocksdb_env_memptr = 3;
     // Local directory for ephemeral processing state.
     string local_dir = 4;
-    // Unix Domain Socket at which the JavaScript transformer may be reached.
-    string typescript_uds_path = 5;
   }
 
   // DocHeader precedes a JSON-encoded document.
@@ -555,6 +663,22 @@ message DeriveAPI {
     // Index of the transformation under which this document is being
     // processed, within the configured DerivationSpec.
     uint32 transform_index = 3;
+  }
+
+  // Invoke a lambda, using Rust-owned memory buffers of invocation content.
+  // Memory will remain pinned until the trampoline task completion.
+  // |sources_length| will never be zero. If |registers_length| is zero,
+  // this invocation is of the update lambda. Otherwise, it's the publish lambda.
+  message Invoke {
+    // Index of the transformation to be invoked within DerivationSpec.
+    uint32 transform_index = 1;
+
+    // Memory pointer and length of comma-separated source documents.
+    fixed64 sources_memptr = 2;
+    uint64 sources_length = 3;
+    // Memory pointer and length of comma-separated register documents.
+    fixed64 registers_memptr = 4;
+    uint64 registers_length = 5;
   }
 
   // Prepare a commit of the transaction.
@@ -576,13 +700,21 @@ enum ContentType {
 message BuildAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
+    // Begin a build with a Config (Go -> Rust).
     BEGIN = 0;
+    // Poll the build after completing one or more trampoline tasks (Go -> Rust).
     POLL = 1;
+    // Trampoline task start or completion (Rust <-> Go).
     TRAMPOLINE = 2;
+    // Trampoline sub-type: Start fetch of a resource.
     TRAMPOLINE_FETCH = 3;
+    // Trampoline sub-type: Start validation of a materialization.
     TRAMPOLINE_VALIDATE_MATERIALIZATION = 4;
+    // Build completed successfully (Rust -> Go).
     DONE = 5;
+    // Build completed with errors (Rust -> Go).
     DONE_WITH_ERRORS = 6;
+    // Generate catalog specification JSON schema (Go <-> Rust)
     CATALOG_SCHEMA = 100;
   };
 
@@ -594,13 +726,19 @@ message BuildAPI {
     string source = 2;
     // Path of the catalog database to write.
     string catalog_path = 3;
-    // Should the TypeScript package be built?
-    bool typescript_compile = 4;
-    // Should the TypeScript package be packaged into the catalog?
-    bool typescript_package = 5;
-    // Optional supplamental journal rules to add, beyond those already in the catalog.
+    // Optional supplemental journal rules to add, beyond those already in the catalog.
     // This is used to add development & testing overrides.
-    JournalRules extra_journal_rules = 6;
+    JournalRules extra_journal_rules = 4;
+    // Optional supplemental shard rules to add, beyond those already in the catalog.
+    // This is used to add development & testing overrides.
+    ShardRules extra_shard_rules = 5;
+    // Should the TypeScript package be generated?
+    bool typescript_generate = 6;
+    // Should the TypeScript package be built? Implies generation.
+    bool typescript_compile = 7;
+    // Should the TypeScript package be packaged into the catalog?
+    // Implies generation and compilation.
+    bool typescript_package = 8;
   }
 
   message Fetch {
