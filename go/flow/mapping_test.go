@@ -22,7 +22,7 @@ func TestPartitionPicking(t *testing.T) {
 	var logicalPrefix, hexKey, b []byte
 
 	var m = Mapper{
-		Journals: &keyspace.KeySpace{Root: "/items"},
+		Journals: Journals{&keyspace.KeySpace{Root: "/items"}},
 	}
 
 	for ind, tc := range []struct {
