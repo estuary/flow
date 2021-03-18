@@ -39,20 +39,18 @@ type Graph struct {
 }
 
 // NewGraph constructs a new *Graph.
-func NewGraph(transforms []pf.TransformSpec) *Graph {
-	var grouped = make(map[pf.Collection][]pf.TransformSpec)
+func NewGraph(derivations []pf.DerivationSpec) *Graph {
+	var transforms = make(map[pf.Collection][]pf.TransformSpec)
 	var readThrough = make(map[pf.Collection]*Clock)
 
-	for _, transform := range transforms {
-		grouped[transform.Derivation] = append(grouped[transform.Derivation], transform)
-	}
-	for derivation := range grouped {
-		readThrough[derivation] = new(Clock)
+	for _, d := range derivations {
+		transforms[d.Collection.Collection] = d.Transforms
+		readThrough[d.Collection.Collection] = new(Clock)
 	}
 
 	return &Graph{
 		atTime:      0,
-		transforms:  grouped,
+		transforms:  transforms,
 		readThrough: readThrough,
 		pending:     nil,
 		writeClock:  new(Clock),

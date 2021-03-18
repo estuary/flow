@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -16,7 +17,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 )
 
@@ -32,7 +32,7 @@ func TransformShuffles(transforms []pf.TransformSpec) []*pf.Shuffle {
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
 	service  *consumer.Service
-	journals *keyspace.KeySpace
+	journals flow.Journals
 	ranges   pf.RangeSpec
 	shuffles []*pf.Shuffle
 
@@ -47,7 +47,7 @@ type ReadBuilder struct {
 // NewReadBuilder builds a new ReadBuilder.
 func NewReadBuilder(
 	service *consumer.Service,
-	journals *keyspace.KeySpace,
+	journals flow.Journals,
 	shard consumer.Shard,
 	shuffles []*pf.Shuffle,
 ) (*ReadBuilder, error) {
@@ -397,7 +397,7 @@ func (s shardsByKey) len() int                 { return len(s) }
 func (s shardsByKey) getKeyBegin(i int) []byte { return []byte(s[i].LabelSet.ValueOf(labels.KeyBegin)) }
 func (s shardsByKey) getKeyEnd(i int) []byte   { return []byte(s[i].LabelSet.ValueOf(labels.KeyEnd)) }
 
-func walkReads(members []*pc.ShardSpec, allJournals *keyspace.KeySpace, shuffles []*pf.Shuffle,
+func walkReads(members []*pc.ShardSpec, allJournals flow.Journals, shuffles []*pf.Shuffle,
 	cb func(_ pb.JournalSpec, _ *pf.Shuffle, coordinator pc.ShardID)) error {
 
 	// Generate hashes for each of |members| derived from IDs.

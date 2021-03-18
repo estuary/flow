@@ -22,7 +22,6 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 	gazLabels "go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
@@ -149,7 +148,6 @@ func TestConsumerIntegration(t *testing.T) {
 			HintBackups:       1,
 			MaxTxnDuration:    time.Second,
 			LabelSet: pb.MustLabelSet(
-				flowLabels.Derivation, "derived-bar",
 				flowLabels.KeyBegin, hex.EncodeToString(tuple.Tuple{(i + 0) * step}.Pack()),
 				flowLabels.KeyEnd, hex.EncodeToString(tuple.Tuple{(i + 1) * step}.Pack()),
 				flowLabels.RClockBegin, "0000000000000000",
@@ -233,7 +231,7 @@ func TestConsumerIntegration(t *testing.T) {
 
 type testApp struct {
 	service    *consumer.Service
-	journals   *keyspace.KeySpace
+	journals   flow.Journals
 	transforms []pf.TransformSpec
 }
 

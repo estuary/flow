@@ -7,7 +7,6 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize/driver"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -19,15 +18,13 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 )
 
 // Materialize is the high-level runtime of the materialization consumer workflow.
 type Materialize struct {
-	// Transaction-scoped combiner.
-	combiner        *bindings.Combine
-	combinerBuilder *bindings.CombineBuilder
+	// Combiner that's re-used for the life of the materialization.
+	combiner *bindings.Combine
 	// Operation started on each transaction StartCommit, which signals on
 	// receipt of Committed from |driverRx|. It's used to sequence recovery log
 	// commits, which it gates, while still allowing for optimistic pipelining.
@@ -60,44 +57,32 @@ type storeState struct {
 // NewMaterializeApp returns a new Materialize, which implements Application
 func NewMaterializeApp(
 	service *consumer.Service,
-	journals *keyspace.KeySpace,
+	journals flow.Journals,
 	shard consumer.Shard,
 	recorder *recoverylog.Recorder,
+	spec *pf.MaterializationSpec,
+	commons *flow.Commons,
 ) (*Materialize, error) {
-	var catalogURL, err = shardLabel(shard, labels.CatalogURL)
-	if err != nil {
-		return nil, err
-	}
-	materializationName, err := shardLabel(shard, labels.Materialization)
-	if err != nil {
-		return nil, err
-	}
-
-	// Open catalog and load required specs.
-	catalog, err := flow.NewCatalog(catalogURL, recorder.Dir())
-	if err != nil {
-		return nil, fmt.Errorf("opening catalog: %w", err)
-	}
-	defer catalog.Close()
-
-	spec, err := catalog.LoadMaterialization(materializationName)
-	if err != nil {
-		return nil, fmt.Errorf("loading materialization spec: %w", err)
-	}
-	schemaBundle, err := catalog.LoadSchemaBundle()
-	if err != nil {
-		return nil, fmt.Errorf("loading schema bundle: %w", err)
-	}
-	schemaIndex, err := bindings.NewSchemaIndex(schemaBundle)
+	schemaIndex, err := commons.SchemaIndex()
 	if err != nil {
 		return nil, fmt.Errorf("building schema index: %w", err)
 	}
+	combiner, err := bindings.NewCombine(
+		schemaIndex,
+		spec.Collection.SchemaUri,
+		spec.Collection.KeyPtrs,
+		spec.FieldValuePtrs(),
+		"", // Don't generate UUID placeholders.
+	)
+	if err != nil {
+		return nil, fmt.Errorf("building combiner: %w", err)
+	}
+
 	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard,
 		[]*pf.Shuffle{&spec.Shuffle})
 	if err != nil {
 		return nil, fmt.Errorf("NewReadBuilder: %w", err)
 	}
-
 	store, err := consumer.NewJSONFileStore(recorder, new(storeState))
 	if err != nil {
 		return nil, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
@@ -121,19 +106,18 @@ func NewMaterializeApp(
 	committed.Resolve(nil)
 
 	return &Materialize{
-		combiner:        nil,
-		combinerBuilder: bindings.NewCombineBuilder(schemaIndex),
-		committed:       committed,
-		coordinator:     coordinator,
-		deltaUpdates:    false, // Set by RestoreCheckpoint.
-		driverRx:        driverRx,
-		driverTx:        driverTx,
-		flighted:        make(map[string]json.RawMessage),
-		spec:            spec,
-		readBuilder:     readBuilder,
-		recorder:        recorder,
-		request:         nil,
-		store:           store,
+		combiner:     combiner,
+		committed:    committed,
+		coordinator:  coordinator,
+		deltaUpdates: false, // Set by RestoreCheckpoint.
+		driverRx:     driverRx,
+		driverTx:     driverTx,
+		flighted:     make(map[string]json.RawMessage),
+		spec:         spec,
+		readBuilder:  readBuilder,
+		recorder:     recorder,
+		request:      nil,
+		store:        store,
 	}, nil
 }
 
@@ -180,8 +164,8 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	// See FinalizeTxn.
 	var remaining = len(m.flighted)
 
-	// Drain the combiner.
-	if err := m.combiner.Finish(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
+	// Drain the combiner into materialization Store requests.
+	if err := m.combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
 		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
 		if _, ok := m.flighted[string(packedKey)]; !ok {
 			var key, _ = tuple.Unpack(packedKey)
@@ -224,9 +208,6 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	}); err != nil {
 		return client.FinishedOperation(fmt.Errorf("combine.Finish: %w", err))
 	}
-
-	m.combinerBuilder.Release(m.combiner)
-	m.combiner = nil
 
 	// We should have seen 1:1 combined documents for each flighted key.
 	if remaining != 0 {
@@ -328,20 +309,8 @@ func (m *Materialize) Coordinator() *shuffle.Coordinator {
 // Implementing runtime.Application for Materialize
 var _ Application = (*Materialize)(nil)
 
-// BeginTxn implements Application.BeginTxn
+// BeginTxn implements Application.BeginTxn and is a no-op.
 func (m *Materialize) BeginTxn(shard consumer.Shard) error {
-
-	var err error
-	m.combiner, err = m.combinerBuilder.Open(
-		m.spec.Collection.SchemaUri,
-		m.spec.Collection.KeyPtrs,
-		m.spec.FieldValuePtrs(),
-		"", // Don't generate UUID placeholders.
-	)
-	if err != nil {
-		return fmt.Errorf("building combiner: %w", err)
-	}
-
 	return nil
 }
 

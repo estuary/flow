@@ -73,7 +73,7 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 		}
 	}()
 	// Spawn a loop which wakes |journalsUpdateCh| on each revision update.
-	go signalKeySpaceUpdates(ctx, rb.journals, g.journalsUpdateCh)
+	go signalKeySpaceUpdates(ctx, rb.journals.KeySpace, g.journalsUpdateCh)
 
 	return
 }

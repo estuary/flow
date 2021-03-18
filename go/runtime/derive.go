@@ -7,17 +7,14 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
-	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 )
 
@@ -26,7 +23,6 @@ type Derive struct {
 	binding     *bindings.Derive
 	coordinator *shuffle.Coordinator
 	derivation  *pf.DerivationSpec
-	jsWorker    *flow.JSWorker
 	mapper      flow.Mapper
 	readBuilder *shuffle.ReadBuilder
 	recorder    *recoverylog.Recorder
@@ -37,49 +33,26 @@ var _ Application = (*Derive)(nil)
 // NewDeriveApp builds and returns a *Derive Application.
 func NewDeriveApp(
 	service *consumer.Service,
-	journals *keyspace.KeySpace,
+	journals flow.Journals,
 	shard consumer.Shard,
 	recorder *recoverylog.Recorder,
-	lambdaJSOverride string,
+	derivation *pf.DerivationSpec,
+	commons *flow.Commons,
 ) (*Derive, error) {
-	catalogURL, err := shardLabel(shard, labels.CatalogURL)
-	if err != nil {
-		return nil, err
-	}
-	derivationName, err := shardLabel(shard, labels.Derivation)
-	if err != nil {
-		return nil, err
-	}
-
-	// Open catalog and load required specs.
-	catalog, err := flow.NewCatalog(catalogURL, recorder.Dir())
-	if err != nil {
-		return nil, fmt.Errorf("opening catalog: %w", err)
-	}
-	defer catalog.Close()
-
-	derivation, err := catalog.LoadDerivedCollection(derivationName)
-	if err != nil {
-		return nil, fmt.Errorf("loading collection spec: %w", err)
-	}
-	schemaBundle, err := catalog.LoadSchemaBundle()
-	if err != nil {
-		return nil, fmt.Errorf("loading schema bundle: %w", err)
-	}
-	journalRules, err := catalog.LoadJournalRules()
-	if err != nil {
-		return nil, fmt.Errorf("loading journal rules: %w", err)
-	}
-	schemaIndex, err := bindings.NewSchemaIndex(schemaBundle)
+	schemaIndex, err := commons.SchemaIndex()
 	if err != nil {
 		return nil, fmt.Errorf("building schema index: %w", err)
+	}
+	tsClient, err := commons.TypeScriptClient(service.Etcd)
+	if err != nil {
+		return nil, fmt.Errorf("building TypeScript client: %w", err)
 	}
 
 	var mapper = flow.Mapper{
 		Ctx:           shard.Context(),
 		JournalClient: shard.JournalClient(),
 		Journals:      journals,
-		JournalRules:  journalRules.Rules,
+		JournalRules:  commons.JournalRules.Rules,
 	}
 
 	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard,
@@ -87,16 +60,12 @@ func NewDeriveApp(
 	if err != nil {
 		return nil, fmt.Errorf("NewReadBuilder: %w", err)
 	}
-	jsWorker, err := flow.NewJSWorker(catalog, lambdaJSOverride)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start JS worker: %w", err)
-	}
 
 	binding, err := bindings.NewDerive(
 		schemaIndex,
 		derivation,
 		store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder)),
-		jsWorker,
+		tsClient,
 		recorder.Dir(),
 	)
 	if err != nil {
@@ -109,7 +78,6 @@ func NewDeriveApp(
 		binding:     binding,
 		coordinator: coordinator,
 		derivation:  derivation,
-		jsWorker:    jsWorker,
 		mapper:      mapper,
 		readBuilder: readBuilder,
 		recorder:    recorder,
@@ -123,11 +91,7 @@ func (a *Derive) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) 
 
 // Destroy implements the Store interface. It gracefully stops the flow-worker.
 func (a *Derive) Destroy() {
-	a.binding.Stop()
-
-	if err := a.jsWorker.Stop(); err != nil {
-		log.WithField("err", err).Error("failed to stop JavaScript worker")
-	}
+	a.binding.Destroy()
 }
 
 // BeginTxn begins a derive transaction.
@@ -155,17 +119,13 @@ func (a *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 			break
 		}
 	}
-
-	if message.Flags(uuid.ProducerAndFlags)&message.Flag_ACK_TXN != 0 {
-		return a.binding.Flush()
-	}
 	return nil
 }
 
 // FinalizeTxn finishes and drains the derive worker transaction,
 // and publishes each combined document to the derived collection.
 func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
-	return a.binding.Finish(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+	return a.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 		if full {
 			panic("derivation produces only partially combined documents")
 		}
