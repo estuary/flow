@@ -36,6 +36,7 @@ Tables {
         },
     ],
     schema_docs: [],
+    shard_rules: [],
     test_steps: [
         TestStep {
             scope: test://example/catalog.yaml#/tests/A%20test%20case/0,

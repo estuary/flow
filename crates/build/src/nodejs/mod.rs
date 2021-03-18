@@ -197,12 +197,10 @@ pub fn write_package<'a>(
                     std::fs::write(&path, contents)?;
                     tracing::info!("wrote {:?}", path);
                 } else {
-                    tracing::info!("skipping existing file {:?}", path);
+                    tracing::debug!("skipping existing file {:?}", path);
                 }
             }
-            WriteIntent::Never => {
-                tracing::info!("DIDNT write {:?}", path);
-            }
+            WriteIntent::Never => {}
         }
     }
 

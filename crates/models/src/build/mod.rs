@@ -109,6 +109,24 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
     }
 }
 
+pub fn capture_spec(
+    capture: &tables::Capture,
+    target: &tables::BuiltCollection,
+    name: &str,
+    endpoint_type: flow::EndpointType,
+    endpoint_config_json: String,
+    endpoint_resource_path: Vec<String>,
+) -> flow::CaptureSpec {
+    flow::CaptureSpec {
+        capture: name.to_owned(),
+        collection: Some(target.spec.clone()),
+        endpoint_name: capture.endpoint.to_string(),
+        endpoint_type: endpoint_type as i32,
+        endpoint_config_json,
+        endpoint_resource_path,
+    }
+}
+
 fn lambda_spec(
     lambda: &names::Lambda,
     transform: &tables::Transform,
@@ -187,7 +205,11 @@ pub fn transform_spec(
     }
 }
 
-pub fn derivation_spec(derivation: &tables::Derivation) -> flow::DerivationSpec {
+pub fn derivation_spec(
+    derivation: &tables::Derivation,
+    collection: &tables::BuiltCollection,
+    mut transforms: Vec<flow::TransformSpec>,
+) -> flow::DerivationSpec {
     let tables::Derivation {
         scope: _,
         derivation: _,
@@ -195,9 +217,11 @@ pub fn derivation_spec(derivation: &tables::Derivation) -> flow::DerivationSpec 
         register_initial,
     } = derivation;
 
+    transforms.sort_by(|l, r| l.transform.cmp(&r.transform));
+
     flow::DerivationSpec {
-        collection: None, // See tables::BuiltDerivations.
-        transforms: Default::default(),
+        collection: Some(collection.spec.clone()),
+        transforms,
         register_schema_uri: register_schema.to_string(),
         register_initial_json: register_initial.to_string(),
     }
@@ -258,7 +282,7 @@ pub fn materialization_spec(
 ) -> flow::MaterializationSpec {
     flow::MaterializationSpec {
         materialization: name.to_string(),
-        collection: None, // See tables::BuiltMaterialization.
+        collection: Some(source.spec.clone()),
         endpoint_name: materialization.endpoint.to_string(),
         endpoint_type: endpoint_type as i32,
         endpoint_config_json,
