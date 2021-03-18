@@ -50,12 +50,11 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(?code, "invoke");
-
         let code = match Code::from_i32(code as i32) {
             Some(c) => c,
             None => return Err(Error::InvalidState),
         };
+        tracing::trace!(?code, "invoke");
 
         match (code, &mut self.state) {
             (Code::Configure, None) => {
@@ -84,13 +83,11 @@ impl cgo::Service for API {
                 combiner.combine_right(doc)?;
                 Ok(())
             }
-            (Code::Drain, Some(_)) => {
-                let (req, combiner) = self.state.take().unwrap();
-
+            (Code::Drain, Some((cfg, combiner))) => {
                 drain_combiner(
                     combiner,
-                    &req.uuid_placeholder_ptr,
-                    &req.field_ptrs.iter().map(Pointer::from).collect::<Vec<_>>(),
+                    &cfg.uuid_placeholder_ptr,
+                    &cfg.field_ptrs.iter().map(Pointer::from).collect::<Vec<_>>(),
                     arena,
                     out,
                 );
@@ -102,7 +99,7 @@ impl cgo::Service for API {
 }
 
 pub fn drain_combiner(
-    combiner: Combiner,
+    combiner: &mut Combiner,
     uuid_placeholder_ptr: &str,
     field_ptrs: &[Pointer],
     arena: &mut Vec<u8>,
@@ -110,7 +107,7 @@ pub fn drain_combiner(
 ) {
     let key_ptrs = combiner.key().clone();
 
-    for (doc, fully_reduced) in combiner.into_entries(uuid_placeholder_ptr) {
+    for (doc, fully_reduced) in combiner.drain_entries(uuid_placeholder_ptr) {
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
