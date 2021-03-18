@@ -1,13 +1,11 @@
 pub mod combine_api;
-pub mod combiner;
-pub mod context;
 pub mod derive_api;
 pub mod extract_api;
-pub mod lambda;
-pub mod nodejs;
-pub mod pipeline;
-pub mod registers;
 pub mod schema_api;
+
+mod combiner;
+mod pipeline;
+mod registers;
 
 pub use extract_api::extract_uuid_parts;
 
@@ -27,8 +25,6 @@ pub mod test {
     use doc;
     use serde_json::json;
     use url::Url;
-
-    pub use super::lambda::test::TestServer as LambdaTestServer;
 
     // Build a test schema fixture. Use gross Box::leak to coerce a 'static lifetime.
     pub fn build_min_max_sum_schema() -> (&'static doc::SchemaIndex<'static>, Url) {

@@ -14,13 +14,7 @@ tuple = { path = "../tuple", version = "0.0.0" }
 anyhow = "*"
 bytes = "*"
 futures = "*"
-http = "*"
-hyper = "*"
-hyper-tls = "*"
-hyperlocal = "*"
 itertools = "*"
-log = "*"
-mime = "*"
 pin-utils = "*"
 prost = "*"
 rocksdb = { version = "*", default-features = false }
@@ -28,15 +22,11 @@ rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 thiserror = "*"
-tokio = { version = "*", features = [] }
 tracing = "*"
 tracing-futures = "*"
 url = "*"
 uuid = "*"
 
 [dev-dependencies]
-serve = { path = "../serve", version = "0.0.0" }
-
 insta = "*"
 tempfile = "*"
-tower = "*"
