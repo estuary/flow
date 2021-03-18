@@ -36,7 +36,9 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				return nil, fmt.Errorf("expected SQLite database configuration `table`")
 			}
 
-			if u, err := url.Parse(parsed.Path); err != nil {
+			if strings.HasPrefix(parsed.Path, ":memory:") {
+				// Directly pass to SQLite.
+			} else if u, err := url.Parse(parsed.Path); err != nil {
 				return nil, fmt.Errorf("parsing path %q: %w", parsed.Path, err)
 			} else if !u.IsAbs() {
 				return nil, fmt.Errorf("path %q is not absolute", parsed.Path)
