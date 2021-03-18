@@ -33,17 +33,13 @@ func serveHTTPTransactionJSON(a args, w http.ResponseWriter, r *http.Request) (e
 func serveHTTPDocumentJSON(a args, w http.ResponseWriter, r *http.Request) (err error) {
 	return doServeHTTPJSON(a, w, r, func(ingestion *Ingestion) error {
 		var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
-		var collection = pf.Collection(name)
-		if _, ok := a.ingester.Collections[collection]; !ok {
-			return fmt.Errorf("'%v' is not an ingestable collection", name)
-		}
 
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			return fmt.Errorf("failed to read request body: %w", err)
 		}
 
-		return ingestion.Add(collection, body)
+		return ingestion.Add(pf.Collection(name), body)
 	})
 }
 

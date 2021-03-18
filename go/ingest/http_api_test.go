@@ -44,7 +44,7 @@ func testHTTPMultiNotFound(t *testing.T, addr string) {
 
 	require.Equal(t, 400, resp.StatusCode)
 	var body, _ = ioutil.ReadAll(resp.Body)
-	require.Equal(t, "\"not/found\" is not an ingestable collection\n", string(body))
+	require.Equal(t, "fetching specification for \"not/found\": not found\n", string(body))
 }
 
 func testHTTPMultiMalformed(t *testing.T, addr string) {
@@ -84,7 +84,7 @@ func testHTTPSingleNotFound(t *testing.T, addr string) {
 
 	require.Equal(t, 400, resp.StatusCode)
 	var body, _ = ioutil.ReadAll(resp.Body)
-	require.Equal(t, "'the/mind/says/no' is not an ingestable collection\n", string(body))
+	require.Equal(t, "fetching specification for \"the/mind/says/no\": not found\n", string(body))
 }
 
 func testHTTPSingleMalformed(t *testing.T, addr string) {
