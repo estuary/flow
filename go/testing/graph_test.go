@@ -24,14 +24,30 @@ func transformFixture(source pf.Collection, transform pf.Transform,
 	}
 }
 
+func derivationsFixture(transforms ...pf.TransformSpec) []pf.DerivationSpec {
+	var grouped = make(map[pf.Collection][]pf.TransformSpec)
+	for _, t := range transforms {
+		grouped[t.Derivation] = append(grouped[t.Derivation], t)
+	}
+
+	var out []pf.DerivationSpec
+	for _, group := range grouped {
+		out = append(out, pf.DerivationSpec{
+			Collection: pf.CollectionSpec{Collection: group[0].Derivation},
+			Transforms: group,
+		})
+	}
+	return out
+}
+
 func TestGraphAntecedents(t *testing.T) {
-	var transforms = []pf.TransformSpec{
+	var derivations = derivationsFixture(
 		transformFixture("A", "A to B", "B", 0),
 		transformFixture("B", "B to C", "C", 0),
 		transformFixture("B", "B to A", "A", 0),
 		transformFixture("X", "X to Y", "Y", 0),
-	}
-	var graph = NewGraph(transforms)
+	)
+	var graph = NewGraph(derivations)
 
 	require.False(t, graph.HasPendingParent("A"))
 	require.False(t, graph.HasPendingParent("B"))
@@ -60,11 +76,11 @@ func TestGraphAntecedents(t *testing.T) {
 }
 
 func TestGraphIngestProjection(t *testing.T) {
-	var transforms = []pf.TransformSpec{
+	var derivations = derivationsFixture(
 		transformFixture("A", "A-to-B", "B", 10),
 		transformFixture("A", "A-to-C", "C", 5),
-	}
-	var graph = NewGraph(transforms)
+	)
+	var graph = NewGraph(derivations)
 
 	// Two ingests into "A" complete, with raced Clocks.
 	graph.CompletedIngest("A", clockFixtureOne(10, "A/foo", 2))
@@ -98,11 +114,11 @@ func TestGraphIngestProjection(t *testing.T) {
 }
 
 func TestStatProjection(t *testing.T) {
-	var transforms = []pf.TransformSpec{
+	var derivations = derivationsFixture(
 		transformFixture("A", "A-to-B", "B", 0),
 		transformFixture("B", "B-to-C", "C", 0),
-	}
-	var graph = NewGraph(transforms)
+	)
+	var graph = NewGraph(derivations)
 
 	// Two stats of "B" transformation complete.
 	graph.CompletedStat(
@@ -132,11 +148,11 @@ func TestStatProjection(t *testing.T) {
 }
 
 func TestProjectionAlreadyRead(t *testing.T) {
-	var transforms = []pf.TransformSpec{
+	var derivations = derivationsFixture(
 		transformFixture("A", "A-to-B", "B", 0),
 		transformFixture("B", "B-to-B", "B", 0), // Self-cycle.
-	}
-	var graph = NewGraph(transforms)
+	)
+	var graph = NewGraph(derivations)
 
 	var progressFixture = clockFixture(4,
 		[]string{"A/data;derive/B/A-to-B", "B/data;derive/B/B-to-B"}, []int{5, 6})
@@ -179,12 +195,12 @@ func TestProjectionAlreadyRead(t *testing.T) {
 }
 
 func TestReadyStats(t *testing.T) {
-	var transforms = []pf.TransformSpec{
+	var derivations = derivationsFixture(
 		transformFixture("A", "A-to-A", "A", 0),
 		transformFixture("A", "A-to-B", "B", 0),
 		transformFixture("A", "A-to-C", "C", 0),
-	}
-	var graph = NewGraph(transforms)
+	)
+	var graph = NewGraph(derivations)
 
 	// Install pending fixtures.
 	graph.pending = []PendingStat{

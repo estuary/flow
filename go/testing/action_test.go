@@ -9,19 +9,19 @@ import (
 )
 
 func TestTestCaseExecution(t *testing.T) {
-	var transforms = []pf.TransformSpec{
+	var derivations = derivationsFixture(
 		transformFixture("A", "A-to-B-fast", "B", 0),
 		transformFixture("A", "A-to-B-slow", "B", 3),
 		transformFixture("A", "A-to-Y", "Y", 2),
 		transformFixture("A", "A-to-Z", "Z", 5),
-	}
+	)
 	var test = &pf.TestSpec{
 		Steps: []pf.TestSpec_Step{
 			{StepType: pf.TestSpec_Step_INGEST, Collection: "A"},
 			{StepType: pf.TestSpec_Step_VERIFY, Collection: "B"},
 		},
 	}
-	var graph = NewGraph(transforms)
+	var graph = NewGraph(derivations)
 
 	var driver = new(mockDriver)
 

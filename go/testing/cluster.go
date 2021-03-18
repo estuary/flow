@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/ingest"
 	"github.com/estuary/flow/go/runtime"
 	log "github.com/sirupsen/logrus"
@@ -31,24 +29,22 @@ import (
 // ClusterConfig configures a single-process Flow cluster member.
 type ClusterConfig struct {
 	mbp.ServiceConfig
-	Catalog            *flow.Catalog
 	Context            context.Context
 	DisableClockTicks  bool
 	Etcd               *clientv3.Client
+	EtcdCatalogPrefix  string
 	EtcdBrokerPrefix   string
 	EtcdConsumerPrefix string
-	LambdaJSUDS        string
 }
 
 // Cluster is an in-process Flow cluster environment.
 type Cluster struct {
-	Consumer    *runtime.FlowConsumer
-	Ingester    *ingest.Ingester
-	Journals    pb.RoutedJournalClient
-	SchemaIndex *bindings.SchemaIndex // Remove when we load specs into Etcd.
-	Server      *server.Server
-	Shards      pc.ShardClient
-	Tasks       *task.Group
+	Consumer *runtime.FlowConsumer
+	Ingester *ingest.Ingester
+	Journals pb.RoutedJournalClient
+	Server   *server.Server
+	Shards   pc.ShardClient
+	Tasks    *task.Group
 }
 
 // NewCluster builds and returns a new, running flow Cluster.
@@ -127,8 +123,8 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 	{
 		var appConfig = new(runtime.FlowConsumerConfig)
 		appConfig.Flow.BrokerRoot = c.EtcdBrokerPrefix
+		appConfig.Flow.CatalogRoot = c.EtcdCatalogPrefix
 		appConfig.DisableClockTicks = c.DisableClockTicks
-		appConfig.Flow.LambdaJS = c.LambdaJSUDS
 
 		var (
 			spec = &pc.ConsumerSpec{
@@ -172,35 +168,26 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 
 	// Start Flow ingester.
 	ingester, err := runtime.StartIngesterService(runtime.FlowIngesterArgs{
-		Catalog:    c.Catalog,
-		BrokerRoot: c.EtcdBrokerPrefix,
-		Server:     server,
-		Tasks:      tasks,
-		Journals:   rjc,
-		Etcd:       c.Etcd,
+		BrokerRoot:  c.EtcdBrokerPrefix,
+		CatalogRoot: c.EtcdCatalogPrefix,
+		Server:      server,
+		Tasks:       tasks,
+		Journals:    rjc,
+		Etcd:        c.Etcd,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("starting ingester: %w", err)
 	}
 
-	schemaBundle, err := c.Catalog.LoadSchemaBundle()
-	if err != nil {
-		return nil, fmt.Errorf("loading schema bundle: %w", err)
-	}
-	schemaIndex, err := bindings.NewSchemaIndex(schemaBundle)
-	if err != nil {
-		return nil, fmt.Errorf("building schema index: %w", err)
-	}
 	tasks.GoRun()
 
 	return &Cluster{
-		Consumer:    flowConsumer,
-		Ingester:    ingester,
-		Journals:    rjc,
-		SchemaIndex: schemaIndex,
-		Server:      server,
-		Shards:      pc.NewShardClient(server.GRPCLoopback),
-		Tasks:       tasks,
+		Consumer: flowConsumer,
+		Ingester: ingester,
+		Journals: rjc,
+		Server:   server,
+		Shards:   pc.NewShardClient(server.GRPCLoopback),
+		Tasks:    tasks,
 	}, nil
 }
 

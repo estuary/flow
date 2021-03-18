@@ -18,7 +18,6 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
 )
@@ -29,8 +28,8 @@ type FlowConsumerConfig struct {
 
 	// Flow application flags.
 	Flow struct {
-		BrokerRoot string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-		LambdaJS   string `long:"lambda-uds-js" env:"LAMBDA_UDS_JS" default:"" description:"Path to JavaScript lambda Unix Domain Socket, or empty to start workers as needed"`
+		CatalogRoot string `long:"catalog-root" env:"CATALOG_ROOT" default:"/flow/catalog" description:"Flow Catalog Etcd base prefix"`
+		BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 
 	// DisableClockTicks is exposed for in-process testing, where we manually adjust the current Timepoint.
@@ -44,7 +43,9 @@ type FlowConsumer struct {
 	// Running consumer.Service.
 	Service *consumer.Service
 	// Watched broker journals.
-	Journals *keyspace.KeySpace
+	Journals flow.Journals
+	// Watched catalog entities.
+	Catalog flow.Catalog
 	// Timepoint that regulates shuffled reads of started shards.
 	Timepoint struct {
 		Now *flow.Timepoint
@@ -74,20 +75,15 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 	}
 	// We must attempt to create the recovery log.
 
-	// Grab labeled catalog, and load journal rules.
-	var catalog, err = flow.NewCatalog(shardSpec.LabelSet.ValueOf(labels.CatalogURL), "")
+	// Grab labeled catalog task, and its journal rules.
+	var name = shardSpec.LabelSet.ValueOf(labels.CatalogTask)
+	var _, commons, err = f.Catalog.GetTask(name)
 	if err != nil {
-		return "", fmt.Errorf("opening catalog: %w", err)
-	}
-	defer catalog.Close()
-
-	journalRules, err := catalog.LoadJournalRules()
-	if err != nil {
-		return "", fmt.Errorf("loading journal rules: %w", err)
+		return "", fmt.Errorf("looking up catalog task %q: %w", name, err)
 	}
 
 	// Construct the desired recovery log spec.
-	var desired = flow.BuildRecoveryLogSpec(shardSpec, journalRules.Rules)
+	var desired = flow.BuildRecoveryLogSpec(shardSpec, commons.JournalRules.Rules)
 	_, err = client.ApplyJournals(shard.Context(), shard.JournalClient(), &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{
 			{
@@ -111,12 +107,19 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	if shard.Spec().LabelSet.ValuesOf(labels.Materialization) != nil {
-		return NewMaterializeApp(f.Service, f.Journals, shard, rec)
-	} else if shard.Spec().LabelSet.ValuesOf(labels.Derivation) != nil {
-		return NewDeriveApp(f.Service, f.Journals, shard, rec, f.Config.Flow.LambdaJS)
+	var taskName = shard.Spec().LabelSet.ValueOf(labels.CatalogTask)
+	var task, commons, err = f.Catalog.GetTask(taskName)
+	if err != nil {
+		return nil, fmt.Errorf("looking up catalog task %q: %w", taskName, err)
 	}
-	return nil, fmt.Errorf("unknown shard type")
+
+	if task.Materialization != nil {
+		return NewMaterializeApp(f.Service, f.Journals, shard, rec, task.Materialization, commons)
+	}
+	if task.Derivation != nil {
+		return NewDeriveApp(f.Service, f.Journals, shard, rec, task.Derivation, commons)
+	}
+	return nil, fmt.Errorf("task is not a derivation or materialization: %s", task.String())
 }
 
 // NewMessage panics if called.
@@ -220,11 +223,22 @@ func (f *FlowConsumer) ClearRegistersForTest(ctx context.Context) error {
 func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	var config = *args.Config.(*FlowConsumerConfig)
 
-	// Load journals keyspace, and queue a task which will watch for updates.
-	var journals, err = flow.NewJournalsKeySpace(args.Tasks.Context(), args.Service.Etcd, config.Flow.BrokerRoot)
+	// Load catalog & journal keyspaces, and queue tasks that watch each for updates.
+	catalog, err := flow.NewCatalog(args.Tasks.Context(), args.Service.Etcd, config.Flow.CatalogRoot)
+	if err != nil {
+		return fmt.Errorf("loading catalog keyspace: %w", err)
+	}
+	journals, err := flow.NewJournalsKeySpace(args.Tasks.Context(), args.Service.Etcd, config.Flow.BrokerRoot)
 	if err != nil {
 		return fmt.Errorf("loading journals keyspace: %w", err)
 	}
+
+	args.Tasks.Queue("catalog.Watch", func() error {
+		if err := f.Catalog.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
+			return err
+		}
+		return nil
+	})
 	args.Tasks.Queue("journals.Watch", func() error {
 		if err := f.Journals.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
 			return err
@@ -241,6 +255,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	f.Config = &config
 	f.Service = args.Service
+	f.Catalog = catalog
 	f.Journals = journals
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
 

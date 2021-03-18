@@ -30,7 +30,7 @@ func (c *Cluster) Stat(stat PendingStat) (readThrough *Clock, writeAt *Clock, er
 	var ctx = c.Tasks.Context()
 	shards, err := consumer.ListShards(ctx, c.Shards, &pc.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(flowLabels.Derivation, stat.Derivation.String()),
+			Include: pb.MustLabelSet(flowLabels.CatalogTask, stat.Derivation.String()),
 		},
 	})
 	if err != nil {
@@ -115,7 +115,7 @@ func (c *Cluster) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ err
 func (c *Cluster) Advance(delta TestTime) error {
 	log.WithField("delta", delta).Debug("advancing time")
 
-	var t1 = atomic.AddInt64((*int64)(&c.Ingester.PublishClockDelta), int64(delta))
+	var t1 = atomic.AddInt64((*int64)(&c.Ingester.PublishClockDeltaForTest), int64(delta))
 	var t2 = atomic.AddInt64((*int64)(&c.Consumer.Service.PublishClockDelta), int64(delta))
 
 	if t1 != t2 {
@@ -190,7 +190,17 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Now feed documents into a combiner, filtering documents which are ACKs.
-	combiner, err := bindings.NewCombineBuilder(c.SchemaIndex).Open(
+	_, commons, err := c.Consumer.Catalog.GetTask(step.Collection.String())
+	if err != nil {
+		return fmt.Errorf("mapping step collection to commons: %w", err)
+	}
+	schemaIndex, err := commons.SchemaIndex()
+	if err != nil {
+		return err
+	}
+
+	combiner, err := bindings.NewCombine(
+		schemaIndex,
 		step.CollectionSchemaUri,
 		step.CollectionKeyPtr,
 		nil,
@@ -215,7 +225,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 
 	// Drain actual documents from the combiner.
 	var actual [][]byte
-	err = combiner.Finish(func(_ bool, doc json.RawMessage, _, _ []byte) error {
+	err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
 		actual = append(actual, doc)
 		return nil
 	})
