@@ -16,7 +16,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
@@ -37,7 +36,7 @@ type Mapper struct {
 	Ctx           context.Context
 	JournalClient pb.JournalClient
 	JournalRules  []pf.JournalRules_Rule
-	Journals      *keyspace.KeySpace
+	Journals      Journals
 }
 
 // PartitionPointers returns JSON-pointers of partitioned fields of the collection.

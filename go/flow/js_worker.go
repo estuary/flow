@@ -15,28 +15,19 @@ import (
 
 // JSWorker wraps a running JavaScript worker process.
 type JSWorker struct {
-	Cmd        *exec.Cmd
-	Tempdir    string
-	SocketPath string
+	cmd        *exec.Cmd
+	tempdir    string
+	socketPath string
 }
 
 // NewJSWorker starts a JavaScript worker in the given directory,
 // using the given NPM package.
-func NewJSWorker(catalog *Catalog, overrideSocket string) (*JSWorker, error) {
-	if overrideSocket != "" {
-		return &JSWorker{SocketPath: overrideSocket}, nil
-	}
-
+func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	tempdir, err := ioutil.TempDir("", "javascript-worker")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	var socketPath = path.Join(tempdir, "socket")
-
-	packageTgz, err := catalog.LoadNPMPackage()
-	if err != nil {
-		return nil, fmt.Errorf("loading NPM package: %w", err)
-	}
 
 	err = ioutil.WriteFile(path.Join(tempdir, "npm-package.tgz"), packageTgz, 0600)
 	if err != nil {
@@ -69,21 +60,21 @@ func NewJSWorker(catalog *Catalog, overrideSocket string) (*JSWorker, error) {
 	}
 
 	return &JSWorker{
-		Cmd:        cmd,
-		Tempdir:    tempdir,
-		SocketPath: socketPath,
+		cmd:        cmd,
+		tempdir:    tempdir,
+		socketPath: socketPath,
 	}, nil
 }
 
-// Stop gracefully stops the flow-worker process.
+// Stop gracefully stops the worker process.
 func (worker *JSWorker) Stop() error {
-	if worker.Cmd == nil {
+	if worker.cmd == nil {
 		return nil
-	} else if err := worker.Cmd.Process.Signal(syscall.SIGTERM); err != nil {
+	} else if err := worker.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("failed to TERM worker: %w", err)
-	} else if err = worker.Cmd.Wait(); err != nil {
+	} else if err = worker.cmd.Wait(); err != nil {
 		return fmt.Errorf("failed to wait for TERM'd worker: %w", err)
-	} else if err = os.RemoveAll(worker.Tempdir); err != nil {
+	} else if err = os.RemoveAll(worker.tempdir); err != nil {
 		return fmt.Errorf("failed to clean up temp directory: %w", err)
 	}
 	return nil
