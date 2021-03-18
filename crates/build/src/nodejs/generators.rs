@@ -1,6 +1,6 @@
 use super::camel_case;
 use super::interface::{Interface, Method, Module};
-use super::typescript::Mapper;
+use super::typescript::{ast::Context, Mapper};
 use itertools::Itertools;
 use models::tables;
 use serde_json::json;
@@ -28,7 +28,9 @@ pub fn anchors_ts(
 
         writeln!(w, "\n// Generated from {}.", schema.relative_url()).unwrap();
         write!(w, "export type {} = ", anchor_name).unwrap();
-        mapper.map(schema.absolute_url()).render(0, &mut w);
+        mapper
+            .map(schema.absolute_url())
+            .render(&mut Context::new_without_anchors(&mut w));
         write!(w, ";\n").unwrap();
     }
 
@@ -57,7 +59,9 @@ pub fn collections_ts(
         writeln!(w, "// Referenced as schema of {}.", scope.relative_url()).unwrap();
 
         write!(w, "export type {} = ", camel_case(&collection, true)).unwrap();
-        mapper.map(schema.absolute_url()).render(0, &mut w);
+        mapper
+            .map(schema.absolute_url())
+            .render(&mut Context::new(&mut w));
         write!(w, ";\n").unwrap();
     }
 
@@ -91,7 +95,9 @@ pub fn registers_ts(
         .unwrap();
 
         write!(w, "export type {} = ", camel_case(&derivation, true)).unwrap();
-        mapper.map(schema.absolute_url()).render(0, &mut w);
+        mapper
+            .map(schema.absolute_url())
+            .render(&mut Context::new(&mut w));
         write!(w, ";\n").unwrap();
     }
 
@@ -149,7 +155,9 @@ pub fn transforms_ts(
             camel_case(transform, false),
         )
         .unwrap();
-        mapper.map(schema.absolute_url()).render(0, &mut w);
+        mapper
+            .map(schema.absolute_url())
+            .render(&mut Context::new(&mut w));
         write!(w, ";\n").unwrap();
     }
 
