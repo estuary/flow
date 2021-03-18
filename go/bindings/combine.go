@@ -5,6 +5,7 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
@@ -54,11 +55,18 @@ func NewCombine(
 		return nil, err
 	}
 
-	return &Combine{
+	var combine = &Combine{
 		svc:         svc,
 		drained:     nil,
 		pinnedIndex: index,
-	}, nil
+	}
+
+	// Destroy the held service on collection.
+	runtime.SetFinalizer(combine, func(c *Combine) {
+		c.svc.destroy()
+	})
+
+	return combine, nil
 }
 
 // ReduceLeft reduces |doc| as a fully reduced, left-hand document.
@@ -107,11 +115,6 @@ func (c *Combine) Drain(cb CombineCallback) error {
 		}
 	}
 	return drainCombineToCallback(c.svc, &c.drained, cb)
-}
-
-// Destroy the Combine, releasing its Rust resources.
-func (c *Combine) Destroy() {
-	c.svc.destroy()
 }
 
 func drainCombineToCallback(

@@ -64,7 +64,6 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		t.TempDir(),
 	)
 	require.NoError(t, err)
-	defer derive.Destroy()
 
 	_, err = derive.RestoreCheckpoint()
 	require.NoError(t, err)
@@ -109,6 +108,10 @@ func TestDeriveWithIntStrings(t *testing.T) {
 
 		require.NoError(t, derive.PrepareCommit(protocol.Checkpoint{}))
 	}
+
+	// Safe to call Destroy multiple times.
+	derive.Destroy()
+	derive.Destroy()
 }
 
 func TestDeriveWithIncResetPublish(t *testing.T) {
@@ -261,7 +264,6 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 
 	t.Run("basicRPC", func(t *testing.T) {
 		var d = build(t)
-		defer d.Destroy()
 
 		// Apply a batch of documents.
 		d.BeginTxn()
@@ -292,7 +294,6 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 
 	t.Run("registerValidationErr", func(t *testing.T) {
 		var d = build(t)
-		defer d.Destroy()
 
 		// Send a fixture which tickles our reset lambda to emit an invalid value.
 		d.BeginTxn()
@@ -304,7 +305,6 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 
 	t.Run("derivedValidationErr", func(t *testing.T) {
 		var d = build(t)
-		defer d.Destroy()
 
 		// Send a fixture which tickles our reset lambda to emit an invalid value.
 		d.BeginTxn()
@@ -316,7 +316,6 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 
 	t.Run("processingErr", func(t *testing.T) {
 		var d = build(t)
-		defer d.Destroy()
 
 		// Send a fixture which causes our lambda to return an error.
 		d.BeginTxn()

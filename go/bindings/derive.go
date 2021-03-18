@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"runtime"
 	"strings"
 	"unsafe"
 
@@ -55,16 +56,8 @@ func NewDerive(
 		newDeriveInvokeHandler(derivation, typeScriptClient),
 	)
 
-	var derive = &Derive{
-		svc:          newDeriveSvc(),
-		runningTasks: 0,
-		trampoline:   trampoline,
-		trampolineCh: trampolineCh,
-		pinnedEnv:    rocksEnv,
-		pinnedIndex:  index,
-	}
-
-	derive.svc.mustSendMessage(
+	var svc = newDeriveSvc()
+	svc.mustSendMessage(
 		uint32(pf.DeriveAPI_CONFIGURE),
 		&pf.DeriveAPI_Config{
 			SchemaIndexMemptr: index.indexMemPtr,
@@ -73,10 +66,23 @@ func NewDerive(
 			LocalDir:          localDir,
 		})
 
-	if err := pollExpectNoOutput(derive.svc); err != nil {
-		derive.svc.destroy()
+	if err := pollExpectNoOutput(svc); err != nil {
+		svc.destroy()
 		return nil, err
 	}
+
+	var derive = &Derive{
+		svc:          svc,
+		runningTasks: 0,
+		trampoline:   trampoline,
+		trampolineCh: trampolineCh,
+		pinnedEnv:    rocksEnv,
+		pinnedIndex:  index,
+	}
+
+	runtime.SetFinalizer(derive, func(d *Derive) {
+		d.Destroy()
+	})
 
 	return derive, nil
 }
@@ -222,13 +228,22 @@ func (d *Derive) ClearRegisters() error {
 }
 
 // Destroy the Derive service, releasing all held resources.
+// Destroy may be called when it's known that a *Derive is no longer needed,
+// but is optional. If not called explicitly, it will be run during garbage
+// collection of the *Derive.
 func (d *Derive) Destroy() {
 	// We must stop the trampoline server before |d.svc| may be destroyed,
 	// to ensure that no trampoline tasks are reading memory owned by |d.svc|.
 	d.trampoline.stop()
-	d.svc.destroy()
+	if d.svc != nil {
+		d.svc.destroy()
+		d.svc = nil
+	}
 	// Similarly, we cannot destroy the RocksDB environment ahead of its usage by |d.svc|.
-	d.pinnedEnv.Destroy()
+	if d.pinnedEnv != nil {
+		d.pinnedEnv.Destroy()
+		d.pinnedEnv = nil
+	}
 }
 
 func newDeriveSvc() *service {

@@ -34,7 +34,6 @@ func TestCombineBindings(t *testing.T) {
 		collection.UuidPtr,
 	)
 	require.NoError(t, err)
-	defer combiner.Destroy()
 
 	// Loop to exercise re-use of a Combiner.
 	for i := 0; i != 5; i++ {
