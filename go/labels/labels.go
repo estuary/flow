@@ -33,16 +33,8 @@ const (
 
 // ShardSpec labels.
 const (
-	// CatalogURL is the URL of the catalog that's processed by this Shard.
-	// The CatalogURL of a ShardSpec may change over time.
-	// A running consumer detects and applies changes to the CatalogURL.
-	CatalogURL = "estuary.dev/catalog-url"
-	// Derivation is the name of the Estuary collection to be derived.
-	// Once set on a ShardSpec, it cannot change.
-	Derivation = "estuary.dev/derivation"
-	// Materialization is the name of the view materialization to be maintained.
-	// Once set on a ShardSpec, it cannot change.
-	Materialization = "estuary.dev/materialization"
+	// CatalogTask name of this shard.
+	CatalogTask = "estuary.dev/catalog-task"
 	// RClockBegin is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
