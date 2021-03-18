@@ -1,4 +1,6 @@
+use bytes::{Buf, BufMut};
 use prost::Message;
+use std::{cell::RefCell, collections::HashMap};
 
 /// Service is a trait implemented by Rust services which may be called from Go.
 pub trait Service {
@@ -88,4 +90,95 @@ pub struct Out {
     pub begin: u32,
     /// End data offset within the arena.
     pub end: u32,
+}
+
+/// Trampoline manages tasks which are "bounced" to Go for execution
+/// over a CGO bridge, with resolved results eventually sent back.
+pub struct Trampoline {
+    // Queue of tasks to be dispatched across the CGO bridge.
+    dispatch_queue: RefCell<(u64, Vec<TrampolineTask>)>,
+    // Callback handlers for tasks we've dispatched, and are awaiting responses for.
+    awaiting: RefCell<HashMap<u64, Box<dyn FnOnce(Result<&[u8], anyhow::Error>)>>>,
+}
+
+impl Trampoline {
+    pub fn new() -> Trampoline {
+        Trampoline {
+            dispatch_queue: Default::default(),
+            awaiting: Default::default(),
+        }
+    }
+
+    // True if there no queued or awaiting tasks remaining.
+    pub fn is_empty(&self) -> bool {
+        self.dispatch_queue.borrow().1.is_empty() && self.awaiting.borrow().is_empty()
+    }
+
+    // Start a new task which is queued for dispatch and execution over the bridge.
+    pub fn start_task<D, C>(&self, code: u32, dispatch: D, callback: C)
+    where
+        D: for<'a> FnOnce(&'a mut Vec<u8>) + 'static,
+        C: for<'a> FnOnce(Result<&'a [u8], anyhow::Error>) + 'static,
+    {
+        let mut queue = self.dispatch_queue.borrow_mut();
+
+        // Assign monotonic sequence number.
+        let id = queue.0;
+        queue.0 += 1;
+
+        queue.1.push({
+            TrampolineTask {
+                id,
+                code,
+                dispatch: Box::new(dispatch),
+                callback: Box::new(callback),
+            }
+        });
+
+        tracing::debug!(?id, ?code, queued = ?queue.1.len(), "queued trampoline task");
+    }
+
+    // Dispatch all queued tasks over the bridge.
+    pub fn dispatch_tasks(&self, code: u32, arena: &mut Vec<u8>, out: &mut Vec<Out>) {
+        let mut awaiting = self.awaiting.borrow_mut();
+
+        for task in self.dispatch_queue.borrow_mut().1.drain(..) {
+            let begin = arena.len();
+
+            arena.put_u64_le(task.id);
+            arena.put_u32_le(task.code);
+            (task.dispatch)(arena);
+
+            send_bytes(code, begin, arena, out);
+            awaiting.insert(task.id, task.callback);
+        }
+    }
+
+    // Resolve a task for which we've received the response |data|.
+    pub fn resolve_task(&self, mut data: &[u8]) {
+        let id = data.get_u64_le();
+        let ok = data.get_u8();
+
+        let result = if ok != 0 {
+            Ok(data)
+        } else {
+            Err(anyhow::anyhow!("{}", String::from_utf8_lossy(data)))
+        };
+
+        let callback = self
+            .awaiting
+            .borrow_mut()
+            .remove(&id)
+            .expect("unknown task ID");
+        (callback)(result);
+
+        tracing::debug!(?id, remaining = ?self.awaiting.borrow().len(), "resolved trampoline task");
+    }
+}
+
+struct TrampolineTask {
+    id: u64,
+    code: u32,
+    dispatch: Box<dyn FnOnce(&mut Vec<u8>)>,
+    callback: Box<dyn FnOnce(Result<&[u8], anyhow::Error>)>,
 }

@@ -5,15 +5,17 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+anyhow = "*"
+bytes = "*"
 humantime-serde = "*"
 prost = "*"
 prost-types = "*"
 serde = "*"
-tonic = "*"
+tracing = "*"
 
 [dev-dependencies]
 insta = "*"
 serde_json = "*"
 
 [build-dependencies]
-tonic-build = "*"
+prost-build = "*"
