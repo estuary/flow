@@ -153,9 +153,10 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	for _, testCase := range built.Tests {
 		fmt.Print(testCase.Test, ": ")
 
-		if err = testing.RunTestCase(graph, cluster, &testCase); err != nil {
+		if scope, err := testing.RunTestCase(graph, cluster, &testCase); err != nil {
 			fmt.Printf("%s\n", red("FAILED"))
-			fmt.Println(red("ERROR:"), err)
+			fmt.Println(red("ERROR"), "at", yellow(scope), ":")
+			fmt.Println(err)
 			failed = append(failed, testCase.Test)
 		} else {
 			fmt.Print(green("PASSED"), "\n")
@@ -179,9 +180,6 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 	return nil
 }
-
-var green = color.New(color.FgGreen).SprintFunc()
-var red = color.New(color.FgRed).SprintFunc()
 
 func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 	var cmd = exec.Command("etcd",
@@ -261,3 +259,7 @@ func stopWorker(cmd *exec.Cmd) {
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	_ = cmd.Wait()
 }
+
+var green = color.New(color.FgGreen).SprintFunc()
+var yellow = color.New(color.FgYellow).SprintFunc()
+var red = color.New(color.FgRed).SprintFunc()

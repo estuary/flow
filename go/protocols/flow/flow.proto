@@ -354,18 +354,20 @@ message TestSpec {
     Type step_type = 1;
     // Index of this step within the test.
     uint32 step_index = 2;
+    // Scope of the test definition location.
+    string step_scope = 3;
     // Collection ingested or verified by this step.
-    string collection = 3 [ (gogoproto.casttype) = "Collection" ];
+    string collection = 4 [ (gogoproto.casttype) = "Collection" ];
     // Schema of this collection.
-    string collection_schema_uri = 4;
+    string collection_schema_uri = 5;
     // Grouped key pointers of the collection.
-    repeated string collection_key_ptr = 5;
+    repeated string collection_key_ptr = 6;
     // JSON pointer locating the UUID of each collection document.
-    string collection_uuid_ptr = 6;
+    string collection_uuid_ptr = 7;
     // Newline-separated JSON documents to ingest.
-    string docs_json_lines = 7;
+    string docs_json_lines = 8;
     // When verifying, selector over logical partitions of the collection.
-    protocol.LabelSelector partitions = 8 [ (gogoproto.nullable) = false ];
+    protocol.LabelSelector partitions = 9 [ (gogoproto.nullable) = false ];
   }
   repeated Step steps = 2 [ (gogoproto.nullable) = false ];
 }

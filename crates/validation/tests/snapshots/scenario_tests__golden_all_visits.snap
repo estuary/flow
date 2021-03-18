@@ -1615,6 +1615,7 @@ All {
                     Step {
                         step_type: Ingest,
                         step_index: 0,
+                        step_scope: "test://example/int-string-tests#/tests/A%20Test/0",
                         collection: "testing/int-string",
                         collection_schema_uri: "test://example/int-string.schema",
                         collection_key_ptr: [
@@ -1645,6 +1646,7 @@ All {
                     Step {
                         step_type: Verify,
                         step_index: 1,
+                        step_scope: "test://example/int-string-tests#/tests/A%20Test/1",
                         collection: "testing/int-string",
                         collection_schema_uri: "test://example/int-string.schema",
                         collection_key_ptr: [
