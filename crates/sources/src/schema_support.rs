@@ -18,8 +18,10 @@ impl Catalog {
             RelativeUrl::example_absolute(),
         ]
     }
-    pub fn example_collections() -> Vec<CollectionDef> {
-        vec![CollectionDef::example()]
+    pub fn example_collections() -> BTreeMap<names::Collection, CollectionDef> {
+        vec![(names::Collection::example(), CollectionDef::example())]
+            .into_iter()
+            .collect()
     }
     pub fn example_test() -> Value {
         json!({

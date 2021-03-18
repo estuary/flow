@@ -4,12 +4,6 @@ use protocol::flow;
 use std::path::Path;
 use url::Url;
 
-mod web_fetcher;
-pub use web_fetcher::WebFetcher;
-
-mod drivers;
-pub use drivers::Drivers;
-
 mod api;
 pub use api::API;
 
@@ -64,6 +58,20 @@ where
             rule,
         );
     }
+    // Apply any extra shard rules of the configuration.
+    for (index, rule) in config
+        .extra_shard_rules
+        .unwrap_or_default()
+        .rules
+        .into_iter()
+        .enumerate()
+    {
+        all_tables.shard_rules.push_row(
+            url::Url::parse(&format!("build://extra_shard_rules/{}", index)).unwrap(),
+            models::names::Rule::new(&rule.rule),
+            rule,
+        );
+    }
 
     tracing::info!(?config.catalog_path, "persisting catalog database");
     let db = rusqlite::Connection::open(&config.catalog_path)
@@ -76,10 +84,11 @@ where
         return Ok(all_tables);
     }
 
-    generate_typescript_package(&all_tables, &directory)
-        .context("failed to generate TypeScript package")?;
-
-    if config.typescript_compile {
+    if config.typescript_generate || config.typescript_compile || config.typescript_package {
+        generate_typescript_package(&all_tables, &directory)
+            .context("failed to generate TypeScript package")?;
+    }
+    if config.typescript_compile || config.typescript_package {
         nodejs::compile_package(&directory).context("failed to compile TypeScript package")?;
     }
     if config.typescript_package {
@@ -120,16 +129,17 @@ where
         mut projections,
         resources,
         schema_docs,
+        shard_rules,
         test_steps,
         transforms,
     } = loader.into_tables();
 
     let validation::Tables {
+        built_captures,
         built_collections,
         built_derivations,
         built_materializations,
         built_tests,
-        built_transforms,
         errors: validation_errors,
         implicit_projections,
         inferences,
@@ -147,6 +157,7 @@ where
         &projections,
         &resources,
         &schema_docs,
+        &shard_rules,
         &test_steps,
         &transforms,
     )
@@ -156,11 +167,11 @@ where
     projections.extend(implicit_projections.into_iter());
 
     tables::All {
+        built_captures,
         built_collections,
         built_derivations,
         built_materializations,
         built_tests,
-        built_transforms,
         captures,
         collections,
         derivations,
@@ -176,6 +187,7 @@ where
         projections,
         resources,
         schema_docs,
+        shard_rules,
         test_steps,
         transforms,
     }

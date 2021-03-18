@@ -30,11 +30,11 @@ pub trait Drivers {
 /// Tables produced by validate.
 #[derive(Default, Debug)]
 pub struct Tables {
+    pub built_captures: tables::BuiltCaptures,
     pub built_collections: tables::BuiltCollections,
     pub built_derivations: tables::BuiltDerivations,
     pub built_materializations: tables::BuiltMaterializations,
     pub built_tests: tables::BuiltTests,
-    pub built_transforms: tables::BuiltTransforms,
     pub errors: tables::Errors,
     pub implicit_projections: tables::Projections,
     pub inferences: tables::Inferences,
@@ -54,6 +54,7 @@ pub async fn validate<D: Drivers>(
     projections: &[tables::Projection],
     resources: &[tables::Resource],
     schema_docs: &[tables::SchemaDoc],
+    _shard_rules: &[tables::ShardRule], // TODO.
     test_steps: &[tables::TestStep],
     transforms: &[tables::Transform],
 ) -> Tables {
@@ -90,7 +91,8 @@ pub async fn validate<D: Drivers>(
     let (built_collections, implicit_projections) =
         collection::walk_all_collections(collections, projections, &schema_shapes, &mut errors);
 
-    let (built_transforms, built_derivations) = derivation::walk_all_derivations(
+    let built_derivations = derivation::walk_all_derivations(
+        &built_collections,
         collections,
         derivations,
         &imports,
@@ -103,7 +105,8 @@ pub async fn validate<D: Drivers>(
 
     endpoint::walk_all_endpoints(endpoints, &mut errors);
 
-    capture::walk_all_captures(
+    let built_captures = capture::walk_all_captures(
+        &built_collections,
         captures,
         collections,
         derivations,
@@ -134,11 +137,11 @@ pub async fn validate<D: Drivers>(
     );
 
     Tables {
+        built_captures,
         built_collections,
         built_derivations,
         built_materializations,
         built_tests,
-        built_transforms,
         errors,
         implicit_projections,
         inferences,

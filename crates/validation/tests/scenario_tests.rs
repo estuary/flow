@@ -145,7 +145,7 @@ test://example/more-endpoints:
     inv!alid: *spec
 
     # Illegal duplicates under collation.
-    CAPtUReEndpoINT: *spec
+    CAPtURePUllEndpoINT: *spec
     Materializeendpoint: *spec
 "#,
     );
@@ -177,9 +177,9 @@ fn test_capture_target_not_found() {
 test://example/int-string-capture:
   captures:
     - target: { name: testiNg/int-strinK }
-      endpoint: { name: captureEndpoint }
+      endpoint: { name: capturePullEndpoint }
     - target: { name: wildly/off/name }
-      endpoint: { name: captureEndpoint }
+      endpoint: { name: capturePushEndpoint }
 "#,
     );
 }
@@ -192,26 +192,9 @@ fn test_capture_endpoint_not_found() {
 test://example/int-string-capture:
   captures:
     - target: { name: testing/int-string }
-      endpoint: { name: CaptureEndpoit }
+      endpoint: { name: CapturePullEndpoit }
     - target: { name: testing/int-string }
       endpoint: { name: wildlyOffName }
-"#,
-    );
-}
-
-#[test]
-fn test_capture_endpoint_wrong_type() {
-    run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/catalog.yaml:
-  endpoints:
-    captureEndpoint:
-      s3: null
-      postgres:
-        host: a-host
-        user: a-user
-        password: a-password
 "#,
     );
 }
@@ -225,9 +208,9 @@ test://example/int-string-capture:
   import: null
   captures:
     - target: { name: testing/int-reverse }
-      endpoint: { name: captureEndpoint }
+      endpoint: { name: capturePullEndpoint }
     - target: { name: testing/int-string }
-      pushAPI: {}
+      endpoint: { name: capturePushEndpoint }
 "#,
     );
 }
@@ -240,7 +223,7 @@ fn test_capture_duplicates() {
 test://example/catalog.yaml:
   captures:
     - target: { name: testing/int-string }
-      endpoint: { name: captureEndpoint }
+      endpoint: { name: capturePullEndpoint }
 "#,
     );
 }
@@ -825,16 +808,17 @@ fn run_test(mut fixture: Value) -> tables::All {
         mut projections,
         resources,
         schema_docs,
+        shard_rules,
         test_steps,
         transforms,
     } = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
 
     let validation::Tables {
+        built_captures,
         built_collections,
         built_derivations,
         built_materializations,
         built_tests,
-        built_transforms,
         errors: validation_errors,
         implicit_projections,
         inferences,
@@ -852,6 +836,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         &projections,
         &resources,
         &schema_docs,
+        &shard_rules,
         &test_steps,
         &transforms,
     ));
@@ -860,11 +845,11 @@ fn run_test(mut fixture: Value) -> tables::All {
     projections.extend(implicit_projections.into_iter());
 
     tables::All {
+        built_captures,
         built_collections,
         built_derivations,
         built_materializations,
         built_tests,
-        built_transforms,
         captures,
         collections,
         derivations,
@@ -880,6 +865,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         projections,
         resources,
         schema_docs,
+        shard_rules,
         test_steps,
         transforms,
     }

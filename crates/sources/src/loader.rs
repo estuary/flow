@@ -46,6 +46,7 @@ pub struct Tables {
     pub projections: tables::Projections,
     pub resources: tables::Resources,
     pub schema_docs: tables::SchemaDocs,
+    pub shard_rules: tables::ShardRules,
     pub test_steps: tables::TestSteps,
     pub transforms: tables::Transforms,
 }
@@ -406,17 +407,18 @@ impl<F: Fetcher> Loader<F> {
         for (index, capture) in captures.into_iter().enumerate() {
             let scope = scope.push_prop("captures").push_item(index).flatten();
 
-            let (allow_push, endpoint, patch_config) = match capture.inner {
-                specs::CaptureType::PushAPI(config) => (true, None, config),
-                specs::CaptureType::Endpoint(specs::EndpointRef { name, config }) => {
-                    (false, Some(name), config)
-                }
-            };
+            let specs::CaptureDef {
+                target: specs::CaptureTarget { name: collection },
+                endpoint:
+                    specs::EndpointRef {
+                        name: endpoint,
+                        config: patch_config,
+                    },
+            } = capture;
 
             self.tables.borrow_mut().captures.push_row(
                 scope,
-                &capture.target.name,
-                allow_push,
+                collection,
                 endpoint,
                 serde_json::Value::Object(patch_config),
             );
@@ -685,12 +687,16 @@ impl<F: Fetcher> Loader<F> {
             specs::EndpointDef::Snowflake(cfg) => Some(serde_json::to_value(cfg).unwrap()),
             specs::EndpointDef::Webhook(cfg) => Some(serde_json::to_value(cfg).unwrap()),
             specs::EndpointDef::Sqlite(mut cfg) => {
-                // Resolve relative database path relative to current scope.
-                if let Some(path) = self.fallible(scope, scope.resource().join(cfg.path.as_ref())) {
+                if cfg.path.starts_with(":memory:") {
+                    Some(serde_json::to_value(cfg).unwrap()) // Already absolute.
+                } else if let Some(path) =
+                    self.fallible(scope, scope.resource().join(cfg.path.as_ref()))
+                {
+                    // Resolve relative database path relative to current scope.
                     cfg.path = specs::RelativeUrl(path.to_string());
                     Some(serde_json::to_value(cfg).unwrap())
                 } else {
-                    None
+                    None // We reported a join() error.
                 }
             }
         }

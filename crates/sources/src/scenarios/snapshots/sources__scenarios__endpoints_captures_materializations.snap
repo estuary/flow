@@ -1,20 +1,19 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
+
 ---
 Tables {
     captures: [
         Capture {
             scope: test://example/catalog.yaml#/captures/0,
             collection: a/collection,
-            allow_push: 0,
             endpoint: my bucket,
             patch_config: {},
         },
         Capture {
             scope: test://example/catalog.yaml#/captures/1,
             collection: other/collection,
-            allow_push: 0,
             endpoint: my DB,
             patch_config: {"extra":"stuff"},
         },
@@ -80,6 +79,7 @@ Tables {
         },
     ],
     schema_docs: [],
+    shard_rules: [],
     test_steps: [],
     transforms: [],
 }

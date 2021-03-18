@@ -502,39 +502,25 @@ pub struct EndpointRef {
     pub config: names::Object,
 }
 
-/// List of Captures, each binding a source in an external system (e.g. cloud storage prefix)
-/// to a captured collection. Captures may provided for any collection defined either within
-/// the current file, or a file that's imported by it. Multiple Captures may be defined per
-/// collection, and may be defined in different files.
-/// A Capture binds a source of data to a target collection. The result of this binding
-/// is a process that will continuously add data to the collection as it becomes available from the
-/// source.
-// TODO(johnny): this should be serde(deny_unknown_fields), but this plays poorly
-//  with JsonSchema generation, and I can't think of a good way to fix it right now.
+/// A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket)
+/// from which data should be continuously captured, with a Flow collection into that captured
+/// data is ingested. Multiple Captures may be bound to a single collection, but only one
+/// capture may exist for a given endpoint and target.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CaptureDef {
     /// # Target collection to capture into.
     pub target: CaptureTarget,
-    #[serde(flatten)]
-    pub inner: CaptureType,
+    /// # Endpoint to materialize into.
+    pub endpoint: EndpointRef,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(example = "CaptureTarget::example")]
 pub struct CaptureTarget {
-    /// # Name of the collection to be read.
+    /// # Name of the collection to be ingested into.
     pub name: names::Collection,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum CaptureType {
-    Endpoint(EndpointRef),
-    // TODO(johnny): I'm expecting we'll introduce more behavior
-    // configuration here, but I don't know what it is yet.
-    PushAPI(names::Object),
 }
 
 /// A URL identifying a resource, which may be a relative local path

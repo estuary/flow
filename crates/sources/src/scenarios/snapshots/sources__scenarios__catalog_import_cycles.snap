@@ -124,6 +124,7 @@ Tables {
         },
     ],
     schema_docs: [],
+    shard_rules: [],
     test_steps: [],
     transforms: [],
 }

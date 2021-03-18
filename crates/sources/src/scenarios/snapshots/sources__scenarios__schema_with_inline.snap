@@ -58,6 +58,7 @@ Tables {
             dom: {"additionalProperties":true,"type":"object"},
         },
     ],
+    shard_rules: [],
     test_steps: [],
     transforms: [],
 }

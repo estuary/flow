@@ -8,10 +8,14 @@ test://example/catalog.yaml:
     - test://example/int-halve-materialization
     - test://example/int-string-tests
   endpoints:
-    captureEndpoint:
+    capturePullEndpoint:
       s3:
         bucket: a-bucket
         prefix: and-prefix
+
+    capturePushEndpoint:
+      webhook:
+        endpoint: /a/path
 
     materializeEndpoint:
       s3:
@@ -49,11 +53,11 @@ test://example/int-string-capture:
   captures:
     - target:
         name: testing/int-string
-      endpoint: { name: captureEndpoint }
+      endpoint: { name: capturePullEndpoint }
 
     - target:
         name: testing/int-string
-      pushAPI: {}
+      endpoint: { name: capturePushEndpoint }
 
 test://example/int-string-materialization:
   import:

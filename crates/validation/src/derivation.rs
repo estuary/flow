@@ -5,6 +5,7 @@ use models::{build, tables};
 use protocol::flow;
 
 pub fn walk_all_derivations(
+    built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     imports: &[&tables::Import],
@@ -13,12 +14,16 @@ pub fn walk_all_derivations(
     schema_shapes: &[schema::Shape],
     transforms: &[tables::Transform],
     errors: &mut tables::Errors,
-) -> (tables::BuiltTransforms, tables::BuiltDerivations) {
-    let mut built_transforms = tables::BuiltTransforms::new();
+) -> tables::BuiltDerivations {
     let mut built_derivations = tables::BuiltDerivations::new();
 
     for derivation in derivations {
-        let transforms = transforms
+        let built_collection = built_collections
+            .iter()
+            .find(|c| c.collection == derivation.derivation)
+            .unwrap();
+
+        let filtered_transforms = transforms
             .iter()
             .filter(|t| t.derivation == derivation.derivation)
             .collect::<Vec<_>>();
@@ -27,23 +32,24 @@ pub fn walk_all_derivations(
             &derivation.scope,
             &derivation.derivation,
             walk_derivation(
+                built_collection,
                 collections,
                 derivation,
                 imports,
                 projections,
                 schema_index,
                 schema_shapes,
-                &transforms,
-                &mut built_transforms,
+                &filtered_transforms,
                 errors,
             ),
         );
     }
 
-    (built_transforms, built_derivations)
+    built_derivations
 }
 
 fn walk_derivation(
+    built_collection: &tables::BuiltCollection,
     collections: &[tables::Collection],
     derivation: &tables::Derivation,
     imports: &[&tables::Import],
@@ -51,7 +57,6 @@ fn walk_derivation(
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     transforms: &[&tables::Transform],
-    built_transforms: &mut tables::BuiltTransforms,
     errors: &mut tables::Errors,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
@@ -75,21 +80,22 @@ fn walk_derivation(
         Error::RegisterInitialInvalid(err).push(scope, errors);
     }
 
-    // We'll collect types of each transform's shuffle key.
+    // We'll collect TransformSpecs and types of each transform's shuffle key (if known).
+    let mut built_transforms = Vec::new();
     let mut shuffle_types: Vec<(Vec<types::Set>, &tables::Transform)> = Vec::new();
 
     // Walk transforms of this derivation.
     for transform in transforms {
-        if let Some(s) = walk_transform(
+        if let Some(type_set) = walk_transform(
             collections,
             imports,
             projections,
             schema_shapes,
             transform,
-            built_transforms,
+            &mut built_transforms,
             errors,
         ) {
-            shuffle_types.push((s, transform));
+            shuffle_types.push((type_set, transform));
         }
     }
 
@@ -112,7 +118,7 @@ fn walk_derivation(
         }
     }
 
-    build::derivation_spec(derivation)
+    build::derivation_spec(derivation, built_collection, built_transforms)
 }
 
 pub fn walk_transform(
@@ -121,12 +127,12 @@ pub fn walk_transform(
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     transform: &tables::Transform,
-    built_transforms: &mut tables::BuiltTransforms,
+    built_transforms: &mut Vec<flow::TransformSpec>,
     errors: &mut tables::Errors,
 ) -> Option<Vec<types::Set>> {
     let tables::Transform {
         scope,
-        derivation,
+        derivation: _,
         priority: _,
         publish_lambda,
         read_delay_seconds: _,
@@ -243,12 +249,7 @@ pub fn walk_transform(
         None
     };
 
-    built_transforms.push_row(
-        scope,
-        derivation,
-        name,
-        build::transform_spec(transform, source),
-    );
+    built_transforms.push(build::transform_spec(transform, source));
 
     shuffle_types
 }

@@ -78,6 +78,7 @@ Tables {
             dom: {"$anchor":"foobar","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
         },
     ],
+    shard_rules: [],
     test_steps: [],
     transforms: [],
 }

@@ -1,4 +1,3 @@
-use bytes::{Buf, BufMut};
 use futures::future::LocalBoxFuture;
 use futures::{channel::oneshot, FutureExt};
 use models::tables;
@@ -10,7 +9,6 @@ use protocol::{
 };
 use std::rc::Rc;
 use std::task::Poll;
-use std::{cell::RefCell, collections::HashMap};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -25,101 +23,8 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
 }
 
-/// Trampoline manages tasks which are "bounced" to Go for execution
-/// over a CGO bridge, with resolved results eventually sent back.
-// NOTE(johnny): This will move to the `cgo` module, but I'm letting it bake here.
-struct Trampoline {
-    // Queue of tasks to be dispatched across the CGO bridge.
-    dispatch_queue: RefCell<(u64, Vec<TrampolineTask>)>,
-    // Callback handlers for tasks we've dispatched, and are awaiting responses for.
-    awaiting: RefCell<HashMap<u64, Box<dyn FnOnce(Result<&[u8], anyhow::Error>)>>>,
-}
-
-impl Trampoline {
-    fn new() -> Trampoline {
-        Trampoline {
-            dispatch_queue: Default::default(),
-            awaiting: Default::default(),
-        }
-    }
-
-    // True if there no queued or awaiting tasks remain.
-    fn is_empty(&self) -> bool {
-        self.dispatch_queue.borrow().1.is_empty() && self.awaiting.borrow().is_empty()
-    }
-
-    // Start a new task which is queued for dispatch and execution over the bridge.
-    fn start_task<D, C>(&self, code: u32, dispatch: D, callback: C)
-    where
-        D: for<'a> FnOnce(&'a mut Vec<u8>) + 'static,
-        C: for<'a> FnOnce(Result<&'a [u8], anyhow::Error>) + 'static,
-    {
-        let mut queue = self.dispatch_queue.borrow_mut();
-
-        // Assign monotonic sequence number.
-        let id = queue.0;
-        queue.0 += 1;
-
-        queue.1.push({
-            TrampolineTask {
-                id,
-                code,
-                dispatch: Box::new(dispatch),
-                callback: Box::new(callback),
-            }
-        });
-
-        tracing::debug!(?id, ?code, "starting task");
-    }
-
-    // Dispatch all queued tasks over the bridge.
-    fn dispatch_tasks(&self, code: u32, arena: &mut Vec<u8>, out: &mut Vec<cgo::Out>) {
-        let mut awaiting = self.awaiting.borrow_mut();
-
-        for task in self.dispatch_queue.borrow_mut().1.drain(..) {
-            let begin = arena.len();
-
-            arena.put_u64_le(task.id);
-            arena.put_u32_le(task.code);
-            (task.dispatch)(arena);
-
-            cgo::send_bytes(code, begin, arena, out);
-            awaiting.insert(task.id, task.callback);
-        }
-    }
-
-    // Resolve a task for which we've received the response |data|.
-    fn resolve_task(&self, mut data: &[u8]) {
-        let id = data.get_u64_le();
-        let ok = data.get_u8();
-
-        let result = if ok != 0 {
-            Ok(data)
-        } else {
-            Err(anyhow::anyhow!("{}", String::from_utf8_lossy(data)))
-        };
-
-        let n_remain = self.awaiting.borrow().len();
-        tracing::debug!(?id, ?n_remain, "resolving task");
-
-        let callback = self
-            .awaiting
-            .borrow_mut()
-            .remove(&id)
-            .expect("unknown task ID");
-        (callback)(result);
-    }
-}
-
-struct TrampolineTask {
-    id: u64,
-    code: u32,
-    dispatch: Box<dyn FnOnce(&mut Vec<u8>)>,
-    callback: Box<dyn FnOnce(Result<&[u8], anyhow::Error>)>,
-}
-
 // Fetcher implements sources::Fetcher, and delegates to Go via Trampoline.
-struct Fetcher(Rc<Trampoline>);
+struct Fetcher(Rc<cgo::Trampoline>);
 
 impl sources::Fetcher for Fetcher {
     fn fetch<'a>(
@@ -146,7 +51,7 @@ impl sources::Fetcher for Fetcher {
 }
 
 // Drivers implements validation::Drivers, and delegates to Go via Trampoline.
-struct Drivers(Rc<Trampoline>);
+struct Drivers(Rc<cgo::Trampoline>);
 
 impl validation::Drivers for Drivers {
     fn validate_materialization<'a>(
@@ -172,12 +77,12 @@ impl validation::Drivers for Drivers {
 // BuildFuture is a polled future which builds a catalog.
 struct BuildFuture {
     boxed: LocalBoxFuture<'static, Result<tables::All, anyhow::Error>>,
-    trampoline: Rc<Trampoline>,
+    trampoline: Rc<cgo::Trampoline>,
 }
 
 impl BuildFuture {
     fn new(config: build_api::Config) -> Result<Self, Error> {
-        let trampoline = Rc::new(Trampoline::new());
+        let trampoline = Rc::new(cgo::Trampoline::new());
         let fetcher = Fetcher(trampoline.clone());
         let drivers = Drivers(trampoline.clone());
         let future = crate::configured_build(config, fetcher, drivers);
@@ -226,15 +131,13 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(?code, "invoke");
-
         let code = match Code::from_i32(code as i32) {
             Some(c) => c,
             None => return Err(Error::InvalidState),
         };
-        let state = std::mem::replace(&mut self.state, State::Init);
+        tracing::trace!(?code, "invoke");
 
-        match (code, state) {
+        match (code, std::mem::replace(&mut self.state, State::Init)) {
             // Begin build.
             (Code::Begin, State::Init) => {
                 let config = build_api::Config::decode(data)?;

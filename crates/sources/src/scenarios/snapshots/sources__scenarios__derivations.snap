@@ -138,6 +138,7 @@ Tables {
             dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
         },
     ],
+    shard_rules: [],
     test_steps: [],
     transforms: [
         Transform {

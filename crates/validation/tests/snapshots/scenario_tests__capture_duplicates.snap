@@ -1,10 +1,11 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
         scope: test://example/catalog.yaml#/captures/0,
-        error: capture duplicates the target collection testing/int-string, endpoint, and configuration of test://example/int-string-capture#/captures/0,
+        error: capture capturePullEndpoint/placeholder/testing/int-string has a duplicated definition at test://example/int-string-capture#/captures/0,
     },
 ]

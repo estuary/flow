@@ -95,6 +95,7 @@ Tables {
             dom: {"$defs":{"a":{"$ref":"b#/$defs/c"}}},
         },
     ],
+    shard_rules: [],
     test_steps: [],
     transforms: [],
 }

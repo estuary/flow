@@ -15,8 +15,6 @@ validation = { path = "../validation", version = "0.0.0" }
 anyhow = "*"
 bytes = "*"
 futures = "*"
-hyper = "*"
-hyper-tls = "*"
 itertools = "*"
 pathdiff = "*"
 prost = "*"
