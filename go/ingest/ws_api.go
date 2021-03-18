@@ -158,8 +158,8 @@ func serveWebsocket(
 	conn.SetCloseHandler(func(int, string) error { return nil })
 
 	var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
-	var collection = a.ingester.Collections[pf.Collection(name)]
-	if collection == nil {
+	collection, _, err := a.ingester.Catalog.GetIngestion(name)
+	if err != nil {
 		return fmt.Errorf("'%v' is not an ingestable collection", name)
 	}
 
@@ -266,12 +266,12 @@ type ingestProgress struct {
 }
 
 func newIngestPump(ctx context.Context, ingester *Ingester) (chan<- ingestAdd, <-chan ingestProgress) {
-	var chIn = make(chan ingestAdd, 1024)
+	var chIn = make(chan ingestAdd, 512)
 	var chOut = make(chan ingestProgress, 1)
 
 	go func() {
 		defer close(chOut)
-		var processed int
+		var current, total int
 
 		for {
 			var in ingestAdd
@@ -295,26 +295,34 @@ func newIngestPump(ctx context.Context, ingester *Ingester) (chan<- ingestAdd, <
 				case <-ctx.Done():
 				}
 			}
-			processed++
 
-			// Continue pulling ready documents into the ingestion.
-			for {
+			// This constant is a bit arbitrary, but is tuned for the (current)
+			// consumer ring buffer of 8192. We don't want to cause unnecessary
+			// replay-reads of journals because our transactions are too large.
+			if current++; current < 2048 {
+				// Continue pulling ready documents into the ingestion.
 				select {
 				case in, ok = <-chIn:
 					if ok {
 						goto EXTEND
-					} else {
-						goto COMMIT
 					}
+					// Fall through to COMMIT.
 				default:
-					goto COMMIT
 				}
 			}
 
-		COMMIT:
+			// NOTE(johnny): We can remove this blocking by only preparing |ingestion|
+			// at this point, and immediately looping around to start a next one. The
+			// select blocks above would need to inspect the prior ingestion for commit,
+			// at which point they'd send into |chOut|. We would also need to block if
+			// our current ingestion has hit our size threshold, and a prior ingestion
+			// still hasn't committed.
+
 			var offsets, err = ingestion.PrepareAndAwait()
+			current, total = 0, total+current
+
 			select {
-			case chOut <- ingestProgress{Offsets: offsets, Processed: processed, Err: err}:
+			case chOut <- ingestProgress{Offsets: offsets, Processed: total, Err: err}:
 			case <-ctx.Done():
 			}
 		}
