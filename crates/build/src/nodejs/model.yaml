@@ -45,14 +45,14 @@ test://example/external/module.yaml:
             source: { name: some/input }
             publish: { lambda: typescript }
 
-test://example/external/module.ts:
-  { Remote: Content }
+test://example/external/module.ts: { Remote: Content }
 
 test://example/int-string.schema:
   type: object
   properties:
     int: { type: integer }
     str: { type: string }
+    anAnchor: { $ref: "#AnAnchor" }
   required: [int, str]
 
   $defs:
@@ -63,6 +63,14 @@ test://example/int-string.schema:
         one: { type: string }
         two: { type: integer }
       required: [one]
+
+    otherAnchor:
+      $anchor: OtherAnchor
+      type: object
+      properties:
+        anAnchor: { $ref: "#AnAnchor" }
+        three: { type: string }
+      required: [three]
 
 test://example/int-number.schema:
   type: object

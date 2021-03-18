@@ -1,6 +1,7 @@
 ---
 source: crates/build/src/nodejs/scenario_test.rs
 expression: intents
+
 ---
 {
     ".eslintrc.js": IfNotExists:
@@ -86,6 +87,12 @@ expression: intents
         one: string;
         two?: number;
     };
+    
+    // Generated from test://example/int-string.schema#/$defs/otherAnchor.
+    export type OtherAnchor = {
+        anAnchor?: AnAnchor;
+        three: string;
+    };
     ,
     "flow_generated/flow/collections.d.ts": Always:
     import * as anchors from './anchors';
@@ -97,6 +104,7 @@ expression: intents
     // Generated from test://example/int-string.schema.
     // Referenced as schema of test://example/external/module.yaml#/collections/external~1derivation.
     export type ExternalDerivation = {
+        anAnchor?: anchors.AnAnchor;
         int: number;
         str: string;
     };
@@ -111,6 +119,7 @@ expression: intents
     // Generated from test://example/int-string.schema.
     // Referenced as schema of test://example/catalog.yaml#/collections/some~1input.
     export type SomeInput = {
+        anAnchor?: anchors.AnAnchor;
         int: number;
         str: string;
     };
