@@ -17,5 +17,7 @@
   },
   Schemas: (flow.SchemaBundle) bundle:<key:"file:///build.flow.yaml?ptr=/collections/a~1collection/schema" value:"{\"properties\":{\"a_key\":{\"type\":\"string\"},\"a_val\":{\"type\":\"integer\"}},\"required\":[\"a_key\"],\"type\":\"object\"}" > bundle:<key:"file:///build.flow.yaml?ptr=/collections/a~1derivation/derivation/register/schema" value:"true" > bundle:<key:"file:///build.flow.yaml?ptr=/collections/a~1derivation/schema" value:"{\"properties\":{\"a_key\":{\"type\":\"string\"}},\"required\":[\"a_key\"],\"type\":\"object\"}" > ,
   ShardRules: (flow.ShardRules) rules:<rule:"here too" selector:<include:<> exclude:<> > template:<hot_standbys:5309 labels:<> > > ,
-  Tests: ([]flow.TestSpec) <nil>
+  Tests: ([]flow.TestSpec) (len=1) {
+    (flow.TestSpec) test:"Example of a test" steps:<step_scope:"file:///build.flow.yaml#/tests/Example%20of%20a%20test/0" collection:"a/collection" collection_schema_uri:"file:///build.flow.yaml?ptr=/collections/a~1collection/schema" collection_key_ptr:"/a_key" collection_uuid_ptr:"/_meta/uuid" docs_json_lines:"{\"a_key\":\"one\",\"a_val\":2}\n{\"a_key\":\"three\",\"a_val\":4}" partitions:<include:<labels:<name:"estuary.dev/collection" value:"a/collection" > > exclude:<> > > steps:<step_type:VERIFY step_index:1 step_scope:"file:///build.flow.yaml#/tests/Example%20of%20a%20test/1" collection:"a/derivation" collection_schema_uri:"file:///build.flow.yaml?ptr=/collections/a~1derivation/schema" collection_key_ptr:"/a_key" collection_uuid_ptr:"/_meta/uuid" docs_json_lines:"{\"a_key\":\"one\"}\n{\"a_key\":\"three\"}" partitions:<include:<labels:<name:"estuary.dev/collection" value:"a/derivation" > > exclude:<> > > 
+  }
 })

@@ -19,7 +19,7 @@ type Driver interface {
 }
 
 // RunTestCase runs a test case using the given Graph and Driver.
-func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) error {
+func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, err error) {
 	var initial = graph.writeClock.Copy()
 	var testStep = 0
 
@@ -29,7 +29,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) error {
 		for _, stat := range ready {
 			var read, write, err = driver.Stat(stat)
 			if err != nil {
-				return fmt.Errorf("driver.Stat: %w", err)
+				return scope, fmt.Errorf("driver.Stat: %w", err)
 			}
 			graph.CompletedStat(stat.Derivation, read, write)
 		}
@@ -42,13 +42,14 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) error {
 		var step *pf.TestSpec_Step
 		if testStep != len(test.Steps) {
 			step = &test.Steps[testStep]
+			scope = step.StepScope
 		}
 
 		// Ingest test steps always run immediately.
 		if step != nil && step.StepType == pf.TestSpec_Step_INGEST {
 			var write, err = driver.Ingest(test, testStep)
 			if err != nil {
-				return fmt.Errorf("driver.Ingest: %w", err)
+				return scope, fmt.Errorf("ingest: %w", err)
 			}
 			graph.CompletedIngest(step.Collection, write)
 			testStep++
@@ -60,7 +61,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) error {
 			!graph.HasPendingParent(step.Collection) {
 
 			if err := driver.Verify(test, testStep, initial, graph.writeClock); err != nil {
-				return fmt.Errorf("driver.Verify: %w", err)
+				return scope, fmt.Errorf("verify: %w", err)
 			}
 			testStep++
 			continue
@@ -69,7 +70,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) error {
 		// Advance time to unblock the next PendingStat.
 		if nextReady != -1 {
 			if err := driver.Advance(nextReady); err != nil {
-				return fmt.Errorf("driver.Advance: %w", err)
+				return scope, fmt.Errorf("driver.Advance: %w", err)
 			}
 			graph.CompletedAdvance(nextReady)
 			continue
@@ -79,6 +80,6 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) error {
 		if testStep != len(test.Steps) {
 			panic("unexpected test steps remain")
 		}
-		return nil
+		return scope, nil
 	}
 }

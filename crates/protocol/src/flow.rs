@@ -395,23 +395,26 @@ pub mod test_spec {
         /// Index of this step within the test.
         #[prost(uint32, tag="2")]
         pub step_index: u32,
-        /// Collection ingested or verified by this step.
+        /// Scope of the test definition location.
         #[prost(string, tag="3")]
+        pub step_scope: ::prost::alloc::string::String,
+        /// Collection ingested or verified by this step.
+        #[prost(string, tag="4")]
         pub collection: ::prost::alloc::string::String,
         /// Schema of this collection.
-        #[prost(string, tag="4")]
+        #[prost(string, tag="5")]
         pub collection_schema_uri: ::prost::alloc::string::String,
         /// Grouped key pointers of the collection.
-        #[prost(string, repeated, tag="5")]
+        #[prost(string, repeated, tag="6")]
         pub collection_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// JSON pointer locating the UUID of each collection document.
-        #[prost(string, tag="6")]
+        #[prost(string, tag="7")]
         pub collection_uuid_ptr: ::prost::alloc::string::String,
         /// Newline-separated JSON documents to ingest.
-        #[prost(string, tag="7")]
+        #[prost(string, tag="8")]
         pub docs_json_lines: ::prost::alloc::string::String,
         /// When verifying, selector over logical partitions of the collection.
-        #[prost(message, optional, tag="8")]
+        #[prost(message, optional, tag="9")]
         pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
     }
     /// Nested message and enum types in `Step`.
