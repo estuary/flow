@@ -62,7 +62,7 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint: %w", err)
 	} else if err = req.Materialization.Validate(); err != nil {
-		return nil, fmt.Errorf("validating collection: %w", err)
+		return nil, fmt.Errorf("validating materialization: %w", err)
 	}
 
 	current, err := endpoint.LoadSpec(false)

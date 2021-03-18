@@ -6,16 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
-	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/flow"
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -58,34 +57,37 @@ func TestSQLiteDriver(t *testing.T) {
 }
 
 func doTestSQLite(t *testing.T, driver pm.DriverClient) {
-	var ctx = context.Background()
-	var tempdir, err = ioutil.TempDir("", "sqlite-driver-test")
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
 	require.NoError(t, err)
-	defer os.RemoveAll(tempdir)
+	require.Empty(t, built.Errors)
 
 	// Config fixture which matches schema of ParseConfig.
 	var cfg = struct {
 		Path  string
 		Table string
 	}{
-		Path:  "file://" + path.Join(tempdir, "target.db"),
+		Path:  "file://" + path.Join(t.TempDir(), "target.db"),
 		Table: "test_target",
 	}
 	var cfgJSON, _ = json.Marshal(cfg)
 
-	cat, err := flow.NewCatalog("../../../../catalog.db", tempdir)
-	require.NoError(t, err)
-
-	collection, err := cat.LoadCollection("weird-types/optionals")
-	require.NoError(t, err)
+	collection := &built.Collections[0]
 
 	// Validate should return constraints for a non-existant materialization
 	var validateReq = pm.ValidateRequest{
+		EndpointName:       "an/endpoint",
 		EndpointType:       pf.EndpointType_SQLITE,
 		EndpointConfigJson: string(cfgJSON),
 		Collection:         collection,
 	}
 
+	var ctx = context.Background()
 	validateResp, err := driver.Validate(ctx, &validateReq)
 	require.NoError(t, err)
 	// There should be a constraint for every projection
@@ -111,11 +113,13 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	}
 	var applyReq = pm.ApplyRequest{
 		Materialization: &pf.MaterializationSpec{
+			Materialization:      "a/materialization",
 			Collection:           *collection,
-			FieldSelection:       fields,
+			EndpointName:         "an/endpoint",
 			EndpointType:         pf.EndpointType_SQLITE,
 			EndpointConfigJson:   string(cfgJSON),
 			EndpointResourcePath: []string{"test_target"},
+			FieldSelection:       fields,
 		},
 		DryRun: true,
 	}
@@ -154,11 +158,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// Send open.
 	err = transaction.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
-			Materialization: &pf.MaterializationSpec{
-				EndpointType:       pf.EndpointType_SQLITE,
-				EndpointConfigJson: string(cfgJSON),
-				FieldSelection:     fields,
-			},
+			Materialization:  applyReq.Materialization,
 			DriverCheckpoint: nil,
 			ShardFqn:         "canary",
 		},
