@@ -22,7 +22,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/sirupsen/logrus v1.7.0
-	github.com/snowflakedb/gosnowflake v1.4.1
+	github.com/snowflakedb/gosnowflake v1.4.2-0.20210318070613-b0c023e3afd7
 	github.com/stretchr/testify v1.5.1
 	github.com/tecbot/gorocksdb v0.0.0-20191217155057-f0fad39f321c
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200407032746-7eae024eade9
