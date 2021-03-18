@@ -76,7 +76,7 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 	// We must attempt to create the recovery log.
 
 	// Grab labeled catalog task, and its journal rules.
-	var name = shardSpec.LabelSet.ValueOf(labels.CatalogTask)
+	var name = shardSpec.LabelSet.ValueOf(labels.TaskName)
 	var _, commons, err = f.Catalog.GetTask(name)
 	if err != nil {
 		return "", fmt.Errorf("looking up catalog task %q: %w", name, err)
@@ -107,7 +107,7 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var taskName = shard.Spec().LabelSet.ValueOf(labels.CatalogTask)
+	var taskName = shard.Spec().LabelSet.ValueOf(labels.TaskName)
 	var task, commons, err = f.Catalog.GetTask(taskName)
 	if err != nil {
 		return nil, fmt.Errorf("looking up catalog task %q: %w", taskName, err)
@@ -190,8 +190,7 @@ func (f *FlowConsumer) AdvanceTimeForTest(delta time.Duration) time.Duration {
 func (f *FlowConsumer) ClearRegistersForTest(ctx context.Context) error {
 	var listing, err = consumer.ShardList(ctx, f.Service, &pc.ListRequest{
 		Selector: pb.LabelSelector{
-			// List derivation shards.
-			Include: pb.MustLabelSet("estuary.dev/derivation", ""),
+			Include: pb.MustLabelSet(labels.TaskType, labels.TaskTypeDerivation),
 		},
 	})
 	if err != nil {

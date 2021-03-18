@@ -30,7 +30,7 @@ func (c *Cluster) Stat(stat PendingStat) (readThrough *Clock, writeAt *Clock, er
 	var ctx = c.Tasks.Context()
 	shards, err := consumer.ListShards(ctx, c.Shards, &pc.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(flowLabels.CatalogTask, stat.Derivation.String()),
+			Include: pb.MustLabelSet(flowLabels.TaskName, stat.Derivation.String()),
 		},
 	})
 	if err != nil {

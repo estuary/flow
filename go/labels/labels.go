@@ -33,8 +33,15 @@ const (
 
 // ShardSpec labels.
 const (
-	// CatalogTask name of this shard.
-	CatalogTask = "estuary.dev/catalog-task"
+	// TaskName of this shard within the catalog.
+	TaskName = "estuary.dev/task-name"
+	// TaskType of this shard's task.
+	// This is implied by the associated catalog task, and is informational.
+	TaskType = "estuary.dev/task-type"
+	// TaskTypeDerivation is a "derivation" TaskType.
+	TaskTypeDerivation = "derivation"
+	// TaskTypeMaterialization is a "materialization" TaskType.
+	TaskTypeMaterialization = "materialization"
 	// RClockBegin is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
