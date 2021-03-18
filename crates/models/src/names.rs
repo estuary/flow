@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as SerdeError, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -113,7 +113,7 @@ impl std::ops::Deref for Rule {
 }
 
 /// JSON Pointer which identifies a location in a document.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
 #[schemars(example = "JsonPointer::example")]
 pub struct JsonPointer(#[schemars(schema_with = "JsonPointer::schema")] String);
 
@@ -134,6 +134,23 @@ impl std::ops::Deref for JsonPointer {
 impl AsRef<str> for JsonPointer {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonPointer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if !s.is_empty() && !s.starts_with("/") {
+            Err(D::Error::custom(
+                "non-empty JSON pointer must begin with '/'",
+            ))
+        } else {
+            Ok(JsonPointer(s))
+        }
     }
 }
 

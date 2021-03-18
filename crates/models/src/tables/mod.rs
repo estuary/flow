@@ -44,6 +44,15 @@ tables!(
         spec: protocol::flow::journal_rules::Rule,
     }
 
+    table ShardRules (row ShardRule, sql "shard_rules") {
+        scope: url::Url,
+        // Name of this rule, which also encodes its priority as
+        // lexicographic order determines evaluation and application order.
+        rule: names::Rule,
+        // Rule selector and patch template.
+        spec: protocol::flow::shard_rules::Rule,
+    }
+
     table Collections (row Collection, sql "collections") {
         scope: url::Url,
         collection: names::Collection,
@@ -125,11 +134,8 @@ tables!(
         scope: url::Url,
         // Collection into which documents are captured.
         collection: names::Collection,
-        // Should this capture offer a push API?
-        // If set, endpoint must not be.
-        allow_push: bool,
         // Endpoint from which documents are to be captured.
-        endpoint: Option<names::Endpoint>,
+        endpoint: names::Endpoint,
         // JSON object which merges into the endpoint's base_config,
         // to fully configure this capture with respect to the endpoint driver.
         patch_config: serde_json::Value,
@@ -195,6 +201,14 @@ tables!(
         spec: protocol::flow::Inference,
     }
 
+    table BuiltCaptures (row BuiltCapture, sql "built_captures") {
+        scope: url::Url,
+        // Name of this capture.
+        capture: String,
+        // Built specification for this capture.
+        spec: protocol::flow::CaptureSpec,
+    }
+
     table BuiltCollections (row BuiltCollection, sql "built_collections") {
         scope: url::Url,
         // Name of this collection.
@@ -211,33 +225,15 @@ tables!(
         collection: names::Collection,
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
-        // JSON object which configures this materialization with respect to the
-        // endpoint driver.
-        // endpoint_config: serde_json::Value,
         // Built specification for this materialization.
-        // The collection field is not populated, and should be separately read
-        // from BuiltCollections and merged into this specification.
         spec: protocol::flow::MaterializationSpec,
-    }
-
-    table BuiltTransforms (row BuiltTransform, sql "built_transforms") {
-        scope: url::Url,
-        // Name of the derivation to which this transform belongs.
-        derivation: names::Collection,
-        // Name of this transform, scoped to the owning derivation.
-        transform: names::Transform,
-        // Built specification for this transform.
-        spec: protocol::flow::TransformSpec,
     }
 
     table BuiltDerivations (row BuiltDerivation, sql "built_derivations") {
         scope: url::Url,
         // Name of this derivation.
         derivation: names::Collection,
-        // Built specification for this derivation. The collection and transform
-        // fields are not populated. If desired, they should be separately read
-        // from BuiltTransforms and BuiltCollections, and then then merged into
-        // this specification.
+        // Built specification for this derivation.
         spec: protocol::flow::DerivationSpec,
     }
 
@@ -256,11 +252,11 @@ tables!(
 
 #[derive(Default, Debug)]
 pub struct All {
+    pub built_captures: BuiltCaptures,
     pub built_collections: BuiltCollections,
     pub built_derivations: BuiltDerivations,
     pub built_materializations: BuiltMaterializations,
     pub built_tests: BuiltTests,
-    pub built_transforms: BuiltTransforms,
     pub captures: Captures,
     pub collections: Collections,
     pub derivations: Derivations,
@@ -270,6 +266,7 @@ pub struct All {
     pub imports: Imports,
     pub inferences: Inferences,
     pub journal_rules: JournalRules,
+    pub shard_rules: ShardRules,
     pub materializations: Materializations,
     pub named_schemas: NamedSchemas,
     pub npm_dependencies: NPMDependencies,
@@ -285,11 +282,11 @@ impl All {
     pub fn as_tables(&self) -> Vec<&dyn TableObj> {
         // This de-structure ensures we can't fail to update as tables change.
         let Self {
+            built_captures,
             built_collections,
             built_derivations,
             built_materializations,
             built_tests,
-            built_transforms,
             captures,
             collections,
             derivations,
@@ -305,16 +302,17 @@ impl All {
             projections,
             resources,
             schema_docs,
+            shard_rules,
             test_steps,
             transforms,
         } = self;
 
         vec![
+            built_captures,
             built_collections,
             built_derivations,
             built_materializations,
             built_tests,
-            built_transforms,
             captures,
             collections,
             derivations,
@@ -330,6 +328,7 @@ impl All {
             projections,
             resources,
             schema_docs,
+            shard_rules,
             test_steps,
             transforms,
         ]
@@ -338,11 +337,11 @@ impl All {
     // Access all tables as an array of mutable dynamic TableObj instances.
     pub fn as_tables_mut(&mut self) -> Vec<&mut dyn TableObj> {
         let Self {
+            built_captures,
             built_collections,
             built_derivations,
             built_materializations,
             built_tests,
-            built_transforms,
             captures,
             collections,
             derivations,
@@ -358,16 +357,17 @@ impl All {
             projections,
             resources,
             schema_docs,
+            shard_rules,
             test_steps,
             transforms,
         } = self;
 
         vec![
+            built_captures,
             built_collections,
             built_derivations,
             built_materializations,
             built_tests,
-            built_transforms,
             captures,
             collections,
             derivations,
@@ -383,6 +383,7 @@ impl All {
             projections,
             resources,
             schema_docs,
+            shard_rules,
             test_steps,
             transforms,
         ]
@@ -422,7 +423,7 @@ json_sql_types!(
 );
 
 proto_sql_types!(
-    protocol::consumer::ShardSpec,
+    protocol::flow::CaptureSpec,
     protocol::flow::CollectionSpec,
     protocol::flow::DerivationSpec,
     protocol::flow::Inference,
@@ -430,7 +431,7 @@ proto_sql_types!(
     protocol::flow::TestSpec,
     protocol::flow::TransformSpec,
     protocol::flow::journal_rules::Rule,
-    protocol::protocol::JournalSpec,
+    protocol::flow::shard_rules::Rule,
 );
 
 // Modules that extend tables with additional implementations.

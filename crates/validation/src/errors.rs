@@ -111,14 +111,10 @@ pub enum Error {
     },
     #[error("transform {transform} shuffle key cannot be empty")]
     ShuffleKeyEmpty { transform: String },
-    #[error("{type_:?} is not a supported endpoint type for a capture")]
-    CaptureEndpointType { type_: protocol::flow::EndpointType },
     #[error("must set at least one of 'update' or 'publish' lambdas")]
     NoUpdateOrPublish { transform: String },
     #[error("cannot capture into derived collection {derivation}")]
     CaptureOfDerivation { derivation: String },
-    #[error("capture duplicates the target collection {target}, endpoint, and configuration of {rhs_scope}")]
-    CaptureDuplicate { rhs_scope: Url, target: String },
     #[error("driver error while validating materialization {name}")]
     MaterializationDriver {
         name: String,

@@ -1,66 +1,59 @@
-use super::{reference, Error};
-use itertools::Itertools;
-use models::tables;
+use super::{indexed, reference, Error};
+use models::{build, tables};
+use protocol::flow;
 
 pub fn walk_all_captures(
+    built_collections: &[tables::BuiltCollection],
     captures: &[tables::Capture],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     endpoints: &[tables::Endpoint],
     imports: &[&tables::Import],
     errors: &mut tables::Errors,
-) {
+) -> tables::BuiltCaptures {
+    let mut built_captures = tables::BuiltCaptures::new();
+
     for capture in captures {
-        walk_capture(
+        if let Some(spec) = walk_capture(
+            built_collections,
             capture,
             collections,
             derivations,
             endpoints,
             imports,
             errors,
-        );
-    }
-
-    // TODO: derive a built_captures table, in line with built_materializations.
-    // It should represent the collection, Option<EndpointType> (where None means "push"),
-    // and EndpointConfig.
-
-    // Require that tuples of (collection, endpoint, patch_config) are globally unique.
-    // TODO: this de-dup should be in terms of built_captures. See walk_all_materializations.
-    let cmp = |lhs: &&tables::Capture, rhs: &&tables::Capture| {
-        (&lhs.collection, &lhs.endpoint)
-            .cmp(&(&rhs.collection, &rhs.endpoint))
-            .then_with(|| json::json_cmp(&lhs.patch_config, &rhs.patch_config))
-    };
-    for (lhs, rhs) in captures.iter().sorted_by(cmp).tuple_windows() {
-        if cmp(&lhs, &rhs) == std::cmp::Ordering::Equal {
-            Error::CaptureDuplicate {
-                rhs_scope: rhs.scope.clone(),
-                target: lhs.collection.to_string(),
-            }
-            .push(&lhs.scope, errors);
+        ) {
+            let name = spec.capture.to_string();
+            built_captures.push_row(&capture.scope, name, spec);
         }
     }
+
+    indexed::walk_duplicates(
+        "capture",
+        built_captures.iter().map(|m| (&m.capture, &m.scope)),
+        errors,
+    );
+
+    built_captures
 }
 
 fn walk_capture(
+    built_collections: &[tables::BuiltCollection],
     capture: &tables::Capture,
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     endpoints: &[tables::Endpoint],
     imports: &[&tables::Import],
     errors: &mut tables::Errors,
-) {
+) -> Option<flow::CaptureSpec> {
     let tables::Capture {
         scope,
         collection: target,
         endpoint,
-        allow_push: _,
-        patch_config: _,
+        patch_config,
     } = capture;
 
-    // Ensure we can dereference the capture's target.
-    let _ = reference::walk_reference(
+    let target = reference::walk_reference(
         scope,
         "capture",
         "collection",
@@ -71,33 +64,53 @@ fn walk_capture(
         errors,
     );
 
-    // But it must not be a derivation.
-    if let Some(_) = derivations.iter().find(|d| d.derivation == *target) {
+    let endpoint = reference::walk_reference(
+        scope,
+        "capture",
+        "endpoint",
+        endpoint,
+        endpoints,
+        |e| (&e.endpoint, &e.scope),
+        imports,
+        errors,
+    );
+
+    // We must resolve both |target| and |endpoint| to continue.
+    let (target, endpoint) = match (target, endpoint) {
+        (Some(s), Some(e)) => (s, e),
+        _ => return None,
+    };
+
+    // Collection must be an ingestion, and not a derivation.
+    if let Some(_) = derivations
+        .iter()
+        .find(|d| d.derivation == target.collection)
+    {
         Error::CaptureOfDerivation {
-            derivation: target.to_string(),
+            derivation: target.collection.to_string(),
         }
         .push(scope, errors);
     }
 
-    if let Some(endpoint) = endpoint {
-        // Dereference the captures's endpoint.
-        if let Some(endpoint) = reference::walk_reference(
-            scope,
-            "capture",
-            "endpoint",
-            endpoint,
-            endpoints,
-            |e| (&e.endpoint, &e.scope),
-            imports,
-            errors,
-        ) {
-            // Ensure it's of a compatible endpoint type.
-            if !matches!(endpoint.endpoint_type, protocol::flow::EndpointType::S3) {
-                Error::CaptureEndpointType {
-                    type_: endpoint.endpoint_type,
-                }
-                .push(scope, errors);
-            }
-        }
-    }
+    let built_collection = built_collections
+        .iter()
+        .find(|c| c.collection == target.collection)
+        .unwrap();
+
+    let mut endpoint_config = endpoint.base_config.clone();
+    json_patch::merge(&mut endpoint_config, &patch_config);
+
+    // TODO - this should use the endpoint-provided resource path,
+    // rather than the ingested collection name as a placeholder.
+    let resource_path = vec!["placeholder".to_owned(), target.collection.to_string()];
+    let resolved_name = build::materialization_name(&endpoint.endpoint, &resource_path);
+
+    Some(build::capture_spec(
+        capture,
+        built_collection,
+        &resolved_name,
+        endpoint.endpoint_type,
+        endpoint_config.to_string(),
+        resource_path,
+    ))
 }
