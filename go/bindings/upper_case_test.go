@@ -20,6 +20,7 @@ func (m frameableString) MarshalToSizedBuffer(b []byte) (int, error) {
 
 func TestUpperServiceFunctional(t *testing.T) {
 	var svc = newUpperCase()
+	defer svc.destroy()
 
 	// Test growing |buf|.
 	svc.buf = make([]byte, 0, 1)
@@ -53,6 +54,7 @@ func TestUpperServiceFunctional(t *testing.T) {
 
 func TestNoOpServiceFunctional(t *testing.T) {
 	var svc = newNoOpService()
+	defer svc.destroy()
 
 	svc.sendBytes(1, []byte("hello"))
 	svc.sendBytes(2, []byte("world"))
@@ -72,6 +74,7 @@ func TestNoOpServiceFunctional(t *testing.T) {
 
 func TestUpperServiceWithStrides(t *testing.T) {
 	var svc = newUpperCase()
+	defer svc.destroy()
 
 	for i := 0; i != 4; i++ {
 		var given = []byte("abcd0123efghijklm456nopqrstuvwxyz789")

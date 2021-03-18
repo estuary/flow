@@ -2,12 +2,12 @@ package bindings
 
 import (
 	"encoding/json"
-	"io/ioutil"
-	"os"
+	"fmt"
+	"path/filepath"
 	"testing"
 
+	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
@@ -16,68 +16,314 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-func TestDeriveBindings(t *testing.T) {
-	var catalog, err = flow.NewCatalog("../../catalog.db", "")
+func TestDeriveWithIntStrings(t *testing.T) {
+	var built, err = BuildCatalog(BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///int-strings.flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
 	require.NoError(t, err)
-	derivation, err := catalog.LoadDerivedCollection("testing/int-strings")
-	require.NoError(t, err)
-	bundle, err := catalog.LoadSchemaBundle()
-	require.NoError(t, err)
-	schemaIndex, err := NewSchemaIndex(bundle)
+	require.Empty(t, built.Errors)
+
+	schemaIndex, err := NewSchemaIndex(&built.Schemas)
 	require.NoError(t, err)
 
-	localDir, err := ioutil.TempDir("", "derive-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(localDir)
-
-	jsWorker, err := flow.NewJSWorker(catalog, "")
-	require.NoError(t, err)
-	defer jsWorker.Stop()
-
-	var rocksEnv = gorocksdb.NewDefaultEnv()
+	var lambdaClient, stop = NewTestLambdaServer(t, map[string]TestLambdaHandler{
+		"/derive/int-strings/appendStrings/Publish": func(source, _, _ json.RawMessage) ([]interface{}, error) {
+			var m struct {
+				I int
+				S string
+			}
+			if err := json.Unmarshal(source, &m); err != nil {
+				return nil, err
+			}
+			return []interface{}{
+				struct {
+					I int      `json:"i"`
+					S []string `json:"s"`
+				}{m.I, []string{m.S}},
+			}, nil
+		},
+	})
+	defer stop()
 
 	// Tweak fixture so that the derive API produces partition fields.
 	// These aren't actually valid partitions, as they're not required to exist.
-	derivation.Collection.PartitionFields = []string{"sOne", "eye"}
+	var derivation = &built.Derivations[0]
+	for _, field := range []string{"part_a", "part_b"} {
+		derivation.Collection.GetProjection(field).IsPartitionKey = true
+	}
 
-	der, err := NewDerive(
+	derive, err := NewDerive(
 		schemaIndex,
 		derivation,
-		rocksEnv,
-		jsWorker,
-		localDir,
+		gorocksdb.NewDefaultEnv(),
+		lambdaClient,
+		t.TempDir(),
 	)
 	require.NoError(t, err)
-	defer der.Stop()
+	defer derive.Destroy()
 
-	_, err = der.RestoreCheckpoint()
+	_, err = derive.RestoreCheckpoint()
 	require.NoError(t, err)
 
-	// Expect we can clear registers in between transactions.
-	require.NoError(t, der.ClearRegisters())
+	// Loop to exercise multiple transactions.
+	for i := 0; i != 5; i++ {
+		// Expect we can clear registers in between transactions.
+		require.NoError(t, derive.ClearRegisters())
 
-	der.BeginTxn()
+		var fixtures = []struct {
+			key int
+			doc string
+		}{
+			{32, `{"i":32, "s":"one"}`},
+			{42, `{"i":42, "s":"two"}`},
+			{42, `{"i":42, "s":"three"}`},
+			{32, `{"i":32, "s":"four"}`},
+		}
 
-	var fixtures = []struct {
-		key int
-		doc string
-	}{
-		{32, `{"i":32, "s":"one"}`},
-		{42, `{"i":42, "s":"two"}`},
-		{42, `{"i":42, "s":"three"}`},
-		{32, `{"i":32, "s":"four"}`},
+		derive.BeginTxn()
+		for _, fixture := range fixtures {
+			require.NoError(t, derive.Add(
+				pf.UUIDParts{ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+				tuple.Tuple{fixture.key}.Pack(),
+				0,
+				json.RawMessage(fixture.doc),
+			))
+
+			// For half of our loops, add extra ACK transactions to coerce
+			// the service to process our fixture using multiple blocks.
+			if i%2 == 1 {
+				require.NoError(t, derive.Add(
+					pf.UUIDParts{ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
+					tuple.Tuple{nil}.Pack(),
+					0,
+					json.RawMessage(fixture.doc),
+				))
+			}
+		}
+		// Drain transaction, and look for expected roll-ups.
+		expectCombineFixture(t, derive.Drain)
+
+		require.NoError(t, derive.PrepareCommit(protocol.Checkpoint{}))
 	}
-	for _, fixture := range fixtures {
-		require.NoError(t, der.Add(
+}
+
+func TestDeriveWithIncResetPublish(t *testing.T) {
+	var built, err = BuildCatalog(BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///inc-reset-publish.flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	schemaIndex, err := NewSchemaIndex(&built.Schemas)
+	require.NoError(t, err)
+
+	type sourceDoc struct {
+		Key     string `json:"key"`
+		Reset   int    `json:"reset"`
+		Invalid string `json:"invalid-property,omitempty"`
+	}
+	type regDoc struct {
+		Type  string `json:"type"`
+		Value int    `json:"value"`
+	}
+	type derivedDoc struct {
+		Key     string `json:"key"`
+		Reset   int    `json:"reset"`
+		Values  []int  `json:"values"`
+		Invalid string `json:"invalid-property,omitempty"`
+	}
+
+	var handlers = map[string]TestLambdaHandler{
+		"/derive/derivation/increment/Update": func(_, _, _ json.RawMessage) ([]interface{}, error) {
+			// Return two register updates with an effective increment of 1.
+			return []interface{}{
+				json.RawMessage(`{"type": "add", "value": 3}`),
+				json.RawMessage(`{"type": "add", "value": -2}`),
+			}, nil
+		},
+		"/derive/derivation/publish/Publish": func(source, previous, _ json.RawMessage) ([]interface{}, error) {
+			// Join |src| with the register value before its update.
+			var src sourceDoc
+			if err := json.Unmarshal(source, &src); err != nil {
+				return nil, err
+			}
+
+			var reg regDoc
+			if err := json.Unmarshal(previous, &reg); err != nil {
+				return nil, err
+			}
+
+			if src.Key == "an-error" {
+				return nil, fmt.Errorf("a gnarly error occurred")
+			}
+
+			return []interface{}{
+				derivedDoc{
+					Key:     src.Key,
+					Reset:   src.Reset,
+					Values:  []int{reg.Value},
+					Invalid: src.Invalid,
+				},
+			}, nil
+		},
+		"/derive/derivation/reset/Update": func(source, _, _ json.RawMessage) ([]interface{}, error) {
+			var src sourceDoc
+			if err := json.Unmarshal(source, &src); err != nil {
+				return nil, err
+			}
+
+			// Emit an invalid register document on seeing value -1.
+			if src.Reset == -1 {
+				return []interface{}{json.RawMessage(`{"type": "set", "value": "negative one!"}`)}, nil
+			} else {
+				return []interface{}{regDoc{Type: "set", Value: src.Reset}}, nil
+			}
+		},
+	}
+	// Transform "reset" copies the publish behavior of transform "publish".
+	handlers["/derive/derivation/reset/Publish"] = handlers["/derive/derivation/publish/Publish"]
+
+	var lambdaClient, stop = NewTestLambdaServer(t, handlers)
+	defer stop()
+
+	// Transforms are indexed alphabetically ("increment", "publish", "reset").
+	var TF_INC = 0
+	var TF_PUB = 1
+	var TF_RST = 2
+
+	var apply = func(t *testing.T, d *Derive, tfIndex int, inst sourceDoc) {
+		var b, err = json.Marshal(&inst)
+		require.NoError(t, err)
+
+		require.NoError(t, d.Add(
 			pf.UUIDParts{ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			tuple.Tuple{fixture.key}.Pack(),
-			0,
-			json.RawMessage(fixture.doc),
+			tuple.Tuple{inst.Key}.Pack(),
+			uint32(tfIndex),
+			json.RawMessage(b),
 		))
 	}
 
-	// Drain transaction, and look for expected roll-ups.
-	expectCombineFixture(t, der.Finish)
+	var ack = func(t *testing.T, d *Derive) {
+		require.NoError(t, d.Add(
+			pf.UUIDParts{ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
+			tuple.Tuple{nil}.Pack(),
+			0,
+			json.RawMessage("garbage not used"),
+		))
+	}
 
-	require.NoError(t, der.PrepareCommit(protocol.Checkpoint{}))
+	var drainOK = func(t *testing.T, d *Derive) []string {
+		var drained []string
+		require.NoError(t, d.Drain(
+			func(reduced bool, raw json.RawMessage, packedKey, packedFields []byte) error {
+				key, err := tuple.Unpack(packedKey)
+				require.NoError(t, err)
+				fields, err := tuple.Unpack(packedFields)
+				require.NoError(t, err)
+
+				drained = append(drained,
+					fmt.Sprintf("reduced %v raw %s key %v fields %v", reduced, string(raw), key, fields))
+				return nil
+			}))
+		return drained
+	}
+
+	var drainError = func(t *testing.T, d *Derive) string {
+		var err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
+			t.Error("not called")
+			return nil
+		})
+		require.Error(t, err)
+		return err.Error()
+	}
+
+	var build = func(t *testing.T) *Derive {
+		d, err := NewDerive(
+			schemaIndex,
+			&built.Derivations[0],
+			gorocksdb.NewDefaultEnv(),
+			lambdaClient,
+			t.TempDir(),
+		)
+		require.NoError(t, err)
+		_, err = d.RestoreCheckpoint()
+		require.NoError(t, err)
+		return d
+	}
+
+	t.Run("basicRPC", func(t *testing.T) {
+		var d = build(t)
+		defer d.Destroy()
+
+		// Apply a batch of documents.
+		d.BeginTxn()
+		apply(t, d, TF_INC, sourceDoc{Key: "a"})  // => 1.
+		apply(t, d, TF_INC, sourceDoc{Key: "a"})  // => 2.
+		apply(t, d, TF_INC, sourceDoc{Key: "bb"}) // => 1.
+		apply(t, d, TF_PUB, sourceDoc{Key: "bb"}) // Pub 1.
+		apply(t, d, TF_PUB, sourceDoc{Key: "a"})  // Pub 2.
+		apply(t, d, TF_INC, sourceDoc{Key: "bb"}) // => 2.
+		apply(t, d, TF_INC, sourceDoc{Key: "bb"}) // => 3.
+		ack(t, d)
+
+		apply(t, d, TF_PUB, sourceDoc{Key: "ccc"})
+		apply(t, d, TF_INC, sourceDoc{Key: "bb"})            // => 4.
+		apply(t, d, TF_RST, sourceDoc{Key: "bb", Reset: 15}) // Pub 4, => 15.
+		apply(t, d, TF_INC, sourceDoc{Key: "bb"})            // => 16.
+		apply(t, d, TF_RST, sourceDoc{Key: "a", Reset: 0})   // Pub 2, => 0.
+		apply(t, d, TF_INC, sourceDoc{Key: "a"})             // => 1.
+		apply(t, d, TF_INC, sourceDoc{Key: "a"})             // => 2.
+		apply(t, d, TF_PUB, sourceDoc{Key: "a"})             // Pub 2.
+		apply(t, d, TF_PUB, sourceDoc{Key: "bb"})            // Pub 16.
+		ack(t, d)
+
+		// Drain transaction, and look for expected roll-ups.
+		cupaloy.SnapshotT(t, drainOK(t, d))
+		require.NoError(t, d.PrepareCommit(protocol.Checkpoint{}))
+	})
+
+	t.Run("registerValidationErr", func(t *testing.T) {
+		var d = build(t)
+		defer d.Destroy()
+
+		// Send a fixture which tickles our reset lambda to emit an invalid value.
+		d.BeginTxn()
+		apply(t, d, TF_RST, sourceDoc{Key: "foobar", Reset: -1})
+		ack(t, d)
+
+		cupaloy.SnapshotT(t, drainError(t, d))
+	})
+
+	t.Run("derivedValidationErr", func(t *testing.T) {
+		var d = build(t)
+		defer d.Destroy()
+
+		// Send a fixture which tickles our reset lambda to emit an invalid value.
+		d.BeginTxn()
+		apply(t, d, TF_PUB, sourceDoc{Key: "foobar", Invalid: "not empty"})
+		ack(t, d)
+
+		cupaloy.SnapshotT(t, drainError(t, d))
+	})
+
+	t.Run("processingErr", func(t *testing.T) {
+		var d = build(t)
+		defer d.Destroy()
+
+		// Send a fixture which causes our lambda to return an error.
+		d.BeginTxn()
+		apply(t, d, TF_PUB, sourceDoc{Key: "an-error"})
+		ack(t, d)
+
+		cupaloy.SnapshotT(t, drainError(t, d))
+	})
+
 }

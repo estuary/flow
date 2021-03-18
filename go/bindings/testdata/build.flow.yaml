@@ -1,0 +1,49 @@
+collections:
+  a/collection:
+    schema:
+      type: object
+      properties:
+        a_key: { type: string }
+        a_val: { type: integer }
+      required: [a_key]
+    key: [/a_key]
+
+  a/derivation:
+    schema:
+      type: object
+      properties:
+        a_key: { type: string }
+      required: [a_key]
+    key: [/a_key]
+
+    derivation:
+      transform:
+        fromCollection:
+          source:
+            name: a/collection
+          publish:
+            lambda: typescript
+
+endpoints:
+  my/s3:
+    s3:
+      bucket: bucket
+      prefix: prefix
+
+  my/db:
+    sqlite:
+      path: ":memory:"
+
+captures:
+  - target:
+      name: a/collection
+    endpoint:
+      name: my/s3
+
+materializations:
+  - source:
+      name: a/derivation
+    endpoint:
+      name: my/db
+      config:
+        table: a_table

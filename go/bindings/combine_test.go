@@ -2,48 +2,55 @@ package bindings
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
 )
 
 func TestCombineBindings(t *testing.T) {
-	var catalog, err = flow.NewCatalog("../../catalog.db", "")
+	built, err := BuildCatalog(BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///int-strings.flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
 	require.NoError(t, err)
-	collection, err := catalog.LoadCollection("testing/int-strings")
-	require.NoError(t, err)
-	bundle, err := catalog.LoadSchemaBundle()
-	require.NoError(t, err)
-	schemaIndex, err := NewSchemaIndex(bundle)
+	require.Empty(t, built.Errors)
+
+	var collection = built.Collections[1]
+	schemaIndex, err := NewSchemaIndex(&built.Schemas)
 	require.NoError(t, err)
 
-	var builder = NewCombineBuilder(schemaIndex)
-
-	combiner, err := builder.Open(
+	combiner, err := NewCombine(
+		schemaIndex,
 		collection.SchemaUri,
 		collection.KeyPtrs,
 		[]string{"/s/1", "/i"},
 		collection.UuidPtr,
 	)
 	require.NoError(t, err)
+	defer combiner.Destroy()
 
-	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["one"]}`)))
-	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 42, "s": ["three"]}`)))
-	require.NoError(t, combiner.Flush())
-	require.NoError(t, combiner.ReduceLeft(json.RawMessage(`{"i": 42, "s": ["two"]}`)))
-	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["four"]}`)))
+	// Loop to exercise re-use of a Combiner.
+	for i := 0; i != 5; i++ {
+		require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["one"]}`)))
+		require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 42, "s": ["three"]}`)))
+		require.NoError(t, pollExpectNoOutput(combiner.svc))
+		require.NoError(t, combiner.ReduceLeft(json.RawMessage(`{"i": 42, "s": ["two"]}`)))
+		require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["four"]}`)))
 
-	// Expect duplicate calls aren't a problem.
-	require.NoError(t, combiner.CloseSend())
-	require.NoError(t, combiner.CloseSend())
+		if i%2 == 1 {
+			// PrepareToDrain may optionally be called ahead of Drain.
+			require.NoError(t, combiner.PrepareToDrain())
+		}
 
-	expectCombineFixture(t, combiner.Finish)
-
-	builder.Release(combiner)
+		expectCombineFixture(t, combiner.Drain)
+	}
 }
 
 func expectCombineFixture(t *testing.T, finish func(CombineCallback) error) {

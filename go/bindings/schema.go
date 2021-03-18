@@ -15,6 +15,8 @@ type SchemaIndex struct {
 // NewSchemaIndex builds and indexes the provided bundle of schemas.
 func NewSchemaIndex(bundle *pf.SchemaBundle) (*SchemaIndex, error) {
 	var svc = newSchemaService()
+	defer svc.destroy()
+
 	if err := svc.sendMessage(1, bundle); err != nil {
 		panic(err) // Encoding is infalliable.
 	}

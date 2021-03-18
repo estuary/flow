@@ -1,0 +1,25 @@
+import:
+  - int-string.flow.yaml
+
+collections:
+  int-strings:
+    schema:
+      type: object
+      properties:
+        i: { type: integer }
+        s:
+          type: array
+          items: { type: string }
+          reduce: { strategy: append }
+      required: [i]
+      reduce: { strategy: merge }
+    key: [/i]
+    projections:
+      part_a: /s/1
+      part_b: /i
+    derivation:
+      transform:
+        appendStrings:
+          source:
+            name: int-string
+          publish: { lambda: typescript }

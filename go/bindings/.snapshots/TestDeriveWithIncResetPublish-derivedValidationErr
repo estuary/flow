@@ -1,0 +1,25 @@
+derived document reduction error
+
+Caused by:
+    0: document is invalid: {
+         "basic_output": {
+           "errors": [
+             {
+               "absoluteKeywordLocation": "file:///inc-reset-publish.schema.yaml#/$defs/derived/properties/invalid-property",
+               "error": "Invalid(False)",
+               "instanceLocation": "/invalid-property",
+               "keywordLocation": "#/properties/invalid-property"
+             }
+           ],
+           "valid": false
+         },
+         "document": {
+           "invalid-property": "not empty",
+           "key": "foobar",
+           "reset": 0,
+           "values": [
+             1000
+           ]
+         }
+       }
+    1: {"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///inc-reset-publish.schema.yaml#/$defs/derived/properties/invalid-property","error":"Invalid(False)","instanceLocation":"/invalid-property","keywordLocation":"#/properties/invalid-property"}],"valid":false},"document":{"invalid-property":"not empty","key":"foobar","reset":0,"values":[1000]}}
