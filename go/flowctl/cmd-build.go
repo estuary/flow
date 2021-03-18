@@ -77,7 +77,8 @@ func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClie
 
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.CatalogTask, name,
+			flowLabels.TaskName, name,
+			flowLabels.TaskType, flowLabels.TaskTypeDerivation,
 			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
 			flowLabels.KeyEnd, flowLabels.KeyEndMax,
 			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
@@ -121,7 +122,8 @@ func applyMaterializationShardsTODO(built *bindings.BuiltCatalog, shards pc.Shar
 
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.CatalogTask, name,
+			flowLabels.TaskName, name,
+			flowLabels.TaskType, flowLabels.TaskTypeMaterialization,
 			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
 			flowLabels.KeyEnd, flowLabels.KeyEndMax,
 			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
