@@ -292,17 +292,29 @@ catalog-test: ${GOBIN}/flowctl ${TOOLBIN}/etcd
 .PHONY: package
 package: $(PACKAGE_TARGETS)
 
+# These docker targets intentionally don't depend on any upstream targets. This is because the
+# upstream targes are all PHONY as well, so there would be no way to prevent them from runnign twice if you
+# invoke e.g. `make package` followed by `make docker-image`. If the `docker-image` target depended
+# on the `package` target, it would not skip the package step when you invoke `docker-image`.
+# For now, the github action workflow manually invokes make to perform each of these tasks.
 .PHONY: docker-image
-docker-image: package
+docker-image:
 	docker build \
 		--file ${ROOTDIR}/.devcontainer/release.Dockerfile \
 		--tag docker.pkg.github.com/estuary/flow/bin:${VERSION} \
 		--tag quay.io/estuary/flow:${VERSION} \
+		--tag quay.io/estuary/flow:dev \
 		${PKGDIR}/
 
 .PHONY: docker-push-to-quay
-docker-push-to-quay: docker-image
+docker-push-to-quay:
 	docker push quay.io/estuary/flow:${VERSION}
+
+# This is used by the GH Action workflow to push the 'dev' tag.
+# It is invoked only for builds on the master branch.
+.PHONY: docker-push-quay-dev
+docker-push-quay-dev:
+	docker push quay.io/estuary/flow:dev
 
 # This works , but is currently disabled. See comment in .github/workflows/main.yml.
 # .PHONY: docker-push-to-github

@@ -73,5 +73,7 @@ jobs:
       - run: make package
       - run: make docker-image
       - run: make docker-push-to-quay
+      - if: ${{ github.ref == 'refs/heads/master' }}
+        run: make docker-push-quay-dev
       - run: cargo install cargo-cache --no-default-features --features ci-autoclean
       - run: cargo-cache
