@@ -67,7 +67,6 @@ jobs:
       - run: make rocks-build
       - run: make rust-build
       - run: make rust-test
-      - run: make build-test-catalog
       - run: make go-test-ci
       - run: make catalog-test
       - run: make package

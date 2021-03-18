@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/testing"
 	"github.com/fatih/color"
@@ -20,9 +19,6 @@ import (
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"google.golang.org/grpc"
 )
@@ -77,7 +73,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 	defer os.RemoveAll(tempdir)
 
-	var buildConfig = pf.BuildAPI_Config{
+	built, err := buildCatalog(pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(tempdir, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
@@ -101,18 +97,9 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 				},
 			},
 		},
-	}
-	catalog, err := build(buildConfig)
+	})
 	if err != nil {
-		return fmt.Errorf("building catalog: %w", err)
-	}
-	testCases, err := catalog.LoadTests()
-	if err != nil {
-		return fmt.Errorf("loading test cases: %w", err)
-	}
-	transforms, err := catalog.LoadTransforms()
-	if err != nil {
-		return fmt.Errorf("loading transforms: %w", err)
+		return err
 	}
 
 	// Spawn Etcd and NPM worker processes for cluster use.
@@ -130,34 +117,40 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	defer stopWorker(jsWorker)
 
 	// Configure and start the cluster.
-	var config = testing.ClusterConfig{
-		Catalog:            catalog,
+	var cfg = testing.ClusterConfig{
 		Context:            context.Background(),
 		DisableClockTicks:  true,
 		Etcd:               etcdClient,
+		EtcdCatalogPrefix:  "/flowctl-test/catalog",
 		EtcdBrokerPrefix:   "/flowctl-test/broker",
 		EtcdConsumerPrefix: "/flowctl-test/runtime",
-		LambdaJSUDS:        lambdaJSUDS,
 	}
-	config.ZoneConfig.Zone = "local"
-	fragment.FileSystemStoreRoot = tempdir
-	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
+	cfg.ZoneConfig.Zone = "local"
 	pb.RegisterGRPCDispatcher(Config.Zone)
 
-	cluster, err := testing.NewCluster(config)
+	// Apply catalog task specifications to the cluster.
+	if _, err := flow.ApplyCatalogToEtcd(cfg.Context, cfg.Etcd,
+		cfg.EtcdCatalogPrefix, built, lambdaJSUDS, ""); err != nil {
+		return err
+	}
+
+	fragment.FileSystemStoreRoot = tempdir
+	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
+
+	cluster, err := testing.NewCluster(cfg)
 	if err != nil {
 		return fmt.Errorf("NewCluster: %w", err)
 	}
 
 	// Apply derivation shard specs.
-	if err = todoHackedDeriveApply(catalog, cluster.Shards); err != nil {
-		return fmt.Errorf("applying shards: %w", err)
+	if err = applyDerivationShardsTODO(built, cluster.Shards); err != nil {
+		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 
 	// Run all test cases.
-	var graph = testing.NewGraph(transforms)
-	fmt.Println("Running ", len(testCases), " tests...")
-	for _, testCase := range testCases {
+	var graph = testing.NewGraph(built.Derivations)
+	fmt.Println("Running ", len(built.Tests), " tests...")
+	for _, testCase := range built.Tests {
 		fmt.Print(testCase.Test, ": ")
 
 		if err = testing.RunTestCase(graph, cluster, &testCase); err != nil {
@@ -167,7 +160,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		} else {
 			fmt.Print(green("PASSED"), "\n")
 		}
-		cluster.Consumer.ClearRegistersForTest(config.Context)
+		cluster.Consumer.ClearRegistersForTest(cfg.Context)
 	}
 
 	// Summarize the failed tests at the end so that it's easier to see in case there's a lot of
@@ -178,7 +171,8 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 			fmt.Println(t)
 		}
 	}
-	fmt.Printf("\nRan %d tests, %d passed, %d failed\n", len(testCases), len(testCases)-len(failed), len(failed))
+	fmt.Printf("\nRan %d tests, %d passed, %d failed\n",
+		len(built.Tests), len(built.Tests)-len(failed), len(failed))
 
 	if err := cluster.Stop(); err != nil {
 		return fmt.Errorf("stopping cluster: %w", err)
@@ -188,51 +182,6 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 var green = color.New(color.FgGreen).SprintFunc()
 var red = color.New(color.FgRed).SprintFunc()
-
-func todoHackedDeriveApply(catalog *flow.Catalog, shards pc.ShardClient) error {
-	names, err := catalog.LoadDerivationNames()
-	if err != nil {
-		return fmt.Errorf("loading derivation names: %w", err)
-	}
-
-	log.WithField("names", names).Info("building shard specs")
-
-	var changes []pc.ApplyRequest_Change
-
-	for _, name := range names {
-		var labels = pb.MustLabelSet(
-			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.CatalogURL, catalog.LocalPath(),
-			flowLabels.Derivation, name,
-			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
-			flowLabels.KeyEnd, flowLabels.KeyEndMax,
-			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
-			flowLabels.RClockEnd, flowLabels.RClockEndMax,
-		)
-		changes = append(changes, pc.ApplyRequest_Change{
-			Upsert: &pc.ShardSpec{
-				Id: pc.ShardID(fmt.Sprintf("derivation/%s/%s-%s",
-					name, flowLabels.KeyBeginMin, flowLabels.RClockBeginMin)),
-				Sources:           nil,
-				RecoveryLogPrefix: "recovery",
-				HintPrefix:        "/estuary/flow/hints",
-				HintBackups:       2,
-				MaxTxnDuration:    time.Minute,
-				MinTxnDuration:    0,
-				HotStandbys:       0,
-				LabelSet:          labels,
-			},
-			ExpectModRevision: -1, // Ignore current revision.
-		})
-	}
-
-	if _, err = consumer.ApplyShards(context.Background(), shards, &pc.ApplyRequest{
-		Changes: changes,
-	}); err != nil {
-		return fmt.Errorf("applying shard specs: %w", err)
-	}
-	return nil
-}
 
 func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 	var cmd = exec.Command("etcd",
