@@ -298,7 +298,7 @@ func updateStatusWithRetry(s *shard, status pc.ReplicaStatus) {
 			return
 		}
 		log.WithFields(log.Fields{"err": err, "attempt": attempt}).
-			Error("failed to advertise Etcd shard status (will retry)")
+			Warn("failed to advertise Etcd shard status (will retry)")
 	}
 }
 
