@@ -320,7 +320,7 @@ pub fn test_step_spec(
     collection: &tables::Collection,
 ) -> flow::test_spec::Step {
     let tables::TestStep {
-        scope: _,
+        scope,
         collection: _,
         documents,
         partitions,
@@ -332,6 +332,7 @@ pub fn test_step_spec(
     flow::test_spec::Step {
         step_type: *step_type as i32,
         step_index: *step_index,
+        step_scope: scope.to_string(),
         collection: collection.collection.to_string(),
         collection_schema_uri: collection.schema.to_string(),
         collection_key_ptr: collection.key.iter().map(|p| p.to_string()).collect(),

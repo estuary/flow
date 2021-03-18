@@ -47,3 +47,16 @@ materializations:
       name: my/db
       config:
         table: a_table
+
+tests:
+  "Example of a test":
+    - ingest:
+        collection: a/collection
+        documents:
+          - { a_key: one, a_val: 2 }
+          - { a_key: three, a_val: 4 }
+    - verify:
+        collection: a/derivation
+        documents:
+          - { a_key: one }
+          - { a_key: three }
