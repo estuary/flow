@@ -32,105 +32,139 @@ pub struct ASTProperty {
     pub is_required: bool,
 }
 
+pub struct Context<'a> {
+    pub into: &'a mut String,
+    pub anchors: &'a str,
+    pub indent: usize,
+}
+
+impl<'a> Context<'a> {
+    pub fn new(into: &'a mut String) -> Self {
+        Self {
+            into,
+            anchors: "anchors.",
+            indent: 0,
+        }
+    }
+
+    pub fn new_without_anchors(into: &'a mut String) -> Self {
+        Self {
+            into,
+            anchors: "",
+            indent: 0,
+        }
+    }
+
+    fn push_inner(&self, into: &'a mut String) -> Self {
+        Self {
+            into,
+            anchors: self.anchors,
+            indent: self.indent,
+        }
+    }
+}
+
 impl AST {
-    pub fn render(&self, indent: usize, into: &mut String) {
+    pub fn render(&self, ctx: &mut Context) {
         match self {
             AST::Comment { body, of } => {
-                into.push_str("/* ");
-                into.push_str(body);
-                into.push_str(" */ ");
-                of.render(indent, into);
+                ctx.into.push_str("/* ");
+                ctx.into.push_str(body);
+                ctx.into.push_str(" */ ");
+                of.render(ctx);
             }
-            AST::Never => into.push_str("never"),
-            AST::Unknown => into.push_str("unknown"),
-            AST::Boolean => into.push_str("boolean"),
-            AST::Null => into.push_str("null"),
-            AST::Number => into.push_str("number"),
-            AST::String => into.push_str("string"),
-            AST::Undefined => into.push_str("undefined"),
-            AST::Literal { value } => into.push_str(&value.to_string()),
-            AST::Array { of } => Self::render_array(indent, into, &of),
-            AST::Tuple(tuple) => Self::render_tuple(indent, into, tuple),
+            AST::Never => ctx.into.push_str("never"),
+            AST::Unknown => ctx.into.push_str("unknown"),
+            AST::Boolean => ctx.into.push_str("boolean"),
+            AST::Null => ctx.into.push_str("null"),
+            AST::Number => ctx.into.push_str("number"),
+            AST::String => ctx.into.push_str("string"),
+            AST::Undefined => ctx.into.push_str("undefined"),
+            AST::Literal { value } => ctx.into.push_str(&value.to_string()),
+            AST::Array { of } => Self::render_array(ctx, &of),
+            AST::Tuple(tuple) => Self::render_tuple(ctx, tuple),
             AST::Object { properties } if properties.is_empty() => {
-                into.push_str("Record<string, unknown>")
+                ctx.into.push_str("Record<string, unknown>")
             }
-            AST::Object { properties } => Self::render_object(indent, into, properties),
-            AST::Union { variants } => Self::render_disjunction(indent, into, variants),
+            AST::Object { properties } => Self::render_object(ctx, properties),
+            AST::Union { variants } => Self::render_disjunction(ctx, variants),
             AST::Anchor(anchor) => {
-                into.push_str("anchors.");
-                into.push_str(anchor);
+                ctx.into.push_str(ctx.anchors);
+                ctx.into.push_str(anchor);
             }
         }
     }
 
-    fn render_array(indent: usize, into: &mut String, of: &AST) {
+    fn render_array(ctx: &mut Context, of: &AST) {
         let mut inner = String::new();
-        of.render(indent, &mut inner);
+        of.render(&mut ctx.push_inner(&mut inner));
 
         if inner.ends_with("\"") {
-            into.push('(');
-            into.push_str(&inner);
-            into.push_str(")[]");
+            ctx.into.push('(');
+            ctx.into.push_str(&inner);
+            ctx.into.push_str(")[]");
         } else {
-            into.push_str(&inner);
-            into.push_str("[]");
+            ctx.into.push_str(&inner);
+            ctx.into.push_str("[]");
         }
     }
 
-    fn render_tuple(indent: usize, into: &mut String, tuple: &ASTTuple) {
-        into.push('[');
+    fn render_tuple(ctx: &mut Context, tuple: &ASTTuple) {
+        ctx.into.push('[');
         for (ind, item) in tuple.items.iter().enumerate() {
             if ind != 0 {
-                into.push_str(", ");
+                ctx.into.push_str(", ");
             }
-            item.render(indent, into);
+            item.render(ctx);
 
             if ind >= tuple.min_items {
-                into.push('?');
+                ctx.into.push('?');
             }
         }
         // Tack on spread AST, if present.
         if let Some(spread) = &tuple.spread {
-            into.push_str("...(");
-            spread.render(indent, into);
-            into.push_str(")[]");
+            ctx.into.push_str("...(");
+            spread.render(ctx);
+            ctx.into.push_str(")[]");
         }
-        into.push_str("]");
+        ctx.into.push_str("]");
     }
 
-    fn render_disjunction(indent: usize, into: &mut String, variants: &[AST]) {
+    fn render_disjunction(ctx: &mut Context, variants: &[AST]) {
         for (ind, item) in variants.iter().enumerate() {
             if ind != 0 {
-                into.push_str(" | ");
+                ctx.into.push_str(" | ");
             }
-            item.render(indent, into);
+            item.render(ctx);
         }
     }
 
-    fn render_object(indent: usize, into: &mut String, properties: &[ASTProperty]) {
+    fn render_object(ctx: &mut Context, properties: &[ASTProperty]) {
         if properties.is_empty() {
-            into.push_str("{}");
+            ctx.into.push_str("{}");
             return;
         }
-
-        into.push('{');
+        ctx.into.push('{');
 
         for prop in properties.iter() {
-            Self::push_newline(indent + 1, into);
-            into.push_str(&prop.field);
+            ctx.indent += 1;
+
+            Self::push_newline(ctx);
+            ctx.into.push_str(&prop.field);
             if !prop.is_required {
-                into.push('?');
+                ctx.into.push('?');
             }
-            into.push_str(": ");
-            prop.value.render(indent + 1, into);
-            into.push_str(";");
+            ctx.into.push_str(": ");
+            prop.value.render(ctx);
+            ctx.into.push_str(";");
+            ctx.indent -= 1;
         }
-        Self::push_newline(indent, into);
-        into.push('}');
+        Self::push_newline(ctx);
+        ctx.into.push('}');
     }
 
-    fn push_newline(indent: usize, into: &mut String) {
-        into.push('\n');
-        into.extend(std::iter::repeat(' ').take(indent * 4));
+    fn push_newline(ctx: &mut Context) {
+        ctx.into.push('\n');
+        ctx.into.extend(std::iter::repeat(' ').take(ctx.indent * 4));
     }
 }
