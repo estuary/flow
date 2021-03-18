@@ -1,0 +1,14 @@
+collections:
+  weird-types/optionals:
+    schema:
+      type: object
+      properties:
+        theKey: { type: string }
+        string: { type: string }
+        bool: { type: boolean }
+        int: { type: integer }
+        number: { type: number }
+        object: { type: object }
+        array: { type: array }
+      required: [theKey]
+    key: [/theKey]

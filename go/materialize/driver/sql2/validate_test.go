@@ -2,71 +2,70 @@ package sql
 
 import (
 	"fmt"
-	"io/ioutil"
-	"os"
+	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/bindings"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidations(t *testing.T) {
-	var tempdir, err = ioutil.TempDir("", "validate-test")
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
 	require.NoError(t, err)
-	defer os.RemoveAll(tempdir)
+	require.Empty(t, built.Errors)
 
-	cat, err := flow.NewCatalog("../../../../catalog.db", tempdir)
-	require.NoError(t, err)
-
-	var collections = []string{
-		"optionals",
-		"required-nullable",
-		"optional-multi-types",
-	}
-	for _, name := range collections {
-		var collectionName = fmt.Sprintf("weird-types/%s", name)
-		t.Run(fmt.Sprintf("NewSQLProjections-%s", name), func(t *testing.T) {
-			collection, err := cat.LoadCollection(collectionName)
-			require.NoError(t, err)
-
-			var constraints = ValidateNewSQLProjections(collection)
-			cupaloy.SnapshotT(t, constraints)
-		})
+	for _, spec := range built.Collections {
+		t.Run(
+			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Collection.String())),
+			func(t *testing.T) {
+				var constraints = ValidateNewSQLProjections(&spec)
+				cupaloy.SnapshotT(t, constraints)
+			})
 	}
 
 	t.Run("MatchesExisting", func(t *testing.T) {
-		testMatchesExisting(t, cat)
+		// Test body wants "weird-types/optionals", which orders as 1 alphabetically.
+		testMatchesExisting(t, &built.Collections[1])
 	})
 }
 
-func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
-	existingCollection, err := catalog.LoadCollection("weird-types/optionals")
-	require.NoError(t, err)
+func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	var existingFields = &pf.FieldSelection{
 		Keys:     []string{"theKey"},
 		Values:   []string{"string", "bool", "int"},
 		Document: "flow_document",
 	}
 	var existingSpec = pf.MaterializationSpec{
-		Collection:     *existingCollection,
+		Collection:     *collection,
 		FieldSelection: *existingFields,
 	}
 
-	// Load a new copy of the same collection, which we'll modify and use as the "proposed"
-	proposedCollection, err := catalog.LoadCollection("weird-types/optionals")
-	require.NoError(t, err)
+	// Deep copy the collection, which we'll modify and use as the proposal.
+	var proposed pf.CollectionSpec
+	{
+		b, _ := collection.Marshal()
+		require.NoError(t, proposed.Unmarshal(b))
+	}
+
 	// int projection is changing type to "string", which should result in unsatisfiable
 	// constraint
-	var intProjection = proposedCollection.GetProjection("int")
+	var intProjection = proposed.GetProjection("int")
 	intProjection.Inference.Types = []string{"string"}
 	// string projection is going from optional to required, which should be allowed
-	var stringProjection = proposedCollection.GetProjection("string")
+	var stringProjection = proposed.GetProjection("string")
 	stringProjection.Inference.MustExist = true
 
-	var constraints = ValidateMatchesExisting(&existingSpec, proposedCollection)
+	var constraints = ValidateMatchesExisting(&existingSpec, &proposed)
 	var req = []string{"theKey", "string", "bool", "flow_document"}
 	for _, field := range req {
 		var constraint, ok = constraints[field]
@@ -82,7 +81,7 @@ func testMatchesExisting(t *testing.T, catalog *flow.Catalog) {
 	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, numConstraint.Type)
 
 	var proposedSpec = pf.MaterializationSpec{
-		Collection:     *proposedCollection,
+		Collection:     proposed,
 		FieldSelection: *existingFields,
 	}
 	var constraintsError = ValidateSelectedFields(constraints, &proposedSpec)
