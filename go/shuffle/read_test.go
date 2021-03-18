@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ func TestReadBuilding(t *testing.T) {
 			ranges:   ranges,
 			shuffles: shuffles,
 			members:  func() []*pc.ShardSpec { return allShards },
-			journals: &keyspace.KeySpace{Root: allJournals.Root},
+			journals: flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
 		}
 		existing = map[pb.Journal]*read{}
 	)
@@ -286,10 +287,9 @@ func TestHRWRegression(t *testing.T) {
 	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
 }
 
-func buildReadTestJournalsAndTransforms() (*keyspace.KeySpace, []*pc.ShardSpec, []pf.TransformSpec) {
-	var journals = &keyspace.KeySpace{
-		Root: "/the/journals",
-	}
+func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, []pf.TransformSpec) {
+	var journals = flow.Journals{
+		KeySpace: &keyspace.KeySpace{Root: "/the/journals"}}
 
 	for _, j := range []struct {
 		bar   string
