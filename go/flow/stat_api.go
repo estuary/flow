@@ -8,13 +8,12 @@ import (
 	"go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
 )
 
 // ShardStat wraps consumer.ShardStat to provide additional synchronization
 // over a |journals| Etcd header carried as a StatRequest & StatResponse
 // extension.
-func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, journals *keyspace.KeySpace) (*pc.StatResponse, error) {
+func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, journals Journals) (*pc.StatResponse, error) {
 	var err error
 	var reqJournalEtcd pb.Header_Etcd
 

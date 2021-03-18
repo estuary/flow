@@ -1,385 +1,250 @@
 package flow
 
 import (
-	"database/sql"
+	"bytes"
+	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"net/url"
-	"os"
+	"path"
+	"runtime"
 
+	"github.com/estuary/flow/go/bindings"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/mvcc/mvccpb"
+	"go.gazette.dev/core/keyspace"
 )
 
-// Catalog is a Catalog database which has been fetched to a local file.
+const (
+	// TasksPrefix prefixes CatalogTasks.
+	TasksPrefix = "/tasks/"
+	// CommonsPrefix prefixes CatalogCommons.
+	CommonsPrefix = "/commons/"
+)
+
+// Catalog is a type wrapper of a KeySpace that's a local mirror of
+// catalog entities across the cluster.
 type Catalog struct {
-	dbPath string
-	db     *sql.DB
+	*keyspace.KeySpace
 }
 
-// NewCatalog copies the catalog DB at the given |url| to the local |tempDir|, and opens it.
-func NewCatalog(pathOrURL, tempDir string) (*Catalog, error) {
-	if tempDir == "" {
-		tempDir = os.TempDir()
+// NewCatalog builds and loads a KeySpace and Catalog which load, decode, and watch Flow catalog entities.
+func NewCatalog(ctx context.Context, etcd *clientv3.Client, root string) (Catalog, error) {
+	if root != path.Clean(root) {
+		return Catalog{}, fmt.Errorf("%q is not a clean path", root)
 	}
 
-	var path = pathOrURL
-	if url, err := url.Parse(pathOrURL); err == nil && url.Scheme != "" {
-		if path, err = fetchRemote(url, tempDir); err != nil {
-			return nil, fmt.Errorf("fetching remote catalog: %w", err)
+	var (
+		tasksPrefix   = root + TasksPrefix
+		commonsPrefix = root + CommonsPrefix
+	)
+
+	var decoder = func(raw *mvccpb.KeyValue) (interface{}, error) {
+		var m interface {
+			Unmarshal([]byte) error
+			Validate() error
+		}
+
+		switch {
+		case bytes.HasPrefix(raw.Key, []byte(tasksPrefix)):
+			m = new(pf.CatalogTask)
+		case bytes.HasPrefix(raw.Key, []byte(commonsPrefix)):
+			m = new(Commons)
+			runtime.SetFinalizer(m, func(c *Commons) { c.Destroy() })
+		default:
+			return nil, fmt.Errorf("unexpected key prefix")
+		}
+
+		if err := m.Unmarshal(raw.Value); err != nil {
+			return nil, fmt.Errorf("decoding %q: %w", string(raw.Key), err)
+		} else if err = m.Validate(); err != nil {
+			return nil, fmt.Errorf("validating %q: %w", string(raw.Key), err)
+		}
+
+		// Sanity-check that Etcd key and computed value suffix agree.
+		var expect string
+		var actual []byte
+
+		switch {
+		case bytes.HasPrefix(raw.Key, []byte(tasksPrefix)):
+			expect = m.(*pf.CatalogTask).Name()
+			actual = raw.Key[len(tasksPrefix):]
+
+			log.WithFields(log.Fields{
+				"name":           expect,
+				"createRevision": raw.CreateRevision,
+				"modRevision":    raw.ModRevision,
+			}).Debug("decoded CatalogTask")
+
+		case bytes.HasPrefix(raw.Key, []byte(commonsPrefix)):
+			expect = m.(*Commons).CommonsId
+			actual = raw.Key[len(commonsPrefix):]
+
+			log.WithFields(log.Fields{
+				"name":           expect,
+				"createRevision": raw.CreateRevision,
+				"modRevision":    raw.ModRevision,
+			}).Debug("decoded CatalogCommons")
+		}
+
+		if expect != string(actual) {
+			return nil, fmt.Errorf("etcd key %q has a different computed key, %q",
+				string(raw.Key), expect)
+		}
+
+		return m, nil
+	}
+
+	var catalog = Catalog{
+		KeySpace: keyspace.NewKeySpace(root, decoder),
+	}
+
+	if err := catalog.Load(ctx, etcd, 0); err != nil {
+		return Catalog{}, fmt.Errorf("initial load of %q: %w", root, err)
+	}
+	return catalog, nil
+}
+
+// GetIngestion returns the named ingestion task.
+func (c Catalog) GetIngestion(name string) (*pf.CollectionSpec, *Commons, error) {
+	var task, commons, err = c.GetTask(name)
+	if err != nil {
+		return nil, nil, err
+	} else if task.Ingestion == nil {
+		return nil, nil, ErrCatalogTaskNotIngestion
+	}
+	return task.Ingestion, commons, nil
+}
+
+// GetDerivation returns the named derivation task.
+func (c Catalog) GetDerivation(name string) (*pf.CollectionSpec, *Commons, error) {
+	var task, commons, err = c.GetTask(name)
+	if err != nil {
+		return nil, nil, err
+	} else if task.Ingestion == nil {
+		return nil, nil, ErrCatalogTaskNotIngestion
+	}
+	return task.Ingestion, commons, nil
+}
+
+// GetTask returns the named CatalogTask.
+func (c Catalog) GetTask(name string) (*pf.CatalogTask, *Commons, error) {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	var ind, found = c.Search(c.Root + TasksPrefix + name)
+	if !found {
+		return nil, nil, ErrCatalogTaskNotFound
+	}
+	var task = c.KeyValues[ind].Decoded.(*pf.CatalogTask)
+
+	ind, found = c.Search(c.Root + CommonsPrefix + task.CommonsId)
+	if !found {
+		return task, nil, ErrCatalogCommonsNotFound
+	}
+	var commons = c.KeyValues[ind].Decoded.(*Commons)
+
+	return task, commons, nil
+}
+
+// ApplyCatalogToEtcd inserts a CatalogCommons and updates CatalogTasks
+// into the Etcd Catalog keyspace rooted by |root|.
+func ApplyCatalogToEtcd(
+	ctx context.Context,
+	etcd *clientv3.Client,
+	root string,
+	build *bindings.BuiltCatalog,
+	typescriptUDS string,
+	typescriptPackageURL string,
+) (int64, error) {
+	if typescriptUDS == "" && typescriptPackageURL == "" {
+		return 0, fmt.Errorf("expected a TypeScript UDS or package")
+	}
+
+	// Build CatalogCommons and CatalogTasks around a generated CommonsID.
+	var commons = pf.CatalogCommons{
+		CommonsId:             uuid.New().String(),
+		JournalRules:          build.JournalRules,
+		ShardRules:            build.ShardRules,
+		Schemas:               build.Schemas,
+		TypescriptLocalSocket: typescriptUDS,
+		TypescriptPackageUrl:  typescriptPackageURL,
+	}
+	var tasks []pf.CatalogTask
+
+	for i := range build.Captures {
+		tasks = append(tasks, pf.CatalogTask{
+			CommonsId: commons.CommonsId,
+			Capture:   &build.Captures[i],
+		})
+	}
+	var derivations = make(map[pf.Collection]struct{})
+	for i := range build.Derivations {
+		tasks = append(tasks, pf.CatalogTask{
+			CommonsId:  commons.CommonsId,
+			Derivation: &build.Derivations[i],
+		})
+		derivations[build.Derivations[i].Collection.Collection] = struct{}{}
+	}
+	// Non-derivation collections are ingestion tasks.
+	for i := range build.Collections {
+		if _, ok := derivations[build.Collections[i].Collection]; ok {
+			continue
+		}
+		tasks = append(tasks, pf.CatalogTask{
+			CommonsId: commons.CommonsId,
+			Ingestion: &build.Collections[i],
+		})
+	}
+	for i := range build.Materializations {
+		tasks = append(tasks, pf.CatalogTask{
+			CommonsId:       commons.CommonsId,
+			Materialization: &build.Materializations[i],
+		})
+	}
+
+	// Validate the world.
+	if err := commons.Validate(); err != nil {
+		return 0, fmt.Errorf("validating commons: %w", err)
+	}
+	for t := range tasks {
+		if err := tasks[t].Validate(); err != nil {
+			return 0, fmt.Errorf("validating Tasks[%d]: %w", t, err)
 		}
 	}
-	db, err := sql.Open("sqlite3", "file:"+path+"?immutable=true&mode=ro")
+
+	// Build an Etcd transaction which applies the request tasks & commons.
+	var ops []clientv3.Op
+
+	for _, task := range tasks {
+		var key = root + TasksPrefix + task.Name()
+		ops = append(ops, clientv3.OpPut(key, marshalString(&task)))
+
+		log.WithField("key", key).Debug("inserting or updating CatalogTask")
+	}
+	var key = root + CommonsPrefix + commons.CommonsId
+	ops = append(ops, clientv3.OpPut(key, marshalString(&commons)))
+	log.WithField("key", key).Debug("inserting CatalogCommons")
+
+	var txnResp, err = etcd.Do(ctx, clientv3.OpTxn(nil, ops, nil))
+	if err == nil && !txnResp.Txn().Succeeded {
+		return 0, fmt.Errorf("Etcd transaction failed")
+	}
+	return txnResp.Txn().Header.Revision, nil
+}
+
+func marshalString(m interface{ Marshal() ([]byte, error) }) string {
+	var b, err = m.Marshal()
 	if err != nil {
-		return nil, fmt.Errorf("opening catalog database %v: %w", path, err)
+		panic(err) // Cannot fail to marshal.
 	}
-
-	return &Catalog{
-		dbPath: path,
-		db:     db,
-	}, nil
+	return string(b)
 }
 
-func fetchRemote(url *url.URL, tempDir string) (string, error) {
-	// Download catalog from URL to a local file.
-	var dbFile, err = ioutil.TempFile(tempDir, "catalog-db")
-	if err != nil {
-		return "", fmt.Errorf("failed to create local DB tempfile: %w", err)
-	}
-
-	if resp, err := http.Get(url.String()); err != nil {
-		return "", fmt.Errorf("failed to request catalog URL: %w", err)
-	} else if _, err = io.Copy(dbFile, resp.Body); err != nil {
-		return "", fmt.Errorf("failed to copy catalog to local file: %w", err)
-	} else if err = resp.Body.Close(); err != nil {
-		return "", fmt.Errorf("failed to close catalog response: %w", err)
-	} else if err = dbFile.Close(); err != nil {
-		return "", fmt.Errorf("failed to close local catalog file: %w", err)
-	}
-	return dbFile.Name(), nil
-}
-
-// LocalPath returns the local path of the catalog.
-func (catalog *Catalog) LocalPath() string { return catalog.dbPath }
-
-// Close the Catalog database, rendering it unusable.
-func (catalog *Catalog) Close() error {
-	return catalog.db.Close()
-}
-
-// LoadCollection loads the collection with the given name from the catalog, or returns an error if
-// one is not found
-func (catalog *Catalog) LoadCollection(name string) (*pf.CollectionSpec, error) {
-	var row = catalog.db.QueryRow(`
-		SELECT spec FROM built_collections WHERE collection = ?;
-		`, name)
-
-	var b []byte
-	var collection = new(pf.CollectionSpec)
-
-	if err := row.Scan(&b); err != nil {
-		return nil, fmt.Errorf("failed to load collection: %w", err)
-	} else if err = collection.Unmarshal(b); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal collection: %w", err)
-	} else if err = collection.Validate(); err != nil {
-		return nil, fmt.Errorf("collection %q is invalid: %w", name, err)
-	}
-	return collection, nil
-}
-
-// LoadMaterialization loads the materialization with the given name from the catalog.
-func (catalog *Catalog) LoadMaterialization(name string) (*pf.MaterializationSpec, error) {
-	var row = catalog.db.QueryRow(`
-		SELECT spec FROM built_materializations WHERE materialization = ?;
-		`, name)
-
-	var b []byte
-	var materialization = new(pf.MaterializationSpec)
-	var collection *pf.CollectionSpec
-
-	if err := row.Scan(&b); err != nil {
-		return nil, fmt.Errorf("failed to load materialization: %w", err)
-	} else if err = materialization.Unmarshal(b); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal materialization: %w", err)
-	} else if collection, err = catalog.LoadCollection(
-		materialization.Shuffle.SourceCollection.String()); err != nil {
-		return nil, fmt.Errorf("failed to load collection: %w", err)
-	}
-	materialization.Collection = *collection
-
-	if err := materialization.Validate(); err != nil {
-		return nil, fmt.Errorf("materialization %q is invalid: %w", name, err)
-	}
-
-	return materialization, nil
-}
-
-// LoadCapturedCollections loads all captured collections from the catalog.
-func (catalog *Catalog) LoadCapturedCollections() (map[pf.Collection]*pf.CollectionSpec, error) {
-	var rows, err = catalog.db.Query(`
-		SELECT collection FROM collections
-			WHERE collection NOT IN (
-				SELECT derivation FROM derivations
-			);
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read captured collections: %w", err)
-	}
-
-	var out = make(map[pf.Collection]*pf.CollectionSpec)
-
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if err = rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("failed to scan collection name: %w", err)
-		} else if collection, err := catalog.LoadCollection(name); err != nil {
-			return nil, err
-		} else if err = collection.Validate(); err != nil {
-			return nil, fmt.Errorf("collection %q is invalid: %w", name, err)
-		} else {
-			out[collection.Collection] = collection
-		}
-	}
-	return out, nil
-}
-
-// LoadDerivationNames loads names of derivations.
-func (catalog *Catalog) LoadDerivationNames() ([]string, error) {
-	var rows, err = catalog.db.Query(`
-		SELECT derivation FROM derivations;
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load derivation names: %w", err)
-	}
-	var out []string
-
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-
-		if err = rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("failed to load derivation name: %w", err)
-		}
-		out = append(out, name)
-	}
-	return out, err
-}
-
-// LoadMaterializationNames loads names of materializations.
-func (catalog *Catalog) LoadMaterializationNames() ([]string, error) {
-	var rows, err = catalog.db.Query(`
-		SELECT materialization FROM built_materializations;
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load materialization names: %w", err)
-	}
-	var out []string
-
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-
-		if err = rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("failed to load materialization name: %w", err)
-		}
-		out = append(out, name)
-	}
-	return out, err
-}
-
-// LoadDerivedCollection loads the named derived collection from the catalog.
-func (catalog *Catalog) LoadDerivedCollection(name string) (*pf.DerivationSpec, error) {
-	var row = catalog.db.QueryRow(`
-		SELECT d.spec, c.spec
-			FROM built_collections AS c
-			JOIN built_derivations AS d
-			ON c.collection = d.derivation
-			WHERE d.derivation = ?;
-		`, name)
-
-	var b1, b2 []byte
-	if err := row.Scan(&b1, &b2); err != nil {
-		return nil, fmt.Errorf("failed to load derivation: %w", err)
-	}
-	var derivation = new(pf.DerivationSpec)
-	if err := derivation.Unmarshal(b1); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal derivation: %w", err)
-	}
-	if err := derivation.Collection.Unmarshal(b2); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal collection: %w", err)
-	}
-
-	var rows, err = catalog.db.Query(`
-		SELECT spec FROM built_transforms
-		WHERE derivation = ?
-		ORDER BY transform asc;
-	`, name)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to load transforms: %w", err)
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		var transform pf.TransformSpec
-
-		if err = rows.Scan(&b1); err != nil {
-			return nil, fmt.Errorf("failed to load transform: %w", err)
-		} else if err = transform.Unmarshal(b1); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal transform: %w", err)
-		}
-		derivation.Transforms = append(derivation.Transforms, transform)
-	}
-
-	if err = derivation.Validate(); err != nil {
-		return nil, fmt.Errorf("derivation %q is invalid: %w", name, err)
-	}
-
-	return derivation, nil
-}
-
-// LoadTransforms loads all derivation transforms from the catalog.
-func (catalog *Catalog) LoadTransforms() ([]pf.TransformSpec, error) {
-	var rows, err = catalog.db.Query(`
-		SELECT spec FROM built_transforms;
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load transforms: %w", err)
-	}
-	var out []pf.TransformSpec
-
-	defer rows.Close()
-	for rows.Next() {
-		var b []byte
-		var transform pf.TransformSpec
-
-		if err = rows.Scan(&b); err != nil {
-			return nil, fmt.Errorf("failed to load transform: %w", err)
-		} else if err = transform.Unmarshal(b); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal transform: %w", err)
-		} else if err = transform.Validate(); err != nil {
-			return nil, fmt.Errorf("transform failed to validate: %w", err)
-		}
-		out = append(out, transform)
-	}
-	return out, nil
-}
-
-// LoadJournalRules loads the set of journal rules from the catalog.
-func (catalog *Catalog) LoadJournalRules() (*pf.JournalRules, error) {
-	var rows, err = catalog.db.Query(`SELECT spec FROM journal_rules ORDER BY rule ASC;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query rules: %w", err)
-	}
-	var rules = new(pf.JournalRules)
-
-	defer rows.Close()
-	for rows.Next() {
-		var b []byte
-		var rule pf.JournalRules_Rule
-
-		if err = rows.Scan(&b); err != nil {
-			return nil, fmt.Errorf("failed to load rule: %w", err)
-		} else if err = rule.Unmarshal(b); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal rule: %w", err)
-		}
-		rules.Rules = append(rules.Rules, rule)
-	}
-
-	if err = rules.Validate(); err != nil {
-		return nil, fmt.Errorf("rules are invalid: %w", err)
-	}
-	return rules, nil
-}
-
-// LoadSchemaBundle loads the bundle of JSON schemas from the catalog.
-func (catalog *Catalog) LoadSchemaBundle() (*pf.SchemaBundle, error) {
-	var rows, err = catalog.db.Query(`SELECT schema, dom FROM schema_docs;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query schema documents: %w", err)
-	}
-	var bundle = &pf.SchemaBundle{
-		Bundle: make(map[string]string),
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		var url, dom string
-
-		if err = rows.Scan(&url, &dom); err != nil {
-			return nil, fmt.Errorf("failed to load schema document: %w", err)
-		}
-		bundle.Bundle[url] = dom
-	}
-	return bundle, nil
-}
-
-// LoadTests loads the set of catalog tests from the catalog.
-func (catalog *Catalog) LoadTests() ([]pf.TestSpec, error) {
-	var rows, err = catalog.db.Query(`SELECT spec FROM built_tests ORDER BY test ASC;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query tests: %w", err)
-	}
-	var tests []pf.TestSpec
-
-	defer rows.Close()
-	for rows.Next() {
-		var b []byte
-		var test pf.TestSpec
-
-		if err = rows.Scan(&b); err != nil {
-			return nil, fmt.Errorf("failed to load rule: %w", err)
-		} else if err = test.Unmarshal(b); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal rule: %w", err)
-		} else if err = test.Validate(); err != nil {
-			return nil, fmt.Errorf("test validation failed: %w", err)
-		}
-		tests = append(tests, test)
-	}
-	return tests, nil
-}
-
-// LoadNPMPackage loads the NPM package from a catalog.
-func (catalog *Catalog) LoadNPMPackage() ([]byte, error) {
-	var row = catalog.db.QueryRow(`SELECT content FROM resources WHERE content_type = '"NpmPackage"';`)
-	var b []byte
-
-	if err := row.Scan(&b); err != nil {
-		return nil, fmt.Errorf("failed to query NPM package: %w", err)
-	}
-	return b, nil
-}
-
-// BuildError is a user error, encountered during catalog builds.
-type BuildError struct {
-	// Scope is the resource URL and JSON fragment pointer at which the error occurred.
-	Scope string
-	// Error is a user-facing description of the build error.
-	Error string
-}
-
-// LoadBuildErrors loads build errors from a catalog.
-func (catalog *Catalog) LoadBuildErrors() ([]BuildError, error) {
-	var rows, err = catalog.db.Query(`
-		SELECT scope, error FROM errors;
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load errors: %w", err)
-	}
-
-	var out []BuildError
-
-	defer rows.Close()
-	for rows.Next() {
-		var be BuildError
-
-		if err = rows.Scan(&be.Scope, &be.Error); err != nil {
-			return nil, fmt.Errorf("failed to load build error: %w", err)
-		}
-		out = append(out, be)
-	}
-	return out, nil
-}
+var (
+	ErrCatalogTaskNotFound      = fmt.Errorf("not found")
+	ErrCatalogCommonsNotFound   = fmt.Errorf("catalog commons not found")
+	ErrCatalogTaskNotIngestion  = fmt.Errorf("not an ingestion")
+	ErrCatalogTaskNotDerivation = fmt.Errorf("not a derivation")
+)
