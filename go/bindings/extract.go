@@ -4,6 +4,7 @@ package bindings
 import "C"
 import (
 	"fmt"
+	"runtime"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
@@ -29,12 +30,19 @@ func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
 		return nil, err
 	}
 
-	return &Extractor{
+	var extractor = &Extractor{
 		svc:    svc,
 		uuids:  make([]pf.UUIDParts, 8),
 		tuples: make([][]byte, 8),
 		docs:   0,
-	}, nil
+	}
+
+	// Destroy the held service on collection.
+	runtime.SetFinalizer(extractor, func(e *Extractor) {
+		e.svc.destroy()
+	})
+
+	return extractor, nil
 }
 
 // Document queues a document for extraction.
@@ -71,11 +79,6 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 		}
 	}
 	return e.uuids, e.tuples, nil
-}
-
-// Destroy the Extractor service.
-func (e *Extractor) Destroy() {
-	e.svc.destroy()
 }
 
 func newExtractSvc() *service {
