@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
@@ -18,15 +19,13 @@ import (
 
 // Ingester is a shared service for transactional ingestion into flow collections.
 type Ingester struct {
-	// Collections is an index over all ingest-able (i.e., captured) collections.
-	Collections map[pf.Collection]*pf.CollectionSpec
-	// CombineBuilder builds Combine instances for Ingester use.
-	CombineBuilder *bindings.CombineBuilder
-	// Mapper is a flow.Mapper for Ingester use.
-	Mapper *flow.Mapper
-	// Delta to apply to message.Clocks used by Ingestion RPCs to sequence
+	Catalog       flow.Catalog
+	Journals      flow.Journals
+	JournalClient pb.JournalClient
+	// Delta to apply to message.Clocks used by Ingestions to sequence
 	// published documents, with respect to real time.
-	PublishClockDelta time.Duration
+	// This is used only in testing contexts, and is otherwise always zero.
+	PublishClockDeltaForTest time.Duration
 
 	// Un-buffered channel through which the single ingestPublisher is passed.
 	pubCh chan ingestPublisher
@@ -38,14 +37,20 @@ type Ingester struct {
 type Ingestion struct {
 	// Owning Ingester.
 	ingester *Ingester
-	// Started combine streams of this Ingestion.
-	streams map[pf.Collection]*bindings.Combine
+	// Started combine combines of this Ingestion.
+	combines map[pf.Collection]ingestionCombine
 	// Offsets mark journals actually written by this Ingestion,
 	// and are used to filter and collect their append offsets
 	// upon commit.
 	offsets pb.Offsets
 	// Commit which this Ingestion was prepared into.
 	txn *ingestCommit
+}
+
+type ingestionCombine struct {
+	*bindings.Combine
+	spec    *pf.CollectionSpec
+	commons *pf.CatalogCommons
 }
 
 // ingestPublisher coordinates the sequencing of documents written
@@ -168,7 +173,7 @@ func (i *Ingester) QueueTasks(tasks *task.Group, jc pb.RoutedJournalClient) {
 func (i *Ingester) Start() *Ingestion {
 	return &Ingestion{
 		ingester: i,
-		streams:  make(map[pf.Collection]*bindings.Combine),
+		combines: make(map[pf.Collection]ingestionCombine),
 		offsets:  make(pb.Offsets),
 		txn:      nil, // Set by Prepare().
 	}
@@ -176,24 +181,38 @@ func (i *Ingester) Start() *Ingestion {
 
 // Add a document to the Collection within this Ingestion's transaction scope.
 func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
-	if rpc, ok := i.streams[collection]; ok {
-		return rpc.CombineRight(doc)
+	if combine, ok := i.combines[collection]; ok {
+		return combine.CombineRight(doc)
 	}
 
 	// Must start a new stream.
-	if spec, ok := i.ingester.Collections[collection]; !ok {
-		return fmt.Errorf("%q is not an ingestable collection", collection)
-	} else if stream, err := i.ingester.CombineBuilder.Open(
+	var spec, commons, err = i.ingester.Catalog.GetIngestion(collection.String())
+	if err != nil {
+		return fmt.Errorf("fetching specification for %q: %w", collection, err)
+	}
+
+	schemaIndex, err := commons.SchemaIndex()
+	if err != nil {
+		return err
+	}
+
+	combine, err := bindings.NewCombine(
+		schemaIndex,
 		spec.SchemaUri,
 		spec.KeyPtrs,
 		flow.PartitionPointers(spec),
 		spec.UuidPtr,
-	); err != nil {
-		return fmt.Errorf("while starting combiner stream for %q: %w", collection, err)
-	} else {
-		i.streams[collection] = stream
-		return stream.CombineRight(doc)
+	)
+	if err != nil {
+		return fmt.Errorf("building combiner for %q: %w", collection, err)
 	}
+
+	i.combines[collection] = ingestionCombine{
+		Combine: combine,
+		spec:    spec,
+		commons: &commons.CatalogCommons,
+	}
+	return combine.CombineRight(doc)
 }
 
 // Prepare this Ingestion for commit.
@@ -202,8 +221,8 @@ func (i *Ingestion) Prepare() error {
 	// now *before* we acquire exclusive access to the ingestPublisher.
 	// We'll also encounter any remaining user-caused errors at this time
 	// (e.x., due to document that doesn't pass the collection schema).
-	for c, stream := range i.streams {
-		if err := stream.CloseSend(); err != nil {
+	for c, combine := range i.combines {
+		if err := combine.PrepareToDrain(); err != nil {
 			return fmt.Errorf("ingestion of collection %q: %w", c, err)
 		}
 	}
@@ -224,14 +243,19 @@ func (i *Ingestion) Prepare() error {
 		pub.nextCommit.acks = make(map[pb.Journal]*client.AsyncAppend)
 
 		// Update adjusted publisher Clock.
-		var delta = atomic.LoadInt64((*int64)(&i.ingester.PublishClockDelta))
+		var delta = atomic.LoadInt64((*int64)(&i.ingester.PublishClockDeltaForTest))
 		pub.clock.Update(time.Now().Add(time.Duration(delta)))
 	}
 
-	for c, rpc := range i.streams {
-		var spec = i.ingester.Collections[c]
+	for _, combine := range i.combines {
+		var mapper = flow.Mapper{
+			Ctx:           context.Background(),
+			JournalClient: i.ingester.JournalClient,
+			JournalRules:  combine.commons.JournalRules.Rules,
+			Journals:      i.ingester.Journals,
+		}
 
-		var err = rpc.Finish(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+		var err = combine.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 			if full {
 				panic("ingestion produces only partially combined documents")
 			}
@@ -240,8 +264,8 @@ func (i *Ingestion) Prepare() error {
 			if err != nil {
 				return fmt.Errorf("unpacking partitions: %w", err)
 			}
-			aa, err := pub.PublishUncommitted(i.ingester.Mapper.Map, flow.Mappable{
-				Spec:       spec,
+			aa, err := pub.PublishUncommitted(mapper.Map, flow.Mappable{
+				Spec:       combine.spec,
 				Doc:        doc,
 				PackedKey:  packedKey,
 				Partitions: partitions,
@@ -257,9 +281,6 @@ func (i *Ingestion) Prepare() error {
 			pub.failed = err // Invalidate the ingestPublisher.
 			return err
 		}
-
-		delete(i.streams, c)
-		i.ingester.CombineBuilder.Release(rpc)
 	}
 
 	i.txn = pub.nextCommit

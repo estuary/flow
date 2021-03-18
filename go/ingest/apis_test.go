@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"testing"
 
 	"go.gazette.dev/core/server"
@@ -18,40 +19,46 @@ import (
 )
 
 func TestAPIs(t *testing.T) {
-	var catalog, err = flow.NewCatalog("../../catalog.db", "")
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+			ExtraJournalRules: &pf.JournalRules{
+				Rules: []pf.JournalRules_Rule{
+					{
+						Rule:     "Override for single brokertest broker",
+						Template: pb.JournalSpec{Replication: 1},
+					},
+				},
+			},
+		}})
 	require.NoError(t, err)
-	collections, err := catalog.LoadCapturedCollections()
-	require.NoError(t, err)
-	bundle, err := catalog.LoadSchemaBundle()
-	require.NoError(t, err)
-	schemaIndex, err := bindings.NewSchemaIndex(bundle)
-	require.NoError(t, err)
+	require.Empty(t, built.Errors)
 
+	var ctx = context.Background()
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
+	_, err = flow.ApplyCatalogToEtcd(ctx, etcd, "/flow/catalog", built, "/not/used", "")
+	require.NoError(t, err)
+	catalog, err := flow.NewCatalog(ctx, etcd, "/flow/catalog")
+	require.NoError(t, err)
+
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
-	var tasks = task.NewGroup(context.Background())
+	var tasks = task.NewGroup(ctx)
 
 	journals, err := flow.NewJournalsKeySpace(tasks.Context(), etcd, "/broker.test")
 	require.NoError(t, err)
 	journals.WatchApplyDelay = 0
 	go journals.Watch(tasks.Context(), etcd)
 
-	var mapper = &flow.Mapper{
-		Ctx:           tasks.Context(),
-		JournalClient: broker.Client(),
-		Journals:      journals,
-		JournalRules: []pf.JournalRules_Rule{
-			// Override for single `brokertest` broker.
-			{Template: pb.JournalSpec{Replication: 1}},
-		},
-	}
 	var ingester = &Ingester{
-		Collections:       collections,
-		CombineBuilder:    bindings.NewCombineBuilder(schemaIndex),
-		Mapper:            mapper,
-		PublishClockDelta: 0,
+		Catalog:                  catalog,
+		Journals:                 journals,
+		JournalClient:            broker.Client(),
+		PublishClockDeltaForTest: 0,
 	}
 	ingester.QueueTasks(tasks, broker.Client())
 
