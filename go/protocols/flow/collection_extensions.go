@@ -28,9 +28,6 @@ func (m *CollectionSpec) Validate() error {
 		if proj.Field == "" {
 			err = pb.NewValidationError("missing field")
 		}
-		if len(proj.Inference.Types) == 0 {
-			return pb.NewValidationError("missing inference types")
-		}
 		if err != nil {
 			return pb.ExtendContext(err, "Projections[%d]", i)
 		}
@@ -55,6 +52,16 @@ func (m *CollectionSpec) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the CaptureSpec is malformed.
+func (m *CaptureSpec) Validate() error {
+	if m.Capture == "" {
+		return pb.NewValidationError("missing Capture")
+	} else if err := m.Collection.Validate(); err != nil {
+		return pb.ExtendContext(err, "Collection")
+	}
+	return nil
+}
+
 // Validate returns an error if the DerivationSpec is invalid.
 func (m *DerivationSpec) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
@@ -72,31 +79,6 @@ func (m *DerivationSpec) Validate() error {
 		}
 	}
 
-	return nil
-}
-
-// Validate returns an error if the Rule is invalid.
-func (m *JournalRules_Rule) Validate() error {
-	if m.Rule == "" {
-		return pb.NewValidationError("missing Rule")
-	}
-	if err := m.Selector.Validate(); err != nil {
-		return pb.ExtendContext(err, "Selector")
-	}
-
-	// We cannot validate templates because, by design,
-	// they are only partial specifications.
-
-	return nil
-}
-
-// Validate returns an error if the Rules are invalid.
-func (m *JournalRules) Validate() error {
-	for i, r := range m.Rules {
-		if err := r.Validate(); err != nil {
-			return pb.ExtendContext(err, "Rules[%d]", i)
-		}
-	}
 	return nil
 }
 

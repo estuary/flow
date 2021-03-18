@@ -26,10 +26,16 @@ func (fields *FieldSelection) Validate() error {
 
 // Validate returns an error if the MaterializationSpec is malformed.
 func (m *MaterializationSpec) Validate() error {
-	if err := m.Collection.Validate(); err != nil {
+	if m.Materialization == "" {
+		return pb.NewValidationError("missing Materialization")
+	} else if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
+	} else if m.EndpointName == "" {
+		return pb.NewValidationError("missing EndpointName")
 	} else if _, ok := EndpointType_name[int32(m.EndpointType)]; !ok {
 		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
+	} else if m.EndpointConfigJson == "" {
+		return pb.NewValidationError("missing EndpointConfigJson")
 	} else if err = m.FieldSelection.Validate(); err != nil {
 		return pb.ExtendContext(err, "FieldSelection")
 	}
