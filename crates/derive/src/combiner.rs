@@ -153,23 +153,36 @@ impl Combiner {
         Ok(())
     }
 
-    // Return all entries of the Combiner. If the UUID placeholder JSON pointer is non-empty,
+    // Drain all entries of the Combiner. If the UUID placeholder JSON pointer is non-empty,
     // then UUID_PLACEHOLDER is inserted into returned documents at the specified location.
     // Iff the document shape is incompatible with the pointer, it's returned unmodified.
-    pub fn into_entries(self, uuid_placeholder_ptr: &str) -> impl Iterator<Item = (Value, bool)> {
+    pub fn drain_entries(
+        &mut self,
+        uuid_placeholder_ptr: &str,
+    ) -> impl Iterator<Item = (Value, bool)> {
         let uuid_placeholder = match uuid_placeholder_ptr {
             "" => None,
             s => Some(Pointer::from(s)),
         };
 
-        self.entries.into_iter().map(move |mut kd| {
-            if let Some(uuid_ptr) = &uuid_placeholder {
-                if let Some(uuid_value) = uuid_ptr.create(&mut kd.doc) {
-                    *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
+        std::mem::take(&mut self.entries)
+            .into_iter()
+            .map(move |mut kd| {
+                if let Some(uuid_ptr) = &uuid_placeholder {
+                    if let Some(uuid_value) = uuid_ptr.create(&mut kd.doc) {
+                        *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
+                    }
                 }
-            }
-            (kd.doc, kd.fully_reduced)
-        })
+                (kd.doc, kd.fully_reduced)
+            })
+    }
+
+    // Convert a Combiner into its entries using a consuming wrapper drain_entries().
+    pub fn into_entries(
+        mut self,
+        uuid_placeholder_ptr: &str,
+    ) -> impl Iterator<Item = (Value, bool)> {
+        self.drain_entries(uuid_placeholder_ptr)
     }
 
     pub fn key(&self) -> &Arc<[Pointer]> {
