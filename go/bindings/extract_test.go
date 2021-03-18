@@ -13,7 +13,6 @@ import (
 func TestExtractorBasic(t *testing.T) {
 	var ex, err = NewExtractor("/0", []string{"/1", "/2", "/3"})
 	assert.NoError(t, err)
-	defer ex.Destroy()
 
 	ex.Document([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string", [true, null]]`))
 	ex.Document([]byte(`["9f2952f3-c6a3-12fb-8802-080607050309", 52, "other-string", {"k": "v"}]`))
@@ -48,7 +47,6 @@ func TestExtractorBasic(t *testing.T) {
 func TestExtractorIntegerBoundaryCases(t *testing.T) {
 	var ex, err = NewExtractor("/0", []string{"/1"})
 	assert.NoError(t, err)
-	defer ex.Destroy()
 
 	var minInt64 = strconv.FormatInt(math.MinInt64, 10)
 	var maxInt64 = strconv.FormatInt(math.MaxInt64, 10)
@@ -80,7 +78,6 @@ func TestExtractorIntegerBoundaryCases(t *testing.T) {
 func TestExtractorEmpty(t *testing.T) {
 	var ex, err = NewExtractor("/0", []string{"/1"})
 	assert.NoError(t, err)
-	defer ex.Destroy()
 
 	uuids, packed, err := ex.Extract()
 	assert.NoError(t, err)
