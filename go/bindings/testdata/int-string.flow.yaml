@@ -1,0 +1,9 @@
+collections:
+  int-string:
+    schema:
+      type: object
+      properties:
+        i: { type: integer }
+        s: { type: string }
+      required: [i, s]
+    key: [/i]
