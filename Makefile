@@ -204,9 +204,6 @@ ${GOBIN}/flowctl:    	go-install/github.com/estuary/flow/go/flowctl $(GO_PROTO_T
 ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h &: ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo build --release --locked -p bindings
 
-${ROOTDIR}/catalog.db: ${GOBIN}/flowctl
-	${GOBIN}/flowctl build --source ${ROOTDIR}/examples/flow.yaml
-
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
@@ -269,15 +266,12 @@ rust-build: ${ROCKSDIR}/${LIBROCKS}
 rust-test: ${TOOLBIN}/sqlite3 ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo test --release --locked
 
-.PHONY: build-test-catalog
-build-test-catalog: ${ROOTDIR}/catalog.db
-
 .PHONY: go-test-fast
-go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
+go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS}
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS} ${ROOTDIR}/catalog.db
+go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS}
 	GORACE="halt_on_error=1" \
 	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
 
