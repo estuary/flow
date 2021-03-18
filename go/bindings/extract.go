@@ -22,8 +22,10 @@ func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
 
 	var err = svc.sendMessage(0, &pf.ExtractAPI_Config{UuidPtr: uuidPtr, FieldPtrs: fieldPtrs})
 	if err != nil {
+		svc.destroy()
 		return nil, err
-	} else if _, _, err = svc.poll(); err != nil {
+	} else if err = pollExpectNoOutput(svc); err != nil {
+		svc.destroy()
 		return nil, err
 	}
 
@@ -69,6 +71,11 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 		}
 	}
 	return e.uuids, e.tuples, nil
+}
+
+// Destroy the Extractor service.
+func (e *Extractor) Destroy() {
+	e.svc.destroy()
 }
 
 func newExtractSvc() *service {

@@ -1,0 +1,21 @@
+register reduction error
+
+Caused by:
+    0: document is invalid: {
+         "basic_output": {
+           "errors": [
+             {
+               "absoluteKeywordLocation": "file:///inc-reset-publish.schema.yaml#/$defs/register",
+               "error": "OneOfNotMatched",
+               "instanceLocation": "",
+               "keywordLocation": "#"
+             }
+           ],
+           "valid": false
+         },
+         "document": {
+           "type": "set",
+           "value": "negative one!"
+         }
+       }
+    1: {"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///inc-reset-publish.schema.yaml#/$defs/register","error":"OneOfNotMatched","instanceLocation":"","keywordLocation":"#"}],"valid":false},"document":{"type":"set","value":"negative one!"}}

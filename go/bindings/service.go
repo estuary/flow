@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"unsafe"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -57,9 +56,6 @@ func newService(
 		invoke16: invoke16,
 		drop:     drop,
 	}
-	runtime.SetFinalizer(svc, func(svc *service) {
-		svc.finalize()
-	})
 
 	return svc
 }
@@ -73,6 +69,12 @@ type marshaler interface {
 // unmarshaler is a message that knows how to unframe itself.
 type unmarshaler interface {
 	Unmarshal([]byte) error
+}
+
+// queuedFrames returns the number of frames queued to send over the
+// service channel on the next poll().
+func (s *service) queuedFrames() int {
+	return len(s.in)
 }
 
 // sendBytes to the service.
@@ -138,7 +140,6 @@ func (s *service) reserveBytes(code uint32, length int) []byte {
 // NOTE: The []byte arena and returned Frame Data is owned by the Service, not Go,
 // and is *ONLY* valid until the next call to Poll(). At that point, it may be
 // over-written or freed, and attempts to access it may crash the program.
-
 func (s *service) poll() (pf.Arena, []C.Out, error) {
 	// Reset output storage cursors.
 	// SAFETY: the channel arena and output frames hold only integer types
@@ -245,15 +246,24 @@ func (s *service) arenaDecode(o C.Out, m unmarshaler) unmarshaler {
 	return m
 }
 
-// finalize the service, dropping its internal CGO channel.
-// Services are automatically finalized by the garbage collector,
-// but may be explicitly finalized as needed. For example, because
-// it has important side effects such as stopping child processes,
-// and the garbage collector cannot be relied upon to always run
-// before the current process exits.
-func (s *service) finalize() {
+// destroy the service, dropping its internal CGO channel and invoking
+// Rust Drop behavior. This immediately invalidates any Rust memory
+// being read from the Go side of the bridge!
+// Users of service must call destroy to release the service, but must
+// do so only after they can guarantee they hold no active references
+// to Rust-owned memory.
+func (s *service) destroy() {
 	if s.ch != nil {
 		s.drop(s.ch)
 	}
 	s.ch = nil
+}
+
+func pollExpectNoOutput(svc *service) error {
+	if _, out, err := svc.poll(); err != nil {
+		return err
+	} else if len(out) != 0 {
+		panic(fmt.Sprintf("unexpected output frames %#v", out))
+	}
+	return nil
 }

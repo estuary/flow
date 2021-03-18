@@ -1,0 +1,4 @@
+failed to invoke publish lambda
+
+Caused by:
+    unexpected status 500 from https://localhost/derive/derivation/publish/Publish: a gnarly error occurred
