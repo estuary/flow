@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/runtime"
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
@@ -46,18 +45,13 @@ func (cmdServe) Execute(_ []string) error {
 		return fmt.Errorf("building server: %w", err)
 	}
 
-	catalog, err := flow.NewCatalog(Config.Ingest.Catalog, os.TempDir())
-	if err != nil {
-		return fmt.Errorf("opening catalog: %w", err)
-	}
-
 	var args = runtime.FlowIngesterArgs{
-		Catalog:    catalog,
-		BrokerRoot: Config.Flow.BrokerRoot,
-		Server:     server,
-		Tasks:      task.NewGroup(context.Background()),
-		Journals:   Config.Broker.MustRoutedJournalClient(context.Background()),
-		Etcd:       Config.Etcd.MustDial(),
+		BrokerRoot:  Config.Flow.BrokerRoot,
+		CatalogRoot: Config.Flow.CatalogRoot,
+		Server:      server,
+		Tasks:       task.NewGroup(context.Background()),
+		Journals:    Config.Broker.MustRoutedJournalClient(context.Background()),
+		Etcd:        Config.Etcd.MustDial(),
 	}
 	if _, err = runtime.StartIngesterService(args); err != nil {
 		return fmt.Errorf("starting ingester service: %w", err)

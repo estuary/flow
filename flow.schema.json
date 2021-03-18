@@ -24,8 +24,8 @@
       "title": "Collections defined by this Catalog.",
       "default": {},
       "examples": [
-        [
-          {
+        {
+          "a/collection": {
             "derivation": null,
             "key": [
               "/json/ptr"
@@ -33,7 +33,7 @@
             "projections": {},
             "schema": "../path/to/local.yaml"
           }
-        ]
+        }
       ],
       "type": "object",
       "additionalProperties": {
@@ -155,37 +155,21 @@
       "additionalProperties": true
     },
     "CaptureDef": {
-      "description": "List of Captures, each binding a source in an external system (e.g. cloud storage prefix) to a captured collection. Captures may provided for any collection defined either within the current file, or a file that's imported by it. Multiple Captures may be defined per collection, and may be defined in different files. A Capture binds a source of data to a target collection. The result of this binding is a process that will continuously add data to the collection as it becomes available from the source.",
+      "description": "A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket) from which data should be continuously captured, with a Flow collection into that captured data is ingested. Multiple Captures may be bound to a single collection, but only one capture may exist for a given endpoint and target.",
       "type": "object",
-      "anyOf": [
-        {
-          "type": "object",
-          "required": [
-            "endpoint"
-          ],
-          "properties": {
-            "endpoint": {
-              "$ref": "#/definitions/EndpointRef"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "required": [
-            "pushAPI"
-          ],
-          "properties": {
-            "pushAPI": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          }
-        }
-      ],
       "required": [
+        "endpoint",
         "target"
       ],
       "properties": {
+        "endpoint": {
+          "title": "Endpoint to materialize into.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/EndpointRef"
+            }
+          ]
+        },
         "target": {
           "title": "Target collection to capture into.",
           "allOf": [
@@ -194,7 +178,8 @@
             }
           ]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "CaptureTarget": {
       "examples": [
@@ -208,7 +193,7 @@
       ],
       "properties": {
         "name": {
-          "title": "Name of the collection to be read.",
+          "title": "Name of the collection to be ingested into.",
           "allOf": [
             {
               "$ref": "#/definitions/Collection"
@@ -789,7 +774,7 @@
         "/json/ptr"
       ],
       "type": "string",
-      "pattern": "^(/[^/]+)*"
+      "pattern": "^(/[^/]+)*$"
     },
     "Label": {
       "examples": [

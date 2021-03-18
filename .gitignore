@@ -4,7 +4,6 @@ target/
 .build-ci/
 
 # Outputs from catalog build & test that we don't version.
-/catalog.db
 /dist
 /examples/examples.db*
 /flowctl-develop
