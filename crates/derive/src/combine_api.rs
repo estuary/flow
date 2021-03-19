@@ -56,7 +56,7 @@ impl cgo::Service for API {
         };
         tracing::trace!(?code, "invoke");
 
-        match (code, &mut self.state) {
+        match (code, std::mem::take(&mut self.state)) {
             (Code::Configure, None) => {
                 let cfg = combine_api::Config::decode(data)?;
 
@@ -73,24 +73,30 @@ impl cgo::Service for API {
                 self.state = Some((cfg, combiner));
                 Ok(())
             }
-            (Code::ReduceLeft, Some((_, combiner))) => {
+            (Code::ReduceLeft, Some((cfg, mut combiner))) => {
                 let doc: Value = serde_json::from_slice(data)?;
                 combiner.reduce_left(doc)?;
+
+                self.state = Some((cfg, combiner));
                 Ok(())
             }
-            (Code::CombineRight, Some((_, combiner))) => {
+            (Code::CombineRight, Some((cfg, mut combiner))) => {
                 let doc: Value = serde_json::from_slice(data)?;
                 combiner.combine_right(doc)?;
+
+                self.state = Some((cfg, combiner));
                 Ok(())
             }
-            (Code::Drain, Some((cfg, combiner))) => {
+            (Code::Drain, Some((cfg, mut combiner))) => {
                 drain_combiner(
-                    combiner,
+                    &mut combiner,
                     &cfg.uuid_placeholder_ptr,
                     &cfg.field_ptrs.iter().map(Pointer::from).collect::<Vec<_>>(),
                     arena,
                     out,
                 );
+
+                self.state = Some((cfg, combiner));
                 Ok(())
             }
             _ => Err(Error::InvalidState),

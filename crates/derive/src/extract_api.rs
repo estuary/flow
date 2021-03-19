@@ -66,12 +66,12 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
-        match (code, &mut self.state) {
+        match (code, std::mem::take(&mut self.state)) {
             // Configure service.
-            (0, cfg) => {
+            (0, None) => {
                 let req = extract_api::Config::decode(data)?;
 
-                *cfg = Some((
+                self.state = Some((
                     Pointer::from(&req.uuid_ptr),
                     req.field_ptrs.iter().map(Pointer::from).collect(),
                 ));
@@ -91,13 +91,14 @@ impl cgo::Service for API {
                 // Send extracted, packed field pointers.
                 let begin = arena.len();
 
-                for p in field_ptrs {
+                for p in &field_ptrs {
                     let v = p.query(&doc).unwrap_or(&Value::Null);
                     // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
                     let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
                 }
                 cgo::send_bytes(1, begin, arena, out);
 
+                self.state = Some((uuid_ptr, field_ptrs));
                 Ok(())
             }
             _ => Err(Error::InvalidState),
