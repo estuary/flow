@@ -4,6 +4,31 @@ import * as anchors from './anchors';
 export type __module = null;
 export type __anchors_module = anchors.__module;
 
+// Generated from examples/segment/flow.yaml?ptr=/collections/examples~1segment~1memberships/derivation/register/schema.
+// Referenced as register_schema of examples/segment/flow.yaml#/collections/examples~1segment~1memberships/derivation.
+export type ExamplesSegmentMemberships = unknown;
+
+// Generated from examples/segment/flow.yaml?ptr=/collections/examples~1segment~1profiles/derivation/register/schema.
+// Referenced as register_schema of examples/segment/flow.yaml#/collections/examples~1segment~1profiles/derivation.
+export type ExamplesSegmentProfiles = unknown;
+
+// Generated from examples/segment/flow.yaml?ptr=/collections/examples~1segment~1toggles/derivation/register/schema.
+// Referenced as register_schema of examples/segment/flow.yaml#/collections/examples~1segment~1toggles/derivation.
+export type ExamplesSegmentToggles = {
+    event?: /* A segment event adds or removes a user into a segment. */ {
+        event: /* V4 UUID of the event. */ string;
+        remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+        segment: {
+            name: /* Name of the segment, scoped to the vendor ID. */ string;
+            vendor: /* Vendor ID of the segment. */ number;
+        };
+        timestamp: /* RFC 3339 timestamp of the segmentation. */ string;
+        user: /* User ID. */ string;
+        value?: /* Associated value of the segmentation. */ string;
+    };
+    firstAdd?: true;
+};
+
 // Generated from examples/marketing/flow.yaml?ptr=/collections/marketing~1clicks-with-views/derivation/register/schema.
 // Referenced as register_schema of examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation.
 export type MarketingClicksWithViews = {

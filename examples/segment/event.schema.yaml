@@ -1,0 +1,51 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+
+description: A segment event adds or removes a user into a segment.
+type: object
+properties:
+  event:
+    title: V4 UUID of the event.
+    type: string
+    format: uuid
+
+  timestamp:
+    title: RFC 3339 timestamp of the segmentation.
+    type: string
+    format: date-time
+
+  user:
+    title: User ID.
+    type: string
+
+  segment:
+    type: object
+    properties:
+      vendor:
+        title: Vendor ID of the segment.
+        type: integer
+        minimum: 1
+
+      name:
+        title: Name of the segment, scoped to the vendor ID.
+        type: string
+        minLength: 1
+        maxLength: 32
+
+    required: [vendor, name]
+    $anchor: Segment
+
+  value:
+    title: Associated value of the segmentation.
+    type: string
+
+  remove:
+    title: User is removed from the segment.
+    description: May be unset or "true", but not "false"
+    const: true
+
+required: [event, timestamp, user, segment]
+
+dependentSchemas:
+  # If "remove" is present, then "value" may not be.
+  remove:
+    properties: { value: false }

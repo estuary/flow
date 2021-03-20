@@ -1,0 +1,167 @@
+import:
+  - ../common.flow.yaml
+  - tests.flow.yaml
+
+collections:
+  # Segmentation events, each representing an add or remove of a user to a segment.
+  examples/segment/events:
+    schema: event.schema.yaml
+    key: [/event]
+    projections:
+      vendor:
+        location: /segment/vendor
+        partition: true
+
+      # Project for natural querying (without needing to quote 'segment/name').
+      segment_name: /segment/name
+
+  # User profiles, mapping from user => {segments: [segment => status]}.
+  # This derivation is designed for materialization into a persistent key/value
+  # store, which provides backing storage of reduced segment sets for each user.
+  # As such, this derivation is stateless and produces partially combined roll-ups
+  # for each user, which are then fully reduced upon materialization into a store.
+  examples/segment/profiles:
+    schema: derived.schema.yaml#/$defs/profile
+    key: [/user]
+
+    derivation:
+      transform:
+        fromSegmentation:
+          # Map segmentation to implied user profile.
+          source:
+            name: examples/segment/events
+          publish:
+            lambda: typescript
+
+  # Membership is a mapping of (segment, user) => {segmentation status}.
+  # The derivation is suited for materialization into sorted key/value stores
+  # like ScyllaDB and BigTable, having efficient range-read operations which
+  # can be used to walk the full membership of a segment (even if very large).
+  # As with the "pull" user profile, this derivation is stateless and produces
+  # partial roll-ups of the current segmentation status for each composite key,
+  # which is fully reduced only upon materialization into a store.
+  examples/segment/memberships:
+    schema: derived.schema.yaml#/$defs/membership
+    key: [/segment/vendor, /segment/name, /user]
+
+    projections:
+      vendor:
+        location: /segment/vendor
+        partition: true
+      segment_name: /segment/name
+
+    derivation:
+      transform:
+        fromSegmentation:
+          # Map segmentation to implied membership segmentation status.
+          source:
+            name: examples/segment/events
+          publish:
+            lambda: typescript
+
+  # Toggles are annotated events which change the status of a user, e.x. from
+  # "added" to "removed". They do not include events which initially add a user
+  # to a segment, but do include subsequent events which remove the user or
+  # re-add them. Each event is annotated with a /previous event which is the
+  # last event of the user's former status: /previous is a "remove" if
+  # the present event is an "add", or vice versa.
+  examples/segment/toggles:
+    schema:
+      $ref: event.schema.yaml
+      properties:
+        previous: { $ref: event.schema.yaml }
+      required: [previous]
+
+    key: [/event]
+
+    projections:
+      vendor:
+        location: /segment/vendor
+        partition: true
+
+      # Additional projections for more natural querying without identifer quotes.
+      segment_name: /segment/name
+      previous_event: /previous/event
+      previous_remove: /previous/remove
+
+    derivation:
+      # Registers track the last event for each (segment, user), along with
+      # a bit indicating whether the user has ever been added to the segment.
+      register:
+        initial: {}
+
+        schema:
+          type: object
+          properties:
+            event: { $ref: event.schema.yaml }
+            firstAdd: { const: true }
+          reduce: { strategy: merge }
+
+      transform:
+        fromSegmentation:
+          source:
+            name: examples/segment/events
+          shuffle:
+            key: [/segment/vendor, /segment/name, /user]
+          update:
+            lambda: typescript
+          publish:
+            lambda: typescript
+
+  # Something to try: the profiles collection can be altered to a "push"
+  # model by reducing user segments within derivation registers, and then
+  # publishing each current, fully-reduced segment set. This works well with
+  # stateless materializations, like Webhooks or pub/sub streams, where the
+  # full set is required with each POST.
+  #
+  #examples/segment/profiles:
+  #  schema:
+  #    $ref: derived.schema.yaml#/$defs/profile
+  #    # Published values are already fully reduced. Just take the last.
+  #    reduce: { strategy: lastWriteWins }
+  #  key: [/user]
+  #
+  #  derivation:
+  #    register:
+  #      # Source documents are shuffled to a register on /user.
+  #      # Within each register, we accumulate the user's segments.
+  #      schema: derived.schema.yaml#SegmentSet
+  #      initial: []
+  #    transform:
+  #      fromSegmentation:
+  #        # Update maps the segmentation to its implied segment set, which
+  #        # is reduced into the register. Then publish the reduced register
+  #        # mapped into a profile.
+  #        source:
+  #          name: examples/segment/events
+  #        shuffle:
+  #          key: [/user]
+  #        update:
+  #          lambda: typescript
+  #        publish:
+  #          lambda: typescript
+
+materializations:
+  - endpoint:
+      name: examples/examples.db
+      config: { table: segment_memberships }
+    source:
+      name: examples/segment/memberships
+
+  - endpoint:
+      name: examples/examples.db
+      config: { table: segment_profiles }
+    source:
+      name: examples/segment/profiles
+  #
+  # Uncomment me to materialize Webhook calls from toggles.
+  #- endpoint:
+  #    name: examples/webhook-api
+  #  source:
+  #    name: examples/segment/toggles
+  #
+  # Uncomment me to materialize Webhook calls from profiles.
+  #- endpoint:
+  #    name: examples/webhook-api
+  #  source:
+  #    name: examples/segment/profiles

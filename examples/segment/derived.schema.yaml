@@ -1,0 +1,62 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$defs:
+  profile:
+    description: A user and their associated segment statuses.
+    type: object
+    properties:
+      user: { type: string }
+
+      segments:
+        $anchor: SegmentSet
+        type: array
+        items: { $ref: "#SegmentDetail" }
+        reduce:
+          # Reduce as a sorted, de-duplicated, and deeply merged array.
+          strategy: merge
+          key: [/segment/name, /segment/vendor]
+
+    required: [user]
+    reduce: { strategy: merge }
+
+  membership:
+    description: A user and their status within a single segment.
+    $ref: "#SegmentDetail"
+    properties:
+      user: { type: string }
+
+    required: [user]
+
+  detail:
+    description: Status of a user's membership within a segment.
+    $anchor: SegmentDetail
+    type: object
+    properties:
+      segment: { $ref: event.schema.yaml#Segment }
+
+      first:
+        description: Time at which this user was first added to this segment.
+        type: string
+        format: date-time
+        reduce: { strategy: minimize }
+
+      last:
+        description: Time at which this user was last updated within this segment.
+        type: string
+        format: date-time
+        reduce: { strategy: maximize }
+
+      member:
+        # For this example, we model removal as a soft-delete. Flow does support
+        # other reduction strategies, like {strategy: set}, which will perform "hard"
+        # deletions of removed document locations. More broadly, this is an active
+        # area of design and we intend to introduce annotations alongside "reduce"
+        # that allow for tailored eviction and pruning rules of document locations.
+        description: Is the user a current segment member?
+        type: boolean
+
+      value:
+        title: Most recent associated value.
+        type: string
+
+    required: [segment, last, member]
+    reduce: { strategy: merge }
