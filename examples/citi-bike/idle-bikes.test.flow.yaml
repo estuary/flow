@@ -1,0 +1,32 @@
+import:
+  - idle-bikes.flow.yaml
+
+tests:
+  "Expect an idle bike is generated after the last ride in a sequence":
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          - bike_id: &bike 17558
+            begin:
+              station: { id: 3276, name: "Marin Light Rail" }
+              timestamp: "2020-09-01 09:21:12.3090"
+            end: &station2
+              station: { id: 3639, name: "Harborside" }
+              timestamp: "2020-09-01 13:48:12.3830"
+          - bike_id: *bike
+            begin: *station2
+            end: &station3
+              station: { id: 3202, name: "Newport PATH" }
+              timestamp: "2020-09-01 14:33:35.1020"
+          - bike_id: *bike
+            begin: *station3
+            end: &station4
+              station: { id: 3267, name: "Morris Canal" }
+              timestamp: "2020-09-01 16:49:30.1610"
+    - verify:
+        collection: examples/citi-bike/idle-bikes
+        # When running tests, time is advanced as needed until all delayed reads
+        # can complete. Expect an idle bike for the station last arrived at.
+        documents:
+          - bike_id: *bike
+            station: *station4

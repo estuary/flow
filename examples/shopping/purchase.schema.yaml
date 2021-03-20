@@ -1,0 +1,9 @@
+description: "A confirmed order for items that were in the users cart"
+type: object
+properties:
+  userId: { type: integer }
+  timestamp: { type: string, format: date-time }
+  items:
+    type: array
+    items: { $ref: "cart.schema.yaml#/$defs/cartItem" }
+required: [userId, timestamp, items]

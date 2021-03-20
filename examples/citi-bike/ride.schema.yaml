@@ -1,0 +1,74 @@
+$defs:
+  timestamp:
+    description: "Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC"
+    type: string
+    pattern: "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}.\\d+"
+
+  location:
+    description: "Geographic Location as Latitude & Longitude"
+    type: object
+    properties:
+      latitude:
+        type: number
+        minimum: -90
+        maximum: 90
+      longitude:
+        type: number
+        minimum: -180
+        maximum: 180
+    required: [latitude, longitude]
+
+  station:
+    description: "A Citi Bike Station"
+    type: object
+    properties:
+      id:
+        title: "Unique identifier for this station"
+        type: integer
+      name:
+        title: "Human-friendly name of this station"
+        type: string
+      geo:
+        title: "Location of this station"
+        $ref: "#/$defs/location"
+    required: [id, name]
+
+  terminus:
+    description: "Station and time at which a trip began or ended"
+    type: object
+    properties:
+      timestamp:
+        $ref: "#/$defs/timestamp"
+      station:
+        $ref: "#/$defs/station"
+    required: [timestamp, station]
+
+description: "Ride within the Citi Bike system"
+type: "object"
+properties:
+  duration_seconds:
+    title: "Duration of the trip, in seconds"
+    type: integer
+    minimum: 0
+  bike_id:
+    title: "Unique identifier for this bike"
+    type: integer
+  user_type:
+    title: "Subscriber, or pay-as-you-go Customer"
+    type: string
+    enum: [Customer, Subscriber]
+  birth_year:
+    title: "Birth year of the rider"
+    type: integer
+    minimum: 1800
+    maximum: 2020
+  gender:
+    title: "Gender of the rider (Zero=unknown; 1=male; 2=female)"
+    enum: [0, 1, 2]
+  begin:
+    title: "Starting point of the trip"
+    $ref: "#/$defs/terminus"
+  end:
+    title: "Ending point of the trip"
+    $ref: "#/$defs/terminus"
+required: [bike_id, begin, end]

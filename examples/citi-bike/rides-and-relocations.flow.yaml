@@ -1,0 +1,29 @@
+import:
+  - rides.flow.yaml
+
+collections:
+  examples/citi-bike/rides-and-relocations:
+    key: [/bike_id, /begin/timestamp]
+    schema:
+      # Relocations are rides marked by a "relocation: true" property.
+      $ref: ride.schema.yaml
+      properties:
+        relocation: { const: true }
+
+    derivation:
+      # Use a register to persist the last-arrived station for each bike.
+      register:
+        schema: ride.schema.yaml#/$defs/terminus
+        initial:
+          # Value to use if this is the first time seeing this bike.
+          station: { id: 0, name: "" }
+          timestamp: "0000-00-00 00:00:00.0"
+
+      transform:
+        fromRides:
+          source: { name: examples/citi-bike/rides }
+          shuffle: { key: [/bike_id] }
+          update:
+            lambda: typescript
+          publish:
+            lambda: typescript

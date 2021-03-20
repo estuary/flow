@@ -1,0 +1,52 @@
+import:
+  - last-seen.flow.yaml
+
+tests:
+  "Expect last-seen derives from rides":
+    # Begin with rides for both of bikes A & B.
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          - bike_id: &bikeA 17558
+            begin:
+              station: { id: 3184, name: "Paulus Hook" }
+              timestamp: "2020-09-01 16:18:42.2140"
+            end: &end1
+              station:
+                geo: { latitude: 40.72, longitude: -74.05 }
+                id: 3269
+                name: "Brunswick & 6th"
+              timestamp: "2020-09-01 21:17:34.4800"
+          - bike_id: &bikeB 17702
+            begin:
+              station: { id: 3184, name: "Paulus Hook" }
+              timestamp: "2020-09-01 17:17:40.2810"
+            end: &end2
+              station:
+                geo: { latitude: 40.72, longitude: -74.04 }
+                id: 3203
+                name: Hamilton Park
+              timestamp: "2020-09-01 17:34:14.6080"
+    # Check we derived locations for bikes A & B.
+    - verify:
+        collection: examples/citi-bike/last-seen
+        documents:
+          - { bike_id: *bikeA, last: *end1 }
+          - { bike_id: *bikeB, last: *end2 }
+    # Bike A takes another ride.
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          - bike_id: *bikeA
+            begin: *end1
+            end: &end3
+              station:
+                id: 3483
+                name: "Montgomery St"
+              timestamp: "2020-09-01 22:09:29.0380"
+    # Bike A's new location is reflected.
+    - verify:
+        collection: examples/citi-bike/last-seen
+        documents:
+          - { bike_id: *bikeA, last: *end3 }
+          - { bike_id: *bikeB, last: *end2 }

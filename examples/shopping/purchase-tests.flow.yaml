@@ -1,0 +1,109 @@
+import:
+  - cart-updates.flow.yaml
+  - carts.flow.yaml
+  - cart-purchase-requests.flow.yaml
+  - purchases.flow.yaml
+
+tests:
+  "shopping cart is purchased":
+      # The "&products" here is a yaml feature that lets us re-use this object in later steps with
+      # "- ingest: *products".
+    - ingest: &products
+        collection: examples/shopping/products
+        documents:
+          - { id: 333, name: "Fruit Rollup", price: 0.79 }
+          - { id: 2222, name: "Fruit By The Foot", price: 0.89 }
+          - { id: 4004, name: "Gushers", price: 2.95 }
+
+    - ingest: &cartItems
+        collection: examples/shopping/cartUpdates
+        documents:
+          - userId: 1
+            productId: 2222
+            quantity: 2
+          - userId: 1
+            productId: 4004
+            quantity: 1
+          - userId: 1
+            productId: 333
+            quantity: 1
+          - userId: 1
+            productId: 2222
+            quantity: 1
+          - userId: 1
+            productId: 333
+            quantity: -1
+    - ingest:
+        collection: examples/shopping/cartPurchaseRequests
+        documents:
+          - userId: 1
+            timestamp: '2020-01-04 15:22:01'
+
+    - verify:
+        collection: examples/shopping/purchases
+        documents:
+          - userId: 1
+            timestamp: '2020-01-04 15:22:01'
+            items:
+              - { product: { id: 333 }, action: { quantity: 0 } }
+              - { product: { id: 2222 }, action: { quantity: 3 } }
+              - { product: { id: 4004 }, action: { quantity: 1 } }
+    - verify:
+        collection: examples/shopping/carts
+        documents:
+          - userId: 1
+            items: []
+
+  "cart is cleared after purchase":
+    # Here *products and *cartItems refers to the same items defined above.
+    - ingest: *products
+    - ingest: *cartItems
+    - ingest:
+        collection: examples/shopping/cartPurchaseRequests
+        documents:
+          - userId: 1
+            timestamp: '2020-01-04 15:22:01'
+
+    # Add and purchase one more product to assert we get a separate purchase
+    - ingest:
+        collection: examples/shopping/cartUpdates
+        documents:
+          - userId: 1
+            productId: 2222
+            quantity: 50
+
+    # Verify that the cart doesn't contain any items that were already purchased
+    - verify:
+        collection: examples/shopping/carts
+        documents:
+          - userId: 1
+            items:
+              - product:
+                  id: 2222
+                  name: Fruit By The Foot
+                  price: 0.89
+                action:
+                  productId: 2222
+                  quantity: 50
+
+    - ingest:
+        collection: examples/shopping/cartPurchaseRequests
+        documents:
+          - userId: 1
+            timestamp: '2020-01-04 15:30:44'
+
+    # Verify that we have two distinct purchases
+    - verify:
+        collection: examples/shopping/purchases
+        documents:
+          - userId: 1
+            timestamp: '2020-01-04 15:22:01'
+            items:
+              - { product: { id: 333 }, action: { quantity: 0 } }
+              - { product: { id: 2222 }, action: { quantity: 3 } }
+              - { product: { id: 4004 }, action: { quantity: 1 } }
+          - userId: 1
+            timestamp: '2020-01-04 15:30:44'
+            items:
+              - { product: { id: 2222 }, action: { quantity: 50 } }
+

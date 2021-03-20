@@ -281,7 +281,7 @@ test-pg-driver: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 
 .PHONY: catalog-test
 catalog-test: ${GOBIN}/flowctl ${TOOLBIN}/etcd
-	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/flow.yaml
+	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/all.flow.yaml
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
@@ -320,4 +320,4 @@ docker-push-quay-dev:
 
 .PHONY: develop
 develop: ${GOBIN}/flowctl ${TOOLBIN}/etcd
-	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/flow.yaml --port 8080
+	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/all.flow.yaml --port 8080

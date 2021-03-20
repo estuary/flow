@@ -1,0 +1,25 @@
+import:
+  - ../common.flow.yaml
+  - rides-and-relocations.flow.yaml
+
+collections:
+  examples/citi-bike/stations:
+    key: [/id]
+    schema: station.schema.yaml
+    projections:
+      currentBikes: /stable/add
+
+    derivation:
+      transform:
+        ridesAndMoves:
+          source:
+            name: examples/citi-bike/rides-and-relocations
+          publish:
+            lambda: typescript
+
+materializations:
+  - source:
+      name: examples/citi-bike/stations
+    endpoint:
+      name: examples/examples.db
+      config: { table: citi_stations }

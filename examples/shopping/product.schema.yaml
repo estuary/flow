@@ -1,0 +1,7 @@
+description: "A product that is available for purchase"
+type: object
+properties:
+  id: { type: integer }
+  name: { type: string }
+  price: { type: number }
+required: [id, name, price]

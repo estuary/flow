@@ -1,0 +1,50 @@
+import:
+  - rides-and-relocations.flow.yaml
+
+tests:
+  "Expect a sequence of connected rides don't produce a relocation event":
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          # Bike goes from station 1 => 2 => 3 => 4.
+          - &ride1
+            bike_id: &bike 17558
+            begin: &station1
+              station: { id: 3276, name: "Marin Light Rail" }
+              timestamp: "2020-09-01 09:21:12.3090"
+            end: &station2
+              station: { id: 3639, name: "Harborside" }
+              timestamp: "2020-09-01 13:48:12.3830"
+          - &ride2
+            bike_id: *bike
+            begin: *station2
+            end: &station3
+              station: { id: 3202, name: "Newport PATH" }
+              timestamp: "2020-09-01 14:33:35.1020"
+          - &ride3
+            bike_id: *bike
+            begin: *station3
+            end: &station4
+              station: { id: 3267, name: "Morris Canal" }
+              timestamp: "2020-09-01 16:49:30.1610"
+    - verify:
+        collection: examples/citi-bike/rides-and-relocations
+        documents: [*ride1, *ride2, *ride3]
+
+  "Expect a disconnected ride sequence produces an interleaved relocation":
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          - &ride1 { bike_id: *bike, begin: *station1, end: *station2 }
+          - &ride2 { bike_id: *bike, begin: *station3, end: *station4 }
+    - verify:
+        collection: examples/citi-bike/rides-and-relocations
+        documents:
+          - *ride1
+          - {
+              bike_id: *bike,
+              begin: *station2,
+              end: *station3,
+              relocation: true,
+            }
+          - *ride2

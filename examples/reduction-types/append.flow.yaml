@@ -1,0 +1,26 @@
+collections:
+  example/reductions/append:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        value:
+          # Append only works with type "array".
+          # Others will error at build time.
+          type: array
+          reduce: { strategy: append }
+      required: [key]
+    key: [/key]
+
+tests:
+  "Expect we can append arrays":
+    - ingest:
+        collection: example/reductions/append
+        documents:
+          - { key: "key", value: [1, 2] }
+          - { key: "key", value: [3, null, "abc"] }
+    - verify:
+        collection: example/reductions/append
+        documents:
+          - { key: "key", value: [1, 2, 3, null, "abc"] }

@@ -1,0 +1,27 @@
+import:
+  - ../common.flow.yaml
+  - rides.flow.yaml
+
+collections:
+  examples/citi-bike/last-seen:
+    key: [/bike_id]
+    schema:
+      type: object
+      properties:
+        bike_id: { $ref: ride.schema.yaml#/properties/bike_id }
+        last: { $ref: ride.schema.yaml#/$defs/terminus }
+      required: [bike_id, last]
+
+    derivation:
+      transform:
+        locationFromRide:
+          source: { name: examples/citi-bike/rides }
+          publish:
+            lambda: typescript
+
+materializations:
+  - source:
+      name: examples/citi-bike/last-seen
+    endpoint:
+      name: examples/examples.db
+      config: { table: citi_last_seen }

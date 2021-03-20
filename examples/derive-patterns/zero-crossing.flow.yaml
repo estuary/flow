@@ -1,0 +1,51 @@
+import:
+  - inputs.flow.yaml
+
+collections:
+  patterns/zero-crossing:
+    schema: schema.yaml#Int
+    key: [/Key]
+
+    derivation:
+      register:
+        schema:
+          type: integer
+          reduce: { strategy: sum }
+        initial: 0
+
+      transform:
+        fromInts:
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+          update: { lambda: typescript }
+          publish: { lambda: typescript }
+
+tests:
+  "Expect we can filter to zero-crossing documents":
+    - ingest:
+        collection: patterns/ints
+        documents:
+          - { Key: key, Int: -5 } # => -5
+          - { Key: key, Int: -10 } # => -10
+    - ingest:
+        collection: patterns/ints
+        documents: [{ Key: key, Int: 13 }] # => -2
+    - verify:
+        collection: patterns/zero-crossing
+        documents: []
+    - ingest:
+        collection: patterns/ints
+        documents:
+          - { Key: key, Int: 4 } # => 2 (zero crossing)
+          - { Key: key, Int: 10 } # => 12
+    - verify:
+        collection: patterns/zero-crossing
+        documents: [{ Key: key, Int: 4 }]
+    - ingest:
+        collection: patterns/ints
+        documents:
+          - { Key: key, Int: -13 } # => -1 (zero crossing)
+          - { Key: key, Int: -5 } # => -6
+    - verify:
+        collection: patterns/zero-crossing
+        documents: [{ Key: key, Int: -13 }]

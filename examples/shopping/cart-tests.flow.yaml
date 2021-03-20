@@ -1,0 +1,55 @@
+import:
+  - carts.flow.yaml
+  - cart-updates.flow.yaml
+  - products.flow.yaml
+
+tests:
+  "shopping cart is populated from cartUpdates":
+    - ingest:
+        collection: examples/shopping/products
+        documents:
+          - { id: 333, name: "Fruit Rollup", price: 0.79 }
+          - { id: 2222, name: "Fruit By The Foot", price: 0.89 }
+          - { id: 4004, name: "Gushers", price: 2.95 }
+
+    - ingest:
+        collection: examples/shopping/cartUpdates
+        documents:
+          - userId: 1
+            productId: 2222
+            quantity: 2
+          - userId: 1
+            productId: 4004
+            quantity: 1
+          - userId: 1
+            productId: 333
+            quantity: 1
+          - userId: 1
+            productId: 2222
+            quantity: 1
+          - userId: 1
+            productId: 333
+            quantity: -1
+
+    - verify:
+        collection: examples/shopping/carts
+        documents:
+          - userId: 1
+            items:
+              - product:
+                  id: 333
+                  name: Fruit Rollup
+                  price: 0.79
+                action: { quantity: 0 }
+              - product:
+                  id: 2222
+                  name: Fruit By The Foot
+                  price: 0.89
+                action: { quantity: 3 }
+              - product:
+                  id: 4004
+                  name: Gushers
+                  price: 2.95
+                action: { quantity: 1 }
+
+

@@ -1,0 +1,6 @@
+import:
+  - users.flow.yaml
+  - carts.flow.yaml
+  - purchases.flow.yaml
+  - cart-tests.flow.yaml
+  - purchase-tests.flow.yaml

@@ -1,0 +1,29 @@
+$defs:
+  counter:
+    type: number
+    reduce: { strategy: sum }
+
+  ip-port:
+    type: object
+    properties:
+      ip: { type: string }
+      port: { type: integer }
+    required: [ip, port]
+
+  stats:
+    type: object
+    reduce: { strategy: merge }
+    properties:
+      packets: { $ref: "#/$defs/counter" }
+      bytes: { $ref: "#/$defs/counter" }
+
+type: object
+reduce: { strategy: merge }
+properties:
+  src: { $ref: "#/$defs/ip-port" }
+  dst: { $ref: "#/$defs/ip-port" }
+  timestamp: { type: string }
+  protocol: { enum: [0, 6, 17] }
+  millis: { $ref: "#/$defs/counter" }
+  fwd: { $ref: "#/$defs/stats" }
+  bwd: { $ref: "#/$defs/stats" }

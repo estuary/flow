@@ -1,0 +1,52 @@
+$schema: https://json-schema.org/draft/2019-09/schema
+
+$defs:
+  anonymous_event:
+    description: "An interesting event, keyed on an anonymous ID"
+    type: object
+    properties:
+      anonymous_id: { type: string }
+      event_id: { type: string }
+    required: [anonymous_id, event_id]
+
+  id_mapping:
+    description: "A learned association of an anonymous ID <=> stable ID"
+    type: object
+    properties:
+      anonymous_id: { type: string }
+      stable_id: { type: string }
+    required: [anonymous_id, stable_id]
+
+  stable_event:
+    description: "An event enriched with a stable ID"
+    $ref: "#/$defs/anonymous_event"
+    properties:
+      stable_id: { type: string }
+    required: [stable_id]
+
+  join_register:
+    description: |
+      Register that's keyed on anonymous ID, which:
+        1) Stores anonymous events prior to a stable ID being known, and thereafter
+        2) Stores a mapped stable ID for this anonymous ID.
+
+    type: object
+    reduce: { strategy: merge }
+
+    oneOf:
+      # Case 1: stable_id is undefined, and we're appending anonymous
+      # events in the hope that it becomes known later.
+      - properties:
+          stable_id: false
+          events:
+            type: array
+            items: { $ref: schema.yaml#/$defs/anonymous_event }
+            reduce: { strategy: append }
+        required: [events]
+
+      # Case 2: stable_id is defined. |events| is now null,
+      # such that further reductions are a no-op.
+      - properties:
+          stable_id: { type: string }
+          events: { const: null }
+        required: [events, stable_id]
