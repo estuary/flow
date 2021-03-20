@@ -19,6 +19,12 @@ import {
 } from '../../examples/marketing/flow';
 
 import {
+    ExamplesSegmentMemberships,
+    ExamplesSegmentProfiles,
+    ExamplesSegmentToggles,
+} from '../../examples/segment/flow';
+
+import {
     SoakSetOpsSets,
     SoakSetOpsSetsRegister,
 } from '../../examples/soak-tests/set-ops/flow';
@@ -32,6 +38,9 @@ import {
 } from '../../examples/temp-sensors/flow';
 
 // Build instances of each class, which will be bound to this module's router.
+let __ExamplesSegmentMemberships: interfaces.ExamplesSegmentMemberships = new ExamplesSegmentMemberships();
+let __ExamplesSegmentProfiles: interfaces.ExamplesSegmentProfiles = new ExamplesSegmentProfiles();
+let __ExamplesSegmentToggles: interfaces.ExamplesSegmentToggles = new ExamplesSegmentToggles();
 let __MarketingClicksWithViews: interfaces.MarketingClicksWithViews = new MarketingClicksWithViews();
 let __MarketingPurchaseWithOffers: interfaces.MarketingPurchaseWithOffers = new MarketingPurchaseWithOffers();
 let __MarketingViewsWithCampaign: interfaces.MarketingViewsWithCampaign = new MarketingViewsWithCampaign();
@@ -43,6 +52,18 @@ let __TestingIntStrings: interfaces.TestingIntStrings = new TestingIntStrings();
 
 // Now build the router that's used for transformation lambda dispatch.
 let routes: { [path: string]: Lambda | undefined } = {
+    '/derive/examples/segment/memberships/fromSegmentation/Publish': __ExamplesSegmentMemberships.fromSegmentationPublish.bind(
+        __ExamplesSegmentMemberships,
+    ) as Lambda,
+    '/derive/examples/segment/profiles/fromSegmentation/Publish': __ExamplesSegmentProfiles.fromSegmentationPublish.bind(
+        __ExamplesSegmentProfiles,
+    ) as Lambda,
+    '/derive/examples/segment/toggles/fromSegmentation/Update': __ExamplesSegmentToggles.fromSegmentationUpdate.bind(
+        __ExamplesSegmentToggles,
+    ) as Lambda,
+    '/derive/examples/segment/toggles/fromSegmentation/Publish': __ExamplesSegmentToggles.fromSegmentationPublish.bind(
+        __ExamplesSegmentToggles,
+    ) as Lambda,
     '/derive/marketing/clicks-with-views/indexViews/Update': __MarketingClicksWithViews.indexViewsUpdate.bind(
         __MarketingClicksWithViews,
     ) as Lambda,

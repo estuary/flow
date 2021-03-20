@@ -4,6 +4,63 @@ import * as anchors from './anchors';
 export type __module = null;
 export type __anchors_module = anchors.__module;
 
+// Generated from examples/segment/event.schema.yaml.
+// Referenced as schema of examples/segment/flow.yaml#/collections/examples~1segment~1events.
+export type ExamplesSegmentEvents = /* A segment event adds or removes a user into a segment. */ {
+    event: /* V4 UUID of the event. */ string;
+    remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+    segment: {
+        name: /* Name of the segment, scoped to the vendor ID. */ string;
+        vendor: /* Vendor ID of the segment. */ number;
+    };
+    timestamp: /* RFC 3339 timestamp of the segmentation. */ string;
+    user: /* User ID. */ string;
+    value?: /* Associated value of the segmentation. */ string;
+};
+
+// Generated from examples/segment/derived.schema.yaml#/$defs/membership.
+// Referenced as schema of examples/segment/flow.yaml#/collections/examples~1segment~1memberships.
+export type ExamplesSegmentMemberships = /* A user and their status within a single segment. */ {
+    first?: /* Time at which this user was first added to this segment. */ string;
+    last: /* Time at which this user was last updated within this segment. */ string;
+    member: /* Is the user a current segment member? */ boolean;
+    segment: anchors.Segment;
+    user: string;
+    value?: /* Most recent associated value. */ string;
+};
+
+// Generated from examples/segment/derived.schema.yaml#/$defs/profile.
+// Referenced as schema of examples/segment/flow.yaml#/collections/examples~1segment~1profiles.
+export type ExamplesSegmentProfiles = /* A user and their associated segment statuses. */ {
+    segments?: /* Status of a user's membership within a segment. */ anchors.SegmentDetail[];
+    user: string;
+};
+
+// Generated from examples/segment/flow.yaml?ptr=/collections/examples~1segment~1toggles/schema.
+// Referenced as schema of examples/segment/flow.yaml#/collections/examples~1segment~1toggles.
+export type ExamplesSegmentToggles = /* A segment event adds or removes a user into a segment. */ {
+    event: /* V4 UUID of the event. */ string;
+    previous: /* A segment event adds or removes a user into a segment. */ {
+        event: /* V4 UUID of the event. */ string;
+        remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+        segment: {
+            name: /* Name of the segment, scoped to the vendor ID. */ string;
+            vendor: /* Vendor ID of the segment. */ number;
+        };
+        timestamp: /* RFC 3339 timestamp of the segmentation. */ string;
+        user: /* User ID. */ string;
+        value?: /* Associated value of the segmentation. */ string;
+    };
+    remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+    segment: {
+        name: /* Name of the segment, scoped to the vendor ID. */ string;
+        vendor: /* Vendor ID of the segment. */ number;
+    };
+    timestamp: /* RFC 3339 timestamp of the segmentation. */ string;
+    user: /* User ID. */ string;
+    value?: /* Associated value of the segmentation. */ string;
+};
+
 // Generated from examples/marketing/schema.yaml#/$defs/campaign.
 // Referenced as schema of examples/marketing/flow.yaml#/collections/marketing~1campaigns.
 export type MarketingCampaigns = /* Configuration of a marketing campaign. */ {

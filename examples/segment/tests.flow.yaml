@@ -1,0 +1,226 @@
+tests:
+  "Segment membership updates with segmentation events":
+    - ingest:
+        collection: examples/segment/events
+        documents:
+          - event: 11111111-2222-3333-4444-000000000000
+            timestamp: &ts1 "2021-01-16T12:34:56Z"
+            user: alice
+            segment: &planes { vendor: 42, name: planes }
+            value: "associated value"
+
+          - event: 11111111-2222-3333-4444-000000000001
+            timestamp: *ts1
+            user: bob
+            segment: &trains { vendor: 32, name: trains }
+
+    - verify:
+        collection: examples/segment/memberships
+        documents:
+          - segment: *trains
+            user: bob
+            first: *ts1
+            last: *ts1
+            member: true
+
+          - segment: *planes
+            user: alice
+            first: *ts1
+            last: *ts1
+            member: true
+            value: "associated value"
+
+    - ingest:
+        collection: examples/segment/events
+        documents:
+          # Update alice twice more, and remove bob and carly.
+          - event: 11111111-2222-3333-4444-000000000002
+            timestamp: &ts2 "2021-01-17T12:34:56Z"
+            user: alice
+            segment: *planes
+            value: "updated value"
+
+          - event: 11111111-2222-3333-4444-000000000003
+            timestamp: &ts3 "2021-01-18T12:34:56Z"
+            user: alice
+            segment: *planes
+
+          - event: 11111111-2222-3333-4444-000000000004
+            timestamp: *ts2
+            user: bob
+            segment: *trains
+            remove: true
+
+          - event: 11111111-2222-3333-4444-000000000005
+            timestamp: *ts3
+            user: carly
+            segment: *planes
+            remove: true
+
+    - verify:
+        collection: examples/segment/memberships
+        documents:
+          - segment: *trains
+            user: bob
+            first: *ts1
+            last: *ts2
+            member: false
+
+          - segment: *planes
+            user: alice
+            first: *ts1
+            last: *ts3
+            member: true
+            value: "updated value"
+
+          - segment: *planes
+            user: carly
+            last: *ts3
+            member: false
+
+  "User profiles update with segmentation events":
+    - ingest:
+        collection: examples/segment/events
+        documents:
+          - event: 11111111-2222-3333-4444-000000000000
+            timestamp: *ts1
+            user: alice
+            segment: *trains
+
+          - event: 11111111-2222-3333-4444-000000000001
+            timestamp: *ts1
+            user: alice
+            segment: *planes
+            value: "associated value"
+
+    - verify:
+        collection: examples/segment/profiles
+        documents:
+          - user: alice
+            segments:
+              - segment: *planes
+                first: *ts1
+                last: *ts1
+                member: true
+                value: "associated value"
+              - segment: *trains
+
+    - ingest:
+        collection: examples/segment/events
+        documents:
+          - event: 11111111-2222-3333-4444-000000000002
+            timestamp: *ts2
+            user: bob
+            segment: *trains
+
+          - event: 11111111-2222-3333-4444-000000000003
+            timestamp: *ts2
+            user: alice
+            segment: *planes
+            remove: true
+
+          - event: 11111111-2222-3333-4444-000000000004
+            timestamp: *ts2
+            user: alice
+            segment: &autos { vendor: 52, name: autos }
+
+    - verify:
+        collection: examples/segment/profiles
+        documents:
+          - user: alice
+            segments:
+              - segment: *autos
+                last: *ts2
+
+              - segment: *planes
+                last: *ts2
+                member: false
+
+              - segment: *trains
+                last: *ts1
+
+          - user: bob
+            segments:
+              - segment: *trains
+                last: *ts2
+
+  ? "Segment toggles reflect events that are novel updates of a user / segment status"
+  : - ingest:
+        collection: examples/segment/events
+        documents:
+          - event: 11111111-2222-3333-4444-000000000000 # Initial add.
+            timestamp: *ts1
+            user: alice
+            segment: *trains
+
+          - event: 11111111-2222-3333-4444-000000000001 # Duplicate add.
+            timestamp: *ts1
+            user: alice
+            segment: *trains
+
+          - event: 11111111-2222-3333-4444-000000000002 # Initial remove.
+            timestamp: *ts1
+            user: bob
+            segment: *trains
+            remove: true
+
+          - event: 11111111-2222-3333-4444-000000000003 # Add after initial remove.
+            timestamp: *ts1
+            user: bob
+            segment: *trains
+
+    - verify:
+        collection: examples/segment/toggles
+        documents: [] # No toggles produced yet.
+
+    - ingest:
+        collection: examples/segment/events
+        documents:
+          - event: 11111111-2222-3333-4444-000000000004 # Add => Remove.
+            timestamp: *ts2
+            user: alice
+            segment: *trains
+            remove: true
+
+          - event: 11111111-2222-3333-4444-000000000005 # Remove => Remove.
+            timestamp: *ts2
+            user: alice
+            segment: *trains
+            remove: true
+
+          - event: 11111111-2222-3333-4444-000000000006 # Remove => Add.
+            timestamp: *ts3
+            user: alice
+            segment: *trains
+
+    - verify:
+        collection: examples/segment/toggles
+        documents:
+          - event: 11111111-2222-3333-4444-000000000004 # Add => Remove.
+            remove: true
+            previous:
+              event: 11111111-2222-3333-4444-000000000001
+
+          - event: 11111111-2222-3333-4444-000000000006 # Remove => Add.
+            previous:
+              event: 11111111-2222-3333-4444-000000000005
+              remove: true
+
+    - ingest:
+        collection: examples/segment/events
+        documents:
+          - event: 11111111-2222-3333-4444-000000000007 # Add => Remove.
+            timestamp: *ts3
+            user: bob
+            segment: *trains
+            remove: true
+
+    - verify:
+        collection: examples/segment/toggles
+        documents:
+          - event: 11111111-2222-3333-4444-000000000004
+          - event: 11111111-2222-3333-4444-000000000006
+          - event: 11111111-2222-3333-4444-000000000007 # Bob's Add => Remove.
+            remove: true
+            previous:
+              event: 11111111-2222-3333-4444-000000000003

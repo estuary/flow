@@ -1,40 +1,9 @@
 import:
-  - marketing/flow.yaml
-  - stock-stats/flow.yaml
+  - common.flow.yaml
   - int-string.flow.yaml
+  - marketing/flow.yaml
+  - segment/flow.yaml
   - soak-tests/set-ops/flow.yaml
-  - weird-types.flow.yaml
+  - stock-stats/flow.yaml
   - temp-sensors/flow.yaml
-
-endpoints:
-  examples/examples.db:
-    sqlite:
-      # Use WAL mode so that Flow-external reads (e.x. from `sqlite3`)
-      # don't fail with "database is locked" errors.
-      path: examples.db?_journal=WAL
-
-    #postgres:
-    #  host: localhost
-    #  password: testpgpass
-    #  dbname: postgres
-    #  user: postgres
-    #  port: 5432
-
-    #webhook:
-    #  endpoint: http://localhost:9000
-
-    #snowflake:
-    #  account: am42432.us-central1.gcp
-    #  database: ESTUARY
-    #  role: SYSADMIN
-    #  schema: PUBLIC
-    #  user: jgraettinger
-    #  warehouse: COMPUTE_WH
-    #  password: XYZ
-
-journalRules:
-  00_fragment_store:
-    template:
-      fragment:
-        compression_codec: GZIP
-        stores: [ file:/// ]
+  - weird-types.flow.yaml
