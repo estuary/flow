@@ -7,6 +7,9 @@
 #   sqlite3 examples/examples.db 'SELECT * FROM sets WHERE ExpectValues != DerivedValues;'
 #   sqlite3 examples/examples.db 'SELECT * FROM sets_register WHERE ExpectValues != DerivedValues;'
 
+import:
+  - ../../common.flow.yaml
+
 collections:
   soak/set-ops/operations:
     schema: schema.yaml#/$defs/operation

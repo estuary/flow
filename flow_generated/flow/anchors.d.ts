@@ -42,6 +42,24 @@ export type PriceStats = {
 // Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/security.
 export type Security = /* Market security ticker name. */ string;
 
+// Generated from examples/segment/event.schema.yaml#/properties/segment.
+export type Segment = {
+    name: /* Name of the segment, scoped to the vendor ID. */ string;
+    vendor: /* Vendor ID of the segment. */ number;
+};
+
+// Generated from examples/segment/derived.schema.yaml#/$defs/detail.
+export type SegmentDetail = /* Status of a user's membership within a segment. */ {
+    first?: /* Time at which this user was first added to this segment. */ string;
+    last: /* Time at which this user was last updated within this segment. */ string;
+    member: /* Is the user a current segment member? */ boolean;
+    segment: Segment;
+    value?: /* Most recent associated value. */ string;
+};
+
+// Generated from examples/segment/derived.schema.yaml#/$defs/profile/properties/segments.
+export type SegmentSet = /* Status of a user's membership within a segment. */ SegmentDetail[];
+
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/verifyOp.
 export type VerifyOp = /* Operation which verifies the expected value of a stream */ {
     Author: number;

@@ -8,6 +8,39 @@ export type __collections_module = collections.__module;
 export type __registers_module = registers.__module;
 export type __transforms_module = transforms.__module;
 
+// Generated from derivation examples/segment/flow.yaml#/collections/examples~1segment~1memberships/derivation.
+// Required to be implemented by examples/segment/flow.ts.
+export interface ExamplesSegmentMemberships {
+    fromSegmentationPublish(
+        source: collections.ExamplesSegmentEvents,
+        register: registers.ExamplesSegmentMemberships,
+        previous: registers.ExamplesSegmentMemberships,
+    ): collections.ExamplesSegmentMemberships[];
+}
+
+// Generated from derivation examples/segment/flow.yaml#/collections/examples~1segment~1profiles/derivation.
+// Required to be implemented by examples/segment/flow.ts.
+export interface ExamplesSegmentProfiles {
+    fromSegmentationPublish(
+        source: collections.ExamplesSegmentEvents,
+        register: registers.ExamplesSegmentProfiles,
+        previous: registers.ExamplesSegmentProfiles,
+    ): collections.ExamplesSegmentProfiles[];
+}
+
+// Generated from derivation examples/segment/flow.yaml#/collections/examples~1segment~1toggles/derivation.
+// Required to be implemented by examples/segment/flow.ts.
+export interface ExamplesSegmentToggles {
+    fromSegmentationUpdate(
+        source: collections.ExamplesSegmentEvents,
+    ): registers.ExamplesSegmentToggles[];
+    fromSegmentationPublish(
+        source: collections.ExamplesSegmentEvents,
+        register: registers.ExamplesSegmentToggles,
+        previous: registers.ExamplesSegmentToggles,
+    ): collections.ExamplesSegmentToggles[];
+}
+
 // Generated from derivation examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation.
 // Required to be implemented by examples/marketing/flow.ts.
 export interface MarketingClicksWithViews {
