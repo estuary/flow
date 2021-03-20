@@ -1,0 +1,8 @@
+collections:
+  patterns/ints:
+    schema: schema.yaml#Int
+    key: [/Key, /Int]
+
+  patterns/strings:
+    schema: schema.yaml#String
+    key: [/Key, /String]

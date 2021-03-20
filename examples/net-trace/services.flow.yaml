@@ -1,0 +1,32 @@
+import:
+  - ../common.flow.yaml
+  - pairs.flow.yaml
+
+npmDependencies:
+  moment: "^2.24"
+
+collections:
+  examples/net-trace/services:
+    key: [/date, /service/ip, /service/port]
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        date: { type: string }
+        service: { $ref: schema.yaml#/$defs/ip-port }
+        stats: { $ref: schema.yaml#/$defs/stats }
+      required: [date, service]
+
+    derivation:
+      transform:
+        fromPairs:
+          source: { name: examples/net-trace/pairs }
+          publish:
+            lambda: typescript
+
+materializations:
+  - source:
+      name: examples/net-trace/services
+    endpoint:
+      name: examples/examples.db
+      config: { table: net_services }

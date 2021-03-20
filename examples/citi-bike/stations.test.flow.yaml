@@ -1,0 +1,71 @@
+import:
+  - stations.flow.yaml
+
+tests:
+  "Expect stations update as bikes come and go":
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          # Two bikes leave (from Marin & Newport) and arrive at Harborside.
+          - bike_id: &bikeA 8675
+            begin:
+              station: &Marin { id: 3276, name: "Marin Light Rail" }
+              timestamp: &ts1 "2020-09-01 09:21:12.3090"
+            end:
+              station: &Harborside { id: 3639, name: "Harborside" }
+              timestamp: &ts2 "2020-09-01 13:48:12.3830"
+
+          - bike_id: &bikeB 17558
+            begin:
+              station: &Newport { id: 3202, name: "Newport PATH" }
+              timestamp: *ts1
+            end:
+              station: *Harborside
+              timestamp: *ts2
+
+    - verify:
+        collection: examples/citi-bike/stations
+        documents:
+          - <<: *Newport
+            departure: { ride: 1 }
+          - <<: *Marin
+            departure: { ride: 1 }
+          - <<: *Harborside
+            arrival: { ride: 2 }
+            stable: { add: [*bikeA, *bikeB] }
+
+    - ingest:
+        collection: examples/citi-bike/rides
+        documents:
+          # Bike A rides to Marin.
+          - bike_id: *bikeA
+            begin:
+              station: *Harborside
+              timestamp: &ts3 "2020-09-01 14:33:35.1020"
+            end:
+              station: *Marin
+              timestamp: &ts4 "2020-09-01 16:49:30.1610"
+          # Bike B is relocated, and rides from Marin to Newport.
+          - bike_id: *bikeB
+            begin:
+              station: *Marin
+              timestamp: *ts3
+            end:
+              station: *Newport
+              timestamp: *ts4
+
+    - verify:
+        collection: examples/citi-bike/stations
+        documents:
+          - <<: *Newport
+            arrival: { ride: 1 }
+            departure: { ride: 1 }
+            stable: { add: [*bikeB] }
+          - <<: *Marin
+            arrival: { ride: 1, move: 1 }
+            departure: { ride: 2 }
+            stable: { add: [*bikeA] }
+          - <<: *Harborside
+            arrival: { ride: 2 }
+            departure: { ride: 1, move: 1 }
+            stable: { add: [] }

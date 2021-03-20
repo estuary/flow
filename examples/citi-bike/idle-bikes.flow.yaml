@@ -1,0 +1,41 @@
+import:
+  - rides.flow.yaml
+
+collections:
+  # Derive idle bikes via two transforms of rides:
+  # * One reads in real-time, and stores the ride timestamp in a register.
+  # * The second reads with a delay, and checks whether register timestamp
+  #   hasn't been updated since this (delayed) ride.
+  examples/citi-bike/idle-bikes:
+    schema:
+      type: object
+      properties:
+        bike_id: { type: integer }
+        station: { $ref: ride.schema.yaml#/$defs/terminus }
+      required: [bike_id, station]
+
+    key: [/bike_id, /station/timestamp]
+
+    derivation:
+      register:
+        # Store the most-recent ride timestamp for each bike_id,
+        # and default to null if the bike hasn't ridden before.
+        schema: { type: [string, "null"] }
+        initial: null
+
+      transform:
+        liveRides:
+          source:
+            name: examples/citi-bike/rides
+          shuffle: { key: [/bike_id] }
+          update: { lambda: typescript }
+
+        delayedRides:
+          source:
+            name: examples/citi-bike/rides
+          shuffle: { key:  [/bike_id] }
+          # Use a 2-day read delay, relative to the document's ingestion.
+          # To see read delays in action within a short-lived
+          # testing contexts, try using a smaller value (e.g., 2m).
+          readDelay: "48h"
+          publish: { lambda: typescript }

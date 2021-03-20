@@ -1,0 +1,10 @@
+description: "A user who may buy things from our site"
+type: object
+properties:
+  id: { type: integer }
+  name: { type: string }
+  email:
+    type: string
+    format: email
+required: [id, name, email]
+

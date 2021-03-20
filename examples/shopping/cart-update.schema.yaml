@@ -1,0 +1,11 @@
+type: object
+description: Represents a request from a user to add or remove a product in their cart.
+properties:
+  userId: { type: integer }
+  productId: { type: integer }
+  quantity:
+    description: The amount to adjust, which can be negative to remove items.
+    type: integer
+    reduce: { strategy: sum }
+required: [userId, productId, quantity]
+reduce: { strategy: merge }

@@ -1,0 +1,33 @@
+$defs:
+  int:
+    $anchor: Int
+    description: "A document that holds an integer"
+    type: object
+    properties:
+      Key: { type: string }
+      Int: { type: integer }
+    required: [Key, Int]
+
+  string:
+    $anchor: String
+    description: "A document that holds a string"
+    type: object
+    properties:
+      Key: { type: string }
+      String: { type: string }
+    required: [Key, String]
+
+  join:
+    $anchor: Join
+    description: "Document for join examples"
+    type: object
+    properties:
+      Key: { type: string }
+      LHS:
+        type: integer
+        reduce: { strategy: sum }
+      RHS:
+        type: array
+        items: { type: string }
+        reduce: { strategy: append }
+    reduce: { strategy: merge }

@@ -1,0 +1,44 @@
+collections:
+  example/reductions/merge:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        value:
+          # Merge only works with types "array" or "object".
+          # Others will error at build time.
+          type: [array, object]
+          reduce: { strategy: merge }
+          # Deeply merge sub-locations (items or properties) by summing them.
+          items:
+            type: number
+            reduce: { strategy: sum }
+          additionalProperties:
+            type: number
+            reduce: { strategy: sum }
+      required: [key]
+    key: [/key]
+
+tests:
+  "Expect we can merge arrays by index":
+    - ingest:
+        collection: example/reductions/merge
+        documents:
+          - { key: "key", value: [1, 1] }
+          - { key: "key", value: [2, 2, 2] }
+    - verify:
+        collection: example/reductions/merge
+        documents:
+          - { key: "key", value: [3, 3, 2] }
+
+  "Expect we can merge objects by property":
+    - ingest:
+        collection: example/reductions/merge
+        documents:
+          - { key: "key", value: { "a": 1, "b": 1 } }
+          - { key: "key", value: { "a": 1, "c": 1 } }
+    - verify:
+        collection: example/reductions/merge
+        documents:
+          - { key: "key", value: { "a": 2, "b": 1, "c": 1 } }

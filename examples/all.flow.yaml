@@ -1,0 +1,15 @@
+import:
+  - acmeBank.flow.yaml
+  - citi-bike/flow.yaml
+  - common.flow.yaml
+  - derive-patterns/flow.yaml
+  - marketing/flow.yaml
+  - net-trace/flow.yaml
+  - re-key/flow.yaml
+  - reduction-types/flow.yaml
+  - segment/flow.yaml
+  - shopping/flow.yaml
+  - soak-tests/set-ops/flow.yaml
+  - stock-stats/flow.yaml
+  - temp-sensors/flow.yaml
+  - wiki/flow.yaml

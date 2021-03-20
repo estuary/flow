@@ -1,0 +1,54 @@
+collections:
+  example/reductions/set-array:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        value:
+          # Sets are always represented as an object.
+          type: object
+          reduce:
+            strategy: set
+            key: [/0]
+          # Schema for "add", "intersect", & "remove" properties
+          # (each a sorted array of [key, sum] 2-tuples):
+          additionalProperties:
+            type: array
+            # Flow requires that all parents of locations with a reduce
+            # annotation also have one themselves.
+            # This strategy therefore must (currently) be here, but is ignored.
+            reduce: { strategy: lastWriteWins }
+            # Schema for contained [key, sum] 2-tuples:
+            items:
+              type: array
+              items:
+                - type: string
+                - type: number
+                  reduce: { strategy: sum }
+              reduce: { strategy: merge }
+
+      required: [key]
+    key: [/key]
+
+tests:
+  "Expect we can apply operations of sorted-array sets to incrementally build associative maps":
+    - ingest:
+        collection: example/reductions/set-array
+        documents:
+          - { key: "key", value: { "add": [["a", 1], ["b", 1], ["c", 1]] } }
+          - { key: "key", value: { "remove": [["b", 0]] } }
+          - { key: "key", value: { "add": [["a", 1], ["d", 1]] } }
+    - verify:
+        collection: example/reductions/set-array
+        documents:
+          - { key: "key", value: { "add": [["a", 2], ["c", 1], ["d", 1]] } }
+    - ingest:
+        collection: example/reductions/set-array
+        documents:
+          - { key: "key", value: { "intersect": [["a", 0], ["d", 0]] } }
+          - { key: "key", value: { "add": [["a", 1], ["e", 1]] } }
+    - verify:
+        collection: example/reductions/set-array
+        documents:
+          - { key: "key", value: { "add": [["a", 3], ["d", 1], ["e", 1]] } }

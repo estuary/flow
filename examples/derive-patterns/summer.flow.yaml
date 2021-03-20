@@ -1,0 +1,63 @@
+import:
+  - inputs.flow.yaml
+
+collections:
+  patterns/sums-db:
+    schema: &schema
+      type: object
+      properties:
+        Key: { type: string }
+        Sum:
+          type: integer
+          reduce: { strategy: sum }
+      required: [Key]
+      reduce: { strategy: merge }
+    key: [/Key]
+
+    derivation:
+      transform:
+        fromInts:
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+          publish: { lambda: typescript }
+
+  patterns/sums-register:
+    schema:
+      # Re-use the schema defined above.
+      <<: *schema
+      reduce: { strategy: lastWriteWins }
+    key: [/Key]
+
+    derivation:
+      register:
+        schema:
+          type: integer
+          reduce: { strategy: sum }
+        initial: 0
+
+      transform:
+        fromInts:
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+          update: { lambda: typescript }
+          publish: { lambda: typescript }
+
+tests:
+  "Expect we can do sums during materialization or within registers":
+    - ingest:
+        collection: patterns/ints
+        documents:
+          - { Key: key, Int: -3 }
+          - { Key: key, Int: 5 }
+    - ingest:
+        collection: patterns/ints
+        documents: [{ Key: key, Int: 10 }]
+    - verify:
+        # "verify" steps fully reduce documents of the collection.
+        # Under the hood, these are multiple delta updates.
+        collection: patterns/sums-db
+        documents: [{ Key: key, Sum: 12 }]
+    - verify:
+        # These are multiple snapshots, of which "verify" takes the last.
+        collection: patterns/sums-register
+        documents: [{ Key: key, Sum: 12 }]

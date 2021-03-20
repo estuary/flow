@@ -1,0 +1,16 @@
+$defs:
+  cartItem:
+    description: "Represents a (possibly 0) quantity of a product within the cart"
+    type: object
+    properties:
+      product: { $ref: "product.schema.yaml" }
+      quantity: { type: integer }
+
+description: "Roll up of all products that users have added to a pending purchase"
+type: object
+properties:
+  userId: { type: integer }
+  items:
+    type: array
+    items: { $ref: "#/$defs/cartItem" }
+required: [userId, items]

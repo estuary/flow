@@ -1,0 +1,52 @@
+import:
+  - inputs.flow.yaml
+
+collections:
+  patterns/one-sided-join:
+    schema:
+      $ref: schema.yaml#Join
+      reduce: { strategy: lastWriteWins }
+      required: [Key]
+    key: [/Key]
+
+    derivation:
+      register:
+        schema: schema.yaml#Join
+        initial: { RHS: [] }
+
+      transform:
+        publishLHS:
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+          publish: { lambda: typescript }
+
+        updateRHS:
+          source: { name: patterns/strings }
+          shuffle: { key: [/Key] }
+          update: { lambda: typescript }
+
+tests:
+  "Expect a left join of the current LHS with the accumulated RHS":
+    - ingest:
+        collection: patterns/ints
+        documents: [{ Key: key, Int: 5 }]
+    - verify:
+        collection: patterns/one-sided-join
+        documents: [{ Key: key, LHS: 5, RHS: [] }]
+    - ingest:
+        collection: patterns/strings
+        documents: [{ Key: key, String: hello }]
+    - verify:
+        # The prior document isn't updated, as the join
+        # reacts only to events of the LHS.
+        collection: patterns/one-sided-join
+        documents: [{ Key: key, LHS: 5, RHS: [] }]
+    - ingest:
+        collection: patterns/strings
+        documents: [{ Key: key, String: goodbye }]
+    - ingest:
+        collection: patterns/ints
+        documents: [{ Key: key, Int: 7 }]
+    - verify:
+        collection: patterns/one-sided-join
+        documents: [{ Key: key, LHS: 7, RHS: [hello, goodbye] }]

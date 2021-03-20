@@ -13,6 +13,19 @@ export type Header = /* Common properties of generated operations */ {
     Type: string;
 };
 
+// Generated from examples/derive-patterns/schema.yaml#/$defs/int.
+export type Int = /* A document that holds an integer */ {
+    Int: number;
+    Key: string;
+};
+
+// Generated from examples/derive-patterns/schema.yaml#/$defs/join.
+export type Join = /* Document for join examples */ {
+    Key?: string;
+    LHS?: number;
+    RHS?: string[];
+};
+
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/mutateOp.
 export type MutateOp = /* Operation which mutates a stream */ {
     Author: number;
@@ -59,6 +72,12 @@ export type SegmentDetail = /* Status of a user's membership within a segment. *
 
 // Generated from examples/segment/derived.schema.yaml#/$defs/profile/properties/segments.
 export type SegmentSet = /* Status of a user's membership within a segment. */ SegmentDetail[];
+
+// Generated from examples/derive-patterns/schema.yaml#/$defs/string.
+export type String = /* A document that holds a string */ {
+    Key: string;
+    String: string;
+};
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/verifyOp.
 export type VerifyOp = /* Operation which verifies the expected value of a stream */ {
